@@ -98,6 +98,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
 - 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)
 - 2026-08-29 — La premiere frame blanche, et le voile qui manquait
 - 2026-08-29 — Les episodes pas encore sortis, et la molette rendue au navigateur

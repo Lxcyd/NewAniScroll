@@ -6,6 +6,32 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
+
+Une ligne rouge dans la console : `404` sur `api.aniskip.com/v2/skip-times/80/7`.
+Ce n'est pas une panne — c'est la reponse d'AniSkip quand personne n'a soumis
+de mesure pour cet episode. Le defaut est ailleurs : **on la redemandait pour
+chaque ligne**. Sur Mobile Suit Gundam (1979), qu'AniSkip ne couvre pas du tout,
+ouvrir la page partait en 43 requetes vouees a l'echec, 43 lignes rouges, et
+autant de prises sur les 120 requetes/minute qu'AniSkip autorise.
+
+Trois refus d'affilee valent desormais verdict pour la serie entiere, memorise
+avec le meme TTL d'absence que les episodes (7 jours — une soumission peut
+arriver plus tard). **Trois et pas un** : une serie partiellement couverte
+existe, et un trou isole ne doit pas la condamner ; symetriquement une reponse
+utile remet le compteur a zero.
+
+Ce que ca ne fait pas : descendre a zero ligne. Chrome journalise tout 4xx au
+niveau reseau, quoi que le code en fasse — la seule facon de ne pas voir un 404
+est de ne pas poser la question. On passe de 43 possibles a 3 au plus, puis au
+silence pour une semaine.
+
+**Verifie au passage, et a ne pas rechercher** : l'avertissement
+`powerPreference is currently ignored when calling requestAdapter()` ne vient
+pas d'AniScroll. La chaine n'est ni dans le source ni dans `node_modules`, sa
+source est `VM2056` / `VM2243` (script injecte, pas un fichier servi), et elle
+ne se reproduit pas sur un profil neuf. C'est une extension du navigateur.
+
 ## 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture
 
 **Le symptome** : console pleine de `429 Too Many Requests` sur
