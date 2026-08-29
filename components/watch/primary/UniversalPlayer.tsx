@@ -1558,20 +1558,20 @@ function CenterPlayButton({
           cursor: "pointer",
         }}
       >
-        {/* Le decalage optique du triangle est dans le TRACE, pas dans une
-            marge. Un triangle centre geometriquement parait pousse a gauche —
-            son aire est concentree du cote de la pointe arriere — d'ou les 3 px
-            de compensation. Mais en marge, ils rendaient la boite de l'element
-            large de 27 px dans un carre de 56 : `place-items-center` la posait
-            donc a 14,5 px, une demi-position. Au survol, `scale-105` reechan-
-            tillonne, et cette demi-position s'arrondit de l'autre cote — le
-            triangle sautait d'un pixel vers la droite alors que le disque, lui,
-            ne bougeait pas.
-            Meme decalage visuel, ecrit en unites du viewBox (24 unites rendues
-            sur 24 px, donc 1 unite = 1 px) : la boite de l'element mesure 24,
-            se pose a 16 pile, et il n'y a plus rien a arrondir. */}
+        {/* Triangle centre par son CENTRE DE GRAVITE, pas par sa boite.
+            Un triangle dont la boite est centree parait pousse a gauche : son
+            aire est massee du cote de l'arete arriere. L'oeil suit le centre de
+            gravite, qui pour un triangle vaut la moyenne de ses trois sommets —
+            ici (7 + 22 + 7) / 3 = 12, soit le milieu exact du viewBox. C'est
+            calculable, contrairement a la marge de 3 px qui l'approchait avant.
+            Et cela ne coute plus de demi-position : la boite de l'element
+            mesure 24 dans un carre de 56, `place-items-center` la pose a 16
+            pile. Avec la marge, elle en mesurait 27 et tombait a 14,5 — au
+            survol, `scale-105` reechantillonnait et cette demi-position
+            s'arrondissait de l'autre cote, d'ou le triangle qui sautait d'un
+            pixel a droite pendant que le disque ne bougeait pas. */}
         <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24 }}>
-          <polygon points="9 4 23 12 9 20" />
+          <polygon points="7 4 22 12 7 20" />
         </svg>
       </button>
     </div>

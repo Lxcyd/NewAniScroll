@@ -1323,9 +1323,9 @@ export default function EpisodeLists({
               {t("anime.episodes")}
             </span>
             {first != null && last != null && (
-              /* L'etendue dans sa propre pastille : le libelle dit de quoi on
-                 parle, la pastille porte le chiffre — et le chiffre est ce
-                 qu'on vient lire.
+              /* Pas de cadre a elle : une pastille dans une pastille faisait
+                 deux bords a 2 px l'un de l'autre. C'est la GRAISSE qui la
+                 detache du libelle — meme corps, meme teinte, un poids de plus.
                  Le tiret est TRACE, pas ecrit. Un tiret typographique s'assoit
                  sur la hauteur d'x, donc plus bas que le milieu des chiffres,
                  qui sont eux des glyphes de hauteur capitale : entre deux
@@ -1334,14 +1334,14 @@ export default function EpisodeLists({
                  corps. Le titre porte l'etendue en toutes lettres pour qui
                  n'aura jamais vu cette barre. */
               <span
-                className="flex items-center gap-1.5 rounded-md bg-white/[0.07] px-1.5 py-[3px] text-[11px] tabular-nums"
+                className="flex items-center gap-1.5 text-[11px] font-bold tabular-nums"
                 title={`${first} – ${last}`}
               >
                 {first}
                 <span
                   aria-hidden
                   className="rounded-full"
-                  style={{ width: 6, height: 1.5, background: "currentColor", opacity: 0.55 }}
+                  style={{ width: 6, height: 1.5, background: "currentColor", opacity: 0.6 }}
                 />
                 {last}
               </span>
