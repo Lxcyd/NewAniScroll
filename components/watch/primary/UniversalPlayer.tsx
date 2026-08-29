@@ -1558,8 +1558,20 @@ function CenterPlayButton({
           cursor: "pointer",
         }}
       >
-        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24, marginLeft: 3 }}>
-          <polygon points="6 4 20 12 6 20" />
+        {/* Le decalage optique du triangle est dans le TRACE, pas dans une
+            marge. Un triangle centre geometriquement parait pousse a gauche —
+            son aire est concentree du cote de la pointe arriere — d'ou les 3 px
+            de compensation. Mais en marge, ils rendaient la boite de l'element
+            large de 27 px dans un carre de 56 : `place-items-center` la posait
+            donc a 14,5 px, une demi-position. Au survol, `scale-105` reechan-
+            tillonne, et cette demi-position s'arrondit de l'autre cote — le
+            triangle sautait d'un pixel vers la droite alors que le disque, lui,
+            ne bougeait pas.
+            Meme decalage visuel, ecrit en unites du viewBox (24 unites rendues
+            sur 24 px, donc 1 unite = 1 px) : la boite de l'element mesure 24,
+            se pose a 16 pile, et il n'y a plus rien a arrondir. */}
+        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24 }}>
+          <polygon points="9 4 23 12 9 20" />
         </svg>
       </button>
     </div>
