@@ -1558,20 +1558,26 @@ function CenterPlayButton({
           cursor: "pointer",
         }}
       >
-        {/* Triangle centre par son CENTRE DE GRAVITE, pas par sa boite.
-            Un triangle dont la boite est centree parait pousse a gauche : son
-            aire est massee du cote de l'arete arriere. L'oeil suit le centre de
-            gravite, qui pour un triangle vaut la moyenne de ses trois sommets —
-            ici (7 + 22 + 7) / 3 = 12, soit le milieu exact du viewBox. C'est
-            calculable, contrairement a la marge de 3 px qui l'approchait avant.
-            Et cela ne coute plus de demi-position : la boite de l'element
-            mesure 24 dans un carre de 56, `place-items-center` la pose a 16
-            pile. Avec la marge, elle en mesurait 27 et tombait a 14,5 — au
-            survol, `scale-105` reechantillonnait et cette demi-position
-            s'arrondissait de l'autre cote, d'ou le triangle qui sautait d'un
-            pixel a droite pendant que le disque ne bougeait pas. */}
-        <svg viewBox="0 0 24 24" fill="#fff" style={{ width: 24, height: 24 }}>
-          <polygon points="7 4 22 12 7 20" />
+        {/* Le MEME triangle a coins arrondis que la vignette de l'episode en
+            cours (components/watch/secondary/episodeLists.tsx) : un seul dessin
+            de lecture sur la page, pas deux qui se ressemblent.
+
+            Centre par son CENTRE DE GRAVITE, pas par sa boite. Un triangle dont
+            la boite est centree parait pousse a gauche : son aire est massee du
+            cote de l'arete arriere. Ce trace place ses trois sommets a x = 4, 4
+            et 16,6, soit un centre de gravite a 8,2 la ou le viewBox a le sien
+            a 10 — d'ou le decalage de 1,8 unite qui l'y ramene.
+
+            Le decalage est dans le TRACE et non en marge, et c'est ce qui reglait
+            le saut au survol : une marge rendait la boite de l'element large de
+            27 px dans un carre de 56, donc posee a 14,5 par
+            `place-items-center`. `scale-105` reechantillonnait cette
+            demi-position et l'arrondissait de l'autre cote. La boite mesure ici
+            24 et tombe a 16 pile — il n'y a plus rien a arrondir. */}
+        <svg viewBox="0 0 20 20" fill="#fff" style={{ width: 24, height: 24 }}>
+          <g transform="translate(1.8 0)">
+            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+          </g>
         </svg>
       </button>
     </div>
