@@ -12,6 +12,7 @@
  *
  *   t  demarrage — ms entre le commit du src et le premier `canPlay`
  *   s  stabilite — secondes stallees par 60 s de lecture
+ *   b  debit     — ms mises a constituer 20 s d'avance devant la tete
  *   k  seek      — ms d'un seek RESEAU (cible hors de video.buffered)
  *   q  qualite   — hauteur video max reellement servie, en px
  *
@@ -55,7 +56,7 @@ export const SERVER_PERF_EVENT = "aniscroll:serverPerf:change";
  */
 const SCHEMA_VERSION = 1;
 
-export type Crit = "t" | "s" | "k" | "q";
+export type Crit = "t" | "s" | "b" | "k" | "q";
 export type Tier = "fast" | "medium" | "slow";
 
 /** [ewma, n, lastDay] — lastDay en jours depuis epoch, pour garder le JSON court. */
@@ -63,7 +64,7 @@ type Entry = [number, number, number];
 type ServerEntry = Partial<Record<Crit, Entry>>;
 type Store = { v: number; s: Record<string, ServerEntry> };
 
-const CRITS: Crit[] = ["t", "s", "k", "q"];
+const CRITS: Crit[] = ["t", "s", "b", "k", "q"];
 
 /**
  * Poids relatifs. Le stall pese le plus : c'est la seule degradation que
@@ -72,7 +73,7 @@ const CRITS: Crit[] = ["t", "s", "k", "q"];
  * controle. La qualite pese le moins : quasi constante par hote, elle ne fait
  * que departager.
  */
-const W: Record<Crit, number> = { t: 0.3, s: 0.35, k: 0.2, q: 0.15 };
+const W: Record<Crit, number> = { t: 0.25, s: 0.3, b: 0.2, k: 0.15, q: 0.1 };
 const TOTAL_W = CRITS.reduce((sum, c) => sum + W[c], 0);
 
 /**
@@ -80,12 +81,13 @@ const TOTAL_W = CRITS.reduce((sum, c) => sum + W[c], 0);
  * le signal le plus bruite (il depend de OU l'utilisateur a saute), la qualite
  * le plus stable — une seule lecture la renseigne deja.
  */
-const MIN_N: Record<Crit, number> = { t: 3, s: 2, k: 5, q: 1 };
+const MIN_N: Record<Crit, number> = { t: 3, s: 2, b: 2, k: 5, q: 1 };
 
 /** Bornes anti-aberration, appliquees a la SAISIE. */
 const CLAMP: Record<Crit, [number, number]> = {
   t: [1, 15000],
   s: [0, 60],
+  b: [200, 45000],
   k: [1, 10000],
   q: [0, 4320],
 };
@@ -117,6 +119,7 @@ const today = () => Math.floor(Date.now() / 86_400_000);
  */
 const LOG_T = Math.log(6000 / 800);
 const LOG_K = Math.log(4000 / 400);
+const LOG_B = Math.log(45000 / 3000);
 
 function goodness(c: Crit, v: number): number {
   switch (c) {
@@ -124,6 +127,8 @@ function goodness(c: Crit, v: number): number {
       return 100 * clamp01(Math.log(6000 / Math.max(1, v)) / LOG_T);
     case "s": // 100 a 0, 0 a >=6 s/min (soit 10 % de rebuffer)
       return 100 * clamp01(1 - v / 6);
+    case "b": // 20 s d'avance en <=3 s → 100 ; en >=45 s → 0
+      return 100 * clamp01(Math.log(45000 / Math.max(1, v)) / LOG_B);
     case "k": // 100 a <=400 ms, 0 a >=4 s
       return 100 * clamp01(Math.log(4000 / Math.max(1, v)) / LOG_K);
     case "q": // 360p → 0, 720p → 50, 1080p et plus → 100

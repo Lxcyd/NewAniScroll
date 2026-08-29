@@ -407,6 +407,27 @@ const POLL_MS = 250;
  *  vignette. */
 const PROBE_TIMEOUT_MS = 8000;
 
+/* ── Debit : combien de temps l'hote met-il a prendre de l'avance ? ─────────
+ *
+ * Le critere qui manquait au classement des lecteurs. Demarrage, stall, seek et
+ * qualite ne disent rien du DEBIT SOUTENU, et c'est pourtant lui qui separe le
+ * mieux les hotes : sibnet sert un MP4 progressif a 674 Ko/s (mesure du
+ * 29/08/2026), ce qui ne produit ni stall (on n'a pas encore lance la lecture)
+ * ni mauvais seek (on n'a pas encore saute) — seulement une attente.
+ *
+ * On mesure le temps mis pour constituer RUNWAY_S secondes d'avance devant la
+ * tete de lecture. C'est une grandeur comparable entre HLS et MP4 progressif,
+ * sans en-tete a negocier (`transferSize` est a 0 en cross-origin sans
+ * Timing-Allow-Origin) et sans requete ajoutee.
+ *
+ * 20 s et non 30 : le plafond de hls.js est a `maxBufferLength: 60`, il faut
+ * rester franchement dessous pour que la cible soit atteignable partout.
+ */
+const RUNWAY_S = 20;
+/** Passe ce delai, l'hote n'a pas su prendre 20 s d'avance. C'est un fait, et
+ *  il vaut d'etre enregistre — pas ignore. */
+const RUNWAY_TIMEOUT_MS = 45_000;
+
 /** Luminance moyenne et amplitude de l'image courante, reduite a 16x9, Rec.709.
  *  `null` = canvas teinte : le flux ne repond pas d'en-tete CORS et ses pixels
  *  sont illisibles. Le DESSIN passe, c'est la RELECTURE qui est interdite, et
@@ -2126,6 +2147,7 @@ export default function UniversalPlayer({
     frameMsRef.current = at - (frag1AtRef.current || srcCommitAtRef.current);
     recordSample("t", ttffMsRef.current);
   }, [serverId, streamData, canPlayState]);
+
   /* AniSkip chapter cues, populated by SkipOverlay after it fetches
      the API. Each entry: { start, end, type }. We translate them
      into a WebVTT chapters track served via a blob URL so Vidstack
@@ -2261,6 +2283,79 @@ export default function UniversalPlayer({
   // Reactive handle to the player root, so portalled overlays (e.g. the
   // fullscreen party chat) mount as soon as the element exists.
   const [playerElState, setPlayerElState] = useState<HTMLElement | null>(null);
+
+  /* Debit — le temps mis pour constituer RUNWAY_S d'avance. Voir la constante
+     pour le pourquoi de ce critere.
+     Sur `progress` et non sur la boucle de mesure a 2 500 ms : celle-ci
+     quantifierait le bas de l'echelle par pas de 2,5 s, or c'est justement la
+     que les bons hotes se departagent. `progress` est emis a chaque arrivee de
+     donnees (~350 ms sous Chrome), et il ne coute rien. L'intervalle qui
+     l'accompagne ne sert qu'a deux choses : retrouver le <video> que Vidstack
+     remplace, et faire tomber le delai quand plus AUCUNE donnee n'arrive —
+     c'est-a-dire precisement le cas qu'on veut enregistrer. Il s'arrete des que
+     le verdict est pose. */
+  useEffect(() => {
+    if (!serverId || !streamData || !playerElState) return;
+    const racine = playerElState;
+    const depart = performance.now();
+    let pose = false;
+    let video: HTMLVideoElement | null = null;
+
+    /** Secondes deja disponibles DEVANT la tete de lecture. */
+    const avance = (v: HTMLVideoElement): number => {
+      const t = v.currentTime;
+      for (let i = 0; i < v.buffered.length; i++) {
+        // `+0.25` : la plage commence rarement pile sur la tete de lecture.
+        if (v.buffered.start(i) <= t + 0.25 && v.buffered.end(i) > t) {
+          return v.buffered.end(i) - t;
+        }
+      }
+      return 0;
+    };
+
+    const juger = () => {
+      if (pose || !video) return;
+      /* Moins de RUNWAY_S restants dans l'episode : il n'y a pas 20 s d'avance
+         a prendre, et l'absence d'avance ne dirait alors rien de l'hote. On
+         renonce a mesurer plutot que d'enregistrer une penalite imméritée. */
+      if (
+        isFinite(video.duration) &&
+        video.duration > 0 &&
+        video.duration - video.currentTime < RUNWAY_S + 2
+      ) {
+        pose = true;
+        return;
+      }
+      if (avance(video) >= RUNWAY_S) {
+        pose = true;
+        recordSample("b", performance.now() - depart);
+        return;
+      }
+      if (performance.now() - depart > RUNWAY_TIMEOUT_MS) {
+        pose = true;
+        recordSample("b", RUNWAY_TIMEOUT_MS);
+      }
+    };
+
+    const brancher = () => {
+      const v = racine.querySelector("video") as HTMLVideoElement | null;
+      if (v !== video) {
+        video?.removeEventListener("progress", juger);
+        video = v;
+        video?.addEventListener("progress", juger);
+      }
+      juger();
+      if (pose) {
+        clearInterval(id);
+      }
+    };
+    const id = setInterval(brancher, 500);
+    brancher();
+    return () => {
+      clearInterval(id);
+      video?.removeEventListener("progress", juger);
+    };
+  }, [serverId, streamData, playerElState]);
   useEffect(() => {
     let raf = 0;
     const find = () => {
