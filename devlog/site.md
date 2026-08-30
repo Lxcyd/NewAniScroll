@@ -95,7 +95,7 @@ change toute seule » — l'utilisateur ne pouvait pas relier son propre clic
 d'exploration a un enregistrement. Le clic ne fait plus que selectionner, un
 bouton confirme, et la tuile en place est marquee.
 
-**Le flou "inexplique" etait deliberе — au mauvais endroit.** Le hero floute
+**Le flou "inexplique" etait delibere — au mauvais endroit.** Le hero floute
 une affiche verticale faute de mieux, ce qui est defendable. Le selecteur
 heritait du meme traitement : affiches floutees et agrandies, bannieres fines de
 1000x185 etirees en 16:9. **Un selecteur doit montrer ce qu'il propose** : tout
