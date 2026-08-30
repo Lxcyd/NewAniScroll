@@ -43,12 +43,19 @@ longtemps autour du bon endroit.
 - La creation de la custom list AniList passe en `try/catch` : c'est une
   courtoisie, pas une condition pour se connecter. Elle s'executait sans garde
   et pouvait emporter tout le login alors que l'identite etait deja etablie.
-- `pages.error` pointe vers `/en/auth/error` : un echec de connexion se lit a
-  l'ecran, avec la seule chose honnete a dire — ca a echoue, c'etait du cote
-  d'AniList, et rien n'a change sur le compte.
+- `pages.signIn` **et** `pages.error` pointent vers `/en/auth/anilist`. Les deux
+  pages hebergees par NextAuth sont ecartees pour la meme raison : elles
+  proposent la mauvaise chose. Celle d'erreur renvoyait le visiteur avec un
+  `?error=` dans une URL que personne ne lit ; celle de connexion liste **tous**
+  les fournisseurs — formulaire mot de passe et champ de jeton e-mail compris —
+  et surgit des qu'un `signIn()` echoue, si bien que cliquer « lier mon compte
+  AniList » pouvait aboutir a un formulaire de mot de passe. Le site a sa propre
+  interface de connexion (`components/auth/AuthModal.tsx`) ; cette route-la,
+  c'est AniList et rien d'autre, plus la raison quand il y en a une.
 
-Verifie sur dev : `/fr/auth/error?error=anilist-unavailable` rend « La connexion
-n'a pas abouti » suivi de la raison.
+Verifie sur dev : `/fr/auth/anilist?error=anilist-unavailable` rend « La
+connexion n'a pas abouti » suivi de la raison, avec pour seule action « Se
+connecter avec AniList ».
 
 ## 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base
 

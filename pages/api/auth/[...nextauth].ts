@@ -285,11 +285,16 @@ export const authOptions: NextAuthOptions = {
     //Sets the session to use JSON Web Token
     strategy: "jwt",
   },
-  /* A failed sign-in has to say so. NextAuth's default is its own bare page,
-     reached through a redirect nobody reads; the visitor came back to where
-     they started, still on their old session, with no way to tell that
-     anything had gone wrong. */
-  pages: { error: "/en/auth/error" },
+  /* Neither of NextAuth's hosted pages is wanted here.
+     - `signIn`: the default lists every provider that exists, password form and
+       e-mail-token field included, and it appears on any failed sign-in — so
+       clicking "link my AniList account" could end on a password form. The site
+       has its own sign-in UI (components/auth/AuthModal.tsx); this route is
+       AniList and nothing else.
+     - `error`: the default bounced the visitor back with `?error=` in a URL
+       nobody reads, still on their old session, with no way to tell that
+       anything had gone wrong. */
+  pages: { signIn: "/en/auth/anilist", error: "/en/auth/anilist" },
   callbacks: {
     async jwt({ token, user, account, trigger }) {
       // 1. AniList sign-in — resolve the account row, creating or linking it.
