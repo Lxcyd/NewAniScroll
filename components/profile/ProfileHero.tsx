@@ -156,6 +156,74 @@ export default function ProfileHero({
       ? { height: `min(calc(100vw / ${ratio.toFixed(3)}), 46vh)` }
       : undefined;
 
+  /* A strip carries a composition — a logo, a character, a title — and the
+     avatar and the name were landing right on top of it: exactly the picture we
+     had just gone to the trouble of not cropping. So under a strip the identity
+     steps OFF it and sits below, the avatar overlapping the edge just enough to
+     tie the two together. Over a wallpaper it stays where it was: there, being
+     read on the picture IS the design, and the artwork has room to spare. */
+  const onArtwork = mode !== "band";
+
+  const identity = (
+    <div className="mx-auto flex w-full max-w-screen-lg items-end gap-4 px-4 pb-5 md:gap-6 md:pb-7">
+      <div className="shrink-0 rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
+        {avatar ? (
+          <Image
+            src={avatar}
+            alt={name}
+            width={128}
+            height={128}
+            priority
+            className="h-20 w-20 rounded-[1.2rem] object-cover md:h-28 md:w-28"
+          />
+        ) : (
+          <div className="flex h-20 w-20 items-center justify-center rounded-[1.2rem] bg-primary text-3xl font-bold text-white/80 md:h-28 md:w-28 md:text-4xl">
+            {name.charAt(0).toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0 pb-1">
+        {/* The name can overlap a plate that is anything at all: the shadow is
+            what keeps it readable over a bright artwork. */}
+        <h1
+          className="truncate font-outfit text-3xl font-bold leading-tight md:text-5xl"
+          style={{ textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
+        >
+          {name}
+        </h1>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+          {tag ? (
+            <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
+              #{tag}
+            </span>
+          ) : null}
+          {anilistName ? (
+            <a
+              href={`https://anilist.co/user/${anilistName}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-md bg-[#02a9ff]/20 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 backdrop-blur-sm transition-colors hover:bg-[#02a9ff]/30"
+            >
+              AniList · {anilistName}
+            </a>
+          ) : null}
+          {createdAt ? (
+            <span className="px-1 py-1 text-white/50">
+              {t("profile.memberSince", {
+                date: new Date(createdAt).toLocaleDateString(undefined, {
+                  month: "long",
+                  year: "numeric",
+                }),
+              })}
+            </span>
+          ) : null}
+        </div>
+        {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
+      </div>
+    </div>
+  );
+
   return (
     <div className="relative w-full">
       {asPage ? (
@@ -207,10 +275,16 @@ export default function ProfileHero({
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
         ) : null}
 
-        {/* The band's own scrim, weighted to the bottom so the name reads. In
-            page-background mode the plate carries its own (as-page-scrim) and
-            this one would double it. */}
-        {!asPage ? <div className="as-hero-scrim absolute inset-0" /> : null}
+        {/* The heavy scrim exists to make a name readable over a plate, so it
+            belongs only where a name is: on the flat-colour plate. A wallpaper
+            carries its own (as-page-scrim), and a strip no longer has anything
+            written on it — darkening its lower third into black would just be
+            damaging the artwork for nothing. It gets a foot fade instead, to
+            meet the page. */}
+        {mode === "none" ? <div className="as-hero-scrim absolute inset-0" /> : null}
+        {mode === "band" ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 as-strip-foot" />
+        ) : null}
         <div className="pointer-events-none absolute inset-x-0 -bottom-24 h-48 as-hero-glow" />
 
         {/* Where the plate comes from — and, for the owner, the way to change
@@ -236,69 +310,16 @@ export default function ProfileHero({
           ) : null}
         </div>
 
-        {/* The identity sits ON the artwork, at its foot. */}
-        <div className="absolute inset-x-0 bottom-0 z-10">
-          <div className="mx-auto flex w-full max-w-screen-lg items-end gap-4 px-4 pb-5 md:gap-6 md:pb-7">
-            <div className="shrink-0 rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
-              {avatar ? (
-                <Image
-                  src={avatar}
-                  alt={name}
-                  width={128}
-                  height={128}
-                  priority
-                  className="h-20 w-20 rounded-[1.2rem] object-cover md:h-28 md:w-28"
-                />
-              ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-[1.2rem] bg-primary text-3xl font-bold text-white/80 md:h-28 md:w-28 md:text-4xl">
-                  {name.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0 pb-1">
-              {/* The name overlaps the plate, which can be anything: the shadow
-                  is what keeps it readable over a bright artwork. */}
-              <h1
-                className="truncate font-outfit text-3xl font-bold leading-tight md:text-5xl"
-                style={{ textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
-              >
-                {name}
-              </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                {tag ? (
-                  <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
-                    #{tag}
-                  </span>
-                ) : null}
-                {anilistName ? (
-                  <a
-                    href={`https://anilist.co/user/${anilistName}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-md bg-[#02a9ff]/20 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 backdrop-blur-sm transition-colors hover:bg-[#02a9ff]/30"
-                  >
-                    AniList · {anilistName}
-                  </a>
-                ) : null}
-                {createdAt ? (
-                  <span className="px-1 py-1 text-white/50">
-                    {t("profile.memberSince", {
-                      date: new Date(createdAt).toLocaleDateString(undefined, {
-                        month: "long",
-                        year: "numeric",
-                      }),
-                    })}
-                  </span>
-                ) : null}
-              </div>
-              {subtitle ? (
-                <p className="mt-1 text-xs text-white/50">{subtitle}</p>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        {/* On a wallpaper, the identity is read on the picture. */}
+        {onArtwork ? (
+          <div className="absolute inset-x-0 bottom-0 z-10">{identity}</div>
+        ) : null}
       </div>
+
+      {/* Under a strip: below it, the avatar overlapping the edge. */}
+      {!onArtwork ? (
+        <div className="relative z-10 -mt-12 md:-mt-14">{identity}</div>
+      ) : null}
 
       {stats.length > 0 ? (
         <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">

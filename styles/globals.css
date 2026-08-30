@@ -2220,6 +2220,15 @@ input[type="number"] {
 .as-page-under {
   background: rgba(12, 13, 16, 0.9);
 }
+/* Where a strip meets the page: enough to avoid a hard cut under the avatar,
+   not enough to eat the composition. */
+.as-strip-foot {
+  background: linear-gradient(
+    to top,
+    rgba(12, 13, 16, 0.85) 0%,
+    rgba(12, 13, 16, 0) 100%
+  );
+}
 /* The frame behind a contained wallpaper: the same picture, blown up past the
    edges and blurred, so what surrounds the artwork is the artwork. */
 .as-page-fill {
