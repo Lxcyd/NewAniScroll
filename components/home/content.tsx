@@ -10,6 +10,8 @@ import {
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { ExclamationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useRouter } from "next/router";
+import { useSession } from "next-auth/react";
+import { profileHref } from "@/lib/profile/href";
 import HistoryOptions from "./historyOptions";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
@@ -191,6 +193,7 @@ export default function Content({
   };
 
   const router = useRouter();
+  const { data: session }: { data: any } = useSession();
 
   const [clicked, setClicked] = useState(false);
 
@@ -294,11 +297,14 @@ export default function Content({
     if (section === "Popular Movies") {
       router.push(`/en/search/anime?sort=POPULARITY_DESC&format=MOVIE`);
     }
+    /* Through the shared resolver: an AniScroll-only account is not addressed
+       by its pseudo (only its tag is unique) and a guest has no public profile
+       at all — both used to land on a 404 here. */
     if (section === "Your Plan") {
-      router.push(`/en/profile/${userName}/#planning`);
+      router.push(`${profileHref(session?.user)}#planning`);
     }
     if (section === "On-Going Anime" || section === "Your Watch List") {
-      router.push(`/en/profile/${userName}/#current`);
+      router.push(`${profileHref(session?.user)}#current`);
     }
   };
 
