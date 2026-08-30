@@ -7,6 +7,49 @@ sauvegarde serveur des donnees du visiteur. Couvre `lib/auth/*`,
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 — Une panne AniList ne casse plus la connexion en silence
+
+**Le signalement** : « j'ai un compte sur le PC (pas lie a AniList), je me suis
+deconnecte puis j'ai essaye de me connecter avec AniList » — resultat, la page
+Parametres reaffiche le compte AniScroll precedent, AniList « Non lie », et
+aucun message.
+
+**La cause, lue dans les logs Vercel** (`vercel logs <deployment> --json`) :
+
+```
+[next-auth][error][OAUTH_CALLBACK_ERROR]
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+providerId: 'AniListProvider'
+```
+
+AniList etait en panne — `/api/v2/anilist-health` repondait `{"up":false}` a la
+meme minute — et repondait une page HTML d'erreur la ou le code attendait du
+JSON. Le `userinfo.request` du provider faisait `fetch(...).then(r => r.json())`
+sans rien verifier : la connexion cassait net, NextAuth renvoyait le visiteur
+d'ou il venait, sa session precedente toujours en place. Rien dans l'interface
+ne distinguait ca d'un bouton qui n'aurait rien fait.
+
+**Ce n'etait donc pas une histoire de comptes**, malgre les apparences : ni
+double compte, ni lien refuse. La lecon est sur le diagnostic — un ecran qui
+montre l'ancien etat apres une action ressemble a une regression de la logique
+metier, alors que c'est une dependance tierce qui est tombee. Les logs runtime
+ont donne la reponse en une ligne la ou la lecture du code aurait tourne
+longtemps autour du bon endroit.
+
+### Corrige
+- `viewerOf()` verifie le statut HTTP **et** le corps (une page HTML n'est pas
+  du JSON), reessaie une fois — ces coupures durent quelques secondes — puis
+  leve `anilist-unavailable`.
+- La creation de la custom list AniList passe en `try/catch` : c'est une
+  courtoisie, pas une condition pour se connecter. Elle s'executait sans garde
+  et pouvait emporter tout le login alors que l'identite etait deja etablie.
+- `pages.error` pointe vers `/en/auth/error` : un echec de connexion se lit a
+  l'ecran, avec la seule chose honnete a dire — ca a echoue, c'etait du cote
+  d'AniList, et rien n'a change sur le compte.
+
+Verifie sur dev : `/fr/auth/error?error=anilist-unavailable` rend « La connexion
+n'a pas abouti » suivi de la raison.
+
 ## 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base
 
 **Le point de depart** : AniScroll n'avait aucun compte propre. La seule

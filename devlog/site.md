@@ -220,8 +220,27 @@ propre copie floutee) ; bande 1000x185 → mode bande, 1584x293 (soit 5.41:1, la
 proportion exacte de l'image), 0 % rogne et 0 % borde ; visiteur anonyme →
 383 animes, 683 lignes.
 
+### Quatrieme passe — le fond revient au plein cadre, et l'invite a la meme page
+
+**Retour en arriere assume sur le papier peint.** L'illustration entiere, cadree
+par sa propre copie floutee, a ete essayee puis retiree a la demande : les
+bandes floutees coutent plus que les ~10 % que `cover` fait perdre. La bande,
+elle, garde `object-contain` — la, le recadrage detruit une composition et il
+n'existe aucune autre facon de la montrer entiere. Deux besoins differents, deux
+reponses differentes : ce n'est pas une incoherence.
+
+**Le design du profil ne dependait pas des donnees mais du fait d'avoir un
+compte.** Un invite tombait sur une page a part. Il retrouve la meme coquille —
+hero, plaque de l'anime prefere, statistiques, liste groupee — sur
+`/en/my-list` (`components/profile/LocalProfile.tsx`). Ne pas etre connecte
+change **d'ou vient la liste, pas ce que vaut la page**. Ce n'est pas appele un
+profil et ca n'a pas d'URL partageable : une liste qui ne vit que dans un
+navigateur n'est pas un profil que quelqu'un pourrait visiter. `/en/profile/me`
+reste en redirection, l'URL ayant pu etre mise en lien ou en historique.
+
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
-est desormais la vitrine.
+est desormais la vitrine — et, meme date, la panne AniList qui cassait la
+connexion en silence.
 
 
 ## 2026-08-29 — Deux "Season 1" a la file : le garde qui empechait de compter
