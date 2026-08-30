@@ -6,6 +6,68 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
+
+Nouvelle source, indexee sur TMDB. Deux requetes, aucun jeton :
+`GET frembed.casa/api/streaming/player?tmdb=&type=serie&sa=&ep=` rend un
+`master.m3u8` direct sur `free.finepulfe.xyz`.
+
+**Les deux portes sont inversees, et c'est le piege du dossier.** L'API EXIGE
+un `Referer: frembed.casa` (403 sans). Son CDN REFUSE ce meme referer (403) et
+sert tout le monde d'autre. D'ou : l'appel serveur l'envoie, la lecture le
+retire (`directUrl` -> `referrerPolicy="no-referrer"`). Se tromper de sens ne
+donne pas un flux degrade, il donne 403 des deux cotes.
+
+**Ce que ca vaut** (10 titres sondes, 9 identiques) : 1080p, fMP4/CMAF, DEUX
+pistes audio `fr` + `ja` dans le MEME manifest, sous-titres FR forced + full en
+piste HLS, `Access-Control-Allow-Origin: *`, `max-age=3600` derriere Cloudflare.
+Le CORS ouvert est l'interet principal : **c'est notre seule source qui ne
+touche ni le Worker, ni le Fast Origin Transfer, ni le budget Fluid** — le
+navigateur tape le CDN en direct. D'ou `speed: 1`.
+
+Deux chips (VF/VO) plutot qu'un chip `multi` a la megaplay, pour qu'ils tombent
+dans les groupes que la preference de langue pilote deja. Ils resolvent la meme
+URL et ne different que par la piste audio epinglee (`audioLang` ->
+`hls.audioTrack` dans UniversalPlayer). Les deux pistes sont `DEFAULT=NO` : sans
+l'epinglage, un choix VOSTFR jouerait le doublage francais. Corollaire pour le
+detecteur OP/ED : les lignes `(frembed, vf)` et `(frembed, vostfr)` decrivent le
+MEME encode, leurs minutages sont identiques par construction.
+
+### Le vrai travail : la numerotation
+
+Frembed herite des saisons TMDB, pas d'AniList. Trois formes, et la troisieme
+n'etait pas prevue :
+
+1. **Direct** — la saison detectee existe : `(S, ep)` tel quel. Le cas courant.
+2. **Fusion** — TMDB replie plusieurs saisons AniList en une (Jujutsu Kaisen :
+   pas de saison 2 du tout). La saison demandee est ABSENTE -> on repasse par la
+   ligne absolue avec l'offset de `resolveMergedOffset`, deja ecrit pour les
+   panneaux fusionnes d'anime-sama.
+3. **Decoupage en arcs** — One Piece : 22 « saisons » TMDB pour une entree
+   AniList numerotee en absolu.
+
+**La lecon, mesuree** : j'indexais d'abord par POSITION dans la concatenation
+des saisons. Faux. Les tableaux de frembed portent les numeros d'episode REELS
+et leur catalogue a des trous — One Piece expose 1021 episodes etales sur les
+labels 1 a 1155, soit **134 manquants**. Compter jusqu'au 500e creneau tombait
+sur l'episode **577**, le mauvais arc, en silence. La recherche se fait donc par
+LABEL : exact, et un label non heberge est une absence honnete (les episodes
+998-1001 de One Piece ne sont vraiment pas la, 1050 et 1100 oui).
+
+Deux garde-fous plutot qu'une devinette :
+- une saison >=2 qui retombe a l'offset 0 est, par definition, l'episode de la
+  saison 1 -> on REFUSE. `resolveMergedOffset` rend 0 des qu'il ne peut pas
+  ancrer, et frembed hebergeant MOINS d'episodes qu'AniList n'en compte suffit a
+  le faire decliner. Un chip perdu vaut mieux qu'un episode faux que le
+  spectateur n'a aucun moyen de detecter ;
+- la ligne absolue n'est prise pour une saison qui EXISTE que sur un feuilleton
+  d'au moins 6 saisons TMDB. Sinon une serie de 12 episodes a moitie hebergee se
+  ferait « sauver » vers l'episode 1 de la saison suivante.
+
+Le mapping AniList -> TMDB ne coute aucun appel : `themoviedb_id` de Fribb est
+un cross-map statique deja ingere. Son champ faible est `season` — precisement
+celui qu'on ne lit pas.
+
 ## 2026-08-30 — L'ordre des lecteurs : fige a l'ecran, partage entre visiteurs
 
 Trois defauts d'un seul mecanisme — le classement des lecteurs — signales le

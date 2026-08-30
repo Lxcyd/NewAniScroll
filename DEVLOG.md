@@ -112,6 +112,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
 - 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
 - 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
 - 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)

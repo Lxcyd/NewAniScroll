@@ -3,6 +3,7 @@ import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { getFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
@@ -230,6 +231,199 @@ const EXTRACTABLE_HOSTS = [
   // rather than degrade to a dead iframe. See lib/extractors.js → extractUqload.
   "uqload.",
 ];
+
+// ── Frembed (VF + VOSTFR in ONE stream) ──────────────────────────────────
+//
+// Two asymmetric gates, both measured 2026-08-30 — get them backwards and
+// everything 403s:
+//   • the JSON api REQUIRES a frembed.casa Referer;
+//   • its CDN REFUSES that same Referer, and serves anyone else.
+// So the api call below sends it, and playback strips it — the streams are
+// flagged `directUrl`, which makes UniversalPlayer set referrerPolicy
+// "no-referrer" on the <video> and skip the proxy entirely. That skip is the
+// whole point of this source: the CDN answers `Access-Control-Allow-Origin: *`,
+// so segments never touch the Worker or the Fluid budget.
+//
+// One master.m3u8 carries both audio renditions and the French subtitle
+// tracks, so the two chips resolve the SAME url and differ only by the
+// `audioLang` the player pins.
+const FREMBED_BASE = "https://frembed.casa";
+const FREMBED_SERVERS = {
+  frembed: { audioLang: "fr" },
+  "frembed-vo": { audioLang: "ja" },
+};
+
+/* Frembed indexes on TMDB's season numbering, which splits a long-running show
+   into arc-"seasons" (One Piece: 22, Naruto Shippuden: 20) while AniList keeps
+   it as ONE absolutely-numbered entry. Below this many seasons we never walk
+   the concatenation for a season that EXISTS — a 12-episode show frembed only
+   half-hosts would otherwise be "rescued" straight into the next season's
+   episode 1. No ordinary anime is cut into six TMDB seasons; every long-runner
+   is. */
+const FREMBED_LONG_RUNNER_SEASONS = 6;
+
+async function fetchFrembedPayload(tmdbId, sa, ep) {
+  const res = await fetchWithTimeout(
+    `${FREMBED_BASE}/api/streaming/player` +
+      `?tmdb=${tmdbId}&type=serie&sa=${sa}&ep=${ep}`,
+    {
+      headers: {
+        Referer: `${FREMBED_BASE}/streaming/player`,
+        Accept: "application/json",
+      },
+    },
+  );
+  // 404 = frembed has never heard of this tmdb id. A real, deterministic
+  // absence — not worth a retry.
+  if (res.status === 404) return null;
+  if (!res.ok) throw new TransientSourceError(`frembed api ${res.status}`);
+  try {
+    return await res.json();
+  } catch {
+    throw new TransientSourceError("frembed api returned non-JSON");
+  }
+}
+
+/** The playable master url in a frembed payload, or null when it holds none.
+ *  An episode frembed doesn't host answers 200 with `sources: []`. */
+function frembedMasterUrl(payload) {
+  const url = payload?.sources?.[0]?.url;
+  return typeof url === "string" && /\.m3u8/i.test(url) ? url : null;
+}
+
+/**
+ * Second-chance coordinates when (detected season, episode) came back empty.
+ *
+ * Every payload — even one for a season that doesn't exist — carries the full
+ * `seasonData.seasons` layout, which is why one api call is enough to both
+ * attempt and learn. Two shapes need remapping, and they are the same two the
+ * anime-sama resolver already fights, so they reuse its offset primitive:
+ *
+ *   • FUSION. TMDB folds several AniList seasons into one (Jujutsu Kaisen:
+ *     no season 2 at all, its 41 hosted episodes are S1's). The season we
+ *     asked for is ABSENT, so we index into the concatenation instead.
+ *   • ARC-SPLIT. A long-runner's AniList episode number is absolute and runs
+ *     past TMDB season 1 (One Piece ep 500). The season EXISTS but is short,
+ *     which is why this branch is gated on FREMBED_LONG_RUNNER_SEASONS.
+ *
+ * Returns null rather than a guess whenever the offset can't be anchored — see
+ * the season-≥2-at-offset-0 refusal, which is the difference between "no
+ * source" and silently playing season 1's episode 1.
+ */
+async function remapFrembedTarget(aniId, episode, seasonNum, payload) {
+  const seasons = payload?.seasonData?.seasons || {};
+  const keys = (payload?.seasonData?.sortedSeasonKeys || Object.keys(seasons))
+    .map(Number)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (keys.length === 0) return null;
+
+  const seasonExists = Array.isArray(seasons[String(seasonNum)]);
+  if (seasonExists && keys.length < FREMBED_LONG_RUNNER_SEASONS) return null;
+
+  // Index by the episode LABEL, never by position. On the shows this branch
+  // exists for, the two disagree: frembed's arrays carry the real episode
+  // numbers and its catalogue has holes, so One Piece's 1021 hosted slots span
+  // labels 1-1155 (134 missing, measured 2026-08-30). Counting to the 500th
+  // slot lands on episode 577 — the wrong arc, silently. Looking the label up
+  // is exact, and a label frembed doesn't host is simply absent.
+  const seasonOfLabel = new Map();
+  for (const k of keys) {
+    for (const ep of seasons[String(k)] || []) {
+      const n = Number(ep);
+      if (Number.isFinite(n) && !seasonOfLabel.has(n)) seasonOfLabel.set(n, k);
+    }
+  }
+  if (seasonOfLabel.size === 0) return null;
+
+  const index = Number(episode) - 1;
+  if (index < 0) return null;
+
+  let offset = 0;
+  if (seasonNum > 1) {
+    const meta = await getMediaMeta(aniId);
+    offset = await resolveMergedOffset(
+      aniId,
+      index,
+      seasonOfLabel.size,
+      Number(meta?.episodes) || 0,
+    );
+    // A season ≥2 that lands at offset 0 is season 1's episode by definition.
+    // resolveMergedOffset returns 0 for every offset it can't anchor (unknown
+    // prequel counts, a chain that doesn't fit), and frembed hosting FEWER
+    // episodes than AniList counts is enough to make it decline — Jujutsu
+    // Kaisen's 41 hosted against a 24+23 chain. Refusing here costs a chip;
+    // trusting it would play the wrong episode with no way for the viewer to
+    // tell.
+    if (offset === 0) return null;
+  }
+
+  // The absolute episode number this request lands on once the prequel seasons
+  // are accounted for — which IS frembed's label on both shapes this branch
+  // handles (a fused season numbers straight through; a long-runner's arcs
+  // continue each other: One Piece S1 = 1-61, S2 = 62-77, …).
+  const label = Number(episode) + offset;
+  const sa = seasonOfLabel.get(label);
+  return sa != null ? { sa, ep: label } : null;
+}
+
+/**
+ * Resolve one frembed chip to a direct, proxy-free stream.
+ *
+ * Returns null for a genuine miss (no TMDB mapping, episode not hosted) and
+ * throws TransientSourceError for an upstream hiccup, per this file's contract.
+ */
+async function getFrembedStream(serverKey, aniId, episode) {
+  const def = FREMBED_SERVERS[serverKey];
+  if (!def) return null;
+
+  // Fribb's `themoviedb_id` is a static cross-map we already ingest, so the
+  // AniList → TMDB hop costs no network call and no TMDB api key. Its weak
+  // field is `season` (it collides and fuses) — which is exactly the field we
+  // don't read: the season comes from our own resolver below.
+  const fribb = await getFribbEntry(Number(aniId));
+  const tmdbId = fribb?.tmdbTvId || null;
+  if (!tmdbId) {
+    dlog(`[frembed] no tmdb.tv mapping for AniList ${aniId}`);
+    return null;
+  }
+
+  const seasonNum = await detectSeasonNumber(aniId);
+  let payload = await fetchFrembedPayload(tmdbId, seasonNum, episode);
+  if (!payload) return null;
+
+  let master = frembedMasterUrl(payload);
+  if (!master) {
+    const target = await remapFrembedTarget(aniId, episode, seasonNum, payload);
+    if (!target) return null;
+    dlog(
+      `[frembed] tmdb ${tmdbId}: S${seasonNum}E${episode} empty → remapped to S${target.sa}E${target.ep}`,
+    );
+    payload = await fetchFrembedPayload(tmdbId, target.sa, target.ep);
+    if (!payload) return null;
+    master = frembedMasterUrl(payload);
+  }
+  if (!master) return null;
+
+  return {
+    streams: [
+      {
+        url: master,
+        // Uniform across every title sampled (10/10 on 2026-08-30); the master
+        // advertises the real ladder anyway, this is only the chip's label.
+        quality: "1080p",
+        isM3U8: true,
+        // No proxy: the CDN is CORS-open and 403s a frembed Referer.
+        directUrl: true,
+        // Which of the master's two audio renditions this chip is.
+        audioLang: def.audioLang,
+      },
+    ],
+    // Subtitles ride INSIDE the master as HLS renditions, so hls.js surfaces
+    // them on its own — there is no sidecar list to hand over.
+    subtitles: [],
+  };
+}
 
 /**
  * POST /api/v2/source
@@ -3760,6 +3954,18 @@ export default async function handler(req, res) {
       throw error; // a genuinely unexpected error keeps the outer 500 handling
     }
   };
+
+  // Frembed (VF + VOSTFR) — direct, proxy-free m3u8. Placed before the scraping
+  // providers because it needs neither a title nor a slug: the AniList id maps
+  // straight to TMDB through Fribb's static cross-map.
+  if (FREMBED_SERVERS[server]) {
+    const { data, retry, hostDown } = await resolveProvider(() =>
+      getFrembedStream(server, aniId, episode),
+    );
+    if (retry) return sendRetryable(retry, { hostDown });
+    if (!data) return sendNotFound("Source not found");
+    return sendOk(data);
+  }
 
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {

@@ -111,6 +111,12 @@ type Stream = {
    *  split episode). It must never be handed to the proxy or the download
    *  Worker — they can't resolve a blob from another origin's memory. */
   localFile?: boolean;
+  /** HLS audio rendition to pin, as the manifest's LANGUAGE code ("fr", "ja").
+   *  Set by sources whose master carries SEVERAL audio tracks, where the chip
+   *  the viewer picked — not hls.js's default — decides which one plays
+   *  (frembed's VF/VO chips are one file with both). Absent everywhere else,
+   *  which leaves hls.js on its own selection. */
+  audioLang?: string;
 };
 
 type Subtitle = {
@@ -1662,6 +1668,10 @@ export default function UniversalPlayer({
   // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
   // the <video> referrerPolicy for direct streams.
   const directPlaybackRef = useRef<boolean>(false);
+  // Audio rendition the CURRENT source asked for ("fr", "ja"), when its master
+  // holds more than one. Same render-time hand-off as directPlaybackRef, for
+  // the same reason: onProviderSetup can't see `bestStream`.
+  const audioLangRef = useRef<string | null>(null);
 
   // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
   // listener always calls the current handler without re-binding on every
@@ -1770,6 +1780,40 @@ export default function UniversalPlayer({
             frag1MsRef.current = frag1AtRef.current - manifestAtRef.current;
           });
         } catch {}
+      }
+      // Pin the audio rendition the CHIP stands for. Frembed serves VF and
+      // VOSTFR as two renditions of ONE master, so the chip the viewer picked
+      // — not hls.js's default, which is simply the manifest's first track —
+      // is what decides the language. Both of frembed's tracks are DEFAULT=NO,
+      // so without this a VOSTFR pick would play the French dub.
+      //
+      // Re-applied on `hlsAudioTracksUpdated` as well as at manifest time: the
+      // track list isn't populated until the manifest parses, and a level
+      // switch can rebuild it. Matching is on the LANGUAGE attribute, falling
+      // back to `name` for a manifest that only labels ("fra"/"jpn").
+      if (hls && audioLangRef.current) {
+        const wanted = audioLangRef.current.toLowerCase();
+        const pinAudio = () => {
+          try {
+            const tracks: any[] = (hls as any).audioTracks || [];
+            const i = tracks.findIndex((t) =>
+              [t?.lang, t?.language, t?.name]
+                .filter(Boolean)
+                .some((v: string) => String(v).toLowerCase().startsWith(wanted)),
+            );
+            // Only ever narrow a real choice: a single-track master (or a
+            // language this title doesn't carry) must keep playing rather than
+            // be pinned to nothing.
+            if (i >= 0 && tracks.length > 1 && (hls as any).audioTrack !== i) {
+              (hls as any).audioTrack = i;
+            }
+          } catch {}
+        };
+        try {
+          (hls as any).on("hlsManifestParsed", pinAudio);
+          (hls as any).on("hlsAudioTracksUpdated", pinAudio);
+        } catch {}
+        pinAudio();
       }
       // Force Maximum Quality: pin hls.js to the top level (setting
       // currentLevel to a fixed index disables ABR auto-switching) once the
@@ -5138,6 +5182,7 @@ export default function UniversalPlayer({
   // scope) knows to strip the Referer on the underlying <video>. Only direct
   // streams need it — proxied ones carry their Referer via the Worker query.
   directPlaybackRef.current = bestStream!.directUrl === true;
+  audioLangRef.current = bestStream!.audioLang || null;
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
