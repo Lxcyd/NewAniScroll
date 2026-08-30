@@ -3419,6 +3419,35 @@ export default function UniversalPlayer({
      gravee, par nous, au nom d'un utilisateur qui n'avait rien demande.
      On n'enregistre donc plus que ce qui vient d'un geste : le menu, la
      bascule, le raccourci clavier. */
+  /* Les pistes que le menu connait, et elles seules.
+     `renderTextTracksNatively: false` (cf. onProviderChange) empeche hls.js de
+     creer ses TextTrack NATIVES, mais pas Vidstack de les recreer : il ecoute
+     `NON_NATIVE_TEXT_TRACKS_FOUND` et ajoute chaque rendition du manifeste a
+     `player.textTracks` sous l'id `hls-subtitles<n>` — en allumant d'office
+     celle qui porte `DEFAULT=YES` (le « FR Forced » de frembed). La liste en
+     contenait donc toujours QUATRE la ou le menu n'en montre deux, et l'index
+     actif retombait sur une piste fantome, hors de portee du menu : des
+     sous-titres a l'ecran, aucune ligne surlignee (signale le 30/08/2026).
+     La regle de l'application n'a pas change — les sous-titres sont des pistes
+     sidecar, la seule liste que le menu et l'editeur de style savent voir — donc
+     ce qui vient du manifeste ne compte pas, et ne s'affiche pas. */
+  const isMenuTrack = (t: any) =>
+    (t.kind === "subtitles" || t.kind === "captions") &&
+    !String(t.id || "").startsWith("hls-");
+
+  // Eteint les pistes issues du manifeste HLS. Rejouee a chaque passe de sync
+  // parce qu'elles arrivent APRES le montage (au parse du master) et qu'une
+  // piste `DEFAULT=YES` s'ajoute deja en mode "showing".
+  const muteGhostTracks = (tracks: any) => {
+    if (!tracks) return;
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || isMenuTrack(t)) continue;
+      if (t.kind !== "subtitles" && t.kind !== "captions") continue;
+      if (t.mode !== "disabled") t.mode = "disabled";
+    }
+  };
+
   const selectSubtitleTrack = (idx: number, { persist = true } = {}) => {
     setActiveTrackIdx(idx);
     // Remember the last real track so the on/off shortcut restores this exact
@@ -3428,13 +3457,12 @@ export default function UniversalPlayer({
     if (!tracks) return;
     // Walk the textTracks list, only touching captions/subtitles tracks (skip
     // chapters/metadata). Index aligns with the <Track> children we render.
+    muteGhostTracks(tracks);
     let captionIndex = 0;
     let selectedLang: string | null = null;
     for (let i = 0; i < tracks.length; i++) {
       const t = tracks[i];
-      if (!t) continue;
-      const isCaption = t.kind === "subtitles" || t.kind === "captions";
-      if (!isCaption) continue;
+      if (!t || !isMenuTrack(t)) continue;
       const showing = captionIndex === idx;
       t.mode = showing ? "showing" : "disabled";
       if (showing) selectedLang = t.language || (t as any).label || null;
@@ -3484,9 +3512,7 @@ export default function UniversalPlayer({
       let captionIndex = 0;
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
-        if (!t) continue;
-        const isCaption = t.kind === "subtitles" || t.kind === "captions";
-        if (!isCaption) continue;
+        if (!t || !isMenuTrack(t)) continue;
         const lang = (t.language || "").toLowerCase();
         if (lang === want) return captionIndex;
         captionIndex++;
@@ -3502,15 +3528,14 @@ export default function UniversalPlayer({
     let prefApplied = false;
 
     const sync = () => {
+      muteGhostTracks(tracks);
       let captionIndex = 0;
       let activeIdx = -1;
       let hasAnyShowing = false;
       let firstAvailable = -1;
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
-        if (!t) continue;
-        const isCaption = t.kind === "subtitles" || t.kind === "captions";
-        if (!isCaption) continue;
+        if (!t || !isMenuTrack(t)) continue;
         if (firstAvailable < 0) firstAvailable = captionIndex;
         if (t.mode === "showing") {
           activeIdx = captionIndex;
