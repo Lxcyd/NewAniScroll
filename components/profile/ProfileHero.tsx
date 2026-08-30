@@ -108,15 +108,13 @@ export default function ProfileHero({
      the info page's hero declares (lib/color/navContrast.ts). */
   useNavBackdrop(banner.url);
 
-  /* An illustration is worn as the page's BACKGROUND — the profile is read on
-     top of the picture. A banner-shaped strip stays a strip: it was composed as
-     one, and there is nothing above or below its crop to reveal. */
+  /* An illustration is worn as the page's WALLPAPER — fixed to the window, the
+     profile scrolling over it. A banner-shaped strip stays a strip: it was
+     composed as one, and there is nothing above or below its crop to reveal. */
   const mode = banner.url ? plateMode(banner.source) : "none";
   const asPage = mode === "page";
 
   return (
-    /* The wrapper is the plate's positioning context: the picture spans the
-       header area (band + stats) and everything is read on top of it. */
     <div className="relative w-full">
       {asPage ? (
         <div className="as-page-plate">
@@ -270,6 +268,11 @@ export default function ProfileHero({
           ))}
         </dl>
       ) : null}
+
+      {/* Wallpaper mode ends on a fade into the page's own colour, drawn here —
+          in the flow — so it stays glued to the top of the list instead of to
+          the window the picture is pinned to. */}
+      {asPage ? <div className="as-page-seam mt-6" /> : null}
       </header>
     </div>
   );

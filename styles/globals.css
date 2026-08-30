@@ -2130,13 +2130,17 @@ input[type="number"] {
                          is deliberate — the picker never blurs anything.
    ───────────────────────────────────────────────────────────────── */
 :root {
-  /* Height of the identity band. An illustration is 16:9, so a band sized on
-     that ratio shows it whole on a widescreen window; capped at 80vh so it can
-     never push the list off the first screen, floored so a phone (where 56vw
-     is a sliver) still gets a real header. */
-  --as-hero-h: max(340px, min(56.25vw, 80vh));
-  /* A banner-shaped plate, and the flat colour one: a strip, not a screen. */
-  --as-hero-slim: max(240px, min(26vw, 42vh));
+  /* How far down the identity sits. In wallpaper mode the picture is the whole
+     window, so this no longer has to match the art's ratio — it only has to
+     leave the name, the stats and the top of the list on the first screen,
+     which is what 58vh buys. Floored so a phone still gets a real header. */
+  --as-hero-h: max(300px, min(56.25vw, 58vh));
+  /* A banner-shaped plate, and the flat colour one: a strip, not a screen.
+     Sized on 4.75:1 — the shape AniList's own banners are authored in
+     (1900×400) — so `object-cover` has nothing left to crop and the strip is
+     shown at its natural framing. A height picked from vh instead would crop
+     the sides of the composition on any window that isn't the right shape. */
+  --as-hero-slim: clamp(170px, 21vw, 46vh);
 }
 .as-hero-band {
   height: var(--as-hero-h);
@@ -2159,45 +2163,46 @@ input[type="number"] {
 }
 
 /* ── Illustration worn as the page's background ──────────────────
-   The picture spans the whole header area — identity AND stats are read on top
-   of it, with no hard edge anywhere — instead of being a strip the content
-   starts after.
+   The picture is the page's WALLPAPER: fixed to the window, so it stays put
+   while the profile slides over it, and covering the whole viewport, so the
+   artwork is seen at the size it was drawn instead of squeezed into a strip.
 
-   `absolute`, not `fixed`. Fixed was tried first, for the parallax: it pins the
-   scrim to the VIEWPORT, so as soon as the page scrolled, the top of the
-   window — the deliberately clear part of the gradient — slid under the stats
-   row and made it unreadable. A scrim can only stay aligned with the artwork it
-   is dimming if it scrolls with it.
+   `fixed` has one consequence that has to be paid for here: a scrim pinned to
+   the window cannot be a gradient tuned to where the name and the stats sit,
+   because those move. So this one is scroll-INDEPENDENT — an even veil, plus a
+   little extra at the very top (the transparent navbar) and bottom. Everything
+   that has to stay readable over an arbitrary picture carries its own contrast:
+   the name a shadow, the stat cards a dark backing (.as-stat-card), the chips a
+   blur. The seam with the list below is drawn by .as-page-seam, which scrolls
+   WITH the content and therefore always lands exactly where the two meet.
 
    z-index 0 and NOT -1: `html` carries its own background colour, so a negative
    layer would be painted behind it and never seen — which is why the page's own
    content is pushed to z-10 instead (see the profile routes).
    ───────────────────────────────────────────────────────────────── */
 .as-page-plate {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  /* The band, plus the stats row that sits under it. */
-  height: calc(var(--as-hero-h) + 130px);
+  position: fixed;
+  inset: 0;
   z-index: 0;
   overflow: hidden;
 }
 .as-page-scrim {
   position: absolute;
   inset: 0;
-  /* Stops are measured against the band height, so the picture is clear where
-     the header sits and solid by the time the stats row does — whatever the
-     window's shape. The middle third stays open; the bottom has to carry a name
-     and four cards, and artwork is as often pale as it is dark. */
-  background: linear-gradient(
-    to bottom,
-    rgba(12, 13, 16, 0.45) 0px,
-    rgba(12, 13, 16, 0.12) calc(var(--as-hero-h) * 0.28),
-    rgba(12, 13, 16, 0.62) calc(var(--as-hero-h) * 0.62),
-    rgba(12, 13, 16, 0.93) calc(var(--as-hero-h) * 0.9),
-    rgb(12, 13, 16) calc(var(--as-hero-h) + 130px)
-  );
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(12, 13, 16, 0.72) 0px,
+      rgba(12, 13, 16, 0.28) 130px,
+      rgba(12, 13, 16, 0.28) 65%,
+      rgba(12, 13, 16, 0.6) 100%
+    );
+}
+/* The join between the wallpaper and the opaque list that scrolls over it. In
+   the flow, at the foot of the header, so it travels with the content. */
+.as-page-seam {
+  height: 140px;
+  background: linear-gradient(to bottom, rgba(12, 13, 16, 0) 0%, rgb(12, 13, 16) 100%);
 }
 .as-hero-cover {
   filter: blur(28px) saturate(1.3);
@@ -2243,10 +2248,14 @@ input[type="number"] {
   opacity: 0.35;
   filter: blur(40px);
 }
+/* The cards float over a picture that scrolls behind them and can be pale, so
+   they carry their own opacity rather than trusting the scrim underneath. */
 .as-stat-card {
   background: linear-gradient(
     145deg,
-    rgba(255, 255, 255, 0.07),
-    rgba(255, 255, 255, 0.02)
+    rgba(20, 22, 28, 0.72),
+    rgba(12, 13, 16, 0.58)
   );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
