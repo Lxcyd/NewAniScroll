@@ -2159,14 +2159,27 @@ input[type="number"] {
 }
 
 /* ── Illustration worn as the page's background ──────────────────
-   `fixed`, so the profile is read ON the picture rather than under a strip of
-   it. z-index 0 and NOT -1: `html` carries its own background colour, so a
-   negative layer would be painted behind it and never seen — which is why the
-   page's own content is pushed to z-10 instead (see the profile routes).
+   The picture spans the whole header area — identity AND stats are read on top
+   of it, with no hard edge anywhere — instead of being a strip the content
+   starts after.
+
+   `absolute`, not `fixed`. Fixed was tried first, for the parallax: it pins the
+   scrim to the VIEWPORT, so as soon as the page scrolled, the top of the
+   window — the deliberately clear part of the gradient — slid under the stats
+   row and made it unreadable. A scrim can only stay aligned with the artwork it
+   is dimming if it scrolls with it.
+
+   z-index 0 and NOT -1: `html` carries its own background colour, so a negative
+   layer would be painted behind it and never seen — which is why the page's own
+   content is pushed to z-10 instead (see the profile routes).
    ───────────────────────────────────────────────────────────────── */
 .as-page-plate {
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* The band, plus the stats row that sits under it. */
+  height: calc(var(--as-hero-h) + 130px);
   z-index: 0;
   overflow: hidden;
 }

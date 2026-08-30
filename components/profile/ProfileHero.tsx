@@ -115,7 +115,9 @@ export default function ProfileHero({
   const asPage = mode === "page";
 
   return (
-    <>
+    /* The wrapper is the plate's positioning context: the picture spans the
+       header area (band + stats) and everything is read on top of it. */
+    <div className="relative w-full">
       {asPage ? (
         <div className="as-page-plate">
           <Image
@@ -269,6 +271,6 @@ export default function ProfileHero({
         </dl>
       ) : null}
       </header>
-    </>
+    </div>
   );
 }
