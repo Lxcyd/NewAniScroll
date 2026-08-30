@@ -5,7 +5,6 @@ import {
   createAccount,
   findByEmail,
   findById,
-  isUsernameTaken,
   toPublicUser,
   upgradeToAccount,
 } from "@/lib/auth/users";
@@ -52,8 +51,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const passwordError = validatePassword(password);
   if (passwordError) return res.status(400).json({ error: "password", code: passwordError });
 
+  // The e-mail is the only thing that has to be free. Two accounts may share a
+  // pseudo — their tags are what tell them apart.
   if (await findByEmail(email)) return res.status(409).json({ error: "emailTaken" });
-  if (await isUsernameTaken(username)) return res.status(409).json({ error: "usernameTaken" });
 
   const session = (await getServerSession(req, res, authOptions)) as any;
   const existingId: string | undefined = session?.user?.uid;

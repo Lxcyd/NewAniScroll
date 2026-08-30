@@ -9,6 +9,8 @@ import {
   findByAnilistId,
   findByIdentifier,
   findById,
+  getAnilistSession,
+  setAnilistSession,
   touchLastSeen,
   type UserRecord,
 } from "@/lib/auth/users";
@@ -78,11 +80,22 @@ export const authOptions: NextAuthOptions = {
         await resetThrottle(key);
         void touchLastSeen(user.id);
 
+        /* The AniList half of the account, restored from the row. Without it a
+           password sign-in on a linked account produced a session with no
+           AniList access token, and the sync panel — which reads exactly that
+           — announced "Not connected" under an account the settings showed as
+           linked. */
+        const anilist = user.anilistId
+          ? await getAnilistSession(user.id)
+          : { token: null, lists: [] };
+
         return {
           ...accountClaims(user),
           id: user.anilistId ? String(user.anilistId) : user.id,
           name: user.anilistName || user.username,
           image: user.avatarUrl || null,
+          token: anilist.token ?? undefined,
+          list: anilist.lists,
         } as any;
       },
     }),
@@ -231,6 +244,12 @@ export const authOptions: NextAuthOptions = {
             if (record) {
               if (record.status === "disabled") throw new Error("account-disabled");
               void touchLastSeen(record.id);
+              /* Keep the credential on the account, not only in this cookie:
+                 the next password sign-in has to find it there. */
+              await setAnilistSession(record.id, {
+                token: (user as any).token,
+                lists: (user as any).list,
+              });
               Object.assign(token, accountClaims(record));
             }
           } catch (err) {
@@ -274,6 +293,16 @@ export const authOptions: NextAuthOptions = {
             (token as any).image = null;
             (token as any).id = record.id;
             (token as any).sub = record.id;
+          } else if (!(token as any).token) {
+            // Linked, but this session was opened with a password before the
+            // link existed — take the credential from the account.
+            const anilist = await getAnilistSession(record.id);
+            if (anilist.token) {
+              (token as any).token = anilist.token;
+              (token as any).list = anilist.lists;
+              (token as any).id = String(record.anilistId);
+              (token as any).sub = String(record.anilistId);
+            }
           }
         }
       }

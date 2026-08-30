@@ -8,6 +8,7 @@
 import type { Row } from "@libsql/client";
 import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
 import { mintTag, ulid } from "./ids";
+import { open, seal } from "./secretBox";
 import { normalizeUsername, sanitizeUsername } from "./username";
 
 export type UserRecord = {
@@ -90,10 +91,20 @@ export function findByEmail(email: string) {
   return findOne(`${SELECT} WHERE email_lower = ?`, [email.trim().toLowerCase()]);
 }
 
-export function findByUsername(username: string) {
-  return findOne(`${SELECT} WHERE username_lower = ?`, [
-    normalizeUsername(username),
-  ]);
+/**
+ * Pseudos are NOT unique — the tag is what makes an identity unique, so two
+ * accounts may both be "Lucyd". This returns a row only when exactly one
+ * matches; on a shared pseudo it returns null and the caller must be given the
+ * tag as well (see findByIdentifier).
+ */
+export async function findByUsername(username: string) {
+  const client = await db();
+  if (!client) return null;
+  const res = await client.execute({
+    sql: `${SELECT} WHERE username_lower = ? LIMIT 2`,
+    args: [normalizeUsername(username)],
+  });
+  return res.rows.length === 1 ? toRecord(res.rows[0]) : null;
 }
 
 export function findByAnilistId(anilistId: number) {
@@ -105,38 +116,41 @@ export function findByTag(tag: string) {
   return findOne(`${SELECT} WHERE tag = ?`, [tag.trim().toUpperCase()]);
 }
 
-/** Login accepts either the e-mail or the pseudo in the same field. */
-export function findByIdentifier(identifier: string) {
+/**
+ * Login accepts, in one field: the e-mail, the pseudo, or the pseudo with its
+ * tag (`Lucyd#000000`, or `-` in place of `#` since a URL cannot carry one).
+ * A bare pseudo only works while nobody else has claimed it — once shared, the
+ * tag is the part that says which of them you are.
+ */
+export async function findByIdentifier(identifier: string) {
   const value = identifier.trim();
-  return value.includes("@") ? findByEmail(value) : findByUsername(value);
-}
+  if (value.includes("@")) return findByEmail(value);
 
-export async function isUsernameTaken(username: string): Promise<boolean> {
-  const existing = await findByUsername(username);
-  return existing !== null;
+  const tagged = /^(.+)[#-]([0-9A-Za-z]{6})$/.exec(value);
+  if (tagged) {
+    const record = await findByTag(tagged[2]);
+    if (record && record.usernameLower === normalizeUsername(tagged[1])) {
+      return record;
+    }
+    return null;
+  }
+  return findByUsername(value);
 }
 
 /**
- * Insert a row, retrying only on a tag collision. Any other constraint
- * failure (duplicate e-mail or pseudo) is a real error and propagates — the
- * caller checked for it and lost a race.
- *
- * `usernameOptional` is the exception, and it exists for the AniList path: a
- * pseudo taken between the check and the insert must cost the pseudo, never
- * the account. One retry without it, then the row goes in.
+ * Insert a row, retrying only on a tag collision — the tag is the one thing
+ * that has to be unique. A duplicate e-mail is a real error and propagates;
+ * a duplicate pseudo is not an error at all.
  */
 async function insertUser(
-  fields: Partial<UserRecord> & {
-    username?: string | null;
-    usernameOptional?: boolean;
-  }
+  fields: Partial<UserRecord> & { username?: string | null }
 ): Promise<UserRecord> {
   const client = await db();
   if (!client) throw new Error("users-db-unavailable");
 
   const now = Date.now();
   const id = ulid(now);
-  let username = fields.username ?? null;
+  const username = fields.username ?? null;
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const tag = mintTag();
@@ -171,16 +185,6 @@ async function insertUser(
     } catch (err: any) {
       const message = String(err?.message || err);
       if (attempt < 4 && /users\.tag|UNIQUE.*tag/i.test(message)) continue;
-      // Someone claimed the pseudo between our check and this insert. When the
-      // caller said it was optional, drop it and try once more.
-      if (
-        username &&
-        fields.usernameOptional &&
-        /username_lower|UNIQUE.*username/i.test(message)
-      ) {
-        username = null;
-        continue;
-      }
       throw err;
     }
   }
@@ -201,15 +205,12 @@ export function createAccount(params: {
 }
 
 /**
- * Turn an AniList display name into a pseudo we can actually reserve, or null
- * when it doesn't survive our rules or is already taken. Null is not a
- * failure: the account still gets its id and its tag, and the AniList name is
- * what gets displayed — the pseudo can be set later from the settings.
+ * Turn an AniList display name into a pseudo, or null when it doesn't survive
+ * our shape rules. Nothing is checked against other accounts: an AniList name
+ * someone else already uses here is fine, the tags differ.
  */
-async function freeUsernameFrom(anilistName: string | null): Promise<string | null> {
-  const candidate = sanitizeUsername(anilistName);
-  if (!candidate) return null;
-  return (await isUsernameTaken(candidate)) ? null : candidate;
+function usernameFrom(anilistName: string | null): string | null {
+  return sanitizeUsername(anilistName);
 }
 
 /**
@@ -225,24 +226,21 @@ export async function createAnilistAccount(params: {
   avatarUrl: string | null;
 }) {
   return insertUser({
-    username: await freeUsernameFrom(params.anilistName),
+    username: usernameFrom(params.anilistName),
     anilistId: params.anilistId,
     anilistName: params.anilistName,
     avatarUrl: params.avatarUrl,
-    // The pseudo is a nicety; losing a race on it must never cost the login.
-    usernameOptional: true,
   });
 }
 
 /**
- * Give a pseudo to an AniList row that still has none — either because it
- * predates this behaviour, or because the name was taken at the time and has
- * since been freed. Silent on every failure: it runs on the login path.
+ * Give a pseudo to an AniList row that still has none, because it predates
+ * this behaviour. Silent on every failure: it runs on the login path.
  */
 export async function backfillUsername(user: UserRecord): Promise<UserRecord> {
   if (user.username || !user.anilistName) return user;
   try {
-    const candidate = await freeUsernameFrom(user.anilistName);
+    const candidate = usernameFrom(user.anilistName);
     if (!candidate) return user;
     return (await setUsername(user.id, candidate)) ?? user;
   } catch {
@@ -276,6 +274,57 @@ export async function attachAniList(
 }
 
 /**
+ * The AniList access token and custom lists, kept ON THE ACCOUNT.
+ *
+ * They used to exist only inside the session cookie, minted by the OAuth
+ * round-trip — so an account with AniList linked, signed in with its password,
+ * showed "Not connected" in the sync panel and could not push anything. The
+ * link belongs to the account, so its credential has to as well.
+ *
+ * Deliberately not part of UserRecord: `toPublicUser` only strips the password
+ * hash, and /api/v2/account/me?export=1 hands the record to the browser. A
+ * bearer token for someone's AniList account has no business in there.
+ */
+export async function setAnilistSession(
+  userId: string,
+  params: { token?: string | null; lists?: unknown }
+): Promise<void> {
+  const client = await db();
+  if (!client) return;
+  const sealed = params.token ? seal(params.token) : null;
+  await client.execute({
+    sql: `UPDATE users
+             SET anilist_token = COALESCE(?, anilist_token),
+                 anilist_lists = COALESCE(?, anilist_lists)
+           WHERE id = ?`,
+    args: [
+      sealed,
+      Array.isArray(params.lists) ? JSON.stringify(params.lists) : null,
+      userId,
+    ],
+  });
+}
+
+export async function getAnilistSession(
+  userId: string
+): Promise<{ token: string | null; lists: string[] }> {
+  const client = await db();
+  if (!client) return { token: null, lists: [] };
+  const res = await client.execute({
+    sql: `SELECT anilist_token, anilist_lists FROM users WHERE id = ?`,
+    args: [userId],
+  });
+  const row = res.rows[0];
+  if (!row) return { token: null, lists: [] };
+  let lists: string[] = [];
+  try {
+    const parsed = JSON.parse(str(row.anilist_lists) || "[]");
+    if (Array.isArray(parsed)) lists = parsed;
+  } catch {}
+  return { token: open(str(row.anilist_token)), lists };
+}
+
+/**
  * Unlink AniList. Refused when it is the only way in — an account with no
  * password would become unreachable.
  */
@@ -290,7 +339,8 @@ export async function detachAniList(userId: string): Promise<UserRecord | null> 
     // The picture belongs to AniList too — keeping it would leave the account
     // wearing the face of a link it no longer has.
     sql: `UPDATE users
-             SET anilist_id = NULL, anilist_name = NULL, avatar_url = NULL
+             SET anilist_id = NULL, anilist_name = NULL, avatar_url = NULL,
+                 anilist_token = NULL, anilist_lists = NULL
            WHERE id = ?`,
     args: [userId],
   });

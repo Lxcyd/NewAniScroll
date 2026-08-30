@@ -1,14 +1,12 @@
 /**
- * Username rules — "règles classiques", shared by the signup route, the
- * live-availability endpoint and the rename action so a name can never be
- * accepted by one path and refused by another.
+ * Username rules — "règles classiques", shared by the signup route, the rename
+ * action and the form field, so a name can never be accepted by one path and
+ * refused by another.
  *
- * Uniqueness is case-insensitive and enforced by the UNIQUE index on
- * users.username_lower; this module only covers the shape.
- *
- * A username is NOT an identity: users.tag (6 public hex) is. That is what
- * lets an AniList-only login coexist with an AniScroll account that already
- * took the same pseudo.
+ * Shape only, and that is now the whole story: a pseudo is NOT unique and
+ * nothing reserves it. users.tag (6 public digits) is the identity, which is
+ * exactly why two people may both be "Lucyd" without either of them having to
+ * settle for "Lucyd2".
  */
 
 export const MIN_USERNAME_LENGTH = 3;
@@ -67,7 +65,7 @@ export function validateUsername(raw: unknown): UsernameError | null {
   return null;
 }
 
-/** Canonical form used for the uniqueness reservation. */
+/** Canonical form used to compare two pseudos (lookup, never reservation). */
 export function normalizeUsername(name: string): string {
   return name.trim().toLowerCase();
 }
@@ -79,7 +77,8 @@ export function normalizeUsername(name: string): string {
  * AniList's charset is wider than ours, so this drops what we don't allow
  * rather than refusing outright — a name is a convenience, and the account's
  * real identity is its tag. A null result is not a failure: the account is
- * created without a pseudo and the AniList name is still shown.
+ * created without a pseudo and the AniList name is still shown. Whether
+ * another account already carries the result is not asked: it doesn't matter.
  */
 export function sanitizeUsername(raw: unknown): string | null {
   if (typeof raw !== "string") return null;

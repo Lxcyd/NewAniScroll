@@ -6,7 +6,6 @@ import { logAuditEvent } from "@/lib/db/turso-admin";
 import { getUsersClient } from "@/lib/db/turso-users";
 import {
   findById,
-  isUsernameTaken,
   listUsers,
   markEmailVerified,
   setStatus,
@@ -60,9 +59,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const username = String(req.body?.username || "").trim();
       const code = validateUsername(username);
       if (code) return res.status(400).json({ error: "username", code });
-      if (await isUsernameTaken(username)) {
-        return res.status(409).json({ error: "usernameTaken" });
-      }
       await setUsername(id, username);
       await logAuditEvent(actor, "user_rename", id, `${user.username} → ${username}`);
     } else {

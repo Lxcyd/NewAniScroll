@@ -272,7 +272,7 @@ function AccountPanel({
             (displayName || "?").charAt(0).toUpperCase()
           )}
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="font-semibold truncate">{displayName}</span>
             <span className="text-white/40 text-xs font-mono">#{user.tag}</span>
@@ -281,6 +281,17 @@ function AccountPanel({
             {anilistOnly ? t("auth.anilistOnlyDesc") : t("auth.accountDesc")}
           </div>
         </div>
+        {/* Signing out belongs to the identity card, not to the list of
+            account operations below: it acts on this browser, not on the
+            account. Nothing is lost — the data stays on the account. */}
+        <button
+          type="button"
+          disabled={busy}
+          className={BTN}
+          onClick={() => signOut({ redirect: false })}
+        >
+          {t("nav.signOut")}
+        </button>
       </div>
 
       <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -414,20 +425,6 @@ function AccountPanel({
         <Row title={t("auth.exportTitle")} desc={t("auth.exportDesc")}>
           <button type="button" className={BTN} onClick={exportData}>
             {t("auth.export")}
-          </button>
-        </Row>
-
-        {/* Signing out lived only in the navigation menu; the account panel is
-            where someone goes looking for it. Nothing is lost — the data is on
-            the account, this browser just stops being signed in. */}
-        <Row title={t("auth.signOutTitle")} desc={t("auth.signOutDesc")}>
-          <button
-            type="button"
-            disabled={busy}
-            className={BTN}
-            onClick={() => signOut({ redirect: false })}
-          >
-            {t("nav.signOut")}
           </button>
         </Row>
 
