@@ -160,10 +160,15 @@ export default function Profile({
         onEditBanner={() => setPicker(true)}
       />
 
-      {/* relative z-10: an illustration worn as the page background is a
-          `position: fixed` layer at z-0 (html carries its own colour, so it
-          cannot go negative), and a static block would be painted under it. */}
-      <div className="as-fade-in relative z-10 mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
+      {/* relative z-10 AND an opaque background: an illustration worn as the
+          page background is a `position: fixed` layer at z-0 (html carries
+          its own colour, so it cannot go negative). Fixed is what gives the
+          picture its parallax — but it also means that without an opaque
+          block over it, scrolling would slide the list across the bright
+          middle of the artwork. This is that block; it meets the plate's
+          scrim where the scrim is already solid, so there is no seam. */}
+      <div className="as-fade-in relative z-10 bg-primary">
+        <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         {isOwner && (
           <div className="mb-6">
             <button
@@ -190,9 +195,10 @@ export default function Profile({
             </Link>
           }
         />
+        </div>
       </div>
 
-      <div className="relative z-10">
+      <div className="relative z-10 bg-primary">
         <Footer />
       </div>
 

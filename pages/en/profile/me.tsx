@@ -120,9 +120,9 @@ export default function MyOwnProfile() {
         subtitle={t("profile.localOnly")}
       />
 
-      {/* relative z-10: see the note in [user].tsx — an illustration worn as
-          the page background is a fixed layer at z-0. */}
-      <div className="as-fade-in relative z-10 mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
+      {/* relative z-10 + opaque: see the note in [user].tsx. */}
+      <div className="as-fade-in relative z-10 bg-primary">
+        <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         <QueueSection />
         <ProfileList
           entries={entries}
@@ -135,9 +135,10 @@ export default function MyOwnProfile() {
             </Link>
           }
         />
+        </div>
       </div>
 
-      <div className="relative z-10">
+      <div className="relative z-10 bg-primary">
         <Footer />
       </div>
 
