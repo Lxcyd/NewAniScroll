@@ -160,11 +160,11 @@ export default function Profile({
         onEditBanner={() => setPicker(true)}
       />
 
-      {/* relative z-10 + opaque: the plate an illustration is worn on is a
-          z-0 layer (html carries its own colour, so it cannot go negative),
-          and a static block would be painted under it. The background meets
-          the plate's scrim where the scrim is already solid — no seam. */}
-      <div className="as-fade-in relative z-10 bg-primary">
+      {/* relative z-10: the wallpaper an illustration is worn as is a z-0 layer
+          (html carries its own colour, so it cannot go negative), and a static
+          block would be painted under it. .as-page-under is a veil rather than
+          a solid fill, so the picture stays visible behind the whole page. */}
+      <div className="as-fade-in relative z-10 as-page-under">
         <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         {isOwner && (
           <div className="mb-6">
@@ -195,7 +195,7 @@ export default function Profile({
         </div>
       </div>
 
-      <div className="relative z-10 bg-primary">
+      <div className="relative z-10 as-page-under">
         <Footer />
       </div>
 
