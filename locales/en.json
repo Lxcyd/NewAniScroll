@@ -296,7 +296,8 @@
       "dirToDesc": "Combine both lists and push the result to AniList. On any conflict, this site takes priority. Nothing on AniList is deleted.",
       "dismissedToast": "Sync left off — enable it anytime in settings.",
       "dirOffTitle": "Don't sync",
-      "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings."
+      "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings.",
+      "dirConfirm": "Apply this choice"
     },
     "list": {
       "title": "My list (local)",

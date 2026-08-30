@@ -15,9 +15,16 @@
  * The component is presentational: it renders the three choices and hands the
  * picked direction back to the caller, which owns the actual sync calls
  * (fullSyncFromAniList / fullSyncToAniList).
+ *
+ * Choosing and confirming are two steps. The three options are a radio group —
+ * clicking one selects it and nothing else happens — and the direction is only
+ * applied once the confirm button has been held. One of these choices erases a
+ * list, so it gets the same gesture as every other irreversible action here.
  */
 
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import HoldButton from "./HoldButton";
 
 export type SyncDirection = "fromAniList" | "toAniList" | "off";
 
@@ -62,34 +69,58 @@ function SyncIcon() {
   );
 }
 
+/**
+ * One choice. `role="radio"` rather than a plain button: the three together
+ * are one answer, and a screen reader should say which one is currently
+ * picked. The selection is shown by the ring and a filled dot — colour alone
+ * would not survive a colour-blind reader.
+ */
 function OptionButton({
   icon,
   title,
   desc,
-  onClick,
+  selected,
+  onSelect,
   disabled,
-  hoverRing = "hover:ring-action/40",
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
-  onClick: () => void;
+  selected: boolean;
+  onSelect: () => void;
   disabled?: boolean;
-  hoverRing?: string;
 }) {
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={selected}
       disabled={disabled}
-      onClick={onClick}
-      className={`flex items-center gap-3.5 text-left rounded-lg bg-white/5 ring-1 ring-white/10 p-4 hover:bg-white/10 ${hoverRing} transition disabled:opacity-50`}
+      onClick={onSelect}
+      className={`flex items-center gap-3.5 text-left rounded-lg p-4 transition disabled:opacity-50 ${
+        selected
+          ? "bg-white/10 ring-2 ring-action"
+          : "bg-white/5 ring-1 ring-white/10 hover:bg-white/10 hover:ring-white/20"
+      }`}
     >
       <span className="flex-none grid place-items-center w-10 h-10 rounded-lg bg-white/5 ring-1 ring-white/10 text-white/80">
         {icon}
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block font-medium text-sm mb-0.5">{title}</span>
         <span className="block text-white/60 text-xs">{desc}</span>
+      </span>
+      <span
+        aria-hidden
+        className={`flex-none grid place-items-center w-5 h-5 rounded-full border transition ${
+          selected ? "border-action" : "border-white/25"
+        }`}
+      >
+        <span
+          className={`w-2.5 h-2.5 rounded-full bg-action transition ${
+            selected ? "scale-100" : "scale-0"
+          }`}
+        />
       </span>
     </button>
   );
@@ -102,6 +133,14 @@ export default function SyncDirectionModal({
   busy = false,
 }: Props) {
   const { t } = useTranslation();
+  const [picked, setPicked] = useState<SyncDirection | null>(null);
+
+  // Re-opening must not carry the previous answer: the choice is made in the
+  // dialog, never inherited from the last time it was shown.
+  useEffect(() => {
+    if (open) setPicked(null);
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -120,13 +159,18 @@ export default function SyncDirectionModal({
           {t("settings.sync.directionBody")}
         </p>
 
-        <div className="flex flex-col gap-3">
+        <div
+          role="radiogroup"
+          aria-label={t("settings.sync.directionTitle")}
+          className="flex flex-col gap-3"
+        >
           {/* AniList → local: this device mirrors AniList. */}
           <OptionButton
             icon={<AniListIcon />}
             title={t("settings.sync.dirFromTitle")}
             desc={t("settings.sync.dirFromDesc")}
-            onClick={() => onChoose("fromAniList")}
+            selected={picked === "fromAniList"}
+            onSelect={() => setPicked("fromAniList")}
             disabled={busy}
           />
 
@@ -144,7 +188,8 @@ export default function SyncDirectionModal({
             }
             title={t("settings.sync.dirToTitle")}
             desc={t("settings.sync.dirToDesc")}
-            onClick={() => onChoose("toAniList")}
+            selected={picked === "toAniList"}
+            onSelect={() => setPicked("toAniList")}
             disabled={busy}
           />
 
@@ -153,20 +198,27 @@ export default function SyncDirectionModal({
             icon={<SyncIcon />}
             title={t("settings.sync.dirOffTitle")}
             desc={t("settings.sync.dirOffDesc")}
-            onClick={() => onChoose("off")}
+            selected={picked === "off"}
+            onSelect={() => setPicked("off")}
             disabled={busy}
-            hoverRing="hover:ring-white/20"
           />
         </div>
 
-        <div className="flex justify-end mt-5">
+        {/* Confirm on top, full width — it is the target that has to be held.
+            Cancel sits under it, quieter, and is a plain click. */}
+        <div className="mt-6 flex flex-col gap-2">
+          <HoldButton
+            label={busy ? t("settings.sync.syncing") : t("settings.sync.dirConfirm")}
+            onConfirm={() => picked && onChoose(picked)}
+            disabled={busy || !picked}
+          />
           <button
             type="button"
             disabled={busy}
             onClick={onCancel}
-            className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15 disabled:opacity-50"
+            className="w-full px-4 py-2.5 rounded-lg text-sm text-white/70 hover:text-white hover:bg-white/5 disabled:opacity-50"
           >
-            {busy ? t("settings.sync.syncing") : t("settings.sync.cancel")}
+            {t("settings.sync.cancel")}
           </button>
         </div>
       </div>

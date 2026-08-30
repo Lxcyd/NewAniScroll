@@ -1,4 +1,6 @@
+import type { NextApiRequest, NextApiResponse } from "next";
 import NextAuth, { NextAuthOptions } from "next-auth";
+import { getToken } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import {
   attachAniList,
@@ -205,7 +207,9 @@ export const authOptions: NextAuthOptions = {
         if (getUsersClient() && Number.isFinite(anilistId)) {
           try {
             // An AniScroll session already open → link, don't fork a second
-            // account. This is the hierarchy the user asked for.
+            // account. This is the hierarchy the user asked for. The uid is put
+            // back on the token by the wrapper below, because NextAuth builds a
+            // blank token on every sign-in.
             const currentUid = (token as any)?.uid as string | undefined;
             let record = currentUid ? await findById(currentUid) : null;
 
@@ -261,6 +265,16 @@ export const authOptions: NextAuthOptions = {
         if (record) {
           Object.assign(token, accountClaims(record));
           (token as any).anilistName = record.anilistName;
+          // Unlinked since the token was minted: drop the AniList half, or the
+          // access token would keep the site syncing to an account the user
+          // just detached.
+          if (!record.anilistId) {
+            (token as any).token = undefined;
+            (token as any).list = undefined;
+            (token as any).image = null;
+            (token as any).id = record.id;
+            (token as any).sub = record.id;
+          }
         }
       }
 
@@ -294,4 +308,47 @@ export const authOptions: NextAuthOptions = {
   },
 };
 
-export default NextAuth(authOptions);
+/**
+ * Linking AniList must not swap the account under the visitor.
+ *
+ * NextAuth does not hand the jwt callback the token it already had: on every
+ * sign-in it builds a fresh one from the provider profile (name, email,
+ * picture, sub) and calls the callback with that. So the `uid` of an open
+ * AniScroll session was invisible there, and an AniList sign-in looked like a
+ * first login — it found or created a second account and took over the
+ * session, instead of attaching AniList to the account already signed in.
+ *
+ * The session cookie is still on the request during the OAuth callback (it is
+ * SameSite=Lax, and the return from anilist.co is a top-level navigation), so
+ * we read it ourselves and seed the token with the uid before the real
+ * callback runs. Everything else stays as it was: the account row is the
+ * authority, and `attachAniList` still refuses an AniList id owned by someone
+ * else.
+ */
+function optionsForRequest(req: NextApiRequest): NextAuthOptions {
+  const base = authOptions.callbacks!.jwt!;
+  return {
+    ...authOptions,
+    callbacks: {
+      ...authOptions.callbacks,
+      async jwt(params) {
+        if (params.account?.provider === "AniListProvider" && !(params.token as any)?.uid) {
+          try {
+            const previous = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+            const uid = (previous as any)?.uid;
+            if (uid) (params.token as any).uid = uid;
+          } catch (err) {
+            // Unreadable cookie → treat it as no session, the sign-in still
+            // works, it just cannot link.
+            console.error("[nextauth] previous session", err);
+          }
+        }
+        return base(params);
+      },
+    },
+  };
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  return NextAuth(req, res, optionsForRequest(req));
+}

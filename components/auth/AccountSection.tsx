@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
@@ -270,7 +270,9 @@ function AccountPanel({
       <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4 mb-4">
         <div className="flex items-baseline gap-2">
           <span className="font-semibold truncate">
-            {user.name || user.username}
+            {/* The AniScroll pseudo, not session.user.name — that one is the
+                AniList handle once linked, and this panel is the account. */}
+            {user.username || user.name}
           </span>
           <span className="text-white/40 text-xs font-mono">#{user.tag}</span>
         </div>
@@ -386,7 +388,13 @@ function AccountPanel({
               {t("auth.unlink")}
             </button>
           ) : (
-            <button type="button" className={BTN} onClick={() => setAuthOpen(true)}>
+            /* Straight to the OAuth round-trip: the account stays the one
+               signed in, AniList is attached to it. */
+            <button
+              type="button"
+              className={BTN}
+              onClick={() => signIn("AniListProvider")}
+            >
               {t("auth.link")}
             </button>
           )}
