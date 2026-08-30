@@ -136,13 +136,67 @@ en `position: fixed`, pour le parallaxe. Un voile fixe est cale sur la FENETRE :
 des que la page defilait, le haut du viewport — la partie volontairement claire
 du degrade — se glissait sous la rangee de statistiques et la rendait
 illisible. En `absolute`, couvrant bande + statistiques et se terminant dans le
-noir plein, le raccord avec le contenu est invisible.
+noir plein, le raccord avec le contenu est invisible. *(Cette conclusion a ete
+reprise le jour meme : voir la troisieme passe. Le `fixed` etait le bon choix,
+c'est le degrade qui etait le mauvais outil.)*
 
 **Piege d'outillage, a noter pour la prochaine fois** : `Page.captureScreenshot`
 apres un `scrollTo` en headless a rendu deux etats superposes (les memes pastilles
 de filtre dessinees a deux hauteurs), ce qui donnait l'illusion d'un bug de mise
 en page deja corrige. Mesurer la geometrie via `Runtime.evaluate`, et capturer
 avec `clip` + `captureBeyondViewport` plutot que de faire defiler la page.
+
+### Troisieme passe — le fond tient, et plus rien n'est recadre
+
+Deux reproches : « j'ai une image en plein ecran mais quand je scroll elle n'est
+plus la », et « image et banniere sont zoomees ».
+
+**Un fond qui disparait au defilement n'est pas un fond.** La deuxieme passe
+avait tire la mauvaise lecon de l'echec du `fixed` : ce n'etait pas la fixite
+qui posait probleme, c'etait d'avoir voulu qu'un voile fixe joue le role d'un
+degrade calcule sur la position du nom et des cartes, qui, eux, bougent. Le fond
+redevient donc `fixed` et couvre tout le viewport, et **le voile devient
+independant du defilement** : un voile uni. Chaque element qui doit rester
+lisible par-dessus une image quelconque porte desormais son propre contraste
+(ombre portee sur le nom, fond sombre + flou sur les cartes de statistiques). Le
+raccord avec la liste, lui, est dessine **dans le flux** (`.as-page-seam`), donc
+il reste colle au contenu quoi qu'il arrive.
+
+**Un aplat opaque annule un fond fixe.** Le contenu etait peint sur `bg-primary`
+plein : au bout d'un ecran de defilement, l'illustration etait definitivement
+recouverte — exactement le reproche. Il devient un **voile a 90 %**
+(`.as-page-under`), et l'image transparait sous la liste et le pied de page.
+Applique sans condition, sans avoir a savoir s'il y a une illustration : 90 % de
+`#0c0d10` pose sur le `#0c0d10` de la page redonne `#0c0d10`.
+
+**Le zoom venait d'une etiquette perimee, pas d'une mise a l'echelle.** La
+banniere epinglee du compte de test etait une bande fanart **1000x185**
+enregistree avec la source `background` (l'epinglage precede le stockage du type
+d'illustration, et l'API retombe sur `background` par defaut). Elle etait donc
+portee en papier peint plein ecran, ou elle perdait **62 % d'elle-meme**. Lecon :
+*la source declaree est une etiquette, et une etiquette vieillit ; les
+proportions de l'image, non.* Elle ne sert plus que de premiere hypothese le
+temps du premier rendu, puis la mesure decide — au-dela de 3:1 c'est une bande,
+en deca un fond. La mesure ne coute aucun telechargement (`new Image()` sur une
+URL que `next/image` a deja chargee).
+
+Dans la meme veine, les hauteurs de bande etaient choisies en `vh`, ce qui
+garantit un recadrage des que la fenetre n'a pas la bonne forme : la bande d'une
+banniere est desormais calee sur le **4.75:1** dans lequel AniList les dessine
+(1900x400).
+
+**Bug trouve par le releve, sans rapport avec la demande** : le profil affichait
+« 0 anime » a un visiteur anonyme. La requete AniList etait abandonnee a 6 s ;
+mesure sur la liste reelle (824 entrees) : **3,8 s / 11,7 s / 4,5 s**. Environ un
+chargement sur trois rendait donc un profil vide — et `0`, ce n'est pas
+« inconnu », c'est un chiffre faux. Delai porte a 14 s. Le vrai defaut de fond
+reste entier : une requete tierce lente et bloquante sur le chemin critique du
+SSR.
+
+**Verifie sur dev** (fenetre 1600x900) : illustration 1920x1080 → `fixed`, boite
+inchangee a `@y0` apres 500 px de defilement, 10 % de perte ; bande 1000x185 →
+mode bande, 1584x333, 12 % de perte au lieu de 64 % ; visiteur anonyme →
+383 animes, 683 lignes.
 
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
 est desormais la vitrine.
