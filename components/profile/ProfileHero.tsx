@@ -107,33 +107,36 @@ export default function ProfileHero({
 
   return (
     <header className="relative w-full">
-      <div className="relative h-[42vh] min-h-[280px] max-h-[460px] w-full overflow-hidden">
+      {/* The plate is as tall as the artwork is wide: 16:9 art on a widescreen
+          window is shown WHOLE rather than cropped into a strip — which is the
+          whole point of a banner taken from the anime's own illustrations, and
+          why nothing zooms or drifts over it any more. Capped at 80vh so it can
+          never push the list off the first screen, and floored so a phone
+          (where 56vw is a sliver) still gets a real header. */}
+      <div className="relative h-[max(340px,min(56.25vw,80vh))] w-full overflow-hidden">
         {banner.url ? (
-          <div className="absolute inset-0 as-hero-plate">
-            <Image
-              src={banner.url}
-              alt=""
-              fill
-              priority
-              sizes="100vw"
-              className={`object-cover ${banner.fallback ? "as-hero-cover" : ""}`}
-            />
-          </div>
+          <Image
+            src={banner.url}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className={`object-cover ${banner.fallback ? "as-hero-cover" : ""}`}
+          />
         ) : (
           /* No list, no artwork: the site's own colour. */
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
         )}
 
-        {/* Two fades, not one: vertical so the page bleeds into the plate,
-            horizontal so the name below always lands on a dark side whatever
-            the artwork happens to be bright on. */}
-        <div className="absolute inset-0 bg-gradient-to-t from-primary via-primary/60 to-primary/10" />
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/80 via-transparent to-primary/40" />
-        <div className="pointer-events-none absolute inset-x-0 -bottom-20 h-44 as-hero-glow" />
+        {/* One scrim, weighted to the bottom: the page bleeds into the plate
+            under the name while the middle of the artwork stays uncovered. Its
+            top stop darkens just enough for the transparent navbar. */}
+        <div className="as-hero-scrim absolute inset-0" />
+        <div className="pointer-events-none absolute inset-x-0 -bottom-24 h-48 as-hero-glow" />
 
         {/* Where the plate comes from — and, for the owner, the way to change
-            it. Sits on the plate so it never competes with the name. */}
-        <div className="absolute bottom-3 right-3 z-10 flex flex-wrap items-center justify-end gap-2 md:bottom-5 md:right-6">
+            it. Pinned under the navbar so it never crowds the name below. */}
+        <div className="absolute right-3 top-[4.75rem] z-10 flex flex-wrap items-center justify-end gap-2 md:right-6">
           {banner.title && banner.animeId ? (
             <Link
               href={animeHref(banner.animeId, clickTarget)}
@@ -153,94 +156,95 @@ export default function ProfileHero({
             </button>
           ) : null}
         </div>
-      </div>
 
-      <div className="relative z-10 mx-auto -mt-16 w-full max-w-screen-lg px-4 md:-mt-20">
-        <div className="flex items-end gap-4 md:gap-6">
-          <div className="shrink-0 rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
-            {avatar ? (
-              <Image
-                src={avatar}
-                alt={name}
-                width={128}
-                height={128}
-                priority
-                className="h-24 w-24 rounded-[1.2rem] object-cover md:h-28 md:w-28"
-              />
-            ) : (
-              <div className="flex h-24 w-24 items-center justify-center rounded-[1.2rem] bg-primary text-4xl font-bold text-white/80 md:h-28 md:w-28">
-                {name.charAt(0).toUpperCase()}
-              </div>
-            )}
-          </div>
-
-          <div className="min-w-0 pb-1">
-            {/* The name overlaps the plate, which can be anything: the shadow
-                is what keeps it readable over a bright artwork. */}
-            <h1
-              className="truncate font-outfit text-3xl font-bold leading-tight md:text-4xl"
-              style={{ textShadow: "0 2px 14px rgba(0,0,0,0.65)" }}
-            >
-              {name}
-            </h1>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-              {tag ? (
-                <span className="rounded-md bg-white/5 px-2 py-1 font-mono text-white/50 ring-1 ring-white/10">
-                  #{tag}
-                </span>
-              ) : null}
-              {anilistName ? (
-                <a
-                  href={`https://anilist.co/user/${anilistName}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-md bg-[#02a9ff]/15 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 transition-colors hover:bg-[#02a9ff]/25"
-                >
-                  AniList · {anilistName}
-                </a>
-              ) : null}
-              {createdAt ? (
-                <span className="px-1 py-1 text-white/40">
-                  {t("profile.memberSince", {
-                    date: new Date(createdAt).toLocaleDateString(undefined, {
-                      month: "long",
-                      year: "numeric",
-                    }),
-                  })}
-                </span>
-              ) : null}
+        {/* The identity sits ON the artwork, at its foot. */}
+        <div className="absolute inset-x-0 bottom-0 z-10">
+          <div className="mx-auto flex w-full max-w-screen-lg items-end gap-4 px-4 pb-5 md:gap-6 md:pb-7">
+            <div className="shrink-0 rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
+              {avatar ? (
+                <Image
+                  src={avatar}
+                  alt={name}
+                  width={128}
+                  height={128}
+                  priority
+                  className="h-20 w-20 rounded-[1.2rem] object-cover md:h-28 md:w-28"
+                />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-[1.2rem] bg-primary text-3xl font-bold text-white/80 md:h-28 md:w-28 md:text-4xl">
+                  {name.charAt(0).toUpperCase()}
+                </div>
+              )}
             </div>
-            {subtitle ? (
-              <p className="mt-1 text-xs text-white/40">{subtitle}</p>
-            ) : null}
-          </div>
-        </div>
 
-        {stats.length > 0 ? (
-          <dl className="mt-6 grid grid-cols-2 gap-2.5 sm:grid-cols-4 md:gap-3">
-            {stats.map((s) => (
-              <div
-                key={s.key}
-                className="as-stat-card rounded-xl px-3.5 py-3 ring-1 ring-white/10"
+            <div className="min-w-0 pb-1">
+              {/* The name overlaps the plate, which can be anything: the shadow
+                  is what keeps it readable over a bright artwork. */}
+              <h1
+                className="truncate font-outfit text-3xl font-bold leading-tight md:text-5xl"
+                style={{ textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
               >
-                <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
-                  {s.label}
-                </dt>
-                <dd
-                  className={`mt-0.5 font-outfit text-2xl font-bold leading-none ${
-                    s.accent ? "text-action" : "text-white"
-                  }`}
-                >
-                  {s.value}
-                </dd>
-                {s.hint ? (
-                  <p className="mt-1 text-[10px] text-white/35">{s.hint}</p>
+                {name}
+              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                {tag ? (
+                  <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
+                    #{tag}
+                  </span>
+                ) : null}
+                {anilistName ? (
+                  <a
+                    href={`https://anilist.co/user/${anilistName}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md bg-[#02a9ff]/20 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 backdrop-blur-sm transition-colors hover:bg-[#02a9ff]/30"
+                  >
+                    AniList · {anilistName}
+                  </a>
+                ) : null}
+                {createdAt ? (
+                  <span className="px-1 py-1 text-white/50">
+                    {t("profile.memberSince", {
+                      date: new Date(createdAt).toLocaleDateString(undefined, {
+                        month: "long",
+                        year: "numeric",
+                      }),
+                    })}
+                  </span>
                 ) : null}
               </div>
-            ))}
-          </dl>
-        ) : null}
+              {subtitle ? (
+                <p className="mt-1 text-xs text-white/50">{subtitle}</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
       </div>
+
+      {stats.length > 0 ? (
+        <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
+          {stats.map((s) => (
+            <div
+              key={s.key}
+              className="as-stat-card rounded-xl px-3.5 py-3 ring-1 ring-white/10"
+            >
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                {s.label}
+              </dt>
+              <dd
+                className={`mt-0.5 font-outfit text-2xl font-bold leading-none ${
+                  s.accent ? "text-action" : "text-white"
+                }`}
+              >
+                {s.value}
+              </dd>
+              {s.hint ? (
+                <p className="mt-1 text-[10px] text-white/35">{s.hint}</p>
+              ) : null}
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </header>
   );
 }

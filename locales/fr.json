@@ -810,12 +810,17 @@
     "bannerFrom": "Bannière — {{title}}",
     "changeBanner": "Changer la bannière",
     "pickBanner": "Choisir sa bannière",
-    "pickBannerHint": "Prenez une illustration d'un de vos animes préférés. Sans choix, le profil suit votre anime préféré.",
+    "pickBannerHint": "Choisissez une illustration, puis confirmez. Sans choix, le profil suit tout seul votre anime préféré.",
     "pickBannerEmpty": "Ajoutez un anime à votre liste et ses illustrations apparaîtront ici.",
     "pickBannerNoArt": "Aucune illustration large pour cet anime.",
     "bannerPinned": "Bannière choisie par vous.",
     "bannerAuto": "Automatique — suit votre anime préféré.",
-    "bannerReset": "Revenir à l'automatique"
+    "bannerReset": "Revenir à l'automatique",
+    "bannerApply": "Utiliser cette bannière",
+    "artInPlace": "En place",
+    "artPoster": "Affiche",
+    "artThin": "Bannière fine",
+    "favouriteAnime": "Votre anime préféré"
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",

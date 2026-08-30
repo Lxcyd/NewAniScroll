@@ -24,7 +24,7 @@ import {
   localListFromCloudPayload,
   statsFromEntries,
 } from "@/lib/profile/sources";
-import { rankCandidates } from "@/lib/profile/favorite";
+import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import type { ProfileEntry, ProfileIdentity, ProfileStats } from "@/lib/profile/types";
 
@@ -351,18 +351,10 @@ export async function getServerSideProps(context: any) {
     }
   }
 
+  const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
   const resolved = pinnedBanner
     ? null
-    : await resolveFavoriteBanner(
-        entries.map((e) => ({
-          mediaId: e.mediaId,
-          score: e.score,
-          favourite: !!e.favourite,
-          repeat: e.repeat || 0,
-          meanScore: known.get(e.mediaId)?.meanScore ?? null,
-        })),
-        known,
-      );
+    : await resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known);
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more
@@ -388,15 +380,7 @@ export async function getServerSideProps(context: any) {
   /* What the picker may offer. Only the owner ever opens it, so it is only
      computed — and only shipped — for them. */
   const topAnimes: PickerAnime[] = isOwner
-    ? rankCandidates(
-        entries.map((e) => ({
-          mediaId: e.mediaId,
-          score: e.score,
-          favourite: !!e.favourite,
-          repeat: e.repeat || 0,
-          meanScore: known.get(e.mediaId)?.meanScore ?? null,
-        })),
-      )
+    ? rankCandidates(bannerCandidates(entries, meanScoreOf))
         .slice(0, 12)
         .map((c) => {
           const entry = entries.find((e) => e.mediaId === c.mediaId)!;

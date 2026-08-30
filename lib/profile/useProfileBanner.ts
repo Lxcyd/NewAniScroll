@@ -13,7 +13,12 @@
  */
 
 import { useEffect, useState } from "react";
-import { pickFavorite, tiedHead, type FavoriteCandidate } from "./favorite";
+import {
+  bannerCandidates,
+  pickFavorite,
+  tiedHead,
+  type FavoriteCandidate,
+} from "./favorite";
 import type { ProfileEntry } from "./types";
 
 export type ResolvedBanner = {
@@ -62,13 +67,7 @@ async function bannerFor(animeId: number): Promise<any | null> {
 }
 
 export function candidatesOf(entries: ProfileEntry[]): FavoriteCandidate[] {
-  return entries.map((e) => ({
-    mediaId: e.mediaId,
-    score: e.score,
-    favourite: !!e.favourite,
-    repeat: e.repeat || 0,
-    meanScore: null,
-  }));
+  return bannerCandidates(entries);
 }
 
 /**

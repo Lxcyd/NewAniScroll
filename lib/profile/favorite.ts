@@ -21,6 +21,8 @@
  * first, then fill in the mean score for the group still tied at the top.
  */
 
+import type { ProfileEntry } from "./types";
+
 export type FavoriteCandidate = {
   mediaId: number;
   /** The user's rating, /10. null when unrated — an unrated title loses. */
@@ -32,6 +34,35 @@ export type FavoriteCandidate = {
   /** The anime's own average, /100. null when not resolved yet. */
   meanScore?: number | null;
 };
+
+/**
+ * Which entries may dress a profile at all.
+ *
+ * A title still in "Planning" with no episode watched is EXCLUDED, however it
+ * is rated. On AniList a score on a planned show is an expectation, not a
+ * verdict — and a list can hold hundreds of them: measured on a real 683-entry
+ * list, 297 were planned-and-untouched and eleven of them, all 10/10, filled
+ * the whole top of the ranking ahead of shows their owner had actually seen.
+ * The profile is meant to say "this is what I love", which a show one has never
+ * started cannot say.
+ *
+ * Anything watched at least once stays eligible, dropped and paused included:
+ * those are verdicts.
+ */
+export function bannerCandidates(
+  entries: ProfileEntry[],
+  meanScoreOf?: (mediaId: number) => number | null | undefined,
+): FavoriteCandidate[] {
+  return entries
+    .filter((e) => !(e.status === "PLANNING" && !e.progress))
+    .map((e) => ({
+      mediaId: e.mediaId,
+      score: e.score,
+      favourite: !!e.favourite,
+      repeat: e.repeat || 0,
+      meanScore: meanScoreOf?.(e.mediaId) ?? null,
+    }));
+}
 
 /** How many of the first-three-criteria ties are worth a mean-score lookup. */
 export const MEAN_SCORE_TIE_LIMIT = 8;

@@ -810,12 +810,17 @@
     "bannerFrom": "Banner — {{title}}",
     "changeBanner": "Change banner",
     "pickBanner": "Choose your banner",
-    "pickBannerHint": "Pick an artwork from one of your top anime. Left alone, your profile follows your favourite one.",
+    "pickBannerHint": "Pick an artwork, then confirm. Left alone, your profile follows your favourite anime on its own.",
     "pickBannerEmpty": "Add an anime to your list and its artwork will show up here.",
     "pickBannerNoArt": "No wide artwork for this anime.",
     "bannerPinned": "Banner pinned by you.",
     "bannerAuto": "Automatic — follows your favourite anime.",
-    "bannerReset": "Back to automatic"
+    "bannerReset": "Back to automatic",
+    "bannerApply": "Use this banner",
+    "artInPlace": "In place",
+    "artPoster": "Poster",
+    "artThin": "Thin banner",
+    "favouriteAnime": "Your favourite anime"
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

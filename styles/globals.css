@@ -2118,26 +2118,29 @@ input[type="number"] {
    Profile hero (components/profile/ProfileHero.tsx)
 
    The plate behind a profile. Three states, one component:
-     - an artwork      → .as-hero-plate, slow drift so a still image breathes;
+     - an artwork      → shown WHOLE. The band is sized on the 16:9 ratio of the
+                         art itself, and nothing zooms or drifts over it: a slow
+                         Ken-Burns drift was tried first and it crops, which is
+                         precisely what the banner is not supposed to do;
      - nothing at all  → .as-hero-default, built from the site's accent colour
                          (--brand-primary, so a custom theme repaints it);
      - a portrait cover as last resort → .as-hero-cover blurs and over-scales
                          it, because a poster stretched across a wide band is
-                         the ugliest case of all.
-   The drift is a compositor-only transform and is paused with the rest of the
-   page when the tab is hidden (html.tab-hidden, above).
+                         the ugliest case of all. This is the ONE place a blur
+                         is deliberate — the picker never blurs anything.
    ───────────────────────────────────────────────────────────────── */
-.as-hero-plate {
-  animation: as-hero-drift 48s ease-in-out infinite alternate;
-  will-change: transform;
-}
-@keyframes as-hero-drift {
-  from {
-    transform: scale(1.06) translate3d(0, 0, 0);
-  }
-  to {
-    transform: scale(1.16) translate3d(-2%, -2%, 0);
-  }
+.as-hero-scrim {
+  /* Weighted to the bottom so the name reads and the middle of the artwork
+     stays uncovered; the top stop only darkens enough for the transparent
+     navbar. Stops are the page background (#0c0d10 = `primary`). */
+  background: linear-gradient(
+    to top,
+    rgb(12, 13, 16) 0%,
+    rgba(12, 13, 16, 0.92) 14%,
+    rgba(12, 13, 16, 0.55) 34%,
+    rgba(12, 13, 16, 0.12) 60%,
+    rgba(12, 13, 16, 0.42) 100%
+  );
 }
 .as-hero-cover {
   filter: blur(28px) saturate(1.3);
@@ -2189,10 +2192,4 @@ input[type="number"] {
     rgba(255, 255, 255, 0.07),
     rgba(255, 255, 255, 0.02)
   );
-}
-@media (prefers-reduced-motion: reduce) {
-  .as-hero-plate {
-    animation: none;
-    transform: scale(1.06);
-  }
 }
