@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PhotoIcon } from "@heroicons/react/24/outline";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -110,8 +111,36 @@ export default function ProfileHero({
 
   /* An illustration is worn as the page's WALLPAPER — fixed to the window, the
      profile scrolling over it. A banner-shaped strip stays a strip: it was
-     composed as one, and there is nothing above or below its crop to reveal. */
-  const mode = banner.url ? plateMode(banner.source) : "none";
+     composed as one, and there is nothing above or below its crop to reveal.
+     Stretching one across the window is the "zoom" this measurement exists to
+     prevent — a 1000x185 fanart banner loses 62% of itself that way.
+
+     The declared source is only the FIRST guess, used so the first paint is not
+     a guess-free blank: it is a label, and labels go stale. A banner pinned
+     before the kind was stored alongside the URL comes back as "background" and
+     would be worn as a wallpaper. The picture's own proportions cannot go
+     stale, so once it has loaded they decide. Nothing is downloaded twice —
+     next/image has already fetched this exact URL, so the probe reads the cache. */
+  const [ratio, setRatio] = useState<number | null>(null);
+  useEffect(() => {
+    setRatio(null);
+    if (!banner.url) return;
+    const probe = new window.Image();
+    probe.onload = () => {
+      if (probe.naturalHeight) setRatio(probe.naturalWidth / probe.naturalHeight);
+    };
+    probe.src = banner.url;
+  }, [banner.url]);
+
+  const mode = !banner.url
+    ? "none"
+    : banner.fallback
+      ? "page" /* a portrait cover: blurred wallpaper, never a strip */
+      : ratio == null
+        ? plateMode(banner.source)
+        : ratio > 3
+          ? "band"
+          : "page";
   const asPage = mode === "page";
 
   return (
