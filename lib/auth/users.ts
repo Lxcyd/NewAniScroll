@@ -100,6 +100,11 @@ export function findByAnilistId(anilistId: number) {
   return findOne(`${SELECT} WHERE anilist_id = ?`, [anilistId]);
 }
 
+/** The public half of an identity — what a profile URL carries. */
+export function findByTag(tag: string) {
+  return findOne(`${SELECT} WHERE tag = ?`, [tag.trim().toUpperCase()]);
+}
+
 /** Login accepts either the e-mail or the pseudo in the same field. */
 export function findByIdentifier(identifier: string) {
   const value = identifier.trim();

@@ -1,0 +1,296 @@
+[
+ {
+  "mal_id": 20,
+  "anilist_id": 20,
+  "slug": "naruto",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "va_slug": "naruto",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     220
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "va_slug": "naruto-vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     220
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 36456,
+  "anilist_id": 100166,
+  "slug": "my-hero-academia",
+  "seasons": [
+   {
+    "season_dir": "saison3",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "boku-no-hero-academia-3"
+   },
+   {
+    "season_dir": "saison3",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "boku-no-hero-academia-3-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 11061,
+  "anilist_id": 11061,
+  "slug": "hunter-x-hunter",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     148
+    ],
+    "va_slug": "hunter-x-hunter-2011-vf"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     148
+    ],
+    "va_slug": "hunter-x-hunter-2011"
+   }
+  ]
+ },
+ {
+  "mal_id": 9919,
+  "anilist_id": 9919,
+  "slug": "blue-exorcist",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "ao-no-exorcist"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "ao-no-exorcist-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 21881,
+  "anilist_id": 20594,
+  "slug": "sword-art-online",
+  "seasons": [
+   {
+    "season_dir": "saison2",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "sword-art-online-ii"
+   },
+   {
+    "season_dir": "saison2",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "sword-art-online-ii-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 30276,
+  "anilist_id": 21087,
+  "slug": "one-punch-man",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "one-punch-man"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "one-punch-man-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 37450,
+  "anilist_id": 101291,
+  "slug": "rascal-does-not-dream-of-bunny-girl-senpai",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     13
+    ],
+    "va_slug": "seishun-buta-yarou-wa-bunny-girl-senpai-no-yume-wo-minai"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     13
+    ],
+    "va_slug": "seishun-buta-yarou-wa-bunny-girl-senpai-no-yume-wo-minai-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 37999,
+  "anilist_id": 101921,
+  "slug": "kaguya-sama-love-is-war",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "kaguya-sama-wa-kokurasetai-tensai-tachi-no-renai-zunousen"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "kaguya-sama-wa-kokurasetai-tensai-tachi-no-renai-zunousen-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 38671,
+  "anilist_id": 105310,
+  "slug": "fire-force",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     24
+    ],
+    "va_slug": "enen-no-shouboutai"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     24
+    ],
+    "va_slug": "enen-no-shouboutai-vf"
+   }
+  ]
+ },
+ {
+  "mal_id": 9253,
+  "anilist_id": 9253,
+  "slug": "steins-gate",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12,
+     25
+    ],
+    "va_slug": "steinsgate-vf"
+   }
+  ]
+ }
+]

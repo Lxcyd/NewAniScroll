@@ -73,7 +73,9 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
           <Link
             href={
               sessions?.user?.anilistId
-                ? `/en/profile/${sessions?.user?.name}`
+                ? `/en/profile/${sessions?.user?.name}${
+                    sessions?.user?.tag ? `-${sessions.user.tag}` : ""
+                  }`
                 : "/en/settings#account"
             }
             className="fixed lg:hidden bottom-[100px] w-[60px] h-[60px] flex items-center justify-center right-[20px] rounded-full z-50 bg-[#17171f]"

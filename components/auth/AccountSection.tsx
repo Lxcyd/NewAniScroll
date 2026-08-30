@@ -17,11 +17,7 @@ import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { notify } from "@/lib/notifications/noticeStore";
-import {
-  guestDisplayName,
-  setGuestName,
-  useGuestIdentity,
-} from "@/lib/prefs/guestIdentity";
+import { guestTag, useGuestIdentity } from "@/lib/prefs/guestIdentity";
 import { validateUsername } from "@/lib/auth/username";
 import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import EmailCodeField from "./EmailCodeField";
@@ -62,47 +58,31 @@ function Row({
 function GuestPanel() {
   const { t } = useTranslation();
   const identity = useGuestIdentity();
-  const [draft, setDraft] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
 
   // Null until the effect has read localStorage — rendering the generated name
   // during SSR would mismatch on hydration.
   if (!identity) return null;
 
-  const shown = guestDisplayName(identity, t("auth.guestWord"));
-  const value = draft ?? identity.name ?? "";
-
-  const save = () => {
-    const name = value.trim();
-    if (name) {
-      const code = validateUsername(name);
-      if (code) {
-        notify.error(t(`auth.username.${code}`, t("auth.errors.generic")));
-        return;
-      }
-    }
-    setGuestName(name || null);
-    setDraft(null);
-    notify.success(t("auth.guestRenamed"));
-  };
-
   return (
     <>
       <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
-        <div className="font-semibold">{shown}</div>
-        <div className="text-white/50 text-xs mt-0.5">{t("auth.guestDesc")}</div>
-
-        <div className="mt-4 flex gap-2">
-          <input
-            className={INPUT}
-            value={value}
-            maxLength={20}
-            placeholder={t("auth.guestNamePlaceholder")}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <button type="button" className={BTN} onClick={save}>
-            {t("auth.save")}
-          </button>
+        {/* A guest's name is generated and cannot be changed: a free-text name
+            is precisely what would let two visitors be indistinguishable in a
+            shared room. */}
+        <div className="flex items-center gap-3.5">
+          <span className="flex-none grid place-items-center w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/10 text-white/50 font-semibold">
+            ?
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold truncate">{t("auth.guestWord")}</span>
+              <span className="text-white/40 text-xs font-mono">
+                #{guestTag(identity)}
+              </span>
+            </div>
+            <div className="text-white/50 text-xs mt-0.5">{t("auth.guestDesc")}</div>
+          </div>
         </div>
 
         {/* The warning is the point of the whole feature: a guest's data lives
@@ -434,6 +414,20 @@ function AccountPanel({
         <Row title={t("auth.exportTitle")} desc={t("auth.exportDesc")}>
           <button type="button" className={BTN} onClick={exportData}>
             {t("auth.export")}
+          </button>
+        </Row>
+
+        {/* Signing out lived only in the navigation menu; the account panel is
+            where someone goes looking for it. Nothing is lost — the data is on
+            the account, this browser just stops being signed in. */}
+        <Row title={t("auth.signOutTitle")} desc={t("auth.signOutDesc")}>
+          <button
+            type="button"
+            disabled={busy}
+            className={BTN}
+            onClick={() => signOut({ redirect: false })}
+          >
+            {t("nav.signOut")}
           </button>
         </Row>
 

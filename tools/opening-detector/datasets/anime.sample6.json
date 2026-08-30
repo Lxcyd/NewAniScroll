@@ -1,0 +1,164 @@
+[
+ {
+  "mal_id": 16498,
+  "anilist_id": 16498,
+  "slug": "shingeki-no-kyojin",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 38000,
+  "anilist_id": 101922,
+  "slug": "demon-slayer",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 40748,
+  "anilist_id": 113415,
+  "slug": "jujutsu-kaisen",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 1535,
+  "anilist_id": 1535,
+  "slug": "death-note",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 31964,
+  "anilist_id": 21459,
+  "slug": "my-hero-academia",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ },
+ {
+  "mal_id": 11061,
+  "anilist_id": 11061,
+  "slug": "hunter-x-hunter",
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ]
+   }
+  ]
+ }
+]

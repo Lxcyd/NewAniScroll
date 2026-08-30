@@ -12,14 +12,21 @@
  * mints its own id and tag, and uniqueness comes from PRIMARY KEY / UNIQUE,
  * never from the client. Two browsers colliding on a local UUID would be
  * harmless, and cannot reach the database anyway.
+ *
+ * **A guest cannot choose a name.** A free-text name is exactly what makes two
+ * visitors indistinguishable in a shared room — anyone could call themselves
+ * what someone else is called. The name is `Invité#123456` and nothing else:
+ * the digits come from the local id, so they are stable for this browser and
+ * effectively never repeat between two people in the same watch party. This is
+ * also the only identity a guest has anywhere, so watch2gether uses it too
+ * rather than minting a second one of its own.
  */
 
 import { useEffect, useState } from "react";
 
 export type GuestIdentity = {
+  /** Local UUID. The real identity; the tag below is only its readable face. */
   id: string;
-  /** Chosen name, or null to fall back to the generated Guest#TAG. */
-  name: string | null;
   createdAt: number;
 };
 
@@ -31,7 +38,7 @@ function mint(): GuestIdentity {
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
-  return { id, name: null, createdAt: Date.now() };
+  return { id, createdAt: Date.now() };
 }
 
 /**
@@ -45,10 +52,11 @@ export function getGuestIdentity(): GuestIdentity | null {
     const raw = window.localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      // A `name` written by an older build is simply ignored — guests do not
+      // carry a chosen name any more.
       if (parsed && typeof parsed.id === "string") {
         return {
           id: parsed.id,
-          name: typeof parsed.name === "string" ? parsed.name : null,
           createdAt: Number(parsed.createdAt) || Date.now(),
         };
       }
@@ -61,35 +69,36 @@ export function getGuestIdentity(): GuestIdentity | null {
   }
 }
 
-export function setGuestName(name: string | null): GuestIdentity | null {
-  if (typeof window === "undefined") return null;
-  const current = getGuestIdentity();
-  if (!current) return null;
-  const next = { ...current, name: name?.trim() || null };
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(next));
-  } catch {
-    /* best-effort */
-  }
-  window.dispatchEvent(new CustomEvent(GUEST_IDENTITY_EVENT));
-  return next;
-}
-
-/** The 6 public hex chars, derived from the local id the same way a server tag looks. */
+/**
+ * Six digits, same shape as an account tag — a tag is read aloud and typed by
+ * people, and letters invite the b/8 and O/0 confusions.
+ *
+ * Derived from the id rather than drawn at random so it survives a reload and
+ * so there is one identity, not two. FNV-1a over the whole UUID: the id is the
+ * thing that is actually unique, the digits are its readable face. Two guests
+ * in the same room landing on the same six digits is a one-in-a-million
+ * display collision; the server still tells them apart by the id.
+ */
 export function guestTag(identity: GuestIdentity): string {
-  return identity.id.replace(/-/g, "").slice(0, 6).toUpperCase();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < identity.id.length; i++) {
+    hash ^= identity.id.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return String(hash % 1_000_000).padStart(6, "0");
 }
 
 /**
- * Display name. `guestLabel` is the localised word ("Guest" / "Invité") the
- * caller pulls from its i18n dictionary — this module stays language-free so
- * the stored value never depends on the language at the time it was written.
+ * Display name, always generated. `guestLabel` is the localised word ("Guest"
+ * / "Invité") the caller pulls from its i18n dictionary — this module stays
+ * language-free so nothing stored depends on the language at the time it was
+ * written.
  */
 export function guestDisplayName(
   identity: GuestIdentity,
   guestLabel = "Guest"
 ): string {
-  return identity.name ?? `${guestLabel}#${guestTag(identity)}`;
+  return `${guestLabel}#${guestTag(identity)}`;
 }
 
 export function useGuestIdentity(): GuestIdentity | null {

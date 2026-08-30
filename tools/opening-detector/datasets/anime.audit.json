@@ -1,0 +1,214 @@
+[
+  {
+    "mal_id": 2402,
+    "anilist_id": 2402,
+    "slug": "ashita-no-joe",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "ashita-no-joe"
+      },
+      {
+        "season_dir": "saison1",
+        "lang": "vf",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "ashita-no-joe-2-vf",
+        "va_only": true
+      }
+    ]
+  },
+  {
+    "mal_id": 31043,
+    "anilist_id": 21234,
+    "slug": "erased",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "boku-dake-ga-inai-machi"
+      }
+    ]
+  },
+  {
+    "mal_id": 20507,
+    "anilist_id": 20447,
+    "slug": "noragami",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 37521,
+    "anilist_id": 101348,
+    "slug": "vinland-saga",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "vinland-saga"
+      },
+      {
+        "season_dir": "saison1",
+        "lang": "vf",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "vinland-saga-vf"
+      }
+    ]
+  },
+  {
+    "mal_id": 4224,
+    "anilist_id": 4224,
+    "slug": "toradora",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 22199,
+    "anilist_id": 20613,
+    "slug": "akame-ga-kill",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "akame-ga-kill"
+      }
+    ]
+  },
+  {
+    "mal_id": 28999,
+    "anilist_id": 20997,
+    "slug": "charlotte",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "charlotte"
+      }
+    ]
+  },
+  {
+    "mal_id": 10620,
+    "anilist_id": 10620,
+    "slug": "mirai-nikki",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 37520,
+    "anilist_id": 101347,
+    "slug": "dororo",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 15809,
+    "anilist_id": 15809,
+    "slug": "hataraku-maou-sama",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 9989,
+    "anilist_id": 9989,
+    "slug": "anohana",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "ano-hi-mita-hana-no-namae-wo-bokutachi-wa-mada-shiranai"
+      }
+    ]
+  },
+  {
+    "mal_id": 14813,
+    "anilist_id": 14813,
+    "slug": "oregairu",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4
+      }
+    ]
+  },
+  {
+    "mal_id": 57334,
+    "anilist_id": 171018,
+    "slug": "dandadan",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "dandadan"
+      },
+      {
+        "season_dir": "saison1",
+        "lang": "vf",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "dandadan-vf"
+      }
+    ]
+  },
+  {
+    "mal_id": 12189,
+    "anilist_id": 12189,
+    "slug": "hyouka",
+    "seasons": [
+      {
+        "season_dir": "saison1",
+        "lang": "vostfr",
+        "ep_start": 2,
+        "ep_end": 4,
+        "va_slug": "hyouka"
+      }
+    ]
+  }
+]

@@ -296,8 +296,35 @@ export default function MyList({
   );
 }
 
+/**
+ * The URL segment is `Pseudo-123456` — the pseudo for readability, the tag for
+ * identity, since two people may share a pseudo and only the tag is unique.
+ * `#` cannot be used as the separator: a browser would keep everything after
+ * it as a fragment and the server would never see the tag.
+ *
+ * The AniList query below needs an AniList username, so the tag is resolved to
+ * one first. A segment with no tag, or a tag that matches nothing, is taken as
+ * an AniList username directly — the links that existed before this change,
+ * and any AniList profile typed by hand, keep working.
+ */
+async function resolveAniListName(segment: string): Promise<string> {
+  // Six digits (tags minted today) or six hex chars (those minted before the
+  // digits-only rule). A pseudo that happens to end that way simply misses the
+  // lookup and is used whole, which is the same answer as before.
+  const match = /^(.*)-([0-9A-Fa-f]{6})$/.exec(segment);
+  if (!match) return segment;
+  try {
+    const { findByTag } = await import("@/lib/auth/users");
+    const record = await findByTag(match[2]);
+    if (record?.anilistName) return record.anilistName;
+  } catch {
+    /* accounts database unavailable — fall through to the raw segment */
+  }
+  return segment;
+}
+
 export async function getServerSideProps(context: any) {
-  const query = context.query;
+  const query = { ...context.query, user: await resolveAniListName(context.query.user) };
 
   const [data, session] = await pls.post(
     "https://graphql.anilist.co/",

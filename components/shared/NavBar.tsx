@@ -87,8 +87,13 @@ export function Navbar({
   const avatarUrl: string | undefined =
     session?.user?.image?.large || session?.user?.image?.medium ||
     (typeof session?.user?.image === "string" ? session.user.image : undefined);
+  /* The tag goes in the URL: two people can share a pseudo, only the tag is
+     unique. Separated by "-" because a browser would swallow everything after
+     a "#" as a fragment and the server would never see it. */
   const profileHref = session?.user?.anilistId
-    ? `/en/profile/${session?.user?.name}`
+    ? `/en/profile/${session?.user?.name}${
+        session?.user?.tag ? `-${session.user.tag}` : ""
+      }`
     : "/en/settings#account";
   const { setIsOpen } = useSearch();
 
@@ -276,7 +281,7 @@ export function Navbar({
                 <li>
                   <Link
                     href={
-                      session ? `/en/profile/${session?.user?.name}` : "/en/my-list"
+                      session ? profileHref : "/en/my-list"
                     }
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
