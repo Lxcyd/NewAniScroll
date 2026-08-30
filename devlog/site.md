@@ -108,6 +108,42 @@ les illustrations de l'anime ne doit pas faire. Supprime, et la bande se
 dimensionne desormais sur le 16:9 de l'illustration (`min(56.25vw, 80vh)`) :
 sur un ecran large, l'image est visible en entier.
 
+### Deuxieme passe : ce qui compte comme verdict, et image vs banniere
+
+**"Terminé" est le vrai filtre, pas "commence".** La passe precedente excluait
+les titres jamais lances ; il restait le fond du probleme. Une note posee avant
+la fin n'est pas un verdict sur l'oeuvre — c'est une attente ("Prevu") ou une
+impression a mi-parcours ("En cours"), et c'est regulierement un 10 qui ne
+survit pas au denouement. Seuls `COMPLETED` et `REPEATING` restent candidats
+(683 entrees -> 187). `REPEATING` est la raison pour laquelle le test n'est pas
+litteralement "completed" : un re-visionnage veut dire que l'oeuvre a ete finie
+au moins une fois, le verdict le plus fort qui soit. En pause et abandonne sont
+dehors : l'histoire n'a jamais ete vue jusqu'au bout, la note ne porte pas sur
+le meme objet.
+
+**Une illustration et une banniere ne se portent pas pareil.** Un fond 16:9 est
+une IMAGE : elle passe derriere toute la zone d'en-tete et le profil se lit
+dessus. Une banniere AniList 1900x400, ou un fanart 1000x185, est composee comme
+un bandeau — il n'y a rien au-dessus ni en dessous du cadrage a reveler, donc
+l'agrandir ne fait que la grossir : elle reste un bandeau (`plateMode`). Le
+format voyage avec le choix jusque dans la banniere epinglee, parce que rien ne
+permet de le deduire de l'URL. La decision pure vit dans `types.ts` et non dans
+`banner.ts` : ce dernier atteint la base des fanarts, et le hero — qui pose la
+question — ne doit pas trainer un client libSQL dans le bundle navigateur.
+
+**Le voile doit defiler avec l'image qu'il attenue.** Le fond a d'abord ete pose
+en `position: fixed`, pour le parallaxe. Un voile fixe est cale sur la FENETRE :
+des que la page defilait, le haut du viewport — la partie volontairement claire
+du degrade — se glissait sous la rangee de statistiques et la rendait
+illisible. En `absolute`, couvrant bande + statistiques et se terminant dans le
+noir plein, le raccord avec le contenu est invisible.
+
+**Piege d'outillage, a noter pour la prochaine fois** : `Page.captureScreenshot`
+apres un `scrollTo` en headless a rendu deux etats superposes (les memes pastilles
+de filtre dessinees a deux hauteurs), ce qui donnait l'illusion d'un bug de mise
+en page deja corrige. Mesurer la geometrie via `Runtime.evaluate`, et capturer
+avec `clip` + `captureBeyondViewport` plutot que de faire defiler la page.
+
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
 est desormais la vitrine.
 
