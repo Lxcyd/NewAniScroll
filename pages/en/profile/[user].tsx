@@ -265,7 +265,11 @@ const ANILIST_QUERY = `
 async function fetchAniList(username: string): Promise<any | null> {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
+    /* Mesure sur une liste de 824 entrees : 3,8 s / 11,7 s / 4,5 s. A 6 s, un
+       profil charge sur trois etait abandonne en cours de route et rendu vide,
+       "0 anime" -- un chiffre faux, pas une absence de chiffre. Le cout d un
+       abandon est donc bien plus eleve que celui de l attente. */
+    const timer = setTimeout(() => controller.abort(), 14000);
     const res = await fetch("https://graphql.anilist.co/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
