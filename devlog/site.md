@@ -199,10 +199,26 @@ chargement sur trois rendait donc un profil vide — et `0`, ce n'est pas
 reste entier : une requete tierce lente et bloquante sur le chemin critique du
 SSR.
 
+Le papier peint plein ecran avait le meme defaut, en plus discret : `cover` en
+rognait 10 %. La couche nette passe en `object-contain` — l'illustration est vue
+entiere — et **une seconde copie de la meme image**, agrandie et floutee, comble
+les bandes que cela laisse. Aucune requete de plus (meme URL, deja en cache) :
+un letterbox vide annoncerait que l'image ne rentre pas ; la, le cadre est fait
+de l'image elle-meme.
+
+**Preserver une image puis ecrire dessus n'a pas de sens.** L'avatar et le pseudo
+se posaient au milieu de la bande, pile sur le logo. Sous une bande, l'identite
+descend donc dessous, l'avatar mordant sur le bord pour relier les deux ;
+au-dessus d'un papier peint elle ne bouge pas, car y etre lue sur l'image EST le
+parti pris et la place ne manque pas. Dans la foulee le voile lourd de la bande
+disparait : il servait a rendre un nom lisible, il ne restait qu'a noircir le
+tiers bas d'une illustration pour rien.
+
 **Verifie sur dev** (fenetre 1600x900) : illustration 1920x1080 → `fixed`, boite
-inchangee a `@y0` apres 500 px de defilement, 10 % de perte ; bande 1000x185 →
-mode bande, 1584x293 (soit 5.41:1, la proportion de l'image), **0 %** de perte ;
-visiteur anonyme → 383 animes, 683 lignes.
+inchangee a `@y0` apres 500 px de defilement, **0 % rogne** (bordee a 10 % par sa
+propre copie floutee) ; bande 1000x185 → mode bande, 1584x293 (soit 5.41:1, la
+proportion exacte de l'image), 0 % rogne et 0 % borde ; visiteur anonyme →
+383 animes, 683 lignes.
 
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
 est desormais la vitrine.
