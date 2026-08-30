@@ -42,7 +42,7 @@ export default function AniListSignIn() {
     <>
       <Head>
         <title>
-          {(code ? t("auth.errors.signInFailed") : t("auth.signInWithAniList")) +
+          {(code ? t("auth.errors.signInFailed") : t("nav.signInWithAniList")) +
             " • AniScroll"}
         </title>
         <meta name="robots" content="noindex" />
@@ -60,7 +60,7 @@ export default function AniListSignIn() {
           </>
         ) : (
           <h1 className="mb-8 font-outfit text-2xl font-bold">
-            {t("auth.signInWithAniList")}
+            {t("nav.signInWithAniList")}
           </h1>
         )}
 
@@ -70,7 +70,7 @@ export default function AniListSignIn() {
             onClick={() => signIn("AniListProvider", { callbackUrl })}
             className="rounded-lg bg-[#02a9ff] px-5 py-2.5 text-sm font-bold text-white transition-transform hover:scale-105"
           >
-            {t("auth.signInWithAniList")}
+            {t("nav.signInWithAniList")}
           </button>
           <Link
             href="/en/settings"
