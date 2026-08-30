@@ -14,15 +14,19 @@ import { checkThrottle } from "@/lib/auth/throttle";
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
+    /* The #account fragment matters: the settings page is long, the outcome is
+       announced inside the account section, and without it the visitor lands
+       at the top of the page and sees nothing — which is exactly what happened
+       to the first person who confirmed from a phone. */
     const token = String(req.query.token || "");
-    if (!token) return res.redirect(302, "/en/settings?verify=invalid");
+    if (!token) return res.redirect(302, "/en/settings?verify=invalid#account");
 
     const userId = await consumeToken(token, "verify");
-    if (!userId) return res.redirect(302, "/en/settings?verify=invalid");
+    if (!userId) return res.redirect(302, "/en/settings?verify=invalid#account");
 
     await markEmailVerified(userId);
     void pruneTokens();
-    return res.redirect(302, "/en/settings?verify=ok");
+    return res.redirect(302, "/en/settings?verify=ok#account");
   }
 
   if (req.method === "POST") {

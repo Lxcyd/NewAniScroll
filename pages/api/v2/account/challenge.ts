@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireUser } from "@/lib/auth/session";
 import { issueCode } from "@/lib/auth/tokens";
-import { sendCodeEmail } from "@/lib/auth/mail";
+import { originFromRequest, sendCodeEmail } from "@/lib/auth/mail";
 import { checkThrottle } from "@/lib/auth/throttle";
 
 /**
@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const code = await issueCode(user.id, action);
   if (!code) return res.status(503).json({ error: "accounts-unavailable" });
 
-  await sendCodeEmail(user.email, code, action);
+  await sendCodeEmail(user.email, code, action, originFromRequest(req));
   // The address is echoed back so the UI can say where to look, but only
   // because it is the signed-in user's own address.
   return res.status(200).json({ ok: true, email: user.email });

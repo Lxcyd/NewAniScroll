@@ -69,22 +69,46 @@ async function send(to: string, subject: string, html: string): Promise<boolean>
   }
 }
 
-/** Minimal, inline-styled shell — mail clients strip everything else. */
-function layout(title: string, body: string, cta: { href: string; label: string }): string {
+/**
+ * Minimal, inline-styled shell — mail clients strip everything else, so no
+ * stylesheet, no flexbox, and centring is done the way it still works
+ * everywhere: `text-align` on the parent and `margin:0 auto` on blocks.
+ *
+ * The logo is loaded from the site that sent the mail, which is why `origin`
+ * travels this far down: a dev mail must show the dev deploy's asset, and a
+ * hardcoded production URL would 404 on a preview.
+ */
+function shell(origin: string, inner: string): string {
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0b10;color:#e7e7ee;padding:32px">
-    <div style="max-width:520px;margin:0 auto;background:#14141c;border-radius:14px;padding:28px">
-      <h1 style="margin:0 0 12px;font-size:20px;color:#fff">${title}</h1>
-      <p style="margin:0 0 20px;line-height:1.6;color:#b9b9c8">${body}</p>
-      <a href="${cta.href}"
-         style="display:inline-block;background:#6d28d9;color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:600">
-        ${cta.label}
-      </a>
-      <p style="margin:22px 0 0;font-size:12px;color:#71718a;word-break:break-all">
-        ${cta.href}
-      </p>
+    <div style="max-width:520px;margin:0 auto;background:#14141c;border-radius:14px;padding:28px;text-align:center">
+      <img src="${origin}/logo.png" width="56" height="56" alt="AniScroll"
+           style="display:block;margin:0 auto 18px;border-radius:14px" />
+      ${inner}
     </div>
   </div>`;
+}
+
+function layout(
+  origin: string,
+  title: string,
+  body: string,
+  cta: { href: string; label: string }
+): string {
+  /* No raw URL under the button. It was there as a fallback for clients that
+     strip links, but those are gone, and a 200-character token in the body is
+     what makes a message look like phishing to both the reader and the spam
+     filter. */
+  return shell(
+    origin,
+    `
+      <h1 style="margin:0 0 12px;font-size:20px;color:#fff">${title}</h1>
+      <p style="margin:0 0 22px;line-height:1.6;color:#b9b9c8">${body}</p>
+      <a href="${cta.href}"
+         style="display:inline-block;background:#e94560;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600">
+        ${cta.label}
+      </a>`
+  );
 }
 
 export function sendVerifyEmail(
@@ -97,6 +121,7 @@ export function sendVerifyEmail(
     to,
     "Confirm your AniScroll address",
     layout(
+      origin,
       "Confirm your address",
       "Confirm this address to finish creating your AniScroll account. The link expires in 24 hours.",
       { href, label: "Confirm my address" }
@@ -115,7 +140,8 @@ export function sendVerifyEmail(
 export function sendCodeEmail(
   to: string,
   code: string,
-  action: "password" | "delete"
+  action: "password" | "delete",
+  origin: string
 ): Promise<boolean> {
   const what =
     action === "delete"
@@ -124,23 +150,22 @@ export function sendCodeEmail(
   return send(
     to,
     `${code} — your AniScroll confirmation code`,
-    `
-    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0b10;color:#e7e7ee;padding:32px">
-      <div style="max-width:520px;margin:0 auto;background:#14141c;border-radius:14px;padding:28px">
+    shell(
+      origin,
+      `
         <h1 style="margin:0 0 12px;font-size:20px;color:#fff">Confirmation code</h1>
         <p style="margin:0 0 20px;line-height:1.6;color:#b9b9c8">
           Someone asked to ${what}. Enter this code on the page to confirm. It
           expires in 15 minutes.
         </p>
-        <div style="font-size:32px;letter-spacing:8px;font-weight:700;color:#fff;background:#0b0b10;border-radius:10px;padding:16px;text-align:center">
+        <div style="font-size:32px;letter-spacing:8px;font-weight:700;color:#fff;background:#0b0b10;border-radius:10px;padding:16px">
           ${code}
         </div>
         <p style="margin:22px 0 0;font-size:12px;color:#71718a">
           If it wasn't you, ignore this message and change your password —
           someone may know it.
-        </p>
-      </div>
-    </div>`
+        </p>`
+    )
   );
 }
 
@@ -154,6 +179,7 @@ export function sendResetEmail(
     to,
     "Reset your AniScroll password",
     layout(
+      origin,
       "Reset your password",
       "Someone asked to reset the password on this account. The link expires in one hour. If it wasn't you, ignore this message — nothing changes.",
       { href, label: "Choose a new password" }

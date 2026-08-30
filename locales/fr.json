@@ -145,6 +145,7 @@
       "noEmail": "Aucune adresse sur ce compte"
     },
     "verifyOk": "Adresse confirmée",
+    "verifySignedOut": "Vous pouvez maintenant vous connecter, ici ou sur l'appareil où vous avez créé le compte.",
     "verifyInvalid": "Ce lien de confirmation a expiré ou a déjà été utilisé",
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",

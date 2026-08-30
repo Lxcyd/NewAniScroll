@@ -519,17 +519,22 @@ export default function AccountSection() {
     : sessionUser;
 
   /* The verification link lands here with ?verify=ok|invalid (it is clicked
-     from a mail client, so the outcome has to travel in the URL). Report it
-     once, refresh the session so the badge flips, and clean the query. */
+     from a mail client, so the outcome has to travel in the URL).
+
+     It used to be announced with a toast, which is the wrong instrument: the
+     link is very often opened on another device — a phone, from the mailbox —
+     where nobody is signed in and the page has nothing else to say. A toast
+     that has already faded, or was missed while the page loaded, leaves the
+     visitor with no idea whether it worked. The outcome stays on screen. */
+  const [verified, setVerified] = useState<"ok" | "invalid" | null>(null);
+
   useEffect(() => {
     const verify = router.query.verify;
     if (verify !== "ok" && verify !== "invalid") return;
+    setVerified(verify);
     if (verify === "ok") {
-      notify.success(t("auth.verifyOk"));
       void update?.();
       setRefresh((n) => n + 1);
-    } else {
-      notify.error(t("auth.verifyInvalid"));
     }
     const { verify: _drop, ...rest } = router.query;
     void router.replace({ pathname: router.pathname, query: rest }, undefined, {
@@ -542,6 +547,28 @@ export default function AccountSection() {
     <section id="account" className="py-10 scroll-mt-24">
       <h2 className="text-xl font-semibold mb-1">{t("auth.sectionTitle")}</h2>
       <p className="text-white/60 text-sm mb-4">{t("auth.sectionDesc")}</p>
+
+      {verified && (
+        <div
+          className={`mb-4 rounded-xl px-4 py-3 text-sm ring-1 ${
+            verified === "ok"
+              ? "bg-green-500/10 ring-green-500/30 text-green-200"
+              : "bg-red-500/10 ring-red-500/30 text-red-200"
+          }`}
+        >
+          <div className="font-medium">
+            {t(verified === "ok" ? "auth.verifyOk" : "auth.verifyInvalid")}
+          </div>
+          {/* Confirmed from a device that isn't signed in — say what to do
+              next, rather than leaving a stranger's settings page open. */}
+          {verified === "ok" && !user?.uid && (
+            <div className="mt-1 text-white/60 text-xs">
+              {t("auth.verifySignedOut")}
+            </div>
+          )}
+        </div>
+      )}
+
       {user?.uid ? (
         <AccountPanel user={user} onChanged={() => setRefresh((n) => n + 1)} />
       ) : (
