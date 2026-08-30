@@ -41,6 +41,67 @@ import { getUsersClient } from "@/lib/db/turso-users";
  * them.
  */
 
+const VIEWER_QUERY = `
+  query {
+    Viewer {
+      id
+      name
+      avatar { large medium }
+      bannerImage
+      mediaListOptions { animeList { customLists } }
+    }
+  }
+`;
+
+/**
+ * Who is signing in, according to AniList.
+ *
+ * This used to be one `fetch(...).then(res => res.json())`. When AniList is
+ * down it does not answer JSON — it answers a Cloudflare HTML page — so the
+ * parse threw `Unexpected token '<'`, NextAuth reported OAUTH_CALLBACK_ERROR,
+ * and the visitor was bounced back to where they came from with no explanation
+ * and their previous session still in place. An outage at AniList must read as
+ * an outage at AniList.
+ *
+ * One retry, because these blips last seconds; then a named error the sign-in
+ * can show.
+ */
+async function viewerOf(accessToken: string): Promise<any> {
+  let last = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 700));
+    try {
+      const res = await fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ query: VIEWER_QUERY }),
+      });
+      const body = await res.text();
+      if (!res.ok) {
+        last = `HTTP ${res.status}`;
+        continue;
+      }
+      let json: any;
+      try {
+        json = JSON.parse(body);
+      } catch {
+        // An HTML error page, i.e. AniList is not serving GraphQL right now.
+        last = `non-JSON (${body.slice(0, 40).replace(/\s+/g, " ")})`;
+        continue;
+      }
+      if (json?.data?.Viewer?.id) return json.data;
+      last = json?.errors?.[0]?.message || "no Viewer";
+    } catch (err: any) {
+      last = err?.message || "network";
+    }
+  }
+  console.error("[nextauth] AniList viewer unavailable:", last);
+  throw new Error("anilist-unavailable");
+}
+
 /** Shrink a users row to the fields the JWT carries. */
 function accountClaims(user: UserRecord) {
   return {
@@ -163,48 +224,17 @@ export const authOptions: NextAuthOptions = {
       userinfo: {
         url: process.env.GRAPHQL_ENDPOINT,
         async request(context) {
-          // console.log(context.tokens.access_token);
-          const { data } = await fetch("https://graphql.anilist.co", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              // ...(context.tokens.access_token && {
-              Authorization: `Bearer ${context.tokens.access_token}`,
-              // }),
-            },
-            body: JSON.stringify({
-              query: `
-              query {
-                Viewer {
-                  id
-                  name
-                  avatar {
-                    large
-                    medium
-                  }
-                  bannerImage
-                  mediaListOptions {
-                    animeList {
-                      customLists
-                    }
-                  }
-                }
-              }
-            `,
-            }),
-          }).then((res) => res.json());
+          const data = await viewerOf(context.tokens.access_token as string);
 
-          const userLists = data.Viewer?.mediaListOptions.animeList.customLists;
+          const userLists = data.Viewer?.mediaListOptions?.animeList?.customLists;
 
-          let custLists = userLists || [];
-
+          /* Creating the custom list is a courtesy, not a condition of signing
+             in. It used to run unguarded, so a hiccup on this second call —
+             AniList answering HTML, a rate limit — took the whole sign-in down
+             with it, when the identity had already been established. */
           if (!userLists?.includes("Watched using Moopa")) {
-            custLists.push("Watched using Moopa");
-            const fetchGraphQL = async (
-              query: string,
-              variables: { lists: any }
-            ) => {
-              const response = await fetch("https://graphql.anilist.co/", {
+            try {
+              await fetch("https://graphql.anilist.co/", {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
@@ -212,24 +242,20 @@ export const authOptions: NextAuthOptions = {
                     Authorization: `Bearer ${context.tokens.access_token}`,
                   }),
                 },
-                body: JSON.stringify({ query, variables }),
-              });
-              return response.json();
-            };
-
-            const customLists = async (lists: any) => {
-              const setList = `
+                body: JSON.stringify({
+                  query: `
                   mutation($lists: [String]){
                     UpdateUser(animeListOptions: { customLists: $lists }){
                       id
                     }
                   }
-                `;
-              const data = await fetchGraphQL(setList, { lists });
-              return data;
-            };
-
-            await customLists(custLists);
+                `,
+                  variables: { lists: [...(userLists || []), "Watched using Moopa"] },
+                }),
+              });
+            } catch (err) {
+              console.warn("[nextauth] custom list not created:", (err as any)?.message);
+            }
           }
 
           return {
@@ -237,7 +263,7 @@ export const authOptions: NextAuthOptions = {
             name: data.Viewer.name,
             sub: data.Viewer.id,
             image: data.Viewer.avatar,
-            list: data.Viewer?.mediaListOptions.animeList.customLists,
+            list: data.Viewer?.mediaListOptions?.animeList?.customLists ?? [],
           };
         },
       },
@@ -259,6 +285,11 @@ export const authOptions: NextAuthOptions = {
     //Sets the session to use JSON Web Token
     strategy: "jwt",
   },
+  /* A failed sign-in has to say so. NextAuth's default is its own bare page,
+     reached through a redirect nobody reads; the visitor came back to where
+     they started, still on their old session, with no way to tell that
+     anything had gone wrong. */
+  pages: { error: "/en/auth/error" },
   callbacks: {
     async jwt({ token, user, account, trigger }) {
       // 1. AniList sign-in — resolve the account row, creating or linking it.

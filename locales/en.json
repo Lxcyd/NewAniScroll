@@ -142,7 +142,11 @@
       "anilist-already-linked": "This AniList account is already linked elsewhere",
       "accounts-unavailable": "Accounts are unavailable right now",
       "badCode": "Wrong or expired code",
-      "noEmail": "No address on this account"
+      "noEmail": "No address on this account",
+      "anilist-unavailable": "AniList did not answer — signing in with AniList is temporarily impossible",
+      "signInFailed": "Sign-in did not go through",
+      "signInFailedBody": "Nothing changed on your account. AniList refused or did not answer; try again in a moment.",
+      "backToSettings": "Back to settings"
     },
     "verifyOk": "Address confirmed",
     "verifySignedOut": "You can now sign in, here or on the device where you created the account.",
