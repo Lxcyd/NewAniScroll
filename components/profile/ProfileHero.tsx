@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { PhotoIcon } from "@heroicons/react/24/outline";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import type { ProfileStats } from "@/lib/profile/types";
 
@@ -99,6 +100,10 @@ export default function ProfileHero({
 }: Props) {
   const { t } = useTranslation();
   const clickTarget = useClickTarget();
+  /* The navbar floats transparent over this plate, and a profile's artwork is
+     picked by its owner — nothing stops it being a white one. Same measurement
+     the info page's hero declares (lib/color/navContrast.ts). */
+  useNavBackdrop(banner.url);
 
   return (
     <header className="relative w-full">
@@ -170,7 +175,12 @@ export default function ProfileHero({
           </div>
 
           <div className="min-w-0 pb-1">
-            <h1 className="truncate font-outfit text-3xl font-bold leading-tight md:text-4xl">
+            {/* The name overlaps the plate, which can be anything: the shadow
+                is what keeps it readable over a bright artwork. */}
+            <h1
+              className="truncate font-outfit text-3xl font-bold leading-tight md:text-4xl"
+              style={{ textShadow: "0 2px 14px rgba(0,0,0,0.65)" }}
+            >
               {name}
             </h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
