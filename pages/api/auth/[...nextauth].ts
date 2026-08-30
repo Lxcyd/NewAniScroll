@@ -10,6 +10,7 @@ import {
   findByIdentifier,
   findById,
   getAnilistSession,
+  markEmailVerified,
   setAnilistSession,
   touchLastSeen,
   type UserRecord,
@@ -17,6 +18,7 @@ import {
 import { pickAvatar } from "@/lib/auth/avatar";
 import { verifyPassword } from "@/lib/auth/password";
 import { checkThrottle, resetThrottle } from "@/lib/auth/throttle";
+import { consumeToken, pruneTokens } from "@/lib/auth/tokens";
 import { getUsersClient } from "@/lib/db/turso-users";
 
 /**
@@ -88,6 +90,53 @@ export const authOptions: NextAuthOptions = {
            AniList access token, and the sync panel — which reads exactly that
            — announced "Not connected" under an account the settings showed as
            linked. */
+        const anilist = user.anilistId
+          ? await getAnilistSession(user.id)
+          : { token: null, lists: [] };
+
+        return {
+          ...accountClaims(user),
+          id: user.anilistId ? String(user.anilistId) : user.id,
+          name: user.anilistName || user.username,
+          image: pickAvatar(user),
+          token: anilist.token ?? undefined,
+          list: anilist.lists,
+        } as any;
+      },
+    }),
+    /**
+     * The link mailed to confirm an address, used as a way in.
+     *
+     * The link is very often opened somewhere else than where the account was
+     * created — the mailbox is on the phone, the signup was on a PC — and that
+     * device then has a confirmed account it is not signed into. Clicking the
+     * link signs it in.
+     *
+     * What makes that acceptable rather than a back door: the token is burned
+     * here, on a POST made by the browser, and NOT by the GET that opened the
+     * link. Mail scanners, link previews and antivirus prefetchers follow the
+     * GET; none of them submit this form, so none of them can consume the
+     * token or open a session. It stays single-use, 24 h, and the page strips
+     * it from the URL before submitting it.
+     */
+    CredentialsProvider({
+      id: "verify",
+      name: "E-mail confirmation",
+      credentials: { token: { label: "Token", type: "text" } },
+      async authorize(credentials) {
+        const token = String(credentials?.token || "");
+        if (!token || !getUsersClient()) return null;
+
+        const userId = await consumeToken(token, "verify");
+        if (!userId) return null;
+
+        await markEmailVerified(userId);
+        void pruneTokens();
+
+        const user = await findById(userId);
+        if (!user || user.status === "disabled") return null;
+        void touchLastSeen(user.id);
+
         const anilist = user.anilistId
           ? await getAnilistSession(user.id)
           : { token: null, lists: [] };
@@ -284,7 +333,8 @@ export const authOptions: NextAuthOptions = {
       }
 
       // 2. Credentials sign-in — authorize() already returned the claims.
-      if (account?.provider === "aniscroll" && user) {
+      //    Same for the confirmation link, which is a credentials provider too.
+      if ((account?.provider === "aniscroll" || account?.provider === "verify") && user) {
         Object.assign(token, user);
       }
 

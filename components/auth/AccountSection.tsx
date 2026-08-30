@@ -11,7 +11,7 @@
  *                           invitation to create a full account on top.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
@@ -527,21 +527,49 @@ export default function AccountSection() {
      that has already faded, or was missed while the page loaded, leaves the
      visitor with no idea whether it worked. The outcome stays on screen. */
   const [verified, setVerified] = useState<"ok" | "invalid" | null>(null);
+  /* The token is single-use. React runs effects twice in development, and a
+     second submission would burn a token already spent and report a failure
+     for something that worked. */
+  const claimed = useRef(false);
 
   useEffect(() => {
     const verify = router.query.verify;
-    if (verify !== "ok" && verify !== "invalid") return;
-    setVerified(verify);
-    if (verify === "ok") {
-      void update?.();
-      setRefresh((n) => n + 1);
-    }
+    if (typeof verify !== "string" || !verify || claimed.current) return;
+    claimed.current = true;
+
+    // Out of the address bar first: it is a credential until it is spent, and
+    // it has no business in the history or in a Referer header.
     const { verify: _drop, ...rest } = router.query;
     void router.replace({ pathname: router.pathname, query: rest }, undefined, {
       shallow: true,
     });
+
+    if (verify === "invalid") {
+      setVerified("invalid");
+      return;
+    }
+
+    /* Confirming and signing in are one step: the link is opened where the
+       mailbox is, which is regularly not the device the account was created
+       on. `redirect: false` keeps us on this page so the outcome is shown
+       here. */
+    void signIn("verify", { token: verify, redirect: false }).then((res) => {
+      setVerified(res?.ok ? "ok" : "invalid");
+      if (res?.ok) setRefresh((n) => n + 1);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.query.verify]);
+
+  /* The other device — the one that asked for the mail — still holds a JWT
+     minted before the address was confirmed. The panel reads the database so
+     it shows the truth, but the session's own claim would stay stale until
+     something else refreshed it. */
+  useEffect(() => {
+    if (fresh?.emailVerifiedAt && sessionUser && !sessionUser.emailVerified) {
+      void update?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh?.emailVerifiedAt, sessionUser?.emailVerified]);
 
   return (
     <section id="account" className="py-10 scroll-mt-24">

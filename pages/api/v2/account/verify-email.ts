@@ -1,32 +1,34 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { consumeToken, issueToken, pruneTokens } from "@/lib/auth/tokens";
-import { markEmailVerified } from "@/lib/auth/users";
+import { issueToken } from "@/lib/auth/tokens";
 import { requireUser } from "@/lib/auth/session";
 import { originFromRequest, sendVerifyEmail } from "@/lib/auth/mail";
 import { checkThrottle } from "@/lib/auth/throttle";
 
 /**
- * GET  ?token=…  → consume a verification link and redirect to the settings
- *                  page with a readable outcome in the query string. This is
- *                  clicked from a mail client, so it must answer with a
- *                  redirect, never JSON.
+ * GET  ?token=…  → hand the token to the settings page, which confirms the
+ *                  address and signs this device in. This is clicked from a
+ *                  mail client, so it must answer with a redirect, never JSON.
  * POST           → resend the verification mail to the signed-in user.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
-    /* The #account fragment matters: the settings page is long, the outcome is
-       announced inside the account section, and without it the visitor lands
-       at the top of the page and sees nothing — which is exactly what happened
-       to the first person who confirmed from a phone. */
+    /* This route no longer confirms anything: it hands the token to the page,
+       which submits it to the "verify" provider — that one burns it, marks the
+       address confirmed and signs this device in, so confirming from a phone
+       leaves that phone logged into the account it just confirmed.
+       Consuming here instead would mean any mail scanner, link preview or
+       antivirus that follows the URL burns the link before the human clicks.
+
+       The #account fragment matters too: the settings page is long, the
+       outcome is announced inside the account section, and without it the
+       visitor lands at the top and sees nothing — which is exactly what
+       happened to the first person who confirmed from a phone. */
     const token = String(req.query.token || "");
     if (!token) return res.redirect(302, "/en/settings?verify=invalid#account");
-
-    const userId = await consumeToken(token, "verify");
-    if (!userId) return res.redirect(302, "/en/settings?verify=invalid#account");
-
-    await markEmailVerified(userId);
-    void pruneTokens();
-    return res.redirect(302, "/en/settings?verify=ok#account");
+    return res.redirect(
+      302,
+      `/en/settings?verify=${encodeURIComponent(token)}#account`
+    );
   }
 
   if (req.method === "POST") {
