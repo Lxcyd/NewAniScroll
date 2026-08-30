@@ -160,13 +160,26 @@ export default function ProfileHero({
     <div className="relative w-full">
       {asPage ? (
         <div className="as-page-plate">
+          {/* Two copies of the ONE picture, and no second request: the sharp one
+              is `contain`, so the artwork is shown entire — cropping it was the
+              whole complaint — and the blurred one underneath fills the bars
+              that leaves. An empty letterbox would announce that the picture
+              does not fit; this way the frame is made of the picture itself. */}
           <Image
             src={banner.url as string}
             alt=""
             fill
             priority
             sizes="100vw"
-            className={`object-cover ${banner.fallback ? "as-hero-cover" : ""}`}
+            className="as-page-fill"
+          />
+          <Image
+            src={banner.url as string}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-contain"
           />
           <div className="as-page-scrim" />
         </div>
