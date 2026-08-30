@@ -11,6 +11,34 @@
  * format explicitly, the local list already stores it.
  */
 
+export type BannerOption = {
+  url: string;
+  /** fanart type, or where it came from when it isn't a fanart. */
+  source: "background" | "thumb" | "banner" | "anilist" | "cover";
+  likes: number;
+};
+
+/**
+ * How a plate is worn. The two kinds of art are not interchangeable:
+ *
+ *   "page" — a full ILLUSTRATION (a 16:9 background, a thumb, a cover). It is a
+ *            picture, so it becomes the background of the whole page and the
+ *            profile is read on top of it.
+ *   "band" — a BANNER: AniList's 1900x400 strip, or a 1000x185 fanart banner.
+ *            Those are composed as a strip and have nothing above or below the
+ *            crop, so blowing one up to fill a screen only magnifies it. It
+ *            stays a strip at the top.
+ *
+ * Lives here, next to the types, rather than in lib/profile/banner.ts: that
+ * module reaches the fanart database, and the hero component — which is what
+ * asks this question — must not drag a libSQL client into the browser bundle.
+ */
+export function plateMode(
+  source: BannerOption["source"] | null | undefined,
+): "page" | "band" {
+  return source === "anilist" || source === "banner" ? "band" : "page";
+}
+
 export type ProfileTitle = {
   english?: string | null;
   romaji?: string | null;

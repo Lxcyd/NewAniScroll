@@ -19,12 +19,14 @@ import {
   tiedHead,
   type FavoriteCandidate,
 } from "./favorite";
-import type { ProfileEntry } from "./types";
+import type { BannerOption, ProfileEntry } from "./types";
 
 export type ResolvedBanner = {
   url: string | null;
   animeId: number | null;
   title: string | null;
+  /** Art kind — decides page-background vs strip (types.plateMode). */
+  source?: BannerOption["source"] | null;
   fallback?: boolean;
 };
 
@@ -104,6 +106,7 @@ export function useProfileBanner(entries: ProfileEntry[]): ResolvedBanner | null
         url: json.banner.url,
         animeId: favorite.mediaId,
         title: json.title ?? null,
+        source: json.banner.source ?? null,
         fallback: !!json.banner.fallback,
       });
     })();

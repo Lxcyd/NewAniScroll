@@ -2129,6 +2129,21 @@ input[type="number"] {
                          the ugliest case of all. This is the ONE place a blur
                          is deliberate — the picker never blurs anything.
    ───────────────────────────────────────────────────────────────── */
+:root {
+  /* Height of the identity band. An illustration is 16:9, so a band sized on
+     that ratio shows it whole on a widescreen window; capped at 80vh so it can
+     never push the list off the first screen, floored so a phone (where 56vw
+     is a sliver) still gets a real header. */
+  --as-hero-h: max(340px, min(56.25vw, 80vh));
+  /* A banner-shaped plate, and the flat colour one: a strip, not a screen. */
+  --as-hero-slim: max(240px, min(26vw, 42vh));
+}
+.as-hero-band {
+  height: var(--as-hero-h);
+}
+.as-hero-band-slim {
+  height: var(--as-hero-slim);
+}
 .as-hero-scrim {
   /* Weighted to the bottom so the name reads and the middle of the artwork
      stays uncovered; the top stop only darkens enough for the transparent
@@ -2140,6 +2155,34 @@ input[type="number"] {
     rgba(12, 13, 16, 0.55) 34%,
     rgba(12, 13, 16, 0.12) 60%,
     rgba(12, 13, 16, 0.42) 100%
+  );
+}
+
+/* ── Illustration worn as the page's background ──────────────────
+   `fixed`, so the profile is read ON the picture rather than under a strip of
+   it. z-index 0 and NOT -1: `html` carries its own background colour, so a
+   negative layer would be painted behind it and never seen — which is why the
+   page's own content is pushed to z-10 instead (see the profile routes).
+   ───────────────────────────────────────────────────────────────── */
+.as-page-plate {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+.as-page-scrim {
+  position: absolute;
+  inset: 0;
+  /* Stops are measured against the band height, so the picture is clear where
+     the header sits and solid by the time the list starts — whatever the
+     window's shape. */
+  background: linear-gradient(
+    to bottom,
+    rgba(12, 13, 16, 0.45) 0px,
+    rgba(12, 13, 16, 0.1) calc(var(--as-hero-h) * 0.32),
+    rgba(12, 13, 16, 0.5) calc(var(--as-hero-h) * 0.72),
+    rgba(12, 13, 16, 0.94) var(--as-hero-h),
+    rgb(12, 13, 16) calc(var(--as-hero-h) + 140px)
   );
 }
 .as-hero-cover {

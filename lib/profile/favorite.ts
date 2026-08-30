@@ -36,25 +36,29 @@ export type FavoriteCandidate = {
 };
 
 /**
- * Which entries may dress a profile at all.
+ * Which entries may dress a profile at all: **only a title that was finished.**
  *
- * A title still in "Planning" with no episode watched is EXCLUDED, however it
- * is rated. On AniList a score on a planned show is an expectation, not a
- * verdict — and a list can hold hundreds of them: measured on a real 683-entry
- * list, 297 were planned-and-untouched and eleven of them, all 10/10, filled
- * the whole top of the ranking ahead of shows their owner had actually seen.
- * The profile is meant to say "this is what I love", which a show one has never
- * started cannot say.
+ * A score given before the end is not a verdict on the show — it is an
+ * expectation ("Planning") or an impression mid-run ("Watching"), and it is
+ * routinely a 10 that never survives the ending. Measured on a real 683-entry
+ * list: 300 planned, 95 in progress, 89 paused — 187 actually finished. Eleven
+ * planned-and-untouched titles, all rated 10, filled the whole top of the
+ * ranking ahead of shows their owner had really seen, and the first thing their
+ * owner said about the picker was "Orb? I haven't watched that."
  *
- * Anything watched at least once stays eligible, dropped and paused included:
- * those are verdicts.
+ * `REPEATING` counts, and is the reason the test is not simply "completed": a
+ * rewatch means it was finished at least once — the strongest verdict there is.
+ * `PAUSED` and `DROPPED` do not: the story was never seen through, so the score
+ * is not about the same object as a finished show's.
  */
+const FINISHED = new Set(["COMPLETED", "REPEATING"]);
+
 export function bannerCandidates(
   entries: ProfileEntry[],
   meanScoreOf?: (mediaId: number) => number | null | undefined,
 ): FavoriteCandidate[] {
   return entries
-    .filter((e) => !(e.status === "PLANNING" && !e.progress))
+    .filter((e) => FINISHED.has(e.status || ""))
     .map((e) => ({
       mediaId: e.mediaId,
       score: e.score,

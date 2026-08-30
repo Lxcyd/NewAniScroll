@@ -24,6 +24,7 @@ import {
   writePinnedBanner,
   type ResolvedBanner,
 } from "@/lib/profile/useProfileBanner";
+import type { BannerOption } from "@/lib/profile/types";
 
 /**
  * The profile of a signed-out visitor.
@@ -75,9 +76,18 @@ export default function MyOwnProfile() {
     [entries],
   );
 
-  function pick(choice: { url: string; animeId: number; title: string } | null) {
-    const next = choice
-      ? { url: choice.url, animeId: choice.animeId, title: choice.title }
+  function pick(
+    choice:
+      | { url: string; animeId: number; title: string; source: BannerOption["source"] }
+      | null,
+  ) {
+    const next: ResolvedBanner | null = choice
+      ? {
+          url: choice.url,
+          animeId: choice.animeId,
+          title: choice.title,
+          source: choice.source,
+        }
       : null;
     setPinned(next);
     writePinnedBanner(next);
@@ -110,7 +120,9 @@ export default function MyOwnProfile() {
         subtitle={t("profile.localOnly")}
       />
 
-      <div className="as-fade-in mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
+      {/* relative z-10: see the note in [user].tsx — an illustration worn as
+          the page background is a fixed layer at z-0. */}
+      <div className="as-fade-in relative z-10 mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         <QueueSection />
         <ProfileList
           entries={entries}
@@ -125,7 +137,9 @@ export default function MyOwnProfile() {
         />
       </div>
 
-      <Footer />
+      <div className="relative z-10">
+        <Footer />
+      </div>
 
       <BannerPicker
         open={picker}

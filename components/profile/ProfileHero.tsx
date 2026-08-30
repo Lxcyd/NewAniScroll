@@ -5,7 +5,8 @@ import { PhotoIcon } from "@heroicons/react/24/outline";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
-import type { ProfileStats } from "@/lib/profile/types";
+import { plateMode } from "@/lib/profile/types";
+import type { BannerOption, ProfileStats } from "@/lib/profile/types";
 
 /**
  * The top of a profile: the plate, the identity, the numbers.
@@ -21,6 +22,8 @@ export type HeroBanner = {
   url: string | null;
   animeId: number | null;
   title: string | null;
+  /** What kind of art this is — decides page-background vs strip. */
+  source?: BannerOption["source"] | null;
   /** The plate is a portrait cover — blur and over-scale it. */
   fallback?: boolean;
 };
@@ -105,33 +108,53 @@ export default function ProfileHero({
      the info page's hero declares (lib/color/navContrast.ts). */
   useNavBackdrop(banner.url);
 
+  /* An illustration is worn as the page's BACKGROUND — the profile is read on
+     top of the picture. A banner-shaped strip stays a strip: it was composed as
+     one, and there is nothing above or below its crop to reveal. */
+  const mode = banner.url ? plateMode(banner.source) : "none";
+  const asPage = mode === "page";
+
   return (
-    <header className="relative w-full">
-      {/* The plate is as tall as the artwork is wide: 16:9 art on a widescreen
-          window is shown WHOLE rather than cropped into a strip — which is the
-          whole point of a banner taken from the anime's own illustrations, and
-          why nothing zooms or drifts over it any more. Capped at 80vh so it can
-          never push the list off the first screen, and floored so a phone
-          (where 56vw is a sliver) still gets a real header. */}
-      <div className="relative h-[max(340px,min(56.25vw,80vh))] w-full overflow-hidden">
-        {banner.url ? (
+    <>
+      {asPage ? (
+        <div className="as-page-plate">
           <Image
-            src={banner.url}
+            src={banner.url as string}
             alt=""
             fill
             priority
             sizes="100vw"
             className={`object-cover ${banner.fallback ? "as-hero-cover" : ""}`}
           />
-        ) : (
+          <div className="as-page-scrim" />
+        </div>
+      ) : null}
+
+      <header className="relative z-10 w-full">
+      <div
+        className={`relative w-full overflow-hidden ${
+          asPage ? "as-hero-band" : "as-hero-band-slim"
+        }`}
+      >
+        {!asPage && banner.url ? (
+          <Image
+            src={banner.url}
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover"
+          />
+        ) : null}
+        {!banner.url ? (
           /* No list, no artwork: the site's own colour. */
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
-        )}
+        ) : null}
 
-        {/* One scrim, weighted to the bottom: the page bleeds into the plate
-            under the name while the middle of the artwork stays uncovered. Its
-            top stop darkens just enough for the transparent navbar. */}
-        <div className="as-hero-scrim absolute inset-0" />
+        {/* The band's own scrim, weighted to the bottom so the name reads. In
+            page-background mode the plate carries its own (as-page-scrim) and
+            this one would double it. */}
+        {!asPage ? <div className="as-hero-scrim absolute inset-0" /> : null}
         <div className="pointer-events-none absolute inset-x-0 -bottom-24 h-48 as-hero-glow" />
 
         {/* Where the plate comes from — and, for the owner, the way to change
@@ -245,6 +268,7 @@ export default function ProfileHero({
           ))}
         </dl>
       ) : null}
-    </header>
+      </header>
+    </>
   );
 }

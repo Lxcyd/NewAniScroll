@@ -42,6 +42,14 @@ import type { ProfileEntry, ProfileIdentity, ProfileStats } from "@/lib/profile/
  * list only exists on their own device, so it lives at /en/profile/me.
  */
 
+/** What the picker hands back and what gets stored on the account. */
+type PinnedChoice = {
+  url: string;
+  animeId: number;
+  title: string;
+  source: NonNullable<HeroBanner["source"]>;
+};
+
 type Props = {
   identity: ProfileIdentity;
   stats: ProfileStats;
@@ -106,9 +114,14 @@ export default function Profile({
   }
 
   /** Pin a banner on the account, or drop the pin and go back to automatic. */
-  async function save(choice: { url: string; animeId: number; title: string } | null) {
+  async function save(choice: PinnedChoice | null) {
     if (choice) {
-      setBanner({ url: choice.url, animeId: choice.animeId, title: choice.title });
+      setBanner({
+        url: choice.url,
+        animeId: choice.animeId,
+        title: choice.title,
+        source: choice.source,
+      });
       setPinned(true);
     } else {
       setBanner(initialBanner);
@@ -147,7 +160,10 @@ export default function Profile({
         onEditBanner={() => setPicker(true)}
       />
 
-      <div className="as-fade-in mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
+      {/* relative z-10: an illustration worn as the page background is a
+          `position: fixed` layer at z-0 (html carries its own colour, so it
+          cannot go negative), and a static block would be painted under it. */}
+      <div className="as-fade-in relative z-10 mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         {isOwner && (
           <div className="mb-6">
             <button
@@ -176,7 +192,9 @@ export default function Profile({
         />
       </div>
 
-      <Footer />
+      <div className="relative z-10">
+        <Footer />
+      </div>
 
       {isOwner && (
         <>
@@ -340,8 +358,12 @@ export async function getServerSideProps(context: any) {
   }
 
   /* ── The plate ──────────────────────────────────────────────── */
-  let pinnedBanner: { url: string; animeId: number | null; title: string | null } | null =
-    null;
+  let pinnedBanner: {
+    url: string;
+    animeId: number | null;
+    title: string | null;
+    source?: HeroBanner["source"];
+  } | null = null;
   if (account?.profileBanner) {
     try {
       const parsed = JSON.parse(account.profileBanner);
@@ -373,9 +395,10 @@ export async function getServerSideProps(context: any) {
           url: resolved.banner.url,
           animeId: resolved.banner.animeId,
           title: resolved.banner.title,
+          source: resolved.banner.source,
           fallback: !!resolved.banner.fallback,
         }
-      : { url: ownBanner, animeId: null, title: null };
+      : { url: ownBanner, animeId: null, title: null, source: "anilist" };
 
   /* What the picker may offer. Only the owner ever opens it, so it is only
      computed — and only shipped — for them. */

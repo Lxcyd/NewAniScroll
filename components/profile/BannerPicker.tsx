@@ -3,7 +3,7 @@ import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { XMarkIcon, CheckIcon, SparklesIcon } from "@heroicons/react/24/solid";
 import Modal from "@/components/modal";
-import type { BannerOption } from "@/lib/profile/banner";
+import type { BannerOption } from "@/lib/profile/types";
 
 /**
  * "Change the banner" — the owner's override of the automatic pick.
@@ -36,7 +36,13 @@ type Props = {
   current: string | null;
   /** True when the current plate is a manual pick rather than the automatic one. */
   pinned: boolean;
-  onPick: (choice: { url: string; animeId: number; title: string }) => void;
+  onPick: (choice: {
+    url: string;
+    animeId: number;
+    title: string;
+    /** Kept with the pick: it decides page-background vs strip. */
+    source: BannerOption["source"];
+  }) => void;
   onReset: () => void;
 };
 
@@ -252,6 +258,7 @@ export default function BannerPicker({
                   url: choice.url,
                   animeId: selected.mediaId,
                   title: selected.title,
+                  source: choice.source,
                 })
               }
               className="rounded-lg bg-action px-4 py-1.5 text-xs font-bold text-white transition-transform hover:scale-105 disabled:opacity-35 disabled:hover:scale-100"

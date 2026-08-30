@@ -21,13 +21,10 @@
 
 import { loadFanarts } from "@/lib/db/fanarts";
 import { isAcceptableLang } from "@/components/anime/v2/helpers";
+import type { BannerOption } from "./types";
 
-export type BannerOption = {
-  url: string;
-  /** fanart type, or where it came from when it isn't a fanart. */
-  source: "background" | "thumb" | "banner" | "anilist" | "cover";
-  likes: number;
-};
+export type { BannerOption } from "./types";
+export { plateMode } from "./types";
 
 export type ProfileBanner = {
   animeId: number | null;
