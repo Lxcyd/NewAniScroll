@@ -181,9 +181,15 @@ en deca un fond. La mesure ne coute aucun telechargement (`new Image()` sur une
 URL que `next/image` a deja chargee).
 
 Dans la meme veine, les hauteurs de bande etaient choisies en `vh`, ce qui
-garantit un recadrage des que la fenetre n'a pas la bonne forme : la bande d'une
-banniere est desormais calee sur le **4.75:1** dans lequel AniList les dessine
-(1900x400).
+garantit un recadrage des que la fenetre n'a pas la bonne forme. Premiere
+correction : caler la bande sur le **4.75:1** dans lequel AniList dessine ses
+propres bannieres (1900x400). Insuffisant, et pour la meme raison que l'erreur
+precedente — **une banniere fanart fait 5.4:1** (1000x185), donc `object-cover`
+lui rognait toujours les bords (le `D` de DARLING et le second `XX`
+disparaissaient). Deviner la forme d'une image qu'on vient de mesurer n'a aucun
+sens : la bande prend la proportion **exacte** de l'illustration, plafonnee, et
+`object-contain` garantit qu'un cas plafonne est borde plutot que coupe.
+Recadrage mesure : 64 % → 12 % → **0 %**.
 
 **Bug trouve par le releve, sans rapport avec la demande** : le profil affichait
 « 0 anime » a un visiteur anonyme. La requete AniList etait abandonnee a 6 s ;
@@ -195,8 +201,8 @@ SSR.
 
 **Verifie sur dev** (fenetre 1600x900) : illustration 1920x1080 → `fixed`, boite
 inchangee a `@y0` apres 500 px de defilement, 10 % de perte ; bande 1000x185 →
-mode bande, 1584x333, 12 % de perte au lieu de 64 % ; visiteur anonyme →
-383 animes, 683 lignes.
+mode bande, 1584x293 (soit 5.41:1, la proportion de l'image), **0 %** de perte ;
+visiteur anonyme → 383 animes, 683 lignes.
 
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
 est desormais la vitrine.
