@@ -2308,10 +2308,28 @@ export default function Watch({
      variante PLEINE DEFINITION quand elle existe, la tuile de liste gardant sa
      version legere. Sans ca on affichait une screencap ani.zip de 640 px
      agrandie deux fois — d'ou le rendu pixelise signale le 26/08/2026. */
+  /* La jaquette ferme la chaine, et ce n'est pas du luxe : c'est ce qui
+     garantit qu'il y a TOUJOURS quelque chose a poser quand la premiere frame
+     est noire ou blanche.
+     Un film ou une OVA n'a le plus souvent aucune image d'episode (il n'y a
+     qu'un episode, ni ani.zip ni TMDB n'en fabriquent une vignette), et
+     `bannerImage` est frequemment nul chez AniList sur ces formats-la. La
+     chaine tombait donc a `undefined` : le `<img class="as-poster">` ne
+     chargeait jamais, la garde `!img?.complete || !img.naturalWidth` du
+     detecteur de premiere frame renoncait, et l'ouverture restait un
+     rectangle noir nu — precisement le cas que le detecteur existe pour
+     couvrir.
+     Elle est PORTRAIT alors que le cadre est en 16/9, et c'est sans
+     consequence : `.as-poster` est en `object-fit: cover`, elle remplit en
+     recadrant. Meme repli que les cartes « repris recemment », pour la meme
+     raison. Elle reste en DERNIER : une image d'episode dit l'episode, une
+     jaquette ne dit que l'oeuvre. */
   const posterUrl =
     episodeNavigation?.playing?.imgHd ||
     episodeNavigation?.playing?.img ||
-    info?.bannerImage;
+    info?.bannerImage ||
+    info?.coverImage?.extraLarge ||
+    info?.coverImage?.large;
   /* Ce qu'on PRECHARGE, qui n'est pas tout a fait ce qu'on affiche : la
      banniere en est exclue. Au premier rendu la liste d'episodes n'est pas
      encore la, `posterUrl` retombe donc sur `info.bannerImage` et on emettait
@@ -2501,6 +2519,16 @@ export default function Watch({
       server={activeServer}
     />
   );
+
+  /* Film / OVA / one-shot : il n'y a rien a lister. La colonne de droite ne
+     portait qu'une liste d'un seul element, qui redisait ce que le titre au
+     dessus du lecteur dit deja, et coutait au lecteur les 26rem que le `min()`
+     de la grille lui reserve. On la retire, et le lecteur prend toute la
+     largeur que la hauteur d'ecran autorise.
+     Le chat, lui, garde sa colonne : c'est le seul autre occupant de cette
+     place, et une partie a deux sur un film reste une partie. D'ou le test sur
+     `partyPanelBlock` plutot que sur `isSingleEpisode` seul. */
+  const soloLayout = isSingleEpisode && !(party || partyUIOpen);
 
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
@@ -2722,9 +2750,20 @@ export default function Watch({
               s'elargit pas indefiniment pour courir apres le pli. */}
           <div
             id="default"
+            /* Une seule colonne quand il n'y a ni liste ni chat a mettre a
+               droite (cf. `soloLayout`). Le `min()` perd alors sa reserve de
+               26rem — c'etait la place de la liste — et ne garde que la borne
+               qui compte vraiment : la hauteur disponible reconvertie en
+               largeur, pour que le pli tombe toujours sous la barre de
+               serveurs. Les 143px et les 1.125rem sont les memes mesures,
+               elles ne dependent pas du nombre de colonnes. */
             className={`${
               theaterMode
-                ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                ? soloLayout
+                  ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)]"
+                  : "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                : soloLayout
+                ? "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)] lg:justify-center"
                 : "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
@@ -2784,8 +2823,12 @@ export default function Watch({
                 fiche se replie sur celle du lecteur. */}
             <div
               id="details"
+              /* `lg:col-span-2` sur une grille A UNE COLONNE (soloLayout) ne
+                 s'etendrait pas : il en CREERAIT une seconde, implicite, et la
+                 fiche irait se ranger a cote du lecteur. Une colonne, pas de
+                 span. */
               className={`mt-4 flex w-full flex-col gap-5 px-3 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:block lg:px-0 ${
-                partyOpen ? "" : "lg:col-span-2"
+                partyOpen || soloLayout ? "" : "lg:col-span-2"
               }`}
             >
               <Details
@@ -2901,6 +2944,11 @@ export default function Watch({
                 En mode cinema le lecteur est AU-DESSUS de la grille, donc la
                 rangee ne mesure plus que la barre de serveurs : sans plancher
                 la liste s'ecraserait a quelques dizaines de pixels. */}
+            {/* Rien a mettre a droite sur un film / une OVA : la colonne n'est
+                pas seulement videe, elle n'est pas MONTEE. La laisser vide
+                aurait garde son `pt-4` sur mobile et sa piste de grille au
+                dessus de lg. */}
+            {!soloLayout && (
             <div
               id="secondary"
               className={`relative lg:col-start-2 lg:row-start-1 ${
@@ -2935,6 +2983,7 @@ export default function Watch({
                 )}
               </div>
             </div>
+            )}
 
             {/* Rangee 2, colonne de droite — la liste d'episodes quand le chat
                 lui a pris sa place au-dessus. Meme montage hors-flux que la
