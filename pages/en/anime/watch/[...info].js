@@ -475,20 +475,24 @@ export default function Watch({
     });
   }, []);
 
-  // Track server preference order — favorite working servers come first.
-  // Six of the nine ids this list used to carry (hianime-*, animesama-oneupload,
-  // voiranime-streamtape*) no longer exist in lib/servers.js. `isCandidate`
-  // filtered them out silently, so the list effectively read
-  // [megaplay, animesama-sibnet, animesama-sibnet-vo] — which is why a dead VF
-  // chip fell back to Megaplay (lang "multi", first in line) instead of another
-  // FRENCH DUB. Kept as a hint for the ids that still exist; anything not listed
-  // is picked up by the lib/servers.js sweep below (already ordered by speed).
-  const PREFERRED_FALLBACK_ORDER = [
-    "megaplay",
-    "animesama-sibnet",
-    "animesama-sibnet-vo",
-  ];
-
+  /* Il n'y a PLUS de liste de repli ecrite a la main.
+   *
+   * `PREFERRED_FALLBACK_ORDER` ([megaplay, animesama-sibnet,
+   * animesama-sibnet-vo], reste de neuf ids dont six n'existent plus) etait
+   * consultee AVANT tout classement : un lecteur qui tombait sautait sur sibnet
+   * meme quand un lecteur nettement plus rapide etait libre. Et le filet qui
+   * suivait balayait `lib/servers.js` dans son ordre de DECLARATION en le
+   * commentant « fastest first » — ce qu'il n'est pas : le fichier est groupe
+   * par langue, si bien qu'ansembed (speed 2) y est declare apres sendvid
+   * (speed 4).
+   *
+   * La bascule suit desormais le meme classement que les chips a l'ecran —
+   * `getServersByLang(serverPerfRankFrozen)`, donc les mesures reelles quand
+   * elles existent et `speed` sinon. C'est exactement ce que le raccourci de
+   * cycle (z) fait deja depuis le 29/08 ; seule la bascule automatique etait
+   * restee en arriere. « Le lecteur suivant » veut dire le suivant DANS LA
+   * LISTE QU'ON MONTRE, sans quoi la reprise contredit l'ordre affiche.
+   */
   /* Les lecteurs deja tentes ET rates pour CET episode, quelle qu'en soit la
      raison. C'est une memoire distincte de `failedServers`, et il faut les deux.
      `failedServers` gouverne l'AFFICHAGE des chips, et n'enregistre volontairement
@@ -553,48 +557,40 @@ export default function Watch({
     setActiveServer((current) => {
       if (current !== id) return current;
       const SERVERS = require("@/lib/servers").default;
+      const { getServersByLang } = require("@/lib/servers");
+      const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
       const failedDef = SERVERS.find((s) => s.id === id);
       const failedLang = failedDef?.lang;
 
-      // Build candidate list from PREFERRED_FALLBACK_ORDER, filtered by:
-      //  - not the failed server
-      //  - not in the failedServers map
-      //  - matching language (or "multi") when possible
       const failedSet = new Set([
         ...failedServersRef.current.keys(),
         ...triedFailedRef.current,
         id,
       ]);
-      const isCandidate = (sid) => {
-        if (sid === id || failedSet.has(sid)) return false;
-        return SERVERS.some((s) => s.id === sid);
-      };
 
-      // STRICT same language first — a viewer who picked a French dub wants
-      // another French dub, not Megaplay's subtitles. The old single pass
-      // accepted `lang === "multi"` at the same priority, and since megaplay
-      // heads the list it always won: losing the VF chip silently switched the
-      // episode to VOSTFR.
-      const langOf = (sid) => SERVERS.find((x) => x.id === sid)?.lang;
-      const sameLang = (sid) => failedLang && langOf(sid) === failedLang;
+      // Le classement des chips, tel quel : chaque groupe est deja trie du plus
+      // rapide au plus lent par serverPerfRankFrozen (mesures reelles, `speed`
+      // a defaut). On ne reordonne rien ici — on lit.
+      const groups = getServersByLang(serverPerfRankFrozen);
+      const libre = (s) => s && s.id !== id && !failedSet.has(s.id);
 
-      let next = PREFERRED_FALLBACK_ORDER.find((sid) => isCandidate(sid) && sameLang(sid));
-      // …then any other server of that language (lib order = fastest first).
-      if (!next) {
-        next = SERVERS.find((s) => !failedSet.has(s.id) && s.lang === failedLang)?.id;
-      }
-      // Langue epuisee : on suit le classement de l'utilisateur (2 puis 3) avant
-      // de retomber sur les heuristiques historiques. Sans ca, perdre le dernier
-      // lecteur VF renvoyait sur megaplay (tete de liste) meme quand la personne
-      // avait classe le VOSTFR juste apres la VF.
+      // 1. MEME LANGUE, le plus rapide d'abord. Une personne qui a choisi un
+      //    doublage francais veut un autre doublage francais, pas les
+      //    sous-titres de Megaplay — d'ou la priorite stricte, conservee.
+      let next = (groups[failedLang] || []).find(libre)?.id;
+
+      // 2. Langue epuisee : le classement de langues de l'utilisateur (2 puis
+      //    3) avant toute heuristique. Sans ca, perdre le dernier lecteur VF
+      //    renvoyait sur megaplay meme quand la personne avait classe le VOSTFR
+      //    juste apres la VF.
       if (!next && langOrderRef.current) {
         next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
       }
+
+      // 3. Filet : n'importe quel lecteur libre, toujours dans l'ordre affiche
+      //    (multi, puis vo, puis vf — l'ordre du selecteur).
       if (!next) {
-        next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
-      }
-      if (!next) {
-        next = SERVERS.find((s) => !failedSet.has(s.id))?.id;
+        next = [...groups.multi, ...groups.vo, ...groups.vf].find(libre)?.id;
       }
       return next || current;
     });

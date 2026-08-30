@@ -314,18 +314,7 @@ function frembedMasterUrl(payload) {
  * Fail-soft: a rendition we can't resolve is dropped, never thrown — losing a
  * subtitle track must not cost the viewer the video.
  */
-async function frembedSubtitles(masterUrl, subtitlePref) {
-  let manifest;
-  try {
-    // No Referer here, deliberately: this is the CDN, which 403s frembed's own
-    // (see the header note above).
-    const res = await fetchWithTimeout(masterUrl, {}, 4000);
-    if (!res.ok) return [];
-    manifest = await res.text();
-  } catch {
-    return [];
-  }
-
+async function frembedSubtitles(manifest, masterUrl, subtitlePref) {
   const renditions = [];
   for (const line of manifest.split(/\r?\n/)) {
     if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=SUBTITLES/.test(line)) continue;
@@ -376,6 +365,55 @@ async function frembedSubtitles(masterUrl, subtitlePref) {
 
 /** ISO 639-2 → 639-1 for the codes frembed actually emits. */
 const FREMBED_LANG_ALIASES = { fra: "fr", fre: "fr", eng: "en", jpn: "ja" };
+
+/**
+ * LIVENESS PROBE — does the CDN actually serve this master?
+ *
+ * Every other host in this file proves its candidate before we paint a chip
+ * (isVidmolyEmbedAlive, isIframeReachable); frembed was handing over whatever
+ * url its JSON api announced, unverified. Those are two different claims: the
+ * api says "this episode is in my catalogue", the CDN says "and here are the
+ * bytes". When only the first held, the chip lit up and then died at playback —
+ * the player errored, markFailed pulled it, and it came back on the next load
+ * from the availability snapshot. That is the "frembed appears then disappears"
+ * loop.
+ *
+ * Fetching the master is also the ONLY thing we needed it for anyway (the
+ * subtitle renditions are parsed out of it), so proving the source costs no
+ * extra round trip.
+ *
+ * The verdict is three-way on purpose, because collapsing it is what poisons
+ * the 6h availability snapshot:
+ *   alive              → serve it;
+ *   absent (404/410)   → a real, deterministic miss, safe to negative-cache;
+ *   transient (429, 5xx, a Cloudflare 403 for rate, timeout, network) → 503, so
+ *                        the chip is left alone instead of being buried. The
+ *                        CDN DOES rate-limit a busy client — measured while
+ *                        probing it — and one of those must never read as "this
+ *                        episode does not exist".
+ */
+async function frembedProbeMaster(masterUrl) {
+  let res;
+  try {
+    // No Referer, deliberately: this is the CDN, which 403s frembed's own.
+    res = await fetchWithTimeout(masterUrl, {}, 5000);
+  } catch (e) {
+    return { transient: true, reason: `frembed cdn unreachable: ${e.message}` };
+  }
+  if (res.status === 404 || res.status === 410) {
+    return { absent: true, reason: `frembed cdn ${res.status}` };
+  }
+  if (!res.ok) {
+    return { transient: true, reason: `frembed cdn ${res.status}` };
+  }
+  const manifest = await res.text();
+  // A master that isn't a playlist is an error page wearing a 200 — the CDN's
+  // Cloudflare block page is exactly that. Never hand it to the player.
+  if (!/^\s*#EXTM3U/.test(manifest)) {
+    return { transient: true, reason: "frembed cdn returned a non-playlist body" };
+  }
+  return { manifest };
+}
 
 /**
  * Second-chance coordinates when (detected season, episode) came back empty.
@@ -467,7 +505,15 @@ async function getFrembedStream(serverKey, aniId, episode) {
   // AniList → TMDB hop costs no network call and no TMDB api key. Its weak
   // field is `season` (it collides and fuses) — which is exactly the field we
   // don't read: the season comes from our own resolver below.
-  const fribb = await getFribbEntry(Number(aniId));
+  //
+  // `getFribbEntry` swallows its own errors and answers null for BOTH "this
+  // anime has no mapping" (stable) and "the database didn't answer"
+  // (transient). Collapsing the two let a Turso hiccup be negative-cached for
+  // 10 min and published into the 6h availability snapshot — the chip vanishing
+  // for everyone over a blip. A second look separates them: a missing mapping
+  // is a static fact that answers null twice, a hiccup usually doesn't.
+  let fribb = await getFribbEntry(Number(aniId));
+  if (!fribb) fribb = await getFribbEntry(Number(aniId));
   const tmdbId = fribb?.tmdbTvId || null;
   if (!tmdbId) {
     dlog(`[frembed] no tmdb.tv mapping for AniList ${aniId}`);
@@ -491,6 +537,14 @@ async function getFrembedStream(serverKey, aniId, episode) {
   }
   if (!master) return null;
 
+  // Prove the CDN before painting a chip — see frembedProbeMaster.
+  const probe = await frembedProbeMaster(master);
+  if (probe.transient) throw new TransientSourceError(probe.reason);
+  if (probe.absent) {
+    dlog(`[frembed] ${probe.reason} for ${master}`);
+    return null;
+  }
+
   return {
     streams: [
       {
@@ -510,7 +564,7 @@ async function getFrembedStream(serverKey, aniId, episode) {
     // Lifted out of the master and handed over as ordinary sidecar tracks —
     // see frembedSubtitles for why in-manifest renditions were invisible to
     // the player's own subtitle UI.
-    subtitles: await frembedSubtitles(master, def.subtitlePref),
+    subtitles: await frembedSubtitles(probe.manifest, master, def.subtitlePref),
   };
 }
 
