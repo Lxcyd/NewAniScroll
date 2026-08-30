@@ -248,9 +248,14 @@ const EXTRACTABLE_HOSTS = [
 // tracks, so the two chips resolve the SAME url and differ only by the
 // `audioLang` the player pins.
 const FREMBED_BASE = "https://frembed.casa";
+// The master ships TWO French subtitle tracks — "FR Forced" (on-screen signs
+// only, and flagged DEFAULT) and "FR Full". Which one a chip wants follows its
+// audio: a French dub needs signs only, the Japanese original needs the full
+// dialogue. Without this the VO chip inherited the DEFAULT forced track and
+// looked like it had no subtitles at all.
 const FREMBED_SERVERS = {
-  frembed: { audioLang: "fr" },
-  "frembed-vo": { audioLang: "ja" },
+  frembed: { audioLang: "fr", subtitlePref: "forced" },
+  "frembed-vo": { audioLang: "ja", subtitlePref: "full" },
 };
 
 /* Frembed indexes on TMDB's season numbering, which splits a long-running show
@@ -415,8 +420,10 @@ async function getFrembedStream(serverKey, aniId, episode) {
         isM3U8: true,
         // No proxy: the CDN is CORS-open and 403s a frembed Referer.
         directUrl: true,
-        // Which of the master's two audio renditions this chip is.
+        // Which of the master's two audio renditions this chip is, and which
+        // of its two French subtitle tracks goes with it.
         audioLang: def.audioLang,
+        subtitlePref: def.subtitlePref,
       },
     ],
     // Subtitles ride INSIDE the master as HLS renditions, so hls.js surfaces

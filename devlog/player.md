@@ -68,6 +68,43 @@ Le mapping AniList -> TMDB ne coute aucun appel : `themoviedb_id` de Fribb est
 un cross-map statique deja ingere. Son champ faible est `season` — precisement
 celui qu'on ne lit pas.
 
+### Correctif du meme jour : « il manque les sous-titres en VO »
+
+Deux defauts qui se cumulaient, tous deux dans la selection de piste du lecteur
+et tous deux plus larges que frembed :
+
+1. **Les codes de langue.** `findByLang` comparait `t.language === "fr"` en
+   egalite stricte. Frembed declare ses pistes en ISO 639-2 (`LANGUAGE="fra"`),
+   donc ni la preference enregistree ni la langue du site ne trouvaient quoi que
+   ce soit, et la selection retombait sur `firstAvailable`. Un `norm()` replie
+   desormais les codes a trois lettres (et le doublet fra/fre) sur ceux a deux.
+2. **Les pistes forcees.** Une piste FORCED ne porte que les panneaux a l'ecran,
+   pas les dialogues : ce n'est pas un substitut. Frembed en expose deux sous la
+   MEME langue, la forcee en premier et marquee `DEFAULT=YES` — donc le repli du
+   point 1 tombait pile sur la quasi-vide. A langue egale on prefere maintenant
+   la piste complete, sauf si la source demande explicitement la forcee.
+
+D'ou `subtitlePref` sur le flux : `forced` pour le chip VF (un doublage ne veut
+que les panneaux), `full` pour le chip VO. Meme mecanique de passage que
+`audioLang`.
+
+### Pourquoi `speed: 1` (mesure, pas intuition)
+
+Depuis une connexion francaise, sur le meme master AoT S1E1 :
+
+| | TTFB | debit |
+|---|---|---|
+| CDN frembed, direct | **88-105 ms** | 6,2-9,6 Mo/s (segment de 10 s = 7,8 Mo en 0,8-1,3 s) |
+| le MEME fichier via `proxy.aniscroll.com` | 430-720 ms | — (410, le Worker refuse cet hote) |
+| resolution (1 appel API frembed) | 147-174 ms | une requete, aucun scraping |
+
+Le saut par le Worker coute donc ~350-600 ms sur le manifeste **et sur chaque
+segment**. A cela s'ajoute la resolution : un appel ici, contre 4 a 8 fetches
+amont pour anime-sama. Reserve honnete : mesure depuis UNE localisation, et la
+ligne « via proxy » est lue sur un refus 410 — elle date le saut reseau, pas un
+transfert complet. De toute facon `speed` n'est qu'un a priori : `serverPerf`
+le remplace des que les mesures reelles des visiteurs arrivent.
+
 ## 2026-08-30 — L'ordre des lecteurs : fige a l'ecran, partage entre visiteurs
 
 Trois defauts d'un seul mecanisme — le classement des lecteurs — signales le
