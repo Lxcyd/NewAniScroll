@@ -1,6 +1,6 @@
-# Usage Monitor — 2026-08-29
+# Usage Monitor — 2026-08-30
 
-_Generated 2026-08-29T12:42:43.988Z_
+_Generated 2026-08-30T11:57:26.109Z_
 
 ## ⚠️ Flags
 - Only **1 Upstash DB** on the account → dev & prod likely share it (see DEVLOG 2026-07-30).
@@ -9,42 +9,42 @@ _Generated 2026-08-29T12:42:43.988Z_
 > DBs on account: **1** — dev (Preview) & prod SHARE this DB; the number below mixes both.
 
 - DB: `aniscroll-cache`
-- Today: **5,158** (-4,555 -47%) vs yesterday
-- 7-day avg/day: **6,685**
-- Projected month: **200,550** / 500,000 cap — **40%**
+- Today: **1,070** (-10,750 -91%) vs yesterday
+- 7-day avg/day: **6,752**
+- Projected month: **202,560** / 500,000 cap — **41%**
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **13,274** | scanned: 13,274 keys
+- DBSIZE: **13,268** | scanned: 13,268 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 12,103 | 91.2% | (+540 +5%) |
-| `episode:` | 729 | 5.5% | (-11 -1%) |
-| `tr:` | 415 | 3.1% | (-13 -3%) |
-| `jikan:` | 9 | 0.1% | (=) |
-| `ftree:` | 6 | 0.0% | (-9 -60%) |
-| `src:` | 5 | 0.0% | — |
-| `anilist:` | 3 | 0.0% | (-67 -96%) |
-| `avail:` | 3 | 0.0% | (-8 -73%) |
+| `anime:` | 12,115 | 91.3% | (+12 +0%) |
+| `episode:` | 715 | 5.4% | (-14 -2%) |
+| `tr:` | 422 | 3.2% | (+7 +2%) |
+| `avail:` | 7 | 0.1% | (+4 +133%) |
+| `anilist:` | 4 | 0.0% | (+1 +33%) |
+| `ftree:` | 2 | 0.0% | (-4 -67%) |
+| `jikan:` | 2 | 0.0% | (-7 -78%) |
 | `index_server_v3:` | 1 | 0.0% | (=) |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 12,103 |
-| `tr:fr` | 415 |
-| `episode:v3` | 368 |
-| `episode:v5` | 191 |
+| `anime:v5` | 12,115 |
+| `tr:fr` | 422 |
+| `episode:v3` | 352 |
+| `episode:v5` | 189 |
 | `episode:v6` | 147 |
 | `episode:v7` | 13 |
-| `jikan:eps` | 9 |
-| `episode:v8` | 8 |
-| `ftree:v5` | 6 |
-| `src:v13` | 5 |
-| `anilist:resp` | 3 |
-| `avail:v4` | 3 |
+| `avail:v4` | 7 |
+| `episode:v8` | 7 |
+| `anilist:resp` | 4 |
+| `episode:v11` | 4 |
 | `episode:v9` | 2 |
+| `ftree:v5` | 2 |
+| `jikan:eps` | 2 |
+| `episode:v10` | 1 |
 
 </details>
 
