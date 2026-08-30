@@ -88,6 +88,54 @@ D'ou `subtitlePref` sur le flux : `forced` pour le chip VF (un doublage ne veut
 que les panneaux), `full` pour le chip VO. Meme mecanique de passage que
 `audioLang`.
 
+**Ce correctif etait insuffisant** — il operait sur une liste vide. Voir la
+suite.
+
+### Deuxieme passe : le bouton sous-titres n'apparaissait meme pas
+
+Le rapport « il manque toujours les sous-titres, et pas de bouton » a invalide
+le diagnostic ci-dessus. Trois barrages empiles, dont le dernier est le vrai :
+
+1. **hls.js rend les pistes en NATIF par defaut** (`renderTextTracksNatively`
+   n'est pose nulle part), donc il n'emet jamais l'evenement non-natif que
+   Vidstack ecoute : `player.textTracks` restait VIDE. Le tri par langue de la
+   passe precedente travaillait donc sur rien.
+2. **La liste du menu vient de `streamData.subtitles`**, pas des pistes du
+   manifeste. Rendre `subtitles: []` garantissait un menu vide.
+3. **`subMode` se deduisait du `lang` du serveur** : `vo` -> `"hard"`,
+   c'est-a-dire « incrustes, rien a basculer ». Le raccourci ne tenait que tant
+   que VO signifiait anime-sama. Frembed est un serveur `vo` a sous-titres
+   SOUPLES — categorie qui n'existait pas — et le bouton expliquait qu'il n'y
+   avait rien a regler pendant que deux pistes valides dormaient.
+
+**La sortie est le sidecar.** Chaque rendition de frembed est une playlist d'une
+ligne pointant un unique `subtitle.vtt` (`text/vtt`, `ACAO: *`). L'API les
+resout donc en pistes sidecar ordinaires — le chemin que megaplay emprunte
+deja, ou le bouton CC, l'editeur de style et le menu de langue marchent tous.
+Cout : le master plus les renditions, en parallele, mis en cache 5 min comme
+n'importe quelle resolution.
+
+Mesure qui confirme le symptome d'origine (Chainsaw Man ep1) :
+
+| piste | taille | cues |
+|---|---|---|
+| FR Forced (etait choisie par defaut) | 3 035 o | **38** |
+| FR Full | 13 634 o | **228** |
+
+38 cues, c'est la chanson du generique et les panneaux : sur de l'audio japonais
+ca se lit comme une absence totale de sous-titres.
+
+Deux pieges refermes au passage :
+- **ne pas proxifier les sous-titres d'un flux direct**. Le Worker refuse les
+  hotes hors liste (410) : proxifier un `.vtt` deja CORS-ouvert transformait une
+  piste vivante en piste morte ;
+- **`hls.subtitleDisplay = false`** sur l'instance (propriete d'instance, pas
+  cle de config en hls.js 1.4). Sans ca hls.js peignait sa piste `DEFAULT=YES`
+  — la forcee — PAR-DESSUS le sidecar qui porte les memes dialogues.
+
+`subMode` se decide desormais sur les pistes reellement presentes ; le `lang` ne
+repond plus que pour une source qui n'en fournit aucune.
+
 ### Pourquoi `speed: 1` (mesure, pas intuition)
 
 Depuis une connexion francaise, sur le meme master AoT S1E1 :

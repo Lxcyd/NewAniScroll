@@ -1768,6 +1768,17 @@ export default function UniversalPlayer({
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
+      // Subtitles in this app are ALWAYS sidecar <Track>s — that is the only
+      // list the track menu and the style editor can see. A master that ALSO
+      // carries its own subtitle renditions (frembed) would otherwise have
+      // hls.js paint the one flagged DEFAULT — its forced track — on top of the
+      // sidecar track carrying the same dialogue. Let hls.js expose them, never
+      // render them. (Instance property, not a config key, in hls.js 1.4.)
+      if (hls) {
+        try {
+          hls.subtitleDisplay = false;
+        } catch {}
+      }
       /* Jalons du demarrage — cf. les refs a cote de `ttffMsRef`. Poses ici
          parce que c'est le seul endroit qui tient l'instance hls.js, et seul
          le PREMIER passage compte : les gardes `if (!ref.current)` laissent
@@ -5317,7 +5328,13 @@ export default function UniversalPlayer({
           const url = s.file || s.url;
           if (!url) return null;
           return {
-            src: proxied(url, bestStream!.referer || streamData?.referer),
+            // A direct source's subtitles go straight to the CDN too. Routing
+            // them through the Worker isn't merely a wasted hop: it refuses
+            // hosts outside its allowlist (410), so proxying frembed's
+            // CORS-open .vtt would turn a working track into a dead one.
+            src: bestStream!.directUrl
+              ? url
+              : proxied(url, bestStream!.referer || streamData?.referer),
             label: s.label || s.language || "Subtitle",
             language: s.language || "en",
             kind: (s.kind as any) || "subtitles",
@@ -5342,9 +5359,21 @@ export default function UniversalPlayer({
   //     cannot be turned off.
   // Used to (a) still show the Subs button on hard/none servers and (b) explain,
   // via a fullscreen-safe notice, why toggling subs does nothing there.
+  //
+  // The `lang` shorthand held only while VO meant "anime-sama-style burned-in
+  // subs". Frembed broke that: it is a `vo` server whose subtitles are real,
+  // selectable tracks, and the shorthand declared them hard-burned — so the
+  // button explained there was nothing to toggle while two perfectly good
+  // tracks sat unused. Actual tracks now decide; `lang` only answers for a
+  // source that shipped none, exactly as before.
   const serverLang = serverId ? getServer(serverId)?.lang : "multi";
-  const subMode: "soft" | "hard" | "none" =
-    serverLang === "vf" ? "none" : serverLang === "vo" ? "hard" : "soft";
+  const subMode: "soft" | "hard" | "none" = subtitleTracks.length
+    ? "soft"
+    : serverLang === "vf"
+    ? "none"
+    : serverLang === "vo"
+    ? "hard"
+    : "soft";
 
   // The subtitles button/shortcut: on a soft-sub server open the track menu;
   // on a hard-sub or dub server there's nothing to toggle, so explain why with a

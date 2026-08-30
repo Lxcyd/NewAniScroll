@@ -297,6 +297,87 @@ function frembedMasterUrl(payload) {
 }
 
 /**
+ * The master's subtitle renditions, resolved to plain .vtt urls.
+ *
+ * WHY SIDECAR AND NOT IN-MANIFEST. hls.js renders text tracks natively by
+ * default, so it never emits the non-native-tracks event Vidstack listens for:
+ * the tracks played but `player.textTracks` stayed EMPTY, which meant no track
+ * menu, no style editor, no CC button. Handing the same cues over as ordinary
+ * sidecar tracks puts them through the path megaplay already uses, where all of
+ * that works — and costs nothing extra at playback since the player then tells
+ * hls.js nothing about them.
+ *
+ * Each rendition is a one-line playlist pointing at a single `subtitle.vtt`
+ * (measured 2026-08-30), so resolving one is a single cheap fetch; they run in
+ * parallel and the whole payload is cached for 5 min like any other resolve.
+ *
+ * Fail-soft: a rendition we can't resolve is dropped, never thrown — losing a
+ * subtitle track must not cost the viewer the video.
+ */
+async function frembedSubtitles(masterUrl, subtitlePref) {
+  let manifest;
+  try {
+    // No Referer here, deliberately: this is the CDN, which 403s frembed's own
+    // (see the header note above).
+    const res = await fetchWithTimeout(masterUrl, {}, 4000);
+    if (!res.ok) return [];
+    manifest = await res.text();
+  } catch {
+    return [];
+  }
+
+  const renditions = [];
+  for (const line of manifest.split(/\r?\n/)) {
+    if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=SUBTITLES/.test(line)) continue;
+    const attr = (name) =>
+      (line.match(new RegExp(`${name}="([^"]*)"`)) || [])[1] || "";
+    const uri = attr("URI");
+    if (!uri) continue;
+    renditions.push({
+      uri,
+      language: attr("LANGUAGE"),
+      name: attr("NAME"),
+      forced: /FORCED=YES/.test(line),
+    });
+  }
+  if (renditions.length === 0) return [];
+
+  const wantForcedDefault = subtitlePref === "forced";
+  const resolved = await Promise.all(
+    renditions.map(async (r) => {
+      try {
+        const playlistUrl = new URL(r.uri, masterUrl).toString();
+        const res = await fetchWithTimeout(playlistUrl, {}, 4000);
+        if (!res.ok) return null;
+        const segment = (await res.text())
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .find((l) => l && !l.startsWith("#"));
+        if (!segment) return null;
+        return {
+          file: new URL(segment, playlistUrl).toString(),
+          // The host names them "FR Forced : SRT" / "FR Full : SRT"; the format
+          // suffix means nothing to a viewer.
+          label: (r.name || r.language || "Subtitle").replace(/\s*:\s*SRT$/i, ""),
+          // Two-letter code: what the player stores as the viewer's remembered
+          // subtitle language. The host writes ISO 639-2 ("fra").
+          language: FREMBED_LANG_ALIASES[r.language.toLowerCase()] || r.language,
+          kind: "subtitles",
+          // A dub wants signs only; a subtitled original wants the dialogue.
+          default: r.forced === wantForcedDefault,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return resolved.filter(Boolean);
+}
+
+/** ISO 639-2 → 639-1 for the codes frembed actually emits. */
+const FREMBED_LANG_ALIASES = { fra: "fr", fre: "fr", eng: "en", jpn: "ja" };
+
+/**
  * Second-chance coordinates when (detected season, episode) came back empty.
  *
  * Every payload — even one for a season that doesn't exist — carries the full
@@ -426,9 +507,10 @@ async function getFrembedStream(serverKey, aniId, episode) {
         subtitlePref: def.subtitlePref,
       },
     ],
-    // Subtitles ride INSIDE the master as HLS renditions, so hls.js surfaces
-    // them on its own — there is no sidecar list to hand over.
-    subtitles: [],
+    // Lifted out of the master and handed over as ordinary sidecar tracks —
+    // see frembedSubtitles for why in-manifest renditions were invisible to
+    // the player's own subtitle UI.
+    subtitles: await frembedSubtitles(master, def.subtitlePref),
   };
 }
 
