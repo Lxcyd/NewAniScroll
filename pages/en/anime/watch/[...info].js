@@ -2838,7 +2838,10 @@ export default function Watch({
                 listStatus={listStatus.status}
                 listResolved={listStatus.resolved}
                 onOpenListEditor={() => handleOpen()}
-                partyOpen={partyOpen}
+                /* Confinee a la colonne du lecteur dans les DEUX cas : le chat
+                   occupe la droite, ou il n'y a pas de colonne de droite du
+                   tout (film / OVA). */
+                confined={partyOpen || soloLayout}
                 title={
                   <div className="min-w-0">
                     {/* Pas de line-clamp : le titre s'affiche EN ENTIER,

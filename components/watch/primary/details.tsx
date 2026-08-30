@@ -64,9 +64,13 @@ type DetailsProps = {
   /** Secondary action buttons (party / share / report) rendered under the
    *  add-to-list CTA. The page keeps their handlers; we only place them. */
   actions?: ReactNode;
-  /** Le panneau watch-together occupe-t-il la colonne de droite ? La fiche se
-   *  range differemment selon le cas — voir le commentaire du rendu. */
-  partyOpen?: boolean;
+  /** La fiche est-elle confinee a la LARGEUR DU LECTEUR plutot qu'etalee sur
+   *  toute la page ? Vrai quand le chat occupe la colonne de droite, et vrai
+   *  aussi sur un film / une OVA, ou la page n'a qu'une colonne. Ce drapeau
+   *  s'appelait `partyOpen` : il ne nommait qu'une des deux causes, et le
+   *  second cas est arrive en reglant sa grille sur la mauvaise. Voir le
+   *  commentaire du rendu. */
+  confined?: boolean;
 };
 
 export default function Details({
@@ -78,7 +82,7 @@ export default function Details({
   onOpenListEditor,
   title,
   actions,
-  partyOpen = false,
+  confined = false,
 }: DetailsProps) {
   const { t, i18n } = useTranslation();
 
@@ -148,20 +152,26 @@ export default function Details({
     // restante, la jaquette a cheval sur les deux rangees — donc pleine hauteur.
     // Seule la LARGEUR de l'ensemble change avec le chat :
     //
-    //  chat ferme  — la fiche tient toute la page. La 3e colonne est « le
+    //  pleine page — la fiche tient toute la page. La 3e colonne est « le
     //    reste » (`1fr`), c'est-a-dire exactement l'aplomb de la liste
     //    d'episodes restee en haut a droite ; les deux premieres se partagent
     //    la colonne du lecteur, d'ou le `calc()` sur la variable que la page
     //    expose. Le compte doit retirer les DEUX gouttieres, sans quoi la
     //    colonne des boutons demarre une gouttiere trop loin.
-    //  chat ouvert — la liste d'episodes est descendue a droite de la fiche :
-    //    celle-ci se replie sur la largeur du lecteur, et sa 3e colonne devient
-    //    une largeur de boutons. Ils restent donc plaques a droite, juste a
-    //    gauche de la liste, et le synopsis s'arrete au bord de la barre de
-    //    serveurs.
+    //  CONFINEE a la colonne du lecteur — sa 3e colonne devient une largeur de
+    //    boutons fixe. Deux situations y menent, et c'est pour ca que ce drapeau
+    //    ne parle plus du chat : le chat ouvert (la liste d'episodes descend a
+    //    droite de la fiche), et un film / une OVA (il n'y a pas de liste du
+    //    tout, la grille de la page n'a qu'une colonne).
+    //
+    //    La variante pleine page est ARITHMETIQUEMENT fausse dans ce cas :
+    //    190px + (player-col - 190px - 3.5rem) + 3.5rem de gouttieres font
+    //    exactement player-col, donc la 3e colonne recoit ZERO et les boutons
+    //    s'empilent en un ruban illisible au bord droit. C'est ce qu'on voyait
+    //    sur un film le 30/08/2026.
     <div
       className={`relative z-10 flex flex-wrap gap-5 font-karla lg:grid lg:items-stretch lg:gap-x-7 lg:gap-y-4 ${
-        partyOpen
+        confined
           ? "lg:grid-cols-[190px_minmax(0,1fr)_19rem]"
           : "lg:grid-cols-[190px_minmax(0,calc(var(--player-col)_-_190px_-_3.5rem))_minmax(0,1fr)]"
       }`}
@@ -290,7 +300,7 @@ export default function Details({
           gouttiere pour elle : plus rien a compenser. */}
       <aside
         className={`flex w-full flex-col gap-2.5 lg:col-start-3 lg:row-start-1 lg:self-start ${
-          partyOpen ? "" : "lg:pl-4"
+          confined ? "" : "lg:pl-4"
         }`}
       >
         <button

@@ -119,9 +119,11 @@ type Stream = {
   audioLang?: string;
   /** Which of several same-language subtitle tracks this chip wants when the
    *  master ships both a FORCED (on-screen signs only) and a full one:
-   *  "forced" suits a dub, "full" a subtitled original. Absent = prefer full,
-   *  which is the safe default for a track list we know nothing about. */
-  subtitlePref?: "forced" | "full";
+   *  "forced" suits a dub, "full" a subtitled original, and "none" leaves them
+   *  all OFF by default (a French dub) while keeping them in the menu. Absent =
+   *  the historical behaviour, which is the safe default for a track list we
+   *  know nothing about. */
+  subtitlePref?: "forced" | "full" | "none";
 };
 
 type Subtitle = {
@@ -1004,7 +1006,12 @@ function SubtitleMenu({
         position: "fixed",
         right: pos.right,
         bottom: pos.bottom,
-        zIndex: 50,
+        /* Au-dessus du gros bouton de lecture, qui se peignait PAR-DESSUS le
+           menu et barrait deux ou trois lignes de la liste (signale le
+           30/08/2026). 50 ne suffisait pas : le bouton central de Vidstack est
+           dans son propre contexte d'empilement, peint apres. On reste sous la
+           pile de notices (10001), qui doit rester au-dessus de tout. */
+        zIndex: 10000,
         minWidth: 200,
         // Match Vidstack: max-height is 60% of player height (already
         // baked into pos.maxHeight via the geometry calc above).
@@ -1679,7 +1686,7 @@ export default function UniversalPlayer({
   const audioLangRef = useRef<string | null>(null);
   // Forced-vs-full subtitle preference of the CURRENT source, read by the
   // track-selection pass below. Same render-time hand-off as audioLangRef.
-  const subtitlePrefRef = useRef<"forced" | "full" | null>(null);
+  const subtitlePrefRef = useRef<"forced" | "full" | "none" | null>(null);
 
   // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
   // listener always calls the current handler without re-binding on every
@@ -3359,8 +3366,14 @@ export default function UniversalPlayer({
   const readPrefEnabled = (): boolean => {
     try {
       const v = localStorage.getItem(SUB_PREF_ENABLED_KEY);
-      // Default: subs on (matches the legacy "first track wins" behavior).
-      return v === null ? true : v === "1";
+      // Sans choix explicite du spectateur, c'est la SOURCE qui donne le
+      // defaut. Un doublage francais se regarde sans sous-titres : le chip VF
+      // de frembed annonce `none` et arrive donc eteint, ses deux pistes
+      // restant dans le menu pour qui veut les allumer. Des que quelqu'un
+      // tranche — dans un sens ou dans l'autre — sa decision est enregistree
+      // ici et prime sur ce defaut.
+      if (v === null) return subtitlePrefRef.current !== "none";
+      return v === "1";
     } catch { return true; }
   };
 
@@ -3412,62 +3425,30 @@ export default function UniversalPlayer({
     prevLangRef.current = i18n.language;
 
     // Returns the (caption-only) index of the track whose language best
-    // matches `pref`, or -1 if none. Case-insensitive.
+    // matches `pref`, or -1 if none. Exact match wins; case-insensitive.
     //
-    // Two things the plain `lang === want` comparison got wrong the moment a
-    // source declared its tracks the ISO 639-2 way:
-    //
-    //  1. LANGUAGE CODES. Frembed labels French "fra", so "fr" matched
-    //     NOTHING — not the saved preference, not the site-language default —
-    //     and selection fell through to `firstAvailable`. `norm` folds the
-    //     three-letter codes (and the fra/fre doublet) onto the two-letter
-    //     ones so both spellings mean the same language.
-    //
-    //  2. FORCED TRACKS. A "forced" track only carries on-screen signs, not
-    //     dialogue; it is NOT a substitute for full subtitles. Frembed ships
-    //     both under the same language, forced FIRST and flagged DEFAULT, so
-    //     the first match was the near-empty one — subtitles looked missing on
-    //     VOSTFR. Among same-language tracks we now prefer the full one,
-    //     unless the source explicitly asked for forced (a French dub wants
-    //     signs only — see `subtitlePref`).
-    const norm = (code: string): string => {
-      const c = code.toLowerCase().split(/[-_]/)[0];
-      const ISO3: Record<string, string> = {
-        fra: "fr", fre: "fr", eng: "en", jpn: "ja", spa: "es",
-        deu: "de", ger: "de", ita: "it", por: "pt", ara: "ar", rus: "ru",
-      };
-      return ISO3[c] || c;
-    };
-    const isForcedTrack = (t: any): boolean =>
-      t?.forced === true || /\bforc(ed|e|ees?|és?)\b/i.test(t?.label || "");
-
+    // Volontairement laissee TELLE QUELLE. Elle avait ete reecrite le
+    // 30/08/2026 (repli des codes ISO 639-2, preference pour la piste non
+    // forcee) et le dropdown a ete signale casse dans la foulee : la reecriture
+    // est revenue. Ce que frembed avait besoin de corriger se fait desormais en
+    // AMONT, cote API — les pistes arrivent deja dans le bon ordre et avec le
+    // bon code a deux lettres (cf. frembedSubtitles), donc « la premiere qui
+    // correspond a la langue » redevient la bonne reponse sans toucher a ce
+    // selecteur.
     const findByLang = (pref: string | null): number => {
       if (!pref) return -1;
-      const want = norm(pref);
+      const want = pref.toLowerCase();
       let captionIndex = 0;
-      const matches: number[] = [];
       for (let i = 0; i < tracks.length; i++) {
         const t = tracks[i];
         if (!t) continue;
         const isCaption = t.kind === "subtitles" || t.kind === "captions";
         if (!isCaption) continue;
-        if (norm(t.language || "") === want) matches.push(captionIndex);
+        const lang = (t.language || "").toLowerCase();
+        if (lang === want) return captionIndex;
         captionIndex++;
       }
-      if (matches.length === 0) return -1;
-      const wantForced = subtitlePrefRef.current === "forced";
-      const preferred = matches.find((idx) => {
-        let n = 0;
-        for (let i = 0; i < tracks.length; i++) {
-          const t = tracks[i];
-          if (!t) continue;
-          if (!(t.kind === "subtitles" || t.kind === "captions")) continue;
-          if (n === idx) return isForcedTrack(t) === wantForced;
-          n++;
-        }
-        return false;
-      });
-      return preferred ?? matches[0];
+      return -1;
     };
 
     // Apply our language preference exactly once per source. Crucially we do

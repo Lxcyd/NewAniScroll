@@ -253,8 +253,12 @@ const FREMBED_BASE = "https://frembed.casa";
 // audio: a French dub needs signs only, the Japanese original needs the full
 // dialogue. Without this the VO chip inherited the DEFAULT forced track and
 // looked like it had no subtitles at all.
+// Le chip VF est en `none` : un doublage francais se regarde SANS sous-titres.
+// Les deux pistes restent servies — on peut les activer dans le menu, et un
+// choix explicite du spectateur continue de primer — elles ne sont simplement
+// pas allumees d'office.
 const FREMBED_SERVERS = {
-  frembed: { audioLang: "fr", subtitlePref: "forced" },
+  frembed: { audioLang: "fr", subtitlePref: "none" },
   "frembed-vo": { audioLang: "ja", subtitlePref: "full" },
 };
 
@@ -353,14 +357,34 @@ async function frembedSubtitles(manifest, masterUrl, subtitlePref) {
           language: FREMBED_LANG_ALIASES[r.language.toLowerCase()] || r.language,
           kind: "subtitles",
           // A dub wants signs only; a subtitled original wants the dialogue.
-          default: r.forced === wantForcedDefault,
+          // `none` (le chip VF) n'en marque aucune.
+          default: subtitlePref !== "none" && r.forced === wantForcedDefault,
+          // Lu par le tri juste apres, puis inutile au client.
+          forced: r.forced,
         };
       } catch {
         return null;
       }
     }),
   );
-  return resolved.filter(Boolean);
+  const tracks = resolved.filter(Boolean);
+
+  /* L'ORDRE EST LE CONTRAT. Le selecteur du lecteur prend « la PREMIERE piste
+     qui correspond a la langue », et nos deux pistes portent la meme (`fr`) :
+     c'est donc l'ordre qui decide laquelle est retenue, et rien d'autre.
+     On met en tete celle que le chip veut, et tout s'aligne — y compris la
+     coche du menu, qui numerote les memes pistes dans le meme ordre. Le
+     30/08/2026, en laissant l'ordre du manifeste (forcee d'abord), la piste
+     JOUEE et la piste COCHEE n'etaient pas la meme : des sous-titres
+     s'affichaient sans qu'aucune ligne du menu ne soit surlignee.
+     `subtitlePref: "none"` (le doublage VF) ne change pas l'ordre — il n'y a
+     rien a preferer quand on n'allume rien ; c'est `defaultOff` plus bas qui
+     porte ce cas. */
+  if (subtitlePref === "forced" || subtitlePref === "full") {
+    const wantForced = subtitlePref === "forced";
+    tracks.sort((a, b) => (b.forced === wantForced) - (a.forced === wantForced));
+  }
+  return tracks;
 }
 
 /** ISO 639-2 → 639-1 for the codes frembed actually emits. */
