@@ -21,7 +21,10 @@ export type UserRecord = {
   passwordHash: string | null;
   anilistId: number | null;
   anilistName: string | null;
+  /** The AniScroll picture. Nothing sets it yet — see lib/auth/avatar.ts. */
   avatarUrl: string | null;
+  /** AniList's, ours to display only: it goes when the link goes. */
+  anilistAvatarUrl: string | null;
   role: "user" | "admin";
   status: "active" | "disabled";
   createdAt: number;
@@ -50,6 +53,7 @@ function toRecord(row: Row): UserRecord {
     anilistId: num(row.anilist_id),
     anilistName: str(row.anilist_name),
     avatarUrl: str(row.avatar_url),
+    anilistAvatarUrl: str(row.anilist_avatar_url),
     role: row.role === "admin" ? "admin" : "user",
     status: row.status === "disabled" ? "disabled" : "active",
     createdAt: Number(row.created_at),
@@ -159,8 +163,9 @@ async function insertUser(
         sql: `INSERT INTO users (
                 id, tag, username, username_lower, email, email_lower,
                 email_verified_at, password_hash, anilist_id, anilist_name,
-                avatar_url, role, status, created_at, last_seen_at
-              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                avatar_url, anilist_avatar_url, role, status,
+                created_at, last_seen_at
+              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         args: [
           id,
           tag,
@@ -173,6 +178,7 @@ async function insertUser(
           fields.anilistId ?? null,
           fields.anilistName ?? null,
           fields.avatarUrl ?? null,
+          fields.anilistAvatarUrl ?? null,
           fields.role ?? "user",
           fields.status ?? "active",
           now,
@@ -229,7 +235,7 @@ export async function createAnilistAccount(params: {
     username: usernameFrom(params.anilistName),
     anilistId: params.anilistId,
     anilistName: params.anilistName,
-    avatarUrl: params.avatarUrl,
+    anilistAvatarUrl: params.avatarUrl,
   });
 }
 
@@ -264,9 +270,9 @@ export async function attachAniList(
   if (owner && owner.id !== userId) throw new Error("anilist-already-linked");
 
   await client.execute({
+    // Into the AniList column, never over the account's own picture.
     sql: `UPDATE users
-             SET anilist_id = ?, anilist_name = ?,
-                 avatar_url = COALESCE(?, avatar_url)
+             SET anilist_id = ?, anilist_name = ?, anilist_avatar_url = ?
            WHERE id = ?`,
     args: [params.anilistId, params.anilistName, params.avatarUrl, userId],
   });
@@ -336,10 +342,11 @@ export async function detachAniList(userId: string): Promise<UserRecord | null> 
   if (!user.passwordHash) throw new Error("anilist-only-account");
 
   await client.execute({
-    // The picture belongs to AniList too — keeping it would leave the account
-    // wearing the face of a link it no longer has.
+    // The AniList picture goes with the link — the account would otherwise
+    // keep wearing the face of something it no longer has. Its own avatar_url
+    // is untouched: that one was never AniList's to take.
     sql: `UPDATE users
-             SET anilist_id = NULL, anilist_name = NULL, avatar_url = NULL,
+             SET anilist_id = NULL, anilist_name = NULL, anilist_avatar_url = NULL,
                  anilist_token = NULL, anilist_lists = NULL
            WHERE id = ?`,
     args: [userId],

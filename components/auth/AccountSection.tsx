@@ -18,7 +18,7 @@ import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { notify } from "@/lib/notifications/noticeStore";
 import { guestTag, useGuestIdentity } from "@/lib/prefs/guestIdentity";
-import { validateUsername } from "@/lib/auth/username";
+import { pickAvatar } from "@/lib/auth/avatar";
 import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import EmailCodeField from "./EmailCodeField";
 
@@ -149,14 +149,9 @@ function AccountPanel({
   /* The AniScroll pseudo, not session.user.name — that one becomes the AniList
      handle once linked, and this panel is about the account. */
   const displayName = user.username || user.name || "";
-  /* avatarUrl is the column filled when AniList is linked; session.user.image
-     is the same picture in its AniList shape, kept as a fallback for a token
-     minted before the column existed. */
-  const rawImage: any = user.image;
-  const avatarUrl: string | null =
-    user.avatarUrl ||
-    (typeof rawImage === "string" ? rawImage : rawImage?.large || rawImage?.medium) ||
-    null;
+  /* The account's own picture first, AniList's as the fallback — one rule,
+     one place: lib/auth/avatar.ts. */
+  const avatarUrl = pickAvatar(user);
 
   async function call(url: string, init: RequestInit): Promise<any | null> {
     setBusy(true);

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import AniListLogo from "@/components/media/aniList";
+import { pickAvatar } from "@/lib/auth/avatar";
 import {
   getTitlePref,
   setTitlePref,
@@ -1114,9 +1115,12 @@ export default function Settings() {
             <div className="mb-4 rounded-xl bg-white/5 ring-1 ring-white/10 p-4 flex items-center gap-4">
               {isLoggedIn ? (
                 <>
-                  {session?.user?.image?.large ? (
+                  {/* Not `image.large`: that is only the AniList shape, and
+                      reading it alone left this circle empty for anyone who
+                      signed in with a password. */}
+                  {pickAvatar(session?.user) ? (
                     <Image
-                      src={session.user.image.large}
+                      src={pickAvatar(session?.user) as string}
                       alt={session?.user?.name || "avatar"}
                       width={48}
                       height={48}

@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import { pickAvatar } from "@/lib/auth/avatar";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
@@ -84,9 +85,7 @@ export function Navbar({
   /* An AniScroll-only account has no AniList avatar and no AniList profile
      page: the picture falls back to the generic icon, and "Profile" points at
      the account section of the settings instead of a 404. */
-  const avatarUrl: string | undefined =
-    session?.user?.image?.large || session?.user?.image?.medium ||
-    (typeof session?.user?.image === "string" ? session.user.image : undefined);
+  const avatarUrl = pickAvatar(session?.user);
   /* The tag goes in the URL: two people can share a pseudo, only the tag is
      unique. Separated by "-" because a browser would swallow everything after
      a "#" as a fragment and the server would never see it. */

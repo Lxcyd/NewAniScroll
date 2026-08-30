@@ -68,6 +68,9 @@ export async function ensureUsersSchema(): Promise<void> {
       anilist_id        INTEGER UNIQUE,
       anilist_name      TEXT,
       avatar_url        TEXT,
+      anilist_token     TEXT,
+      anilist_lists     TEXT,
+      anilist_avatar_url TEXT,
       role              TEXT NOT NULL DEFAULT 'user',
       status            TEXT NOT NULL DEFAULT 'active',
       created_at        INTEGER NOT NULL,
@@ -106,6 +109,9 @@ export async function ensureUsersSchema(): Promise<void> {
   for (const column of [
     "anilist_token TEXT",
     "anilist_lists TEXT",
+    // Kept apart from avatar_url, which belongs to the AniScroll account: see
+    // lib/auth/avatar.ts.
+    "anilist_avatar_url TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE users ADD COLUMN ${column}`);
@@ -127,7 +133,8 @@ export async function ensureUsersSchema(): Promise<void> {
     if (/username_lower\s+TEXT\s+UNIQUE/i.test(String(ddl.rows[0]?.sql || ""))) {
       const columns = `id, tag, username, username_lower, email, email_lower,
                        email_verified_at, password_hash, anilist_id, anilist_name,
-                       avatar_url, anilist_token, anilist_lists, role, status,
+                       avatar_url, anilist_token, anilist_lists,
+                       anilist_avatar_url, role, status,
                        created_at, last_seen_at`;
       await db.batch(
         [
@@ -145,6 +152,7 @@ export async function ensureUsersSchema(): Promise<void> {
              avatar_url        TEXT,
              anilist_token     TEXT,
              anilist_lists     TEXT,
+             anilist_avatar_url TEXT,
              role              TEXT NOT NULL DEFAULT 'user',
              status            TEXT NOT NULL DEFAULT 'active',
              created_at        INTEGER NOT NULL,

@@ -43,6 +43,8 @@ export default function HoldButton({
 }) {
   const { t } = useTranslation();
   const [holding, setHolding] = useState(false);
+  /** Held long enough. The fill stays full — see the style below. */
+  const [done, setDone] = useState(false);
   /** 0 → 1, for the countdown text. The bar animates in CSS, not from this. */
   const [progress, setProgress] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,6 +74,7 @@ export default function HoldButton({
       }
 
       setHolding(true);
+      setDone(false);
       const started = performance.now();
       const tick = () => {
         const done = Math.min((performance.now() - started) / holdMs, 1);
@@ -83,8 +86,12 @@ export default function HoldButton({
       timer.current = setTimeout(() => {
         timer.current = null;
         cancelAnimationFrame(frame.current);
+        // The bar is left full on purpose. Emptying it at the very moment the
+        // action fires reads as an undo — the gesture succeeded, so it stays
+        // where it arrived. A new press starts it over from zero.
         setHolding(false);
-        setProgress(0);
+        setDone(true);
+        setProgress(1);
         onConfirm();
       }, holdMs);
     },
@@ -112,7 +119,7 @@ export default function HoldButton({
       onKeyUp={cancel}
       onBlur={cancel}
       className={`relative w-full overflow-hidden select-none touch-none rounded-lg px-4 py-3 text-sm font-semibold text-white transition-transform ${
-        holding ? "scale-[0.99] bg-red-600" : "bg-red-500/90 hover:bg-red-500"
+        holding ? "scale-[0.99] bg-red-600" : done ? "bg-red-600" : "bg-red-500/90 hover:bg-red-500"
       } disabled:opacity-50 ${className}`}
     >
       {/* The fill is a plain width transition on the same clock as the
@@ -121,7 +128,7 @@ export default function HoldButton({
         aria-hidden
         className="absolute inset-y-0 left-0 bg-white/30"
         style={{
-          width: holding ? "100%" : "0%",
+          width: holding || done ? "100%" : "0%",
           transitionProperty: "width",
           transitionDuration: holding ? `${holdMs}ms` : "180ms",
           transitionTimingFunction: "linear",

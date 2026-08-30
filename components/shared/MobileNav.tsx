@@ -1,6 +1,7 @@
 import { SparklesIcon } from "@heroicons/react/20/solid";
 import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { UserIcon } from "@heroicons/react/24/solid";
+import { pickAvatar } from "@/lib/auth/avatar";
 import { signOut, useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
@@ -23,10 +24,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
 
-  const avatarUrl: string | undefined =
-    sessions?.user?.image?.large ||
-    sessions?.user?.image?.medium ||
-    (typeof sessions?.user?.image === "string" ? sessions.user.image : undefined);
+  const avatarUrl = pickAvatar(sessions?.user);
 
   const handleShowClick = () => {
     setIsVisible(true);

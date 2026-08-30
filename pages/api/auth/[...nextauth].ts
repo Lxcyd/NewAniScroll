@@ -14,6 +14,7 @@ import {
   touchLastSeen,
   type UserRecord,
 } from "@/lib/auth/users";
+import { pickAvatar } from "@/lib/auth/avatar";
 import { verifyPassword } from "@/lib/auth/password";
 import { checkThrottle, resetThrottle } from "@/lib/auth/throttle";
 import { getUsersClient } from "@/lib/db/turso-users";
@@ -48,6 +49,8 @@ function accountClaims(user: UserRecord) {
     emailVerified: user.emailVerifiedAt != null,
     role: user.role,
     anilistId: user.anilistId,
+    // The resolved picture: the account's own, AniList's when it has none.
+    avatarUrl: pickAvatar(user),
   };
 }
 
@@ -93,7 +96,7 @@ export const authOptions: NextAuthOptions = {
           ...accountClaims(user),
           id: user.anilistId ? String(user.anilistId) : user.id,
           name: user.anilistName || user.username,
-          image: user.avatarUrl || null,
+          image: pickAvatar(user),
           token: anilist.token ?? undefined,
           list: anilist.lists,
         } as any;
@@ -235,9 +238,18 @@ export const authOptions: NextAuthOptions = {
             } else {
               const existing = await findByAnilistId(anilistId);
               // Signing in again with the same AniList id lands on the very
-              // same row — that is what brings the backed-up data back.
+              // same row — that is what brings the backed-up data back. The
+              // name and the picture are re-read every time: they belong to
+              // AniList and can have changed there, and a row older than the
+              // anilist_avatar_url column has none at all.
               record = existing
-                ? await backfillUsername(existing)
+                ? await backfillUsername(
+                    (await attachAniList(existing.id, {
+                      anilistId,
+                      anilistName,
+                      avatarUrl,
+                    })) ?? existing
+                  )
                 : await createAnilistAccount({ anilistId, anilistName, avatarUrl });
             }
 
@@ -325,6 +337,7 @@ export const authOptions: NextAuthOptions = {
         role: t.role ?? "user",
         // AniList — same names and meanings as before this file grew accounts
         anilistId: t.anilistId ?? null,
+        avatarUrl: t.avatarUrl ?? null,
         id: t.id,
         sub: t.sub,
         token: t.token,
