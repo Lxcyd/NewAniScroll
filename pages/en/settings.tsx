@@ -41,6 +41,7 @@ import {
   dumpServerPerf,
 } from "@/lib/watch/serverPerf";
 import { clearAllProgress } from "@/lib/watch/progress";
+import { pushKinds } from "@/lib/list/cloudSync";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
@@ -492,6 +493,12 @@ export default function Settings() {
   const [confirmReset, setConfirmReset] = useState(false);
   const handleClearHistory = () => {
     clearAllProgress();
+    // Push the erasure to the account NOW. cloudSync only listens for playback
+    // ticks, so nothing would have marked these two categories dirty, and the
+    // 5 s debounce is not something a destructive action should depend on
+    // anyway — the visitor may well close the tab on the confirmation toast.
+    // Signed out, the endpoint answers 401 and this is a no-op.
+    void pushKinds(["progress", "recent"]);
     setConfirmClearHistory(false);
     notify.success(t("settings.advanced.clearHistoryDone"));
   };

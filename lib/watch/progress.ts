@@ -228,12 +228,29 @@ export function clearProgress(
  *  action. Clears both the resume-position map (`aniscroll:progress`) AND the
  *  watch-history store the "recently watched" page reads (`artplayer_settings`,
  *  which holds the per-episode rows for anonymous users / the local mirror).
- *  Local only — doesn't touch AniList or the signed-in user's server history. */
+ *
+ *  EMPTIED, NOT REMOVED — and that distinction is the whole fix. For a
+ *  signed-in account these two keys are backed up by lib/list/cloudSync, whose
+ *  `readKind` reports an ABSENT key as `null`. A null payload is skipped by
+ *  `pushKinds`, so the erasure never reached the account; and on the next load
+ *  `pullAll` read the same absence as "this device has nothing yet" and wrote
+ *  the account's copy straight back. Clearing your history returned every
+ *  resume point at 12:42, exactly as before.
+ *
+ *  An empty map is a value, so it pushes like any other and the account's copy
+ *  becomes empty too. The readers can't tell the difference: `readMap` parses
+ *  `{}` to `{}`, and the `artplayer_settings` readers all do
+ *  `JSON.parse(raw || "{}")`.
+ *
+ *  Still local-only in the sense that matters: it doesn't touch AniList. The
+ *  caller is responsible for pushing the cleared state to the account — see
+ *  the settings handler, which does it immediately rather than waiting for the
+ *  5 s debounce a destructive action shouldn't rely on. */
 export function clearAllProgress(): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(KEY);
-    localStorage.removeItem("artplayer_settings");
+    localStorage.setItem(KEY, "{}");
+    localStorage.setItem("artplayer_settings", "{}");
   } catch {
     /* best-effort */
   }
