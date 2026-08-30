@@ -6,6 +6,76 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 — Le profil se pare de l'anime prefere, et cesse d'etre reserve a AniList
+
+**Le point de depart** : `/en/profile/[user]` etait une page AniList et rien
+d'autre. Son `getServerSideProps` interrogeait `graphql.anilist.co` et rendait
+`notFound` si la reponse etait vide, si bien qu'un compte AniScroll n'avait
+aucun profil — la barre de navigation l'envoyait vers `/en/settings#account`
+pour ne pas le poser sur un 404 — et un visiteur non connecte encore moins. La
+banniere, elle, etait celle du profil AniList, ou un aplat gris quand il n'y en
+avait pas.
+
+**La regle demandee**, mot pour mot dans l'ordre : l'anime *prefere* du
+proprietaire habille son profil, et « prefere » se decide par **sa note
+d'abord ; a egalite, favori ou pas ; a egalite, le nombre de revisionnages ; a
+egalite, la note moyenne de l'anime ». Sans liste, la couleur du site. Un compte
+AniList sans liste garde sa propre banniere.
+
+### Ce qu'il faut retenir
+
+**1. Une chaine de comparateurs, pas un score pondere.** C'est la lecture
+litterale de la demande et c'est aussi la seule honnete : un 9/10 ne doit
+jamais perdre contre un 8/10 qui se trouve etre un favori. Chaque critere ne
+parle que si le precedent est a egalite (`lib/profile/favorite.ts`).
+
+**2. Le quatrieme critere est le seul qui coute une requete, donc il n'est
+cherche que la ou il peut encore changer la reponse.** `tiedHead()` rend le
+groupe encore ex aequo apres les trois premiers criteres — presque toujours un
+seul titre — et la note moyenne n'est resolue que pour lui, plafonnee a 8. Un
+profil AniList n'y passe jamais : `meanScore` arrive deja dans la requete de
+liste. Une liste locale de 300 titres non notes, elle, serait 300 appels sans ce
+plafond.
+
+**3. Les trois sources sont normalisees vers une seule forme
+(`lib/profile/types.ts`).** AniList, la sauvegarde cloud d'un compte AniScroll,
+et le `localStorage` de l'appareil disent la meme chose avec des noms
+differents — et surtout des **echelles de note differentes**. La requete AniList
+demande donc `score(format: POINT_10_DECIMAL)`, qui est deja le format de la
+liste locale : sans ca les deux moities du classement ne sont pas comparables et
+le tri du premier critere est du bruit.
+
+**4. L'invite a sa page a lui, et elle ne peut pas en etre une autre.** Sa liste
+ne vit que dans son navigateur : lui donner une URL publique serait promettre un
+lien qui ne montre rien a personne d'autre. D'ou `/en/profile/me`, sans SSR, en
+`noindex`, ou toute la chaine (classement, banniere) tourne cote client contre
+`/api/v2/profile-banner` — le meme endpoint partage et cache a l'edge que le
+selecteur de banniere interroge.
+
+**5. Le choix manuel vit sur la ligne du compte (`users.profile_banner`), pas
+dans `user_data`.** C'est une page publique : tous les visiteurs doivent voir la
+banniere choisie, alors que `user_data` est la sauvegarde privee par appareil.
+Corollaire : l'URL stockee est ecrite par l'utilisateur puis servie a tout le
+monde, donc elle passe par une liste blanche d'hotes (`isAllowedBannerUrl`) —
+sans quoi c'est un champ d'image arbitraire sur une page publique. Un invite,
+lui, garde son choix en `localStorage`.
+
+**6. Par defaut, rien n'est fige.** Tant que le proprietaire ne choisit pas, le
+profil se re-habille tout seul quand ses gouts bougent. Le bouton « revenir a
+l'automatique » est toujours a un clic.
+
+**Verifie sur dev.aniscroll.com** (CDP, `tools/browser-check`) : profil AniList
+`Sora` -> Shaman King (note 10, favori, 3 revisionnages — la chaine complete
+jusqu'au troisieme critere, confirmee par une requete AniList independante) ;
+invite sans liste -> plaque `--brand-primary` ; invite avec liste semee ->
+Fullmetal Alchemist (10 contre 10 avec One Piece, departage aux revisionnages).
+**Non exerce sur un vrai compte AniScroll sans AniList** : le chemin est ecrit
+et compile, mais aucun tag reel n'etait sous la main.
+
+Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
+est desormais la vitrine.
+
+
 ## 2026-08-29 — Deux "Season 1" a la file : le garde qui empechait de compter
 
 **Le symptome**, vu sur la fiche Jujutsu Kaisen : le selecteur de saisons

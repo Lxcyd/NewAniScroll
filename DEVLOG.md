@@ -69,7 +69,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 42 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 15 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 16 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -175,6 +175,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-08-30 — Le profil se pare de l'anime préféré, et cesse d'être réservé à AniList  _(voir aussi `devlog/comptes.md`)_
 - 2026-08-29 — Deux « Season 1 » a la file : le garde qui empechait de compter
 - 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT
 - 2026-08-15 — Le graphe des relations se dessinait deux fois
