@@ -2113,3 +2113,86 @@ input[type="number"] {
 .discover-toast [data-button]:active {
   transform: scale(0.94);
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Profile hero (components/profile/ProfileHero.tsx)
+
+   The plate behind a profile. Three states, one component:
+     - an artwork      → .as-hero-plate, slow drift so a still image breathes;
+     - nothing at all  → .as-hero-default, built from the site's accent colour
+                         (--brand-primary, so a custom theme repaints it);
+     - a portrait cover as last resort → .as-hero-cover blurs and over-scales
+                         it, because a poster stretched across a wide band is
+                         the ugliest case of all.
+   The drift is a compositor-only transform and is paused with the rest of the
+   page when the tab is hidden (html.tab-hidden, above).
+   ───────────────────────────────────────────────────────────────── */
+.as-hero-plate {
+  animation: as-hero-drift 48s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes as-hero-drift {
+  from {
+    transform: scale(1.06) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.16) translate3d(-2%, -2%, 0);
+  }
+}
+.as-hero-cover {
+  filter: blur(28px) saturate(1.3);
+  transform: scale(1.35);
+}
+.as-hero-default {
+  background:
+    radial-gradient(
+      95% 130% at 12% -10%,
+      var(--brand-primary, #e94560) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      75% 110% at 88% 0%,
+      var(--brand-secondary, #ff7f57) 0%,
+      transparent 55%
+    ),
+    linear-gradient(165deg, #191924 0%, #0c0d10 75%);
+}
+/* Faint diagonal weave over the flat plate so it reads as a surface rather
+   than a gradient fill. Pure CSS, no image request. */
+.as-hero-weave::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.035) 0px,
+    rgba(255, 255, 255, 0.035) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  pointer-events: none;
+}
+/* The colour bleed under the avatar: the accent, blurred, so the header sits
+   in its own light instead of on a hard edge. */
+.as-hero-glow {
+  background: radial-gradient(
+    50% 60% at 50% 100%,
+    var(--brand-primary, #e94560) 0%,
+    transparent 70%
+  );
+  opacity: 0.35;
+  filter: blur(40px);
+}
+.as-stat-card {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.07),
+    rgba(255, 255, 255, 0.02)
+  );
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-hero-plate {
+    animation: none;
+    transform: scale(1.06);
+  }
+}

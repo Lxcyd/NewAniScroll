@@ -2,6 +2,7 @@ import { SparklesIcon } from "@heroicons/react/20/solid";
 import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { UserIcon } from "@heroicons/react/24/solid";
 import { pickAvatar } from "@/lib/auth/avatar";
+import { profileHref } from "@/lib/profile/href";
 import { signOut, useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
@@ -63,19 +64,13 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
       <div
         className={`transition-all duration-150 subpixel-antialiased z-[500]`}
       >
-        {/* An AniScroll account has no AniList avatar and no AniList profile
-            page: `src` would be undefined, next/image throws, and the whole
-            bar disappears. Fall back to the generic icon and to the account
-            settings. */}
+        {/* An AniScroll account has no AniList avatar: `src` would be
+            undefined, next/image throws, and the whole bar disappears. Fall
+            back to the generic icon. Where the button GOES is decided in one
+            place for every surface (lib/profile/href.ts). */}
         {isVisible && sessions && !hideProfile && (
           <Link
-            href={
-              sessions?.user?.anilistId
-                ? `/en/profile/${sessions?.user?.name}${
-                    sessions?.user?.tag ? `-${sessions.user.tag}` : ""
-                  }`
-                : "/en/settings#account"
-            }
+            href={profileHref(sessions?.user)}
             className="fixed lg:hidden bottom-[100px] w-[60px] h-[60px] flex items-center justify-center right-[20px] rounded-full z-50 bg-[#17171f]"
           >
             {avatarUrl ? (

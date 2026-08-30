@@ -25,6 +25,9 @@ export type UserRecord = {
   avatarUrl: string | null;
   /** AniList's, ours to display only: it goes when the link goes. */
   anilistAvatarUrl: string | null;
+  /** The profile banner the owner pinned, JSON `{url, animeId, title}`.
+   *  Null means the profile follows its favourite anime. */
+  profileBanner: string | null;
   role: "user" | "admin";
   status: "active" | "disabled";
   createdAt: number;
@@ -54,6 +57,7 @@ function toRecord(row: Row): UserRecord {
     anilistName: str(row.anilist_name),
     avatarUrl: str(row.avatar_url),
     anilistAvatarUrl: str(row.anilist_avatar_url),
+    profileBanner: str(row.profile_banner),
     role: row.role === "admin" ? "admin" : "user",
     status: row.status === "disabled" ? "disabled" : "active",
     createdAt: Number(row.created_at),
@@ -389,6 +393,20 @@ export async function setUsername(userId: string, username: string) {
     args: [username, normalizeUsername(username), userId],
   });
   return findById(userId);
+}
+
+/**
+ * Pin (or, with null, un-pin) the profile banner. The value is a JSON string
+ * so the column stays one field whatever we end up remembering alongside the
+ * URL; the URL itself is validated by the caller (isAllowedBannerUrl).
+ */
+export async function setProfileBanner(userId: string, value: string | null) {
+  const client = await db();
+  if (!client) return;
+  await client.execute({
+    sql: `UPDATE users SET profile_banner = ? WHERE id = ?`,
+    args: [value, userId],
+  });
 }
 
 export async function setPasswordHash(userId: string, passwordHash: string) {

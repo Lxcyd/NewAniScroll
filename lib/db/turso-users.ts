@@ -71,6 +71,7 @@ export async function ensureUsersSchema(): Promise<void> {
       anilist_token     TEXT,
       anilist_lists     TEXT,
       anilist_avatar_url TEXT,
+      profile_banner    TEXT,
       role              TEXT NOT NULL DEFAULT 'user',
       status            TEXT NOT NULL DEFAULT 'active',
       created_at        INTEGER NOT NULL,
@@ -112,6 +113,11 @@ export async function ensureUsersSchema(): Promise<void> {
     // Kept apart from avatar_url, which belongs to the AniScroll account: see
     // lib/auth/avatar.ts.
     "anilist_avatar_url TEXT",
+    // The banner the owner picked for their profile, `{url, animeId, title}`.
+    // On the account and not in user_data because it is PUBLIC: every visitor
+    // of /en/profile/<pseudo>-<tag> must see it, and user_data is the private
+    // per-device backup. Empty means "follow the favourite anime".
+    "profile_banner TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE users ADD COLUMN ${column}`);

@@ -10,6 +10,7 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickAvatar } from "@/lib/auth/avatar";
+import { profileHref } from "@/lib/profile/href";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
@@ -82,18 +83,14 @@ export function Navbar({
     setAuthOpen(true);
   };
 
-  /* An AniScroll-only account has no AniList avatar and no AniList profile
-     page: the picture falls back to the generic icon, and "Profile" points at
-     the account section of the settings instead of a 404. */
+  /* An AniScroll-only account has no AniList avatar: the picture falls back to
+     the generic icon. It DOES have a profile page — the route reads its list
+     from the account's cloud backup — so "Profile" no longer detours through
+     the settings. The tag goes in the URL because two people can share a
+     pseudo; "-" separates it, since a browser would swallow everything after a
+     "#" as a fragment and the server would never see it. */
   const avatarUrl = pickAvatar(session?.user);
-  /* The tag goes in the URL: two people can share a pseudo, only the tag is
-     unique. Separated by "-" because a browser would swallow everything after
-     a "#" as a fragment and the server would never see it. */
-  const profileHref = session?.user?.anilistId
-    ? `/en/profile/${session?.user?.name}${
-        session?.user?.tag ? `-${session.user.tag}` : ""
-      }`
-    : "/en/settings#account";
+  const profileTarget = profileHref(session?.user);
   const { setIsOpen } = useSearch();
 
   const year = new Date().getFullYear();
@@ -280,7 +277,7 @@ export function Navbar({
                 <li>
                   <Link
                     href={
-                      session ? profileHref : "/en/my-list"
+                      session ? profileTarget : "/en/my-list"
                     }
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
@@ -362,7 +359,7 @@ export function Navbar({
               {session ? (
                 <button
                   type="button"
-                  onClick={() => router.push(profileHref)}
+                  onClick={() => router.push(profileTarget)}
                   className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
                   title={t("nav.profile")}
                 >
@@ -398,7 +395,7 @@ export function Navbar({
                 <div className="bg-secondary text-white shadow-2xl rounded-md p-1 py-2 font-karla font-light grid place-items-stretch gap-1 text-center">
                   {session ? (
                     <>
-                      <Link href={profileHref} className="hover:text-action py-1">
+                      <Link href={profileTarget} className="hover:text-action py-1">
                         {t("nav.profile")}
                       </Link>
                       {/* Admin link shows for the NEXT_PUBLIC_ADMIN_USERNAMES

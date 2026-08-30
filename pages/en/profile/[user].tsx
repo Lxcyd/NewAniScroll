@@ -1,97 +1,79 @@
-import Image from "next/image";
-import Link from "next/link";
 import Head from "next/head";
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/solid";
-import { getUser } from "@/prisma/user";
+import { useTranslation } from "react-i18next";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../api/auth/[...nextauth]";
+
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
-import pls from "@/utils/request";
-import { CurrentMediaTypes } from "..";
-import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
-import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
-import { useTranslation } from "react-i18next";
-import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
 import QueueSection from "@/components/list/QueueSection";
 import ForYouPanel from "@/components/discover/ForYouPanel";
+import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
+import ProfileList from "@/components/profile/ProfileList";
+import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
 
-type MyListProps = {
-  media: CurrentMediaTypes[];
-  sessions: any;
-  user: any;
-  time: any;
-  userSettings: any;
-  /** Set when the viewed profile is private and the viewer isn't the owner. */
+import { getUser } from "@/prisma/user";
+import { findByTag } from "@/lib/auth/users";
+import { pickAvatar } from "@/lib/auth/avatar";
+import { getAllData } from "@/lib/auth/userData";
+import {
+  entriesFromAniList,
+  entriesFromLocalList,
+  localListFromCloudPayload,
+  statsFromEntries,
+} from "@/lib/profile/sources";
+import { rankCandidates } from "@/lib/profile/favorite";
+import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
+import type { ProfileEntry, ProfileIdentity, ProfileStats } from "@/lib/profile/types";
+
+/**
+ * A profile — the same page whether the account is AniList, AniScroll, or both.
+ *
+ * The URL carries `Pseudo-TAG`, the tag being the only unique half of an
+ * identity. What the list is READ from depends on the account:
+ *   - linked to AniList → AniList's MediaListCollection, the richer source;
+ *   - AniScroll only    → the cloud backup of that account's local list.
+ * Both are normalised to ProfileEntry[] before they reach a component, which is
+ * what keeps the two looking identical.
+ *
+ * A signed-out visitor has no account and therefore no public profile: their
+ * list only exists on their own device, so it lives at /en/profile/me.
+ */
+
+type Props = {
+  identity: ProfileIdentity;
+  stats: ProfileStats;
+  entries: ProfileEntry[];
+  banner: HeroBanner;
+  /** Titles offered by the banner picker, favourite first. */
+  topAnimes: PickerAnime[];
+  /** The banner is a manual pick rather than the automatic one. */
+  pinned: boolean;
+  isOwner: boolean;
+  /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
 };
 
-export default function MyList({
-  media,
-  sessions,
-  user,
-  time,
-  userSettings,
+export default function Profile({
+  identity,
+  stats,
+  entries,
+  banner: initialBanner,
+  topAnimes,
+  pinned: initialPinned,
+  isOwner,
   isPrivate,
   viewedName,
-}: MyListProps) {
-  const titlePref = useTitlePref();
-  const clickTarget = useClickTarget();
+}: Props) {
   const { t } = useTranslation();
-  // Owner = the signed-in viewer looking at their own profile (drives the
-  // client-only watch-next queue, which lives in this device's localStorage).
-  const isOwner =
-    !!sessions?.user?.name &&
-    String(sessions.user.name).toLowerCase() ===
-      String(user?.name).toLowerCase();
-  const [filter, setFilter] = useState<string>("all");
+  const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });
+  const [pinned, setPinned] = useState(!!initialPinned);
+  const [picker, setPicker] = useState(false);
   const [showForYou, setShowForYou] = useState(false);
 
-  // Flatten AniList's lists → one entry array, then re-group by the canonical
-  // status so the layout matches /my-list exactly (status order + colours).
-  // AniList may split a status across custom lists, so we key off entry.status.
-  const STATUS_ORDER = [
-    "CURRENT",
-    "REPEATING",
-    "COMPLETED",
-    "PAUSED",
-    "PLANNING",
-    "DROPPED",
-  ];
-  const groups = useMemo(() => {
-    const byStatus: Record<string, any[]> = {};
-    for (const list of media || []) {
-      for (const e of list.entries || []) {
-        const key = e.status || list.status || "PLANNING";
-        (byStatus[key] ||= []).push(e);
-      }
-    }
-    // De-dupe by mediaId within each status (custom lists can repeat entries).
-    for (const k of Object.keys(byStatus)) {
-      const seen = new Set();
-      byStatus[k] = byStatus[k].filter((e) => {
-        const id = e.mediaId || e.media?.id;
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      });
-    }
-    return STATUS_ORDER.map((s) => ({ status: s, entries: byStatus[s] || [] })).filter(
-      (g) => g.entries.length > 0,
-    );
-  }, [media]);
-
-  const totalEntries = useMemo(
-    () => groups.reduce((acc, g) => acc + g.entries.length, 0),
-    [groups],
-  );
-
-  const visibleGroups =
-    filter === "all" ? groups : groups.filter((g) => g.status === filter);
-
-  // Private-profile guard: the owner sees their list normally (handled
-  // server-side), everyone else lands here. Placed AFTER all hooks so the
-  // hook call order stays stable (rules-of-hooks).
   if (isPrivate) {
     return (
       <>
@@ -99,88 +81,79 @@ export default function MyList({
           <title>{viewedName ? `${viewedName} • AniScroll` : "AniScroll"}</title>
         </Head>
         <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
-        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="w-12 h-12 text-white/50 mb-4"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
-            />
-          </svg>
-          <h1 className="text-2xl font-bold mb-2">{t("profile.privateTitle")}</h1>
-          <p className="text-white/60 max-w-sm">{t("profile.privateBody")}</p>
+        <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+          <div className="mb-5 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="h-10 w-10 text-white/50"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+              />
+            </svg>
+          </div>
+          <h1 className="mb-2 text-2xl font-bold">{t("profile.privateTitle")}</h1>
+          <p className="max-w-sm text-white/60">{t("profile.privateBody")}</p>
         </div>
       </>
     );
   }
 
+  /** Pin a banner on the account, or drop the pin and go back to automatic. */
+  async function save(choice: { url: string; animeId: number; title: string } | null) {
+    if (choice) {
+      setBanner({ url: choice.url, animeId: choice.animeId, title: choice.title });
+      setPinned(true);
+    } else {
+      setBanner(initialBanner);
+      setPinned(false);
+    }
+    try {
+      await fetch("/api/v2/account/profile-banner", {
+        method: choice ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: choice ? JSON.stringify(choice) : undefined,
+      });
+    } catch {
+      /* the plate is already swapped locally; a failed write just isn't kept */
+    }
+  }
+
   return (
     <>
       <Head>
-        <title>{user.name} • AniScroll</title>
+        <title>{identity.name} • AniScroll</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
 
       <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
 
-      {/* User banner + avatar header — the only thing that differs from
-          /my-list. No description (AniList "about" is often empty/awkward). */}
-      <div className="relative z-0 w-full h-[200px] md:h-[240px]">
-        {user.bannerImage ? (
-          <Image
-            src={user.bannerImage}
-            alt=""
-            fill
-            priority
-            className="object-cover brightness-[0.55]"
-          />
-        ) : (
-          <div className="absolute inset-0 bg-image brightness-[0.55]" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-primary" />
-      </div>
+      <ProfileHero
+        name={identity.name}
+        tag={identity.tag}
+        avatar={identity.avatar}
+        anilistName={identity.anilistName}
+        createdAt={identity.createdAt}
+        banner={banner}
+        stats={heroStats(t, stats)}
+        isOwner={isOwner}
+        onEditBanner={() => setPicker(true)}
+      />
 
-      <div className="as-fade-in w-full max-w-screen-lg mx-auto px-4 pb-16">
-        {/* Avatar + name, pulled up to overlap the banner. `relative z-10`
-            keeps it above the banner's absolutely-positioned <Image fill>,
-            which otherwise paints over the negative-margin content. */}
-        <div className="relative z-10 flex items-end gap-4 -mt-14 md:-mt-16 mb-8">
-          <Image
-            src={user.avatar.large}
-            alt={user.name}
-            width={120}
-            height={120}
-            priority
-            className="object-cover h-24 w-24 md:h-28 md:w-28 rounded-2xl ring-4 ring-primary shadow-xl shrink-0"
-          />
-          <div className="pb-1">
-            <h1 className="text-2xl md:text-3xl font-bold leading-tight">
-              {user.name}
-            </h1>
-            <p className="text-white/50 text-sm mt-1">
-              {user.statistics.anime.count} {t("profile.totalAnime", { defaultValue: "anime" })}
-              {" · "}
-              {user.statistics.anime.episodesWatched} {t("common.episode", { defaultValue: "ep" })}
-              {time?.days ? ` · ${time.days}${t("home.days", { defaultValue: "d" }).charAt(0).toLowerCase()}` : ""}
-            </p>
-          </div>
-        </div>
-
-        {/* For You — recommendation engine, owner only. */}
+      <div className="as-fade-in mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
         {isOwner && (
           <div className="mb-6">
             <button
               type="button"
               onClick={() => setShowForYou(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-action px-5 py-2.5 text-sm font-karla font-bold text-white shadow-[0_0_20px_rgba(233,69,96,0.35)] transition-transform hover:scale-105"
+              className="inline-flex items-center gap-2 rounded-full bg-action px-5 py-2.5 font-karla text-sm font-bold text-white shadow-glow transition-transform hover:scale-105"
             >
               <SparklesIcon className="h-5 w-5" />
               {t("recommend.title")}
@@ -188,275 +161,277 @@ export default function MyList({
           </div>
         )}
 
-        {/* Watch-next queue — only for the owner viewing their own profile.
-            Client-only (localStorage); renders nothing when empty. */}
         {isOwner && <QueueSection />}
 
-        {totalEntries === 0 ? (
-          <div className="flex flex-col items-center gap-5 py-20 text-center">
-            <p className="font-bold text-lg">{t("myList.empty")}</p>
+        <ProfileList
+          entries={entries}
+          emptyAction={
             <Link
               href="/en/search/anime"
-              className="px-4 py-2 rounded-lg ring-1 ring-action text-sm hover:bg-action/10"
+              className="rounded-lg px-4 py-2 text-sm ring-1 ring-action hover:bg-action/10"
             >
               {t("profile.startWatching")}
             </Link>
-          </div>
-        ) : (
-          <>
-            {/* Status filter chips */}
-            <div className="flex flex-wrap gap-2 mb-8">
-              <button
-                onClick={() => setFilter("all")}
-                className={`px-3 py-1.5 rounded-full text-sm ${
-                  filter === "all" ? "bg-action text-white" : "bg-white/5 text-white/70"
-                }`}
-              >
-                {t("profile.showAll")} ({totalEntries})
-              </button>
-              {groups.map((g) => {
-                const label = STATUS_TO_LIST[g.status] || g.status;
-                return (
-                  <button
-                    key={g.status}
-                    onClick={() => setFilter(g.status)}
-                    className={`px-3 py-1.5 rounded-full text-sm ${
-                      filter === g.status
-                        ? "bg-action text-white"
-                        : "bg-white/5 text-white/70"
-                    }`}
-                  >
-                    {listLabel(t, label)} ({g.entries.length})
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="grid gap-10">
-              {visibleGroups.map((g) => {
-                const label = STATUS_TO_LIST[g.status] || g.status;
-                const color = LIST_COLORS[label] || "#6b7280";
-                return (
-                  <section key={g.status} id={g.status.toLowerCase()}>
-                    <h2 className="flex items-center gap-2 font-bold text-lg mb-3">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ background: color }}
-                      />
-                      {listLabel(t, label)}
-                    </h2>
-                    <div className="overflow-hidden rounded-lg bg-white/[0.03] ring-1 ring-white/5">
-                      {g.entries.map((e: any) => (
-                        <Link
-                          key={e.mediaId || e.media?.id}
-                          href={animeHref(e.media?.id || e.mediaId, clickTarget)}
-                          className="flex items-center gap-3 px-3 py-2 hover:bg-action/10 transition-colors"
-                        >
-                          {e.media?.coverImage?.large ? (
-                            <Image
-                              src={e.media.coverImage.large}
-                              alt=""
-                              width={40}
-                              height={40}
-                              className="w-10 h-10 rounded-md object-cover shrink-0"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-md bg-white/10 shrink-0" />
-                          )}
-                          <span className="flex-1 min-w-0 text-sm font-medium truncate">
-                            {pickTitle(e.media?.title, titlePref)}
-                          </span>
-                          {e.score ? (
-                            <span className="text-xs text-white/60 w-10 text-center shrink-0">
-                              ★ {e.score}
-                            </span>
-                          ) : (
-                            <span className="w-10 shrink-0" />
-                          )}
-                          <span className="text-xs text-white/60 w-16 text-right shrink-0">
-                            {e.media?.episodes
-                              ? `${e.progress}/${e.media.episodes}`
-                              : e.progress}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          </>
-        )}
+          }
+        />
       </div>
+
       <Footer />
+
       {isOwner && (
-        <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
+        <>
+          <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
+          <BannerPicker
+            open={picker}
+            onClose={() => setPicker(false)}
+            animes={topAnimes}
+            current={banner.url}
+            pinned={pinned}
+            onPick={(c) => {
+              void save(c);
+              setPicker(false);
+            }}
+            onReset={() => {
+              void save(null);
+              setPicker(false);
+            }}
+          />
+        </>
       )}
     </>
   );
 }
 
-/**
- * The URL segment is `Pseudo-123456` — the pseudo for readability, the tag for
- * identity, since two people may share a pseudo and only the tag is unique.
- * `#` cannot be used as the separator: a browser would keep everything after
- * it as a fragment and the server would never see the tag.
- *
- * The AniList query below needs an AniList username, so the tag is resolved to
- * one first. A segment with no tag, or a tag that matches nothing, is taken as
- * an AniList username directly — the links that existed before this change,
- * and any AniList profile typed by hand, keep working.
- */
-async function resolveAniListName(segment: string): Promise<string> {
-  // Six digits (tags minted today) or six hex chars (those minted before the
-  // digits-only rule). A pseudo that happens to end that way simply misses the
-  // lookup and is used whole, which is the same answer as before.
-  const match = /^(.*)-([0-9A-Fa-f]{6})$/.exec(segment);
-  if (!match) return segment;
-  try {
-    const { findByTag } = await import("@/lib/auth/users");
-    const record = await findByTag(match[2]);
-    if (record?.anilistName) return record.anilistName;
-  } catch {
-    /* accounts database unavailable — fall through to the raw segment */
+/* ────────────────────────────────────────────────────────────────
+   Server
+   ──────────────────────────────────────────────────────────────── */
+
+const ANILIST_QUERY = `
+  query ($username: String) {
+    MediaListCollection(userName: $username, type: ANIME, sort: SCORE_DESC) {
+      user {
+        id
+        name
+        createdAt
+        avatar { large }
+        bannerImage
+        statistics { anime { count episodesWatched meanScore minutesWatched } }
+        favourites { anime(perPage: 50) { nodes { id } } }
+      }
+      lists {
+        status
+        name
+        entries {
+          mediaId
+          status
+          progress
+          repeat
+          score(format: POINT_10_DECIMAL)
+          media {
+            id
+            title { english romaji native userPreferred }
+            episodes
+            meanScore
+            bannerImage
+            coverImage { large extraLarge }
+          }
+        }
+      }
+    }
   }
-  return segment;
+`;
+
+async function fetchAniList(username: string): Promise<any | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch("https://graphql.anilist.co/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: ANILIST_QUERY, variables: { username } }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json?.data?.MediaListCollection ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getServerSideProps(context: any) {
-  const query = { ...context.query, user: await resolveAniListName(context.query.user) };
+  const segment = String(context.query.user || "");
 
-  const [data, session] = await pls.post(
-    "https://graphql.anilist.co/",
-    {
-      body: JSON.stringify({
-        query: `
-          query ($username: String, $status: MediaListStatus) {
-            MediaListCollection(userName: $username, type: ANIME, status: $status, sort: SCORE_DESC) {
-              user {
-                id
-                name
-                about (asHtml: true)
-                createdAt
-                avatar {
-                    large
-                }
-                statistics {
-                  anime {
-                      count
-                      episodesWatched
-                      meanScore
-                      minutesWatched
-                  }
-              }
-                bannerImage
-                mediaListOptions {
-                  animeList {
-                      sectionOrder
-                  }
-                }
-              }
-              lists {
-                status
-                name
-                entries {
-                  id
-                  mediaId
-                  status
-                  progress
-                  score
-                  media {
-                    id
-                    status
-                    title {
-                      english
-                      romaji
-                    }
-                    episodes
-                    coverImage {
-                      large
-                    }
-                  }
-                }
-              }
-            }
-          }
-        `,
-        variables: {
-          username: query.user,
-        },
-      }),
-    },
-    context
-  );
+  /* The tag is the identity; the pseudo in front of it is decoration. A
+     segment with no tag (or an unknown one) is taken as an AniList username,
+     which is what every link minted before accounts existed looks like. */
+  const match = /^(.*)-([0-9A-Za-z]{6})$/.exec(segment);
+  const account = match ? await findByTag(match[2]).catch(() => null) : null;
+  const anilistName = account ? account.anilistName : segment;
 
-  const get = data?.data?.MediaListCollection;
-  const sectionOrder = get?.user.mediaListOptions.animeList.sectionOrder;
+  const session = (await getServerSession(
+    context.req,
+    context.res,
+    authOptions,
+  ).catch(() => null)) as any;
 
-  if (!sectionOrder) {
+  const isOwner = account
+    ? session?.user?.uid === account.id
+    : !!session?.user?.name &&
+      String(session.user.name).toLowerCase() === String(anilistName).toLowerCase();
+
+  const collection = anilistName ? await fetchAniList(anilistName) : null;
+  if (!account && !collection?.user) return { notFound: true };
+
+  /* Visibility. The setting lives in the legacy Prisma profile, keyed by the
+     name the account signs in with. */
+  const settingsKey = anilistName || account?.username || null;
+  const viewed = settingsKey ? await getUser(settingsKey, false).catch(() => null) : null;
+  if (viewed?.setting?.private === true && !isOwner) {
     return {
-      notFound: true,
+      props: {
+        isPrivate: true,
+        viewedName: account?.username || anilistName || segment,
+      },
     };
   }
 
-  // ── Profile visibility gate ──────────────────────────────────────
-  // Look up the VIEWED user's app settings. When their profile is marked
-  // private, only the owner (signed in as the same AniList name) may see it;
-  // everyone else gets a "private profile" page (not a 404, so it's clear the
-  // user exists but chose to hide their list).
-  const viewedUserData = await getUser(query.user, false).catch(() => null);
-  const isOwner =
-    !!session?.user?.name &&
-    String(session.user.name).toLowerCase() ===
-      String(query.user).toLowerCase();
-  if (viewedUserData?.setting?.private === true && !isOwner) {
-    return { props: { isPrivate: true, viewedName: query.user } };
+  /* ── The list ───────────────────────────────────────────────── */
+  const known = new Map<number, KnownArt>();
+  let entries: ProfileEntry[];
+  let stats: ProfileStats;
+
+  if (collection?.user) {
+    const favIds = new Set<number>(
+      (collection.user.favourites?.anime?.nodes || []).map((n: any) => n.id),
+    );
+    entries = entriesFromAniList(collection.lists, favIds);
+    // The banner and mean score of every entry arrived with the query — keep
+    // them here rather than in the props, so the chain below needs no extra
+    // request and the payload stays the size of the list itself.
+    for (const list of collection.lists || []) {
+      for (const e of list?.entries || []) {
+        const m = e.media;
+        if (!m?.id || known.has(m.id)) continue;
+        known.set(m.id, {
+          id: m.id,
+          title: m.title?.english || m.title?.romaji || m.title?.native || null,
+          bannerImage: m.bannerImage ?? null,
+          coverImage: m.coverImage?.extraLarge || m.coverImage?.large || null,
+          meanScore: m.meanScore ?? null,
+        });
+      }
+    }
+    const anime = collection.user.statistics?.anime;
+    stats = {
+      count: anime?.count ?? entries.length,
+      episodes: anime?.episodesWatched ?? 0,
+      minutes: anime?.minutesWatched ?? null,
+      // AniList's meanScore is /100 whatever the user's own scoring format;
+      // the entries are POINT_10_DECIMAL, so bring it onto the same scale.
+      meanScore: anime?.meanScore ? Math.round(anime.meanScore) / 10 : null,
+    };
+  } else {
+    // AniScroll-only account: its list is the cloud backup of the local one.
+    const data = account ? await getAllData(account.id).catch(() => []) : [];
+    const payload = data.find((d) => d.kind === "list")?.payload;
+    entries = entriesFromLocalList(localListFromCloudPayload(payload));
+    stats = statsFromEntries(entries);
   }
 
-  let userData;
-
-  if (session) {
-    userData = await getUser(session.user.name, false);
+  /* ── The plate ──────────────────────────────────────────────── */
+  let pinnedBanner: { url: string; animeId: number | null; title: string | null } | null =
+    null;
+  if (account?.profileBanner) {
+    try {
+      const parsed = JSON.parse(account.profileBanner);
+      if (parsed?.url) pinnedBanner = parsed;
+    } catch {
+      /* a value we can't read is the same as none */
+    }
   }
 
-  const prog = get.lists;
+  const resolved = pinnedBanner
+    ? null
+    : await resolveFavoriteBanner(
+        entries.map((e) => ({
+          mediaId: e.mediaId,
+          score: e.score,
+          favourite: !!e.favourite,
+          repeat: e.repeat || 0,
+          meanScore: known.get(e.mediaId)?.meanScore ?? null,
+        })),
+        known,
+      );
 
-  function getIndex(status: string) {
-    const index = sectionOrder.indexOf(status);
-    return index === -1 ? sectionOrder.length : index;
-  }
+  /* An AniList account brings its own banner. It is the plate only when there
+     is no list to draw one from — an anime the viewer actually rated says more
+     about them than the picture they set once — and the safety net when the
+     favourite anime turns out to have no wide artwork anywhere. */
+  const ownBanner: string | null = collection?.user?.bannerImage || null;
 
-  prog.sort(
-    (a: { name: string }, b: { name: string }) =>
-      getIndex(a.name) - getIndex(b.name)
-  );
+  const banner: HeroBanner = pinnedBanner
+    ? {
+        url: pinnedBanner.url,
+        animeId: pinnedBanner.animeId ?? null,
+        title: pinnedBanner.title ?? null,
+      }
+    : resolved?.banner.url
+      ? {
+          url: resolved.banner.url,
+          animeId: resolved.banner.animeId,
+          title: resolved.banner.title,
+          fallback: !!resolved.banner.fallback,
+        }
+      : { url: ownBanner, animeId: null, title: null };
 
-  const user = get.user;
+  /* What the picker may offer. Only the owner ever opens it, so it is only
+     computed — and only shipped — for them. */
+  const topAnimes: PickerAnime[] = isOwner
+    ? rankCandidates(
+        entries.map((e) => ({
+          mediaId: e.mediaId,
+          score: e.score,
+          favourite: !!e.favourite,
+          repeat: e.repeat || 0,
+          meanScore: known.get(e.mediaId)?.meanScore ?? null,
+        })),
+      )
+        .slice(0, 12)
+        .map((c) => {
+          const entry = entries.find((e) => e.mediaId === c.mediaId)!;
+          return {
+            mediaId: c.mediaId,
+            title:
+              entry.title?.english ||
+              entry.title?.romaji ||
+              known.get(c.mediaId)?.title ||
+              `#${c.mediaId}`,
+            cover: entry.cover ?? null,
+          };
+        })
+    : [];
 
-  const time = convertMinutesToDays(user.statistics.anime.minutesWatched);
+  const identity: ProfileIdentity = {
+    name:
+      collection?.user?.name || account?.username || anilistName || segment,
+    tag: account?.tag ?? null,
+    avatar: account
+      ? pickAvatar(account) || collection?.user?.avatar?.large || null
+      : collection?.user?.avatar?.large || null,
+    anilistName: collection?.user?.name ?? null,
+    createdAt: account?.createdAt ?? (collection?.user?.createdAt ? collection.user.createdAt * 1000 : null),
+  };
 
   return {
     props: {
-      media: prog,
-      sessions: session,
-      user: user,
-      time: time,
-      userSettings: userData?.setting || null,
+      identity,
+      stats,
+      entries,
+      banner,
+      topAnimes,
+      pinned: !!pinnedBanner,
+      isOwner,
     },
   };
-}
-
-function convertMinutesToDays(minutes: number) {
-  const hours = minutes / 60;
-  const days = hours / 24;
-
-  if (days >= 1) {
-    return days % 1 === 0
-      ? { days: `${days}` }
-      : { days: `${days.toFixed(1)}` };
-  } else {
-    return hours % 1 === 0
-      ? { hours: `${hours}` }
-      : { hours: `${hours.toFixed(1)}` };
-  }
 }
