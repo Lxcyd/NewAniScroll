@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getServersByLang } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { useServerPerfRank } from "@/lib/watch/serverPerf";
-import { shouldShowServer, isDegraded } from "@/lib/watch/serverVisibility";
+import { shouldShowServer } from "@/lib/watch/serverVisibility";
 
 const LANGS = ["multi", "vo", "vf"];
 const LANG_LABELS = {
@@ -22,12 +22,15 @@ const TEXT_ACTIVE = "var(--brand-primary, #E94560)";
 // assez pour passer pour desactive — la chip reste cliquable, et c'est le but.
 const TEXT_PANNE = "#6b7183";
 
-/* Ce qu'on met dans l'infobulle d'une chip en panne. `failedServers` est une
+/* Ce qu'on met dans l'infobulle d'une chip en retrait. `failedServers` est une
    Map id -> raison quand la page l'envoie ; la raison est un libelle technique
    pose par `markFailed` (« Host unavailable », « HTTP 503 », « Network
    error »…). On ne le traduit pas : il sert au diagnostic, pas a la lecture
-   courante, et un utilisateur qui ouvre une infobulle sur un lecteur mort
-   cherche precisement ce detail-la. */
+   courante.
+   Rend `undefined` la plupart du temps depuis le 30/08 : un lecteur en echec
+   n'est plus affiche, donc plus aucune chip visible ne porte de raison — sauf
+   l'ACTIF, qui reste peint meme apres son echec et pour qui l'infobulle est
+   justement le seul endroit ou lire ce qui s'est passe. */
 function raisonLisible(failedServers, id) {
   const raison = failedServers?.get?.(id);
   return typeof raison === "string" && raison ? raison : undefined;
@@ -143,24 +146,17 @@ export default function ServerSelector({
         {servers.map((server, i) => {
           const isActive = activeServer === server.id;
           const solo = servers.length === 1;
-          /* Grise, pas retire. Un hote qui nous refuse aujourd'hui repond
-             souvent dix minutes plus tard ; le faire disparaitre le rendait
-             inatteignable et vidait la barre. Il reste donc cliquable — le clic
-             oublie l'echec (voir `handleServerChange`) et relance une
-             resolution, souvent chaude.
-             `degradedServers` couvre en plus le flux DEGRADE (resolu, mais de
-             qualite ou de source amoindrie) : les deux se lisent pareil, « ca
-             marche moins bien ici », d'ou le meme traitement visuel. */
-          const enPanne =
-            !isActive &&
-            (isDegraded(failedServers, server.id) ||
-              !!degradedServers?.has?.(server.id));
+          /* Le gris ne dit plus « en panne » : un lecteur qui ne marche pas
+             n'est plus affiche du tout (voir `shouldShowServer`, 30/08/2026).
+             Il ne reste ici que le flux DEGRADE — resolu et jouable, mais par
+             une voie amoindrie (repli iframe, qualite inferieure). Le chip est
+             donc en retrait, pas eteint : « ca marche moins bien ici ». */
+          const enPanne = !isActive && !!degradedServers?.has?.(server.id);
           return (
             <button
               key={server.id}
               type="button"
-              title={enPanne ? raisonLisible(failedServers, server.id) : undefined}
-              aria-disabled={enPanne || undefined}
+              title={raisonLisible(failedServers, server.id)}
               onClick={() => onChange(server.id)}
               onMouseEnter={() => setHovered(server.id)}
               onMouseLeave={() => setHovered(null)}
@@ -197,7 +193,7 @@ export default function ServerSelector({
                     // meme temps, sinon la chip visee perdrait en lisibilite.
                     {
                       animationDelay: solo ? undefined : `${Math.min(i, 5) * 45}ms`,
-                      // En panne : le nom s'eteint d'un cran, et se rallume au
+                      // Degrade : le nom s'eteint d'un cran, et se rallume au
                       // survol — c'est ce qui dit qu'il reste cliquable.
                       color: enPanne
                         ? hovered === server.id
@@ -218,9 +214,9 @@ export default function ServerSelector({
                     // mieux qu'une bosse.
                     `ring-1 hover:bg-[#0e1016]/40 hover:ring-white/20 ${
                       enPanne
-                        ? // Fond plus sourd, liseré presque efface : « ce
-                          // lecteur ne repond pas en ce moment », pas « ce
-                          // lecteur n'existe pas ».
+                        ? // Fond plus sourd, liseré presque efface : « ca joue,
+                          // mais moins bien ici » — la chip reste un choix
+                          // valable, simplement pas le meilleur.
                           "bg-[#191c26]/50 ring-white/[0.06]"
                         : "bg-[#232735]/55 ring-white/10"
                     }`

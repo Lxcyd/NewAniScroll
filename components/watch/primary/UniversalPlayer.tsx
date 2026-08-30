@@ -1719,7 +1719,29 @@ export default function UniversalPlayer({
       // proxied edge-cached sources (megaplay) get the aggressive one. The ref
       // is set in render from bestStream just before the provider is built.
       const cfg = directPlaybackRef.current ? HLS_CONFIG_DIRECT : HLS_CONFIG;
-      provider.config = { ...provider.config, ...cfg };
+      /* `renderTextTracksNatively: false` est pose ICI, hors des deux profils,
+         parce que ce n'est pas un reglage de resilience mais une REGLE de
+         l'application : les sous-titres sont toujours des pistes sidecar, la
+         seule liste que le menu et l'editeur de style savent voir.
+         Laisse a `true` (le defaut d'hls.js), hls.js cree ses PROPRES TextTrack
+         natives pour chaque `EXT-X-MEDIA:TYPE=SUBTITLES` du manifeste. Le
+         master de frembed en declare deux — dont « FR Forced » en
+         `DEFAULT=YES,FORCED=YES` — donc la liste de Vidstack en contenait
+         QUATRE la ou le menu n'en montrait que deux. De la, les deux bugs
+         signales le 30/08, qui n'en faisaient qu'un :
+           - l'index actif pouvait tomber sur une piste fantome (2 ou 3), hors
+             de portee du menu : aucune ligne surlignee en rose, alors que des
+             sous-titres s'affichaient bien ;
+           - et cette piste-la s'affichait quoi qu'on ait decide, y compris sur
+             le chip VF qui annonce `subtitlePref: "none"`.
+         `hls.subtitleDisplay = false` ne pouvait pas y suffire : il empeche
+         l'AFFICHAGE, pas la CREATION des pistes — donc pas le decalage
+         d'index. C'est bien la creation qu'il fallait couper. */
+      provider.config = {
+        ...provider.config,
+        ...cfg,
+        renderTextTracksNatively: false,
+      };
     }
   };
 
@@ -1775,15 +1797,17 @@ export default function UniversalPlayer({
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
-      // Subtitles in this app are ALWAYS sidecar <Track>s — that is the only
-      // list the track menu and the style editor can see. A master that ALSO
-      // carries its own subtitle renditions (frembed) would otherwise have
-      // hls.js paint the one flagged DEFAULT — its forced track — on top of the
-      // sidecar track carrying the same dialogue. Let hls.js expose them, never
-      // render them. (Instance property, not a config key, in hls.js 1.4.)
+      // Ceinture ET bretelles, la vraie coupure etant `renderTextTracksNatively:
+      // false` dans onProviderChange (voir le commentaire la-bas, qui porte le
+      // raisonnement). `subtitleDisplay = false` n'empeche que l'affichage de la
+      // piste selectionnee ; `subtitleTrack = -1` va plus loin et n'en
+      // selectionne aucune, donc hls.js ne telecharge meme pas les segments
+      // WebVTT d'un rendition dont nous servons deja la version sidecar.
+      // (Proprietes d'INSTANCE, pas des cles de config, en hls.js 1.4.)
       if (hls) {
         try {
           hls.subtitleDisplay = false;
+          (hls as any).subtitleTrack = -1;
         } catch {}
       }
       /* Jalons du demarrage — cf. les refs a cote de `ttffMsRef`. Poses ici
@@ -3358,7 +3382,16 @@ export default function UniversalPlayer({
   // new stream's track list we fall back to English, then to the first
   // available track. "Off" is also remembered (user explicitly disabled subs).
   const SUB_PREF_LANG_KEY = "moopa.subs.lang";
-  const SUB_PREF_ENABLED_KEY = "moopa.subs.enabled";
+  /* Renommee, et c'est le point : l'ancienne cle (`moopa.subs.enabled`) porte,
+     dans le navigateur de tous ceux qui ont deja regarde un episode, un « 1 »
+     que PERSONNE n'a choisi — la passe automatique l'ecrivait elle-meme (voir
+     `selectSubtitleTrack`). La lire encore, ce serait faire primer un bug sur
+     le defaut de la source. On repart donc d'une ardoise vierge : tant que le
+     spectateur n'a pas touche au menu, c'est la source qui decide.
+     La cle de LANGUE n'a pas besoin du meme traitement : elle n'enregistrait
+     rien de faux, et une valeur devenue introuvable retombe proprement sur les
+     replis (`fr`, puis `en`, puis la premiere piste). */
+  const SUB_PREF_ENABLED_KEY = "aniscroll:subs.enabled";
 
   const readPrefLang = (): string | null => {
     try { return localStorage.getItem(SUB_PREF_LANG_KEY); } catch { return null; }
@@ -3377,7 +3410,16 @@ export default function UniversalPlayer({
     } catch { return true; }
   };
 
-  const selectSubtitleTrack = (idx: number) => {
+  /* `persist` distingue un CHOIX du spectateur d'une simple application de nos
+     regles. Sans lui, la passe automatique ci-dessous ecrivait
+     `moopa.subs.enabled = "1"` des le tout premier episode jamais regarde — et
+     ce faux « choix » primait ensuite pour toujours sur le defaut annonce par
+     la source. C'est pour ca que le chip VF de frembed continuait d'arriver
+     sous-titre malgre son `subtitlePref: "none"` : la preference etait deja
+     gravee, par nous, au nom d'un utilisateur qui n'avait rien demande.
+     On n'enregistre donc plus que ce qui vient d'un geste : le menu, la
+     bascule, le raccourci clavier. */
+  const selectSubtitleTrack = (idx: number, { persist = true } = {}) => {
     setActiveTrackIdx(idx);
     // Remember the last real track so the on/off shortcut restores this exact
     // language instead of advancing to the next one.
@@ -3399,6 +3441,7 @@ export default function UniversalPlayer({
       captionIndex++;
     }
     // Persist the choice so the next episode / anime restores it.
+    if (!persist) return;
     try {
       localStorage.setItem(SUB_PREF_ENABLED_KEY, idx >= 0 ? "1" : "0");
       if (selectedLang) localStorage.setItem(SUB_PREF_LANG_KEY, selectedLang);
@@ -3498,7 +3541,7 @@ export default function UniversalPlayer({
           // Only re-select if it isn't already the showing track — avoids a
           // redundant mode-change event loop.
           if (target !== activeIdx) {
-            selectSubtitleTrack(target);
+            selectSubtitleTrack(target, { persist: false });
             return;
           }
           setActiveTrackIdx(target);
@@ -3507,7 +3550,7 @@ export default function UniversalPlayer({
         // Subtitles disabled by preference → turn everything off once.
         if (hasAnyShowing) {
           prefApplied = true;
-          selectSubtitleTrack(-1);
+          selectSubtitleTrack(-1, { persist: false });
           return;
         }
         prefApplied = true;
@@ -5779,7 +5822,14 @@ export default function UniversalPlayer({
               kind={t.kind}
               label={t.label}
               language={t.language}
-              default={t.default || i === 0}
+              /* Le repli « a defaut, la premiere piste » ne vaut que pour une
+                 source qui ne s'est pas prononcee. Quand elle dit `none` — le
+                 chip VF de frembed : on regarde un doublage francais, pas
+                 besoin de le sous-titrer — ce repli rallumait la piste 0 au
+                 niveau de Vidstack, avant meme que notre preference ait son
+                 mot a dire. Les pistes restent dans le menu, simplement
+                 aucune n'arrive allumee. */
+              default={t.default || (i === 0 && subtitlePrefRef.current !== "none")}
             />
           ))}
           {/* Chapters track: a synthesised WebVTT from AniSkip's

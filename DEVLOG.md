@@ -67,7 +67,7 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 42 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 44 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 16 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
@@ -112,6 +112,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
+- 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
 - 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
 - 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
 - 2026-08-29 — AniSkip interroge sur une serie qu'il ignore

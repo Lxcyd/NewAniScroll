@@ -502,9 +502,13 @@ export default function Settings() {
     setConfirmClearHistory(false);
     notify.success(t("settings.advanced.clearHistoryDone"));
   };
-  const handleRestoreDefaults = () => {
-    restoreDefaultSettings();
+  const handleRestoreDefaults = async () => {
     setConfirmReset(false);
+    // On ATTEND que l'effacement soit parti au compte avant de recharger :
+    // sinon la page revient chercher au compte ce qu'on vient d'effacer (c'est
+    // le retour des positions de lecture signale trois fois). Sans compte,
+    // c'est immediat.
+    await restoreDefaultSettings();
     notify.success(t("settings.advanced.restoreDone"));
     // Reflect the reset immediately without a manual reload.
     setTimeout(() => window.location.reload(), 600);

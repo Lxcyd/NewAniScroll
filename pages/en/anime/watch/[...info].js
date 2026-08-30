@@ -2171,21 +2171,18 @@ export default function Watch({
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
       const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
-      const { shouldShowServer, isDegraded } = require("@/lib/watch/serverVisibility");
+      const { shouldShowServer } = require("@/lib/watch/serverVisibility");
       // Meme ordre ET meme regle de visibilite que le selecteur — les deux
       // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
       // le raccourci sur un lecteur qu'aucun chip n'affichait.
       const groups = getServersByLang(serverPerfRankFrozen);
-      const visibles = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
+      /* Plus de second filtre « saute les chips en panne » : depuis le
+         30/08/2026 un lecteur en echec n'est plus affiche du tout, donc la
+         liste visible est deja la liste des lecteurs sains. Le raccourci et la
+         barre parcourent litteralement le meme ensemble. */
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
         shouldShowServer(s, activeServer, confirmedServers, failedServers),
       );
-      /* Les chips en panne restent AFFICHEES (on peut vouloir y retourner) mais
-         le raccourci les saute : il sert a trouver un lecteur qui marche, pas a
-         parcourir la liste. On n'y revient que s'il n'y a rien d'autre. */
-      const sains = visibles.filter(
-        (s) => s.id === activeServer || !isDegraded(failedServers, s.id),
-      );
-      const pool = sains.length > 1 ? sains : visibles;
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];

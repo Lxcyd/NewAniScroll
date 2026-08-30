@@ -6,6 +6,120 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
+
+Trois symptomes signales plusieurs fois, que j'ai tente de corriger a l'aveugle
+sans les mesurer. Deux d'entre eux n'etaient qu'un seul bug, et le troisieme
+etait dans un fichier que je n'avais pas regarde.
+
+### La quatrieme piste que personne ne voyait
+
+Le master de frembed ne sert pas que la video :
+
+```
+#EXT-X-MEDIA:TYPE=SUBTITLES,...,NAME="FR Forced : SRT",DEFAULT=YES,AUTOSELECT=YES,FORCED=YES
+#EXT-X-MEDIA:TYPE=SUBTITLES,...,NAME="FR Full : SRT",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO
+```
+
+Avec `renderTextTracksNatively` a `true` — le defaut d'hls.js, jamais touche —
+hls.js cree une TextTrack NATIVE par rendition. La liste de Vidstack en
+contenait donc **quatre** (nos deux sidecar + les deux siennes) la ou le menu
+n'en affichait que deux. Tout le reste en decoule :
+
+- **Aucune ligne surlignee en rose.** `activeTrackIdx` est compte sur la liste
+  de Vidstack, `activeIndex` du menu sur la notre. Des que l'index actif tombait
+  sur une fantome (2 ou 3), il sortait de la plage du menu : la bascule affichait
+  « active », des sous-titres s'affichaient, et aucune ligne n'etait cochee. Le
+  chemin le plus court pour y arriver : `moopa.subs.lang` avait ete enregistre a
+  `fra` (le code a trois lettres du manifeste, que portent les fantomes), et
+  `findByLang("fra")` ne matchait donc QUE des fantomes.
+- **Des sous-titres en VF malgre `subtitlePref: "none"`.** La piste `DEFAULT=YES`
+  est la forcee ; c'est elle que notre propre boucle passait a `showing`.
+
+`hls.subtitleDisplay = false`, pose le matin meme, ne pouvait pas suffire : il
+empeche l'AFFICHAGE, pas la CREATION — donc pas le decalage d'index. La coupure
+juste est `renderTextTracksNatively: false`, posee dans `onProviderChange` hors
+des deux profils HLS : ce n'est pas un reglage de resilience mais une regle de
+l'application (les sous-titres sont toujours sidecar, seule liste que le menu et
+l'editeur de style savent voir). `subtitleTrack = -1` complete, pour ne meme pas
+telecharger les WebVTT d'une piste qu'on sert deja.
+
+**Lecon** : j'ai corrige trois fois notre liste de pistes et notre logique de
+preference alors qu'une SECONDE liste, invisible depuis le code que je lisais,
+etait geree en dessous. Trente secondes de `curl` sur le manifeste — ce qui a
+finalement tranche — auraient economise les trois tentatives.
+
+### Deux fautes de plus sur le meme defaut
+
+- `default={t.default || i === 0}` rallumait la premiere piste au niveau de
+  Vidstack meme quand la source annonce `none`. Le repli « a defaut, la
+  premiere » ne vaut que pour une source qui ne s'est pas prononcee.
+- **`selectSubtitleTrack` enregistrait la preference meme appelee par la passe
+  AUTOMATIQUE.** Des le premier episode jamais regarde, `moopa.subs.enabled`
+  valait « 1 » — un choix que personne n'avait fait, et qui primait ensuite pour
+  toujours sur le defaut de la source. D'ou un `subtitlePref: "none"` qui ne
+  pouvait structurellement jamais s'appliquer. Le parametre `persist` distingue
+  desormais un geste d'une application de nos regles, et la cle est renommee
+  (`aniscroll:subs.enabled`) : la valeur ecrite par le bug ne doit pas survivre
+  a sa correction.
+
+### La position de lecture qui revenait apres « restaurer les reglages »
+
+`clearAllProgress` avait ete corrige le matin (vider, ne pas supprimer) et
+etait juste. Mais **`restoreDefaultSettings` porte encore le meme defaut**, et
+c'est LUI qu'on presse en croyant tout remettre a zero : son balayage des cles
+`aniscroll:*` emportait `aniscroll:progress` par `removeItem`. `readKind` rend
+`null` sur une categorie entierement absente, `pullAll` lit ce null comme « cet
+appareil n'a rien » — et reecrit la copie du compte. 12:42 revenait au
+rechargement.
+
+Il delegue maintenant a `clearAllProgress` et pousse l'effacement, et il est
+devenu `async` : le `window.location.reload()` a 600 ms coupait la requete en
+vol, ce qui aurait suffi a reproduire le bug par un autre chemin.
+
+**Lecon** : j'avais REPERE ce defaut sur `restoreDefaultSettings` et choisi de
+ne pas y toucher « en attendant une decision ». Un defaut deja demontre ailleurs
+dans la meme session n'a pas besoin d'arbitrage ; le laisser en place, c'est
+signer le meme bug une deuxieme fois.
+
+## 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
+
+Retour en arriere assume sur la regle du 29/08 (« l'absence prouvee masque,
+l'echec grise »). Elle etait defendable en principe — une panne se termine, un
+hote retabli doit rester atteignable — mais elle ne se lit pas : cote
+spectateur, un « Sibnet » gris qui ne joue rien est un lecteur casse, pas une
+invitation a reessayer. Signale sur *Jaadugar: A Witch in Mongolia*, ou sibnet
+n'a tout simplement rien.
+
+Desormais **tout echec retire le chip**, dans `shouldShowServer` — donc d'un
+seul endroit, et la barre, le raccourci `z` et le lecteur de secours de la carte
+d'erreur suivent ensemble.
+
+**Pourquoi ca ne rejoue pas le bug du 17/08** (« sibnet s'affiche puis
+disparait »). Le filtre qui manquait alors existe maintenant en amont :
+`markFailed` n'inscrit dans `failedServers` que l'absence prouvee, le
+`hostDown`, et l'echec d'un hote **jamais confirme**. Un 503 sur un hote deja
+vu marcher n'y entre pas — il dit « je n'ai pas pu savoir », pas « ce lecteur
+n'existe pas ». On ne masque donc que des VERDICTS, jamais une
+non-connaissance. C'est cette asymetrie, et elle seule, qui rend la regle
+simple tenable ; la retirer ferait revenir le clignotement.
+
+Deux filets restent : le lecteur ACTIF est toujours peint, meme apres son echec
+(sinon on regarde un flux qu'aucun chip ne designe — et son infobulle devient le
+seul endroit ou lire la raison, d'ou le `title` desormais inconditionnel), et
+l'etat est remis a zero au changement d'episode.
+
+Le gris ne veut donc plus dire « en panne » : il ne reste qu'a `degradedServers`
+— resolu et jouable, par une voie amoindrie. `aria-disabled` saute avec, il
+mentait sur une chip parfaitement utilisable. Et le raccourci `z` perd son
+second filtre (`sains` vs `visibles`) : les deux ensembles sont maintenant le
+meme, le garder aurait fait croire a une distinction disparue.
+
+Ce qu'on perd, en toute honnetete : un hote qui tombe puis se releve pendant
+qu'on est sur la page ne revient qu'au prochain episode ou au rechargement. Le
+prix parait juste — cet hote-la ne se releve, precisement, que s'il avait deja
+ete confirme, cas que `markFailed` n'inscrit pas.
+
 ## 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
 
 Nouvelle source, indexee sur TMDB. Deux requetes, aucun jeton :
