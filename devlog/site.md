@@ -72,6 +72,42 @@ Fullmetal Alchemist (10 contre 10 avec One Piece, departage aux revisionnages).
 **Non exerce sur un vrai compte AniScroll sans AniList** : le chemin est ecrit
 et compile, mais aucun tag reel n'etait sous la main.
 
+### Ce que le premier jet avait rate (corrige le jour meme)
+
+**Le classement etait juste ; c'est la liste des candidats qui ne l'etait
+pas.** Sur une vraie liste de 683 entrees, **297 sont "Prevu" sans un seul
+episode vu**, et onze d'entre elles — toutes notees 10 — occupaient tout le haut
+du classement devant des series reellement regardees (`Orb`, `Takopi`, `PLUTO`…
+que le proprietaire n'a jamais lances). Sur AniList, **une note posee sur un
+titre prevu est une attente, pas un verdict** : c'est une donnee d'un autre
+genre que les autres, et la moyenner avec elles n'a pas de sens. Ces entrees
+sortent donc des candidats. Ce qui a ete commence au moins une fois reste
+eligible — abandonne et en pause compris, parce que ce sont des verdicts. Le
+premier du classement, lui, n'a pas bouge : le bug ne se voyait qu'a partir du
+2e rang, donc **la banniere elle-meme etait bonne et seule la liste du selecteur
+trahissait le probleme**. Sans le retour de l'utilisateur sur « Orb, je ne l'ai
+pas vu », rien ne l'aurait signale.
+
+**Un clic qui enregistre est un clic qui piege.** Le selecteur figeait la
+banniere des la premiere tuile touchee : parcourir la galerie gelait le profil
+sur la derniere image regardee, et le symptome remonte a ete « la banniere
+change toute seule » — l'utilisateur ne pouvait pas relier son propre clic
+d'exploration a un enregistrement. Le clic ne fait plus que selectionner, un
+bouton confirme, et la tuile en place est marquee.
+
+**Le flou "inexplique" etait deliberе — au mauvais endroit.** Le hero floute
+une affiche verticale faute de mieux, ce qui est defendable. Le selecteur
+heritait du meme traitement : affiches floutees et agrandies, bannieres fines de
+1000x185 etirees en 16:9. **Un selecteur doit montrer ce qu'il propose** : tout
+ce qui n'est pas au format large s'affiche entier sur un fond sombre, avec son
+format ecrit dessus.
+
+**Le zoom lent recadrait.** La plaque respirait avec un Ken-Burns de 1.06 a
+1.16 — donc elle coupait, ce qui est exactement ce qu'une banniere choisie dans
+les illustrations de l'anime ne doit pas faire. Supprime, et la bande se
+dimensionne desormais sur le 16:9 de l'illustration (`min(56.25vw, 80vh)`) :
+sur un ecran large, l'image est visible en entier.
+
 Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
 est desormais la vitrine.
 
