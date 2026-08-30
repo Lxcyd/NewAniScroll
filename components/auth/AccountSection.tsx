@@ -502,12 +502,24 @@ export default function AccountSection() {
     }
     let cancelled = false;
     fetch("/api/v2/account/me")
-      .then((res) => (res.ok ? res.json() : null))
+      .then(async (res) => {
+        /* 401 under a session that carries a uid means the row is gone or
+           disabled — the account was deleted, most likely from another
+           device. The JWT is self-contained, so nothing on this one would
+           ever have noticed: it kept showing a name and an avatar for an
+           account that no longer exists. Drop the cookie. */
+        if (res.status === 401) {
+          if (!cancelled) await signOut({ redirect: false });
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (!cancelled && data?.user) setFresh(data.user);
       })
       .catch(() => {
-        /* the session's own claims remain as the fallback */
+        /* a network failure is not a deletion: the session's own claims
+           remain as the fallback */
       });
     return () => {
       cancelled = true;
