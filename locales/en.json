@@ -155,8 +155,8 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "cloudReplace": {
-      "title": "Two versions of your data",
-      "body": "Your account's will replace this browser's.",
+      "title": "Warning",
+      "body": "Your account data will replace the data in this browser.",
       "confirm": "Replace"
     },
     "code": {
