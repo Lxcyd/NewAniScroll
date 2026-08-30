@@ -143,6 +143,19 @@ export default function ProfileHero({
           : "page";
   const asPage = mode === "page";
 
+  /* A strip is shown WHOLE or it is not shown honestly. Guessing its shape is
+     how the last crop happened: the band was cut to 4.75:1, the ratio AniList
+     authors its own banners in, and a 1000x185 fanart banner (5.4:1) still lost
+     its edges to `object-cover`. Since the picture has already been measured,
+     the band simply takes the picture's own proportions and there is nothing
+     left to crop. Capped, because a very long strip on a narrow window would
+     otherwise be a hairline; `object-contain` then letterboxes rather than
+     cuts, which is the whole point. */
+  const bandStyle =
+    !asPage && ratio
+      ? { height: `min(calc(100vw / ${ratio.toFixed(3)}), 46vh)` }
+      : undefined;
+
   return (
     <div className="relative w-full">
       {asPage ? (
@@ -164,6 +177,7 @@ export default function ProfileHero({
         className={`relative w-full overflow-hidden ${
           asPage ? "as-hero-band" : "as-hero-band-slim"
         }`}
+        style={bandStyle}
       >
         {!asPage && banner.url ? (
           <Image
@@ -172,7 +186,7 @@ export default function ProfileHero({
             fill
             priority
             sizes="100vw"
-            className="object-cover"
+            className={ratio ? "object-contain" : "object-cover"}
           />
         ) : null}
         {!banner.url ? (
