@@ -74,6 +74,12 @@ export function Navbar({
   const [scrolled, setScrolled] = useState(false);
   const [pastTopButton, setPastTopButton] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authView, setAuthView] = useState<"signin" | "signup">("signin");
+
+  const openAuth = (view: "signin" | "signup") => {
+    setAuthView(view);
+    setAuthOpen(true);
+  };
 
   /* An AniScroll-only account has no AniList avatar and no AniList profile
      page: the picture falls back to the generic icon, and "Profile" points at
@@ -371,7 +377,7 @@ export function Navbar({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setAuthOpen(true)}
+                  onClick={() => openAuth("signin")}
                   title={t("nav.signIn")}
                   className={`w-10 h-10 rounded-full overflow-hidden shrink-0 ${
                     onLight ? "bg-black/10 text-black/70" : "bg-white/30"
@@ -414,10 +420,20 @@ export function Navbar({
                     <>
                       <button
                         type="button"
-                        onClick={() => setAuthOpen(true)}
+                        onClick={() => openAuth("signin")}
                         className="hover:text-action py-1"
                       >
                         {t("nav.signIn")}
+                      </button>
+                      {/* Signing up is a different intention from signing in,
+                          and a visitor with no account should not have to
+                          guess that it hides behind "Connexion". */}
+                      <button
+                        type="button"
+                        onClick={() => openAuth("signup")}
+                        className="hover:text-action py-1"
+                      >
+                        {t("auth.createAccount")}
                       </button>
                       <Link href="/en/my-list" className="hover:text-action py-1">
                         {t("nav.myList")}
@@ -438,7 +454,11 @@ export function Navbar({
           </div>
         </div>
       </nav>
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
+      <AuthModal
+        open={authOpen}
+        initialView={authView}
+        onClose={() => setAuthOpen(false)}
+      />
       {toTop && (
         <button
           type="button"

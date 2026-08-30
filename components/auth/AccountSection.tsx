@@ -166,6 +166,18 @@ function AccountPanel({
      gets its AniList name as a pseudo, so `!username` would be wrong. */
   const anilistOnly = !user.email;
 
+  /* The AniScroll pseudo, not session.user.name — that one becomes the AniList
+     handle once linked, and this panel is about the account. */
+  const displayName = user.username || user.name || "";
+  /* avatarUrl is the column filled when AniList is linked; session.user.image
+     is the same picture in its AniList shape, kept as a fallback for a token
+     minted before the column existed. */
+  const rawImage: any = user.image;
+  const avatarUrl: string | null =
+    user.avatarUrl ||
+    (typeof rawImage === "string" ? rawImage : rawImage?.large || rawImage?.medium) ||
+    null;
+
   async function call(url: string, init: RequestInit): Promise<any | null> {
     setBusy(true);
     try {
@@ -267,17 +279,27 @@ function AccountPanel({
 
   return (
     <>
-      <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4 mb-4">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold truncate">
-            {/* The AniScroll pseudo, not session.user.name — that one is the
-                AniList handle once linked, and this panel is the account. */}
-            {user.username || user.name}
-          </span>
-          <span className="text-white/40 text-xs font-mono">#{user.tag}</span>
-        </div>
-        <div className="text-white/50 text-xs mt-0.5">
-          {anilistOnly ? t("auth.anilistOnlyDesc") : t("auth.accountDesc")}
+      <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4 mb-4 flex items-center gap-3.5">
+        {/* Plain <img>, not next/image: the URL comes from AniList and an
+            unconfigured host throws at render — that is what emptied the
+            mobile bar once. An account with no AniList link has no picture
+            at all, hence the initial. */}
+        <span className="flex-none grid place-items-center w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/10 overflow-hidden text-white/60 font-semibold">
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            (displayName || "?").charAt(0).toUpperCase()
+          )}
+        </span>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold truncate">{displayName}</span>
+            <span className="text-white/40 text-xs font-mono">#{user.tag}</span>
+          </div>
+          <div className="text-white/50 text-xs mt-0.5">
+            {anilistOnly ? t("auth.anilistOnlyDesc") : t("auth.accountDesc")}
+          </div>
         </div>
       </div>
 

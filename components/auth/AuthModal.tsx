@@ -9,7 +9,7 @@
  * decide to keep it. Sign-in then pulls whatever the server already had.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -55,6 +55,13 @@ export default function AuthModal({
   const [usernameOk, setUsernameOk] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+
+  /* The modal stays mounted while closed, so the initial view has to be
+     re-applied at each opening — otherwise "Créer un compte" would land on
+     whichever view was last left behind. */
+  useEffect(() => {
+    if (open) setView(initialView);
+  }, [open, initialView]);
 
   if (!open) return null;
 

@@ -282,7 +282,11 @@ export async function detachAniList(userId: string): Promise<UserRecord | null> 
   if (!user.passwordHash) throw new Error("anilist-only-account");
 
   await client.execute({
-    sql: `UPDATE users SET anilist_id = NULL, anilist_name = NULL WHERE id = ?`,
+    // The picture belongs to AniList too — keeping it would leave the account
+    // wearing the face of a link it no longer has.
+    sql: `UPDATE users
+             SET anilist_id = NULL, anilist_name = NULL, avatar_url = NULL
+           WHERE id = ?`,
     args: [userId],
   });
   return findById(userId);
