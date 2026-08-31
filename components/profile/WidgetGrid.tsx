@@ -60,7 +60,10 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const dragRef = useRef<Drag | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
+  /* Le rectangle de DÉPART, en unités de grille, plus le mode. Le rendu en a
+     besoin — la taille qui suit le curseur se calcule à partir de lui — et un
+     ref lu pendant le rendu ne déclencherait rien. */
+  const [drag, setDrag] = useState<Drag | null>(null);
   const [offset, setOffset] = useState({ dx: 0, dy: 0 });
 
   /* La largeur du conteneur EST l'unité de la grille : sans elle rien ne peut
@@ -84,7 +87,7 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
   const endDrag = useCallback(() => {
     const d = dragRef.current;
     dragRef.current = null;
-    setDragId(null);
+    setDrag(null);
     setOffset({ dx: 0, dy: 0 });
     if (d) onLayout(compact(layoutRef.current));
   }, [onLayout]);
@@ -105,6 +108,12 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
         setOffset({ dx, dy });
         onLayout(compact(moved, d.id));
       } else {
+        /* Le coin suit le curseur au pixel — c'est `offset` qui le fait, dans le
+           rendu. Ici on ne s'occupe que de la case OÙ ÇA TOMBERA : elle est
+           arrondie, elle repousse les voisins, et le fantôme la dessine. Sans
+           ce partage des rôles le bloc avançait par bonds d'une colonne, avec
+           200 ms de retard à chaque bond. */
+        setOffset({ dx, dy });
         const nw = Math.min(COLS - d.x, Math.max(1, d.w + Math.round(dx / (cw + GAP))));
         const nh = Math.max(1, d.h + Math.round(dy / (ROW + GAP)));
         const cur = layoutRef.current.find((o) => o.i === d.id);
@@ -116,7 +125,7 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
   );
 
   useEffect(() => {
-    if (!dragId) return;
+    if (!drag) return;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);
@@ -125,7 +134,7 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
     };
-  }, [dragId, onMove, endDrag]);
+  }, [drag, onMove, endDrag]);
 
   function startDrag(id: string, mode: Drag["mode"], e: React.PointerEvent) {
     if (!editing || e.button !== 0) return;
@@ -133,7 +142,7 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
     if (!it) return;
     e.preventDefault();
     e.stopPropagation();
-    dragRef.current = {
+    const started: Drag = {
       id,
       mode,
       sx: e.clientX,
@@ -143,11 +152,9 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
       w: it.w,
       h: it.h,
     };
+    dragRef.current = started;
     setOffset({ dx: 0, dy: 0 });
-    setDragId(mode === "move" ? id : null);
-    // Un redimensionnement n'a pas de fantôme à suivre, mais il a besoin des
-    // mêmes écouteurs : on garde l'identifiant pour l'effet ci-dessus.
-    if (mode === "resize") setDragId(id);
+    setDrag(started);
   }
 
   function move(id: string, dir: -1 | 1) {
@@ -165,14 +172,44 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
     0,
     rows * (ROW + GAP) - GAP + (editing ? ROW * 0.5 : 0),
   );
-  const dragged = dragId ? layout.find((o) => o.i === dragId) : null;
+  const dragged = drag ? layout.find((o) => o.i === drag.id) : null;
+
+  /* Ce que le bloc tenu sous le curseur mesure À L'INSTANT, avant arrondi.
+     Déplacer : sa case ne bouge pas tant qu'on n'a pas franchi la moitié d'une
+     colonne, mais le bloc, lui, suit la main. Redimensionner : pareil pour le
+     coin. Les deux se calculent depuis le rectangle de DÉPART — celui de la
+     disposition a déjà sauté à la case suivante, s'en servir ferait rebondir le
+     bloc à chaque franchissement. */
+  function livePixels(it: GridItem) {
+    const rect = pixelRect(it, width || 1);
+    if (!drag || drag.id !== it.i) return rect;
+    const start = pixelRect(
+      { i: it.i, x: drag.x, y: drag.y, w: drag.w, h: drag.h },
+      width || 1,
+    );
+    if (drag.mode === "move") {
+      return { ...start, left: start.left + offset.dx, top: start.top + offset.dy };
+    }
+    const cw = columnWidth(width || 1);
+    return {
+      ...start,
+      width: Math.min(
+        (width || 1) - start.left,
+        Math.max(cw, start.width + offset.dx),
+      ),
+      height: Math.max(ROW, start.height + offset.dy),
+    };
+  }
 
   return (
     <div ref={hostRef} className="relative w-full" style={{ height }}>
-      {/* L'emplacement où le bloc tombera s'il est lâché maintenant. */}
-      {dragged && dragRef.current?.mode === "move" ? (
+      {/* Où le bloc tombera s'il est lâché maintenant — pour un déplacement
+          comme pour un redimensionnement. C'est le seul repère qui dit la
+          vérité pendant que le bloc lui-même flotte sous le curseur, et il
+          glisse d'une case à l'autre au lieu d'y apparaître. */}
+      {dragged ? (
         <div
-          className="pointer-events-none absolute z-0 rounded-[20px] border-2 border-dashed border-action/50 bg-action/10 transition-[left,top] duration-150"
+          className="pointer-events-none absolute z-0 rounded-[20px] border-2 border-dashed border-action/50 bg-action/10 transition-[left,top,width,height] duration-100 ease-out"
           style={pixelRect(dragged, width || 1)}
         />
       ) : null}
@@ -180,8 +217,8 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
       {layout.map((it) => {
         const chrome = renderBlock(it.i);
         if (!chrome) return null;
-        const rect = pixelRect(it, width || 1);
-        const isDragging = dragId === it.i && dragRef.current?.mode === "move";
+        const rect = livePixels(it);
+        const active = drag?.id === it.i;
         return (
           <section
             key={it.i}
@@ -190,13 +227,18 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
                 ? "bg-[#13141b]/95 ring-action/40 ring-dashed"
                 : "as-stat-card ring-white/10"
             } ${
-              isDragging
+              /* AUCUNE transition sur le bloc tenu : il est déjà à la position
+                 du curseur, l'animer ferait traîner la main. Les autres, qui se
+                 réorganisent autour de lui, ont les 200 ms — c'est exactement le
+                 partage que fait react-grid-layout entre `.react-grid-item` et
+                 `.react-grid-item.react-draggable-dragging`. */
+              active
                 ? "z-30 shadow-[0_26px_60px_rgba(0,0,0,0.65)]"
-                : "z-10 transition-[left,top,width,height] duration-200"
+                : "z-10 transition-[left,top,width,height] duration-200 ease-in-out"
             }`}
             style={{
-              left: Math.round(rect.left + (isDragging ? offset.dx : 0)),
-              top: Math.round(rect.top + (isDragging ? offset.dy : 0)),
+              left: Math.round(rect.left),
+              top: Math.round(rect.top),
               width: Math.round(rect.width),
               height: Math.round(rect.height),
             }}
@@ -204,7 +246,11 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
             <header
               onPointerDown={(e) => startDrag(it.i, "move", e)}
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing ? (isDragging ? "cursor-grabbing" : "cursor-grab") : ""
+                editing
+                  ? active && drag?.mode === "move"
+                    ? "cursor-grabbing"
+                    : "cursor-grab"
+                  : ""
               }`}
               style={{ touchAction: "none" }}
             >

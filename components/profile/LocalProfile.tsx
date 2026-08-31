@@ -96,8 +96,8 @@ export default function LocalProfile() {
         subtitle={t("profile.localOnly")}
       />
 
-      {/* relative z-10 + veil: see the note in profile/[user].tsx. */}
-      <div className="as-fade-in relative z-10 as-page-under">
+      {/* relative z-10, and no veil over it: see the note in profile/[user].tsx. */}
+      <div className="as-fade-in relative z-10">
         <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
           {streak > 0 ? (
             <div
@@ -163,7 +163,7 @@ export default function LocalProfile() {
         </div>
       </div>
 
-      <div className="relative z-10 as-page-under">
+      <div className="relative z-10">
         <Footer />
       </div>
 

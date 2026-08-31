@@ -178,9 +178,10 @@ export default function Profile({
 
       {/* relative z-10: the wallpaper an illustration is worn as is a z-0 layer
           (html carries its own colour, so it cannot go negative), and a static
-          block would be painted under it. .as-page-under is a veil rather than
-          a solid fill, so the picture stays visible behind the whole page. */}
-      <div className="as-fade-in relative z-10 as-page-under">
+          block would be painted under it. Nothing is painted ON it here — the
+          contrast comes from .as-page-scrim on the plate itself and from the
+          cards' own backing; see the note by .as-page-under in globals.css. */}
+      <div className="as-fade-in relative z-10">
         <div className="mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <ProfileTabs
@@ -229,7 +230,7 @@ export default function Profile({
         </div>
       </div>
 
-      <div className="relative z-10 as-page-under">
+      <div className="relative z-10">
         <Footer />
       </div>
 

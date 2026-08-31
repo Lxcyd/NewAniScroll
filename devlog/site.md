@@ -841,3 +841,48 @@ Refonte de la numérotation des saisons pour corriger l'ordre faux (Gundam : le 
 - **Fribb pas actif sans Turso** : en local sans DB, le moteur retombe sur le garde-fou d'année du walker — ce qui suffit déjà à corriger Gundam. Pour activer Fribb en prod : lancer `node scripts/refresh-fribb.mjs` avec les variables Turso, puis le planifier.
 
 ---
+
+## 01/09/2026 — Le profil : un voile de trop, et une grille qui bougeait par bonds
+
+### `.as-page-under` supprimee
+
+Deux couches faisaient le meme travail au-dessus du papier peint. La plaque
+porte deja `.as-page-scrim`, degrade calibre pour ca : 0,72 sous la navbar
+transparente, **0,28 dans tout le corps**, 0,6 au pied. Par-dessus,
+`.as-page-under` posait un aplat de `rgba(12,13,16,0.9)` sur tout le contenu du
+profil. 0,28 puis 0,9, cela fait ~0,93 de noir plat entre l'illustration et
+l'oeil : sous le hero, le papier peint n'existait plus.
+
+La regle qui autorise un scrim aussi leger est ecrite juste au-dessus de lui —
+tout ce qui doit rester lisible sur une image quelconque porte SON PROPRE
+contraste : le pseudo une ombre, les cartes `.as-stat-card`, les puces un flou.
+Un second drap sur toute la page est ce qu'on ajoute quand cette regle n'est pas
+suivie ; il ne repare aucune carte, il cache l'illustration. Le commentaire qui
+remplace la regle dans `globals.css` dit pourquoi elle ne doit pas revenir.
+
+Quatre emplois retires (`profile/[user].tsx` et `LocalProfile.tsx`, contenu et
+pied de page). Le `relative z-10` reste : il repond a une autre question, celle
+de l'empilement au-dessus de la plaque fixe en z-0.
+
+### La grille de widgets suit enfin le curseur
+
+Le deplacement suivait deja la main au pixel (`offset`), mais le
+**redimensionnement, non** : `onMove` n'ecrivait que la taille arrondie. Le bloc
+avancait donc d'une colonne d'un coup, et comme il portait la transition de
+200 ms des blocs au repos, chaque bond arrivait avec 200 ms de retard. C'est ce
+que « il manque une animation » designait : il y en avait une, elle etait
+posee sur le mauvais bloc.
+
+Le partage est desormais celui de react-grid-layout :
+
+- le bloc tenu ne porte **aucune** transition et affiche sa taille libre, non
+  arrondie (`livePixels`, calculee depuis le rectangle de DEPART — partir de la
+  disposition courante le ferait rebondir a chaque franchissement de case) ;
+- les autres gardent les 200 ms `ease-in-out` et se referment autour de lui ;
+- le fantome existe maintenant aussi pour le redimensionnement, et glisse
+  (`transition-[left,top,width,height] duration-100`) au lieu d'apparaitre ;
+- au relachement, `drag` repasse a null : le bloc recupere sa transition dans le
+  meme rendu et se pose sur la case en 200 ms, sans une ligne de plus.
+
+`dragId` devient `drag = {id, mode, x, y, w, h}` : le rendu a besoin du
+rectangle de depart, et un ref lu pendant le rendu ne redeclenche rien.

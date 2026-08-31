@@ -2208,18 +2208,21 @@ input[type="number"] {
     rgba(12, 13, 16, 0.9) 100%
   );
 }
-/* What the profile's own content is painted on. A VEIL, not a lid: the picture
-   is fixed to the window, so anything fully opaque scrolling over it hides it
-   for good after one screen — which is precisely what "it isn't there any more
-   when I scroll" meant. At 0.9 the wallpaper still shows through the whole
-   page, and the text keeps its contrast.
+/* .as-page-under IS GONE, and here is why it must not come back.
 
-   It is applied unconditionally, with no need to know whether a wallpaper is
-   even there: 90% of #0c0d10 laid over the page's own #0c0d10 is #0c0d10, so
-   the flat-colour and strip profiles render exactly as before. */
-.as-page-under {
-  background: rgba(12, 13, 16, 0.9);
-}
+   It painted rgba(12,13,16,0.9) over everything the profile puts on the page.
+   Laid on top of .as-page-scrim — which is already 0.28 across the middle of
+   the wallpaper — that made ~0.93 of flat black between the picture and the
+   eye: below the hero the artwork was simply not there any more. The two
+   layers were doing the same job, and the second one won.
+
+   .as-page-scrim keeps it, and it is the one tuned for it: 0.72 under the
+   transparent navbar, 0.28 through the body, 0.6 at the foot. The rule that
+   makes a scrim that light enough is written above it — everything that has
+   to stay readable over an arbitrary picture carries its OWN contrast: the
+   name a shadow, the cards .as-stat-card, the chips a blur. A second flat
+   sheet over the whole page is what you add when that rule is not being
+   followed; adding it back would hide the wallpaper again, not fix a card. */
 /* Where a strip meets the page: enough to avoid a hard cut under the avatar,
    not enough to eat the composition. */
 .as-strip-foot {
