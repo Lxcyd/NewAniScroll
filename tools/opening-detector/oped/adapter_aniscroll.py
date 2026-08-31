@@ -189,7 +189,11 @@ def resolve_episodes(
 # one wasted resolution subprocess per episode over 33k ep-languages. Same
 # reasoning that removed uqload from this list in July. `vidmoly-va` stays: it
 # is voir-anime's own upload, a genuinely different encode.
-MULTI_HOSTS = ["sibnet", "sendvid", "megaplay", "ansembed", "vidmoly-va",
+# `sendvid` est parti le 31/08/2026 : sendvid.com repond 502 sur toutes ses urls
+# (cf. lib/servers.js). Le resoudre ne pouvait plus qu'echouer — un sous-processus
+# de resolution perdu par episode-langue, la meme raison qui a sorti `uqload` de
+# cette liste en juillet puis `vidmoly`.
+MULTI_HOSTS = ["sibnet", "megaplay", "ansembed", "vidmoly-va",
                "uqload"]
 
 # --- Réessai de résolution (07/08) -------------------------------------------

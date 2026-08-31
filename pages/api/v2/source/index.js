@@ -1032,7 +1032,9 @@ const slugCache = new Map();
 const ANIMESAMA_SERVERS = {
   // VF (French dub)
   "animesama-sibnet":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vf" },
-  "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
+  // "animesama-sendvid" retire le 31/08/2026 : sendvid.com est HS (502 sur tout
+  // le site) — voir lib/servers.js. L'extracteur reste en place dans
+  // lib/extractors.js, prêt si l'hôte revient.
   // Ansembed REPLACES anime-sama's old Vidmoly entry: the site migrated its
   // vidmoly uploads to this white-label domain and no longer lists vidmoly.*
   // on ANY panel (measured over 17 panels, 0 hits — while ansembed appears on
@@ -1049,7 +1051,7 @@ const ANIMESAMA_SERVERS = {
   "animesama-uqload":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vf" },
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
-  "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
+  // "animesama-sendvid-vo" retire avec son jumeau VF (31/08/2026).
   "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
   "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
   "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
