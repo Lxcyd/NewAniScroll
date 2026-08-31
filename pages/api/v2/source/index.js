@@ -247,6 +247,11 @@ const EXTRACTABLE_HOSTS = [
 // One master.m3u8 carries both audio renditions and the French subtitle
 // tracks, so the two chips resolve the SAME url and differ only by the
 // `audioLang` the player pins.
+//
+// Deux index, pas un : les series vivent sous `type=serie` (id TMDB *tv* +
+// saison + episode), les FILMS sous `type=movie` (id TMDB *movie*, sans
+// coordonnees). Un film n'a donc ni saison a detecter ni concatenation a
+// parcourir — et son master n'est pas toujours bilingue, cf. frembedCarriesAudio.
 const FREMBED_BASE = "https://frembed.casa";
 // The master ships TWO French subtitle tracks — "FR Forced" (on-screen signs
 // only, and flagged DEFAULT) and "FR Full". Which one a chip wants follows its
@@ -271,10 +276,15 @@ const FREMBED_SERVERS = {
    is. */
 const FREMBED_LONG_RUNNER_SEASONS = 6;
 
+/** `sa`/`ep` null = a FILM: frembed indexes those on the TMDB *movie* id, with
+ *  no season/episode coordinates at all (`?tmdb=<movieId>&type=movie`). */
 async function fetchFrembedPayload(tmdbId, sa, ep) {
+  const query =
+    sa == null
+      ? `?tmdb=${tmdbId}&type=movie`
+      : `?tmdb=${tmdbId}&type=serie&sa=${sa}&ep=${ep}`;
   const res = await fetchWithTimeout(
-    `${FREMBED_BASE}/api/streaming/player` +
-      `?tmdb=${tmdbId}&type=serie&sa=${sa}&ep=${ep}`,
+    `${FREMBED_BASE}/api/streaming/player${query}`,
     {
       headers: {
         Referer: `${FREMBED_BASE}/streaming/player`,
@@ -293,11 +303,42 @@ async function fetchFrembedPayload(tmdbId, sa, ep) {
   }
 }
 
-/** The playable master url in a frembed payload, or null when it holds none.
- *  An episode frembed doesn't host answers 200 with `sources: []`. */
-function frembedMasterUrl(payload) {
-  const url = payload?.sources?.[0]?.url;
-  return typeof url === "string" && /\.m3u8/i.test(url) ? url : null;
+/** The playable source in a frembed payload, or null when it holds none.
+ *  An episode frembed doesn't host answers 200 with `sources: []`.
+ *  The `label` matters on films — see frembedCarriesAudio. */
+function frembedSource(payload) {
+  const src = payload?.sources?.[0];
+  const url = src?.url;
+  if (typeof url !== "string" || !/\.m3u8/i.test(url)) return null;
+  return { url, label: typeof src.label === "string" ? src.label : "" };
+}
+
+/**
+ * Does this master actually carry the audio the chip stands for?
+ *
+ * Series are uniform — every one of the 12 sampled on 2026-08-31 answers with a
+ * single `Premium` source whose master declares both `fr` and `ja` renditions,
+ * which is why both chips could be painted unconditionally. FILMS are not: they
+ * come as `Premium` (same dual-audio shape) OR as `Free VF`, a single muxed
+ * French track with no rendition list and no subtitles at all (Your Name,
+ * measured). Painting the VO chip on one of those hands a viewer who asked for
+ * the Japanese original a French dub, silently — the player pins the `ja`
+ * rendition, finds none, and plays what's there.
+ *
+ * So: trust the rendition list when the master publishes one, and fall back to
+ * the source label when it doesn't (that label is then the ONLY language signal
+ * in the payload). An unreadable label reads as French — frembed is a French
+ * host and its single-track uploads are dubs.
+ */
+function frembedCarriesAudio(manifest, label, audioLang) {
+  const langs = [];
+  for (const line of manifest.split(/\r?\n/)) {
+    if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=AUDIO/.test(line)) continue;
+    const m = line.match(/LANGUAGE="([^"]*)"/);
+    if (m) langs.push(m[1].slice(0, 2).toLowerCase());
+  }
+  if (langs.length) return langs.includes(audioLang);
+  return (/vostfr|\bvo\b|sub/i.test(label) ? "ja" : "fr") === audioLang;
 }
 
 /**
@@ -538,18 +579,35 @@ async function getFrembedStream(serverKey, aniId, episode) {
   // is a static fact that answers null twice, a hiccup usually doesn't.
   let fribb = await getFribbEntry(Number(aniId));
   if (!fribb) fribb = await getFribbEntry(Number(aniId));
-  const tmdbId = fribb?.tmdbTvId || null;
+
+  // FILMS. Frembed catalogues them under the TMDB *movie* id, on a `type=movie`
+  // route with no season/episode coordinates — a different index entirely, and
+  // one Fribb already gives us (`tmdb_movie_id`, ingested since day one). Until
+  // 2026-08-31 we only ever read `tmdbTvId`, so every anime film fell out at the
+  // "no tmdb.tv mapping" line below and lost its chips while frembed hosted the
+  // file. AniList's own format decides, not Fribb: a film that ALSO carries a tv
+  // id (it belongs to a franchise TMDB files as a show) must still be looked up
+  // as a movie. Sans tv id, le film est le seul choix possible.
+  const movieId = fribb?.tmdbMovieId || null;
+  const tvId = fribb?.tmdbTvId || null;
+  // AniList n'est interroge que dans le cas ambigu (les deux ids existent) —
+  // une serie ordinaire n'a pas d'id film et ne paie donc rien de plus.
+  const asMovie =
+    !!movieId &&
+    (!tvId || (await getMediaMeta(aniId).catch(() => null))?.format === "MOVIE");
+  const tmdbId = asMovie ? movieId : tvId;
   if (!tmdbId) {
-    dlog(`[frembed] no tmdb.tv mapping for AniList ${aniId}`);
+    dlog(`[frembed] no tmdb mapping for AniList ${aniId}`);
     return null;
   }
 
-  const seasonNum = await detectSeasonNumber(aniId);
+  // A film has no coordinates to detect, to walk, or to remap: one id, one file.
+  const seasonNum = asMovie ? null : await detectSeasonNumber(aniId);
   let payload = await fetchFrembedPayload(tmdbId, seasonNum, episode);
   if (!payload) return null;
 
-  let master = frembedMasterUrl(payload);
-  if (!master) {
+  let source = frembedSource(payload);
+  if (!source && !asMovie) {
     const target = await remapFrembedTarget(aniId, episode, seasonNum, payload);
     if (!target) return null;
     dlog(
@@ -557,15 +615,25 @@ async function getFrembedStream(serverKey, aniId, episode) {
     );
     payload = await fetchFrembedPayload(tmdbId, target.sa, target.ep);
     if (!payload) return null;
-    master = frembedMasterUrl(payload);
+    source = frembedSource(payload);
   }
-  if (!master) return null;
+  if (!source) return null;
+  const master = source.url;
 
   // Prove the CDN before painting a chip — see frembedProbeMaster.
   const probe = await frembedProbeMaster(master);
   if (probe.transient) throw new TransientSourceError(probe.reason);
   if (probe.absent) {
     dlog(`[frembed] ${probe.reason} for ${master}`);
+    return null;
+  }
+
+  // …and prove the LANGUAGE too: a `Free VF` film carries French audio only, so
+  // the VO chip has nothing to pin and would play the dub. See frembedCarriesAudio.
+  if (!frembedCarriesAudio(probe.manifest, source.label, def.audioLang)) {
+    dlog(
+      `[frembed] ${serverKey}: "${source.label}" ne porte pas d'audio ${def.audioLang} — chip absent`,
+    );
     return null;
   }
 
