@@ -2025,6 +2025,14 @@ export default function UniversalPlayer({
   // Last track index that was actually showing, so the subtitle shortcut can
   // toggle off → on WITHOUT changing the language (restores the same track).
   const lastShownTrackIdx = useRef(-1);
+  /* La piste que NOUS voulons allumee, y compris quand plus rien ne l'est.
+     `TextTrackList` de Vidstack n'autorise qu'une seule piste `showing` parmi
+     les sous-titres : allumer la piste fantome du manifeste eteint la notre au
+     passage (cf. muteGhostTracks). Sans cette memoire, on ne saurait pas quoi
+     rallumer une fois la fantome ecartee. Distincte de `lastShownTrackIdx`, qui
+     ne retient JAMAIS l'extinction (-1) puisqu'elle sert a restaurer la langue
+     apres un aller-retour off/on. */
+  const intendedTrackIdx = useRef(-1);
   // ── Client-side extraction state ──
   // When streamData.clientExtract is set, the server is asking the browser to
   // do the embed-page fetch itself so the resulting CDN token IP-binds to the
@@ -3450,6 +3458,7 @@ export default function UniversalPlayer({
 
   const selectSubtitleTrack = (idx: number, { persist = true } = {}) => {
     setActiveTrackIdx(idx);
+    intendedTrackIdx.current = idx;
     // Remember the last real track so the on/off shortcut restores this exact
     // language instead of advancing to the next one.
     if (idx >= 0) lastShownTrackIdx.current = idx;
@@ -3570,15 +3579,39 @@ export default function UniversalPlayer({
             return;
           }
           setActiveTrackIdx(target);
+          intendedTrackIdx.current = target;
           return;
         }
         // Subtitles disabled by preference → turn everything off once.
+        // L'intention est remise a « rien » AVANT tout : la source precedente
+        // en avait laisse une, et la reaffirmation plus bas la rallumerait
+        // contre la preference qu'on vient justement de lire.
+        intendedTrackIdx.current = -1;
         if (hasAnyShowing) {
           prefApplied = true;
           selectSubtitleTrack(-1, { persist: false });
           return;
         }
         prefApplied = true;
+      }
+
+      /* On rallume ce que la piste fantome a eteint.
+         `TextTrackList` n'autorise qu'un seul `showing` parmi les sous-titres :
+         quand la rendition `DEFAULT=YES` du manifeste s'ajoute (au parse du
+         master, donc APRES notre passe de preference), elle eteint la notre au
+         passage — et `muteGhostTracks` vient d'eteindre la fantome a son tour.
+         Plus rien ne s'affichait : le menu cochait bien « FR Subs » mais
+         l'ecran restait nu (signale le 31/08/2026).
+         Une seule reaffirmation suffit et la boucle se ferme : la selection
+         reveille `sync`, qui trouve cette fois `activeIdx` sur la bonne piste et
+         ne repasse plus par ici. */
+      if (
+        activeIdx < 0 &&
+        intendedTrackIdx.current >= 0 &&
+        intendedTrackIdx.current < captionIndex
+      ) {
+        selectSubtitleTrack(intendedTrackIdx.current, { persist: false });
+        return;
       }
       setActiveTrackIdx(activeIdx);
     };
