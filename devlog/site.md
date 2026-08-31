@@ -929,3 +929,22 @@ Retires avec eux, faute d'appelant : `IconButton`, `move()`, et dans
 dernieres n'existaient que pour les fleches, qui raisonnaient en ordre de
 lecture et pas en coordonnees. Cote traductions, `moveUp`, `moveDown` et le
 groupe `size`, et le `hint` ne promet plus « ou choisis une taille type ».
+
+### La carte entiere devient la poignee
+
+`react-grid-layout` sans `draggableHandle` : on attrape un bloc la ou on le
+voit. Le `pointerdown` passe de l'`<header>` a la `<section>`, et ce qui doit y
+echapper arrete la propagation — le coin de redimensionnement (deja, dans
+`startDrag`) et le moins — soit exactement le role du `draggableCancel` de la
+bibliotheque.
+
+Une chose que le depot n'a pas a resoudre et nous si : **les blocs sont pleins
+de liens**. Une jaquette, un titre, un bouton « reprendre ». Des lors que la
+carte entiere se glisse, chaque glissement part de l'un d'eux et finit en
+navigation. En edition le corps devient donc inerte
+(`[&_*]:pointer-events-none` + `select-none`) : reorganiser, c'est ranger, pas
+parcourir. Le contenu reste visible, il ne repond plus ; le moins et le coin
+sont ailleurs dans la carte et gardent le leur.
+
+`touchAction: none` passe sur la section, sinon un glissement au doigt fait
+defiler la page.

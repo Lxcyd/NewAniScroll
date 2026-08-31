@@ -20,9 +20,9 @@ import {
  * fonction qui peint un identifiant. Toute la géométrie vit dans
  * lib/profile/grid.ts ; ici il n'y a que le pointeur et les pixels.
  *
- * Hors mode réorganisation, rien n'est déplaçable : la poignée de l'en-tête et
- * le coin de redimensionnement ne répondent pas, et un visiteur qui n'est pas
- * le propriétaire n'entre jamais dans ce mode.
+ * Hors mode réorganisation, rien n'est déplaçable : ni la carte ni le coin de
+ * redimensionnement ne répondent, et un visiteur qui n'est pas le propriétaire
+ * n'entre jamais dans ce mode.
  *
  * TROIS GESTES, PAS DIX BOUTONS. Chaque bloc portait, en édition, deux flèches
  * monter/descendre, quatre tailles types (S M L XL) et une croix : sept
@@ -215,9 +215,18 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
         return (
           <section
             key={it.i}
+            /* LA CARTE ENTIÈRE EST LA POIGNÉE, comme react-grid-layout sans
+               `draggableHandle` : on attrape un bloc là où on le voit, pas là
+               où une barre invisible le permet. Ce qui doit y échapper le fait
+               en arrêtant la propagation du pointerdown — le coin de
+               redimensionnement (dans startDrag) et le moins — ce qui est
+               exactement le rôle du `draggableCancel` de la bibliothèque. */
+            onPointerDown={(e) => startDrag(it.i, "move", e)}
             className={`absolute flex flex-col overflow-hidden rounded-[20px] px-5 py-4 ring-1 ${
               editing
-                ? "bg-[#13141b]/95 ring-action/40 ring-dashed"
+                ? `bg-[#13141b]/95 ring-action/40 ring-dashed ${
+                    active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"
+                  }`
                 : "as-stat-card ring-white/10"
             } ${
               /* AUCUNE transition sur le bloc tenu : il est déjà à la position
@@ -234,20 +243,16 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
               top: Math.round(rect.top),
               width: Math.round(rect.width),
               height: Math.round(rect.height),
+              // Sans quoi un glissement au doigt fait défiler la page.
+              touchAction: editing ? "none" : undefined,
             }}
           >
             <header
-              onPointerDown={(e) => startDrag(it.i, "move", e)}
               /* `pr-6` en édition : le moins occupe ce coin, et un titre assez
                  long pour l'atteindre passerait dessous. */
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing
-                  ? `pr-6 ${
-                      active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"
-                    }`
-                  : ""
+                editing ? "pr-6" : ""
               }`}
-              style={{ touchAction: "none" }}
             >
               <h2 className="flex min-w-0 items-center gap-2 font-outfit text-base font-bold text-white">
                 <span
@@ -264,22 +269,31 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
 
             </header>
 
-            <div className="min-h-0 flex-1">{chrome.body}</div>
+            {/* Le contenu devient inerte en édition. Les blocs sont pleins de
+                liens et de boutons — une jaquette, un titre, « relancer » — et
+                maintenant que la carte entière se glisse, chaque glissement
+                partirait de l'un d'eux et finirait en navigation. Réorganiser,
+                c'est ranger, pas parcourir : le contenu reste visible, il ne
+                répond plus. Le moins et le coin sont ailleurs dans la carte, ils
+                gardent le leur. */}
+            <div
+              className={`min-h-0 flex-1 ${editing ? "select-none [&_*]:pointer-events-none" : ""}`}
+            >
+              {chrome.body}
+            </div>
 
             {/* Retirer le bloc. Repris des cartes du graphe des relations
                 (gStyles.nodeClose) : un MOINS, sans cadre ni fond, glissé dans
                 le coin — « enlève celui-ci ». Une croix cerclée poserait une
                 seconde pastille sur une carte qui en a déjà une, celle de la
                 couleur du bloc, et se lirait comme un élément du bloc plutôt
-                que comme une commande.
-
-                Hors de l'en-tête, et non dedans : l'en-tête EST la poignée de
-                déplacement, un bouton posé dessus devrait arrêter la
-                propagation du pointerdown pour ne pas démarrer un glissement.
-                À côté, il n'y a rien à arrêter. */}
+                que comme une commande. */}
             {editing ? (
               <button
                 type="button"
+                /* Le `draggableCancel` du moins : sans lui, appuyer dessus
+                   démarre un glissement de la carte qui le porte. */
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => onLayout(compact(layout.filter((o) => o.i !== it.i)))}
                 aria-label={t("profile.widgets.remove")}
                 title={t("profile.widgets.remove")}

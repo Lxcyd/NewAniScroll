@@ -844,7 +844,7 @@
       "reset": "Réinitialiser",
       "remove": "Enlever",
       "resize": "Redimensionner",
-      "hint": "Mode réorganisation — glisse un bloc par son en-tête, redimensionne-le par le coin bas-droit."
+      "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
     "library": {
       "title": "Bibliothèque de blocs",

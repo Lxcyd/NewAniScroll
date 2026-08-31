@@ -844,7 +844,7 @@
       "reset": "Reset",
       "remove": "Remove",
       "resize": "Resize",
-      "hint": "Rearrange mode — drag a block by its header, resize it from the bottom-right corner."
+      "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
     "library": {
       "title": "Block library",
