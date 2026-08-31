@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   anilist_id        INTEGER UNIQUE,
   anilist_name      TEXT,
   avatar_url        TEXT,
+  profile_banner    TEXT,                    -- {url, animeId, title} — PUBLIC
+  profile_layout    TEXT,                    -- [{i,x,y,w,h}]        — PUBLIC
   role              TEXT NOT NULL DEFAULT 'user',   -- 'user' | 'admin'
   status            TEXT NOT NULL DEFAULT 'active', -- 'active' | 'disabled'
   created_at        INTEGER NOT NULL,

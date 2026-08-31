@@ -72,6 +72,7 @@ export async function ensureUsersSchema(): Promise<void> {
       anilist_lists     TEXT,
       anilist_avatar_url TEXT,
       profile_banner    TEXT,
+      profile_layout    TEXT,
       role              TEXT NOT NULL DEFAULT 'user',
       status            TEXT NOT NULL DEFAULT 'active',
       created_at        INTEGER NOT NULL,
@@ -118,6 +119,11 @@ export async function ensureUsersSchema(): Promise<void> {
     // of /en/profile/<pseudo>-<tag> must see it, and user_data is the private
     // per-device backup. Empty means "follow the favourite anime".
     "profile_banner TEXT",
+    /* La grille de widgets, `[{i,x,y,w,h}]`. Ici pour exactement la même raison
+       que la bannière : elle est PUBLIQUE. Elle vivait dans la catégorie
+       `prefs` de user_data, c'est-à-dire chez le LECTEUR — un visiteur voyait
+       donc sa propre disposition, jamais celle du profil qu'il regardait. */
+    "profile_layout TEXT",
   ]) {
     try {
       await db.execute(`ALTER TABLE users ADD COLUMN ${column}`);

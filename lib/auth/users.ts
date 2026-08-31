@@ -28,6 +28,10 @@ export type UserRecord = {
   /** The profile banner the owner pinned, JSON `{url, animeId, title}`.
    *  Null means the profile follows its favourite anime. */
   profileBanner: string | null;
+  /** La grille de widgets rangée par le propriétaire, JSON `[{i,x,y,w,h}]`.
+   *  Publique comme la bannière : c'est ainsi que le profil se présente aux
+   *  autres. Null = la disposition par défaut. */
+  profileLayout: string | null;
   role: "user" | "admin";
   status: "active" | "disabled";
   createdAt: number;
@@ -58,6 +62,7 @@ function toRecord(row: Row): UserRecord {
     avatarUrl: str(row.avatar_url),
     anilistAvatarUrl: str(row.anilist_avatar_url),
     profileBanner: str(row.profile_banner),
+    profileLayout: str(row.profile_layout),
     role: row.role === "admin" ? "admin" : "user",
     status: row.status === "disabled" ? "disabled" : "active",
     createdAt: Number(row.created_at),
@@ -373,6 +378,7 @@ export async function attachOrAbsorbAniList(
                  username = ?, username_lower = ?,
                  avatar_url = COALESCE(avatar_url, ?),
                  profile_banner = COALESCE(profile_banner, ?),
+                 profile_layout = COALESCE(profile_layout, ?),
                  role = ?,
                  created_at = MIN(created_at, ?)
            WHERE id = ?`,
@@ -384,6 +390,7 @@ export async function attachOrAbsorbAniList(
       username ? normalizeUsername(username) : null,
       source.avatarUrl,
       source.profileBanner,
+      source.profileLayout,
       target.role === "admin" || source.role === "admin" ? "admin" : target.role,
       source.createdAt,
       userId,
@@ -517,6 +524,20 @@ export async function setProfileBanner(userId: string, value: string | null) {
   if (!client) return;
   await client.execute({
     sql: `UPDATE users SET profile_banner = ? WHERE id = ?`,
+    args: [value, userId],
+  });
+}
+
+/**
+ * La grille de widgets du profil, telle qu'elle sera servie aux visiteurs.
+ * `null` remet la disposition par défaut. La validité de la forme est
+ * vérifiée par l'appelant (isValidLayout) : ici, c'est une chaîne.
+ */
+export async function setProfileLayout(userId: string, value: string | null) {
+  const client = await db();
+  if (!client) return;
+  await client.execute({
+    sql: `UPDATE users SET profile_layout = ? WHERE id = ?`,
     args: [value, userId],
   });
 }

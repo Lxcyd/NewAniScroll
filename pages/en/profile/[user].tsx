@@ -26,6 +26,8 @@ import {
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
+import { isKnownBlock } from "@/lib/profile/blocks";
+import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
@@ -70,6 +72,11 @@ type Props = {
   /** The banner is a manual pick rather than the automatic one. */
   pinned: boolean;
   isOwner: boolean;
+  /** La grille DU PROFIL REGARDÉ, lue sur sa ligne `users`. `null` = il n'y a
+   *  rien de rangé, la disposition par défaut s'applique. Elle est la même pour
+   *  tout le monde : c'est ce qui fait qu'un visiteur voit le profil tel que son
+   *  propriétaire l'a arrangé, et non tel que LUI l'a arrangé chez lui. */
+  profileLayout: GridItem[] | null;
   /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
@@ -84,6 +91,7 @@ export default function Profile({
   topAnimes,
   pinned: initialPinned,
   isOwner,
+  profileLayout,
   isPrivate,
   viewedName,
 }: Props) {
@@ -206,7 +214,12 @@ export default function Profile({
         </div>
 
         {tab === "overview" ? (
-          <ProfileOverview entries={entries} characters={characters} isOwner={isOwner} />
+          <ProfileOverview
+            entries={entries}
+            characters={characters}
+            isOwner={isOwner}
+            accountLayout={profileLayout ?? null}
+          />
         ) : null}
 
         {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
@@ -451,6 +464,22 @@ export async function getServerSideProps(context: any) {
     }
   }
 
+  /* ── La grille ──────────────────────────────────────────────────
+     Lue sur la ligne du profil, jamais sur la session : c'est le rangement de
+     SON propriétaire, et c'est ce que tout le monde doit voir. Nettoyée ici
+     plutôt que dans le navigateur, pour que la première peinture soit déjà la
+     bonne — la route d'écriture nettoie aussi, mais une ligne peut dater d'une
+     version où un bloc existait encore. */
+  const profileLayout: GridItem[] | null = (() => {
+    if (!account?.profileLayout) return null;
+    try {
+      const parsed = JSON.parse(account.profileLayout);
+      return isValidLayout(parsed) ? sanitizeLayout(parsed, isKnownBlock) : null;
+    } catch {
+      return null;
+    }
+  })();
+
   const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
   const resolved = pinnedBanner
     ? null
@@ -518,6 +547,7 @@ export async function getServerSideProps(context: any) {
       topAnimes,
       pinned: !!pinnedBanner,
       isOwner,
+      profileLayout,
     },
   };
 }

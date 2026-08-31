@@ -948,3 +948,48 @@ sont ailleurs dans la carte et gardent le leur.
 
 `touchAction: none` passe sur la section, sinon un glissement au doigt fait
 defiler la page.
+
+## 01/09/2026 — La disposition du profil appartient au profil, pas au lecteur
+
+« En n'etant pas proprietaire je dois voir la meme chose que lui. » On ne le
+voyait pas, et pour une raison qui n'etait pas un bug mais un mauvais
+emplacement.
+
+`aniscroll:profileLayout` etait une cle **locale**, sauvegardee avec la
+categorie `prefs` — c'est-a-dire sur le compte de **celui qui regarde**. Un
+visiteur n'avait donc, au mieux, que sa propre disposition sous la main, et
+`ProfileOverview` s'en protegeait en lui servant la grille par defaut
+(`isOwner && stored.layout ? … : defaultLayout(…)`). Consequence : ce qu'un
+proprietaire rangeait, personne d'autre ne le voyait jamais — et deux
+proprietaires partageant un navigateur se marchaient dessus.
+
+Elle devient une colonne `profile_layout` de `users`, a cote de
+`profile_banner`, publique pour exactement la meme raison : c'est ainsi que le
+profil se presente aux autres. Lue au rendu serveur dans `[user].tsx`, nettoyee
+la (`sanitizeLayout`) pour que la premiere peinture soit deja la bonne, et
+passee a `ProfileOverview` en `accountLayout` — la meme valeur pour tout le
+monde.
+
+**Ce qui n'est PAS aligne, et pourquoi.** Les blocs `source: "device"` —
+reprendre la lecture, vu recemment — lisent la progression de l'appareil qui
+affiche la page. Servis a un visiteur, ils montreraient **sa** lecture a lui
+sous le nom d'un autre. Rien ne peut les remplacer par la donnee du profil : elle
+n'existe pas cote serveur. `visibleTo` les retire donc toujours pour un
+visiteur. Tout le reste — favoris, statuts, notes, genres, formats, studios,
+saison, personnages — est desormais identique des deux cotes, a la case pres.
+
+Details qui comptent :
+
+- **Ecriture differee de 500 ms.** `commit` est appele a chaque mouvement du
+  pointeur ; une requete par pixel n'a aucun sens. Le dernier etat gagne, ce qui
+  est la semantique voulue.
+- **Reprise des dispositions existantes.** Celles rangees avant ce changement
+  sont dans le localStorage de leur auteur et nulle part sur son compte. Au
+  premier chargement en proprietaire, si le compte n'a rien, la disposition de
+  l'appareil est adoptee et poussee — une fois. Sans ca, tout le monde
+  retrouvait la grille par defaut le jour du deploiement.
+- **`PUT /api/v2/account/profile-layout`** nettoie ce qui entre au lieu de se
+  contenter de le valider : la charge vient d'un navigateur, donc elle n'est
+  jamais de confiance, et celle-ci sera **relue par d'autres que son auteur**.
+- `lib/prefs/profileLayout.ts` reste pour le seul cas sans compte : le profil
+  local d'un invite.

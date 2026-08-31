@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import WidgetGrid, { type BlockChrome } from "./WidgetGrid";
@@ -38,19 +38,36 @@ import type { ProfileCharacter, ProfileEntry } from "@/lib/profile/types";
  *
  * Trois choses seulement vivent ici — quel bloc peint quoi, qui a le droit de
  * réorganiser, et d'où vient la disposition. La géométrie est dans
- * lib/profile/grid.ts, le stockage dans lib/prefs/profileLayout.ts (donc
- * localStorage ET, dès qu'un compte existe, la catégorie `prefs` de
- * cloudSync), et chaque widget dans son propre fichier.
+ * lib/profile/grid.ts et chaque widget dans son propre fichier.
  *
- * Un visiteur qui n'est pas le propriétaire voit la disposition PAR DÉFAUT :
- * la disposition stockée est celle de son appareil à lui, elle ne dit rien du
- * profil qu'il regarde.
+ * LA DISPOSITION APPARTIENT AU PROFIL, PAS AU LECTEUR.
+ *
+ * Elle vivait dans `aniscroll:profileLayout`, une clé locale sauvegardée avec
+ * la catégorie `prefs` — c'est-à-dire chez celui qui REGARDE. Un visiteur
+ * voyait donc, au mieux, sa propre disposition, et le code s'en protégeait en
+ * lui servant la grille par défaut : ce que le propriétaire rangeait, personne
+ * d'autre ne le voyait jamais, et deux propriétaires partageant un navigateur
+ * se marchaient dessus. Elle est maintenant une colonne de `users`
+ * (`profile_layout`), lue au rendu serveur et servie à tout le monde, à côté de
+ * `profile_banner` qui est publique pour exactement la même raison.
+ *
+ * Le seul écart qui reste entre les deux vues est celui des blocs `device` :
+ * voir le commentaire dans l'effet ci-dessous, c'est une question de vérité et
+ * non de permission.
+ *
+ * `lib/prefs/profileLayout.ts` reste, pour le seul cas qui n'a pas de compte :
+ * le profil local d'un invité (components/profile/LocalProfile.tsx).
  */
 
 type Props = {
   entries: ProfileEntry[];
   characters: ProfileCharacter[];
   isOwner: boolean;
+  /** La disposition rangée par le propriétaire DU PROFIL, lue sur sa ligne
+   *  `users` au rendu serveur. `null` : rien de rangé, la disposition par
+   *  défaut. `undefined` : il n'y a pas de compte derrière — le profil local
+   *  d'un invité — et la disposition reste alors celle de l'appareil. */
+  accountLayout?: GridItem[] | null;
 };
 
 function defaultLayout(isOwner: boolean): GridItem[] {
@@ -63,30 +80,80 @@ function defaultLayout(isOwner: boolean): GridItem[] {
   return items;
 }
 
-export default function ProfileOverview({ entries, characters, isOwner }: Props) {
+export default function ProfileOverview({
+  entries,
+  characters,
+  isOwner,
+  accountLayout,
+}: Props) {
   const { t } = useTranslation();
-  const stored = useProfileLayout();
+  /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
+     profil local d'un invité. Il est appelé dans tous les cas — un hook ne se
+     saute pas — mais son résultat est ignoré côté compte. */
+  const onAccount = accountLayout !== undefined;
+  const device = useProfileLayout();
+  const source = onAccount ? accountLayout : device.layout;
+  const loaded = onAccount || device.loaded;
+
   const [editing, setEditing] = useState(false);
   const [library, setLibrary] = useState(false);
   /* La disposition vit ici pendant la session : le stockage n'est écrit qu'aux
-     changements, et le relire à chaque déplacement ferait un aller-retour
-     localStorage par pixel. */
+     changements, et le relire à chaque déplacement ferait un aller-retour par
+     pixel. */
   const [layout, setLayout] = useState<GridItem[] | null>(null);
 
+  /* La reprise des dispositions rangées AVANT que la grille ne devienne
+     publique : elles sont dans le localStorage de leur auteur et nulle part sur
+     son compte. Sans ça, tout le monde retrouverait la grille par défaut le
+     jour du déploiement. Une seule fois, et seulement pour le propriétaire. */
+  const migrated = useRef(false);
+
   useEffect(() => {
-    if (!stored.loaded) return;
-    const base =
-      isOwner && stored.layout
-        ? sanitizeLayout(stored.layout, isKnownBlock)
-        : defaultLayout(isOwner);
-    /* Un bloc `device` posé par le propriétaire n'a rien à faire chez un
-       visiteur — il montrerait la lecture du visiteur sous le nom d'un autre. */
-    setLayout(compact(base.filter((o) => visibleTo(isOwner, o.i))));
-  }, [stored.loaded, stored.layout, isOwner]);
+    if (!loaded) return;
+    let base = source;
+    if (onAccount && isOwner && !base && device.loaded && device.layout && !migrated.current) {
+      migrated.current = true;
+      base = device.layout;
+      save(base);
+    }
+    const items = base ? sanitizeLayout(base, isKnownBlock) : defaultLayout(isOwner);
+    /* Le SEUL écart entre ce que voit le propriétaire et ce que voit un
+       visiteur. Les blocs `device` — reprendre la lecture, vu récemment — lisent
+       la progression de l'appareil qui AFFICHE la page : servis à un visiteur,
+       ils montreraient sa lecture à lui sous le nom d'un autre. Rien ne peut les
+       remplacer par la donnée du profil, elle n'existe pas côté serveur. */
+    setLayout(compact(items.filter((o) => visibleTo(isOwner, o.i))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, source, isOwner, onAccount, device.loaded, device.layout]);
+
+  /* L'écriture est différée : `commit` est appelé à CHAQUE mouvement du
+     pointeur, et une requête par pixel n'a pas de sens. Le dernier état gagne,
+     ce qui est exactement la sémantique voulue. */
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+
+  function save(next: GridItem[] | null) {
+    if (!isOwner) return;
+    if (!onAccount) {
+      setProfileLayout(next);
+      return;
+    }
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(() => {
+      fetch("/api/v2/account/profile-layout", {
+        method: next ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: next ? JSON.stringify({ layout: next }) : undefined,
+      }).catch(() => {
+        /* La grille est déjà rangée à l'écran ; une écriture perdue se
+           rattrape au geste suivant. */
+      });
+    }, 500);
+  }
 
   function commit(next: GridItem[]) {
     setLayout(next);
-    if (isOwner) setProfileLayout(next);
+    save(next);
   }
 
   const posed = useMemo(
@@ -178,7 +245,7 @@ export default function ProfileOverview({ entries, characters, isOwner }: Props)
           <button
             type="button"
             onClick={() => {
-              setProfileLayout(null);
+              save(null);
               setLayout(defaultLayout(isOwner));
             }}
             className="rounded-full bg-white/5 px-3 py-1.5 font-karla text-[11px] font-bold text-white/60 ring-1 ring-white/10 transition-colors hover:text-white hover:ring-white/30"
@@ -215,7 +282,7 @@ export default function ProfileOverview({ entries, characters, isOwner }: Props)
             setEditing(true);
           }}
           onReset={() => {
-            setProfileLayout(null);
+            save(null);
             setLayout(defaultLayout(isOwner));
           }}
         />
