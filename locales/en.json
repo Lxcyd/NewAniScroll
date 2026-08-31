@@ -824,7 +824,157 @@
     "artInPlace": "In place",
     "artPoster": "Poster",
     "artThin": "Thin banner",
-    "favouriteAnime": "Your favourite anime"
+    "favouriteAnime": "Your favourite anime",
+    "tabs": {
+      "overview": "Overview",
+      "list": "My list",
+      "stats": "Statistics"
+    },
+    "ago": {
+      "minutes": "{{count}} min ago",
+      "hours": "{{count}}h ago",
+      "days": "{{count}}d ago",
+      "weeks": "{{count}}w ago"
+    },
+    "widgets": {
+      "add": "Add a block",
+      "rearrange": "Rearrange",
+      "done": "Done",
+      "reset": "Reset",
+      "remove": "Remove",
+      "resize": "Resize",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "hint": "Rearrange mode — drag a block by its header, resize it from the bottom-right corner, or pick a preset size.",
+      "size": {
+        "s": "Small — 1×1",
+        "m": "Medium — 2×1",
+        "l": "Large — 2×2",
+        "xl": "Full width — 4×2"
+      }
+    },
+    "library": {
+      "title": "Block library",
+      "desc": "Click to put a block on your profile, click again to take it off. You can move it afterwards.",
+      "close": "Close",
+      "add": "Add",
+      "added": "Added",
+      "noData": "no data yet",
+      "count": "{{count}} block on your profile",
+      "count_plural": "{{count}} blocks on your profile"
+    },
+    "blocks": {
+      "resume": {
+        "title": "Continue watching",
+        "desc": "The last episode you started, to the minute.",
+        "empty": "Nothing in progress on this device — start an episode and it shows up here.",
+        "line": "Episode {{episode}} · {{minutes}} min left",
+        "lineNoTime": "Episode {{episode}}",
+        "cta": "Resume"
+      },
+      "favorites": {
+        "title": "Favourite anime",
+        "desc": "Your poster shelf, AniList favourites first.",
+        "empty": "No favourites or scores yet — rate a title and it appears here.",
+        "meta": "{{count}} ep"
+      },
+      "recents": {
+        "title": "Recently watched",
+        "desc": "The last episodes played on this device.",
+        "empty": "Nothing has been played on this device yet.",
+        "line": "Episode {{episode}} · {{when}}"
+      },
+      "statuses": {
+        "title": "By status",
+        "desc": "Watching, completed, planning…",
+        "empty": "Your list is empty — nothing to break down yet."
+      },
+      "scores": {
+        "title": "Scores given",
+        "desc": "How your scores spread, 1 to 10.",
+        "empty": "No scores given yet."
+      },
+      "genres": {
+        "title": "Genres",
+        "desc": "A radar of the genres your list leans on.",
+        "empty": "Genres come from AniList — a local list doesn't carry them."
+      },
+      "formats": {
+        "title": "Formats & decades",
+        "desc": "TV, film, OVA… and release years.",
+        "empty": "Formats come from AniList — a local list doesn't carry them."
+      },
+      "studios": {
+        "title": "Studios by score",
+        "desc": "Your studio ranking, backed by your own average.",
+        "empty": "Studios come from AniList, and an average needs at least two titles to mean anything.",
+        "titles": "{{count}} title",
+        "titles_plural": "{{count}} titles"
+      },
+      "season": {
+        "title": "Currently watching",
+        "desc": "The shows you're following, with progress.",
+        "empty": "Nothing in progress in your list.",
+        "progress": "ep. {{progress}} / {{total}}"
+      },
+      "roulette": {
+        "title": "Tonight's roulette",
+        "desc": "A random pick from your planning list.",
+        "empty": "Add titles to “planning” and the roulette will have something to draw.",
+        "from": "Drawn from your {{count}} planned titles",
+        "spin": "Spin again"
+      },
+      "characters": {
+        "title": "Favourite characters",
+        "desc": "The characters you favourited on AniList.",
+        "empty": "No favourite characters on AniList."
+      },
+      "calendar": {
+        "title": "This month",
+        "desc": "One day, one watch.",
+        "soon": "This needs a log of which days you watched — nothing records that yet."
+      },
+      "heatmap": {
+        "title": "Year heatmap",
+        "desc": "Twelve months of watching in one grid.",
+        "soon": "Same as the calendar: the per-day history is missing."
+      },
+      "binge": {
+        "title": "Longest binge",
+        "desc": "Your record run of episodes.",
+        "soon": "This needs watch sessions to be measured; only the position inside an episode is kept today."
+      },
+      "goal": {
+        "title": "Yearly goal",
+        "desc": "Your progress through the year.",
+        "soon": "No goal can be set yet, so there is nothing to track."
+      },
+      "pinned": {
+        "title": "Three pinned",
+        "desc": "Three titles you put forward, in your own words.",
+        "soon": "There is nowhere yet to write and keep those three lines."
+      },
+      "themes": {
+        "title": "Top OP / ED",
+        "desc": "Your favourite openings and endings, playable here.",
+        "soon": "Nothing records a favourite theme yet."
+      },
+      "badges": {
+        "title": "Badges & achievements",
+        "desc": "What you've unlocked.",
+        "soon": "No badge exists yet."
+      },
+      "affinity": {
+        "title": "Taste affinity",
+        "desc": "Your friends, ranked by affinity.",
+        "soon": "There are no friends on AniScroll yet."
+      },
+      "bingo": {
+        "title": "Season bingo",
+        "desc": "Nine watching challenges to tick off.",
+        "soon": "The challenges are still to be written, and nothing tracks them yet."
+      }
+    }
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

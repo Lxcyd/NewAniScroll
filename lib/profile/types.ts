@@ -59,6 +59,26 @@ export type ProfileEntry = {
   favourite?: boolean;
   /** Rewatch count. */
   repeat?: number;
+  /* Les quatre champs suivants n'existent que sur une liste AniList : ils
+     viennent de la meme requete, sans appel supplementaire. Une liste locale ne
+     les connait pas, et les blocs qui en dependent affichent alors leur etat
+     vide plutot qu'un classement construit sur trois entrees. */
+  /** TV, MOVIE, OVA, ONA, SPECIAL… */
+  format?: string | null;
+  /** Annee de premiere diffusion. */
+  year?: number | null;
+  genres?: string[];
+  /** Studio principal. */
+  studio?: string | null;
+};
+
+/** Un personnage favori, tel qu'AniList le publie. */
+export type ProfileCharacter = {
+  id: number;
+  name: string;
+  image: string | null;
+  /** L'anime d'ou il vient, quand AniList le donne. */
+  from?: string | null;
 };
 
 export type ProfileIdentity = {

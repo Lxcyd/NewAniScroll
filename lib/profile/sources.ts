@@ -34,6 +34,12 @@ export function entriesFromAniList(
         cover: e.media?.coverImage?.large ?? null,
         favourite: favouriteIds.has(mediaId),
         repeat: e.repeat || 0,
+        format: e.media?.format ?? null,
+        year: e.media?.startDate?.year ?? null,
+        // Trois genres suffisent aux blocs qui les lisent (radar, top genres) et
+        // c'est ce qui garde la charge d'une liste de 800 titres raisonnable.
+        genres: Array.isArray(e.media?.genres) ? e.media.genres.slice(0, 3) : [],
+        studio: e.media?.studios?.nodes?.[0]?.name ?? null,
       });
     }
   }

@@ -283,6 +283,10 @@ export function start(): () => void {
   window.addEventListener("aniscroll:clickTarget:change", onPrefs);
   window.addEventListener("aniscroll:preview:prefs:change", onPrefs);
   window.addEventListener("aniscroll:langPref:change", onPrefs);
+  // La disposition des widgets du profil : une clé aniscroll:* de plus, donc
+  // déjà comprise dans la catégorie `prefs` par isPrefsKey — seul l'événement
+  // manquait pour que le changement soit poussé.
+  window.addEventListener("aniscroll:profileLayout:change", onPrefs);
   window.addEventListener("pagehide", onLeave);
   document.addEventListener("visibilitychange", onLeave);
 
@@ -303,6 +307,7 @@ export function start(): () => void {
     window.removeEventListener("aniscroll:clickTarget:change", onPrefs);
     window.removeEventListener("aniscroll:preview:prefs:change", onPrefs);
     window.removeEventListener("aniscroll:langPref:change", onPrefs);
+    window.removeEventListener("aniscroll:profileLayout:change", onPrefs);
     window.removeEventListener("pagehide", onLeave);
     document.removeEventListener("visibilitychange", onLeave);
     stop = null;

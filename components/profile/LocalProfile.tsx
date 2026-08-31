@@ -6,6 +6,9 @@ import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
 import ProfileList from "@/components/profile/ProfileList";
+import ProfileTabs from "@/components/profile/ProfileTabs";
+import ProfileOverview from "@/components/profile/ProfileOverview";
+import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
 
 import { useLocalList } from "@/lib/list/localList";
@@ -39,6 +42,7 @@ export default function LocalProfile() {
   const { current: streak, best: bestStreak } = useStreak();
   const [picker, setPicker] = useState(false);
   const [pinned, setPinned] = useState<ResolvedBanner | null>(null);
+  const [tab, setTab] = useState("overview");
 
   useEffect(() => setPinned(readPinnedBanner()), []);
 
@@ -110,19 +114,45 @@ export default function LocalProfile() {
             </div>
           ) : null}
 
-          <QueueSection />
+          <div className="mb-6">
+            <ProfileTabs
+              tabs={[
+                { key: "overview", label: t("profile.tabs.overview") },
+                { key: "list", label: t("profile.tabs.list"), count: entries.length },
+                { key: "stats", label: t("profile.tabs.stats") },
+              ]}
+              active={tab}
+              onChange={setTab}
+            />
+          </div>
 
-          <ProfileList
-            entries={entries}
-            emptyAction={
-              <Link
-                href="/en/search/anime"
-                className="rounded-lg px-4 py-2 text-sm ring-1 ring-action hover:bg-action/10"
-              >
-                {t("profile.startWatching")}
-              </Link>
-            }
-          />
+          {/* La même grille que sur un vrai profil : « déconnecté » doit
+              changer la SOURCE des données, pas la page (cf. l'en-tête). Un
+              visiteur sans compte est propriétaire de sa page, donc il peut la
+              réorganiser — sa disposition vit sur l'appareil, et rejoindra le
+              compte le jour où il en crée un (cf. lib/prefs/profileLayout.ts). */}
+          {tab === "overview" ? (
+            <ProfileOverview entries={entries} characters={[]} isOwner />
+          ) : null}
+
+          {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+
+          {tab === "list" ? (
+            <>
+              <QueueSection />
+              <ProfileList
+                entries={entries}
+                emptyAction={
+                  <Link
+                    href="/en/search/anime"
+                    className="rounded-lg px-4 py-2 text-sm ring-1 ring-action hover:bg-action/10"
+                  >
+                    {t("profile.startWatching")}
+                  </Link>
+                }
+              />
+            </>
+          ) : null}
 
           <p className="mt-8 text-xs text-white/40">
             {t("myList.localDesc")}{" "}

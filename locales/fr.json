@@ -824,7 +824,157 @@
     "artInPlace": "En place",
     "artPoster": "Affiche",
     "artThin": "Bannière fine",
-    "favouriteAnime": "Votre anime préféré"
+    "favouriteAnime": "Votre anime préféré",
+    "tabs": {
+      "overview": "Aperçu",
+      "list": "Ma liste",
+      "stats": "Statistiques"
+    },
+    "ago": {
+      "minutes": "il y a {{count}} min",
+      "hours": "il y a {{count}} h",
+      "days": "il y a {{count}} j",
+      "weeks": "il y a {{count}} sem"
+    },
+    "widgets": {
+      "add": "Ajouter un bloc",
+      "rearrange": "Réorganiser",
+      "done": "Terminer",
+      "reset": "Réinitialiser",
+      "remove": "Enlever",
+      "resize": "Redimensionner",
+      "moveUp": "Monter",
+      "moveDown": "Descendre",
+      "hint": "Mode réorganisation — glisse un bloc par son en-tête, redimensionne-le par le coin bas-droit, ou choisis une taille type.",
+      "size": {
+        "s": "Petit — 1×1",
+        "m": "Moyen — 2×1",
+        "l": "Grand — 2×2",
+        "xl": "Pleine largeur — 4×2"
+      }
+    },
+    "library": {
+      "title": "Bibliothèque de blocs",
+      "desc": "Clique pour poser un bloc sur ton profil, clique encore pour l'enlever. Tu pourras le déplacer ensuite.",
+      "close": "Fermer",
+      "add": "Ajouter",
+      "added": "Ajouté",
+      "noData": "pas encore de données",
+      "count": "{{count}} bloc sur ton profil",
+      "count_plural": "{{count}} blocs sur ton profil"
+    },
+    "blocks": {
+      "resume": {
+        "title": "Reprendre la lecture",
+        "desc": "Le dernier épisode entamé, à la minute près.",
+        "empty": "Rien en cours sur cet appareil : lance un épisode et il apparaîtra ici.",
+        "line": "Épisode {{episode}} · il te reste {{minutes}} min",
+        "lineNoTime": "Épisode {{episode}}",
+        "cta": "Reprendre"
+      },
+      "favorites": {
+        "title": "Animes favoris",
+        "desc": "Ta vitrine de posters, favoris AniList en tête.",
+        "empty": "Aucun favori ni note pour l'instant — note un titre et il s'affichera ici.",
+        "meta": "{{count}} ép"
+      },
+      "recents": {
+        "title": "Vu récemment",
+        "desc": "Les derniers épisodes regardés sur cet appareil.",
+        "empty": "Aucune lecture enregistrée sur cet appareil.",
+        "line": "Épisode {{episode}} · {{when}}"
+      },
+      "statuses": {
+        "title": "Répartition par statut",
+        "desc": "En cours, terminé, prévu…",
+        "empty": "Ta liste est vide : rien à répartir pour l'instant."
+      },
+      "scores": {
+        "title": "Notes attribuées",
+        "desc": "La distribution de tes notes, de 1 à 10.",
+        "empty": "Aucune note attribuée pour l'instant."
+      },
+      "genres": {
+        "title": "Genres",
+        "desc": "Le radar des genres les plus présents dans ta liste.",
+        "empty": "Les genres viennent d'AniList — une liste locale n'en porte pas."
+      },
+      "formats": {
+        "title": "Formats & décennies",
+        "desc": "TV, film, OVA… et les années de sortie.",
+        "empty": "Les formats viennent d'AniList — une liste locale n'en porte pas."
+      },
+      "studios": {
+        "title": "Studios classés par note",
+        "desc": "Ton palmarès des studios, ta note moyenne à l'appui.",
+        "empty": "Les studios viennent d'AniList, et il en faut au moins deux titres pour qu'une moyenne veuille dire quelque chose.",
+        "titles": "{{count}} titre",
+        "titles_plural": "{{count}} titres"
+      },
+      "season": {
+        "title": "En cours de visionnage",
+        "desc": "Les séries que tu suis, avec leur avancement.",
+        "empty": "Rien en cours dans ta liste.",
+        "progress": "ép. {{progress}} / {{total}}"
+      },
+      "roulette": {
+        "title": "Roulette du soir",
+        "desc": "Un titre au hasard, tiré de tes prévus.",
+        "empty": "Ajoute des titres à « prévu » et la roulette aura de quoi tirer.",
+        "from": "Tiré de tes {{count}} titres prévus",
+        "spin": "Relancer"
+      },
+      "characters": {
+        "title": "Personnages favoris",
+        "desc": "Les personnages que tu as mis en favori sur AniList.",
+        "empty": "Aucun personnage favori sur AniList."
+      },
+      "calendar": {
+        "title": "Calendrier du mois",
+        "desc": "Un jour, un visionnage.",
+        "soon": "Il faudrait garder un journal des jours regardés : rien ne l'enregistre encore."
+      },
+      "heatmap": {
+        "title": "Heatmap de l'année",
+        "desc": "Douze mois de visionnage en une grille.",
+        "soon": "Même chose que le calendrier : il manque l'historique par jour."
+      },
+      "binge": {
+        "title": "Plus long binge",
+        "desc": "Ton record d'épisodes d'affilée.",
+        "soon": "Il faudrait mesurer les sessions de lecture ; seule la position dans l'épisode est gardée aujourd'hui."
+      },
+      "goal": {
+        "title": "Objectif annuel",
+        "desc": "Ta progression sur l'année.",
+        "soon": "Aucun objectif n'est encore réglable — il n'y a rien à suivre."
+      },
+      "pinned": {
+        "title": "Trois épinglés",
+        "desc": "Trois titres mis en avant, avec ta phrase.",
+        "soon": "Il manque l'endroit où écrire et garder ces trois phrases."
+      },
+      "themes": {
+        "title": "Top OP / ED",
+        "desc": "Tes génériques préférés, écoutables ici.",
+        "soon": "Rien n'enregistre encore un générique en favori."
+      },
+      "badges": {
+        "title": "Badges & succès",
+        "desc": "Ce que tu as débloqué.",
+        "soon": "Aucun badge n'existe encore."
+      },
+      "affinity": {
+        "title": "Affinité de goûts",
+        "desc": "Tes amis classés par affinité.",
+        "soon": "Il n'y a pas encore d'amis sur AniScroll."
+      },
+      "bingo": {
+        "title": "Bingo de la saison",
+        "desc": "Neuf défis de visionnage à cocher.",
+        "soon": "Les défis restent à écrire, et rien ne les suit encore."
+      }
+    }
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",

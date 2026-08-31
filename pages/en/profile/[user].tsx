@@ -26,7 +26,15 @@ import {
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
-import type { ProfileEntry, ProfileIdentity, ProfileStats } from "@/lib/profile/types";
+import ProfileTabs from "@/components/profile/ProfileTabs";
+import ProfileOverview from "@/components/profile/ProfileOverview";
+import ProfileStatsPanel from "@/components/profile/ProfileStats";
+import type {
+  ProfileCharacter,
+  ProfileEntry,
+  ProfileIdentity,
+  ProfileStats,
+} from "@/lib/profile/types";
 
 /**
  * A profile — the same page whether the account is AniList, AniScroll, or both.
@@ -54,6 +62,8 @@ type Props = {
   identity: ProfileIdentity;
   stats: ProfileStats;
   entries: ProfileEntry[];
+  /** Personnages favoris AniList — vide pour un compte qui n'en a pas. */
+  characters: ProfileCharacter[];
   banner: HeroBanner;
   /** Titles offered by the banner picker, favourite first. */
   topAnimes: PickerAnime[];
@@ -69,6 +79,7 @@ export default function Profile({
   identity,
   stats,
   entries,
+  characters,
   banner: initialBanner,
   topAnimes,
   pinned: initialPinned,
@@ -81,6 +92,11 @@ export default function Profile({
   const [pinned, setPinned] = useState(!!initialPinned);
   const [picker, setPicker] = useState(false);
   const [showForYou, setShowForYou] = useState(false);
+  /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
+     est à un clic. L'état est volontairement local — une URL par onglet ferait
+     re-tourner getServerSideProps (donc la requête AniList) pour un changement
+     qui ne coûte rien côté client. */
+  const [tab, setTab] = useState("overview");
 
   if (isPrivate) {
     return (
@@ -165,9 +181,18 @@ export default function Profile({
           block would be painted under it. .as-page-under is a veil rather than
           a solid fill, so the picture stays visible behind the whole page. */}
       <div className="as-fade-in relative z-10 as-page-under">
-        <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
-        {isOwner && (
-          <div className="mb-6">
+        <div className="mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <ProfileTabs
+            tabs={[
+              { key: "overview", label: t("profile.tabs.overview") },
+              { key: "list", label: t("profile.tabs.list"), count: entries.length },
+              { key: "stats", label: t("profile.tabs.stats") },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
+          {isOwner && (
             <button
               type="button"
               onClick={() => setShowForYou(true)}
@@ -176,22 +201,31 @@ export default function Profile({
               <SparklesIcon className="h-5 w-5" />
               {t("recommend.title")}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        {isOwner && <QueueSection />}
+        {tab === "overview" ? (
+          <ProfileOverview entries={entries} characters={characters} isOwner={isOwner} />
+        ) : null}
 
-        <ProfileList
-          entries={entries}
-          emptyAction={
-            <Link
-              href="/en/search/anime"
-              className="rounded-lg px-4 py-2 text-sm ring-1 ring-action hover:bg-action/10"
-            >
-              {t("profile.startWatching")}
-            </Link>
-          }
-        />
+        {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+
+        {tab === "list" ? (
+          <>
+            {isOwner && <QueueSection />}
+            <ProfileList
+              entries={entries}
+              emptyAction={
+                <Link
+                  href="/en/search/anime"
+                  className="rounded-lg px-4 py-2 text-sm ring-1 ring-action hover:bg-action/10"
+                >
+                  {t("profile.startWatching")}
+                </Link>
+              }
+            />
+          </>
+        ) : null}
         </div>
       </div>
 
@@ -237,7 +271,21 @@ const ANILIST_QUERY = `
         avatar { large }
         bannerImage
         statistics { anime { count episodesWatched meanScore minutesWatched } }
-        favourites { anime(perPage: 50) { nodes { id } } }
+        favourites {
+          anime(perPage: 50) { nodes { id } }
+          # Les personnages favoris alimentent le bloc du même nom. Ils viennent
+          # de la requête qu'on faisait déjà : aucun appel supplémentaire.
+          characters(perPage: 12) {
+            nodes {
+              id
+              name { full }
+              image { large }
+              media(perPage: 1, sort: POPULARITY_DESC) {
+                nodes { title { english romaji } }
+              }
+            }
+          }
+        }
       }
       lists {
         status
@@ -255,6 +303,13 @@ const ANILIST_QUERY = `
             meanScore
             bannerImage
             coverImage { large extraLarge }
+            # Ce que lisent les blocs formats/décennies, genres et studios. Même
+            # requête, même aller-retour — une liste locale, elle, ne les a pas
+            # et ces blocs affichent alors leur état vide.
+            format
+            startDate { year }
+            genres
+            studios(isMain: true) { nodes { name } }
           }
         }
       }
@@ -325,6 +380,7 @@ export async function getServerSideProps(context: any) {
   const known = new Map<number, KnownArt>();
   let entries: ProfileEntry[];
   let stats: ProfileStats;
+  let characters: ProfileCharacter[] = [];
 
   if (collection?.user) {
     const favIds = new Set<number>(
@@ -347,6 +403,20 @@ export async function getServerSideProps(context: any) {
         });
       }
     }
+    /* Les personnages favoris, tels qu'AniList les publie. `media` n'est
+       demandé qu'à un titre : il sert de sous-titre, pas de filmographie. */
+    characters = (collection.user.favourites?.characters?.nodes || [])
+      .filter((n: any) => n?.id && n?.name?.full)
+      .map((n: any) => ({
+        id: n.id,
+        name: n.name.full,
+        image: n.image?.large ?? null,
+        from:
+          n.media?.nodes?.[0]?.title?.english ||
+          n.media?.nodes?.[0]?.title?.romaji ||
+          null,
+      }));
+
     const anime = collection.user.statistics?.anime;
     stats = {
       count: anime?.count ?? entries.length,
@@ -442,6 +512,7 @@ export async function getServerSideProps(context: any) {
       identity,
       stats,
       entries,
+      characters,
       banner,
       topAnimes,
       pinned: !!pinnedBanner,
