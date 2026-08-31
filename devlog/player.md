@@ -6,6 +6,92 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
+
+Deux hotes, deux verdicts opposes tires de la meme question : « ce que notre
+mapping declare, l'hote le sert-il vraiment ? »
+
+### Frembed avait un second index qu'on n'interrogeait jamais
+
+Frembed range les series sous `type=serie` (id TMDB **tv** + saison + episode)
+et les films sous `type=movie` (id TMDB **movie**, sans coordonnees). On ne
+lisait que `tmdbTvId` : tout film sortait sur « no tmdb.tv mapping » alors que
+le fichier etait la. Fribb nous donnait l'autre id depuis le premier jour
+(`tmdb_movie_id`, deja ingere et stocke) — il ne manquait que de le lire.
+
+Verifie apres coup sur dev : Suzume, Les Enfants du temps, Silent Voice et Your
+Name repondent tous, la ou les quatre etaient absents le matin.
+
+**Ce qui n'etait PAS transposable des series.** Les 12 series sondees renvoient
+toutes une source unique `Premium`, dont le master declare les deux pistes audio
+`fr` et `ja` — c'est ce qui autorisait a peindre les deux chips sans rien
+verifier. Les films, non : Your Name arrive en `Free VF`, **une seule** piste
+muxee, sans liste de rendus et sans le moindre sous-titre. Le chip VO y aurait
+epingle un `ja` introuvable et joue le doublage francais en silence — la panne
+qu'un spectateur ne peut pas diagnostiquer.
+
+D'ou `frembedCarriesAudio`, qui repond dans cet ordre : la liste des rendus
+quand le master en publie une, le label de la source sinon (c'est alors le SEUL
+signal de langue du payload), et le francais par defaut — frembed est un hote
+francais et ses uploads mono-piste sont des doublages. La comparaison passe par
+les memes alias que les sous-titres : le manifeste melange les normes (`fr`/`ja`
+cote audio, `fra`/`eng` cote sous-titres), et un `slice(0,2)` seul aurait fait
+de `jpn` un `jp` qui n'egale aucun `audioLang`.
+
+Deux garde-fous en plus, tous deux pour la meme raison — un id film designe UN
+fichier : la route film n'est ouverte que sur l'episode 1 (une fiche film a
+plusieurs episodes n'a rien a quoi rattacher les suivants), et AniList n'est
+interroge que dans le cas ambigu ou les deux ids existent, pour ne rien couter
+aux series.
+
+**Piege de mesure, note pour la prochaine fois** : mes deux premiers essais sur
+dev ont repondu « absent » apres le deploiement, alors que le code etait bon.
+C'etait le cache negatif de 600 s pose par MA sonde d'avant-deploiement. On ne
+peut pas l'invalider — la cle est `(server, aniId, episode, sub)` — mais on peut
+la contourner : `&sub=dub` change la cle et force le recalcul. Deuxieme piege du
+meme genre : j'avais teste « Silent Voice » sur un id TMDB errone (378148 au
+lieu de 378064) et conclu que frembed ne l'hebergeait pas.
+
+### Sendvid : ce n'est pas l'extraction qui casse, c'est le site
+
+`sendvid.com` repond **502 sur toutes ses urls, page d'accueil comprise**, avec
+une page « We are experiencing technical difficulties » de 1 146 octets. Verifie
+depuis deux reseaux (la ligne d'ici et le Worker Cloudflare) : ce n'est ni un
+blocage d'egress ni un anti-bot.
+
+Avant de le retirer, un bug reel a corriger dans l'extracteur, parce qu'il aurait
+survecu au retour de l'hote : **chaque 502 etait publie comme une absence
+prouvee**, mise en cache negatif 6 h. Sendvid serait revenu que les chips
+seraient restes eteints. C'est exactement le partage que sibnet avait deja pose
+le 08/08 — seul un 404 prouve qu'un episode n'existe pas, un echec de transport
+ne prouve rien — et sendvid ne l'avait jamais recu. Il l'a maintenant : 404 =
+absence, tout le reste = transitoire, et les 5xx/429 portent `hostDown` (que
+`serverVisibility` traite deja comme un verdict de masquage, sans cache
+negatif). La page de maintenance servie en 200 est detectee a part, sinon elle
+ressortait en « no source found », c'est-a-dire en absence prouvee — le meme
+piege par une autre porte.
+
+Puis retrait, sur demande. **Cinq ancrages partent ensemble**, et c'est la seule
+chose a retenir de l'operation : les deux chips (`lib/servers.js`), les deux
+correspondances (`lib/hostRegistry.js`), la cle de `host_versions.json`,
+`MULTI_HOSTS` du detecteur, et les deux entrees d'`ANIMESAMA_SERVERS`. Les trois
+listes d'hotes affiches restent en phase (6 de part et d'autre), ce que le garde
+de `hostRegistry.js` verifie au chargement. Aucune donnee OP/ED perdue a la
+purge : `oped_host_skips` ne portait aucune ligne sendvid (table vide, comptee
+avant de toucher au code). L'extracteur, lui, reste en place.
+
+A savoir si la question revient : anime-sama continue de lister les embeds
+sendvid (25 sur la S1 VF de SnK), donc **aucun signal en amont n'annoncera son
+retour** — il faudra reposer la question a la main.
+
+### Reste ouvert
+
+`frembed` figure dans `DISPLAYED_HOSTS` et dans `host_versions.json`, mais le
+detecteur ne le resout pas : ni `MULTI_HOSTS`, ni resolveur dans
+`bridge/resolve.mjs`. `oped_host_skips` ne portera donc jamais de ligne frembed,
+et ses spectateurs retombent sur l'agregat reconcilie — les minutages d'un AUTRE
+encodage.
+
 ## 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
 
 Trois symptomes signales plusieurs fois, que j'ai tente de corriger a l'aveugle

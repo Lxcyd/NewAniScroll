@@ -48,6 +48,10 @@ construit depuis `git log --since=<derniere release>`.
   dev.aniscroll.com. -> `devlog/site.md`
 - **Multi-parties OP/ED inerte sous v2** (ouvert depuis le 06/08) : les
   fenetres par partie sont jetees par `detect_per_host`. -> `devlog/oped.md`
+- **`frembed` declare mais jamais detecte** (ouvert depuis le 31/08) : il est
+  dans `DISPLAYED_HOSTS` et `host_versions.json`, mais absent de `MULTI_HOSTS`
+  et sans resolveur dans `bridge/resolve.mjs`. Ses spectateurs heritent donc des
+  minutages OP/ED d'un autre encodage. -> `devlog/player.md`
 - **ISR de la page anime a re-mesurer** (ouvert depuis le 03/08) : la mesure
   du hit CDN etait faussee par un cron supprime. -> `devlog/infra.md`
 - **Surveiller apres la v0.0.8** : le compteur Upstash sur 48 h — six caches
@@ -67,7 +71,7 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 44 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 45 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 16 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
@@ -112,6 +116,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
 - 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
 - 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
 - 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
