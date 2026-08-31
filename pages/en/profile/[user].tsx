@@ -15,7 +15,7 @@ import ProfileList from "@/components/profile/ProfileList";
 import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
 
 import { getUser } from "@/prisma/user";
-import { findByTag } from "@/lib/auth/users";
+import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
 import { getAllData } from "@/lib/auth/userData";
 import {
@@ -470,14 +470,42 @@ export async function getServerSideProps(context: any) {
      plutôt que dans le navigateur, pour que la première peinture soit déjà la
      bonne — la route d'écriture nettoie aussi, mais une ligne peut dater d'une
      version où un bloc existait encore. */
-  const profileLayout: GridItem[] | null = (() => {
-    if (!account?.profileLayout) return null;
-    try {
-      const parsed = JSON.parse(account.profileLayout);
-      return isValidLayout(parsed) ? sanitizeLayout(parsed, isKnownBlock) : null;
-    } catch {
-      return null;
+  const profileLayout: GridItem[] | null = await (async () => {
+    const parse = (raw: string | null | undefined) => {
+      if (!raw) return null;
+      try {
+        const value = JSON.parse(raw);
+        return isValidLayout(value) ? sanitizeLayout(value, isKnownBlock) : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const own = parse(account?.profileLayout);
+    if (own || !account) return own;
+
+    /* RATTRAPAGE, et il vaut mieux qu'un rattrapage côté navigateur.
+       Avant que la grille ne devienne publique, elle vivait dans
+       `aniscroll:profileLayout` — une clé locale, donc déjà sauvegardée dans la
+       catégorie `prefs` du compte par cloudSync. Elle est donc lisible ICI,
+       sans attendre que le propriétaire repasse sur son propre profil : sans ce
+       chemin, son profil resterait sur la grille par défaut pour tous ses
+       visiteurs jusqu'à sa prochaine visite.
+
+       Écrit dans la colonne au passage, pour que cette lecture de plus ne se
+       reproduise pas. C'est une écriture déclenchée par un GET, ce qui se
+       justifie ici et seulement ici : elle est idempotente, elle ne fait que
+       déplacer la donnée du propriétaire d'un endroit à l'autre, et elle
+       s'éteint d'elle-même dès qu'elle a servi. */
+    const data = await getAllData(account.id).catch(() => []);
+    const prefs = data.find((d) => d.kind === "prefs")?.payload as
+      | Record<string, string>
+      | undefined;
+    const recovered = parse(prefs?.["aniscroll:profileLayout"]);
+    if (recovered) {
+      void setProfileLayout(account.id, JSON.stringify(recovered)).catch(() => {});
     }
+    return recovered;
   })();
 
   const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;

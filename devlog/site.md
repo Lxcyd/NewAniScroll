@@ -993,3 +993,21 @@ Details qui comptent :
   jamais de confiance, et celle-ci sera **relue par d'autres que son auteur**.
 - `lib/prefs/profileLayout.ts` reste pour le seul cas sans compte : le profil
   local d'un invite.
+
+### Rattrapage : la grille etait deja sur le serveur
+
+Premier constat apres deploiement : un visiteur voyait toujours quatre blocs.
+Normal — `users.profile_layout` etait vide pour tout le monde, et la reprise
+depuis le localStorage ne se declenche que quand le PROPRIETAIRE ouvre son
+propre profil. Un profil restait donc sur la grille par defaut pour tous ses
+visiteurs jusqu'a ce que son proprietaire repasse.
+
+Sauf que la disposition etait deja lisible cote serveur : `aniscroll:profileLayout`
+est une cle locale, donc deja poussee dans la categorie `prefs` du compte par
+cloudSync. Le rendu serveur de `[user].tsx` la lit maintenant quand la colonne
+est vide (`getAllData(account.id)` → `prefs` → cette cle), et **l'ecrit dans la
+colonne au passage** pour que la lecture supplementaire ne se reproduise pas.
+
+Une ecriture declenchee par un GET, ce qui se justifie ici et seulement ici :
+elle est idempotente, elle ne fait que deplacer la donnee du proprietaire d'un
+endroit a l'autre, et elle s'eteint d'elle-meme des qu'elle a servi.
