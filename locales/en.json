@@ -146,7 +146,8 @@
       "anilist-unavailable": "AniList did not answer — signing in with AniList is temporarily impossible",
       "signInFailed": "Sign-in did not go through",
       "signInFailedBody": "Nothing changed on your account. AniList refused or did not answer; try again in a moment.",
-      "backToSettings": "Back to settings"
+      "backToSettings": "Back to settings",
+      "callbackBody": "Two possible causes, and nothing changed on your account: AniList didn't answer in time — try again in a moment — or this AniList account is already linked to another AniScroll account. If so, sign out first, then sign in with AniList directly."
     },
     "verifyOk": "Address confirmed",
     "verifySignedOut": "You can now sign in, here or on the device where you created the account.",

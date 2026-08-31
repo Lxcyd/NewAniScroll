@@ -269,6 +269,18 @@ export const authOptions: NextAuthOptions = {
       },
       clientId: process.env.CLIENT_ID,
       clientSecret: process.env.CLIENT_SECRET,
+      /* L'ECHANGE DU CODE CONTRE UN JETON, ET SES 3,5 SECONDES.
+         openid-client — la bibliotheque qui fait cet appel pour NextAuth —
+         coupe a 3500 ms par defaut. MESURE le 31/08/2026 dans les logs de dev :
+         `RPError: outgoing request timed out after 3500ms` sur
+         /api/auth/callback/AniListProvider, c'est-a-dire une connexion perdue
+         alors qu'AniList avait DEJA accorde le code. Le visiteur, lui, voit
+         « AniList refuse ou ne repond pas » et recommence — pour retomber sur
+         la meme limite.
+         10 s : anilist.co/api/v2/oauth/token repond en general en moins d'une
+         seconde, la marge n'est pas un budget mais un filet. Au-dela, mieux
+         vaut echouer que laisser la fonction serverless attendre. */
+      httpOptions: { timeout: 10000 },
       profile(profile) {
         return {
           token: profile.token,

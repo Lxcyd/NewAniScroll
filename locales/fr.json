@@ -146,7 +146,8 @@
       "anilist-unavailable": "AniList n'a pas répondu — la connexion AniList est momentanément impossible",
       "signInFailed": "La connexion n'a pas abouti",
       "signInFailedBody": "Rien n'a changé sur votre compte. AniList refuse ou ne répond pas ; réessayez dans un instant.",
-      "backToSettings": "Retour aux paramètres"
+      "backToSettings": "Retour aux paramètres",
+      "callbackBody": "Deux causes possibles, et rien n'a changé sur votre compte : AniList n'a pas répondu à temps — réessayez dans un instant — ou ce compte AniList est déjà lié à un autre compte AniScroll. Dans ce cas, déconnectez-vous d'abord, puis connectez-vous directement avec AniList."
     },
     "verifyOk": "Adresse confirmée",
     "verifySignedOut": "Vous pouvez maintenant vous connecter, ici ou sur l'appareil où vous avez créé le compte.",

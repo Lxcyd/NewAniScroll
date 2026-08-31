@@ -29,6 +29,19 @@ const KNOWN: Record<string, string> = {
   "anilist-already-linked": "auth.errors.anilist-already-linked",
   "anilist-unavailable": "auth.errors.anilist-unavailable",
   AccessDenied: "auth.errors.generic",
+  /* `Callback` est le code que NextAuth pose sur TOUT echec survenu apres le
+     retour d'AniList, et il ecrase le notre : une erreur levee dans le callback
+     `jwt` (« ce compte AniList est deja lie ailleurs ») ressort ici sous le meme
+     mot qu'un echange de jeton en echec. Mesure du 31/08/2026 sur les logs de
+     dev : les deux causes sont arrivees dans la meme minute.
+     Tant que les deux partagent un code, le message nomme les deux et dit quoi
+     faire — c'est plus honnete que d'affirmer « AniList ne repond pas » quand la
+     moitie du temps AniList a parfaitement repondu.
+     `CredentialsSignin` reste dehors : il vient du formulaire mot de passe, pas
+     d'ici. */
+  Callback: "auth.errors.callbackBody",
+  OAuthCallback: "auth.errors.callbackBody",
+  OAuthSignin: "auth.errors.anilist-unavailable",
 };
 
 export default function AniListSignIn() {
