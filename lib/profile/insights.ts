@@ -112,11 +112,17 @@ export type StudioRank = {
 /**
  * Les studios classés par note moyenne du spectateur.
  *
- * `minTitles` existe parce qu'une moyenne sur un seul titre n'est pas une
+ * `minTitles` existe parce qu'une moyenne sur deux titres n'est pas une
  * moyenne : sans ce seuil, le studio d'un unique 10/10 coiffe celui de quinze
  * titres à 8,5 — un classement qui ne dit rien de ce que le spectateur aime.
+ * MESURÉ le 31/08/2026 sur une liste de 824 titres : à 2, les six premières
+ * places étaient six studios à 10,0 sur 2 à 4 titres (TNK, OB Planning, Bandai
+ * Visual…), c'est-à-dire le classement des coups de cœur isolés et pas celui
+ * des studios. Le seuil monte donc à 4, et à note égale c'est le NOMBRE de
+ * titres qui départage — un 10 sur quinze titres vaut mieux qu'un 10 sur
+ * quatre.
  */
-export function studioRanks(entries: ProfileEntry[], minTitles = 2): StudioRank[] {
+export function studioRanks(entries: ProfileEntry[], minTitles = 4): StudioRank[] {
   const acc = new Map<string, { count: number; sum: number; rated: number }>();
   for (const e of entries) {
     if (!e.studio) continue;

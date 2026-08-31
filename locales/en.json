@@ -860,8 +860,8 @@
       "add": "Add",
       "added": "Added",
       "noData": "no data yet",
-      "count": "{{count}} block on your profile",
-      "count_plural": "{{count}} blocks on your profile"
+      "count_one": "{{count}} block on your profile",
+      "count_other": "{{count}} blocks on your profile"
     },
     "blocks": {
       "resume": {
@@ -902,14 +902,15 @@
       "formats": {
         "title": "Formats & decades",
         "desc": "TV, film, OVA… and release years.",
-        "empty": "Formats come from AniList — a local list doesn't carry them."
+        "empty": "Formats come from AniList — a local list doesn't carry them.",
+        "decades": "By release decade"
       },
       "studios": {
         "title": "Studios by score",
         "desc": "Your studio ranking, backed by your own average.",
         "empty": "Studios come from AniList, and an average needs at least two titles to mean anything.",
-        "titles": "{{count}} title",
-        "titles_plural": "{{count}} titles"
+        "titles_one": "{{count}} title",
+        "titles_other": "{{count}} titles"
       },
       "season": {
         "title": "Currently watching",

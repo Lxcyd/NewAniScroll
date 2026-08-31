@@ -164,7 +164,9 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
 
   return (
     <div className="flex h-full items-center justify-center gap-4">
-      <svg viewBox="0 0 200 192" className="h-full max-h-[15rem] w-auto shrink-0">
+      {/* Le radar prend toute la hauteur offerte : dans un bloc 2×2 comme dans
+          le panneau des statistiques, c'est la figure qu'on vient lire. */}
+      <svg viewBox="0 0 200 192" className="h-full w-auto shrink-0">
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <polygon
             key={f}

@@ -860,8 +860,8 @@
       "add": "Ajouter",
       "added": "Ajouté",
       "noData": "pas encore de données",
-      "count": "{{count}} bloc sur ton profil",
-      "count_plural": "{{count}} blocs sur ton profil"
+      "count_one": "{{count}} bloc sur ton profil",
+      "count_other": "{{count}} blocs sur ton profil"
     },
     "blocks": {
       "resume": {
@@ -902,14 +902,15 @@
       "formats": {
         "title": "Formats & décennies",
         "desc": "TV, film, OVA… et les années de sortie.",
-        "empty": "Les formats viennent d'AniList — une liste locale n'en porte pas."
+        "empty": "Les formats viennent d'AniList — une liste locale n'en porte pas.",
+        "decades": "Par décennie de sortie"
       },
       "studios": {
         "title": "Studios classés par note",
         "desc": "Ton palmarès des studios, ta note moyenne à l'appui.",
         "empty": "Les studios viennent d'AniList, et il en faut au moins deux titres pour qu'une moyenne veuille dire quelque chose.",
-        "titles": "{{count}} titre",
-        "titles_plural": "{{count}} titres"
+        "titles_one": "{{count}} titre",
+        "titles_other": "{{count}} titres"
       },
       "season": {
         "title": "En cours de visionnage",

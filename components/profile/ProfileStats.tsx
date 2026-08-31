@@ -21,12 +21,15 @@ import type { ProfileEntry } from "@/lib/profile/types";
 export default function ProfileStats({ entries }: { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
 
+  /* Les hauteurs suivent le contenu, pas une grille : mesuré le 31/08/2026 sur
+     une liste de 824 titres, un panneau uniforme laissait la moitié du cadre
+     vide sous les formats et sous les statuts. */
   const panels = [
-    { key: "genres", h: "h-[26rem]", node: <GenresBlock entries={entries} />, wide: false },
+    { key: "genres", h: "h-[22rem]", node: <GenresBlock entries={entries} />, wide: false },
     { key: "scores", h: "h-[14rem]", node: <ScoresBlock entries={entries} />, wide: false },
-    { key: "formats", h: "h-[26rem]", node: <FormatsBlock entries={entries} />, wide: false },
-    { key: "statuses", h: "h-[14rem]", node: <StatusesBlock entries={entries} />, wide: false },
-    { key: "studios", h: "h-[16rem]", node: <StudiosBlock entries={entries} />, wide: true },
+    { key: "formats", h: "h-[19rem]", node: <FormatsBlock entries={entries} />, wide: false },
+    { key: "statuses", h: "h-[12rem]", node: <StatusesBlock entries={entries} />, wide: false },
+    { key: "studios", h: "h-[15rem]", node: <StudiosBlock entries={entries} />, wide: true },
   ];
 
   return (
