@@ -147,7 +147,7 @@
       "signInFailed": "Sign-in did not go through",
       "signInFailedBody": "Nothing changed on your account. AniList refused or did not answer; try again in a moment.",
       "backToSettings": "Back to settings",
-      "callbackBody": "Two possible causes, and nothing changed on your account: AniList didn't answer in time — try again in a moment — or this AniList account is already linked to another AniScroll account. If so, sign out first, then sign in with AniList directly."
+      "callbackBody": "Two possible causes, and nothing changed on your account: AniList didn't answer in time — try again in a moment — or this AniList identity belongs to another AniScroll account, one with a password of its own. In that second case, sign into that account, or sign out and go through AniList directly."
     },
     "verifyOk": "Address confirmed",
     "verifySignedOut": "You can now sign in, here or on the device where you created the account.",

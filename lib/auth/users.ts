@@ -284,6 +284,118 @@ export async function attachAniList(
 }
 
 /**
+ * Link AniList to an account, absorbing the half-identity in the way if there
+ * is one.
+ *
+ * THE DEAD END THIS REPLACES. Accounts were added to a site that had only ever
+ * known AniList sign-in, so a great many people already had an AniList-only row
+ * — created by `createAnilistAccount` long before they made a password account.
+ * Their first "link my AniList" from that new account hit `attachAniList`,
+ * which found the old row and threw `anilist-already-linked`. Measured on
+ * dev the 01/09/2026: OAUTH_CALLBACK_HANDLER_ERROR, twice in a row, on an
+ * account that was the SAME PERSON both times. The only way out the site
+ * offered was "sign out and use AniList directly", i.e. abandon the account you
+ * just signed into.
+ *
+ * The refusal is right about one thing and wrong about the other. It is right
+ * that an AniList id owned by a real second account — one with a password or an
+ * e-mail, that someone can still sign into on its own — must never be taken
+ * away, and that case still throws. It is wrong about a row that has NO way in
+ * except this very AniList identity: nobody can ever sign into it again once
+ * the identity moves, so keeping it is not protecting anyone, it is stranding
+ * the data inside it.
+ *
+ * So that row is absorbed and deleted. Per category, the newest payload wins —
+ * the same last-writer-wins rule lib/auth/userData.ts applies between two
+ * devices, applied here between two rows of the same person. Everything the
+ * target lacks and the source has (pseudo, picture, banner) is carried over,
+ * `admin` survives on either side so a merge cannot demote anyone, and
+ * `created_at` keeps the older of the two: the account has existed since the
+ * first of the pair, not since the merge.
+ *
+ * One `batch(..., "write")`: the source has to be gone before the target can
+ * claim `anilist_id`, which is UNIQUE, and half of that is not a state worth
+ * leaving behind.
+ */
+export async function attachOrAbsorbAniList(
+  userId: string,
+  params: { anilistId: number; anilistName: string | null; avatarUrl: string | null }
+): Promise<UserRecord | null> {
+  const client = await db();
+  if (!client) return null;
+
+  const source = await findByAnilistId(params.anilistId);
+  if (!source || source.id === userId) return attachAniList(userId, params);
+
+  // A row someone can still sign into by itself is a second account, not a
+  // stray half-identity. Refuse, as before — and a disabled one is refused too
+  // rather than laundered into an active account.
+  if (source.passwordHash || source.email || source.status === "disabled") {
+    throw new Error("anilist-already-linked");
+  }
+
+  const target = await findById(userId);
+  if (!target) throw new Error("anilist-already-linked");
+
+  const stored = await client.execute({
+    sql: `SELECT user_id, kind, payload, rev, updated_at
+            FROM user_data WHERE user_id IN (?, ?)`,
+    args: [userId, source.id],
+  });
+  const newest = new Map<string, Row>();
+  for (const row of stored.rows) {
+    const kind = String(row.kind);
+    const held = newest.get(kind);
+    if (!held || Number(row.updated_at) > Number(held.updated_at)) newest.set(kind, row);
+  }
+
+  const username = target.username ?? source.username;
+  const statements: { sql: string; args: unknown[] }[] = [
+    { sql: `DELETE FROM user_data WHERE user_id = ?`, args: [source.id] },
+    { sql: `DELETE FROM auth_tokens WHERE user_id = ?`, args: [source.id] },
+    { sql: `DELETE FROM users WHERE id = ?`, args: [source.id] },
+  ];
+  for (const [kind, row] of newest) {
+    if (String(row.user_id) !== source.id) continue; // the target's own is newer
+    statements.push({
+      sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(user_id, kind) DO UPDATE
+              SET payload = excluded.payload,
+                  rev = user_data.rev + 1,
+                  updated_at = excluded.updated_at`,
+      args: [userId, kind, String(row.payload), Number(row.rev), Number(row.updated_at)],
+    });
+  }
+  statements.push({
+    sql: `UPDATE users
+             SET anilist_id = ?, anilist_name = ?, anilist_avatar_url = ?,
+                 username = ?, username_lower = ?,
+                 avatar_url = COALESCE(avatar_url, ?),
+                 profile_banner = COALESCE(profile_banner, ?),
+                 role = ?,
+                 created_at = MIN(created_at, ?)
+           WHERE id = ?`,
+    args: [
+      params.anilistId,
+      params.anilistName,
+      params.avatarUrl,
+      username,
+      username ? normalizeUsername(username) : null,
+      source.avatarUrl,
+      source.profileBanner,
+      target.role === "admin" || source.role === "admin" ? "admin" : target.role,
+      source.createdAt,
+      userId,
+    ],
+  });
+
+  await client.batch(statements as any, "write");
+  console.info(`[users] AniList-only account #${source.tag} absorbed into #${target.tag}`);
+  return findById(userId);
+}
+
+/**
  * The AniList access token and custom lists, kept ON THE ACCOUNT.
  *
  * They used to exist only inside the session cookie, minted by the OAuth

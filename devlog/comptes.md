@@ -157,3 +157,74 @@ renvoie `null` au lieu de tout deballer.
   ce qui permet de derouler l'inscription complete sur un deploiement preview.
 - `isAdminSession` accepte maintenant `role === 'admin'` en base **en plus** de
   `NEXT_PUBLIC_ADMIN_USERNAMES` : rien de ce qui marchait ne s'arrete.
+
+## 01/09/2026 — Lier AniList a un compte n'est plus un cul-de-sac
+
+### Le symptome ment sur la cause
+
+« Je n'arrive plus a me connecter a AniList », et anilist.co affiche en meme
+temps une panne sur downforeveryoneorjustme. Mesure faite avant de toucher au
+code : `anilist.co` repond en 150-330 ms, `graphql.anilist.co` repond, et
+`/api/v2/oauth/token` aussi. **AniList allait bien.** Le detecteur de panne
+tiers n'est pas une mesure, c'est une rumeur.
+
+Les logs runtime de `dev.aniscroll.com` (`vercel logs dev.aniscroll.com --json`)
+donnent la vraie ligne, deux fois de suite sur
+`/api/auth/callback/AniListProvider` :
+
+    [next-auth][error][OAUTH_CALLBACK_HANDLER_ERROR] anilist-already-linked
+      at jwt (...)
+
+Le code `Callback` que NextAuth pose dans l'URL ecrase le notre : c'est
+pourquoi la page d'erreur nommait deux causes possibles. La bonne etait la
+seconde.
+
+### Pourquoi ce refus se declenchait sur la meme personne
+
+Le site n'a connu QUE la connexion AniList pendant longtemps. Beaucoup de gens
+ont donc deja une ligne `users` creee par `createAnilistAccount` — sans e-mail
+et sans mot de passe, joignable par cette seule identite AniList. Quand la meme
+personne se cree ensuite un compte AniScroll et clique « lier AniList »,
+`attachAniList` trouve l'ancienne ligne, voit `owner.id !== userId`, et jette
+`anilist-already-linked`. La seule issue proposee etait « deconnectez-vous et
+passez par AniList » : autrement dit, abandonnez le compte ou vous venez
+d'entrer, et les donnees qu'il porte.
+
+### Ce qui a change : `attachOrAbsorbAniList`
+
+Le refus avait raison sur un point et tort sur l'autre.
+
+- **Raison** : une ligne qu'on peut encore ouvrir seule — mot de passe ou
+  e-mail — est un deuxieme vrai compte. On ne la supprime pas. Elle jette
+  toujours `anilist-already-linked`. Une ligne `disabled` est refusee aussi,
+  plutot que blanchie en compte actif.
+- **Tort** : une ligne dont la SEULE porte d'entree est cette identite AniList
+  ne protege plus personne des lors que l'identite bouge — elle emprisonne ses
+  donnees. Elle est absorbee, puis supprimee.
+
+L'absorption reutilise l'arbitrage deja en place : par categorie, le
+`updated_at` le plus recent gagne — la meme regle que `userData.ts` applique
+entre deux appareils, appliquee ici entre deux lignes de la meme personne. Ce
+que la cible n'a pas et que la source a (pseudo, avatar, banniere) est repris,
+`admin` survit des deux cotes (une fusion ne doit retrograder personne), et
+`created_at` garde le plus ancien des deux.
+
+Un seul `batch(..., "write")` : `anilist_id` est UNIQUE, la source doit avoir
+disparu avant que la cible le reclame, et la moitie de cet etat ne vaut pas la
+peine d'exister.
+
+### Verification
+
+15 assertions passees contre un libSQL `:memory:` (script jetable) : cible qui
+garde son id, admin conserve, banniere reprise, `created_at` le plus ancien,
+ligne source disparue, categorie propre a la source reprise, categorie plus
+recente cote cible preservee, zero ligne orpheline dans `user_data`, deuxieme
+vrai compte refuse, relink idempotent, ligne desactivee refusee.
+
+### Le message d'erreur, lui aussi
+
+`auth.errors.callbackBody` disait « ce compte AniList est deja lie a un autre
+compte AniScroll — deconnectez-vous d'abord ». Ce conseil ne s'applique plus
+qu'au cas residuel, celui du vrai deuxieme compte : le texte le dit maintenant
+(« celui-la protege par son propre mot de passe ») au lieu d'envoyer tout le
+monde se deconnecter.

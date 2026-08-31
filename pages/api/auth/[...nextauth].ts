@@ -4,6 +4,7 @@ import { getToken } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import {
   attachAniList,
+  attachOrAbsorbAniList,
   backfillUsername,
   createAnilistAccount,
   findByAnilistId,
@@ -327,7 +328,12 @@ export const authOptions: NextAuthOptions = {
             let record = currentUid ? await findById(currentUid) : null;
 
             if (record) {
-              record = await attachAniList(record.id, {
+              /* Linking from an account already signed in. The AniList id very
+                 often belongs to that person's OWN older AniList-only row —
+                 the site predates accounts — so this absorbs it instead of
+                 refusing. A row with a password or an e-mail is a real second
+                 account and still throws. */
+              record = await attachOrAbsorbAniList(record.id, {
                 anilistId,
                 anilistName,
                 avatarUrl,
