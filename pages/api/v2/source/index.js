@@ -592,8 +592,13 @@ async function getFrembedStream(serverKey, aniId, episode) {
   const tvId = fribb?.tmdbTvId || null;
   // AniList n'est interroge que dans le cas ambigu (les deux ids existent) —
   // une serie ordinaire n'a pas d'id film et ne paie donc rien de plus.
+  // `episode <= 1` : un id TMDB *movie* designe UN fichier. Une fiche film qui
+  // compte plusieurs episodes (compilations, films en parties) n'a rien a quoi
+  // rattacher les suivants — les servir renverrait le meme fichier a chaque
+  // fois, sans que le spectateur puisse s'en apercevoir.
   const asMovie =
     !!movieId &&
+    Number(episode) <= 1 &&
     (!tvId || (await getMediaMeta(aniId).catch(() => null))?.format === "MOVIE");
   const tmdbId = asMovie ? movieId : tvId;
   if (!tmdbId) {
