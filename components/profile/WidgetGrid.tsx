@@ -5,17 +5,13 @@ import {
   COLS,
   GAP,
   ROW,
-  SIZES,
   columnWidth,
   compact,
   pixelRect,
-  readingOrder,
-  reflow,
   resizeItem,
   rowCount,
   type GridItem,
 } from "@/lib/profile/grid";
-import { blockSize } from "@/lib/profile/blocks";
 
 /**
  * La grille de widgets : pose, déplacement, redimensionnement.
@@ -27,6 +23,13 @@ import { blockSize } from "@/lib/profile/blocks";
  * Hors mode réorganisation, rien n'est déplaçable : la poignée de l'en-tête et
  * le coin de redimensionnement ne répondent pas, et un visiteur qui n'est pas
  * le propriétaire n'entre jamais dans ce mode.
+ *
+ * TROIS GESTES, PAS DIX BOUTONS. Chaque bloc portait, en édition, deux flèches
+ * monter/descendre, quatre tailles types (S M L XL) et une croix : sept
+ * commandes serrées dans l'en-tête, sur une carte qui fait parfois une colonne
+ * de large, et toutes en double d'un geste qui existait déjà — les flèches de
+ * ce que fait le glisser, les tailles de ce que fait le coin. Il ne reste que
+ * les gestes : glisser l'en-tête, tirer le coin, et un moins pour retirer.
  */
 
 export type BlockChrome = {
@@ -157,16 +160,6 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
     setDrag(started);
   }
 
-  function move(id: string, dir: -1 | 1) {
-    const keys = readingOrder(layout);
-    const i = keys.indexOf(id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= keys.length) return;
-    keys[i] = keys[j];
-    keys[j] = id;
-    onLayout(reflow(keys, layout, blockSize));
-  }
-
   const rows = rowCount(layout);
   const height = Math.max(
     0,
@@ -245,11 +238,13 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
           >
             <header
               onPointerDown={(e) => startDrag(it.i, "move", e)}
+              /* `pr-6` en édition : le moins occupe ce coin, et un titre assez
+                 long pour l'atteindre passerait dessous. */
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
                 editing
-                  ? active && drag?.mode === "move"
-                    ? "cursor-grabbing"
-                    : "cursor-grab"
+                  ? `pr-6 ${
+                      active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"
+                    }`
                   : ""
               }`}
               style={{ touchAction: "none" }}
@@ -267,44 +262,34 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
                 ) : null}
               </h2>
 
-              {editing ? (
-                <div className="flex shrink-0 items-center gap-1">
-                  <IconButton label={t("profile.widgets.moveUp")} onClick={() => move(it.i, -1)}>
-                    <path d="M18 15l-6-6-6 6" />
-                  </IconButton>
-                  <IconButton label={t("profile.widgets.moveDown")} onClick={() => move(it.i, 1)}>
-                    <path d="M6 9l6 6 6-6" />
-                  </IconButton>
-                  <span className="flex items-center gap-[3px] rounded-[9px] bg-white/5 p-[3px] ring-1 ring-white/10">
-                    {Object.entries(SIZES).map(([key, [w, h]]) => {
-                      const active = it.w === w && it.h === h;
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          title={t(`profile.widgets.size.${key}`)}
-                          onClick={() => onLayout(resizeItem(layout, it.i, w, h))}
-                          className={`h-5 min-w-[24px] rounded-md px-[5px] font-karla text-[9px] font-bold uppercase tracking-wide transition-colors ${
-                            active ? "bg-action text-white" : "text-white/45 hover:text-white"
-                          }`}
-                        >
-                          {key}
-                        </button>
-                      );
-                    })}
-                  </span>
-                  <IconButton
-                    label={t("profile.widgets.remove")}
-                    danger
-                    onClick={() => onLayout(compact(layout.filter((o) => o.i !== it.i)))}
-                  >
-                    <path d="M18 6L6 18M6 6l12 12" />
-                  </IconButton>
-                </div>
-              ) : null}
             </header>
 
             <div className="min-h-0 flex-1">{chrome.body}</div>
+
+            {/* Retirer le bloc. Repris des cartes du graphe des relations
+                (gStyles.nodeClose) : un MOINS, sans cadre ni fond, glissé dans
+                le coin — « enlève celui-ci ». Une croix cerclée poserait une
+                seconde pastille sur une carte qui en a déjà une, celle de la
+                couleur du bloc, et se lirait comme un élément du bloc plutôt
+                que comme une commande.
+
+                Hors de l'en-tête, et non dedans : l'en-tête EST la poignée de
+                déplacement, un bouton posé dessus devrait arrêter la
+                propagation du pointerdown pour ne pas démarrer un glissement.
+                À côté, il n'y a rien à arrêter. */}
+            {editing ? (
+              <button
+                type="button"
+                onClick={() => onLayout(compact(layout.filter((o) => o.i !== it.i)))}
+                aria-label={t("profile.widgets.remove")}
+                title={t("profile.widgets.remove")}
+                className="absolute right-3 top-3 grid h-4 w-5 place-items-center rounded text-white/60 opacity-60 transition-opacity hover:text-white hover:opacity-100"
+              >
+                <svg viewBox="0 -960 960 960" fill="currentColor" className="h-3 w-3">
+                  <path d="M200-440v-80h560v80H200Z" />
+                </svg>
+              </button>
+            ) : null}
 
             {editing ? (
               <div
@@ -323,35 +308,5 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
         );
       })}
     </div>
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  danger,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className={`flex h-[26px] w-[26px] items-center justify-center rounded-lg ring-1 transition-colors ${
-        danger
-          ? "bg-action/15 text-white ring-action/30 hover:bg-action"
-          : "bg-white/5 text-white/60 ring-white/10 hover:text-white hover:ring-white/30"
-      }`}
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
-        {children}
-      </svg>
-    </button>
   );
 }

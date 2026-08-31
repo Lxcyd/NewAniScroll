@@ -844,15 +844,7 @@
       "reset": "Reset",
       "remove": "Remove",
       "resize": "Resize",
-      "moveUp": "Move up",
-      "moveDown": "Move down",
-      "hint": "Rearrange mode — drag a block by its header, resize it from the bottom-right corner, or pick a preset size.",
-      "size": {
-        "s": "Small — 1×1",
-        "m": "Medium — 2×1",
-        "l": "Large — 2×2",
-        "xl": "Full width — 4×2"
-      }
+      "hint": "Rearrange mode — drag a block by its header, resize it from the bottom-right corner."
     },
     "library": {
       "title": "Block library",

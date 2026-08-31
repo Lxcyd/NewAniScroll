@@ -27,14 +27,6 @@ export const ROW = 230;
 /** Gouttière horizontale ET verticale, en px. */
 export const GAP = 16;
 
-/** Tailles types, façon widgets iOS : [colonnes, lignes]. */
-export const SIZES: Record<string, [number, number]> = {
-  s: [1, 1],
-  m: [2, 1],
-  l: [2, 2],
-  xl: [4, 2],
-};
-
 export function collides(a: GridItem, b: GridItem): boolean {
   return (
     a.i !== b.i &&
@@ -99,36 +91,6 @@ export function addItem(
 ): GridItem[] {
   const p = place(items, w, h);
   return compact(items.concat([{ i: id, x: p.x, y: p.y, w, h }]));
-}
-
-/**
- * Repose une liste de blocs dans l'ordre donné, en gardant la taille de chacun.
- * Sert aux flèches monter/descendre, qui raisonnent en ordre de lecture et pas
- * en coordonnées.
- */
-export function reflow(
-  keys: string[],
-  current: GridItem[],
-  sizeOf: (id: string) => [number, number],
-): GridItem[] {
-  let items: GridItem[] = [];
-  for (const k of keys) {
-    const prev = current.find((o) => o.i === k);
-    const [dw, dh] = sizeOf(k);
-    const w = prev ? prev.w : dw;
-    const h = prev ? prev.h : dh;
-    const p = place(items, w, h);
-    items = items.concat([{ i: k, x: p.x, y: p.y, w, h }]);
-  }
-  return compact(items);
-}
-
-/** L'ordre de lecture (haut→bas, gauche→droite) des blocs posés. */
-export function readingOrder(items: GridItem[]): string[] {
-  return items
-    .slice()
-    .sort((a, b) => a.y - b.y || a.x - b.x)
-    .map((o) => o.i);
 }
 
 /** Nombre de lignes occupées — la hauteur que le conteneur doit réserver. */

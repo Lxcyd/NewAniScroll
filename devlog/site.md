@@ -902,3 +902,30 @@ appelant — le cas dans `ProfileOverview`, et les deux traductions. Les
 dispositions deja enregistrees qui le contiennent ne cassent pas :
 `sanitizeLayout(stored, isKnownBlock)` jette les identifiants inconnus et
 `compact` referme le trou.
+
+### Les widgets du profil : trois gestes au lieu de sept boutons
+
+En mode reorganisation, chaque bloc portait dans son en-tete deux fleches
+monter/descendre, un selecteur de quatre tailles types (S M L XL) et une croix.
+Sept commandes serrees dans une barre, sur une carte qui fait parfois une seule
+colonne de large — et **toutes en double d'un geste qui existait deja** : les
+fleches refaisaient le glisser-deposer, les tailles refaisaient la poignee du
+coin bas-droit.
+
+Il ne reste que les gestes. Le moins qui les remplace est repris des cartes du
+graphe des relations (`gStyles.nodeClose`) : pas de cadre, pas de fond, glisse
+dans le coin haut-droit, `M200-440v-80h560v80H200Z`. Le raisonnement y est deja
+ecrit — une croix cerclee poserait une seconde pastille sur une carte qui en
+porte deja une (ici la couleur du bloc) et se lirait comme un element du bloc
+plutot que comme une commande.
+
+Il est place **a cote** de l'en-tete et non dedans : l'en-tete EST la poignee de
+deplacement, un bouton pose dessus devrait arreter la propagation du
+`pointerdown` pour ne pas demarrer un glissement. L'en-tete gagne un `pr-6` en
+edition, sinon un titre long passe sous le moins.
+
+Retires avec eux, faute d'appelant : `IconButton`, `move()`, et dans
+`lib/profile/grid.ts` les exports `SIZES`, `reflow` et `readingOrder` — ces deux
+dernieres n'existaient que pour les fleches, qui raisonnaient en ordre de
+lecture et pas en coordonnees. Cote traductions, `moveUp`, `moveDown` et le
+groupe `size`, et le `hint` ne promet plus « ou choisis une taille type ».

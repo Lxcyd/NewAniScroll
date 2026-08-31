@@ -844,15 +844,7 @@
       "reset": "Réinitialiser",
       "remove": "Enlever",
       "resize": "Redimensionner",
-      "moveUp": "Monter",
-      "moveDown": "Descendre",
-      "hint": "Mode réorganisation — glisse un bloc par son en-tête, redimensionne-le par le coin bas-droit, ou choisis une taille type.",
-      "size": {
-        "s": "Petit — 1×1",
-        "m": "Moyen — 2×1",
-        "l": "Grand — 2×2",
-        "xl": "Pleine largeur — 4×2"
-      }
+      "hint": "Mode réorganisation — glisse un bloc par son en-tête, redimensionne-le par le coin bas-droit."
     },
     "library": {
       "title": "Bibliothèque de blocs",
