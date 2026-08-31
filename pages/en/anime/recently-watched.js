@@ -7,6 +7,7 @@ import Footer from "@/components/shared/footer";
 import { useSession } from "next-auth/react";
 import { ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import { useRouter } from "next/router";
+import { touchHistory } from "@/lib/profile/history";
 import HistoryOptions from "@/components/home/historyOptions";
 import Head from "next/head";
 import MobileNav from "@/components/shared/MobileNav";
@@ -118,6 +119,7 @@ export default function RecentlyWatched() {
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
       }
       if (aniId) {
@@ -134,6 +136,7 @@ export default function RecentlyWatched() {
         }
 
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
       }
 
       // update client
@@ -155,6 +158,7 @@ export default function RecentlyWatched() {
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
         setRemoved(id);
       }
@@ -175,6 +179,7 @@ export default function RecentlyWatched() {
 
         // Update localStorage with the filtered data
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
         setRemoved(aniId);
       }
     }

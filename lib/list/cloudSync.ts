@@ -17,6 +17,7 @@
 
 import { LOCAL_LIST_EVENT } from "./localList";
 import { QUEUE_EVENT } from "./queue";
+import { HISTORY_EVENT } from "../profile/history";
 import { DATA_KINDS, type DataKind } from "../auth/userData";
 
 const ENDPOINT = "/api/v2/account/sync";
@@ -259,9 +260,24 @@ export function start(): () => void {
   if (typeof window === "undefined") return () => {};
   if (stop) return stop;
 
+  /* LE RATTRAPAGE DES HISTORIQUES DÉJÀ FIGÉS.
+     `recent` n'ayant jamais eu d'événement, un appareil a pu lire des mois
+     d'épisodes sans que le compte n'en sache rien : l'écouteur ajouté ci-dessous
+     répare l'avenir, pas le passé, et sans ceci le profil public de tous les
+     comptes existants resterait vide jusqu'à leur prochain épisode.
+
+     La condition est exactement « cet appareil n'a jamais vu de révision pour
+     cette catégorie », donc elle s'éteint dès la première poussée réussie
+     (`writeRevs`) et ne coûte plus rien ensuite — pas de POST par session. Et
+     si l'historique local est vide, `pushKinds` n'envoie rien du tout. */
+  if (readRevs().recent === undefined) mark("recent");
+
   const onList = () => mark("list");
   const onQueue = () => mark("queue");
   const onProgress = () => mark("progress");
+  /* Sans lui, `recent` n'etait jamais marque sale : la seule categorie dans ce
+     cas, donc la seule que le compte ne recevait qu'a un pushAll complet. */
+  const onHistory = () => mark("recent");
   const onPlayer = () => mark("player");
   const onPrefs = () => mark("prefs");
   // A flush on the way out is what makes the last change of a session
@@ -271,6 +287,7 @@ export function start(): () => void {
   window.addEventListener(LOCAL_LIST_EVENT, onList);
   window.addEventListener(QUEUE_EVENT, onQueue);
   window.addEventListener("aniscroll:progress-tick", onProgress);
+  window.addEventListener(HISTORY_EVENT, onHistory);
   window.addEventListener("aniscroll:playerPrefs:change", onPlayer);
   window.addEventListener("aniscroll:keybindings:change", onPlayer);
   window.addEventListener("aniscroll:syncPrefs:change", onPrefs);
@@ -295,6 +312,7 @@ export function start(): () => void {
     window.removeEventListener(LOCAL_LIST_EVENT, onList);
     window.removeEventListener(QUEUE_EVENT, onQueue);
     window.removeEventListener("aniscroll:progress-tick", onProgress);
+    window.removeEventListener(HISTORY_EVENT, onHistory);
     window.removeEventListener("aniscroll:playerPrefs:change", onPlayer);
     window.removeEventListener("aniscroll:keybindings:change", onPlayer);
     window.removeEventListener("aniscroll:syncPrefs:change", onPrefs);

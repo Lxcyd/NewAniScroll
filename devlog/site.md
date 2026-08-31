@@ -1097,3 +1097,42 @@ qu'ecrit `clearAllProgress`, `"null"`. Plus `tsc --noEmit` et `next lint`.
 
 Le chemin « zero requete » est verifie par lecture et non mesure : le garde-fou
 est un `kinds.length ?` sur un tableau construit juste au-dessus.
+
+### La categorie qui ne se synchronisait jamais
+
+Deux profils, deux symptomes, une seule cause. Sur celui de Winou, un visiteur
+voyait « Regarde en ce moment : Frieren ep 8, il y a 6 j » pendant que
+l'interesse avait Wistoria ep 12 sous les yeux. Sur celui de Lxcyd, le visiteur
+voyait « Rien en cours. » et le proprietaire un episode 4 en cours.
+
+`cloudSync` marque une categorie sale sur un evenement, et **il n'en existait
+aucun pour `recent`**. La liste des ecouteurs le disait a qui la lisait :
+`onList`, `onQueue`, `onProgress`, `onPlayer`, `onPrefs` — pas de `onHistory`.
+`recent` n'etait donc pousse que par un `pushAll()` complet : a l'inscription,
+ou en repondant « garder cet appareil » a la fenetre de conflit. Entre deux, la
+copie du compte etait gelee, pendant que `progress` (qui a son
+`aniscroll:progress-tick`) restait a jour — d'ou l'episode vieux de six jours
+avec une progression fraiche appliquee dessus.
+
+Le defaut est **anterieur** a ce chantier. Il etait simplement invisible tant
+que `artplayer_settings` ne servait qu'a l'appareil qui l'ecrit ; il devient
+voyant des lors qu'il nourrit le profil public.
+
+Deux pieces :
+
+- `HISTORY_EVENT` + `touchHistory()` dans `lib/profile/history.ts`, appele apres
+  **chaque** ecriture du store : les deux du lecteur, les quatre de
+  `recently-watched.js`, les quatre de `content.tsx`, celle de
+  `clearAllProgress`. Cette derniere est redondante — son appelant pousse deja
+  tout de suite — mais la regle ne souffre pas d'exception, sinon c'est le
+  prochain appelant qui oubliera. `cloudSync` ecoute et marque `recent`.
+- Un rattrapage pour les comptes deja figes : `mark("recent")` au demarrage
+  **si et seulement si** `readRevs().recent === undefined`, c'est-a-dire « cet
+  appareil n'a jamais vu de revision pour cette categorie ». La condition
+  s'eteint des la premiere poussee reussie (`writeRevs` enregistre la revision
+  renvoyee par le POST), donc pas de requete par session ensuite. Et si
+  l'historique local est vide, `pushKinds` ne fait aucune requete du tout.
+
+Cout : nul. `mark()` est debounce a 5 s et `pushKinds` envoie toutes les
+categories sales dans **une seule** requete — `recent` voyage donc avec
+`progress`, qui part de toute facon quand on regarde un episode.

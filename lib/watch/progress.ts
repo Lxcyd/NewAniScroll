@@ -16,6 +16,8 @@
  * to the end" even when the user skips the final seconds.
  */
 
+import { touchHistory } from "../profile/history";
+
 const KEY = "aniscroll:progress";
 
 /** Don't persist the first few seconds — a fresh resume seek hasn't applied
@@ -264,6 +266,11 @@ export function clearAllProgress(): void {
   try {
     localStorage.setItem(KEY, "{}");
     localStorage.setItem("artplayer_settings", "{}");
+    /* L'appelant pousse déjà tout de suite (voir ci-dessus), donc ceci ne fait
+       que doubler d'une poussée débouncée. On le garde quand même : la règle
+       « toute écriture de l'historique le signale » ne souffre pas d'exception,
+       sinon c'est le prochain appelant qui oubliera de pousser. */
+    touchHistory();
   } catch {
     /* best-effort */
   }

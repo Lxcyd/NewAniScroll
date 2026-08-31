@@ -19,6 +19,34 @@
 
 const KEY = "artplayer_settings";
 
+/**
+ * « L'historique de cet appareil a changé. »
+ *
+ * LA CATÉGORIE QUI NE SE SYNCHRONISAIT JAMAIS. `cloudSync` marque une catégorie
+ * sale sur un événement, et il n'en existait aucun pour ce store : `recent`
+ * n'était donc poussé que par un `pushAll()` complet — à l'inscription, ou en
+ * répondant « garder cet appareil » à la fenêtre de conflit. Entre deux, la
+ * copie du compte était gelée, pendant que `progress` (qui a son
+ * `aniscroll:progress-tick`) restait à jour. Mesuré le 01/09/2026 sur un profil
+ * de dev : « Regarde en ce moment » annonçait un épisode vieux de six jours,
+ * avec une progression fraîche appliquée dessus.
+ *
+ * Invisible tant que ce store ne servait qu'à l'appareil qui l'écrit. Il nourrit
+ * maintenant le profil public (lib/profile/activity.ts), donc son retard se voit
+ * — et il faut aussi que retirer une ligne de son historique la retire chez les
+ * visiteurs, faute de quoi « je l'enlève » ne veut rien dire.
+ *
+ * À appeler après CHAQUE écriture de `artplayer_settings`, y compris les
+ * suppressions. Le coût est nul : `mark()` est débounce à 5 s et `pushKinds`
+ * envoie toutes les catégories sales dans une seule requête.
+ */
+export const HISTORY_EVENT = "aniscroll:history:change";
+
+export function touchHistory(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(HISTORY_EVENT));
+}
+
 export type HistoryRow = {
   aniId: number;
   episode: number;

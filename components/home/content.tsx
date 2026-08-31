@@ -10,6 +10,7 @@ import {
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { ExclamationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useRouter } from "next/router";
+import { touchHistory } from "@/lib/profile/history";
 import { useSession } from "next-auth/react";
 import { profileHref } from "@/lib/profile/href";
 import HistoryOptions from "./historyOptions";
@@ -334,6 +335,7 @@ export default function Content({
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
       }
       if (aniId) {
@@ -350,6 +352,7 @@ export default function Content({
         }
 
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
       }
 
       // update client
@@ -369,6 +372,7 @@ export default function Content({
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
         setRemoved(id);
       }
@@ -389,6 +393,7 @@ export default function Content({
 
         // Update localStorage with the filtered data
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
         setRemoved(aniId);
       }
     }

@@ -78,6 +78,7 @@ const ListEditor = dynamic(() => import("@/components/listEditor"), {
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import { touchHistory } from "@/lib/profile/history";
 import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -1052,6 +1053,7 @@ export default function Watch({
         createdAt: new Date().toISOString(),
       };
       localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+      touchHistory();
     } catch {}
   }, [info?.id, epiNumber, dub, provider, watchId]);
 
@@ -1233,6 +1235,7 @@ export default function Watch({
               createdAt: new Date().toISOString(),
             };
             localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+            touchHistory();
           } catch {}
         }
       }
