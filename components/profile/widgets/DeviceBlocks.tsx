@@ -3,42 +3,41 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { readHistory, watchHref, type HistoryRow } from "@/lib/profile/history";
-import { getProgress, isCompleted, PROGRESS_EVENT } from "@/lib/watch/progress";
+import { readHistory, watchHref } from "@/lib/profile/history";
+import { decorateRows, type ActivityRow } from "@/lib/profile/activity";
+import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { Bar, EmptyBlock, useAgo } from "./common";
 
 /**
- * Les widgets nourris par ce que CET appareil a lu.
+ * Les deux widgets d'activité de lecture.
  *
- * Ils ne décrivent donc que le visiteur lui-même : lib/profile/blocks.ts les
- * marque `device` et ils ne sont proposés que sur son propre profil. Les
- * afficher sur le profil d'un autre montrerait notre historique sous son nom.
+ * DEUX SOURCES, ET LA BONNE SE CHOISIT PAR `rows`.
  *
- * La lecture se fait au montage, jamais au rendu serveur : localStorage n'existe
- * pas là-bas, et un premier rendu qui invente des lignes puis les remplace est
- * exactement le clignotement qu'on évite ailleurs. D'où `loaded`, et un bloc
- * vide — pas un état vide — tant qu'on ne sait pas.
+ * Sans `rows`, ils lisent le localStorage de CET appareil, au montage et jamais
+ * au rendu serveur : localStorage n'existe pas là-bas, et un premier rendu qui
+ * invente des lignes puis les remplace est exactement le clignotement qu'on
+ * évite ailleurs. D'où `loaded`, et un bloc vide — pas un état vide — tant
+ * qu'on ne sait pas. C'est le cas du propriétaire chez lui, où la lecture en
+ * cours doit se mettre à jour vivante (PROGRESS_EVENT), et celui du profil
+ * local d'un invité, qui n'a pas de compte.
+ *
+ * Avec `rows`, ils affichent ce que le rendu serveur a reconstruit depuis la
+ * sauvegarde de compte du PROPRIÉTAIRE (lib/profile/activity.ts). C'est ce qui
+ * permet enfin de les montrer à un visiteur : jusqu'ici ils lui auraient servi
+ * sa propre lecture sous le nom d'un autre.
  */
 
-type Row = HistoryRow & { pct: number; minutesLeft: number | null; done: boolean };
-
-function decorate(row: HistoryRow): Row {
-  const p = getProgress(row.aniId, row.episode);
-  const pct =
-    p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
-  const minutesLeft =
-    p && p.duration > 0 ? Math.max(0, Math.round((p.duration - p.time) / 60)) : null;
-  return { ...row, pct, minutesLeft, done: isCompleted(p) };
-}
-
-function useHistory(limit: number): { rows: Row[]; loaded: boolean } {
-  const [state, setState] = useState<{ rows: Row[]; loaded: boolean }>({
+function useHistory(limit: number): { rows: ActivityRow[]; loaded: boolean } {
+  const [state, setState] = useState<{ rows: ActivityRow[]; loaded: boolean }>({
     rows: [],
     loaded: false,
   });
   useEffect(() => {
     const read = () =>
-      setState({ rows: readHistory(limit).map(decorate), loaded: true });
+      setState({
+        rows: decorateRows(readHistory(limit), readProgressMap()),
+        loaded: true,
+      });
     read();
     window.addEventListener(PROGRESS_EVENT, read);
     window.addEventListener("storage", read);
@@ -50,18 +49,36 @@ function useHistory(limit: number): { rows: Row[]; loaded: boolean } {
   return state;
 }
 
+/** Les lignes servies s'il y en a, sinon celles de l'appareil. */
+function useRows(served: ActivityRow[] | undefined, limit: number) {
+  const local = useHistory(limit);
+  return served ? { rows: served, loaded: true } : local;
+}
+
+export type ActivityProps = {
+  /** L'activité du propriétaire, venue du rendu serveur. Absent : cet appareil. */
+  rows?: ActivityRow[];
+  /** Les textes qui tutoient le lecteur ne valent pas sur le profil d'un autre. */
+  other?: boolean;
+};
+
 /* ── Reprendre la lecture ────────────────────────────────────────────── */
 
-export function ResumeBlock() {
+export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
   const { t } = useTranslation();
-  const { rows, loaded } = useHistory(12);
+  const { rows, loaded } = useRows(served, 12);
 
   /* Le dernier épisode COMMENCÉ mais pas fini. Proposer de « reprendre » un
      épisode terminé enverrait au générique de fin ; l'épisode suivant serait la
      bonne suite, et c'est une autre question (on ne sait pas ici s'il existe). */
   const row = rows.find((r) => !r.done && r.pct > 0);
   if (!loaded) return <div className="h-full" />;
-  if (!row) return <EmptyBlock note={t("profile.blocks.resume.empty")} />;
+  if (!row)
+    return (
+      <EmptyBlock
+        note={t(other ? "profile.blocks.resume.emptyOther" : "profile.blocks.resume.empty")}
+      />
+    );
 
   const art = row.image || row.cover;
 
@@ -87,14 +104,14 @@ export function ResumeBlock() {
         </p>
         <p className="mt-1.5 font-karla text-[13px] text-white/50">
           {row.minutesLeft != null
-            ? t("profile.blocks.resume.line", {
+            ? t(other ? "profile.blocks.resume.lineOther" : "profile.blocks.resume.line", {
                 episode: row.episode,
                 minutes: row.minutesLeft,
               })
             : t("profile.blocks.resume.lineNoTime", { episode: row.episode })}
         </p>
         <span className="mt-3.5 inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-karla text-xs font-bold text-white shadow-glow">
-          {t("profile.blocks.resume.cta")}
+          {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
         </span>
       </div>
     </Link>
@@ -103,13 +120,18 @@ export function ResumeBlock() {
 
 /* ── Vu récemment ────────────────────────────────────────────────────── */
 
-export function RecentsBlock() {
+export function RecentsBlock({ rows: served, other }: ActivityProps = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
-  const { rows, loaded } = useHistory(12);
+  const { rows, loaded } = useRows(served, 12);
 
   if (!loaded) return <div className="h-full" />;
-  if (!rows.length) return <EmptyBlock note={t("profile.blocks.recents.empty")} />;
+  if (!rows.length)
+    return (
+      <EmptyBlock
+        note={t(other ? "profile.blocks.recents.emptyOther" : "profile.blocks.recents.empty")}
+      />
+    );
 
   return (
     <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">

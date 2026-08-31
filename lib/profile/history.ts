@@ -47,17 +47,19 @@ function parseDate(value: unknown): number {
   return 0;
 }
 
-/** L'historique, du plus récent au plus ancien. */
-export function readHistory(limit = 12): HistoryRow[] {
-  if (typeof window === "undefined") return [];
-  let raw: Record<string, any>;
-  try {
-    raw = JSON.parse(window.localStorage.getItem(KEY) || "{}") || {};
-  } catch {
-    return [];
-  }
+/**
+ * Le contenu du store, mis en forme — du plus récent au plus ancien.
+ *
+ * Séparé de `readHistory` parce que cette moitié-là ne connaît pas le
+ * navigateur : le même store, sauvegardé sur le compte par cloudSync sous la
+ * catégorie `recent`, est relu au rendu serveur pour peindre l'activité du
+ * propriétaire d'un profil (lib/profile/activity.ts). Une seule mise en forme
+ * pour les deux, sinon les deux vues du même historique divergent.
+ */
+export function rowsFromRaw(raw: unknown, limit = 12): HistoryRow[] {
+  if (!raw || typeof raw !== "object") return [];
   const rows: HistoryRow[] = [];
-  for (const item of Object.values(raw)) {
+  for (const item of Object.values(raw as Record<string, any>)) {
     if (!item || typeof item !== "object") continue;
     const aniId = Number((item as any).aniId);
     const episode = Number((item as any).episode);
@@ -77,6 +79,16 @@ export function readHistory(limit = 12): HistoryRow[] {
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
+}
+
+/** L'historique de CET appareil, du plus récent au plus ancien. */
+export function readHistory(limit = 12): HistoryRow[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return rowsFromRaw(JSON.parse(window.localStorage.getItem(KEY) || "{}"), limit);
+  } catch {
+    return [];
+  }
 }
 
 /** L'adresse à ouvrir pour reprendre cette ligne. */

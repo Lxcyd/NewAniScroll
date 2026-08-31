@@ -1011,3 +1011,89 @@ colonne au passage** pour que la lecture supplementaire ne se reproduise pas.
 Une ecriture declenchee par un GET, ce qui se justifie ici et seulement ici :
 elle est idempotente, elle ne fait que deplacer la donnee du proprietaire d'un
 endroit a l'autre, et elle s'eteint d'elle-meme des qu'elle a servi.
+
+## 01/09/2026 — Voir l'activite de lecture d'un AUTRE profil
+
+Les blocs « Reprendre la lecture » et « Vu recemment » n'apparaissaient pas sur
+le profil de quelqu'un d'autre. Ce n'etait pas de la pudeur : ils lisaient le
+localStorage du navigateur qui AFFICHE la page, donc servis a un visiteur ils
+auraient montre **sa** lecture a lui sous le nom du proprietaire. `visibleTo`
+les masquait pour cette seule raison, et c'etait la bonne reponse tant que la
+source etait celle-la.
+
+Elle ne l'est plus. Rien n'a eu besoin d'etre collecte : les deux stores dont
+ils dependent sont **deja sauvegardes sur le compte** par cloudSync —
+`artplayer_settings` sous la categorie `recent`, `aniscroll:progress` sous
+`progress`. Il n'y avait qu'a les deballer, exactement comme
+`localListFromCloudPayload` le fait pour la liste.
+
+### Le decoupage
+
+- `lib/profile/history.ts` : la mise en forme sort de `readHistory` dans
+  `rowsFromRaw(raw, limit)`. La garde `typeof window` restait la seule chose qui
+  empechait ce code de tourner cote serveur ; le reste etait deja isomorphe. Une
+  seule mise en forme pour les deux vues du meme historique.
+- `lib/profile/activity.ts` (nouveau) : `historyFromCloud`, `progressFromCloud`,
+  `decorateRows`, `activityFromCloud`. Le `decorate()` de DeviceBlocks prend
+  desormais la table de progression **en parametre** au lieu d'appeler
+  `getProgress` — celui-ci lit le localStorage et renvoie donc toujours `null`
+  hors navigateur : l'avancement de tout le monde serait reste a zero sans que
+  rien n'echoue.
+- `lib/watch/progress.ts` : `readProgressMap()` exporte, pour que le chemin
+  navigateur passe par le meme `decorateRows` (un `getProgress` par ligne
+  reparserait le localStorage a chaque appel).
+- `DeviceBlocks` : les deux blocs prennent `rows?: ActivityRow[]`. Fourni → ce
+  que le serveur a reconstruit. Absent → le hook local, inchange.
+
+**Le proprietaire chez lui garde sa source locale**, deliberement : elle est
+plus fraiche que la derniere synchronisation et elle se met a jour PENDANT qu'il
+regarde (`PROGRESS_EVENT`). Lui servir sa propre sauvegarde lui montrerait un
+episode de retard sur ce qu'il vient de lancer.
+
+### Le cout, parce que c'est la vraie contrainte
+
+Cette page est en `getServerSideProps` : chaque vue est un MISS, et tout ce
+qu'on demande est paye a chaque visite. Deux regles, donc.
+
+**Zero ecriture ajoutee.** `progress` et `recent` sont deja pousses par
+cloudSync (`DEBOUNCE_MS = 5000`). On ne recopie surtout PAS l'activite dans une
+colonne de `users` comme on l'a fait pour la disposition : ca imposerait une
+ecriture a chaque tick de progression.
+
+**Une lecture, jamais deux, et souvent zero.** Les categories sont choisies
+AVANT de lire, pas filtrees apres : `list` (jusqu'a 1 Mo) seulement pour un
+compte sans AniList, `prefs` seulement tant que `profile_layout` est vide,
+`progress`/`recent` seulement si la grille les affiche. La ligne `users` etant
+deja en main (`findByTag`), une colonne renseignee donne la disposition sans
+rien demander — un profil qui a retire ces deux blocs ne coute pas un octet de
+plus qu'avant. Et `getData(userId, kinds)` remplace `getAllData` sur ce chemin.
+
+Au passage, les deux `getAllData` que la page faisait (branche « compte sans
+AniList », rattrapage de disposition) fusionnent avec celle-ci : sur ces
+chemins-la, le nombre d'appels **baisse**.
+
+### Le garde-fou est aussi le seul moyen de ne rien publier
+
+L'activite n'est calculee que si la disposition contient `resume` ou `recents`.
+Ce n'est pas qu'une economie : la disposition etant publique, « je retire le
+bloc » doit vraiment retirer la donnee. Sans ce test, elle resterait lisible
+dans `__NEXT_DATA__` alors que plus rien ne l'afficherait — il n'y a pas de
+reglage de visibilite, retirer le bloc EST le reglage.
+
+### Les textes tutoyaient le lecteur
+
+« Rien en cours sur cet appareil », « il te reste 12 min », « Reprendre » : rien
+de tout cela ne vaut sur le profil d'un autre. Cinq cles `*Other` ajoutees, et
+`resume.title` devient « Regarde en ce moment » pour un visiteur.
+
+### Verifie
+
+21 assertions sur le decodage (`npx tsx`, script jetable) : tri par date,
+renommages, `createdAt` ISO → epoch, pourcentage et minutes restantes, `done`
+vrai quand `time === duration` (ce qu'ecrit `markComplete`), duree inconnue,
+ligne sans `aniId` numerique jetee, lien de lecture avec et sans provider, et
+tous les cas degeneres — payload absent, mauvaise cle, JSON illisible, `"{}"`
+qu'ecrit `clearAllProgress`, `"null"`. Plus `tsc --noEmit` et `next lint`.
+
+Le chemin « zero requete » est verifie par lecture et non mesure : le garde-fou
+est un `kinds.length ?` sur un tableau construit juste au-dessus.

@@ -17,7 +17,7 @@ import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicke
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
-import { getAllData } from "@/lib/auth/userData";
+import { getData, type DataKind } from "@/lib/auth/userData";
 import {
   entriesFromAniList,
   entriesFromLocalList,
@@ -26,8 +26,9 @@ import {
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
-import { isKnownBlock } from "@/lib/profile/blocks";
+import { DEFAULT_BLOCKS, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
+import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
@@ -37,6 +38,20 @@ import type {
   ProfileIdentity,
   ProfileStats,
 } from "@/lib/profile/types";
+
+/** Les deux blocs nourris par l'activité de lecture du propriétaire. */
+const ACTIVITY_BLOCKS = new Set(["resume", "recents"]);
+
+/** Une disposition stockée, remise en forme — `null` si elle est illisible. */
+function parseLayout(raw: string | null | undefined): GridItem[] | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    return isValidLayout(value) ? sanitizeLayout(value, isKnownBlock) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A profile — the same page whether the account is AniList, AniScroll, or both.
@@ -77,6 +92,8 @@ type Props = {
    *  tout le monde : c'est ce qui fait qu'un visiteur voit le profil tel que son
    *  propriétaire l'a arrangé, et non tel que LUI l'a arrangé chez lui. */
   profileLayout: GridItem[] | null;
+  /** L'activité de lecture du propriétaire, quand sa grille l'affiche. */
+  activity: ActivityRow[] | null;
   /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
@@ -92,6 +109,7 @@ export default function Profile({
   pinned: initialPinned,
   isOwner,
   profileLayout,
+  activity,
   isPrivate,
   viewedName,
 }: Props) {
@@ -219,6 +237,7 @@ export default function Profile({
             characters={characters}
             isOwner={isOwner}
             accountLayout={profileLayout ?? null}
+            activity={activity ?? null}
           />
         ) : null}
 
@@ -390,6 +409,38 @@ export async function getServerSideProps(context: any) {
     };
   }
 
+  /* ── UNE SEULE LECTURE DE user_data, ET SEULEMENT CE QU'ON AFFICHERA ──
+     Cette page est en getServerSideProps : chaque vue est un MISS, et tout ce
+     qu'on demande ici est payé à chaque visite. D'où deux règles.
+
+     1. Les catégories sont choisies avant de lire, pas filtrées après. `list`
+        monte à MAX_PAYLOAD_BYTES (1 Mo) et ne sert qu'aux comptes sans AniList ;
+        `prefs` ne sert que tant que la colonne `profile_layout` est vide.
+     2. L'activité de lecture n'est lue QUE si la grille l'affiche. La ligne
+        `users` est déjà en main (findByTag), donc quand `profile_layout` est
+        renseignée on connaît la disposition sans rien demander, et un profil qui
+        a retiré ces deux blocs ne coûte pas un octet de plus qu'avant.
+
+     Quand la colonne est vide, on demande l'activité d'office : la disposition
+     viendra du rattrapage `prefs` ou du défaut, et le défaut contient les deux
+     blocs. Une requête dans tous les cas, jamais deux. */
+  const layoutInColumn = parseLayout(account?.profileLayout);
+  /* Une disposition absente n'est pas une disposition vide : c'est celle par
+     défaut, et DEFAULT_BLOCKS contient les deux blocs d'activité. */
+  const layoutWantsActivity = (items: GridItem[] | null) =>
+    items
+      ? items.some((o) => ACTIVITY_BLOCKS.has(o.i))
+      : DEFAULT_BLOCKS.some((id) => ACTIVITY_BLOCKS.has(id));
+
+  const kinds: DataKind[] = [];
+  if (account && !collection?.user) kinds.push("list");
+  if (account && !layoutInColumn) kinds.push("prefs");
+  if (account && (!layoutInColumn || layoutWantsActivity(layoutInColumn))) {
+    kinds.push("progress", "recent");
+  }
+  const stored = account && kinds.length ? await getData(account.id, kinds).catch(() => []) : [];
+  const payloadOf = (kind: DataKind) => stored.find((d) => d.kind === kind)?.payload;
+
   /* ── The list ───────────────────────────────────────────────── */
   const known = new Map<number, KnownArt>();
   let entries: ProfileEntry[];
@@ -442,9 +493,7 @@ export async function getServerSideProps(context: any) {
     };
   } else {
     // AniScroll-only account: its list is the cloud backup of the local one.
-    const data = account ? await getAllData(account.id).catch(() => []) : [];
-    const payload = data.find((d) => d.kind === "list")?.payload;
-    entries = entriesFromLocalList(localListFromCloudPayload(payload));
+    entries = entriesFromLocalList(localListFromCloudPayload(payloadOf("list")));
     stats = statsFromEntries(entries);
   }
 
@@ -464,26 +513,15 @@ export async function getServerSideProps(context: any) {
     }
   }
 
-  /* ── La grille ──────────────────────────────────────────────────
-     Lue sur la ligne du profil, jamais sur la session : c'est le rangement de
-     SON propriétaire, et c'est ce que tout le monde doit voir. Nettoyée ici
-     plutôt que dans le navigateur, pour que la première peinture soit déjà la
-     bonne — la route d'écriture nettoie aussi, mais une ligne peut dater d'une
-     version où un bloc existait encore. */
-  const profileLayout: GridItem[] | null = await (async () => {
-    const parse = (raw: string | null | undefined) => {
-      if (!raw) return null;
-      try {
-        const value = JSON.parse(raw);
-        return isValidLayout(value) ? sanitizeLayout(value, isKnownBlock) : null;
-      } catch {
-        return null;
-      }
-    };
+  /* ── La grille, et l'activité qu'elle demande ────────────────────
+     La disposition est lue sur la ligne DU PROFIL, jamais sur la session :
+     c'est le rangement de son propriétaire, et c'est ce que tout le monde doit
+     voir. Nettoyée ici plutôt que dans le navigateur, pour que la première
+     peinture soit déjà la bonne — la route d'écriture nettoie aussi, mais une
+     ligne peut dater d'une version où un bloc existait encore. */
+  let profileLayout = layoutInColumn;
 
-    const own = parse(account?.profileLayout);
-    if (own || !account) return own;
-
+  if (!profileLayout && account) {
     /* RATTRAPAGE, et il vaut mieux qu'un rattrapage côté navigateur.
        Avant que la grille ne devienne publique, elle vivait dans
        `aniscroll:profileLayout` — une clé locale, donc déjà sauvegardée dans la
@@ -492,21 +530,27 @@ export async function getServerSideProps(context: any) {
        chemin, son profil resterait sur la grille par défaut pour tous ses
        visiteurs jusqu'à sa prochaine visite.
 
-       Écrit dans la colonne au passage, pour que cette lecture de plus ne se
-       reproduise pas. C'est une écriture déclenchée par un GET, ce qui se
+       Écrit dans la colonne au passage, pour que la catégorie `prefs` cesse
+       d'être demandée. C'est une écriture déclenchée par un GET, ce qui se
        justifie ici et seulement ici : elle est idempotente, elle ne fait que
        déplacer la donnée du propriétaire d'un endroit à l'autre, et elle
        s'éteint d'elle-même dès qu'elle a servi. */
-    const data = await getAllData(account.id).catch(() => []);
-    const prefs = data.find((d) => d.kind === "prefs")?.payload as
-      | Record<string, string>
-      | undefined;
-    const recovered = parse(prefs?.["aniscroll:profileLayout"]);
-    if (recovered) {
-      void setProfileLayout(account.id, JSON.stringify(recovered)).catch(() => {});
+    const prefs = payloadOf("prefs") as Record<string, string> | undefined;
+    profileLayout = parseLayout(prefs?.["aniscroll:profileLayout"]);
+    if (profileLayout) {
+      void setProfileLayout(account.id, JSON.stringify(profileLayout)).catch(() => {});
     }
-    return recovered;
-  })();
+  }
+
+  /* L'activité du propriétaire, et SEULEMENT si la grille l'affiche.
+     Ce garde-fou fait deux choses d'un coup. Il évite de peindre une donnée que
+     personne n'a demandée — et surtout, comme la disposition est publique, il
+     donne son sens à « je retire le bloc » : sans lui, l'activité resterait
+     lisible dans __NEXT_DATA__ alors que plus rien ne l'afficherait à l'écran.
+     C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
+  const activity: ActivityRow[] | null = layoutWantsActivity(profileLayout)
+    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress") })
+    : null;
 
   const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
   const resolved = pinnedBanner
@@ -576,6 +620,7 @@ export async function getServerSideProps(context: any) {
       pinned: !!pinnedBanner,
       isOwner,
       profileLayout,
+      activity,
     },
   };
 }

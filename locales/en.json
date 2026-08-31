@@ -863,7 +863,11 @@
         "empty": "Nothing in progress on this device — start an episode and it shows up here.",
         "line": "Episode {{episode}} · {{minutes}} min left",
         "lineNoTime": "Episode {{episode}}",
-        "cta": "Resume"
+        "cta": "Resume",
+        "titleOther": "Currently watching",
+        "emptyOther": "Nothing in progress.",
+        "lineOther": "Episode {{episode}} · {{minutes}} min left",
+        "ctaOther": "Open the episode"
       },
       "favorites": {
         "title": "Favourite anime",
@@ -875,7 +879,8 @@
         "title": "Recently watched",
         "desc": "The last episodes played on this device.",
         "empty": "Nothing has been played on this device yet.",
-        "line": "Episode {{episode}} · {{when}}"
+        "line": "Episode {{episode}} · {{when}}",
+        "emptyOther": "Nothing played yet."
       },
       "statuses": {
         "title": "By status",

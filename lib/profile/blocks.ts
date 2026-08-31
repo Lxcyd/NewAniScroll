@@ -85,9 +85,25 @@ export const DEFAULT_BLOCKS = [
   "genres",
 ] as const;
 
-/** Les blocs qu'un visiteur peut voir sur le profil d'un autre. */
-export function visibleTo(isOwner: boolean, id: string): boolean {
-  const def = BY_ID.get(id);
-  if (!def) return false;
-  return isOwner || def.source !== "device";
+/**
+ * Les blocs qu'un visiteur peut voir sur le profil d'un autre : tous.
+ *
+ * Cette fonction retirait les blocs `device` — reprendre la lecture, vu
+ * récemment. Ce n'était pas de la pudeur : ils lisaient le localStorage du
+ * navigateur qui AFFICHE la page, donc sur le profil d'un autre ils auraient
+ * montré la lecture du visiteur sous le nom du propriétaire. Les masquer était
+ * la seule réponse honnête tant que la source était celle-là.
+ *
+ * Elle ne l'est plus. lib/profile/activity.ts reconstruit l'historique du
+ * PROPRIÉTAIRE depuis sa sauvegarde de compte, et le rendu serveur le passe aux
+ * blocs quand le lecteur n'est pas chez lui. Le motif du masquage a disparu
+ * avec la cause.
+ *
+ * Le paramètre `isOwner` reste : quatre appelants le passent, et c'est encore
+ * lui qui dira quoi faire le jour où un réglage de visibilité apparaîtra —
+ * aujourd'hui il n'y en a aucun, on retire le bloc pour ne rien publier, la
+ * disposition étant elle-même publique.
+ */
+export function visibleTo(_isOwner: boolean, id: string): boolean {
+  return BY_ID.has(id);
 }

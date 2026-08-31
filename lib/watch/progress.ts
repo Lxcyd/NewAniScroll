@@ -72,6 +72,19 @@ function progressKey(aniId: number | string, episode: number | string): string {
   return `${aniId}:${episode}`;
 }
 
+/**
+ * La table entière de CET appareil, `{}` hors navigateur.
+ *
+ * Exportée depuis que l'avancement se calcule aussi à partir d'une table venue
+ * d'ailleurs (celle du compte d'un autre, cf. lib/profile/activity.ts) : les
+ * appelants qui décorent une liste de lignes prennent la table en paramètre, et
+ * il leur faut donc un moyen d'obtenir celle d'ici. Un `getProgress` par ligne
+ * relirait et reparserait le localStorage à chaque appel.
+ */
+export function readProgressMap(): ProgressMap {
+  return readMap();
+}
+
 function readMap(): ProgressMap {
   if (typeof window === "undefined") return {};
   try {

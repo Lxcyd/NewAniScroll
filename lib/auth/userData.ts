@@ -37,14 +37,8 @@ async function db() {
   return client;
 }
 
-export async function getAllData(userId: string): Promise<StoredKind[]> {
-  const client = await db();
-  if (!client) return [];
-  const res = await client.execute({
-    sql: `SELECT kind, payload, rev, updated_at FROM user_data WHERE user_id = ?`,
-    args: [userId],
-  });
-  return res.rows.flatMap((row) => {
+function toStored(rows: { kind: unknown; payload: unknown; rev: unknown; updated_at: unknown }[]) {
+  return rows.flatMap((row) => {
     const kind = String(row.kind);
     if (!isDataKind(kind)) return [];
     try {
@@ -62,6 +56,40 @@ export async function getAllData(userId: string): Promise<StoredKind[]> {
       return [];
     }
   });
+}
+
+export async function getAllData(userId: string): Promise<StoredKind[]> {
+  const client = await db();
+  if (!client) return [];
+  const res = await client.execute({
+    sql: `SELECT kind, payload, rev, updated_at FROM user_data WHERE user_id = ?`,
+    args: [userId],
+  });
+  return toStored(res.rows as any);
+}
+
+/**
+ * Les seules catégories demandées.
+ *
+ * `getAllData` ramène aussi `list`, qui monte à MAX_PAYLOAD_BYTES — un mégaoctet
+ * traversé jusqu'au rendu pour rien. Les pages qui n'ont besoin que d'une ou
+ * deux catégories passent par ici : la page de profil est rendue à chaque
+ * visite, sans cache, et le volume qu'elle déplace est payé à chaque fois.
+ */
+export async function getData(
+  userId: string,
+  kinds: DataKind[],
+): Promise<StoredKind[]> {
+  if (!kinds.length) return [];
+  const client = await db();
+  if (!client) return [];
+  const res = await client.execute({
+    sql: `SELECT kind, payload, rev, updated_at
+            FROM user_data
+           WHERE user_id = ? AND kind IN (${kinds.map(() => "?").join(",")})`,
+    args: [userId, ...kinds],
+  });
+  return toStored(res.rows as any);
 }
 
 /**

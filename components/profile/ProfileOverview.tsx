@@ -15,6 +15,7 @@ import {
   StudiosBlock,
 } from "./widgets/ListBlocks";
 import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
+import type { ActivityRow } from "@/lib/profile/activity";
 import {
   BLOCKS,
   DEFAULT_BLOCKS,
@@ -51,9 +52,11 @@ import type { ProfileCharacter, ProfileEntry } from "@/lib/profile/types";
  * (`profile_layout`), lue au rendu serveur et servie à tout le monde, à côté de
  * `profile_banner` qui est publique pour exactement la même raison.
  *
- * Le seul écart qui reste entre les deux vues est celui des blocs `device` :
- * voir le commentaire dans l'effet ci-dessous, c'est une question de vérité et
- * non de permission.
+ * Les deux vues montrent maintenant les MÊMES blocs, activité de lecture
+ * comprise : celle-ci arrive par la prop `activity`, reconstruite au rendu
+ * serveur depuis la sauvegarde du propriétaire. Ce qui change d'un côté à
+ * l'autre n'est donc plus la liste des blocs mais la source de deux d'entre
+ * eux, et la formulation des textes qui tutoyaient le lecteur.
  *
  * `lib/prefs/profileLayout.ts` reste, pour le seul cas qui n'a pas de compte :
  * le profil local d'un invité (components/profile/LocalProfile.tsx).
@@ -68,6 +71,13 @@ type Props = {
    *  défaut. `undefined` : il n'y a pas de compte derrière — le profil local
    *  d'un invité — et la disposition reste alors celle de l'appareil. */
   accountLayout?: GridItem[] | null;
+  /** L'activité de lecture DU PROPRIÉTAIRE, reconstruite au rendu serveur
+   *  depuis sa sauvegarde de compte. Sert aux blocs `resume` et `recents` quand
+   *  le lecteur n'est pas chez lui : sans elle ils liraient le localStorage de
+   *  CE navigateur et afficheraient sa lecture à lui sous le nom d'un autre.
+   *  Le propriétaire, lui, garde sa source locale — elle est plus fraîche que
+   *  la dernière synchronisation, et elle se met à jour pendant qu'il regarde. */
+  activity?: ActivityRow[] | null;
 };
 
 function defaultLayout(isOwner: boolean): GridItem[] {
@@ -85,6 +95,7 @@ export default function ProfileOverview({
   characters,
   isOwner,
   accountLayout,
+  activity,
 }: Props) {
   const { t } = useTranslation();
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
@@ -117,11 +128,11 @@ export default function ProfileOverview({
       save(base);
     }
     const items = base ? sanitizeLayout(base, isKnownBlock) : defaultLayout(isOwner);
-    /* Le SEUL écart entre ce que voit le propriétaire et ce que voit un
-       visiteur. Les blocs `device` — reprendre la lecture, vu récemment — lisent
-       la progression de l'appareil qui AFFICHE la page : servis à un visiteur,
-       ils montreraient sa lecture à lui sous le nom d'un autre. Rien ne peut les
-       remplacer par la donnée du profil, elle n'existe pas côté serveur. */
+    /* `visibleTo` ne retire plus rien à un visiteur : les blocs d'activité sont
+       désormais nourris par la sauvegarde du propriétaire (prop `activity`) et
+       non par le localStorage du lecteur. Le filtre reste comme point de
+       branchement d'un futur réglage de visibilité — il n'y en a aucun
+       aujourd'hui, on retire le bloc pour ne rien publier. */
     setLayout(compact(items.filter((o) => visibleTo(isOwner, o.i))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, source, isOwner, onAccount, device.loaded, device.layout]);
@@ -164,8 +175,11 @@ export default function ProfileOverview({
   function renderBlock(id: string): BlockChrome | null {
     const def = blockDef(id);
     if (!def) return null;
+    /* « Reprendre la lecture » est écrit pour celui qui lit. Sur le profil d'un
+       autre, c'est lui qui regarde, pas nous. */
+    const other = !isOwner && id === "resume";
     return {
-      title: t(`profile.blocks.${id}.title`),
+      title: t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`),
       meta: null,
       color: def.color,
       body: body(id),
@@ -173,11 +187,17 @@ export default function ProfileOverview({
   }
 
   function body(id: string): React.ReactNode {
+    const served = isOwner ? undefined : (activity ?? undefined);
     switch (id) {
+      /* `served` reste indéfini chez soi, et c'est délibéré : les deux blocs
+         retombent alors sur le localStorage de cet appareil, qui est plus frais
+         que la dernière synchronisation et qui se met à jour PENDANT qu'on
+         regarde (PROGRESS_EVENT). Servir sa propre sauvegarde au propriétaire
+         lui montrerait un épisode en retard sur ce qu'il vient de lancer. */
       case "resume":
-        return <ResumeBlock />;
+        return <ResumeBlock rows={served} other={!isOwner} />;
       case "recents":
-        return <RecentsBlock />;
+        return <RecentsBlock rows={served} other={!isOwner} />;
       case "favorites":
         return <FavoritesBlock entries={entries} />;
       case "statuses":

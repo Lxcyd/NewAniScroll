@@ -863,7 +863,11 @@
         "empty": "Rien en cours sur cet appareil : lance un épisode et il apparaîtra ici.",
         "line": "Épisode {{episode}} · il te reste {{minutes}} min",
         "lineNoTime": "Épisode {{episode}}",
-        "cta": "Reprendre"
+        "cta": "Reprendre",
+        "titleOther": "Regarde en ce moment",
+        "emptyOther": "Rien en cours.",
+        "lineOther": "Épisode {{episode}} · {{minutes}} min restantes",
+        "ctaOther": "Voir l'épisode"
       },
       "favorites": {
         "title": "Animes favoris",
@@ -875,7 +879,8 @@
         "title": "Vu récemment",
         "desc": "Les derniers épisodes regardés sur cet appareil.",
         "empty": "Aucune lecture enregistrée sur cet appareil.",
-        "line": "Épisode {{episode}} · {{when}}"
+        "line": "Épisode {{episode}} · {{when}}",
+        "emptyOther": "Aucune lecture enregistrée."
       },
       "statuses": {
         "title": "Répartition par statut",
