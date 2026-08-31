@@ -3456,6 +3456,48 @@ export default function UniversalPlayer({
     }
   };
 
+  /* La liste du MENU : seule reference d'ordre et d'identite.
+     Ce qu'un index de menu designe se lit ICI, et se retrouve dans
+     `player.textTracks` par SRC — jamais par position. Les deux listes ne sont
+     pas dans le meme ordre, et ne peuvent pas l'etre :
+
+       const track = React.useMemo(() => new TextTrack(init), Object.values(init));
+       useEffect(() => { textTracks.add(track); return () => textTracks.remove(track); }, [track]);
+
+     C'est le <Track> de Vidstack. Changer une seule prop RECREE la piste :
+     retiree, puis rajoutee EN FIN de liste. Les chips VF et VOSTFR de frembed
+     servent les deux memes .vtt et ne different que par l'ordre et le `default`,
+     donc au retour sur la VOSTFR seule « FR Subs » est recreee et repasse
+     derriere « FR Forced » : le menu affichait [Subs, Forced] pendant que le
+     lecteur tenait [Forced, Subs]. Compter les positions allumait la piste
+     forcee — quelques panneaux, aucun dialogue : des sous-titres « manquants »
+     (signale le 31/08/2026). */
+  const menuTracks = (): Array<{ src: string; language?: string }> =>
+    subsMemoRef.current?.value || [];
+
+  // Index MENU de la piste actuellement allumee, -1 si aucune.
+  const showingMenuIdx = (tracks: any): number => {
+    const list = menuTracks();
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || !isMenuTrack(t) || t.mode !== "showing") continue;
+      const idx = list.findIndex((s) => s.src === t.src);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  // La piste du lecteur que la ligne `idx` du menu designe, si elle est deja
+  // enregistree (elles arrivent une par une lors d'un changement de source).
+  const trackAt = (tracks: any, idx: number): any => {
+    const want = menuTracks()[idx]?.src;
+    if (!want) return null;
+    for (let i = 0; i < tracks.length; i++) {
+      if (tracks[i]?.src === want) return tracks[i];
+    }
+    return null;
+  };
+
   const selectSubtitleTrack = (idx: number, { persist = true } = {}) => {
     setActiveTrackIdx(idx);
     intendedTrackIdx.current = idx;
@@ -3464,18 +3506,15 @@ export default function UniversalPlayer({
     if (idx >= 0) lastShownTrackIdx.current = idx;
     const tracks = playerRef.current?.textTracks;
     if (!tracks) return;
-    // Walk the textTracks list, only touching captions/subtitles tracks (skip
-    // chapters/metadata). Index aligns with the <Track> children we render.
     muteGhostTracks(tracks);
-    let captionIndex = 0;
+    const want = menuTracks()[idx]?.src || null;
     let selectedLang: string | null = null;
     for (let i = 0; i < tracks.length; i++) {
       const t = tracks[i];
       if (!t || !isMenuTrack(t)) continue;
-      const showing = captionIndex === idx;
+      const showing = !!want && t.src === want;
       t.mode = showing ? "showing" : "disabled";
       if (showing) selectedLang = t.language || (t as any).label || null;
-      captionIndex++;
     }
     // Persist the choice so the next episode / anime restores it.
     if (!persist) return;
@@ -3518,15 +3557,12 @@ export default function UniversalPlayer({
     const findByLang = (pref: string | null): number => {
       if (!pref) return -1;
       const want = pref.toLowerCase();
-      let captionIndex = 0;
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        if (!t || !isMenuTrack(t)) continue;
-        const lang = (t.language || "").toLowerCase();
-        if (lang === want) return captionIndex;
-        captionIndex++;
-      }
-      return -1;
+      // Cherchee dans la liste du MENU, qui porte le contrat d'ordre etabli par
+      // l'API (cf. frembedSubtitles) — la liste du lecteur, elle, se reordonne
+      // toute seule au gre des recreations de <Track> (cf. menuTracks).
+      return menuTracks().findIndex(
+        (s) => (s.language || "").toLowerCase() === want,
+      );
     };
 
     // Apply our language preference exactly once per source. Crucially we do
@@ -3538,20 +3574,13 @@ export default function UniversalPlayer({
 
     const sync = () => {
       muteGhostTracks(tracks);
-      let captionIndex = 0;
-      let activeIdx = -1;
-      let hasAnyShowing = false;
-      let firstAvailable = -1;
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        if (!t || !isMenuTrack(t)) continue;
-        if (firstAvailable < 0) firstAvailable = captionIndex;
-        if (t.mode === "showing") {
-          activeIdx = captionIndex;
-          hasAnyShowing = true;
-        }
-        captionIndex++;
-      }
+      const activeIdx = showingMenuIdx(tracks);
+      const hasAnyShowing = activeIdx >= 0;
+      // « Il y a de quoi choisir » = au moins une piste du menu deja
+      // enregistree chez le lecteur. Sans cette condition la passe de
+      // preference tournerait a vide au montage, avant l'arrivee des <Track>,
+      // et se croirait faite.
+      const firstAvailable = trackAt(tracks, 0) ? 0 : -1;
 
       // First authoritative pass for this source: pick the track that matches
       // the user's saved language, else the SITE language default:
@@ -3608,7 +3637,7 @@ export default function UniversalPlayer({
       if (
         activeIdx < 0 &&
         intendedTrackIdx.current >= 0 &&
-        intendedTrackIdx.current < captionIndex
+        trackAt(tracks, intendedTrackIdx.current)
       ) {
         selectSubtitleTrack(intendedTrackIdx.current, { persist: false });
         return;
