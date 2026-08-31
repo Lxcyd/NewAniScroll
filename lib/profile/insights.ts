@@ -155,11 +155,6 @@ export function currentlyWatching(entries: ProfileEntry[], max = 6): ProfileEntr
     .slice(0, max);
 }
 
-/** Le vivier de la roulette : ce qui est prévu, et jamais commencé. */
-export function plannedPool(entries: ProfileEntry[]): ProfileEntry[] {
-  return entries.filter((e) => (e.status || "").toUpperCase() === "PLANNING");
-}
-
 /**
  * La vitrine des favoris : les favoris AniList d'abord, complétés par les mieux
  * notés. Un profil sans favori déclaré n'affiche donc pas un bloc vide, il

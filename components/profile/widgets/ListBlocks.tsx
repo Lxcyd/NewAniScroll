@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -9,11 +9,9 @@ import { listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import {
   currentlyWatching,
   decadeCounts,
-  entryTitle,
   favoriteShowcase,
   formatCounts,
   genreCounts,
-  plannedPool,
   scoreHistogram,
   statusCounts,
   studioRanks,
@@ -347,59 +345,6 @@ export function SeasonBlock({ entries }: { entries: ProfileEntry[] }) {
           </Link>
         );
       })}
-    </div>
-  );
-}
-
-/* ── Roulette du soir ────────────────────────────────────────────────── */
-
-export function RouletteBlock({ entries }: { entries: ProfileEntry[] }) {
-  const { t } = useTranslation();
-  const titlePref = useTitlePref();
-  const clickTarget = useClickTarget();
-  const pool = useMemo(() => plannedPool(entries), [entries]);
-  const [n, setN] = useState(0);
-
-  if (!pool.length) return <EmptyBlock note={t("profile.blocks.roulette.empty")} />;
-  const pick = pool[n % pool.length];
-
-  return (
-    <div className="flex h-full items-center gap-4">
-      <div className="min-w-0 flex-1">
-        <p className="font-karla text-[11px] text-white/40">
-          {t("profile.blocks.roulette.from", { count: pool.length })}
-        </p>
-        <Link
-          href={animeHref(pick.mediaId, clickTarget)}
-          className="mt-1.5 block truncate font-outfit text-xl font-bold tracking-tight text-white hover:text-action"
-        >
-          {pickTitle(pick.title, titlePref)}
-        </Link>
-        <button
-          type="button"
-          onClick={() => setN((v) => v + 1 + Math.floor(Math.random() * 3))}
-          className="mt-4 inline-flex items-center gap-2 rounded-full bg-action px-4 py-2.5 font-karla text-xs font-bold text-white shadow-glow transition-transform hover:scale-105"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3.5 w-3.5">
-            <path d="M21 12a9 9 0 11-3-6.7" />
-            <polyline points="21 4 21 9 16 9" />
-          </svg>
-          {t("profile.blocks.roulette.spin")}
-        </button>
-      </div>
-      <Link
-        href={animeHref(pick.mediaId, clickTarget)}
-        className="relative w-20 shrink-0 overflow-hidden rounded-xl bg-as-card"
-        style={{ aspectRatio: "2 / 3" }}
-      >
-        {pick.cover ? (
-          <Image src={pick.cover} alt="" fill sizes="96px" className="object-cover" />
-        ) : (
-          <span className="flex h-full items-center justify-center font-outfit text-2xl font-bold text-white/25">
-            {entryTitle(pick).charAt(0)}
-          </span>
-        )}
-      </Link>
     </div>
   );
 }

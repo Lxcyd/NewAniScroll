@@ -886,3 +886,19 @@ Le partage est desormais celui de react-grid-layout :
 
 `dragId` devient `drag = {id, mode, x, y, w, h}` : le rendu a besoin du
 rectangle de depart, et un ref lu pendant le rendu ne redeclenche rien.
+
+### Suite : la couture, et la Roulette du soir
+
+`.as-page-seam` part avec le voile. Elle fondait sur 140 px vers
+`rgba(12,13,16,0.9)` pour rejoindre `.as-page-under` ; celui-ci n'existant plus,
+elle fondait vers une couleur que plus rien ne peignait et ne faisait que
+tracer une bande sombre en travers du papier peint — a l'endroit precis ou le
+papier peint est cense continuer. `.as-page-scrim` est desormais la SEULE couche
+au-dessus de l'illustration.
+
+Le bloc `roulette` (« Roulette du soir ») est retire du catalogue : l'entree
+dans `BLOCKS`, `RouletteBlock`, `plannedPool` — qui n'avait qu'elle pour
+appelant — le cas dans `ProfileOverview`, et les deux traductions. Les
+dispositions deja enregistrees qui le contiennent ne cassent pas :
+`sanitizeLayout(stored, isKnownBlock)` jette les identifiants inconnus et
+`compact` referme le trou.

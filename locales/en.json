@@ -919,13 +919,6 @@
         "empty": "Nothing in progress in your list.",
         "progress": "ep. {{progress}} / {{total}}"
       },
-      "roulette": {
-        "title": "Tonight's roulette",
-        "desc": "A random pick from your planning list.",
-        "empty": "Add titles to “planning” and the roulette will have something to draw.",
-        "from": "Drawn from your {{count}} planned titles",
-        "spin": "Spin again"
-      },
       "characters": {
         "title": "Favourite characters",
         "desc": "The characters you favourited on AniList.",

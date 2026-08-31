@@ -2173,8 +2173,9 @@ input[type="number"] {
    little extra at the very top (the transparent navbar) and bottom. Everything
    that has to stay readable over an arbitrary picture carries its own contrast:
    the name a shadow, the stat cards a dark backing (.as-stat-card), the chips a
-   blur. The seam with the list below is drawn by .as-page-seam, which scrolls
-   WITH the content and therefore always lands exactly where the two meet.
+   blur. And it is the ONLY layer over the wallpaper: the seam that used to join
+   it to the content, and the flat veil under the content, both went — see the
+   note where .as-page-under stood.
 
    z-index 0 and NOT -1: `html` carries its own background colour, so a negative
    layer would be painted behind it and never seen — which is why the page's own
@@ -2197,16 +2198,6 @@ input[type="number"] {
       rgba(12, 13, 16, 0.28) 65%,
       rgba(12, 13, 16, 0.6) 100%
     );
-}
-/* The join between the wallpaper and the list that scrolls over it. In the
-   flow, at the foot of the header, so it travels with the content. */
-.as-page-seam {
-  height: 140px;
-  background: linear-gradient(
-    to bottom,
-    rgba(12, 13, 16, 0) 0%,
-    rgba(12, 13, 16, 0.9) 100%
-  );
 }
 /* .as-page-under IS GONE, and here is why it must not come back.
 

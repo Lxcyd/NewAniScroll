@@ -339,10 +339,10 @@ export default function ProfileHero({
         </dl>
       ) : null}
 
-      {/* Wallpaper mode ends on a fade into the page's own colour, drawn here —
-          in the flow — so it stays glued to the top of the list instead of to
-          the window the picture is pinned to. */}
-      {asPage ? <div className="as-page-seam mt-6" /> : null}
+      {/* No seam here any more. It faded 140px into rgba(12,13,16,0.9) to meet
+          .as-page-under, and .as-page-under is gone (see globals.css): fading
+          into a colour nothing is painted in just drew a dark band across the
+          wallpaper, at the one spot the wallpaper is meant to keep going. */}
       </header>
     </div>
   );

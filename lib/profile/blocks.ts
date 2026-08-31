@@ -39,7 +39,6 @@ export const BLOCKS: BlockDef[] = [
   { id: "formats", size: [2, 2], color: "#3B82F6", source: "list", icon: "◧" },
   { id: "studios", size: [2, 1], color: "#FFD700", source: "list", icon: "◆" },
   { id: "season", size: [4, 1], color: "#22c55e", source: "list", icon: "❂" },
-  { id: "roulette", size: [2, 1], color: "#F59E0B", source: "list", icon: "⚄" },
   { id: "characters", size: [4, 1], color: "#E94560", source: "list", icon: "☺" },
   // Sans source, pour l'instant — cf. l'en-tête. Chacun sait déjà ce qu'il lui
   // manque, écrit dans sa traduction `.soon`, pour que le bloc vide explique

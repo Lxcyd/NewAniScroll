@@ -9,7 +9,6 @@ import {
   FavoritesBlock,
   FormatsBlock,
   GenresBlock,
-  RouletteBlock,
   ScoresBlock,
   SeasonBlock,
   StatusesBlock,
@@ -126,8 +125,6 @@ export default function ProfileOverview({ entries, characters, isOwner }: Props)
         return <StudiosBlock entries={entries} />;
       case "season":
         return <SeasonBlock entries={entries} />;
-      case "roulette":
-        return <RouletteBlock entries={entries} />;
       case "characters":
         return <CharactersBlock characters={characters} />;
       default:

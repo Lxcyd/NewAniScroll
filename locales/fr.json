@@ -919,13 +919,6 @@
         "empty": "Rien en cours dans ta liste.",
         "progress": "ép. {{progress}} / {{total}}"
       },
-      "roulette": {
-        "title": "Roulette du soir",
-        "desc": "Un titre au hasard, tiré de tes prévus.",
-        "empty": "Ajoute des titres à « prévu » et la roulette aura de quoi tirer.",
-        "from": "Tiré de tes {{count}} titres prévus",
-        "spin": "Relancer"
-      },
       "characters": {
         "title": "Personnages favoris",
         "desc": "Les personnages que tu as mis en favori sur AniList.",
