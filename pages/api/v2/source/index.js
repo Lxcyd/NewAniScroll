@@ -335,7 +335,14 @@ function frembedCarriesAudio(manifest, label, audioLang) {
   for (const line of manifest.split(/\r?\n/)) {
     if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=AUDIO/.test(line)) continue;
     const m = line.match(/LANGUAGE="([^"]*)"/);
-    if (m) langs.push(m[1].slice(0, 2).toLowerCase());
+    // Les pistes audio observees portent "fr"/"ja", les sous-titres "fra"/"eng" :
+    // le manifeste melange les deux normes, donc on passe par les memes alias
+    // que les sous-titres avant de comparer. Un `slice(0,2)` seul ferait de
+    // "jpn" un "jp" qui ne vaut aucun `audioLang`, et effacerait le chip VO.
+    if (m) {
+      const raw = m[1].toLowerCase();
+      langs.push(FREMBED_LANG_ALIASES[raw] || raw.slice(0, 2));
+    }
   }
   if (langs.length) return langs.includes(audioLang);
   return (/vostfr|\bvo\b|sub/i.test(label) ? "ja" : "fr") === audioLang;
