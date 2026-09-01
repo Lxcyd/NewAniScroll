@@ -2268,13 +2268,25 @@ input[type="number"] {
   filter: blur(40px);
 }
 /* The cards float over a picture that scrolls behind them and can be pale, so
-   they carry their own opacity rather than trusting the scrim underneath. */
+   they carry their own opacity rather than trusting the scrim underneath.
+
+   PAS DE `backdrop-filter` ICI, et c'est une correction, pas un oubli.
+
+   Il y en avait un — `blur(10px)` — et il ne se voyait pas : `.as-page-under`
+   posait alors 0,9 de noir plat sous tout le contenu, donc flouter ce qu'il y
+   avait derriere une carte ne changeait rien a l'ecran. Ce voile parti, le
+   papier peint est net partout SAUF a l'interieur des cartes : chacune
+   decoupait dans l'illustration un rectangle flou a bord franc. Ce n'etait pas
+   un effet de verre depoli, c'etait une dizaine de trous.
+
+   La ligne du dessus dit deja pourquoi il etait de trop : le contraste vient de
+   l'opacite propre de la carte (0,72 → 0,58), pas du flou. Et le retirer rend
+   le defilement : dix `backdrop-filter` au-dessus d'un fond `fixed`, ce sont
+   dix couches que le compositeur refiltre a chaque image. */
 .as-stat-card {
   background: linear-gradient(
     145deg,
     rgba(20, 22, 28, 0.72),
     rgba(12, 13, 16, 0.58)
   );
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
