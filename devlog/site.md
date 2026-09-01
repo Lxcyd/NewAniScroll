@@ -1191,3 +1191,18 @@ Retouche apres coup, sur retour visuel :
   bizarre » — le contour de focus du navigateur autour de la pilule.
 - Les libelles passent en `font-outfit` (la police des titres) au lieu de
   `font-karla`.
+
+Puis, au reglage fin :
+
+- `h-9` sur les **deux** pilules. L'icone du bouton info (16 px) depassait la
+  hauteur de ligne du `text-xs` (16 px de line-height, mais des metriques
+  differentes en `font-outfit`), donc la seule pilule qui en porte une etait
+  plus haute que l'autre. Une hauteur commune + `leading-none` regle la
+  question quelle que soit la police, et l'icone descend a 14 px.
+- Le libelle ne vient plus de `anime.moreInfoCta` : le hero ecrit ses deux
+  boutons en **capitales** (« REGARDER » / « PLUS D'INFOS »), ce qui detonne a
+  cote de « Reprendre ». `profile.blocks.resume.info` revient, en casse de
+  phrase. Le bouton, lui, reste celui du hero.
+- Le titre de l'anime va jusqu'a **trois** lignes (`line-clamp-3`), et le titre
+  du widget passe de `text-base` a `text-lg` — pour toute la grille, c'est du
+  chrome de carte.

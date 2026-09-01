@@ -284,7 +284,7 @@ export default function WidgetGrid({
                 editing ? "pr-7" : ""
               }`}
             >
-              <h2 className="flex min-w-0 items-center gap-2 font-outfit text-base font-bold text-white">
+              <h2 className="flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
                 {chrome.color ? (
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"

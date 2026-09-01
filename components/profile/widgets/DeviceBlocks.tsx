@@ -86,7 +86,7 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
   /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
      donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la
      hauteur offerte (16/9), plafonnée pour ne pas manger la colonne de texte ;
-     le titre passe sur DEUX lignes au lieu d'être coupé — dans la plus petite
+     le titre va jusqu'à TROIS lignes au lieu d'être coupé — dans la plus petite
      taille c'est le cas courant, et un titre tronqué n'est pas reconnaissable. */
   return (
     <div className="flex h-full min-w-0 items-center gap-4">
@@ -118,7 +118,7 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
 
       <div className="flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
-          <h3 className="line-clamp-2 font-outfit text-base font-bold leading-snug text-white transition-colors hover:text-action sm:text-lg">
+          <h3 className="line-clamp-3 font-outfit text-base font-bold leading-snug text-white transition-colors hover:text-action sm:text-lg">
             {row.animeTitle || `#${row.aniId}`}
           </h3>
         </Link>
@@ -133,14 +133,20 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
 
         {/* LA PAIRE DE BOUTONS DU HERO D'ACCUEIL, en plus petit : même pilule
             pleine à gauche, même pilule translucide bordée à droite, même
-            glyphe « info » plein et même libellé (`anime.moreInfoCta`). Le
-            `outline-none focus-visible:outline-none` en vient aussi, et il n'est
-            pas décoratif : sans lui, le contour de focus bleu du navigateur
-            cerne la pilule dès qu'on l'active à la souris. */}
+            glyphe « info » plein. Le `outline-none focus-visible:outline-none`
+            en vient aussi, et il n'est pas décoratif : sans lui, le contour de
+            focus bleu du navigateur cerne la pilule dès qu'on l'active à la
+            souris.
+            Le libellé, lui, ne vient PAS de `anime.moreInfoCta` : le hero écrit
+            ses deux boutons en capitales, et cette paire-ci se lit à côté de
+            « Reprendre ».
+            `h-9` sur les deux : sans hauteur commune, l'icône de gauche fait
+            grandir la seule pilule qui en porte une, et les deux boutons ne
+            s'alignent plus. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
             href={href}
-            className="inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-outfit text-xs font-bold tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
+            className="inline-flex h-9 items-center gap-2 rounded-full bg-action px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
           >
             {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
           </Link>
@@ -152,12 +158,12 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
                ce dernier renverrait vers un épisode, c'est-à-dire là où mène
                déjà tout le reste du bloc. */
             href={`/en/anime/${row.aniId}`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 py-2 font-outfit text-xs font-bold tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
+            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
           >
-            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 shrink-0">
               <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
             </svg>
-            {t("anime.moreInfoCta")}
+            {t("profile.blocks.resume.info")}
           </Link>
         </div>
       </div>
