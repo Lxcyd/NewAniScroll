@@ -1232,3 +1232,17 @@ Les classes (`as-widget-head`, `-lead`, `-sub`, `-btn`, `-play`) sont posees
 dans le chrome et dans le bloc ; les valeurs de base restent en Tailwind, la
 requete ne fait que les relever. `container-type: size` exige une taille
 definie sur les deux axes : `WidgetGrid` la pose deja en pixels.
+
+**La legende de la reprise : la saison, plus les minutes restantes.**
+« Episode 4 · il te reste 23 min » devient « Saison 2 · Episode 4 » quand il y
+a une saison, « Episode 4 » sinon. Les cles `line` / `lineOther` /
+`lineNoTime` laissent la place a `ep` / `seasonEp`.
+
+La saison se lit **dans le titre**, via `extractSeasonFromTitle`
+(`components/anime/v2/helpers.ts`) — une fonction pure, deja ecrite pour ce
+besoin. Le numero « officiel » du site vient de `seasonChain`, qui marche par
+relations AniList, cache Turso et arbitrage Fribb : un aller-retour serveur par
+ligne d'historique, pour une ligne de legende. Et elle rend `null` quand le
+titre ne dit rien, donc aucune « Saison 1 » n'est inventee sur un titre qui n'en
+parle pas. Le store d'historique ne gardant qu'un titre a plat, on le lui
+presente en `romaji` — la cle sous laquelle le lecteur l'ecrit.

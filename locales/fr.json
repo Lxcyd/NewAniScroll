@@ -859,15 +859,14 @@
     "blocks": {
       "resume": {
         "title": "Reprendre la lecture",
-        "desc": "Le dernier épisode entamé, à la minute près.",
+        "desc": "Le dernier épisode entamé, avec sa saison et son avancement.",
         "empty": "Rien en cours sur cet appareil : lance un épisode et il apparaîtra ici.",
-        "line": "Épisode {{episode}} · il te reste {{minutes}} min",
-        "lineNoTime": "Épisode {{episode}}",
+        "ep": "Épisode {{episode}}",
+        "seasonEp": "Saison {{season}} · Épisode {{episode}}",
         "cta": "Reprendre",
         "info": "Plus d'infos",
         "titleOther": "Regarde en ce moment",
         "emptyOther": "Rien en cours.",
-        "lineOther": "Épisode {{episode}} · {{minutes}} min restantes",
         "ctaOther": "Voir l'épisode"
       },
       "favorites": {

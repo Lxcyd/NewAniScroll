@@ -859,15 +859,14 @@
     "blocks": {
       "resume": {
         "title": "Continue watching",
-        "desc": "The last episode you started, to the minute.",
+        "desc": "The last episode you started, with its season and progress.",
         "empty": "Nothing in progress on this device — start an episode and it shows up here.",
-        "line": "Episode {{episode}} · {{minutes}} min left",
-        "lineNoTime": "Episode {{episode}}",
+        "ep": "Episode {{episode}}",
+        "seasonEp": "Season {{season}} · Episode {{episode}}",
         "cta": "Resume",
         "info": "More info",
         "titleOther": "Currently watching",
         "emptyOther": "Nothing in progress.",
-        "lineOther": "Episode {{episode}} · {{minutes}} min left",
         "ctaOther": "Open the episode"
       },
       "favorites": {

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
 import { readHistory, watchHref } from "@/lib/profile/history";
 import { decorateRows, type ActivityRow } from "@/lib/profile/activity";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
@@ -83,6 +84,17 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
   const art = row.image || row.cover;
   const href = watchHref(row);
 
+  /* LA SAISON SE LIT DANS LE TITRE, et nulle part ailleurs — c'est la seule
+     source disponible ici. Le numéro de saison « officiel » du site vient de
+     `seasonChain`, qui marche par relations AniList, cache Turso et arbitrage
+     Fribb : un aller-retour serveur par ligne d'historique, pour une ligne de
+     légende. `extractSeasonFromTitle` est une fonction pure, déjà écrite pour
+     ce même besoin, et elle rend `null` quand le titre ne dit rien — donc pas
+     de « Saison 1 » inventée sur un titre qui n'en parle pas.
+     Le store d'historique ne garde qu'un titre à plat : on le présente en
+     `romaji`, la clé sous laquelle le lecteur l'écrit. */
+  const season = extractSeasonFromTitle({ romaji: row.animeTitle });
+
   /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
      donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la
      hauteur offerte (16/9), plafonnée pour ne pas manger la colonne de texte ;
@@ -123,12 +135,9 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
           </h3>
         </Link>
         <p className="as-widget-sub mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
-          {row.minutesLeft != null
-            ? t(other ? "profile.blocks.resume.lineOther" : "profile.blocks.resume.line", {
-                episode: row.episode,
-                minutes: row.minutesLeft,
-              })
-            : t("profile.blocks.resume.lineNoTime", { episode: row.episode })}
+          {season != null
+            ? t("profile.blocks.resume.seasonEp", { season, episode: row.episode })
+            : t("profile.blocks.resume.ep", { episode: row.episode })}
         </p>
 
         {/* LA PAIRE DE BOUTONS DU HERO D'ACCUEIL, en plus petit : même pilule
