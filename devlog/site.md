@@ -1176,3 +1176,18 @@ on retombe en arrivant. Et sa pastille orange disparait de l'en-tete : elle sert
 a distinguer des blocs qui se ressemblent, or celui-ci porte deja son
 illustration. D'ou `dot: false` dans `BLOCKS` et `color` devenu optionnel dans
 `BlockChrome`.
+
+Retouche apres coup, sur retour visuel :
+
+- Le triangle de lecture n'est plus celui de vidstack mais **celui du bouton de
+  demarrage d'`UniversalPlayer`** — le meme trace heroicons a coins arrondis,
+  `translate(1.8 0)` compris, qui le centre par son centre de gravite et non par
+  sa boite. Un seul dessin de lecture dans l'application.
+- Les deux boutons sont ceux du **hero d'accueil** (`pages/en/index.tsx`) :
+  pilule pleine a gauche, pilule translucide bordee a droite, glyphe « info »
+  plein de Material, et le libelle `anime.moreInfoCta` — la cle dediee que
+  j'avais ajoutee disparait. Le `outline-none focus-visible:outline-none` en
+  vient aussi, et il n'est pas decoratif : c'etait lui, la « bordure bleue
+  bizarre » — le contour de focus du navigateur autour de la pilule.
+- Les libelles passent en `font-outfit` (la police des titres) au lieu de
+  `font-karla`.

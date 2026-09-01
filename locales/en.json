@@ -864,7 +864,6 @@
         "line": "Episode {{episode}} · {{minutes}} min left",
         "lineNoTime": "Episode {{episode}}",
         "cta": "Resume",
-        "info": "Details",
         "titleOther": "Currently watching",
         "emptyOther": "Nothing in progress.",
         "lineOther": "Episode {{episode}} · {{minutes}} min left",

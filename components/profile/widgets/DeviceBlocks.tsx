@@ -97,11 +97,17 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
         {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
-            {/* Le triangle du lecteur (vidstack, `PlayButton.Play`) plutôt qu'un
-                polygone à trois sommets : ses coins sont arrondis, et c'est le
-                même glyphe que celui sur lequel on retombe en arrivant. */}
-            <svg viewBox="0 0 32 32" fill="currentColor" className="h-5 w-5 text-white">
-              <path d="M10.6667 6.6548C10.6667 6.10764 11.2894 5.79346 11.7295 6.11862L24.377 15.4634C24.7377 15.7298 24.7377 16.2692 24.3771 16.5357L11.7295 25.8813C11.2895 26.2065 10.6667 25.8923 10.6667 25.3451L10.6667 6.6548Z" />
+            {/* LE TRIANGLE DU LECTEUR, au trait près : celui du bouton de
+                démarrage d'UniversalPlayer et de la vignette de l'épisode en
+                cours. Coins arrondis, et surtout centré par son CENTRE DE
+                GRAVITÉ — un triangle dont la boîte est centrée paraît poussé à
+                gauche, son aire étant massée du côté de l'arête arrière. D'où le
+                `translate(1.8 0)`, qui vient du même dessin et n'est pas à
+                recalculer ici (cf. UniversalPlayer.tsx). */}
+            <svg viewBox="0 0 20 20" fill="#fff" className="h-5 w-5">
+              <g transform="translate(1.8 0)">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+              </g>
             </svg>
           </span>
         </span>
@@ -125,10 +131,16 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
             : t("profile.blocks.resume.lineNoTime", { episode: row.episode })}
         </p>
 
+        {/* LA PAIRE DE BOUTONS DU HERO D'ACCUEIL, en plus petit : même pilule
+            pleine à gauche, même pilule translucide bordée à droite, même
+            glyphe « info » plein et même libellé (`anime.moreInfoCta`). Le
+            `outline-none focus-visible:outline-none` en vient aussi, et il n'est
+            pas décoratif : sans lui, le contour de focus bleu du navigateur
+            cerne la pilule dès qu'on l'active à la souris. */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
             href={href}
-            className="inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-karla text-xs font-bold text-white shadow-glow transition-transform hover:scale-105"
+            className="inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-outfit text-xs font-bold tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
           >
             {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
           </Link>
@@ -140,22 +152,12 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
                ce dernier renverrait vers un épisode, c'est-à-dire là où mène
                déjà tout le reste du bloc. */
             href={`/en/anime/${row.aniId}`}
-            aria-label={t("profile.blocks.resume.info")}
-            title={t("profile.blocks.resume.info")}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/55 ring-1 ring-white/15 transition-colors hover:text-white hover:ring-white/35"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 py-2 font-outfit text-xs font-bold tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              className="h-4 w-4"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 11.5v4.5" />
-              <path d="M12 8h.01" />
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+              <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
             </svg>
+            {t("anime.moreInfoCta")}
           </Link>
         </div>
       </div>
