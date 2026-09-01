@@ -56,6 +56,48 @@ function useRows(served: ActivityRow[] | undefined, limit: number) {
   return served ? { rows: served, loaded: true } : local;
 }
 
+/**
+ * Le numéro de saison d'une entrée, comme la fiche l'affiche.
+ *
+ * D'ABORD LE TITRE, ENSUITE LE RÉSEAU. `extractSeasonFromTitle` est pure et
+ * gratuite ; elle suffit pour « Vinland Saga Season 2 ». Elle ne peut rien pour
+ * « Kimetsu no Yaiba: Yuukaku-hen », dont le nom ne porte aucun numéro — et
+ * c'est justement le cas courant, puisque beaucoup de franchises nomment leurs
+ * saisons par leur arc.
+ *
+ * Le numéro vient alors de /api/v2/seasons/[id], la MÊME source que le sélecteur
+ * de saison du lecteur et que le « · S3 » de la fiche — donc le même numéro,
+ * ce qui est tout l'intérêt : deux comptages différents du même anime sur deux
+ * écrans du site seraient pires que pas de numéro du tout. La réponse est en
+ * cache d'edge pour une journée et ne coûte pas de commande Upstash.
+ *
+ * Comme la fiche (cf. Hero.tsx), le numéro ne s'affiche que si la franchise a
+ * PLUSIEURS saisons : « Saison 1 » sur une œuvre unique n'apprend rien.
+ */
+function useSeasonNumber(aniId: number | null, title: string | null): number | null {
+  const fromTitle = title ? extractSeasonFromTitle({ romaji: title }) : null;
+  const [fetched, setFetched] = useState<number | null>(null);
+
+  useEffect(() => {
+    setFetched(null);
+    if (!aniId || fromTitle != null) return;
+    let cancelled = false;
+    fetch(`/api/v2/seasons/${aniId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((list) => {
+        if (cancelled || !Array.isArray(list) || list.length < 2) return;
+        const mine = list.find((s) => Number(s?.id) === aniId);
+        if (mine?.number > 0) setFetched(Number(mine.number));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [aniId, fromTitle]);
+
+  return fromTitle ?? fetched;
+}
+
 export type ActivityProps = {
   /** L'activité du propriétaire, venue du rendu serveur. Absent : cet appareil. */
   rows?: ActivityRow[];
@@ -73,6 +115,9 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
      épisode terminé enverrait au générique de fin ; l'épisode suivant serait la
      bonne suite, et c'est une autre question (on ne sait pas ici s'il existe). */
   const row = rows.find((r) => !r.done && r.pct > 0);
+  /* Avant les sorties anticipées : un hook ne se saute pas. */
+  const season = useSeasonNumber(row?.aniId ?? null, row?.animeTitle ?? null);
+
   if (!loaded) return <div className="h-full" />;
   if (!row)
     return (
@@ -83,17 +128,6 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
 
   const art = row.image || row.cover;
   const href = watchHref(row);
-
-  /* LA SAISON SE LIT DANS LE TITRE, et nulle part ailleurs — c'est la seule
-     source disponible ici. Le numéro de saison « officiel » du site vient de
-     `seasonChain`, qui marche par relations AniList, cache Turso et arbitrage
-     Fribb : un aller-retour serveur par ligne d'historique, pour une ligne de
-     légende. `extractSeasonFromTitle` est une fonction pure, déjà écrite pour
-     ce même besoin, et elle rend `null` quand le titre ne dit rien — donc pas
-     de « Saison 1 » inventée sur un titre qui n'en parle pas.
-     Le store d'historique ne garde qu'un titre à plat : on le présente en
-     `romaji`, la clé sous laquelle le lecteur l'écrit. */
-  const season = extractSeasonFromTitle({ romaji: row.animeTitle });
 
   /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
      donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la

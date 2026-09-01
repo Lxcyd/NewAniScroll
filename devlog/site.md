@@ -1320,3 +1320,21 @@ VF, la ou trois partageaient la page de la saison 1. Le decalage est verifie a
 la source : l'episode 1 de Yuukaku-hen rend `8zna9ciy9u8b`, qui est bien
 l'embed de `kimetsu-no-yaiba-2-08-vf`, et l'episode 1 de Mugen Ressha-hen rend
 `o2xzifluthxw`, celui de `…-01-vf`.
+
+**La saison ne se lit pas dans le titre — correction du jour meme.** La
+premiere version tirait le numero de `extractSeasonFromTitle` seul, en
+argumentant qu'un aller-retour serveur par ligne d'historique etait cher pour
+une ligne de legende. Le contre-exemple etait sous le nez : « Kimetsu no Yaiba:
+Yuukaku-hen » ne porte aucun numero, et la fiche affichait « Season 3 » a deux
+centimetres du widget qui n'affichait rien. Beaucoup de franchises nomment leurs
+saisons par leur arc — le titre est le cas facile, pas le cas general.
+
+Le repli est `/api/v2/seasons/[id]`, deja en place pour le selecteur de saison
+du lecteur : cache d'edge d'une journee, aucune commande Upstash, et surtout
+**la meme source que le « · S3 » de la fiche**. C'est ce dernier point qui
+decide : deux comptages differents du meme anime sur deux ecrans du site
+seraient pires que pas de numero du tout. Le titre reste essaye en premier
+(pur et gratuit), le reseau ne sert que quand il ne dit rien.
+
+Et comme la fiche (`Hero.tsx`), le numero ne s'affiche que si la franchise
+compte PLUSIEURS saisons : « Saison 1 » sur une oeuvre unique n'apprend rien.
