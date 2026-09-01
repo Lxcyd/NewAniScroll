@@ -1338,3 +1338,18 @@ seraient pires que pas de numero du tout. Le titre reste essaye en premier
 
 Et comme la fiche (`Hero.tsx`), le numero ne s'affiche que si la franchise
 compte PLUSIEURS saisons : « Saison 1 » sur une oeuvre unique n'apprend rien.
+
+**Le chip restait masque : `src:` ne suffisait pas.** Apres le correctif
+voir-anime, `/api/v2/source` rendait bien un embed pour les saisons 2+ de Demon
+Slayer, et le selecteur n'affichait toujours pas Voir-Anime Vidmoly. Ce n'est
+pas le resolveur qui parlait mais l'INSTANTANE : `/api/v2/availability` garde
+six heures le verdict de chaque serveur pour un couple (anime, episode), et le
+selecteur le lit avant de sonder — donc le fan-out ne repart meme pas. Un
+instantane ecrit par un resolveur qui n'atteignait pas ces pages continue de
+dire « absent » sur un build qui les sert.
+
+Le fichier le documente lui-meme (« Bump this whenever source RESOLUTION
+changes, not just when this file does », precedents d'aout 2026), et je l'avais
+manque en ne bumpant que `sourceCacheKey`. Ces deux caches se bumpent
+ENSEMBLE : `src:` v14, `avail:` v5. Le cout est borne — seuls les episodes
+reellement ouverts repaient un fan-out, une fois.
