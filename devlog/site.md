@@ -1246,3 +1246,63 @@ ligne d'historique, pour une ligne de legende. Et elle rend `null` quand le
 titre ne dit rien, donc aucune « Saison 1 » n'est inventee sur un titre qui n'en
 parle pas. Le store d'historique ne gardant qu'un titre a plat, on le lui
 presente en `romaji` — la cle sous laquelle le lecteur l'ecrit.
+
+### Demon Slayer : la VF voir-anime manquait, et la VOSTFR servait le mauvais arc
+
+Signale : « sur les demon slayer, il manque la vf vidmoly ». En regardant, c'est
+pire que manquant.
+
+Mesure sur `/api/v2/source/inspect` (dev), les cinq entrees AniList :
+
+| entree | VF resolue | verdict |
+|---|---|---|
+| 101922 S1 | `kimetsu-no-yaiba-vf` (26 ep) | juste |
+| 129874 Mugen Ressha TV | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 142329 Yuukaku-hen | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 145139 Katanakaji | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 166240 Hashira Geiko | rien (recherche non concluante) | absent |
+
+La VOSTFR n'allait pas mieux : 142329 pointait sur `kimetsu-no-yaiba-yuukaku-hen`
+sans decalage, or cette page est FUSIONNEE (18 ep = Mugen Ressha 7 + Yuukaku 11) —
+demander l'episode 1 de Yuukaku-hen servait l'episode 1 de Mugen Ressha. Et 145139
+avait herite du meme slug, c'est-a-dire d'un autre arc.
+
+**La cause.** voir-anime ne numerote pas comme AniList. Leur « Kimetsu no Yaiba 2 »
+= nos saisons 2 ET 3 sur une page ; leur 3 = notre 4 ; leur 4 = notre 5. Aucun
+schema de slug ne peut rattraper ca, et deux garde-fous aggravaient le tableau :
+
+- le **garde de coherence de saison** compare le numero encode dans le slug a
+  celui du resolveur. Pour cette franchise, toute correspondance JUSTE est une
+  contradiction : il jetait la bonne ligne et reresolvait a chaque requete ;
+- le **repli sur le slug nu** : faute de forme numerotee atteignable (le titre
+  AniList porte « Entertainment District Arc » et non un numero), le dernier
+  candidat probe est la base nue — `kimetsu-no-yaiba-vf`, la saison 1. Elle
+  existe, donc elle gagne. Le commentaire du code prevoyait le risque
+  (« accepting it would serve S1 ») sans le fermer.
+
+**La reparation.** Trois pieces, toutes du cote « une ligne verifiee est la
+verite » :
+
+1. Le garde de coherence ne s'applique plus a une ligne `verified`.
+   `lib/db/playerMap.ts` dit deja qu'une telle ligne est honoree quelle que soit
+   la version de l'algorithme, et c'est le seul niveau qui puisse savoir qu'un
+   fournisseur fusionne des saisons. Le garde reste entier sur `heuristic`,
+   qui est ce que l'empoisonnement SNK ecrivait.
+2. Le chemin voir-anime lit enfin `ep_offset`. Le champ existait et n'etait
+   consomme que par anime-sama ; `voiranimeChainOffset` ne recolle que des
+   PARTIES d'une meme saison (meme titre a « Part N » pres) et rend 0 devant
+   une page qui fusionne deux saisons de noms differents.
+3. `scripts/player-map/set-voiranime-map.mjs` — poser une correspondance a la
+   main, avec son decalage. Il **controle avant d'ecrire** : la page existe et
+   porte bien les `episodes` de l'entree AniList a partir de `offset + 1`,
+   sinon il refuse. Une ligne `verified` court-circuite desormais le garde :
+   elle doit etre meritee, pas ecrite de confiance.
+
+Dix lignes posees (5 entrees x 2 langues), toutes controlees.
+
+**Reste ouvert** — le repli sur le slug nu peut servir la saison 1 sous
+n'importe quelle saison ulterieure, pour toute franchise dont le titre porte un
+sous-titre plutot qu'un numero. Demon Slayer est repare par la table ; la
+famille ne l'est pas. Un controle du nombre d'episodes avant d'accepter une base
+nue en saison >= 2 fermerait la classe, mais touche la resolution de tout le
+catalogue et demande sa propre campagne de mesure.

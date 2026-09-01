@@ -2631,7 +2631,23 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // re-resolved). Here we cross-check the mapped slug's suffix-season against
     // detectSeasonNumber; on mismatch we drop the row and re-resolve, which
     // breaks the loop for SNK and any other anime poisoned the same way.
-    if (mappedSlug) {
+    /* Le garde ne s'applique PAS a une ligne `verified`.
+     *
+     * Il compare le numero de saison encode dans le slug a celui que notre
+     * resolveur calcule, et suppose donc que voir-anime numerote comme AniList.
+     * C'est faux des qu'un fournisseur FUSIONNE deux entrees sur une page :
+     * Kimetsu no Yaiba 2 chez eux, c'est Mugen Ressha-hen (7 ep) suivi de
+     * Yuukaku-hen (11), soit nos saisons 2 ET 3 sur une seule page numerotee 2.
+     * Toute correspondance juste pour cette franchise est donc, pour ce garde,
+     * une contradiction — il jetait la bonne ligne et la reresolvait a chaque
+     * requete, vers la page de la saison 1.
+     *
+     * `verified` est precisement le niveau qui sait ce genre de chose : une
+     * ligne verifiee a ete controlee (compte d'episodes + titre) avant sa
+     * promotion, et lib/db/playerMap.ts dit deja qu'elle est honoree quelle que
+     * soit la version de l'algorithme. Le garde reste entier sur `heuristic`,
+     * qui est ce que l'empoisonnement SNK ecrivait. */
+    if (mappedSlug && mapRow.status !== "verified") {
       const expectedSeason = await detectSeasonNumber(aniId);
       const base = mappedSlug.replace(/-vf$/i, "");
       const suffix = base.match(/-(?:s|saison-|season-)?(\d+)$/);
@@ -2676,7 +2692,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
      * season the site keeps on one page. Zero for everything else, so the
      * ordinary case is untouched. See voiranimeChainOffset.
      */
-    const chainOffset = viaPrequelOffset || (await voiranimeChainOffset(aniId));
+    /* Le decalage porte par la CORRESPONDANCE l'emporte sur celui qu'on
+     * calcule. `voiranimeChainOffset` ne sait recoller que des PARTIES d'une
+     * meme saison (meme titre a "Part N" pres) ; il rend 0 devant une page qui
+     * fusionne deux saisons de noms differents — Mugen Ressha-hen puis
+     * Yuukaku-hen sur `kimetsu-no-yaiba-2-vf`, ou l'episode 1 de Yuukaku-hen
+     * est l'episode 8 de la page. Ce cas-la ne se devine pas depuis AniList :
+     * il se constate sur la page, donc il s'ecrit dans player_map.
+     * Le champ existait deja et n'etait lu que par le chemin anime-sama. */
+    const mappedOffset = mappedSlug ? Number(mapRow?.epOffset) || 0 : 0;
+    const chainOffset =
+      mappedOffset || viaPrequelOffset || (await voiranimeChainOffset(aniId));
     const wantedEpisode = Number(episode) + chainOffset;
     if (chainOffset > 0) {
       dlog(`[voiranime] ${aniId} is a later part: ep ${episode} → ${wantedEpisode}`);
