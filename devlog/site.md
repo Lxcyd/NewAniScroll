@@ -1312,3 +1312,11 @@ v12 et v13 : un resolveur qui atteint des pages qu'il ne pouvait pas atteindre
 ne doit pas etre lu a travers les absences — ni les URL de la mauvaise saison —
 enregistrees par celui qui ne le pouvait pas. Sans le bump, les six heures
 d'absence se reecrivent a chaque sonde.
+
+**Verification apres deploiement** (`/api/v2/source`, parametre de cassage de
+cache — `inspect` ne lit PAS `player_map`, il reresout de zero, donc il ne
+prouve rien ici). Les cinq saisons rendent maintenant cinq embeds DISTINCTS en
+VF, la ou trois partageaient la page de la saison 1. Le decalage est verifie a
+la source : l'episode 1 de Yuukaku-hen rend `8zna9ciy9u8b`, qui est bien
+l'embed de `kimetsu-no-yaiba-2-08-vf`, et l'episode 1 de Mugen Ressha-hen rend
+`o2xzifluthxw`, celui de `…-01-vf`.
