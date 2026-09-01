@@ -3879,7 +3879,14 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v13: same again for the voir-anime slug forms ({base}-{N}-{subtitle}).
   // A resolver that reaches pages it could not reach before must not be read
   // through absences recorded by the one that could not.
-  return `src:v13:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v14: meme raison, pour voir-anime. Une ligne player_map `verified` n'est
+  // plus jetee par le garde de coherence de saison et porte enfin son
+  // `ep_offset` : le resolveur atteint des pages qu'il ne pouvait pas atteindre
+  // (les saisons 2+ de Demon Slayer, ou il servait la saison 1 ou rien). Les
+  // absences — et les URL de la MAUVAISE saison — enregistrees par l'ancien
+  // resolveur doivent etre orphelines, sans quoi elles seraient reservees
+  // pendant 6 h et reecrites a chaque sonde.
+  return `src:v14:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────

@@ -1306,3 +1306,9 @@ sous-titre plutot qu'un numero. Demon Slayer est repare par la table ; la
 famille ne l'est pas. Un controle du nombre d'episodes avant d'accepter une base
 nue en saison >= 2 fermerait la classe, mais touche la resolution de tout le
 catalogue et demande sa propre campagne de mesure.
+
+Cle de cache `src:` v13 → v14 dans la foulee, pour la raison deja invoquee en
+v12 et v13 : un resolveur qui atteint des pages qu'il ne pouvait pas atteindre
+ne doit pas etre lu a travers les absences — ni les URL de la mauvaise saison —
+enregistrees par celui qui ne le pouvait pas. Sans le bump, les six heures
+d'absence se reecrivent a chaque sonde.
