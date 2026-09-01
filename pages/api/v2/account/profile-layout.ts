@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireUser } from "@/lib/auth/session";
 import { setProfileLayout } from "@/lib/auth/users";
-import { isKnownBlock } from "@/lib/profile/blocks";
+import { blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout } from "@/lib/profile/grid";
 
 /**
@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!isValidLayout(raw) || raw.length > MAX_BLOCKS) {
       return res.status(400).json({ error: "layout" });
     }
-    const layout = sanitizeLayout(raw, isKnownBlock);
+    const layout = sanitizeLayout(raw, isKnownBlock, blockBounds);
     await setProfileLayout(user.id, JSON.stringify(layout));
     return res.status(200).json({ ok: true, layout });
   }

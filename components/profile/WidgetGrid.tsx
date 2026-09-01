@@ -3,13 +3,16 @@ import { useTranslation } from "react-i18next";
 
 import {
   COLS,
+  DEFAULT_BOUNDS,
   GAP,
   ROW,
+  clampSize,
   columnWidth,
   compact,
   pixelRect,
   resizeItem,
   rowCount,
+  type Bounds,
   type GridItem,
 } from "@/lib/profile/grid";
 
@@ -36,7 +39,8 @@ export type BlockChrome = {
   title: string;
   /** Petite ligne grise à côté du titre (« 5 », « cette semaine »…). */
   meta?: string | null;
-  color: string;
+  /** Pastille de couleur devant le titre. `null` : pas de pastille. */
+  color?: string | null;
   body: React.ReactNode;
 };
 
@@ -44,6 +48,11 @@ type Props = {
   layout: GridItem[];
   onLayout: (next: GridItem[]) => void;
   renderBlock: (id: string) => BlockChrome | null;
+  /**
+   * Les tailles admises par un bloc. Le composant ne sait toujours rien des
+   * blocs : il demande, il n'interroge aucun catalogue.
+   */
+  limits?: (id: string) => Bounds;
   editing: boolean;
 };
 
@@ -58,8 +67,18 @@ type Drag = {
   h: number;
 };
 
-export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: Props) {
+export default function WidgetGrid({
+  layout,
+  onLayout,
+  renderBlock,
+  limits,
+  editing,
+}: Props) {
   const { t } = useTranslation();
+  const boundsOf = useCallback(
+    (id: string) => limits?.(id) ?? DEFAULT_BOUNDS,
+    [limits],
+  );
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const dragRef = useRef<Drag | null>(null);
@@ -117,14 +136,18 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
            ce partage des rôles le bloc avançait par bonds d'une colonne, avec
            200 ms de retard à chaque bond. */
         setOffset({ dx, dy });
-        const nw = Math.min(COLS - d.x, Math.max(1, d.w + Math.round(dx / (cw + GAP))));
-        const nh = Math.max(1, d.h + Math.round(dy / (ROW + GAP)));
+        const b = boundsOf(d.id);
+        const [nw, nh] = clampSize(
+          Math.min(COLS - d.x, d.w + Math.round(dx / (cw + GAP))),
+          d.h + Math.round(dy / (ROW + GAP)),
+          b,
+        );
         const cur = layoutRef.current.find((o) => o.i === d.id);
         if (!cur || (cur.w === nw && cur.h === nh)) return;
-        onLayout(resizeItem(layoutRef.current, d.id, nw, nh));
+        onLayout(resizeItem(layoutRef.current, d.id, nw, nh, b));
       }
     },
-    [onLayout, width],
+    [boundsOf, onLayout, width],
   );
 
   useEffect(() => {
@@ -183,14 +206,21 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
     if (drag.mode === "move") {
       return { ...start, left: start.left + offset.dx, top: start.top + offset.dy };
     }
+    /* Le coin ne tire pas plus loin que ce que le bloc accepte : la carte
+       s'arrête net à sa borne au lieu de suivre la main puis de revenir en
+       arrière au relâchement. */
     const cw = columnWidth(width || 1);
+    const b = boundsOf(it.i);
+    const px = (n: number) => n * cw + (n - 1) * GAP;
+    const py = (n: number) => n * ROW + (n - 1) * GAP;
     return {
       ...start,
       width: Math.min(
         (width || 1) - start.left,
-        Math.max(cw, start.width + offset.dx),
+        px(Math.min(b.maxW, COLS - drag.x)),
+        Math.max(px(b.minW), start.width + offset.dx),
       ),
-      height: Math.max(ROW, start.height + offset.dy),
+      height: Math.min(py(b.maxH), Math.max(py(b.minH), start.height + offset.dy)),
     };
   }
 
@@ -248,17 +278,19 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
             }}
           >
             <header
-              /* `pr-6` en édition : le moins occupe ce coin, et un titre assez
-                 long pour l'atteindre passerait dessous. */
+              /* `pr-7` en édition : le moins occupe ce coin sur 28 px, et un
+                 titre assez long pour l'atteindre passerait dessous. */
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing ? "pr-6" : ""
+                editing ? "pr-7" : ""
               }`}
             >
               <h2 className="flex min-w-0 items-center gap-2 font-outfit text-base font-bold text-white">
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: chrome.color, boxShadow: `0 0 10px ${chrome.color}55` }}
-                />
+                {chrome.color ? (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: chrome.color, boxShadow: `0 0 10px ${chrome.color}55` }}
+                  />
+                ) : null}
                 <span className="truncate">{chrome.title}</span>
                 {chrome.meta ? (
                   <span className="shrink-0 font-karla text-[11px] font-medium text-white/35">
@@ -297,7 +329,11 @@ export default function WidgetGrid({ layout, onLayout, renderBlock, editing }: P
                 onClick={() => onLayout(compact(layout.filter((o) => o.i !== it.i)))}
                 aria-label={t("profile.widgets.remove")}
                 title={t("profile.widgets.remove")}
-                className="absolute right-3 top-3 grid h-4 w-5 place-items-center rounded text-white/60 opacity-60 transition-opacity hover:text-white hover:opacity-100"
+                /* Le miroir exact du coin de redimensionnement : même boîte de
+                   28 px, même retrait de 7 px, même gris. Les deux commandes de
+                   la carte se répondent en diagonale au lieu de flotter chacune
+                   à sa propre distance du bord. */
+                className="absolute right-0 top-0 flex h-7 w-7 items-start justify-end p-[7px] text-white/60 transition-colors hover:text-white"
               >
                 <svg viewBox="0 -960 960 960" fill="currentColor" className="h-3 w-3">
                   <path d="M200-440v-80h560v80H200Z" />

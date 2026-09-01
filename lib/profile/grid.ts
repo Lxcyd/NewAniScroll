@@ -22,6 +22,28 @@ export type GridItem = {
 };
 
 export const COLS = 4;
+/**
+ * Les bornes d'un bloc, en unités de grille — largeur ET hauteur.
+ *
+ * Notation retenue avec l'auteur des widgets : « 1×2 » se lit HAUTEUR × LARGEUR,
+ * donc `{ minH: 1, minW: 2 }`. Le catalogue (lib/profile/blocks.ts) les exprime
+ * dans l'ordre `[w, h]` des autres champs ; c'est ici qu'elles deviennent une
+ * contrainte, appliquée au redimensionnement comme à l'aperçu qui suit le
+ * curseur — sans quoi le coin laisserait tirer une taille que la disposition
+ * refuserait ensuite, et le bloc sauterait au relâchement.
+ */
+export type Bounds = { minW: number; minH: number; maxW: number; maxH: number };
+
+export const DEFAULT_BOUNDS: Bounds = { minW: 1, minH: 1, maxW: COLS, maxH: 4 };
+
+/** Ramène une taille dans ses bornes, puis dans la grille. */
+export function clampSize(w: number, h: number, b: Bounds = DEFAULT_BOUNDS): [number, number] {
+  return [
+    Math.min(COLS, Math.min(b.maxW, Math.max(b.minW, w))),
+    Math.min(b.maxH, Math.max(b.minH, h)),
+  ];
+}
+
 /** Hauteur d'une ligne, en px. */
 export const ROW = 230;
 /** Gouttière horizontale ET verticale, en px. */
@@ -123,9 +145,9 @@ export function resizeItem(
   id: string,
   w: number,
   h: number,
+  bounds: Bounds = DEFAULT_BOUNDS,
 ): GridItem[] {
-  const width = Math.min(COLS, Math.max(1, w));
-  const height = Math.max(1, h);
+  const [width, height] = clampSize(w, h, bounds);
   return compact(
     items.map((o) =>
       o.i === id
@@ -162,17 +184,21 @@ export function isValidLayout(value: unknown): value is GridItem[] {
 export function sanitizeLayout(
   items: GridItem[],
   isKnown: (id: string) => boolean,
+  boundsOf: (id: string) => Bounds = () => DEFAULT_BOUNDS,
 ): GridItem[] {
   const seen = new Set<string>();
   const clean: GridItem[] = [];
   for (const o of items) {
     if (!isKnown(o.i) || seen.has(o.i)) continue;
     seen.add(o.i);
-    const w = Math.min(COLS, Math.max(1, Math.round(o.w)));
+    /* Les bornes sont appliquées ICI aussi, pas seulement au coin : une
+       disposition écrite avant qu'un bloc n'ait un minimum arrive encore d'un
+       autre appareil, et rien d'autre ne la corrigerait. */
+    const [w, h] = clampSize(Math.round(o.w), Math.round(o.h), boundsOf(o.i));
     clean.push({
       i: o.i,
       w,
-      h: Math.max(1, Math.round(o.h)),
+      h,
       x: Math.min(Math.max(0, Math.round(o.x)), COLS - w),
       y: Math.max(0, Math.round(o.y)),
     });

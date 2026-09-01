@@ -19,6 +19,7 @@ import type { ActivityRow } from "@/lib/profile/activity";
 import {
   BLOCKS,
   DEFAULT_BLOCKS,
+  blockBounds,
   blockDef,
   blockSize,
   isKnownBlock,
@@ -127,7 +128,9 @@ export default function ProfileOverview({
       base = device.layout;
       save(base);
     }
-    const items = base ? sanitizeLayout(base, isKnownBlock) : defaultLayout(isOwner);
+    const items = base
+      ? sanitizeLayout(base, isKnownBlock, blockBounds)
+      : defaultLayout(isOwner);
     /* `visibleTo` ne retire plus rien à un visiteur : les blocs d'activité sont
        désormais nourris par la sauvegarde du propriétaire (prop `activity`) et
        non par le localStorage du lecteur. Le filtre reste comme point de
@@ -181,7 +184,7 @@ export default function ProfileOverview({
     return {
       title: t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`),
       meta: null,
-      color: def.color,
+      color: def.dot === false ? null : def.color,
       body: body(id),
     };
   }
@@ -279,6 +282,7 @@ export default function ProfileOverview({
         layout={layout}
         onLayout={commit}
         renderBlock={renderBlock}
+        limits={blockBounds}
         editing={editing && isOwner}
       />
 

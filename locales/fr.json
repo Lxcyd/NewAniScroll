@@ -864,6 +864,7 @@
         "line": "Épisode {{episode}} · il te reste {{minutes}} min",
         "lineNoTime": "Épisode {{episode}}",
         "cta": "Reprendre",
+        "info": "Voir la fiche",
         "titleOther": "Regarde en ce moment",
         "emptyOther": "Rien en cours.",
         "lineOther": "Épisode {{episode}} · {{minutes}} min restantes",

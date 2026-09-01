@@ -81,28 +81,42 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
     );
 
   const art = row.image || row.cover;
+  const href = watchHref(row);
 
+  /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
+     donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la
+     hauteur offerte (16/9), plafonnée pour ne pas manger la colonne de texte ;
+     le titre passe sur DEUX lignes au lieu d'être coupé — dans la plus petite
+     taille c'est le cas courant, et un titre tronqué n'est pas reconnaissable. */
   return (
-    <Link href={watchHref(row)} className="flex h-full items-center gap-4">
-      <div className="relative h-full max-h-[7.5rem] w-[13.5rem] shrink-0 overflow-hidden rounded-2xl bg-as-card">
-        {art ? <Image src={art} alt="" fill sizes="240px" className="object-cover" /> : null}
+    <div className="flex h-full min-w-0 items-center gap-4">
+      <Link
+        href={href}
+        className="group relative aspect-video h-full max-h-[10rem] w-auto max-w-[46%] shrink-0 overflow-hidden rounded-2xl bg-as-card"
+      >
+        {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
         <span className="absolute inset-0 flex items-center justify-center">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow">
-            <svg viewBox="0 0 24 24" fill="#fff" className="h-4 w-4">
-              <polygon points="6 4 20 12 6 20" />
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
+            {/* Le triangle du lecteur (vidstack, `PlayButton.Play`) plutôt qu'un
+                polygone à trois sommets : ses coins sont arrondis, et c'est le
+                même glyphe que celui sur lequel on retombe en arrivant. */}
+            <svg viewBox="0 0 32 32" fill="currentColor" className="h-5 w-5 text-white">
+              <path d="M10.6667 6.6548C10.6667 6.10764 11.2894 5.79346 11.7295 6.11862L24.377 15.4634C24.7377 15.7298 24.7377 16.2692 24.3771 16.5357L11.7295 25.8813C11.2895 26.2065 10.6667 25.8923 10.6667 25.3451L10.6667 6.6548Z" />
             </svg>
           </span>
         </span>
         <span className="absolute inset-x-0 bottom-0 h-1 bg-white/15">
           <span className="block h-full bg-action" style={{ width: `${row.pct}%` }} />
         </span>
-      </div>
+      </Link>
 
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-outfit text-lg font-bold text-white">
-          {row.animeTitle || `#${row.aniId}`}
-        </p>
-        <p className="mt-1.5 font-karla text-[13px] text-white/50">
+      <div className="flex min-w-0 flex-1 flex-col justify-center">
+        <Link href={href} className="min-w-0">
+          <h3 className="line-clamp-2 font-outfit text-base font-bold leading-snug text-white transition-colors hover:text-action sm:text-lg">
+            {row.animeTitle || `#${row.aniId}`}
+          </h3>
+        </Link>
+        <p className="mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
           {row.minutesLeft != null
             ? t(other ? "profile.blocks.resume.lineOther" : "profile.blocks.resume.line", {
                 episode: row.episode,
@@ -110,11 +124,42 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
               })
             : t("profile.blocks.resume.lineNoTime", { episode: row.episode })}
         </p>
-        <span className="mt-3.5 inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-karla text-xs font-bold text-white shadow-glow">
-          {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
-        </span>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Link
+            href={href}
+            className="inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 font-karla text-xs font-bold text-white shadow-glow transition-transform hover:scale-105"
+          >
+            {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
+          </Link>
+          {/* La fiche, à côté de « reprendre » : le bloc envoie sinon toujours au
+              même endroit, et « c'est quoi déjà ? » n'a pas de réponse sans
+              quitter le profil. */}
+          <Link
+            /* La FICHE, pas `animeHref` : avec la préférence « clic = lecture »
+               ce dernier renverrait vers un épisode, c'est-à-dire là où mène
+               déjà tout le reste du bloc. */
+            href={`/en/anime/${row.aniId}`}
+            aria-label={t("profile.blocks.resume.info")}
+            title={t("profile.blocks.resume.info")}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/55 ring-1 ring-white/15 transition-colors hover:text-white hover:ring-white/35"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              className="h-4 w-4"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 11.5v4.5" />
+              <path d="M12 8h.01" />
+            </svg>
+          </Link>
+        </div>
       </div>
-    </Link>
+    </div>
   );
 }
 

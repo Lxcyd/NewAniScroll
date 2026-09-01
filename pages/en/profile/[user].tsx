@@ -26,7 +26,7 @@ import {
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
-import { DEFAULT_BLOCKS, isKnownBlock } from "@/lib/profile/blocks";
+import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import ProfileTabs from "@/components/profile/ProfileTabs";
@@ -47,7 +47,9 @@ function parseLayout(raw: string | null | undefined): GridItem[] | null {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw);
-    return isValidLayout(value) ? sanitizeLayout(value, isKnownBlock) : null;
+    return isValidLayout(value)
+      ? sanitizeLayout(value, isKnownBlock, blockBounds)
+      : null;
   } catch {
     return null;
   }

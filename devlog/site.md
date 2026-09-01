@@ -1136,3 +1136,43 @@ Deux pieces :
 Cout : nul. `mark()` est debounce a 5 s et `pushKinds` envoie toutes les
 categories sales dans **une seule** requete — `recent` voyage donc avec
 `progress`, qui part de toute facon quand on regarde un episode.
+
+### Les widgets, un par un : bornes de taille, et « reprendre la lecture »
+
+Premiere passe de finition sur la grille du profil, widget par widget.
+
+**Le chrome de la carte.** Le moins qui retire un bloc et le coin qui le
+redimensionne etaient dessines chacun a sa maniere : `right-3 top-3` et
+`opacity-60` par-dessus `text-white/60` pour l'un (soit un gris deux fois plus
+pale), `bottom-0 right-0` + `p-[7px]` pour l'autre. Les deux commandes de la
+carte se repondent maintenant en diagonale : meme boite de 28 px, meme retrait
+de 7 px, meme `text-white/60`. L'en-tete passe de `pr-6` a `pr-7` pour la
+largeur reelle du bouton.
+
+**Les bornes de taille.** Un bloc peut desormais declarer `min` / `max` en
+unites de grille (`[w, h]` dans `BLOCKS`, comme `size`). La contrainte vit dans
+`lib/profile/grid.ts` — `Bounds`, `clampSize` — et s'applique aux **trois**
+endroits ou une taille est decidee : le coin (`resizeItem`), l'apercu qui suit
+le curseur (`livePixels`, sinon la carte se laisse tirer puis revient en arriere
+au relachement) et `sanitizeLayout`, pour les dispositions ecrites avant
+qu'un bloc n'ait un minimum. `WidgetGrid` ne consulte aucun catalogue : il
+recoit une fonction `limits`.
+
+La notation retenue est **hauteur × largeur** — « 1×2 » = une ligne, deux
+colonnes. `BLOCKS` garde l'ordre `[w, h]` de ses autres champs ; c'est
+`blockBounds()` qui traduit.
+
+**`resume`.** Borne a 1×2 minimum, 2×4 maximum : sous deux colonnes la vignette
+et le titre ne cohabitent plus, au-dela de deux lignes la carte est un grand
+vide autour d'une seule ligne d'historique. Plus rien n'y est en pixels fixes —
+la vignette tire sa largeur de la hauteur offerte (16/9, plafonnee a 46 % de la
+carte), le titre passe sur **deux** lignes (`line-clamp-2`) au lieu d'etre
+tronque, ce qui est le cas courant a la plus petite taille. Un bouton « fiche »
+rejoint « reprendre » : il pointe vers `/en/anime/<id>` en dur, pas vers
+`animeHref`, qui avec la preference « clic = lecture » renverrait la ou mene
+deja tout le reste du bloc. Le triangle de lecture est celui du lecteur
+(vidstack, `PlayButton.Play`) — coins arrondis, meme glyphe que celui sur lequel
+on retombe en arrivant. Et sa pastille orange disparait de l'en-tete : elle sert
+a distinguer des blocs qui se ressemblent, or celui-ci porte deja son
+illustration. D'ou `dot: false` dans `BLOCKS` et `color` devenu optionnel dans
+`BlockChrome`.

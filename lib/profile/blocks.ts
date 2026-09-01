@@ -17,20 +17,47 @@
  * Les libellés passent par i18n (`profile.blocks.<id>.title` / `.desc`).
  */
 
+import { DEFAULT_BOUNDS, type Bounds } from "./grid";
+
 export type BlockSource = "list" | "device" | "none" | "soon";
 
 export type BlockDef = {
   id: string;
   /** [colonnes, lignes] à l'ajout. */
   size: [number, number];
+  /**
+   * [colonnes, lignes] au plus petit / au plus grand. Absent : la grille entière
+   * (1×1 à 4×4). Un bloc dont la mise en page ne tient pas dans une colonne le
+   * DIT ici plutôt que de se laisser écraser au coin.
+   */
+  min?: [number, number];
+  max?: [number, number];
   color: string;
+  /**
+   * `false` retire la pastille de couleur de l'en-tête. Elle sert à distinguer
+   * des blocs qui se ressemblent ; sur un bloc qui porte déjà son illustration
+   * elle n'ajoute qu'un point de couleur de plus.
+   */
+  dot?: false;
   source: BlockSource;
   /** Emoji du catalogue — décoratif, jamais porteur d'information seule. */
   icon: string;
 };
 
 export const BLOCKS: BlockDef[] = [
-  { id: "resume", size: [2, 1], color: "#F59E0B", source: "device", icon: "▶" },
+  // 1×2 au minimum, 2×4 au maximum (hauteur × largeur) : sous deux colonnes la
+  // vignette et le titre ne cohabitent plus, au-delà de deux lignes la carte est
+  // un grand vide autour d'une seule ligne d'historique.
+  {
+    id: "resume",
+    size: [2, 1],
+    min: [2, 1],
+    max: [4, 2],
+    color: "#F59E0B",
+    dot: false,
+    source: "device",
+    icon: "▶",
+  },
   { id: "favorites", size: [4, 1], color: "#E94560", source: "list", icon: "★" },
   { id: "recents", size: [2, 2], color: "#E94560", source: "device", icon: "↷" },
   { id: "statuses", size: [2, 1], color: "#22c55e", source: "list", icon: "◍" },
@@ -66,6 +93,18 @@ export function isKnownBlock(id: string): boolean {
 
 export function blockSize(id: string): [number, number] {
   return BY_ID.get(id)?.size ?? [2, 1];
+}
+
+/** Les bornes de redimensionnement d'un bloc, pour lib/profile/grid.ts. */
+export function blockBounds(id: string): Bounds {
+  const def = BY_ID.get(id);
+  if (!def) return DEFAULT_BOUNDS;
+  return {
+    minW: def.min?.[0] ?? DEFAULT_BOUNDS.minW,
+    minH: def.min?.[1] ?? DEFAULT_BOUNDS.minH,
+    maxW: def.max?.[0] ?? DEFAULT_BOUNDS.maxW,
+    maxH: def.max?.[1] ?? DEFAULT_BOUNDS.maxH,
+  };
 }
 
 /**
