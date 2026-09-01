@@ -2290,3 +2290,64 @@ input[type="number"] {
     rgba(12, 13, 16, 0.58)
   );
 }
+
+/* ── Les widgets du profil : ce qu'ils portent grandit avec la carte ──────
+
+   La grille laisse poser un bloc de 1×2 a 2×4 (hauteur × largeur), soit du
+   simple au quadruple de surface. Tant que le contenu gardait ses tailles de
+   la plus petite, un bloc etale devenait une vignette et deux boutons flottant
+   au milieu d'un grand vide — exactement ce qu'on voyait en 2×4.
+
+   Une REQUETE DE CONTENEUR, pas un point de rupture d'ecran : ce qui decide
+   ici, c'est la taille de la CARTE, et deux cartes de tailles differentes
+   coexistent dans la meme fenetre. `container-type: size` demande une taille
+   definie sur les deux axes — WidgetGrid la pose en pixels, c'est le cas.
+
+   Les seuils : une carte d'une ligne fait 230 px de haut, deux lignes 476 ;
+   deux colonnes font environ 590 px de large sur une page de 1200, quatre
+   colonnes la page entiere. D'ou 300 px et 700 px, chacun bien au milieu de
+   son ecart. */
+.as-widget {
+  container: widget / size;
+}
+
+@container widget (min-width: 700px) {
+  .as-widget-lead {
+    font-size: 1.375rem;
+  }
+}
+
+@container widget (min-height: 300px) {
+  .as-widget-head {
+    font-size: 1.375rem;
+  }
+  .as-widget-lead {
+    font-size: 1.5rem;
+  }
+  .as-widget-sub {
+    font-size: 0.9375rem;
+  }
+  .as-widget-btn {
+    height: 2.75rem;
+    padding-inline: 1.375rem;
+    font-size: 0.875rem;
+  }
+  .as-widget-btn svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .as-widget-play {
+    width: 4.5rem;
+    height: 4.5rem;
+  }
+  .as-widget-play svg {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
+@container widget (min-width: 700px) and (min-height: 300px) {
+  .as-widget-lead {
+    font-size: 1.875rem;
+  }
+}

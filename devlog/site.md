@@ -1206,3 +1206,29 @@ Puis, au reglage fin :
 - Le titre de l'anime va jusqu'a **trois** lignes (`line-clamp-3`), et le titre
   du widget passe de `text-base` a `text-lg` — pour toute la grille, c'est du
   chrome de carte.
+
+### Un widget etale doit GRANDIR, pas s'etaler autour de son contenu
+
+Constat en 2×4 : une vignette de 160 px et deux petits boutons flottant au
+milieu d'une carte large comme la page. « Responsive » ne voulait pas dire
+« tient dans toutes les tailles » mais « occupe la taille qu'on lui donne ».
+
+Deux causes, deux corrections :
+
+- Le `max-h-[10rem]` de la vignette. Il la plafonnait a la hauteur d'un bloc
+  d'UNE ligne, donc doubler la hauteur du bloc ne changeait rien. Elle prend
+  maintenant toute la hauteur offerte (`h-full`, 16/9), bornee en largeur
+  seulement (48 %) — en deux lignes, l'image est rognee sur les cotes plutot
+  que reduite au centre.
+- Les tailles de texte, figees. Elles passent par une **requete de conteneur**
+  (`.as-widget { container: widget / size }` dans `styles/globals.css`) : ce
+  qui decide est la taille de la CARTE, pas celle de l'ecran — deux cartes de
+  tailles differentes coexistent dans la meme fenetre, un `sm:` n'y peut rien.
+  Seuils a 300 px de haut (une ligne = 230, deux = 476) et 700 px de large
+  (deux colonnes ≈ 590 sur une page de 1200, quatre = la page), chacun bien au
+  milieu de son ecart.
+
+Les classes (`as-widget-head`, `-lead`, `-sub`, `-btn`, `-play`) sont posees
+dans le chrome et dans le bloc ; les valeurs de base restent en Tailwind, la
+requete ne fait que les relever. `container-type: size` exige une taille
+definie sur les deux axes : `WidgetGrid` la pose deja en pixels.

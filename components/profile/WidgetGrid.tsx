@@ -252,7 +252,11 @@ export default function WidgetGrid({
                redimensionnement (dans startDrag) et le moins — ce qui est
                exactement le rôle du `draggableCancel` de la bibliothèque. */
             onPointerDown={(e) => startDrag(it.i, "move", e)}
-            className={`absolute flex flex-col overflow-hidden rounded-[20px] px-5 py-4 ring-1 ${
+            /* `as-widget` fait de la carte un CONTENEUR DE REQUETE (styles/
+               globals.css) : le contenu d'un bloc peut alors grandir avec la
+               taille qu'on lui a donnee, sans que ni la grille ni le bloc n'aient
+               à se dire quoi que ce soit. */
+            className={`as-widget absolute flex flex-col overflow-hidden rounded-[20px] px-5 py-4 ring-1 ${
               editing
                 ? `bg-[#13141b]/95 ring-action/40 ring-dashed ${
                     active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"
@@ -284,7 +288,7 @@ export default function WidgetGrid({
                 editing ? "pr-7" : ""
               }`}
             >
-              <h2 className="flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
+              <h2 className="as-widget-head flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
                 {chrome.color ? (
                   <span
                     className="h-2 w-2 shrink-0 rounded-full"

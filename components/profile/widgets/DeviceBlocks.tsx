@@ -92,11 +92,11 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
     <div className="flex h-full min-w-0 items-center gap-4">
       <Link
         href={href}
-        className="group relative aspect-video h-full max-h-[10rem] w-auto max-w-[46%] shrink-0 overflow-hidden rounded-2xl bg-as-card"
+        className="group relative aspect-video h-full w-auto max-w-[48%] shrink-0 overflow-hidden rounded-2xl bg-as-card"
       >
         {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
         <span className="absolute inset-0 flex items-center justify-center">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
+          <span className="as-widget-play flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
             {/* LE TRIANGLE DU LECTEUR, au trait près : celui du bouton de
                 démarrage d'UniversalPlayer et de la vignette de l'épisode en
                 cours. Coins arrondis, et surtout centré par son CENTRE DE
@@ -118,11 +118,11 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
 
       <div className="flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
-          <h3 className="line-clamp-3 font-outfit text-base font-bold leading-snug text-white transition-colors hover:text-action sm:text-lg">
+          <h3 className="as-widget-lead line-clamp-3 font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action">
             {row.animeTitle || `#${row.aniId}`}
           </h3>
         </Link>
-        <p className="mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
+        <p className="as-widget-sub mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
           {row.minutesLeft != null
             ? t(other ? "profile.blocks.resume.lineOther" : "profile.blocks.resume.line", {
                 episode: row.episode,
@@ -146,7 +146,7 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Link
             href={href}
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-action px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
+            className="as-widget-btn inline-flex h-9 items-center gap-2 rounded-full bg-action px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
           >
             {t(other ? "profile.blocks.resume.ctaOther" : "profile.blocks.resume.cta")}
           </Link>
@@ -158,7 +158,7 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
                ce dernier renverrait vers un épisode, c'est-à-dire là où mène
                déjà tout le reste du bloc. */
             href={`/en/anime/${row.aniId}`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
+            className="as-widget-btn inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 shrink-0">
               <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
