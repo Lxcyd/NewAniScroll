@@ -1,3 +1,5 @@
+import { gunzipSync, gzipSync } from "node:zlib";
+
 import Head from "next/head";
 import Link from "next/link";
 import { useState } from "react";
@@ -14,6 +16,8 @@ import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/Pr
 import ProfileList from "@/components/profile/ProfileList";
 import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
 
+import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { redis } from "@/lib/redis";
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
@@ -364,70 +368,163 @@ const ANILIST_QUERY = `
 `;
 
 /**
- * LA LISTE ANILIST, GARDÉE QUELQUES SECONDES EN MÉMOIRE DU PROCESSUS.
+ * LA LISTE ANILIST, GARDÉE À DEUX ÉTAGES.
  *
  * Cette page est rendue à chaque visite (getServerSideProps) et la requête
- * ci-dessous en est tout le coût : 3,8 s / 11,7 s / 4,5 s mesurées sur une liste
- * de 824 entrées. Elle était donc repayée EN ENTIER à chaque rechargement, à
- * chaque retour arrière, et par chaque visiteur du même profil — d'où une page
- * qui met des secondes à revenir alors que rien n'a changé chez AniList.
+ * AniList en est tout le coût : 3,8 s / 11,7 s / 4,5 s mesurées sur une liste de
+ * 824 entrées, et **9,1 s relevées le 02/09/2026** sur la navigation client
+ * (`_next/data/…/profile….json`) contre 0,66 s pour une fiche anime. Elle était
+ * repayée EN ENTIER à chaque rechargement, à chaque retour arrière, et par
+ * chaque visiteur du même profil.
  *
- * Une Map de module, pas Upstash : le cache tient dans la lambda qui répond,
- * donc il ne coûte aucune commande sur un quota déjà juste (cf. les notes sur
- * le plafond Upstash) et ne peut pas servir la liste d'un profil à un autre —
- * la clé est le nom AniList. Un rechargement retombe presque toujours sur la
- * même instance chaude, ce qui est exactement le cas à réparer.
+ *   1. UNE MAP DE MODULE, 60 s. Gratuite, aucune commande, aucun réseau. Elle
+ *      couvre le cas courant — recharger, revenir depuis une fiche — mais elle
+ *      meurt avec la lambda, c'est-à-dire à chaque déploiement et à chaque
+ *      démarrage à froid, qui sont précisément les moments où l'on mesure 9 s.
+ *   2. UPSTASH, PARTAGÉ, 24 h. Il survit à la lambda et sert tous les visiteurs
+ *      du même profil. La fraîcheur ne vient pas du TTL mais de l'horodatage
+ *      rangé avec la liste : en deçà de FRAIS_MS on la sert telle quelle, au
+ *      delà on redemande à AniList et on ne garde l'ancienne que si la demande
+ *      échoue.
  *
- * SOIXANTE SECONDES, ET LE PLAFOND EST BAS. C'est assez pour que recharger, ou
- * revenir depuis un anime, soit instantané ; assez court pour qu'une note posée
- * sur AniList apparaisse au rafraîchissement suivant. Le plafond d'entrées
- * existe parce qu'une liste pèse quelques centaines de kilo-octets : au-delà, la
- * plus ancienne s'en va.
+ * ET C'EST CETTE DERNIÈRE LIGNE QUI COMPTE LE PLUS. Le 02/09/2026,
+ * `graphql.anilist.co` répondait **403 à tout** — « The AniList API has been
+ * temporarily disabled due to severe stability issues ». Sans copie de secours,
+ * un profil affiche alors « 0 anime » : un chiffre FAUX, pas une absence de
+ * chiffre, exactement le défaut que le délai de 14 s ci-dessus avait été monté
+ * pour éviter. Une liste de la veille est infiniment plus vraie qu'un zéro.
+ *
+ * LE COÛT UPSTASH. Un GET par vue de profil, un SET seulement quand on
+ * rafraîchit — à comparer à une projection mensuelle mesurée à **24 % du
+ * plafond gratuit** (tools/usage-monitor/HISTORY.md). C'est la route la moins
+ * fréquentée du site ; la règle « ne rien mettre dans Upstash » vise les GET
+ * partagés d'un catalogue, pas une liste par profil.
+ *
+ * POURQUOI GZIP. La liste dépasse plusieurs centaines de kilo-octets, et le REST
+ * d'Upstash la fait passer dans le corps d'une requête HTTP, deux fois (aller à
+ * l'écriture, retour à la lecture). Comprimée elle tombe autour du dixième :
+ * cela tient largement sous la limite de taille de requête, et cela évite
+ * surtout de rajouter des centaines de millisecondes de transfert devant chaque
+ * rendu — ce qui aurait mangé le gain qu'on vient chercher.
  */
 const LIST_TTL_MS = 60_000;
-const LIST_CACHE_MAX = 12;
+/* Redescendu de 12 à 4 : avec Upstash derrière, garder douze listes de
+   plusieurs mégaoctets dans la mémoire de la lambda n'achète plus rien. */
+const LIST_CACHE_MAX = 4;
 const listCache = new Map<string, { at: number; data: any }>();
+
+/** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
+const FRAIS_MS = 5 * 60_000;
+const PARTAGE_TTL_S = 24 * 60 * 60;
+const partageKey = (name: string) => `anilist:list:v1:${name.toLowerCase()}`;
+
+/** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
+type ListePartagee = { at: number; z: string };
+
+async function partageLu(name: string): Promise<{ at: number; data: any } | null> {
+  try {
+    if (!redis) return null;
+    const raw = await redis.get(partageKey(name));
+    if (!raw) return null;
+    const box = JSON.parse(raw) as ListePartagee;
+    if (!box?.z || typeof box.at !== "number") return null;
+    return { at: box.at, data: JSON.parse(gunzipSync(Buffer.from(box.z, "base64")).toString("utf8")) };
+  } catch {
+    /* Cache illisible (format changé, écriture tronquée, Upstash muet) : on
+       redemande à AniList. Jamais une erreur de rendu pour une erreur de
+       cache. */
+    return null;
+  }
+}
+
+async function partageEcrit(name: string, data: any): Promise<void> {
+  try {
+    if (!redis) return;
+    const box: ListePartagee = {
+      at: Date.now(),
+      z: gzipSync(Buffer.from(JSON.stringify(data), "utf8")).toString("base64"),
+    };
+    await redis.set(partageKey(name), JSON.stringify(box), "EX", PARTAGE_TTL_S);
+  } catch {
+    /* L'écriture est un confort : la page est déjà rendue sans elle. */
+  }
+}
+
+function memoire(key: string, data: any) {
+  // Réinsérée, pas mise à jour sur place : une Map garde l'ordre d'insertion,
+  // et c'est lui qui désigne la plus ancienne quand le plafond est atteint.
+  listCache.delete(key);
+  listCache.set(key, { at: Date.now(), data });
+  if (listCache.size > LIST_CACHE_MAX) {
+    const oldest = listCache.keys().next().value;
+    if (oldest !== undefined) listCache.delete(oldest);
+  }
+}
 
 async function cachedAniList(username: string): Promise<any | null> {
   const key = username.toLowerCase();
   const hit = listCache.get(key);
   if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.data;
-  const data = await fetchAniList(username);
-  // Un échec n'est pas mis en cache : il serait servi pendant une minute à la
-  // place d'une liste qui existe, et le profil s'afficherait vide.
-  if (data) {
-    // Réinsérée, pas mise à jour sur place : une Map garde l'ordre d'insertion,
-    // et c'est lui qui désigne la plus ancienne quand le plafond est atteint.
-    listCache.delete(key);
-    listCache.set(key, { at: Date.now(), data });
-    if (listCache.size > LIST_CACHE_MAX) {
-      const oldest = listCache.keys().next().value;
-      if (oldest !== undefined) listCache.delete(oldest);
-    }
+
+  const partage = await partageLu(key);
+  if (partage && Date.now() - partage.at < FRAIS_MS) {
+    memoire(key, partage.data);
+    return partage.data;
   }
-  return data;
+
+  const data = await fetchAniList(username);
+  if (data) {
+    memoire(key, data);
+    await partageEcrit(key, data);
+    return data;
+  }
+  // AniList a refusé ou traîné. La copie d'hier, si elle existe, plutôt qu'un
+  // profil vide — et on la remet en mémoire pour ne pas re-sonder une API en
+  // panne à chaque visite.
+  if (partage) {
+    memoire(key, partage.data);
+    return partage.data;
+  }
+  return null;
 }
 
+/**
+ * L'appel lui-même — par le point de passage commun, pas par un `fetch` à part.
+ *
+ * Cette page était le SEUL appelant serveur d'AniList à ouvrir sa propre
+ * connexion (`lib/anilist/anilistFetch.ts` centralise tous les autres). Elle se
+ * privait donc des trois choses que ce point de passage apporte, et dont la plus
+ * chère du site a le plus besoin :
+ *
+ *   - LE LIMITEUR PARTAGÉ. AniList tolère ~30 requêtes/minute par IP. Une page
+ *     qui tire une liste entière hors budget commun, ce sont des 429 pour les
+ *     autres pages — fiche, lecteur, calendrier — qui, elles, comptent leurs
+ *     points ;
+ *   - LA FUSION DES APPELS EN VOL. Deux visiteurs du même profil au même
+ *     instant partagent une requête au lieu d'en payer deux de neuf secondes ;
+ *   - LA GESTION DU 429, qui met le seau en pause au lieu de marteler.
+ *
+ * `cacheSeconds: 0` parce que le cache de réponses de ce module écrirait la
+ * liste NON COMPRIMÉE dans Upstash à chaque requête — plusieurs centaines de
+ * kilo-octets par écriture. Le cache de cette page (ci-dessus) la comprime et
+ * sait servir une copie périmée quand AniList refuse : c'est lui qui garde la
+ * liste, ce module ne fait que l'aller-retour.
+ *
+ * `timeoutMs` reste à 14 s, contre 5 s par défaut. Mesure sur une liste de 824
+ * entrées : 3,8 s / 11,7 s / 4,5 s. À 6 s, un profil sur trois était abandonné
+ * en cours de route et rendu vide, « 0 anime » — un chiffre faux, pas une
+ * absence de chiffre. Le coût d'un abandon est bien plus élevé que celui de
+ * l'attente.
+ */
 async function fetchAniList(username: string): Promise<any | null> {
-  try {
-    const controller = new AbortController();
-    /* Mesure sur une liste de 824 entrees : 3,8 s / 11,7 s / 4,5 s. A 6 s, un
-       profil charge sur trois etait abandonne en cours de route et rendu vide,
-       "0 anime" -- un chiffre faux, pas une absence de chiffre. Le cout d un
-       abandon est donc bien plus eleve que celui de l attente. */
-    const timer = setTimeout(() => controller.abort(), 14000);
-    const res = await fetch("https://graphql.anilist.co/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: ANILIST_QUERY, variables: { username } }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timer));
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json?.data?.MediaListCollection ?? null;
-  } catch {
-    return null;
-  }
+  const json = (await anilistFetch({
+    query: ANILIST_QUERY,
+    variables: { username },
+    timeoutMs: 14000,
+    cacheSeconds: 0,
+    label: "profile-list",
+  })) as any;
+  return json?.data?.MediaListCollection ?? null;
 }
 
 export async function getServerSideProps(context: any) {

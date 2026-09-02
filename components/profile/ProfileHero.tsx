@@ -102,7 +102,7 @@ export default function ProfileHero({
   onEditBanner,
   subtitle,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
   /* The navbar floats transparent over this plate, and a profile's artwork is
      picked by its owner — nothing stops it being a white one. Same measurement
@@ -210,10 +210,33 @@ export default function ProfileHero({
           ) : null}
           {createdAt ? (
             <span className="px-1 py-1 text-white/50">
+              {/* Formatée contre la langue ACTIVE de l'interface, jamais contre
+                  celle de l'environnement — même note que Hero.tsx, et le même
+                  prix quand on l'oublie. `toLocaleDateString(undefined)`
+                  demande à l'environnement, et les deux environnements ne
+                  répondent pas la même chose : Node sur Vercel résout `en-US`
+                  et écrit « September 2024 », un navigateur français écrit
+                  « septembre 2024 ». React voit alors un texte différent de
+                  celui que le serveur a envoyé — erreur #425 — et son remède
+                  est de JETER tout le HTML du serveur pour re-rendre la page
+                  entière côté client (#418, #423). Mesuré le 02/09/2026 sur
+                  dev.aniscroll.com : DOM prêt à 14 982 ms sur ce profil, contre
+                  647 ms sur une fiche anime, pour un TTFB de 19 ms.
+
+                  `i18n.language` vaut « en » sur le serveur ET au premier rendu
+                  du client (cf. lib/i18n/I18nProvider), donc l'hydratation
+                  correspond ; le français arrive avec la bascule de langue,
+                  après.
+
+                  `timeZone: "UTC"` pour la même raison, un cran plus fin : le
+                  serveur est en UTC et le lecteur ne l'est pas, donc une date
+                  d'inscription tombée le 1er ou le dernier jour d'un mois se
+                  lirait sur deux mois différents. */}
               {t("profile.memberSince", {
-                date: new Date(createdAt).toLocaleDateString(undefined, {
+                date: new Date(createdAt).toLocaleDateString(i18n.language, {
                   month: "long",
                   year: "numeric",
+                  timeZone: "UTC",
                 }),
               })}
             </span>
