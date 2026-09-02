@@ -148,6 +148,33 @@ export async function fullSyncFromAniList(
   try {
     const byId = await fetchAniListListMap(token, userName);
     if (!byId) return { ok: false, count: 0 };
+    /* ── UNE LISTE VIDE N'EST PAS UNE LISTE, C'EST UNE PANNE ─────────
+     *
+     * Les deux branches ci-dessous finissent par `importEntries(…, "replace")`,
+     * qui REMPLACE la liste locale. Avec zéro entrée en main, cela l'efface.
+     *
+     * Le garde-fou du dessus ne couvrait que l'échec FRANC — refus HTTP, erreur
+     * GraphQL, réseau coupé. Une API qui vacille ne tombe pas toujours ainsi :
+     * elle répond 200 avec une collection vide, et ce chemin-là écrivait ce vide
+     * par-dessus la liste de l'utilisateur. Sans le moindre geste de sa part :
+     * ce pull tourne à CHAQUE chargement de page, en tâche de fond (pages/
+     * _app.tsx), et le seul retour visible était un « 0 entrées synchronisées »
+     * en vert — un succès annoncé pour une liste détruite.
+     *
+     * Relevé le 02/09/2026, le jour où `graphql.anilist.co` a répondu 403 à tout
+     * (« temporarily disabled due to severe stability issues ») : liste locale à
+     * 0 entrée, et le toast vert dans la même capture d'écran.
+     *
+     * On ne peut PAS distinguer « AniList est en panne » de « cette liste est
+     * réellement vide » : les deux réponses sont identiques. Le doute profite
+     * donc aux données. Ce que cela coûte : un compte AniList sincèrement vide
+     * lit « échec de la synchronisation » au lieu de ne rien faire — et n'avait,
+     * par définition, rien à synchroniser. Ce que cela évite : effacer une liste
+     * de plusieurs centaines de titres à cause d'une seconde de faiblesse chez
+     * un tiers. Vider volontairement sa liste locale reste possible, par le
+     * bouton qui ne fait que ça.
+     */
+    if (byId.size === 0) return { ok: false, count: 0 };
     // ── Hard override ──────────────────────────────────────────────
     // When the user turns sync ON they asked to make this device match their
     // AniList account: drop everything local and write AniList verbatim.
