@@ -49,12 +49,16 @@ const FORMAT_COLOR: Record<string, string> = {
 /**
  * La vitrine : une bande d'affiches qui se tire à la souris.
  *
- * ELLE SE DIMENSIONNE TOUTE SEULE, sans requête de conteneur et sans pixel
- * fixe. L'affiche prend la hauteur qui reste (`flex-1`) sous un titre de deux
- * lignes, et sa largeur en découle par son rapport 2:3 ; la carte fait la
- * largeur de son affiche. Le bloc peut donc aller de 1×1 à 2×4 : à une ligne
- * les affiches sont petites et il en passe trois dans une colonne, à deux
- * lignes elles sont grandes. Rien à recalculer, rien à seuiller.
+ * ELLE SE DIMENSIONNE TOUTE SEULE, sans pixel fixe. L'affiche prend la hauteur
+ * qui reste sous le titre, et sa largeur en découle par son rapport 2:3 ; la
+ * carte fait la largeur de son affiche. Le bloc va donc de 1×2 à 2×4 : à une
+ * ligne les affiches sont petites, à deux lignes elles sont grandes, et rien
+ * n'est à recalculer. Seul l'ÉCART entre elles est seuillé, pour rester
+ * proportionnel à leur taille (cf. `.as-fav-row` dans globals.css).
+ *
+ * TOUTES LES CARTES FONT LA MÊME TAILLE. La rangée du titre a une hauteur
+ * FIXE de deux lignes, pleines ou non : sans elle, un titre court laissait son
+ * affiche descendre plus bas que celle d'à côté, et la bande ondulait.
  *
  * DEUX LIGNES DE TITRE, ET PLUS DE COMPTE D'ÉPISODES. Le titre était coupé à
  * une ligne, ce qui à cette largeur laissait « Kimetsu no Yaiba: M… » —
@@ -62,9 +66,9 @@ const FORMAT_COLOR: Record<string, string> = {
  * rien sur une vitrine de favoris : la note, elle, reste sur l'affiche.
  *
  * Le glissement est CELUI du carrousel de recommandations, littéralement (cf.
- * lib/ui/dragScroll.ts), et le survol lève la même bande-annonce que partout
- * ailleurs sur le site — une seule propriété à poser (`previewAnchor`), pas de
- * composant à envelopper.
+ * lib/ui/dragScroll.ts), les flèches sont les siennes, et le survol lève la même
+ * bande-annonce que partout ailleurs sur le site — une seule propriété à poser
+ * (`previewAnchor`), pas de composant à envelopper.
  */
 export function FavoritesBlock({
   entries,
@@ -72,10 +76,14 @@ export function FavoritesBlock({
   source = "favourites",
   /** Réglable : la bande-annonce au survol. */
   trailer = true,
+  /** En mode réorganisation, les flèches céderaient la place à la roue et au
+   *  moins qui occupent ce coin — et le contenu est inerte de toute façon. */
+  editing = false,
 }: {
   entries: ProfileEntry[];
   source?: string;
   trailer?: boolean;
+  editing?: boolean;
 }) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
@@ -94,22 +102,53 @@ export function FavoritesBlock({
       />
     );
 
+  /* Les flèches sautent d'un peu moins que la largeur visible : il reste une
+     affiche de l'écran précédent, qui dit qu'on n'a pas sauté dans le vide. */
+  const nudge = (dir: number) => {
+    const el = ref.current;
+    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: "smooth" });
+  };
+
   return (
-    <div
-      ref={ref}
-      onClickCapture={onClickCapture}
-      /* `-my-2 py-2` : la carte du widget coupe ce qui dépasse, et sans ces
-         huit pixels de marge intérieure l'affiche qui grandit au survol serait
-         rognée en haut et en bas. Le `-my-2` les reprend sur la mise en page,
-         donc rien ne bouge tant qu'on ne survole rien. */
-      className="-my-2 flex h-full cursor-grab select-none gap-3 overflow-x-auto overflow-y-hidden py-2 scrollbar-thin scrollbar-thumb-white/10"
-    >
-      {shown.map((e) => (
-        <Link
-          key={e.mediaId}
-          href={animeHref(e.mediaId, clickTarget)}
-          draggable={false}
-          {...(trailer ? previewAnchor(e.mediaId) : {})}
+    <div className="relative h-full">
+      {/* LES FLÈCHES DU CARROUSEL DE RECOMMANDATIONS, dans l'en-tête du bloc.
+          Elles sont posées en NÉGATIF au-dessus du contenu parce que l'en-tête
+          appartient à la grille et non au bloc : le bloc ne reçoit que sa boîte
+          de contenu, et remonter de 38 px l'amène au milieu du titre, à droite,
+          là où le carrousel les met. */}
+      {!editing ? (
+        <div className="absolute -top-[38px] right-0 z-10 flex gap-1.5">
+          {[-1, 1].map((dir) => (
+            <button
+              key={dir}
+              type="button"
+              onClick={() => nudge(dir)}
+              aria-label={t(dir < 0 ? "anime.prev" : "anime.next")}
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
+                <polyline points={dir < 0 ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
+              </svg>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div
+        ref={ref}
+        onClickCapture={onClickCapture}
+        /* `-my-2 py-2` : la carte du widget coupe ce qui dépasse, et sans ces
+           huit pixels de marge intérieure l'affiche qui grandit au survol serait
+           rognée en haut et en bas. Le `-my-2` les reprend sur la mise en page,
+           donc rien ne bouge tant qu'on ne survole rien. */
+        className="as-fav-row as-noscroll -my-2 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden py-2"
+      >
+        {shown.map((e) => (
+          <Link
+            key={e.mediaId}
+            href={animeHref(e.mediaId, clickTarget)}
+            draggable={false}
+            {...(trailer ? previewAnchor(e.mediaId) : {})}
           /* UNE GRILLE À DEUX RANGÉES, ET SURTOUT PAS UNE COLONNE FLEX.
              L'affiche n'a pas de largeur à elle : elle la tient de sa HAUTEUR,
              par son rapport 2:3. Encore faut-il que cette hauteur soit
@@ -117,32 +156,38 @@ export function FavoritesBlock({
              qu'un `flex-1` ne l'est pas au moment où le navigateur calcule la
              largeur intrinsèque de la colonne. Écrite en flex, la carte se
              réduisait à zéro pixel de large et la vitrine était vide. */
-          className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_auto] gap-2"
-        >
-          <div
-            className="relative h-full overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
-            style={{ aspectRatio: "2 / 3" }}
+            /* La rangee du titre a une hauteur FIXE de deux lignes (2.2rem a
+               ce corps), remplies ou non : c'est ce qui donne a toutes les
+               cartes exactement la meme taille, qu'un titre tienne sur une
+               ligne ou sur deux. */
+            className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_2.2rem] gap-2"
           >
-            {e.cover ? (
-              <Image src={e.cover} alt="" fill sizes="200px" className="object-cover" />
-            ) : null}
-            {e.score ? (
-              <span className="absolute right-1.5 top-1.5 rounded-md bg-black/75 px-1.5 py-0.5 font-karla text-[11px] font-bold text-as-score">
-                ★ {e.score}
-              </span>
-            ) : null}
-          </div>
-          {/* `w-0 min-w-full` : le titre se replie sur la largeur de l'affiche
-              au lieu d'imposer la sienne à la carte. Un pourcentage de
-              min-width compte pour zéro dans le calcul de largeur intrinsèque —
-              c'est justement ce qu'on veut — alors qu'un simple `w-full` y
-              laisserait passer la largeur du texte, et un titre long élargirait
-              sa carte au point de rendre la bande irrégulière. */}
-          <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-snug text-white">
-            {pickTitle(e.title, titlePref)}
-          </p>
-        </Link>
-      ))}
+            <div
+              className="relative h-full overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
+              style={{ aspectRatio: "2 / 3" }}
+            >
+              {e.cover ? (
+                <Image src={e.cover} alt="" fill sizes="240px" className="object-cover" />
+              ) : null}
+              {e.score ? (
+                <span className="absolute right-1.5 top-1.5 rounded-md bg-black/75 px-1.5 py-0.5 font-karla text-[11px] font-bold text-as-score">
+                  ★ {e.score}
+                </span>
+              ) : null}
+            </div>
+            {/* `w-0 min-w-full` : le titre se replie sur la largeur de l'affiche
+                au lieu d'imposer la sienne a la carte. Un pourcentage de
+                min-width compte pour zero dans le calcul de largeur
+                intrinseque — c'est justement ce qu'on veut — alors qu'un simple
+                `w-full` y laisserait passer la largeur du texte, et un titre
+                long elargirait sa carte au point de rendre la bande
+                irreguliere. */}
+            <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-snug text-white">
+              {pickTitle(e.title, titlePref)}
+            </p>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

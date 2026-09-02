@@ -332,6 +332,10 @@ const ANILIST_QUERY = `
       lists {
         status
         name
+        # Une liste personnalisée arrive comme une liste de plus, portant les
+        # mêmes entrées : sans ce drapeau on ne peut pas la distinguer d'une
+        # liste de statut, et l'appartenance se perdait à la déduplication.
+        isCustomList
         entries {
           mediaId
           status

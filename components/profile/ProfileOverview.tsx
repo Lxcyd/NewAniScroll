@@ -15,7 +15,8 @@ import {
   StudiosBlock,
 } from "./widgets/ListBlocks";
 import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
-import { listLabel } from "@/components/anime/v2/helpers";
+import { customListColor, listLabel, LIST_COLORS } from "@/components/anime/v2/helpers";
+import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
 import type { ActivityRow } from "@/lib/profile/activity";
 import {
   BLOCKS,
@@ -188,7 +189,6 @@ export default function ProfileOverview({
     return {
       title: blockTitle(id, other),
       meta: null,
-      color: def.dot === false ? null : def.color,
       body: body(id),
     };
   }
@@ -202,8 +202,18 @@ export default function ProfileOverview({
     return blockOption(id, key, saved(id));
   }
   function optionValue(id: string, key: string): string {
-    return blockOptionValue(id, key, saved(id));
+    return blockOptionValue(id, key, saved(id), customValues);
   }
+
+  /* Les listes personnalisées de CE profil, telles que sa liste les porte. Elles
+     ne sont dans aucun catalogue — chacun invente les siennes — donc elles se
+     lisent dans les entrées, et le préfixe les empêche de se confondre avec une
+     liste de statut qui porterait le même nom. */
+  const customLists = useMemo(() => customListNames(entries), [entries]);
+  const customValues = useMemo(
+    () => customLists.map((n) => `${CUSTOM_PREFIX}${n}`),
+    [customLists],
+  );
 
   /** Un réglage changé, écrit dans la disposition et sauvegardé. */
   function setOption(id: string, key: string, value: boolean | string) {
@@ -223,6 +233,7 @@ export default function ProfileOverview({
    * (`listLabel`), donc « Terminés » veut dire ici ce qu'il veut dire ailleurs.
    */
   function widgetOptions(id: string) {
+    const def = blockDef(id);
     return blockOptions(id).map((o) => {
       const common = {
         key: o.key,
@@ -233,13 +244,27 @@ export default function ProfileOverview({
         ? {
             ...common,
             value: optionValue(id, o.key),
-            choices: o.choices.map((c) => ({
-              value: c,
-              label:
-                c === "favourites"
-                  ? t("profile.widgets.options.sourceFavourites")
-                  : listLabel(t, c),
-            })),
+            /* Les listes de statut d'abord, dans l'ordre du site, puis les
+               listes personnalisées À LA SUITE — c'est l'ordre de l'éditeur de
+               liste, où les listes inventées viennent aussi après. Chacune
+               porte SA couleur : celle du site pour les six listes de statut,
+               celle déduite de son nom pour les autres (`customListColor`),
+               exactement les pastilles de l'éditeur. */
+            choices: [
+              ...o.choices.map((c) => ({
+                value: c,
+                label:
+                  c === "favourites"
+                    ? t("profile.widgets.options.sourceFavourites")
+                    : listLabel(t, c),
+                color: c === "favourites" ? def?.color : LIST_COLORS[c],
+              })),
+              ...customLists.map((n) => ({
+                value: `${CUSTOM_PREFIX}${n}`,
+                label: n,
+                color: customListColor(n),
+              })),
+            ],
           }
         : { ...common, on: optionOn(id, o.key) };
     });
@@ -251,20 +276,24 @@ export default function ProfileOverview({
    * Il n'est plus toujours celui du catalogue : la vitrine des favoris peut
    * montrer une AUTRE liste que les favoris, et garder alors le titre
    * « Animés favoris » serait un mensonge sur son contenu. Le titre suit donc le
-   * réglage — « Animes favoris · Terminé », « Animes favoris · Prévu » — en
-   * reprenant le NOM DE LISTE du reste du site plutôt qu'un mot à lui.
+   * réglage — « Animes favoris · Liste : Terminé » — en reprenant le NOM DE
+   * LISTE du reste du site plutôt qu'un mot à lui.
    *
-   * Le nom est accolé par un point médian et non fondu dans la phrase : les
-   * libellés de listes sont des étiquettes, pas des adjectifs, et ils ne
-   * s'accordent ni en français (« favoris terminé ») ni en anglais
-   * (« favourite planning anime »). Le séparateur les laisse être ce qu'ils
-   * sont, dans les deux langues, sans table de correspondance à tenir.
+   * Le nom est ANNONCÉ (« Liste : ») et non fondu dans la phrase : les libellés
+   * de listes sont des étiquettes, pas des adjectifs, et ils ne s'accordent ni
+   * en français (« favoris terminé ») ni en anglais (« favourite planning
+   * anime »). Une liste personnalisée s'annonce de la même façon, sous son
+   * propre nom.
    */
   function blockTitle(id: string, other: boolean): string {
     if (id === "favorites") {
       const src = optionValue("favorites", "source");
       if (src && src !== "favourites") {
-        return t("profile.blocks.favorites.titleList", { list: listLabel(t, src) });
+        return t("profile.blocks.favorites.titleList", {
+          list: src.startsWith(CUSTOM_PREFIX)
+            ? src.slice(CUSTOM_PREFIX.length)
+            : listLabel(t, src),
+        });
       }
     }
     return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
@@ -288,6 +317,7 @@ export default function ProfileOverview({
             entries={entries}
             source={optionValue("favorites", "source")}
             trailer={optionOn("favorites", "trailer")}
+            editing={editing && isOwner}
           />
         );
       case "statuses":

@@ -885,7 +885,7 @@
       "favorites": {
         "title": "Favourite anime",
         "desc": "Your poster shelf, AniList favourites first.",
-        "titleList": "Favourite anime · {{list}}",
+        "titleList": "Favourite anime · List: {{list}}",
         "empty": "No favourites or scores yet — rate a title and it appears here.",
         "emptyList": "This list is empty — add titles to it and the best-rated show up here."
       },

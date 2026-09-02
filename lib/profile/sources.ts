@@ -15,16 +15,28 @@ export function entriesFromAniList(
   lists: any[] | null | undefined,
   favouriteIds: Set<number>,
 ): ProfileEntry[] {
-  const seen = new Set<number>();
+  const byId = new Map<number, ProfileEntry>();
   const out: ProfileEntry[] = [];
   for (const list of lists || []) {
+    /* Une liste personnalisée est une `lists[]` de plus, portant les mêmes
+       entrées que leur liste de statut. C'est le SEUL endroit où l'appartenance
+       est lisible : après la déduplication ci-dessous elle a disparu avec le
+       doublon, ce qui est exactement ce qui la rendait invisible jusqu'ici. */
+    const custom: string | null = list?.isCustomList && list?.name ? String(list.name) : null;
     for (const e of list?.entries || []) {
       const mediaId = e.mediaId ?? e.media?.id;
+      if (!mediaId) continue;
       // A status can be split across custom lists, so the same entry shows up
-      // more than once: the first occurrence wins.
-      if (!mediaId || seen.has(mediaId)) continue;
-      seen.add(mediaId);
-      out.push({
+      // more than once: the first occurrence wins — mais on lui accroche au
+      // passage le nom de chaque liste personnalisée qui la reprend.
+      const already = byId.get(mediaId);
+      if (already) {
+        if (custom && !already.customLists?.includes(custom)) {
+          already.customLists = (already.customLists ?? []).concat(custom);
+        }
+        continue;
+      }
+      const entry: ProfileEntry = {
         mediaId,
         status: e.status || list.status || "PLANNING",
         progress: e.progress || 0,
@@ -40,7 +52,10 @@ export function entriesFromAniList(
         // c'est ce qui garde la charge d'une liste de 800 titres raisonnable.
         genres: Array.isArray(e.media?.genres) ? e.media.genres.slice(0, 3) : [],
         studio: e.media?.studios?.nodes?.[0]?.name ?? null,
-      });
+        customLists: custom ? [custom] : [],
+      };
+      byId.set(mediaId, entry);
+      out.push(entry);
     }
   }
   return out;

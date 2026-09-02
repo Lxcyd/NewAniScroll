@@ -885,7 +885,7 @@
       "favorites": {
         "title": "Animes favoris",
         "desc": "Ta vitrine de posters, favoris AniList en tête.",
-        "titleList": "Animes favoris · {{list}}",
+        "titleList": "Animes favoris · Liste : {{list}}",
         "empty": "Aucun favori ni note pour l'instant — note un titre et il s'affichera ici.",
         "emptyList": "Cette liste est vide — ajoute-y des titres et les mieux notés s'afficheront ici."
       },

@@ -188,10 +188,29 @@ export function showcaseFor(
   max = 10,
 ): ProfileEntry[] {
   if (!source || source === "favourites") return favoriteShowcase(entries, max);
+  /* Une liste personnalisée est préfixée pour ne pas se confondre avec une liste
+     de statut : rien n'empêche quelqu'un d'appeler la sienne « Completed ». */
+  const custom = source.startsWith(CUSTOM_PREFIX)
+    ? source.slice(CUSTOM_PREFIX.length)
+    : null;
   return entries
-    .filter((e) => STATUS_TO_LIST[(e.status || "").toUpperCase()] === source)
+    .filter((e) =>
+      custom
+        ? e.customLists?.includes(custom)
+        : STATUS_TO_LIST[(e.status || "").toUpperCase()] === source,
+    )
     .sort((a, b) => (b.score || 0) - (a.score || 0))
     .slice(0, max);
+}
+
+/** Le préfixe qui distingue « la liste personnalisée X » d'une liste de statut. */
+export const CUSTOM_PREFIX = "custom:";
+
+/** Les listes personnalisées présentes dans une liste, dans l'ordre alphabétique. */
+export function customListNames(entries: ProfileEntry[]): string[] {
+  const names = new Set<string>();
+  for (const e of entries) for (const n of e.customLists || []) names.add(n);
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 /** Le titre d'une entrée, dans l'ordre de préférence habituel. */

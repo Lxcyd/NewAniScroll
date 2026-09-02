@@ -2311,6 +2311,58 @@ input[type="number"] {
   container: widget / size;
 }
 
+/* La barre de defilement de la vitrine des favoris, cachee -- le carrousel se
+   tire a la souris et se pousse aux fleches, la barre ne servait qu'a manger
+   huit pixels de hauteur d'affiche. Le defilement lui-meme reste intact. */
+.as-noscroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.as-noscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* L'ECART ENTRE DEUX AFFICHES, PROPORTIONNEL A LEUR TAILLE.
+   Le carrousel de recommandations pose 14 px entre des cartes de 180, soit
+   ~7,8 %. Ici la carte n'a pas de largeur fixe : elle tient sa hauteur de la
+   case et sa largeur de son rapport 2:3, donc l'ecart suit par requete de
+   conteneur. Une case d'une ligne (230 px) laisse une affiche d'environ 85 px
+   de large -> 7 px ; deux lignes (476 px) en laissent ~245 -> 19 px. Le rapport
+   est tenu aux deux bouts, sans mesurer quoi que ce soit en JS. */
+.as-fav-row {
+  gap: 7px;
+}
+@container widget (min-height: 300px) {
+  .as-fav-row {
+    gap: 19px;
+  }
+}
+
+/* Le menu deroulant des listes, resserre. Memes classes que l'editeur de liste
+   (styles/listEditor.css) -- ce sont les memes listes, donc le meme menu -- mais
+   le panneau de reglages fait 260 px de large la ou la fenetre d'origine en fait
+   700, et ses espacements y sont a l'etroit. */
+.le-dd-compact .le-dd-trigger {
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  gap: 8px;
+}
+.le-dd-compact .le-dd-list {
+  border-radius: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.le-dd-compact .le-dd-option {
+  padding: 8px 10px;
+  font-size: 12px;
+  gap: 8px;
+}
+.le-dd-compact .le-dd-dot {
+  width: 8px;
+  height: 8px;
+}
+
 /* Le panneau de reglages d'un widget (components/profile/WidgetSettings.tsx).
    Il s'ouvre TOUJOURS au-dessus de sa carte, ancre par son coin bas-droit
    (`origin-bottom-right` pose par WidgetGrid), c'est-a-dire du cote de la roue

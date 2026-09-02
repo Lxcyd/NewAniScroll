@@ -59,6 +59,16 @@ export type ProfileEntry = {
   favourite?: boolean;
   /** Rewatch count. */
   repeat?: number;
+  /**
+   * Les listes personnalisées AniList qui contiennent cette entrée.
+   *
+   * Elles arrivent de la MÊME requête que le reste : AniList publie une liste
+   * personnalisée comme une `lists[]` de plus, portant les mêmes entrées. Ce
+   * champ est ce qu'il en reste après la déduplication par mediaId (cf.
+   * entriesFromAniList), sans quoi l'appartenance disparaissait avec le
+   * doublon. Vide sur une liste locale, qui ne connaît pas la notion.
+   */
+  customLists?: string[];
   /* Les quatre champs suivants n'existent que sur une liste AniList : ils
      viennent de la meme requete, sans appel supplementaire. Une liste locale ne
      les connait pas, et les blocs qui en dependent affichent alors leur etat

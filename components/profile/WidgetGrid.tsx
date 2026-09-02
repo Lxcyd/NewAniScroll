@@ -59,8 +59,6 @@ export type BlockChrome = {
   title: string;
   /** Petite ligne grise à côté du titre (« 5 », « cette semaine »…). */
   meta?: string | null;
-  /** Pastille de couleur devant le titre. `null` : pas de pastille. */
-  color?: string | null;
   body: React.ReactNode;
 };
 
@@ -91,7 +89,9 @@ export type WidgetOption =
       label: string;
       desc?: string;
       value: string;
-      choices: { value: string; label: string }[];
+      /** `color` peint la pastille du choix — celle de sa liste, à l'identique
+       *  de l'éditeur de liste. Absente : pas de pastille. */
+      choices: { value: string; label: string; color?: string }[];
     };
 
 type Drag = {
@@ -356,13 +356,12 @@ export default function WidgetGrid({
                 editing ? "pr-14" : ""
               }`}
             >
+              {/* PAS DE PASTILLE DE COULEUR. Chaque bloc en portait une, et
+                  réunies sur une grille elles faisaient une constellation de
+                  points qui ne distinguait rien : le nom du bloc est écrit juste
+                  à côté. La couleur reste où elle sert, sur les icônes de la
+                  bibliothèque, où l'on choisit un bloc avant de savoir son nom. */}
               <h2 className="as-widget-head flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
-                {chrome.color ? (
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ background: chrome.color, boxShadow: `0 0 10px ${chrome.color}55` }}
-                  />
-                ) : null}
                 <span className="truncate">{chrome.title}</span>
                 {chrome.meta ? (
                   <span className="shrink-0 font-karla text-[11px] font-medium text-white/35">

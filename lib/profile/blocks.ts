@@ -32,13 +32,13 @@ export type BlockDef = {
    */
   min?: [number, number];
   max?: [number, number];
-  color: string;
   /**
-   * `false` retire la pastille de couleur de l'en-tête. Elle sert à distinguer
-   * des blocs qui se ressemblent ; sur un bloc qui porte déjà son illustration
-   * elle n'ajoute qu'un point de couleur de plus.
+   * La couleur du bloc — sa pastille d'icône dans la BIBLIOTHÈQUE, et rien
+   * d'autre depuis que les en-têtes ont perdu la leur : une pastille par carte
+   * faisait une grille de points colorés qui ne distinguait rien, chaque bloc
+   * portant déjà son nom.
    */
-  dot?: false;
+  color: string;
   source: BlockSource;
   /** Emoji du catalogue — décoratif, jamais porteur d'information seule. */
   icon: string;
@@ -54,18 +54,17 @@ export const BLOCKS: BlockDef[] = [
     min: [2, 1],
     max: [4, 2],
     color: "#F59E0B",
-    dot: false,
     source: "device",
     icon: "▶",
   },
-  // 1×1 au minimum, 2×4 au maximum (hauteur × largeur) : la vitrine est une
-  // bande d'affiches qui défile, elle tient dans une seule case — les affiches y
-  // sont juste plus petites — et au-delà de deux lignes elle serait une bande
-  // haute de 900 px pour des couvertures 2:3.
+  // 1×2 au minimum, 2×4 au maximum (hauteur × largeur) : sous deux colonnes il
+  // ne reste pas la place d'une affiche et de son titre à côté des flèches, et
+  // au-delà de deux lignes la vitrine serait une bande haute de 900 px pour des
+  // couvertures 2:3.
   {
     id: "favorites",
     size: [4, 1],
-    min: [1, 1],
+    min: [2, 1],
     max: [4, 2],
     color: "#E94560",
     source: "list",
@@ -173,11 +172,15 @@ export function blockOptionValue(
   id: string,
   key: string,
   saved: Record<string, boolean | string> | undefined,
+  /** Les choix que le catalogue ne peut pas connaître — les listes
+   *  personnalisées d'un profil, qui n'existent que dans SA liste. */
+  extra: readonly string[] = [],
 ): string {
   const def = optionDef(id, key);
   if (!def || !("choices" in def)) return "";
   const v = saved?.[key];
-  return typeof v === "string" && def.choices.includes(v) ? v : def.value;
+  const ok = typeof v === "string" && (def.choices.includes(v) || extra.includes(v));
+  return ok ? (v as string) : def.value;
 }
 
 const BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));
