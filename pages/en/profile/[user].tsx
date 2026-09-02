@@ -185,7 +185,14 @@ export default function Profile({
   return (
     <>
       <Head>
-        <title>{identity.name} • AniScroll</title>
+        {/* UNE SEULE EXPRESSION, ET C'EST OBLIGATOIRE. `{nom} • AniScroll`
+            donne à React DEUX enfants texte, qu'il sépare au rendu serveur par
+            un `<!-- -->` pour pouvoir les recoller à l'hydratation. Partout
+            ailleurs ce marqueur est un commentaire HTML invisible ; dans
+            `<title>`, dont le contenu est du texte brut (RCDATA), le navigateur
+            n'y voit pas un commentaire et l'AFFICHE — « Lucyd <!-- --> •
+            AniScroll » dans l'onglet, jusqu'à ce que React reprenne la main. */}
+        <title>{`${identity.name} • AniScroll`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>

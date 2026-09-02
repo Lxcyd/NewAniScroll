@@ -63,7 +63,9 @@ export default function MyList() {
   return (
     <>
       <Head>
-        <title>{t("nav.myList")} • AniScroll</title>
+        {/* Une seule expression : deux enfants texte se retrouvent séparés par
+            un `<!-- -->` visible dans l'onglet (cf. pages/en/profile/[user]). */}
+        <title>{`${t("nav.myList")} • AniScroll`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>

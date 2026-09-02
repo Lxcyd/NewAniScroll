@@ -49,7 +49,9 @@ export default function ResetPassword() {
   return (
     <>
       <Head>
-        <title>{t("auth.forgotTitle")} — AniScroll</title>
+        {/* Une seule expression : deux enfants texte se retrouvent séparés par
+            un `<!-- -->` visible dans l'onglet (cf. pages/en/profile/[user]). */}
+        <title>{`${t("auth.forgotTitle")} — AniScroll`}</title>
         {/* A password page has no business in a search index. */}
         <meta name="robots" content="noindex" />
       </Head>

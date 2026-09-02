@@ -224,7 +224,9 @@ export default function RecentlyWatched() {
   return (
     <>
       <Head>
-        <title>AniScroll • {t("home.recentlyWatched")}</title>
+        {/* Une seule expression : deux enfants texte se retrouvent séparés par
+            un `<!-- -->` visible dans l'onglet (cf. pages/en/profile/[user]). */}
+        <title>{`AniScroll • ${t("home.recentlyWatched")}`}</title>
       </Head>
       <MobileNav />
 
