@@ -185,26 +185,52 @@ export default function WidgetGrid({
    * la carte — essayé, refusé : il y cache le bloc qu'on règle — la page défile
    * juste assez pour le découvrir en entier.
    *
-   * Après le rendu (rAF) parce que la hauteur ne se mesure qu'une fois peint, et
-   * seulement vers le HAUT : un panneau qui dépasse par le bas n'existe pas, il
-   * est ancré sur le bord supérieur d'une carte.
-   *
-   * LA MARGE N'EST PAS UNE MARGE DE CONFORT. Elle valait 16 px et le panneau
-   * arrivait encore décapité : au-dessus de la fenêtre il y a la barre de
+   * LA MARGE HAUTE N'EST PAS UNE MARGE DE CONFORT. Elle valait 16 px et le
+   * panneau arrivait décapité : au-dessus de la fenêtre il y a la barre de
    * navigation du site, collante et opaque, qui recouvre les premières dizaines
-   * de pixels de la page. S'arrêter à 16 px du bord de la FENÊTRE, c'est donc
-   * s'arrêter sous la barre. Le dégagement vaut sa hauteur, plus le repos.
+   * de pixels. S'arrêter à 16 px du bord de la FENÊTRE, c'est s'arrêter sous la
+   * barre. Le dégagement vaut sa hauteur, plus le repos.
+   *
+   * DEUX PIÈGES QUI FONT SOUS-DÉFILER, et qui viennent tous deux de la HAUTEUR
+   * DU PANNEAU — laquelle change avec le nombre de réglages du bloc :
+   *
+   * 1. Un panneau qui tient à l'écran peut dépasser par le BAS, pas seulement
+   *    par le haut : il est ancré sur le bord supérieur d'une carte, donc plus
+   *    il est haut plus il monte, mais une carte du bas de page laisse le
+   *    panneau descendre sous la fenêtre. Les deux sens sont donc traités, en
+   *    préférant toujours le haut : mieux vaut perdre le dernier réglage que le
+   *    titre du panneau.
+   * 2. La mesure ne peut pas passer par `getBoundingClientRect` : le panneau
+   *    entre en animation (`as-widget-pop`), et une rAF plus tard il est encore
+   *    réduit de 6 % et décalé de 6 px. Un rectangle mesuré là est plus petit et
+   *    plus bas que le vrai, donc le défilement calculé est trop court — c'est
+   *    exactement le « pas assez » observé. La géométrie est donc lue en
+   *    coordonnées de MISE EN PAGE (`offsetTop`/`offsetHeight`), que les
+   *    transformations n'affectent pas, replacée dans la fenêtre par le
+   *    conteneur de la grille, lui, jamais animé.
    */
   const NAV_CLEARANCE = 96;
+  const BOTTOM_MARGIN = 16;
   useEffect(() => {
     if (!settings) return;
     const id = requestAnimationFrame(() => {
       const el = panelRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
+      const host = hostRef.current;
+      if (!el || !host) return;
+      const top = host.getBoundingClientRect().top + el.offsetTop;
+      const bottom = top + el.offsetHeight;
+      const vh = window.innerHeight;
+
+      let delta = 0;
       if (top < NAV_CLEARANCE) {
-        window.scrollBy({ top: top - NAV_CLEARANCE, behavior: "smooth" });
+        delta = top - NAV_CLEARANCE;
+      } else if (bottom > vh - BOTTOM_MARGIN) {
+        // Descendre juste ce qu'il faut, sans jamais faire passer le haut du
+        // panneau sous la barre de navigation : un panneau plus haut que la
+        // place disponible est montré par le haut, pas par le milieu.
+        delta = Math.min(bottom - (vh - BOTTOM_MARGIN), top - NAV_CLEARANCE);
       }
+      if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
   }, [settings]);
