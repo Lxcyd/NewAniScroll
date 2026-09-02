@@ -6,6 +6,101 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-02 (suite) — « Le chargement est tres long » : la page etait rendue deux fois
+
+**Le rapport.** « Le chargement est tres long entre les pages, beaucoup plus
+qu'avant, et pareil ou pire au reload », sur toutes les pages, avec une capture
+de console : trois erreurs React minifiees (#425, #418, #423), une `FetchEvent …
+resulted in a network error response` sur `/fr/profile/…`, un `400` sur
+`/api/v2/banner-tone`.
+
+**Le curl disait l'inverse du ressenti, et c'est ce qui a oriente la suite.**
+
+| | a froid | au chaud |
+| --- | --: | --: |
+| `/en` (`s-maxage=7200`) | 5,45 s | 0,07 s |
+| `/en/anime/21` (`s-maxage=21600`) | 4,19 s | 0,08 s |
+| `_next/data/…/profile….json` | **9,11 s** | 0,78 s |
+| `_next/data/…/anime/21.json` | 0,66 s | 0,09 s |
+
+Au chaud, le serveur repond en 70 ms. Une page qui « met des plombes » alors que
+sa reponse arrive en 70 ms ne peut etre lente que **cote client** — et les trois
+numeros React disaient lequel : ce sont des erreurs d'HYDRATATION, dont le remede
+de React est de **jeter tout le HTML du serveur et de re-rendre la page
+entiere**. Une page rendue deux fois.
+
+**L'instrument avant le diagnostic.** `tools/browser-check/hydration-check.mjs` :
+vrai Chrome par CDP, **en `fr-FR`** (les deux drapeaux, `--lang` ne suffit pas —
+c'est `--accept-lang` qui fixe `navigator.language`, celui que lit la detection
+du site), profil neuf a chaque run. Il nomme les erreurs React par page et
+mesure le temps de taches longues, installe par
+`Page.addScriptToEvaluateOnNewDocument` — un `longtask` ne se mesure pas apres
+coup. Premiere sortie :
+
+```
+/fr                hydratation propre    DOM pret   5 869 ms
+/fr/anime/21       hydratation propre    DOM pret     647 ms
+/fr/profile/<tag>  #425 + #418 + #423    DOM pret  14 982 ms   (ttfb 19 ms)
+```
+
+Quinze secondes pour une reponse serveur de 19 ms, et **une seule page touchee**.
+La bascule FR de `I18nProvider` — le suspect designe, atenue le 26/08 par un
+pari sur deux `requestAnimationFrame` — tient donc : les deux autres pages sont
+propres. Ce qui evite un chantier (rendre le francais cote serveur) pour une
+correction de trois lignes.
+
+**La cause.** `ProfileHero` ecrivait « Membre depuis <mois annee> » avec
+`toLocaleDateString(undefined, …)`. `undefined` demande a l'environnement, et
+les deux environnements ne repondent pas la meme chose : Node sur Vercel resout
+`en-US` (« September 2024 »), un navigateur francais ecrit « septembre 2024 ».
+
+**Le meme defaut avait deja ete corrige DEUX FOIS** — `Hero.tsx` et
+`details.tsx` portent chacun une longue note qui decrit ce symptome mot pour
+mot, et le remede maison : `i18n.language`, qui vaut « en » sur le serveur ET au
+premier rendu du client, donc l'hydratation correspond et le francais arrive
+avec la bascule, apres. La lecon n'est pas la regle, elle est deja ecrite deux
+fois : c'est qu'**une regle ecrite dans un commentaire ne protege que le fichier
+qui la porte**. Trois occurrences, trois decouvertes independantes. Avec
+`timeZone: "UTC"` en prime, sinon une inscription du 1er du mois se lit sur deux
+mois selon le fuseau.
+
+**Verification, meme instrument :** `/fr/profile/…` hydratation **propre**, DOM
+pret **2 518 ms**. Le `400` de `banner-tone` a disparu avec lui — la liste
+d'hotes ignorait `fanart-proxy.aniscroll.com`, d'ou sort la plaque d'un profil
+(meme oubli que pour TMDB en aout ; elle est desormais alignee sur celle de
+`lib/profile/banner.ts`). *Reserve honnete* : ce 2 518 ms est mesure alors
+qu'AniList est en panne, donc sur un profil vide — le double rendu, lui, a bien
+disparu, et il ne dependait pas de la taille de la liste.
+
+**Le cache de la liste passe a deux etages** (voir aussi `devlog/infra.md`). La
+`Map` de module posee le matin meme tient 60 s mais meurt avec la lambda —
+c'est-a-dire a chaque deploiement, et c'est exactement la qu'on mesurait 9,1 s.
+Upstash prend le relais : comprimee en gzip (~1/10, sinon le transfert mangerait
+le gain), 24 h, la fraicheur decidee par l'horodatage range avec elle et non par
+le TTL. Le TTL long ne sert qu'a une chose, la **copie de secours**.
+
+**Et elle a servi le jour meme.** `graphql.anilist.co` a repondu **403 a tout**
+pendant la session — « The AniList API has been temporarily disabled due to
+severe stability issues ». Sans copie de secours un profil affiche « 0 anime » :
+un chiffre FAUX, pas une absence de chiffre — precisement le defaut que le delai
+de 14 s de cette page avait ete monte pour eviter. Une liste de la veille est
+infiniment plus vraie qu'un zero. La sonde `/api/v2/anilist-health` a bien vu la
+panne (`up:false`), mais `/api/v2/etc/recent/1` **500** des que son heure de
+cache expire : le meme trou, ailleurs, et il reste ouvert.
+
+Au passage, cette page etait le SEUL appelant serveur d'AniList a ouvrir son
+propre `fetch`. Elle passe par `lib/anilist/anilistFetch` comme les autres :
+limiteur partage (~30 req/min par IP, que la requete la plus lourde du site
+consommait hors budget), fusion des appels en vol, gestion du 429. Avec
+`cacheSeconds: 0` — le cache de reponses de ce module ecrirait la liste NON
+comprimee dans Upstash a chaque requete.
+
+**Ce qui n'etait pas un bug.** `vercel ls` montrait **18 deploiements de preview
+en deux heures**. Chaque deploiement remet tout a froid (edge, lambdas, service
+worker, buildId), donc en session de developpement chaque premiere visite de
+chaque page est un « a froid » a 4-5 s. Pour juger d'une regression, comparer au
+CHAUD, ou sur la prod.
+
 ## 2026-09-02 — Quatre defauts de la vitrine du profil, quatre causes distinctes
 
 Rapport en quatre points : « le site est tres long pour recharger une page »,
