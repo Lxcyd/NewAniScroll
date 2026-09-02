@@ -110,10 +110,17 @@ export function FavoritesBlock({
           href={animeHref(e.mediaId, clickTarget)}
           draggable={false}
           {...(trailer ? previewAnchor(e.mediaId) : {})}
-          className="group flex h-full shrink-0 flex-col gap-2"
+          /* UNE GRILLE À DEUX RANGÉES, ET SURTOUT PAS UNE COLONNE FLEX.
+             L'affiche n'a pas de largeur à elle : elle la tient de sa HAUTEUR,
+             par son rapport 2:3. Encore faut-il que cette hauteur soit
+             définie — `h-full` dans une rangée `minmax(0,1fr)` l'est, alors
+             qu'un `flex-1` ne l'est pas au moment où le navigateur calcule la
+             largeur intrinsèque de la colonne. Écrite en flex, la carte se
+             réduisait à zéro pixel de large et la vitrine était vide. */
+          className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_auto] gap-2"
         >
           <div
-            className="relative min-h-0 flex-1 overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
+            className="relative h-full overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
             style={{ aspectRatio: "2 / 3" }}
           >
             {e.cover ? (
@@ -125,9 +132,12 @@ export function FavoritesBlock({
               </span>
             ) : null}
           </div>
-          {/* `w-0 min-w-full` : le titre doit se replier sur la largeur de
-              l'affiche au lieu d'imposer la sienne à la carte — sans quoi un
-              titre long élargit sa carte et la bande devient irrégulière. */}
+          {/* `w-0 min-w-full` : le titre se replie sur la largeur de l'affiche
+              au lieu d'imposer la sienne à la carte. Un pourcentage de
+              min-width compte pour zéro dans le calcul de largeur intrinsèque —
+              c'est justement ce qu'on veut — alors qu'un simple `w-full` y
+              laisserait passer la largeur du texte, et un titre long élargirait
+              sa carte au point de rendre la bande irrégulière. */}
           <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-snug text-white">
             {pickTitle(e.title, titlePref)}
           </p>
