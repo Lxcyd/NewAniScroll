@@ -2351,10 +2351,39 @@ input[type="number"] {
      restait donc un trou de la largeur de l'ecart la ou elle etait, jusqu'a ce
      que le noeud disparaisse. Porte par la carte, il se referme avec elle. */
   --as-fav-gap: 7px;
-  height: calc(100% + 16px);
+  /* La bande mord de 4 px sur le rembourrage bas de la carte, plus les 12 qu'il
+     en reste sous elle. Elle en a mordu 12 pendant un temps, et l'affiche
+     touchait alors presque le bord du widget : le peu de vide sous une vitrine
+     n'est pas de la place perdue, c'est ce qui la pose. */
+  height: calc(100% + 8px);
   padding-top: 4px;
   margin-top: -4px;
-  margin-bottom: -12px;
+  margin-bottom: -4px;
+
+  /* LES BORDS ESTOMPENT CE QUI SORT, au lieu de le trancher.
+     Une bande qui defile s'arrete net sur le bord de sa case : l'affiche a
+     moitie coupee se lit comme un defaut d'affichage, pas comme la suite de la
+     liste. Un masque en degrade la fait s'eteindre sur les derniers 36 px.
+     Le degrade est pose SUR LE COTE OU IL RESTE QUELQUE CHOSE seulement (les
+     deux longueurs viennent de `syncRow`, dans ListBlocks.tsx) : estomper le
+     premier titre alors qu'on est deja au debut de la liste ferait croire a
+     tort qu'on a rate quelque chose a gauche. */
+  --as-fade-l: 0px;
+  --as-fade-r: 0px;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--as-fade-l),
+    #000 calc(100% - var(--as-fade-r)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--as-fade-l),
+    #000 calc(100% - var(--as-fade-r)),
+    transparent 100%
+  );
 }
 
 /* LA RANGEE DU TITRE FAIT EXACTEMENT DEUX LIGNES, ni plus ni moins.
@@ -2389,56 +2418,56 @@ input[type="number"] {
 }
 
 /* ENTREE ET SORTIE D'UNE AFFICHE quand un reglage change ce que la vitrine
-   montre. Les cartes qui restent ne bougent PAS : seules celles qui arrivent et
-   celles qui partent sont animees, et ce sont les seules qui ont changé.
+   montre. Les cartes qui restent ne bougent PAS d'elles-memes : seules celles
+   qui arrivent et celles qui partent sont animees — les autres glissent parce
+   que la place change devant elles, ce qui est exactement l'effet voulu.
 
-   LA SORTIE REFERME LA PLACE. Un fondu seul aurait laisse un trou de la largeur
-   d'une affiche jusqu'a ce que le noeud disparaisse, puis un saut sec quand il
-   disparait — l'oppose de fluide. La carte qui part reduit donc AUSSI sa largeur
-   et sa marge a zero, et ses voisines glissent d'elles-memes. Sa largeur ne
-   s'ecrit pas en CSS : elle vient de la hauteur de la case, donc React la
-   mesure au moment du depart et la passe en `--as-fav-w`. */
-@keyframes as-fav-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes as-fav-out {
-  from {
-    opacity: 1;
-    transform: none;
-    max-width: var(--as-fav-w, 12rem);
-    margin-right: var(--as-fav-gap);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.9);
-    max-width: 0;
-    margin-right: 0;
-  }
-}
+   UNE TRANSITION, ET SURTOUT PAS UNE `@keyframes` AU MONTAGE. La version
+   precedente jouait une keyframe a la naissance du noeud : la carte etait
+   posee a sa taille finale, poussait ses voisines d'un coup sec, et seule son
+   opacite montait — a l'oeil, elle apparaissait instantanement. Ici la carte
+   NAIT REPLIEE (`is-enter`, largeur nulle) et se deplie a la frame suivante,
+   quand React la passe a `is-in` : l'arrivee ecarte ses voisines comme le
+   depart les rapproche.
+
+   LA PLACE SE REFERME. Un fondu seul aurait laisse un trou de la largeur d'une
+   affiche jusqu'a ce que le noeud disparaisse, puis un saut sec quand il
+   disparait — l'oppose de fluide. La carte reduit donc AUSSI sa largeur et sa
+   marge. Cette largeur ne s'ecrit pas en CSS : elle vient de la hauteur de la
+   case par le rapport 2:3, donc `syncRow` (ListBlocks.tsx) la mesure et la pose
+   en `--as-fav-w` sur la bande. Le repli est un `max-width` et non un `width` :
+   la largeur reelle reste celle de l'affiche, le plafond ne fait que la
+   laisser passer. */
 .as-fav-card {
-  animation: as-fav-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: var(--as-fav-delay, 0ms);
+  max-width: var(--as-fav-w, 40rem);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-right 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--as-fav-delay, 0ms);
+}
+.as-fav-card.is-enter,
+.as-fav-card.is-out {
+  opacity: 0;
+  max-width: 0;
+  margin-right: 0;
+}
+.as-fav-card.is-enter {
+  transform: translateY(8px) scale(0.94);
 }
 .as-fav-card.is-out {
   /* Plus cliquable des l'instant ou elle part, et elle n'attend pas son tour :
      ce qui s'en va s'en va tout de suite, le decalage par rang est pour ce qui
      arrive. */
   pointer-events: none;
-  animation: as-fav-out 0.24s cubic-bezier(0.4, 0, 1, 1) both;
-  animation-delay: 0ms;
+  transform: scale(0.9);
+  transition-delay: 0ms;
 }
 @media (prefers-reduced-motion: reduce) {
-  .as-fav-card,
-  .as-fav-card.is-out {
-    animation-duration: 0.01s;
-    animation-delay: 0s;
+  .as-fav-card {
+    transition-duration: 0.01s;
+    transition-delay: 0s;
   }
 }
 

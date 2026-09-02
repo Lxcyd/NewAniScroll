@@ -151,6 +151,20 @@ export default function HoverPreviewProvider() {
     let pendingEl: HTMLElement | null = null;
     /** Last pointer position seen, so a re-fired event at rest isn't movement. */
     let lastPos: { x: number; y: number } | null = null;
+    /**
+     * A button is down somewhere on the page.
+     *
+     * The press is the whole reason: dragging a carousel scrolls posters PAST a
+     * pointer that never moves, so `pointerover` fires on card after card while
+     * `pointermove` — the thing that re-arms the countdown — never does. The
+     * countdown therefore ran to term mid-drag and the card opened over the row
+     * being dragged, then travelled with it. Closing on `pointerdown` was not
+     * enough: it only kills the countdown that was already running, not the ones
+     * the drag itself arms afterwards. Nothing is armed while the button is
+     * held, and the drag ends with no preview until the hand moves again — which
+     * is also the right answer for the press that turns out to be a plain click.
+     */
+    let pressed = false;
 
     const cancel = () => {
       if (timer) clearTimeout(timer);
@@ -193,6 +207,8 @@ export default function HoverPreviewProvider() {
     const arm = (el: HTMLElement) => {
       // Already showing this card — nothing to do.
       if (openRef.current?.el === el) return;
+      // A drag in progress, or a click being made: not a hover.
+      if (pressed) return cancel();
       armCountdown(el);
       // Start the fetch immediately: the wait for stillness buys nothing here,
       // and the card is mounted before the response lands either way.
@@ -303,6 +319,16 @@ export default function HoverPreviewProvider() {
       if (node && typeof node.closest === "function" && node.closest("[data-preview-popup]")) {
         return;
       }
+      pressed = true;
+      close();
+    };
+    const onPointerUp = () => {
+      pressed = false;
+    };
+    // Alt-tab pendant un glissement : sans ca, la page revient avec un bouton
+    // encore "enfonce" pour toujours, et plus aucun survol ne s'arme.
+    const onBlur = () => {
+      pressed = false;
       close();
     };
 
@@ -313,11 +339,17 @@ export default function HoverPreviewProvider() {
     document.addEventListener("pointerover", onPointerOver, true);
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerdown", onPointerDown, true);
+    // Sur `window` et pas `document` : un relachement hors de la page (au-dessus
+    // de la barre de defilement, ou apres etre sorti de la fenetre) doit quand
+    // meme rendre le survol, sans quoi la page reste sourde jusqu'au clic
+    // suivant.
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerUp, true);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
     // Pointer left the window entirely — no further pointerover will arrive.
     document.addEventListener("mouseleave", close);
-    window.addEventListener("blur", close);
+    window.addEventListener("blur", onBlur);
 
     return () => {
       cancel();
@@ -325,11 +357,13 @@ export default function HoverPreviewProvider() {
       document.removeEventListener("pointerover", onPointerOver, true);
       document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
       document.removeEventListener("scroll", onScroll, true);
       if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mouseleave", close);
-      window.removeEventListener("blur", close);
+      window.removeEventListener("blur", onBlur);
     };
     // `prefs.delay` is read inside the countdown, so the listeners have to be
     // rebound when it changes or the old value keeps arming the card.

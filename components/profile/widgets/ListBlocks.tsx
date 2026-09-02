@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -46,11 +46,16 @@ const FORMAT_COLOR: Record<string, string> = {
 
 /* ── Favoris ─────────────────────────────────────────────────────────── */
 
-/** Une carte à peindre : l'entrée, et si elle est en train de partir. */
-type ShelfCard = { e: ProfileEntry; out: boolean; width?: number };
+/**
+ * Une carte à peindre, et où elle en est de sa vie :
+ *   `enter` — vient d'arriver, encore repliée (largeur nulle) ;
+ *   `in`    — à sa place ;
+ *   `out`   — s'en va, et referme la place derrière elle.
+ */
+type ShelfCard = { e: ProfileEntry; state: "enter" | "in" | "out" };
 
-/** Le temps que dure la sortie — doit valoir `as-fav-out` dans globals.css. */
-const EXIT_MS = 240;
+/** Le temps que dure la sortie — doit valoir la transition de `.as-fav-card`. */
+const EXIT_MS = 320;
 
 /**
  * Ce que la vitrine affiche PENDANT qu'elle change.
@@ -62,59 +67,86 @@ const EXIT_MS = 240;
  * traverseraient l'écran avant de disparaître — et ne sont retirées qu'une fois
  * l'animation finie.
  *
- * La LARGEUR est relevée au moment du départ, pas plus tard : elle vient du
- * rapport 2:3 appliqué à la hauteur de la case, donc aucune valeur écrite en
- * CSS ne la connaît, et l'animation en a besoin pour refermer la place.
+ * DEUX PIÈGES PAYÉS, et c'est pour eux que ce hook a la forme qu'il a.
+ *
+ * 1. UNE TRANSITION, PAS UNE KEYFRAME AU MONTAGE. Une `@keyframes` posée sur la
+ *    classe se joue au montage du nœud, ce qui marche une fois — mais la carte
+ *    apparaissait alors à sa taille finale et poussait ses voisines d'un coup
+ *    sec avant de se fondre : à l'œil, c'est instantané. Les cartes naissent
+ *    donc REPLIÉES (`enter`, largeur nulle) et sont dépliées à la frame
+ *    suivante ; l'arrivée écarte ses voisines comme le départ les rapproche, et
+ *    c'est ce déplacement, plus que le fondu, qui se voit.
+ * 2. UNE SORTIE NE DOIT PAS ÊTRE ANNULÉE PAR LE CHANGEMENT SUIVANT. Tirer le
+ *    curseur des notes envoie une nouvelle liste à chaque cran : la fusion
+ *    précédente repartait des seules cartes présentes et JETAIT les partantes
+ *    en vol, qui disparaissaient donc sans animation. Elles sont désormais
+ *    reconduites d'une fusion à l'autre jusqu'à l'expiration de leur délai.
  *
  * Écrit ici plutôt que dans une bibliothèque d'animation : la vitrine est le
- * seul endroit du site qui en a besoin, et une dépendance de plus pour trente
+ * seul endroit du site qui en a besoin, et une dépendance de plus pour quarante
  * lignes de fusion de listes serait un mauvais échange.
  */
 function useShelfTransition(shown: ProfileEntry[]) {
-  const nodes = useRef(new Map<number, HTMLElement>());
   const [cards, setCards] = useState<ShelfCard[]>(() =>
-    shown.map((e) => ({ e, out: false })),
+    shown.map((e) => ({ e, state: "enter" as const })),
   );
-
-  const nodeRef = useCallback((id: number, el: HTMLElement | null) => {
-    if (el) nodes.current.set(id, el);
-    else nodes.current.delete(id);
-  }, []);
 
   useEffect(() => {
     setCards((prev) => {
-      const staying = prev.filter((c) => !c.out);
       const nextIds = new Set(shown.map((e) => e.mediaId));
-      const same =
-        staying.length === shown.length &&
-        staying.every((c, i) => c.e.mediaId === shown[i].mediaId);
-      // Rien n'a bougé : ne pas remplacer l'état, sinon cet effet se rappelle.
-      if (same && staying.length === prev.length) return prev;
-
-      const merged: ShelfCard[] = shown.map((e) => ({ e, out: false }));
-      staying.forEach((c, index) => {
-        if (nextIds.has(c.e.mediaId)) return;
-        merged.splice(Math.min(index, merged.length), 0, {
-          ...c,
-          out: true,
-          width: nodes.current.get(c.e.mediaId)?.offsetWidth,
-        });
+      const held = new Map(
+        prev.filter((c) => c.state !== "out").map((c) => [c.e.mediaId, c]),
+      );
+      const merged: ShelfCard[] = shown.map((e) => {
+        const old = held.get(e.mediaId);
+        return old ? { ...old, e } : { e, state: "enter" };
       });
-      return merged;
+      // Les partantes — celles qui viennent de sortir de la liste comme celles
+      // dont l'animation court encore — reprennent leur ancienne place.
+      prev.forEach((c, i) => {
+        if (nextIds.has(c.e.mediaId)) return;
+        merged.splice(Math.min(i, merged.length), 0, { ...c, state: "out" });
+      });
+      const same =
+        merged.length === prev.length &&
+        merged.every(
+          (c, i) => c.e.mediaId === prev[i].e.mediaId && c.state === prev[i].state,
+        );
+      // Rien n'a bougé : ne pas remplacer l'état, sinon cet effet se rappelle.
+      return same ? prev : merged;
     });
   }, [shown]);
 
+  // Le dépliage : une frame après leur montage, les arrivantes passent à `in`
+  // et la transition CSS a enfin deux états entre lesquels aller. Deux rAF, pas
+  // un — le premier rend la frame où la carte est repliée, le second la change.
+  useEffect(() => {
+    if (!cards.some((c) => c.state === "enter")) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() =>
+        setCards((prev) =>
+          prev.map((c) => (c.state === "enter" ? { ...c, state: "in" } : c)),
+        ),
+      );
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second) cancelAnimationFrame(second);
+    };
+  }, [cards]);
+
   // Le balayage des parties, une fois leur animation finie.
   useEffect(() => {
-    if (!cards.some((c) => c.out)) return;
+    if (!cards.some((c) => c.state === "out")) return;
     const timer = setTimeout(
-      () => setCards((prev) => prev.filter((c) => !c.out)),
+      () => setCards((prev) => prev.filter((c) => c.state !== "out")),
       EXIT_MS,
     );
     return () => clearTimeout(timer);
   }, [cards]);
 
-  return { cards, nodeRef };
+  return cards;
 }
 
 /**
@@ -170,7 +202,64 @@ export function FavoritesBlock({
     [entries, source, lo, hi, unrated],
   );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
-  const { cards, nodeRef } = useShelfTransition(shown);
+  const cards = useShelfTransition(shown);
+
+  /**
+   * DE QUEL CÔTÉ IL RESTE QUELQUE CHOSE, pour n'estomper que ce bord-là (cf.
+   * le masque de `.as-fav-row`). Estomper le premier titre alors qu'on est
+   * déjà au début de la liste ferait croire à tort qu'on a raté quelque chose
+   * à gauche.
+   *
+   * Écrit dans le style du nœud plutôt que dans un état React : c'est une
+   * conséquence du défilement, et la repasser par un rendu ferait un rendu par
+   * frame de défilement pour deux longueurs de dégradé.
+   */
+  const syncFades = useCallback(() => {
+    const row = ref.current;
+    if (!row) return;
+    const left = row.scrollLeft > 4;
+    const right = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
+    row.style.setProperty("--as-fade-l", left ? "36px" : "0px");
+    row.style.setProperty("--as-fade-r", right ? "36px" : "0px");
+  }, [ref]);
+
+  /**
+   * LA LARGEUR D'UNE CARTE, posée en `--as-fav-w` sur la bande.
+   *
+   * Elle vient du rapport 2:3 appliqué à la hauteur disponible : rien en CSS ne
+   * la connaît, et l'animation en a besoin comme point d'arrivée (une carte qui
+   * grandit depuis zéro) et comme point de départ (une carte qui referme sa
+   * place). Toutes les cartes font la même largeur — c'est tout l'objet de la
+   * rangée de titre à hauteur fixe — donc une seule mesure vaut pour la bande.
+   *
+   * Mesurée ici et pas au défilement : elle coûte un calcul de mise en page
+   * force, ce qui n'a rien à faire dans un gestionnaire de `scroll`.
+   */
+  useEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    const measure = () => {
+      /* Le plafond est levé LE TEMPS DE LA MESURE, et il l'est aussi pour une
+         carte qui n'est pas encore dépliée : sans ça on relirait le plafond
+         precedent au lieu de la largeur voulue, et la bande resterait a jamais
+         a la taille qu'elle avait quand le widget etait plus petit — ou, au
+         tout premier rendu ou aucune carte n'est encore en place, a la valeur
+         de repli de 40rem, qui rendrait l'arrivee instantanee. */
+      const card = row.querySelector<HTMLElement>(".as-fav-card:not(.is-out)");
+      if (card) {
+        card.style.maxWidth = "none";
+        const w = card.offsetWidth;
+        card.style.maxWidth = "";
+        if (w) row.style.setProperty("--as-fav-w", `${w}px`);
+      }
+      syncFades();
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [ref, syncFades, cards]);
 
   if (!cards.length)
     return (
@@ -218,6 +307,7 @@ export function FavoritesBlock({
       <div
         ref={ref}
         onClickCapture={onClickCapture}
+        onScroll={syncFades}
         /* La hauteur, le rembourrage et les marges de la bande sont dans
            `.as-fav-row` (globals.css) et pas ici : les trois se compensent au
            pixel pour déborder dans le rembourrage de la carte, et écrits en
@@ -225,7 +315,7 @@ export function FavoritesBlock({
            ce qui est précisément l'erreur qui a laissé une bande vide en bas. */
         className="as-fav-row as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
       >
-        {cards.map(({ e, out, width }, i) => (
+        {cards.map(({ e, state }, i) => (
           <Link
             /* LA CLE EST L'ANIME, ET RIEN D'AUTRE. Une cle qui portait aussi le
                filtre remontait TOUTES les cartes a chaque reglage : les
@@ -235,14 +325,14 @@ export function FavoritesBlock({
                les cartes qui arrivent s'animent, et celles qui partent restent
                montees le temps de leur sortie (cf. useShelfTransition). */
             key={e.mediaId}
-            ref={(el) => nodeRef(e.mediaId, el)}
-            style={{
-              ["--as-fav-delay" as string]: `${Math.min(i, 12) * 18}ms`,
-              ...(width ? { ["--as-fav-w" as string]: `${width}px` } : {}),
-            }}
+            /* Le décalage par rang ne sert qu'à L'ARRIVÉE, et il est plafonné :
+               au-delà d'une douzaine de cartes on attendrait le dépliage de la
+               dernière bien après avoir cessé de regarder. Ce qui part n'attend
+               pas son tour (cf. `.as-fav-card.is-out`). */
+            style={{ ["--as-fav-delay" as string]: `${Math.min(i, 12) * 22}ms` }}
             href={animeHref(e.mediaId, clickTarget)}
             draggable={false}
-            aria-hidden={out || undefined}
+            aria-hidden={state === "out" || undefined}
             {...(trailer ? previewAnchor(e.mediaId) : {})}
           /* UNE GRILLE À DEUX RANGÉES, ET SURTOUT PAS UNE COLONNE FLEX.
              L'affiche n'a pas de largeur à elle : elle la tient de sa HAUTEUR,
@@ -255,7 +345,7 @@ export function FavoritesBlock({
                ce corps), remplies ou non : c'est ce qui donne a toutes les
                cartes exactement la meme taille, qu'un titre tienne sur une
                ligne ou sur deux. */
-            className={`as-fav-card group grid h-full shrink-0 gap-1.5 ${out ? "is-out" : ""}`}
+            className={`as-fav-card group grid h-full shrink-0 gap-1.5 is-${state}`}
           >
             {/* PAS DE `shadow-poster` ICI. Cette ombre — 32 px de flou noir à
                 55 % — est faite pour une affiche posée sur une page claire ou

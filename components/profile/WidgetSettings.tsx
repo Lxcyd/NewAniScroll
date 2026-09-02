@@ -91,10 +91,22 @@ function Dropdown({
   const mark = (c?: { color?: string; heart?: boolean }) =>
     c?.heart ? (
       <svg
-        viewBox="0 0 24 24"
+        /* LA BOÎTE COLLE AU DESSIN, ET LA LUEUR EN SORT.
+           En `0 0 24 24` le tracé n'occupait que 2→22 en largeur et 3→21,35 en
+           hauteur : le cœur était donc décentré vers le bas dans sa boîte, et
+           surtout un SVG rogne à ses bords — la lueur du `drop-shadow` était
+           coupée net en haut, ce qui se lisait comme une rangée de pixels
+           parasites au-dessus du cœur. La boîte épouse maintenant le tracé
+           (centré sur son propre milieu, 12,175), et le débordement est laissé
+           libre pour que la lueur s'éteigne d'elle-même — comme celle des
+           pastilles, qui n'ont jamais rien eu qui les rogne. */
+        viewBox="2 2.175 20 20"
         fill={c.color || "#E94560"}
         className="as-dd-mark"
-        style={{ filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})` }}
+        style={{
+          overflow: "visible",
+          filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})`,
+        }}
       >
         <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
       </svg>
