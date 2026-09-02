@@ -2312,16 +2312,16 @@ input[type="number"] {
 }
 
 /* Le panneau de reglages d'un widget (components/profile/WidgetSettings.tsx).
-   Il sort du coin de la carte ou se trouve la roue dentee — WidgetGrid pose
-   `origin-bottom-right` quand il s'ouvre au-dessus, `origin-top-right` quand il
-   repasse dessous — donc l'animation part du bouton qu'on vient d'appuyer.
-   `--as-pop-rise` porte le sens de l'elan, que seul l'appelant connait.
+   Il s'ouvre TOUJOURS au-dessus de sa carte, ancre par son coin bas-droit
+   (`origin-bottom-right` pose par WidgetGrid), c'est-a-dire du cote de la roue
+   dentee : l'animation part du bouton qu'on vient d'appuyer, et elle descend
+   d'autant, vers la carte.
    Une keyframe et pas une bibliotheque, comme `as-pop-in` plus haut : ca tourne
    sur le compositeur et ca ne coute pas un octet de JS. */
 @keyframes as-widget-pop {
   from {
     opacity: 0;
-    transform: scale(0.94) translateY(var(--as-pop-rise, -6px));
+    transform: scale(0.94) translateY(6px);
   }
   to {
     opacity: 1;

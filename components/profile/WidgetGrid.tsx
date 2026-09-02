@@ -444,43 +444,39 @@ export default function WidgetGrid({
           `livePixels`, la même mesure que les cartes utilisent — donc il la
           suit jusque pendant un déplacement, au lieu de rester en arrière.
 
-          POSÉ AU-DESSUS, PAS DESSUS. Il s'ouvrait sur la carte, sous la roue :
-          il cachait précisément le bloc qu'on est en train de régler, ce qui est
-          absurde quand le réglage change son apparence — on bascule la lumière
-          d'ambiance sans voir la vignette qu'elle éclaire. Il est donc calé sur
-          le BORD SUPÉRIEUR de la carte, par `bottom` : sa hauteur dépend du
-          nombre d'interrupteurs et n'est pas mesurable au rendu, alors qu'ancré
-          par le bas elle n'a pas besoin de l'être.
+          POSÉ AU-DESSUS, PAS DESSUS, ET SANS EXCEPTION. Il s'ouvrait sur la
+          carte, sous la roue : il cachait précisément le bloc qu'on est en train
+          de régler, ce qui est absurde quand le réglage change son apparence —
+          on bascule la lumière d'ambiance sans voir la vignette qu'elle éclaire.
+          Il est donc calé sur le BORD SUPÉRIEUR de la carte, par `bottom` : sa
+          hauteur dépend du nombre d'interrupteurs et n'est pas mesurable au
+          rendu, alors qu'ancré par le bas elle n'a pas besoin de l'être.
 
-          Une carte de la première ligne n'a rien au-dessus d'elle ; là, et là
-          seulement, le panneau repasse SOUS la carte. Sa largeur suit la carte,
-          plafonnée à 260 px — un bloc de quatre colonnes n'a pas besoin d'un
-          panneau de 1 000 px de large. */}
+          Un repli sous la carte pour la première ligne a été essayé et retiré :
+          la première ligne est justement celle qu'on règle le plus souvent, et
+          le repli y ramenait exactement le défaut qu'on venait de corriger. La
+          place existe — la grille a la barre d'outils et le bandeau du mode
+          réorganisation au-dessus d'elle, que le panneau recouvre le temps qu'il
+          est ouvert. Rien ici ne coupe : le conteneur ne masque pas ce qui
+          déborde.
+
+          Sa largeur suit la carte, plafonnée à 260 px — un bloc de quatre
+          colonnes n'a pas besoin d'un panneau de 1 000 px de large. */}
       {(() => {
         const it = editing && settings ? layout.find((o) => o.i === settings) : null;
         if (!it) return null;
         const rect = livePixels(it);
         const w = Math.max(180, Math.min(260, rect.width - 16));
-        /* La place qu'il faut au-dessus : la hauteur d'un panneau à deux
-           interrupteurs. En dessous de ça il n'y a pas de place, et un panneau
-           à moitié hors de l'écran est pire qu'un panneau sous la carte. */
-        const above = rect.top >= 190;
         return (
           <div
             onPointerDown={(e) => e.stopPropagation()}
-            className={`as-widget-pop absolute z-40 ${
-              above ? "origin-bottom-right" : "origin-top-right"
-            }`}
+            className="as-widget-pop absolute z-40 origin-bottom-right"
             style={{
               left: Math.round(rect.left + rect.width - 8 - w),
-              ...(above
-                ? // Depuis le bas du conteneur, seul repère qui ne demande pas
-                  // de connaître la hauteur du panneau.
-                  { bottom: Math.round(height - rect.top + 8) }
-                : { top: Math.round(rect.top + rect.height + 8) }),
+              // Depuis le bas du conteneur, seul repère qui ne demande pas de
+              // connaître la hauteur du panneau.
+              bottom: Math.round(height - rect.top + 8),
               width: w,
-              // Le sens de l'élan suit celui de l'ouverture (cf. globals.css).
-              ["--as-pop-rise" as string]: above ? "6px" : "-6px",
             }}
           >
             <WidgetSettings
