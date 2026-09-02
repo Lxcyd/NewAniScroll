@@ -69,7 +69,7 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
               className="flex w-full items-center justify-between gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
             >
               <span className="min-w-0 flex-1">
-                <span className="block font-karla text-[13px] text-white/85">{o.label}</span>
+                <span className="block font-karla text-[13px] font-bold text-white">{o.label}</span>
                 <span className="mt-0.5 block font-karla text-[11px] leading-snug text-white/35">
                   {t(`profile.widgets.options.${o.key}Desc`)}
                 </span>
