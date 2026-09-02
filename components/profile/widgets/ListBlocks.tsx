@@ -94,6 +94,8 @@ export function FavoritesBlock({
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const [lo, hi] = scores;
+  /* Ce qui identifie le contenu actuel de la vitrine — cf. la cle des cartes. */
+  const sig = `${source}:${lo}:${hi}:${unrated}`;
   const shown = useMemo(
     () => showcaseFor(entries, source, 20, [lo, hi], unrated),
     [entries, source, lo, hi, unrated],
@@ -146,16 +148,26 @@ export function FavoritesBlock({
       <div
         ref={ref}
         onClickCapture={onClickCapture}
-        /* `-my-1 py-1` : la carte du widget coupe ce qui dépasse, et sans cette
-           marge intérieure l'affiche qui grandit au survol serait rognée. Elle
-           était de huit pixels, ce qui se voyait comme une bande vide sous les
-           titres ; quatre suffisent maintenant que l'agrandissement est de 3 %
-           et non de 5 — et les quatre autres sont rendus à l'affiche. */
-        className="as-fav-row as-noscroll -my-1 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden py-1"
+        /* HAUT ET BAS NE SERVENT PAS LA MÊME CHOSE.
+           En haut, quatre pixels de marge intérieure : sans eux l'affiche qui
+           grandit au survol serait rognée par la carte, qui coupe ce qui dépasse.
+           En bas, DOUZE — quatre pour la même raison, huit qui mordent sur le
+           rembourrage de la carte (`py-4`), lequel restait vide sous les titres
+           et se lisait comme de la place perdue. Les marges négatives reprennent
+           le tout sur la mise en page : la bande occupe donc plus de hauteur
+           qu'on ne lui en a donnée, et cette hauteur va à l'affiche. */
+        className="as-fav-row as-noscroll -mb-3 -mt-1 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden pb-3 pt-1"
       >
-        {shown.map((e) => (
+        {shown.map((e, i) => (
           <Link
-            key={e.mediaId}
+            /* LA CLE PORTE LA SIGNATURE DU FILTRE, et pas seulement l'anime.
+               C'est ce qui fait qu'un changement de reglage REMONTE les cartes
+               au lieu de les reordonner en silence : remontees, elles rejouent
+               leur animation d'entree, et l'on voit ce que le reglage vient de
+               changer. Sans cela React aurait reutilise les noeuds communs aux
+               deux filtres et seules les nouvelles auraient bouge. */
+            key={`${sig}-${e.mediaId}`}
+            style={{ ["--as-fav-delay" as string]: `${Math.min(i, 12) * 18}ms` }}
             href={animeHref(e.mediaId, clickTarget)}
             draggable={false}
             {...(trailer ? previewAnchor(e.mediaId) : {})}

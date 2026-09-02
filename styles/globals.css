@@ -2333,26 +2333,59 @@ input[type="number"] {
   gap: 7px;
 }
 
-/* LA RANGEE DU TITRE, de hauteur FIXE : c'est elle qui donne a toutes les cartes
-   exactement la meme taille, qu'un titre tienne sur une ligne ou sur deux. Tout
-   ce qu'elle ne prend pas revient a l'affiche, d'ou deux valeurs et pas une :
-   sur une case d'une ligne chaque pixel compte, sur deux le titre peut enfin
-   respirer sans rien couter de visible a l'affiche. */
+/* LA RANGEE DU TITRE FAIT EXACTEMENT DEUX LIGNES, ni plus ni moins.
+
+   Elle a d'abord ete fixee en rem — 1,9 puis 2,5 — et c'etait deux erreurs a la
+   fois : trop courte, la deuxieme ligne debordait sous la carte ; trop longue,
+   elle laissait une bande vide que le lecteur voit comme de la place perdue. Et
+   les deux arrivaient au meme endroit, puisque le corps du titre change avec la
+   taille de la case.
+   La hauteur est donc exprimee en `em`, donc RELATIVE au corps du titre :
+   2 x 1.15 = 2.3em vaut toujours deux lignes pleines, quel que soit ce corps.
+   La rangee, elle, passe en `auto` et se contente de suivre.
+   Toutes les cartes gardent la meme taille — c'est une hauteur imposee, pas un
+   maximum — et tout ce qui reste va a l'affiche. */
 .as-fav-card {
-  grid-template-rows: minmax(0, 1fr) 1.9rem;
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 .as-fav-title {
   font-size: 12px;
+  line-height: 1.15;
+  height: 2.3em;
+  overflow: hidden;
 }
 @container widget (min-height: 300px) {
   .as-fav-row {
     gap: 19px;
   }
-  .as-fav-card {
-    grid-template-rows: minmax(0, 1fr) 2.5rem;
-  }
   .as-fav-title {
     font-size: 15px;
+  }
+}
+
+/* L'APPARITION D'UNE AFFICHE quand un reglage change ce que la vitrine montre.
+   Les cartes sont remontees a chaque changement de filtre (leur cle porte la
+   signature du filtre), donc elles entrent ; un decalage par rang fait courir
+   la vague de gauche a droite au lieu de tout faire clignoter d'un bloc. Le
+   decalage est plafonne pour que la derniere carte n'attende pas une seconde. */
+@keyframes as-fav-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-fav-card {
+  animation: as-fav-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--as-fav-delay, 0ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-fav-card {
+    animation-duration: 0.01s;
+    animation-delay: 0s;
   }
 }
 

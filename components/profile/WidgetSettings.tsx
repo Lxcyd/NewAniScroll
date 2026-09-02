@@ -90,13 +90,15 @@ function Dropdown({
      donc il reste de la meme famille. */
   const mark = (c?: { color?: string; heart?: boolean }) =>
     c?.heart ? (
-      /* LE CŒUR OCCUPE LA BOÎTE D'UNE PASTILLE, pas la sienne. Dessiné à sa
-         taille naturelle il faisait 12 px contre 8 pour les pastilles : il
-         débordait vers le haut et poussait « Favoris » de trois pixels à droite
-         de tous les autres noms de listes. Il est donc posé DANS un `.le-dd-dot`
-         transparent, centré, et déborde symétriquement — la boîte reste celle de
-         la pastille, donc la colonne de texte ne bouge plus d'une ligne à
-         l'autre. */
+      /* LE CŒUR REMPLIT EXACTEMENT LA BOÎTE D'UNE PASTILLE.
+         Il a d'abord été centré DANS cette boîte tout en gardant sa taille
+         propre — 12 px contre 8 — et débordait donc de deux pixels de chaque
+         côté : son bord gauche commençait avant celui des pastilles, ce qui se
+         lisait comme un défaut d'alignement même si le centre, lui, tombait
+         juste. Il fait maintenant 100 % de la boîte, comme un disque en ferait
+         100 %, et les deux colonnes — repère et nom — s'alignent au pixel.
+         Le tracé est celui de Material : son encre est centrée dans le viewBox,
+         là où un cœur dessiné à la main penche vers le bas et paraît descendu. */
       <span
         className="le-dd-dot"
         style={{ background: "none", display: "grid", placeItems: "center" }}
@@ -105,12 +107,12 @@ function Dropdown({
           viewBox="0 0 24 24"
           fill={c.color || "#E94560"}
           style={{
-            width: "12px",
-            height: "12px",
+            width: "100%",
+            height: "100%",
             filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})`,
           }}
         >
-          <path d="M12 21s-7.5-4.6-9.6-9A5.4 5.4 0 0 1 12 6.2a5.4 5.4 0 0 1 9.6 5.8C19.5 16.4 12 21 12 21z" />
+          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
         </svg>
       </span>
     ) : (

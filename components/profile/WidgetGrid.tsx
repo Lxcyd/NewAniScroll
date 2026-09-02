@@ -188,15 +188,23 @@ export default function WidgetGrid({
    * Après le rendu (rAF) parce que la hauteur ne se mesure qu'une fois peint, et
    * seulement vers le HAUT : un panneau qui dépasse par le bas n'existe pas, il
    * est ancré sur le bord supérieur d'une carte.
+   *
+   * LA MARGE N'EST PAS UNE MARGE DE CONFORT. Elle valait 16 px et le panneau
+   * arrivait encore décapité : au-dessus de la fenêtre il y a la barre de
+   * navigation du site, collante et opaque, qui recouvre les premières dizaines
+   * de pixels de la page. S'arrêter à 16 px du bord de la FENÊTRE, c'est donc
+   * s'arrêter sous la barre. Le dégagement vaut sa hauteur, plus le repos.
    */
+  const NAV_CLEARANCE = 96;
   useEffect(() => {
     if (!settings) return;
     const id = requestAnimationFrame(() => {
       const el = panelRef.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top;
-      const MARGIN = 16;
-      if (top < MARGIN) window.scrollBy({ top: top - MARGIN, behavior: "smooth" });
+      if (top < NAV_CLEARANCE) {
+        window.scrollBy({ top: top - NAV_CLEARANCE, behavior: "smooth" });
+      }
     });
     return () => cancelAnimationFrame(id);
   }, [settings]);
