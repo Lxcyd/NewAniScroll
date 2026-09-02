@@ -282,14 +282,16 @@ export default function ProfileOverview({
    * Il n'est plus toujours celui du catalogue : la vitrine des favoris peut
    * montrer une AUTRE liste que les favoris, et garder alors le titre
    * « Animés favoris » serait un mensonge sur son contenu. Le titre suit donc le
-   * réglage — « Animes favoris · Liste : Terminé » — en reprenant le NOM DE
-   * LISTE du reste du site plutôt qu'un mot à lui.
+   * réglage — « Animes favoris Terminé » — en reprenant le NOM DE LISTE du
+   * reste du site plutôt qu'un mot à lui.
    *
-   * Le nom est ANNONCÉ (« Liste : ») et non fondu dans la phrase : les libellés
-   * de listes sont des étiquettes, pas des adjectifs, et ils ne s'accordent ni
-   * en français (« favoris terminé ») ni en anglais (« favourite planning
-   * anime »). Une liste personnalisée s'annonce de la même façon, sous son
-   * propre nom.
+   * Le nom est POSÉ à la suite, sans l'annoncer. Il l'a d'abord été derrière un
+   * « · Liste : », qui disait à quoi servait ce mot mais coûtait trois mots sur
+   * cinq à un titre déjà coupé sur un bloc de deux colonnes. Une liste
+   * personnalisée suit la même forme, sous son propre nom — le français s'en
+   * accommode parce que le libellé y est un nom (« Terminé », « Prévu »), là où
+   * l'anglais garde son point médian (« Favourite anime · Planning ») faute de
+   * quoi le libellé se lirait comme un adjectif.
    */
   function blockTitle(id: string, other: boolean): string {
     if (id === "favorites") {
