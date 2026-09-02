@@ -844,8 +844,10 @@
       "reset": "Reset",
       "remove": "Remove",
       "resize": "Resize",
-      "settings": "Block settings",
-      "noOptions": "This block has nothing to set.",
+      "settings": "Widget settings",
+      "settingsTitle_one": "Widget setting",
+      "settingsTitle_other": "Widget settings",
+      "noOptions": "This widget has no settings.",
       "options": {
         "ambient": "Ambient light",
         "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it."

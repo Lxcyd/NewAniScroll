@@ -844,8 +844,10 @@
       "reset": "Réinitialiser",
       "remove": "Enlever",
       "resize": "Redimensionner",
-      "settings": "Réglages du bloc",
-      "noOptions": "Ce bloc n'a rien à régler.",
+      "settings": "Paramètres du widget",
+      "settingsTitle_one": "Paramètre du widget",
+      "settingsTitle_other": "Paramètres du widget",
+      "noOptions": "Ce widget n'a aucun paramètre.",
       "options": {
         "ambient": "Lumière d'ambiance",
         "ambientDesc": "Un halo tamisé aux couleurs de la vignette, derrière elle."

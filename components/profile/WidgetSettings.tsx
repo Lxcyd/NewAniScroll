@@ -24,24 +24,26 @@ import type { WidgetOption } from "./WidgetGrid";
  */
 
 type Props = {
-  title: string;
   options: WidgetOption[];
   onOption: (key: string, on: boolean) => void;
   onClose: () => void;
 };
 
-export default function WidgetSettings({ title, options, onOption, onClose }: Props) {
+export default function WidgetSettings({ options, onOption, onClose }: Props) {
   const { t } = useTranslation();
 
   return (
     <div className="overflow-hidden rounded-2xl bg-[#15161d] ring-1 ring-white/10 shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
       <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-3.5 py-2.5">
-        <div className="min-w-0">
-          <p className="font-karla text-[10px] font-bold uppercase tracking-[0.14em] text-white/35">
-            {t("profile.widgets.settings")}
-          </p>
-          <p className="truncate font-outfit text-sm font-bold text-white">{title}</p>
-        </div>
+        {/* « Paramètres du widget », et rien d'autre — pas le nom du bloc : le
+            panneau s'ouvre SUR sa carte, dont l'en-tête porte déjà ce nom à
+            deux centimètres au-dessus. Le pluriel suit le nombre de paramètres
+            (i18next, `settingsTitle_one` / `_other`), y compris à zéro, où le
+            français comme l'anglais mettent le pluriel. C'est la formule de
+            TOUS les widgets, celui-ci n'a rien de particulier. */}
+        <p className="min-w-0 truncate font-outfit text-sm font-bold text-white">
+          {t("profile.widgets.settingsTitle", { count: options.length })}
+        </p>
         <button
           type="button"
           onClick={onClose}
