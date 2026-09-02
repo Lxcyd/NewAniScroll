@@ -2311,6 +2311,31 @@ input[type="number"] {
   container: widget / size;
 }
 
+/* Le panneau de reglages d'un widget, qui s'ouvre sur sa carte
+   (components/profile/WidgetSettings.tsx). Il sort du coin ou se trouve la roue
+   dentee — l'element porte `origin-top-right` — donc l'animation part du bouton
+   qu'on vient d'appuyer plutot que d'apparaitre au milieu de la carte.
+   Une keyframe et pas une bibliotheque, comme `as-pop-in` plus haut : ca tourne
+   sur le compositeur et ca ne coute pas un octet de JS. */
+@keyframes as-widget-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-widget-pop {
+  animation: as-widget-pop 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-widget-pop {
+    animation-duration: 0.01s;
+  }
+}
+
 @container widget (min-width: 700px) {
   .as-widget-lead {
     font-size: 1.375rem;

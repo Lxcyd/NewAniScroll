@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 
 import WidgetGrid, { type BlockChrome } from "./WidgetGrid";
 import BlockLibrary from "./BlockLibrary";
-import WidgetSettings from "./WidgetSettings";
 import { EmptyBlock } from "./widgets/common";
 import {
   CharactersBlock,
@@ -112,10 +111,6 @@ export default function ProfileOverview({
 
   const [editing, setEditing] = useState(false);
   const [library, setLibrary] = useState(false);
-  /* Le bloc dont la fenêtre de réglages est ouverte, ou null. Elle vit ICI et
-     pas dans la grille : c'est une surface modale de la page, au même rang que
-     la bibliothèque de blocs. */
-  const [settingsFor, setSettingsFor] = useState<string | null>(null);
   /* La disposition vit ici pendant la session : le stockage n'est écrit qu'aux
      changements, et le relire à chaque déplacement ferait un aller-retour par
      pixel. */
@@ -269,11 +264,7 @@ export default function ProfileOverview({
           </button>
           <button
             type="button"
-            onClick={() => {
-              setEditing((v) => !v);
-              // La roue disparaît avec le mode ; sa fenêtre aussi.
-              setSettingsFor(null);
-            }}
+            onClick={() => setEditing((v) => !v)}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 font-karla text-xs font-bold text-white ring-1 transition-colors ${
               editing ? "bg-action ring-action" : "bg-white/5 ring-white/15 hover:ring-white/30"
             }`}
@@ -309,34 +300,19 @@ export default function ProfileOverview({
         onLayout={commit}
         renderBlock={renderBlock}
         limits={blockBounds}
-        onSettings={setSettingsFor}
+        /* Ni la grille ni son panneau ne connaissent un bloc : ils reçoivent des
+           interrupteurs déjà traduits et déjà résolus, et rendent des bascules.
+           Le catalogue n'est traversé qu'ici. */
+        options={(id) =>
+          blockOptions(id).map((o) => ({
+            key: o.key,
+            label: t(`profile.widgets.options.${o.key}`),
+            on: optionOn(id, o.key),
+          }))
+        }
+        onOption={setOption}
         editing={editing && isOwner}
       />
-
-      {isOwner ? (
-        <WidgetSettings
-          /* La grille ne connaît aucun bloc, la fenêtre non plus : elle reçoit
-             des interrupteurs déjà traduits et déjà résolus, et rend des
-             bascules. Tout le catalogue est traversé ici. */
-          block={
-            settingsFor
-              ? {
-                  id: settingsFor,
-                  title: t(`profile.blocks.${settingsFor}.title`),
-                  color: blockDef(settingsFor)?.color ?? "#E94560",
-                  icon: blockDef(settingsFor)?.icon ?? "◍",
-                  options: blockOptions(settingsFor).map((o) => ({
-                    key: o.key,
-                    label: t(`profile.widgets.options.${o.key}`),
-                    on: optionOn(settingsFor, o.key),
-                  })),
-                }
-              : null
-          }
-          onOption={(key, on) => settingsFor && setOption(settingsFor, key, on)}
-          onClose={() => setSettingsFor(null)}
-        />
-      ) : null}
 
       {isOwner ? (
         <BlockLibrary

@@ -15,6 +15,7 @@ import {
   type Bounds,
   type GridItem,
 } from "@/lib/profile/grid";
+import WidgetSettings from "./WidgetSettings";
 
 /**
  * La grille de widgets : pose, déplacement, redimensionnement.
@@ -36,17 +37,22 @@ import {
  * roue dentée pour ce qu'aucun geste ne peut dire — les réglages du bloc.
  *
  * La roue n'apparaît pas SEULEMENT sur les blocs qui ont des réglages. Une
- * commande qui existe sur certaines cartes et pas sur d'autres se cherche ; la
- * fenêtre, elle, sait dire qu'elle n'a rien à proposer. Et le composant ne
- * connaît toujours aucun bloc : la roue ne fait que NOMMER celui qu'on veut
- * régler (`onSettings`), l'appelant ouvre ce qu'il veut.
+ * commande qui existe sur certaines cartes et pas sur d'autres se cherche ; le
+ * panneau, lui, sait dire qu'il n'a rien à proposer. Et le composant ne connaît
+ * toujours aucun bloc : il reçoit des interrupteurs déjà traduits et déjà
+ * résolus (`options`) et rend des bascules (`onOption`).
  *
- * POURQUOI LA FENÊTRE N'EST PAS ICI. Elle a d'abord été un petit panneau posé
- * dans la carte, sous la roue. Une carte fait parfois une colonne de large,
- * coupe ce qui dépasse (`overflow-hidden`) et se déplace sous le curseur : le
- * panneau y était à l'étroit, tronqué, et il suivait le bloc. Les réglages
- * sortent donc de la grille et s'ouvrent au centre de l'écran, comme la
- * bibliothèque de blocs et comme l'éditeur de liste.
+ * OÙ S'OUVRE LE PANNEAU, ET POURQUOI PAS AILLEURS. Sur la carte du bloc, en
+ * frère des cartes et non en enfant : la carte coupe ce qui dépasse
+ * (`overflow-hidden`) et un panneau posé dedans y était tronqué, tandis que
+ * posé dans le conteneur de la grille il est libre et sait quand même où est sa
+ * carte — `livePixels` le suit jusque pendant un déplacement.
+ *
+ * L'étape d'après avait été une fenêtre centrée, calquée sur l'éditeur de
+ * liste. Elle réglait le découpage mais coûtait un aller-retour au centre de
+ * l'écran pour un bloc qu'on est en train de regarder, et il fallait alors lui
+ * réexpliquer de quel bloc il s'agissait — d'où sa couleur et son icône. Ouvert
+ * sur la carte, le panneau n'a plus rien à réexpliquer : il est dessus.
  */
 
 export type BlockChrome = {
@@ -67,11 +73,13 @@ type Props = {
    * blocs : il demande, il n'interroge aucun catalogue.
    */
   limits?: (id: string) => Bounds;
-  /** « Ce bloc-ci, ses réglages. » Ce que l'appelant en fait ne regarde pas la
-   *  grille — aujourd'hui il ouvre WidgetSettings au centre de l'écran. */
-  onSettings?: (id: string) => void;
+  /** Les interrupteurs d'un bloc, déjà traduits et déjà résolus à leur état. */
+  options?: (id: string) => WidgetOption[];
+  onOption?: (id: string, key: string, on: boolean) => void;
   editing: boolean;
 };
+
+export type WidgetOption = { key: string; label: string; on: boolean };
 
 type Drag = {
   id: string;
@@ -89,7 +97,8 @@ export default function WidgetGrid({
   onLayout,
   renderBlock,
   limits,
-  onSettings,
+  options,
+  onOption,
   editing,
 }: Props) {
   const { t } = useTranslation();
@@ -105,6 +114,8 @@ export default function WidgetGrid({
      ref lu pendant le rendu ne déclencherait rien. */
   const [drag, setDrag] = useState<Drag | null>(null);
   const [offset, setOffset] = useState({ dx: 0, dy: 0 });
+  /* Le bloc dont le panneau de réglages est ouvert. Un seul à la fois. */
+  const [settings, setSettings] = useState<string | null>(null);
 
   /* La largeur du conteneur EST l'unité de la grille : sans elle rien ne peut
      être placé, et elle change avec la fenêtre comme avec un panneau latéral. */
@@ -117,6 +128,27 @@ export default function WidgetGrid({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  /* Le panneau se referme sur Échap, en sortant du mode réorganisation, et sur
+     un appui AILLEURS. Ce dernier n'a personne à reconnaître : la roue et le
+     panneau arrêtent tous deux la propagation du pointerdown — c'est leur
+     `draggableCancel` — donc l'écouteur ne les voit jamais. */
+  useEffect(() => {
+    if (!settings) return;
+    const away = () => setSettings(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSettings(null);
+    };
+    window.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [settings]);
+  useEffect(() => {
+    if (!editing) setSettings(null);
+  }, [editing]);
 
   /* La disposition en cours est lue dans un ref pendant un glissement : les
      handlers sont posés une fois sur window et ne doivent pas dépendre d'un
@@ -185,7 +217,11 @@ export default function WidgetGrid({
     const it = layout.find((o) => o.i === id);
     if (!it) return;
     e.preventDefault();
+    /* Attraper une carte referme le panneau. L'écouteur `window` ci-dessus ne
+       peut pas s'en charger : ce `stopPropagation`-ci coupe aussi l'événement
+       natif, donc il ne remonte jamais jusqu'à lui. */
     e.stopPropagation();
+    setSettings(null);
     const started: Drag = {
       id,
       mode,
@@ -371,11 +407,13 @@ export default function WidgetGrid({
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => onSettings?.(it.i)}
+                onClick={() => setSettings((v) => (v === it.i ? null : it.i))}
                 aria-label={t("profile.widgets.settings")}
-                aria-haspopup="dialog"
+                aria-expanded={settings === it.i}
                 title={t("profile.widgets.settings")}
-                className="absolute right-7 top-0 flex h-7 w-7 items-start justify-end p-[7px] text-white/60 transition-colors hover:text-white"
+                className={`absolute right-7 top-0 flex h-7 w-7 items-start justify-end p-[7px] transition-colors ${
+                  settings === it.i ? "text-white" : "text-white/60 hover:text-white"
+                }`}
               >
                 <svg viewBox="0 -960 960 960" fill="currentColor" className="h-3.5 w-3.5">
                   <path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5v-27q0-6.5 1-13.5L78-585l110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5v27q0 6.5-2 13.5l103 78-110 190-118-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Z" />
@@ -399,6 +437,40 @@ export default function WidgetGrid({
           </section>
         );
       })}
+
+      {/* LE PANNEAU DE RÉGLAGES, posé SUR sa carte.
+          Frère des cartes et non enfant de l'une d'elles : une carte coupe ce
+          qui dépasse, celle-ci le tronquerait. Il retrouve sa carte par
+          `livePixels`, la même mesure que les cartes utilisent — donc il la
+          suit jusque pendant un déplacement, au lieu de rester en arrière.
+          Calé sous la roue et aligné à droite, il s'ouvre de ce coin-là
+          (`origin-top-right`) : l'animation part du bouton qu'on vient
+          d'appuyer. Sa largeur suit la carte, plafonnée à 260 px — un bloc de
+          quatre colonnes n'a pas besoin d'un panneau de 1 000 px de large. */}
+      {(() => {
+        const it = editing && settings ? layout.find((o) => o.i === settings) : null;
+        if (!it) return null;
+        const rect = livePixels(it);
+        const w = Math.max(180, Math.min(260, rect.width - 16));
+        return (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            className="as-widget-pop absolute z-40 origin-top-right"
+            style={{
+              left: Math.round(rect.left + rect.width - 8 - w),
+              top: Math.round(rect.top + 30),
+              width: w,
+            }}
+          >
+            <WidgetSettings
+              title={renderBlock(it.i)?.title ?? it.i}
+              options={options?.(it.i) ?? []}
+              onOption={(key, on) => onOption?.(it.i, key, on)}
+              onClose={() => setSettings(null)}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
