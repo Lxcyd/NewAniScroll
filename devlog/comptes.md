@@ -7,6 +7,53 @@ sauvegarde serveur des donnees du visiteur. Couvre `lib/auth/*`,
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-02 — « AniList ne synchronise plus » : le vide etait ecrit par-dessus la liste
+
+**Le signalement**, une capture des Parametres : toast VERT « 0 entrees
+synchronisees depuis AniList », et juste au-dessus « Votre liste locale est sur
+cet appareil (**0 entrees**) ». Le meme jour, `graphql.anilist.co` repondait
+**403 a tout** — « The AniList API has been temporarily disabled due to severe
+stability issues » — et `/api/v2/anilist-health` disait bien `{"up":false}`.
+
+**La panne n'etait pas la nouveaute ; le toast vert l'etait.** `runPull` teste
+`r.ok` et affiche une erreur quand il vaut faux. Un succes annonce veut donc dire
+que la requete a REUSSI et rapporte zero entree — pas qu'elle a echoue.
+
+**Ce que faisait ce zero.** `fullSyncFromAniList` finit, dans ses deux branches,
+par `importEntries(…, "replace")`. Ce mode part d'un objet **vide** et reecrit
+tout (`lib/list/localList.ts`) : avec zero entree en main, il **efface la liste
+locale**. Le garde-fou en place — « si le fetch echoue, on ne touche pas au
+local » — ne couvrait que l'echec FRANC : refus HTTP, `json.errors`, reseau
+coupe. Une API qui vacille ne tombe pas toujours ainsi. Elle repond 200 avec une
+collection vide, et ce chemin-la ecrivait ce vide par-dessus la liste.
+
+**Et sans le moindre geste de l'utilisateur.** Ce pull ne vit pas seulement
+derriere le bouton « Resynchroniser maintenant » : `pages/_app.tsx` le lance a
+CHAQUE chargement de page, en tache de fond, des que le sens de synchro a ete
+choisi une fois. Le commentaire qui l'accompagne promet « leaves local untouched
+on failure, so the list survives an outage » — vrai pour la panne franche, faux
+pour celle-ci, qui est la forme que prend une panne reelle une fois sur deux.
+
+**Le correctif tient en une ligne, et c'est son emplacement qui compte** :
+le garde est pose la ou la destruction a lieu — dans `fullSyncFromAniList`, juste
+avant les deux `replace` — et pas dans `fetchAniListListMap`, que le PUSH
+(`fullSyncToAniList`) utilise aussi et pour qui une liste distante vide est une
+reponse legitime (c'est meme le cas normal d'un premier envoi).
+
+**On ne peut PAS distinguer les deux cas.** « AniList est en panne » et « cette
+liste est reellement vide » produisent la meme reponse, au bit pres. Le doute
+profite donc aux donnees : un compte sincerement vide lira « echec de la
+synchronisation » au lieu de ne rien faire — et n'avait, par definition, rien a
+synchroniser. En echange, une liste de plusieurs centaines de titres ne disparait
+plus pour une seconde de faiblesse chez un tiers.
+
+**La lecon, la meme qu'en aout et qu'a la page profil le meme jour** : une source
+externe en panne ne repond pas toujours une erreur. Elle repond du HTML la ou on
+attend du JSON (30/08, la connexion), un 403 (02/09, la page profil), ou **200
+avec rien dedans** (ici). Un code qui ne se protege que du premier cas se croit
+protege. La question a se poser n'est pas « et si l'appel echoue ? » mais « et
+s'il REUSSIT en ne rapportant rien ? ».
+
 ## 2026-08-30 — Une panne AniList ne casse plus la connexion en silence
 
 **Le signalement** : « j'ai un compte sur le PC (pas lie a AniList), je me suis

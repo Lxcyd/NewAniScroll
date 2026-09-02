@@ -223,4 +223,5 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Comptes, identite & sauvegarde — [`devlog/comptes.md`](devlog/comptes.md)
 
+- 2026-09-02 — « AniList ne synchronise plus » : une réponse 200 vide était écrite par-dessus la liste locale (et le pull tourne à chaque chargement de page)
 - 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base
