@@ -157,18 +157,24 @@ export function currentlyWatching(entries: ProfileEntry[], max = 6): ProfileEntr
 }
 
 /**
- * La vitrine des favoris : les favoris AniList d'abord, complétés par les mieux
- * notés. Un profil sans favori déclaré n'affiche donc pas un bloc vide, il
- * affiche ce que le spectateur a le mieux noté — ce qui est le même propos.
+ * La vitrine des favoris : les favoris déclarés, classés par note.
+ *
+ * LE REPLI NE COMPLÈTE PLUS UNE LISTE INCOMPLÈTE, IL REMPLACE UNE LISTE VIDE.
+ * Il comblait la vitrine avec les mieux notés dès qu'il y avait MOINS de
+ * `max` favoris — c'est-à-dire presque toujours, `max` valant plusieurs
+ * dizaines. Résultat : un profil avec douze favoris en voyait quarante-huit
+ * autres passer pour tels, sous un titre qui dit « favoris ». Le repli garde
+ * son seul cas honnête, celui pour lequel il a été écrit : AUCUN favori
+ * déclaré, où montrer les mieux notés est le même propos plutôt qu'un ajout.
  */
 export function favoriteShowcase(entries: ProfileEntry[], max = 8): ProfileEntry[] {
   const rated = (e: ProfileEntry) => e.score || 0;
   const fav = entries.filter((e) => e.favourite).sort((a, b) => rated(b) - rated(a));
-  if (fav.length >= max) return fav.slice(0, max);
-  const rest = entries
-    .filter((e) => !e.favourite && rated(e) > 0)
-    .sort((a, b) => rated(b) - rated(a));
-  return fav.concat(rest).slice(0, max);
+  if (fav.length) return fav.slice(0, max);
+  return entries
+    .filter((e) => rated(e) > 0)
+    .sort((a, b) => rated(b) - rated(a))
+    .slice(0, max);
 }
 
 /**

@@ -58,6 +58,21 @@ type ShelfCard = { e: ProfileEntry; state: "enter" | "in" | "out" };
 const EXIT_MS = 320;
 
 /**
+ * COMBIEN D'AFFICHES LA VITRINE VA CHERCHER.
+ *
+ * Elle en prenait vingt, ce qui sur une liste de statut — « Terminés », des
+ * centaines de titres — coupait au vingtième MIEUX NOTÉ sans le dire : la bande
+ * s'arrêtait sur un 8,5 alors que le curseur des notes descendait à 0, et le
+ * réglage semblait ne rien filtrer. Ce n'est pas ce que le bloc promet.
+ *
+ * Soixante, et pas « tout » : la bande est un carrousel qu'on tire à la main,
+ * pas un catalogue — au-delà on fait défiler pour rien — et chaque carte est une
+ * affiche à charger. Le défilement horizontal les laisse hors écran, donc
+ * `next/image` ne va chercher que celles qu'on regarde.
+ */
+const SHELF_MAX = 60;
+
+/**
  * Ce que la vitrine affiche PENDANT qu'elle change.
  *
  * React retire un nœud à l'instant où il quitte la liste, donc une carte qui
@@ -198,7 +213,7 @@ export function FavoritesBlock({
   const clickTarget = useClickTarget();
   const [lo, hi] = scores;
   const shown = useMemo(
-    () => showcaseFor(entries, source, 20, [lo, hi], unrated),
+    () => showcaseFor(entries, source, SHELF_MAX, [lo, hi], unrated),
     [entries, source, lo, hi, unrated],
   );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
@@ -244,12 +259,28 @@ export function FavoritesBlock({
          precedent au lieu de la largeur voulue, et la bande resterait a jamais
          a la taille qu'elle avait quand le widget etait plus petit — ou, au
          tout premier rendu ou aucune carte n'est encore en place, a la valeur
-         de repli de 40rem, qui rendrait l'arrivee instantanee. */
-      const card = row.querySelector<HTMLElement>(".as-fav-card:not(.is-out)");
+         de repli de 40rem, qui rendrait l'arrivee instantanee.
+
+         ON MESURE UNE CARTE EN PLACE DE PRÉFÉRENCE, ET LA MESURE NE DOIT RIEN
+         ANIMER. C'est ici qu'était le bug qui rendait l'arrivée instantanée
+         malgré tout le reste : mesurer une carte qui VIENT DE NAÎTRE lui donnait
+         un style de départ à pleine largeur (lire `offsetWidth` force le calcul
+         de mise en page, donc `max-width: none` devient sa valeur de référence),
+         et la remise à zéro juste après lançait aussitôt une transition de
+         repli. Deux frames plus tard, quand la classe passait à `is-in`, la
+         carte était encore quasi dépliée : il ne restait rien à animer. La
+         transition est donc coupée le temps de la mesure, et la valeur revenue
+         est figée par un second calcul forcé avant qu'on la rende. */
+      const card =
+        row.querySelector<HTMLElement>(".as-fav-card.is-in") ??
+        row.querySelector<HTMLElement>(".as-fav-card:not(.is-out)");
       if (card) {
+        card.style.transition = "none";
         card.style.maxWidth = "none";
         const w = card.offsetWidth;
         card.style.maxWidth = "";
+        void card.offsetWidth;
+        card.style.transition = "";
         if (w) row.style.setProperty("--as-fav-w", `${w}px`);
       }
       syncFades();

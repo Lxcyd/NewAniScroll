@@ -363,6 +363,51 @@ const ANILIST_QUERY = `
   }
 `;
 
+/**
+ * LA LISTE ANILIST, GARDÉE QUELQUES SECONDES EN MÉMOIRE DU PROCESSUS.
+ *
+ * Cette page est rendue à chaque visite (getServerSideProps) et la requête
+ * ci-dessous en est tout le coût : 3,8 s / 11,7 s / 4,5 s mesurées sur une liste
+ * de 824 entrées. Elle était donc repayée EN ENTIER à chaque rechargement, à
+ * chaque retour arrière, et par chaque visiteur du même profil — d'où une page
+ * qui met des secondes à revenir alors que rien n'a changé chez AniList.
+ *
+ * Une Map de module, pas Upstash : le cache tient dans la lambda qui répond,
+ * donc il ne coûte aucune commande sur un quota déjà juste (cf. les notes sur
+ * le plafond Upstash) et ne peut pas servir la liste d'un profil à un autre —
+ * la clé est le nom AniList. Un rechargement retombe presque toujours sur la
+ * même instance chaude, ce qui est exactement le cas à réparer.
+ *
+ * SOIXANTE SECONDES, ET LE PLAFOND EST BAS. C'est assez pour que recharger, ou
+ * revenir depuis un anime, soit instantané ; assez court pour qu'une note posée
+ * sur AniList apparaisse au rafraîchissement suivant. Le plafond d'entrées
+ * existe parce qu'une liste pèse quelques centaines de kilo-octets : au-delà, la
+ * plus ancienne s'en va.
+ */
+const LIST_TTL_MS = 60_000;
+const LIST_CACHE_MAX = 12;
+const listCache = new Map<string, { at: number; data: any }>();
+
+async function cachedAniList(username: string): Promise<any | null> {
+  const key = username.toLowerCase();
+  const hit = listCache.get(key);
+  if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.data;
+  const data = await fetchAniList(username);
+  // Un échec n'est pas mis en cache : il serait servi pendant une minute à la
+  // place d'une liste qui existe, et le profil s'afficherait vide.
+  if (data) {
+    // Réinsérée, pas mise à jour sur place : une Map garde l'ordre d'insertion,
+    // et c'est lui qui désigne la plus ancienne quand le plafond est atteint.
+    listCache.delete(key);
+    listCache.set(key, { at: Date.now(), data });
+    if (listCache.size > LIST_CACHE_MAX) {
+      const oldest = listCache.keys().next().value;
+      if (oldest !== undefined) listCache.delete(oldest);
+    }
+  }
+  return data;
+}
+
 async function fetchAniList(username: string): Promise<any | null> {
   try {
     const controller = new AbortController();
@@ -395,18 +440,19 @@ export async function getServerSideProps(context: any) {
   const account = match ? await findByTag(match[2]).catch(() => null) : null;
   const anilistName = account ? account.anilistName : segment;
 
-  const session = (await getServerSession(
-    context.req,
-    context.res,
-    authOptions,
-  ).catch(() => null)) as any;
+  /* LES DEUX EN MÊME TEMPS. La session ne dit rien de la liste et la liste ne
+     dit rien de la session : les attendre l'une après l'autre ajoutait la
+     lecture du cookie devant une requête qui dure déjà plusieurs secondes. */
+  const [session, collection] = await Promise.all([
+    getServerSession(context.req, context.res, authOptions).catch(() => null) as any,
+    anilistName ? cachedAniList(anilistName) : null,
+  ]);
 
   const isOwner = account
     ? session?.user?.uid === account.id
     : !!session?.user?.name &&
       String(session.user.name).toLowerCase() === String(anilistName).toLowerCase();
 
-  const collection = anilistName ? await fetchAniList(anilistName) : null;
   if (!account && !collection?.user) return { notFound: true };
 
   /* Visibility. The setting lives in the legacy Prisma profile, keyed by the
