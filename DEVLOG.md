@@ -183,6 +183,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-02 — Quatre défauts de la vitrine du profil, quatre causes distinctes (liste AniList en cache mémoire ; plafond à 60 ; le repli qui inventait des favoris ; la mesure forcée qui tuait l'animation)
 - 2026-08-30 — Le profil se pare de l'anime préféré, et cesse d'être réservé à AniList  _(voir aussi `devlog/comptes.md`)_
 - 2026-08-29 — Deux « Season 1 » a la file : le garde qui empechait de compter
 - 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT

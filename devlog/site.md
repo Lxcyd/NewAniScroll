@@ -6,6 +6,78 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-02 — Quatre defauts de la vitrine du profil, quatre causes distinctes
+
+Rapport en quatre points : « le site est tres long pour recharger une page »,
+« il manque des animes », « les cartes apparaissent sans animation », « j'ai des
+animes qui ne sont pas dans mes favoris ». Rien de commun entre eux, sinon la
+page ou ils se voient.
+
+**La page mettait des secondes a revenir : c'est la requete AniList, repayee a
+chaque visite.** `/en/profile/[user]` est en `getServerSideProps`, et tout son
+cout tient dans un appel a `graphql.anilist.co` — 3,8 s / 11,7 s / 4,5 s
+mesurees en aout sur une liste de 824 entrees, chiffres deja notes dans le code
+a cote du timeout de 14 s. Chaque rechargement, chaque retour arriere depuis une
+fiche, chaque visiteur du meme profil la repayait *en entier*, alors que rien
+n'avait bouge chez AniList entre-temps.
+
+Le cache est une `Map` de module, TTL 60 s, plafonnee a douze listes. **Pas
+Upstash**, et c'est un choix, pas un raccourci : le quota gratuit est deja juste
+(cf. `devlog/infra.md`), une liste pese quelques centaines de kilo-octets, et le
+cas a reparer — recharger la page qu'on regarde — retombe presque toujours sur
+la meme lambda chaude. La cle est le nom AniList, donc aucun risque de servir la
+liste d'un profil sous un autre. Un echec n'est jamais mis en cache : il serait
+servi une minute a la place d'une liste qui existe, et le profil s'afficherait
+vide — le meme « 0 anime » faux que le timeout de 14 s avait ete choisi pour
+eviter. La session, qui ne depend pas de la liste, est lue en parallele plutot
+qu'en file devant elle.
+
+**« Il manque des animes » : la vitrine s'arretait au vingtieme mieux note.** Le
+bloc allait chercher 20 entrees, classees par note. Sur les favoris declares
+c'est indolore ; sur une liste de statut — « Termines », des centaines de titres
+— la bande se terminait sur un 8,5 avec le curseur des notes ouvert de 0 a 10.
+Le reglage avait donc l'air de ne rien filtrer, et le plafond, lui, ne se voyait
+nulle part. Il passe a 60 : assez pour que la coupure cesse d'etre visible, pas
+au point de faire de la bande un catalogue qu'on fait defiler pour rien. Les
+affiches hors ecran ne sont pas chargees (`next/image`), le cout reste celui de
+ce qu'on regarde.
+
+**Les favoris n'etaient pas que des favoris.** `favoriteShowcase` completait la
+vitrine avec les mieux notes des qu'il y avait MOINS de `max` favoris. Ecrit
+quand `max` valait 8, le repli etait rare ; avec un plafond a plusieurs
+dizaines il est devenu la regle, et un profil de douze favoris en voyait
+quarante-huit autres passer pour tels sous un titre qui dit « favoris ». Le
+repli garde son seul cas honnete, celui pour lequel il avait ete ecrit : AUCUN
+favori declare, ou montrer les mieux notes est le meme propos plutot qu'un
+ajout. **La lecon** : un repli dimensionne pour un plafond change de nature
+quand le plafond bouge, et personne ne relit le repli en changeant le chiffre.
+
+**L'arrivee restait instantanee malgre l'animation ecrite pour elle.** Le
+commit precedent (`6ee1bbe`) avait deja remplace la keyframe au montage par une
+vraie transition : la carte nait repliee (`is-enter`, `max-width: 0`) et se
+deplie une frame plus tard en `is-in`. A l'oeil, rien n'avait change.
+
+La coupable etait **la mesure de largeur elle-meme**. La largeur d'une carte
+n'existe pas en CSS — elle vient de la hauteur de la case par le rapport 2:3 —
+donc un effet leve le plafond d'une carte, lit son `offsetWidth`, et pose la
+valeur en `--as-fav-w` sur la bande. Il choisissait la premiere carte non
+sortante, donc souvent **une carte qui venait de naitre**. Lire `offsetWidth`
+force le calcul de mise en page : `max-width: none` devenait la valeur de
+reference de cette carte. La remise a `""` juste apres la ramenait a 0 — et
+lancait donc aussitot une transition de *repli* de 300 ms. Deux frames plus
+tard, quand la classe passait a `is-in`, la carte etait encore quasi depliee :
+il ne restait rien a animer, seule l'opacite se voyait. C'est exactement
+« apparaissent instantanement ».
+
+Le correctif tient en trois lignes : mesurer **une carte deja en place**
+(`.is-in`) quand il y en a une, couper la transition le temps de la mesure, et
+figer la valeur revenue par un second calcul force avant de la rendre.
+
+**La lecon, elle, se garde** : une mesure forcee n'est jamais neutre sur un
+element qui transitionne. Elle lui donne un style de depart qu'il n'avait pas,
+et l'animation qu'on croit ecrire commence alors depuis le mauvais endroit —
+ou, comme ici, depuis la fin.
+
 ## 2026-08-30 — Le profil se pare de l'anime prefere, et cesse d'etre reserve a AniList
 
 **Le point de depart** : `/en/profile/[user]` etait une page AniList et rien
