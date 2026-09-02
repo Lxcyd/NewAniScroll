@@ -20,9 +20,9 @@ export type GridItem = {
   w: number;
   h: number;
   /**
-   * Les réglages du bloc — des interrupteurs, uniquement ceux que le
-   * propriétaire a TOUCHÉS. Absent, ou clé absente : le bloc garde son défaut
-   * (cf. `blockOptions` dans blocks.ts).
+   * Les réglages du bloc — un interrupteur (booléen) ou un choix dans une liste
+   * (chaîne), uniquement ceux que le propriétaire a TOUCHÉS. Absent, ou clé
+   * absente : le bloc garde son défaut (cf. `blockOptions` dans blocks.ts).
    *
    * Ils vivent ici, dans la disposition, plutôt que dans un stockage à eux :
    * la disposition est déjà persistée, déjà servie à tous les visiteurs et déjà
@@ -30,7 +30,7 @@ export type GridItem = {
    * demandé sa propre colonne, sa propre route et sa propre validation pour
    * transporter trois booléens attachés à des blocs qui voyagent déjà.
    */
-  s?: Record<string, boolean>;
+  s?: Record<string, boolean | string>;
 };
 
 export const COLS = 4;
@@ -193,16 +193,23 @@ export function isValidLayout(value: unknown): value is GridItem[] {
  * Ce sac est ouvert : n'importe quelle clé peut s'y trouver, et il arrive d'un
  * navigateur avant d'être relu par d'AUTRES visiteurs du profil. Il n'est donc
  * pas comparé au catalogue des blocs — grid.ts ne le connaît pas et n'a pas à
- * le connaître — mais borné en forme : des booléens, sous des clés courtes, en
- * petit nombre. Une clé retirée du catalogue plus tard ne fait rien de mal ; un
- * objet de dix mille entrées, si.
+ * le connaître — mais borné en forme : des booléens ou des chaînes courtes,
+ * sous des clés courtes, en petit nombre. Une clé retirée du catalogue plus
+ * tard ne fait rien de mal ; un objet de dix mille entrées, si.
+ *
+ * Une chaîne n'est PAS validée contre les choix du bloc : celui qui l'a écrite
+ * connaissait un catalogue qui a pu changer depuis, et le lecteur retombe de
+ * toute façon sur le défaut quand la valeur ne lui dit rien (`blockOptionValue`).
+ * Ce qui compte ici est qu'elle ne puisse pas être un roman.
  */
 const MAX_OPTIONS = 8;
-function cleanOptions(s: unknown): Record<string, boolean> | null {
+const MAX_VALUE = 48;
+function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   if (!s || typeof s !== "object") return null;
-  const out: Record<string, boolean> = {};
+  const out: Record<string, boolean | string> = {};
   for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
-    if (typeof v !== "boolean" || k.length > 32) continue;
+    if (k.length > 32) continue;
+    if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= MAX_VALUE)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;
   }

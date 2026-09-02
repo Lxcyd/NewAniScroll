@@ -15,6 +15,7 @@ import {
   StudiosBlock,
 } from "./widgets/ListBlocks";
 import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
+import { listLabel } from "@/components/anime/v2/helpers";
 import type { ActivityRow } from "@/lib/profile/activity";
 import {
   BLOCKS,
@@ -22,6 +23,7 @@ import {
   blockBounds,
   blockDef,
   blockOption,
+  blockOptionValue,
   blockOptions,
   blockSize,
   isKnownBlock,
@@ -184,26 +186,88 @@ export default function ProfileOverview({
        autre, c'est lui qui regarde, pas nous. */
     const other = !isOwner && id === "resume";
     return {
-      title: t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`),
+      title: blockTitle(id, other),
       meta: null,
       color: def.dot === false ? null : def.color,
       body: body(id),
     };
   }
 
-  /* L'état d'un interrupteur du bloc `id` : ce que le propriétaire a rangé dans
-     la disposition, sinon le défaut du catalogue. */
+  /* Les réglages du bloc `id` : ce que le propriétaire a rangé dans la
+     disposition, sinon les défauts du catalogue. */
+  function saved(id: string) {
+    return layout?.find((o) => o.i === id)?.s;
+  }
   function optionOn(id: string, key: string): boolean {
-    return blockOption(id, key, layout?.find((o) => o.i === id)?.s);
+    return blockOption(id, key, saved(id));
+  }
+  function optionValue(id: string, key: string): string {
+    return blockOptionValue(id, key, saved(id));
   }
 
-  /** La bascule d'un interrupteur, écrite dans la disposition et sauvegardée. */
-  function setOption(id: string, key: string, on: boolean) {
+  /** Un réglage changé, écrit dans la disposition et sauvegardé. */
+  function setOption(id: string, key: string, value: boolean | string) {
     commit(
       (layout || []).map((o) =>
-        o.i === id ? { ...o, s: { ...(o.s ?? {}), [key]: on } } : o,
+        o.i === id ? { ...o, s: { ...(o.s ?? {}), [key]: value } } : o,
       ),
     );
+  }
+
+  /**
+   * Les réglages d'un bloc, traduits et résolus, pour le panneau de la grille.
+   *
+   * Le catalogue n'est traversé qu'ICI : ni la grille ni son panneau ne savent
+   * ce qu'une clé signifie. Les choix d'un menu déroulant portent déjà leur
+   * libellé — pour `source`, ce sont les noms de listes du reste du site
+   * (`listLabel`), donc « Terminés » veut dire ici ce qu'il veut dire ailleurs.
+   */
+  function widgetOptions(id: string) {
+    return blockOptions(id).map((o) => {
+      const common = {
+        key: o.key,
+        label: t(`profile.widgets.options.${o.key}`),
+        desc: t(`profile.widgets.options.${o.key}Desc`),
+      };
+      return "choices" in o
+        ? {
+            ...common,
+            value: optionValue(id, o.key),
+            choices: o.choices.map((c) => ({
+              value: c,
+              label:
+                c === "favourites"
+                  ? t("profile.widgets.options.sourceFavourites")
+                  : listLabel(t, c),
+            })),
+          }
+        : { ...common, on: optionOn(id, o.key) };
+    });
+  }
+
+  /**
+   * Le nom d'un bloc, tel que son en-tête l'affiche.
+   *
+   * Il n'est plus toujours celui du catalogue : la vitrine des favoris peut
+   * montrer une AUTRE liste que les favoris, et garder alors le titre
+   * « Animés favoris » serait un mensonge sur son contenu. Le titre suit donc le
+   * réglage — « Animes favoris · Terminé », « Animes favoris · Prévu » — en
+   * reprenant le NOM DE LISTE du reste du site plutôt qu'un mot à lui.
+   *
+   * Le nom est accolé par un point médian et non fondu dans la phrase : les
+   * libellés de listes sont des étiquettes, pas des adjectifs, et ils ne
+   * s'accordent ni en français (« favoris terminé ») ni en anglais
+   * (« favourite planning anime »). Le séparateur les laisse être ce qu'ils
+   * sont, dans les deux langues, sans table de correspondance à tenir.
+   */
+  function blockTitle(id: string, other: boolean): string {
+    if (id === "favorites") {
+      const src = optionValue("favorites", "source");
+      if (src && src !== "favourites") {
+        return t("profile.blocks.favorites.titleList", { list: listLabel(t, src) });
+      }
+    }
+    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
   }
 
   function body(id: string): React.ReactNode {
@@ -219,7 +283,13 @@ export default function ProfileOverview({
       case "recents":
         return <RecentsBlock rows={served} other={!isOwner} />;
       case "favorites":
-        return <FavoritesBlock entries={entries} />;
+        return (
+          <FavoritesBlock
+            entries={entries}
+            source={optionValue("favorites", "source")}
+            trailer={optionOn("favorites", "trailer")}
+          />
+        );
       case "statuses":
         return <StatusesBlock entries={entries} />;
       case "scores":
@@ -300,16 +370,7 @@ export default function ProfileOverview({
         onLayout={commit}
         renderBlock={renderBlock}
         limits={blockBounds}
-        /* Ni la grille ni son panneau ne connaissent un bloc : ils reçoivent des
-           interrupteurs déjà traduits et déjà résolus, et rendent des bascules.
-           Le catalogue n'est traversé qu'ici. */
-        options={(id) =>
-          blockOptions(id).map((o) => ({
-            key: o.key,
-            label: t(`profile.widgets.options.${o.key}`),
-            on: optionOn(id, o.key),
-          }))
-        }
+        options={widgetOptions}
         onOption={setOption}
         editing={editing && isOwner}
       />

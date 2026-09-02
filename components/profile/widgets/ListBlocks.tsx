@@ -6,13 +6,15 @@ import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
+import { previewAnchor } from "@/lib/preview/anchor";
+import { useDragScroll } from "@/lib/ui/dragScroll";
 import {
   currentlyWatching,
   decadeCounts,
-  favoriteShowcase,
   formatCounts,
   genreCounts,
   scoreHistogram,
+  showcaseFor,
   statusCounts,
   studioRanks,
   STATUS_COLOR,
@@ -44,40 +46,91 @@ const FORMAT_COLOR: Record<string, string> = {
 
 /* ── Favoris ─────────────────────────────────────────────────────────── */
 
-export function FavoritesBlock({ entries }: { entries: ProfileEntry[] }) {
+/**
+ * La vitrine : une bande d'affiches qui se tire à la souris.
+ *
+ * ELLE SE DIMENSIONNE TOUTE SEULE, sans requête de conteneur et sans pixel
+ * fixe. L'affiche prend la hauteur qui reste (`flex-1`) sous un titre de deux
+ * lignes, et sa largeur en découle par son rapport 2:3 ; la carte fait la
+ * largeur de son affiche. Le bloc peut donc aller de 1×1 à 2×4 : à une ligne
+ * les affiches sont petites et il en passe trois dans une colonne, à deux
+ * lignes elles sont grandes. Rien à recalculer, rien à seuiller.
+ *
+ * DEUX LIGNES DE TITRE, ET PLUS DE COMPTE D'ÉPISODES. Le titre était coupé à
+ * une ligne, ce qui à cette largeur laissait « Kimetsu no Yaiba: M… » —
+ * méconnaissable. La ligne libérée vient du nombre d'épisodes, qui ne disait
+ * rien sur une vitrine de favoris : la note, elle, reste sur l'affiche.
+ *
+ * Le glissement est CELUI du carrousel de recommandations, littéralement (cf.
+ * lib/ui/dragScroll.ts), et le survol lève la même bande-annonce que partout
+ * ailleurs sur le site — une seule propriété à poser (`previewAnchor`), pas de
+ * composant à envelopper.
+ */
+export function FavoritesBlock({
+  entries,
+  /** La liste mise en vitrine (cf. FAVORITE_SOURCES). Défaut : les favoris. */
+  source = "favourites",
+  /** Réglable : la bande-annonce au survol. */
+  trailer = true,
+}: {
+  entries: ProfileEntry[];
+  source?: string;
+  trailer?: boolean;
+}) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
-  const shown = useMemo(() => favoriteShowcase(entries, 10), [entries]);
+  const shown = useMemo(() => showcaseFor(entries, source, 20), [entries, source]);
+  const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
 
-  if (!shown.length) return <EmptyBlock note={t("profile.blocks.favorites.empty")} />;
+  if (!shown.length)
+    return (
+      <EmptyBlock
+        note={t(
+          source === "favourites"
+            ? "profile.blocks.favorites.empty"
+            : "profile.blocks.favorites.emptyList",
+        )}
+      />
+    );
 
   return (
-    <div className="flex h-full gap-3.5 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10">
+    <div
+      ref={ref}
+      onClickCapture={onClickCapture}
+      /* `-my-2 py-2` : la carte du widget coupe ce qui dépasse, et sans ces
+         huit pixels de marge intérieure l'affiche qui grandit au survol serait
+         rognée en haut et en bas. Le `-my-2` les reprend sur la mise en page,
+         donc rien ne bouge tant qu'on ne survole rien. */
+      className="-my-2 flex h-full cursor-grab select-none gap-3 overflow-x-auto overflow-y-hidden py-2 scrollbar-thin scrollbar-thumb-white/10"
+    >
       {shown.map((e) => (
         <Link
           key={e.mediaId}
           href={animeHref(e.mediaId, clickTarget)}
-          className="grid h-full shrink-0 grid-rows-[minmax(0,1fr)_auto] gap-2"
+          draggable={false}
+          {...(trailer ? previewAnchor(e.mediaId) : {})}
+          className="group flex h-full shrink-0 flex-col gap-2"
         >
-          <div className="relative h-full overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 hover:-translate-y-1.5" style={{ aspectRatio: "2 / 3" }}>
+          <div
+            className="relative min-h-0 flex-1 overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
+            style={{ aspectRatio: "2 / 3" }}
+          >
             {e.cover ? (
-              <Image src={e.cover} alt="" fill sizes="160px" className="object-cover" />
+              <Image src={e.cover} alt="" fill sizes="200px" className="object-cover" />
             ) : null}
             {e.score ? (
-              <span className="absolute right-2 top-2 rounded-md bg-black/75 px-1.5 py-0.5 font-karla text-[11px] font-bold text-as-score">
+              <span className="absolute right-1.5 top-1.5 rounded-md bg-black/75 px-1.5 py-0.5 font-karla text-[11px] font-bold text-as-score">
                 ★ {e.score}
               </span>
             ) : null}
           </div>
-          <div className="max-w-[9.5rem]">
-            <p className="truncate text-[13px] font-semibold text-white">
-              {pickTitle(e.title, titlePref)}
-            </p>
-            <p className="mt-0.5 truncate font-karla text-[11px] text-white/40">
-              {e.total ? t("profile.blocks.favorites.meta", { count: e.total }) : "—"}
-            </p>
-          </div>
+          {/* `w-0 min-w-full` : le titre doit se replier sur la largeur de
+              l'affiche au lieu d'imposer la sienne à la carte — sans quoi un
+              titre long élargit sa carte et la bande devient irrégulière. */}
+          <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-snug text-white">
+            {pickTitle(e.title, titlePref)}
+          </p>
         </Link>
       ))}
     </div>

@@ -1,76 +1,29 @@
-import { CSSProperties, useRef, useCallback, useEffect } from "react";
+import { CSSProperties } from "react";
 import Link from "next/link";
 import { MediaRecommendation } from "types/info/AnilistInfoTypes";
 import { useTranslation } from "react-i18next";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { coverUrl } from "@/lib/images/cover";
 import { previewAnchor } from "@/lib/preview/anchor";
+import { useDragScroll } from "@/lib/ui/dragScroll";
 
 type Props = {
   items: MediaRecommendation[];
   forTitle: string;
 };
 
-const DRAG_THRESHOLD = 8;
-
 export default function Recommendations({ items, forTitle }: Props) {
   const { t } = useTranslation();
   const clickTarget = useClickTarget();
-  const ref = useRef<HTMLDivElement>(null);
-  const dragMovedRef = useRef(false);
+  /* Le « attraper et tirer » vit dans lib/ui/dragScroll.ts depuis qu'un second
+     carrousel en a eu besoin (la vitrine des favoris du profil). Le code n'a pas
+     changé, seulement d'adresse — et les deux pièges qu'il évite sont commentés
+     là-bas, avec lui. */
+  const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
 
   const scroll = (dir: number) => {
     ref.current?.scrollBy({ left: dir * 520, behavior: "smooth" });
   };
-
-  // Mouse-only drag-to-scroll. We deliberately do NOT use setPointerCapture:
-  // capturing the pointer on the scroll container steals the trailing `click`
-  // from the child <Link>, so plain clicks on a card never navigated. Instead
-  // we bind mousemove/mouseup on window for the duration of a mouse drag.
-  // Touch is left entirely to native overflow scrolling (no JS), so taps stay
-  // taps and remain tappable on mobile.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    let isDown = false;
-    let startX = 0;
-    let startScroll = 0;
-
-    const onDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
-      isDown = true;
-      startX = e.clientX;
-      startScroll = el.scrollLeft;
-      dragMovedRef.current = false;
-    };
-    const onMove = (e: MouseEvent) => {
-      if (!isDown) return;
-      const dx = e.clientX - startX;
-      if (Math.abs(dx) > DRAG_THRESHOLD) dragMovedRef.current = true;
-      el.scrollLeft = startScroll - dx;
-    };
-    const onUp = () => {
-      isDown = false;
-    };
-
-    el.addEventListener("mousedown", onDown);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      el.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
-
-  const onClickCapture = useCallback((e: React.MouseEvent) => {
-    if (dragMovedRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-      dragMovedRef.current = false;
-    }
-  }, []);
 
   // AniList can list the same target anime across several recommendation
   // edges, which surfaced as visible duplicates in the carousel (e.g. the

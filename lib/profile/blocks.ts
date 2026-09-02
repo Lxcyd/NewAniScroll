@@ -58,7 +58,19 @@ export const BLOCKS: BlockDef[] = [
     source: "device",
     icon: "▶",
   },
-  { id: "favorites", size: [4, 1], color: "#E94560", source: "list", icon: "★" },
+  // 1×1 au minimum, 2×4 au maximum (hauteur × largeur) : la vitrine est une
+  // bande d'affiches qui défile, elle tient dans une seule case — les affiches y
+  // sont juste plus petites — et au-delà de deux lignes elle serait une bande
+  // haute de 900 px pour des couvertures 2:3.
+  {
+    id: "favorites",
+    size: [4, 1],
+    min: [1, 1],
+    max: [4, 2],
+    color: "#E94560",
+    source: "list",
+    icon: "★",
+  },
   { id: "recents", size: [2, 2], color: "#E94560", source: "device", icon: "↷" },
   { id: "statuses", size: [2, 1], color: "#22c55e", source: "list", icon: "◍" },
   { id: "scores", size: [2, 1], color: "#FFD700", source: "list", icon: "▮" },
@@ -96,23 +108,76 @@ export const BLOCKS: BlockDef[] = [
  * certaines cartes et pas sur d'autres. Le libellé d'une option est
  * `profile.widgets.options.<clé>`.
  */
-export type BlockOption = { key: string; on: boolean };
+export type BlockOption =
+  /** Un interrupteur. */
+  | { key: string; on: boolean }
+  /** Un choix dans une liste fermée. `on` absent : c'est ce qui les distingue. */
+  | { key: string; choices: readonly string[]; value: string };
+
+/**
+ * Les listes que le bloc « favoris » sait mettre en vitrine.
+ *
+ * `favourites` d'abord — les favoris déclarés, le comportement historique et le
+ * défaut. Viennent ensuite les listes de statut, dans l'ordre où elles se lisent
+ * ailleurs sur le site (cf. STATUS_TO_LIST). Ce sont des valeurs de
+ * STATUS_TO_LIST et pas des statuts AniList bruts : c'est ce que `listLabel`
+ * sait traduire, donc le même nom qu'ailleurs pour la même liste.
+ */
+export const FAVORITE_SOURCES = [
+  "favourites",
+  "Watching",
+  "Rewatching",
+  "Completed",
+  "Planning",
+  "Paused",
+  "Dropped",
+] as const;
 
 const OPTIONS: Record<string, BlockOption[]> = {
   resume: [{ key: "ambient", on: true }],
+  favorites: [
+    { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
+    { key: "trailer", on: true },
+  ],
 };
 
 export function blockOptions(id: string): BlockOption[] {
   return OPTIONS[id] ?? [];
 }
 
+function optionDef(id: string, key: string): BlockOption | undefined {
+  return blockOptions(id).find((o) => o.key === key);
+}
+
 /** L'état d'un interrupteur : ce qui est rangé, sinon le défaut du catalogue. */
 export function blockOption(
   id: string,
   key: string,
-  saved: Record<string, boolean> | undefined,
+  saved: Record<string, boolean | string> | undefined,
 ): boolean {
-  return saved?.[key] ?? blockOptions(id).find((o) => o.key === key)?.on ?? false;
+  const v = saved?.[key];
+  if (typeof v === "boolean") return v;
+  const def = optionDef(id, key);
+  return def && "on" in def ? def.on : false;
+}
+
+/**
+ * Le choix d'un menu déroulant : ce qui est rangé, sinon le défaut.
+ *
+ * Une valeur rangée qui ne fait PLUS partie des choix est ignorée. Elle arrive
+ * d'un navigateur, elle a pu être écrite quand le catalogue proposait autre
+ * chose, et un widget qui filtre sur une liste qui n'existe pas serait vide
+ * sans rien expliquer.
+ */
+export function blockOptionValue(
+  id: string,
+  key: string,
+  saved: Record<string, boolean | string> | undefined,
+): string {
+  const def = optionDef(id, key);
+  if (!def || !("choices" in def)) return "";
+  const v = saved?.[key];
+  return typeof v === "string" && def.choices.includes(v) ? v : def.value;
 }
 
 const BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));

@@ -11,6 +11,7 @@
  * version locale depuis le navigateur.
  */
 
+import { STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import type { ProfileEntry } from "./types";
 
 /** Les statuts d'AniList, dans l'ordre où un profil se lit. */
@@ -168,6 +169,29 @@ export function favoriteShowcase(entries: ProfileEntry[], max = 8): ProfileEntry
     .filter((e) => !e.favourite && rated(e) > 0)
     .sort((a, b) => rated(b) - rated(a));
   return fav.concat(rest).slice(0, max);
+}
+
+/**
+ * La vitrine, pour la liste que le propriétaire a choisie dans les réglages du
+ * bloc (`source`, cf. FAVORITE_SOURCES dans lib/profile/blocks.ts).
+ *
+ * « favourites » garde `favoriteShowcase` à l'identique. Toute autre valeur est
+ * un nom de liste au sens de STATUS_TO_LIST : on prend ses entrées et on les
+ * classe par note, ce qui est la même promesse — « les mieux notés » — appliquée
+ * à un sous-ensemble. Le repli par les mieux notés du reste du profil n'a
+ * volontairement PAS lieu ici : sur une liste nommée, compléter avec des titres
+ * qui n'en font pas partie ferait mentir le titre du widget.
+ */
+export function showcaseFor(
+  entries: ProfileEntry[],
+  source: string,
+  max = 10,
+): ProfileEntry[] {
+  if (!source || source === "favourites") return favoriteShowcase(entries, max);
+  return entries
+    .filter((e) => STATUS_TO_LIST[(e.status || "").toUpperCase()] === source)
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, max);
 }
 
 /** Le titre d'une entrée, dans l'ordre de préférence habituel. */

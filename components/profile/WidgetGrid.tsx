@@ -73,13 +73,26 @@ type Props = {
    * blocs : il demande, il n'interroge aucun catalogue.
    */
   limits?: (id: string) => Bounds;
-  /** Les interrupteurs d'un bloc, déjà traduits et déjà résolus à leur état. */
+  /** Les réglages d'un bloc, déjà traduits et déjà résolus à leur état. */
   options?: (id: string) => WidgetOption[];
-  onOption?: (id: string, key: string, on: boolean) => void;
+  onOption?: (id: string, key: string, value: boolean | string) => void;
   editing: boolean;
 };
 
-export type WidgetOption = { key: string; label: string; on: boolean };
+/**
+ * Un réglage prêt à peindre : un interrupteur, ou un menu déroulant dont les
+ * choix portent déjà leur libellé. La grille et son panneau ne savent rien de
+ * plus — ce que la clé signifie ne regarde que l'appelant.
+ */
+export type WidgetOption =
+  | { key: string; label: string; desc?: string; on: boolean }
+  | {
+      key: string;
+      label: string;
+      desc?: string;
+      value: string;
+      choices: { value: string; label: string }[];
+    };
 
 type Drag = {
   id: string;
@@ -481,7 +494,7 @@ export default function WidgetGrid({
           >
             <WidgetSettings
               options={options?.(it.i) ?? []}
-              onOption={(key, on) => onOption?.(it.i, key, on)}
+              onOption={(key, value) => onOption?.(it.i, key, value)}
               onClose={() => setSettings(null)}
             />
           </div>

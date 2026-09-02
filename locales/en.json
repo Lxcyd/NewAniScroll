@@ -850,7 +850,12 @@
       "noOptions": "This widget has no settings.",
       "options": {
         "ambient": "Ambient light",
-        "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it."
+        "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it.",
+        "source": "List shown",
+        "sourceDesc": "The best-rated titles from this list.",
+        "sourceFavourites": "Favourites",
+        "trailer": "Trailer on hover",
+        "trailerDesc": "The preview that opens when the pointer settles on a poster."
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -880,8 +885,9 @@
       "favorites": {
         "title": "Favourite anime",
         "desc": "Your poster shelf, AniList favourites first.",
+        "titleList": "Favourite anime · {{list}}",
         "empty": "No favourites or scores yet — rate a title and it appears here.",
-        "meta": "{{count}} ep"
+        "emptyList": "This list is empty — add titles to it and the best-rated show up here."
       },
       "recents": {
         "title": "Recently watched",
