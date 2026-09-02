@@ -847,7 +847,8 @@
       "settings": "Block settings",
       "noOptions": "This block has nothing to set.",
       "options": {
-        "ambient": "Ambient light"
+        "ambient": "Ambient light",
+        "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it."
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },

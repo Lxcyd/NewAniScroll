@@ -847,7 +847,8 @@
       "settings": "Réglages du bloc",
       "noOptions": "Ce bloc n'a rien à régler.",
       "options": {
-        "ambient": "Lumière d'ambiance"
+        "ambient": "Lumière d'ambiance",
+        "ambientDesc": "Un halo tamisé aux couleurs de la vignette, derrière elle."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },

@@ -66,6 +66,30 @@ export type HistoryRow = {
   at: number;
 };
 
+/**
+ * Le suffixe de format qu'AniList colle à un titre, retiré.
+ *
+ * « Kimetsu no Yaiba: Mugen Ressha-hen (TV) » : le « (TV) » n'est pas dans le
+ * nom de l'œuvre, c'est la désambiguïsation d'AniList entre l'arc télévisé et
+ * le film du même nom. Il a du sens dans un catalogue où les deux se suivent ;
+ * sur une carte qui montre UNE lecture en cours, il ne distingue rien de rien
+ * et ne fait qu'allonger un titre déjà coupé à trois lignes.
+ *
+ * Retiré ICI plutôt que dans chaque widget : c'est la mise en forme commune aux
+ * deux vues de l'historique (cf. `rowsFromRaw`), et deux nettoyages séparés
+ * finiraient par diverger. Seul un suffixe EN FIN de titre est touché, et
+ * seulement s'il nomme un format — « (2019) », « (Dub) » ou une parenthèse qui
+ * fait partie du nom sont laissés tranquilles.
+ */
+const FORMAT_SUFFIX = /\s*\((TV|TV Short|Movie|OVA|ONA|Special|Music)\)\s*$/i;
+
+export function stripFormatSuffix(title: string | null): string | null {
+  if (!title) return title;
+  const clean = title.replace(FORMAT_SUFFIX, "").trim();
+  // Un titre qui n'est QUE son format (« (OVA) ») vaut mieux entier que vide.
+  return clean || title;
+}
+
 function parseDate(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -98,7 +122,7 @@ export function rowsFromRaw(raw: unknown, limit = 12): HistoryRow[] {
       watchId: typeof (item as any).watchId === "string" ? (item as any).watchId : null,
       provider: typeof (item as any).provider === "string" ? (item as any).provider : null,
       dub: !!(item as any).dub,
-      animeTitle: (item as any).aniTitle || null,
+      animeTitle: stripFormatSuffix((item as any).aniTitle || null),
       episodeTitle: (item as any).title || null,
       image: (item as any).image || null,
       cover: (item as any).cover || null,

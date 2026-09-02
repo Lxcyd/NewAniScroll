@@ -167,13 +167,18 @@ export function ResumeBlock({
           <div
             className="pointer-events-none absolute inset-0"
             aria-hidden
-            style={{ filter: "blur(30px) saturate(2)" }}
+            /* Tamisée : le halo doit se deviner derrière la vignette, pas
+               éclairer la carte. C'est l'OPACITÉ qui a baissé (0.9 → 0.55) et
+               pas la portée — l'étalement à 18 % de pas est ce qui la rend
+               visible, le baisser la ferait à nouveau disparaître sous la
+               vignette. */
+            style={{ filter: "blur(34px) saturate(1.6)" }}
           >
             {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
                 className="absolute inset-0"
-                style={{ transform: `scale(${1 + i * 0.18})`, opacity: 0.9 * Math.pow(0.62, i) }}
+                style={{ transform: `scale(${1 + i * 0.18})`, opacity: 0.55 * Math.pow(0.6, i) }}
               >
                 {/* Même src et même `sizes` que la vignette : c'est la même URL
                     optimisée, donc le cache du navigateur, pas un téléchargement
