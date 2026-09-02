@@ -199,6 +199,12 @@ function CloudSyncBootstrap() {
   const [busy, setBusy] = useState(false);
 
   const uid = (session as any)?.user?.uid as string | undefined;
+  /* An AniList-linked account already gets the direction chooser
+     (SyncDirectionModal) on connect, which asks the very same question with more
+     options. Showing this warning on top of it means two modals for one
+     decision, so the plain "replace this browser?" prompt is reserved for the
+     AniScroll-account-only case. */
+  const hasAniList = !!(session as any)?.user?.token;
   /* Declining is remembered for the tab, otherwise the warning would come
      back on every single navigation until the divergence is resolved. */
   const DECLINED = "aniscroll:cloudReplaceDeclined";
@@ -224,7 +230,8 @@ function CloudSyncBootstrap() {
         } catch {
           /* private mode — just ask again */
         }
-        if (result.conflicts.length && !declined) setConflicts(result.conflicts);
+        if (result.conflicts.length && !declined && !hasAniList)
+          setConflicts(result.conflicts);
       } catch {
         // A failed pull must not stop the pushes: the device stays the source
         // of truth and will re-pull on the next load.
@@ -236,7 +243,7 @@ function CloudSyncBootstrap() {
       cancelled = true;
       stop?.();
     };
-  }, [uid, status]);
+  }, [uid, status, hasAniList]);
 
   const replaceWithAccount = async () => {
     setBusy(true);
@@ -263,7 +270,7 @@ function CloudSyncBootstrap() {
 
   return (
     <DangerConfirmModal
-      open={conflicts.length > 0}
+      open={conflicts.length > 0 && !hasAniList}
       title={t("auth.cloudReplace.title")}
       body={t("auth.cloudReplace.body")}
       confirmLabel={t("auth.cloudReplace.confirm")}
