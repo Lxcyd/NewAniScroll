@@ -21,6 +21,8 @@ import {
   DEFAULT_BLOCKS,
   blockBounds,
   blockDef,
+  blockOption,
+  blockOptions,
   blockSize,
   isKnownBlock,
   visibleTo,
@@ -189,6 +191,21 @@ export default function ProfileOverview({
     };
   }
 
+  /* L'état d'un interrupteur du bloc `id` : ce que le propriétaire a rangé dans
+     la disposition, sinon le défaut du catalogue. */
+  function optionOn(id: string, key: string): boolean {
+    return blockOption(id, key, layout?.find((o) => o.i === id)?.s);
+  }
+
+  /** La bascule d'un interrupteur, écrite dans la disposition et sauvegardée. */
+  function setOption(id: string, key: string, on: boolean) {
+    commit(
+      (layout || []).map((o) =>
+        o.i === id ? { ...o, s: { ...(o.s ?? {}), [key]: on } } : o,
+      ),
+    );
+  }
+
   function body(id: string): React.ReactNode {
     const served = isOwner ? undefined : (activity ?? undefined);
     switch (id) {
@@ -198,7 +215,7 @@ export default function ProfileOverview({
          regarde (PROGRESS_EVENT). Servir sa propre sauvegarde au propriétaire
          lui montrerait un épisode en retard sur ce qu'il vient de lancer. */
       case "resume":
-        return <ResumeBlock rows={served} other={!isOwner} />;
+        return <ResumeBlock rows={served} other={!isOwner} ambient={optionOn("resume", "ambient")} />;
       case "recents":
         return <RecentsBlock rows={served} other={!isOwner} />;
       case "favorites":
@@ -283,6 +300,16 @@ export default function ProfileOverview({
         onLayout={commit}
         renderBlock={renderBlock}
         limits={blockBounds}
+        /* La grille ne connaît aucun bloc : elle reçoit des interrupteurs déjà
+           traduits et déjà résolus, et rend des bascules. */
+        options={(id) =>
+          blockOptions(id).map((o) => ({
+            key: o.key,
+            label: t(`profile.widgets.options.${o.key}`),
+            on: optionOn(id, o.key),
+          }))
+        }
+        onOption={setOption}
         editing={editing && isOwner}
       />
 

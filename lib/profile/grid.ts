@@ -19,6 +19,18 @@ export type GridItem = {
   y: number;
   w: number;
   h: number;
+  /**
+   * Les réglages du bloc — des interrupteurs, uniquement ceux que le
+   * propriétaire a TOUCHÉS. Absent, ou clé absente : le bloc garde son défaut
+   * (cf. `blockOptions` dans blocks.ts).
+   *
+   * Ils vivent ici, dans la disposition, plutôt que dans un stockage à eux :
+   * la disposition est déjà persistée, déjà servie à tous les visiteurs et déjà
+   * nettoyée en un seul endroit (`sanitizeLayout`). Un second canal aurait
+   * demandé sa propre colonne, sa propre route et sa propre validation pour
+   * transporter trois booléens attachés à des blocs qui voyagent déjà.
+   */
+  s?: Record<string, boolean>;
 };
 
 export const COLS = 4;
@@ -176,6 +188,28 @@ export function isValidLayout(value: unknown): value is GridItem[] {
 }
 
 /**
+ * Les réglages d'un bloc, ramenés à ce qu'ils ont le droit d'être.
+ *
+ * Ce sac est ouvert : n'importe quelle clé peut s'y trouver, et il arrive d'un
+ * navigateur avant d'être relu par d'AUTRES visiteurs du profil. Il n'est donc
+ * pas comparé au catalogue des blocs — grid.ts ne le connaît pas et n'a pas à
+ * le connaître — mais borné en forme : des booléens, sous des clés courtes, en
+ * petit nombre. Une clé retirée du catalogue plus tard ne fait rien de mal ; un
+ * objet de dix mille entrées, si.
+ */
+const MAX_OPTIONS = 8;
+function cleanOptions(s: unknown): Record<string, boolean> | null {
+  if (!s || typeof s !== "object") return null;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
+    if (typeof v !== "boolean" || k.length > 32) continue;
+    out[k] = v;
+    if (Object.keys(out).length >= MAX_OPTIONS) break;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
  * Nettoie une disposition lue ailleurs (autre appareil, version précédente) :
  * les blocs inconnus disparaissent, les doublons aussi, et tout est ramené dans
  * la grille avant d'être recompacté. Sans ça un identifiant retiré du registre
@@ -195,12 +229,14 @@ export function sanitizeLayout(
        disposition écrite avant qu'un bloc n'ait un minimum arrive encore d'un
        autre appareil, et rien d'autre ne la corrigerait. */
     const [w, h] = clampSize(Math.round(o.w), Math.round(o.h), boundsOf(o.i));
+    const s = cleanOptions(o.s);
     clean.push({
       i: o.i,
       w,
       h,
       x: Math.min(Math.max(0, Math.round(o.x)), COLS - w),
       y: Math.max(0, Math.round(o.y)),
+      ...(s ? { s } : {}),
     });
   }
   return compact(clean);

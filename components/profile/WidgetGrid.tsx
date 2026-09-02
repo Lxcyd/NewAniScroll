@@ -32,7 +32,14 @@ import {
  * commandes serrées dans l'en-tête, sur une carte qui fait parfois une colonne
  * de large, et toutes en double d'un geste qui existait déjà — les flèches de
  * ce que fait le glisser, les tailles de ce que fait le coin. Il ne reste que
- * les gestes : glisser l'en-tête, tirer le coin, et un moins pour retirer.
+ * les gestes : glisser l'en-tête, tirer le coin, un moins pour retirer, et une
+ * roue dentée pour ce qu'aucun geste ne peut dire — les réglages du bloc.
+ *
+ * La roue n'apparaît pas SEULEMENT sur les blocs qui ont des réglages. Une
+ * commande qui existe sur certaines cartes et pas sur d'autres se cherche ; le
+ * panneau, lui, sait dire qu'il n'a rien à proposer. Le composant ne connaît
+ * d'ailleurs toujours aucun bloc : il demande la liste des interrupteurs à son
+ * appelant (`options`) et lui renvoie les bascules (`onOption`).
  */
 
 export type BlockChrome = {
@@ -53,8 +60,13 @@ type Props = {
    * blocs : il demande, il n'interroge aucun catalogue.
    */
   limits?: (id: string) => Bounds;
+  /** Les interrupteurs d'un bloc, déjà traduits et déjà résolus à leur état. */
+  options?: (id: string) => WidgetOption[];
+  onOption?: (id: string, key: string, on: boolean) => void;
   editing: boolean;
 };
+
+export type WidgetOption = { key: string; label: string; on: boolean };
 
 type Drag = {
   id: string;
@@ -72,6 +84,8 @@ export default function WidgetGrid({
   onLayout,
   renderBlock,
   limits,
+  options,
+  onOption,
   editing,
 }: Props) {
   const { t } = useTranslation();
@@ -87,6 +101,9 @@ export default function WidgetGrid({
      ref lu pendant le rendu ne déclencherait rien. */
   const [drag, setDrag] = useState<Drag | null>(null);
   const [offset, setOffset] = useState({ dx: 0, dy: 0 });
+  /* Le bloc dont le panneau de réglages est ouvert. Un seul à la fois : deux
+     panneaux ouverts sur une grille qui se réorganise se recouvriraient. */
+  const [settings, setSettings] = useState<string | null>(null);
 
   /* La largeur du conteneur EST l'unité de la grille : sans elle rien ne peut
      être placé, et elle change avec la fenêtre comme avec un panneau latéral. */
@@ -99,6 +116,20 @@ export default function WidgetGrid({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  /* Le panneau se referme sur un appui AILLEURS. La roue et le panneau lui-même
+     arrêtent la propagation du pointerdown — c'est leur `draggableCancel` — donc
+     cet écouteur ne les voit jamais et n'a pas à les reconnaître. Et sortir du
+     mode réorganisation le referme aussi : il n'a pas de sens hors de là. */
+  useEffect(() => {
+    if (!settings) return;
+    const away = () => setSettings(null);
+    window.addEventListener("pointerdown", away);
+    return () => window.removeEventListener("pointerdown", away);
+  }, [settings]);
+  useEffect(() => {
+    if (!editing) setSettings(null);
+  }, [editing]);
 
   /* La disposition en cours est lue dans un ref pendant un glissement : les
      handlers sont posés une fois sur window et ne doivent pas dépendre d'un
@@ -167,7 +198,11 @@ export default function WidgetGrid({
     const it = layout.find((o) => o.i === id);
     if (!it) return;
     e.preventDefault();
+    /* Attraper une carte referme le panneau. L'écouteur `window` ci-dessus ne
+       peut pas s'en charger : ce `stopPropagation`-ci coupe aussi l'événement
+       natif, donc il ne remonte jamais jusqu'à lui. */
     e.stopPropagation();
+    setSettings(null);
     const started: Drag = {
       id,
       mode,
@@ -282,10 +317,11 @@ export default function WidgetGrid({
             }}
           >
             <header
-              /* `pr-7` en édition : le moins occupe ce coin sur 28 px, et un
-                 titre assez long pour l'atteindre passerait dessous. */
+              /* `pr-14` en édition : la roue et le moins occupent ce coin sur
+                 deux fois 28 px, et un titre assez long pour les atteindre
+                 passerait dessous. */
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing ? "pr-7" : ""
+                editing ? "pr-14" : ""
               }`}
             >
               <h2 className="as-widget-head flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
@@ -343,6 +379,75 @@ export default function WidgetGrid({
                   <path d="M200-440v-80h560v80H200Z" />
                 </svg>
               </button>
+            ) : null}
+
+            {/* Les réglages du bloc. Même boîte de 28 px que le moins, posée
+                juste à sa gauche (`right-7`) : les deux commandes du coin se
+                lisent comme une paire, pas comme deux trouvailles. */}
+            {editing ? (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setSettings((v) => (v === it.i ? null : it.i))}
+                aria-label={t("profile.widgets.settings")}
+                aria-expanded={settings === it.i}
+                title={t("profile.widgets.settings")}
+                className={`absolute right-7 top-0 flex h-7 w-7 items-start justify-end p-[7px] transition-colors ${
+                  settings === it.i ? "text-action" : "text-white/60 hover:text-white"
+                }`}
+              >
+                <svg viewBox="0 -960 960 960" fill="currentColor" className="h-3.5 w-3.5">
+                  <path d="m370-80-16-128q-13-5-24.5-12T307-235l-119 50L78-375l103-78q-1-7-1-13.5v-27q0-6.5 1-13.5L78-585l110-190 119 50q11-8 23-15t24-12l16-128h220l16 128q13 5 24.5 12t22.5 15l119-50 110 190-103 78q1 7 1 13.5v27q0 6.5-2 13.5l103 78-110 190-118-50q-11 8-23 15t-24 12L590-80H370Zm112-260q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Z" />
+                </svg>
+              </button>
+            ) : null}
+
+            {/* LE PANNEAU, DANS LA CARTE. La carte coupe ce qui dépasse
+                (`overflow-hidden`), donc un panneau qui déborderait serait
+                tronqué — il est calé sous la roue, à la largeur d'une colonne,
+                et il ne contient que des interrupteurs. Un bloc qui n'a encore
+                rien à régler le DIT : c'est ce qui autorise la roue à être
+                partout. */}
+            {editing && settings === it.i ? (
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                className="absolute right-2 top-8 z-40 w-56 max-w-[calc(100%-1rem)] rounded-2xl bg-[#0e0f15]/95 p-2 ring-1 ring-white/12 shadow-[0_18px_40px_rgba(0,0,0,0.6)] backdrop-blur-sm"
+              >
+                {(() => {
+                  const opts = options?.(it.i) ?? [];
+                  if (!opts.length) {
+                    return (
+                      <p className="px-2 py-2 font-karla text-[11px] leading-snug text-white/45">
+                        {t("profile.widgets.noOptions")}
+                      </p>
+                    );
+                  }
+                  return opts.map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      role="switch"
+                      aria-checked={o.on}
+                      onClick={() => onOption?.(it.i, o.key, !o.on)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2 text-left font-karla text-xs text-white/80 transition-colors hover:bg-white/5"
+                    >
+                      <span className="min-w-0 flex-1">{o.label}</span>
+                      {/* L'interrupteur des réglages du site, en plus petit. */}
+                      <span
+                        className={`relative h-4 w-8 shrink-0 rounded-full transition-colors ${
+                          o.on ? "bg-action" : "bg-white/15"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+                            o.on ? "translate-x-[18px]" : "translate-x-0.5"
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  ));
+                })()}
+              </div>
             ) : null}
 
             {editing ? (

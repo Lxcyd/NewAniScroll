@@ -107,7 +107,13 @@ export type ActivityProps = {
 
 /* ── Reprendre la lecture ────────────────────────────────────────────── */
 
-export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
+export function ResumeBlock({
+  rows: served,
+  other,
+  /* Réglable depuis la roue dentée du bloc, en mode réorganisation (cf.
+     lib/profile/blocks.ts). Allumée par défaut. */
+  ambient = true,
+}: ActivityProps & { ambient?: boolean } = {}) {
   const { t } = useTranslation();
   const { rows, loaded } = useRows(served, 12);
 
@@ -137,28 +143,37 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
   return (
     <div className="flex h-full min-w-0 items-center gap-4">
       <div className="relative aspect-video h-full w-auto max-w-[48%] shrink-0">
-        {/* LA LUMIÈRE D'AMBIANCE, en petit.
+        {/* LA LUMIÈRE D'AMBIANCE.
             Même principe que le lecteur et que la carte de survol (cf.
-            TrailerAmbient) : des copies concentriques de la vignette, chacune un
-            peu plus large et beaucoup plus pâle, floutées EN UN SEUL passage sur
-            la pile — un flou par calque coûterait trois fois plus au compositeur
+            TrailerAmbient) : des copies concentriques de la vignette, chacune
+            plus large et beaucoup plus pâle, floutées EN UN SEUL passage sur la
+            pile — un flou par calque coûterait quatre fois plus au compositeur
             pour la même image (le flou et la multiplication d'opacité sont tous
             deux linéaires).
-            Elle est volontairement COURTE : trois calques et 6 % de pas, là où le
-            lecteur en empile cinq. Le bloc voisine avec du texte et d'autres
-            widgets ; une lueur qui porte loin les baignerait au lieu d'éclairer
-            la vignette. */}
-        {art ? (
+
+            LE PAS EST GROS, ET C'EST LE POINT. Une première version montait de
+            6 % par calque : à cette échelle, TOUT le halo tombait derrière la
+            vignette, qui est opaque, et il n'en dépassait que la frange du flou
+            — « à peine visible, on dirait qu'elle n'est pas là ». Ce qui éclaire
+            n'est pas le flou, c'est la surface de lumière qui SORT de la
+            vignette : à 18 % de pas, le calque le plus large déborde de ~55 px
+            de chaque côté, largement de quoi remplir le padding de la carte et
+            border la colonne de texte.
+
+            La carte, elle, coupe à son bord (`overflow-hidden`) — c'est ce qui
+            empêche la lueur d'aller trop loin et de baigner les widgets
+            voisins. */}
+        {art && ambient ? (
           <div
             className="pointer-events-none absolute inset-0"
             aria-hidden
-            style={{ filter: "blur(26px) saturate(1.7)" }}
+            style={{ filter: "blur(30px) saturate(2)" }}
           >
-            {[0, 1, 2].map((i) => (
+            {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
                 className="absolute inset-0"
-                style={{ transform: `scale(${1 + i * 0.06})`, opacity: 0.5 * Math.pow(0.6, i) }}
+                style={{ transform: `scale(${1 + i * 0.18})`, opacity: 0.9 * Math.pow(0.62, i) }}
               >
                 {/* Même src et même `sizes` que la vignette : c'est la même URL
                     optimisée, donc le cache du navigateur, pas un téléchargement

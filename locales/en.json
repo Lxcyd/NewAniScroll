@@ -844,6 +844,11 @@
       "reset": "Reset",
       "remove": "Remove",
       "resize": "Resize",
+      "settings": "Block settings",
+      "noOptions": "This block has nothing to set.",
+      "options": {
+        "ambient": "Ambient light"
+      },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
     "library": {

@@ -844,6 +844,11 @@
       "reset": "Réinitialiser",
       "remove": "Enlever",
       "resize": "Redimensionner",
+      "settings": "Réglages du bloc",
+      "noOptions": "Ce bloc n'a rien à régler.",
+      "options": {
+        "ambient": "Lumière d'ambiance"
+      },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
     "library": {

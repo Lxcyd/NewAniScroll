@@ -81,6 +81,40 @@ export const BLOCKS: BlockDef[] = [
   { id: "bingo", size: [2, 2], color: "#3B82F6", source: "soon", icon: "▩" },
 ];
 
+/**
+ * LES RÉGLAGES D'UN BLOC.
+ *
+ * Un interrupteur, une clé, un défaut. La valeur choisie voyage dans la
+ * disposition (`GridItem.s`, cf. grid.ts) et n'y est écrite que si elle DIFFÈRE
+ * du défaut — une grille par défaut reste ainsi exactement l'objet qu'elle
+ * était, et changer d'avis sur un défaut change le comportement des profils qui
+ * n'y ont jamais touché, ce qui est le but d'un défaut.
+ *
+ * La roue dentée est offerte sur TOUS les blocs, y compris ceux qui n'ont
+ * encore rien à régler : la commande est au même endroit partout, et un panneau
+ * qui dit « rien à régler ici » se lit mieux qu'un bouton qui apparaît sur
+ * certaines cartes et pas sur d'autres. Le libellé d'une option est
+ * `profile.widgets.options.<clé>`.
+ */
+export type BlockOption = { key: string; on: boolean };
+
+const OPTIONS: Record<string, BlockOption[]> = {
+  resume: [{ key: "ambient", on: true }],
+};
+
+export function blockOptions(id: string): BlockOption[] {
+  return OPTIONS[id] ?? [];
+}
+
+/** L'état d'un interrupteur : ce qui est rangé, sinon le défaut du catalogue. */
+export function blockOption(
+  id: string,
+  key: string,
+  saved: Record<string, boolean> | undefined,
+): boolean {
+  return saved?.[key] ?? blockOptions(id).find((o) => o.key === key)?.on ?? false;
+}
+
 const BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));
 
 export function blockDef(id: string): BlockDef | undefined {
