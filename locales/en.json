@@ -855,7 +855,7 @@
         "sourceDesc": "The best-rated titles from this list.",
         "sourceFavourites": "Favourites",
         "scores": "Score range",
-        "scoresDesc": "Only titles rated inside this range.",
+        "scoresDesc": "Shows only titles rated inside this range.",
         "unrated": "Include unrated",
         "unratedDesc": "Titles you have not given a score.",
         "trailer": "Trailer on hover",
@@ -889,6 +889,14 @@
       "favorites": {
         "title": "Favourite anime",
         "desc": "Your poster shelf, AniList favourites first.",
+        "listPlural": {
+          "Watching": "Watching",
+          "Rewatching": "Rewatching",
+          "Completed": "Completed",
+          "Planning": "Planning",
+          "Paused": "Paused",
+          "Dropped": "Dropped"
+        },
         "titleList": "Favourite anime · {{list}}",
         "empty": "No favourites or scores yet — rate a title and it appears here.",
         "emptyList": "This list is empty — add titles to it and the best-rated show up here."

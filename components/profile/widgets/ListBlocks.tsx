@@ -146,11 +146,12 @@ export function FavoritesBlock({
       <div
         ref={ref}
         onClickCapture={onClickCapture}
-        /* `-my-2 py-2` : la carte du widget coupe ce qui dépasse, et sans ces
-           huit pixels de marge intérieure l'affiche qui grandit au survol serait
-           rognée en haut et en bas. Le `-my-2` les reprend sur la mise en page,
-           donc rien ne bouge tant qu'on ne survole rien. */
-        className="as-fav-row as-noscroll -my-2 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden py-2"
+        /* `-my-1 py-1` : la carte du widget coupe ce qui dépasse, et sans cette
+           marge intérieure l'affiche qui grandit au survol serait rognée. Elle
+           était de huit pixels, ce qui se voyait comme une bande vide sous les
+           titres ; quatre suffisent maintenant que l'agrandissement est de 3 %
+           et non de 5 — et les quatre autres sont rendus à l'affiche. */
+        className="as-fav-row as-noscroll -my-1 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden py-1"
       >
         {shown.map((e) => (
           <Link
@@ -169,7 +170,7 @@ export function FavoritesBlock({
                ce corps), remplies ou non : c'est ce qui donne a toutes les
                cartes exactement la meme taille, qu'un titre tienne sur une
                ligne ou sur deux. */
-            className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_2rem] gap-1.5"
+            className="as-fav-card group grid h-full shrink-0 gap-1.5"
           >
             {/* PAS DE `shadow-poster` ICI. Cette ombre — 32 px de flou noir à
                 55 % — est faite pour une affiche posée sur une page claire ou
@@ -178,7 +179,7 @@ export function FavoritesBlock({
                 de chaque affiche, d'autant plus visible que les affiches sont
                 petites et serrées. */}
             <div
-              className="relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.05]"
+              className="relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.03]"
               style={{ aspectRatio: "2 / 3" }}
             >
               {e.cover ? (
@@ -197,7 +198,7 @@ export function FavoritesBlock({
                 `w-full` y laisserait passer la largeur du texte, et un titre
                 long elargirait sa carte au point de rendre la bande
                 irreguliere. */}
-            <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-[1.15] text-white">
+            <p className="as-fav-title line-clamp-2 w-0 min-w-full font-semibold leading-[1.15] text-white">
               {pickTitle(e.title, titlePref)}
             </p>
           </Link>

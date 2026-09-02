@@ -90,14 +90,29 @@ function Dropdown({
      donc il reste de la meme famille. */
   const mark = (c?: { color?: string; heart?: boolean }) =>
     c?.heart ? (
-      <svg
-        viewBox="0 0 24 24"
-        fill={c.color || "#E94560"}
-        className="h-3 w-3 shrink-0"
-        style={{ filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})` }}
+      /* LE CŒUR OCCUPE LA BOÎTE D'UNE PASTILLE, pas la sienne. Dessiné à sa
+         taille naturelle il faisait 12 px contre 8 pour les pastilles : il
+         débordait vers le haut et poussait « Favoris » de trois pixels à droite
+         de tous les autres noms de listes. Il est donc posé DANS un `.le-dd-dot`
+         transparent, centré, et déborde symétriquement — la boîte reste celle de
+         la pastille, donc la colonne de texte ne bouge plus d'une ligne à
+         l'autre. */
+      <span
+        className="le-dd-dot"
+        style={{ background: "none", display: "grid", placeItems: "center" }}
       >
-        <path d="M12 21s-7.5-4.6-9.6-9A5.4 5.4 0 0 1 12 6.2a5.4 5.4 0 0 1 9.6 5.8C19.5 16.4 12 21 12 21z" />
-      </svg>
+        <svg
+          viewBox="0 0 24 24"
+          fill={c.color || "#E94560"}
+          style={{
+            width: "12px",
+            height: "12px",
+            filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})`,
+          }}
+        >
+          <path d="M12 21s-7.5-4.6-9.6-9A5.4 5.4 0 0 1 12 6.2a5.4 5.4 0 0 1 9.6 5.8C19.5 16.4 12 21 12 21z" />
+        </svg>
+      </span>
     ) : (
       <span
         className="le-dd-dot"
@@ -302,15 +317,20 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                 className={`flex w-full items-center justify-between gap-3 text-left ${SECTION}`}
               >
                 <Label label={o.label} desc={o.desc} />
-                {/* La seule couleur du panneau : un interrupteur allumé. */}
+                {/* ÉTEINT SE VOIT AUSSI. À 15 % de blanc l'interrupteur se
+                    fondait dans le panneau : on ne distinguait plus « éteint »
+                    de « pas d'interrupteur ». La piste éteinte est donc deux
+                    fois plus claire et cerclée, et son pouce descend à 70 % de
+                    blanc — assez pour se lire, pas assez pour qu'on la prenne
+                    pour l'état allumé, qui reste le seul à porter la couleur. */}
                 <span
                   className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
-                    o.on ? "bg-action" : "bg-white/15"
+                    o.on ? "bg-action" : "bg-white/[0.14] ring-1 ring-inset ring-white/25"
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                      o.on ? "translate-x-[16px]" : "translate-x-0.5"
+                    className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${
+                      o.on ? "translate-x-[16px] bg-white" : "translate-x-0.5 bg-white/70"
                     }`}
                   />
                 </span>

@@ -2332,9 +2332,27 @@ input[type="number"] {
 .as-fav-row {
   gap: 7px;
 }
+
+/* LA RANGEE DU TITRE, de hauteur FIXE : c'est elle qui donne a toutes les cartes
+   exactement la meme taille, qu'un titre tienne sur une ligne ou sur deux. Tout
+   ce qu'elle ne prend pas revient a l'affiche, d'ou deux valeurs et pas une :
+   sur une case d'une ligne chaque pixel compte, sur deux le titre peut enfin
+   respirer sans rien couter de visible a l'affiche. */
+.as-fav-card {
+  grid-template-rows: minmax(0, 1fr) 1.9rem;
+}
+.as-fav-title {
+  font-size: 12px;
+}
 @container widget (min-height: 300px) {
   .as-fav-row {
     gap: 19px;
+  }
+  .as-fav-card {
+    grid-template-rows: minmax(0, 1fr) 2.5rem;
+  }
+  .as-fav-title {
+    font-size: 15px;
   }
 }
 

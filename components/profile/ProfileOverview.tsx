@@ -289,18 +289,26 @@ export default function ProfileOverview({
    * « · Liste : », qui disait à quoi servait ce mot mais coûtait trois mots sur
    * cinq à un titre déjà coupé sur un bloc de deux colonnes. Une liste
    * personnalisée suit la même forme, sous son propre nom — le français s'en
-   * accommode parce que le libellé y est un nom (« Terminé », « Prévu »), là où
-   * l'anglais garde son point médian (« Favourite anime · Planning ») faute de
-   * quoi le libellé se lirait comme un adjectif.
+   * accommode parce que le libellé y est un nom (« Terminés », « Prévus »), là
+   * où l'anglais garde son point médian (« Favourite anime · Planning ») faute
+   * de quoi le libellé se lirait comme un adjectif.
+   *
+   * LE LIBELLÉ EST AU PLURIEL, et il vient donc d'une table à lui
+   * (`favorites.listPlural`) plutôt que de `listLabel`. Ailleurs sur le site le
+   * nom d'une liste titre UNE liste — « Terminé » — alors qu'ici il qualifie
+   * plusieurs animes. Traduire les deux avec la même clé aurait forcé à choisir
+   * un nombre pour tous les emplois. Une liste personnalisée garde son nom tel
+   * que son auteur l'a écrit : lui accorder quoi que ce soit serait deviner.
    */
   function blockTitle(id: string, other: boolean): string {
     if (id === "favorites") {
       const src = optionValue("favorites", "source");
       if (src && src !== "favourites") {
+        const custom = src.startsWith(CUSTOM_PREFIX);
         return t("profile.blocks.favorites.titleList", {
-          list: src.startsWith(CUSTOM_PREFIX)
+          list: custom
             ? src.slice(CUSTOM_PREFIX.length)
-            : listLabel(t, src),
+            : t(`profile.blocks.favorites.listPlural.${src}`, listLabel(t, src)),
         });
       }
     }

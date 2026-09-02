@@ -855,7 +855,7 @@
         "sourceDesc": "Les titres les mieux notés de cette liste.",
         "sourceFavourites": "Favoris",
         "scores": "Plage de notes",
-        "scoresDesc": "Seuls les titres notés dans cet intervalle.",
+        "scoresDesc": "Affiche uniquement les titres notés dans cet intervalle.",
         "unrated": "Inclure les non notés",
         "unratedDesc": "Les titres auxquels tu n'as pas mis de note.",
         "trailer": "Bande-annonce au survol",
@@ -889,6 +889,14 @@
       "favorites": {
         "title": "Animes favoris",
         "desc": "Ta vitrine de posters, favoris AniList en tête.",
+        "listPlural": {
+          "Watching": "En cours",
+          "Rewatching": "Re-visionnages",
+          "Completed": "Terminés",
+          "Planning": "Prévus",
+          "Paused": "En pause",
+          "Dropped": "Abandonnés"
+        },
         "titleList": "Animes favoris {{list}}",
         "empty": "Aucun favori ni note pour l'instant — note un titre et il s'affichera ici.",
         "emptyList": "Cette liste est vide — ajoute-y des titres et les mieux notés s'afficheront ici."

@@ -141,6 +141,7 @@ export default function WidgetGrid({
   const [offset, setOffset] = useState({ dx: 0, dy: 0 });
   /* Le bloc dont le panneau de réglages est ouvert. Un seul à la fois. */
   const [settings, setSettings] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   /* La largeur du conteneur EST l'unité de la grille : sans elle rien ne peut
      être placé, et elle change avec la fenêtre comme avec un panneau latéral. */
@@ -174,6 +175,31 @@ export default function WidgetGrid({
   useEffect(() => {
     if (!editing) setSettings(null);
   }, [editing]);
+
+  /**
+   * SI LE PANNEAU SORT DE L'ÉCRAN, C'EST L'ÉCRAN QUI BOUGE.
+   *
+   * Il s'ouvre AU-DESSUS de sa carte et sa hauteur dépend du nombre de réglages :
+   * sur un bloc de la première ligne, ou avec quatre réglages, il commence
+   * au-dessus du bord haut de la fenêtre. Plutôt que de le faire basculer sous
+   * la carte — essayé, refusé : il y cache le bloc qu'on règle — la page défile
+   * juste assez pour le découvrir en entier.
+   *
+   * Après le rendu (rAF) parce que la hauteur ne se mesure qu'une fois peint, et
+   * seulement vers le HAUT : un panneau qui dépasse par le bas n'existe pas, il
+   * est ancré sur le bord supérieur d'une carte.
+   */
+  useEffect(() => {
+    if (!settings) return;
+    const id = requestAnimationFrame(() => {
+      const el = panelRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const MARGIN = 16;
+      if (top < MARGIN) window.scrollBy({ top: top - MARGIN, behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [settings]);
 
   /* La disposition en cours est lue dans un ref pendant un glissement : les
      handlers sont posés une fois sur window et ne doivent pas dépendre d'un
@@ -493,6 +519,7 @@ export default function WidgetGrid({
         const w = Math.max(180, Math.min(260, rect.width - 16));
         return (
           <div
+            ref={panelRef}
             onPointerDown={(e) => e.stopPropagation()}
             className="as-widget-pop absolute z-40 origin-bottom-right"
             style={{
