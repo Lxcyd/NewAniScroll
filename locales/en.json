@@ -854,6 +854,10 @@
         "source": "List shown",
         "sourceDesc": "The best-rated titles from this list.",
         "sourceFavourites": "Favourites",
+        "scores": "Score range",
+        "scoresDesc": "Only titles rated inside this range.",
+        "unrated": "Include unrated",
+        "unratedDesc": "Titles you have not given a score.",
         "trailer": "Trailer on hover",
         "trailerDesc": "The preview that opens when the pointer settles on a poster."
       },

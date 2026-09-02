@@ -30,7 +30,7 @@ type Props = {
   onClose: () => void;
 };
 
-/** Le nom d'un réglage et sa phrase d'explication — commun aux deux formes. */
+/** Le nom d'un réglage et sa phrase d'explication — commun à toutes les formes. */
 function Label({ label, desc }: { label: string; desc?: string }) {
   return (
     <span className="block min-w-0 flex-1">
@@ -43,6 +43,21 @@ function Label({ label, desc }: { label: string; desc?: string }) {
     </span>
   );
 }
+
+/**
+ * LA MISE EN VALEUR AU SURVOL, SUR TOUTE SECTION.
+ *
+ * Chaque réglage est une section, et toute section s'éclaire quand le curseur
+ * la traverse — pas seulement les interrupteurs, qui étaient les seuls à le
+ * faire parce qu'ils sont des boutons et que le fond venait avec. Une liste
+ * déroulante ou un curseur ne sont pas des boutons, mais ce sont des sections
+ * au même titre : sans ce fond, le panneau se lisait comme deux réglages
+ * cliquables et deux zones mortes.
+ *
+ * Vaut pour les réglages de TOUS les widgets, présents et à venir : c'est la
+ * raison d'être de cette enveloppe plutôt que d'une classe recopiée trois fois.
+ */
+const SECTION = "rounded-xl px-2.5 py-2 transition-colors hover:bg-white/[0.05]";
 
 /**
  * Le menu déroulant des listes — CELUI de l'éditeur de liste.
@@ -62,27 +77,61 @@ function Dropdown({
   onPick,
 }: {
   value: string;
-  choices: { value: string; label: string; color?: string }[];
+  choices: { value: string; label: string; color?: string; heart?: boolean }[];
   onPick: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const current = choices.find((c) => c.value === value) ?? choices[0];
 
-  const dot = (color?: string) => (
-    <span
-      className="le-dd-dot"
-      style={
-        color
-          ? { background: color, boxShadow: `0 0 6px ${color}b3` }
-          : { background: "rgba(255,255,255,0.25)" }
+  /* Le repere d'un choix : la pastille de sa liste, ou un COEUR pour les
+     favoris. Les favoris ne sont pas une liste de plus — on n'y range pas, on y
+     epingle — et une septieme pastille ronde les aurait rangés avec les six
+     autres. Il brille de la meme facon qu'elles (`box-shadow` / `drop-shadow`),
+     donc il reste de la meme famille. */
+  const mark = (c?: { color?: string; heart?: boolean }) =>
+    c?.heart ? (
+      <svg
+        viewBox="0 0 24 24"
+        fill={c.color || "#E94560"}
+        className="h-3 w-3 shrink-0"
+        style={{ filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})` }}
+      >
+        <path d="M12 21s-7.5-4.6-9.6-9A5.4 5.4 0 0 1 12 6.2a5.4 5.4 0 0 1 9.6 5.8C19.5 16.4 12 21 12 21z" />
+      </svg>
+    ) : (
+      <span
+        className="le-dd-dot"
+        style={
+          c?.color
+            ? { background: c.color, boxShadow: `0 0 6px ${c.color}` }
+            : { background: "rgba(255,255,255,0.25)" }
+        }
+      />
+    );
+
+  /* LE BOUTON PREND LA COULEUR DE LA LISTE CHOISIE, comme dans le menu qui
+     ajoute un anime a une liste (`.le-dd-trigger-completed` et ses freres).
+     La-bas les six couleurs sont ecrites en dur dans le CSS ; ici une liste
+     personnalisee peut avoir n'importe quelle teinte, alors la meme regle est
+     appliquee par `color-mix` a partir de la couleur du choix : bordure a 40 %,
+     texte eclairci vers le blanc. Une seule formule au lieu de six classes, et
+     elle vaut pour les listes qu'on ne connait pas encore. */
+  const tint = current?.color
+    ? {
+        borderColor: `color-mix(in srgb, ${current.color} 40%, transparent)`,
+        color: `color-mix(in srgb, ${current.color} 55%, white)`,
       }
-    />
-  );
+    : undefined;
 
   return (
     <div className="le-dd-field le-dd-compact mt-1.5">
-      <button type="button" className="le-dd-trigger" onClick={() => setOpen((o) => !o)}>
-        {dot(current?.color)}
+      <button
+        type="button"
+        className="le-dd-trigger"
+        style={tint}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {mark(current)}
         <span className="le-dd-trigger-text">{current?.label}</span>
         <svg
           className={`le-dd-chevron ${open ? "open" : ""}`}
@@ -103,12 +152,20 @@ function Dropdown({
               type="button"
               key={c.value}
               className={`le-dd-option ${c.value === value ? "selected" : ""}`}
+              style={
+                c.value === value && c.color
+                  ? {
+                      background: `color-mix(in srgb, ${c.color} 12%, transparent)`,
+                      color: `color-mix(in srgb, ${c.color} 55%, white)`,
+                    }
+                  : undefined
+              }
               onClick={() => {
                 onPick(c.value);
                 setOpen(false);
               }}
             >
-              {dot(c.color)}
+              {mark(c)}
               <span className="le-dd-option-text">{c.label}</span>
               {c.value === value ? (
                 <svg
@@ -127,6 +184,76 @@ function Dropdown({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * La plage de notes — le double curseur du panneau de tri de « Ma liste ».
+ *
+ * DEUX `<input type="range">` SUPERPOSÉS, pas un composant. C'est la façon
+ * connue de faire un double curseur sans dépendance : les deux occupent la même
+ * boîte, le rail visible est peint dessous, et chacun ne reçoit le pointeur que
+ * sur sa poignée (`pointer-events: none` sur la piste, `auto` sur le pouce, cf.
+ * `.as-range` dans globals.css). Sans cette règle, celui du dessus attraperait
+ * tous les clics et la borne basse serait injoignable.
+ *
+ * Les deux bornes ne se croisent pas : chacune s'arrête au pas suivant l'autre,
+ * plutôt que de les échanger en cours de glissement — un intervalle qui se
+ * retourne sous la main est désorientant, et « de 8 à 3 » ne veut rien dire.
+ */
+function Range({
+  min,
+  max,
+  step,
+  from,
+  to,
+  onChange,
+}: {
+  min: number;
+  max: number;
+  step: number;
+  from: number;
+  to: number;
+  onChange: (from: number, to: number) => void;
+}) {
+  const pct = (v: number) => ((v - min) / (max - min)) * 100;
+  const show = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
+  return (
+    <div className="mt-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+          {show(from)}
+        </span>
+        <span className="as-range relative h-4 flex-1">
+          {/* Le rail, puis le segment retenu par-dessus. */}
+          <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+          <span
+            className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+            style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
+          />
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={from}
+            onChange={(e) => onChange(Math.min(Number(e.target.value), to), to)}
+          />
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={to}
+            onChange={(e) => onChange(from, Math.max(Number(e.target.value), from))}
+          />
+        </span>
+        <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+          {show(to)}
+        </span>
+      </div>
     </div>
   );
 }
@@ -172,7 +299,7 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                 role="switch"
                 aria-checked={o.on}
                 onClick={() => onOption(o.key, !o.on)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                className={`flex w-full items-center justify-between gap-3 text-left ${SECTION}`}
               >
                 <Label label={o.label} desc={o.desc} />
                 {/* La seule couleur du panneau : un interrupteur allumé. */}
@@ -188,13 +315,25 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                   />
                 </span>
               </button>
-            ) : (
-              <div key={o.key} className="rounded-xl px-2.5 py-2">
+            ) : "choices" in o ? (
+              <div key={o.key} className={SECTION}>
                 <Label label={o.label} desc={o.desc} />
                 <Dropdown
                   value={o.value}
                   choices={o.choices}
                   onPick={(v) => onOption(o.key, v)}
+                />
+              </div>
+            ) : (
+              <div key={o.key} className={SECTION}>
+                <Label label={o.label} desc={o.desc} />
+                <Range
+                  min={o.min}
+                  max={o.max}
+                  step={o.step}
+                  from={o.from}
+                  to={o.to}
+                  onChange={(a, b) => onOption(o.key, `${a}-${b}`)}
                 />
               </div>
             ),

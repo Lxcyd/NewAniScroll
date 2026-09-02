@@ -111,7 +111,16 @@ export type BlockOption =
   /** Un interrupteur. */
   | { key: string; on: boolean }
   /** Un choix dans une liste fermée. `on` absent : c'est ce qui les distingue. */
-  | { key: string; choices: readonly string[]; value: string };
+  | { key: string; choices: readonly string[]; value: string }
+  /**
+   * Une PLAGE de valeurs, deux poignées sur un rail.
+   *
+   * Elle est rangée comme une chaîne « bas-haut » plutôt que comme deux clés :
+   * les deux bornes n'ont aucun sens l'une sans l'autre, et un stockage qui
+   * n'accepte que des booléens et des chaînes (cf. GridItem.s) n'a pas eu à
+   * apprendre un troisième type pour ça.
+   */
+  | { key: string; range: [number, number]; step: number; value: string };
 
 /**
  * Les listes que le bloc « favoris » sait mettre en vitrine.
@@ -136,9 +145,36 @@ const OPTIONS: Record<string, BlockOption[]> = {
   resume: [{ key: "ambient", on: true }],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
+    { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },
+    /* Faux par défaut, et c'est le point du réglage : la vitrine classe par
+       note, donc une entrée sans note n'a pas de rang. Elle finirait en queue
+       de bande sans qu'on sache pourquoi elle y est. */
+    { key: "unrated", on: false },
     { key: "trailer", on: true },
   ],
 };
+
+/** Les bornes d'une plage : ce qui est rangé, sinon le défaut du catalogue. */
+export function blockOptionRange(
+  id: string,
+  key: string,
+  saved: Record<string, boolean | string> | undefined,
+): [number, number] {
+  const def = optionDef(id, key);
+  if (!def || !("range" in def)) return [0, 0];
+  const parse = (s: string): [number, number] | null => {
+    const m = /^(-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)$/.exec(s);
+    if (!m) return null;
+    const lo = Number(m[1]);
+    const hi = Number(m[2]);
+    // Hors bornes ou à l'envers : la valeur vient d'un navigateur, et une plage
+    // inversée ne filtrerait rien du tout sans le dire.
+    if (!(lo >= def.range[0] && hi <= def.range[1] && lo <= hi)) return null;
+    return [lo, hi];
+  };
+  const v = saved?.[key];
+  return (typeof v === "string" ? parse(v) : null) ?? parse(def.value) ?? def.range;
+}
 
 export function blockOptions(id: string): BlockOption[] {
   return OPTIONS[id] ?? [];

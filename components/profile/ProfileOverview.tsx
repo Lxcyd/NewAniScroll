@@ -24,6 +24,7 @@ import {
   blockBounds,
   blockDef,
   blockOption,
+  blockOptionRange,
   blockOptionValue,
   blockOptions,
   blockSize,
@@ -240,6 +241,10 @@ export default function ProfileOverview({
         label: t(`profile.widgets.options.${o.key}`),
         desc: t(`profile.widgets.options.${o.key}Desc`),
       };
+      if ("range" in o) {
+        const [from, to] = blockOptionRange(id, o.key, saved(id));
+        return { ...common, min: o.range[0], max: o.range[1], step: o.step, from, to };
+      }
       return "choices" in o
         ? {
             ...common,
@@ -258,6 +263,7 @@ export default function ProfileOverview({
                     ? t("profile.widgets.options.sourceFavourites")
                     : listLabel(t, c),
                 color: c === "favourites" ? def?.color : LIST_COLORS[c],
+                heart: c === "favourites",
               })),
               ...customLists.map((n) => ({
                 value: `${CUSTOM_PREFIX}${n}`,
@@ -316,6 +322,8 @@ export default function ProfileOverview({
           <FavoritesBlock
             entries={entries}
             source={optionValue("favorites", "source")}
+            scores={blockOptionRange("favorites", "scores", saved("favorites"))}
+            unrated={optionOn("favorites", "unrated")}
             trailer={optionOn("favorites", "trailer")}
             editing={editing && isOwner}
           />

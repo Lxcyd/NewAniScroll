@@ -90,8 +90,20 @@ export type WidgetOption =
       desc?: string;
       value: string;
       /** `color` peint la pastille du choix — celle de sa liste, à l'identique
-       *  de l'éditeur de liste. Absente : pas de pastille. */
-      choices: { value: string; label: string; color?: string }[];
+       *  de l'éditeur de liste. `heart` la remplace par un cœur, pour les
+       *  favoris, qui ne sont pas une liste comme les autres. */
+      choices: { value: string; label: string; color?: string; heart?: boolean }[];
+    }
+  /** Une plage à deux poignées. `from`/`to` sont déjà bornés. */
+  | {
+      key: string;
+      label: string;
+      desc?: string;
+      min: number;
+      max: number;
+      step: number;
+      from: number;
+      to: number;
     };
 
 type Drag = {

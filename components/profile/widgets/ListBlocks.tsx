@@ -74,6 +74,9 @@ export function FavoritesBlock({
   entries,
   /** La liste mise en vitrine (cf. FAVORITE_SOURCES). Défaut : les favoris. */
   source = "favourites",
+  /** La plage de notes retenue, et si les titres sans note en font partie. */
+  scores = [0, 10],
+  unrated = false,
   /** Réglable : la bande-annonce au survol. */
   trailer = true,
   /** En mode réorganisation, les flèches céderaient la place à la roue et au
@@ -82,13 +85,19 @@ export function FavoritesBlock({
 }: {
   entries: ProfileEntry[];
   source?: string;
+  scores?: [number, number];
+  unrated?: boolean;
   trailer?: boolean;
   editing?: boolean;
 }) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
-  const shown = useMemo(() => showcaseFor(entries, source, 20), [entries, source]);
+  const [lo, hi] = scores;
+  const shown = useMemo(
+    () => showcaseFor(entries, source, 20, [lo, hi], unrated),
+    [entries, source, lo, hi, unrated],
+  );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
 
   if (!shown.length)
@@ -160,10 +169,16 @@ export function FavoritesBlock({
                ce corps), remplies ou non : c'est ce qui donne a toutes les
                cartes exactement la meme taille, qu'un titre tienne sur une
                ligne ou sur deux. */
-            className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_2.2rem] gap-2"
+            className="group grid h-full shrink-0 grid-rows-[minmax(0,1fr)_2rem] gap-1.5"
           >
+            {/* PAS DE `shadow-poster` ICI. Cette ombre — 32 px de flou noir à
+                55 % — est faite pour une affiche posée sur une page claire ou
+                sur une illustration. Sur le fond presque noir d'un widget elle
+                ne se lit pas comme une ombre mais comme une BOÎTE NOIRE autour
+                de chaque affiche, d'autant plus visible que les affiches sont
+                petites et serrées. */}
             <div
-              className="relative h-full overflow-hidden rounded-xl bg-as-card shadow-poster transition-transform duration-200 group-hover:scale-[1.05]"
+              className="relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.05]"
               style={{ aspectRatio: "2 / 3" }}
             >
               {e.cover ? (
@@ -182,7 +197,7 @@ export function FavoritesBlock({
                 `w-full` y laisserait passer la largeur du texte, et un titre
                 long elargirait sa carte au point de rendre la bande
                 irreguliere. */}
-            <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-snug text-white">
+            <p className="line-clamp-2 w-0 min-w-full text-[12px] font-semibold leading-[1.15] text-white">
               {pickTitle(e.title, titlePref)}
             </p>
           </Link>

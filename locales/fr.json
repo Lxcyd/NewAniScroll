@@ -854,6 +854,10 @@
         "source": "Liste affichée",
         "sourceDesc": "Les titres les mieux notés de cette liste.",
         "sourceFavourites": "Favoris",
+        "scores": "Plage de notes",
+        "scoresDesc": "Seuls les titres notés dans cet intervalle.",
+        "unrated": "Inclure les non notés",
+        "unratedDesc": "Les titres auxquels tu n'as pas mis de note.",
         "trailer": "Bande-annonce au survol",
         "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche."
       },

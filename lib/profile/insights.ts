@@ -186,7 +186,23 @@ export function showcaseFor(
   entries: ProfileEntry[],
   source: string,
   max = 10,
+  /**
+   * La plage de notes affichée, et si les titres SANS note en font partie.
+   *
+   * Le filtre s'applique avant tout le reste, y compris aux favoris déclarés :
+   * « entre 8 et 10 » veut dire ce qu'il dit, et un favori noté 4 n'a pas à
+   * échapper à la règle parce qu'il porte un cœur.
+   */
+  scores: [number, number] = [0, 10],
+  unrated = true,
 ): ProfileEntry[] {
+  const [lo, hi] = scores;
+  const full = lo <= 0 && hi >= 10 && unrated;
+  if (!full) {
+    entries = entries.filter((e) =>
+      e.score == null || e.score === 0 ? unrated : e.score >= lo && e.score <= hi,
+    );
+  }
   if (!source || source === "favourites") return favoriteShowcase(entries, max);
   /* Une liste personnalisée est préfixée pour ne pas se confondre avec une liste
      de statut : rien n'empêche quelqu'un d'appeler la sienne « Completed ». */
