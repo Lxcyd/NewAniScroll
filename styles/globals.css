@@ -2329,8 +2329,28 @@ input[type="number"] {
    conteneur. Une case d'une ligne (230 px) laisse une affiche d'environ 85 px
    de large -> 7 px ; deux lignes (476 px) en laissent ~245 -> 19 px. Le rapport
    est tenu aux deux bouts, sans mesurer quoi que ce soit en JS. */
+/* LA BANDE MORD SUR LE REMBOURRAGE BAS DE LA CARTE.
+
+   Le piege, paye deux fois : la bande est en `height: 100%` et tout le site est
+   en `box-sizing: border-box`, donc un `padding` ne l'AGRANDIT pas — il se
+   retranche de sa hauteur utile. Poser `pb-3` pour « faire de la place » a donc
+   fait exactement l'inverse : douze pixels retires a l'affiche, et une marge
+   negative qui laissait sous la bande une zone que plus rien n'occupait. C'est
+   la bande vide qu'on voyait en bas du widget.
+
+   La hauteur est donc rendue explicitement avant d'etre depensee :
+     hauteur   100 % + 16   (12 de debordement voulu + 4 de rembourrage haut)
+     - padding          4   (le jeu qu'il faut a l'affiche pour grandir au survol)
+     = utile   100 % + 12   pour les affiches.
+   Les marges negatives (-4 en haut, -12 en bas) reprennent le tout sur la mise
+   en page : la bande deborde de 12 px dans les 16 px de rembourrage bas de la
+   carte, il en reste 4 sous elle, et rien n'a bouge autour. */
 .as-fav-row {
   gap: 7px;
+  height: calc(100% + 16px);
+  padding-top: 4px;
+  margin-top: -4px;
+  margin-bottom: -12px;
 }
 
 /* LA RANGEE DU TITRE FAIT EXACTEMENT DEUX LIGNES, ni plus ni moins.

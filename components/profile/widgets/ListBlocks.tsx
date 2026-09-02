@@ -148,15 +148,12 @@ export function FavoritesBlock({
       <div
         ref={ref}
         onClickCapture={onClickCapture}
-        /* HAUT ET BAS NE SERVENT PAS LA MÊME CHOSE.
-           En haut, quatre pixels de marge intérieure : sans eux l'affiche qui
-           grandit au survol serait rognée par la carte, qui coupe ce qui dépasse.
-           En bas, DOUZE — quatre pour la même raison, huit qui mordent sur le
-           rembourrage de la carte (`py-4`), lequel restait vide sous les titres
-           et se lisait comme de la place perdue. Les marges négatives reprennent
-           le tout sur la mise en page : la bande occupe donc plus de hauteur
-           qu'on ne lui en a donnée, et cette hauteur va à l'affiche. */
-        className="as-fav-row as-noscroll -mb-3 -mt-1 flex h-full cursor-grab select-none overflow-x-auto overflow-y-hidden pb-3 pt-1"
+        /* La hauteur, le rembourrage et les marges de la bande sont dans
+           `.as-fav-row` (globals.css) et pas ici : les trois se compensent au
+           pixel pour déborder dans le rembourrage de la carte, et écrits en
+           classes séparées ils invitaient à en changer une sans les autres —
+           ce qui est précisément l'erreur qui a laissé une bande vide en bas. */
+        className="as-fav-row as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
       >
         {shown.map((e, i) => (
           <Link
