@@ -136,31 +136,65 @@ export function ResumeBlock({ rows: served, other }: ActivityProps = {}) {
      taille c'est le cas courant, et un titre tronqué n'est pas reconnaissable. */
   return (
     <div className="flex h-full min-w-0 items-center gap-4">
-      <Link
-        href={href}
-        className="group relative aspect-video h-full w-auto max-w-[48%] shrink-0 overflow-hidden rounded-2xl bg-as-card"
-      >
-        {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
-        <span className="absolute inset-0 flex items-center justify-center">
-          <span className="as-widget-play flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
-            {/* LE TRIANGLE DU LECTEUR, au trait près : celui du bouton de
-                démarrage d'UniversalPlayer et de la vignette de l'épisode en
-                cours. Coins arrondis, et surtout centré par son CENTRE DE
-                GRAVITÉ — un triangle dont la boîte est centrée paraît poussé à
-                gauche, son aire étant massée du côté de l'arête arrière. D'où le
-                `translate(1.8 0)`, qui vient du même dessin et n'est pas à
-                recalculer ici (cf. UniversalPlayer.tsx). */}
-            <svg viewBox="0 0 20 20" fill="#fff" className="h-5 w-5">
-              <g transform="translate(1.8 0)">
-                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-              </g>
-            </svg>
+      <div className="relative aspect-video h-full w-auto max-w-[48%] shrink-0">
+        {/* LA LUMIÈRE D'AMBIANCE, en petit.
+            Même principe que le lecteur et que la carte de survol (cf.
+            TrailerAmbient) : des copies concentriques de la vignette, chacune un
+            peu plus large et beaucoup plus pâle, floutées EN UN SEUL passage sur
+            la pile — un flou par calque coûterait trois fois plus au compositeur
+            pour la même image (le flou et la multiplication d'opacité sont tous
+            deux linéaires).
+            Elle est volontairement COURTE : trois calques et 6 % de pas, là où le
+            lecteur en empile cinq. Le bloc voisine avec du texte et d'autres
+            widgets ; une lueur qui porte loin les baignerait au lieu d'éclairer
+            la vignette. */}
+        {art ? (
+          <div
+            className="pointer-events-none absolute inset-0"
+            aria-hidden
+            style={{ filter: "blur(26px) saturate(1.7)" }}
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="absolute inset-0"
+                style={{ transform: `scale(${1 + i * 0.06})`, opacity: 0.5 * Math.pow(0.6, i) }}
+              >
+                {/* Même src et même `sizes` que la vignette : c'est la même URL
+                    optimisée, donc le cache du navigateur, pas un téléchargement
+                    de plus par calque. */}
+                <Image src={art} alt="" fill sizes="320px" className="object-cover" />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <Link
+          href={href}
+          className="group absolute inset-0 overflow-hidden rounded-2xl bg-as-card"
+        >
+          {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="as-widget-play flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
+              {/* LE TRIANGLE DU LECTEUR, au trait près : celui du bouton de
+                  démarrage d'UniversalPlayer et de la vignette de l'épisode en
+                  cours. Coins arrondis, et surtout centré par son CENTRE DE
+                  GRAVITÉ — un triangle dont la boîte est centrée paraît poussé à
+                  gauche, son aire étant massée du côté de l'arête arrière. D'où
+                  le `translate(1.8 0)`, qui vient du même dessin et n'est pas à
+                  recalculer ici (cf. UniversalPlayer.tsx). */}
+              <svg viewBox="0 0 20 20" fill="#fff" className="h-5 w-5">
+                <g transform="translate(1.8 0)">
+                  <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                </g>
+              </svg>
+            </span>
           </span>
-        </span>
-        <span className="absolute inset-x-0 bottom-0 h-1 bg-white/15">
-          <span className="block h-full bg-action" style={{ width: `${row.pct}%` }} />
-        </span>
-      </Link>
+          <span className="absolute inset-x-0 bottom-0 h-1 bg-white/15">
+            <span className="block h-full bg-action" style={{ width: `${row.pct}%` }} />
+          </span>
+        </Link>
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
