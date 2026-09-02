@@ -90,40 +90,32 @@ function Dropdown({
      donc il reste de la meme famille. */
   const mark = (c?: { color?: string; heart?: boolean }) =>
     c?.heart ? (
-      /* LE CŒUR REMPLIT EXACTEMENT LA BOÎTE D'UNE PASTILLE.
-         Il a d'abord été centré DANS cette boîte tout en gardant sa taille
-         propre — 12 px contre 8 — et débordait donc de deux pixels de chaque
-         côté : son bord gauche commençait avant celui des pastilles, ce qui se
-         lisait comme un défaut d'alignement même si le centre, lui, tombait
-         juste. Il fait maintenant 100 % de la boîte, comme un disque en ferait
-         100 %, et les deux colonnes — repère et nom — s'alignent au pixel.
-         Le tracé est celui de Material : son encre est centrée dans le viewBox,
-         là où un cœur dessiné à la main penche vers le bas et paraît descendu. */
-      <span
-        className="le-dd-dot"
-        style={{ background: "none", display: "grid", placeItems: "center" }}
+      <svg
+        viewBox="0 0 24 24"
+        fill={c.color || "#E94560"}
+        className="as-dd-mark"
+        style={{ filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})` }}
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill={c.color || "#E94560"}
-          style={{
-            width: "100%",
-            height: "100%",
-            filter: `drop-shadow(0 0 4px ${c.color || "#E94560"})`,
-          }}
-        >
-          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-        </svg>
-      </span>
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+      </svg>
     ) : (
-      <span
-        className="le-dd-dot"
-        style={
-          c?.color
-            ? { background: c.color, boxShadow: `0 0 6px ${c.color}` }
-            : { background: "rgba(255,255,255,0.25)" }
-        }
-      />
+      /* LA COLONNE DES REPÈRES A UNE LARGEUR À ELLE (`.as-dd-mark`), la même
+         pour tous. Le cœur y tient sa taille — 12 px, celle qu'il faut pour se
+         lire comme un cœur et pas comme une tache — et les pastilles, plus
+         petites, y sont centrées. Toutes les marques partagent donc le même axe
+         ET le même encombrement, ce que ni un cœur rétréci au diamètre d'une
+         pastille (il devenait illisible) ni un cœur débordant d'une boîte de
+         pastille (son bord gauche sortait de la colonne) ne donnaient. */
+      <span className="as-dd-mark">
+        <span
+          className="le-dd-dot"
+          style={
+            c?.color
+              ? { background: c.color, boxShadow: `0 0 6px ${c.color}` }
+              : { background: "rgba(255,255,255,0.25)" }
+          }
+        />
+      </span>
     );
 
   /* LE BOUTON PREND LA COULEUR DE LA LISTE CHOISIE, comme dans le menu qui

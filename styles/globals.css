@@ -2346,7 +2346,11 @@ input[type="number"] {
    en page : la bande deborde de 12 px dans les 16 px de rembourrage bas de la
    carte, il en reste 4 sous elle, et rien n'a bouge autour. */
 .as-fav-row {
-  gap: 7px;
+  /* L'ECART EST UNE MARGE DE CARTE, PAS UN `gap` DE RANGEE. Un `gap` appartient
+     au conteneur : une carte qui s'en va ne peut pas emporter le sien, et il
+     restait donc un trou de la largeur de l'ecart la ou elle etait, jusqu'a ce
+     que le noeud disparaisse. Porte par la carte, il se referme avec elle. */
+  --as-fav-gap: 7px;
   height: calc(100% + 16px);
   padding-top: 4px;
   margin-top: -4px;
@@ -2367,6 +2371,7 @@ input[type="number"] {
    maximum — et tout ce qui reste va a l'affiche. */
 .as-fav-card {
   grid-template-rows: minmax(0, 1fr) auto;
+  margin-right: var(--as-fav-gap);
 }
 .as-fav-title {
   font-size: 12px;
@@ -2376,18 +2381,23 @@ input[type="number"] {
 }
 @container widget (min-height: 300px) {
   .as-fav-row {
-    gap: 19px;
+    --as-fav-gap: 19px;
   }
   .as-fav-title {
     font-size: 15px;
   }
 }
 
-/* L'APPARITION D'UNE AFFICHE quand un reglage change ce que la vitrine montre.
-   Les cartes sont remontees a chaque changement de filtre (leur cle porte la
-   signature du filtre), donc elles entrent ; un decalage par rang fait courir
-   la vague de gauche a droite au lieu de tout faire clignoter d'un bloc. Le
-   decalage est plafonne pour que la derniere carte n'attende pas une seconde. */
+/* ENTREE ET SORTIE D'UNE AFFICHE quand un reglage change ce que la vitrine
+   montre. Les cartes qui restent ne bougent PAS : seules celles qui arrivent et
+   celles qui partent sont animees, et ce sont les seules qui ont changé.
+
+   LA SORTIE REFERME LA PLACE. Un fondu seul aurait laisse un trou de la largeur
+   d'une affiche jusqu'a ce que le noeud disparaisse, puis un saut sec quand il
+   disparait — l'oppose de fluide. La carte qui part reduit donc AUSSI sa largeur
+   et sa marge a zero, et ses voisines glissent d'elles-memes. Sa largeur ne
+   s'ecrit pas en CSS : elle vient de la hauteur de la case, donc React la
+   mesure au moment du depart et la passe en `--as-fav-w`. */
 @keyframes as-fav-in {
   from {
     opacity: 0;
@@ -2398,12 +2408,35 @@ input[type="number"] {
     transform: none;
   }
 }
+@keyframes as-fav-out {
+  from {
+    opacity: 1;
+    transform: none;
+    max-width: var(--as-fav-w, 12rem);
+    margin-right: var(--as-fav-gap);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+    max-width: 0;
+    margin-right: 0;
+  }
+}
 .as-fav-card {
   animation: as-fav-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: var(--as-fav-delay, 0ms);
 }
+.as-fav-card.is-out {
+  /* Plus cliquable des l'instant ou elle part, et elle n'attend pas son tour :
+     ce qui s'en va s'en va tout de suite, le decalage par rang est pour ce qui
+     arrive. */
+  pointer-events: none;
+  animation: as-fav-out 0.24s cubic-bezier(0.4, 0, 1, 1) both;
+  animation-delay: 0ms;
+}
 @media (prefers-reduced-motion: reduce) {
-  .as-fav-card {
+  .as-fav-card,
+  .as-fav-card.is-out {
     animation-duration: 0.01s;
     animation-delay: 0s;
   }
@@ -2481,6 +2514,19 @@ input[type="number"] {
 .le-dd-compact .le-dd-dot {
   width: 8px;
   height: 8px;
+}
+
+/* La colonne des reperes d'un menu de listes : meme largeur pour tous, quel que
+   soit ce qu'on y dessine. Une pastille (8 px) y est centree, un coeur (12 px)
+   la remplit. Sans cette colonne il fallait choisir entre un coeur reduit au
+   diametre d'une pastille — illisible — et un coeur qui deborde de la boite
+   d'une pastille, dont le bord gauche sortait alors de la colonne de gauche. */
+.as-dd-mark {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
 }
 
 /* Le panneau de reglages d'un widget (components/profile/WidgetSettings.tsx).

@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -45,6 +45,77 @@ const FORMAT_COLOR: Record<string, string> = {
 };
 
 /* ── Favoris ─────────────────────────────────────────────────────────── */
+
+/** Une carte à peindre : l'entrée, et si elle est en train de partir. */
+type ShelfCard = { e: ProfileEntry; out: boolean; width?: number };
+
+/** Le temps que dure la sortie — doit valoir `as-fav-out` dans globals.css. */
+const EXIT_MS = 240;
+
+/**
+ * Ce que la vitrine affiche PENDANT qu'elle change.
+ *
+ * React retire un nœud à l'instant où il quitte la liste, donc une carte qui
+ * sort n'existe plus au moment où on voudrait l'animer. Ce hook garde la liste
+ * précédente et la fusionne avec la nouvelle : les partantes restent montées,
+ * marquées `out`, À LEUR PLACE — pas rejetées en fin de bande, sans quoi elles
+ * traverseraient l'écran avant de disparaître — et ne sont retirées qu'une fois
+ * l'animation finie.
+ *
+ * La LARGEUR est relevée au moment du départ, pas plus tard : elle vient du
+ * rapport 2:3 appliqué à la hauteur de la case, donc aucune valeur écrite en
+ * CSS ne la connaît, et l'animation en a besoin pour refermer la place.
+ *
+ * Écrit ici plutôt que dans une bibliothèque d'animation : la vitrine est le
+ * seul endroit du site qui en a besoin, et une dépendance de plus pour trente
+ * lignes de fusion de listes serait un mauvais échange.
+ */
+function useShelfTransition(shown: ProfileEntry[]) {
+  const nodes = useRef(new Map<number, HTMLElement>());
+  const [cards, setCards] = useState<ShelfCard[]>(() =>
+    shown.map((e) => ({ e, out: false })),
+  );
+
+  const nodeRef = useCallback((id: number, el: HTMLElement | null) => {
+    if (el) nodes.current.set(id, el);
+    else nodes.current.delete(id);
+  }, []);
+
+  useEffect(() => {
+    setCards((prev) => {
+      const staying = prev.filter((c) => !c.out);
+      const nextIds = new Set(shown.map((e) => e.mediaId));
+      const same =
+        staying.length === shown.length &&
+        staying.every((c, i) => c.e.mediaId === shown[i].mediaId);
+      // Rien n'a bougé : ne pas remplacer l'état, sinon cet effet se rappelle.
+      if (same && staying.length === prev.length) return prev;
+
+      const merged: ShelfCard[] = shown.map((e) => ({ e, out: false }));
+      staying.forEach((c, index) => {
+        if (nextIds.has(c.e.mediaId)) return;
+        merged.splice(Math.min(index, merged.length), 0, {
+          ...c,
+          out: true,
+          width: nodes.current.get(c.e.mediaId)?.offsetWidth,
+        });
+      });
+      return merged;
+    });
+  }, [shown]);
+
+  // Le balayage des parties, une fois leur animation finie.
+  useEffect(() => {
+    if (!cards.some((c) => c.out)) return;
+    const timer = setTimeout(
+      () => setCards((prev) => prev.filter((c) => !c.out)),
+      EXIT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [cards]);
+
+  return { cards, nodeRef };
+}
 
 /**
  * La vitrine : une bande d'affiches qui se tire à la souris.
@@ -94,15 +165,14 @@ export function FavoritesBlock({
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const [lo, hi] = scores;
-  /* Ce qui identifie le contenu actuel de la vitrine — cf. la cle des cartes. */
-  const sig = `${source}:${lo}:${hi}:${unrated}`;
   const shown = useMemo(
     () => showcaseFor(entries, source, 20, [lo, hi], unrated),
     [entries, source, lo, hi, unrated],
   );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
+  const { cards, nodeRef } = useShelfTransition(shown);
 
-  if (!shown.length)
+  if (!cards.length)
     return (
       <EmptyBlock
         note={t(
@@ -155,18 +225,24 @@ export function FavoritesBlock({
            ce qui est précisément l'erreur qui a laissé une bande vide en bas. */
         className="as-fav-row as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
       >
-        {shown.map((e, i) => (
+        {cards.map(({ e, out, width }, i) => (
           <Link
-            /* LA CLE PORTE LA SIGNATURE DU FILTRE, et pas seulement l'anime.
-               C'est ce qui fait qu'un changement de reglage REMONTE les cartes
-               au lieu de les reordonner en silence : remontees, elles rejouent
-               leur animation d'entree, et l'on voit ce que le reglage vient de
-               changer. Sans cela React aurait reutilise les noeuds communs aux
-               deux filtres et seules les nouvelles auraient bouge. */
-            key={`${sig}-${e.mediaId}`}
-            style={{ ["--as-fav-delay" as string]: `${Math.min(i, 12) * 18}ms` }}
+            /* LA CLE EST L'ANIME, ET RIEN D'AUTRE. Une cle qui portait aussi le
+               filtre remontait TOUTES les cartes a chaque reglage : les
+               survivantes rejouaient leur entree pour rien, ce qui se voyait
+               comme un clignotement general au lieu du depart de deux titres.
+               Avec l'anime seul, React garde les noeuds communs — donc seules
+               les cartes qui arrivent s'animent, et celles qui partent restent
+               montees le temps de leur sortie (cf. useShelfTransition). */
+            key={e.mediaId}
+            ref={(el) => nodeRef(e.mediaId, el)}
+            style={{
+              ["--as-fav-delay" as string]: `${Math.min(i, 12) * 18}ms`,
+              ...(width ? { ["--as-fav-w" as string]: `${width}px` } : {}),
+            }}
             href={animeHref(e.mediaId, clickTarget)}
             draggable={false}
+            aria-hidden={out || undefined}
             {...(trailer ? previewAnchor(e.mediaId) : {})}
           /* UNE GRILLE À DEUX RANGÉES, ET SURTOUT PAS UNE COLONNE FLEX.
              L'affiche n'a pas de largeur à elle : elle la tient de sa HAUTEUR,
@@ -179,7 +255,7 @@ export function FavoritesBlock({
                ce corps), remplies ou non : c'est ce qui donne a toutes les
                cartes exactement la meme taille, qu'un titre tienne sur une
                ligne ou sur deux. */
-            className="as-fav-card group grid h-full shrink-0 gap-1.5"
+            className={`as-fav-card group grid h-full shrink-0 gap-1.5 ${out ? "is-out" : ""}`}
           >
             {/* PAS DE `shadow-poster` ICI. Cette ombre — 32 px de flou noir à
                 55 % — est faite pour une affiche posée sur une page claire ou
