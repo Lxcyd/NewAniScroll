@@ -351,11 +351,35 @@ export function FavoritesBlock({
   /**
    * LA LARGEUR D'UNE CARTE, posée en `--as-fav-w` sur la bande.
    *
-   * Elle vient du rapport 2:3 appliqué à la hauteur disponible : rien en CSS ne
-   * la connaît, et l'animation en a besoin comme point d'arrivée (une carte qui
-   * grandit depuis zéro) et comme point de départ (une carte qui referme sa
-   * place). Toutes les cartes font la même largeur — c'est tout l'objet de la
-   * rangée de titre à hauteur fixe — donc une seule mesure vaut pour la bande.
+   * Elle vient du rapport 2:3 applique a la hauteur disponible : rien en CSS ne
+   * la connait. La bande en a besoin DEUX FOIS — pour donner à chaque carte une
+   * largeur définie (voir plus bas), et comme point d'arrivée de l'animation
+   * (une carte qui grandit depuis zéro, une autre qui referme sa place).
+   *
+   * ON MESURE L'AFFICHE, PAS LA CARTE, et c'est tout le correctif.
+   *
+   * La carte n'a pas de largeur propre : elle la tient de son contenu, donc du
+   * PLUS LARGE de ses deux éléments. L'affiche fait 2:3, mais un titre de six
+   * mots est plus large qu'elle — et c'était alors LUI qui fixait la largeur de
+   * la carte. D'où des cartes toutes différentes, écartées chacune à proportion
+   * de la longueur de son titre : « I Became a Legend After My 10 Year-Long
+   * Last… » poussait ses voisines bien plus loin que « Tomb Raider King ». Le
+   * `w-0 min-w-full` du titre devait l'empêcher, mais il ne peut pas : un
+   * pourcentage de largeur minimale se résout contre la largeur du parent, et
+   * cette largeur-là n'existe pas encore quand le navigateur la calcule
+   * justement à partir du contenu. Il n'y avait aucun moyen d'en sortir sans
+   * donner à la carte une largeur qui ne vienne pas de son texte.
+   *
+   * L'affiche, elle, tient sa largeur de sa HAUTEUR par son rapport 2:3 — donc
+   * du widget, et de rien d'autre. La mesurer donne la seule largeur honnête,
+   * la même pour toutes les cartes, quel que soit le titre.
+   *
+   * Et cette mesure NE TOUCHE PLUS À LA CARTE. L'ancienne levait le plafond de
+   * la carte, lisait sa largeur, puis le remettait — un aller-retour qui avait
+   * déjà coûté un bug (une mesure forcée sur un élément qui transitionne lui
+   * donne un style de départ qu'il n'avait pas, cf. devlog du 02/09). Lire
+   * l'affiche ne demande rien de tout ça : sa largeur ne dépend ni du plafond
+   * de la carte, ni de l'état de son animation.
    *
    * Mesurée ici et pas au défilement : elle coûte un calcul de mise en page
    * force, ce qui n'a rien à faire dans un gestionnaire de `scroll`.
@@ -364,35 +388,9 @@ export function FavoritesBlock({
     const row = ref.current;
     if (!row) return;
     const measure = () => {
-      /* Le plafond est levé LE TEMPS DE LA MESURE, et il l'est aussi pour une
-         carte qui n'est pas encore dépliée : sans ça on relirait le plafond
-         precedent au lieu de la largeur voulue, et la bande resterait a jamais
-         a la taille qu'elle avait quand le widget etait plus petit — ou, au
-         tout premier rendu ou aucune carte n'est encore en place, a la valeur
-         de repli de 40rem, qui rendrait l'arrivee instantanee.
-
-         ON MESURE UNE CARTE EN PLACE DE PRÉFÉRENCE, ET LA MESURE NE DOIT RIEN
-         ANIMER. C'est ici qu'était le bug qui rendait l'arrivée instantanée
-         malgré tout le reste : mesurer une carte qui VIENT DE NAÎTRE lui donnait
-         un style de départ à pleine largeur (lire `offsetWidth` force le calcul
-         de mise en page, donc `max-width: none` devient sa valeur de référence),
-         et la remise à zéro juste après lançait aussitôt une transition de
-         repli. Deux frames plus tard, quand la classe passait à `is-in`, la
-         carte était encore quasi dépliée : il ne restait rien à animer. La
-         transition est donc coupée le temps de la mesure, et la valeur revenue
-         est figée par un second calcul forcé avant qu'on la rende. */
-      const card =
-        row.querySelector<HTMLElement>(".as-fav-card.is-in") ??
-        row.querySelector<HTMLElement>(".as-fav-card:not(.is-out)");
-      if (card) {
-        card.style.transition = "none";
-        card.style.maxWidth = "none";
-        const w = card.offsetWidth;
-        card.style.maxWidth = "";
-        void card.offsetWidth;
-        card.style.transition = "";
-        if (w) row.style.setProperty("--as-fav-w", `${w}px`);
-      }
+      const poster = row.querySelector<HTMLElement>(".as-fav-poster");
+      const w = poster?.offsetWidth ?? 0;
+      if (w) row.style.setProperty("--as-fav-w", `${w}px`);
       syncFades();
     };
     measure();
@@ -498,7 +496,10 @@ export function FavoritesBlock({
                 de chaque affiche, d'autant plus visible que les affiches sont
                 petites et serrées. */}
             <div
-              className="relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.03]"
+              /* `as-fav-poster` : c'est CE nœud que la mesure lit pour donner sa
+                 largeur à toute la bande — sa taille ne vient que du rapport
+                 2:3 et de la hauteur du widget, jamais du titre. */
+              className="as-fav-poster relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.03]"
               style={{ aspectRatio: "2 / 3" }}
             >
               {e.cover ? (

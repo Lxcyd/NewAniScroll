@@ -2402,6 +2402,16 @@ input[type="number"] {
   grid-template-rows: minmax(0, 1fr) auto;
   margin-right: var(--as-fav-gap);
 }
+/* L'AFFICHE NE S'ETIRE PAS A LA LARGEUR DE SA COLONNE, et c'est ce qui empeche
+   la mesure de se mordre la queue. Par defaut un element de grille est etire :
+   l'affiche prendrait donc la largeur que la carte tient DE LA MESURE, la mesure
+   relirait cette meme valeur, et la bande resterait a jamais a la largeur qu'elle
+   avait au premier rendu — un widget redimensionne n'aurait plus jamais raison.
+   Alignee au debut, l'affiche garde sa largeur DE SA HAUTEUR par le rapport 2:3,
+   qui est la seule source honnete. */
+.as-fav-poster {
+  justify-self: start;
+}
 .as-fav-title {
   font-size: 12px;
   line-height: 1.15;
@@ -2439,6 +2449,17 @@ input[type="number"] {
    la largeur reelle reste celle de l'affiche, le plafond ne fait que la
    laisser passer. */
 .as-fav-card {
+  /* LA LARGEUR EST CELLE DE L'AFFICHE, imposee, et surtout pas deduite du
+     contenu. Sans elle, la carte prenait la largeur du PLUS LARGE de ses deux
+     elements — donc celle du titre des qu'il depassait l'affiche, et les cartes
+     se retrouvaient ecartees chacune a proportion de la longueur de son texte.
+
+     `var()` SANS REPLI, volontairement : tant que la mesure n'a pas eu lieu, la
+     declaration est invalide et `width` retombe sur `auto`, c'est-a-dire le
+     comportement d'avant. Un repli chiffre, lui, imposerait une largeur fausse
+     le temps du premier rendu. Le plafond garde le sien (40rem) : il ne sert
+     qu'a l'animation, ou une valeur trop grande ne fait que passer inapercue. */
+  width: var(--as-fav-w);
   max-width: var(--as-fav-w, 40rem);
   transition:
     opacity 0.3s ease,
