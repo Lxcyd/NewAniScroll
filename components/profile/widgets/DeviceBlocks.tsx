@@ -395,11 +395,15 @@ function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => str
       className="absolute -top-[38px] right-0 z-10 flex items-center gap-1 rounded-full bg-action/15 px-2 py-1 ring-1 ring-action/30"
       title={t("profile.blocks.recents.streakTitle", { count: days })}
     >
-      {/* Une flamme pleine, dessinée au même trait que les autres glyphes du
-          profil : un seul chemin, sans contour, qui reste lisible à 14 px. */}
-      <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 text-action">
-        <path d="M13.5 1.5c.3 3-1.2 4.5-2.6 5.9C9.4 8.9 8 10.3 8 13a4 4 0 004 4 4 4 0 004-4c0-1.3-.5-2.2-1-3 1.9.6 3.5 2.6 3.5 5.3 0 3.7-3.2 6.7-6.5 6.7S5.5 19 5.5 15.3c0-4.6 2.8-6.6 4.6-8.6C11.9 4.7 13.3 3.3 13.5 1.5z" />
-      </svg>
+      {/* L'EMOJI PLUTÔT QU'UN CHEMIN SVG. Il est en couleurs, celles du système,
+          donc il ne suit pas `text-action` — c'est justement ce qu'on veut ici :
+          la flamme se voit tout de suite sur un coin d'en-tête sombre.
+          `aria-hidden` parce qu'il n'apporte rien à qui ne le voit pas : le
+          nombre est juste à côté, et le `title` du badge porte la phrase
+          entière. Sans lui, un lecteur d'écran annoncerait « feu 3 ». */}
+      <span aria-hidden className="text-[13px] leading-none">
+        🔥
+      </span>
       <span className="font-outfit text-xs font-bold leading-none text-white">{days}</span>
     </div>
   );
