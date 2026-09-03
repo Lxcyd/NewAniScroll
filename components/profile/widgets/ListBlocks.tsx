@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -58,17 +58,25 @@ type ShelfCard = { e: ProfileEntry; state: "enter" | "in" | "out" };
 const EXIT_MS = 320;
 
 /**
- * COMBIEN D'AFFICHES LA VITRINE VA CHERCHER.
+ * COMBIEN D'AFFICHES LA VITRINE VA CHERCHER, **et seulement pour les favoris**.
  *
- * Elle en prenait vingt, ce qui sur une liste de statut — « Terminés », des
- * centaines de titres — coupait au vingtième MIEUX NOTÉ sans le dire : la bande
- * s'arrêtait sur un 8,5 alors que le curseur des notes descendait à 0, et le
- * réglage semblait ne rien filtrer. Ce n'est pas ce que le bloc promet.
+ * Elle en prenait vingt, puis soixante. Les deux chiffres avaient le même défaut,
+ * et le second l'a caché au lieu de le corriger : sur une LISTE NOMMÉE —
+ * « Terminés », des centaines de titres — la bande coupait au n-ième mieux noté
+ * SANS LE DIRE. Curseur des notes ouvert de 0 à 10, on voyait la bande finir sur
+ * un 8,5 et le réglage avait l'air de ne rien filtrer.
  *
- * Soixante, et pas « tout » : la bande est un carrousel qu'on tire à la main,
- * pas un catalogue — au-delà on fait défiler pour rien — et chaque carte est une
- * affiche à charger. Le défilement horizontal les laisse hors écran, donc
- * `next/image` ne va chercher que celles qu'on regarde.
+ * Le plafond ne survit donc que là où il énonce la promesse du bloc : « les
+ * favoris », dont le repli est « les mieux notés » et qui n'a de sens que borné.
+ * Une liste nommée, elle, promet SON CONTENU : la montrer en partie, c'est
+ * mentir sur le titre du widget. Elle passe entière (cf. l'appel à `showcaseFor`
+ * plus bas) — le coût reste celui de ce qu'on regarde, puisque le défilement
+ * horizontal laisse les affiches hors écran et que `next/image` ne va chercher
+ * que celles-là.
+ *
+ * LA LEÇON, deux fois payée : un plafond qu'on remonte parce qu'il « se voyait »
+ * ne cesse pas de couper, il cesse seulement de se voir sur l'exemple qu'on
+ * avait sous les yeux.
  */
 const SHELF_MAX = 60;
 
@@ -164,6 +172,97 @@ function useShelfTransition(shown: ProfileEntry[]) {
   return cards;
 }
 
+/* Même échange que dans RelationsGraph.tsx : React avertit pour un effet de mise
+   en page pendant le rendu serveur, et le profil est en `getServerSideProps`. Il
+   n'y a de toute façon rien à mesurer tant qu'aucun navigateur ne rend la bande. */
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/**
+ * LE DÉPLACEMENT DES CARTES QUI RESTENT (technique dite « FLIP »).
+ *
+ * `useShelfTransition` n'anime que ce qui arrive et ce qui part. Tant que le
+ * réglage ne faisait que RETIRER des cartes, ça suffisait : les survivantes
+ * glissaient toutes seules, poussées par la place qui se referme devant elles.
+ *
+ * Mais dès que l'ORDRE change — la borne haute des notes qu'on descend, une
+ * autre liste choisie, une note modifiée ailleurs dans le site — React déplace
+ * le nœud d'un rang à l'autre, et la carte se TÉLÉPORTE : aucune propriété CSS
+ * ne transitionne, puisque rien sur la carte n'a changé, c'est son voisinage qui
+ * a bougé. C'est ce saut sec qu'on lit comme « il n'y a pas d'animation », même
+ * quand l'entrée et la sortie, elles, fonctionnent.
+ *
+ * Le remède tient en trois temps : on retient la position d'avant (First), on
+ * laisse le navigateur poser la nouvelle (Last), on remet la carte à son ancienne
+ * place par une `transform` SANS transition, puis on la relâche à la frame
+ * suivante — elle rejoint sa vraie place en glissant (Invert / Play).
+ *
+ * DEUX PRÉCAUTIONS QUI NE SONT PAS DU LUXE :
+ *
+ * 1. LIRE D'ABORD, ÉCRIRE ENSUITE. Lire `offsetLeft` force le calcul de mise en
+ *    page ; l'entrelacer avec des écritures de style en forcerait un PAR CARTE.
+ *    Maintenant qu'une liste nommée passe entière (des centaines d'affiches),
+ *    ce détail est la différence entre un seul calcul et huit cents.
+ * 2. ON NE TOUCHE QU'AUX CARTES `is-in`. Les arrivantes et les partantes portent
+ *    déjà leur propre `transform` (repli, mise à l'échelle) : y superposer celle
+ *    du FLIP effacerait leur animation au lieu de s'y ajouter.
+ */
+function useShelfReflow(
+  /* La forme que rend `useDragScroll`, pas un `RefObject` strict : sa case est
+     nullable, et c'est le même objet que la mesure de largeur reçoit. */
+  rowRef: { current: HTMLDivElement | null },
+  cards: ShelfCard[],
+) {
+  const previous = useRef(new Map<number, number>());
+
+  useIsoLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const nodes = Array.from(
+      row.querySelectorAll<HTMLElement>(".as-fav-card"),
+    );
+
+    // 1) Lecture seule : une seule mise en page pour toute la bande.
+    const now = new Map<number, number>();
+    const movers: Array<{ node: HTMLElement; dx: number }> = [];
+    for (const node of nodes) {
+      const id = Number(node.dataset.mediaId);
+      if (!id) continue;
+      const x = node.offsetLeft;
+      now.set(id, x);
+      const was = previous.current.get(id);
+      if (was != null && was !== x && node.classList.contains("is-in")) {
+        movers.push({ node, dx: was - x });
+      }
+    }
+    previous.current = now;
+    if (!movers.length) return;
+
+    // 2) Écriture : chaque partante retourne d'où elle vient, sans transition.
+    for (const { node, dx } of movers) {
+      node.style.transition = "none";
+      node.style.transform = `translateX(${dx}px)`;
+    }
+
+    // 3) Une frame plus tard, on lâche : la transition de `.as-fav-card` fait
+    //    le reste. Le style inline est retiré, donc la carte retrouve ensuite
+    //    exactement le comportement qu'elle avait sans ce hook.
+    const frame = requestAnimationFrame(() => {
+      for (const { node } of movers) {
+        node.style.transition = "";
+        node.style.transform = "";
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const { node } of movers) {
+        node.style.transition = "";
+        node.style.transform = "";
+      }
+    };
+  }, [rowRef, cards]);
+}
+
 /**
  * La vitrine : une bande d'affiches qui se tire à la souris.
  *
@@ -213,11 +312,22 @@ export function FavoritesBlock({
   const clickTarget = useClickTarget();
   const [lo, hi] = scores;
   const shown = useMemo(
-    () => showcaseFor(entries, source, SHELF_MAX, [lo, hi], unrated),
+    /* Les favoris sont bornés (cf. SHELF_MAX) ; une liste nommée passe entière,
+       sans quoi le curseur des notes descendu à 0 ne rendrait toujours pas la
+       liste complète — le défaut qu'on croyait réglé en montant le plafond. */
+    () =>
+      showcaseFor(
+        entries,
+        source,
+        source === "favourites" ? SHELF_MAX : Infinity,
+        [lo, hi],
+        unrated,
+      ),
     [entries, source, lo, hi, unrated],
   );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
   const cards = useShelfTransition(shown);
+  useShelfReflow(ref, cards);
 
   /**
    * DE QUEL CÔTÉ IL RESTE QUELQUE CHOSE, pour n'estomper que ce bord-là (cf.
@@ -356,6 +466,9 @@ export function FavoritesBlock({
                les cartes qui arrivent s'animent, et celles qui partent restent
                montees le temps de leur sortie (cf. useShelfTransition). */
             key={e.mediaId}
+            /* Lu par `useShelfReflow` pour reconnaître une carte d'un rendu à
+               l'autre : la clé React n'est pas lisible depuis le DOM. */
+            data-media-id={e.mediaId}
             /* Le décalage par rang ne sert qu'à L'ARRIVÉE, et il est plafonné :
                au-delà d'une douzaine de cartes on attendrait le dépliage de la
                dernière bien après avoir cessé de regarder. Ce qui part n'attend
