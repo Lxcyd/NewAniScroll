@@ -2590,6 +2590,31 @@ input[type="number"] {
   }
 }
 
+/* LES DEUX FORMES DU TITRE DE LA VITRINE (cf. `blockTitle`, ProfileOverview).
+
+   « Animes favoris · En cours » tient sur une carte large. Sur un telephone la
+   carte fait toute la largeur de l'ecran -- environ 340 px -- et le titre
+   rejoignait les fleches du carrousel. Tronquer aurait mange la fin, c'est-a-dire
+   la LISTE : justement le seul renseignement qu'on ne peut pas deviner en
+   regardant la bande d'affiches. La carte etroite ne garde donc que le nom de la
+   liste.
+
+   Le seuil est a 460 px, bien au-dessus d'une carte de telephone et bien
+   au-dessous d'une carte de deux colonnes sur une page de bureau (~590 px). Et
+   c'est une requete de CONTENEUR : la meme fenetre porte des cartes de 1x1 et de
+   2x4, seule la largeur de la carte peut decider. */
+.as-head-short {
+  display: none;
+}
+@container widget (max-width: 460px) {
+  .as-head-full {
+    display: none;
+  }
+  .as-head-short {
+    display: inline;
+  }
+}
+
 @container widget (min-height: 300px) {
   .as-widget-head {
     font-size: 1.375rem;

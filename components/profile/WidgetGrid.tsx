@@ -56,9 +56,16 @@ import WidgetSettings from "./WidgetSettings";
  */
 
 export type BlockChrome = {
-  title: string;
+  /** Un nœud et pas une chaîne : un titre peut avoir une forme courte pour les
+   *  cartes étroites (cf. `blockTitle` dans ProfileOverview.tsx). */
+  title: React.ReactNode;
   /** Petite ligne grise à côté du titre (« 5 », « cette semaine »…). */
   meta?: string | null;
+  /** Le bloc pose SES PROPRES commandes dans le coin haut-droit de l'en-tête
+   *  (les flèches du carrousel de la vitrine). Elles sont en position absolue,
+   *  donc hors du flux : sans cette réservation, un titre assez long passerait
+   *  dessous au lieu de s'y arrêter. */
+  endRoom?: boolean;
   body: React.ReactNode;
 };
 
@@ -421,11 +428,14 @@ export default function WidgetGrid({
             }}
           >
             <header
-              /* `pr-14` en édition : la roue et le moins occupent ce coin sur
-                 deux fois 28 px, et un titre assez long pour les atteindre
-                 passerait dessous. */
+              /* `pr-14` dès que ce coin est occupé : en édition par la roue et
+                 le moins (deux fois 28 px), hors édition par les commandes que
+                 le bloc y pose lui-même (`endRoom`). Dans les deux cas elles
+                 sont en position absolue, donc invisibles au calcul de largeur
+                 du titre — sans la réservation, il passe dessous au lieu de
+                 s'arrêter avant. */
               className={`mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing ? "pr-14" : ""
+                editing || chrome.endRoom ? "pr-14" : ""
               }`}
             >
               {/* PAS DE PASTILLE DE COULEUR. Chaque bloc en portait une, et
