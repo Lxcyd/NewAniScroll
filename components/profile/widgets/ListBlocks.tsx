@@ -15,7 +15,7 @@ import {
   decadeCounts,
   formatCounts,
   genreCounts,
-  scoreHistogram,
+  scoreSpread,
   showcaseFor,
   statusCounts,
   studioRanks,
@@ -617,17 +617,102 @@ export function StatusesBlock({
 
 /* ── Notes attribuées ────────────────────────────────────────────────── */
 
-export function ScoresBlock({ entries }: { entries: ProfileEntry[] }) {
+/**
+ * LA MOYENNE, DANS LE COIN DE L'EN-TÊTE.
+ *
+ * Même pilule que la série de jours de « Vu récemment » — même plateau opaque,
+ * même bord gris, même centrage sur la ligne d'œil du titre (cf. `StreakBadge`,
+ * DeviceBlocks.tsx, pour le pourquoi de chacun) : deux blocs qui posent un
+ * chiffre au même endroit doivent le poser de la même façon.
+ *
+ * ELLE PORTE SON « /10 ». Seule, « 8,4 » se lit aussi bien comme une moyenne sur
+ * 5 que sur 100 — et l'histogramme sous elle est gradué de 1 à 10, donc l'unité
+ * est écrite là où le doute naît. Le nombre est en or, la couleur des notes
+ * partout ailleurs sur le site (`text-as-score`).
+ */
+function AverageBadge({
+  mean,
+  rated,
+  t,
+}: {
+  mean: number;
+  rated: number;
+  t: (k: string, o?: any) => string;
+}) {
+  return (
+    <div
+      className="as-score-avg absolute right-0 z-10 flex items-baseline gap-1 rounded-full bg-as-card px-2.5 py-1.5 ring-1 ring-[#3b3f4a]"
+      title={t("profile.blocks.scores.meanTitle", { count: rated })}
+    >
+      <span className="font-outfit font-bold leading-none text-as-score">
+        {/* `String` et pas une mise en forme localisée : c'est le MÊME nombre que
+            la moyenne de l'en-tête du profil (cf. `heroStats`), et une page qui
+            l'écrit de deux façons se lit comme deux statistiques. */}
+        {String(mean)}
+      </span>
+      <span className="as-score-avg-unit font-karla leading-none text-white/40">/10</span>
+    </div>
+  );
+}
+
+/**
+ * La distribution des notes du profil : dix colonnes, et leur moyenne.
+ *
+ * TOUT CE QUI SE MESURE EST DANS LA FEUILLE DE STYLE (`.as-score-cols`,
+ * `.as-score-avg`, globals.css), par requête de conteneur — l'écart entre deux
+ * colonnes, le corps des graduations, celui de la moyenne. Écrit ici en classes
+ * fixes, l'histogramme gardait ses six pixels d'écart et ses graduations de
+ * 10 px aussi bien sur une carte de 1×1 que sur une carte quatre fois plus
+ * large, où elles devenaient illisibles de petitesse.
+ *
+ * En 1×1 c'est l'ÉCART qui rend la tenue possible : dix colonnes dans 196 px de
+ * contenu ne peuvent pas garder les 6 px d'origine sans que chaque barre tombe
+ * sous 10 px de large.
+ */
+export function ScoresBlock({
+  entries,
+  /** Ne compter que les titres terminés (cf. `scoreSpread`). */
+  completedOnly = false,
+  /* En réorganisation, le coin de l'en-tête appartient à la roue et au moins. */
+  editing = false,
+}: {
+  entries: ProfileEntry[];
+  completedOnly?: boolean;
+  editing?: boolean;
+}) {
   const { t } = useTranslation();
-  const bins = useMemo(() => scoreHistogram(entries), [entries]);
-  if (!bins.length) return <EmptyBlock note={t("profile.blocks.scores.empty")} />;
+  const { bins, mean, rated } = useMemo(
+    () => scoreSpread(entries, completedOnly),
+    [entries, completedOnly],
+  );
+  if (!bins.length) {
+    /* Deux vides pour deux raisons différentes : un profil sans aucune note n'a
+       rien à répartir, un profil qui n'a noté que des titres en cours a bien des
+       notes — et le bloc doit alors dire que c'est SON filtre qui les écarte,
+       sinon le réglage reste introuvable. */
+    return (
+      <EmptyBlock
+        note={t(
+          completedOnly ? "profile.blocks.scores.emptyCompleted" : "profile.blocks.scores.empty",
+        )}
+      />
+    );
+  }
   const max = Math.max(...bins);
 
   return (
-    <div className="flex h-full items-end gap-1.5">
-      {bins.map((n, i) => (
-        <Column key={i} pct={(n / max) * 100} label={String(i + 1)} />
-      ))}
+    /* DEUX BOÎTES, comme « Vu récemment » : la moyenne est posée au-dessus du
+       contenu, dans l'en-tête, donc elle ne peut pas vivre dans la boîte qui
+       porte les colonnes en `h-full`. */
+    <div className="relative h-full">
+      {!editing && mean != null ? (
+        <AverageBadge mean={mean} rated={rated} t={t} />
+      ) : null}
+      <div className="as-score-cols flex h-full items-end">
+        {bins.map((n, i) => (
+          <Column key={i} pct={(n / max) * 100} label={String(i + 1)} />
+        ))}
+      </div>
     </div>
   );
 }

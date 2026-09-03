@@ -2817,6 +2817,96 @@ input[type="number"] {
   }
 }
 
+/* ── « Notes attribuees » : dix colonnes qui doivent TENIR, puis grandir ──────
+
+   MEME EXIGENCE QUE LA REPARTITION PAR STATUT PLUS BAS, sur l'autre axe : en
+   1x1 les dix colonnes doivent tenir dans la LARGEUR, au-dela tout grandit avec
+   la carte.
+
+   ET C'EST L'ECART QUI DECIDE, pas la barre. Les colonnes se partagent ce qui
+   reste (`flex-1`), donc leur largeur est ce que l'ecart leur laisse : dans
+   196 px de contenu — une colonne de grille sur le profil local — les 6 px
+   d'origine en mangeaient 54, soit un quart, et chaque barre tombait a 14 px.
+   L'ecart descend donc a 3 px la ou la place manque et monte a 12 la ou elle
+   abonde, ce qui est le seul reglage de la mise en page.
+
+   LES GRADUATIONS SONT REGLEES PAR LE PARENT (`.as-score-cols span`) et non par
+   la classe du composant : `Column` est partage avec d'autres blocs, qui
+   gardent leurs 10 px. Le selecteur descendant l'emporte sur la classe fixe de
+   Tailwind — meme nombre de classes, plus un element — sans avoir a toucher au
+   composant commun.
+
+   Les seuils sont ceux du reste du profil (cf. le pave sur `as-head-short`
+   pour le -40 px de la boite de contenu) : 360 px separe une colonne de deux,
+   300 px de haut une rangee de deux, et le palier 940 est celui du bloc large
+   de quatre. */
+.as-score-cols {
+  --as-sc-gap: 3px;
+  --as-sc-label: 9px;
+  gap: var(--as-sc-gap);
+}
+.as-score-cols span {
+  font-size: var(--as-sc-label);
+}
+/* LA MOYENNE, sur la ligne d'oeil de l'en-tete — exactement la pilule de serie
+   de « Vu recemment » (`as-recent-streak`), y compris ses deux `top` : le
+   titre du widget passe a 1.375rem au palier des 300 px de haut, donc la ligne
+   d'oeil descend de trois pixels. Deux chiffres poses au meme endroit de deux
+   cartes voisines ne peuvent pas flotter a deux hauteurs. */
+.as-score-avg {
+  top: -26px;
+  transform: translateY(-50%);
+  font-size: 15px;
+}
+.as-score-avg-unit {
+  font-size: 11px;
+}
+
+@container widget (min-width: 360px) {
+  .as-score-cols {
+    --as-sc-gap: 6px;
+    --as-sc-label: 10px;
+  }
+}
+
+@container widget (min-height: 300px) {
+  .as-score-cols {
+    --as-sc-gap: 8px;
+    --as-sc-label: 12px;
+  }
+  .as-score-avg {
+    top: -29px;
+    font-size: 19px;
+  }
+  .as-score-avg-unit {
+    font-size: 13px;
+  }
+}
+
+/* Bloc large de 3 colonnes. */
+@container widget (min-width: 660px) and (min-height: 300px) {
+  .as-score-cols {
+    --as-sc-gap: 10px;
+    --as-sc-label: 13px;
+  }
+}
+
+/* Bloc large de 4 — toute la largeur de la grille. La ligne d'oeil ne bouge
+   plus (`as-widget-head` ne grandit pas au-dela du palier precedent) : seule la
+   pilule grossit, et son centrage l'absorbe. */
+@container widget (min-width: 940px) and (min-height: 300px) {
+  .as-score-cols {
+    --as-sc-gap: 12px;
+    --as-sc-label: 15px;
+  }
+  .as-score-avg {
+    font-size: 22px;
+  }
+  .as-score-avg-unit {
+    font-size: 14px;
+  }
+}
+
 /* ── « Repartition par statut » : six lignes qui doivent TENIR, puis grandir ──
 
    DEUX EXIGENCES QUI SE CONTREDISENT, et l'ordre entre elles compte.

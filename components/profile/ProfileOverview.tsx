@@ -197,10 +197,15 @@ export default function ProfileOverview({
       title: blockTitle(id, other),
       meta: null,
       /* La vitrine pose ses flèches dans le coin de l'en-tête, « Vu récemment »
-         sa flamme : il faut leur garder la place (cf. `endRoom` dans
-         WidgetGrid.tsx). Pour la flamme, seulement quand elle est allumée —
-         sinon le titre perdrait 56 px pour rien. */
-      endRoom: id === "favorites" || (id === "recents" && optionOn("recents", "streak")),
+         sa flamme, « Notes attribuées » sa moyenne : il faut leur garder la
+         place (cf. `endRoom` dans WidgetGrid.tsx). Pour la flamme, seulement
+         quand elle est allumée — sinon le titre perdrait 56 px pour rien. La
+         moyenne, elle, n'est pas réglable : elle est là dès qu'une note existe,
+         et la réservation ne coûte que sur un profil qui n'a rien noté. */
+      endRoom:
+        id === "favorites" ||
+        id === "scores" ||
+        (id === "recents" && optionOn("recents", "streak")),
       body: body(id),
     };
   }
@@ -422,7 +427,13 @@ export default function ProfileOverview({
           <StatusesBlock entries={entries} custom={optionOn("statuses", "customLists")} />
         );
       case "scores":
-        return <ScoresBlock entries={entries} />;
+        return (
+          <ScoresBlock
+            entries={entries}
+            completedOnly={optionOn("scores", "completedOnly")}
+            editing={editing}
+          />
+        );
       case "genres":
         return <GenresBlock entries={entries} />;
       case "formats":

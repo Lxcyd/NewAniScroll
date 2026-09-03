@@ -862,6 +862,8 @@
         "unratedDesc": "Titles you have not given a score.",
         "trailer": "Trailer on hover",
         "trailerDesc": "The preview that opens when the pointer settles on a poster.",
+        "completedOnly": "Completed only",
+        "completedOnlyDesc": "Counts only the scores of anime you have finished, rewatches included.",
         "customLists": "Count custom lists",
         "customListsDesc": "Replaces the statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
       },
@@ -930,7 +932,10 @@
       "scores": {
         "title": "Scores given",
         "desc": "How your scores spread, 1 to 10.",
-        "empty": "No scores given yet."
+        "empty": "No scores given yet.",
+        "emptyCompleted": "No scores on a finished anime. This block's “Completed only” setting leaves out what you are still watching or dropped.",
+        "meanTitle_one": "Average over {{count}} rated title",
+        "meanTitle_other": "Average over {{count}} rated titles"
       },
       "genres": {
         "title": "Genres",

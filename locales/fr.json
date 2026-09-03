@@ -862,6 +862,8 @@
         "unratedDesc": "Les titres auxquels tu n'as pas mis de note.",
         "trailer": "Bande-annonce au survol",
         "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche.",
+        "completedOnly": "Terminés uniquement",
+        "completedOnlyDesc": "Ne compte que les notes des animés que tu as finis, re-visionnages compris.",
         "customLists": "Compter les listes personnalisées",
         "customListsDesc": "Remplace les statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
       },
@@ -930,7 +932,10 @@
       "scores": {
         "title": "Notes attribuées",
         "desc": "La distribution de tes notes, de 1 à 10.",
-        "empty": "Aucune note attribuée pour l'instant."
+        "empty": "Aucune note attribuée pour l'instant.",
+        "emptyCompleted": "Aucune note sur un animé terminé. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours et abandonnés.",
+        "meanTitle_one": "Moyenne sur {{count}} titre noté",
+        "meanTitle_other": "Moyenne sur {{count}} titres notés"
       },
       "genres": {
         "title": "Genres",

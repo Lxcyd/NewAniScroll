@@ -96,7 +96,21 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "◍",
   },
-  { id: "scores", size: [2, 1], color: "#FFD700", source: "list", icon: "▮" },
+  // 1×1 au minimum, 2×4 au maximum (hauteur × largeur). Dix colonnes tiennent
+  // dans UNE colonne de grille : elles se resserrent, elles ne se coupent pas —
+  // un histogramme se lit par sa forme, et une forme reste lisible étroite,
+  // contrairement aux blocs à vignette ci-dessus. Deux lignes au plus : au-delà,
+  // ce sont dix barres hautes de 900 px, et comparer deux hauteurs ne gagne
+  // rien à les allonger.
+  {
+    id: "scores",
+    size: [2, 1],
+    min: [1, 1],
+    max: [4, 2],
+    color: "#FFD700",
+    source: "list",
+    icon: "▮",
+  },
   { id: "genres", size: [2, 2], color: "#A855F7", source: "list", icon: "◳" },
   { id: "formats", size: [2, 2], color: "#3B82F6", source: "list", icon: "◧" },
   { id: "studios", size: [2, 1], color: "#FFD700", source: "list", icon: "◆" },
@@ -179,6 +193,14 @@ const OPTIONS: Record<string, BlockOption[]> = {
      répartitions ne se mélangent pas (une entrée a UN statut, mais peut être
      dans trois listes personnalisées, donc les totaux ne se comparent pas). */
   statuses: [{ key: "customLists", on: false }],
+  /* Ne garder que les titres TERMINÉS — re-visionnages compris (cf. `FINISHED`,
+     insights.ts). Allumé par défaut, contrairement aux autres filtres du
+     profil : une note posée sur un titre qu'on regarde encore ou qu'on a
+     abandonné en route ne dit pas la même chose que celle d'une œuvre vue en
+     entier, et les mélanger fait une moyenne de deux populations — le piège
+     qu'on a déjà payé ailleurs. La distribution par défaut est donc celle des
+     jugements achevés ; l'interrupteur rouvre le bloc à tout ce qui est noté. */
+  scores: [{ key: "completedOnly", on: true }],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
     { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },

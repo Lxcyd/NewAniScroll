@@ -70,18 +70,60 @@ export function customListCounts(entries: ProfileEntry[]): Tally[] {
     .map(([name, count]) => ({ key: name, label: name, count }));
 }
 
-/** Répartition des notes /10, index 0 = note 1. Vide si personne n'a noté. */
-export function scoreHistogram(entries: ProfileEntry[]): number[] {
+/**
+ * Les statuts d'un titre QU'ON A FINI DE REGARDER.
+ *
+ * « Re-visionnage » en fait partie, et ce n'est pas une largesse : on ne
+ * re-regarde que ce qu'on a déjà terminé une fois. L'exclure retirerait de la
+ * distribution les titres les mieux notés du profil — précisément ceux qu'on
+ * aime assez pour les reprendre — c'est-à-dire la moitié du sujet.
+ */
+const FINISHED = new Set(["COMPLETED", "REPEATING"]);
+
+export type ScoreSpread = {
+  /** Répartition des notes /10, index 0 = note 1. Vide si personne n'a noté. */
+  bins: number[];
+  /** La moyenne EXACTE des notes retenues, /10, arrondie au dixième. */
+  mean: number | null;
+  /** Combien d'entrées la composent — ce que la moyenne vaut. */
+  rated: number;
+};
+
+/**
+ * La distribution des notes du profil, et sa moyenne.
+ *
+ * LES DEUX SORTENT DE LA MÊME FONCTION PARCE QU'ELLES DOIVENT SORTIR DU MÊME
+ * ENSEMBLE : la moyenne est affichée au-dessus de l'histogramme, et une moyenne
+ * calculée sur d'autres titres que ceux dessinés en dessous serait un chiffre
+ * qui contredit son propre graphique. Le filtre ne peut donc pas être appliqué
+ * deux fois de deux côtés.
+ *
+ * La moyenne est prise sur les notes BRUTES, pas sur les paliers : un 7,5 pèse
+ * 7,5 dans la moyenne alors qu'il est dessiné dans la colonne des 8 (les
+ * colonnes arrondissent au supérieur, faute d'avoir vingt colonnes).
+ */
+export function scoreSpread(
+  entries: ProfileEntry[],
+  /** Ne retenir que les titres terminés (cf. `FINISHED`). */
+  completedOnly = false,
+): ScoreSpread {
   const bins = new Array(10).fill(0);
-  let any = false;
+  let sum = 0;
+  let rated = 0;
   for (const e of entries) {
     const s = e.score;
     if (!s || s <= 0) continue;
+    if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
     const bin = Math.min(9, Math.max(0, Math.ceil(s) - 1));
     bins[bin] += 1;
-    any = true;
+    sum += s;
+    rated += 1;
   }
-  return any ? bins : [];
+  return {
+    bins: rated ? bins : [],
+    mean: rated ? Math.round((sum / rated) * 10) / 10 : null,
+    rated,
+  };
 }
 
 export function formatCounts(entries: ProfileEntry[]): Tally[] {
