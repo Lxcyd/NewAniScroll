@@ -646,7 +646,7 @@ function AverageBadge({
 }) {
   return (
     <div
-      className="as-score-avg absolute right-0 z-10 flex items-baseline gap-1 rounded-full bg-as-card px-2.5 py-1.5 ring-1 ring-[#3b3f4a]"
+      className="as-score-avg absolute right-0 z-10 flex items-baseline gap-[0.22em] rounded-full bg-as-card px-2.5 py-1.5 ring-1 ring-[#3b3f4a]"
       title={t("profile.blocks.scores.meanTitle", { count: rated })}
     >
       <span className="font-outfit font-bold leading-none text-as-score">
@@ -655,12 +655,14 @@ function AverageBadge({
             l'écrit de deux façons se lit comme deux statistiques. */}
         {String(mean)}
       </span>
-      {/* L'espace À GAUCHE de la barre oblique est le `gap` de la pilule ; celui
-          de DROITE est une espace insécable, une fraction ne se coupant pas en
-          deux au retour à la ligne. */}
-      <span className="font-outfit font-bold leading-none text-white/40">
-        {"/ 10"}
-      </span>
+      {/* TROIS ÉLÉMENTS ET PAS DEUX, pour que les deux espaces de la fraction
+          soient ÉGALES PAR CONSTRUCTION. La barre oblique était collée au 10 par
+          une espace fine, alors que sa gauche recevait l'écart de la pilule :
+          « 6.9 / 10 » penchait à droite. Rendue comme un élément à part, elle
+          reçoit le même écart des deux côtés — et cet écart est en `em`, donc il
+          suit le corps du texte à chaque palier au lieu de valoir 4 px partout. */}
+      <span className="font-outfit font-bold leading-none text-white/40">/</span>
+      <span className="font-outfit font-bold leading-none text-white/40">10</span>
     </div>
   );
 }
@@ -818,18 +820,35 @@ export function ScoresBlock({
                  d'opacité en bas, donc les petites barres — celles qui sont
                  presque entièrement faites de ce bas — disparaissaient dans le
                  fond de la carte, et une bannière claire derrière les effaçait
-                 tout à fait. Il va maintenant d'un ton à l'autre de la marque,
-                 tous deux PLEINS : la barre garde sa couleur sur toute sa
-                 hauteur, et le dégradé n'est plus qu'un relief. */
-              className="w-full rounded-t-md bg-gradient-to-b from-[#FF8A64] to-[#E94560] transition-[filter] group-hover:brightness-110"
-              /* UN PLANCHER EN PIXELS POUR CE QUI EXISTE, ET RIEN POUR CE QUI
-                 N'EXISTE PAS. L'ancien plancher valait 4 % pour tout le monde, y
-                 compris pour les notes que personne n'a mises : dix moignons
-                 identiques alignés au bas du graphe, dont on ne pouvait pas dire
-                 s'ils valaient zéro ou un. Une note jamais donnée n'a donc plus
-                 de barre du tout, et une note donnée une fois garde 3 px, sans
-                 quoi elle serait invisible sur une échelle qui monte à 40. */
-              style={{ height: n ? `max(3px, ${(n / top) * 100}%)` : "0px" }}
+                 tout à fait. Les deux tons sont désormais PLEINS : la barre garde
+                 sa couleur sur toute sa hauteur, et le dégradé n'est plus qu'un
+                 relief.
+
+                 ET IL EST ROSE DES DEUX BOUTS. Il partait de l'orange de la
+                 marque (`--brand-secondary`), qui appartient au logo et n'a rien
+                 à faire ici : le bloc n'a aucun rapport avec lui. Il va du rose
+                 CLAIR — celui du bouton « Ajouter un bloc », deux pas au-dessus
+                 de l'accent — au rose du site lui-même.
+
+                 LES DEUX SE DÉDUISENT DE L'ACCENT, ils ne sont pas écrits en
+                 dur : l'accent est réglable (lib/prefs/accentColor.ts), et deux
+                 hexadécimaux figés auraient laissé cet histogramme rose sur un
+                 profil passé au bleu. `color-mix` avec du blanc donne le ton
+                 clair, la variable elle-même donne l'autre. */
+              className="w-full rounded-t-md transition-[filter] group-hover:brightness-110"
+              style={{
+                background:
+                  "linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #E94560) 74%, #fff) 0%, var(--brand-primary, #E94560) 100%)",
+                /* UN PLANCHER EN PIXELS POUR CE QUI EXISTE, ET RIEN POUR CE QUI
+                   N'EXISTE PAS. L'ancien plancher valait 4 % pour tout le monde,
+                   y compris pour les notes que personne n'a mises : dix moignons
+                   identiques alignés au bas du graphe, dont on ne pouvait pas
+                   dire s'ils valaient zéro ou un. Une note jamais donnée n'a donc
+                   plus de barre du tout, et une note donnée une fois garde 3 px,
+                   sans quoi elle serait invisible sur une échelle qui monte
+                   à 40. */
+                height: n ? `max(3px, ${(n / top) * 100}%)` : "0px",
+              }}
             />
           </div>
         ))}

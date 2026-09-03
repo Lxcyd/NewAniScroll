@@ -2843,6 +2843,14 @@ input[type="number"] {
 .as-score-plot {
   --as-sc-gap: 3px;
   --as-sc-label: 9px;
+  /* LE DEGAGEMENT SOUS LE TITRE. La graduation la plus HAUTE est centree sur sa
+     ligne, donc la moitie de son chiffre depasse au-dessus du graphe : collee
+     au bord superieur du corps, elle venait toucher le titre du widget. Ce
+     retrait n'est pas non plus qu'une affaire de chiffre — la plus haute barre
+     s'arrete sur cette ligne, et un histogramme qui touche son titre parait
+     deborder de sa carte. */
+  --as-sc-head: 10px;
+  padding-top: var(--as-sc-head);
   /* L'ECART EST CELUI DES COLONNES SEULEMENT. Une `gap` complete l'appliquerait
      aussi entre les barres et la rangee des notes, alors que celle-ci porte
      deja son propre retrait (`pt-2`, ListBlocks.tsx) — et surtout les lignes de
@@ -2860,13 +2868,14 @@ input[type="number"] {
 .as-score-avg {
   top: -26px;
   transform: translateY(-50%);
-  font-size: 15px;
+  font-size: 13px;
 }
 
 @container widget (min-width: 360px) {
   .as-score-plot {
     --as-sc-gap: 6px;
     --as-sc-label: 10px;
+    --as-sc-head: 12px;
   }
 }
 
@@ -2874,10 +2883,11 @@ input[type="number"] {
   .as-score-plot {
     --as-sc-gap: 8px;
     --as-sc-label: 12px;
+    --as-sc-head: 16px;
   }
   .as-score-avg {
     top: -29px;
-    font-size: 19px;
+    font-size: 16px;
   }
 }
 
@@ -2886,6 +2896,7 @@ input[type="number"] {
   .as-score-plot {
     --as-sc-gap: 10px;
     --as-sc-label: 13px;
+    --as-sc-head: 18px;
   }
 }
 
@@ -2896,9 +2907,10 @@ input[type="number"] {
   .as-score-plot {
     --as-sc-gap: 12px;
     --as-sc-label: 15px;
+    --as-sc-head: 20px;
   }
   .as-score-avg {
-    font-size: 22px;
+    font-size: 18px;
   }
 }
 
