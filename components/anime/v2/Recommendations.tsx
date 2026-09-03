@@ -6,6 +6,7 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { coverUrl } from "@/lib/images/cover";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
+import { useEdgeFade } from "@/lib/ui/edgeFade";
 
 type Props = {
   items: MediaRecommendation[];
@@ -34,6 +35,9 @@ export default function Recommendations({ items, forTitle }: Props) {
     seen.add(r.id);
     return true;
   });
+  /* Les bords estompés du site (cf. lib/ui/edgeFade.ts). Appelé AVANT le retour
+     anticipé ci-dessous : un hook ne se saute pas. */
+  const syncFades = useEdgeFade(ref, uniqueItems.length);
   if (uniqueItems.length === 0) return null;
   return (
     <div style={rStyles.wrap}>
@@ -71,8 +75,10 @@ export default function Recommendations({ items, forTitle }: Props) {
       </div>
       <div
         ref={ref}
+        className="as-fade-x"
         style={rStyles.carousel}
         onClickCapture={onClickCapture}
+        onScroll={syncFades}
       >
         {uniqueItems.map((r) => (
           <Link

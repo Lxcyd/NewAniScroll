@@ -2360,14 +2360,25 @@ input[type="number"] {
   margin-top: -4px;
   margin-bottom: -4px;
 
-  /* LES BORDS ESTOMPENT CE QUI SORT, au lieu de le trancher.
-     Une bande qui defile s'arrete net sur le bord de sa case : l'affiche a
-     moitie coupee se lit comme un defaut d'affichage, pas comme la suite de la
-     liste. Un masque en degrade la fait s'eteindre sur les derniers 36 px.
-     Le degrade est pose SUR LE COTE OU IL RESTE QUELQUE CHOSE seulement (les
-     deux longueurs viennent de `syncRow`, dans ListBlocks.tsx) : estomper le
-     premier titre alors qu'on est deja au debut de la liste ferait croire a
-     tort qu'on a rate quelque chose a gauche. */
+  /* Les bords estompes sont dans `.as-fade-x`, plus bas : la vitrine les a vus
+     naitre, mais ils appartiennent a tous les carrousels du site. */
+}
+
+/* LES BORDS ESTOMPENT CE QUI SORT, au lieu de le trancher.
+
+   Une bande qui defile s'arrete net sur le bord de sa boite : l'affiche a moitie
+   coupee se lit comme un defaut d'affichage, pas comme la suite de la liste. Un
+   masque en degrade la fait s'eteindre sur les derniers 36 px.
+
+   Le degrade est pose SUR LE COTE OU IL RESTE QUELQUE CHOSE seulement -- les
+   deux longueurs viennent de `useEdgeFade` (lib/ui/edgeFade.ts) : estomper le
+   premier titre alors qu'on est deja au debut de la liste ferait croire a tort
+   qu'on a rate quelque chose a gauche.
+
+   ZERO PAR DEFAUT, et c'est ce qui rend la classe sure a poser n'importe ou :
+   sans le hook, le masque est un rectangle plein et ne change rien. Une rangee
+   qui n'a pas encore de JS ne s'affiche donc jamais amputee. */
+.as-fade-x {
   --as-fade-l: 0px;
   --as-fade-r: 0px;
   -webkit-mask-image: linear-gradient(

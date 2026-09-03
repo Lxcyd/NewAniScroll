@@ -14,6 +14,7 @@ import { touchHistory } from "@/lib/profile/history";
 import { useSession } from "next-auth/react";
 import { profileHref } from "@/lib/profile/href";
 import HistoryOptions from "./historyOptions";
+import { useEdgeFade } from "@/lib/ui/edgeFade";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { coverUrl } from "@/lib/images/cover";
@@ -237,6 +238,10 @@ export default function Content({
       e.target.scrollLeft < e.target.scrollWidth - e.target.clientWidth;
     setScrollLeft(scrollLeft);
     setScrollRight(scrollRight);
+    /* Les bords estompés, les mêmes que partout ailleurs (lib/ui/edgeFade.ts).
+       Greffés sur le gestionnaire existant plutôt qu'ajoutés à côté : deux
+       `onScroll` sur le même nœud, c'est le second qui écrase le premier. */
+    syncFades();
   };
 
   function handleAlert(e: string) {
@@ -278,6 +283,12 @@ export default function Content({
   });
   const slicedData: SlicedDataTypes[] =
     filteredData?.length > 15 ? filteredData?.slice(0, 15) : filteredData;
+
+  /* Les bords estompés, communs à tous les carrousels (cf. lib/ui/edgeFade.ts).
+     Le nombre de cartes sert de témoin : une rangée de l'accueil se remplit
+     APRÈS son premier rendu, et sa boîte ne change pas de taille en
+     s'allongeant — un ResizeObserver seul ne le verrait donc pas. */
+  const syncFades = useEdgeFade(ref, slicedData?.length);
 
   const goToPage = () => {
     if (section === "Recently Watched") {
@@ -433,7 +444,7 @@ export default function Content({
         </div>
         <div
           id={ids}
-          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 lg:cursor-grab lg:active:cursor-grabbing"
+          className="as-fade-x flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 lg:cursor-grab lg:active:cursor-grabbing"
           onScroll={handleScroll}
           onClickCapture={onClickCapture}
           ref={ref}

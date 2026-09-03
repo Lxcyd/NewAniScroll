@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -8,6 +8,7 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
+import { useEdgeFade } from "@/lib/ui/edgeFade";
 import {
   currentlyWatching,
   decadeCounts,
@@ -329,24 +330,11 @@ export function FavoritesBlock({
   const cards = useShelfTransition(shown);
   useShelfReflow(ref, cards);
 
-  /**
-   * DE QUEL CÔTÉ IL RESTE QUELQUE CHOSE, pour n'estomper que ce bord-là (cf.
-   * le masque de `.as-fav-row`). Estomper le premier titre alors qu'on est
-   * déjà au début de la liste ferait croire à tort qu'on a raté quelque chose
-   * à gauche.
-   *
-   * Écrit dans le style du nœud plutôt que dans un état React : c'est une
-   * conséquence du défilement, et la repasser par un rendu ferait un rendu par
-   * frame de défilement pour deux longueurs de dégradé.
-   */
-  const syncFades = useCallback(() => {
-    const row = ref.current;
-    if (!row) return;
-    const left = row.scrollLeft > 4;
-    const right = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
-    row.style.setProperty("--as-fade-l", left ? "36px" : "0px");
-    row.style.setProperty("--as-fade-r", right ? "36px" : "0px");
-  }, [ref]);
+  /* Les bords estompés, communs à tous les carrousels du site (cf.
+     lib/ui/edgeFade.ts). Le nombre de cartes est passé en témoin : la bande
+     s'allonge sans que sa boîte change de taille, ce qu'un ResizeObserver seul
+     ne verrait pas. */
+  const syncFades = useEdgeFade(ref, cards.length);
 
   /**
    * LA LARGEUR D'UNE CARTE, posée en `--as-fav-w` sur la bande.
@@ -452,7 +440,7 @@ export function FavoritesBlock({
            pixel pour déborder dans le rembourrage de la carte, et écrits en
            classes séparées ils invitaient à en changer une sans les autres —
            ce qui est précisément l'erreur qui a laissé une bande vide en bas. */
-        className="as-fav-row as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
+        className="as-fav-row as-fade-x as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
       >
         {cards.map(({ e, state }, i) => (
           <Link
