@@ -2883,7 +2883,7 @@ input[type="number"] {
   --as-st-text: 12px;
   --as-st-count: 11px;
   --as-st-dot: 7px;
-  --as-bar-h: 5px;
+  --as-bar-h: 4px;
   --as-st-cols: 0.625rem;
   /* La hauteur PLANCHER d'une ligne : ce en quoi les pistes retombent quand la
      liste deborde, et ce sur quoi se verifie le tenir-en-1x1. */
@@ -2945,7 +2945,7 @@ input[type="number"] {
     --as-st-text: 13px;
     --as-st-count: 12px;
     --as-st-dot: 8px;
-    --as-bar-h: 7px;
+    --as-bar-h: 5px;
     --as-st-cols: 0.75rem;
     --as-st-row: 19px;
     --as-st-slot: 33px;
@@ -2961,7 +2961,7 @@ input[type="number"] {
     --as-st-text: 14px;
     --as-st-count: 13px;
     --as-st-dot: 9px;
-    --as-bar-h: 9px;
+    --as-bar-h: 6px;
     --as-st-row: 21px;
     --as-st-slot: 40px;
   }
@@ -2977,7 +2977,7 @@ input[type="number"] {
     --as-st-text: 15px;
     --as-st-count: 14px;
     --as-st-dot: 10px;
-    --as-bar-h: 11px;
+    --as-bar-h: 7px;
     --as-st-cols: 0.875rem;
     --as-st-row: 23px;
     --as-st-slot: 999px;
