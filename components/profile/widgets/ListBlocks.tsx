@@ -564,37 +564,45 @@ export function StatusesBlock({
   const max = Math.max(...rows.map((r) => r.count));
 
   return (
-    /* PAS DE `content-start` ICI : il calerait les lignes en haut et annulerait
-       le partage de hauteur (`grid-auto-rows: minmax(…, 1fr)`, globals.css) —
-       c'est exactement ce qui laissait un grand vide sous la derniere. */
-    <div className="as-status-list as-widget-scroll grid h-full overflow-y-auto pr-1.5">
-      {rows.map((r) => {
-        const color = custom
-          ? customListColor(r.key)
-          : STATUS_COLOR[r.key as StatusKey] || "#6b7280";
-        return (
-          <div key={r.key} className="as-status-row flex items-center">
-            <span
-              className="as-status-dot shrink-0 rounded-full"
-              style={{ background: color, boxShadow: `0 0 10px ${color}55` }}
-            />
-            {/* Le nom prend un peu plus que la barre : c'est lui qui a une
-                longueur imposée, la barre s'accommode de ce qui reste. */}
-            <span className="min-w-0 flex-[1.4] truncate text-white/70">
-              {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
-            </span>
-            <span className="min-w-0 flex-1">
-              <Bar pct={(r.count / max) * 100} color={color} />
-            </span>
-            {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
-                alignée à chaque palier sans qu'on ait à la re-mesurer, puisque
-                sa largeur suit le corps du texte. */}
-            <span className="as-status-count min-w-[2.5ch] shrink-0 text-right font-karla font-bold text-white">
-              {r.count}
-            </span>
-          </div>
-        );
-      })}
+    /* DEUX BOÎTES, ET L'INTÉRIEURE A BESOIN DE SAVOIR COMBIEN DE LIGNES.
+       L'extérieure défile et centre ; l'intérieure porte les lignes et se
+       PLAFONNE. Le plafond vaut tant de pixels PAR LIGNE, donc il ne peut pas
+       s'écrire sans leur nombre — le CSS ne sait pas compter ses enfants, d'où
+       la seule chose que ce composant lui dise (cf. `--as-st-slot`, globals.css).
+
+       PAS DE `content-start` : il calerait les lignes en haut et annulerait le
+       partage de hauteur — c'est ce qui laissait un grand vide sous la
+       dernière. */
+    <div className="as-status-wrap as-widget-scroll grid h-full overflow-y-auto pr-1.5">
+      <div className="as-status-list grid" style={{ ["--as-st-n" as string]: rows.length }}>
+        {rows.map((r) => {
+          const color = custom
+            ? customListColor(r.key)
+            : STATUS_COLOR[r.key as StatusKey] || "#6b7280";
+          return (
+            <div key={r.key} className="as-status-row flex items-center">
+              <span
+                className="as-status-dot shrink-0 rounded-full"
+                style={{ background: color, boxShadow: `0 0 10px ${color}55` }}
+              />
+              {/* Le nom prend un peu plus que la barre : c'est lui qui a une
+                  longueur imposée, la barre s'accommode de ce qui reste. */}
+              <span className="min-w-0 flex-[1.4] truncate text-white/70">
+                {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <Bar pct={(r.count / max) * 100} color={color} />
+              </span>
+              {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
+                  alignée à chaque palier sans qu'on ait à la re-mesurer, puisque
+                  sa largeur suit le corps du texte. */}
+              <span className="as-status-count min-w-[2.5ch] shrink-0 text-right font-karla font-bold text-white">
+                {r.count}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
