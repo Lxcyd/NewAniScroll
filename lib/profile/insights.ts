@@ -80,8 +80,30 @@ export function customListCounts(entries: ProfileEntry[]): Tally[] {
  */
 const FINISHED = new Set(["COMPLETED", "REPEATING"]);
 
+/**
+ * LE PAS DE LA RÉPARTITION : LE DEMI-POINT, PARCE QUE C'EST L'UNITÉ DES NOTES.
+ *
+ * Les colonnes valaient un point entier, et arrondissaient au supérieur : un 7,5
+ * était compté comme un 8. Sur un profil qui note au demi-point — ce que le site
+ * comme AniList permettent (POINT_10_DECIMAL, cf. lib/profile/types.ts) — la
+ * moitié des notes changeait donc de colonne, et l'histogramme montrait une
+ * préférence pour les nombres ronds que le spectateur n'a jamais eue.
+ *
+ * Vingt colonnes, de 0,5 à 10. Pas de colonne à 0 : la note zéro n'existe pas,
+ * elle est ce qu'AniList écrit pour « pas noté » — et ces entrées-là sont
+ * écartées, pas comptées à zéro.
+ */
+export const SCORE_STEP = 0.5;
+const SCORE_BINS = Math.round(10 / SCORE_STEP);
+
+/** La note que représente la colonne `i` : 0,5, 1, 1,5… 10. */
+export function scoreBinValue(i: number): number {
+  return (i + 1) * SCORE_STEP;
+}
+
 export type ScoreSpread = {
-  /** Répartition des notes /10, index 0 = note 1. Vide si personne n'a noté. */
+  /** Répartition des notes, une colonne par demi-point (cf. `scoreBinValue`).
+   *  Vide si personne n'a noté. */
   bins: number[];
   /** La moyenne EXACTE des notes retenues, /10, arrondie au dixième. */
   mean: number | null;
@@ -98,23 +120,28 @@ export type ScoreSpread = {
  * qui contredit son propre graphique. Le filtre ne peut donc pas être appliqué
  * deux fois de deux côtés.
  *
- * La moyenne est prise sur les notes BRUTES, pas sur les paliers : un 7,5 pèse
- * 7,5 dans la moyenne alors qu'il est dessiné dans la colonne des 8 (les
- * colonnes arrondissent au supérieur, faute d'avoir vingt colonnes).
+ * La moyenne est prise sur les notes BRUTES, pas sur les paliers : elle reste
+ * juste même si une note tombe entre deux colonnes.
+ *
+ * LA COLONNE EST CELLE DU DEMI-POINT LE PLUS PROCHE, et plus celle du point
+ * entier au-dessus. L'arrondi au supérieur poussait chaque 7,5 chez les 8 ;
+ * l'arrondi au plus proche laisse une note posée sur un palier dans SON palier,
+ * et ne déplace que les notes qui n'en sont pas — un 6,7, qu'AniList accepte,
+ * rejoint les 6,5.
  */
 export function scoreSpread(
   entries: ProfileEntry[],
   /** Ne retenir que les titres terminés (cf. `FINISHED`). */
   completedOnly = false,
 ): ScoreSpread {
-  const bins = new Array(10).fill(0);
+  const bins = new Array(SCORE_BINS).fill(0);
   let sum = 0;
   let rated = 0;
   for (const e of entries) {
     const s = e.score;
     if (!s || s <= 0) continue;
     if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
-    const bin = Math.min(9, Math.max(0, Math.ceil(s) - 1));
+    const bin = Math.min(SCORE_BINS - 1, Math.max(0, Math.round(s / SCORE_STEP) - 1));
     bins[bin] += 1;
     sum += s;
     rated += 1;

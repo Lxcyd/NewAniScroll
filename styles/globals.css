@@ -2817,11 +2817,12 @@ input[type="number"] {
   }
 }
 
-/* ── « Notes attribuees » : dix colonnes qui doivent TENIR, puis grandir ──────
+/* ── « Notes attribuees » : vingt colonnes qui doivent TENIR, puis grandir ───
 
    MEME EXIGENCE QUE LA REPARTITION PAR STATUT PLUS BAS, sur l'autre axe : en
-   1x1 les dix colonnes doivent tenir dans la LARGEUR, au-dela tout grandit avec
-   la carte.
+   1x1 les vingt colonnes — une par demi-point, cf. SCORE_STEP — doivent tenir
+   dans la LARGEUR, au-dela tout grandit avec la carte. Elles etaient dix, et
+   l'ecart a du se resserrer d'autant quand le pas est passe au demi-point.
 
    ET C'EST L'ECART QUI DECIDE, pas la barre. Les colonnes se partagent ce qui
    reste (`minmax(0, 1fr)`), donc leur largeur est ce que l'ecart et la colonne
@@ -2841,7 +2842,7 @@ input[type="number"] {
    300 px de haut une rangee de deux, et le palier 940 est celui du bloc large
    de quatre. */
 .as-score-plot {
-  --as-sc-gap: 3px;
+  --as-sc-gap: 2px;
   --as-sc-label: 9px;
   /* LE DEGAGEMENT SOUS LE TITRE. La graduation la plus HAUTE est centree sur sa
      ligne, donc la moitie de son chiffre depasse au-dessus du graphe : collee
@@ -2851,11 +2852,18 @@ input[type="number"] {
      deborder de sa carte. */
   --as-sc-head: 10px;
   padding-top: var(--as-sc-head);
+  /* LE RAYON DU SOMMET DES BARRES. Vingt colonnes au lieu de dix : une barre
+     de six pixels de large coiffee d'un rayon de six n'est plus une barre,
+     c'est une gelule. Le rayon suit donc la largeur, comme tout le reste. */
+  --as-sc-round: 2px;
   /* L'ECART EST CELUI DES COLONNES SEULEMENT. Une `gap` complete l'appliquerait
      aussi entre les barres et la rangee des notes, alors que celle-ci porte
      deja son propre retrait (`pt-2`, ListBlocks.tsx) — et surtout les lignes de
      graduation s'arreteraient au-dessus du zero au lieu de reposer dessus. */
   column-gap: var(--as-sc-gap);
+}
+.as-score-bar {
+  border-radius: var(--as-sc-round) var(--as-sc-round) 0 0;
 }
 .as-score-plot span {
   font-size: var(--as-sc-label);
@@ -2873,17 +2881,19 @@ input[type="number"] {
 
 @container widget (min-width: 360px) {
   .as-score-plot {
-    --as-sc-gap: 6px;
+    --as-sc-gap: 4px;
     --as-sc-label: 10px;
     --as-sc-head: 12px;
+    --as-sc-round: 3px;
   }
 }
 
 @container widget (min-height: 300px) {
   .as-score-plot {
-    --as-sc-gap: 8px;
+    --as-sc-gap: 6px;
     --as-sc-label: 12px;
     --as-sc-head: 16px;
+    --as-sc-round: 3px;
   }
   .as-score-avg {
     top: -29px;
@@ -2894,9 +2904,10 @@ input[type="number"] {
 /* Bloc large de 3 colonnes. */
 @container widget (min-width: 660px) and (min-height: 300px) {
   .as-score-plot {
-    --as-sc-gap: 10px;
+    --as-sc-gap: 7px;
     --as-sc-label: 13px;
     --as-sc-head: 18px;
+    --as-sc-round: 4px;
   }
 }
 
@@ -2905,9 +2916,10 @@ input[type="number"] {
    pilule grossit, et son centrage l'absorbe. */
 @container widget (min-width: 940px) and (min-height: 300px) {
   .as-score-plot {
-    --as-sc-gap: 12px;
+    --as-sc-gap: 8px;
     --as-sc-label: 15px;
     --as-sc-head: 20px;
+    --as-sc-round: 5px;
   }
   .as-score-avg {
     font-size: 18px;

@@ -15,6 +15,7 @@ import {
   decadeCounts,
   formatCounts,
   genreCounts,
+  scoreBinValue,
   scoreSpread,
   showcaseFor,
   statusCounts,
@@ -698,8 +699,8 @@ export function scoreScale(max: number): { step: number; top: number; ticks: num
 }
 
 /**
- * La distribution des notes du profil : dix colonnes, leurs graduations, et la
- * moyenne dans le coin.
+ * La distribution des notes du profil : une colonne par demi-point, leurs
+ * graduations, et la moyenne dans le coin.
  *
  * TOUT CE QUI SE MESURE EST DANS LA FEUILLE DE STYLE (`.as-score-plot`,
  * `.as-score-avg`, globals.css), par requête de conteneur — l'écart entre deux
@@ -708,11 +709,11 @@ export function scoreScale(max: number): { step: number; top: number; ticks: num
  * 10 px aussi bien sur une carte de 1×1 que sur une carte quatre fois plus
  * large, où elles devenaient illisibles de petitesse.
  *
- * En 1×1 c'est l'ÉCART qui rend la tenue possible : dix colonnes dans 196 px de
- * contenu ne peuvent pas garder les 6 px d'origine sans que chaque barre tombe
- * sous 10 px de large.
+ * En 1×1 c'est l'ÉCART qui rend la tenue possible : vingt colonnes dans 196 px
+ * de contenu ne peuvent pas garder les 6 px d'origine — il ne resterait presque
+ * rien pour les barres elles-mêmes.
  *
- * UNE GRILLE, PAS DIX BOÎTES CÔTE À CÔTE. Les lignes de graduation doivent
+ * UNE GRILLE, PAS VINGT BOÎTES CÔTE À CÔTE. Les lignes de graduation doivent
  * traverser TOUTES les colonnes, écarts compris : posées dans chaque colonne
  * elles s'interrompraient entre deux barres. La grille donne une bande unique
  * qui les porte (`gridColumn: 2 / -1`), derrière les barres puisqu'elle est
@@ -760,7 +761,7 @@ export function ScoresBlock({
       <div
         className="as-score-plot grid h-full"
         style={{
-          gridTemplateColumns: "auto repeat(10, minmax(0, 1fr))",
+          gridTemplateColumns: `auto repeat(${bins.length}, minmax(0, 1fr))`,
           gridTemplateRows: "minmax(0, 1fr) auto",
         }}
       >
@@ -805,12 +806,20 @@ export function ScoresBlock({
                bas jusqu'au sommet du graphe. */
             className="group relative flex items-end"
             style={{ gridRow: 1, gridColumn: i + 2 }}
+            /* La colonne DIT SA NOTE, parce que l'axe n'en écrit qu'une sur
+               deux : sans ça, une barre entre le 6 et le 7 laisse le doute sur
+               ce qu'elle compte. Le survol donne le nombre, l'infobulle donne la
+               phrase entière. */
+            title={t("profile.blocks.scores.barTitle", {
+              score: scoreBinValue(i),
+              count: n,
+            })}
           >
             {/* LE COMPTE, AU-DESSUS DE SA BARRE, et en absolu : ajouté dans le
                 flux, il aurait raccourci la barre à l'instant du survol — la
                 colonne se serait mise à bouger sous le curseur. */}
             <span
-              className="pointer-events-none absolute inset-x-0 -translate-y-1 text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+              className="pointer-events-none absolute inset-x-0 -translate-y-1 whitespace-nowrap text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
               style={{ bottom: `${(n / top) * 100}%` }}
             >
               {n}
@@ -835,7 +844,7 @@ export function ScoresBlock({
                  hexadécimaux figés auraient laissé cet histogramme rose sur un
                  profil passé au bleu. `color-mix` avec du blanc donne le ton
                  clair, la variable elle-même donne l'autre. */
-              className="w-full rounded-t-md transition-[filter] group-hover:brightness-110"
+              className="as-score-bar w-full transition-[filter] group-hover:brightness-110"
               style={{
                 background:
                   "linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #E94560) 74%, #fff) 0%, var(--brand-primary, #E94560) 100%)",
@@ -853,15 +862,24 @@ export function ScoresBlock({
           </div>
         ))}
 
-        {bins.map((_, i) => (
-          <span
-            key={i}
-            className="pt-2 text-center font-karla tabular-nums text-white/35"
-            style={{ gridRow: 2, gridColumn: i + 2 }}
-          >
-            {i + 1}
-          </span>
-        ))}
+        {/* LES NOTES DU BAS : LES POINTS ENTIERS SEULEMENT.
+            Vingt colonnes ne peuvent pas porter vingt étiquettes — « 0,5 1 1,5 »
+            se chevaucheraient dès la première carte étroite. Un chiffre sur deux
+            suffit à lire l'axe, et il est posé sur SA colonne, pas centré entre
+            les deux : le 7 doit désigner le 7, pas l'entre-deux du 6,5 et du 7. */}
+        {bins.map((_, i) => {
+          const v = scoreBinValue(i);
+          if (!Number.isInteger(v)) return null;
+          return (
+            <span
+              key={i}
+              className="pt-2 text-center font-karla tabular-nums text-white/35"
+              style={{ gridRow: 2, gridColumn: i + 2 }}
+            >
+              {v}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
