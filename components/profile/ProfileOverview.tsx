@@ -38,7 +38,7 @@ import {
   type GridItem,
 } from "@/lib/profile/grid";
 import { setProfileLayout, useProfileLayout } from "@/lib/prefs/profileLayout";
-import type { ProfileCharacter, ProfileEntry } from "@/lib/profile/types";
+import type { ProfileCharacter, ProfileEntry, ProfileTitle } from "@/lib/profile/types";
 
 /**
  * L'onglet « Aperçu » : la grille de widgets du profil, sa barre d'outils et
@@ -213,6 +213,21 @@ export default function ProfileOverview({
      ne sont dans aucun catalogue — chacun invente les siennes — donc elles se
      lisent dans les entrées, et le préfixe les empêche de se confondre avec une
      liste de statut qui porterait le même nom. */
+  /**
+   * LES VARIANTES DE TITRE, par `mediaId`, pour les deux widgets d'activité.
+   *
+   * L'historique du lecteur ne garde qu'une chaîne — le titre tel qu'il
+   * s'affichait pendant la lecture — donc ces deux blocs étaient les seuls du
+   * site à ignorer le réglage « romaji / anglais ». La liste du profil, elle,
+   * porte les variantes : il suffisait de les leur passer, sans rien demander au
+   * réseau et sans dépendre d'AniList au moment du rendu.
+   */
+  const titlesById = useMemo(() => {
+    const map = new Map<number, ProfileTitle | null>();
+    for (const e of entries) map.set(e.mediaId, e.title);
+    return map;
+  }, [entries]);
+
   const customLists = useMemo(() => customListNames(entries), [entries]);
   const customValues = useMemo(
     () => customLists.map((n) => `${CUSTOM_PREFIX}${n}`),
@@ -359,9 +374,16 @@ export default function ProfileOverview({
          regarde (PROGRESS_EVENT). Servir sa propre sauvegarde au propriétaire
          lui montrerait un épisode en retard sur ce qu'il vient de lancer. */
       case "resume":
-        return <ResumeBlock rows={served} other={!isOwner} ambient={optionOn("resume", "ambient")} />;
+        return (
+          <ResumeBlock
+            rows={served}
+            other={!isOwner}
+            titles={titlesById}
+            ambient={optionOn("resume", "ambient")}
+          />
+        );
       case "recents":
-        return <RecentsBlock rows={served} other={!isOwner} />;
+        return <RecentsBlock rows={served} other={!isOwner} titles={titlesById} />;
       case "favorites":
         return (
           <FavoritesBlock

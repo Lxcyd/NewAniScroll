@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
 import { readHistory, watchHref } from "@/lib/profile/history";
 import { decorateRows, type ActivityRow } from "@/lib/profile/activity";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { Bar, EmptyBlock, useAgo } from "./common";
 
@@ -103,18 +105,46 @@ export type ActivityProps = {
   rows?: ActivityRow[];
   /** Les textes qui tutoient le lecteur ne valent pas sur le profil d'un autre. */
   other?: boolean;
+  /**
+   * LES VARIANTES DE TITRE, par `mediaId`, pour suivre la préférence du site.
+   *
+   * L'historique du lecteur n'enregistre qu'UNE chaîne (`aniTitle`) : celle qui
+   * s'affichait au moment de la lecture. Elle ne peut donc pas suivre le réglage
+   * « romaji / anglais » — l'anime restait écrit dans la langue d'alors, seul
+   * endroit du site à ne pas obéir au réglage.
+   *
+   * Les variantes existent pourtant déjà à côté, dans la liste du profil. On les
+   * passe en table plutôt que d'aller les redemander au réseau : c'est gratuit,
+   * et ça ne dépend pas d'AniList au moment du rendu.
+   *
+   * Absent, ou anime hors liste (un titre regardé sans être ajouté) : on retombe
+   * sur la chaîne de l'historique, qui vaut toujours mieux qu'un numéro.
+   */
+  titles?: Map<number, ProfileTitle | null>;
 };
+
+/** Le titre d'une ligne, dans la langue réglée quand on la connaît. */
+function useRowTitle(titles: ActivityProps["titles"]) {
+  const pref = useTitlePref();
+  return (row: { aniId: number; animeTitle: string | null }) => {
+    const known = titles?.get(row.aniId);
+    if (known) return pickTitle(known, pref);
+    return row.animeTitle || `#${row.aniId}`;
+  };
+}
 
 /* ── Reprendre la lecture ────────────────────────────────────────────── */
 
 export function ResumeBlock({
   rows: served,
   other,
+  titles,
   /* Réglable depuis la roue dentée du bloc, en mode réorganisation (cf.
      lib/profile/blocks.ts). Allumée par défaut. */
   ambient = true,
 }: ActivityProps & { ambient?: boolean } = {}) {
   const { t } = useTranslation();
+  const rowTitle = useRowTitle(titles);
   const { rows, loaded } = useRows(served, 12);
 
   /* Le dernier épisode COMMENCÉ mais pas fini. Proposer de « reprendre » un
@@ -219,7 +249,7 @@ export function ResumeBlock({
       <div className="flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
           <h3 className="as-widget-lead line-clamp-3 font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action">
-            {row.animeTitle || `#${row.aniId}`}
+            {rowTitle(row)}
           </h3>
         </Link>
         <p className="as-widget-sub mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
@@ -270,9 +300,10 @@ export function ResumeBlock({
 
 /* ── Vu récemment ────────────────────────────────────────────────────── */
 
-export function RecentsBlock({ rows: served, other }: ActivityProps = {}) {
+export function RecentsBlock({ rows: served, other, titles }: ActivityProps = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
+  const rowTitle = useRowTitle(titles);
   const { rows, loaded } = useRows(served, 12);
 
   if (!loaded) return <div className="h-full" />;
@@ -286,7 +317,7 @@ export function RecentsBlock({ rows: served, other }: ActivityProps = {}) {
   return (
     <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
       {rows.map((r) => (
-        <RecentRow key={`${r.aniId}:${r.episode}`} row={r} ago={ago} t={t} />
+        <RecentRow key={`${r.aniId}:${r.episode}`} row={r} ago={ago} t={t} title={rowTitle(r)} />
       ))}
     </div>
   );
@@ -315,11 +346,17 @@ function RecentRow({
   row: r,
   ago,
   t,
+  title,
 }: {
   row: ActivityRow;
   ago: (at: number) => string;
   t: (key: string, opts?: Record<string, unknown>) => string;
+  title: string;
 }) {
+  /* La saison se cherche sur le titre DE L'HISTORIQUE et pas sur celui qu'on
+     affiche : `extractSeasonFromTitle` lit « Season 2 » ou « 2nd Season », des
+     tournures qui vivent dans le romaji d'AniList. Un titre anglais traduit peut
+     ne plus les porter, et on perdrait la saison en changeant de langue. */
   const season = useSeasonNumber(r.aniId, r.animeTitle);
   const art = r.image || r.cover;
   const range = r.runFrom < r.episode;
@@ -353,9 +390,7 @@ function RecentRow({
         {art ? <Image src={art} alt="" fill sizes="160px" className="object-cover" /> : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-white">
-          {r.animeTitle || `#${r.aniId}`}
-        </p>
+        <p className="truncate text-sm font-semibold text-white">{title}</p>
         <p className="mt-0.5 truncate font-karla text-xs text-white/70">{where}</p>
         {/* Le titre de l'épisode ne s'affiche que s'il en a un et qu'il ne
             répète pas le numéro déjà écrit au-dessus : beaucoup de sources
