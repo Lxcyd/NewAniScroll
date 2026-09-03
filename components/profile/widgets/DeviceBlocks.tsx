@@ -428,16 +428,18 @@ export function RecentsBlock({
       />
     );
 
-  /* La flamme n'apparaît qu'à partir de DEUX jours. « 1 » n'est pas une série :
-     c'est simplement avoir regardé quelque chose aujourd'hui, ce que la
-     première ligne du bloc dit déjà, et en plus précis. */
+  /* LA FLAMME S'ALLUME DÈS LE PREMIER JOUR. Elle n'apparaissait qu'à partir de
+     deux, au motif qu'un seul jour n'est pas encore une série — mais une série
+     qui reste invisible jusqu'à ce qu'elle soit acquise ne donne aucune raison
+     de l'entretenir, et surtout on ne peut pas vérifier qu'elle marche. Elle
+     s'éteint donc au seul cas où elle serait fausse : zéro. */
   return (
     /* DEUX BOÎTES, et c'est le défilement qui l'impose : la flamme est posée
        au-dessus du contenu (`-top-[38px]`), donc la mettre dans la boîte qui
        défile la ferait couper par son `overflow`. L'enveloppe ne défile pas et
        ne sert qu'à lui donner son coin. */
     <div className="relative h-full">
-      {streakOn && !editing && streak > 1 ? <StreakBadge days={streak} t={t} /> : null}
+      {streakOn && !editing && streak > 0 ? <StreakBadge days={streak} t={t} /> : null}
       <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
         {rows.map((r) => (
           <RecentRow
