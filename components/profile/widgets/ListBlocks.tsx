@@ -888,8 +888,11 @@ export function ScoresBlock({
           </div>
         ))}
 
-        {/* LES NOTES DU BAS. Les demi-points sont écrits AUSSI, en plus pâle que
-            les entiers — la hiérarchie est dans la couleur, pas dans l'absence.
+        {/* LES NOTES DU BAS. Les demi-points sont écrits AUSSI, et DE LA MÊME
+            COULEUR que les entiers : un 7,5 est une note comme les autres, pas
+            une graduation secondaire. Écrits plus pâles, ils faisaient une
+            seconde rangée sous la première — un axe à deux étages là où il n'y
+            a qu'une échelle.
 
             MAIS PAS PARTOUT : « 0,5 » demande trois caractères, et vingt fois
             trois caractères ne tiennent pas sous une carte étroite ; ils s'y
@@ -904,8 +907,8 @@ export function ScoresBlock({
           return (
             <span
               key={i}
-              className={`pt-2 text-center font-karla tabular-nums ${
-                whole ? "text-white/35" : "as-score-half text-white/20"
+              className={`pt-2 text-center font-karla tabular-nums text-white/35 ${
+                whole ? "" : "as-score-half"
               }`}
               style={{ gridRow: 2, gridColumn: i + 2 }}
             >
