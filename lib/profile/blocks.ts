@@ -70,7 +70,19 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "★",
   },
-  { id: "recents", size: [2, 2], color: "#E94560", source: "device", icon: "↷" },
+  // Deux colonnes au minimum : sous cette largeur, la vignette 16:9 et la
+  // colonne de texte ne cohabitent plus. Trois lignes au maximum — c'est une
+  // LISTE, elle gagne à être haute, contrairement aux deux blocs ci-dessus qui
+  // n'ont qu'une ligne de contenu à étirer.
+  {
+    id: "recents",
+    size: [2, 2],
+    min: [2, 1],
+    max: [4, 3],
+    color: "#E94560",
+    source: "device",
+    icon: "↷",
+  },
   { id: "statuses", size: [2, 1], color: "#22c55e", source: "list", icon: "◍" },
   { id: "scores", size: [2, 1], color: "#FFD700", source: "list", icon: "▮" },
   { id: "genres", size: [2, 2], color: "#A855F7", source: "list", icon: "◳" },

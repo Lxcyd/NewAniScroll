@@ -27,6 +27,13 @@ export type ActivityRow = HistoryRow & {
   /** Minutes restantes, `null` quand la durée est inconnue. */
   minutesLeft: number | null;
   done: boolean;
+  /**
+   * LE PREMIER ÉPISODE DE LA SÉRIE CONSÉCUTIVE qui se termine sur `episode`.
+   * Vaut `episode` quand il n'y a rien avant : la ligne parle alors d'un seul
+   * épisode. Six épisodes d'affilée donnent `runFrom: 1` sur une ligne dont
+   * l'épisode est 6, ce que le widget écrit « Épisodes 1–6 ».
+   */
+  runFrom: number;
 };
 
 export type ProgressMap = Record<string, ProgressEntry>;
@@ -73,8 +80,36 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
       p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
     const minutesLeft =
       p && p.duration > 0 ? Math.max(0, Math.round((p.duration - p.time) / 60)) : null;
-    return { ...row, pct, minutesLeft, done: isCompleted(p) };
+    return {
+      ...row,
+      pct,
+      minutesLeft,
+      done: isCompleted(p),
+      runFrom: runStart(map, row.aniId, row.episode),
+    };
   });
+}
+
+/**
+ * Jusqu'où remonte la série d'épisodes qui se termine sur celui-ci.
+ *
+ * L'HISTORIQUE NE GARDE QU'UNE LIGNE PAR ANIME — le dernier épisode ouvert.
+ * Impossible d'y lire « j'ai enchaîné les six premiers ». La table de
+ * progression, elle, a une entrée PAR ÉPISODE (`aniId:episode`) : il suffit de
+ * redescendre tant que le précédent y figure.
+ *
+ * UNE SÉRIE CONSÉCUTIVE, ET PAS LE MINIMUM DE CE QUI EXISTE. Prendre le plus
+ * petit épisode vu de l'anime donnerait « 1–10 » à qui a vu les six premiers il
+ * y a un an et le dixième ce matin : la ligne annoncerait un enchaînement qui
+ * n'a pas eu lieu. En remontant pas à pas, un trou arrête le compte — c'est bien
+ * la série qu'on est en train de regarder qui est décrite, et rien d'autre.
+ *
+ * La boucle est bornée par sa nature : elle ne descend que vers 1.
+ */
+function runStart(map: ProgressMap, aniId: number, episode: number): number {
+  let first = episode;
+  while (first > 1 && map[`${aniId}:${first - 1}`]) first--;
+  return first;
 }
 
 /** Les deux catégories dont dépend l'activité. */

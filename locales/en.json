@@ -906,6 +906,12 @@
         "desc": "The last episodes played on this device.",
         "empty": "Nothing has been played on this device yet.",
         "line": "Episode {{episode}} · {{when}}",
+        "ep": "Episode {{episode}}",
+        "epRange": "Episodes {{from}}–{{to}}",
+        "seasonEp": "Season {{season}} · Episode {{episode}}",
+        "seasonEpRange": "Season {{season}} · Episodes {{from}}–{{to}}",
+        "done": "Finished",
+        "left": "{{minutes}} min left",
         "emptyOther": "Nothing played yet."
       },
       "statuses": {

@@ -285,34 +285,92 @@ export function RecentsBlock({ rows: served, other }: ActivityProps = {}) {
 
   return (
     <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
-      {rows.map((r) => {
-        const art = r.image || r.cover;
-        return (
-          <Link
-            key={`${r.aniId}:${r.episode}`}
-            href={watchHref(r)}
-            className="flex items-center gap-3.5 rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
-          >
-            <div className="relative h-[66px] w-[118px] shrink-0 overflow-hidden rounded-xl bg-as-card">
-              {art ? <Image src={art} alt="" fill sizes="160px" className="object-cover" /> : null}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">
-                {r.animeTitle || `#${r.aniId}`}
-              </p>
-              <p className="mt-1 font-karla text-xs text-white/45">
-                {t("profile.blocks.recents.line", {
-                  episode: r.episode,
-                  when: r.at ? ago(r.at) : "—",
-                })}
-              </p>
-              <span className="mt-2 block">
-                <Bar pct={r.done ? 100 : r.pct} />
-              </span>
-            </div>
-          </Link>
-        );
-      })}
+      {rows.map((r) => (
+        <RecentRow key={`${r.aniId}:${r.episode}`} row={r} ago={ago} t={t} />
+      ))}
     </div>
+  );
+}
+
+/**
+ * UNE LIGNE DE L'HISTORIQUE, et pourquoi c'est un composant à part.
+ *
+ * Le numéro de saison peut demander un appel réseau (`useSeasonNumber`), donc un
+ * hook — et un hook ne s'appelle pas dans un `map`. Chaque ligne est donc son
+ * propre composant, ce qui lui donne au passage son propre cycle de vie : une
+ * saison qui arrive ne rerend que sa ligne.
+ *
+ * CE QUE LA LIGNE DIT, dans cet ordre :
+ *   1. l'anime ;
+ *   2. « Saison 2 · Épisodes 1–6 » — la saison quand la franchise en a
+ *      plusieurs, et la SÉRIE consécutive qu'on vient d'enchaîner plutôt que le
+ *      seul dernier épisode (cf. `runFrom`) ;
+ *   3. le titre du DERNIER épisode vu, celui sur lequel la série s'arrête ;
+ *   4. quand, et où on en est — « il y a 2 jours · 8 min restantes ».
+ *
+ * La barre reprend l'avancement du dernier épisode : c'est celui qu'on
+ * reprendrait en cliquant, donc celui dont l'avancement veut dire quelque chose.
+ */
+function RecentRow({
+  row: r,
+  ago,
+  t,
+}: {
+  row: ActivityRow;
+  ago: (at: number) => string;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}) {
+  const season = useSeasonNumber(r.aniId, r.animeTitle);
+  const art = r.image || r.cover;
+  const range = r.runFrom < r.episode;
+  const where = season != null
+    ? range
+      ? t("profile.blocks.recents.seasonEpRange", {
+          season,
+          from: r.runFrom,
+          to: r.episode,
+        })
+      : t("profile.blocks.recents.seasonEp", { season, episode: r.episode })
+    : range
+      ? t("profile.blocks.recents.epRange", { from: r.runFrom, to: r.episode })
+      : t("profile.blocks.recents.ep", { episode: r.episode });
+
+  /* « Terminé » l'emporte sur les minutes restantes : à la fin d'un épisode il
+     en reste zéro, et « 0 min restantes » est une façon inutilement laborieuse
+     de dire qu'on l'a fini. */
+  const state = r.done
+    ? t("profile.blocks.recents.done")
+    : r.minutesLeft != null && r.minutesLeft > 0
+      ? t("profile.blocks.recents.left", { minutes: r.minutesLeft })
+      : null;
+
+  return (
+    <Link
+      href={watchHref(r)}
+      className="flex items-center gap-3.5 rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
+    >
+      <div className="relative h-[66px] w-[118px] shrink-0 overflow-hidden rounded-xl bg-as-card">
+        {art ? <Image src={art} alt="" fill sizes="160px" className="object-cover" /> : null}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-white">
+          {r.animeTitle || `#${r.aniId}`}
+        </p>
+        <p className="mt-0.5 truncate font-karla text-xs text-white/70">{where}</p>
+        {/* Le titre de l'épisode ne s'affiche que s'il en a un et qu'il ne
+            répète pas le numéro déjà écrit au-dessus : beaucoup de sources
+            nomment l'épisode 6 « Episode 6 ». */}
+        {r.episodeTitle && r.episodeTitle.trim() !== where ? (
+          <p className="mt-0.5 truncate font-karla text-xs text-white/45">{r.episodeTitle}</p>
+        ) : null}
+        <p className="mt-0.5 font-karla text-[11px] text-white/35">
+          {r.at ? ago(r.at) : "—"}
+          {state ? ` · ${state}` : ""}
+        </p>
+        <span className="mt-1.5 block">
+          <Bar pct={r.done ? 100 : r.pct} />
+        </span>
+      </div>
+    </Link>
   );
 }

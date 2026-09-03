@@ -906,6 +906,12 @@
         "desc": "Les derniers épisodes regardés sur cet appareil.",
         "empty": "Aucune lecture enregistrée sur cet appareil.",
         "line": "Épisode {{episode}} · {{when}}",
+        "ep": "Épisode {{episode}}",
+        "epRange": "Épisodes {{from}}–{{to}}",
+        "seasonEp": "Saison {{season}} · Épisode {{episode}}",
+        "seasonEpRange": "Saison {{season}} · Épisodes {{from}}–{{to}}",
+        "done": "Terminé",
+        "left": "{{minutes}} min restantes",
         "emptyOther": "Aucune lecture enregistrée."
       },
       "statuses": {
