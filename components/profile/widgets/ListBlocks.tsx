@@ -598,7 +598,7 @@ export function StatusesBlock({
               <span className="max-w-[16ch] truncate text-white/70">
                 {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
               </span>
-              <span className="min-w-0">
+              <span className="as-status-bar min-w-0">
                 <Bar pct={(r.count / max) * 100} color={color} />
               </span>
               {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste

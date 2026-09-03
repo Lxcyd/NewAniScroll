@@ -2934,6 +2934,15 @@ input[type="number"] {
      navigateur. */
   line-height: 1.4;
 }
+/* UN ECART UN PEU PLUS LARGE ENTRE LE NOM ET SA BARRE, celui-la seulement.
+   Les trois ecarts de la ligne sont regles par la meme valeur (les colonnes
+   sont communes a toutes les lignes), donc celui-ci se rallonge par une marge
+   sur la barre — une demi-largeur d'ecart de plus — plutot qu'en desolidarisant
+   les colonnes. Il vaut une FRACTION de l'ecart commun : il suit les paliers
+   sans devenir une valeur de plus a regler. */
+.as-status-bar {
+  margin-inline-start: calc(var(--as-st-cols) * 0.5);
+}
 .as-status-dot {
   width: var(--as-st-dot);
   height: var(--as-st-dot);
