@@ -580,23 +580,31 @@ export function StatusesBlock({
             ? customListColor(r.key)
             : STATUS_COLOR[r.key as StatusKey] || "#6b7280";
           return (
-            <div key={r.key} className="as-status-row flex items-center">
+            <div key={r.key} className="as-status-row">
               <span
-                className="as-status-dot shrink-0 rounded-full"
+                className="as-status-dot rounded-full"
                 style={{ background: color, boxShadow: `0 0 10px ${color}55` }}
               />
-              {/* Le nom prend un peu plus que la barre : c'est lui qui a une
-                  longueur imposée, la barre s'accommode de ce qui reste. */}
-              <span className="min-w-0 flex-[1.4] truncate text-white/70">
+              {/* LE NOM NE PREND QUE CE QU'IL LUI FAUT, et la barre prend tout
+                  le reste. Il avait une part fixe de la ligne — 1,4 contre 1 —
+                  donc « En cours » reservait la largeur de rien, et la barre
+                  commencait au milieu de la carte pour aucune raison lisible.
+
+                  Sa colonne se cale maintenant sur le PLUS LONG des noms
+                  affiches, tous les autres compris (`subgrid`, globals.css) :
+                  les barres restent alignees entre elles sans qu'aucune part ne
+                  soit reservee d'avance. Le plafond en `ch` est pour les listes
+                  personnalisees, dont le nom n'a pas de longueur connue. */}
+              <span className="max-w-[16ch] truncate text-white/70">
                 {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0">
                 <Bar pct={(r.count / max) * 100} color={color} />
               </span>
               {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
                   alignée à chaque palier sans qu'on ait à la re-mesurer, puisque
                   sa largeur suit le corps du texte. */}
-              <span className="as-status-count min-w-[2.5ch] shrink-0 text-right font-karla font-bold text-white">
+              <span className="as-status-count min-w-[2.5ch] text-right font-karla font-bold text-white">
                 {r.count}
               </span>
             </div>

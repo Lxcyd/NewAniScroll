@@ -2893,13 +2893,35 @@ input[type="number"] {
      ce qui est le point 1. Il ne se met a mordre qu'en hauteur, ou c'est
      precisement ce qu'on lui demande. */
   --as-st-slot: 31px;
+  /* Pastille, nom, barre, nombre — et c'est la barre qui prend le reste
+     (cf. `.as-status-row` plus bas). */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   grid-auto-rows: minmax(var(--as-st-row), 1fr);
-  gap: clamp(5px, 2cqh, 11px);
+  /* LES DEUX ECARTS SONT SEPARES, ET CELUI DES COLONNES APPARTIENT AU PARENT.
+     Une ligne est un `subgrid` : c'est la grille du DESSUS qui dimensionne les
+     colonnes, donc si les deux n'ecartaient pas pareil, les pistes seraient
+     calculees avec un ecart et dessinees avec un autre. */
+  row-gap: clamp(5px, 2cqh, 11px);
+  column-gap: var(--as-st-cols);
   height: min(100%, calc(var(--as-st-slot) * var(--as-st-n, 6)));
   min-height: max-content;
 }
+/* LES QUATRE COLONNES SONT DEFINIES UNE FOIS, POUR TOUTES LES LIGNES.
+
+   Chaque ligne etait une boite flex a elle : le nom y avait une PART de la
+   largeur (1,4 contre 1 pour la barre), donc « En cours » reservait autant de
+   place que « Re-visionnage » et la barre commencait au milieu de la carte.
+
+   Avec une grille et `subgrid`, la colonne du nom se cale sur le plus long des
+   noms AFFICHES, quels qu'ils soient — c'est le seul mecanisme qui aligne les
+   barres entre elles sans reserver de place d'avance. La troisieme colonne
+   prend tout ce qui reste : c'est la barre, et c'est elle qu'on lit.
+   (Les colonnes sont declarees plus haut, sur `.as-status-list`.) */
 .as-status-row {
-  column-gap: var(--as-st-cols);
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
   font-size: var(--as-st-text);
   /* Une hauteur de ligne DONNEE, pas heritee : c'est elle qui rend le plancher
      ci-dessus verifiable au lieu de dependre du `leading-normal` du
