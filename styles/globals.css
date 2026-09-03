@@ -2849,7 +2849,13 @@ input[type="number"] {
    Le plafond vaut tant de pixels PAR LIGNE (`--as-st-slot`, ecart compris),
    donc il ne peut pas s'ecrire sans leur NOMBRE — le CSS ne sait pas compter
    ses enfants, c'est le composant qui pose `--as-st-n`. D'ou les deux boites :
-   l'interieure se plafonne, l'exterieure defile et centre ce qui reste.
+   l'interieure se plafonne, l'exterieure defile.
+
+   ET CE QUI RESTE VA EN BAS, la liste tenant le haut. Elle a d'abord ete
+   centree — l'idee etant de partager le reste des deux cotes plutot que de le
+   laisser en un seul bloc — mais un widget se lit depuis son titre : centree,
+   la premiere ligne decrochait du titre d'une centaine de pixels et le vide se
+   voyait DEUX fois au lieu d'une.
 
    `min-height: max-content` est le garde-fou du cas qui deborde : sans lui, la
    boite interieure resterait haute de 100 % pendant que ses lignes depassent, et
@@ -2859,9 +2865,7 @@ input[type="number"] {
    personnalisee de plus, et le bloc deborde : cachee comme partout ailleurs sur
    le site, rien ne dirait qu'il reste quelque chose a lire dessous. */
 .as-status-wrap {
-  /* `safe` : quand ca deborde, le centrage retombe sur le haut. Centrer pour de
-     bon couperait les premieres lignes, hors d'atteinte du defilement. */
-  align-content: safe center;
+  align-content: start;
 }
 .as-status-list {
   --as-st-text: 12px;
