@@ -155,6 +155,12 @@ export const FAVORITE_SOURCES = [
 
 const OPTIONS: Record<string, BlockOption[]> = {
   resume: [{ key: "ambient", on: true }],
+  /* Le MÊME interrupteur que « Reprendre », et volontairement la même clé : le
+     libellé et sa description se lisent par clé d'option, pas par bloc, donc
+     les deux réglages se nomment pareil parce qu'ils font la même chose. Ils
+     restent rangés séparément (l'état est par bloc), on peut donc allumer l'un
+     sans l'autre. */
+  recents: [{ key: "ambient", on: true }],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
     { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },

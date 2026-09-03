@@ -356,7 +356,13 @@ export function ResumeBlock({
 
 /* ── Vu récemment ────────────────────────────────────────────────────── */
 
-export function RecentsBlock({ rows: served, other, titles }: ActivityProps = {}) {
+export function RecentsBlock({
+  rows: served,
+  other,
+  titles,
+  /* Même réglage que le bloc voisin, allumé par défaut (cf. lib/profile/blocks.ts). */
+  ambient = true,
+}: ActivityProps & { ambient?: boolean } = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
@@ -380,6 +386,7 @@ export function RecentsBlock({ rows: served, other, titles }: ActivityProps = {}
           t={t}
           known={titles?.get(r.aniId) ?? null}
           rowTitle={rowTitle}
+          ambient={ambient}
         />
       ))}
     </div>
@@ -411,6 +418,7 @@ function RecentRow({
   t,
   known,
   rowTitle,
+  ambient,
 }: {
   row: ActivityRow;
   ago: (at: number) => string;
@@ -421,6 +429,7 @@ function RecentRow({
     row: { aniId: number; animeTitle: string | null },
     remote?: ProfileTitle | null,
   ) => string;
+  ambient: boolean;
 }) {
   /* Le réseau n'est sollicité que pour ce que la liste ne résout pas. */
   const remote = useRemoteTitle(r.aniId, !known);
@@ -461,7 +470,42 @@ function RecentRow({
          descend. */
       className="as-recent-row group flex items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
-      <div className="as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card">
+      {/* DEUX BOÎTES LÀ OÙ IL N'Y EN AVAIT QU'UNE, et c'est le halo qui l'exige.
+          La vignette est `overflow-hidden` — c'est ce qui lui donne ses coins
+          arrondis — donc une lueur posée dedans y serait coupée net, ce qui est
+          exactement l'inverse d'une lumière d'ambiance. L'enveloppe extérieure
+          porte donc la taille et laisse déborder ; la vignette redevient un
+          calque plein-cadre à l'intérieur, posée APRÈS le halo dans le DOM,
+          donc au-dessus de lui sans avoir à empiler des `z-index`. */}
+      <div className="as-recent-thumb relative shrink-0">
+        {/* LE HALO, celui de « Reprendre la lecture » à l'échelle d'une ligne.
+            Même principe : des copies concentriques de la vignette, chacune
+            plus large et plus pâle, floutées EN UN SEUL passage sur la pile.
+
+            LE PAS EST PLUS SERRÉ QU'À CÔTÉ (14 % contre 18 %), et le flou se
+            calcule sur la hauteur de la vignette plutôt qu'en pixels fixes
+            (`as-recent-glow`, globals.css). Ce sont les deux mêmes raisons :
+            ici les vignettes se suivent à quelques pixels l'une de l'autre, et
+            un halo réglé pour la grande vignette d'un bloc 2×4 viendrait baigner
+            la ligne voisine. Le bord de la carte, lui, coupe ce qui dépasse. */}
+        {art && ambient ? (
+          <div className="as-recent-glow pointer-events-none absolute inset-0" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="absolute inset-0"
+                style={{ transform: `scale(${1 + i * 0.14})`, opacity: 0.5 * Math.pow(0.6, i) }}
+              >
+                {/* Même src et même `sizes` que la vignette : c'est la même URL
+                    optimisée, donc le cache du navigateur et pas un
+                    téléchargement par calque. */}
+                <Image src={art} alt="" fill sizes="220px" className="object-cover" />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="absolute inset-0 overflow-hidden rounded-xl bg-as-card">
         {/* La vignette monte à 178 px de large dans le plus grand palier : un
             `sizes` resté à 160 px y aurait fait servir une image trop petite,
             étirée. */}
@@ -493,6 +537,7 @@ function RecentRow({
             </svg>
           </span>
         </span>
+        </div>
       </div>
       <div className="min-w-0 flex-1">
         <p className="as-recent-title truncate font-semibold text-white">{title}</p>

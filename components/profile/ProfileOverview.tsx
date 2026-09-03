@@ -383,7 +383,14 @@ export default function ProfileOverview({
           />
         );
       case "recents":
-        return <RecentsBlock rows={served} other={!isOwner} titles={titlesById} />;
+        return (
+          <RecentsBlock
+            rows={served}
+            other={!isOwner}
+            titles={titlesById}
+            ambient={optionOn("recents", "ambient")}
+          />
+        );
       case "favorites":
         return (
           <FavoritesBlock
