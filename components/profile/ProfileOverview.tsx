@@ -18,7 +18,7 @@ import {
 } from "./widgets/ListBlocks";
 import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
 import { customListColor, listLabel, LIST_COLORS } from "@/components/anime/v2/helpers";
-import { CUSTOM_PREFIX, customListNames, genreCounts } from "@/lib/profile/insights";
+import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
 import type { ActivityRow } from "@/lib/profile/activity";
 import {
   BLOCKS,
@@ -279,11 +279,11 @@ export default function ProfileOverview({
     const other = !isOwner && id === "resume";
     return {
       title: blockTitle(id, other),
-      /* COMBIEN DE GENRES DIFFÉRENTS, à côté du titre. Le radar en dessine seize
-         au plus : sans ce nombre, un profil qui en a vingt-deux croirait les
-         voir tous. Il est dans l'en-tête et pas dans la figure — c'est une
-         mesure DU BLOC, pas une de ses branches. */
-      meta: id === "genres" && genreTotal ? t("profile.blocks.genres.unique", { count: genreTotal }) : null,
+      /* AUCUN BLOC N'A DE MÉTA. « 18 uniques » a été essayé sur les genres, pour
+         dire que le radar n'en dessine que seize : c'était vrai et sans intérêt
+         — un nombre de plus dans un en-tête, là où la carte entière parle déjà
+         de genres, et personne ne compte les branches pour vérifier. */
+      meta: null,
       /* La vitrine pose ses flèches dans le coin de l'en-tête, « Vu récemment »
          sa flamme, « Notes attribuées » sa moyenne : il faut leur garder la
          place (cf. `endRoom` dans WidgetGrid.tsx). Pour la flamme, seulement
@@ -328,11 +328,6 @@ export default function ProfileOverview({
     for (const e of entries) map.set(e.mediaId, e.title);
     return map;
   }, [entries]);
-
-  /* Le nombre de genres DISTINCTS du profil — pas les seize que le radar
-     dessine. Le plafond est haut et arbitraire : il n'existe que parce que
-     `genreCounts` en demande un. */
-  const genreTotal = useMemo(() => genreCounts(entries, 99).length, [entries]);
 
   const customLists = useMemo(() => customListNames(entries), [entries]);
   const customValues = useMemo(

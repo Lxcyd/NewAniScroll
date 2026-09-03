@@ -943,8 +943,6 @@
       "genres": {
         "title": "Genres",
         "desc": "Le radar des genres les plus présents dans ta liste.",
-        "unique_one": "{{count}} unique",
-        "unique_other": "{{count}} uniques",
         "empty": "Les genres viennent d'AniList — une liste locale n'en porte pas."
       },
       "formats": {

@@ -248,7 +248,30 @@ export default function HoverPreviewProvider() {
       return node.closest(`[${PREVIEW_ATTR}]`) as HTMLElement | null;
     };
 
+    /**
+     * LE VERROU DU BOUTON ENFONCÉ SE RELIT SUR CHAQUE ÉVÉNEMENT, il ne se
+     * mémorise pas.
+     *
+     * `pressed` était posé au `pointerdown` et levé au `pointerup` — et tout
+     * geste qui avale le `pointerup` le laissait posé POUR TOUJOURS : plus aucun
+     * survol ne s'armait de toute la vie de la page. Les avaleurs sont
+     * nombreux : un glisser-déposer natif (attraper une jaquette, que le
+     * navigateur transforme en `dragstart`, puis `dragend` — jamais de
+     * `pointerup`), un relâchement au-dessus d'une fenêtre d'un autre programme,
+     * une capture de pointeur perdue.
+     *
+     * `PointerEvent.buttons` porte la réponse sur CHAQUE événement : zéro veut
+     * dire qu'aucun bouton n'est enfoncé, maintenant, quoi qu'il se soit passé
+     * avant. Le verrou n'est donc plus qu'un cache de cette valeur, et il se
+     * répare tout seul au premier mouvement qui suit le geste perdu.
+     */
+    const syncPressed = (e: Event) => {
+      const b = (e as PointerEvent).buttons;
+      if (typeof b === "number") pressed = b !== 0;
+    };
+
     const onPointerOver = (e: Event) => {
+      syncPressed(e);
       const node = e.target as Element | null;
       if (!node || typeof node.closest !== "function") return;
       // Inside the popup itself — that's still "hovering the preview".
@@ -271,6 +294,18 @@ export default function HoverPreviewProvider() {
     // why the previous coordinates are compared rather than just counting the
     // event: browsers do emit pointermove without displacement.
     const onPointerMove = (e: Event) => {
+      const wasPressed = pressed;
+      syncPressed(e);
+      /* LE VERROU VIENT DE SE LEVER, et rien n'attend. C'est le geste qui a
+         avalé son `pointerup` : sans ce rattrapage, la jaquette sous le
+         pointeur resterait muette jusqu'à ce qu'on aille en survoler une autre,
+         puisque `pointerover` ne se redéclenche pas sans changer d'élément.
+         Uniquement sur la TRANSITION, pour ne pas rouvrir une carte que la
+         touche Échap vient de fermer. */
+      if (wasPressed && !pressed && !pendingEl && !openRef.current) {
+        const under = anchorAt(e.target);
+        if (under) arm(under);
+      }
       const p = e as PointerEvent;
       const moved = !lastPos || lastPos.x !== p.clientX || lastPos.y !== p.clientY;
       lastPos = { x: p.clientX, y: p.clientY };
@@ -345,6 +380,10 @@ export default function HoverPreviewProvider() {
     // suivant.
     window.addEventListener("pointerup", onPointerUp, true);
     window.addEventListener("pointercancel", onPointerUp, true);
+    /* Le glisser-déposer natif : attraper une jaquette peut devenir un
+       `dragstart`, et le navigateur ne rend alors JAMAIS de `pointerup`. */
+    window.addEventListener("dragend", onPointerUp, true);
+    window.addEventListener("drop", onPointerUp, true);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
     // Pointer left the window entirely — no further pointerover will arrive.
@@ -359,6 +398,8 @@ export default function HoverPreviewProvider() {
       document.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPointerUp, true);
+      window.removeEventListener("dragend", onPointerUp, true);
+      window.removeEventListener("drop", onPointerUp, true);
       document.removeEventListener("scroll", onScroll, true);
       if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);

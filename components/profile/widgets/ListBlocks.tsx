@@ -975,16 +975,41 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
      un classement tronqué mais une limite de lisibilité — au-delà, deux branches
      voisines sont à moins de 20° l'une de l'autre et leurs étiquettes se
      touchent. */
-  const genres = useMemo(() => genreCounts(entries, 16), [entries]);
+  /* LES BRANCHES SONT DANS L'ORDRE ALPHABÉTIQUE, PAS PAR TAILLE.
+     C'était l'erreur de forme : classées par nombre, les grosses valeurs
+     arrivaient toutes côte à côte et la figure devenait un LOBE unique poussé
+     d'un seul côté, l'autre moitié du cercle restant plate. Un radar ne se lit
+     pas comme ça — ce sont les pointes ET les creux, alternés, qui font une
+     silhouette. L'ordre alphabétique les mélange, et il fait mieux : il est le
+     MÊME sur tous les profils, donc deux radars se comparent. Un ordre par
+     taille place « Action » à midi chez l'un et à sept heures chez l'autre, et
+     deux formes identiques n'y voudraient plus rien dire de commun.
+
+     Il suit le nom AFFICHÉ, donc la langue : le cercle se lit de A à Z tel qu'on
+     le lit à l'écran. */
+  const genres = useMemo(
+    () =>
+      genreCounts(entries, 16)
+        .map((g) => ({ ...g, label: genreLabel(t, g.key) }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [entries, t],
+  );
   if (genres.length < 3) return <EmptyBlock note={t("profile.blocks.genres.empty")} />;
 
   const max = Math.max(...genres.map((g) => g.count));
   const n = genres.length;
   const cx = 100;
   const cy = 100;
-  const R = 62;
-  /** Le rayon des étiquettes : hors de la toile, pas dessus. */
-  const RL = R + 16;
+  /* LE RAYON EST DONNÉ EN COORDONNÉES DU `viewBox`, donc ce qui compte n'est pas
+     sa valeur mais son RAPPORT au corps du texte : c'est lui qui décide si la
+     figure est une grande roue étiquetée ou un petit gribouillis cerné de mots.
+     Il valait 62 pour un texte de 8,5 — la toile faisait quatorze fois la
+     hauteur d'une étiquette, et la carte se lisait comme une liste de mots
+     disposée en rond. À 100, elle en fait vingt-trois, le rapport de la
+     maquette. */
+  const R = 100;
+  /** Le rayon des étiquettes : hors de la toile, sans s'en éloigner. */
+  const RL = R + 15;
   const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
   const point = (i: number, r: number) => {
     const a = angle(i);
@@ -996,13 +1021,14 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
 
   return (
     /* LE `viewBox` EST PLUS LARGE QUE LA TOILE, et c'est ce qui donne leur place
-       aux étiquettes : la figure tient dans 0…200, la boîte va de -52 à 252 en
-       largeur. La marge se mesure sur le PIRE des noms, celui de neuf heures,
-       qui pousse vers la gauche depuis x=22 — « Science-fiction », quinze
-       signes, en fait environ 64 : il reste dix unités de reste. `meet` (le
-       défaut) fait ensuite tenir le tout dans la carte quelle que soit sa forme,
-       sans déformer. */
-    <svg viewBox="-52 -8 304 216" className="h-full w-full">
+       aux étiquettes : la toile va de 0 à 200, la boîte de -80 à 280. La marge
+       se mesure sur le PIRE des noms, celui de neuf heures, qui pousse vers la
+       gauche depuis x=-15 — « Science-fiction », quinze signes, en fait environ
+       64 : il reste une unité de jeu. En hauteur, la boîte descend à 232 pour
+       porter le compte de l'étiquette du bas, posé dix unités sous son nom.
+       `meet` (le défaut) fait ensuite tenir le tout dans la carte quelle que
+       soit sa forme, sans déformer. */
+    <svg viewBox="-80 -22 360 254" className="h-full w-full">
       {/* LA TOILE EST FAITE DE CERCLES, plus de polygones. Un polygone à seize
           côtés dessine seize sommets de plus dans une figure qui en a déjà
           seize : les repères devenaient impossibles à distinguer de la mesure.
@@ -1014,8 +1040,8 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
           cy={cy}
           r={R * f}
           fill="none"
-          stroke="rgba(255,255,255,0.08)"
-          strokeWidth="0.8"
+          stroke="rgba(255,255,255,0.13)"
+          strokeWidth="0.9"
         />
       ))}
       {genres.map((_, i) => {
@@ -1027,8 +1053,8 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
             y1={cy}
             x2={x}
             y2={y}
-            stroke="rgba(255,255,255,0.06)"
-            strokeWidth="0.8"
+            stroke="rgba(255,255,255,0.09)"
+            strokeWidth="0.9"
           />
         );
       })}
@@ -1041,7 +1067,7 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
         fill="var(--brand-primary, #E94560)"
         fillOpacity="0.22"
         stroke="var(--brand-primary, #E94560)"
-        strokeWidth="1.8"
+        strokeWidth="2.2"
         strokeLinejoin="round"
       />
 
