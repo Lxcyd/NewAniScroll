@@ -392,7 +392,18 @@ export function ResumeBlock({
 function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => string }) {
   return (
     <div
-      className="absolute -top-[38px] right-0 z-10 flex items-center gap-1 rounded-full bg-action/15 px-2 py-1 ring-1 ring-action/30"
+      /* LE BORD EST GRIS, PLUS ROUGE. Le rouge d'accent est la couleur de ce
+         qu'on ACTIONNE sur ce site — les pilules « Reprendre », le bouton de
+         lecture. La série ne s'actionne pas, elle se lit : lui donner cette
+         couleur la faisait passer pour un bouton. Le gris est celui des autres
+         commandes d'en-tête (les flèches de la vitrine), donc le badge se range
+         dans la même famille visuelle. La flamme, elle, garde ses couleurs et
+         suffit à porter le regard. */
+      /* `-top-[40px]` et non 38 : la pilule a grandi, et c'est son CENTRE qui
+         doit rester à hauteur du titre. Les flèches de la vitrine font 24 px de
+         haut à −38 ; celle-ci en fait 29, donc elle remonte de la moitié de
+         l'écart pour que les deux commandes restent sur la même ligne d'œil. */
+      className="absolute -top-[40px] right-0 z-10 flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 py-1.5 ring-1 ring-white/15"
       title={t("profile.blocks.recents.streakTitle", { count: days })}
     >
       {/* L'EMOJI PLUTÔT QU'UN CHEMIN SVG. Il est en couleurs, celles du système,
@@ -401,10 +412,10 @@ function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => str
           `aria-hidden` parce qu'il n'apporte rien à qui ne le voit pas : le
           nombre est juste à côté, et le `title` du badge porte la phrase
           entière. Sans lui, un lecteur d'écran annoncerait « feu 3 ». */}
-      <span aria-hidden className="text-[13px] leading-none">
+      <span aria-hidden className="text-[17px] leading-none">
         🔥
       </span>
-      <span className="font-outfit text-xs font-bold leading-none text-white">{days}</span>
+      <span className="font-outfit text-sm font-bold leading-none text-white">{days}</span>
     </div>
   );
 }
