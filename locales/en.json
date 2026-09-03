@@ -861,7 +861,9 @@
         "unrated": "Include unrated",
         "unratedDesc": "Titles you have not given a score.",
         "trailer": "Trailer on hover",
-        "trailerDesc": "The preview that opens when the pointer settles on a poster."
+        "trailerDesc": "The preview that opens when the pointer settles on a poster.",
+        "customLists": "Count custom lists",
+        "customListsDesc": "Replaces the six statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -921,7 +923,9 @@
       "statuses": {
         "title": "By status",
         "desc": "Watching, completed, planning…",
-        "empty": "Your list is empty — nothing to break down yet."
+        "empty": "Your list is empty — nothing to break down yet.",
+        "titleCustom": "By list",
+        "emptyCustom": "No custom lists on this profile — the lists you create on AniList will show up here."
       },
       "scores": {
         "title": "Scores given",

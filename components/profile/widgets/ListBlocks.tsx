@@ -5,12 +5,13 @@ import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
-import { listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
+import { customListColor, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
 import { useEdgeFade } from "@/lib/ui/edgeFade";
 import {
   currentlyWatching,
+  customListCounts,
   decadeCounts,
   formatCounts,
   genreCounts,
@@ -518,29 +519,74 @@ export function FavoritesBlock({
 
 /* ── Répartition par statut ──────────────────────────────────────────── */
 
-export function StatusesBlock({ entries }: { entries: ProfileEntry[] }) {
+/**
+ * Six statuts, ou les listes qu'on s'est inventées — un interrupteur, pas deux
+ * blocs. La mise en page est la même et les deux répartitions ne se mélangent
+ * jamais : leurs totaux ne se comparent pas (cf. `customListCounts`).
+ *
+ * TOUTES LES DIMENSIONS SONT DANS LA FEUILLE DE STYLE (`.as-status-list`,
+ * globals.css), par requête de conteneur : le corps du texte, l'épaisseur des
+ * barres, la pastille et l'écart entre deux lignes grandissent avec la carte.
+ * Écrites ici en classes fixes, six lignes debordaient d'une carte de 1×1 et
+ * flottaient en haut d'une carte de 2×2.
+ *
+ * LA BARRE N'A PLUS DE LARGEUR A ELLE. Elle en avait une — 96 px — donc elle
+ * restait identique d'une carte de 300 px à une carte de 616, et tout
+ * l'agrandissement partait dans le nom. Elle prend maintenant sa part de la
+ * place libre, comme le nom : c'est elle qu'on lit, elle doit s'étirer.
+ */
+export function StatusesBlock({
+  entries,
+  custom = false,
+}: {
+  entries: ProfileEntry[];
+  /** Compter les listes personnalisées au lieu des statuts. */
+  custom?: boolean;
+}) {
   const { t } = useTranslation();
-  const rows = useMemo(() => statusCounts(entries), [entries]);
-  if (!rows.length) return <EmptyBlock note={t("profile.blocks.statuses.empty")} />;
+  const rows = useMemo(
+    () => (custom ? customListCounts(entries) : statusCounts(entries)),
+    [entries, custom],
+  );
+  if (!rows.length) {
+    /* Deux vides pour deux raisons différentes : une liste vide n'a rien à
+       répartir, une liste bien remplie peut n'avoir aucune liste personnalisée —
+       et dans ce second cas le bloc doit dire ce qui lui manque, pas laisser
+       croire que le compte est à zéro. */
+    return (
+      <EmptyBlock
+        note={t(
+          custom ? "profile.blocks.statuses.emptyCustom" : "profile.blocks.statuses.empty",
+        )}
+      />
+    );
+  }
   const max = Math.max(...rows.map((r) => r.count));
 
   return (
-    <div className="grid h-full content-start gap-2.5 overflow-y-auto pr-1">
+    <div className="as-status-list as-widget-scroll grid h-full content-start overflow-y-auto pr-1.5">
       {rows.map((r) => {
-        const color = STATUS_COLOR[r.key as StatusKey] || "#6b7280";
+        const color = custom
+          ? customListColor(r.key)
+          : STATUS_COLOR[r.key as StatusKey] || "#6b7280";
         return (
-          <div key={r.key} className="flex items-center gap-2.5">
+          <div key={r.key} className="as-status-row flex items-center">
             <span
-              className="h-2 w-2 shrink-0 rounded-full"
+              className="as-status-dot shrink-0 rounded-full"
               style={{ background: color, boxShadow: `0 0 10px ${color}55` }}
             />
-            <span className="flex-1 truncate text-[13px] text-white/70">
-              {listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
+            {/* Le nom prend un peu plus que la barre : c'est lui qui a une
+                longueur imposée, la barre s'accommode de ce qui reste. */}
+            <span className="min-w-0 flex-[1.4] truncate text-white/70">
+              {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
             </span>
-            <span className="w-24 shrink-0">
+            <span className="min-w-0 flex-1">
               <Bar pct={(r.count / max) * 100} color={color} />
             </span>
-            <span className="w-8 shrink-0 text-right font-karla text-xs font-bold text-white">
+            {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
+                alignée à chaque palier sans qu'on ait à la re-mesurer, puisque
+                sa largeur suit le corps du texte. */}
+            <span className="as-status-count min-w-[2.5ch] shrink-0 text-right font-karla font-bold text-white">
               {r.count}
             </span>
           </div>

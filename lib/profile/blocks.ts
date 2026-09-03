@@ -83,7 +83,19 @@ export const BLOCKS: BlockDef[] = [
     source: "device",
     icon: "↷",
   },
-  { id: "statuses", size: [2, 1], color: "#22c55e", source: "list", icon: "◍" },
+  // 1×1 au minimum, 2×2 au maximum. Une ligne de ce bloc est un point, un nom,
+  // une barre et un nombre : elle tient dans une colonne, contrairement aux
+  // blocs à vignette ci-dessus. Et deux lignes suffisent — au-delà, six statuts
+  // flotteraient dans une colonne haute de 950 px.
+  {
+    id: "statuses",
+    size: [2, 1],
+    min: [1, 1],
+    max: [2, 2],
+    color: "#22c55e",
+    source: "list",
+    icon: "◍",
+  },
   { id: "scores", size: [2, 1], color: "#FFD700", source: "list", icon: "▮" },
   { id: "genres", size: [2, 2], color: "#A855F7", source: "list", icon: "◳" },
   { id: "formats", size: [2, 2], color: "#3B82F6", source: "list", icon: "◧" },
@@ -160,6 +172,13 @@ const OPTIONS: Record<string, BlockOption[]> = {
      personne ne la découvrirait. Éteignable parce qu'un compteur de régularité
      n'est pas une bonne nouvelle pour tout le monde. */
   recents: [{ key: "streak", on: true }],
+  /* Compter les listes personnalisées PLUTÔT QUE les statuts. Éteint par
+     défaut : les six statuts existent sur tous les profils, les listes inventées
+     n'existent que sur certains — un défaut allumé ouvrirait le bloc sur un état
+     vide chez la plupart des gens. Un interrupteur et pas un menu : les deux
+     répartitions ne se mélangent pas (une entrée a UN statut, mais peut être
+     dans trois listes personnalisées, donc les totaux ne se comparent pas). */
+  statuses: [{ key: "customLists", on: false }],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
     { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },

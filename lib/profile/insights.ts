@@ -47,6 +47,29 @@ export function statusCounts(entries: ProfileEntry[]): Tally[] {
     .map((k) => ({ key: k, label: k, count: counts.get(k) as number }));
 }
 
+/**
+ * Combien d'entrées dans chaque liste personnalisée, la mieux fournie d'abord.
+ *
+ * L'ORDRE N'EST PAS CELUI DES STATUTS, et ne peut pas l'être : les six statuts
+ * ont un ordre CONNU (on regarde, puis on termine, puis on prévoit), les listes
+ * inventées n'en ont aucun. Le classement par taille est le seul qui dise
+ * quelque chose ; à égalité, l'alphabet, pour que la liste ne se réordonne pas
+ * toute seule d'un rendu à l'autre.
+ *
+ * La somme de ces nombres DÉPASSE la taille de la liste, et c'est correct : une
+ * entrée a un seul statut mais peut appartenir à plusieurs listes. C'est aussi
+ * pourquoi les deux répartitions ne se montrent jamais ensemble.
+ */
+export function customListCounts(entries: ProfileEntry[]): Tally[] {
+  const counts = new Map<string, number>();
+  for (const e of entries) {
+    for (const n of e.customLists || []) counts.set(n, (counts.get(n) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ key: name, label: name, count }));
+}
+
 /** Répartition des notes /10, index 0 = note 1. Vide si personne n'a noté. */
 export function scoreHistogram(entries: ProfileEntry[]): number[] {
   const bins = new Array(10).fill(0);

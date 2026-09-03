@@ -2804,3 +2804,113 @@ input[type="number"] {
     font-size: 22px;
   }
 }
+
+/* ── « Repartition par statut » : six lignes qui doivent TENIR, puis grandir ──
+
+   DEUX EXIGENCES QUI SE CONTREDISENT, et l'ordre entre elles compte.
+
+   1. En 1x1 — la plus petite taille que ce bloc accepte desormais — les six
+      statuts de base doivent tenir SANS rien couper. La carte fait 230 px
+      (ROW, lib/profile/grid.ts), moins 32 px de rembourrage vertical et 40 px
+      d'en-tete (le titre est en `text-lg`, dont la hauteur de ligne est de
+      28 px, plus `mb-3`) : il reste 158 px pour six lignes. A ce palier une
+      ligne fait 17 px et l'ecart 4cqh, soit 9,2 px sur une carte d'une
+      rangee — 148 px en tout. Les 10 px qui restent sont la marge, et c'est
+      pour ca que le corps de base est a 12 px et pas a 13.
+   2. Au-dela, tout grandit avec la carte.
+
+   L'ECART EST EN `cqh` ET PAS EN PALIERS : il est le seul reglage qui doive
+   suivre la HAUTEUR de facon continue, puisque c'est lui qui remplit la carte
+   quand il y a peu de lignes. Les bornes du `clamp` le tiennent aux deux
+   bouts — jamais assez serre pour coller les lignes, jamais assez large pour
+   qu'une liste de deux entrees se disperse.
+
+   ET LA BARRE DE DEFILEMENT REDEVIENT VISIBLE (`as-widget-scroll`). Une liste
+   personnalisee de plus, et le bloc deborde : cachee comme partout ailleurs sur
+   le site, rien ne dirait qu'il reste quelque chose a lire dessous. */
+.as-status-list {
+  --as-st-text: 12px;
+  --as-st-count: 11px;
+  --as-st-dot: 7px;
+  --as-bar-h: 4px;
+  --as-st-cols: 0.625rem;
+  gap: clamp(6px, 4cqh, 22px);
+}
+.as-status-row {
+  column-gap: var(--as-st-cols);
+  font-size: var(--as-st-text);
+  /* Une hauteur de ligne DONNEE, pas heritee : c'est elle qui rend le calcul
+     du palier 1x1 verifiable au lieu de dependre du `leading-normal` du
+     navigateur. */
+  line-height: 1.4;
+}
+.as-status-dot {
+  width: var(--as-st-dot);
+  height: var(--as-st-dot);
+}
+.as-status-count {
+  font-size: var(--as-st-count);
+}
+
+/* Deux colonnes de large. Le seuil est celui de `as-head-short` : une colonne
+   fait 236 px sur le profil local et 300 px ailleurs, deux colonnes 492 et 616 —
+   460 px passe entre les deux sur les DEUX pages. */
+@container widget (min-width: 460px) {
+  .as-status-list {
+    --as-st-text: 13px;
+    --as-st-count: 12px;
+    --as-st-dot: 8px;
+    --as-bar-h: 5px;
+    --as-st-cols: 0.75rem;
+  }
+}
+
+/* Deux rangees de haut : 476 px de carte, 404 px de contenu. */
+@container widget (min-height: 300px) {
+  .as-status-list {
+    --as-st-text: 14px;
+    --as-st-count: 13px;
+    --as-st-dot: 9px;
+    --as-bar-h: 6px;
+  }
+}
+
+/* 2x2 — le plus grand que ce bloc accepte. */
+@container widget (min-width: 460px) and (min-height: 300px) {
+  .as-status-list {
+    --as-st-text: 15px;
+    --as-st-count: 14px;
+    --as-st-dot: 10px;
+    --as-bar-h: 7px;
+    --as-st-cols: 0.875rem;
+  }
+}
+
+/* LA BARRE DE DEFILEMENT D'UN WIDGET, reprise de la page d'info.
+
+   Les barres sont cachees partout sur le site (cf. plus haut) ; la grille des
+   notes en fait deja l'exception, parce qu'il faut y voir qu'on peut se
+   deplacer. Un widget qui deborde est exactement le meme cas, donc le meme
+   habillage — juste plus fin, 8 px au lieu de 11, la carte etant petite. */
+.as-widget-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.as-widget-scroll::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+  height: 8px;
+}
+.as-widget-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.as-widget-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+  background-clip: padding-box;
+}
+.as-widget-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}

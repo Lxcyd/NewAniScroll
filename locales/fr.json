@@ -861,7 +861,9 @@
         "unrated": "Inclure les non notés",
         "unratedDesc": "Les titres auxquels tu n'as pas mis de note.",
         "trailer": "Bande-annonce au survol",
-        "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche."
+        "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche.",
+        "customLists": "Compter les listes personnalisées",
+        "customListsDesc": "Remplace les six statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
@@ -921,7 +923,9 @@
       "statuses": {
         "title": "Répartition par statut",
         "desc": "En cours, terminé, prévu…",
-        "empty": "Ta liste est vide : rien à répartir pour l'instant."
+        "empty": "Ta liste est vide : rien à répartir pour l'instant.",
+        "titleCustom": "Répartition par liste",
+        "emptyCustom": "Aucune liste personnalisée sur ce profil — les listes que tu crées sur AniList apparaîtront ici."
       },
       "scores": {
         "title": "Notes attribuées",

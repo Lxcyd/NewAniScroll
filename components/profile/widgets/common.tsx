@@ -29,10 +29,21 @@ export function EmptyBlock({ note }: { note: string }) {
   );
 }
 
-/** Barre horizontale d'un classement. `pct` est déjà borné par l'appelant. */
+/**
+ * Barre horizontale d'un classement. `pct` est déjà borné par l'appelant.
+ *
+ * Son épaisseur est une VARIABLE et pas une classe : « Répartition par statut »
+ * la fait grandir avec sa carte, par requête de conteneur, et une classe
+ * Tailwind ajoutée par-dessus une autre ne gagne pas — à spécificité égale
+ * c'est l'ordre dans la feuille qui tranche, pas l'ordre dans l'attribut. Les
+ * autres appelants ne déclarent rien et gardent les 5 px d'origine.
+ */
 export function Bar({ pct, color }: { pct: number; color?: string }) {
   return (
-    <span className="block h-[5px] w-full overflow-hidden rounded-full bg-white/[0.07]">
+    <span
+      className="block w-full overflow-hidden rounded-full bg-white/[0.07]"
+      style={{ height: "var(--as-bar-h, 5px)" }}
+    >
       <span
         className="block h-full rounded-full"
         style={{

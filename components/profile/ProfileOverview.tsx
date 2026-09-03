@@ -370,6 +370,11 @@ export default function ProfileOverview({
         );
       }
     }
+    /* Le bloc ne compte plus des statuts : son nom doit le dire. Sans ça,
+       « Répartition par statut » chapeautait une liste de noms inventés. */
+    if (id === "statuses" && optionOn("statuses", "customLists")) {
+      return t("profile.blocks.statuses.titleCustom");
+    }
     return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
   }
 
@@ -413,7 +418,9 @@ export default function ProfileOverview({
           />
         );
       case "statuses":
-        return <StatusesBlock entries={entries} />;
+        return (
+          <StatusesBlock entries={entries} custom={optionOn("statuses", "customLists")} />
+        );
       case "scores":
         return <ScoresBlock entries={entries} />;
       case "genres":
