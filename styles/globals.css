@@ -2695,9 +2695,19 @@ input[type="number"] {
    TOUT DESCEND D'UNE SEULE VARIABLE, la hauteur de la vignette. Sa largeur en
    vient par le 16/9 et la pastille par un pourcentage (cf. DeviceBlocks.tsx) :
    un seul nombre a regler par palier, et les proportions ne peuvent pas se
-   desaccorder. Les paliers sont ceux des autres widgets — memes seuils, donc
-   une carte qui grandit fait grandir ses blocs ensemble et pas l'un apres
-   l'autre. */
+   desaccorder.
+
+   LES SEUILS SONT CALES SUR LES LARGEURS REELLES DE LA GRILLE, pas repris tels
+   quels des autres widgets. Quatre colonnes dans un `max-w-screen-xl` (1248 px
+   utiles, GAP 16) donnent 300 px par colonne, donc un bloc large de 2 fait
+   616 px, de 3 932 px, de 4 1248 px. Un seuil unique a 700 px — celui des
+   autres widgets — met le 3 et le 4 dans le MEME palier : passer de 3 a 4
+   colonnes ne changeait rien. D'ou le troisieme seuil.
+
+   980 px et pas 1100 : le profil local vit dans un `max-w-screen-lg` ou la
+   colonne ne fait que 236 px, et son bloc large de 4 tombe a 992 px. Le seuil
+   doit passer sous cette valeur pour que la largeur maximale soit servie sur
+   les DEUX pages, tout en restant au-dessus des 932 px du bloc large de 3. */
 .as-recent-row {
   --as-recent-h: 66px;
   gap: 0.875rem;
@@ -2732,6 +2742,7 @@ input[type="number"] {
   }
 }
 
+/* Bloc large de 3 colonnes. */
 @container widget (min-width: 700px) and (min-height: 300px) {
   .as-recent-row {
     --as-recent-h: 100px;
@@ -2739,5 +2750,22 @@ input[type="number"] {
   }
   .as-recent-title {
     font-size: 1.125rem;
+  }
+}
+
+/* Bloc large de 4 — toute la largeur de la grille. */
+@container widget (min-width: 980px) and (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 116px;
+    gap: 1.25rem;
+  }
+  .as-recent-title {
+    font-size: 1.25rem;
+  }
+  .as-recent-sub {
+    font-size: 0.875rem;
+  }
+  .as-recent-meta {
+    font-size: 0.8125rem;
   }
 }
