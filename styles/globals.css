@@ -2635,14 +2635,23 @@ input[type="number"] {
    (WidgetGrid.tsx), qui a de quoi couper au bon endroit parce que la place des
    fleches lui est reservee (`endRoom`).
 
-   Le seuil est a 460 px, bien au-dessus d'une carte de telephone et bien
-   au-dessous d'une carte de deux colonnes sur une page de bureau (~590 px). Et
-   c'est une requete de CONTENEUR : la meme fenetre porte des cartes de 1x1 et de
-   2x4, seule la largeur de la carte peut decider. */
+   Le seuil est a 360 px, bien au-dessus d'une carte de telephone et bien
+   au-dessous d'une carte de deux colonnes. Et c'est une requete de CONTENEUR :
+   la meme fenetre porte des cartes de 1x1 et de 2x4, seule la largeur de la
+   carte peut decider.
+
+   IL ETAIT A 460, ET C'ETAIT UNE ERREUR DE MESURE — la meme dans tous les
+   seuils de largeur qui suivent, tous corriges avec celui-ci. Une requete de
+   conteneur mesure la BOITE DE CONTENU, pas la carte : les 40 px de `px-5` n'en
+   font pas partie. Une carte de deux colonnes fait 492 px sur le profil local
+   (`max-w-screen-lg`), donc 452 px de contenu — elle passait SOUS 460 et
+   recevait le titre court reserve aux cartes d'une colonne, alors qu'elle en
+   fait 616 (576 de contenu) sur l'autre page. Les seuils calcules sur la
+   largeur de la carte tombaient ainsi du mauvais cote sur une page des deux. */
 .as-head-short {
   display: none;
 }
-@container widget (max-width: 460px) {
+@container widget (max-width: 360px) {
   .as-head-full {
     display: none;
   }
@@ -2700,14 +2709,17 @@ input[type="number"] {
    LES SEUILS SONT CALES SUR LES LARGEURS REELLES DE LA GRILLE, pas repris tels
    quels des autres widgets. Quatre colonnes dans un `max-w-screen-xl` (1248 px
    utiles, GAP 16) donnent 300 px par colonne, donc un bloc large de 2 fait
-   616 px, de 3 932 px, de 4 1248 px. Un seuil unique a 700 px — celui des
-   autres widgets — met le 3 et le 4 dans le MEME palier : passer de 3 a 4
-   colonnes ne changeait rien. D'ou le troisieme seuil.
+   616 px, de 3 932 px, de 4 1248 px — et le profil local, dans un
+   `max-w-screen-lg`, 492 / 740 / 992. Un seuil unique a 700 px — celui des
+   autres widgets — met le 3 et le 4 dans le MEME palier sur la page large :
+   passer de 3 a 4 colonnes ne changeait rien. D'ou le troisieme seuil.
 
-   980 px et pas 1100 : le profil local vit dans un `max-w-screen-lg` ou la
-   colonne ne fait que 236 px, et son bloc large de 4 tombe a 992 px. Le seuil
-   doit passer sous cette valeur pour que la largeur maximale soit servie sur
-   les DEUX pages, tout en restant au-dessus des 932 px du bloc large de 3. */
+   MOINS 40 PX SUR CHAQUE SEUIL : la requete mesure la boite de CONTENU, et
+   `px-5` en retire 40 (cf. le pave sur `as-head-short`). Les largeurs a
+   comparer sont donc 576/892/1208 et 452/700/952. D'ou 660, qui laisse le bloc
+   large de 2 dessous sur les deux pages, et 940, qui prend le bloc large de 4
+   sur les deux — y compris celui du profil local, a 952, que le seuil de 980
+   manquait. */
 .as-recent-row {
   --as-recent-h: 66px;
   gap: 0.875rem;
@@ -2770,7 +2782,7 @@ input[type="number"] {
 }
 
 /* Bloc large de 3 colonnes. */
-@container widget (min-width: 700px) and (min-height: 300px) {
+@container widget (min-width: 660px) and (min-height: 300px) {
   .as-recent-row {
     --as-recent-h: 100px;
     gap: 1.125rem;
@@ -2781,7 +2793,7 @@ input[type="number"] {
 }
 
 /* Bloc large de 4 — toute la largeur de la grille. */
-@container widget (min-width: 980px) and (min-height: 300px) {
+@container widget (min-width: 940px) and (min-height: 300px) {
   .as-recent-row {
     --as-recent-h: 116px;
     gap: 1.25rem;
@@ -2871,7 +2883,7 @@ input[type="number"] {
   --as-st-text: 12px;
   --as-st-count: 11px;
   --as-st-dot: 7px;
-  --as-bar-h: 4px;
+  --as-bar-h: 5px;
   --as-st-cols: 0.625rem;
   /* La hauteur PLANCHER d'une ligne : ce en quoi les pistes retombent quand la
      liste deborde, et ce sur quoi se verifie le tenir-en-1x1. */
@@ -2902,15 +2914,16 @@ input[type="number"] {
   font-size: var(--as-st-count);
 }
 
-/* Deux colonnes de large. Le seuil est celui de `as-head-short` : une colonne
-   fait 236 px sur le profil local et 300 px ailleurs, deux colonnes 492 et 616 —
-   460 px passe entre les deux sur les DEUX pages. */
-@container widget (min-width: 460px) {
+/* Deux colonnes de large. Le seuil est celui de `as-head-short`, et il se
+   compare a la boite de CONTENU (cf. le pave qui l'accompagne) : une colonne
+   laisse 196 px de contenu sur le profil local et 260 px ailleurs, deux
+   colonnes 452 et 576 — 360 px passe entre les deux sur les DEUX pages. */
+@container widget (min-width: 360px) {
   .as-status-list {
     --as-st-text: 13px;
     --as-st-count: 12px;
     --as-st-dot: 8px;
-    --as-bar-h: 5px;
+    --as-bar-h: 7px;
     --as-st-cols: 0.75rem;
     --as-st-row: 19px;
     --as-st-slot: 33px;
@@ -2926,7 +2939,7 @@ input[type="number"] {
     --as-st-text: 14px;
     --as-st-count: 13px;
     --as-st-dot: 9px;
-    --as-bar-h: 6px;
+    --as-bar-h: 9px;
     --as-st-row: 21px;
     --as-st-slot: 40px;
   }
@@ -2937,12 +2950,12 @@ input[type="number"] {
    rembourrage ; sur une carte deux fois plus large, l'etalement va avec la
    surface. Le `slot` passe au-dessus de ce que la carte peut offrir, donc il ne
    mord plus et les lignes se partagent de nouveau toute la hauteur. */
-@container widget (min-width: 460px) and (min-height: 300px) {
+@container widget (min-width: 360px) and (min-height: 300px) {
   .as-status-list {
     --as-st-text: 15px;
     --as-st-count: 14px;
     --as-st-dot: 10px;
-    --as-bar-h: 7px;
+    --as-bar-h: 11px;
     --as-st-cols: 0.875rem;
     --as-st-row: 23px;
     --as-st-slot: 999px;

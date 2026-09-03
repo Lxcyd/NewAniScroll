@@ -47,6 +47,12 @@ export function Bar({ pct, color }: { pct: number; color?: string }) {
       <span
         className="block h-full rounded-full"
         style={{
+          /* Le plancher est en `%` — 2 % de la piste — mais une piste epaisse le
+             rend ridicule : a 11 px de haut, ces 2 % dessinent une pastille
+             ECRASEE, plus haute que large, et le petit statut a l'air casse
+             plutot que petit. Le plancher est donc aussi de la hauteur de la
+             barre, ce qui en fait un disque propre. */
+          minWidth: "var(--as-bar-h, 5px)",
           width: `${Math.max(2, Math.min(100, pct))}%`,
           background:
             color ||
