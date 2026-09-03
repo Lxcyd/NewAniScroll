@@ -308,14 +308,14 @@ export default function ProfileOverview({
    *
    * « Animes favoris · En cours » tient sur une carte large ; sur un téléphone,
    * où la carte fait toute la largeur de l'écran soit à peine plus de 300 px, il
-   * touchait les flèches du carrousel. Or la moitié qui compte est celle qu'on
-   * perdrait en tronquant : le nom du bloc est deviné par la bande d'affiches
-   * elle-même, alors que la LISTE montrée ne se lit nulle part ailleurs.
+   * touchait les flèches du carrousel. La carte étroite garde donc LE NOM DU
+   * BLOC seul, comme tous les autres widgets : un en-tête de grille annonce ce
+   * qu'est la carte, et la liste choisie est un réglage, pas une identité.
    *
-   * Les deux formes sont donc rendues et c'est le CSS qui choisit, sur une
-   * REQUÊTE DE CONTENEUR (`.as-head-full` / `.as-head-short`, globals.css) : ce
-   * qui décide est la largeur de la CARTE, pas celle de l'écran — la même carte
-   * est étroite en 1×1 et large en 2×4 dans la même fenêtre.
+   * Les deux formes sont rendues et c'est le CSS qui choisit, sur une REQUÊTE DE
+   * CONTENEUR (`.as-head-full` / `.as-head-short`, globals.css) : ce qui décide
+   * est la largeur de la CARTE, pas celle de l'écran — la même carte est étroite
+   * en 1×1 et large en 2×4 dans la même fenêtre.
    */
   function blockTitle(id: string, other: boolean): React.ReactNode {
     if (id === "favorites") {
@@ -331,8 +331,10 @@ export default function ProfileOverview({
               {t("profile.blocks.favorites.titleList", { list })}
             </span>
             {/* La forme courte n'a besoin d'AUCUNE traduction de plus : c'est le
-                nom de la liste, déjà traduit juste au-dessus. */}
-            <span className="as-head-short">{list}</span>
+                titre que le bloc porte déjà quand aucune liste n'est choisie. */}
+            <span className="as-head-short">
+              {t("profile.blocks.favorites.title")}
+            </span>
           </>
         );
       }
