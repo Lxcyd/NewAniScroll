@@ -2716,6 +2716,24 @@ input[type="number"] {
   height: var(--as-recent-h);
   width: calc(var(--as-recent-h) * 16 / 9);
 }
+/* LA PILULE DE SERIE, dans le coin de l'en-tete, et pourquoi elle se centre
+   plutot que de se poser.
+
+   Un `top` en dur devrait etre recalcule a chaque changement de taille : la
+   pilule grandit avec le bloc, et un bord haut fixe la ferait deriver vers le
+   bas du titre. `top` + `translateY(-50%)` posent son CENTRE, pas son bord :
+   la valeur ne decrit plus que la ligne d'oeil de l'en-tete, et la pilule peut
+   grossir sans que rien d'autre ne bouge. Cette ligne est a -26 px du contenu
+   (celle des fleches de la vitrine, hautes de 24 px et posees a -38), et
+   descend a -29 quand le titre du widget passe a 1.375rem. */
+.as-recent-streak {
+  top: -26px;
+  transform: translateY(-50%);
+  font-size: 13px;
+}
+.as-streak-flame {
+  font-size: 15px;
+}
 .as-recent-title {
   font-size: 0.875rem;
 }
@@ -2739,6 +2757,15 @@ input[type="number"] {
   }
   .as-recent-meta {
     font-size: 0.75rem;
+  }
+  /* Le titre du widget passe a 1.375rem a ce palier (`as-widget-head`) :
+     l'en-tete est plus haut, donc sa ligne d'oeil descend. */
+  .as-recent-streak {
+    top: -29px;
+    font-size: 15px;
+  }
+  .as-streak-flame {
+    font-size: 19px;
   }
 }
 
@@ -2767,5 +2794,13 @@ input[type="number"] {
   }
   .as-recent-meta {
     font-size: 0.8125rem;
+  }
+  /* La ligne d'oeil ne bouge plus — `as-widget-head` ne grandit pas au-dela du
+     palier precedent. Seule la pilule grossit, et son centrage l'absorbe. */
+  .as-recent-streak {
+    font-size: 16px;
+  }
+  .as-streak-flame {
+    font-size: 22px;
   }
 }
