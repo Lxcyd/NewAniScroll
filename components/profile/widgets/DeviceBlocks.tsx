@@ -123,11 +123,61 @@ export type ActivityProps = {
   titles?: Map<number, ProfileTitle | null>;
 };
 
+/**
+ * LES VARIANTES D'UN ANIME QUI N'EST PAS DANS LA LISTE.
+ *
+ * La table venue du profil couvre presque tout : on regarde généralement ce
+ * qu'on a ajouté. Presque. Un titre essayé sans être ajouté n'y figure pas, et
+ * il restait alors écrit dans la langue de l'historique — d'où deux titres en
+ * deux langues sur la même carte, ce qui se lit comme un bug et en est un.
+ *
+ * `/api/v2/media/[id]` porte les quatre variantes. Il est SANS SESSION donc
+ * partagé par le cache d'edge, et il est servi par le cache à trois étages
+ * (mémoire → AniList → Turso) : il répond même quand AniList est coupé.
+ *
+ * DEUX BORNES, parce que la réponse est grosse (~30 ko) pour un titre :
+ *   — on n'appelle QUE pour les lignes que la liste ne résout pas ;
+ *   — le résultat est gardé pour la session, donc une même ligne ne le
+ *     redemande pas à chaque rendu, ni deux widgets pour le même anime.
+ *
+ * Si un jour l'appel se voit, la vraie économie est ailleurs : le lecteur a
+ * l'objet `title` complet sous la main quand il écrit l'historique, et n'en
+ * garde qu'une chaîne. L'y écrire rendrait ce détour inutile — pour les
+ * lectures à venir seulement, d'où ce repli qui, lui, vaut aussi pour le passé.
+ */
+const remoteTitles = new Map<number, ProfileTitle | null>();
+
+function useRemoteTitle(aniId: number, needed: boolean): ProfileTitle | null {
+  const [found, setFound] = useState<ProfileTitle | null>(
+    () => remoteTitles.get(aniId) ?? null,
+  );
+
+  useEffect(() => {
+    if (!needed || !aniId || remoteTitles.has(aniId)) return;
+    let cancelled = false;
+    fetch(`/api/v2/media/${aniId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((media) => {
+        const title = (media?.title ?? null) as ProfileTitle | null;
+        // Mémorisé même quand c'est `null` : un anime sans titre connu ne doit
+        // pas être redemandé à chaque montage de la ligne.
+        remoteTitles.set(aniId, title);
+        if (!cancelled && title) setFound(title);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [aniId, needed]);
+
+  return found;
+}
+
 /** Le titre d'une ligne, dans la langue réglée quand on la connaît. */
 function useRowTitle(titles: ActivityProps["titles"]) {
   const pref = useTitlePref();
-  return (row: { aniId: number; animeTitle: string | null }) => {
-    const known = titles?.get(row.aniId);
+  return (row: { aniId: number; animeTitle: string | null }, remote?: ProfileTitle | null) => {
+    const known = titles?.get(row.aniId) ?? remote;
     if (known) return pickTitle(known, pref);
     return row.animeTitle || `#${row.aniId}`;
   };
@@ -153,6 +203,12 @@ export function ResumeBlock({
   const row = rows.find((r) => !r.done && r.pct > 0);
   /* Avant les sorties anticipées : un hook ne se saute pas. */
   const season = useSeasonNumber(row?.aniId ?? null, row?.animeTitle ?? null);
+  /* Même repli que la liste voisine : un anime absent de la liste n'a pas de
+     variantes, et resterait écrit dans la langue de l'historique. */
+  const remoteTitle = useRemoteTitle(
+    row?.aniId ?? 0,
+    !!row && !titles?.get(row.aniId),
+  );
 
   if (!loaded) return <div className="h-full" />;
   if (!row)
@@ -249,7 +305,7 @@ export function ResumeBlock({
       <div className="flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
           <h3 className="as-widget-lead line-clamp-3 font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action">
-            {rowTitle(row)}
+            {rowTitle(row, remoteTitle)}
           </h3>
         </Link>
         <p className="as-widget-sub mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
@@ -317,7 +373,14 @@ export function RecentsBlock({ rows: served, other, titles }: ActivityProps = {}
   return (
     <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
       {rows.map((r) => (
-        <RecentRow key={`${r.aniId}:${r.episode}`} row={r} ago={ago} t={t} title={rowTitle(r)} />
+        <RecentRow
+          key={`${r.aniId}:${r.episode}`}
+          row={r}
+          ago={ago}
+          t={t}
+          known={titles?.get(r.aniId) ?? null}
+          rowTitle={rowTitle}
+        />
       ))}
     </div>
   );
@@ -346,13 +409,22 @@ function RecentRow({
   row: r,
   ago,
   t,
-  title,
+  known,
+  rowTitle,
 }: {
   row: ActivityRow;
   ago: (at: number) => string;
   t: (key: string, opts?: Record<string, unknown>) => string;
-  title: string;
+  /** Les variantes que la liste du profil connaît déjà, `null` sinon. */
+  known: ProfileTitle | null;
+  rowTitle: (
+    row: { aniId: number; animeTitle: string | null },
+    remote?: ProfileTitle | null,
+  ) => string;
 }) {
+  /* Le réseau n'est sollicité que pour ce que la liste ne résout pas. */
+  const remote = useRemoteTitle(r.aniId, !known);
+  const title = rowTitle(r, remote);
   /* La saison se cherche sur le titre DE L'HISTORIQUE et pas sur celui qu'on
      affiche : `extractSeasonFromTitle` lit « Season 2 » ou « 2nd Season », des
      tournures qui vivent dans le romaji d'AniList. Un titre anglais traduit peut
@@ -392,12 +464,11 @@ function RecentRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-white">{title}</p>
         <p className="mt-0.5 truncate font-karla text-xs text-white/70">{where}</p>
-        {/* Le titre de l'épisode ne s'affiche que s'il en a un et qu'il ne
-            répète pas le numéro déjà écrit au-dessus : beaucoup de sources
-            nomment l'épisode 6 « Episode 6 ». */}
-        {r.episodeTitle && r.episodeTitle.trim() !== where ? (
-          <p className="mt-0.5 truncate font-karla text-xs text-white/45">{r.episodeTitle}</p>
-        ) : null}
+        {/* PAS DE TITRE D'ÉPISODE. Il a été essayé et retiré : il n'est pas
+            traduit — il arrive de la source de lecture, en anglais, quel que
+            soit le réglage de langue — et sur une ligne qui nomme déjà l'anime,
+            la saison et les épisodes, il ajoutait une quatrième ligne pour un
+            renseignement qu'on ne cherche pas dans un historique. */}
         <p className="mt-0.5 font-karla text-[11px] text-white/35">
           {r.at ? ago(r.at) : "—"}
           {state ? ` · ${state}` : ""}
