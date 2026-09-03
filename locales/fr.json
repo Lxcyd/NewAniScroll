@@ -863,7 +863,7 @@
         "trailer": "Bande-annonce au survol",
         "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche.",
         "customLists": "Compter les listes personnalisées",
-        "customListsDesc": "Remplace les six statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
+        "customListsDesc": "Remplace les statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },

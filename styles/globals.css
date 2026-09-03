@@ -2809,21 +2809,33 @@ input[type="number"] {
 
    DEUX EXIGENCES QUI SE CONTREDISENT, et l'ordre entre elles compte.
 
-   1. En 1x1 — la plus petite taille que ce bloc accepte desormais — les six
-      statuts de base doivent tenir SANS rien couper. La carte fait 230 px
+   1. En 1x1 — la plus petite taille que ce bloc accepte desormais — les
+      statuts de base (six aujourd'hui, et le compte n'est pas grave dans le
+      marbre) doivent tenir SANS rien couper. La carte fait 230 px
       (ROW, lib/profile/grid.ts), moins 32 px de rembourrage vertical et 40 px
       d'en-tete (le titre est en `text-lg`, dont la hauteur de ligne est de
-      28 px, plus `mb-3`) : il reste 158 px pour six lignes. A ce palier une
-      ligne fait 17 px et l'ecart 4cqh, soit 9,2 px sur une carte d'une
-      rangee — 148 px en tout. Les 10 px qui restent sont la marge, et c'est
-      pour ca que le corps de base est a 12 px et pas a 13.
+      28 px, plus `mb-3`) : il reste 158 px pour six lignes.
    2. Au-dela, tout grandit avec la carte.
 
-   L'ECART EST EN `cqh` ET PAS EN PALIERS : il est le seul reglage qui doive
-   suivre la HAUTEUR de facon continue, puisque c'est lui qui remplit la carte
-   quand il y a peu de lignes. Les bornes du `clamp` le tiennent aux deux
-   bouts — jamais assez serre pour coller les lignes, jamais assez large pour
-   qu'une liste de deux entrees se disperse.
+   LES LIGNES SE PARTAGENT LA HAUTEUR, ELLES NE SE POSENT PAS EN HAUT.
+
+   C'est une correction, et la premiere version avait le defaut qu'elle
+   corrige : les lignes etaient calees en haut (`align-content: start`) et
+   l'ecart entre elles etait la seule chose qui remplissait la carte. Regler cet
+   ecart ne peut pas marcher, parce qu'il ne connait pas le NOMBRE de lignes :
+   la meme valeur laissait un grand vide sous six statuts et aurait tasse douze
+   listes personnalisees. Le vide en bas etait le reste d'une division qui
+   n'etait faite nulle part.
+
+   `grid-auto-rows: minmax(<mini>, 1fr)` la fait, et fait les deux cas d'un coup :
+   tant que ca tient, les pistes se partagent la place libre — la carte est
+   pleine quel que soit le nombre de lignes ; des que ca deborde, il n'y a plus
+   de place a partager, chaque piste retombe sur son minimum et c'est le
+   defilement qui prend le relais. Le minimum est donc le seul nombre a regler
+   par palier, et c'est lui qui garantit le point 1.
+
+   L'ecart n'est plus qu'une SEPARATION minimale — d'ou sa valeur modeste, et
+   `cqh` pour qu'elle suive quand meme la carte.
 
    ET LA BARRE DE DEFILEMENT REDEVIENT VISIBLE (`as-widget-scroll`). Une liste
    personnalisee de plus, et le bloc deborde : cachee comme partout ailleurs sur
@@ -2834,13 +2846,17 @@ input[type="number"] {
   --as-st-dot: 7px;
   --as-bar-h: 4px;
   --as-st-cols: 0.625rem;
-  gap: clamp(6px, 4cqh, 22px);
+  /* La hauteur PLANCHER d'une ligne : ce en quoi les pistes retombent quand la
+     liste deborde, et ce sur quoi se verifie le tenir-en-1x1. */
+  --as-st-row: 17px;
+  grid-auto-rows: minmax(var(--as-st-row), 1fr);
+  gap: clamp(5px, 2cqh, 11px);
 }
 .as-status-row {
   column-gap: var(--as-st-cols);
   font-size: var(--as-st-text);
-  /* Une hauteur de ligne DONNEE, pas heritee : c'est elle qui rend le calcul
-     du palier 1x1 verifiable au lieu de dependre du `leading-normal` du
+  /* Une hauteur de ligne DONNEE, pas heritee : c'est elle qui rend le plancher
+     ci-dessus verifiable au lieu de dependre du `leading-normal` du
      navigateur. */
   line-height: 1.4;
 }
@@ -2862,6 +2878,7 @@ input[type="number"] {
     --as-st-dot: 8px;
     --as-bar-h: 5px;
     --as-st-cols: 0.75rem;
+    --as-st-row: 19px;
   }
 }
 
@@ -2872,6 +2889,7 @@ input[type="number"] {
     --as-st-count: 13px;
     --as-st-dot: 9px;
     --as-bar-h: 6px;
+    --as-st-row: 21px;
   }
 }
 
@@ -2883,6 +2901,7 @@ input[type="number"] {
     --as-st-dot: 10px;
     --as-bar-h: 7px;
     --as-st-cols: 0.875rem;
+    --as-st-row: 23px;
   }
 }
 

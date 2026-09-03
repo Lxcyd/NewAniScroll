@@ -863,7 +863,7 @@
         "trailer": "Trailer on hover",
         "trailerDesc": "The preview that opens when the pointer settles on a poster.",
         "customLists": "Count custom lists",
-        "customListsDesc": "Replaces the six statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
+        "customListsDesc": "Replaces the statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },

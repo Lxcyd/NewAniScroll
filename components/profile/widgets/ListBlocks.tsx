@@ -564,7 +564,10 @@ export function StatusesBlock({
   const max = Math.max(...rows.map((r) => r.count));
 
   return (
-    <div className="as-status-list as-widget-scroll grid h-full content-start overflow-y-auto pr-1.5">
+    /* PAS DE `content-start` ICI : il calerait les lignes en haut et annulerait
+       le partage de hauteur (`grid-auto-rows: minmax(…, 1fr)`, globals.css) —
+       c'est exactement ce qui laissait un grand vide sous la derniere. */
+    <div className="as-status-list as-widget-scroll grid h-full overflow-y-auto pr-1.5">
       {rows.map((r) => {
         const color = custom
           ? customListColor(r.key)

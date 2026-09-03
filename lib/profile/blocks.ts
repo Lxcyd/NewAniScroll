@@ -173,7 +173,7 @@ const OPTIONS: Record<string, BlockOption[]> = {
      n'est pas une bonne nouvelle pour tout le monde. */
   recents: [{ key: "streak", on: true }],
   /* Compter les listes personnalisées PLUTÔT QUE les statuts. Éteint par
-     défaut : les six statuts existent sur tous les profils, les listes inventées
+     défaut : les statuts existent sur tous les profils, les listes inventées
      n'existent que sur certains — un défaut allumé ouvrirait le bloc sur un état
      vide chez la plupart des gens. Un interrupteur et pas un menu : les deux
      répartitions ne se mélangent pas (une entrée a UN statut, mais peut être
