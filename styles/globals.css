@@ -2626,9 +2626,14 @@ input[type="number"] {
 
    « Animes favoris · En cours » tient sur une carte large. Sur un telephone la
    carte fait toute la largeur de l'ecran -- environ 340 px -- et le titre
-   rejoignait les fleches du carrousel. La carte etroite ne garde donc que LE NOM
-   DU BLOC, comme tous les autres widgets de la grille : un en-tete annonce ce
-   qu'est la carte, et la liste choisie est un reglage, pas une identite.
+   rejoignait les fleches du carrousel. La carte etroite ne garde donc qu'une
+   moitie : le nom de la LISTE montree (« En cours », « Termines », ou celui
+   d'une liste personnalisee). Les coeurs, eux, gardent « Animes favoris » --
+   mais ils ne passent pas par ici, leur titre n'a jamais eu qu'une forme.
+
+   Un nom trop long s'arrete sur trois points : c'est le `truncate` de l'en-tete
+   (WidgetGrid.tsx), qui a de quoi couper au bon endroit parce que la place des
+   fleches lui est reservee (`endRoom`).
 
    Le seuil est a 460 px, bien au-dessus d'une carte de telephone et bien
    au-dessous d'une carte de deux colonnes sur une page de bureau (~590 px). Et

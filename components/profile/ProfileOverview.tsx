@@ -308,9 +308,17 @@ export default function ProfileOverview({
    *
    * « Animes favoris · En cours » tient sur une carte large ; sur un téléphone,
    * où la carte fait toute la largeur de l'écran soit à peine plus de 300 px, il
-   * touchait les flèches du carrousel. La carte étroite garde donc LE NOM DU
-   * BLOC seul, comme tous les autres widgets : un en-tête de grille annonce ce
-   * qu'est la carte, et la liste choisie est un réglage, pas une identité.
+   * touchait les flèches du carrousel. La carte étroite garde donc UNE SEULE
+   * moitié, et laquelle dépend de ce que la vitrine montre :
+   *
+   *   — les cœurs (`favourites`) gardent « Animes favoris », leur nom propre ;
+   *   — toute autre liste garde SON nom — « En cours », « Terminés », ou celui
+   *     que le propriétaire a donné à sa liste personnalisée.
+   *
+   * Autrement dit, l'en-tête nomme toujours ce qu'on regarde, en un seul mot
+   * quand il n'y a la place que pour un. Un nom trop long s'arrête sur trois
+   * points : c'est le `truncate` de l'en-tête (WidgetGrid.tsx), et la place des
+   * flèches lui est déjà réservée par `endRoom`.
    *
    * Les deux formes sont rendues et c'est le CSS qui choisit, sur une REQUÊTE DE
    * CONTENEUR (`.as-head-full` / `.as-head-short`, globals.css) : ce qui décide
@@ -331,10 +339,10 @@ export default function ProfileOverview({
               {t("profile.blocks.favorites.titleList", { list })}
             </span>
             {/* La forme courte n'a besoin d'AUCUNE traduction de plus : c'est le
-                titre que le bloc porte déjà quand aucune liste n'est choisie. */}
-            <span className="as-head-short">
-              {t("profile.blocks.favorites.title")}
-            </span>
+                nom de la liste, déjà traduit juste au-dessus. Les cœurs, eux, ne
+                passent jamais ici — sans liste choisie, le titre du bloc est
+                rendu tel quel, plus bas, et il est déjà court. */}
+            <span className="as-head-short">{list}</span>
           </>
         );
       }
