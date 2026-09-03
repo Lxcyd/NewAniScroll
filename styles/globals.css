@@ -2862,6 +2862,21 @@ input[type="number"] {
      graduation s'arreteraient au-dessus du zero au lieu de reposer dessus. */
   column-gap: var(--as-sc-gap);
 }
+/* LES DEMI-NOTES DE L'AXE N'APPARAISSENT QUE QUAND LA CARTE PEUT LES PORTER.
+   Vingt fois « 0,5 » demandent ~440 px rien qu'en texte : sur un bloc large de
+   deux colonnes (452 px de contenu) ils se toucheraient, et sur un 1x1 ils se
+   chevaucheraient franchement. Le seuil est celui du bloc large de trois
+   (cf. le pave sur `as-recent-row` pour le -40 px de la boite de contenu), ou
+   892 px de contenu laissent 44 px par etiquette. En dessous, les entiers
+   suffisent a lire l'axe — et les colonnes, elles, sont toujours la. */
+.as-score-half {
+  display: none;
+}
+@container widget (min-width: 660px) {
+  .as-score-half {
+    display: block;
+  }
+}
 .as-score-bar {
   border-radius: var(--as-sc-round) var(--as-sc-round) 0 0;
 }

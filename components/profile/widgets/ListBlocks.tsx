@@ -619,6 +619,26 @@ export function StatusesBlock({
 /* ── Notes attribuées ────────────────────────────────────────────────── */
 
 /**
+ * LA VIRGULE DÉCIMALE DE LA LANGUE COURANTE.
+ *
+ * Le bloc écrit des demi-points partout — sur son axe, dans ses infobulles, et
+ * dans sa moyenne — et « 7.5 » au milieu d'une interface française se lit comme
+ * une coquille. La séparation vient donc de la langue chargée, pas d'un
+ * remplacement inconditionnel du point par une virgule : c'est ce que fait
+ * `StudiosBlock` plus bas, et sa note s'écrit « 8,5 » jusque sur l'interface
+ * anglaise.
+ *
+ * `Intl` n'est pas convoqué pour si peu : il faudrait lui interdire son
+ * groupement des milliers, et un `Intl.NumberFormat` par rendu coûterait plus
+ * cher que la ligne qu'il remplace.
+ */
+function useDecimal(): (n: number) => string {
+  const { i18n } = useTranslation();
+  const comma = (i18n.language || "").toLowerCase().startsWith("fr");
+  return (n: number) => (comma ? String(n).replace(".", ",") : String(n));
+}
+
+/**
  * LA MOYENNE, DANS LE COIN DE L'EN-TÊTE.
  *
  * Même pilule que la série de jours de « Vu récemment » — même plateau opaque,
@@ -640,10 +660,12 @@ function AverageBadge({
   mean,
   rated,
   t,
+  num,
 }: {
   mean: number;
   rated: number;
   t: (k: string, o?: any) => string;
+  num: (n: number) => string;
 }) {
   return (
     <div
@@ -651,10 +673,10 @@ function AverageBadge({
       title={t("profile.blocks.scores.meanTitle", { count: rated })}
     >
       <span className="font-outfit font-bold leading-none text-as-score">
-        {/* `String` et pas une mise en forme localisée : c'est le MÊME nombre que
-            la moyenne de l'en-tête du profil (cf. `heroStats`), et une page qui
-            l'écrit de deux façons se lit comme deux statistiques. */}
-        {String(mean)}
+        {/* La virgule de la langue courante, comme l'axe juste dessous : deux
+            décimales écrites de deux façons dans la même carte se liraient comme
+            deux statistiques (cf. `useDecimal`). */}
+        {num(mean)}
       </span>
       {/* TROIS ÉLÉMENTS ET PAS DEUX, pour que les deux espaces de la fraction
           soient ÉGALES PAR CONSTRUCTION. La barre oblique était collée au 10 par
@@ -731,6 +753,7 @@ export function ScoresBlock({
   editing?: boolean;
 }) {
   const { t } = useTranslation();
+  const num = useDecimal();
   const { bins, mean, rated } = useMemo(
     () => scoreSpread(entries, completedOnly),
     [entries, completedOnly],
@@ -756,7 +779,7 @@ export function ScoresBlock({
        porte les colonnes en `h-full`. */
     <div className="relative h-full">
       {!editing && mean != null ? (
-        <AverageBadge mean={mean} rated={rated} t={t} />
+        <AverageBadge mean={mean} rated={rated} t={t} num={num} />
       ) : null}
       <div
         className="as-score-plot grid h-full"
@@ -772,7 +795,12 @@ export function ScoresBlock({
             valeur en pixels n'ait à être devinée ni re-réglée à chaque palier. */}
         <div className="relative" style={{ gridArea: "1 / 1 / 2 / 2" }}>
           <span className="invisible font-karla">{top}</span>
-          {ticks.map((v) => (
+          {/* LE ZÉRO EST ÉCRIT, LUI AUSSI, et il n'a pourtant pas de ligne : la
+              base du graphe EST sa ligne. Sans ce chiffre, l'axe commençait à sa
+              première graduation — 20, 40, 60 — et rien ne disait où était
+              l'origine ; une colonne minuscule pouvait alors se lire comme une
+              colonne coupée en bas. */}
+          {[0, ...ticks].map((v) => (
             <span
               key={v}
               className="absolute right-0 translate-y-1/2 font-karla tabular-nums text-white/30"
@@ -811,7 +839,7 @@ export function ScoresBlock({
                ce qu'elle compte. Le survol donne le nombre, l'infobulle donne la
                phrase entière. */
             title={t("profile.blocks.scores.barTitle", {
-              score: scoreBinValue(i),
+              score: num(scoreBinValue(i)),
               count: n,
             })}
           >
@@ -862,21 +890,28 @@ export function ScoresBlock({
           </div>
         ))}
 
-        {/* LES NOTES DU BAS : LES POINTS ENTIERS SEULEMENT.
-            Vingt colonnes ne peuvent pas porter vingt étiquettes — « 0,5 1 1,5 »
-            se chevaucheraient dès la première carte étroite. Un chiffre sur deux
-            suffit à lire l'axe, et il est posé sur SA colonne, pas centré entre
-            les deux : le 7 doit désigner le 7, pas l'entre-deux du 6,5 et du 7. */}
+        {/* LES NOTES DU BAS. Les demi-points sont écrits AUSSI, en plus pâle que
+            les entiers — la hiérarchie est dans la couleur, pas dans l'absence.
+
+            MAIS PAS PARTOUT : « 0,5 » demande trois caractères, et vingt fois
+            trois caractères ne tiennent pas sous une carte étroite ; ils s'y
+            chevaucheraient au lieu de renseigner. La feuille de style les cache
+            donc tant que la carte n'a pas la largeur de les porter
+            (`.as-score-half`, globals.css), et les entiers suffisent alors à
+            lire l'axe. Chaque chiffre reste posé sur SA colonne : le 7 désigne
+            le 7, pas l'entre-deux du 6,5 et du 7. */}
         {bins.map((_, i) => {
           const v = scoreBinValue(i);
-          if (!Number.isInteger(v)) return null;
+          const whole = Number.isInteger(v);
           return (
             <span
               key={i}
-              className="pt-2 text-center font-karla tabular-nums text-white/35"
+              className={`pt-2 text-center font-karla tabular-nums ${
+                whole ? "text-white/35" : "as-score-half text-white/20"
+              }`}
               style={{ gridRow: 2, gridColumn: i + 2 }}
             >
-              {v}
+              {num(v)}
             </span>
           );
         })}
