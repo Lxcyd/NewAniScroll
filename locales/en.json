@@ -850,6 +850,8 @@
       "noOptions": "This widget has no settings.",
       "options": {
         "ambient": "Ambient light",
+        "streak": "Day streak",
+        "streakDesc": "The flame in the corner, and how many days running you have watched.",
         "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it.",
         "source": "List shown",
         "sourceDesc": "The best-rated titles from this list.",
@@ -912,7 +914,9 @@
         "seasonEpRange": "Season {{season}} · Episodes {{from}}–{{to}}",
         "done": "Finished",
         "left": "{{minutes}} min left",
-        "emptyOther": "Nothing played yet."
+        "emptyOther": "Nothing played yet.",
+        "streakTitle_one": "{{count}} day in a row",
+        "streakTitle_other": "{{count}} days in a row"
       },
       "statuses": {
         "title": "By status",

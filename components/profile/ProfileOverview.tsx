@@ -85,6 +85,11 @@ type Props = {
    *  Le propriétaire, lui, garde sa source locale — elle est plus fraîche que
    *  la dernière synchronisation, et elle se met à jour pendant qu'il regarde. */
   activity?: ActivityRow[] | null;
+  /** Les jours consécutifs de lecture DU PROPRIÉTAIRE, comptés au rendu serveur
+   *  en même temps que `activity`. Chez lui, le bloc les recompte dans son
+   *  navigateur : un jour de série est un jour de calendrier, donc il dépend du
+   *  fuseau, et celui du serveur n'est pas le sien. */
+  streak?: number | null;
 };
 
 function defaultLayout(isOwner: boolean): GridItem[] {
@@ -103,6 +108,7 @@ export default function ProfileOverview({
   isOwner,
   accountLayout,
   activity,
+  streak,
 }: Props) {
   const { t } = useTranslation();
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
@@ -190,9 +196,11 @@ export default function ProfileOverview({
     return {
       title: blockTitle(id, other),
       meta: null,
-      /* La vitrine pose ses flèches dans le coin de l'en-tête : il faut leur
-         garder la place (cf. `endRoom` dans WidgetGrid.tsx). */
-      endRoom: id === "favorites",
+      /* La vitrine pose ses flèches dans le coin de l'en-tête, « Vu récemment »
+         sa flamme : il faut leur garder la place (cf. `endRoom` dans
+         WidgetGrid.tsx). Pour la flamme, seulement quand elle est allumée —
+         sinon le titre perdrait 56 px pour rien. */
+      endRoom: id === "favorites" || (id === "recents" && optionOn("recents", "streak")),
       body: body(id),
     };
   }
@@ -388,7 +396,9 @@ export default function ProfileOverview({
             rows={served}
             other={!isOwner}
             titles={titlesById}
-            ambient={optionOn("recents", "ambient")}
+            streak={streak ?? 0}
+            streakOn={optionOn("recents", "streak")}
+            editing={editing}
           />
         );
       case "favorites":

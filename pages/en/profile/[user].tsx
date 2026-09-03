@@ -100,6 +100,8 @@ type Props = {
   profileLayout: GridItem[] | null;
   /** L'activité de lecture du propriétaire, quand sa grille l'affiche. */
   activity: ActivityRow[] | null;
+  /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
+  streak: number | null;
   /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
@@ -116,6 +118,7 @@ export default function Profile({
   isOwner,
   profileLayout,
   activity,
+  streak,
   isPrivate,
   viewedName,
 }: Props) {
@@ -251,6 +254,7 @@ export default function Profile({
             isOwner={isOwner}
             accountLayout={profileLayout ?? null}
             activity={activity ?? null}
+            streak={streak ?? null}
           />
         ) : null}
 
@@ -704,9 +708,14 @@ export async function getServerSideProps(context: any) {
      donne son sens à « je retire le bloc » : sans lui, l'activité resterait
      lisible dans __NEXT_DATA__ alors que plus rien ne l'afficherait à l'écran.
      C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
-  const activity: ActivityRow[] | null = layoutWantsActivity(profileLayout)
+  const read = layoutWantsActivity(profileLayout)
     ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress") })
     : null;
+  const activity: ActivityRow[] | null = read?.rows ?? null;
+  /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la
+     lecture du proprietaire, elle ne doit pas rester lisible dans
+     __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
+  const streak: number | null = read?.streak ?? null;
 
   const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
   const resolved = pinnedBanner
@@ -777,6 +786,7 @@ export async function getServerSideProps(context: any) {
       isOwner,
       profileLayout,
       activity,
+      streak,
     },
   };
 }

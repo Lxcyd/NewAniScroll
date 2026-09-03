@@ -2716,15 +2716,6 @@ input[type="number"] {
   height: var(--as-recent-h);
   width: calc(var(--as-recent-h) * 16 / 9);
 }
-/* LE FLOU DU HALO SE MESURE SUR LA VIGNETTE, comme tout le reste de la ligne.
-   Le bloc voisin peut se permettre un `blur(34px)` en dur, sa vignette faisant
-   la hauteur de la carte ; ici elle passe de 66 a 116 px selon le palier, et un
-   flou fixe serait une bouillie sur la petite ou une frange nette sur la
-   grande. A 26 % de la hauteur il vaut 17 px en bas de gamme et 30 px en haut :
-   le meme halo, a l'echelle. */
-.as-recent-glow {
-  filter: blur(calc(var(--as-recent-h) * 0.26)) saturate(1.6);
-}
 .as-recent-title {
   font-size: 0.875rem;
 }

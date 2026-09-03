@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
 import { readHistory, watchHref } from "@/lib/profile/history";
-import { decorateRows, type ActivityRow } from "@/lib/profile/activity";
+import { decorateRows, watchStreak, type ActivityRow } from "@/lib/profile/activity";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
@@ -30,17 +30,32 @@ import { Bar, EmptyBlock, useAgo } from "./common";
  * sa propre lecture sous le nom d'un autre.
  */
 
-function useHistory(limit: number): { rows: ActivityRow[]; loaded: boolean } {
-  const [state, setState] = useState<{ rows: ActivityRow[]; loaded: boolean }>({
+function useHistory(limit: number): {
+  rows: ActivityRow[];
+  streak: number;
+  loaded: boolean;
+} {
+  const [state, setState] = useState<{
+    rows: ActivityRow[];
+    streak: number;
+    loaded: boolean;
+  }>({
     rows: [],
+    streak: 0,
     loaded: false,
   });
   useEffect(() => {
-    const read = () =>
+    const read = () => {
+      const map = readProgressMap();
       setState({
-        rows: decorateRows(readHistory(limit), readProgressMap()),
+        rows: decorateRows(readHistory(limit), map),
+        /* Chez soi, la série est comptée ICI et pas au rendu serveur : le
+           « jour » d'une série est un jour de CALENDRIER, donc il dépend du
+           fuseau, et celui du navigateur est le bon. */
+        streak: watchStreak(map),
         loaded: true,
       });
+    };
     read();
     window.addEventListener(PROGRESS_EVENT, read);
     window.addEventListener("storage", read);
@@ -53,9 +68,9 @@ function useHistory(limit: number): { rows: ActivityRow[]; loaded: boolean } {
 }
 
 /** Les lignes servies s'il y en a, sinon celles de l'appareil. */
-function useRows(served: ActivityRow[] | undefined, limit: number) {
+function useRows(served: ActivityRow[] | undefined, limit: number, servedStreak = 0) {
   const local = useHistory(limit);
-  return served ? { rows: served, loaded: true } : local;
+  return served ? { rows: served, streak: servedStreak, loaded: true } : local;
 }
 
 /**
@@ -121,6 +136,12 @@ export type ActivityProps = {
    * sur la chaîne de l'historique, qui vaut toujours mieux qu'un numéro.
    */
   titles?: Map<number, ProfileTitle | null>;
+  /**
+   * La série du PROPRIÉTAIRE, comptée au rendu serveur, et qui n'a de sens
+   * qu'avec `rows` — chez soi elle est recomptée dans le navigateur, où le
+   * fuseau est le bon.
+   */
+  streak?: number;
 };
 
 /**
@@ -356,17 +377,48 @@ export function ResumeBlock({
 
 /* ── Vu récemment ────────────────────────────────────────────────────── */
 
+/**
+ * LA FLAMME, dans le coin de l'en-tête du bloc.
+ *
+ * Elle est posée en NÉGATIF au-dessus du contenu parce que l'en-tête appartient
+ * à la GRILLE et non au bloc : celui-ci ne reçoit que sa boîte de contenu, et
+ * remonter de 38 px l'amène à hauteur du titre, à droite. C'est le placement des
+ * flèches de la vitrine, au pixel près (cf. ListBlocks.tsx) — deux commandes de
+ * bloc dans le même coin doivent tomber sur la même ligne.
+ *
+ * ELLE DISPARAÎT EN RÉORGANISATION : ce coin appartient alors à la roue dentée
+ * et au moins, et la place lui est réservée par `endRoom` (WidgetGrid.tsx).
+ */
+function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => string }) {
+  return (
+    <div
+      className="absolute -top-[38px] right-0 z-10 flex items-center gap-1 rounded-full bg-action/15 px-2 py-1 ring-1 ring-action/30"
+      title={t("profile.blocks.recents.streakTitle", { count: days })}
+    >
+      {/* Une flamme pleine, dessinée au même trait que les autres glyphes du
+          profil : un seul chemin, sans contour, qui reste lisible à 14 px. */}
+      <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 text-action">
+        <path d="M13.5 1.5c.3 3-1.2 4.5-2.6 5.9C9.4 8.9 8 10.3 8 13a4 4 0 004 4 4 4 0 004-4c0-1.3-.5-2.2-1-3 1.9.6 3.5 2.6 3.5 5.3 0 3.7-3.2 6.7-6.5 6.7S5.5 19 5.5 15.3c0-4.6 2.8-6.6 4.6-8.6C11.9 4.7 13.3 3.3 13.5 1.5z" />
+      </svg>
+      <span className="font-outfit text-xs font-bold leading-none text-white">{days}</span>
+    </div>
+  );
+}
+
 export function RecentsBlock({
   rows: served,
   other,
   titles,
-  /* Même réglage que le bloc voisin, allumé par défaut (cf. lib/profile/blocks.ts). */
-  ambient = true,
-}: ActivityProps & { ambient?: boolean } = {}) {
+  streak: servedStreak = 0,
+  /* Réglable depuis la roue dentée du bloc (cf. lib/profile/blocks.ts). */
+  streakOn = true,
+  /* En réorganisation, le coin de l'en-tête appartient à la roue et au moins. */
+  editing = false,
+}: ActivityProps & { streakOn?: boolean; editing?: boolean } = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
-  const { rows, loaded } = useRows(served, 12);
+  const { rows, streak, loaded } = useRows(served, 12, servedStreak);
 
   if (!loaded) return <div className="h-full" />;
   if (!rows.length)
@@ -376,19 +428,28 @@ export function RecentsBlock({
       />
     );
 
+  /* La flamme n'apparaît qu'à partir de DEUX jours. « 1 » n'est pas une série :
+     c'est simplement avoir regardé quelque chose aujourd'hui, ce que la
+     première ligne du bloc dit déjà, et en plus précis. */
   return (
-    <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
-      {rows.map((r) => (
-        <RecentRow
-          key={`${r.aniId}:${r.episode}`}
-          row={r}
-          ago={ago}
-          t={t}
-          known={titles?.get(r.aniId) ?? null}
-          rowTitle={rowTitle}
-          ambient={ambient}
-        />
-      ))}
+    /* DEUX BOÎTES, et c'est le défilement qui l'impose : la flamme est posée
+       au-dessus du contenu (`-top-[38px]`), donc la mettre dans la boîte qui
+       défile la ferait couper par son `overflow`. L'enveloppe ne défile pas et
+       ne sert qu'à lui donner son coin. */
+    <div className="relative h-full">
+      {streakOn && !editing && streak > 1 ? <StreakBadge days={streak} t={t} /> : null}
+      <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
+        {rows.map((r) => (
+          <RecentRow
+            key={`${r.aniId}:${r.episode}`}
+            row={r}
+            ago={ago}
+            t={t}
+            known={titles?.get(r.aniId) ?? null}
+            rowTitle={rowTitle}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -418,7 +479,6 @@ function RecentRow({
   t,
   known,
   rowTitle,
-  ambient,
 }: {
   row: ActivityRow;
   ago: (at: number) => string;
@@ -429,7 +489,6 @@ function RecentRow({
     row: { aniId: number; animeTitle: string | null },
     remote?: ProfileTitle | null,
   ) => string;
-  ambient: boolean;
 }) {
   /* Le réseau n'est sollicité que pour ce que la liste ne résout pas. */
   const remote = useRemoteTitle(r.aniId, !known);
@@ -470,42 +529,7 @@ function RecentRow({
          descend. */
       className="as-recent-row group flex items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
-      {/* DEUX BOÎTES LÀ OÙ IL N'Y EN AVAIT QU'UNE, et c'est le halo qui l'exige.
-          La vignette est `overflow-hidden` — c'est ce qui lui donne ses coins
-          arrondis — donc une lueur posée dedans y serait coupée net, ce qui est
-          exactement l'inverse d'une lumière d'ambiance. L'enveloppe extérieure
-          porte donc la taille et laisse déborder ; la vignette redevient un
-          calque plein-cadre à l'intérieur, posée APRÈS le halo dans le DOM,
-          donc au-dessus de lui sans avoir à empiler des `z-index`. */}
-      <div className="as-recent-thumb relative shrink-0">
-        {/* LE HALO, celui de « Reprendre la lecture » à l'échelle d'une ligne.
-            Même principe : des copies concentriques de la vignette, chacune
-            plus large et plus pâle, floutées EN UN SEUL passage sur la pile.
-
-            LE PAS EST PLUS SERRÉ QU'À CÔTÉ (14 % contre 18 %), et le flou se
-            calcule sur la hauteur de la vignette plutôt qu'en pixels fixes
-            (`as-recent-glow`, globals.css). Ce sont les deux mêmes raisons :
-            ici les vignettes se suivent à quelques pixels l'une de l'autre, et
-            un halo réglé pour la grande vignette d'un bloc 2×4 viendrait baigner
-            la ligne voisine. Le bord de la carte, lui, coupe ce qui dépasse. */}
-        {art && ambient ? (
-          <div className="as-recent-glow pointer-events-none absolute inset-0" aria-hidden>
-            {[0, 1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="absolute inset-0"
-                style={{ transform: `scale(${1 + i * 0.14})`, opacity: 0.5 * Math.pow(0.6, i) }}
-              >
-                {/* Même src et même `sizes` que la vignette : c'est la même URL
-                    optimisée, donc le cache du navigateur et pas un
-                    téléchargement par calque. */}
-                <Image src={art} alt="" fill sizes="220px" className="object-cover" />
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="absolute inset-0 overflow-hidden rounded-xl bg-as-card">
+      <div className="as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card">
         {/* La vignette monte à 178 px de large dans le plus grand palier : un
             `sizes` resté à 160 px y aurait fait servir une image trop petite,
             étirée. */}
@@ -537,7 +561,6 @@ function RecentRow({
             </svg>
           </span>
         </span>
-        </div>
       </div>
       <div className="min-w-0 flex-1">
         <p className="as-recent-title truncate font-semibold text-white">{title}</p>

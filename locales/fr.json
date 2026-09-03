@@ -850,6 +850,8 @@
       "noOptions": "Ce widget n'a aucun paramètre.",
       "options": {
         "ambient": "Lumière d'ambiance",
+        "streak": "Série de jours",
+        "streakDesc": "La flamme du coin, et depuis combien de jours d'affilée tu regardes.",
         "ambientDesc": "Un halo tamisé aux couleurs de la vignette, derrière elle.",
         "source": "Liste affichée",
         "sourceDesc": "Les titres les mieux notés de cette liste.",
@@ -912,7 +914,9 @@
         "seasonEpRange": "Saison {{season}} · Épisodes {{from}}–{{to}}",
         "done": "Terminé",
         "left": "{{minutes}} min restantes",
-        "emptyOther": "Aucune lecture enregistrée."
+        "emptyOther": "Aucune lecture enregistrée.",
+        "streakTitle_one": "{{count}} jour d'affilée",
+        "streakTitle_other": "{{count}} jours d'affilée"
       },
       "statuses": {
         "title": "Répartition par statut",

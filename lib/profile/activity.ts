@@ -112,13 +112,77 @@ function runStart(map: ProgressMap, aniId: number, episode: number): number {
   return first;
 }
 
-/** Les deux catégories dont dépend l'activité. */
+/**
+ * LA SÉRIE : depuis combien de jours d'affilée a-t-on regardé quelque chose.
+ *
+ * ELLE SE LIT DANS LA TABLE DE PROGRESSION, PAS DANS L'HISTORIQUE. Celui-ci ne
+ * garde qu'UNE ligne par anime (le dernier épisode ouvert) et n'en garde que
+ * douze : il ne peut pas répondre « ai-je regardé quelque chose mardi ? » —
+ * douze lignes ne peuvent pas décrire trente jours. La table de progression, au
+ * contraire, a une entrée par ÉPISODE et chacune porte la date de sa dernière
+ * écriture : c'est un vrai journal des jours de lecture.
+ *
+ * LE JOUR EST CELUI DU CALENDRIER LOCAL, et pas une tranche de 24 h : la série
+ * répond à « hier, aujourd'hui », ce que les gens comptent en couchers de
+ * soleil et pas en heures écoulées. D'où `setHours(0,0,0,0)` pour dater, et un
+ * pas en arrière par `setDate(-1)` PLUTÔT QUE PAR SOUSTRACTION DE 86 400 000 :
+ * deux fois l'an un jour local ne dure pas 24 h, et le pas fixe tomberait à
+ * 23 h ou 01 h du jour précédent — jamais sur son minuit, donc une série cassée
+ * net au changement d'heure.
+ *
+ * LA JOURNÉE EN COURS NE COMPTE PAS CONTRE SOI. Ne rien avoir regardé
+ * aujourd'hui ne casse pas la série : la journée n'est pas finie. Le compte
+ * part donc d'aujourd'hui s'il y a une trace, sinon d'hier — et seulement si
+ * hier en a une, faute de quoi la série est bien à zéro.
+ */
+function startOfDay(ms: number): number {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function dayBefore(ms: number): number {
+  const d = new Date(ms);
+  d.setDate(d.getDate() - 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+export function watchStreak(map: ProgressMap, now = Date.now()): number {
+  const days = new Set<number>();
+  for (const e of Object.values(map || {})) {
+    const at = Number(e?.updatedAt);
+    // La table vient d'un navigateur : une entrée sans date, ou datée de
+    // n'importe quoi, ne doit pas inventer un jour de lecture.
+    if (Number.isFinite(at) && at > 0) days.add(startOfDay(at));
+  }
+  if (!days.size) return 0;
+
+  const today = startOfDay(now);
+  let cursor = days.has(today) ? today : dayBefore(today);
+  let n = 0;
+  while (days.has(cursor)) {
+    n++;
+    cursor = dayBefore(cursor);
+  }
+  return n;
+}
+
+/** Les deux catégories dont dépend l'activité, et la série qu'elles portent. */
 export function activityFromCloud(
   payloads: { recent?: unknown; progress?: unknown },
   limit = 12,
-): ActivityRow[] {
-  return decorateRows(
-    historyFromCloud(payloads.recent, limit),
-    progressFromCloud(payloads.progress),
-  );
+): { rows: ActivityRow[]; streak: number } {
+  /* La table est déballée UNE fois et servie aux deux : les lignes en tirent
+     leur avancement, la série ses jours. La reparser pour chacun coûterait un
+     `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
+  const map = progressFromCloud(payloads.progress);
+  return {
+    rows: decorateRows(historyFromCloud(payloads.recent, limit), map),
+    /* Le fuseau est celui du SERVEUR (UTC en production), pas celui du
+       propriétaire : sa journée peut donc basculer quelques heures trop tôt ou
+       trop tard sur le profil vu par un visiteur. Chez lui, la série est
+       recalculée dans son navigateur, donc juste (cf. DeviceBlocks.tsx). */
+    streak: watchStreak(map),
+  };
 }
