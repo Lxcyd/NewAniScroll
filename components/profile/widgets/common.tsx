@@ -63,31 +63,11 @@ export function Bar({ pct, color }: { pct: number; color?: string }) {
   );
 }
 
-/** Colonne d'un histogramme, hauteur en % de la plus haute. */
-export function Column({
-  pct,
-  label,
-  color,
-}: {
-  pct: number;
-  label: string;
-  color?: string;
-}) {
-  return (
-    <div className="flex h-full flex-1 flex-col items-center justify-end gap-2">
-      <div
-        className="w-full rounded-t-md"
-        style={{
-          height: `${Math.max(4, Math.min(100, pct))}%`,
-          background:
-            color ||
-            "linear-gradient(180deg, var(--brand-primary, #E94560), rgba(233,69,96,0.15))",
-        }}
-      />
-      <span className="font-karla text-[10px] text-white/35">{label}</span>
-    </div>
-  );
-}
+/* `Column` vivait ici — une barre et son etiquette, pour les histogrammes. Un
+   seul bloc s'en servait, « Notes attribuees », et il a du apprendre les
+   graduations et le survol : la barre ne peut plus etre un composant qui ignore
+   l'echelle sur laquelle elle est posee. Elle est donc rendue sur place
+   (ListBlocks.tsx). Rien d'autre n'en dependait. */
 
 /** « aujourd'hui », « il y a 3 j » — la fraîcheur d'une lecture, sans librairie. */
 export function useAgo(): (timestamp: number) => string {

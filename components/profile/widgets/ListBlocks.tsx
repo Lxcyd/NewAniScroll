@@ -23,7 +23,7 @@ import {
   type StatusKey,
 } from "@/lib/profile/insights";
 import type { ProfileCharacter, ProfileEntry } from "@/lib/profile/types";
-import { Bar, Column, EmptyBlock } from "./common";
+import { Bar, EmptyBlock } from "./common";
 
 /**
  * Les widgets alimentés par la LISTE du profil.
@@ -625,10 +625,15 @@ export function StatusesBlock({
  * DeviceBlocks.tsx, pour le pourquoi de chacun) : deux blocs qui posent un
  * chiffre au même endroit doivent le poser de la même façon.
  *
- * ELLE PORTE SON « /10 ». Seule, « 8,4 » se lit aussi bien comme une moyenne sur
- * 5 que sur 100 — et l'histogramme sous elle est gradué de 1 à 10, donc l'unité
- * est écrite là où le doute naît. Le nombre est en or, la couleur des notes
- * partout ailleurs sur le site (`text-as-score`).
+ * ELLE PORTE SON « / 10 ». Seule, « 8,4 » se lit aussi bien comme une moyenne
+ * sur 5 que sur 100 — et l'histogramme sous elle est gradué de 1 à 10, donc
+ * l'unité est écrite là où le doute naît. Le nombre est en or, la couleur des
+ * notes partout ailleurs sur le site (`text-as-score`).
+ *
+ * L'UNITÉ EST AU MÊME CORPS QUE LE NOMBRE, et seule sa couleur la met en
+ * retrait. Écrite plus petite, elle se lisait comme un exposant — « 6.9 » avec
+ * une note de bas de page — au lieu d'une fraction. C'est le gris qui hiérarchise
+ * ici, pas la taille.
  */
 function AverageBadge({
   mean,
@@ -650,17 +655,53 @@ function AverageBadge({
             l'écrit de deux façons se lit comme deux statistiques. */}
         {String(mean)}
       </span>
-      <span className="as-score-avg-unit font-karla leading-none text-white/40">/10</span>
+      {/* L'espace À GAUCHE de la barre oblique est le `gap` de la pilule ; celui
+          de DROITE est une espace insécable, une fraction ne se coupant pas en
+          deux au retour à la ligne. */}
+      <span className="font-outfit font-bold leading-none text-white/40">
+        {"/ 10"}
+      </span>
     </div>
   );
 }
 
 /**
- * La distribution des notes du profil : dix colonnes, et leur moyenne.
+ * L'ÉCHELLE DE L'HISTOGRAMME : un pas rond, et un sommet qui tombe dessus.
  *
- * TOUT CE QUI SE MESURE EST DANS LA FEUILLE DE STYLE (`.as-score-cols`,
+ * Les barres montaient jusqu'au plus haut compte, ce qui ne dit RIEN — une barre
+ * pleine hauteur vaut 3 titres sur un profil et 300 sur un autre, et rien à
+ * l'écran ne distinguait les deux. Il fallait donc des graduations, donc des
+ * valeurs rondes : personne ne lit une ligne posée à 37.
+ *
+ * Le pas vise le quart du plus haut compte — quatre lignes, ce qui reste lisible
+ * sur une carte de 1×1 haute de ~120 px — arrondi au NOMBRE ROND immédiatement
+ * supérieur. Les multiplicateurs sont ceux de toutes les échelles de graphe
+ * (1, 2, 5, 10), plus 2,5 pour éviter qu'un maximum de 100 ne saute de 20 à 50 ;
+ * il est écarté quand il donnerait un pas fractionnaire, des titres ne se
+ * comptant pas par moitiés.
+ *
+ * Le sommet est le premier multiple du pas au-dessus du maximum : c'est ce qui
+ * donne à la plus haute barre son peu de dégagement, et la place où poser son
+ * compte au survol.
+ */
+export function scoreScale(max: number): { step: number; top: number; ticks: number[] } {
+  const target = Math.max(1, max / 4);
+  const pow = Math.pow(10, Math.floor(Math.log10(target)));
+  const steps = [1, 2, 2.5, 5, 10].map((m) => m * pow).filter(Number.isInteger);
+  const step = steps.find((s) => s >= target) ?? steps[steps.length - 1];
+  const top = Math.ceil(max / step) * step;
+  const ticks: number[] = [];
+  for (let v = step; v <= top; v += step) ticks.push(v);
+  return { step, top, ticks };
+}
+
+/**
+ * La distribution des notes du profil : dix colonnes, leurs graduations, et la
+ * moyenne dans le coin.
+ *
+ * TOUT CE QUI SE MESURE EST DANS LA FEUILLE DE STYLE (`.as-score-plot`,
  * `.as-score-avg`, globals.css), par requête de conteneur — l'écart entre deux
- * colonnes, le corps des graduations, celui de la moyenne. Écrit ici en classes
+ * colonnes, le corps des chiffres, celui de la moyenne. Écrit ici en classes
  * fixes, l'histogramme gardait ses six pixels d'écart et ses graduations de
  * 10 px aussi bien sur une carte de 1×1 que sur une carte quatre fois plus
  * large, où elles devenaient illisibles de petitesse.
@@ -668,6 +709,12 @@ function AverageBadge({
  * En 1×1 c'est l'ÉCART qui rend la tenue possible : dix colonnes dans 196 px de
  * contenu ne peuvent pas garder les 6 px d'origine sans que chaque barre tombe
  * sous 10 px de large.
+ *
+ * UNE GRILLE, PAS DIX BOÎTES CÔTE À CÔTE. Les lignes de graduation doivent
+ * traverser TOUTES les colonnes, écarts compris : posées dans chaque colonne
+ * elles s'interrompraient entre deux barres. La grille donne une bande unique
+ * qui les porte (`gridColumn: 2 / -1`), derrière les barres puisqu'elle est
+ * déclarée avant elles.
  */
 export function ScoresBlock({
   entries,
@@ -698,7 +745,7 @@ export function ScoresBlock({
       />
     );
   }
-  const max = Math.max(...bins);
+  const { top, ticks } = scoreScale(Math.max(...bins));
 
   return (
     /* DEUX BOÎTES, comme « Vu récemment » : la moyenne est posée au-dessus du
@@ -708,9 +755,93 @@ export function ScoresBlock({
       {!editing && mean != null ? (
         <AverageBadge mean={mean} rated={rated} t={t} />
       ) : null}
-      <div className="as-score-cols flex h-full items-end">
+      <div
+        className="as-score-plot grid h-full"
+        style={{
+          gridTemplateColumns: "auto repeat(10, minmax(0, 1fr))",
+          gridTemplateRows: "minmax(0, 1fr) auto",
+        }}
+      >
+        {/* LA COLONNE DES GRADUATIONS. Ses chiffres sont posés en absolu, à leur
+            hauteur — ils ne comptent donc pas dans la largeur `auto` de la
+            colonne, qui retomberait à zéro. D'où le gabarit invisible : la
+            colonne prend la largeur du plus grand des nombres, sans qu'aucune
+            valeur en pixels n'ait à être devinée ni re-réglée à chaque palier. */}
+        <div className="relative" style={{ gridArea: "1 / 1 / 2 / 2" }}>
+          <span className="invisible font-karla">{top}</span>
+          {ticks.map((v) => (
+            <span
+              key={v}
+              className="absolute right-0 translate-y-1/2 font-karla tabular-nums text-white/30"
+              style={{ bottom: `${(v / top) * 100}%` }}
+            >
+              {v}
+            </span>
+          ))}
+        </div>
+
+        {/* LES LIGNES, sous les barres — déclarées avant elles, donc peintes
+            avant elles : une ligne qui passerait par-dessus une barre la ferait
+            paraître coupée en tranches. */}
+        <div className="relative" style={{ gridArea: "1 / 2 / 2 / -1" }}>
+          {ticks.map((v) => (
+            <span
+              key={v}
+              aria-hidden
+              className="absolute inset-x-0 border-t border-white/[0.07]"
+              style={{ bottom: `${(v / top) * 100}%` }}
+            />
+          ))}
+        </div>
+
         {bins.map((n, i) => (
-          <Column key={i} pct={(n / max) * 100} label={String(i + 1)} />
+          <div
+            key={i}
+            /* LE SURVOL PORTE SUR TOUTE LA COLONNE, pas sur la barre : viser une
+               barre de 15 px de large et de 4 % de haut — une note que personne
+               ne met — serait un jeu d'adresse. La zone sensible monte donc du
+               bas jusqu'au sommet du graphe. */
+            className="group relative flex items-end"
+            style={{ gridRow: 1, gridColumn: i + 2 }}
+          >
+            {/* LE COMPTE, AU-DESSUS DE SA BARRE, et en absolu : ajouté dans le
+                flux, il aurait raccourci la barre à l'instant du survol — la
+                colonne se serait mise à bouger sous le curseur. */}
+            <span
+              className="pointer-events-none absolute inset-x-0 -translate-y-1 text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+              style={{ bottom: `${(n / top) * 100}%` }}
+            >
+              {n}
+            </span>
+            <div
+              /* LE DÉGRADÉ NE VA PLUS VERS LE TRANSPARENT. Il s'éteignait à 15 %
+                 d'opacité en bas, donc les petites barres — celles qui sont
+                 presque entièrement faites de ce bas — disparaissaient dans le
+                 fond de la carte, et une bannière claire derrière les effaçait
+                 tout à fait. Il va maintenant d'un ton à l'autre de la marque,
+                 tous deux PLEINS : la barre garde sa couleur sur toute sa
+                 hauteur, et le dégradé n'est plus qu'un relief. */
+              className="w-full rounded-t-md bg-gradient-to-b from-[#FF8A64] to-[#E94560] transition-[filter] group-hover:brightness-110"
+              /* UN PLANCHER EN PIXELS POUR CE QUI EXISTE, ET RIEN POUR CE QUI
+                 N'EXISTE PAS. L'ancien plancher valait 4 % pour tout le monde, y
+                 compris pour les notes que personne n'a mises : dix moignons
+                 identiques alignés au bas du graphe, dont on ne pouvait pas dire
+                 s'ils valaient zéro ou un. Une note jamais donnée n'a donc plus
+                 de barre du tout, et une note donnée une fois garde 3 px, sans
+                 quoi elle serait invisible sur une échelle qui monte à 40. */
+              style={{ height: n ? `max(3px, ${(n / top) * 100}%)` : "0px" }}
+            />
+          </div>
+        ))}
+
+        {bins.map((_, i) => (
+          <span
+            key={i}
+            className="pt-2 text-center font-karla tabular-nums text-white/35"
+            style={{ gridRow: 2, gridColumn: i + 2 }}
+          >
+            {i + 1}
+          </span>
         ))}
       </div>
     </div>
