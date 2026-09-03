@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import Head from "next/head";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
@@ -13,7 +13,7 @@ import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
 import ForYouPanel from "@/components/discover/ForYouPanel";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
-import ProfileList from "@/components/profile/ProfileList";
+import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
@@ -132,6 +132,27 @@ export default function Profile({
      re-tourner getServerSideProps (donc la requête AniList) pour un changement
      qui ne coûte rien côté client. */
   const [tab, setTab] = useState("overview");
+  /* Sur quoi l'onglet « Ma liste » s'ouvre quand on n'y arrive pas en cliquant
+     dessus mais en cliquant une colonne de l'histogramme des notes. Un objet
+     neuf à chaque clic : c'est son identité qui rejoue le filtre, donc cliquer
+     deux fois la même colonne fonctionne aussi (cf. `ListFocus`). */
+  const [listFocus, setListFocus] = useState<ListFocus | null>(null);
+  /* La barre d'onglets, pour y ramener la page : la grille peut être longue, et
+     basculer sur la liste depuis un bloc du bas laisserait le lecteur au milieu
+     d'une liste dont il n'aurait vu ni le titre ni les filtres. Le dégagement
+     est celui de la barre de navigation, collante et opaque. */
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+
+  function openScore(score: number, completedOnly: boolean) {
+    setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
+    setTab("list");
+    requestAnimationFrame(() => {
+      const el = tabsRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY - 96;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
+  }
 
   if (isPrivate) {
     return (
@@ -225,7 +246,7 @@ export default function Profile({
           cards' own backing; see the note by .as-page-under in globals.css. */}
       <div className="as-fade-in relative z-10">
         <div className="mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        <div ref={tabsRef} className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <ProfileTabs
             tabs={[
               { key: "overview", label: t("profile.tabs.overview") },
@@ -255,6 +276,7 @@ export default function Profile({
             accountLayout={profileLayout ?? null}
             activity={activity ?? null}
             streak={streak ?? null}
+            onPickScore={openScore}
           />
         ) : null}
 
@@ -265,6 +287,7 @@ export default function Profile({
             {isOwner && <QueueSection />}
             <ProfileList
               entries={entries}
+              focus={listFocus}
               emptyAction={
                 <Link
                   href="/en/search/anime"

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -6,6 +6,7 @@ import { HeartIcon } from "@heroicons/react/24/solid";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
+import { scoreBucket } from "@/lib/profile/insights";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
@@ -26,28 +27,60 @@ const STATUS_ORDER = [
   "DROPPED",
 ];
 
+/**
+ * SUR QUOI LA LISTE S'OUVRE, quand on n'y arrive pas par l'onglet mais par un
+ * clic ailleurs — une colonne de l'histogramme des notes.
+ *
+ * Un objet et pas deux props : il est REJOUÉ à chaque fois que l'appelant en
+ * pose un nouveau (c'est son identité qui le dit), y compris quand la note
+ * demandée est la même que la précédente. Deux props séparées auraient laissé
+ * un second clic sur la même colonne sans effet.
+ */
+export type ListFocus = { status?: string | null; score?: number | null };
+
 export default function ProfileList({
   entries,
   emptyAction,
+  focus,
 }: {
   entries: ProfileEntry[];
   /** Rendered under the "nothing here" message (a link to go and watch). */
   emptyAction?: React.ReactNode;
+  focus?: ListFocus | null;
 }) {
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(focus?.status || "all");
+  const [score, setScore] = useState<number | null>(focus?.score ?? null);
+
+  useEffect(() => {
+    if (!focus) return;
+    setFilter(focus.status || "all");
+    setScore(focus.score ?? null);
+  }, [focus]);
+
+  /* LA NOTE FILTRE AVANT LE GROUPEMENT, donc les sections, les compteurs des
+     pastilles et l'état vide décrivent tous la même sélection. Le palier vient
+     de `scoreBucket`, partagé avec l'histogramme : un 6,7 tombe ici dans la
+     colonne où il était dessiné là-bas. */
+  const shown = useMemo(
+    () =>
+      score == null
+        ? entries
+        : entries.filter((e) => e.score && scoreBucket(e.score) === score),
+    [entries, score],
+  );
 
   const groups = useMemo(() => {
     const byStatus: Record<string, ProfileEntry[]> = {};
-    for (const e of entries) {
+    for (const e of shown) {
       (byStatus[e.status || "PLANNING"] ||= []).push(e);
     }
     return STATUS_ORDER.map((s) => ({ status: s, entries: byStatus[s] || [] })).filter(
       (g) => g.entries.length > 0,
     );
-  }, [entries]);
+  }, [shown]);
 
   const visible = filter === "all" ? groups : groups.filter((g) => g.status === filter);
 
@@ -63,10 +96,29 @@ export default function ProfileList({
   return (
     <>
       <div className="mb-8 flex flex-wrap gap-2">
+        {/* LA NOTE EN COURS, EN PREMIÈRE PASTILLE ET DÉTACHABLE.
+            On arrive ici avec un filtre qu'on n'a pas posé sur cet onglet : la
+            pastille est ce qui le DIT, et la croix ce qui le défait. Sans elle,
+            une liste de six titres passerait pour la liste entière.
+            Elle est en OR, la couleur des notes partout ailleurs, pour ne pas se
+            confondre avec les pastilles de statut. */}
+        {score != null ? (
+          <button
+            onClick={() => setScore(null)}
+            title={t("myList.clearScore")}
+            className="inline-flex items-center gap-2 rounded-full bg-as-score/15 px-3.5 py-1.5 text-sm font-medium text-as-score ring-1 ring-as-score/40 transition-colors hover:bg-as-score/25"
+          >
+            <span>★ {String(score).replace(".", ",")}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" className="h-3 w-3">
+              <line x1="5" y1="5" x2="19" y2="19" />
+              <line x1="19" y1="5" x2="5" y2="19" />
+            </svg>
+          </button>
+        ) : null}
         <Chip
           active={filter === "all"}
           onClick={() => setFilter("all")}
-          label={`${t("profile.showAll")} (${entries.length})`}
+          label={`${t("profile.showAll")} (${shown.length})`}
         />
         {groups.map((g) => {
           const label = STATUS_TO_LIST[g.status] || g.status;
@@ -81,6 +133,22 @@ export default function ProfileList({
           );
         })}
       </div>
+
+      {/* Une liste bien remplie peut n'avoir aucun titre à CETTE note : le vide
+          doit alors nommer son filtre, sinon il se lit comme une liste vide. */}
+      {shown.length === 0 ? (
+        <div className="flex flex-col items-center gap-4 py-16 text-center">
+          <p className="text-white/60">
+            {t("myList.noneAtScore", { score: String(score).replace(".", ",") })}
+          </p>
+          <button
+            onClick={() => setScore(null)}
+            className="rounded-lg px-4 py-2 text-sm ring-1 ring-action transition-colors hover:bg-action/10"
+          >
+            {t("myList.clearScore")}
+          </button>
+        </div>
+      ) : null}
 
       <div className="grid gap-10">
         {visible.map((g) => {

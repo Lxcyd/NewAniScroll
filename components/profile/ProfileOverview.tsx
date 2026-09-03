@@ -92,6 +92,11 @@ type Props = {
    *  navigateur : un jour de série est un jour de calendrier, donc il dépend du
    *  fuseau, et celui du serveur n'est pas le sien. */
   streak?: number | null;
+  /** Une note cliquée dans l'histogramme. La page bascule alors sur son onglet
+   *  « Ma liste », filtrée sur cette note — et sur les titres terminés quand le
+   *  bloc est réglé ainsi, sans quoi la liste montrerait des titres que la
+   *  colonne cliquée ne comptait pas. Absent sur le profil d'un autre. */
+  onPickScore?: (score: number, completedOnly: boolean) => void;
 };
 
 /**
@@ -133,6 +138,7 @@ export default function ProfileOverview({
   accountLayout,
   activity,
   streak,
+  onPickScore,
 }: Props) {
   const { t } = useTranslation();
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
@@ -510,6 +516,11 @@ export default function ProfileOverview({
             entries={entries}
             completedOnly={optionOn("scores", "completedOnly")}
             editing={editing}
+            onPick={
+              onPickScore
+                ? (score) => onPickScore(score, optionOn("scores", "completedOnly"))
+                : undefined
+            }
           />
         );
       case "genres":

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
-import ProfileList from "@/components/profile/ProfileList";
+import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
@@ -43,6 +43,10 @@ export default function LocalProfile() {
   const [picker, setPicker] = useState(false);
   const [pinned, setPinned] = useState<ResolvedBanner | null>(null);
   const [tab, setTab] = useState("overview");
+  /* Une note cliquee dans l'histogramme ouvre l'onglet de la liste, filtre
+     dessus -- comme sur un vrai profil (cf. pages/en/profile/[user].tsx). Sans
+     le defilement : cette page-ci n'a pas d'en-tete a rattraper. */
+  const [listFocus, setListFocus] = useState<ListFocus | null>(null);
 
   useEffect(() => setPinned(readPinnedBanner()), []);
 
@@ -132,7 +136,15 @@ export default function LocalProfile() {
               réorganiser — sa disposition vit sur l'appareil, et rejoindra le
               compte le jour où il en crée un (cf. lib/prefs/profileLayout.ts). */}
           {tab === "overview" ? (
-            <ProfileOverview entries={entries} characters={[]} isOwner />
+            <ProfileOverview
+              entries={entries}
+              characters={[]}
+              isOwner
+              onPickScore={(score, completedOnly) => {
+                setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
+                setTab("list");
+              }}
+            />
           ) : null}
 
           {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
@@ -142,6 +154,7 @@ export default function LocalProfile() {
               <QueueSection />
               <ProfileList
                 entries={entries}
+                focus={listFocus}
                 emptyAction={
                   <Link
                     href="/en/search/anime"
