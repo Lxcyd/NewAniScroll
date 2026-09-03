@@ -2852,10 +2852,25 @@ input[type="number"] {
      deborder de sa carte. */
   --as-sc-head: 10px;
   padding-top: var(--as-sc-head);
-  /* LE RAYON DU SOMMET DES BARRES. Vingt colonnes au lieu de dix : une barre
-     de six pixels de large coiffee d'un rayon de six n'est plus une barre,
-     c'est une gelule. Le rayon suit donc la largeur, comme tout le reste. */
-  --as-sc-round: 2px;
+  /* LE RAYON DU SOMMET, DEDUIT DE LA LARGEUR DE LA BARRE.
+
+     Il etait regle a la main par palier (2, 3, 4, 5 px), donc il ne suivait que
+     les quatre largeurs de carte prevues et se decalait pour toutes les autres :
+     entre deux paliers, la carte grandit mais le rayon, lui, attend le suivant.
+     Or ce qui le rend juste ou faux est la LARGEUR D'UNE BARRE — un rayon de
+     6 px sur une barre de 6 px de large est une gelule, le meme sur une barre de
+     56 px ne se voit plus.
+
+     Cette largeur se calcule en unites de conteneur : les vingt colonnes se
+     partagent la largeur de la carte moins la colonne des graduations et les dix-
+     neuf ecarts, soit ~(100cqw - 90px) / 20, c'est-a-dire 5cqw - 4,5px. Le rayon
+     en prend un gros tiers. Les bornes tiennent les deux extremes : 2 px pour que
+     la plus fine des barres garde un sommet net, 8 px pour que la plus large ne
+     se coiffe pas d'un dome.
+
+     `cqw` mesure la boite de CONTENU de la carte (`container-type: size` sur
+     `.as-widget`), donc les 40 px de `px-5` en sont deja retires. */
+  --as-sc-round: clamp(2px, calc(1.4cqw - 1px), 8px);
   /* L'ECART EST CELUI DES COLONNES SEULEMENT. Une `gap` complete l'appliquerait
      aussi entre les barres et la rangee des notes, alors que celle-ci porte
      deja son propre retrait (`pt-2`, ListBlocks.tsx) — et surtout les lignes de
@@ -2863,16 +2878,22 @@ input[type="number"] {
   column-gap: var(--as-sc-gap);
 }
 /* LES DEMI-NOTES DE L'AXE N'APPARAISSENT QUE QUAND LA CARTE PEUT LES PORTER.
-   Vingt fois « 0,5 » demandent ~440 px rien qu'en texte : sur un bloc large de
-   deux colonnes (452 px de contenu) ils se toucheraient, et sur un 1x1 ils se
-   chevaucheraient franchement. Le seuil est celui du bloc large de trois
-   (cf. le pave sur `as-recent-row` pour le -40 px de la boite de contenu), ou
-   892 px de contenu laissent 44 px par etiquette. En dessous, les entiers
-   suffisent a lire l'axe — et les colonnes, elles, sont toujours la. */
+
+   Le seuil etait a 660 px — le bloc large de trois — et c'etait une estimation
+   pessimiste : elle comptait la largeur du texte (vingt fois « 0,5 », ~440 px)
+   au lieu du PAS entre deux colonnes, qui est ce qui decide d'un chevauchement.
+   Une etiquette centree sur sa colonne ne touche sa voisine que si elle est plus
+   large que ce pas. Sur un bloc large de deux — le plus etroit des deux, 452 px
+   de contenu — le pas vaut 22 px et « 0,5 » en fait 18 : ca passe.
+
+   Le seuil descend donc a celui de deux colonnes, le meme que partout ailleurs
+   sur le profil (`as-head-short`). En dessous, en 1x1, le pas tombe a 9 px et
+   les etiquettes se chevaucheraient franchement : les entiers restent seuls, et
+   les colonnes, elles, sont toujours la. */
 .as-score-half {
   display: none;
 }
-@container widget (min-width: 660px) {
+@container widget (min-width: 360px) {
   .as-score-half {
     display: block;
   }
@@ -2899,7 +2920,6 @@ input[type="number"] {
     --as-sc-gap: 4px;
     --as-sc-label: 10px;
     --as-sc-head: 12px;
-    --as-sc-round: 3px;
   }
 }
 
@@ -2908,7 +2928,6 @@ input[type="number"] {
     --as-sc-gap: 6px;
     --as-sc-label: 12px;
     --as-sc-head: 16px;
-    --as-sc-round: 3px;
   }
   .as-score-avg {
     top: -29px;
@@ -2922,7 +2941,6 @@ input[type="number"] {
     --as-sc-gap: 7px;
     --as-sc-label: 13px;
     --as-sc-head: 18px;
-    --as-sc-round: 4px;
   }
 }
 
@@ -2934,7 +2952,6 @@ input[type="number"] {
     --as-sc-gap: 8px;
     --as-sc-label: 15px;
     --as-sc-head: 20px;
-    --as-sc-round: 5px;
   }
   .as-score-avg {
     font-size: 18px;
