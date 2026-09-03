@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { customListColor, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
+import { genreLabel } from "@/lib/i18n/genreLabel";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
 import { useEdgeFade } from "@/lib/ui/edgeFade";
@@ -950,20 +951,43 @@ export function ScoresBlock({
 /**
  * Un radar plutôt qu'un classement : la forme se compare d'un coup d'œil, ce
  * qu'une liste de barres ne permet pas. En SVG pur — aucune librairie de
- * graphes n'entre dans le bundle pour huit points.
+ * graphes n'entre dans le bundle pour seize points.
+ *
+ * TOUT LE PROFIL, PAS SON PODIUM. Le radar montrait les huit premiers genres et
+ * une liste chiffrée les répétait à côté. Deux défauts, et le second est le
+ * vrai : la liste disait déjà tout ce que la figure disait, donc la moitié de la
+ * carte servait à écrire ce que l'autre moitié dessinait ; et un radar tronqué à
+ * huit branches n'est plus une SILHOUETTE mais un top 8 — les creux, qui sont ce
+ * qu'une forme raconte de mieux, avaient été coupés avec les genres rares.
+ *
+ * Les chiffres reviennent donc AU BOUT DE LEUR BRANCHE, où ils nomment ce qu'ils
+ * mesurent sans qu'on ait à faire l'aller-retour vers une légende.
+ *
+ * LE GRAPHIQUE SE MET À L'ÉCHELLE TOUT SEUL, et c'est pour ça que rien ici n'est
+ * réglé par palier de carte (contrairement à « Notes ») : un `viewBox` est un
+ * système de coordonnées, donc les corps de texte, les épaisseurs et les rayons
+ * grandissent avec la carte dans le même rapport, sans une seule requête de
+ * conteneur.
  */
 export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
-  const genres = useMemo(() => genreCounts(entries, 8), [entries]);
+  /* Seize : ce qu'AniList compte de genres, moins les rarissimes. Ce n'est pas
+     un classement tronqué mais une limite de lisibilité — au-delà, deux branches
+     voisines sont à moins de 20° l'une de l'autre et leurs étiquettes se
+     touchent. */
+  const genres = useMemo(() => genreCounts(entries, 16), [entries]);
   if (genres.length < 3) return <EmptyBlock note={t("profile.blocks.genres.empty")} />;
 
   const max = Math.max(...genres.map((g) => g.count));
   const n = genres.length;
   const cx = 100;
-  const cy = 96;
-  const R = 72;
+  const cy = 100;
+  const R = 62;
+  /** Le rayon des étiquettes : hors de la toile, pas dessus. */
+  const RL = R + 16;
+  const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
   const point = (i: number, r: number) => {
-    const a = (Math.PI * 2 * i) / n - Math.PI / 2;
+    const a = angle(i);
     return [cx + Math.cos(a) * r, cy + Math.sin(a) * r] as const;
   };
   const shape = genres
@@ -971,44 +995,93 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
     .join(" ");
 
   return (
-    <div className="flex h-full items-center justify-center gap-4">
-      {/* Le radar prend toute la hauteur offerte : dans un bloc 2×2 comme dans
-          le panneau des statistiques, c'est la figure qu'on vient lire. */}
-      <svg viewBox="0 0 200 192" className="h-full w-auto shrink-0">
-        {[0.25, 0.5, 0.75, 1].map((f) => (
-          <polygon
-            key={f}
-            points={genres.map((_, i) => point(i, R * f).join(",")).join(" ")}
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="1"
-          />
-        ))}
-        {genres.map((_, i) => {
-          const [x, y] = point(i, R);
-          return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(255,255,255,0.06)" />;
-        })}
-        <polygon
-          points={shape}
-          fill="var(--brand-primary, #E94560)"
-          fillOpacity="0.28"
-          stroke="var(--brand-primary, #E94560)"
-          strokeWidth="2"
+    /* LE `viewBox` EST PLUS LARGE QUE LA TOILE, et c'est ce qui donne leur place
+       aux étiquettes : la figure tient dans 0…200, la boîte va de -52 à 252 en
+       largeur. La marge se mesure sur le PIRE des noms, celui de neuf heures,
+       qui pousse vers la gauche depuis x=22 — « Science-fiction », quinze
+       signes, en fait environ 64 : il reste dix unités de reste. `meet` (le
+       défaut) fait ensuite tenir le tout dans la carte quelle que soit sa forme,
+       sans déformer. */
+    <svg viewBox="-52 -8 304 216" className="h-full w-full">
+      {/* LA TOILE EST FAITE DE CERCLES, plus de polygones. Un polygone à seize
+          côtés dessine seize sommets de plus dans une figure qui en a déjà
+          seize : les repères devenaient impossibles à distinguer de la mesure.
+          Un cercle ne peut pas être confondu avec une forme. */}
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <circle
+          key={f}
+          cx={cx}
+          cy={cy}
+          r={R * f}
+          fill="none"
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth="0.8"
         />
-        {genres.map((g, i) => {
-          const [x, y] = point(i, (g.count / max) * R);
-          return <circle key={g.key} cx={x} cy={y} r="2.5" fill="var(--brand-primary, #E94560)" />;
-        })}
-      </svg>
-      <ul className="grid min-w-0 gap-1.5 font-karla text-[11px]">
-        {genres.map((g) => (
-          <li key={g.key} className="flex items-baseline gap-2">
-            <span className="truncate text-white/60">{g.label}</span>
-            <span className="ml-auto shrink-0 font-bold text-white/80">{g.count}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+      ))}
+      {genres.map((_, i) => {
+        const [x, y] = point(i, R);
+        return (
+          <line
+            key={i}
+            x1={cx}
+            y1={cy}
+            x2={x}
+            y2={y}
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="0.8"
+          />
+        );
+      })}
+
+      {/* PAS DE PASTILLE AUX SOMMETS. Seize disques sur une ligne brisée de seize
+          segments épaississent la figure sans rien ajouter : le sommet est déjà
+          là où deux segments se rejoignent, et son étiquette le nomme. */}
+      <polygon
+        points={shape}
+        fill="var(--brand-primary, #E94560)"
+        fillOpacity="0.22"
+        stroke="var(--brand-primary, #E94560)"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+
+      {genres.map((g, i) => {
+        const [x, y] = point(i, RL);
+        const c = Math.cos(angle(i));
+        /* L'ANCRAGE SUIT LE CÔTÉ : une étiquette de droite pousse vers la
+           droite, celle de gauche vers la gauche, et celles du haut et du bas se
+           centrent. Toutes centrées, les longues mordaient sur le cercle. */
+        const anchor = c > 0.15 ? "start" : c < -0.15 ? "end" : "middle";
+        return (
+          <text
+            key={g.key}
+            x={x}
+            y={y}
+            textAnchor={anchor}
+            fontFamily="Karla, sans-serif"
+            fontSize="8.5"
+          >
+            {/* Le nom traduit, comme partout ailleurs sur le site : AniList ne
+                publie ses genres qu'en anglais, et `genreLabel` est la table qui
+                les dit dans la langue de l'interface. La branche affichait la
+                clé brute — « Slice of Life » au milieu d'une page en
+                français. */}
+            <tspan fill="rgba(255,255,255,0.75)">{genreLabel(t, g.key)}</tspan>
+            {/* Le compte sous son nom, en couleur : c'est LUI qu'on cherche
+                quand on lit une branche, et la ligne du dessus le nomme déjà. */}
+            <tspan
+              x={x}
+              dy="10"
+              fill="var(--brand-primary, #E94560)"
+              fontWeight="700"
+              fontSize="9"
+            >
+              {g.count}
+            </tspan>
+          </text>
+        );
+      })}
+    </svg>
   );
 }
 

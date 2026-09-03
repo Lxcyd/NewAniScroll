@@ -111,7 +111,17 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "▮",
   },
-  { id: "genres", size: [2, 2], color: "#A855F7", source: "list", icon: "◳" },
+  // 2×2 au minimum : le radar porte SEIZE étiquettes autour de sa toile, deux
+  // lignes chacune. Sous cette taille elles tombent à six pixels de corps — la
+  // figure resterait lisible, ses chiffres non, et ce sont eux qu'on vient lire.
+  {
+    id: "genres",
+    size: [2, 2],
+    min: [2, 2],
+    color: "#A855F7",
+    source: "list",
+    icon: "◳",
+  },
   { id: "formats", size: [2, 2], color: "#3B82F6", source: "list", icon: "◧" },
   { id: "studios", size: [2, 1], color: "#FFD700", source: "list", icon: "◆" },
   { id: "season", size: [4, 1], color: "#22c55e", source: "list", icon: "❂" },

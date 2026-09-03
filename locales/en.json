@@ -943,6 +943,8 @@
       "genres": {
         "title": "Genres",
         "desc": "A radar of the genres your list leans on.",
+        "unique_one": "{{count}} unique",
+        "unique_other": "{{count}} unique",
         "empty": "Genres come from AniList — a local list doesn't carry them."
       },
       "formats": {
