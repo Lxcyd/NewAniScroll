@@ -2896,6 +2896,12 @@ input[type="number"] {
   /* Pastille, nom, barre, nombre — et c'est la barre qui prend le reste
      (cf. `.as-status-row` plus bas). */
   grid-template-columns: auto auto minmax(0, 1fr) auto;
+  /* UN RETRAIT A GAUCHE, et pas un rembourrage de plus sur la carte : la
+     pastille est ronde et petite, donc posee au ras du bord de la carte elle a
+     l'air d'y etre tombee, la ou le titre — une capitale pleine hauteur —
+     tient ce bord tres bien. Le retrait vaut l'ecart entre deux colonnes,
+     donc il suit les paliers sans avoir sa propre valeur a regler. */
+  padding-left: var(--as-st-cols);
   grid-auto-rows: minmax(var(--as-st-row), 1fr);
   /* LES DEUX ECARTS SONT SEPARES, ET CELUI DES COLONNES APPARTIENT AU PARENT.
      Une ligne est un `subgrid` : c'est la grille du DESSUS qui dimensionne les
