@@ -101,6 +101,20 @@ export function scoreBinValue(i: number): number {
   return (i + 1) * SCORE_STEP;
 }
 
+/**
+ * Le demi-point auquel une note appartient — la règle de l'histogramme, sortie
+ * de lui.
+ *
+ * Elle est publique parce qu'un SECOND endroit s'en sert : « Ma liste », où
+ * l'on atterrit en cliquant une colonne. Les deux pages doivent ranger un 6,7
+ * dans le même palier, sans quoi la colonne annoncerait douze titres et la
+ * liste en montrerait onze.
+ */
+export function scoreBucket(score: number): number {
+  const v = Math.round(score / SCORE_STEP) * SCORE_STEP;
+  return Math.min(10, Math.max(SCORE_STEP, v));
+}
+
 export type ScoreSpread = {
   /** Répartition des notes, une colonne par demi-point (cf. `scoreBinValue`).
    *  Vide si personne n'a noté. */
@@ -141,7 +155,7 @@ export function scoreSpread(
     const s = e.score;
     if (!s || s <= 0) continue;
     if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
-    const bin = Math.min(SCORE_BINS - 1, Math.max(0, Math.round(s / SCORE_STEP) - 1));
+    const bin = Math.round(scoreBucket(s) / SCORE_STEP) - 1;
     bins[bin] += 1;
     sum += s;
     rated += 1;

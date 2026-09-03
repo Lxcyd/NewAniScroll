@@ -847,6 +847,7 @@
       "settings": "Paramètres du widget",
       "settingsTitle_one": "Paramètre du widget",
       "settingsTitle_other": "Paramètres du widget",
+      "saveError": "La disposition n'a pas pu être enregistrée.",
       "noOptions": "Ce widget n'a aucun paramètre.",
       "options": {
         "ambient": "Lumière d'ambiance",
@@ -930,7 +931,7 @@
         "emptyCustom": "Aucune liste personnalisée sur ce profil — les listes que tu crées sur AniList apparaîtront ici."
       },
       "scores": {
-        "title": "Notes attribuées",
+        "title": "Notes",
         "desc": "La distribution de tes notes, de 1 à 10.",
         "empty": "Aucune note attribuée pour l'instant.",
         "emptyCompleted": "Aucune note sur un animé terminé. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours et abandonnés.",
@@ -1018,6 +1019,8 @@
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",
     "manageInSettings": "Importer / exporter dans les Paramètres",
+    "clearScore": "Voir toute la liste",
+    "noneAtScore": "Aucun titre noté {{score}} dans ta liste.",
     "streakDays": "jour de suite",
     "streakDays_other": "jours de suite",
     "bestStreak": "Meilleure série : {{count}} jours",

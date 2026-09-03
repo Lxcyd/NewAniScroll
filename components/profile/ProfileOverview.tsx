@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { notify } from "@/lib/notifications/noticeStore";
 
 import WidgetGrid, { type BlockChrome } from "./WidgetGrid";
 import BlockLibrary from "./BlockLibrary";
@@ -154,9 +156,59 @@ export default function ProfileOverview({
 
   /* L'écriture est différée : `commit` est appelé à CHAQUE mouvement du
      pointeur, et une requête par pixel n'a pas de sens. Le dernier état gagne,
-     ce qui est exactement la sémantique voulue. */
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+     ce qui est exactement la sémantique voulue.
+
+     LE DIFFÉRÉ DOIT ÊTRE ENVOYÉ, PAS ANNULÉ, QUAND LA PAGE S'EN VA.
+     Le nettoyage de l'effet faisait un `clearTimeout` : redimensionner un bloc
+     puis partir avant la fin du délai — cliquer « Ma liste » juste après avoir
+     lâché le coin — jetait l'écriture purement et simplement. Au retour, le
+     rendu serveur relisait la colonne inchangée et la carte retrouvait sa
+     taille d'avant, sans que rien n'ait signalé la perte.
+
+     `keepalive` est ce qui rend l'envoi tardif possible : la requête part au
+     moment où le composant est démonté, et le navigateur s'engage à la mener à
+     terme même si la navigation l'emporte. */
+  const pending = useRef<{ timer: ReturnType<typeof setTimeout>; next: GridItem[] | null } | null>(
+    null,
+  );
+
+  const send = useCallback(
+    (next: GridItem[] | null, keepalive: boolean) => {
+      fetch("/api/v2/account/profile-layout", {
+        method: next ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: next ? JSON.stringify({ layout: next }) : undefined,
+        keepalive,
+      })
+        .then((r) => {
+          /* UNE RÉPONSE D'ERREUR N'EST PAS UNE ABSENCE DE RÉPONSE. Le `.catch`
+             seul ne voyait que les pannes de réseau : une session expirée (401)
+             ou une disposition refusée (400) repartait en silence, et le
+             propriétaire ne l'apprenait qu'en revenant sur son profil. */
+          if (!r.ok) notify.error(t("profile.widgets.saveError"));
+        })
+        .catch(() => {
+          /* Hors ligne : la grille est rangée à l'écran, le geste suivant
+             réessaiera. Rien à dire ici que le navigateur ne dise déjà. */
+        });
+    },
+    [t],
+  );
+
+  /** Envoie tout de suite ce qui attendait — au démontage, ou en sortant du
+   *  mode réorganisation, où plus rien ne va suivre. */
+  const flush = useCallback(() => {
+    const p = pending.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.current = null;
+    send(p.next, true);
+  }, [send]);
+
+  useEffect(() => flush, [flush]);
+  useEffect(() => {
+    if (!editing) flush();
+  }, [editing, flush]);
 
   function save(next: GridItem[] | null) {
     if (!isOwner) return;
@@ -164,17 +216,14 @@ export default function ProfileOverview({
       setProfileLayout(next);
       return;
     }
-    if (pending.current) clearTimeout(pending.current);
-    pending.current = setTimeout(() => {
-      fetch("/api/v2/account/profile-layout", {
-        method: next ? "PUT" : "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: next ? JSON.stringify({ layout: next }) : undefined,
-      }).catch(() => {
-        /* La grille est déjà rangée à l'écran ; une écriture perdue se
-           rattrape au geste suivant. */
-      });
-    }, 500);
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = {
+      next,
+      timer: setTimeout(() => {
+        pending.current = null;
+        send(next, false);
+      }, 500),
+    };
   }
 
   function commit(next: GridItem[]) {

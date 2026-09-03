@@ -825,24 +825,43 @@ export function ScoresBlock({
           ))}
         </div>
 
-        {bins.map((n, i) => (
-          <div
-            key={i}
-            /* LE SURVOL PORTE SUR TOUTE LA COLONNE, pas sur la barre : viser une
-               barre de 15 px de large et de 4 % de haut — une note que personne
-               ne met — serait un jeu d'adresse. La zone sensible monte donc du
-               bas jusqu'au sommet du graphe. */
-            className="group relative flex items-end"
-            style={{ gridRow: 1, gridColumn: i + 2 }}
-            /* La colonne DIT SA NOTE, parce que l'axe n'en écrit qu'une sur
-               deux : sans ça, une barre entre le 6 et le 7 laisse le doute sur
-               ce qu'elle compte. Le survol donne le nombre, l'infobulle donne la
-               phrase entière. */
-            title={t("profile.blocks.scores.barTitle", {
-              score: num(scoreBinValue(i)),
-              count: n,
-            })}
-          >
+        {bins.map((n, i) => {
+          /* UNE COLONNE PLEINE MÈNE À CE QU'ELLE COMPTE.
+             « 38 titres à 7 » est une réponse qui appelle la question suivante —
+             lesquels — et la liste sait déjà répondre : elle prend la note en
+             paramètre d'URL (`/en/my-list?score=7`), donc le lien est
+             partageable et le retour arrière ramène la liste entière.
+
+             LE FILTRE DE LISTE SUIT CELUI DU BLOC. Réglé sur « terminés
+             uniquement », l'histogramme ne compte que ces titres-là : arriver
+             sur une liste qui en montre d'autres ferait mentir la colonne qu'on
+             vient de cliquer. Réglage éteint, la liste s'ouvre entière.
+
+             UNE COLONNE VIDE N'EST PAS UN LIEN : elle mènerait à une page qui
+             dit « aucun titre à cette note », ce qu'elle disait déjà elle-même
+             en ne dessinant rien. */
+          const href =
+            `/en/my-list?score=${scoreBinValue(i)}` + (completedOnly ? "&list=COMPLETED" : "");
+          const Tag = (n ? Link : "div") as any;
+          return (
+            <Tag
+              key={i}
+              {...(n ? { href } : {})}
+              /* LE SURVOL PORTE SUR TOUTE LA COLONNE, pas sur la barre : viser
+                 une barre de 15 px de large et de 4 % de haut — une note que
+                 personne ne met — serait un jeu d'adresse. La zone sensible
+                 monte donc du bas jusqu'au sommet du graphe. */
+              className={`group relative flex items-end ${n ? "cursor-pointer" : ""}`}
+              style={{ gridRow: 1, gridColumn: i + 2 }}
+              /* La colonne DIT SA NOTE, parce que l'axe n'en écrit qu'une sur
+                 deux : sans ça, une barre entre le 6 et le 7 laisse le doute sur
+                 ce qu'elle compte. Le survol donne le nombre, l'infobulle donne
+                 la phrase entière. */
+              title={t("profile.blocks.scores.barTitle", {
+                score: num(scoreBinValue(i)),
+                count: n,
+              })}
+            >
             {/* LE COMPTE, AU-DESSUS DE SA BARRE, et en absolu : ajouté dans le
                 flux, il aurait raccourci la barre à l'instant du survol — la
                 colonne se serait mise à bouger sous le curseur. */}
@@ -885,8 +904,9 @@ export function ScoresBlock({
                 height: n ? `max(3px, ${(n / top) * 100}%)` : "0px",
               }}
             />
-          </div>
-        ))}
+            </Tag>
+          );
+        })}
 
         {/* LES NOTES DU BAS. Les demi-points sont écrits AUSSI, et DE LA MÊME
             COULEUR que les entiers : un 7,5 est une note comme les autres, pas
