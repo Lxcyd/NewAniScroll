@@ -94,6 +94,28 @@ type Props = {
   streak?: number | null;
 };
 
+/**
+ * CE QUE LE PROPRIÉTAIRE VIENT DE RANGER, GARDÉ POUR LA DURÉE DE LA PAGE.
+ *
+ * Le bug qu'il corrige : « Aperçu » et « Ma liste » sont deux ONGLETS de la même
+ * page, rendus par un ternaire (`pages/en/profile/[user].tsx`). Changer d'onglet
+ * DÉMONTE cette grille, et y revenir la remonte — avec, comme point de départ,
+ * la prop `accountLayout` du rendu serveur, qui date du chargement de la page et
+ * ne bouge plus. La carte qu'on venait d'agrandir retrouvait donc sa taille
+ * d'avant, alors même que le serveur, lui, avait bien reçu la nouvelle.
+ *
+ * Ce n'est donc pas une écriture qui manquait mais une LECTURE qui mentait, et
+ * aucune correction du côté de l'envoi ne pouvait y changer quoi que ce soit.
+ *
+ * Hors du composant, parce que le composant est justement ce qui disparaît. Et
+ * seulement pour le propriétaire : lui seul écrit, et une session n'a qu'un
+ * compte — un profil visité n'y touche ni ne le lit.
+ *
+ * `{ items: null }` n'est pas l'absence de cache : c'est « remis par défaut »,
+ * et la nuance est ce qui fait tenir le bouton de réinitialisation.
+ */
+let ownLayout: { items: GridItem[] | null } | null = null;
+
 function defaultLayout(isOwner: boolean): GridItem[] {
   let items: GridItem[] = [];
   for (const id of DEFAULT_BLOCKS) {
@@ -136,7 +158,10 @@ export default function ProfileOverview({
 
   useEffect(() => {
     if (!loaded) return;
-    let base = source;
+    /* La disposition rangée pendant CETTE session l'emporte sur celle du rendu
+       serveur : elle est postérieure, et la prop ne sera rafraîchie qu'au
+       prochain chargement de la page (cf. `ownLayout`). */
+    let base = isOwner && ownLayout ? ownLayout.items : source;
     if (onAccount && isOwner && !base && device.loaded && device.layout && !migrated.current) {
       migrated.current = true;
       base = device.layout;
@@ -212,6 +237,10 @@ export default function ProfileOverview({
 
   function save(next: GridItem[] | null) {
     if (!isOwner) return;
+    /* Retenue AVANT l'envoi, et quel que soit son sort : ce qui est à l'écran
+       est ce que le propriétaire a voulu, et un changement d'onglet ne doit pas
+       le défaire même si le réseau, lui, a échoué. */
+    ownLayout = { items: next };
     if (!onAccount) {
       setProfileLayout(next);
       return;
