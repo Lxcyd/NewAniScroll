@@ -853,29 +853,27 @@ export function ScoresBlock({
               {n}
             </span>
             <div
-              /* LE DÉGRADÉ NE VA PLUS VERS LE TRANSPARENT. Il s'éteignait à 15 %
-                 d'opacité en bas, donc les petites barres — celles qui sont
-                 presque entièrement faites de ce bas — disparaissaient dans le
-                 fond de la carte, et une bannière claire derrière les effaçait
-                 tout à fait. Les deux tons sont désormais PLEINS : la barre garde
-                 sa couleur sur toute sa hauteur, et le dégradé n'est plus qu'un
-                 relief.
+              /* PAS DE DÉGRADÉ : L'ACCENT, PLEIN, SUR TOUTE LA HAUTEUR.
+                 (Choisi sur planche, parmi vingt remplissages.)
 
-                 ET IL EST ROSE DES DEUX BOUTS. Il partait de l'orange de la
-                 marque (`--brand-secondary`), qui appartient au logo et n'a rien
-                 à faire ici : le bloc n'a aucun rapport avec lui. Il va du rose
-                 CLAIR — celui du bouton « Ajouter un bloc », deux pas au-dessus
-                 de l'accent — au rose du site lui-même.
+                 Deux dégradés l'ont précédé, et chacun avait son défaut. Le
+                 premier partait de l'orange du logo et s'éteignait à 15 %
+                 d'opacité en bas : les petites barres — celles qui sont presque
+                 entièrement faites de ce bas — disparaissaient dans le fond de
+                 la carte, et une bannière claire derrière les effaçait tout à
+                 fait. Le second, rose clair vers rose, ne s'effaçait plus mais
+                 mettait une nuance là où il n'y a rien à nuancer : ce qui compte
+                 dans une barre est sa HAUTEUR, et un dégradé vertical est
+                 exactement la seule décoration qui entre en concurrence avec
+                 elle.
 
-                 LES DEUX SE DÉDUISENT DE L'ACCENT, ils ne sont pas écrits en
-                 dur : l'accent est réglable (lib/prefs/accentColor.ts), et deux
-                 hexadécimaux figés auraient laissé cet histogramme rose sur un
-                 profil passé au bleu. `color-mix` avec du blanc donne le ton
-                 clair, la variable elle-même donne l'autre. */
+                 LA COULEUR EST L'ACCENT LUI-MÊME, jamais un hexadécimal figé :
+                 il est réglable (lib/prefs/accentColor.ts), et un rose écrit en
+                 dur laisserait cet histogramme rose sur un profil passé au
+                 bleu. */
               className="as-score-bar w-full transition-[filter] group-hover:brightness-110"
               style={{
-                background:
-                  "linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #E94560) 74%, #fff) 0%, var(--brand-primary, #E94560) 100%)",
+                background: "var(--brand-primary, #E94560)",
                 /* UN PLANCHER EN PIXELS POUR CE QUI EXISTE, ET RIEN POUR CE QUI
                    N'EXISTE PAS. L'ancien plancher valait 4 % pour tout le monde,
                    y compris pour les notes que personne n'a mises : dix moignons
