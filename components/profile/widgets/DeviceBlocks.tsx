@@ -456,10 +456,29 @@ function RecentRow({
   return (
     <Link
       href={watchHref(r)}
-      className="flex items-center gap-3.5 rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
+      className="group flex items-center gap-3.5 rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
       <div className="relative h-[66px] w-[118px] shrink-0 overflow-hidden rounded-xl bg-as-card">
         {art ? <Image src={art} alt="" fill sizes="160px" className="object-cover" /> : null}
+        {/* LE MÊME BOUTON QUE « Reprendre la lecture », en plus petit : la ligne
+            mène elle aussi à la lecture, et sans pastille la vignette se lisait
+            comme une illustration.
+
+            Le dessin est celui d'à côté au trait près (même viewBox, même
+            `translate(1.8 0)` qui recentre le triangle sur son centre de
+            gravité). Ce qui change est la TAILLE, et seulement elle : `h-9`
+            plutôt que `h-11`, sans la classe `as-widget-play` — celle-ci monte
+            à 4.5rem dans un grand widget, ce qui aurait recouvert une vignette
+            qui, elle, reste haute de 66 px quelle que soit la taille du bloc. */}
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
+            <svg viewBox="0 0 20 20" fill="#fff" className="h-[18px] w-[18px]">
+              <g transform="translate(1.8 0)">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+              </g>
+            </svg>
+          </span>
+        </span>
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-white">{title}</p>
