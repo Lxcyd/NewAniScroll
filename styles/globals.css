@@ -2685,3 +2685,59 @@ input[type="number"] {
     font-size: 1.875rem;
   }
 }
+
+/* UNE LIGNE DE « Vu recemment » GRANDIT AVEC SON BLOC.
+   Elle etait ecrite en pixels fixes : dans un bloc de 2x4 les trois lignes
+   restaient tassees en haut d'une carte deux fois trop grande pour elles, et la
+   pastille de lecture — qui, elle, se mesure sur la vignette — paraissait
+   enorme sur une vignette restee petite.
+
+   TOUT DESCEND D'UNE SEULE VARIABLE, la hauteur de la vignette. Sa largeur en
+   vient par le 16/9 et la pastille par un pourcentage (cf. DeviceBlocks.tsx) :
+   un seul nombre a regler par palier, et les proportions ne peuvent pas se
+   desaccorder. Les paliers sont ceux des autres widgets — memes seuils, donc
+   une carte qui grandit fait grandir ses blocs ensemble et pas l'un apres
+   l'autre. */
+.as-recent-row {
+  --as-recent-h: 66px;
+  gap: 0.875rem;
+}
+.as-recent-thumb {
+  height: var(--as-recent-h);
+  width: calc(var(--as-recent-h) * 16 / 9);
+}
+.as-recent-title {
+  font-size: 0.875rem;
+}
+.as-recent-sub {
+  font-size: 0.75rem;
+}
+.as-recent-meta {
+  font-size: 0.6875rem;
+}
+
+@container widget (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 84px;
+    gap: 1rem;
+  }
+  .as-recent-title {
+    font-size: 1rem;
+  }
+  .as-recent-sub {
+    font-size: 0.8125rem;
+  }
+  .as-recent-meta {
+    font-size: 0.75rem;
+  }
+}
+
+@container widget (min-width: 700px) and (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 100px;
+    gap: 1.125rem;
+  }
+  .as-recent-title {
+    font-size: 1.125rem;
+  }
+}

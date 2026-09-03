@@ -456,10 +456,16 @@ function RecentRow({
   return (
     <Link
       href={watchHref(r)}
-      className="group flex items-center gap-3.5 rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
+      /* `as-recent-row` porte la hauteur de vignette du palier courant, et le
+         `gap` qui va avec (cf. globals.css) : tout le reste de la ligne en
+         descend. */
+      className="as-recent-row group flex items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
-      <div className="relative h-[66px] w-[118px] shrink-0 overflow-hidden rounded-xl bg-as-card">
-        {art ? <Image src={art} alt="" fill sizes="160px" className="object-cover" /> : null}
+      <div className="as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card">
+        {/* La vignette monte à 178 px de large dans le plus grand palier : un
+            `sizes` resté à 160 px y aurait fait servir une image trop petite,
+            étirée. */}
+        {art ? <Image src={art} alt="" fill sizes="220px" className="object-cover" /> : null}
         {/* LE MÊME BOUTON QUE « Reprendre la lecture », en plus petit : la ligne
             mène elle aussi à la lecture, et sans pastille la vignette se lisait
             comme une illustration.
@@ -471,12 +477,13 @@ function RecentRow({
             ET ELLE EST UNE FRACTION DE LA VIGNETTE, pas un nombre de pixels.
             Une pastille fixe est forcément fausse quelque part : à 36 px elle
             mangeait plus de la moitié d'une vignette haute de 66. À 32 % de
-            cette hauteur, elle garde la même proportion à toutes les tailles —
-            y compris si la vignette en change un jour.
+            cette hauteur elle reste juste à tous les paliers, y compris ceux où
+            la vignette grandit avec le bloc (`--as-recent-h`, globals.css) —
+            c'est tout l'intérêt d'un pourcentage : un seul nombre à régler par
+            palier, et les proportions ne peuvent pas se désaccorder.
 
-            Pas de `as-widget-play` ici pour la même raison : cette classe passe
-            à 4.5rem dans un grand widget, alors que la vignette d'une ligne, qui
-            vit dans une grille qui défile, ne grandit pas avec le bloc. */}
+            Pas de `as-widget-play`, qui saute d'un coup de 2.75rem à 4.5rem :
+            ce n'est pas la même progression que celle de la vignette ici. */}
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex aspect-square h-[32%] items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
             <svg viewBox="0 0 20 20" fill="#fff" className="h-1/2 w-1/2">
@@ -488,14 +495,14 @@ function RecentRow({
         </span>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-white">{title}</p>
-        <p className="mt-0.5 truncate font-karla text-xs text-white/70">{where}</p>
+        <p className="as-recent-title truncate font-semibold text-white">{title}</p>
+        <p className="as-recent-sub mt-0.5 truncate font-karla text-white/70">{where}</p>
         {/* PAS DE TITRE D'ÉPISODE. Il a été essayé et retiré : il n'est pas
             traduit — il arrive de la source de lecture, en anglais, quel que
             soit le réglage de langue — et sur une ligne qui nomme déjà l'anime,
             la saison et les épisodes, il ajoutait une quatrième ligne pour un
             renseignement qu'on ne cherche pas dans un historique. */}
-        <p className="mt-0.5 font-karla text-[11px] text-white/35">
+        <p className="as-recent-meta mt-0.5 font-karla text-white/35">
           {r.at ? ago(r.at) : "—"}
           {state ? ` · ${state}` : ""}
         </p>
