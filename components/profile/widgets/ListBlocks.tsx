@@ -1491,10 +1491,21 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
 
   let d = `M ${p[0][0]},${p[0][1]}`;
   for (let i = 0; i < n - 1; i++) {
-    const t = dx[i] / 3;
+    /* LA POIGNÉE EST RACCOURCIE DE DEUX TIERS AUX SOMMETS ET AUX CREUX, et
+       c'est la dernière marche de ce réglage. La tangente y est horizontale —
+       il le faut, c'est ce qui met le maximum du tracé exactement sur la
+       pastille — mais avec la poignée pleine (un tiers du pas) la courbe
+       RESTAIT à sa hauteur sur une quinzaine de pixels après le point : un
+       plateau, dont l'œil place le milieu à droite de la pastille. Le pixel le
+       plus haut était bien sur le point ; ce qu'on lisait comme « le sommet »
+       ne l'était pas.
+       Mesuré au rendu, à six fois la taille : la pastille est sur la crête. */
+    const flat = (t: number) => (t === 0 ? 0.35 : 1) * (dx[i] / 3);
+    const t0 = flat(m[i]);
+    const t1 = flat(m[i + 1]);
     d +=
-      ` C ${p[i][0] + t},${p[i][1] + m[i] * t}` +
-      ` ${p[i + 1][0] - t},${p[i + 1][1] - m[i + 1] * t}` +
+      ` C ${p[i][0] + t0},${p[i][1] + m[i] * t0}` +
+      ` ${p[i + 1][0] - t1},${p[i + 1][1] - m[i + 1] * t1}` +
       ` ${p[i + 1][0]},${p[i + 1][1]}`;
   }
   return d;
