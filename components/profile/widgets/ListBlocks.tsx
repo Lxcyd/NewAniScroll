@@ -1137,7 +1137,8 @@ export function GenresBlock({
 const YEAR_LINE = "#3B82F6";
 /** La largeur d'une année, en pixels. C'est elle qui décide de la longueur. */
 const YEAR_STEP = 56;
-/** La hauteur du dessin, marges comprises. */
+/** La hauteur du dessin avant mesure, et son plancher : au-delà, c'est la carte
+ *  qui la donne (cf. le `ResizeObserver` du bloc). */
 const YEAR_H = 200;
 
 /**
@@ -1168,6 +1169,13 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
   /* Le même « attraper et tirer » que les carrousels du site — une frise se
      pousse à la souris, pas seulement à la molette. */
   const { ref } = useDragScroll<HTMLDivElement>();
+  /* LA HAUTEUR DU DESSIN EST CELLE DE LA CARTE, MESURÉE.
+     Elle était figée à 200 px : dans une carte plus basse, le SVG débordait et
+     le navigateur ajoutait une barre VERTICALE — le graphique était coupé et il
+     fallait le faire défiler en hauteur pour voir le sommet de sa propre
+     courbe. Un graphique se déroule en longueur, jamais en hauteur : la seule
+     réponse juste est de le dessiner à la taille qu'on lui donne. */
+  const [box, setBox] = useState(YEAR_H);
   /* LA FRISE S'OUVRE SUR LA DERNIÈRE ANNÉE, pas sur la première. Ce qu'on vient
      voir est où on en est, et la fin d'une frise chronologique est le présent :
      ouverte à gauche, la carte montrait 1998 et il fallait tirer trente ans pour
@@ -1175,7 +1183,14 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
      sans quoi la frise s'afficherait au début puis sauterait. */
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el) el.scrollLeft = el.scrollWidth;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth;
+    /* La carte se redimensionne à la main, dans la grille : un observateur, pas
+       une mesure au montage. */
+    const ro = new ResizeObserver(() => setBox(el.clientHeight));
+    ro.observe(el);
+    setBox(el.clientHeight);
+    return () => ro.disconnect();
   }, [ref, years.length]);
   /* Deux points font un segment, pas une courbe : sous trois années la figure
      ne raconte rien qu'une phrase ne dirait mieux. */
@@ -1183,21 +1198,40 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
 
   const max = Math.max(...years.map((y) => y.count));
   const W = years.length * YEAR_STEP;
+  const H = Math.max(120, box);
   const x = (i: number) => YEAR_STEP / 2 + i * YEAR_STEP;
-  /* Le haut de la courbe à 55, le zéro à 160 : il reste 40 px au-dessus pour le
-     chiffre du sommet et 40 en dessous pour l'année du creux. */
-  const y = (c: number) => 160 - (c / max) * 105;
+  /* Ce que la hauteur doit loger, du bas vers le haut : la barre de défilement
+     (11 px, cf. `.as-scroller`), l'année, puis la courbe, puis le chiffre du
+     sommet. `BASE` est la ligne de zéro, posée assez haut pour que l'étiquette
+     de l'année ne passe jamais sous la barre. */
+  const BASE = H - 46;
+  const TOP = 22;
+  const y = (c: number) => BASE - (c / max) * (BASE - TOP);
   const pts = years.map((v, i) => [x(i), y(v.count)] as const);
   /* L'aire : la courbe refermée sur sa ligne de base. Elle ne dit rien que la
      ligne ne dise déjà — elle donne du POIDS au dessous, pour qu'on voie une
      masse qui monte et redescend plutôt qu'un fil posé dans le vide. */
-  const area = `${smoothPath(pts)} L ${pts[pts.length - 1][0]},160 L ${pts[0][0]},160 Z`;
+  const area = `${smoothPath(pts)} L ${pts[pts.length - 1][0]},${BASE} L ${pts[0][0]},${BASE} Z`;
 
   return (
-    <div ref={ref} className="as-scroller flex h-full items-center overflow-x-auto">
-      <svg width={W} height={YEAR_H} className="shrink-0 font-karla">
+    /* `select-none` : sans lui, tirer la frise SURLIGNAIT les chiffres au lieu
+       de la faire défiler — un glissement de souris sur du texte est une
+       sélection pour le navigateur, et le SVG est plein de texte.
+       `overflow-y-hidden` : il ne reste qu'une barre, l'horizontale. */
+    <div
+      ref={ref}
+      className="as-scroller flex h-full select-none items-center overflow-x-auto overflow-y-hidden"
+    >
+      <svg width={W} height={H} className="shrink-0 font-karla">
         <defs>
-          <linearGradient id="as-years-fill" x1="0" y1="55" x2="0" y2="160" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id="as-years-fill"
+            x1="0"
+            y1={TOP}
+            x2="0"
+            y2={BASE}
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0" stopColor={YEAR_LINE} stopOpacity="0.42" />
             <stop offset="1" stopColor={YEAR_LINE} stopOpacity="0" />
           </linearGradient>
@@ -1228,7 +1262,7 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
             </text>
             <text
               x={pts[i][0]}
-              y={190}
+              y={BASE + 22}
               textAnchor="middle"
               fontSize="12"
               fontWeight="700"
