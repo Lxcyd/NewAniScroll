@@ -1438,24 +1438,58 @@ function YearTip({
 }
 
 /**
- * Le chemin lissé qui passe PAR les points (Catmull-Rom converti en cubiques).
+ * Le chemin lissé qui passe par les points SANS LES DÉPASSER (cubique monotone,
+ * méthode de Fritsch-Carlson).
  *
  * Une polyligne montrerait les mêmes valeurs ; l'arrondi dit que la variable est
  * continue — le nombre de titres d'une année n'est pas une catégorie voisine
- * d'une autre, c'est le même compte qui monte et qui redescend. La courbe ne
- * dépasse jamais ses points d'assez pour mentir : les tangentes valent un sixième
- * de l'écart entre voisins, le lissage le plus sage de la famille.
+ * d'une autre, c'est le même compte qui monte et qui redescend.
+ *
+ * LE LISSAGE PRÉCÉDENT (Catmull-Rom) MENTAIT AUX SOMMETS. Ses tangentes suivent
+ * la droite qui joint les deux VOISINS d'un point, donc à un pic — où les
+ * voisins sont tous les deux plus bas — la courbe arrivait encore en montant et
+ * ne s'arrêtait qu'après : le haut du dessin passait au-dessus de sa pastille,
+ * et le maximum apparent tombait entre deux années. Sur une frise de comptes,
+ * c'est faux : il n'y a rien entre 2022 et 2023.
+ *
+ * La tangente est ici plafonnée par les deux pentes voisines, et forcée à ZÉRO
+ * quand elles changent de signe — c'est-à-dire exactement aux pics et aux
+ * creux. La courbe y arrive donc à plat : le sommet du trait est la pastille,
+ * pas un point du vide à côté.
  */
 function smoothPath(p: readonly (readonly [number, number])[]): string {
+  const n = p.length;
+  if (n < 2) return `M ${p[0][0]},${p[0][1]}`;
+  /** La pente de chaque segment, et l'écart en x qui la porte. */
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = p[i + 1][0] - p[i][0];
+    slope[i] = (p[i + 1][1] - p[i][1]) / dx[i];
+  }
+  /** La tangente en chaque point. Aux deux bouts, celle du seul segment voisin. */
+  const m: number[] = [slope[0]];
+  for (let i = 1; i < n - 1; i++) {
+    /* Signes opposés (ou un palier) : c'est un pic ou un creux, la courbe y
+       passe à plat. Sinon, la moyenne HARMONIQUE pondérée des deux pentes —
+       tirée vers la plus douce des deux, ce qui interdit le dépassement. */
+    if (slope[i - 1] * slope[i] <= 0) {
+      m[i] = 0;
+    } else {
+      const w1 = 2 * dx[i] + dx[i - 1];
+      const w2 = dx[i] + 2 * dx[i - 1];
+      m[i] = (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i]);
+    }
+  }
+  m[n - 1] = slope[n - 2];
+
   let d = `M ${p[0][0]},${p[0][1]}`;
-  for (let i = 0; i < p.length - 1; i++) {
-    const p0 = p[i - 1] ?? p[i];
-    const p1 = p[i];
-    const p2 = p[i + 1];
-    const p3 = p[i + 2] ?? p2;
-    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-    d += ` C ${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${p2[0]},${p2[1]}`;
+  for (let i = 0; i < n - 1; i++) {
+    const t = dx[i] / 3;
+    d +=
+      ` C ${p[i][0] + t},${p[i][1] + m[i] * t}` +
+      ` ${p[i + 1][0] - t},${p[i + 1][1] - m[i + 1] * t}` +
+      ` ${p[i + 1][0]},${p[i + 1][1]}`;
   }
   return d;
 }
