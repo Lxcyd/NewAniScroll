@@ -2300,6 +2300,43 @@ input[type="number"] {
   );
 }
 
+/* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
+
+   Le trait part de la plus vieille annee et court jusqu'a aujourd'hui, puis
+   l'aire et les chiffres se posent dessus. Ce n'est pas une decoration : la
+   frise s'ouvre cadree a DROITE, sur le present, et le trait qui arrive par la
+   gauche montre en une seconde qu'il y a trente ans a tirer derriere.
+
+   `pathLength: 1` est pose sur le trait en JSX : le chemin fait alors une unite
+   de long quelle que soit la liste, donc un seul jeu de keyframes sert a toutes
+   les frises, sans mesurer quoi que ce soit. */
+@keyframes as-year-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.as-year-draw {
+  stroke-dasharray: 1;
+  animation: as-year-draw 0.9s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.as-year-veil {
+  animation: as-fade-in 0.45s ease 0.5s both;
+}
+/* Moins de mouvement : la frise est simplement la, entiere. Un trace est un
+   deplacement du regard impose, et c'est exactement ce qu'on vient d'ecarter. */
+@media (prefers-reduced-motion: reduce) {
+  .as-year-draw {
+    stroke-dasharray: none;
+    animation: none;
+  }
+  .as-year-veil {
+    animation: as-fade-in 0.3s ease both;
+  }
+}
+
 /* ── Les widgets du profil : ce qu'ils portent grandit avec la carte ──────
 
    La grille laisse poser un bloc de 1×2 a 2×4 (hauteur × largeur), soit du

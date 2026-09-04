@@ -1277,7 +1277,12 @@ export function YearsBlock({
             <stop offset="1" stopColor={YEAR_LINE} stopOpacity="0" />
           </linearGradient>
         </defs>
-        <path d={area} fill="url(#as-years-fill)" />
+        {/* L'AIRE ET LES CHIFFRES ARRIVENT DERRIÈRE LE TRAIT, pas avec lui : la
+            courbe se trace d'abord, de la plus vieille année à aujourd'hui, et
+            le reste se pose dessus une fois la forme lue. `pathLength={1}`
+            évite de mesurer le chemin en JS — le trait fait une unité de long,
+            quelle que soit la frise, donc un seul jeu de keyframes suffit. */}
+        <path d={area} fill="url(#as-years-fill)" className="as-year-veil" />
         <path
           d={smoothPath(pts)}
           fill="none"
@@ -1285,9 +1290,11 @@ export function YearsBlock({
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
+          pathLength={1}
+          className="as-year-draw"
         />
         {years.map((v, i) => (
-          <g key={v.key}>
+          <g key={v.key} className="as-year-veil">
             {/* LA CIBLE DU SURVOL EST LA COLONNE ENTIÈRE, pas la pastille :
                 viser un disque de quatre pixels à la souris est un exercice
                 d'adresse, et la colonne est sans ambiguïté — une abscisse
@@ -1395,25 +1402,35 @@ function YearTip({
      elle sort du widget, se pose toujours AU-DESSUS du point, et passe par-dessus
      les cartes voisines. */
   return createPortal(
+    /* DEUX BOÎTES, ET C'EST LA CONDITION DE L'ANIMATION : le placement (un
+       `translate(-50%,-100%)` qui accroche la bulle par son bas-centre) vit sur
+       la boîte du dehors, l'apparition sur celle du dedans. Sur un seul
+       élément, les deux se disputeraient la même propriété `transform` et
+       l'animation renverrait la bulle à l'angle du point.
+       `as-preview-root` est l'apparition des aperçus au survol du site — même
+       geste pour le même rôle, plutôt qu'un troisième fondu maison. */
     <div
-      className="as-stat-card pointer-events-none fixed z-[60] rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
-      style={{
-        width: TIP,
-        left,
-        top: y - 18,
-        transform: "translate(-50%, -100%)",
-      }}
+      className="pointer-events-none fixed z-[60]"
+      style={{ width: TIP, left, top: y - 18, transform: "translate(-50%, -100%)" }}
     >
-      <p className="mb-2 font-outfit text-[13px] font-bold text-white">
-        {t("profile.blocks.years.tipTitle", { year: stat.label })}
-      </p>
-      <div className="grid gap-1">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-baseline justify-between gap-3">
-            <span className="font-karla text-[11px] text-white/45">{label}</span>
-            <span className="font-karla text-[12px] font-bold text-white/85">{value}</span>
-          </div>
-        ))}
+      {/* La clé rejoue l'apparition à chaque changement d'année : sans elle,
+          React réutilise le même nœud d'une colonne à l'autre et la bulle se
+          téléporte sans un mot. */}
+      <div
+        key={stat.key}
+        className="as-stat-card as-preview-root rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
+      >
+        <p className="mb-2 font-outfit text-[13px] font-bold text-white">
+          {t("profile.blocks.years.tipTitle", { year: stat.label })}
+        </p>
+        <div className="grid gap-1">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex items-baseline justify-between gap-3">
+              <span className="font-karla text-[11px] text-white/45">{label}</span>
+              <span className="font-karla text-[12px] font-bold text-white/85">{value}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>,
     document.body,
