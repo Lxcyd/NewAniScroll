@@ -1499,15 +1499,21 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
        Le pixel le plus haut était bien sur le point ; ce qu'on lisait comme le
        sommet ne l'était pas.
 
-       LE FACTEUR EST UN ÉQUILIBRE, ET IL A ÉTÉ TROP LOIN UNE FOIS. À 0,35 les
-       crêtes étaient parfaites et la frise ne l'était plus : sur une liste en
-       dents de scie, presque chaque année est un extremum, donc presque toutes
-       les poignées se raccourcissaient et la courbe redevenait une ligne
-       brisée à coins arrondis. 0,75 resserre la crête assez pour qu'on y voie
-       la pastille, sans redresser les segments entre les points. Réglé en
-       regardant le rendu — à six fois la taille pour les crêtes, en entier
-       pour la souplesse. */
-    const flat = (t: number) => (t === 0 ? 0.75 : 1) * (dx[i] / 3);
+       DEUX FACTEURS, PARCE QUE LES DEUX BOUTS NE DEMANDENT PAS LA MÊME CHOSE.
+       Aux extrema la poignée est à peine raccourcie (0,95) : assez pour que la
+       crête se pose sur sa pastille, pas assez pour pincer le dôme — à 0,35,
+       essayé, les crêtes étaient parfaites et la frise ne l'était plus, car
+       sur une liste en dents de scie presque chaque année est un extremum et
+       la courbe redevenait une ligne brisée à coins arrondis. Ailleurs, en
+       pente, la poignée est ALLONGÉE (1,25) : c'est ce qui donne son moelleux
+       au trait entre les points.
+
+       Allonger n'est plus rigoureusement sans dépassement — mesuré sur trois
+       séries (celle-ci, une liste courte, une liste trouée) : 0,37 px au pire,
+       soit un tiers de pixel, sous l'antialiasing du trait de 2,5. Les crêtes,
+       elles, restent à 0,00 px de leur pastille. Au-delà (1,4) ça se voit :
+       1 px de dépassement et la crête glisse de 4,7 px. */
+    const flat = (t: number) => (t === 0 ? 0.95 : 1.25) * (dx[i] / 3);
     const t0 = flat(m[i]);
     const t1 = flat(m[i + 1]);
     d +=
