@@ -1413,13 +1413,13 @@ function YearTip({
       className="pointer-events-none fixed z-[60]"
       style={{ width: TIP, left, top: y - 18, transform: "translate(-50%, -100%)" }}
     >
-      {/* La clé rejoue l'apparition à chaque changement d'année : sans elle,
-          React réutilise le même nœud d'une colonne à l'autre et la bulle se
-          téléporte sans un mot. */}
-      <div
-        key={stat.key}
-        className="as-stat-card as-preview-root rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
-      >
+      {/* PAS DE CLÉ ICI, ET C'EST DÉLIBÉRÉ. Elle y était pour rejouer
+          l'apparition à chaque changement d'année ; à l'usage, longer la frise
+          faisait clignoter la bulle une fois par colonne — l'animation devenait
+          du bruit. Sans clé, React garde le même nœud : le geste ne joue qu'à
+          l'ARRIVÉE sur le graphique, et glisser d'une année à l'autre ne fait
+          que changer ce qui est écrit dedans. */}
+      <div className="as-stat-card as-preview-root rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm">
         <p className="mb-2 font-outfit text-[13px] font-bold text-white">
           {t("profile.blocks.years.tipTitle", { year: stat.label })}
         </p>
