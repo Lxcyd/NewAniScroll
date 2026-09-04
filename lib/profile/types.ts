@@ -77,6 +77,10 @@ export type ProfileEntry = {
   format?: string | null;
   /** Annee de premiere diffusion. */
   year?: number | null;
+  /** Duree d'un episode, en minutes. Absente sur une liste locale, qui ne la
+   *  connait pas : le temps passe s'affiche alors comme inconnu plutot que
+   *  devine sur une duree moyenne inventee. */
+  duration?: number | null;
   genres?: string[];
   /** Studio principal. */
   studio?: string | null;

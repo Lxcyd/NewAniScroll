@@ -380,10 +380,14 @@ const ANILIST_QUERY = `
             meanScore
             bannerImage
             coverImage { large extraLarge }
-            # Ce que lisent les blocs formats/décennies, genres et studios. Même
+            # Ce que lisent les blocs frise des sorties, genres et studios. Même
             # requête, même aller-retour — une liste locale, elle, ne les a pas
             # et ces blocs affichent alors leur état vide.
             format
+            # La durée d'un épisode, en minutes : c'est elle qui rend le temps
+            # passé calculable année par année, pour la bulle de la frise.
+            # AniList la donne ici même, sans un aller-retour de plus.
+            duration
             startDate { year }
             genres
             studios(isMain: true) { nodes { name } }

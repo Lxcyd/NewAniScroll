@@ -949,10 +949,14 @@
         "emptyCompleted": "Not enough finished anime to draw a shape. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
       },
       "years": {
-        "title": "Release timeline",
+        "title": "Watched by release year",
         "desc": "Which years the anime you have watched come from.",
         "empty": "Release years come from AniList — a local list doesn't carry them.",
-        "emptyCompleted": "Not enough finished anime to draw a timeline. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
+        "emptyCompleted": "Not enough finished anime to draw a timeline. This block's “Completed only” setting leaves out what you are still watching, planning or dropped.",
+        "tipTitle": "Released in {{year}}",
+        "tipCount": "Anime",
+        "tipHours": "Hours watched",
+        "tipMean": "Mean score"
       },
       "studios": {
         "title": "Studios by score",

@@ -20,7 +20,8 @@ import {
   showcaseFor,
   statusCounts,
   studioRanks,
-  yearCounts,
+  yearStats,
+  type YearStat,
   STATUS_COLOR,
   type StatusKey,
 } from "@/lib/profile/insights";
@@ -1177,9 +1178,11 @@ export function YearsBlock({
 }) {
   const { t } = useTranslation();
   const years = useMemo(
-    () => yearCounts(entries, completedOnly, skipEmpty),
+    () => yearStats(entries, completedOnly, skipEmpty),
     [entries, completedOnly, skipEmpty],
   );
+  /** L'année survolée, celle dont la bulle est ouverte. */
+  const [hover, setHover] = useState<number | null>(null);
   /* Le même « attraper et tirer » que les carrousels du site — une frise se
      pousse à la souris, pas seulement à la molette. */
   const { ref } = useDragScroll<HTMLDivElement>();
@@ -1242,8 +1245,13 @@ export function YearsBlock({
     <div
       ref={ref}
       className="as-scroller flex h-full select-none items-center overflow-x-auto overflow-y-hidden"
+      onMouseLeave={() => setHover(null)}
     >
-      <svg width={W} height={H} className="shrink-0 font-karla">
+      {/* La bulle est posée DANS le contenu qui défile, pas au-dessus de la
+          carte : elle suit alors sa colonne toute seule quand la frise glisse,
+          sans qu'on ait à recalculer une position à chaque pixel. */}
+      <div className="relative shrink-0" style={{ width: W, height: H }}>
+      <svg width={W} height={H} className="font-karla">
         <defs>
           <linearGradient
             id="as-years-fill"
@@ -1268,7 +1276,27 @@ export function YearsBlock({
         />
         {years.map((v, i) => (
           <g key={v.key}>
-            <circle cx={pts[i][0]} cy={pts[i][1]} r="4" fill={YEAR_LINE} />
+            {/* LA CIBLE DU SURVOL EST LA COLONNE ENTIÈRE, pas la pastille :
+                viser un disque de quatre pixels à la souris est un exercice
+                d'adresse, et la colonne est sans ambiguïté — une abscisse
+                appartient à une seule année. */}
+            <rect
+              x={pts[i][0] - YEAR_STEP / 2}
+              y="0"
+              width={YEAR_STEP}
+              height={H}
+              fill="transparent"
+              onMouseEnter={() => setHover(i)}
+            />
+            <circle
+              cx={pts[i][0]}
+              cy={pts[i][1]}
+              r={hover === i ? 6 : 4}
+              fill={YEAR_LINE}
+              stroke="rgba(255,255,255,0.9)"
+              strokeWidth={hover === i ? 2 : 0}
+              className="pointer-events-none"
+            />
             {/* Le compte AU-DESSUS de son point : la valeur se lit sans légende,
                 et une courbe sans chiffres oblige à viser une graduation. */}
             <text
@@ -1277,7 +1305,8 @@ export function YearsBlock({
               textAnchor="middle"
               fontSize="12"
               fontWeight="700"
-              fill="rgba(255,255,255,0.72)"
+              fill={hover === i ? "#fff" : "rgba(255,255,255,0.72)"}
+              className="pointer-events-none"
             >
               {v.count}
             </text>
@@ -1287,13 +1316,92 @@ export function YearsBlock({
               textAnchor="middle"
               fontSize="12"
               fontWeight="700"
-              fill="rgba(255,255,255,0.38)"
+              fill={hover === i ? YEAR_LINE : "rgba(255,255,255,0.38)"}
+              className="pointer-events-none"
             >
               {v.label}
             </text>
           </g>
         ))}
       </svg>
+      {/* `years[hover]` peut avoir disparu entre-temps : basculer un réglage
+          refait la frise pendant que la souris est encore dessus. */}
+      {hover != null && years[hover] ? (
+        <YearTip stat={years[hover]} x={pts[hover][0]} y={pts[hover][1]} w={W} />
+      ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * La bulle de survol d'une année : ce que la courbe ne peut pas écrire.
+ *
+ * Le graphique porte déjà le compte au-dessus de chaque point — la bulle
+ * n'existe donc pas pour le répéter mais pour ce qui n'a pas de place sur un
+ * axe : le temps passé et la note moyenne de cette année-là. Les lignes que le
+ * profil ne peut pas honnêtement remplir sont ABSENTES, pas remplies d'un tiret
+ * ni d'un zéro : une liste locale ne connaît pas la durée d'un épisode, et une
+ * année sans note n'a pas de moyenne.
+ */
+function YearTip({
+  stat,
+  x,
+  y,
+  w,
+}: {
+  stat: YearStat;
+  /** L'abscisse du point survolé, dans le dessin. */
+  x: number;
+  /** Son ordonnée : la bulle se pose au-dessus, et passe dessous quand le point
+   *  est trop haut pour qu'elle tienne. */
+  y: number;
+  /** La largeur du dessin, pour que la bulle ne dépasse pas de ses bords. */
+  w: number;
+}) {
+  const { t } = useTranslation();
+  const TIP = 176;
+  /* Bornée aux deux extrémités : sans ça, la bulle de la première année sortait
+     à gauche du dessin, là où le défilement ne va pas. */
+  const left = Math.min(Math.max(x, TIP / 2 + 4), w - TIP / 2 - 4);
+  const below = y < 120;
+  const rows: [string, string][] = [
+    [t("profile.blocks.years.tipCount"), String(stat.count)],
+    ...(stat.minutes != null
+      ? ([[t("profile.blocks.years.tipHours"), String(Math.round(stat.minutes / 60))]] as [
+          string,
+          string,
+        ][])
+      : []),
+    ...(stat.mean != null
+      ? ([[t("profile.blocks.years.tipMean"), String(stat.mean).replace(".", ",")]] as [
+          string,
+          string,
+        ][])
+      : []),
+  ];
+
+  return (
+    <div
+      className="as-stat-card pointer-events-none absolute z-10 rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
+      style={{
+        width: TIP,
+        left,
+        top: below ? y + 18 : y - 18,
+        transform: `translate(-50%, ${below ? "0" : "-100%"})`,
+      }}
+    >
+      <p className="mb-2 font-outfit text-[13px] font-bold text-white">
+        {t("profile.blocks.years.tipTitle", { year: stat.label })}
+      </p>
+      <div className="grid gap-1">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-baseline justify-between gap-3">
+            <span className="font-karla text-[11px] text-white/45">{label}</span>
+            <span className="font-karla text-[12px] font-bold text-white/85">{value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

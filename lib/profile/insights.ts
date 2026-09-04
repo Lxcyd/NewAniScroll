@@ -179,32 +179,63 @@ export function scoreSpread(
  * L'axe est borné par les données, pas par le calendrier : rien avant la plus
  * vieille sortie, rien après la plus récente.
  */
-export function yearCounts(
+/** Une année de la frise, et ce que la bulle de survol vient y lire. */
+export type YearStat = Tally & {
+  /** Minutes regardées cette année-là, `null` quand aucune durée n'est connue —
+   *  une liste locale ne porte pas la durée d'un épisode, et une moyenne
+   *  inventée ferait une statistique fabriquée. */
+  minutes: number | null;
+  /** La note moyenne du lecteur sur les titres notés de cette année, /10. */
+  mean: number | null;
+};
+
+export function yearStats(
   entries: ProfileEntry[],
   /** Ne retenir que les titres terminés (cf. `FINISHED`). */
   completedOnly = false,
   /** Sauter les années à zéro — l'axe cesse alors d'être régulier, cf. plus
    *  haut : c'est un réglage, pas le défaut. */
   skipEmpty = false,
-): Tally[] {
-  const counts = new Map<number, number>();
+): YearStat[] {
+  /* Un accumulateur par année : le compte, les minutes vues (et si une seule
+     durée était connue), la somme des notes et combien il y en avait. */
+  type Acc = { count: number; minutes: number; timed: boolean; sum: number; rated: number };
+  const acc = new Map<number, Acc>();
   for (const e of entries) {
     if (!e.year || e.year < 1900) continue;
     if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
-    counts.set(e.year, (counts.get(e.year) || 0) + 1);
+    const a = acc.get(e.year) || { count: 0, minutes: 0, timed: false, sum: 0, rated: 0 };
+    a.count += 1;
+    /* Les épisodes VUS, pas la longueur de la série : le bloc dit le temps
+       passé, et un titre abandonné au troisième épisode n'en a coûté que
+       trois. Un re-visionnage n'est pas recompté — `statsFromEntries` non plus,
+       et deux chiffres du même profil qui compteraient différemment seraient
+       pires qu'un chiffre prudent. */
+    if (e.duration && e.progress) {
+      a.minutes += e.duration * e.progress;
+      a.timed = true;
+    }
+    if (e.score && e.score > 0) {
+      a.sum += e.score;
+      a.rated += 1;
+    }
+    acc.set(e.year, a);
   }
-  if (!counts.size) return [];
-  const tally = (y: number, count: number): Tally => ({
-    key: String(y),
-    label: String(y),
-    count,
-  });
-  if (skipEmpty) {
-    return [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([y, c]) => tally(y, c));
-  }
-  const ys = [...counts.keys()];
-  const out: Tally[] = [];
-  for (let y = Math.min(...ys); y <= Math.max(...ys); y++) out.push(tally(y, counts.get(y) || 0));
+  if (!acc.size) return [];
+  const stat = (y: number): YearStat => {
+    const a = acc.get(y);
+    return {
+      key: String(y),
+      label: String(y),
+      count: a?.count || 0,
+      minutes: a?.timed ? Math.round(a.minutes) : null,
+      mean: a?.rated ? Math.round((a.sum / a.rated) * 10) / 10 : null,
+    };
+  };
+  const ys = [...acc.keys()].sort((a, b) => a - b);
+  if (skipEmpty) return ys.map(stat);
+  const out: YearStat[] = [];
+  for (let y = ys[0]; y <= ys[ys.length - 1]; y++) out.push(stat(y));
   return out;
 }
 

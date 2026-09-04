@@ -949,10 +949,14 @@
         "emptyCompleted": "Pas assez d'animés terminés pour dessiner une forme. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
       },
       "years": {
-        "title": "Frise des sorties",
-        "desc": "De quelles années viennent les animés que tu as vus.",
+        "title": "Vus par année de sortie",
+        "desc": "De quelles années viennent les animés que tu as regardés.",
         "empty": "Les années de sortie viennent d'AniList — une liste locale n'en porte pas.",
-        "emptyCompleted": "Pas assez d'animés terminés pour tracer une frise. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
+        "emptyCompleted": "Pas assez d'animés terminés pour tracer une frise. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés.",
+        "tipTitle": "Sorties en {{year}}",
+        "tipCount": "Animés",
+        "tipHours": "Heures vues",
+        "tipMean": "Note moyenne"
       },
       "studios": {
         "title": "Studios classés par note",
