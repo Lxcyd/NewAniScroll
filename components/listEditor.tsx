@@ -459,6 +459,29 @@ const ListEditor: React.FC<ListEditorProps> = ({
         customLists,
       });
     }
+    /* LE MIROIR LOCAL EST ÉCRIT MAINTENANT, PAS À LA RÉPONSE D'ANILIST.
+       Il ne l'était que dans le `.then` de la mutation, et c'est ce qui
+       produisait le signalement « pastille verte, mais rien dans Ma liste » :
+       « Ma liste » (pages/en/my-list.tsx) ne lit QUE ce miroir, jamais AniList,
+       alors que la pastille verte, elle, part avant la requête. Tout ce qui
+       fait échouer la mutation — jeton AniList expiré ou révoqué, 429, une
+       extension qui bloque graphql.anilist.co — laissait donc l'utilisateur
+       avec une confirmation et une liste vide, sur une machine qui n'est pas la
+       nôtre, donc irreproductible chez nous.
+       L'écriture optimiste ferme la classe entière : la liste montre ce qui a
+       été annoncé, et la réponse du serveur vient corriger juste après. */
+    upsertLocalEntry(animeId, {
+      status,
+      score: score || null,
+      progress,
+      total: totalEp > 0 ? totalEp : null,
+      title: info?.title,
+      coverImage: info?.coverImage?.large || info?.coverImage?.extraLarge || null,
+      notes: notes || null,
+      repeat: rewatches,
+      startedAt: startDate ? startedAt : null,
+      completedAt: finishDate ? completedAt : null,
+    });
     onSaved?.({ status, progress, score, removed: false });
     notify.success(t("listEditor.saved"));
     close();
@@ -501,11 +524,18 @@ const ListEditor: React.FC<ListEditorProps> = ({
         },
       }),
     })
-      .then((res) => res.json())
-      .then((json) => {
+      .then(async (res) => ({ ok: res.ok, status: res.status, json: await res.json() }))
+      .then(({ status: httpStatus, json }) => {
         const saved = json?.data?.SaveMediaListEntry;
         if (!saved) {
-          notify.error(t("listEditor.error"));
+          /* DIRE LEQUEL DES DEUX ÉCHECS C'EST. Un « une erreur est survenue »
+             sur un jeton AniList expiré envoie l'utilisateur chercher un bug
+             chez nous alors que le geste à faire est de relier son compte —
+             et nous, on cherche un bug irreproductible. AniList répond 400 avec
+             « Invalid token » quand l'autorisation est morte. */
+          const why = String(json?.errors?.[0]?.message || "");
+          const expired = httpStatus === 401 || /invalid token|unauthor/i.test(why);
+          notify.error(t(expired ? "listEditor.anilistExpired" : "listEditor.error"));
           return;
         }
         // Reconcile the cache with the server's authoritative record.

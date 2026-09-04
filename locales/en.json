@@ -739,6 +739,7 @@
     "TW": "Taiwan"
   },
   "listEditor": {
+    "anilistExpired": "Your AniList link has expired, so the change never reached them. It is kept here — relink your AniList account in the settings to send it over.",
     "status": "Status",
     "progress": "Progress:",
     "watching": "Watching",
