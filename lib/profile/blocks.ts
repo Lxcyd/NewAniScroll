@@ -111,15 +111,15 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "▮",
   },
-  // 1×1 au minimum. Le plancher était 2×2 : le radar porte SEIZE étiquettes
-  // autour de sa toile, et sous cette taille elles tombent à six pixels de corps
-  // — la figure reste lisible, ses chiffres non. Le plancher est ouvert pour
-  // qu'on aille VOIR ce que ça donne plutôt que de le supposer ; si la carte
-  // minuscule est illisible, il remontera, mais sur une observation.
+  // 2×2 au minimum : le radar porte SEIZE étiquettes autour de sa toile, deux
+  // lignes chacune. Sous cette taille elles tombent à six pixels de corps — la
+  // figure resterait lisible, ses chiffres non, et ce sont eux qu'on vient lire.
+  // Le plancher a été ouvert à 1×1 le temps d'aller voir la carte minuscule ;
+  // elle confirme le motif, il est refermé.
   {
     id: "genres",
     size: [2, 2],
-    min: [1, 1],
+    min: [2, 2],
     color: "#A855F7",
     source: "list",
     icon: "◳",
