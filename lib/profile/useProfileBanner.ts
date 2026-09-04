@@ -19,6 +19,7 @@ import {
   tiedHead,
   type FavoriteCandidate,
 } from "./favorite";
+import { normalizeDressing, type Dressing } from "./dressing";
 import type { BannerOption, ProfileEntry } from "./types";
 
 export type ResolvedBanner = {
@@ -28,23 +29,31 @@ export type ResolvedBanner = {
   /** Art kind — decides page-background vs strip (types.plateMode). */
   source?: BannerOption["source"] | null;
   fallback?: boolean;
+  /* Les champs du studio. Absents d'une plaque AUTOMATIQUE, qui n'est qu'une
+     illustration : c'est l'habillage épinglé qui les porte. */
+  kind?: Dressing["kind"] | null;
+  color?: string | null;
+  music?: Dressing["music"];
+  blur?: number | null;
 };
 
 export const PINNED_KEY = "aniscroll:profileBanner";
 
-export function readPinnedBanner(): ResolvedBanner | null {
+/**
+ * L'habillage épinglé de ce navigateur. Passe par `normalizeDressing`, donc une
+ * valeur écrite avant le studio (`{url, animeId, title, source}`) revient comme
+ * une bannière sans musique ni flou — sans réécriture ni migration.
+ */
+export function readPinnedBanner(): Dressing | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(PINNED_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.url ? parsed : null;
+    return normalizeDressing(window.localStorage.getItem(PINNED_KEY));
   } catch {
     return null;
   }
 }
 
-export function writePinnedBanner(value: ResolvedBanner | null): void {
+export function writePinnedBanner(value: Dressing | null): void {
   try {
     if (value) window.localStorage.setItem(PINNED_KEY, JSON.stringify(value));
     else window.localStorage.removeItem(PINNED_KEY);

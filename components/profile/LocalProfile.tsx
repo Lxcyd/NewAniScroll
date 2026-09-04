@@ -9,7 +9,7 @@ import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
-import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
+import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
 
 import { useLocalList } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
@@ -21,9 +21,8 @@ import {
   readPinnedBanner,
   useProfileBanner,
   writePinnedBanner,
-  type ResolvedBanner,
 } from "@/lib/profile/useProfileBanner";
-import type { BannerOption } from "@/lib/profile/types";
+import type { Dressing } from "@/lib/profile/dressing";
 
 /**
  * The signed-out visitor's own page — the profile shell, driven by a list that
@@ -41,7 +40,7 @@ export default function LocalProfile() {
   const raw = useLocalList();
   const { current: streak, best: bestStreak } = useStreak();
   const [picker, setPicker] = useState(false);
-  const [pinned, setPinned] = useState<ResolvedBanner | null>(null);
+  const [pinned, setPinned] = useState<Dressing | null>(null);
   const [tab, setTab] = useState("overview");
   /* Une note cliquee dans l'histogramme ouvre l'onglet de la liste, filtre
      dessus -- comme sur un vrai profil (cf. pages/en/profile/[user].tsx). Sans
@@ -55,7 +54,7 @@ export default function LocalProfile() {
   const auto = useProfileBanner(entries);
   const banner: HeroBanner = pinned ?? auto ?? { url: null, animeId: null, title: null };
 
-  const topAnimes: PickerAnime[] = useMemo(
+  const topAnimes: StudioAnime[] = useMemo(
     () =>
       rankCandidates(candidatesOf(entries))
         .slice(0, 12)
@@ -70,14 +69,7 @@ export default function LocalProfile() {
     [entries],
   );
 
-  function pick(
-    choice:
-      | { url: string; animeId: number; title: string; source: BannerOption["source"] }
-      | null,
-  ) {
-    const next: ResolvedBanner | null = choice
-      ? { url: choice.url, animeId: choice.animeId, title: choice.title, source: choice.source }
-      : null;
+  function pick(next: Dressing | null) {
     setPinned(next);
     writePinnedBanner(next);
     setPicker(false);
@@ -180,14 +172,18 @@ export default function LocalProfile() {
         <Footer />
       </div>
 
-      <BannerPicker
+      <BannerStudio
         open={picker}
         onClose={() => setPicker(false)}
         animes={topAnimes}
-        current={banner.url}
-        pinned={!!pinned}
-        onPick={(c) => pick(c)}
-        onReset={() => pick(null)}
+        value={pinned}
+        auto={{
+          url: auto?.url ?? null,
+          source: auto?.source ?? null,
+          title: auto?.title ?? null,
+        }}
+        identity={{ name: name || t("nav.myList"), avatar: null }}
+        onApply={pick}
       />
     </>
   );

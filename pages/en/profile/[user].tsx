@@ -14,7 +14,7 @@ import QueueSection from "@/components/list/QueueSection";
 import ForYouPanel from "@/components/discover/ForYouPanel";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
-import BannerPicker, { type PickerAnime } from "@/components/profile/BannerPicker";
+import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { redis } from "@/lib/redis";
@@ -29,6 +29,7 @@ import {
   statsFromEntries,
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
+import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
@@ -73,13 +74,9 @@ function parseLayout(raw: string | null | undefined): GridItem[] | null {
  * list only exists on their own device, so it lives at /en/profile/me.
  */
 
-/** What the picker hands back and what gets stored on the account. */
-type PinnedChoice = {
-  url: string;
-  animeId: number;
-  title: string;
-  source: NonNullable<HeroBanner["source"]>;
-};
+/* Ce que le studio rend et ce qui est stocké sur le compte : un habillage
+   complet (fond + musique + flou), et non plus une seule URL. La forme et sa
+   relecture vivent dans lib/profile/dressing.ts, partagées avec l'API. */
 
 type Props = {
   identity: ProfileIdentity;
@@ -89,7 +86,7 @@ type Props = {
   characters: ProfileCharacter[];
   banner: HeroBanner;
   /** Titles offered by the banner picker, favourite first. */
-  topAnimes: PickerAnime[];
+  topAnimes: StudioAnime[];
   /** The banner is a manual pick rather than the automatic one. */
   pinned: boolean;
   isOwner: boolean;
@@ -185,20 +182,16 @@ export default function Profile({
     );
   }
 
-  /** Pin a banner on the account, or drop the pin and go back to automatic. */
-  async function save(choice: PinnedChoice | null) {
+  /** Pin an habillage on the account, or drop the pin and go back to automatic. */
+  async function save(choice: Dressing | null) {
     if (choice) {
-      setBanner({
-        url: choice.url,
-        animeId: choice.animeId,
-        title: choice.title,
-        source: choice.source,
-      });
+      setBanner(choice);
       setPinned(true);
     } else {
       setBanner(initialBanner);
       setPinned(false);
     }
+    setPicker(false);
     try {
       await fetch("/api/v2/account/profile-banner", {
         method: choice ? "PUT" : "DELETE",
@@ -309,20 +302,18 @@ export default function Profile({
       {isOwner && (
         <>
           <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
-          <BannerPicker
+          <BannerStudio
             open={picker}
             onClose={() => setPicker(false)}
             animes={topAnimes}
-            current={banner.url}
-            pinned={pinned}
-            onPick={(c) => {
-              void save(c);
-              setPicker(false);
+            value={pinned ? normalizeDressing(banner) : null}
+            auto={{
+              url: initialBanner?.url ?? null,
+              source: initialBanner?.source ?? null,
+              title: initialBanner?.title ?? null,
             }}
-            onReset={() => {
-              void save(null);
-              setPicker(false);
-            }}
+            identity={{ name: identity.name, avatar: identity.avatar ?? null }}
+            onApply={(d) => void save(d)}
           />
         </>
       )}
@@ -685,20 +676,10 @@ export async function getServerSideProps(context: any) {
   }
 
   /* ── The plate ──────────────────────────────────────────────── */
-  let pinnedBanner: {
-    url: string;
-    animeId: number | null;
-    title: string | null;
-    source?: HeroBanner["source"];
-  } | null = null;
-  if (account?.profileBanner) {
-    try {
-      const parsed = JSON.parse(account.profileBanner);
-      if (parsed?.url) pinnedBanner = parsed;
-    } catch {
-      /* a value we can't read is the same as none */
-    }
-  }
+  /* L'habillage épinglé. `normalizeDressing` relit aussi bien la forme du
+     studio que l'ancienne (`{url, animeId, title, source}`) — donc rien à
+     migrer en base, et une valeur illisible vaut « pas d'épinglage ». */
+  const pinnedBanner = normalizeDressing(account?.profileBanner ?? null);
 
   /* ── La grille, et l'activité qu'elle demande ────────────────────
      La disposition est lue sur la ligne DU PROFIL, jamais sur la session :
@@ -756,11 +737,10 @@ export async function getServerSideProps(context: any) {
   const ownBanner: string | null = collection?.user?.bannerImage || null;
 
   const banner: HeroBanner = pinnedBanner
-    ? {
-        url: pinnedBanner.url,
-        animeId: pinnedBanner.animeId ?? null,
-        title: pinnedBanner.title ?? null,
-      }
+    ? /* Servi tel qu'il a été rangé : le type de fond, la couleur, la musique
+         et le flou font partie de l'habillage, et les jeter ici est ce qui
+         ferait porter une vidéo comme une image fixe. */
+      pinnedBanner
     : resolved?.banner.url
       ? {
           url: resolved.banner.url,
@@ -773,7 +753,7 @@ export async function getServerSideProps(context: any) {
 
   /* What the picker may offer. Only the owner ever opens it, so it is only
      computed — and only shipped — for them. */
-  const topAnimes: PickerAnime[] = isOwner
+  const topAnimes: StudioAnime[] = isOwner
     ? rankCandidates(bannerCandidates(entries, meanScoreOf))
         .slice(0, 12)
         .map((c) => {

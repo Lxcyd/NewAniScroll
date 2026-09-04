@@ -1,12 +1,18 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PhotoIcon } from "@heroicons/react/24/outline";
+import {
+  PhotoIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon,
+} from "@heroicons/react/24/outline";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
+import PlateBackground from "@/components/profile/PlateBackground";
+import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileStats } from "@/lib/profile/types";
 
 /**
@@ -27,6 +33,13 @@ export type HeroBanner = {
   source?: BannerOption["source"] | null;
   /** The plate is a portrait cover — blur and over-scale it. */
   fallback?: boolean;
+  /* Les quatre champs du studio (lib/profile/dressing.ts). Optionnels : un
+     profil épinglé avant le studio n'en a aucun, et se lit comme une bannière
+     sans musique ni flou — exactement ce qu'il était. */
+  kind?: Dressing["kind"] | null;
+  color?: string | null;
+  music?: Dressing["music"];
+  blur?: number | null;
 };
 
 /**
@@ -121,27 +134,82 @@ export default function ProfileHero({
      would be worn as a wallpaper. The picture's own proportions cannot go
      stale, so once it has loaded they decide. Nothing is downloaded twice —
      next/image has already fetched this exact URL, so the probe reads the cache. */
+  const video = isVideoKind(banner.kind);
+  const flat = banner.kind === "color" && !!banner.color;
+  /* Une pochette portrait est floutée et sur-dimensionnée, qu'elle arrive comme
+     dernier recours de la résolution automatique (`fallback`) ou comme un choix
+     délibéré du studio (le type « Image ») : c'est la même image mal découpée
+     dans les deux cas, et le remède est le même. */
+  const cover = !!banner.fallback || banner.source === "cover";
+
   const [ratio, setRatio] = useState<number | null>(null);
   useEffect(() => {
     setRatio(null);
-    if (!banner.url) return;
+    /* Une vidéo et une couleur n'ont pas de proportions à mesurer : elles
+       remplissent la fenêtre, un point c'est tout. */
+    if (!banner.url || video || flat) return;
     const probe = new window.Image();
     probe.onload = () => {
       if (probe.naturalHeight) setRatio(probe.naturalWidth / probe.naturalHeight);
     };
     probe.src = banner.url;
-  }, [banner.url]);
+  }, [banner.url, video, flat]);
 
-  const mode = !banner.url
-    ? "none"
-    : banner.fallback
-      ? "page" /* a portrait cover: blurred wallpaper, never a strip */
-      : ratio == null
-        ? plateMode(banner.source)
-        : ratio > 3
-          ? "band"
-          : "page";
+  const mode = flat
+    ? "page"
+    : !banner.url
+      ? "none"
+      : video
+        ? "page" /* une vidéo est un fond d'écran, jamais un bandeau */
+        : cover
+          ? "page" /* a portrait cover: blurred wallpaper, never a strip */
+          : ratio == null
+            ? plateMode(banner.source)
+            : ratio > 3
+              ? "band"
+              : "page";
   const asPage = mode === "page";
+
+  /* ── Le flou derrière les widgets ──────────────────────────────────────
+     Les blocs de la grille ne sont pas dans cet arbre — ils sont plus bas dans
+     la page — donc la valeur voyage par une variable posée sur la racine plutôt
+     que par une prop traversant quatre composants. Retirée au démontage : la
+     variable survivrait à la navigation vers un autre profil. */
+  const blur = Math.max(0, Math.min(32, banner.blur || 0));
+  useEffect(() => {
+    const root = document.documentElement.style;
+    if (!blur) {
+      root.removeProperty("--as-plate-blur");
+      root.removeProperty("--as-plate-a1");
+      root.removeProperty("--as-plate-a2");
+      return;
+    }
+    root.setProperty("--as-plate-blur", `${blur}px`);
+    root.setProperty("--as-plate-a1", "0.34");
+    root.setProperty("--as-plate-a2", "0.2");
+    return () => {
+      root.removeProperty("--as-plate-blur");
+      root.removeProperty("--as-plate-a1");
+      root.removeProperty("--as-plate-a2");
+    };
+  }, [blur]);
+
+  /* ── Le son ────────────────────────────────────────────────────────────
+     Deux sources possibles et une seule règle : la musique choisie l'emporte
+     sur la bande-son de la vidéo de fond, toujours. Aucune ne démarre seule —
+     un navigateur refuse le son sans geste, et c'est tant mieux : un profil qui
+     se met à jouer de la musique à l'ouverture serait une agression. Le bouton
+     est donc la seule façon de l'entendre, et il dit ce qu'il joue. */
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const [sound, setSound] = useState(false);
+  const hasSound = !!banner.music || video;
+  useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+  useEffect(() => {
+    const el = audio.current;
+    if (!el) return;
+    if (sound) void el.play().catch(() => setSound(false));
+    else el.pause();
+  }, [sound, banner.music?.url]);
 
   /* A strip is shown WHOLE or it is not shown honestly. Guessing its shape is
      how the last crop happened: the band was cut to 4.75:1, the ratio AniList
@@ -249,6 +317,12 @@ export default function ProfileHero({
 
   return (
     <div className="relative w-full">
+      {/* La musique du profil. `loop` parce qu'un opening dure 90 secondes et
+          qu'un profil se lit plus longtemps que ça. Jamais `autoPlay` : voir la
+          note sur le son plus haut. */}
+      {banner.music ? (
+        <audio ref={audio} src={banner.music.url} loop preload="none" />
+      ) : null}
       {asPage ? (
         <div className="as-page-plate">
           {/* Full-bleed, and a wallpaper that fills the window is worth the ~10%
@@ -257,13 +331,16 @@ export default function ProfileHero({
               entire — but the blurred bars cost more than the crop saves. A
               strip is a different matter: see the band below, where cropping
               destroys a composition and nothing is shown whole otherwise. */}
-          <Image
-            src={banner.url as string}
-            alt=""
-            fill
+          <PlateBackground
+            dressing={{
+              kind: banner.kind ?? "banner",
+              url: banner.url,
+              color: banner.color ?? null,
+              source: banner.source ?? null,
+            }}
+            fallback={cover}
+            unmuted={sound && !banner.music}
             priority
-            sizes="100vw"
-            className={`object-cover ${banner.fallback ? "as-hero-cover" : ""}`}
           />
           <div className="as-page-scrim" />
         </div>
@@ -277,16 +354,18 @@ export default function ProfileHero({
         style={bandStyle}
       >
         {!asPage && banner.url ? (
-          <Image
-            src={banner.url}
-            alt=""
-            fill
+          <PlateBackground
+            dressing={{
+              kind: banner.kind ?? "banner",
+              url: banner.url,
+              color: null,
+              source: banner.source ?? null,
+            }}
+            contain={!!ratio}
             priority
-            sizes="100vw"
-            className={ratio ? "object-contain" : "object-cover"}
           />
         ) : null}
-        {!banner.url ? (
+        {!banner.url && !flat ? (
           /* No list, no artwork: the site's own colour. */
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
         ) : null}
@@ -314,14 +393,48 @@ export default function ProfileHero({
               {t("profile.bannerFrom", { title: banner.title })}
             </Link>
           ) : null}
+          {hasSound ? (
+            <button
+              type="button"
+              onClick={() => setSound((s) => !s)}
+              aria-label={
+                banner.music
+                  ? t("profile.playMusic", { title: banner.music.title })
+                  : t("profile.playSound")
+              }
+              title={
+                banner.music
+                  ? `${banner.music.title}${banner.music.artist ? ` — ${banner.music.artist}` : ""}`
+                  : t("profile.playSound")
+              }
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium ring-1 backdrop-blur-md transition-colors ${
+                sound
+                  ? "bg-action text-white ring-action"
+                  : "bg-black/45 text-white/75 ring-white/10 hover:bg-black/70 hover:text-white"
+              }`}
+            >
+              {sound ? (
+                <SpeakerWaveIcon className="h-4 w-4" />
+              ) : (
+                <SpeakerXMarkIcon className="h-4 w-4" />
+              )}
+              {banner.music ? (
+                <span className="max-w-[9rem] truncate">{banner.music.title}</span>
+              ) : null}
+            </button>
+          ) : null}
           {isOwner && onEditBanner ? (
             <button
               type="button"
               onClick={onEditBanner}
-              className="inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1.5 text-[11px] font-bold text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-action hover:text-white hover:ring-action"
+              /* Icône seule : le libellé encombrait une bande déjà occupée par
+                 la pilule « bannière tirée de … ». Il survit en infobulle et en
+                 nom accessible, donc rien n'est perdu pour qui en a besoin. */
+              aria-label={t("profile.changeBanner")}
+              title={t("profile.changeBanner")}
+              className="inline-flex items-center justify-center rounded-full bg-black/45 p-2 text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-action hover:text-white hover:ring-action"
             >
-              <PhotoIcon className="h-4 w-4" />
-              {t("profile.changeBanner")}
+              <PhotoIcon className="h-[1.05rem] w-[1.05rem]" />
             </button>
           ) : null}
         </div>

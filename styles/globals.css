@@ -2236,6 +2236,52 @@ input[type="number"] {
   filter: blur(28px) saturate(1.3);
   transform: scale(1.35);
 }
+/* La même plaque, mais teintée de la couleur choisie dans le studio plutôt que
+   de l'accent du site. Une seule variable : le reste du dessin est identique,
+   pour qu'un fond de couleur ait la même matière que celui d'un profil vide. */
+.as-hero-tint {
+  background:
+    radial-gradient(
+      95% 130% at 12% -10%,
+      var(--as-tint, #e94560) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      75% 110% at 88% 0%,
+      color-mix(in srgb, var(--as-tint, #e94560) 65%, #ff7f57) 0%,
+      transparent 55%
+    ),
+    linear-gradient(165deg, #191924 0%, #0c0d10 75%);
+}
+/* Le curseur de flou du dock. Une piste fine et une poignée blanche : le dock
+   est déjà chargé, un curseur natif de chaque plateforme y jurerait. */
+.as-studio-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  outline: none;
+}
+.as-studio-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+.as-studio-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+}
 .as-hero-default {
   background:
     radial-gradient(
@@ -2292,12 +2338,19 @@ input[type="number"] {
    l'opacite propre de la carte (0,72 → 0,58), pas du flou. Et le retirer rend
    le defilement : dix `backdrop-filter` au-dessus d'un fond `fixed`, ce sont
    dix couches que le compositeur refiltre a chaque image. */
+/* Les cartes du profil — blocs de la grille et cartes de statistiques.
+   `--as-plate-blur` est posé par la page quand le propriétaire a réglé un flou
+   dans le studio (0 par défaut, donc aucun coût pour tous les autres profils).
+   L'opacité du fond baisse en même temps : sur une carte à 0.72 d'opaque, un
+   flou d'arrière-plan ne se verrait tout simplement pas. */
 .as-stat-card {
   background: linear-gradient(
     145deg,
-    rgba(20, 22, 28, 0.72),
-    rgba(12, 13, 16, 0.58)
+    rgba(20, 22, 28, var(--as-plate-a1, 0.72)),
+    rgba(12, 13, 16, var(--as-plate-a2, 0.58))
   );
+  backdrop-filter: blur(var(--as-plate-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--as-plate-blur, 0px));
 }
 
 /* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
