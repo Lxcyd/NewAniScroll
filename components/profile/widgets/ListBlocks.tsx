@@ -1491,16 +1491,23 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
 
   let d = `M ${p[0][0]},${p[0][1]}`;
   for (let i = 0; i < n - 1; i++) {
-    /* LA POIGNÉE EST RACCOURCIE DE DEUX TIERS AUX SOMMETS ET AUX CREUX, et
-       c'est la dernière marche de ce réglage. La tangente y est horizontale —
-       il le faut, c'est ce qui met le maximum du tracé exactement sur la
-       pastille — mais avec la poignée pleine (un tiers du pas) la courbe
-       RESTAIT à sa hauteur sur une quinzaine de pixels après le point : un
-       plateau, dont l'œil place le milieu à droite de la pastille. Le pixel le
-       plus haut était bien sur le point ; ce qu'on lisait comme « le sommet »
-       ne l'était pas.
-       Mesuré au rendu, à six fois la taille : la pastille est sur la crête. */
-    const flat = (t: number) => (t === 0 ? 0.35 : 1) * (dx[i] / 3);
+    /* LA POIGNÉE EST UN PEU RACCOURCIE AUX SOMMETS ET AUX CREUX. La tangente y
+       est horizontale — il le faut, c'est ce qui met le maximum du tracé
+       exactement sur la pastille — mais avec la poignée pleine (un tiers du
+       pas) la courbe RESTAIT à sa hauteur sur une quinzaine de pixels après le
+       point : un plateau, dont l'œil place le milieu à droite de la pastille.
+       Le pixel le plus haut était bien sur le point ; ce qu'on lisait comme le
+       sommet ne l'était pas.
+
+       LE FACTEUR EST UN ÉQUILIBRE, ET IL A ÉTÉ TROP LOIN UNE FOIS. À 0,35 les
+       crêtes étaient parfaites et la frise ne l'était plus : sur une liste en
+       dents de scie, presque chaque année est un extremum, donc presque toutes
+       les poignées se raccourcissaient et la courbe redevenait une ligne
+       brisée à coins arrondis. 0,75 resserre la crête assez pour qu'on y voie
+       la pastille, sans redresser les segments entre les points. Réglé en
+       regardant le rendu — à six fois la taille pour les crêtes, en entier
+       pour la souplesse. */
+    const flat = (t: number) => (t === 0 ? 0.75 : 1) * (dx[i] / 3);
     const t0 = flat(m[i]);
     const t1 = flat(m[i + 1]);
     d +=
