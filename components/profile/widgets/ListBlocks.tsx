@@ -1163,9 +1163,23 @@ const YEAR_H = 200;
  * n'a donc PAS de `viewBox` : ses coordonnées sont des pixels, les corps de
  * texte et les rayons restent ceux qu'on a choisis quelle que soit la carte.
  */
-export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
+export function YearsBlock({
+  entries,
+  /* Les défauts viennent du catalogue, pas de littéraux : l'onglet
+     « Statistiques » rend ce bloc sans réglages, et il doit montrer la même
+     chose que la grille par défaut. */
+  completedOnly = blockOption("years", "completedOnly", undefined),
+  skipEmpty = blockOption("years", "skipEmpty", undefined),
+}: {
+  entries: ProfileEntry[];
+  completedOnly?: boolean;
+  skipEmpty?: boolean;
+}) {
   const { t } = useTranslation();
-  const years = useMemo(() => yearCounts(entries), [entries]);
+  const years = useMemo(
+    () => yearCounts(entries, completedOnly, skipEmpty),
+    [entries, completedOnly, skipEmpty],
+  );
   /* Le même « attraper et tirer » que les carrousels du site — une frise se
      pousse à la souris, pas seulement à la molette. */
   const { ref } = useDragScroll<HTMLDivElement>();
@@ -1194,7 +1208,14 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
   }, [ref, years.length]);
   /* Deux points font un segment, pas une courbe : sous trois années la figure
      ne raconte rien qu'une phrase ne dirait mieux. */
-  if (years.length < 3) return <EmptyBlock note={t("profile.blocks.years.empty")} />;
+  if (years.length < 3)
+    return (
+      <EmptyBlock
+        note={t(
+          completedOnly ? "profile.blocks.years.emptyCompleted" : "profile.blocks.years.empty",
+        )}
+      />
+    );
 
   const max = Math.max(...years.map((y) => y.count));
   const W = years.length * YEAR_STEP;

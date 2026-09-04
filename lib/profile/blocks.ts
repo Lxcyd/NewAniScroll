@@ -224,6 +224,18 @@ const OPTIONS: Record<string, BlockOption[]> = {
      liste d'attente est faite d'intentions — elle raconte ce qu'on croit aimer,
      pas ce qu'on a regardé. L'interrupteur rouvre le radar à toute la liste. */
   genres: [{ key: "completedOnly", on: true }],
+  /* Même filtre encore : la frise raconte les époques qu'on a VUES, et une
+     liste d'attente pleine de sorties de l'an prochain lui collerait une pointe
+     à droite qui n'est pas du visionnage.
+     `skipEmpty` est éteint par défaut, et c'est l'inverse d'un oubli : les
+     années à zéro sont ce qui fait d'une suite de points une FRISE. Les retirer
+     colle 1998 contre 2011 à un pas de distance et la courbe montre une
+     continuité là où il y a treize ans de silence — mais sur une liste trouée,
+     serrer les années servies est parfois exactement ce qu'on veut voir. */
+  years: [
+    { key: "completedOnly", on: true },
+    { key: "skipEmpty", on: false },
+  ],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
     { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },

@@ -535,7 +535,13 @@ export default function ProfileOverview({
           />
         );
       case "years":
-        return <YearsBlock entries={entries} />;
+        return (
+          <YearsBlock
+            entries={entries}
+            completedOnly={optionOn("years", "completedOnly")}
+            skipEmpty={optionOn("years", "skipEmpty")}
+          />
+        );
       case "studios":
         return <StudiosBlock entries={entries} />;
       case "season":

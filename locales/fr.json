@@ -865,6 +865,8 @@
         "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche.",
         "completedOnly": "Terminés uniquement",
         "completedOnlyDesc": "Ne compte que les animés que tu as finis, re-visionnages compris.",
+        "skipEmpty": "Masquer les années vides",
+        "skipEmptyDesc": "Serre la frise sur les années où tu as vu quelque chose. Les années sautées ne sont plus visibles : deux points voisins peuvent être séparés de dix ans.",
         "customLists": "Compter les listes personnalisées",
         "customListsDesc": "Remplace les statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
       },
@@ -947,9 +949,10 @@
         "emptyCompleted": "Pas assez d'animés terminés pour dessiner une forme. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
       },
       "years": {
-        "title": "Années",
-        "desc": "La courbe des années de sortie de ta liste.",
-        "empty": "Les années de sortie viennent d'AniList — une liste locale n'en porte pas."
+        "title": "Frise des sorties",
+        "desc": "De quelles années viennent les animés que tu as vus.",
+        "empty": "Les années de sortie viennent d'AniList — une liste locale n'en porte pas.",
+        "emptyCompleted": "Pas assez d'animés terminés pour tracer une frise. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
       },
       "studios": {
         "title": "Studios classés par note",

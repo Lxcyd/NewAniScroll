@@ -865,6 +865,8 @@
         "trailerDesc": "The preview that opens when the pointer settles on a poster.",
         "completedOnly": "Completed only",
         "completedOnlyDesc": "Counts only the anime you have finished, rewatches included.",
+        "skipEmpty": "Hide empty years",
+        "skipEmptyDesc": "Tightens the timeline onto the years you actually watched something. Skipped years are no longer visible: two neighbouring points can be ten years apart.",
         "customLists": "Count custom lists",
         "customListsDesc": "Replaces the statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
       },
@@ -947,9 +949,10 @@
         "emptyCompleted": "Not enough finished anime to draw a shape. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
       },
       "years": {
-        "title": "Years",
-        "desc": "The curve of the release years in your list.",
-        "empty": "Release years come from AniList — a local list doesn't carry them."
+        "title": "Release timeline",
+        "desc": "Which years the anime you have watched come from.",
+        "empty": "Release years come from AniList — a local list doesn't carry them.",
+        "emptyCompleted": "Not enough finished anime to draw a timeline. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
       },
       "studios": {
         "title": "Studios by score",

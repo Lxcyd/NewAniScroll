@@ -179,18 +179,32 @@ export function scoreSpread(
  * L'axe est borné par les données, pas par le calendrier : rien avant la plus
  * vieille sortie, rien après la plus récente.
  */
-export function yearCounts(entries: ProfileEntry[]): Tally[] {
+export function yearCounts(
+  entries: ProfileEntry[],
+  /** Ne retenir que les titres terminés (cf. `FINISHED`). */
+  completedOnly = false,
+  /** Sauter les années à zéro — l'axe cesse alors d'être régulier, cf. plus
+   *  haut : c'est un réglage, pas le défaut. */
+  skipEmpty = false,
+): Tally[] {
   const counts = new Map<number, number>();
   for (const e of entries) {
     if (!e.year || e.year < 1900) continue;
+    if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
     counts.set(e.year, (counts.get(e.year) || 0) + 1);
   }
   if (!counts.size) return [];
+  const tally = (y: number, count: number): Tally => ({
+    key: String(y),
+    label: String(y),
+    count,
+  });
+  if (skipEmpty) {
+    return [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([y, c]) => tally(y, c));
+  }
   const ys = [...counts.keys()];
   const out: Tally[] = [];
-  for (let y = Math.min(...ys); y <= Math.max(...ys); y++) {
-    out.push({ key: String(y), label: String(y), count: counts.get(y) || 0 });
-  }
+  for (let y = Math.min(...ys); y <= Math.max(...ys); y++) out.push(tally(y, counts.get(y) || 0));
   return out;
 }
 
