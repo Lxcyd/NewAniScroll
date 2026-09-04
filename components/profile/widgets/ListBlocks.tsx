@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -1181,8 +1182,10 @@ export function YearsBlock({
     () => yearStats(entries, completedOnly, skipEmpty),
     [entries, completedOnly, skipEmpty],
   );
-  /** L'année survolée, celle dont la bulle est ouverte. */
-  const [hover, setHover] = useState<number | null>(null);
+  /** L'année survolée, celle dont la bulle est ouverte, et la position de son
+   *  point À L'ÉCRAN — la bulle est portée par `document.body` (cf. `YearTip`),
+   *  donc elle se place en coordonnées de fenêtre et pas dans le dessin. */
+  const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   /* Le même « attraper et tirer » que les carrousels du site — une frise se
      pousse à la souris, pas seulement à la molette. */
   const { ref } = useDragScroll<HTMLDivElement>();
@@ -1237,6 +1240,14 @@ export function YearsBlock({
      masse qui monte et redescend plutôt qu'un fil posé dans le vide. */
   const area = `${smoothPath(pts)} L ${pts[pts.length - 1][0]},${BASE} L ${pts[0][0]},${BASE} Z`;
 
+  /** Où tombe le point d'une année dans la FENÊTRE, défilement compris. */
+  const locate = (i: number) => {
+    const el = ref.current;
+    if (!el || !pts[i]) return null;
+    const r = el.getBoundingClientRect();
+    return { i, x: r.left + pts[i][0] - el.scrollLeft, y: r.top + pts[i][1] };
+  };
+
   return (
     /* `select-none` : sans lui, tirer la frise SURLIGNAIT les chiffres au lieu
        de la faire défiler — un glissement de souris sur du texte est une
@@ -1246,10 +1257,11 @@ export function YearsBlock({
       ref={ref}
       className="as-scroller flex h-full select-none items-center overflow-x-auto overflow-y-hidden"
       onMouseLeave={() => setHover(null)}
+      /* La frise glisse sous une bulle qui, elle, est ancrée à la fenêtre : sa
+         position se recalcule à chaque défilement, sinon elle resterait plantée
+         au-dessus d'une année qui n'est plus là. */
+      onScroll={() => setHover((h) => (h ? locate(h.i) : null))}
     >
-      {/* La bulle est posée DANS le contenu qui défile, pas au-dessus de la
-          carte : elle suit alors sa colonne toute seule quand la frise glisse,
-          sans qu'on ait à recalculer une position à chaque pixel. */}
       <div className="relative shrink-0" style={{ width: W, height: H }}>
       <svg width={W} height={H} className="font-karla">
         <defs>
@@ -1286,15 +1298,15 @@ export function YearsBlock({
               width={YEAR_STEP}
               height={H}
               fill="transparent"
-              onMouseEnter={() => setHover(i)}
+              onMouseEnter={() => setHover(locate(i))}
             />
             <circle
               cx={pts[i][0]}
               cy={pts[i][1]}
-              r={hover === i ? 6 : 4}
+              r={hover?.i === i ? 6 : 4}
               fill={YEAR_LINE}
               stroke="rgba(255,255,255,0.9)"
-              strokeWidth={hover === i ? 2 : 0}
+              strokeWidth={hover?.i === i ? 2 : 0}
               className="pointer-events-none"
             />
             {/* Le compte AU-DESSUS de son point : la valeur se lit sans légende,
@@ -1305,7 +1317,7 @@ export function YearsBlock({
               textAnchor="middle"
               fontSize="12"
               fontWeight="700"
-              fill={hover === i ? "#fff" : "rgba(255,255,255,0.72)"}
+              fill={hover?.i === i ? "#fff" : "rgba(255,255,255,0.72)"}
               className="pointer-events-none"
             >
               {v.count}
@@ -1316,7 +1328,7 @@ export function YearsBlock({
               textAnchor="middle"
               fontSize="12"
               fontWeight="700"
-              fill={hover === i ? YEAR_LINE : "rgba(255,255,255,0.38)"}
+              fill={hover?.i === i ? YEAR_LINE : "rgba(255,255,255,0.38)"}
               className="pointer-events-none"
             >
               {v.label}
@@ -1326,8 +1338,8 @@ export function YearsBlock({
       </svg>
       {/* `years[hover]` peut avoir disparu entre-temps : basculer un réglage
           refait la frise pendant que la souris est encore dessus. */}
-      {hover != null && years[hover] ? (
-        <YearTip stat={years[hover]} x={pts[hover][0]} y={pts[hover][1]} w={W} />
+      {hover && years[hover.i] ? (
+        <YearTip stat={years[hover.i]} x={hover.x} y={hover.y} />
       ) : null}
       </div>
     </div>
@@ -1348,23 +1360,18 @@ function YearTip({
   stat,
   x,
   y,
-  w,
 }: {
   stat: YearStat;
-  /** L'abscisse du point survolé, dans le dessin. */
+  /** L'abscisse du point survolé, DANS LA FENÊTRE. */
   x: number;
-  /** Son ordonnée : la bulle se pose au-dessus, et passe dessous quand le point
-   *  est trop haut pour qu'elle tienne. */
+  /** Son ordonnée, dans la fenêtre : la bulle se pose toujours au-dessus. */
   y: number;
-  /** La largeur du dessin, pour que la bulle ne dépasse pas de ses bords. */
-  w: number;
 }) {
   const { t } = useTranslation();
   const TIP = 176;
-  /* Bornée aux deux extrémités : sans ça, la bulle de la première année sortait
-     à gauche du dessin, là où le défilement ne va pas. */
-  const left = Math.min(Math.max(x, TIP / 2 + 4), w - TIP / 2 - 4);
-  const below = y < 120;
+  /* Bornée aux deux bords de la FENÊTRE : la bulle d'une année de bord sortait
+     de l'écran, pas seulement de la carte. */
+  const left = Math.min(Math.max(x, TIP / 2 + 8), window.innerWidth - TIP / 2 - 8);
   const rows: [string, string][] = [
     [t("profile.blocks.years.tipCount"), String(stat.count)],
     ...(stat.minutes != null
@@ -1381,14 +1388,20 @@ function YearTip({
       : []),
   ];
 
-  return (
+  /* PORTÉE PAR LE `body`, ET C'EST TOUT L'INTÉRÊT. Dans la carte, elle était
+     rognée par le bloc qui défile (`overflow`) : la bulle d'un point haut était
+     coupée net au bord du widget, et c'est ce qui l'avait fait basculer en
+     dessous — une rustine pour un problème de découpe. Ancrée à la fenêtre,
+     elle sort du widget, se pose toujours AU-DESSUS du point, et passe par-dessus
+     les cartes voisines. */
+  return createPortal(
     <div
-      className="as-stat-card pointer-events-none absolute z-10 rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
+      className="as-stat-card pointer-events-none fixed z-[60] rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm"
       style={{
         width: TIP,
         left,
-        top: below ? y + 18 : y - 18,
-        transform: `translate(-50%, ${below ? "0" : "-100%"})`,
+        top: y - 18,
+        transform: "translate(-50%, -100%)",
       }}
     >
       <p className="mb-2 font-outfit text-[13px] font-bold text-white">
@@ -1402,7 +1415,8 @@ function YearTip({
           </div>
         ))}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
