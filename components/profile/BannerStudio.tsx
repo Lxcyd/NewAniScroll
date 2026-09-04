@@ -70,6 +70,13 @@ type Props = {
   /** Ce que l'automatique donne — sert d'aperçu quand rien n'est épinglé. */
   auto: { url: string | null; source: BannerOption["source"] | null; title: string | null };
   identity: { name: string; avatar: string | null };
+  /**
+   * Les chiffres du profil, tels que l'en-tête les affiche (heroStats).
+   * L'aperçu les montre dans ses trois cartes : ce sont elles qui rendent le
+   * flou visible, et de VRAIS chiffres dedans valent mieux que trois barres —
+   * on juge alors la lisibilité qu'on aura, pas celle d'un gabarit.
+   */
+  stats?: Array<{ key: string; label: string; value: string }>;
   /** `null` dépingle et rend le profil à son anime préféré. */
   onApply: (value: Dressing | null) => void;
 };
@@ -123,6 +130,7 @@ export default function BannerStudio({
   value,
   auto,
   identity,
+  stats,
   onApply,
 }: Props) {
   const { t } = useTranslation();
@@ -158,6 +166,17 @@ export default function BannerStudio({
   useEffect(() => {
     if (animeId == null && animes.length) setAnimeId(animes[0].mediaId);
   }, [animes, animeId]);
+
+  /* L'écran est plein : la page en dessous ne doit pas défiler sous lui, sinon
+     fermer le studio rend un profil qui a bougé tout seul. */
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
 
   const currentAnime = animes.find((a) => a.mediaId === animeId) ?? null;
 
@@ -446,77 +465,98 @@ export default function BannerStudio({
   let index = -1;
 
   return (
-    <div className="fixed inset-0 z-[120] overflow-hidden bg-primary text-white">
+    /* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
+       elle recouvrait la barre du studio, et « Appliquer » se trouvait sous le
+       menu du site. C'est le même étage que les autres écrans pleins du site
+       (ChangelogButton, ReportModal). */
+    <div className="fixed inset-0 z-[10000] overflow-hidden bg-primary text-white">
       {/* ── L'aperçu, à taille réelle ─────────────────────────────────── */}
       <div className="absolute inset-0">
         <PlateBackground dressing={shown} fallback={shown.source === "cover"} />
+        {/* Le voile : lourd en haut pour porter la barre — il n'y a plus de
+            navigation derrière elle — lourd en bas pour porter le dock, et
+            presque rien au milieu, là où l'on regarde l'image. */}
         <div
           className="absolute inset-0"
           style={{
             background:
-              "linear-gradient(to top, rgba(6,7,10,.92) 8%, rgba(6,7,10,.28) 48%, rgba(6,7,10,.6) 100%)",
+              "linear-gradient(to bottom, rgba(6,7,10,.82) 0%, rgba(6,7,10,.25) 14%, rgba(6,7,10,.18) 52%, rgba(6,7,10,.88) 100%)",
           }}
         />
       </div>
 
       <div className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-6">
-        <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-5 text-center">
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 text-center">
           <div className="rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
             {identity.avatar ? (
               <Image
                 src={identity.avatar}
                 alt=""
-                width={112}
-                height={112}
-                className="h-24 w-24 rounded-full object-cover"
+                width={128}
+                height={128}
+                className="h-28 w-28 rounded-full object-cover"
               />
             ) : (
-              <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary text-3xl font-bold text-white/80">
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-primary text-4xl font-bold text-white/80">
                 {identity.name.charAt(0).toUpperCase() || "?"}
               </div>
             )}
           </div>
-          <div>
-            <p
-              className="font-outfit text-4xl font-bold"
-              style={{ textShadow: "0 2px 18px rgba(0,0,0,.75)" }}
-            >
-              {identity.name}
-            </p>
-            <p className="mt-1 text-xs text-white/60">{t("profile.studioPreviewNote")}</p>
-          </div>
+          <p
+            className="font-outfit text-5xl font-bold leading-none"
+            style={{ textShadow: "0 2px 18px rgba(0,0,0,.75)" }}
+          >
+            {identity.name}
+          </p>
           {/* Les trois cartes existent pour UNE raison : montrer le flou. C'est
               le seul réglage dont l'effet ne se voit pas sur le fond. */}
-          <div className="grid w-full grid-cols-3 gap-2.5">
-            {["statAnime", "statEpisodes", "statWatched"].map((k) => (
-              <div
-                key={k}
-                className="rounded-2xl px-3 py-3 text-left ring-1 ring-white/15"
-                style={{
-                  background: `linear-gradient(145deg, rgba(20,22,28,${cardAlpha}), rgba(12,13,16,${cardAlpha - 0.14}))`,
-                  backdropFilter: `blur(${draft.blur}px)`,
-                  WebkitBackdropFilter: `blur(${draft.blur}px)`,
-                }}
-              >
-                <p className="text-[10px] uppercase tracking-wide text-white/45">{t(`profile.${k}`)}</p>
-                <p className="mt-1 h-1.5 w-3/5 rounded-full bg-white/30" />
-              </div>
-            ))}
+          <div className="grid w-full grid-cols-3 gap-3">
+            {(stats && stats.length
+              ? stats
+              : [
+                  { key: "a", label: t("profile.statAnime"), value: "—" },
+                  { key: "b", label: t("profile.statEpisodes"), value: "—" },
+                  { key: "c", label: t("profile.statWatched"), value: "—" },
+                ]
+            )
+              .slice(0, 3)
+              .map((s) => (
+                <div
+                  key={s.key}
+                  className="rounded-[20px] px-4 py-3.5 text-left ring-1 ring-white/15"
+                  style={{
+                    background: `linear-gradient(145deg, rgba(20,22,28,${cardAlpha}), rgba(12,13,16,${cardAlpha - 0.14}))`,
+                    backdropFilter: `blur(${draft.blur}px)`,
+                    WebkitBackdropFilter: `blur(${draft.blur}px)`,
+                  }}
+                >
+                  <p className="text-[10px] uppercase tracking-[.12em] text-white/45">
+                    {s.label}
+                  </p>
+                  <p className="mt-0.5 font-outfit text-2xl font-bold leading-tight">
+                    {s.value}
+                  </p>
+                </div>
+              ))}
           </div>
         </div>
       </div>
 
       {/* ── Barre du haut ─────────────────────────────────────────────── */}
-      <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-3 px-4 py-3 md:px-6">
+      <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-3 px-4 py-4 md:px-6">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15 backdrop-blur-md">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          {t("profile.studioLive")}
+        </span>
         <h2
           className="font-outfit text-lg font-bold"
           style={{ textShadow: "0 2px 14px rgba(0,0,0,.85)" }}
         >
           {t("profile.studioTitle")}
         </h2>
-        {draft.title ? (
-          <span className="hidden text-xs text-white/60 sm:block">{draft.title}</span>
-        ) : null}
+        <span className="hidden truncate text-xs text-white/55 sm:block">
+          {draft.title || t("profile.studioPreviewNote")}
+        </span>
         <span className="flex-1" />
         {pinned ? (
           <button
@@ -553,7 +593,12 @@ export default function BannerStudio({
             onClick={() => setScope(null)}
             className="absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
           />
-          <div className="absolute inset-x-0 bottom-[6.5rem] z-30 flex justify-center px-4">
+          {/* L'ancre : la palette sort du dock, pas de nulle part. Sans elle le
+              lien entre le bouton cliqué et le menu qui s'ouvre se perd. */}
+          <div className="absolute inset-x-0 bottom-[7.1rem] z-40 flex justify-center">
+            <span className="h-4 w-4 rotate-45 border-b border-r border-white/15 bg-[#17181d]" />
+          </div>
+          <div className="absolute inset-x-0 bottom-[7.6rem] z-30 flex justify-center px-4">
             <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-[#17181d] shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/15">
               <div className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
                 <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
@@ -686,11 +731,11 @@ export default function BannerStudio({
                 onClick={() => openScope(id)}
                 title={t(`profile.studioKind_${id}`)}
                 aria-label={t(`profile.studioKind_${id}`)}
-                className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors ${
+                className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl transition-colors ${
                   on ? "bg-action text-white" : "text-white/65 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <Icon className="h-5 w-5" />
+                <Icon className="h-6 w-6" />
               </button>
             );
           })}

@@ -313,6 +313,7 @@ export default function Profile({
               title: initialBanner?.title ?? null,
             }}
             identity={{ name: identity.name, avatar: identity.avatar ?? null }}
+            stats={heroStats(t, stats)}
             onApply={(d) => void save(d)}
           />
         </>

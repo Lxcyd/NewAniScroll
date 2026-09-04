@@ -183,6 +183,7 @@ export default function LocalProfile() {
           title: auto?.title ?? null,
         }}
         identity={{ name: name || t("nav.myList"), avatar: null }}
+        stats={heroStats(t, stats)}
         onApply={pick}
       />
     </>

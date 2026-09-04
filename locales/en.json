@@ -1062,7 +1062,8 @@
     "artKind_anilist": "AniList banner",
     "artKind_cover": "Poster",
     "playSound": "Play the profile's sound",
-    "playMusic": "Play “{{title}}”"
+    "playMusic": "Play “{{title}}”",
+    "studioLive": "live"
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

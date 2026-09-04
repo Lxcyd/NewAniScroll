@@ -1062,7 +1062,8 @@
     "artKind_anilist": "Bannière AniList",
     "artKind_cover": "Affiche",
     "playSound": "Écouter le son du profil",
-    "playMusic": "Écouter « {{title}} »"
+    "playMusic": "Écouter « {{title}} »",
+    "studioLive": "en direct"
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",
