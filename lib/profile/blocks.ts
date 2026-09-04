@@ -124,7 +124,12 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "◳",
   },
-  { id: "formats", size: [2, 2], color: "#3B82F6", source: "list", icon: "◧" },
+  /* Large et basse : une frise se lit en longueur, et sa hauteur ne sert qu'à
+     loger l'amplitude de la courbe. Quatre colonnes par défaut, jamais moins de
+     deux — sous cette largeur, la carte ne montre plus que quatre années à la
+     fois et le défilement devient le seul moyen de voir la forme, qui est
+     pourtant tout ce qu'on vient chercher. */
+  { id: "years", size: [4, 1], min: [2, 1], max: [4, 2], color: "#5EC9CE", source: "list", icon: "◠" },
   { id: "studios", size: [2, 1], color: "#FFD700", source: "list", icon: "◆" },
   { id: "season", size: [4, 1], color: "#22c55e", source: "list", icon: "❂" },
   { id: "characters", size: [4, 1], color: "#E94560", source: "list", icon: "☺" },

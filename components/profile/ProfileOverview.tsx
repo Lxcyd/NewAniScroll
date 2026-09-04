@@ -9,7 +9,7 @@ import { EmptyBlock } from "./widgets/common";
 import {
   CharactersBlock,
   FavoritesBlock,
-  FormatsBlock,
+  YearsBlock,
   GenresBlock,
   ScoresBlock,
   SeasonBlock,
@@ -534,8 +534,8 @@ export default function ProfileOverview({
             completedOnly={optionOn("genres", "completedOnly")}
           />
         );
-      case "formats":
-        return <FormatsBlock entries={entries} />;
+      case "years":
+        return <YearsBlock entries={entries} />;
       case "studios":
         return <StudiosBlock entries={entries} />;
       case "season":

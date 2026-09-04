@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import {
-  FormatsBlock,
+  YearsBlock,
   GenresBlock,
   ScoresBlock,
   StatusesBlock,
@@ -27,7 +27,7 @@ export default function ProfileStats({ entries }: { entries: ProfileEntry[] }) {
   const panels = [
     { key: "genres", h: "h-[22rem]", node: <GenresBlock entries={entries} />, wide: false },
     { key: "scores", h: "h-[14rem]", node: <ScoresBlock entries={entries} />, wide: false },
-    { key: "formats", h: "h-[19rem]", node: <FormatsBlock entries={entries} />, wide: false },
+    { key: "years", h: "h-[16rem]", node: <YearsBlock entries={entries} />, wide: true },
     { key: "statuses", h: "h-[12rem]", node: <StatusesBlock entries={entries} />, wide: false },
     { key: "studios", h: "h-[15rem]", node: <StudiosBlock entries={entries} />, wide: true },
   ];

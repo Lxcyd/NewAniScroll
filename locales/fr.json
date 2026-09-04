@@ -946,11 +946,10 @@
         "empty": "Les genres viennent d'AniList — une liste locale n'en porte pas.",
         "emptyCompleted": "Pas assez d'animés terminés pour dessiner une forme. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
       },
-      "formats": {
-        "title": "Formats & décennies",
-        "desc": "TV, film, OVA… et les années de sortie.",
-        "empty": "Les formats viennent d'AniList — une liste locale n'en porte pas.",
-        "decades": "Par décennie de sortie"
+      "years": {
+        "title": "Années",
+        "desc": "La courbe des années de sortie de ta liste.",
+        "empty": "Les années de sortie viennent d'AniList — une liste locale n'en porte pas."
       },
       "studios": {
         "title": "Studios classés par note",

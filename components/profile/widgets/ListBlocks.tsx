@@ -14,14 +14,13 @@ import { useEdgeFade } from "@/lib/ui/edgeFade";
 import {
   currentlyWatching,
   customListCounts,
-  decadeCounts,
-  formatCounts,
   genreCounts,
   scoreBinValue,
   scoreSpread,
   showcaseFor,
   statusCounts,
   studioRanks,
+  yearCounts,
   STATUS_COLOR,
   type StatusKey,
 } from "@/lib/profile/insights";
@@ -38,16 +37,6 @@ import { Bar, EmptyBlock } from "./common";
  * Les images sont celles du site (couvertures AniList portées par les entrées) :
  * aucun emplacement à remplir à la main.
  */
-
-const FORMAT_COLOR: Record<string, string> = {
-  TV: "#3B82F6",
-  TV_SHORT: "#60A5FA",
-  MOVIE: "#A855F7",
-  OVA: "#22c55e",
-  ONA: "#94a3b8",
-  SPECIAL: "#f59e0b",
-  MUSIC: "#ec4899",
-};
 
 /* ── Favoris ─────────────────────────────────────────────────────────── */
 
@@ -1142,63 +1131,116 @@ export function GenresBlock({
   );
 }
 
-/* ── Formats & décennies ─────────────────────────────────────────────── */
+/* ── Années de sortie ────────────────────────────────────────────────── */
 
-export function FormatsBlock({ entries }: { entries: ProfileEntry[] }) {
+/** La couleur de la courbe. Turquoise : aucun autre bloc ne l'occupe. */
+const YEAR_LINE = "#5EC9CE";
+/** La largeur d'une année, en pixels. C'est elle qui décide de la longueur. */
+const YEAR_STEP = 56;
+/** La hauteur du dessin, marges comprises. */
+const YEAR_H = 200;
+
+/**
+ * UNE COURBE, PAS DES BARRES, ET PAR ANNÉE, PAS PAR DÉCENNIE.
+ *
+ * Le bloc montrait deux choses — la répartition des formats en ruban, puis un
+ * histogramme par décennie. Les décennies étaient le vrai défaut : dix ans dans
+ * une colonne, c'est six barres pour toute une vie de visionnage, et la vague
+ * que raconte une liste (le lycée, la pause, le retour) tombait entièrement dans
+ * l'épaisseur d'une barre. Les formats, eux, tenaient de l'inventaire : trois
+ * couleurs qui disent « surtout de la TV », ce que tout le monde sait déjà de sa
+ * propre liste.
+ *
+ * L'année est la maille juste, et une ligne est la forme juste pour elle : c'est
+ * une SÉRIE TEMPORELLE, donc des points reliés dans l'ordre, pas des catégories
+ * côte à côte.
+ *
+ * ELLE SE DÉROULE, ELLE NE SE COMPRIME PAS. Chaque année vaut `YEAR_STEP`
+ * pixels et le dessin déborde en défilement horizontal : trente ans écrasés dans
+ * la largeur d'une carte donnent des étiquettes qui se chevauchent, et un
+ * graphique qu'on ne peut plus lire ne vaut pas la place qu'il prend. Le SVG
+ * n'a donc PAS de `viewBox` : ses coordonnées sont des pixels, les corps de
+ * texte et les rayons restent ceux qu'on a choisis quelle que soit la carte.
+ */
+export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
-  const formats = useMemo(() => formatCounts(entries), [entries]);
-  const decades = useMemo(() => decadeCounts(entries), [entries]);
-  if (!formats.length) return <EmptyBlock note={t("profile.blocks.formats.empty")} />;
-  const decMax = decades.length ? Math.max(...decades.map((d) => d.count)) : 1;
+  const years = useMemo(() => yearCounts(entries), [entries]);
+  /* Deux points font un segment, pas une courbe : sous trois années la figure
+     ne raconte rien qu'une phrase ne dirait mieux. */
+  if (years.length < 3) return <EmptyBlock note={t("profile.blocks.years.empty")} />;
+
+  const max = Math.max(...years.map((y) => y.count));
+  const W = years.length * YEAR_STEP;
+  const x = (i: number) => YEAR_STEP / 2 + i * YEAR_STEP;
+  /* Le haut de la courbe à 55, le zéro à 160 : il reste 40 px au-dessus pour le
+     chiffre du sommet et 40 en dessous pour l'année du creux. */
+  const y = (c: number) => 160 - (c / max) * 105;
+  const pts = years.map((v, i) => [x(i), y(v.count)] as const);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto pr-1">
-      <div>
-        <div className="mb-3 flex h-2.5 overflow-hidden rounded-full">
-          {formats.map((f) => (
-            <span
-              key={f.key}
-              style={{ flex: f.count, background: FORMAT_COLOR[f.key] || "rgba(255,255,255,0.18)" }}
-            />
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-3 font-karla text-[11px] text-white/50">
-          {formats.map((f) => (
-            <span key={f.key} className="inline-flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-sm"
-                style={{ background: FORMAT_COLOR[f.key] || "rgba(255,255,255,0.18)" }}
-              />
-              {f.label} {f.count}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      {decades.length ? (
-        <div className="min-h-0 flex-1">
-          <p className="mb-3 font-karla text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">
-            {t("profile.blocks.formats.decades")}
-          </p>
-          <div className="flex h-24 items-end gap-2.5">
-            {decades.map((d) => (
-              <div key={d.key} className="flex h-full flex-1 flex-col items-center justify-end gap-1.5">
-                <span className="font-karla text-[11px] font-bold text-white/55">{d.count}</span>
-                <div
-                  className="w-full rounded-t-md"
-                  style={{
-                    height: `${Math.max(4, (d.count / decMax) * 100)}%`,
-                    background: "linear-gradient(180deg,#3B82F6, rgba(59,130,246,0.18))",
-                  }}
-                />
-                <span className="font-karla text-[10px] text-white/35">{d.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
+    <div className="flex h-full items-center overflow-x-auto">
+      <svg width={W} height={YEAR_H} className="shrink-0 font-karla">
+        <path
+          d={smoothPath(pts)}
+          fill="none"
+          stroke={YEAR_LINE}
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {years.map((v, i) => (
+          <g key={v.key}>
+            <circle cx={pts[i][0]} cy={pts[i][1]} r="4" fill={YEAR_LINE} />
+            {/* Le compte AU-DESSUS de son point : la valeur se lit sans légende,
+                et une courbe sans chiffres oblige à viser une graduation. */}
+            <text
+              x={pts[i][0]}
+              y={pts[i][1] - 14}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="700"
+              fill="rgba(255,255,255,0.72)"
+            >
+              {v.count}
+            </text>
+            <text
+              x={pts[i][0]}
+              y={190}
+              textAnchor="middle"
+              fontSize="12"
+              fontWeight="700"
+              fill="rgba(255,255,255,0.38)"
+            >
+              {v.label}
+            </text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
+}
+
+/**
+ * Le chemin lissé qui passe PAR les points (Catmull-Rom converti en cubiques).
+ *
+ * Une polyligne montrerait les mêmes valeurs ; l'arrondi dit que la variable est
+ * continue — le nombre de titres d'une année n'est pas une catégorie voisine
+ * d'une autre, c'est le même compte qui monte et qui redescend. La courbe ne
+ * dépasse jamais ses points d'assez pour mentir : les tangentes valent un sixième
+ * de l'écart entre voisins, le lissage le plus sage de la famille.
+ */
+function smoothPath(p: readonly (readonly [number, number])[]): string {
+  let d = `M ${p[0][0]},${p[0][1]}`;
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] ?? p[i];
+    const p1 = p[i];
+    const p2 = p[i + 1];
+    const p3 = p[i + 2] ?? p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C ${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${p2[0]},${p2[1]}`;
+  }
+  return d;
 }
 
 /* ── Studios ─────────────────────────────────────────────────────────── */

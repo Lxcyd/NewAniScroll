@@ -946,11 +946,10 @@
         "empty": "Genres come from AniList — a local list doesn't carry them.",
         "emptyCompleted": "Not enough finished anime to draw a shape. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
       },
-      "formats": {
-        "title": "Formats & decades",
-        "desc": "TV, film, OVA… and release years.",
-        "empty": "Formats come from AniList — a local list doesn't carry them.",
-        "decades": "By release decade"
+      "years": {
+        "title": "Years",
+        "desc": "The curve of the release years in your list.",
+        "empty": "Release years come from AniList — a local list doesn't carry them."
       },
       "studios": {
         "title": "Studios by score",

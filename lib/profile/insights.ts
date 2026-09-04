@@ -167,28 +167,31 @@ export function scoreSpread(
   };
 }
 
-export function formatCounts(entries: ProfileEntry[]): Tally[] {
-  const counts = new Map<string, number>();
-  for (const e of entries) {
-    if (!e.format) continue;
-    counts.set(e.format, (counts.get(e.format) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([key, count]) => ({ key, label: key, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
-/** Décennies de sortie, de la plus ancienne à la plus récente. */
-export function decadeCounts(entries: ProfileEntry[]): Tally[] {
+/**
+ * Années de sortie, de la plus ancienne à la plus récente, SANS TROU.
+ *
+ * Les années vides sont rendues à zéro plutôt que sautées, et c'est ce qui fait
+ * de la suite une frise : une liste qui ne garderait que les années servies
+ * collerait 1998 contre 2011 à un pas de distance, et la courbe montrerait une
+ * continuité là où il y a treize ans de silence — exactement le contraire de ce
+ * qu'on vient lire.
+ *
+ * L'axe est borné par les données, pas par le calendrier : rien avant la plus
+ * vieille sortie, rien après la plus récente.
+ */
+export function yearCounts(entries: ProfileEntry[]): Tally[] {
   const counts = new Map<number, number>();
   for (const e of entries) {
     if (!e.year || e.year < 1900) continue;
-    const d = Math.floor(e.year / 10) * 10;
-    counts.set(d, (counts.get(d) || 0) + 1);
+    counts.set(e.year, (counts.get(e.year) || 0) + 1);
   }
-  return [...counts.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([d, count]) => ({ key: String(d), label: `${String(d).slice(2)}s`, count }));
+  if (!counts.size) return [];
+  const ys = [...counts.keys()];
+  const out: Tally[] = [];
+  for (let y = Math.min(...ys); y <= Math.max(...ys); y++) {
+    out.push({ key: String(y), label: String(y), count: counts.get(y) || 0 });
+  }
+  return out;
 }
 
 /**
