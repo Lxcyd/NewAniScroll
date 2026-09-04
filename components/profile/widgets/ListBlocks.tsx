@@ -1471,14 +1471,20 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
   const m: number[] = [slope[0]];
   for (let i = 1; i < n - 1; i++) {
     /* Signes opposés (ou un palier) : c'est un pic ou un creux, la courbe y
-       passe à plat. Sinon, la moyenne HARMONIQUE pondérée des deux pentes —
-       tirée vers la plus douce des deux, ce qui interdit le dépassement. */
+       passe à plat. */
     if (slope[i - 1] * slope[i] <= 0) {
       m[i] = 0;
     } else {
-      const w1 = 2 * dx[i] + dx[i - 1];
-      const w2 = dx[i] + 2 * dx[i - 1];
-      m[i] = (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i]);
+      /* Ailleurs, la MOYENNE des deux pentes, seulement BRIDÉE au triple de la
+         plus douce (la limite de Fritsch-Carlson, qui suffit à interdire le
+         dépassement). La moyenne harmonique, elle, tire la tangente vers la
+         pente la plus douce même quand les deux vont dans le même sens : une
+         année qui passe de 26 à 22 puis à 8 se retrouvait presque plate à 22,
+         et la frise prenait un air d'escalier — des paliers aux points, des
+         chutes entre eux. */
+      const avg = (slope[i - 1] + slope[i]) / 2;
+      const cap = 3 * Math.min(Math.abs(slope[i - 1]), Math.abs(slope[i]));
+      m[i] = Math.sign(avg) * Math.min(Math.abs(avg), cap);
     }
   }
   m[n - 1] = slope[n - 2];
