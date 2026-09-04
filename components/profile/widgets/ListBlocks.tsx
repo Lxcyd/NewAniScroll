@@ -7,6 +7,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { customListColor, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { blockOption } from "@/lib/profile/blocks";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
 import { useEdgeFade } from "@/lib/ui/edgeFade";
@@ -744,8 +745,18 @@ export function scoreScale(max: number): { step: number; top: number; ticks: num
  */
 export function ScoresBlock({
   entries,
-  /** Ne compter que les titres terminés (cf. `scoreSpread`). */
-  completedOnly = false,
+  /**
+   * Ne compter que les titres terminés (cf. `scoreSpread`).
+   *
+   * SON DÉFAUT EST CELUI DU CATALOGUE, LU LÀ-BAS ET PAS RECOPIÉ ICI. Il était
+   * écrit `false` — l'habitude du booléen qui commence éteint — alors que le
+   * réglage du bloc, lui, est allumé par défaut (`OPTIONS.scores`,
+   * lib/profile/blocks.ts). Deux défauts contradictoires, et l'onglet
+   * « Statistiques », qui rend ce bloc sans lui passer de réglage, prenait le
+   * mauvais : le même profil montrait deux distributions différentes selon
+   * l'onglet.
+   */
+  completedOnly = blockOption("scores", "completedOnly", undefined),
   /* En réorganisation, le coin de l'en-tête appartient à la roue et au moins. */
   editing = false,
   /** Une colonne cliquée. Absent : les colonnes ne sont pas cliquables — c'est
@@ -969,7 +980,15 @@ export function ScoresBlock({
  * grandissent avec la carte dans le même rapport, sans une seule requête de
  * conteneur.
  */
-export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
+export function GenresBlock({
+  entries,
+  /* Le défaut vient du catalogue, pas d'un littéral : ProfileStats rend ce bloc
+     sans réglages, et il doit montrer la même chose que la grille par défaut. */
+  completedOnly = blockOption("genres", "completedOnly", undefined),
+}: {
+  entries: ProfileEntry[];
+  completedOnly?: boolean;
+}) {
   const { t } = useTranslation();
   /* Seize : ce qu'AniList compte de genres, moins les rarissimes. Ce n'est pas
      un classement tronqué mais une limite de lisibilité — au-delà, deux branches
@@ -989,12 +1008,24 @@ export function GenresBlock({ entries }: { entries: ProfileEntry[] }) {
      le lit à l'écran. */
   const genres = useMemo(
     () =>
-      genreCounts(entries, 16)
+      genreCounts(entries, 16, completedOnly)
         .map((g) => ({ ...g, label: genreLabel(t, g.key) }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [entries, t],
+    [entries, completedOnly, t],
   );
-  if (genres.length < 3) return <EmptyBlock note={t("profile.blocks.genres.empty")} />;
+  if (genres.length < 3)
+    return (
+      <EmptyBlock
+        note={t(
+          /* Deux vides différents : la liste locale n'a jamais de genres, et le
+             filtre peut n'avoir rien laissé. Le second se répare d'un clic sur
+             la roue dentée, encore faut-il le dire. */
+          completedOnly
+            ? "profile.blocks.genres.emptyCompleted"
+            : "profile.blocks.genres.empty",
+        )}
+      />
+    );
 
   const max = Math.max(...genres.map((g) => g.count));
   const n = genres.length;

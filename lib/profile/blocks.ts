@@ -111,13 +111,15 @@ export const BLOCKS: BlockDef[] = [
     source: "list",
     icon: "▮",
   },
-  // 2×2 au minimum : le radar porte SEIZE étiquettes autour de sa toile, deux
-  // lignes chacune. Sous cette taille elles tombent à six pixels de corps — la
-  // figure resterait lisible, ses chiffres non, et ce sont eux qu'on vient lire.
+  // 1×1 au minimum. Le plancher était 2×2 : le radar porte SEIZE étiquettes
+  // autour de sa toile, et sous cette taille elles tombent à six pixels de corps
+  // — la figure reste lisible, ses chiffres non. Le plancher est ouvert pour
+  // qu'on aille VOIR ce que ça donne plutôt que de le supposer ; si la carte
+  // minuscule est illisible, il remontera, mais sur une observation.
   {
     id: "genres",
     size: [2, 2],
-    min: [2, 2],
+    min: [1, 1],
     color: "#A855F7",
     source: "list",
     icon: "◳",
@@ -211,6 +213,12 @@ const OPTIONS: Record<string, BlockOption[]> = {
      qu'on a déjà payé ailleurs. La distribution par défaut est donc celle des
      jugements achevés ; l'interrupteur rouvre le bloc à tout ce qui est noté. */
   scores: [{ key: "completedOnly", on: true }],
+  /* Même filtre, même défaut, pour la même raison : la silhouette d'un profil
+     est celle de ce qu'il a VU. Un titre en plan-to-watch ou lâché au deuxième
+     épisode pèse autant qu'une série finie dans le compte d'un genre, et une
+     liste d'attente est faite d'intentions — elle raconte ce qu'on croit aimer,
+     pas ce qu'on a regardé. L'interrupteur rouvre le radar à toute la liste. */
+  genres: [{ key: "completedOnly", on: true }],
   favorites: [
     { key: "source", choices: FAVORITE_SOURCES, value: "favourites" },
     { key: "scores", range: [0, 10], step: 0.5, value: "0-10" },

@@ -195,9 +195,15 @@ export function decadeCounts(entries: ProfileEntry[]): Tally[] {
  * Les genres les plus présents. `max` bornes le radar : au-delà de huit
  * branches la figure devient illisible et ne dit plus rien de plus.
  */
-export function genreCounts(entries: ProfileEntry[], max = 8): Tally[] {
+export function genreCounts(
+  entries: ProfileEntry[],
+  max = 8,
+  /** Ne retenir que les titres terminés (cf. `FINISHED`). */
+  completedOnly = false,
+): Tally[] {
   const counts = new Map<string, number>();
   for (const e of entries) {
+    if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
     for (const g of e.genres || []) {
       if (!g) continue;
       counts.set(g, (counts.get(g) || 0) + 1);

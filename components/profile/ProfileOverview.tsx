@@ -528,7 +528,12 @@ export default function ProfileOverview({
           />
         );
       case "genres":
-        return <GenresBlock entries={entries} />;
+        return (
+          <GenresBlock
+            entries={entries}
+            completedOnly={optionOn("genres", "completedOnly")}
+          />
+        );
       case "formats":
         return <FormatsBlock entries={entries} />;
       case "studios":

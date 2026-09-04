@@ -864,7 +864,7 @@
         "trailer": "Bande-annonce au survol",
         "trailerDesc": "L'aperçu qui s'ouvre quand le curseur s'arrête sur une affiche.",
         "completedOnly": "Terminés uniquement",
-        "completedOnlyDesc": "Ne compte que les notes des animés que tu as finis, re-visionnages compris.",
+        "completedOnlyDesc": "Ne compte que les animés que tu as finis, re-visionnages compris.",
         "customLists": "Compter les listes personnalisées",
         "customListsDesc": "Remplace les statuts par tes listes personnalisées. Une entrée peut être dans plusieurs listes : les totaux ne s'additionnent pas."
       },
@@ -943,7 +943,8 @@
       "genres": {
         "title": "Genres",
         "desc": "Le radar des genres les plus présents dans ta liste.",
-        "empty": "Les genres viennent d'AniList — une liste locale n'en porte pas."
+        "empty": "Les genres viennent d'AniList — une liste locale n'en porte pas.",
+        "emptyCompleted": "Pas assez d'animés terminés pour dessiner une forme. Le paramètre « Terminés uniquement » de ce bloc écarte les titres en cours, prévus et abandonnés."
       },
       "formats": {
         "title": "Formats & décennies",

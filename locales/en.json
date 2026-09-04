@@ -864,7 +864,7 @@
         "trailer": "Trailer on hover",
         "trailerDesc": "The preview that opens when the pointer settles on a poster.",
         "completedOnly": "Completed only",
-        "completedOnlyDesc": "Counts only the scores of anime you have finished, rewatches included.",
+        "completedOnlyDesc": "Counts only the anime you have finished, rewatches included.",
         "customLists": "Count custom lists",
         "customListsDesc": "Replaces the statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
       },
@@ -943,7 +943,8 @@
       "genres": {
         "title": "Genres",
         "desc": "A radar of the genres your list leans on.",
-        "empty": "Genres come from AniList — a local list doesn't carry them."
+        "empty": "Genres come from AniList — a local list doesn't carry them.",
+        "emptyCompleted": "Not enough finished anime to draw a shape. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
       },
       "formats": {
         "title": "Formats & decades",
