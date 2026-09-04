@@ -626,6 +626,7 @@
     "TW": "Taïwan"
   },
   "listEditor": {
+    "anilistExpired": "Ton lien AniList a expiré : l'enregistrement n'est pas parti là-bas. Il est gardé ici — relie ton compte AniList dans les paramètres pour le renvoyer.",
     "status": "Statut",
     "progress": "Progression :",
     "watching": "En cours",
