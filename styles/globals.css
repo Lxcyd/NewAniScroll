@@ -284,27 +284,36 @@ body,
 
 /* Exception: the fullscreen score-grid pan canvas WANTS a visible scrollbar so
    it's obvious you can scroll/drag through a long franchise. Re-enable a slim,
-   themed track/thumb here, overriding the site-wide hide above. */
-.score-pan-scroller {
+   themed track/thumb here, overriding the site-wide hide above.
+
+   `.as-scroller` est le meme habillage, ouvert a qui en a besoin ailleurs (la
+   frise des annees du profil). Meme regle et pas une copie : deux barres qui se
+   ressemblent « presque » se remarquent plus qu'une barre partagee. */
+.score-pan-scroller,
+.as-scroller {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
 }
-.score-pan-scroller::-webkit-scrollbar {
+.score-pan-scroller::-webkit-scrollbar,
+.as-scroller::-webkit-scrollbar {
   display: block;
   width: 11px;
   height: 11px;
 }
-.score-pan-scroller::-webkit-scrollbar-thumb {
+.score-pan-scroller::-webkit-scrollbar-thumb,
+.as-scroller::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.22);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.score-pan-scroller::-webkit-scrollbar-thumb:hover {
+.score-pan-scroller::-webkit-scrollbar-thumb:hover,
+.as-scroller::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.38);
   background-clip: padding-box;
 }
-.score-pan-scroller::-webkit-scrollbar-corner {
+.score-pan-scroller::-webkit-scrollbar-corner,
+.as-scroller::-webkit-scrollbar-corner {
   background: transparent;
 }
 

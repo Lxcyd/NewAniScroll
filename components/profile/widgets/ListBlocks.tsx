@@ -1133,8 +1133,8 @@ export function GenresBlock({
 
 /* ── Années de sortie ────────────────────────────────────────────────── */
 
-/** La couleur de la courbe. Turquoise : aucun autre bloc ne l'occupe. */
-const YEAR_LINE = "#5EC9CE";
+/** La couleur de la courbe : le bleu des formats, que le bloc remplace. */
+const YEAR_LINE = "#3B82F6";
 /** La largeur d'une année, en pixels. C'est elle qui décide de la longueur. */
 const YEAR_STEP = 56;
 /** La hauteur du dessin, marges comprises. */
@@ -1165,6 +1165,18 @@ const YEAR_H = 200;
 export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
   const { t } = useTranslation();
   const years = useMemo(() => yearCounts(entries), [entries]);
+  /* Le même « attraper et tirer » que les carrousels du site — une frise se
+     pousse à la souris, pas seulement à la molette. */
+  const { ref } = useDragScroll<HTMLDivElement>();
+  /* LA FRISE S'OUVRE SUR LA DERNIÈRE ANNÉE, pas sur la première. Ce qu'on vient
+     voir est où on en est, et la fin d'une frise chronologique est le présent :
+     ouverte à gauche, la carte montrait 1998 et il fallait tirer trente ans pour
+     arriver à ce mois-ci. `useLayoutEffect` place le cadrage AVANT la peinture,
+     sans quoi la frise s'afficherait au début puis sauterait. */
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [ref, years.length]);
   /* Deux points font un segment, pas une courbe : sous trois années la figure
      ne raconte rien qu'une phrase ne dirait mieux. */
   if (years.length < 3) return <EmptyBlock note={t("profile.blocks.years.empty")} />;
@@ -1176,10 +1188,21 @@ export function YearsBlock({ entries }: { entries: ProfileEntry[] }) {
      chiffre du sommet et 40 en dessous pour l'année du creux. */
   const y = (c: number) => 160 - (c / max) * 105;
   const pts = years.map((v, i) => [x(i), y(v.count)] as const);
+  /* L'aire : la courbe refermée sur sa ligne de base. Elle ne dit rien que la
+     ligne ne dise déjà — elle donne du POIDS au dessous, pour qu'on voie une
+     masse qui monte et redescend plutôt qu'un fil posé dans le vide. */
+  const area = `${smoothPath(pts)} L ${pts[pts.length - 1][0]},160 L ${pts[0][0]},160 Z`;
 
   return (
-    <div className="flex h-full items-center overflow-x-auto">
+    <div ref={ref} className="as-scroller flex h-full items-center overflow-x-auto">
       <svg width={W} height={YEAR_H} className="shrink-0 font-karla">
+        <defs>
+          <linearGradient id="as-years-fill" x1="0" y1="55" x2="0" y2="160" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor={YEAR_LINE} stopOpacity="0.42" />
+            <stop offset="1" stopColor={YEAR_LINE} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#as-years-fill)" />
         <path
           d={smoothPath(pts)}
           fill="none"
