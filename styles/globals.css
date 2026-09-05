@@ -2253,35 +2253,8 @@ input[type="number"] {
     ),
     linear-gradient(165deg, #191924 0%, #0c0d10 75%);
 }
-/* Le curseur de flou du dock. Une piste fine et une poignée blanche : le dock
-   est déjà chargé, un curseur natif de chaque plateforme y jurerait. */
-.as-studio-range {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
-  outline: none;
-}
-.as-studio-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-}
-.as-studio-range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: 0;
-  border-radius: 50%;
-  background: #fff;
-  cursor: pointer;
-}
+/* Le curseur de flou du dock a été rendu à `.as-range`, celui des réglages de
+   widget : deux curseurs maison pour la même app, c'était un de trop. */
 .as-hero-default {
   background:
     radial-gradient(

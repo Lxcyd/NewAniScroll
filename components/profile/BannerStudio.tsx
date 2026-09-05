@@ -774,7 +774,7 @@ export default function BannerStudio({
 
       {/* ── Le dock ───────────────────────────────────────────────────── */}
       <div className="absolute inset-x-0 bottom-5 z-30 flex justify-center px-3">
-        <div className="flex max-w-full items-center gap-2 overflow-x-auto rounded-[1.6rem] bg-black/60 px-3 py-2.5 shadow-[0_20px_50px_rgba(0,0,0,.6)] ring-1 ring-white/15 backdrop-blur-xl scrollbar-hide">
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl bg-[#15161d]/90 p-2 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl scrollbar-hide">
           {DRESSING_KINDS.map(({ id }) => {
             const Icon = KIND_ICON[id];
             const on = scope === id || (!scope && draft.kind === id && (draft.url || draft.color));
@@ -785,30 +785,38 @@ export default function BannerStudio({
                 onClick={() => openScope(id)}
                 title={t(`profile.studioKind_${id}`)}
                 aria-label={t(`profile.studioKind_${id}`)}
-                className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl transition-colors ${
-                  on ? "bg-action text-white" : "text-white/65 hover:bg-white/10 hover:text-white"
+                className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${
+                  on
+                    ? "bg-action text-white"
+                    : "text-white/55 hover:bg-white/[0.08] hover:text-white"
                 }`}
               >
-                <Icon className="h-6 w-6" />
+                <Icon className="h-[1.15rem] w-[1.15rem]" strokeWidth={1.7} />
               </button>
             );
           })}
 
-          <span className="mx-1 h-8 w-px shrink-0 bg-white/15" />
+          <span className="mx-1.5 h-7 w-px shrink-0 bg-white/10" />
 
           <button
             type="button"
             onClick={() => openScope("music")}
-            className={`flex w-44 shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-colors ${
-              scope === "music" ? "bg-action/25" : "hover:bg-white/10"
+            className={`flex w-48 shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition-colors ${
+              scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
             }`}
           >
-            <SpeakerWaveIcon className="h-5 w-5 shrink-0 text-white/60" />
+            <span
+              className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
+                draft.music ? "bg-action/20 text-action" : "bg-white/[0.07] text-white/45"
+              }`}
+            >
+              <SpeakerWaveIcon className="h-4 w-4" strokeWidth={1.7} />
+            </span>
             <span className="min-w-0">
-              <span className="block truncate text-[12px] font-medium">
+              <span className="block truncate font-outfit text-[12px] font-bold text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}
               </span>
-              <span className="block truncate text-[10px] text-white/40">
+              <span className="block truncate font-karla text-[10.5px] leading-snug text-white/40">
                 {draft.music
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
@@ -816,25 +824,42 @@ export default function BannerStudio({
             </span>
           </button>
 
-          <span className="mx-1 h-8 w-px shrink-0 bg-white/15" />
+          <span className="mx-1.5 h-7 w-px shrink-0 bg-white/10" />
 
-          <label className="flex w-40 shrink-0 flex-col gap-1 px-1">
-            <span className="flex items-center justify-between text-[10px] text-white/55">
-              <span className="inline-flex items-center gap-1">
-                <AdjustmentsHorizontalIcon className="h-3.5 w-3.5" />
+          {/* Le curseur du flou reprend `as-range` : même rail, même pastille
+              cerclée d'accent que les réglages de widget. Il n'a qu'une poignée,
+              donc on lui rend le clic sur le rail (`pointer-events-auto`), que la
+              version à deux poignées doit, elle, désactiver pour ne pas se voler
+              les clics. */}
+          <label className="flex w-44 shrink-0 flex-col gap-1.5 px-1.5">
+            <span className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 font-karla text-[11px] font-bold uppercase tracking-[.08em] text-white/45">
+                <AdjustmentsHorizontalIcon className="h-3.5 w-3.5" strokeWidth={2} />
                 {t("profile.studioBlur")}
               </span>
-              <span className="font-mono text-white/85">{draft.blur} px</span>
+              <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+                {draft.blur} px
+              </span>
             </span>
-            <input
-              type="range"
-              min={0}
-              max={MAX_BLUR}
-              value={draft.blur}
-              onChange={(e) => patch({ blur: clampBlur(e.target.value) })}
-              className="as-studio-range"
-              aria-label={t("profile.studioBlur")}
-            />
+            <span className="as-range relative block h-3.5 w-full">
+              <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+              <span
+                className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                style={{ width: `${(draft.blur / MAX_BLUR) * 100}%` }}
+              />
+              <input
+                type="range"
+                min={0}
+                max={MAX_BLUR}
+                value={draft.blur}
+                onChange={(e) => patch({ blur: clampBlur(e.target.value) })}
+                /* En ligne, et pas une classe : `.as-range input[type=range]`
+                   coupe les clics avec une spécificité qu'un utilitaire seul ne
+                   dépasse pas. */
+                style={{ pointerEvents: "auto" }}
+                aria-label={t("profile.studioBlur")}
+              />
+            </span>
           </label>
         </div>
       </div>
