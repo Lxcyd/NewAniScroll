@@ -204,11 +204,30 @@ export default function HoverPreviewProvider() {
       }, prefs.delay);
     };
 
-    const arm = (el: HTMLElement) => {
+    /**
+     * Le bouton est-il enfoncé — MAINTENANT, d'après l'événement lui-même.
+     *
+     * `pressed` est un cache, et un cache de cette nature est une classe de
+     * bugs, pas un bug : chaque geste qui avale son `pointerup` le laisse posé,
+     * et plus AUCUN survol ne s'arme de toute la vie de la page. On a déjà
+     * rattrapé `pointercancel`, `dragend`, `drop` et `blur` un par un ; il
+     * suffit d'un avaleur de plus, jamais prévu, pour rendre la page muette.
+     *
+     * `PointerEvent.buttons` porte la vérité sur chaque événement, sans
+     * mémoire à tenir. Le lire ICI, à l'instant d'armer, retire au cache tout
+     * pouvoir de bloquer : il ne sert plus que de repli quand l'événement ne
+     * dit rien (ce qui n'arrive pas sur un vrai pointeur).
+     */
+    const boutonEnfonce = (e?: Event) => {
+      const b = (e as PointerEvent | undefined)?.buttons;
+      return typeof b === "number" ? b !== 0 : pressed;
+    };
+
+    const arm = (el: HTMLElement, e?: Event) => {
       // Already showing this card — nothing to do.
       if (openRef.current?.el === el) return;
       // A drag in progress, or a click being made: not a hover.
-      if (pressed) return cancel();
+      if (boutonEnfonce(e)) return cancel();
       armCountdown(el);
       // Start the fetch immediately: the wait for stillness buys nothing here,
       // and the card is mounted before the response lands either way.
@@ -280,7 +299,7 @@ export default function HoverPreviewProvider() {
         return;
       }
       const anchor = anchorAt(e.target);
-      if (anchor) arm(anchor);
+      if (anchor) arm(anchor, e);
       else close();
     };
 
@@ -304,7 +323,7 @@ export default function HoverPreviewProvider() {
          touche Échap vient de fermer. */
       if (wasPressed && !pressed && !pendingEl && !openRef.current) {
         const under = anchorAt(e.target);
-        if (under) arm(under);
+        if (under) arm(under, e);
       }
       const p = e as PointerEvent;
       const moved = !lastPos || lastPos.x !== p.clientX || lastPos.y !== p.clientY;
