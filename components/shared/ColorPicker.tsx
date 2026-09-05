@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Le choix d'une couleur au doigt : carré saturation/valeur, rail de teinte,
@@ -98,9 +98,22 @@ const FIELD =
 export default function ColorPicker({
   value,
   onChange,
+  wide = false,
+  header,
 }: {
   value: string;
   onChange: (hex: string) => void;
+  /**
+   * La disposition large : le carré passe à gauche en 160 px, tout le reste se
+   * range à sa droite. C'est ce qui rend le sélecteur tenable dans un panneau
+   * de 768 px — en pleine largeur, son carré au rapport 5/3 fait 438 px de haut
+   * à lui seul, et pousse le reste hors de l'écran. Repliée (le popover des
+   * réglages, 280 px), la disposition d'origine reste la bonne.
+   */
+  wide?: boolean;
+  /** Un bloc à poser en tête de la colonne de droite (les couleurs de base du
+      studio, avec leur intitulé — que ce composant ne traduit pas lui-même). */
+  header?: ReactNode;
 }) {
   const [hsv, setHsv] = useState(() => {
     const rgb = parseHex(value) ?? { r: 0.91, g: 0.27, b: 0.38 };
@@ -149,10 +162,13 @@ export default function ColorPicker({
   const rgb = hsvToRgb(hsv.h, hsv.s, hsv.v);
   const hsl = hsvToHsl(hsv.h, hsv.s, hsv.v);
 
-  return (
-    <div className="rounded-xl bg-black/25 p-3 ring-1 ring-white/10">
-      {/* Le carré saturation / valeur. `touch-none` : sur mobile le glisser doit
-          peindre, pas faire défiler la palette sous le doigt. */}
+  /* Les pièces, montées plus bas dans l'une ou l'autre disposition. Elles sont
+     déclarées une seule fois : deux mises en page, mais un seul rendu à tenir
+     à jour. */
+
+  /* Le carré saturation / valeur. `touch-none` : sur mobile le glisser doit
+     peindre, pas faire défiler la palette sous le doigt. */
+  const svBlock = (
       <div
         ref={svRef}
         onPointerDown={(e) => {
@@ -163,7 +179,9 @@ export default function ColorPicker({
           if (!(e.buttons & 1)) return;
           drag(svRef, e, (x, y) => commit({ ...hsv, s: x, v: 1 - y }));
         }}
-        className="relative aspect-[5/3] w-full cursor-crosshair touch-none rounded-lg"
+        className={`relative w-full cursor-crosshair touch-none rounded-lg ${
+          wide ? "h-40" : "aspect-[5/3]"
+        }`}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
         }}
@@ -173,8 +191,9 @@ export default function ColorPicker({
           style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: hex }}
         />
       </div>
+  );
 
-      {/* Le rail de teinte */}
+  const hueBlock = (
       <div
         ref={hueRef}
         onPointerDown={(e) => {
@@ -185,7 +204,7 @@ export default function ColorPicker({
           if (!(e.buttons & 1)) return;
           drag(hueRef, e, (x) => commit({ ...hsv, h: x * 360 }));
         }}
-        className="relative mt-2.5 h-3.5 cursor-pointer touch-none rounded-full"
+        className="relative h-3.5 cursor-pointer touch-none rounded-full"
         style={{
           background:
             "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
@@ -196,14 +215,20 @@ export default function ColorPicker({
           style={{ left: `${(hsv.h / 360) * 100}%` }}
         />
       </div>
+  );
 
-      {/* L'aperçu et les pastilles */}
-      <div className="mt-2.5 flex items-center gap-2.5">
-        <span
-          className="h-8 w-8 shrink-0 rounded-full ring-2 ring-white/15"
-          style={{ background: hex }}
-        />
-        <div className="grid flex-1 grid-cols-8 gap-1">
+  /* L'aperçu, la pastille de la couleur courante. */
+  const dot = (
+    <span
+      className="h-8 w-8 shrink-0 rounded-full ring-2 ring-white/15"
+      style={{ background: hex }}
+    />
+  );
+
+  /* Le mur de nuances. Douze colonnes en large, huit en replié : les mêmes
+     vingt-quatre couleurs, en deux ou trois rangées selon la place. */
+  const swatchBlock = (
+        <div className={`grid flex-1 gap-1 ${wide ? "grid-cols-12" : "grid-cols-8"}`}>
           {PRESETS.map((p) => {
             const c = parseHex(p)!;
             return (
@@ -219,10 +244,11 @@ export default function ColorPicker({
             );
           })}
         </div>
-      </div>
+  );
 
-      {/* Les onglets de format */}
-      <div className="mt-2.5 flex gap-0.5 rounded-lg bg-white/[0.06] p-0.5">
+  /* Les onglets de format */
+  const tabsBlock = (
+      <div className="flex gap-0.5 rounded-lg bg-white/[0.06] p-0.5">
         {TABS.map((x) => (
           <button
             key={x}
@@ -236,8 +262,10 @@ export default function ColorPicker({
           </button>
         ))}
       </div>
+  );
 
-      <div className="mt-2">
+  const inputsBlock = (
+      <div className="min-w-0 flex-1">
         {tab === "HEX" ? (
           <div className="flex gap-1.5">
             <input
@@ -306,6 +334,42 @@ export default function ColorPicker({
           </div>
         )}
       </div>
+  );
+
+  /* ── Large : le carré à gauche, tout le reste à sa droite ──────────── */
+  if (wide) {
+    return (
+      <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 sm:grid-cols-[10rem_1fr]">
+        <div className="grid content-start gap-2.5">
+          {svBlock}
+          {hueBlock}
+        </div>
+        <div className="grid content-start gap-2.5">
+          {header}
+          {swatchBlock}
+          {/* La ligne du bas tient l'aperçu, la valeur et les formats : c'est ce
+              qui permet au bloc entier de finir sous les 250 px. */}
+          <div className="flex items-center gap-2">
+            {dot}
+            {inputsBlock}
+            <div className="w-[13.5rem] shrink-0">{tabsBlock}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Replié : la colonne d'origine, pour un popover de 280 px ──────── */
+  return (
+    <div className="grid gap-2.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10">
+      {svBlock}
+      {hueBlock}
+      <div className="flex items-center gap-2.5">
+        {dot}
+        {swatchBlock}
+      </div>
+      {tabsBlock}
+      <div className="flex">{inputsBlock}</div>
     </div>
   );
 }

@@ -306,11 +306,16 @@ export default function BannerStudio({
       const swatches = [accent, ...ACCENT_PRESETS.filter((c) => c !== accent)].filter((c) =>
         match(c),
       );
-      out.push({
-        title: t("profile.studioColorSection"),
-        rows: [],
-        node: swatches.length ? (
-          <div className="flex flex-wrap items-center gap-3 px-2 py-1">
+      /* Un seul bloc pour tout l'onglet : le carré à gauche, et à sa droite les
+         couleurs de base, le mur de nuances et la valeur. Le sélecteur en
+         pleine largeur faisait 700 px de haut dans un panneau qui en offre 390
+         — ici l'ensemble tient sous 250. */
+      const baseSwatches = swatches.length ? (
+        <div>
+          <p className="pb-2 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+            {t("profile.studioColorSection")}
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5">
             {swatches.map((c) => {
               const on = draft.kind === "color" && draft.color?.toLowerCase() === c.toLowerCase();
               return (
@@ -330,13 +335,15 @@ export default function BannerStudio({
               );
             })}
           </div>
-        ) : null,
-      });
+        </div>
+      ) : null;
       out.push({
-        title: t("profile.studioColorCustomSection"),
+        title: "",
         rows: [],
         node: (
           <ColorPicker
+            wide
+            header={baseSwatches}
             value={isHexColor(draft.color) ? draft.color! : accent}
             onChange={(hex) =>
               patch({ kind: "color", color: hex, url: null, source: null, animeId: null, title: null })
@@ -719,11 +726,16 @@ export default function BannerStudio({
                     {t("profile.studioNoResult")}
                   </p>
                 ) : (
-                  sections.map((s) => (
-                    <div key={s.title}>
-                      <p className="px-3 pb-1.5 pt-3 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
-                        {s.title}
-                      </p>
+                  sections.map((s, i) => (
+                    <div key={s.title || `sec-${i}`}>
+                      {/* Un bloc peut porter son propre intitulé (le sélecteur de
+                          couleur nomme lui-même ses deux moitiés) : on ne lui en
+                          impose pas un second. */}
+                      {s.title ? (
+                        <p className="px-3 pb-1.5 pt-3 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+                          {s.title}
+                        </p>
+                      ) : null}
                       {s.node ? <div className="px-1 pb-1">{s.node}</div> : null}
                       {s.rows.map((row) => {
                         index += 1;
