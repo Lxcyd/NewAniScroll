@@ -54,20 +54,27 @@ export default function LocalProfile() {
   const auto = useProfileBanner(entries);
   const banner: HeroBanner = pinned ?? auto ?? { url: null, animeId: null, title: null };
 
-  const topAnimes: StudioAnime[] = useMemo(
-    () =>
-      rankCandidates(candidatesOf(entries))
-        .slice(0, 12)
-        .map((c) => {
-          const e = entries.find((x) => x.mediaId === c.mediaId)!;
-          return {
-            mediaId: c.mediaId,
-            title: e.title?.english || e.title?.romaji || `#${c.mediaId}`,
-            cover: e.cover ?? null,
-          };
-        }),
-    [entries],
-  );
+  /* Les douze meilleurs candidats à la bannière EN TÊTE, puis toute la liste.
+     Le classement sert à choisir une illustration, et douze suffisent pour ça ;
+     la recherche musique, elle, doit pouvoir atteindre n'importe quel titre de
+     la liste, sans quoi chercher un anime au-delà des douze ne renvoie rien. */
+  const topAnimes: StudioAnime[] = useMemo(() => {
+    const classes = rankCandidates(candidatesOf(entries))
+      .slice(0, 12)
+      .map((c) => c.mediaId);
+    const rang = new Map(classes.map((id, i) => [id, i]));
+    return entries
+      .slice()
+      .sort(
+        (a, b) =>
+          (rang.get(a.mediaId) ?? Infinity) - (rang.get(b.mediaId) ?? Infinity),
+      )
+      .map((e) => ({
+        mediaId: e.mediaId,
+        title: e.title?.english || e.title?.romaji || `#${e.mediaId}`,
+        cover: e.cover ?? null,
+      }));
+  }, [entries]);
 
   function pick(next: Dressing | null) {
     setPinned(next);

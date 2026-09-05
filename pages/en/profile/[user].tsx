@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import Head from "next/head";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
@@ -120,6 +120,31 @@ export default function Profile({
   viewedName,
 }: Props) {
   const { t } = useTranslation();
+
+  /* Tout ce que le studio peut proposer, pas seulement les douze meilleurs
+     candidats à la bannière.
+     Le classement sert à CHOISIR UNE BANNIÈRE : il met en tête les titres dont
+     l'illustration est bonne, et douze suffisaient pour ça. La recherche
+     musique s'en accommode mal — chercher un anime de sa liste ne renvoyait
+     rien dès qu'il sortait de ces douze.
+     Dérivé ici plutôt que côté serveur, et c'est ce qui rend l'élargissement
+     gratuit : `entries` voyage DÉJÀ dans les props pour les listes du profil,
+     donc reconstruire la liste complète au client n'ajoute pas un octet à la
+     charge utile, là où renvoyer un `topAnimes` complet l'aurait dupliquée. */
+  const studioAnimes: StudioAnime[] = useMemo(() => {
+    if (!isOwner) return [];
+    const vus = new Set(topAnimes.map((a) => a.mediaId));
+    const reste = entries
+      .filter((e) => !vus.has(e.mediaId))
+      .map((e) => ({
+        mediaId: e.mediaId,
+        title:
+          e.title?.english || e.title?.romaji || e.title?.userPreferred || `#${e.mediaId}`,
+        cover: e.cover ?? null,
+      }));
+    return [...topAnimes, ...reste];
+  }, [isOwner, topAnimes, entries]);
+
   const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });
   const [pinned, setPinned] = useState(!!initialPinned);
   const [picker, setPicker] = useState(false);
@@ -305,7 +330,7 @@ export default function Profile({
           <BannerStudio
             open={picker}
             onClose={() => setPicker(false)}
-            animes={topAnimes}
+            animes={studioAnimes}
             value={pinned ? normalizeDressing(banner) : null}
             auto={{
               url: initialBanner?.url ?? null,
