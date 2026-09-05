@@ -1,0 +1,109 @@
+# Résout les OP/ED vers leur version COMPLÈTE sur YouTube, et remplit
+# `oped_youtube` (servie par /api/v2/themes/{id}).
+#
+# POURQUOI CE JOB EXISTE. L'audio d'AnimeThemes est le rip du générique : 90 s,
+# mesuré à ffprobe (ChainsawMan-OP1 = 90.1 s, CyberpunkEdgerunners-OP1 = 89.9 s).
+# C'est la version télévisée, pas le morceau. La version complète est sur
+# YouTube, mais trouver LAQUELLE est un problème de résolution — pas un
+# lookup — et il se traite hors ligne. Ce workflow est ce hors-ligne.
+#
+# POURQUOI PAR TRANCHES, ET PAS D'UNE TRAITE. Le parc fait ~4 900 animes et
+# ~14 400 thèmes ; à deux recherches par thème, un passage complet représente
+# ~29 000 requêtes vers une instance Piped tenue bénévolement. Mesuré, une série
+# prend ~1 minute : le parc entier, c'est ~82 heures de traitement continu, très
+# au-delà des 6 h qu'un job GitHub peut tenir. Le rattrapage avance donc par
+# tranches quotidiennes et se termine tout seul en quelques semaines.
+#
+# L'ÉTAT EST LA TABLE, PAS LE RUNNER. Un runner est jeté à chaque exécution, donc
+# aucun fichier local ne survit. Plutôt que d'inventer un stockage, on lit celui
+# qui existe : une ligne dans `oped_youtube` VEUT DIRE « ce thème a été traité »,
+# absences comprises. C'est la règle sur laquelle la table est construite.
+# Indexé par (ani_id, slug) : le rattrapage saute les séries faites, et un ED
+# ajouté plus tard sur une série déjà traitée reste, lui, à faire.
+#
+# CE QUI EST ÉCRIT. Seuls les verdicts `ok` sont servis par le site ; les
+# `review` sont stockés avec leur candidat pour relecture humaine, jamais
+# joués. Voir lib/db/opedYoutube.ts pour pourquoi.
+#
+# Secrets requis (Repository → Settings → Secrets and variables → Actions) :
+#   TURSO_DATABASE_URL   → la base aniscroll-cache
+#   TURSO_AUTH_TOKEN
+
+name: resolve-oped-youtube
+
+on:
+  schedule:
+    # 03:00 UTC. Creux de trafic, et sans rapport avec les autres crons du dépôt.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Nombre d'animes à traiter sur cette exécution"
+        required: false
+        type: string
+        default: "120"
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    # Mesuré ~1 min/anime. 120 animes tiennent largement, et la marge absorbe
+    # les reprises : le résolveur retente 4 fois avant de conclure à une
+    # absence, parce qu'une réponse vide est souvent une défaillance
+    # d'instance et pas un catalogue muet.
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Installer le strict nécessaire
+        # Le résolveur n'utilise que la bibliothèque standard et `curl` (présent
+        # sur les runners). Côté Node, seul @libsql/client sert.
+        run: npm install --no-save @libsql/client@^0.17
+
+      - name: Lire ce qui est déjà en base
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/oped/dump-resolved-ids.mjs \
+            --out=tools/ost-resolver/done.json
+
+      - name: Résoudre une tranche
+        working-directory: tools/ost-resolver
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python backfill.py \
+            --limit="${{ inputs.limit || '120' }}" \
+            --skip-file=done.json \
+            --out=ci.jsonl
+
+      - name: Importer dans Turso
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        # `if` plutôt qu'un import à vide : une tranche peut ne rien produire
+        # (tout le monde déjà fait), et l'importeur sortirait alors en erreur
+        # sur un fichier absent, faisant échouer un job qui a bien travaillé.
+        run: |
+          if [ -s tools/ost-resolver/ci.jsonl ]; then
+            node scripts/oped/import-oped-youtube.mjs \
+              --in=tools/ost-resolver/ci.jsonl
+          else
+            echo "Rien de nouveau sur cette tranche."
+          fi
+
+      - name: Où en est le parc
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/oped/dump-resolved-ids.mjs --out=/tmp/after.json

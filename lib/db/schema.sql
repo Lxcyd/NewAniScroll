@@ -133,3 +133,51 @@ CREATE TABLE IF NOT EXISTS season_override (
   note         TEXT,                          -- why this override exists
   updated_at   INTEGER NOT NULL
 );
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- oped_youtube — the FULL-LENGTH version of an OP/ED on YouTube, one row per
+-- (ani_id, slug). Filled offline by tools/ost-resolver/resolve.py, imported by
+-- scripts/oped/import-oped-youtube.mjs, served by /api/v2/themes/{id}.
+--
+-- Why this table has to exist at all. AnimeThemes hosts the anime's own rip of
+-- the sequence: 90 s, measured with ffprobe (ChainsawMan-OP1 = 90.1 s,
+-- CyberpunkEdgerunners-OP1 = 89.9 s). That is the TV size, not the song, so
+-- "play the opening" could never mean the real track without a second source.
+-- YouTube has the full version, but finding it is a resolution problem, not a
+-- lookup: it is done offline and its answer is what lands here.
+--
+-- `verdict` IS LOAD-BEARING, and the API must respect it:
+--   ok     — two independent signals agreed (artist channel + cross-query, or
+--            channel + near-exact title). Safe to serve.
+--   review — ONE signal only. Usually right, sometimes a different track by the
+--            right artist. NEVER served automatically; it is a queue for a
+--            human. Serving these would throw away the whole point of the
+--            guard, which exists because "right channel, plausible duration"
+--            alone validated an unrelated song (Chainsaw Man ED3).
+--   absent — processed, nothing acceptable exists (MAXIMUM THE HORMONE only
+--            publishes the 90 s TV edit of Hawatari Nioku Centi).
+--   api_fail — the search never answered. Retry later; NOT an absence.
+--
+-- A row exists as soon as a theme has been PROCESSED, absences included — same
+-- rule as oped_host_skips. That is what tells a re-run "already looked at"
+-- apart from "never tried", without which the batch re-does everything forever.
+--
+-- `algo_version` moves when the resolver's scoring changes, so a better version
+-- can re-run only what it would now judge differently.
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS oped_youtube (
+  ani_id       INTEGER NOT NULL,           -- AniList id
+  slug         TEXT    NOT NULL,           -- OP1, ED2… (AnimeThemes theme slug)
+  verdict      TEXT    NOT NULL,           -- ok | review | absent | api_fail
+  video_id     TEXT,                       -- YouTube id (11 chars); null unless resolved
+  yt_title     TEXT,                       -- what YouTube calls it (audit trail)
+  yt_channel   TEXT,                       -- channel that served it (audit trail)
+  duration     INTEGER,                    -- seconds — the TV-size guard is >= 100
+  artist       TEXT,                       -- reference artist used for the search
+  artist_src   TEXT,                       -- animethemes | aniplaylist | musicbrainz
+  algo_version INTEGER NOT NULL DEFAULT 1,
+  checked_at   INTEGER NOT NULL,
+  PRIMARY KEY (ani_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_oped_youtube_verdict ON oped_youtube(verdict);
