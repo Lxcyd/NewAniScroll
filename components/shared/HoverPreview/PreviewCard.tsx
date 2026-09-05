@@ -301,13 +301,13 @@ export default function PreviewCard({
     const el = slotRef.current;
     if (!el || !trailerId || hideFrame || listOpen || blocked) return;
     setProgress(null);
-    attachStage({
+    attachStage("hover", {
       el,
       id: trailerId,
       handlers: { onPlaying: onPlayingChange, onHide, onProgress },
     });
     return () => {
-      detachStage(el);
+      detachStage("hover", el);
       // The player is shared, so it does not tell this card it has stopped — it
       // has already moved on. Put the artwork back ourselves.
       onPlayingChange(false);

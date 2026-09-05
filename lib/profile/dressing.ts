@@ -37,6 +37,19 @@ export type DressingMusic = {
   artist: string | null;
   /** "OP1", "ED2"… — ce qui est affiché à côté du titre. */
   slug: string | null;
+  /**
+   * Vidéo YouTube du morceau, quand elle est connue.
+   *
+   * L'audio d'AnimeThemes est le rip du générique : 90 s, mesuré à ffprobe sur
+   * plusieurs titres. C'est la version télévisée, pas le morceau. Quand cet
+   * identifiant est renseigné, le profil joue la version COMPLÈTE via le
+   * lecteur YouTube officiel plutôt que `url` — même mécanique que les
+   * bandes-annonces au survol, scène « music » (voir stageStore).
+   *
+   * Reste `null` tant que la table de résolution n'est pas remplie : le
+   * résolveur de tools/ost-resolver produit ces identifiants hors ligne.
+   */
+  videoId: string | null;
 };
 
 export type Dressing = {
@@ -153,12 +166,20 @@ export function normalizeDressing(raw: unknown): Dressing | null {
 
   const rawMusic = obj.music;
   const musicUrl = rawMusic ? str(rawMusic.url, 500) : null;
+  /* Cet identifiant part dans l'URL d'une iframe : on le valide sur la forme
+     exacte d'un id YouTube (11 caractères) plutôt que de le laisser passer en
+     texte libre. Tout le reste devient null, pas une chaîne assainie à moitié. */
+  const rawVideoId = rawMusic ? str(rawMusic.videoId, 16) : null;
+  const videoId =
+    rawVideoId && /^[A-Za-z0-9_-]{11}$/.test(rawVideoId) ? rawVideoId : null;
+
   const music: DressingMusic | null = musicUrl
     ? {
         url: musicUrl,
         title: str(rawMusic.title) || "—",
         artist: str(rawMusic.artist),
         slug: str(rawMusic.slug, 16),
+        videoId,
       }
     : null;
 

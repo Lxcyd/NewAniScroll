@@ -12,6 +12,8 @@ import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
 import PlateBackground from "@/components/profile/PlateBackground";
+import TrailerStage from "@/components/shared/HoverPreview/TrailerStage";
+import { attachStage, detachStage } from "@/components/shared/HoverPreview/stageStore";
 import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileStats } from "@/lib/profile/types";
 
@@ -204,12 +206,34 @@ export default function ProfileHero({
   const [sound, setSound] = useState(false);
   const hasSound = !!banner.music || video;
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+
+  /* Deux façons de jouer la musique, et la meilleure gagne quand elle existe.
+     L'audio d'AnimeThemes est le rip du générique — 90 s, d'où le `loop`
+     ci-dessous. Quand le morceau a été résolu sur YouTube on joue la version
+     COMPLÈTE, par le lecteur officiel, via la même scène que les
+     bandes-annonces au survol (scène « music », indépendante : voir
+     stageStore, sinon survoler une affiche coupait le son). */
+  const viaYouTube = !!banner.music?.videoId;
+  const musicSlot = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = musicSlot.current;
+    const id = banner.music?.videoId;
+    if (!el || !id || !sound) return;
+    attachStage("music", {
+      el,
+      id,
+      handlers: { onPlaying: () => {}, onHide: () => setSound(false), onProgress: () => {} },
+    });
+    return () => detachStage("music", el);
+  }, [sound, banner.music?.videoId]);
+
   useEffect(() => {
     const el = audio.current;
-    if (!el) return;
+    if (!el || viaYouTube) return;
     if (sound) void el.play().catch(() => setSound(false));
     else el.pause();
-  }, [sound, banner.music?.url]);
+  }, [sound, viaYouTube, banner.music?.url]);
 
   /* A strip is shown WHOLE or it is not shown honestly. Guessing its shape is
      how the last crop happened: the band was cut to 4.75:1, the ratio AniList
@@ -317,12 +341,34 @@ export default function ProfileHero({
 
   return (
     <div className="relative w-full">
-      {/* La musique du profil. `loop` parce qu'un opening dure 90 secondes et
-          qu'un profil se lit plus longtemps que ça. Jamais `autoPlay` : voir la
-          note sur le son plus haut. */}
-      {banner.music ? (
+      {/* La musique du profil. `loop` parce que le rip d'AnimeThemes dure 90
+          secondes et qu'un profil se lit plus longtemps que ça. Jamais
+          `autoPlay` : voir la note sur le son plus haut. Court-circuité dès
+          qu'on a la version complète sur YouTube. */}
+      {banner.music && !viaYouTube ? (
         <audio ref={audio} src={banner.music.url} loop preload="none" />
       ) : null}
+
+      {/* Le lecteur YouTube de la musique.
+          Il RESTE VISIBLE, et c'est la condition de sa légitimité : c'est le
+          lecteur officiel qui sert le morceau et sa publicité, laquelle paie la
+          licence. Le masquer pour n'en garder que le son reviendrait à
+          contourner ce que l'écoute gratuite finance. 200 px est le minimum que
+          demandent les conditions de l'API ; le SCALE de TrailerStage efface
+          par ailleurs l'habillage YouTube, donc ça se lit comme une pochette
+          qui bouge, pas comme une vidéo. */}
+      {viaYouTube && sound ? (
+        <div className="fixed bottom-4 right-4 z-40 overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15">
+          <div ref={musicSlot} className="h-[200px] w-[200px]" />
+          {banner.music ? (
+            <p className="max-w-[200px] truncate px-2.5 py-1.5 text-[11px] text-white/80">
+              {banner.music.title}
+              {banner.music.artist ? ` — ${banner.music.artist}` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {viaYouTube ? <TrailerStage scene="music" /> : null}
       {asPage ? (
         <div className="as-page-plate">
           {/* Full-bleed, and a wallpaper that fills the window is worth the ~10%

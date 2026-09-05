@@ -397,7 +397,17 @@ export default function BannerStudio({
               ? () =>
                   scope === "music"
                     ? patch({
-                        music: { url, title: label, artist, slug: th.slug.toUpperCase() },
+                        music: {
+                          url,
+                          title: label,
+                          artist,
+                          slug: th.slug.toUpperCase(),
+                          /* Null tant que la table de résolution n'est pas
+                             remplie : AnimeThemes ne connaît pas l'identifiant
+                             YouTube, c'est tools/ost-resolver qui le produit.
+                             Le profil retombe alors sur les 90 s d'AnimeThemes. */
+                          videoId: null,
+                        },
                       })
                     : patch({
                         kind: "oped" as const,
