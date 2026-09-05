@@ -75,6 +75,7 @@ import {
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
 import AccountSection from "@/components/auth/AccountSection";
+import ColorPicker from "@/components/shared/ColorPicker";
 import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
@@ -367,6 +368,8 @@ export default function Settings() {
   const serverPref = useServerPref();
   const serverPerfEnabled = useServerPerfEnabled();
   const accent = useAccent();
+  /** Le sélecteur de couleur libre, ouvert sous la pastille arc-en-ciel. */
+  const [pickerOpen, setPickerOpen] = useState(false);
   const localList = useLocalList();
   // Visual keyboard shortcut editor overlay (shared with the player).
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -1087,22 +1090,39 @@ export default function Settings() {
                     />
                   );
                 })}
-                {/* Free colour picker */}
-                <label
-                  className="w-9 h-9 rounded-full grid place-items-center cursor-pointer ring-1 ring-white/20 relative overflow-hidden"
-                  title={t("settings.theme.custom")}
-                  style={{
-                    background:
-                      "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)",
-                  }}
-                >
-                  <input
-                    type="color"
-                    value={accent}
-                    onChange={(e) => setAccent(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
+                {/* La couleur libre. Le sélecteur du système ouvrait une
+                    fenêtre grise qui ne ressemblait à rien du site et ne disait
+                    pas la même chose d'un OS à l'autre — c'est le nôtre qui
+                    s'ouvre ici, celui du studio de profil. */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen((o) => !o)}
+                    title={t("settings.theme.custom")}
+                    aria-label={t("settings.theme.custom")}
+                    aria-expanded={pickerOpen}
+                    className={`w-9 h-9 rounded-full transition-transform hover:scale-110 ${
+                      pickerOpen ? "ring-2 ring-white" : "ring-1 ring-white/20"
+                    }`}
+                    style={{
+                      background:
+                        "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)",
+                    }}
                   />
-                </label>
+                  {pickerOpen ? (
+                    <>
+                      <button
+                        type="button"
+                        aria-label={t("common.close", { defaultValue: "Close" })}
+                        onClick={() => setPickerOpen(false)}
+                        className="fixed inset-0 z-40 cursor-default"
+                      />
+                      <div className="absolute left-1/2 top-11 z-50 w-[290px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl bg-[#15161d] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/10">
+                        <ColorPicker value={accent} onChange={setAccent} />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
                 {accent.toLowerCase() !== DEFAULT_ACCENT.toLowerCase() && (
                   <button
                     type="button"

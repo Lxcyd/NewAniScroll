@@ -17,8 +17,8 @@ import {
 } from "@heroicons/react/24/outline";
 import { CheckIcon } from "@heroicons/react/24/solid";
 
-import ColorPicker from "@/components/profile/ColorPicker";
 import PlateBackground from "@/components/profile/PlateBackground";
+import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import {
   DRESSING_KINDS,
@@ -299,27 +299,39 @@ export default function BannerStudio({
     }
 
     if (scope === "color") {
-      const rows: Row[] = [
-        {
-          key: "theme",
-          label: t("profile.studioColorTheme"),
-          hint: accent,
-          color: accent,
-          selected: draft.kind === "color" && draft.color === accent,
-          run: () =>
-            patch({ kind: "color", color: accent, url: null, source: null, animeId: null, title: null }),
-        },
-        ...ACCENT_PRESETS.filter((c) => c !== accent).map((c) => ({
-          key: c,
-          label: t("profile.studioColorPreset"),
-          hint: c,
-          color: c,
-          selected: draft.kind === "color" && draft.color === c,
-          run: () =>
-            patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null }),
-        })),
-      ];
-      out.push({ title: t("profile.studioColorSection"), rows: rows.filter((r) => match(r.hint || "")) });
+      /* En pastilles à la suite, comme le choix du thème dans les réglages :
+         huit couleurs empilées en huit lignes, c'était huit fois « Couleur du
+         site » à lire pour choisir ce qui se voit d'un coup d'œil. Même taille,
+         même anneau blanc sur la couleur retenue qu'aux réglages. */
+      const swatches = [accent, ...ACCENT_PRESETS.filter((c) => c !== accent)].filter((c) =>
+        match(c),
+      );
+      out.push({
+        title: t("profile.studioColorSection"),
+        rows: [],
+        node: swatches.length ? (
+          <div className="flex flex-wrap items-center gap-3 px-2 py-1">
+            {swatches.map((c) => {
+              const on = draft.kind === "color" && draft.color?.toLowerCase() === c.toLowerCase();
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  title={c === accent ? `${t("profile.studioColorTheme")} · ${c}` : c}
+                  aria-label={c}
+                  onClick={() =>
+                    patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null })
+                  }
+                  className={`h-9 w-9 rounded-full transition-transform hover:scale-110 ${
+                    on ? "ring-2 ring-white ring-offset-2 ring-offset-[#15161d]" : ""
+                  }`}
+                  style={{ background: c }}
+                />
+              );
+            })}
+          </div>
+        ) : null,
+      });
       out.push({
         title: t("profile.studioColorCustomSection"),
         rows: [],
@@ -671,7 +683,7 @@ export default function BannerStudio({
               bouton qui bouge d'un onglet à l'autre, donc elle en désignait un
               autre une fois sur deux. Le panneau se tient à distance du dock et
               se laisse lire seul. */}
-          <div className="absolute inset-x-0 bottom-[9rem] z-30 flex justify-center px-4">
+          <div className="absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
             <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10">
               <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
                 <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
@@ -779,8 +791,8 @@ export default function BannerStudio({
       ) : null}
 
       {/* ── Le dock ───────────────────────────────────────────────────── */}
-      <div className="absolute inset-x-0 bottom-5 z-30 flex justify-center px-3">
-        <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl bg-[#15161d]/90 p-2 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl scrollbar-hide">
+      <div className="absolute inset-x-0 bottom-6 z-30 flex justify-center px-3">
+        <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-[1.5rem] bg-[#15161d]/90 p-3 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl scrollbar-hide">
           {DRESSING_KINDS.map(({ id }) => {
             const Icon = KIND_ICON[id];
             const on = scope === id || (!scope && draft.kind === id && (draft.url || draft.color));
@@ -791,38 +803,38 @@ export default function BannerStudio({
                 onClick={() => openScope(id)}
                 title={t(`profile.studioKind_${id}`)}
                 aria-label={t(`profile.studioKind_${id}`)}
-                className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${
+                className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
                   on
                     ? "bg-action text-white"
                     : "text-white/55 hover:bg-white/[0.08] hover:text-white"
                 }`}
               >
-                <Icon className="h-[1.15rem] w-[1.15rem]" strokeWidth={1.7} />
+                <Icon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />
               </button>
             );
           })}
 
-          <span className="mx-1.5 h-7 w-px shrink-0 bg-white/10" />
+          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
 
           <button
             type="button"
             onClick={() => openScope("music")}
-            className={`flex w-48 shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-left transition-colors ${
+            className={`flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors ${
               scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
             }`}
           >
             <span
-              className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${
+              className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
                 draft.music ? "bg-action/20 text-action" : "bg-white/[0.07] text-white/45"
               }`}
             >
-              <SpeakerWaveIcon className="h-4 w-4" strokeWidth={1.7} />
+              <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
             </span>
             <span className="min-w-0">
-              <span className="block truncate font-outfit text-[12px] font-bold text-white">
+              <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}
               </span>
-              <span className="block truncate font-karla text-[10.5px] leading-snug text-white/40">
+              <span className="block truncate font-karla text-[11.5px] leading-snug text-white/40">
                 {draft.music
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
@@ -830,24 +842,24 @@ export default function BannerStudio({
             </span>
           </button>
 
-          <span className="mx-1.5 h-7 w-px shrink-0 bg-white/10" />
+          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
 
           {/* Le curseur du flou reprend `as-range` : même rail, même pastille
               cerclée d'accent que les réglages de widget. Il n'a qu'une poignée,
               donc on lui rend le clic sur le rail (`pointer-events-auto`), que la
               version à deux poignées doit, elle, désactiver pour ne pas se voler
               les clics. */}
-          <label className="flex w-44 shrink-0 flex-col gap-1.5 px-1.5">
+          <label className="flex w-52 shrink-0 flex-col gap-2 px-2">
             <span className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 font-karla text-[11px] font-bold uppercase tracking-[.08em] text-white/45">
-                <AdjustmentsHorizontalIcon className="h-3.5 w-3.5" strokeWidth={2} />
+              <span className="inline-flex items-center gap-1.5 font-karla text-[12px] font-bold uppercase tracking-[.08em] text-white/45">
+                <AdjustmentsHorizontalIcon className="h-4 w-4" strokeWidth={2} />
                 {t("profile.studioBlur")}
               </span>
-              <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[12px] font-bold text-white/80">
                 {draft.blur} px
               </span>
             </span>
-            <span className="as-range relative block h-3.5 w-full">
+            <span className="as-range relative block h-4 w-full">
               <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
               <span
                 className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"

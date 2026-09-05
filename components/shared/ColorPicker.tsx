@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Le choix d'une couleur au doigt : carré saturation/valeur, rail de teinte,
- * pastilles, et la valeur en HEX / RGB / HSV / HSL.
+ * pastilles, et la valeur en HEX / RGB / HSV / HSL. Partagé par le studio de
+ * profil (couleur de plaque) et les réglages (couleur du thème) : c'est le même
+ * geste des deux côtés, et le sélecteur natif du système ne ressemblait au site
+ * dans aucun des deux.
  *
  * C'est le portage du sélecteur de l'AniScroll d'origine (le `ColorPickerPopup`
  * de la création de statut) — mêmes gestes, mêmes vingt-quatre pastilles, même
@@ -95,11 +98,9 @@ const FIELD =
 export default function ColorPicker({
   value,
   onChange,
-  label,
 }: {
   value: string;
   onChange: (hex: string) => void;
-  label?: string;
 }) {
   const [hsv, setHsv] = useState(() => {
     const rgb = parseHex(value) ?? { r: 0.91, g: 0.27, b: 0.38 };
@@ -150,12 +151,6 @@ export default function ColorPicker({
 
   return (
     <div className="rounded-xl bg-black/25 p-3 ring-1 ring-white/10">
-      {label ? (
-        <p className="mb-2 font-karla text-[11px] font-bold uppercase tracking-[.1em] text-white/40">
-          {label}
-        </p>
-      ) : null}
-
       {/* Le carré saturation / valeur. `touch-none` : sur mobile le glisser doit
           peindre, pas faire défiler la palette sous le doigt. */}
       <div
