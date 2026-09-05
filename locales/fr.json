@@ -1053,6 +1053,7 @@
     "studioMusicNone": "Sans musique",
     "studioMusicAdd": "Ajouter un opening",
     "studioMusicOff": "Couper la musique",
+    "studioMusicEpisodes": "ép. {{episodes}}",
     "studioOtherAnime": "Autres animés",
     "studioSwitchAnime": "Chercher dans cet anime",
     "studioBlur": "Flou",

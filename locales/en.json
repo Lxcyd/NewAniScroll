@@ -1053,6 +1053,7 @@
     "studioMusicNone": "No music",
     "studioMusicAdd": "Add an opening",
     "studioMusicOff": "Turn music off",
+    "studioMusicEpisodes": "ep. {{episodes}}",
     "studioOtherAnime": "Other anime",
     "studioSwitchAnime": "Search inside this anime",
     "studioBlur": "Blur",

@@ -119,8 +119,10 @@ type ThemeRow = {
   kind: "op" | "ed";
   song: string | null;
   artists: string[];
-  video: { url: string } | null;
-  videoNc: { url: string } | null;
+  /* `episodes` est du texte libre côté AnimeThemes ("1-13", "2, 5") : on
+     l'affiche tel quel, il situe un ED parmi douze. */
+  video: { url: string; episodes?: string | null } | null;
+  videoNc: { url: string; episodes?: string | null } | null;
 };
 
 export default function BannerStudio({
@@ -180,6 +182,24 @@ export default function BannerStudio({
 
   const currentAnime = animes.find((a) => a.mediaId === animeId) ?? null;
 
+  /* « chainsawman » doit trouver « Chainsaw Man » : on compare sans espaces ni
+     ponctuation, sinon un titre en deux mots ne se tape qu'avec son espace. */
+  const fold = (s: string) =>
+    s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
+
+  /* En mode musique, taper un nom d'anime liste SES musiques directement, sans
+     l'étape « basculer puis regarder ». Le reste des modes garde la bascule
+     explicite : là on choisit une illustration, on ne cherche pas un titre. */
+  const searchedAnime = useMemo(() => {
+    if (scope !== "music") return null;
+    const q = fold(query);
+    if (q.length < 3) return null;
+    return animes.find((a) => fold(a.title).includes(q)) ?? null;
+  }, [scope, query, animes]);
+
+  const listedAnime = searchedAnime ?? currentAnime;
+  const listedAnimeId = listedAnime?.mediaId ?? animeId;
+
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
      ouvrir le studio sur son propre profil ne coûte donc en général rien. */
@@ -211,21 +231,21 @@ export default function BannerStudio({
   /* Openings et endings — AnimeThemes, via le proxy que la fiche anime utilise
      déjà pour son menu OP/ED. */
   useEffect(() => {
-    if (!open || animeId == null) return;
+    if (!open || listedAnimeId == null) return;
     if (scope !== "oped" && scope !== "music") return;
-    const hit = themeCache.current.get(animeId);
+    const hit = themeCache.current.get(listedAnimeId);
     if (hit) {
       setThemes(hit);
       return;
     }
     let alive = true;
     setLoading(true);
-    fetch(`/api/v2/themes/${animeId}`)
+    fetch(`/api/v2/themes/${listedAnimeId}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive) return;
         const list: ThemeRow[] = Array.isArray(json?.themes) ? json.themes : [];
-        themeCache.current.set(animeId, list);
+        themeCache.current.set(listedAnimeId, list);
         setThemes(list);
       })
       .catch(() => alive && setThemes([]))
@@ -233,7 +253,7 @@ export default function BannerStudio({
     return () => {
       alive = false;
     };
-  }, [open, animeId, scope]);
+  }, [open, listedAnimeId, scope]);
 
   const patch = useCallback(
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
@@ -344,15 +364,31 @@ export default function BannerStudio({
 
     if (scope === "oped" || scope === "music") {
       const rows: Row[] = themes
-        .filter((th) => match(`${th.slug} ${th.song || ""} ${th.artists.join(" ")}`))
+        /* Quand la requête DÉSIGNE l'anime, elle ne doit pas filtrer ses
+           pistes : « chainsawman » ne figure dans aucun titre de chanson, et
+           filtrer dessus viderait la liste qu'on vient d'aller chercher. */
+        .filter(
+          (th) =>
+            !!searchedAnime ||
+            match(`${th.slug} ${th.song || ""} ${th.artists.join(" ")}`),
+        )
         .map((th) => {
           const url = th.videoNc?.url || th.video?.url || null;
           const label = th.song || th.slug;
           const artist = th.artists[0] || null;
+          /* AnimeThemes donne les épisodes en texte libre ("1-13", "2, 5"),
+             c'est l'info qui situe un ED parmi douze. */
+          const episodes = th.videoNc?.episodes || th.video?.episodes || null;
           return {
             key: `${th.slug}-${url || "none"}`,
             label,
-            hint: [th.slug.toUpperCase(), artist].filter(Boolean).join(" · "),
+            hint: [
+              th.slug.toUpperCase(),
+              artist,
+              episodes ? t("profile.studioMusicEpisodes", { episodes }) : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
             icon: MusicalNoteIcon,
             disabled: !url,
             selected:
@@ -388,7 +424,7 @@ export default function BannerStudio({
       out.push({
         title: t(
           scope === "music" ? "profile.studioMusicOf" : "profile.studioThemesOf",
-          { title: currentAnime?.title ?? "—" },
+          { title: listedAnime?.title ?? "—" },
         ),
         rows,
       });
@@ -397,7 +433,11 @@ export default function BannerStudio({
     /* La recherche traverse les types : c'est ce que la palette apporte de plus
        qu'un panneau, et le seul endroit où l'on passe d'un anime à l'autre. */
     const others = animes
-      .filter((a) => a.mediaId !== animeId && match(a.title))
+      .filter(
+        (a) =>
+          a.mediaId !== listedAnimeId &&
+          (match(a.title) || (fold(query).length >= 3 && fold(a.title).includes(fold(query)))),
+      )
       .slice(0, 8)
       .map((a) => ({
         key: `anime-${a.mediaId}`,
@@ -409,7 +449,8 @@ export default function BannerStudio({
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
     return out.filter((s) => s.rows.length > 0);
-  }, [scope, query, art, themes, animes, animeId, currentAnime, draft, accent, patch, t]);
+  }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
+      listedAnime, listedAnimeId, draft, accent, patch, t]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
