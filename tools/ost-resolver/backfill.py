@@ -84,10 +84,15 @@ def page_animes(page: int, taille: int = 100) -> list[dict]:
     return out
 
 
-def traiter(anime: dict, sortie) -> dict:
+def traiter(anime: dict, sortie, deja: set[str] | None = None) -> dict:
     """Resout un anime, ecrit ses lignes, retourne le compte par verdict."""
     themes = fetch_themes(anime["name"])
     themes = [t for t in themes if t.get("anilist_id") == anime["anilist_id"]]
+    if deja:
+        # Filtre au THEME, pas a l'anime : un ED ajoute plus tard sur une serie
+        # deja traitee doit rester a faire.
+        themes = [t for t in themes
+                  if f"{t.get('anilist_id')}|{t.get('slot')}" not in deja]
     compte = {}
 
     for t in themes:
@@ -116,7 +121,29 @@ def main() -> int:
     ap.add_argument("--resume", action="store_true",
                     help="repartir du journal plutot que du debut")
     ap.add_argument("--stats", action="store_true", help="etat et sortie")
+    ap.add_argument("--skip-file", metavar="FICHIER",
+                    help="paires 'ani_id|slug' deja traitees "
+                         "(scripts/oped/dump-resolved-ids.mjs). En CI c'est LA "
+                         "source d'etat : le runner est jete, pas la table.")
+    ap.add_argument("--out", metavar="FICHIER", help="JSONL de sortie")
     args = ap.parse_args()
+
+    global SORTIE
+    if args.out:
+        SORTIE = args.out
+
+    deja: set[str] = set()
+    animes_faits: set[int] = set()
+    if args.skip_file and os.path.exists(args.skip_file):
+        with open(args.skip_file, encoding="utf-8") as fh:
+            deja = set(json.load(fh))
+        # Deux granularites, deux usages :
+        #   - `animes_faits` fait AVANCER dans le parc sans re-interroger ce qui
+        #     est fait (c'est ce qui rend une tranche quotidienne utile) ;
+        #   - `deja` rattrape, au theme pres, un ED ajoute apres coup sur une
+        #     serie deja traitee. Sans lui il resterait invisible pour toujours.
+        animes_faits = {int(p.split("|")[0]) for p in deja if "|" in p}
+        print(f"{len(deja)} theme(s) deja en base, sur {len(animes_faits)} anime(s).")
 
     etat = charger_etat() if args.resume or args.stats else {"faits": [], "page": 1}
     faits = set(etat["faits"])
@@ -147,11 +174,11 @@ def main() -> int:
             for a in animes:
                 if traites >= args.limit:
                     break
-                if a["anilist_id"] in faits:
+                if a["anilist_id"] in faits or a["anilist_id"] in animes_faits:
                     continue
 
                 try:
-                    compte = traiter(a, sortie)
+                    compte = traiter(a, sortie, deja)
                 except Exception as e:
                     print(f"  [ERREUR] {a['name']}: {e}")
                     continue
@@ -175,7 +202,7 @@ def main() -> int:
     print(f"\n{traites} anime(s) traite(s) — verdicts {total}")
     print(f"Total cumule : {len(faits)} anime(s)")
     print(f"\nImporter avec :\n  node --env-file=.env.local "
-          f"scripts/oped/import-oped-youtube.mjs --in=tools/ost-resolver/backfill.jsonl")
+          f"scripts/oped/import-oped-youtube.mjs --in={SORTIE}")
     return 0
 
 
