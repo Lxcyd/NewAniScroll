@@ -55,10 +55,39 @@ if (!fs.existsSync(IN)) {
   console.error(`Introuvable : ${IN}`);
   process.exit(1);
 }
-const brut = JSON.parse(fs.readFileSync(IN, "utf8"));
+/* Deux formats, deux producteurs : `resolve.py --json` ecrit un tableau, le
+   rattrapage ecrit du JSONL (il ajoute ligne par ligne, pour qu'un plantage a
+   la 3000e ne coute pas les 2999 precedentes). */
+const texte = fs.readFileSync(IN, "utf8").trim();
+let brut;
+if (texte.startsWith("[")) {
+  brut = JSON.parse(texte);
+} else {
+  brut = texte
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l, i) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        console.warn(`  ligne ${i + 1} illisible, ignoree`);
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
 if (!Array.isArray(brut)) {
-  console.error("Le fichier doit contenir un tableau (resolve.py --json).");
+  console.error("Le fichier doit contenir un tableau ou du JSONL.");
   process.exit(1);
+}
+
+/* Le JSONL peut contenir plusieurs passages sur le meme theme (une reprise
+   apres interruption reecrit la fin du lot). On garde le DERNIER, qui est le
+   plus recent, sinon un ancien verdict ecrase le nouveau selon l'ordre. */
+{
+  const parCle = new Map();
+  for (const e of brut) parCle.set(`${e.anilist_id}|${e.slot}`, e);
+  brut = [...parCle.values()];
 }
 
 const rows = [];
