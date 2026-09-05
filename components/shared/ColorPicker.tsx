@@ -204,7 +204,7 @@ export default function ColorPicker({
           if (!(e.buttons & 1)) return;
           drag(hueRef, e, (x) => commit({ ...hsv, h: x * 360 }));
         }}
-        className="relative h-3.5 cursor-pointer touch-none rounded-full"
+        className="relative h-3.5 w-full cursor-pointer touch-none rounded-full"
         style={{
           background:
             "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)",
@@ -292,7 +292,11 @@ export default function ColorPicker({
               title="#000000"
               className="grid w-9 shrink-0 place-items-center rounded-lg bg-black/40 text-white/45 ring-1 ring-white/10 transition-colors hover:text-white"
             >
-              ⌫
+              {/* L'icône « effacer » de Material, en `currentColor` pour suivre
+                  le survol du bouton. */}
+              <svg viewBox="0 -960 960 960" className="h-[18px] w-[18px]" fill="currentColor">
+                <path d="m456-320 104-104 104 104 56-56-104-104 104-104-56-56-104 104-104-104-56 56 104 104-104 104 56 56Zm-96 160q-19 0-36-8.5T296-192L80-480l216-288q11-15 28-23.5t36-8.5h440q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H360ZM180-480l180 240h440v-480H360L180-480Zm400 0Z" />
+              </svg>
             </button>
           </div>
         ) : (
@@ -340,9 +344,12 @@ export default function ColorPicker({
   if (wide) {
     return (
       <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 sm:grid-cols-[10rem_1fr]">
-        <div className="grid content-start gap-2.5">
+        {/* Le rail prend la place qui reste sous le carré et s'y centre : la
+            colonne de droite est plus haute, et un rail collé sous le carré
+            laissait un vide en bas de la gauche. */}
+        <div className="flex flex-col gap-2.5">
           {svBlock}
-          {hueBlock}
+          <div className="flex flex-1 items-center">{hueBlock}</div>
         </div>
         <div className="grid content-start gap-2.5">
           {header}

@@ -557,6 +557,10 @@ export default function BannerStudio({
 
   let index = -1;
 
+  /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. */
+  const searchable = scope !== "color";
+  const ScopeIcon = !scope || scope === "music" ? SpeakerWaveIcon : KIND_ICON[scope];
+
   return (
     /* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
        elle recouvrait la barre du studio, et « Appliquer » se trouvait sous le
@@ -690,20 +694,38 @@ export default function BannerStudio({
               bouton qui bouge d'un onglet à l'autre, donc elle en désignait un
               autre une fois sur deux. Le panneau se tient à distance du dock et
               se laisse lire seul. */}
-          <div className="absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
-            <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10">
+          {/* `pointer-events-none` sur la bande, `auto` sur le panneau : sans
+              cela, cliquer À CÔTÉ du panneau — la bande le traverse d'un bord à
+              l'autre de l'écran — tombait sur ce conteneur et non sur le voile
+              en dessous, et le menu ne se fermait pas. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
+            <div className="pointer-events-auto w-full max-w-3xl overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10">
               <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
-                <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
-                  {t(`profile.studioKind_${scope}`)}
-                </span>
-                <input
-                  ref={search}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={t("profile.studioSearch")}
-                  className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
-                />
+                {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
+                    toutes à l'écran. Il porte donc son titre, pas un champ qui
+                    ne filtrerait rien. */}
+                {searchable ? (
+                  <>
+                    <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
+                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
+                      {t(`profile.studioKind_${scope}`)}
+                    </span>
+                    <input
+                      ref={search}
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("profile.studioSearch")}
+                      className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <ScopeIcon className="h-5 w-5 shrink-0 text-white/45" />
+                    <h2 className="min-w-0 flex-1 font-outfit text-[15px] font-bold text-white">
+                      {t(`profile.studioKind_${scope}`)}
+                    </h2>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setScope(null)}
@@ -789,14 +811,6 @@ export default function BannerStudio({
                 )}
               </div>
 
-              {/* Le pied ne porte plus que les raccourcis : le petit carré de
-                  couleur natif qui s'y trouvait est devenu la section « sur
-                  mesure » de l'onglet Couleur, où il se voit. */}
-              <div className="flex items-center border-t border-white/[0.07] bg-black/25 px-4 py-2.5">
-                <span className="font-karla text-[11px] text-white/35">
-                  {t("profile.studioKeys")}
-                </span>
-              </div>
             </div>
           </div>
         </>
