@@ -123,6 +123,10 @@ type ThemeRow = {
      l'affiche tel quel, il situe un ED parmi douze. */
   video: { url: string; episodes?: string | null } | null;
   videoNc: { url: string; episodes?: string | null } | null;
+  /** Version COMPLÈTE sur YouTube, attachée par /api/v2/themes/{id} depuis la
+      table oped_youtube. Absent tant que le morceau n'a pas été résolu — le
+      profil retombe alors sur les 90 s d'AnimeThemes. */
+  youtubeId?: string | null;
 };
 
 export default function BannerStudio({
@@ -402,11 +406,10 @@ export default function BannerStudio({
                           title: label,
                           artist,
                           slug: th.slug.toUpperCase(),
-                          /* Null tant que la table de résolution n'est pas
-                             remplie : AnimeThemes ne connaît pas l'identifiant
-                             YouTube, c'est tools/ost-resolver qui le produit.
-                             Le profil retombe alors sur les 90 s d'AnimeThemes. */
-                          videoId: null,
+                          /* La version complète quand elle a été résolue, sinon
+                             null : le profil retombe sur les 90 s d'AnimeThemes
+                             plutôt que de ne rien jouer. */
+                          videoId: th.youtubeId ?? null,
                         },
                       })
                     : patch({

@@ -159,19 +159,28 @@ def fetch_themes(anime_query: str) -> list[dict]:
     """
     data = _get_json(f"{AT}/anime", {
         "filter[name-like]": f"%{anime_query}%",
-        "include": "animethemes.song",
+        # `resources` porte les identifiants externes : c'est par la que l'id
+        # AniList arrive, et sans lui rien n'est importable en base — la table
+        # est indexee dessus, pas sur le nom de l'anime.
+        "include": "animethemes.song,resources",
     })
     if not data or not data.get("anime"):
         return []
 
     out = []
     for anime in data["anime"]:
+        anilist_id = next(
+            (r.get("external_id") for r in anime.get("resources", [])
+             if r.get("site") == "AniList" and r.get("external_id")),
+            None,
+        )
         for th in anime.get("animethemes", []):
             song = th.get("song") or {}
             if not song.get("id"):
                 continue
             out.append({
                 "anime": anime.get("name"),
+                "anilist_id": anilist_id,
                 "year": anime.get("year"),
                 "slot": th.get("slug"),
                 "song_id": song["id"],
@@ -437,6 +446,9 @@ def main() -> int:
     ap.add_argument("--from-json", metavar="FICHIER",
                     help="lire titres/artistes depuis aniplaylist-scrape.mjs "
                          "au lieu d'AnimeThemes")
+    ap.add_argument("--anilist-id", type=int, default=None,
+                    help="id AniList a rattacher aux resultats (obligatoire "
+                         "avec --from-json pour pouvoir importer en base)")
     args = ap.parse_args()
 
     if args.album:
@@ -453,6 +465,11 @@ def main() -> int:
             brut = json.load(fh)
         themes = [{
             "anime": e.get("anime") or args.query,
+            # AniPlaylist ne publie pas d'identifiant AniList : il faut le
+            # donner à la main (--anilist-id) pour que l'import en base soit
+            # possible. Sans lui, la résolution reste consultable mais n'a pas
+            # de clé pour être stockée.
+            "anilist_id": args.anilist_id,
             "year": None,
             "slot": (e.get("type") or "?")[:9],
             "song_id": None,
@@ -496,7 +513,8 @@ def main() -> int:
             r = resolve_song(t["title"], t["artists"], context,
                              artist_trusted=(t["artist_source"] != "musicbrainz"))
         r["artist_source"] = t["artist_source"]
-        r.update({k: t[k] for k in ("anime", "slot", "title", "artists")})
+        r.update({k: t.get(k) for k in
+                  ("anime", "anilist_id", "slot", "title", "artists", "kind")})
         return r
 
     # Chaque piste est independante des autres : rien a serialiser.
