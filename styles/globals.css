@@ -2239,19 +2239,24 @@ input[type="number"] {
 /* La même plaque, mais teintée de la couleur choisie dans le studio plutôt que
    de l'accent du site. Une seule variable : le reste du dessin est identique,
    pour qu'un fond de couleur ait la même matière que celui d'un profil vide. */
+/* Le fond « couleur unie » d'un profil : LA COULEUR CHOISIE, assombrie vers le
+   bas dans sa propre teinte.
+
+   Ce que ça remplace, et pourquoi : la version d'avant posait la teinte en deux
+   taches radiales sur un fond gris-bleu #191924, puis passait une trame par
+   dessus. Un vert vif rendait donc un coin vert sombre et du gris partout
+   ailleurs — on ne recevait pas ce qu'on avait cliqué, et le sélecteur de
+   couleur mentait sur son résultat.
+
+   Le voile n'est PAS décoratif : il descend jusqu'à 55 % de la teinte mélangée
+   au noir, ce qui garde le pseudo et les cartes de chiffres lisibles même sur
+   un blanc ou un jaune vif — les deux teintes qui ruinent un aplat franc. */
 .as-hero-tint {
-  background:
-    radial-gradient(
-      95% 130% at 12% -10%,
-      var(--as-tint, #e94560) 0%,
-      transparent 60%
-    ),
-    radial-gradient(
-      75% 110% at 88% 0%,
-      color-mix(in srgb, var(--as-tint, #e94560) 65%, #ff7f57) 0%,
-      transparent 55%
-    ),
-    linear-gradient(165deg, #191924 0%, #0c0d10 75%);
+  background: linear-gradient(
+    180deg,
+    var(--as-tint, #e94560) 0%,
+    color-mix(in srgb, var(--as-tint, #e94560) 55%, #000) 100%
+  );
 }
 /* Le curseur de flou du dock a été rendu à `.as-range`, celui des réglages de
    widget : deux curseurs maison pour la même app, c'était un de trop. */

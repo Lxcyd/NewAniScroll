@@ -59,7 +59,11 @@ export default function PlateBackground({
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     return (
       <div
-        className="absolute inset-0 as-hero-tint as-hero-weave"
+        /* Pas de `as-hero-weave` ici : la trame à 45° salissait l'aplat et
+           faisait retomber une teinte vive sur du gris hachuré. Elle reste sur
+           la plaque par défaut (ProfileHero), qui n'a pas de couleur choisie à
+           respecter. */
+        className="absolute inset-0 as-hero-tint"
         style={{ ["--as-tint" as any]: dressing.color || "#E94560" }}
       />
     );
