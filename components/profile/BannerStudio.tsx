@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
@@ -17,6 +17,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { CheckIcon } from "@heroicons/react/24/solid";
 
+import ColorPicker from "@/components/profile/ColorPicker";
 import PlateBackground from "@/components/profile/PlateBackground";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import {
@@ -109,7 +110,10 @@ type Row = {
   run?: () => void;
 };
 
-type Section = { title: string; rows: Row[] };
+/** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
+    sélecteur de couleur n'est pas une ligne qu'on parcourt aux flèches, mais il
+    appartient bien à l'onglet Couleur. */
+type Section = { title: string; rows: Row[]; node?: ReactNode };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music";
@@ -316,6 +320,18 @@ export default function BannerStudio({
         })),
       ];
       out.push({ title: t("profile.studioColorSection"), rows: rows.filter((r) => match(r.hint || "")) });
+      out.push({
+        title: t("profile.studioColorCustomSection"),
+        rows: [],
+        node: (
+          <ColorPicker
+            value={isHexColor(draft.color) ? draft.color! : accent}
+            onChange={(hex) =>
+              patch({ kind: "color", color: hex, url: null, source: null, animeId: null, title: null })
+            }
+          />
+        ),
+      });
     }
 
     if (scope === "banner") {
@@ -444,8 +460,12 @@ export default function BannerStudio({
     }
 
     /* La recherche traverse les types : c'est ce que la palette apporte de plus
-       qu'un panneau, et le seul endroit où l'on passe d'un anime à l'autre. */
-    const others = animes
+       qu'un panneau, et le seul endroit où l'on passe d'un anime à l'autre.
+       Mais elle ne se montre plus QU'À LA RECHERCHE : un onglet qui s'ouvre ne
+       doit contenir que ce qu'il annonce — une liste d'animés sous les couleurs
+       n'appartenait pas à l'onglet « Couleur ». Elle reste donc là où elle sert,
+       sous une frappe, et jamais dans un onglet qui ne cherche pas d'anime. */
+    const others = (!q || scope === "color" ? [] : animes)
       .filter(
         (a) =>
           a.mediaId !== listedAnimeId &&
@@ -461,7 +481,7 @@ export default function BannerStudio({
       }));
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
-    return out.filter((s) => s.rows.length > 0);
+    return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
       listedAnime, listedAnimeId, draft, accent, patch, t]);
 
@@ -647,16 +667,15 @@ export default function BannerStudio({
             onClick={() => setScope(null)}
             className="absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
           />
-          {/* L'ancre : la palette sort du dock, pas de nulle part. Sans elle le
-              lien entre le bouton cliqué et le menu qui s'ouvre se perd. */}
-          <div className="absolute inset-x-0 bottom-[7.1rem] z-40 flex justify-center">
-            <span className="h-4 w-4 rotate-45 border-b border-r border-white/15 bg-[#17181d]" />
-          </div>
-          <div className="absolute inset-x-0 bottom-[7.6rem] z-30 flex justify-center px-4">
-            <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-[#17181d] shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/15">
-              <div className="flex items-center gap-2.5 border-b border-white/10 px-4 py-3">
+          {/* Plus AUCUNE ancre en pointe sous le panneau : la flèche visait un
+              bouton qui bouge d'un onglet à l'autre, donc elle en désignait un
+              autre une fois sur deux. Le panneau se tient à distance du dock et
+              se laisse lire seul. */}
+          <div className="absolute inset-x-0 bottom-[9rem] z-30 flex justify-center px-4">
+            <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10">
+              <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
                 <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
-                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-2.5 py-1 text-[11px] font-bold text-white">
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
                   {t(`profile.studioKind_${scope}`)}
                 </span>
                 <input
@@ -664,35 +683,36 @@ export default function BannerStudio({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={t("profile.studioSearch")}
-                  className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+                  className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                 />
                 <button
                   type="button"
                   onClick={() => setScope(null)}
-                  className="shrink-0 rounded-lg p-1 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                  className="shrink-0 rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
                   aria-label={t("common.close", { defaultValue: "Close" })}
                 >
-                  <XMarkIcon className="h-4 w-4" />
+                  <XMarkIcon className="h-[1.15rem] w-[1.15rem]" />
                 </button>
               </div>
 
-              <div className="max-h-[42vh] overflow-y-auto p-2">
+              <div className="max-h-[54vh] overflow-y-auto p-2.5">
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
                     {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className="h-11 animate-pulse rounded-lg bg-white/5" />
+                      <div key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
                     ))}
                   </div>
-                ) : flat.length === 0 ? (
-                  <p className="px-3 py-8 text-center text-sm text-white/45">
+                ) : sections.length === 0 ? (
+                  <p className="px-3 py-10 text-center font-karla text-[15px] text-white/45">
                     {t("profile.studioNoResult")}
                   </p>
                 ) : (
                   sections.map((s) => (
                     <div key={s.title}>
-                      <p className="px-3 pb-1 pt-2.5 font-mono text-[10px] uppercase tracking-[.13em] text-white/35">
+                      <p className="px-3 pb-1.5 pt-3 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                         {s.title}
                       </p>
+                      {s.node ? <div className="px-1 pb-1">{s.node}</div> : null}
                       {s.rows.map((row) => {
                         index += 1;
                         const active = index === cursor;
@@ -704,7 +724,7 @@ export default function BannerStudio({
                             disabled={row.disabled}
                             onMouseMove={() => setCursor(flat.indexOf(row))}
                             onClick={() => row.run?.()}
-                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
                               row.disabled
                                 ? "cursor-not-allowed opacity-45"
                                 : active
@@ -713,25 +733,29 @@ export default function BannerStudio({
                             }`}
                           >
                             {row.thumb ? (
-                              <span className="relative h-8 w-14 shrink-0 overflow-hidden rounded bg-black/50">
-                                <Image src={row.thumb} alt="" fill sizes="56px" className="object-cover" />
+                              <span className="relative h-9 w-16 shrink-0 overflow-hidden rounded-md bg-black/50">
+                                <Image src={row.thumb} alt="" fill sizes="64px" className="object-cover" />
                               </span>
                             ) : row.color ? (
                               <span
-                                className="h-7 w-7 shrink-0 rounded-full ring-1 ring-white/20"
+                                className="h-8 w-8 shrink-0 rounded-full ring-1 ring-white/20"
                                 style={{ background: row.color }}
                               />
                             ) : Icon ? (
                               <Icon className="h-5 w-5 shrink-0 text-white/55" />
                             ) : null}
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm text-white/90">{row.label}</span>
+                              <span className="block truncate font-outfit text-[14px] font-bold text-white/90">
+                                {row.label}
+                              </span>
                               {row.hint ? (
-                                <span className="block truncate text-[11px] text-white/40">{row.hint}</span>
+                                <span className="block truncate font-karla text-[12px] text-white/40">
+                                  {row.hint}
+                                </span>
                               ) : null}
                             </span>
                             {row.selected ? (
-                              <CheckIcon className="h-4 w-4 shrink-0 text-action" />
+                              <CheckIcon className="h-[1.15rem] w-[1.15rem] shrink-0 text-action" />
                             ) : null}
                           </button>
                         );
@@ -741,31 +765,13 @@ export default function BannerStudio({
                 )}
               </div>
 
-              <div className="flex items-center gap-3 border-t border-white/10 bg-black/25 px-4 py-2">
-                <span className="font-mono text-[10px] text-white/35">
+              {/* Le pied ne porte plus que les raccourcis : le petit carré de
+                  couleur natif qui s'y trouvait est devenu la section « sur
+                  mesure » de l'onglet Couleur, où il se voit. */}
+              <div className="flex items-center border-t border-white/[0.07] bg-black/25 px-4 py-2.5">
+                <span className="font-karla text-[11px] text-white/35">
                   {t("profile.studioKeys")}
                 </span>
-                <span className="flex-1" />
-                {scope === "color" ? (
-                  <label className="flex cursor-pointer items-center gap-2 text-[11px] text-white/60">
-                    {t("profile.studioColorCustom")}
-                    <input
-                      type="color"
-                      value={isHexColor(draft.color) ? draft.color : accent}
-                      onChange={(e) =>
-                        patch({
-                          kind: "color",
-                          color: e.target.value,
-                          url: null,
-                          source: null,
-                          animeId: null,
-                          title: null,
-                        })
-                      }
-                      className="h-7 w-10 cursor-pointer rounded border border-white/20 bg-transparent"
-                    />
-                  </label>
-                ) : null}
               </div>
             </div>
           </div>
