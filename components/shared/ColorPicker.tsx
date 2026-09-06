@@ -218,11 +218,15 @@ export default function ColorPicker({
   );
 
   /* L'aperçu, la pastille de la couleur courante. Son anneau est la couleur
-     elle-même, éclaircie et désaturée : un anneau blanc fixe se lisait comme un
-     liseré étranger — bleuté sur les teintes chaudes, sale sur les claires —
-     alors qu'ici il reste de la même famille sans se confondre avec le disque.
-     Calculé en HSV, donc un noir donne un gris clair au lieu de rien. */
-  const ringHex = toHex(hsv.h, hsv.s * 0.45, Math.min(1, hsv.v * 0.75 + 0.35));
+     ASSOMBRIE d'un tiers, teinte et saturation intactes : de la même famille
+     que le disque, mais franchement plus foncé.
+
+     Assombri et non éclairci, parce qu'un anneau clair disparaît exactement là
+     où on en a besoin — sur un jaune ou un blanc, il n'y a rien de plus clair à
+     mettre autour. Un noir, lui, n'a rien de plus foncé : c'est le seul cas où
+     l'anneau s'éclaircit, sans quoi la pastille n'aurait plus de bord du tout
+     sur le fond sombre du panneau. */
+  const ringHex = toHex(hsv.h, hsv.s, hsv.v > 0.28 ? hsv.v * 0.65 : hsv.v + 0.22);
   const dot = (
     <span
       className="h-8 w-8 shrink-0 rounded-full"
