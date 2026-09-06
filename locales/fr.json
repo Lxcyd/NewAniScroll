@@ -1061,6 +1061,8 @@
     "studioMusicUnmute": "Rétablir le son",
     "studioMusicPause": "Mettre en pause",
     "studioMusicFull": "Version complète sur le profil",
+    "studioMusicCount": "{{count}} génériques",
+    "studioSeason": "Saison",
     "studioMusicFade": "Fondu",
     "studioMusicFadeHint": "Fondu à l'entrée et à la sortie de l'extrait, pour que la boucle ne claque pas",
     "studioOtherAnime": "Autres animés",

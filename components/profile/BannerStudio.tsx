@@ -123,6 +123,8 @@ type Row = {
   key: string;
   label: string;
   hint?: string | null;
+  /** Pastille de nature — OP en accent, ED en bleu, comme sur la fiche anime. */
+  chip?: { text: string; op: boolean } | null;
   thumb?: string | null;
   color?: string | null;
   icon?: typeof PhotoIcon;
@@ -182,6 +184,15 @@ export default function BannerStudio({
      l'écran seulement. */
   const artCache = useRef(new Map<number, BannerOption[]>());
   const themeCache = useRef(new Map<number, ThemeRow[]>());
+  /* L'anime dont on liste les musiques, tel qu'on l'AFFICHE. Il ne vient pas
+     toujours de `animes` : le sélecteur de saison peut mener sur une saison que
+     l'utilisateur n'a pas dans sa liste, et cette saison a quand même une
+     affiche et un titre à montrer. */
+  const [meta, setMeta] = useState<StudioAnime | null>(null);
+  const metaCache = useRef(new Map<number, StudioAnime>());
+  /** Les autres saisons de la même franchise, pour le menu déroulant. */
+  const [seasons, setSeasons] = useState<Array<{ id: number; label: string }>>([]);
+  const seasonCache = useRef(new Map<number, Array<{ id: number; label: string }>>());
 
   /* L'écoute, dans le menu Musique. Elle ne sert qu'à choisir : le lecteur vit
      avec le menu et s'arrête en même temps que lui, puisqu'il en est retiré du
@@ -285,6 +296,73 @@ export default function BannerStudio({
       alive = false;
     };
   }, [open, animeId, scope]);
+
+  /* L'identité de l'anime listé : prise dans la liste de l'utilisateur quand
+     elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
+     déroulant n'est pas forcément dans sa liste — sans ce repli, l'en-tête
+     serait vide sur la moitié des franchises. */
+  useEffect(() => {
+    if (!open || listedAnimeId == null) return;
+    if (scope !== "oped" && scope !== "music") return;
+    const known = animes.find((a) => a.mediaId === listedAnimeId);
+    if (known) {
+      setMeta(known);
+      return;
+    }
+    const hit = metaCache.current.get(listedAnimeId);
+    if (hit) {
+      setMeta(hit);
+      return;
+    }
+    let alive = true;
+    fetch(`/api/v2/media/${listedAnimeId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => {
+        if (!alive || !m) return;
+        const row: StudioAnime = {
+          mediaId: listedAnimeId,
+          title: m.title?.english || m.title?.romaji || m.title?.userPreferred || `#${listedAnimeId}`,
+          cover: m.coverImage?.large || m.coverImage?.extraLarge || null,
+        };
+        metaCache.current.set(listedAnimeId, row);
+        setMeta(row);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, scope, listedAnimeId, animes]);
+
+  /* Les saisons de la franchise — la même liste, au même point d'entrée, que le
+     sélecteur de saison de la page de visionnage. */
+  useEffect(() => {
+    if (!open || listedAnimeId == null) return;
+    if (scope !== "oped" && scope !== "music") return;
+    const hit = seasonCache.current.get(listedAnimeId);
+    if (hit) {
+      setSeasons(hit);
+      return;
+    }
+    let alive = true;
+    fetch(`/api/v2/seasons/${listedAnimeId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((list) => {
+        if (!alive || !Array.isArray(list)) return;
+        const rows = list
+          .filter((s) => Number.isFinite(s?.id) && s?.label)
+          .map((s) => ({ id: Number(s.id), label: String(s.label) }));
+        /* Le cache est posé sur l'anime DEMANDÉ comme sur chacune des saisons
+           trouvées : la liste est la même pour toute la franchise, donc passer
+           d'une saison à l'autre ne redemande rien. */
+        seasonCache.current.set(listedAnimeId, rows);
+        for (const r of rows) seasonCache.current.set(r.id, rows);
+        setSeasons(rows);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, scope, listedAnimeId]);
 
   /* Openings et endings — AnimeThemes, via le proxy que la fiche anime utilise
      déjà pour son menu OP/ED. */
@@ -534,11 +612,11 @@ export default function BannerStudio({
           return {
             key: `${th.slug}-${url || "none"}`,
             label,
-            hint: [
-              th.slug.toUpperCase(),
-              artist,
-              episodes ? t("profile.studioMusicEpisodes", { episodes }) : null,
-            ]
+            /* Le slug quitte la ligne de détail pour devenir une pastille de
+               couleur — c'est ainsi que la fiche anime distingue un opening
+               d'un ending, et le studio n'a aucune raison de le dire autrement. */
+            chip: { text: th.slug.toUpperCase(), op: th.kind === "op" },
+            hint: [artist, episodes ? t("profile.studioMusicEpisodes", { episodes }) : null]
               .filter(Boolean)
               .join(" · "),
             icon: MusicalNoteIcon,
@@ -554,7 +632,7 @@ export default function BannerStudio({
                           title: label,
                           artist,
                           slug: th.slug.toUpperCase(),
-                          cover: listedAnime?.cover ?? null,
+                          cover: (meta ?? listedAnime)?.cover ?? null,
                           /* Un morceau qu'on vient de choisir est entier : le
                              découpage se fait ensuite, aux poignées. */
                           from: null,
@@ -593,10 +671,26 @@ export default function BannerStudio({
           run: () => patch({ music: null }),
         });
       }
+      /* L'anime se présente en TÊTE DE LISTE, avec son affiche, son titre et
+         ses saisons — au lieu du seul intitulé en petites capitales qui tenait
+         ce rôle. Trois choses qu'on cherchait ailleurs y sont réunies : de quel
+         anime on parle, combien il a de génériques, et comment atteindre ceux
+         d'une autre saison sans repasser par la recherche. */
       out.push({
-        title: t(
-          scope === "music" ? "profile.studioMusicOf" : "profile.studioThemesOf",
-          { title: listedAnime?.title ?? "—" },
+        title: "",
+        node: (
+          <AnimeHead
+            anime={meta ?? listedAnime}
+            count={themes.length}
+            seasons={seasons}
+            current={listedAnimeId}
+            onPick={(id) => {
+              setAnimeId(id);
+              setQuery("");
+              setCursor(0);
+            }}
+            t={t}
+          />
         ),
         rows,
       });
@@ -636,7 +730,7 @@ export default function BannerStudio({
 
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
-      listedAnime, listedAnimeId, draft, accent, patch, t]);
+      listedAnime, listedAnimeId, meta, seasons, fadeSec, draft, accent, patch, t]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -976,8 +1070,32 @@ export default function BannerStudio({
                               <Icon className="h-5 w-5 shrink-0 text-white/55" />
                             ) : null}
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate font-outfit text-[14px] font-bold text-white/90">
-                                {row.label}
+                              <span className="flex min-w-0 items-center gap-2">
+                                {/* La pastille EST le repère : on cherche « le
+                                    deuxième ending », pas un titre de chanson.
+                                    Mêmes couleurs que la fiche anime — l'accent
+                                    du site pour un opening, son bleu pour un
+                                    ending. Les valeurs sont écrites ici et non
+                                    prises à `--accent-soft` : cette variable
+                                    appartient au module CSS de la fiche anime et
+                                    ne vaut rien hors de lui. */}
+                                {row.chip ? (
+                                  <span
+                                    className="shrink-0 rounded font-karla text-[10px] font-bold leading-none tracking-[.03em]"
+                                    style={{
+                                      padding: "3px 5px",
+                                      background: row.chip.op
+                                        ? `color-mix(in srgb, ${accent} 16%, transparent)`
+                                        : "rgba(120,140,255,0.14)",
+                                      color: row.chip.op ? accent : "#8a9bff",
+                                    }}
+                                  >
+                                    {row.chip.text}
+                                  </span>
+                                ) : null}
+                                <span className="truncate font-outfit text-[14px] font-bold text-white/90">
+                                  {row.label}
+                                </span>
                               </span>
                               {row.hint ? (
                                 <span className="block truncate font-karla text-[12px] text-white/40">
@@ -1458,6 +1576,65 @@ export default function BannerStudio({
           </label>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * L'en-tête de la liste des génériques : l'affiche, le titre, le compte, et le
+ * passage d'une saison à l'autre.
+ *
+ * Le menu déroulant est un `<select>` natif et non une liste construite à la
+ * main. Une franchise dépasse rarement six saisons, la palette a déjà sa
+ * navigation au clavier, et une liste maison aurait demandé son propre piège à
+ * clics extérieurs, son propre focus et sa propre gestion des flèches — pour
+ * arriver au comportement que le navigateur donne gratuitement.
+ */
+function AnimeHead({
+  anime,
+  count,
+  seasons,
+  current,
+  onPick,
+  t,
+}: {
+  anime: StudioAnime | null;
+  count: number;
+  seasons: Array<{ id: number; label: string }>;
+  current: number | null;
+  onPick: (id: number) => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+}) {
+  if (!anime) return null;
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+      {anime.cover ? (
+        <span className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md bg-black/50">
+          <Image src={anime.cover} alt="" fill sizes="44px" className="object-cover" />
+        </span>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-outfit text-[15px] font-bold text-white">{anime.title}</p>
+        <p className="mt-0.5 font-karla text-[12px] text-white/40">
+          {t("profile.studioMusicCount", { count })}
+        </p>
+      </div>
+      {/* Une saison unique n'a pas de menu : un sélecteur à une entrée annonce
+          un choix qui n'existe pas. */}
+      {seasons.length > 1 ? (
+        <select
+          value={current ?? ""}
+          onChange={(e) => onPick(Number(e.target.value))}
+          aria-label={t("profile.studioSeason")}
+          className="max-w-[10rem] shrink-0 cursor-pointer truncate rounded-full bg-white/[0.08] px-3 py-1.5 font-karla text-[12px] font-bold text-white/80 outline-none ring-1 ring-white/10 hover:bg-white/[0.12]"
+        >
+          {seasons.map((s) => (
+            <option key={s.id} value={s.id} className="bg-[#15161d] text-white">
+              {s.label}
+            </option>
+          ))}
+        </select>
+      ) : null}
     </div>
   );
 }
