@@ -14,6 +14,7 @@ import QueueSection from "@/components/list/QueueSection";
 import ForYouPanel from "@/components/discover/ForYouPanel";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
+import ProfileAside from "@/components/profile/ProfileAside";
 import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
@@ -146,6 +147,9 @@ export default function Profile({
   }, [isOwner, topAnimes, entries]);
 
   const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });
+  /* L'identité descend dans une colonne à gauche — et le bandeau ne la porte
+     plus. Un seul booléen tient les deux moitiés du même agencement. */
+  const asideLayout = banner.layout === "column";
   const [pinned, setPinned] = useState(!!initialPinned);
   const [picker, setPicker] = useState(false);
   const [showForYou, setShowForYou] = useState(false);
@@ -263,7 +267,29 @@ export default function Profile({
           contrast comes from .as-page-scrim on the plate itself and from the
           cards' own backing; see the note by .as-page-under in globals.css. */}
       <div className="as-fade-in relative z-10">
-        <div className="mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10">
+        {/* L'agencement « column » sort l'identité du bandeau et la pose à
+            gauche du contenu : les widgets occupent alors la place à sa droite,
+            et continuent sous elle en défilant, la colonne restant collée en
+            haut. En dessous de `lg` la colonne repasse au-dessus du contenu —
+            deux colonnes sur un téléphone n'en font qu'une, étroite. */}
+        <div
+          className={`mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10 ${
+            asideLayout ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""
+          }`}
+        >
+        {asideLayout ? (
+          <div className="w-full shrink-0 lg:w-72">
+            <ProfileAside
+              name={identity.name}
+              tag={identity.tag}
+              avatar={identity.avatar}
+              anilistName={identity.anilistName}
+              createdAt={identity.createdAt}
+              stats={heroStats(t, stats)}
+            />
+          </div>
+        ) : null}
+        <div className={asideLayout ? "min-w-0 flex-1" : "contents"}>
         <div ref={tabsRef} className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <ProfileTabs
             tabs={[
@@ -317,6 +343,7 @@ export default function Profile({
             />
           </>
         ) : null}
+        </div>
         </div>
       </div>
 

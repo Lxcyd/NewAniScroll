@@ -7,6 +7,7 @@ import QueueSection from "@/components/list/QueueSection";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
+import ProfileAside from "@/components/profile/ProfileAside";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
@@ -101,7 +102,25 @@ export default function LocalProfile() {
 
       {/* relative z-10, and no veil over it: see the note in profile/[user].tsx. */}
       <div className="as-fade-in relative z-10">
-        <div className="mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10">
+        <div
+          className={`mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10 ${
+            /* Agencement « column » : l'identité quitte le bandeau pour une
+               colonne collante à gauche, le contenu passe à sa droite. */
+            banner.layout === "column" ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""
+          }`}
+        >
+          {banner.layout === "column" ? (
+            <div className="w-full shrink-0 lg:w-72">
+              <ProfileAside
+                name={name || t("nav.myList")}
+                tag={identity ? guestTag(identity) : null}
+                avatar={null}
+                stats={heroStats(t, stats)}
+                subtitle={t("profile.localOnly")}
+              />
+            </div>
+          ) : null}
+          <div className={banner.layout === "column" ? "min-w-0 flex-1" : "contents"}>
           {streak > 0 ? (
             <div
               className="mb-6 inline-flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 ring-1 ring-white/10"
@@ -172,6 +191,7 @@ export default function LocalProfile() {
               {t("myList.manageInSettings")}
             </Link>
           </p>
+          </div>
         </div>
       </div>
 

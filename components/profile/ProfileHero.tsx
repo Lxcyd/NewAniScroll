@@ -42,6 +42,8 @@ export type HeroBanner = {
   color?: string | null;
   music?: Dressing["music"];
   blur?: number | null;
+  /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
+  layout?: Dressing["layout"] | null;
 };
 
 /**
@@ -279,26 +281,60 @@ export default function ProfileHero({
      read on the picture IS the design, and the artwork has room to spare. */
   const onArtwork = mode !== "band";
 
+  /* ── L'agencement ──────────────────────────────────────────────────────
+     Quatre dispositions du même matériel — avatar, nom, badges, chiffres. Ce
+     n'est pas de l'habillage (le fond, la musique) mais ça se choisit au même
+     endroit et ça se sauvegarde par le même appel, d'où le champ dans le même
+     objet. « band » est l'agencement d'origine, et le repli de toute valeur
+     inconnue : un profil épinglé avant ce réglage ne bouge pas d'un pixel. */
+  const layout = banner.layout ?? "band";
+  const centered = layout === "center";
+  const medallion = layout === "medallion";
+  /* En colonne, le haut de profil n'est plus qu'une plaque : l'identité et les
+     chiffres sont rendus par la PAGE, dans une colonne à gauche du contenu. */
+  const asColumn = layout === "column";
+
   const identity = (
-    <div className="mx-auto flex w-full max-w-screen-lg items-end gap-4 px-4 pb-5 md:gap-6 md:pb-7">
-      <div className="shrink-0 rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
+    <div
+      className={`mx-auto flex w-full max-w-screen-lg gap-4 px-4 pb-5 md:gap-6 md:pb-7 ${
+        centered ? "flex-col items-center text-center" : "items-end"
+      }`}
+    >
+      <div
+        className={`shrink-0 bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow ${
+          /* Le médaillon monte sur la plaque au lieu de s'y adosser : c'est ce
+             chevauchement franc qui le fait lire comme un portrait épinglé et
+             non comme une vignette posée au bord. */
+          medallion ? "-mt-8 rounded-full md:-mt-14" : "rounded-[1.35rem]"
+        }`}
+      >
         {avatar ? (
           <Image
             src={avatar}
             alt={name}
-            width={128}
-            height={128}
+            width={160}
+            height={160}
             priority
-            className="h-20 w-20 rounded-[1.2rem] object-cover md:h-28 md:w-28"
+            className={`object-cover ${
+              medallion
+                ? "h-24 w-24 rounded-full md:h-36 md:w-36"
+                : "h-20 w-20 rounded-[1.2rem] md:h-28 md:w-28"
+            }`}
           />
         ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-[1.2rem] bg-primary text-3xl font-bold text-white/80 md:h-28 md:w-28 md:text-4xl">
+          <div
+            className={`flex items-center justify-center bg-primary font-bold text-white/80 ${
+              medallion
+                ? "h-24 w-24 rounded-full text-4xl md:h-36 md:w-36 md:text-5xl"
+                : "h-20 w-20 rounded-[1.2rem] text-3xl md:h-28 md:w-28 md:text-4xl"
+            }`}
+          >
             {name.charAt(0).toUpperCase()}
           </div>
         )}
       </div>
 
-      <div className="min-w-0 pb-1">
+      <div className={`min-w-0 pb-1 ${centered ? "flex flex-col items-center" : ""}`}>
         {/* The name can overlap a plate that is anything at all: the shadow is
             what keeps it readable over a bright artwork. */}
         <h1
@@ -307,7 +343,11 @@ export default function ProfileHero({
         >
           {name}
         </h1>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+        <div
+          className={`mt-2 flex flex-wrap items-center gap-1.5 text-[11px] ${
+            centered ? "justify-center" : ""
+          }`}
+        >
           {tag ? (
             <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
               #{tag}
@@ -531,18 +571,42 @@ export default function ProfileHero({
           ) : null}
         </div>
 
-        {/* On a wallpaper, the identity is read on the picture. */}
-        {onArtwork ? (
+        {/* On a wallpaper, the identity is read on the picture. Le médaillon
+            fait exception : son avatar doit MORDRE sur le bord de la plaque, ce
+            qui n'est possible qu'en le rendant sous elle. */}
+        {onArtwork && !asColumn && !medallion ? (
           <div className="absolute inset-x-0 bottom-0 z-10">{identity}</div>
         ) : null}
       </div>
 
       {/* Under a strip: below it, the avatar overlapping the edge. */}
-      {!onArtwork ? (
-        <div className="relative z-10 -mt-12 md:-mt-14">{identity}</div>
+      {(!onArtwork || medallion) && !asColumn ? (
+        <div className={`relative z-10 ${medallion ? "" : "-mt-12 md:-mt-14"}`}>{identity}</div>
       ) : null}
 
-      {stats.length > 0 ? (
+      {/* Le médaillon remplace les quatre cartes par une ligne de chiffres :
+          un grand portrait rond au-dessus d'une grille de cadres faisait deux
+          objets lourds l'un sur l'autre, et c'est le portrait qu'on regarde. */}
+      {medallion && stats.length > 0 ? (
+        <dl className="mx-auto mt-3 flex w-full max-w-screen-lg flex-wrap items-baseline gap-x-6 gap-y-2 px-4">
+          {stats.map((s) => (
+            <div key={s.key} className="flex items-baseline gap-2">
+              <dd
+                className={`font-outfit text-xl font-bold leading-none ${
+                  s.accent ? "text-action" : "text-white"
+                }`}
+              >
+                {s.value}
+              </dd>
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+                {s.label}
+              </dt>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {!medallion && !asColumn && stats.length > 0 ? (
         <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
           {stats.map((s) => (
             <div

@@ -120,6 +120,25 @@ export function fadeGain(
   return Math.max(0, Math.min(1, inGain, outGain));
 }
 
+/**
+ * L'AGENCEMENT du haut de profil — où se tiennent l'avatar, le nom et les
+ * chiffres. Il ne touche ni au fond ni à la musique : c'est la disposition,
+ * pas l'habillage. Il voyage quand même avec le reste parce qu'il se choisit
+ * au même endroit et se sauvegarde par le même appel.
+ *
+ *   "band"      l'existant : identité en bas à gauche, quatre cartes dessous ;
+ *   "center"    axe centré, le nom devient le titre de la page ;
+ *   "medallion" grand avatar rond débordant sur la plaque, chiffres en ligne ;
+ *   "column"    identité en colonne collante à gauche, le contenu à droite.
+ */
+export type HeroLayout = "band" | "center" | "medallion" | "column";
+
+export const HERO_LAYOUTS: HeroLayout[] = ["band", "center", "medallion", "column"];
+
+export function isHeroLayout(v: unknown): v is HeroLayout {
+  return typeof v === "string" && (HERO_LAYOUTS as string[]).includes(v);
+}
+
 export type Dressing = {
   kind: DressingKind;
   /** Image ou vidéo de fond. `null` pour un fond de couleur. */
@@ -134,6 +153,8 @@ export type Dressing = {
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
   blur: number;
+  /** Agencement du haut de profil. Absent des anciennes valeurs : « band ». */
+  layout: HeroLayout;
 };
 
 /**
@@ -280,6 +301,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     source: SOURCES.has(obj.source) ? obj.source : null,
     music,
     blur: clampBlur(obj.blur),
+    layout: isHeroLayout(obj.layout) ? obj.layout : "band",
   };
 }
 
@@ -294,5 +316,6 @@ export function emptyDressing(): Dressing {
     source: null,
     music: null,
     blur: 0,
+    layout: "band",
   };
 }

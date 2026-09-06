@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
+  Bars3BottomLeftIcon,
+  Bars3Icon,
   FilmIcon,
   MagnifyingGlassIcon,
   MusicalNoteIcon,
@@ -14,6 +16,8 @@ import {
   SpeakerXMarkIcon,
   Squares2X2Icon,
   SwatchIcon,
+  UserCircleIcon,
+  ViewColumnsIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
@@ -24,6 +28,7 @@ import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
   DRESSING_KINDS,
+  HERO_LAYOUTS,
   MAX_BLUR,
   clampBlur,
   clampFade,
@@ -32,6 +37,7 @@ import {
   isHexColor,
   type Dressing,
   type DressingKind,
+  type HeroLayout,
 } from "@/lib/profile/dressing";
 import type { BannerOption } from "@/lib/profile/types";
 
@@ -90,6 +96,14 @@ type Props = {
    est pas une : elle est proposée sous « Image », où elle est portée floutée. */
 const WIDE = new Set<BannerOption["source"]>(["background", "thumb", "anilist", "banner"]);
 
+/** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
+const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
+  band: Bars3BottomLeftIcon,
+  center: Bars3Icon,
+  medallion: UserCircleIcon,
+  column: ViewColumnsIcon,
+};
+
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   color: SwatchIcon,
   banner: PhotoIcon,
@@ -139,7 +153,7 @@ type Row = {
 type Section = { title: string; rows: Row[]; node?: ReactNode };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
-type PaletteScope = DressingKind | "music";
+type PaletteScope = DressingKind | "music" | "layout";
 
 type ThemeRow = {
   slug: string;
@@ -474,7 +488,27 @@ export default function BannerStudio({
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
 
-    if (scope !== "music" && !ready) {
+    /* ── Les agencements ──────────────────────────────────────────────────
+       Quatre dispositions du même matériel. Chacune se lit à sa description :
+       l'aperçu du studio est une mise en scène centrée, pas le vrai haut de
+       profil, donc une vignette par agencement aurait été un cinquième dessin à
+       tenir à jour — et il aurait menti aussi. La phrase, elle, dit ce qui
+       bouge. */
+    if (scope === "layout") {
+      out.push({
+        title: t("profile.studioLayoutSection"),
+        rows: HERO_LAYOUTS.map((id) => ({
+          key: `layout-${id}`,
+          label: t(`profile.studioLayout_${id}`),
+          hint: t(`profile.studioLayoutHint_${id}`),
+          icon: LAYOUT_ICON[id],
+          selected: (draft.layout ?? "band") === id,
+          run: () => patch({ layout: id }),
+        })),
+      });
+    }
+
+    if (scope !== "music" && scope !== "layout" && !ready) {
       out.push({
         title: t(`profile.studioKind_${scope}`),
         rows: [
@@ -822,9 +856,16 @@ export default function BannerStudio({
     }
   };
 
-  /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. */
-  const searchable = scope !== "color";
-  const ScopeIcon = !scope || scope === "music" ? SpeakerWaveIcon : KIND_ICON[scope];
+  /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
+     agencements non plus — ils sont quatre, et un champ de recherche au-dessus
+     de quatre lignes est un aveu de liste trop longue. */
+  const searchable = scope !== "color" && scope !== "layout";
+  const ScopeIcon =
+    !scope || scope === "music"
+      ? SpeakerWaveIcon
+      : scope === "layout"
+        ? LAYOUT_ICON[draft.layout ?? "band"]
+        : KIND_ICON[scope];
 
   return (
     /* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
@@ -1459,6 +1500,29 @@ export default function BannerStudio({
               </button>
             );
           })}
+
+          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
+
+          {/* L'agencement n'est pas un fond : il vit après le séparateur, du
+              côté des réglages, avec la musique et le flou. Le dock dit ainsi
+              ce que la palette fait — à gauche ce qu'on met SUR le profil, à
+              droite comment le profil se tient. */}
+          <button
+            type="button"
+            onClick={() => openScope("layout")}
+            title={t("profile.studioLayoutSection")}
+            aria-label={t("profile.studioLayoutSection")}
+            className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
+              scope === "layout"
+                ? "bg-action text-white"
+                : "text-white/55 hover:bg-white/[0.08] hover:text-white"
+            }`}
+          >
+            {(() => {
+              const Icon = LAYOUT_ICON[draft.layout ?? "band"];
+              return <Icon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />;
+            })()}
+          </button>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
 
