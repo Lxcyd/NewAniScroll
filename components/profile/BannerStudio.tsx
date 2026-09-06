@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
+  ArrowUturnLeftIcon,
   Bars3BottomLeftIcon,
   Bars3Icon,
   FilmIcon,
@@ -282,8 +283,16 @@ export default function BannerStudio({
     return animes.find((a) => fold(a.title).includes(q)) ?? null;
   }, [scope, query, animes]);
 
-  const listedAnime = searchedAnime ?? currentAnime;
-  const listedAnimeId = listedAnime?.mediaId ?? animeId;
+  /* L'anime dont l'onglet Vidéo montre les vidéos. `null` : on est encore
+     devant la liste des animés. Ce sont deux écrans et non un — voir plus bas
+     la note de la section. */
+  const [videoPick, setVideoPick] = useState<number | null>(null);
+
+  const listedAnime =
+    scope === "video"
+      ? (meta?.mediaId === videoPick ? meta : animes.find((a) => a.mediaId === videoPick)) ?? null
+      : searchedAnime ?? currentAnime;
+  const listedAnimeId = scope === "video" ? videoPick : listedAnime?.mediaId ?? animeId;
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
@@ -319,9 +328,12 @@ export default function BannerStudio({
      serait vide sur la moitié des franchises. */
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
-    if (scope !== "oped" && scope !== "music") return;
+    if (scope !== "oped" && scope !== "music" && scope !== "video") return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
-    if (known) {
+    /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
+       cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
+       au site, qui la lit dans le même cache mais à jour. */
+    if (known && (scope !== "video" || known.trailer)) {
       setMeta(known);
       return;
     }
@@ -338,7 +350,13 @@ export default function BannerStudio({
         const row: StudioAnime = {
           mediaId: listedAnimeId,
           title: m.title?.english || m.title?.romaji || m.title?.userPreferred || `#${listedAnimeId}`,
-          cover: m.coverImage?.large || m.coverImage?.extraLarge || null,
+          cover: m.coverImage?.large || m.coverImage?.extraLarge || (known?.cover ?? null),
+          /* Seulement YouTube : AniList publie aussi des identifiants
+             Dailymotion, qu'un embed YouTube transformerait en vidéo absente. */
+          trailer:
+            m.trailer?.site === "youtube" && m.trailer?.id
+              ? String(m.trailer.id)
+              : known?.trailer ?? null,
         };
         metaCache.current.set(listedAnimeId, row);
         setMeta(row);
@@ -353,7 +371,7 @@ export default function BannerStudio({
      sélecteur de saison de la page de visionnage. */
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
-    if (scope !== "oped" && scope !== "music") return;
+    if (scope !== "oped" && scope !== "music" && scope !== "video") return;
     const hit = seasonCache.current.get(listedAnimeId);
     if (hit) {
       setSeasons(hit);
@@ -479,6 +497,10 @@ export default function BannerStudio({
     setScope(s);
     setQuery("");
     setCursor(0);
+    /* L'onglet Vidéo s'ouvre TOUJOURS sur la liste des animés : rouvrir un menu
+       et tomber sur le titre d'avant, c'est se demander où est passée la
+       liste. */
+    setVideoPick(null);
     requestAnimationFrame(() => search.current?.focus());
   }, []);
 
@@ -635,44 +657,107 @@ export default function BannerStudio({
        animé qui existe aujourd'hui pour n'importe quel anime, là où les
        génériques dépendent de la couverture d'AnimeThemes. */
     if (scope === "video") {
-      const rows = animes
-        .filter((a) => a.trailer && match(a.title))
-        .map((a) => ({
-          key: `trailer-${a.mediaId}`,
-          label: a.title,
-          hint: t("profile.artTrailer"),
-          thumb: a.cover ?? null,
-          selected: draft.trailerId === a.trailer,
-          run: () =>
-            patch({
-              kind: "video" as const,
-              /* Pas d'`url` : une bande-annonce se joue par son lecteur
-                 YouTube, jamais comme un fichier (cf. `trailerId`). */
-              url: null,
-              trailerId: a.trailer!,
-              color: null,
-              source: null,
-              animeId: a.mediaId,
-              title: a.title,
-            }),
-        }));
-      /* Une liste locale ne porte pas de bandes-annonces : elle n'a jamais vu
-         AniList. Le dire vaut mieux qu'un panneau vide, qui se lit comme une
-         panne. */
-      out.push({
-        title: t("profile.studioTrailers"),
-        rows: rows.length
-          ? rows
-          : [
-              {
-                key: "no-trailer",
-                label: t("profile.studioNoTrailer"),
-                hint: t("profile.studioNoTrailerHint"),
+      /* DEUX ÉCRANS, et c'est délibéré : on choisit d'abord un ANIME, puis une
+         de ses vidéos. Le raccourci — une ligne par anime qui applique
+         directement sa bande-annonce — ne tenait que tant qu'il n'y avait
+         qu'une vidéo par titre ; il n'aurait plus de place le jour où un titre
+         en a deux, et il ne laissait pas atteindre les saisons absentes de la
+         liste, que le sélecteur de saison de l'écran suivant, lui, atteint. */
+      if (videoPick == null) {
+        const rows = animes
+          .filter((a) => a.trailer && match(a.title))
+          .map((a) => ({
+            key: `anime-video-${a.mediaId}`,
+            label: a.title,
+            hint: t("profile.studioSeeVideos"),
+            thumb: a.cover ?? null,
+            selected: draft.animeId === a.mediaId && !!draft.trailerId,
+            run: () => {
+              setVideoPick(a.mediaId);
+              setQuery("");
+              setCursor(0);
+            },
+          }));
+        /* Une liste locale ne porte pas de bandes-annonces : elle n'a jamais vu
+           AniList. Le dire vaut mieux qu'un panneau vide, qui se lit comme une
+           panne. */
+        out.push({
+          title: t("profile.studioTrailers"),
+          rows: rows.length
+            ? rows
+            : [
+                {
+                  key: "no-trailer",
+                  label: t("profile.studioNoTrailer"),
+                  hint: t("profile.studioNoTrailerHint"),
+                  icon: FilmIcon,
+                  disabled: true,
+                },
+              ],
+        });
+      } else {
+        const picked = listedAnime;
+        const trailer = picked?.trailer ?? null;
+        const rows: Row[] = [
+          {
+            key: "video-back",
+            label: t("profile.studioAllAnimes"),
+            icon: ArrowUturnLeftIcon,
+            run: () => {
+              setVideoPick(null);
+              setQuery("");
+              setCursor(0);
+            },
+          },
+        ];
+        rows.push(
+          trailer
+            ? {
+                key: `trailer-${trailer}`,
+                label: t("profile.artTrailer"),
+                hint: picked?.title ?? null,
+                icon: FilmIcon,
+                selected: draft.trailerId === trailer,
+                run: () =>
+                  patch({
+                    kind: "video" as const,
+                    /* Pas d'`url` : une bande-annonce se joue par son lecteur
+                       YouTube, jamais comme un fichier (cf. `trailerId`). */
+                    url: null,
+                    trailerId: trailer,
+                    color: null,
+                    source: null,
+                    animeId: picked?.mediaId ?? null,
+                    title: picked?.title ?? null,
+                  }),
+              }
+            : {
+                key: "no-video",
+                label: t("profile.studioNoVideoHere"),
+                hint: t("profile.studioNoVideoHereHint"),
                 icon: FilmIcon,
                 disabled: true,
               },
-            ],
-      });
+        );
+        out.push({
+          title: "",
+          node: (
+            <AnimeHead
+              anime={picked}
+              count={trailer ? 1 : 0}
+              countKey="profile.studioVideoCount"
+              seasons={seasons}
+              current={videoPick}
+              onPick={(id) => {
+                setVideoPick(id);
+                setCursor(0);
+              }}
+              t={t}
+            />
+          ),
+          rows,
+        });
+      }
     }
 
     if (scope === "oped" || scope === "music") {
@@ -813,7 +898,7 @@ export default function BannerStudio({
 
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
-      listedAnime, listedAnimeId, meta, seasons, fadeSec, draft, accent, patch, t]);
+      listedAnime, listedAnimeId, meta, seasons, videoPick, fadeSec, draft, accent, patch, t]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1709,6 +1794,7 @@ export default function BannerStudio({
 function AnimeHead({
   anime,
   count,
+  countKey = "profile.studioMusicCount",
   seasons,
   current,
   onPick,
@@ -1716,6 +1802,8 @@ function AnimeHead({
 }: {
   anime: StudioAnime | null;
   count: number;
+  /** Ce que le compte nomme : des génériques, ou des vidéos. */
+  countKey?: string;
   seasons: Array<{ id: number; label: string }>;
   current: number | null;
   onPick: (id: number) => void;
@@ -1732,7 +1820,7 @@ function AnimeHead({
       <div className="min-w-0 flex-1">
         <p className="truncate font-outfit text-[15px] font-bold text-white">{anime.title}</p>
         <p className="mt-0.5 font-karla text-[12px] text-white/40">
-          {t("profile.studioMusicCount", { count })}
+          {t(countKey, { count })}
         </p>
       </div>
       {/* Une saison unique n'a pas de menu : un sélecteur à une entrée annonce
