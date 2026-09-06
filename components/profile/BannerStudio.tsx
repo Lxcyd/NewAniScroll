@@ -1037,10 +1037,21 @@ export default function BannerStudio({
                         }}
                         className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
                       >
-                        <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
-                          style={{ width: `${buf * 100}%` }}
-                        />
+                        {/* La mémoire tampon ne se montre QUE dans l'extrait
+                            retenu. Ailleurs elle passait sous les hachures et y
+                            dessinait une marche — deux teintes de jaune dans une
+                            zone qui, elle, ne sera jamais jouée : on lisait un
+                            chargement à moitié fait là où il n'y a rien à
+                            charger. Les hachures restent donc d'un seul ton. */}
+                        {buf * 100 > pct(from) ? (
+                          <span
+                            className="absolute inset-y-0 rounded-full bg-white/[0.14]"
+                            style={{
+                              left: `${pct(from)}%`,
+                              right: `${100 - Math.min(buf * 100, pct(to))}%`,
+                            }}
+                          />
+                        ) : null}
                         {/* Ce qui NE SERA PAS joué part en hachures : une zone
                             simplement plus sombre se confond avec un rail vide,
                             alors qu'une rayure dit « écarté » sans légende. */}
