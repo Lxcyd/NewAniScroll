@@ -99,6 +99,10 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   upload: ArrowUpTrayIcon,
 };
 
+/** Les hachures de ce qui est écarté d'un extrait. */
+const HATCH =
+  "repeating-linear-gradient(45deg, rgba(255,255,255,.22) 0 2px, rgba(255,255,255,0) 2px 6px)";
+
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
   Number.isFinite(s) && s > 0
@@ -314,6 +318,37 @@ export default function BannerStudio({
     const r = e.currentTarget.getBoundingClientRect();
     return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   };
+
+  /**
+   * La boucle de l'extrait, tenue à l'image près.
+   *
+   * `timeupdate` ne parle que toutes les 250 ms environ : en s'en servant pour
+   * reboucler, on entendait à chaque tour jusqu'à un quart de seconde de ce
+   * qu'on venait justement d'exclure, et le retour tombait à un endroit
+   * différent à chaque fois. Une boucle d'animation regarde soixante fois par
+   * seconde — le raccord se fait au même endroit, et la barre avance sans
+   * saccade au passage. Elle ne tourne que pendant la lecture.
+   *
+   * Rien à précharger pour autant : `preload="auto"` télécharge le fichier
+   * depuis son premier octet, donc le début de l'extrait est en mémoire bien
+   * avant le premier tour de boucle.
+   */
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const el = preview.current;
+      if (el) {
+        const f = draft.music?.from ?? 0;
+        const end = draft.music?.to ?? 0;
+        if (end > f && el.currentTime >= end) el.currentTime = f;
+        setAt(el.currentTime);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, draft.music?.from, draft.music?.to]);
 
   useEffect(() => {
     const el = preview.current;
@@ -979,9 +1014,22 @@ export default function BannerStudio({
                           className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
                           style={{ width: `${buf * 100}%` }}
                         />
-                        {/* L'extrait retenu : le reste du rail reste sombre, on
-                            voit donc d'un coup ce qui sera joué et ce qui sera
-                            passé. */}
+                        {/* Ce qui NE SERA PAS joué part en hachures : une zone
+                            simplement plus sombre se confond avec un rail vide,
+                            alors qu'une rayure dit « écarté » sans légende. */}
+                        {from > 0 ? (
+                          <span
+                            className="absolute inset-y-0 left-0 rounded-l-full"
+                            style={{ width: `${pct(from)}%`, backgroundImage: HATCH }}
+                          />
+                        ) : null}
+                        {to < len ? (
+                          <span
+                            className="absolute inset-y-0 right-0 rounded-r-full"
+                            style={{ left: `${pct(to)}%`, backgroundImage: HATCH }}
+                          />
+                        ) : null}
+                        {/* L'extrait retenu, éclairci entre ses deux bornes. */}
                         <span
                           className="absolute inset-y-0 rounded-full bg-white/[0.18]"
                           style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
@@ -1062,6 +1110,11 @@ export default function BannerStudio({
                           <SpeakerXMarkIcon className="h-4 w-4" />
                         )}
                       </button>
+                      {/* Le curseur de volume est celui du site : rail de 3 px,
+                          remplissage à l'accent, pastille blanche cerclée
+                          d'accent — le même que le lecteur vidéo et que le flou
+                          du dock. Une barre pleine sans pastille ne disait pas
+                          qu'elle se prend en main. */}
                       <div
                         onPointerDown={(e) => {
                           e.currentTarget.setPointerCapture(e.pointerId);
@@ -1070,11 +1123,29 @@ export default function BannerStudio({
                         onPointerMove={(e) => {
                           if (e.buttons & 1) setVol(railAt(e));
                         }}
-                        className="relative h-1.5 w-20 shrink-0 cursor-pointer touch-none rounded-full bg-white/12"
+                        role="slider"
+                        tabIndex={0}
+                        aria-label={t("profile.studioMusicVolume")}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(vol * 100)}
+                        onKeyDown={(e) => {
+                          const step = e.shiftKey ? 0.2 : 0.05;
+                          if (e.key === "ArrowLeft") setVol((v) => Math.max(0, v - step));
+                          else if (e.key === "ArrowRight") setVol((v) => Math.min(1, v + step));
+                          else return;
+                          e.preventDefault();
+                        }}
+                        className="relative h-4 w-24 shrink-0 cursor-pointer touch-none rounded-full outline-none"
                       >
+                        <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
                         <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-action"
+                          className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
                           style={{ width: `${vol * 100}%` }}
+                        />
+                        <span
+                          className="pointer-events-none absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
+                          style={{ left: `${vol * 100}%` }}
                         />
                       </div>
                     </div>
@@ -1113,19 +1184,9 @@ export default function BannerStudio({
           onPlaying={() => setBuffering(false)}
           onCanPlay={() => setBuffering(false)}
           onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
-          onTimeUpdate={(e) => {
-            const el = e.currentTarget;
-            /* La lecture d'essai boucle DANS l'extrait : on entend ce que le
-               profil jouera, pas le reste du fichier. */
-            const f = draft.music?.from ?? 0;
-            const t2 = draft.music?.to ?? 0;
-            if (t2 > f && el.currentTime > t2) {
-              el.currentTime = f;
-              setAt(f);
-              return;
-            }
-            setAt(el.currentTime);
-          }}
+          /* Le suivi fin appartient à la boucle d'animation ci-dessus ; celui-ci
+             ne sert qu'à l'arrêt, où il n'y a pas de boucle qui tourne. */
+          onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
           onProgress={(e) => {
             const el = e.currentTarget;
             const b = el.buffered;
@@ -1169,7 +1230,7 @@ export default function BannerStudio({
               qu'on veut d'un lecteur. Ils ne peuvent pas être imbriqués — un
               bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
           <div
-            className={`flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 transition-colors ${
+            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 transition-colors ${
               scope === "music" ? "bg-white/[0.10]" : ""
             }`}
           >
@@ -1218,21 +1279,23 @@ export default function BannerStudio({
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
               </span>
-              {/* La progression, jusque dans le dock : le lecteur continue
-                  quand le menu est fermé, et sans ce fil on ne savait plus ni
-                  que ça jouait, ni où l'on en était. Elle ne montre QUE
-                  l'extrait retenu — c'est lui qui tourne. */}
-              {draft.music && to > from ? (
-                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
-                  <span
-                    className="block h-full rounded-full bg-action"
-                    style={{
-                      width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
-                    }}
-                  />
-                </span>
-              ) : null}
             </button>
+
+            {/* La progression tient dans le PIED du bloc, en absolu, et non
+                sous le texte : en flux, elle allongeait la colonne de titre et
+                la pochette cessait d'être centrée en face. Là, elle occupe la
+                marge basse qui existait déjà et ne pousse rien. Elle ne montre
+                QUE l'extrait retenu — c'est lui qui tourne. */}
+            {draft.music && to > from ? (
+              <span className="pointer-events-none absolute inset-x-2.5 bottom-1 h-[3px] overflow-hidden rounded-full bg-white/12">
+                <span
+                  className="block h-full rounded-full bg-action"
+                  style={{
+                    width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
+                  }}
+                />
+              </span>
+            ) : null}
           </div>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />

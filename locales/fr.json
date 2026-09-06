@@ -1056,6 +1056,7 @@
     "studioMusicPlay": "Écouter",
     "studioMusicFrom": "Début de l'extrait",
     "studioMusicTo": "Fin de l'extrait",
+    "studioMusicVolume": "Volume de l'écoute",
     "studioMusicMute": "Couper le son",
     "studioMusicUnmute": "Rétablir le son",
     "studioMusicPause": "Mettre en pause",
