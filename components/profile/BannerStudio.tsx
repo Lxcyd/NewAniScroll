@@ -192,7 +192,7 @@ export default function BannerStudio({
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
   /** Vrai tant qu'on tient le rail : le glissement déplace alors l'écoute. */
-  const [seeking, setSeeking] = useState(false);
+  const seeking = useRef(false);
   /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
   const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
@@ -1044,48 +1044,53 @@ export default function BannerStudio({
                           dix fois pour trouver le bon endroit. Le pointeur est
                           capturé, donc le geste survit à une sortie du rail —
                           sans quoi il s'interrompait au premier écart vertical.
-                          `data-grab` laisse les poignées à leur propre geste. */}
+                          `data-grab` laisse les poignées à leur propre geste.
+
+                          Le « on tient » vit dans une RÉFÉRENCE et non dans un
+                          état : les remplissages du rail se redessinent à chaque
+                          image pendant le glissement, et le gestionnaire de
+                          `pointermove` lisait un état d'avant le rendu — le
+                          geste mourait dès qu'il partait de la zone jouée, celle
+                          qui bouge le plus. */}
                       <div
                         onPointerDown={(e) => {
                           if ((e.target as HTMLElement).dataset.grab) return;
                           e.currentTarget.setPointerCapture(e.pointerId);
-                          setSeeking(true);
+                          seeking.current = true;
                           seek(railAt(e));
                         }}
                         onPointerMove={(e) => {
-                          if (seeking) seek(railAt(e));
+                          if (seeking.current && e.buttons & 1) seek(railAt(e));
                         }}
-                        onPointerUp={() => setSeeking(false)}
-                        onPointerCancel={() => setSeeking(false)}
+                        onPointerUp={() => {
+                          seeking.current = false;
+                        }}
+                        onPointerCancel={() => {
+                          seeking.current = false;
+                        }}
                         className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
                       >
-                        {/* La mémoire tampon ne se montre QUE dans l'extrait
-                            retenu. Ailleurs elle passait sous les hachures et y
-                            dessinait une marche — deux teintes de jaune dans une
-                            zone qui, elle, ne sera jamais jouée : on lisait un
-                            chargement à moitié fait là où il n'y a rien à
-                            charger. Les hachures restent donc d'un seul ton. */}
-                        {buf * 100 > pct(from) ? (
-                          <span
-                            className="absolute inset-y-0 rounded-full bg-white/[0.14]"
-                            style={{
-                              left: `${pct(from)}%`,
-                              right: `${100 - Math.min(buf * 100, pct(to))}%`,
-                            }}
-                          />
-                        ) : null}
+                        <span
+                          className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
+                          style={{ width: `${buf * 100}%` }}
+                        />
                         {/* Ce qui NE SERA PAS joué part en hachures : une zone
                             simplement plus sombre se confond avec un rail vide,
-                            alors qu'une rayure dit « écarté » sans légende. */}
+                            alors qu'une rayure dit « écarté » sans légende.
+                            Elles se posent sur le gris clair de la mémoire
+                            tampon, TOUJOURS, et non sur ce qui est réellement
+                            chargé : le bord du tampon y dessinait une marche,
+                            c'est-à-dire un chargement à moitié fait dans une
+                            zone qui ne sera jamais jouée. */}
                         {from > 0 ? (
                           <span
-                            className="absolute inset-y-0 left-0 rounded-l-full bg-black/25"
+                            className="absolute inset-y-0 left-0 rounded-l-full bg-white/[0.14]"
                             style={{ width: `${pct(from)}%`, backgroundImage: HATCH }}
                           />
                         ) : null}
                         {to < len ? (
                           <span
-                            className="absolute inset-y-0 right-0 rounded-r-full bg-black/25"
+                            className="absolute inset-y-0 right-0 rounded-r-full bg-white/[0.14]"
                             style={{ left: `${pct(to)}%`, backgroundImage: HATCH }}
                           />
                         ) : null}
