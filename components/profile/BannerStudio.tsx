@@ -620,7 +620,17 @@ export default function BannerStudio({
         label: a.title,
         hint: t("profile.studioSwitchAnime"),
         thumb: a.cover ?? null,
-        run: () => setAnimeId(a.mediaId),
+        /* Choisir un anime EFFACE la recherche. La frappe qui a servi à le
+           trouver n'a aucune raison de filtrer ensuite ses génériques : on
+           tapait « one », on tombait sur One-Punch Man, et le panneau ne
+           montrait que les thèmes dont le titre contient « one » — c'est-à-dire
+           presque rien. La liste s'ouvre donc entière. */
+        run: () => {
+          setAnimeId(a.mediaId);
+          setQuery("");
+          setCursor(0);
+          search.current?.focus();
+        },
       }));
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
