@@ -1061,6 +1061,8 @@
     "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
     "studioMusicFull": "Full version on your profile",
+    "studioMusicFade": "Fade",
+    "studioMusicFadeHint": "Fade in and out of the excerpt, so the loop doesn't snap",
     "studioOtherAnime": "Other anime",
     "studioSwitchAnime": "Search inside this anime",
     "studioBlur": "Blur",

@@ -72,7 +72,53 @@ export type DressingMusic = {
    * résolveur de tools/ost-resolver produit ces identifiants hors ligne.
    */
   videoId: string | null;
+  /**
+   * Fondu d'entrée et de sortie sur l'extrait, en secondes. `0` = coupe franche.
+   *
+   * Un extrait coupé au milieu d'une mesure claque à chaque tour de boucle ;
+   * une seconde et demie de fondu suffit à rendre la reprise inaudible. Le
+   * fondu est SYMÉTRIQUE (même durée des deux côtés) : deux réglages pour un
+   * geste qu'on veut « adoucir la boucle » auraient coûté un panneau.
+   *
+   * Comme les bornes, ne s'applique qu'au fichier d'AnimeThemes — la version
+   * YouTube est jouée par un lecteur qu'on ne pilote pas.
+   */
+  fade: number;
 };
+
+/** Le fondu le plus long qu'on accepte : au-delà, l'extrait n'est plus que montée et descente. */
+export const MAX_FADE = 5;
+
+export function clampFade(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(MAX_FADE, Math.round(n * 10) / 10);
+}
+
+/**
+ * Le gain à appliquer à `t` secondes, de 0 à 1 — 1 partout si le fondu est nul.
+ *
+ * Le fondu se calcule à la volée et se pose sur `volume` plutôt que d'ouvrir un
+ * `AudioContext` : une rampe WebAudio demanderait un contexte par lecteur, sa
+ * reprise après un geste de l'utilisateur, et un `MediaElementSource` qui
+ * confisque l'élément. La boucle qui tient déjà le raccord passe soixante fois
+ * par seconde ; y poser un `volume` suffit, l'oreille ne distingue pas.
+ *
+ * Le fondu est écrasé quand l'extrait est plus court que deux fondus : sinon un
+ * extrait de 2 s avec 3 s de fondu ne serait jamais audible.
+ */
+export function fadeGain(
+  t: number,
+  from: number,
+  to: number,
+  fade: number,
+): number {
+  if (!(fade > 0) || !(to > from)) return 1;
+  const f = Math.min(fade, (to - from) / 2);
+  const inGain = (t - from) / f;
+  const outGain = (to - t) / f;
+  return Math.max(0, Math.min(1, inGain, outGain));
+}
 
 export type Dressing = {
   kind: DressingKind;
@@ -219,6 +265,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
         cover: str(rawMusic.cover, 500),
         ...trim(rawMusic.from, rawMusic.to),
         videoId,
+        fade: clampFade(rawMusic.fade),
       }
     : null;
 

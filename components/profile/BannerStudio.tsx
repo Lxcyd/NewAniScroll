@@ -26,7 +26,9 @@ import {
   DRESSING_KINDS,
   MAX_BLUR,
   clampBlur,
+  clampFade,
   emptyDressing,
+  fadeGain,
   isHexColor,
   type Dressing,
   type DressingKind,
@@ -105,6 +107,10 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
     de 8 px de haut et ne se lit plus comme une rayure. */
 const HATCH =
   "repeating-linear-gradient(-45deg, rgba(250,204,21,.5) 0 3px, rgba(250,204,21,0) 3px 8px)";
+
+/** Le fondu qu'on pose quand on active la bascule — plus court, on entend encore
+    le raccord ; plus long, il mange le refrain d'un extrait de vingt secondes. */
+const DEFAULT_FADE = 1.5;
 
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
@@ -316,6 +322,9 @@ export default function BannerStudio({
     if (preview.current) preview.current.volume = vol;
   }, [vol, draft.music?.url]);
 
+  /** La durée du fondu de l'extrait, en secondes — 0 quand la coupe est franche. */
+  const fadeSec = draft.music?.fade ?? 0;
+
   /** La position d'un clic sur un rail, 0 à 1. */
   const railAt = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -346,12 +355,17 @@ export default function BannerStudio({
         const end = draft.music?.to ?? 0;
         if (end > f && el.currentTime >= end) el.currentTime = f;
         setAt(el.currentTime);
+        /* Le fondu se pose ici, dans la boucle qui tient déjà le raccord : le
+           volume réglé donne le PLAFOND, le fondu le rabaisse aux extrémités. */
+        const g = fadeGain(el.currentTime, f, end || el.duration || 0, fadeSec);
+        const want = vol * g;
+        if (Math.abs(el.volume - want) > 0.005) el.volume = want;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, draft.music?.from, draft.music?.to]);
+  }, [playing, draft.music?.from, draft.music?.to, fadeSec, vol]);
 
   useEffect(() => {
     const el = preview.current;
@@ -543,6 +557,9 @@ export default function BannerStudio({
                              découpage se fait ensuite, aux poignées. */
                           from: null,
                           to: null,
+                          /* Le fondu SURVIT au changement de morceau : c'est un
+                             goût d'écoute, pas une propriété de la piste. */
+                          fade: fadeSec,
                           /* La version complète quand elle a été résolue, sinon
                              null : le profil retombe sur les 90 s d'AnimeThemes
                              plutôt que de ne rien jouer. */
@@ -1094,6 +1111,33 @@ export default function BannerStudio({
                         {clock(len)}
                       </span>
 
+                      {/* Le fondu, en une seule bascule et non deux : « entrée »
+                          et « sortie » séparés, c'est deux réglages pour un seul
+                          geste — on veut que la boucle ne claque pas, pas régler
+                          chaque bout. Un défaut d'1,5 s, assez pour effacer le
+                          raccord sans manger le refrain. */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          draft.music &&
+                          patch({
+                            music: {
+                              ...draft.music,
+                              fade: clampFade(fadeSec > 0 ? 0 : DEFAULT_FADE),
+                            },
+                          })
+                        }
+                        aria-pressed={fadeSec > 0}
+                        title={t("profile.studioMusicFadeHint")}
+                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+                          fadeSec > 0
+                            ? "bg-action/20 text-white ring-action/50"
+                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+                        }`}
+                      >
+                        {t("profile.studioMusicFade")}
+                      </button>
+
                       {/* Le volume dans sa propre pastille : posé à même le pied
                           du panneau, il flottait entre le minutage et le bord et
                           on ne voyait pas où commençait la commande. Le fond la
@@ -1249,7 +1293,10 @@ export default function BannerStudio({
               bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
           <div
             className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-3 transition-colors ${
-              scope === "music" ? "bg-white/[0.10]" : ""
+              /* Le survol allume le MÊME fond que l'ouverture, en plus discret :
+                 sans lui, le seul bloc cliquable du dock qui ne réagissait pas
+                 au passage de la souris était celui qui en a le plus l'air. */
+              scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
             }`}
           >
             {draft.music ? (

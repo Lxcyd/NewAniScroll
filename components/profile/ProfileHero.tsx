@@ -14,7 +14,7 @@ import { plateMode } from "@/lib/profile/types";
 import PlateBackground from "@/components/profile/PlateBackground";
 import TrailerStage from "@/components/shared/HoverPreview/TrailerStage";
 import { attachStage, detachStage } from "@/components/shared/HoverPreview/stageStore";
-import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileStats } from "@/lib/profile/types";
 
 /**
@@ -234,6 +234,29 @@ export default function ProfileHero({
     if (sound) void el.play().catch(() => setSound(false));
     else el.pause();
   }, [sound, viaYouTube, banner.music?.url]);
+
+  /* Le fondu de l'extrait, quand le studio en a posé un. `timeupdate` ne parle
+     que quatre fois par seconde : une rampe faite dessus s'entendrait par
+     marches. Une boucle d'animation la rend continue, et elle ne tourne que
+     pendant la lecture d'un extrait fondu. */
+  const fade = banner.music?.fade ?? 0;
+  useEffect(() => {
+    const el = audio.current;
+    if (!el || viaYouTube || !sound || !(fade > 0)) return;
+    const f = banner.music?.from ?? 0;
+    const to = banner.music?.to ?? 0;
+    let raf = 0;
+    const tick = () => {
+      const g = fadeGain(el.currentTime, f, to || el.duration || 0, fade);
+      if (Math.abs(el.volume - g) > 0.005) el.volume = g;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.volume = 1;
+    };
+  }, [sound, viaYouTube, fade, banner.music?.from, banner.music?.to, banner.music?.url]);
 
   /* A strip is shown WHOLE or it is not shown honestly. Guessing its shape is
      how the last crop happened: the band was cut to 4.75:1, the ratio AniList
