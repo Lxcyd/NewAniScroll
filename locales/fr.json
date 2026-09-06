@@ -1054,6 +1054,8 @@
     "studioMusicOff": "Couper la musique",
     "studioMusicEpisodes": "ép. {{episodes}}",
     "studioMusicPlay": "Écouter",
+    "studioMusicFrom": "Début de l'extrait",
+    "studioMusicTo": "Fin de l'extrait",
     "studioMusicMute": "Couper le son",
     "studioMusicUnmute": "Rétablir le son",
     "studioMusicPause": "Mettre en pause",

@@ -346,7 +346,27 @@ export default function ProfileHero({
           `autoPlay` : voir la note sur le son plus haut. Court-circuité dès
           qu'on a la version complète sur YouTube. */}
       {banner.music && !viaYouTube ? (
-        <audio ref={audio} src={banner.music.url} loop preload="none" />
+        /* `loop` natif tant que le morceau est entier ; dès qu'un extrait a été
+           découpé dans le studio, c'est nous qui rebouclons, sur sa borne de
+           fin — le navigateur, lui, ne sait reboucler que sur le fichier. */
+        <audio
+          ref={audio}
+          src={banner.music.url}
+          loop={!(banner.music.to && banner.music.to > (banner.music.from ?? 0))}
+          preload="none"
+          onPlay={(e) => {
+            const el = e.currentTarget;
+            const f = banner.music?.from ?? 0;
+            const to = banner.music?.to ?? 0;
+            if (to > f && (el.currentTime < f || el.currentTime > to)) el.currentTime = f;
+          }}
+          onTimeUpdate={(e) => {
+            const el = e.currentTarget;
+            const f = banner.music?.from ?? 0;
+            const to = banner.music?.to ?? 0;
+            if (to > f && el.currentTime > to) el.currentTime = f;
+          }}
+        />
       ) : null}
 
       {/* Le lecteur YouTube de la musique.

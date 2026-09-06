@@ -21,6 +21,7 @@ import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import PlateBackground from "@/components/profile/PlateBackground";
 import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
+import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
   DRESSING_KINDS,
   MAX_BLUR,
@@ -181,8 +182,16 @@ export default function BannerStudio({
   const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
   const [buffering, setBuffering] = useState(false);
-  /** Le volume de l'ESSAI seulement : le profil règle le sien de son côté. */
-  const [vol, setVol] = useState(1);
+  /**
+   * Le volume de l'ESSAI seulement — le profil garde le sien, les deux ne sont
+   * pas liés. Il part du niveau des bandes-annonces au survol : c'est du son
+   * qu'on n'a pas vraiment demandé, il doit s'entendre comme une ambiance et
+   * non comme une annonce.
+   */
+  const [vol, setVol] = useState(PREVIEW_DEFAULT_VOLUME);
+  const lastVol = useRef(PREVIEW_DEFAULT_VOLUME);
+  /** La poignée d'extrait en cours de déplacement, s'il y en a une. */
+  const [grab, setGrab] = useState<"from" | "to" | null>(null);
   /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
@@ -314,7 +323,7 @@ export default function BannerStudio({
        tampon du précédent, c'est afficher une seconde de mensonge. */
     setAt(0);
     setBuf(0);
-    el.currentTime = 0;
+    el.currentTime = draft.music?.from ?? 0;
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url]);
 
@@ -492,6 +501,10 @@ export default function BannerStudio({
                           artist,
                           slug: th.slug.toUpperCase(),
                           cover: listedAnime?.cover ?? null,
+                          /* Un morceau qu'on vient de choisir est entier : le
+                             découpage se fait ensuite, aux poignées. */
+                          from: null,
+                          to: null,
                           /* La version complète quand elle a été résolue, sinon
                              null : le profil retombe sur les 90 s d'AnimeThemes
                              plutôt que de ne rien jouer. */
@@ -610,6 +623,33 @@ export default function BannerStudio({
   const cardAlpha = draft.blur > 0 ? 0.34 : 0.62;
 
   let index = -1;
+
+  /* ── L'extrait ──────────────────────────────────────────────────────
+     Sans découpe, l'extrait vaut tout le fichier : les bornes ne sont écrites
+     dans le brouillon qu'à partir du moment où on y a touché. */
+  const from = draft.music?.from ?? 0;
+  const to = draft.music?.to ?? len;
+  const pct = (s: number) => (len ? Math.min(100, Math.max(0, (s / len) * 100)) : 0);
+
+  /** Déplacer une borne. La seconde borne ne bouge pas, mais elle repousse la
+      première : un extrait plus court que trois secondes ne s'entend pas. */
+  const setTrim = (edge: "from" | "to", raw: number) => {
+    if (!draft.music || !len) return;
+    const MIN = 3;
+    const s = Math.min(len, Math.max(0, raw));
+    const next =
+      edge === "from"
+        ? { from: Math.max(0, Math.min(s, to - MIN)), to }
+        : { from, to: Math.min(len, Math.max(s, from + MIN)) };
+    patch({ music: { ...draft.music, ...next } });
+    /* La tête de lecture doit rester DANS l'extrait, sinon on entend du son qui
+       ne sera jamais joué sur le profil. */
+    const el = preview.current;
+    if (el && (el.currentTime < next.from || el.currentTime > next.to)) {
+      el.currentTime = next.from;
+      setAt(next.from);
+    }
+  };
 
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. */
   const searchable = scope !== "color";
@@ -883,8 +923,10 @@ export default function BannerStudio({
                     onClick={() => {
                       const el = preview.current;
                       if (!el) return;
-                      if (el.paused) void el.play().catch(() => setPlaying(false));
-                      else el.pause();
+                      if (el.paused) {
+                        if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
+                        void el.play().catch(() => setPlaying(false));
+                      } else el.pause();
                     }}
                     aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
                     className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
@@ -911,10 +953,14 @@ export default function BannerStudio({
                         </span>
                       ) : null}
                     </p>
-                    {/* La barre : cliquer dedans déplace la lecture. Le rail
-                        vaut la durée du fichier, pas celle du morceau complet —
-                        c'est le rip de 90 s qui est écouté ici. */}
-                    <div className="mt-1.5 flex items-center gap-2">
+                    {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
+                        Les deux poignées jaunes bornent ce qui sera joué sur le
+                        profil ; entre elles, le rose dit où en est l'écoute.
+                        Cliquer dans le rail déplace la lecture, saisir une
+                        poignée déplace la borne — d'où le `data-grab` : sans
+                        lui, attraper une poignée aurait aussi fait sauter le
+                        son à cet endroit. */}
+                    <div className="mt-2 flex items-center gap-2">
                       <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
@@ -922,20 +968,69 @@ export default function BannerStudio({
                         onPointerDown={(e) => {
                           const el = preview.current;
                           if (!el || !len) return;
-                          const p = railAt(e);
-                          el.currentTime = p * len;
-                          setAt(p * len);
+                          if ((e.target as HTMLElement).dataset.grab) return;
+                          const p = Math.min(to, Math.max(from, railAt(e) * len));
+                          el.currentTime = p;
+                          setAt(p);
                         }}
-                        className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-white/12"
+                        className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
                       >
                         <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-white/20"
+                          className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
                           style={{ width: `${buf * 100}%` }}
                         />
+                        {/* L'extrait retenu : le reste du rail reste sombre, on
+                            voit donc d'un coup ce qui sera joué et ce qui sera
+                            passé. */}
                         <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-action"
-                          style={{ width: `${len ? (at / len) * 100 : 0}%` }}
+                          className="absolute inset-y-0 rounded-full bg-white/[0.18]"
+                          style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
                         />
+                        <span
+                          className="absolute inset-y-0 rounded-full bg-action"
+                          style={{
+                            left: `${pct(from)}%`,
+                            right: `${100 - pct(Math.min(Math.max(at, from), to))}%`,
+                          }}
+                        />
+                        {([
+                          ["from", from] as const,
+                          ["to", to] as const,
+                        ]).map(([edge, value]) => (
+                          <span
+                            key={edge}
+                            data-grab="1"
+                            role="slider"
+                            tabIndex={0}
+                            aria-label={t(
+                              edge === "from" ? "profile.studioMusicFrom" : "profile.studioMusicTo",
+                            )}
+                            aria-valuemin={0}
+                            aria-valuemax={Math.round(len)}
+                            aria-valuenow={Math.round(value)}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              e.currentTarget.setPointerCapture(e.pointerId);
+                              setGrab(edge);
+                            }}
+                            onPointerMove={(e) => {
+                              if (grab !== edge || !len) return;
+                              const r = e.currentTarget.parentElement!.getBoundingClientRect();
+                              const s = ((e.clientX - r.left) / r.width) * len;
+                              setTrim(edge, s);
+                            }}
+                            onPointerUp={() => setGrab(null)}
+                            onKeyDown={(e) => {
+                              const step = e.shiftKey ? 5 : 1;
+                              if (e.key === "ArrowLeft") setTrim(edge, value - step);
+                              else if (e.key === "ArrowRight") setTrim(edge, value + step);
+                              else return;
+                              e.preventDefault();
+                            }}
+                            className="absolute top-1/2 h-4 w-[7px] -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-[#facc15] shadow-[0_1px_4px_rgba(0,0,0,.6)] outline-none ring-offset-2 ring-offset-[#15161d] focus-visible:ring-2 focus-visible:ring-[#facc15]"
+                            style={{ left: `${pct(value)}%` }}
+                          />
+                        ))}
                       </div>
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(len)}
@@ -947,7 +1042,17 @@ export default function BannerStudio({
                       <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
                       <button
                         type="button"
-                        onClick={() => setVol((v) => (v > 0 ? 0 : 1))}
+                        onClick={() =>
+                          setVol((v) => {
+                            /* Rétablir rend le niveau qu'on avait réglé, pas un
+                               volume plein qui ferait sursauter. */
+                            if (v > 0) {
+                              lastVol.current = v;
+                              return 0;
+                            }
+                            return lastVol.current;
+                          })
+                        }
                         aria-label={t(vol > 0 ? "profile.studioMusicMute" : "profile.studioMusicUnmute")}
                         className="shrink-0 text-white/45 transition-colors hover:text-white"
                       >
@@ -968,7 +1073,7 @@ export default function BannerStudio({
                         className="relative h-1.5 w-20 shrink-0 cursor-pointer touch-none rounded-full bg-white/12"
                       >
                         <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-white/60"
+                          className="absolute inset-y-0 left-0 rounded-full bg-action"
                           style={{ width: `${vol * 100}%` }}
                         />
                       </div>
@@ -1008,7 +1113,19 @@ export default function BannerStudio({
           onPlaying={() => setBuffering(false)}
           onCanPlay={() => setBuffering(false)}
           onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
-          onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
+          onTimeUpdate={(e) => {
+            const el = e.currentTarget;
+            /* La lecture d'essai boucle DANS l'extrait : on entend ce que le
+               profil jouera, pas le reste du fichier. */
+            const f = draft.music?.from ?? 0;
+            const t2 = draft.music?.to ?? 0;
+            if (t2 > f && el.currentTime > t2) {
+              el.currentTime = f;
+              setAt(f);
+              return;
+            }
+            setAt(el.currentTime);
+          }}
           onProgress={(e) => {
             const el = e.currentTarget;
             const b = el.buffered;
@@ -1046,31 +1163,53 @@ export default function BannerStudio({
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
 
-          <button
-            type="button"
-            onClick={() => openScope("music")}
-            className={`flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 text-left transition-colors ${
-              scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
+          {/* Deux commandes, pas une. La pochette lance et arrête ; le texte
+              ouvre le menu. Un seul bouton pour les deux gestes obligeait à
+              ouvrir le menu pour couper le son, ce qui est l'inverse de ce
+              qu'on veut d'un lecteur. Ils ne peuvent pas être imbriqués — un
+              bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
+          <div
+            className={`flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 transition-colors ${
+              scope === "music" ? "bg-white/[0.10]" : ""
             }`}
           >
-            {/* La pochette de l'anime dont vient le morceau : elle dit d'un
-                coup d'œil ce qu'on écoute, là où un haut-parleur ne disait que
-                « du son ». Le haut-parleur reste quand il n'y a pas encore de
-                musique — il n'y a alors pas de pochette à montrer. */}
-            {draft.music?.cover ? (
-              <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-black/50">
-                <Image src={draft.music.cover} alt="" fill sizes="36px" className="object-cover" />
-              </span>
-            ) : (
-              <span
-                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
-                  draft.music ? "bg-action/20 text-action" : "bg-white/[0.07] text-white/45"
-                }`}
+            {draft.music ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = preview.current;
+                  if (!el) return;
+                  if (el.paused) {
+                    if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
+                    void el.play().catch(() => setPlaying(false));
+                  } else el.pause();
+                }}
+                aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
+                className="group relative h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-black/50"
               >
+                {draft.music.cover ? (
+                  <Image src={draft.music.cover} alt="" fill sizes="36px" className="object-cover" />
+                ) : null}
+                <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/65">
+                  {buffering ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : playing ? (
+                    <PauseIcon className="h-4 w-4 drop-shadow" />
+                  ) : (
+                    <PlayIcon className="ml-0.5 h-4 w-4 drop-shadow" />
+                  )}
+                </span>
+              </button>
+            ) : (
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.07] text-white/45">
                 <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
               </span>
             )}
-            <span className="min-w-0">
+            <button
+              type="button"
+              onClick={() => openScope("music")}
+              className="min-w-0 flex-1 rounded-lg text-left"
+            >
               <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}
               </span>
@@ -1081,17 +1220,20 @@ export default function BannerStudio({
               </span>
               {/* La progression, jusque dans le dock : le lecteur continue
                   quand le menu est fermé, et sans ce fil on ne savait plus ni
-                  que ça jouait, ni où l'on en était. */}
-              {draft.music && len > 0 ? (
+                  que ça jouait, ni où l'on en était. Elle ne montre QUE
+                  l'extrait retenu — c'est lui qui tourne. */}
+              {draft.music && to > from ? (
                 <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
                   <span
                     className="block h-full rounded-full bg-action"
-                    style={{ width: `${(at / len) * 100}%` }}
+                    style={{
+                      width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
+                    }}
                   />
                 </span>
               ) : null}
-            </span>
-          </button>
+            </button>
+          </div>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
 

@@ -47,6 +47,19 @@ export type DressingMusic = {
    */
   cover: string | null;
   /**
+   * Les bornes de lecture, en secondes — la partie du morceau qui sera jouée.
+   *
+   * `null` des deux côtés veut dire « tout le fichier », et c'est le cas par
+   * défaut. Un générique dure 90 s dont on ne veut souvent que le refrain :
+   * plutôt que de laisser le hasard décider par où la boucle repasse, on
+   * découpe une fois pour toutes.
+   *
+   * Ne s'applique qu'au fichier d'AnimeThemes. La version YouTube complète est
+   * jouée par le lecteur officiel, qu'on ne pilote pas d'ici.
+   */
+  from: number | null;
+  to: number | null;
+  /**
    * Vidéo YouTube du morceau, quand elle est connue.
    *
    * L'audio d'AnimeThemes est le rip du générique : 90 s, mesuré à ffprobe sur
@@ -145,6 +158,21 @@ function str(v: unknown, max = 200): string | null {
 }
 
 /**
+ * Les bornes d'un extrait, relues d'une valeur stockée.
+ *
+ * Une borne seule ne veut rien dire, et une fin avant son début non plus : dans
+ * ces cas on rend le morceau entier plutôt qu'un extrait à moitié valide, qui
+ * se traduirait à la lecture par un silence qu'on ne saurait pas expliquer.
+ */
+function trim(rawFrom: unknown, rawTo: unknown): { from: number | null; to: number | null } {
+  const from = Number(rawFrom);
+  const to = Number(rawTo);
+  const ok =
+    Number.isFinite(from) && Number.isFinite(to) && from >= 0 && to > from && to < 36000;
+  return ok ? { from, to } : { from: null, to: null };
+}
+
+/**
  * Relit une valeur stockée — nouvelle forme, ancienne forme, ou n'importe quoi.
  *
  * Retourne `null` quand il n'y a rien d'exploitable, ce qui est exactement le
@@ -189,6 +217,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
         artist: str(rawMusic.artist),
         slug: str(rawMusic.slug, 16),
         cover: str(rawMusic.cover, 500),
+        ...trim(rawMusic.from, rawMusic.to),
         videoId,
       }
     : null;

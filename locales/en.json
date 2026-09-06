@@ -1054,6 +1054,8 @@
     "studioMusicOff": "Turn music off",
     "studioMusicEpisodes": "ep. {{episodes}}",
     "studioMusicPlay": "Play",
+    "studioMusicFrom": "Clip start",
+    "studioMusicTo": "Clip end",
     "studioMusicMute": "Mute",
     "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
