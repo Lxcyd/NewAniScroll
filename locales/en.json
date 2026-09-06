@@ -1054,6 +1054,8 @@
     "studioMusicOff": "Turn music off",
     "studioMusicEpisodes": "ep. {{episodes}}",
     "studioMusicPlay": "Play",
+    "studioMusicMute": "Mute",
+    "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
     "studioMusicFull": "Full version on your profile",
     "studioOtherAnime": "Other anime",

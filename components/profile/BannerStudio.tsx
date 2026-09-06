@@ -11,6 +11,7 @@ import {
   ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
+  SpeakerXMarkIcon,
   Squares2X2Icon,
   SwatchIcon,
   XMarkIcon,
@@ -180,6 +181,8 @@ export default function BannerStudio({
   const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
   const [buffering, setBuffering] = useState(false);
+  /** Le volume de l'ESSAI seulement : le profil règle le sien de son côté. */
+  const [vol, setVol] = useState(1);
   /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
@@ -290,6 +293,18 @@ export default function BannerStudio({
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
     [],
   );
+
+  /* Le volume est posé sur l'élément et non sur la source : il survit donc au
+     changement de morceau, comme dans n'importe quel lecteur. */
+  useEffect(() => {
+    if (preview.current) preview.current.volume = vol;
+  }, [vol, draft.music?.url]);
+
+  /** La position d'un clic sur un rail, 0 à 1. */
+  const railAt = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  };
 
   useEffect(() => {
     const el = preview.current;
@@ -860,32 +875,6 @@ export default function BannerStudio({
               {/* ── L'écoute ────────────────────────────────────────────── */}
               {scope === "music" && draft.music ? (
                 <div className="flex items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
-                  {/* `preload="auto"` et pas `metadata` : c'est CE réglage qui
-                      rendait un déplacement dans le morceau si long. En
-                      « metadata », le navigateur n'a que l'en-tête du fichier ;
-                      chaque saut redemandait la plage au serveur et attendait
-                      son arrivée. Un générique pèse ~2 Mo : autant le charger
-                      une fois, dès qu'on l'a choisi, et n'attendre plus jamais.
-                      La barre de mémoire tampon ci-dessous montre ce qui est
-                      déjà là, donc où l'on peut sauter sans attendre. */}
-                  <audio
-                    ref={preview}
-                    src={draft.music.url}
-                    preload="auto"
-                    onPlay={() => setPlaying(true)}
-                    onPause={() => setPlaying(false)}
-                    onEnded={() => setPlaying(false)}
-                    onWaiting={() => setBuffering(true)}
-                    onPlaying={() => setBuffering(false)}
-                    onCanPlay={() => setBuffering(false)}
-                    onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
-                    onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
-                    onProgress={(e) => {
-                      const el = e.currentTarget;
-                      const b = el.buffered;
-                      setBuf(b.length && el.duration ? b.end(b.length - 1) / el.duration : 0);
-                    }}
-                  />
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
                       rose posée à côté qui doublait la mise. */}
@@ -933,8 +922,7 @@ export default function BannerStudio({
                         onPointerDown={(e) => {
                           const el = preview.current;
                           if (!el || !len) return;
-                          const r = e.currentTarget.getBoundingClientRect();
-                          const p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+                          const p = railAt(e);
                           el.currentTime = p * len;
                           setAt(p * len);
                         }}
@@ -952,6 +940,38 @@ export default function BannerStudio({
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(len)}
                       </span>
+
+                      {/* Le volume. Le haut-parleur coupe et rétablit — c'est le
+                          geste qu'on cherche en premier, et il évite d'avoir à
+                          viser le zéro du rail. */}
+                      <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+                      <button
+                        type="button"
+                        onClick={() => setVol((v) => (v > 0 ? 0 : 1))}
+                        aria-label={t(vol > 0 ? "profile.studioMusicMute" : "profile.studioMusicUnmute")}
+                        className="shrink-0 text-white/45 transition-colors hover:text-white"
+                      >
+                        {vol > 0 ? (
+                          <SpeakerWaveIcon className="h-4 w-4" />
+                        ) : (
+                          <SpeakerXMarkIcon className="h-4 w-4" />
+                        )}
+                      </button>
+                      <div
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          setVol(railAt(e));
+                        }}
+                        onPointerMove={(e) => {
+                          if (e.buttons & 1) setVol(railAt(e));
+                        }}
+                        className="relative h-1.5 w-20 shrink-0 cursor-pointer touch-none rounded-full bg-white/12"
+                      >
+                        <span
+                          className="absolute inset-y-0 left-0 rounded-full bg-white/60"
+                          style={{ width: `${vol * 100}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -959,6 +979,42 @@ export default function BannerStudio({
             </div>
           </div>
         </>
+      ) : null}
+
+      {/* ── Le lecteur ────────────────────────────────────────────────────
+          Il vit ICI, à la racine de l'écran, et non dans le menu Musique.
+          Deux raisons, et la seconde est la plus visible :
+
+          1. Un élément démonté puis remonté RECHARGE sa source. Tant que le
+             lecteur appartenait au menu, refermer et rouvrir celui-ci jetait la
+             lecture en cours et redemandait le fichier. Ici il traverse
+             l'ouverture et la fermeture sans rien perdre.
+          2. Le dock affiche la progression, donc il lui faut un lecteur qui
+             tourne encore quand le menu est fermé.
+
+          `preload="auto"` et pas `metadata` : en « metadata » le navigateur n'a
+          que l'en-tête, et chaque saut dans le morceau redemandait sa plage au
+          serveur avant de reprendre. Un générique pèse ~2 Mo — chargé une fois,
+          il ne fait plus jamais attendre. */}
+      {draft.music ? (
+        <audio
+          ref={preview}
+          src={draft.music.url}
+          preload="auto"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onWaiting={() => setBuffering(true)}
+          onPlaying={() => setBuffering(false)}
+          onCanPlay={() => setBuffering(false)}
+          onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
+          onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
+          onProgress={(e) => {
+            const el = e.currentTarget;
+            const b = el.buffered;
+            setBuf(b.length && el.duration ? b.end(b.length - 1) / el.duration : 0);
+          }}
+        />
       ) : null}
 
       {/* ── Le dock ───────────────────────────────────────────────────── */}
@@ -1023,6 +1079,17 @@ export default function BannerStudio({
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
               </span>
+              {/* La progression, jusque dans le dock : le lecteur continue
+                  quand le menu est fermé, et sans ce fil on ne savait plus ni
+                  que ça jouait, ni où l'on en était. */}
+              {draft.music && len > 0 ? (
+                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
+                  <span
+                    className="block h-full rounded-full bg-action"
+                    style={{ width: `${(at / len) * 100}%` }}
+                  />
+                </span>
+              ) : null}
             </span>
           </button>
 
