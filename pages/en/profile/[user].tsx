@@ -35,6 +35,7 @@ import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
+import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
@@ -747,6 +748,26 @@ export async function getServerSideProps(context: any) {
     // AniScroll-only account: its list is the cloud backup of the local one.
     entries = entriesFromLocalList(localListFromCloudPayload(payloadOf("list")));
     stats = statsFromEntries(entries);
+  }
+
+  /* Les bandes-annonces que la liste ne porte pas, reprises du cache d'animés.
+     Deux cas les font manquer, et le second n'a pas de fin prévisible : une
+     copie de liste écrite avant que la requête ne demande `trailer`, et une
+     panne d'AniList — 403 sur tout depuis le 02/09/2026 — qui empêche d'en
+     écrire une neuve. Or la fiche anime, elle, continue d'afficher la
+     bande-annonce : elle la lit dans `anime`, la table que getMediaMeta
+     alimente. C'est donc la même source, en une requête pour toute la liste.
+
+     Réservé au PROPRIÉTAIRE : seul le studio les propose, et lui seul l'ouvre. */
+  if (isOwner) {
+    const missing = entries.filter((e) => !e.trailer).map((e) => e.mediaId);
+    const found = await trailersFor(missing);
+    if (found.size) {
+      for (const e of entries) {
+        const id = found.get(e.mediaId);
+        if (id) e.trailer = id;
+      }
+    }
   }
 
   /* ── The plate ──────────────────────────────────────────────── */

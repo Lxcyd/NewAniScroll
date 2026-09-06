@@ -127,6 +127,55 @@ export async function getCachedAnime(id: number): Promise<CachedAnime | null> {
 }
 
 /**
+ * Les bandes-annonces YouTube de plusieurs animés, en UNE requête.
+ *
+ * Elle existe parce que la liste d'un profil en demande des centaines à la
+ * fois : `getCachedAnime` par identifiant aurait fait autant d'allers-retours
+ * Turso, et `getMediaMeta` aurait en plus ramené ~30 ko de métadonnées par
+ * titre pour n'en garder que onze caractères.
+ *
+ * `json_extract` lit dans le blob : le champ `trailer` n'a pas de colonne à
+ * lui, et lui en donner une aurait demandé une migration pour une donnée que
+ * seule cette liste consulte. Les identifiants qui ne sont pas en cache — ou
+ * dont la bande-annonce n'est pas sur YouTube — sont simplement absents de la
+ * carte retournée, jamais présents avec une valeur vide.
+ */
+export async function trailersFor(ids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const db = getTursoClient();
+  const clean = Array.from(new Set(ids.filter((n) => Number.isFinite(n) && n > 0)));
+  if (!db || clean.length === 0) return out;
+
+  /* Par paquets : une clause IN a une limite de paramètres (999 sur SQLite par
+     défaut), et une liste de 800 titres la dépasse. */
+  const CHUNK = 400;
+  for (let i = 0; i < clean.length; i += CHUNK) {
+    const part = clean.slice(i, i + CHUNK);
+    const placeholders = part.map(() => "?").join(",");
+    try {
+      const r = await db.execute({
+        sql: `SELECT id,
+                     json_extract(data, '$.trailer.id')   AS tid,
+                     json_extract(data, '$.trailer.site') AS site
+                FROM anime
+               WHERE id IN (${placeholders})`,
+        args: part,
+      });
+      for (const row of r.rows as any[]) {
+        const tid = row.tid ? String(row.tid) : null;
+        if (!tid || String(row.site) !== "youtube") continue;
+        out.set(Number(row.id), tid);
+      }
+    } catch (e: any) {
+      /* Une panne de cache n'est pas une absence de bande-annonce, mais elle
+         n'a rien de mieux à offrir ici : la liste se montrera plus courte. */
+      console.warn("[anime-cache] trailers lookup failed:", e?.message);
+    }
+  }
+  return out;
+}
+
+/**
  * Insert or merge an anime row.
  *
  * Different callers ship different shapes of Media:
