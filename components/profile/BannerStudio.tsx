@@ -988,7 +988,11 @@ export default function BannerStudio({
 
               {/* ── L'écoute ────────────────────────────────────────────── */}
               {scope === "music" && draft.music ? (
-                <div className="flex items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
+                {/* `select-none` sur tout le pied : un glissé qui commence sur
+                    le rail et finit sur le titre surlignait le texte au passage,
+                    et le curseur d'interdiction du glisser-déposer apparaissait
+                    par-dessus. */}
+                <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
                       rose posée à côté qui doublait la mise. */}
@@ -1055,6 +1059,10 @@ export default function BannerStudio({
                       <div
                         onPointerDown={(e) => {
                           if ((e.target as HTMLElement).dataset.grab) return;
+                          /* Sans ça, le navigateur voit un glissé de SÉLECTION
+                             (le pied du panneau est du texte) et affiche son
+                             curseur d'interdiction par-dessus le geste. */
+                          e.preventDefault();
                           e.currentTarget.setPointerCapture(e.pointerId);
                           seeking.current = true;
                           seek(railAt(e));
@@ -1123,6 +1131,7 @@ export default function BannerStudio({
                             aria-valuenow={Math.round(value)}
                             onPointerDown={(e) => {
                               e.stopPropagation();
+                              e.preventDefault();
                               e.currentTarget.setPointerCapture(e.pointerId);
                               setGrab(edge);
                             }}
@@ -1216,6 +1225,7 @@ export default function BannerStudio({
                           d'un fil. */}
                       <div
                         onPointerDown={(e) => {
+                          e.preventDefault();
                           e.currentTarget.setPointerCapture(e.pointerId);
                           setVol(railAt(e));
                         }}
