@@ -217,11 +217,16 @@ export default function ColorPicker({
       </div>
   );
 
-  /* L'aperçu, la pastille de la couleur courante. */
+  /* L'aperçu, la pastille de la couleur courante. Son anneau est la couleur
+     elle-même, éclaircie et désaturée : un anneau blanc fixe se lisait comme un
+     liseré étranger — bleuté sur les teintes chaudes, sale sur les claires —
+     alors qu'ici il reste de la même famille sans se confondre avec le disque.
+     Calculé en HSV, donc un noir donne un gris clair au lieu de rien. */
+  const ringHex = toHex(hsv.h, hsv.s * 0.45, Math.min(1, hsv.v * 0.75 + 0.35));
   const dot = (
     <span
-      className="h-8 w-8 shrink-0 rounded-full ring-2 ring-white/15"
-      style={{ background: hex }}
+      className="h-8 w-8 shrink-0 rounded-full"
+      style={{ background: hex, boxShadow: `0 0 0 2px ${ringHex}` }}
     />
   );
 
