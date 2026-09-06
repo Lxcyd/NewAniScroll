@@ -99,14 +99,12 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   upload: ArrowUpTrayIcon,
 };
 
-/** Les hachures de ce qui est écarté d'un extrait. Jaunes, elles criaient plus
-    fort que l'extrait lui-même et volaient l'œil aux poignées ; les monteurs
-    audio rayent au contraire en NEUTRE, fin et discret (un voile sombre plus
-    des traits blancs à peine visibles) : la zone écartée se lit comme mise de
-    côté, pas comme signalée. Le jaune reste aux seules poignées, qui portent le
-    geste. */
+/** Les hachures de ce qui est écarté d'un extrait — jaunes, comme les poignées
+    qui les délimitent : c'est la même information, elle a la même couleur. Le
+    trait est épais et espacé, sinon la rayure se referme en aplat sur un rail
+    de 8 px de haut et ne se lit plus comme une rayure. */
 const HATCH =
-  "repeating-linear-gradient(-45deg, rgba(255,255,255,.13) 0 1px, rgba(255,255,255,0) 1px 5px)";
+  "repeating-linear-gradient(-45deg, rgba(250,204,21,.5) 0 3px, rgba(250,204,21,0) 3px 8px)";
 
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
@@ -915,8 +913,15 @@ export default function BannerStudio({
                               row.disabled
                                 ? "cursor-not-allowed opacity-45"
                                 : active
-                                  ? "bg-action/20 ring-1 ring-action/60"
-                                  : "hover:bg-white/[0.07]"
+                                  ? /* Le survol (et la navigation au clavier,
+                                       qui partagent ce curseur) pose une BOÎTE
+                                       GRISE, pas un cadre rose : le rose disait
+                                       « choisi » alors que la coche, elle, le
+                                       dit déjà — deux marques pour deux états
+                                       différents rendaient la ligne survolée
+                                       indiscernable de la ligne active. */
+                                    "bg-white/[0.09]"
+                                  : ""
                             }`}
                           >
                             {row.thumb ? (
