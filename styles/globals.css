@@ -2248,14 +2248,34 @@ input[type="number"] {
    ailleurs — on ne recevait pas ce qu'on avait cliqué, et le sélecteur de
    couleur mentait sur son résultat.
 
-   Le voile n'est PAS décoratif : il descend jusqu'à 55 % de la teinte mélangée
-   au noir, ce qui garde le pseudo et les cartes de chiffres lisibles même sur
-   un blanc ou un jaune vif — les deux teintes qui ruinent un aplat franc. */
+   ET LE DÉGRADÉ N'EST PAS ICI, c'est une correction. Il y a été, et la couleur
+   sortait fausse : au-dessus de cette plaque, la page pose déjà
+   `.as-page-scrim-tint` et le studio son propre voile. Assombrir une seconde
+   fois dans la plaque revenait à multiplier les deux — un violet #8B5CF6
+   arrivait à l'écran violet sale en haut et presque noir en bas, et le
+   sélecteur de couleur mentait donc sur son résultat. Une seule couche
+   assombrit, celle qui est au-dessus ; ici, c'est la couleur, franche. */
 .as-hero-tint {
+  background: var(--as-tint, #e94560);
+}
+/* Le voile d'une plaque de COULEUR, bien plus léger que celui d'une
+   illustration (`.as-page-scrim`, 0.72 / 0.28 / 0.6).
+
+   Pourquoi il peut l'être : un voile lourd sert à détacher du texte d'une
+   photo, qui a du détail, des zones claires et des contrastes qu'on ne choisit
+   pas. Un aplat n'a rien de tout cela — et ce qui doit rester lisible porte
+   déjà son propre contraste (le pseudo son ombre portée, les chiffres leur
+   carte). Il ne reste donc à faire que deux choses : creuser sous la barre de
+   navigation, et rejoindre le fond de page en bas. */
+.as-page-scrim-tint {
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
-    180deg,
-    var(--as-tint, #e94560) 0%,
-    color-mix(in srgb, var(--as-tint, #e94560) 55%, #000) 100%
+    to bottom,
+    rgba(12, 13, 16, 0.5) 0px,
+    rgba(12, 13, 16, 0.1) 140px,
+    rgba(12, 13, 16, 0.08) 62%,
+    rgba(12, 13, 16, 0.42) 100%
   );
 }
 /* Le curseur de flou du dock a été rendu à `.as-range`, celui des réglages de

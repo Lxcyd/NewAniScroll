@@ -15,7 +15,7 @@ import {
   SwatchIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon } from "@heroicons/react/24/solid";
+import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import PlateBackground from "@/components/profile/PlateBackground";
 import ColorPicker from "@/components/shared/ColorPicker";
@@ -97,6 +97,12 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   upload: ArrowUpTrayIcon,
 };
 
+/** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
+const clock = (s: number) =>
+  Number.isFinite(s) && s > 0
+    ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`
+    : "0:00";
+
 /** Une entrée de la palette. `run` est ce que ⏎ ou le clic déclenche. */
 type Row = {
   key: string;
@@ -161,6 +167,19 @@ export default function BannerStudio({
      l'écran seulement. */
   const artCache = useRef(new Map<number, BannerOption[]>());
   const themeCache = useRef(new Map<number, ThemeRow[]>());
+
+  /* L'écoute, dans le menu Musique. Elle ne sert qu'à choisir : le lecteur vit
+     avec le menu et s'arrête en même temps que lui, puisqu'il en est retiré du
+     DOM. C'est le fichier d'AnimeThemes qui est écouté ici — le rip de 90 s —
+     même quand le profil jouera ensuite la version complète depuis YouTube. */
+  const preview = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [at, setAt] = useState(0);
+  const [len, setLen] = useState(0);
+  /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
+     rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
+     fichier. */
+  const [wantPlay, setWantPlay] = useState(false);
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
@@ -267,6 +286,14 @@ export default function BannerStudio({
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
     [],
   );
+
+  useEffect(() => {
+    const el = preview.current;
+    if (!el || !wantPlay) return;
+    setWantPlay(false);
+    el.currentTime = 0;
+    void el.play().catch(() => setPlaying(false));
+  }, [wantPlay, draft.music?.url]);
 
   const openScope = useCallback((s: PaletteScope) => {
     setScope(s);
@@ -435,18 +462,22 @@ export default function BannerStudio({
             run: url
               ? () =>
                   scope === "music"
-                    ? patch({
+                    ? (patch({
                         music: {
                           url,
                           title: label,
                           artist,
                           slug: th.slug.toUpperCase(),
+                          cover: listedAnime?.cover ?? null,
                           /* La version complète quand elle a été résolue, sinon
                              null : le profil retombe sur les 90 s d'AnimeThemes
                              plutôt que de ne rien jouer. */
                           videoId: th.youtubeId ?? null,
                         },
-                      })
+                      }),
+                      /* Choisir une piste, c'est l'écouter : sans cela il
+                         fallait appliquer pour savoir ce qu'on avait pris. */
+                      setWantPlay(true))
                     : patch({
                         kind: "oped" as const,
                         url,
@@ -572,12 +603,19 @@ export default function BannerStudio({
         <PlateBackground dressing={shown} fallback={shown.source === "cover"} />
         {/* Le voile : lourd en haut pour porter la barre — il n'y a plus de
             navigation derrière elle — lourd en bas pour porter le dock, et
-            presque rien au milieu, là où l'on regarde l'image. */}
+            presque rien au milieu, là où l'on regarde l'image.
+
+            Sur un APLAT DE COULEUR il s'allège de moitié : la barre et le dock
+            portent leur propre fond depuis qu'ils sont opaques, et une couleur
+            vue à travers un voile à 0,88 n'est plus la couleur qu'on vient de
+            choisir — l'aperçu doit montrer ce qui sera appliqué. */}
         <div
           className="absolute inset-0"
           style={{
             background:
-              "linear-gradient(to bottom, rgba(6,7,10,.82) 0%, rgba(6,7,10,.25) 14%, rgba(6,7,10,.18) 52%, rgba(6,7,10,.88) 100%)",
+              shown.kind === "color"
+                ? "linear-gradient(to bottom, rgba(6,7,10,.5) 0%, rgba(6,7,10,.12) 14%, rgba(6,7,10,.08) 52%, rgba(6,7,10,.5) 100%)"
+                : "linear-gradient(to bottom, rgba(6,7,10,.82) 0%, rgba(6,7,10,.25) 14%, rgba(6,7,10,.18) 52%, rgba(6,7,10,.88) 100%)",
           }}
         />
       </div>
@@ -811,6 +849,80 @@ export default function BannerStudio({
                 )}
               </div>
 
+              {/* ── L'écoute ────────────────────────────────────────────── */}
+              {scope === "music" && draft.music ? (
+                <div className="flex items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
+                  <audio
+                    ref={preview}
+                    src={draft.music.url}
+                    preload="metadata"
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => setPlaying(false)}
+                    onEnded={() => setPlaying(false)}
+                    onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
+                    onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
+                  />
+                  {draft.music.cover ? (
+                    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-black/50">
+                      <Image src={draft.music.cover} alt="" fill sizes="40px" className="object-cover" />
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = preview.current;
+                      if (!el) return;
+                      if (el.paused) void el.play().catch(() => setPlaying(false));
+                      else el.pause();
+                    }}
+                    aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-action text-white transition-transform hover:scale-105"
+                  >
+                    {playing ? (
+                      <PauseIcon className="h-4 w-4" />
+                    ) : (
+                      <PlayIcon className="ml-0.5 h-4 w-4" />
+                    )}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-outfit text-[13px] font-bold text-white">
+                      {draft.music.title}
+                      {draft.music.videoId ? (
+                        <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+                          {t("profile.studioMusicFull")}
+                        </span>
+                      ) : null}
+                    </p>
+                    {/* La barre : cliquer dedans déplace la lecture. Le rail
+                        vaut la durée du fichier, pas celle du morceau complet —
+                        c'est le rip de 90 s qui est écouté ici. */}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+                        {clock(at)}
+                      </span>
+                      <div
+                        onPointerDown={(e) => {
+                          const el = preview.current;
+                          if (!el || !len) return;
+                          const r = e.currentTarget.getBoundingClientRect();
+                          const p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+                          el.currentTime = p * len;
+                          setAt(p * len);
+                        }}
+                        className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-white/12"
+                      >
+                        <span
+                          className="absolute inset-y-0 left-0 rounded-full bg-action"
+                          style={{ width: `${len ? (at / len) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+                        {clock(len)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </>
@@ -821,7 +933,10 @@ export default function BannerStudio({
         <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-[1.5rem] bg-[#15161d]/90 p-3 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl scrollbar-hide">
           {DRESSING_KINDS.map(({ id }) => {
             const Icon = KIND_ICON[id];
-            const on = scope === id || (!scope && draft.kind === id && (draft.url || draft.color));
+            /* Le rose dit UNIQUEMENT « ce menu est ouvert ». Il disait aussi
+               « c'est le type du brouillon », et une fois le menu refermé un
+               bouton restait allumé sans rien désigner d'ouvert. */
+            const on = scope === id;
             return (
               <button
                 key={id}
@@ -849,13 +964,23 @@ export default function BannerStudio({
               scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
             }`}
           >
-            <span
-              className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
-                draft.music ? "bg-action/20 text-action" : "bg-white/[0.07] text-white/45"
-              }`}
-            >
-              <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
-            </span>
+            {/* La pochette de l'anime dont vient le morceau : elle dit d'un
+                coup d'œil ce qu'on écoute, là où un haut-parleur ne disait que
+                « du son ». Le haut-parleur reste quand il n'y a pas encore de
+                musique — il n'y a alors pas de pochette à montrer. */}
+            {draft.music?.cover ? (
+              <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-black/50">
+                <Image src={draft.music.cover} alt="" fill sizes="36px" className="object-cover" />
+              </span>
+            ) : (
+              <span
+                className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${
+                  draft.music ? "bg-action/20 text-action" : "bg-white/[0.07] text-white/45"
+                }`}
+              >
+                <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
+              </span>
+            )}
             <span className="min-w-0">
               <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}

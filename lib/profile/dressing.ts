@@ -38,6 +38,15 @@ export type DressingMusic = {
   /** "OP1", "ED2"… — ce qui est affiché à côté du titre. */
   slug: string | null;
   /**
+   * L'affiche de l'anime dont vient le morceau.
+   *
+   * Rangée AVEC la musique et non déduite du fond : on peut porter l'opening
+   * d'un titre sur la bannière d'un autre, et c'est même l'usage courant. Sans
+   * elle, le dock affichait une icône de haut-parleur là où une pochette dit
+   * tout de suite de quel anime on parle.
+   */
+  cover: string | null;
+  /**
    * Vidéo YouTube du morceau, quand elle est connue.
    *
    * L'audio d'AnimeThemes est le rip du générique : 90 s, mesuré à ffprobe sur
@@ -179,6 +188,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
         title: str(rawMusic.title) || "—",
         artist: str(rawMusic.artist),
         slug: str(rawMusic.slug, 16),
+        cover: str(rawMusic.cover, 500),
         videoId,
       }
     : null;

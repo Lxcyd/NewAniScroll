@@ -388,7 +388,10 @@ export default function ProfileHero({
             unmuted={sound && !banner.music}
             priority
           />
-          <div className="as-page-scrim" />
+          {/* Une couleur choisie reçoit un voile léger : le voile lourd existe
+              pour détacher du texte d'une PHOTO, et l'appliquer à un aplat
+              rendait une autre couleur que celle qu'on avait cliquée. */}
+          <div className={flat ? "as-page-scrim-tint" : "as-page-scrim"} />
         </div>
       ) : null}
 
