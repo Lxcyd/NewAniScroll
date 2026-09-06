@@ -478,7 +478,14 @@ export default function WidgetGrid({
                     maxLength={48}
                     aria-label={t("profile.widgets.rename")}
                     title={t("profile.widgets.rename")}
-                    className="min-w-0 flex-1 rounded-md border border-dashed border-white/25 bg-transparent px-2 py-0.5 font-outfit text-lg font-bold text-white outline-none transition-colors placeholder:text-white/35 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
+                    /* Le cadre épouse le TEXTE et ne traverse plus la carte :
+                       une boîte vide de 300 px sous un mot de six lettres se
+                       lisait comme une zone de saisie de formulaire, pas comme
+                       un titre qu'on peut reprendre. `field-sizing` fait ça
+                       exactement, `size` le fait approximativement partout
+                       ailleurs — d'où les deux, l'un couvrant l'autre. */
+                    size={Math.max(6, (chrome.name || chrome.defaultName || "").length)}
+                    className="[field-sizing:content] w-auto min-w-0 max-w-full rounded-md border border-dashed border-white/25 bg-transparent px-2 py-0.5 font-outfit text-lg font-bold text-white outline-none transition-colors placeholder:text-white/35 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
                   />
                 ) : (
                   <span className="truncate">{chrome.title}</span>

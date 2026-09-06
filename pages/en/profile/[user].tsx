@@ -497,7 +497,22 @@ const listCache = new Map<string, { at: number; data: any }>();
 /** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
 const FRAIS_MS = 5 * 60_000;
 const PARTAGE_TTL_S = 24 * 60 * 60;
-const partageKey = (name: string) => `anilist:list:v1:${name.toLowerCase()}`;
+/**
+ * v2 : la requête demande la bande-annonce de chaque titre (`trailer`) depuis le
+ * 06/09/2026, et une copie v1 n'en porte aucune — d'où « aucune bande-annonce
+ * dans cette liste » sur une liste qui en est pleine, tant que la page est
+ * servie depuis le cache.
+ *
+ * L'ANCIENNE CLÉ RESTE LUE, et ce n'est pas une précaution de principe :
+ * `graphql.anilist.co` répond 403 à tout depuis le 02/09/2026 (« temporarily
+ * disabled due to severe stability issues », vérifié le 07/09). Pendant une
+ * panne pareille, aucune requête neuve n'aboutit : jeter la copie v1 en même
+ * temps qu'on change de clé aurait vidé les profils au lieu de leur ajouter des
+ * bandes-annonces. On lit donc v2, puis v1 à défaut, et on n'écrit que v2 —
+ * la première réponse fraîche fait la bascule toute seule.
+ */
+const partageKey = (name: string) => `anilist:list:v2:${name.toLowerCase()}`;
+const partageKeyV1 = (name: string) => `anilist:list:v1:${name.toLowerCase()}`;
 
 /** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
 type ListePartagee = { at: number; z: string };
@@ -505,7 +520,7 @@ type ListePartagee = { at: number; z: string };
 async function partageLu(name: string): Promise<{ at: number; data: any } | null> {
   try {
     if (!redis) return null;
-    const raw = await redis.get(partageKey(name));
+    const raw = (await redis.get(partageKey(name))) ?? (await redis.get(partageKeyV1(name)));
     if (!raw) return null;
     const box = JSON.parse(raw) as ListePartagee;
     if (!box?.z || typeof box.at !== "number") return null;
