@@ -1121,9 +1121,12 @@ export default function BannerStudio({
         >
           {t("common.cancel", { defaultValue: "Annuler" })}
         </button>
+        {/* Une bande-annonce est un fond COMPLET, sans fichier ni couleur :
+            sans elle dans le test ci-dessous, on choisissait un trailer et le
+            bouton « Utiliser cette bannière » restait éteint. */}
         <button
           type="button"
-          disabled={!draft.url && !draft.color}
+          disabled={!draft.url && !draft.color && !draft.trailerId}
           onClick={() => onApply(draft)}
           className="rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
         >
