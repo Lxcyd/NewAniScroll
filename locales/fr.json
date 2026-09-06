@@ -825,6 +825,7 @@
     "bannerApply": "Utiliser cette bannière",
     "artInPlace": "En place",
     "artPoster": "Affiche",
+    "artTrailer": "Bande-annonce",
     "artThin": "Bannière fine",
     "favouriteAnime": "Votre anime préféré",
     "tabs": {
@@ -1057,6 +1058,9 @@
     "studioColorCustom": "Sur mesure",
     "studioArtOf": "Illustrations · {{title}}",
     "studioCovers": "Affiches de ma liste",
+    "studioTrailers": "Bandes-annonces de ma liste",
+    "studioNoTrailer": "Aucune bande-annonce dans cette liste",
+    "studioNoTrailerHint": "Elles viennent d'AniList : une liste locale n'en porte pas.",
     "studioThemesOf": "Openings & endings · {{title}}",
     "studioMusicOf": "Musique · {{title}}",
     "studioMusicNone": "Sans musique",

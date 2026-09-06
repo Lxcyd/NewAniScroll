@@ -825,6 +825,7 @@
     "bannerApply": "Use this banner",
     "artInPlace": "In place",
     "artPoster": "Poster",
+    "artTrailer": "Trailer",
     "artThin": "Thin banner",
     "favouriteAnime": "Your favourite anime",
     "tabs": {
@@ -1057,6 +1058,9 @@
     "studioColorCustom": "Custom",
     "studioArtOf": "Artwork · {{title}}",
     "studioCovers": "Posters from my list",
+    "studioTrailers": "Trailers from my list",
+    "studioNoTrailer": "No trailer in this list",
+    "studioNoTrailerHint": "They come from AniList: a local list carries none.",
     "studioThemesOf": "Openings & endings · {{title}}",
     "studioMusicOf": "Music · {{title}}",
     "studioMusicNone": "No music",

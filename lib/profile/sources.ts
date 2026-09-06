@@ -53,6 +53,14 @@ export function entriesFromAniList(
         // c'est ce qui garde la charge d'une liste de 800 titres raisonnable.
         genres: Array.isArray(e.media?.genres) ? e.media.genres.slice(0, 3) : [],
         studio: e.media?.studios?.nodes?.[0]?.name ?? null,
+        /* La bande-annonce, et seulement si elle est sur YouTube : AniList
+           publie aussi des identifiants Dailymotion, que le fond du profil ne
+           sait pas jouer. Un id d'un autre hôte gardé ici aurait produit une
+           iframe YouTube vers une vidéo qui n'existe pas. */
+        trailer:
+          e.media?.trailer?.site === "youtube" && e.media?.trailer?.id
+            ? String(e.media.trailer.id)
+            : null,
         customLists: custom ? [custom] : [],
       };
       byId.set(mediaId, entry);

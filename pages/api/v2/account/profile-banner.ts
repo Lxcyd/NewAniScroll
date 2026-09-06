@@ -40,7 +40,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     /* Le fond. Une couleur n'a rien à valider au-delà de son écriture — c'est
        normalizeDressing qui l'a déjà refusée si ce n'était pas un #rrggbb. */
-    if (dressing.kind !== "color") {
+    /* Une bande-annonce n'a pas d'URL à valider : `normalizeDressing` n'a gardé
+       son identifiant que s'il avait la forme exacte d'un id YouTube, et c'est
+       la seule chose qui parte ensuite dans l'iframe. */
+    if (dressing.kind !== "color" && !dressing.trailerId) {
       const ok = isVideoKind(dressing.kind)
         ? isAllowedMediaUrl(dressing.url)
         : isAllowedBannerUrl(dressing.url);

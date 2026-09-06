@@ -69,6 +69,8 @@ export type StudioAnime = {
   mediaId: number;
   title: string;
   cover?: string | null;
+  /** Identifiant YouTube de la bande-annonce, quand AniList en connaît une. */
+  trailer?: string | null;
 };
 
 type Props = {
@@ -626,6 +628,53 @@ export default function BannerStudio({
       out.push({ title: t("profile.studioCovers"), rows });
     }
 
+    /* ── Les bandes-annonces ──────────────────────────────────────────────
+       Elles arrivent avec la liste (une ligne de plus dans la requête AniList
+       déjà faite), donc cette section ne coûte aucune requête non plus. Tous
+       les titres qui en ont une sont proposés — c'est la seule source de fond
+       animé qui existe aujourd'hui pour n'importe quel anime, là où les
+       génériques dépendent de la couverture d'AnimeThemes. */
+    if (scope === "video") {
+      const rows = animes
+        .filter((a) => a.trailer && match(a.title))
+        .map((a) => ({
+          key: `trailer-${a.mediaId}`,
+          label: a.title,
+          hint: t("profile.artTrailer"),
+          thumb: a.cover ?? null,
+          selected: draft.trailerId === a.trailer,
+          run: () =>
+            patch({
+              kind: "video" as const,
+              /* Pas d'`url` : une bande-annonce se joue par son lecteur
+                 YouTube, jamais comme un fichier (cf. `trailerId`). */
+              url: null,
+              trailerId: a.trailer!,
+              color: null,
+              source: null,
+              animeId: a.mediaId,
+              title: a.title,
+            }),
+        }));
+      /* Une liste locale ne porte pas de bandes-annonces : elle n'a jamais vu
+         AniList. Le dire vaut mieux qu'un panneau vide, qui se lit comme une
+         panne. */
+      out.push({
+        title: t("profile.studioTrailers"),
+        rows: rows.length
+          ? rows
+          : [
+              {
+                key: "no-trailer",
+                label: t("profile.studioNoTrailer"),
+                hint: t("profile.studioNoTrailerHint"),
+                icon: FilmIcon,
+                disabled: true,
+              },
+            ],
+      });
+    }
+
     if (scope === "oped" || scope === "music") {
       const rows: Row[] = themes
         /* Quand la requête DÉSIGNE l'anime, elle ne doit pas filtrer ses
@@ -811,8 +860,11 @@ export default function BannerStudio({
   const pinned = !!value;
   /* Ce que l'aperçu montre : le brouillon dès qu'il a quelque chose, sinon la
      plaque automatique — pour que l'écran ne s'ouvre jamais sur du vide. */
+  /* Une bande-annonce est un fond à part entière, sans `url` ni couleur : sans
+     elle dans ce test, l'aperçu retombait sur la bannière automatique et le
+     studio montrait autre chose que ce qu'on venait de choisir. */
   const shown: Dressing =
-    draft.url || draft.color
+    draft.url || draft.color || draft.trailerId
       ? draft
       : { ...draft, kind: "banner", url: auto.url, source: auto.source };
   const cardAlpha = draft.blur > 0 ? 0.34 : 0.62;

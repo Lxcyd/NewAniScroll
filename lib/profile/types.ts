@@ -84,6 +84,8 @@ export type ProfileEntry = {
   genres?: string[];
   /** Studio principal. */
   studio?: string | null;
+  /** Identifiant YouTube de la bande-annonce — le fond « Vidéo » du studio. */
+  trailer?: string | null;
 };
 
 /** Un personnage favori, tel qu'AniList le publie. */

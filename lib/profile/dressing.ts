@@ -149,6 +149,16 @@ export type Dressing = {
   title: string | null;
   /** Nature de l'illustration — décide fond-de-page ou bandeau (types.plateMode). */
   source: BannerOption["source"] | null;
+  /**
+   * La bande-annonce YouTube portée en fond, quand le fond est de type
+   * « video ». Onze caractères, l'identifiant seul.
+   *
+   * Elle ne passe pas par `url` : une bande-annonce n'est pas un fichier qu'on
+   * peut donner à un `<video>`, c'est un lecteur YouTube, et le seul moyen
+   * légitime de la jouer est son embed — celui qui sert la publicité qui paie
+   * la licence. La liste blanche d'hôtes de `url` reste donc ce qu'elle est.
+   */
+  trailerId: string | null;
   /** Musique du profil. Prioritaire sur la bande-son d'une vidéo de fond. */
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
@@ -171,7 +181,10 @@ export const DRESSING_KINDS: Array<{ id: DressingKind; ready: boolean }> = [
   { id: "banner", ready: true },
   { id: "anim", ready: false },
   { id: "image", ready: true },
-  { id: "video", ready: false },
+  /* « Vidéo » est servi par les bandes-annonces AniList depuis le 06/09/2026 :
+     elles existent pour presque tous les titres, et arrivent dans la requête
+     que le profil fait déjà. */
+  { id: "video", ready: true },
   { id: "oped", ready: true },
   { id: "clip", ready: false },
   { id: "upload", ready: false },
@@ -231,6 +244,18 @@ function str(v: unknown, max = 200): string | null {
  * ces cas on rend le morceau entier plutôt qu'un extrait à moitié valide, qui
  * se traduirait à la lecture par un silence qu'on ne saurait pas expliquer.
  */
+/**
+ * Un identifiant YouTube, ou `null`.
+ *
+ * Il part dans l'URL d'une iframe : on le valide sur sa forme exacte — onze
+ * caractères de l'alphabet YouTube — plutôt que de le laisser passer en texte
+ * libre. Tout le reste devient `null`, jamais une chaîne assainie à moitié.
+ */
+function youtubeId(raw: unknown): string | null {
+  const s = str(raw, 16);
+  return s && /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
+}
+
 function trim(rawFrom: unknown, rawTo: unknown): { from: number | null; to: number | null } {
   const from = Number(rawFrom);
   const to = Number(rawTo);
@@ -266,16 +291,15 @@ export function normalizeDressing(raw: unknown): Dressing | null {
 
   const url = str(obj.url, 500);
   const color = isHexColor(obj.color) ? obj.color : null;
-  if (!url && !color) return null;
+  /* Une bande-annonce est un fond à elle seule : ni fichier, ni couleur. Sans
+     elle dans ce garde-fou, tout l'habillage — musique et agencement compris —
+     serait jeté à la relecture d'un profil qui porte un trailer. */
+  const trailerId = youtubeId(obj.trailerId);
+  if (!url && !color && !trailerId) return null;
 
   const rawMusic = obj.music;
   const musicUrl = rawMusic ? str(rawMusic.url, 500) : null;
-  /* Cet identifiant part dans l'URL d'une iframe : on le valide sur la forme
-     exacte d'un id YouTube (11 caractères) plutôt que de le laisser passer en
-     texte libre. Tout le reste devient null, pas une chaîne assainie à moitié. */
-  const rawVideoId = rawMusic ? str(rawMusic.videoId, 16) : null;
-  const videoId =
-    rawVideoId && /^[A-Za-z0-9_-]{11}$/.test(rawVideoId) ? rawVideoId : null;
+  const videoId = youtubeId(rawMusic?.videoId);
 
   const music: DressingMusic | null = musicUrl
     ? {
@@ -299,6 +323,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     animeId: Number.isFinite(animeId) && animeId > 0 ? animeId : null,
     title: str(obj.title, 300),
     source: SOURCES.has(obj.source) ? obj.source : null,
+    trailerId: kind === "video" ? trailerId : null,
     music,
     blur: clampBlur(obj.blur),
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
@@ -314,6 +339,7 @@ export function emptyDressing(): Dressing {
     animeId: null,
     title: null,
     source: null,
+    trailerId: null,
     music: null,
     blur: 0,
     layout: "band",

@@ -42,6 +42,8 @@ export type HeroBanner = {
   color?: string | null;
   music?: Dressing["music"];
   blur?: number | null;
+  /** Bande-annonce YouTube portée en fond (kind « video »). */
+  trailerId?: Dressing["trailerId"];
   /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
   layout?: Dressing["layout"] | null;
 };
@@ -139,6 +141,9 @@ export default function ProfileHero({
      stale, so once it has loaded they decide. Nothing is downloaded twice —
      next/image has already fetched this exact URL, so the probe reads the cache. */
   const video = isVideoKind(banner.kind);
+  /* Une bande-annonce est un fond d'écran comme une vidéo : elle n'a ni fichier
+     ni proportions à mesurer, elle remplit la fenêtre. */
+  const trailer = banner.kind === "video" && !!banner.trailerId;
   const flat = banner.kind === "color" && !!banner.color;
   /* Une pochette portrait est floutée et sur-dimensionnée, qu'elle arrive comme
      dernier recours de la résolution automatique (`fallback`) ou comme un choix
@@ -161,17 +166,19 @@ export default function ProfileHero({
 
   const mode = flat
     ? "page"
-    : !banner.url
-      ? "none"
-      : video
-        ? "page" /* une vidéo est un fond d'écran, jamais un bandeau */
-        : cover
-          ? "page" /* a portrait cover: blurred wallpaper, never a strip */
-          : ratio == null
-            ? plateMode(banner.source)
-            : ratio > 3
-              ? "band"
-              : "page";
+    : trailer
+      ? "page"
+      : !banner.url
+        ? "none"
+        : video
+          ? "page" /* une vidéo est un fond d'écran, jamais un bandeau */
+          : cover
+            ? "page" /* a portrait cover: blurred wallpaper, never a strip */
+            : ratio == null
+              ? plateMode(banner.source)
+              : ratio > 3
+                ? "band"
+                : "page";
   const asPage = mode === "page";
 
   /* ── Le flou derrière les widgets ──────────────────────────────────────
@@ -206,7 +213,10 @@ export default function ProfileHero({
      est donc la seule façon de l'entendre, et il dit ce qu'il joue. */
   const audio = useRef<HTMLAudioElement | null>(null);
   const [sound, setSound] = useState(false);
-  const hasSound = !!banner.music || video;
+  /* Une bande-annonce ne compte PAS comme une source de son : elle est jouée
+     muette et le reste (voir PlateBackground). Un bouton de son qui ne
+     débloquerait rien vaut moins que pas de bouton du tout. */
+  const hasSound = !!banner.music || (video && !!banner.url);
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
 
   /* Deux façons de jouer la musique, et la meilleure gagne quand elle existe.
@@ -466,6 +476,7 @@ export default function ProfileHero({
               url: banner.url,
               color: banner.color ?? null,
               source: banner.source ?? null,
+              trailerId: banner.trailerId ?? null,
             }}
             fallback={cover}
             unmuted={sound && !banner.music}
@@ -497,7 +508,7 @@ export default function ProfileHero({
             priority
           />
         ) : null}
-        {!banner.url && !flat ? (
+        {!banner.url && !flat && !trailer ? (
           /* No list, no artwork: the site's own colour. */
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
         ) : null}

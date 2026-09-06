@@ -18,7 +18,10 @@ import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
  */
 
 type Props = {
-  dressing: Pick<Dressing, "kind" | "url" | "color"> & { source?: Dressing["source"] };
+  dressing: Pick<Dressing, "kind" | "url" | "color"> & {
+    source?: Dressing["source"];
+    trailerId?: Dressing["trailerId"];
+  };
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
   /** Une pochette portrait étirée en bandeau : floutée et sur-dimensionnée. */
@@ -66,6 +69,42 @@ export default function PlateBackground({
         className="absolute inset-0 as-hero-tint"
         style={{ ["--as-tint" as any]: dressing.color || "#E94560" }}
       />
+    );
+  }
+
+  /* ── La bande-annonce ────────────────────────────────────────────────────
+     Un embed à elle, et non le lecteur partagé de TrailerStage : celui-ci est
+     UNIQUE pour la session et sert déjà les survols de cartes et la musique du
+     profil. Un fond qui le réclamerait le volerait au premier survol venu, et
+     inversement.
+
+     Elle est muette, et le reste : le bouton de son du profil pilote un
+     `<audio>` ou le lecteur de la musique, pas cette iframe — un fond qui
+     parlerait par-dessus la musique choisie serait exactement ce que la règle
+     « la musique l'emporte » existe pour empêcher.
+
+     Le cadre est SUR-DIMENSIONNÉ (`scale`) pour la même raison que dans
+     TrailerStage : c'est ce qui pousse hors champ le titre, le bouton et le
+     filigrane que YouTube peint sur son lecteur. `loop` demande sa propre
+     `playlist` — sans elle le paramètre est ignoré et la vidéo s'arrête à la
+     fin en affichant sa grille de suggestions. */
+  if (dressing.kind === "video" && dressing.trailerId) {
+    const id = encodeURIComponent(dressing.trailerId);
+    return (
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <iframe
+          key={dressing.trailerId}
+          src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${id}&playsinline=1&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1`}
+          title=""
+          allow="autoplay; encrypted-media"
+          frameBorder="0"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 scale-[1.35] border-0"
+          /* Le plus grand des deux débordements : 16/9 en largeur, 9/16 en
+             hauteur. C'est ce qui remplit aussi bien une fenêtre large qu'un
+             téléphone, sans jamais laisser de bande noire. */
+          style={{ width: "max(100%, 177.78vh)", height: "max(100%, 56.25vw)" }}
+        />
+      </div>
     );
   }
 

@@ -142,6 +142,7 @@ export default function Profile({
         title:
           e.title?.english || e.title?.romaji || e.title?.userPreferred || `#${e.mediaId}`,
         cover: e.cover ?? null,
+        trailer: e.trailer ?? null,
       }));
     return [...topAnimes, ...reste];
   }, [isOwner, topAnimes, entries]);
@@ -433,6 +434,11 @@ const ANILIST_QUERY = `
             # AniList la donne ici même, sans un aller-retour de plus.
             duration
             startDate { year }
+            # La bande-annonce : c'est elle que le studio propose comme fond
+            # « Vidéo ». Elle arrive avec le reste de la requête — aucun appel
+            # de plus pour l'obtenir sur toute la liste, alors qu'une par une
+            # aurait coûté un aller-retour par titre.
+            trailer { id site }
             genres
             studios(isMain: true) { nodes { name } }
           }
@@ -819,6 +825,7 @@ export async function getServerSideProps(context: any) {
               known.get(c.mediaId)?.title ||
               `#${c.mediaId}`,
             cover: entry.cover ?? null,
+            trailer: entry.trailer ?? null,
           };
         })
     : [];
