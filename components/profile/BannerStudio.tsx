@@ -106,7 +106,7 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
     côté, pas comme signalée. Le jaune reste aux seules poignées, qui portent le
     geste. */
 const HATCH =
-  "repeating-linear-gradient(45deg, rgba(255,255,255,.13) 0 1px, rgba(255,255,255,0) 1px 5px)";
+  "repeating-linear-gradient(-45deg, rgba(255,255,255,.13) 0 1px, rgba(255,255,255,0) 1px 5px)";
 
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
@@ -1243,7 +1243,7 @@ export default function BannerStudio({
               qu'on veut d'un lecteur. Ils ne peuvent pas être imbriqués — un
               bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
           <div
-            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-0.5 transition-colors ${
+            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-3 transition-colors ${
               scope === "music" ? "bg-white/[0.10]" : ""
             }`}
           >
@@ -1284,10 +1284,10 @@ export default function BannerStudio({
               onClick={() => openScope("music")}
               className="min-w-0 flex-1 rounded-lg text-left"
             >
-              <span className="block truncate font-outfit text-[13.5px] font-bold leading-tight text-white">
+              <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}
               </span>
-              <span className="block truncate font-karla text-[11.5px] leading-tight text-white/40">
+              <span className="block truncate font-karla text-[11.5px] leading-snug text-white/40">
                 {draft.music
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
@@ -1295,12 +1295,9 @@ export default function BannerStudio({
               {/* La progression sous le texte, donc alignée sur lui et à droite
                   de la pochette — elle appartient au titre qu'elle suit, pas au
                   bloc entier. Elle ne montre QUE l'extrait retenu : c'est lui
-                  qui tourne. Les deux lignes et le rail tiennent dans la HAUTEUR
-                  DE LA POCHETTE (44 px, d'où l'interligne serré) : le rail
-                  débordait sous elle, et une colonne plus longue que l'image
-                  qu'elle accompagne fait pencher tout le bloc. */}
+                  qui tourne. */}
               {draft.music && to > from ? (
-                <span className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
+                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
                   <span
                     className="block h-full rounded-full bg-action"
                     style={{
