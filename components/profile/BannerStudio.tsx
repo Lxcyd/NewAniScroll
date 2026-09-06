@@ -176,6 +176,10 @@ export default function BannerStudio({
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
+  /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
+  const [buf, setBuf] = useState(0);
+  /** Le fichier a repris la main sur la lecture — on attend des données. */
+  const [buffering, setBuffering] = useState(false);
   /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
@@ -291,6 +295,10 @@ export default function BannerStudio({
     const el = preview.current;
     if (!el || !wantPlay) return;
     setWantPlay(false);
+    /* Le rail appartient au nouveau morceau : garder la position et la mémoire
+       tampon du précédent, c'est afficher une seconde de mensonge. */
+    setAt(0);
+    setBuf(0);
     el.currentTime = 0;
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url]);
@@ -852,21 +860,35 @@ export default function BannerStudio({
               {/* ── L'écoute ────────────────────────────────────────────── */}
               {scope === "music" && draft.music ? (
                 <div className="flex items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
+                  {/* `preload="auto"` et pas `metadata` : c'est CE réglage qui
+                      rendait un déplacement dans le morceau si long. En
+                      « metadata », le navigateur n'a que l'en-tête du fichier ;
+                      chaque saut redemandait la plage au serveur et attendait
+                      son arrivée. Un générique pèse ~2 Mo : autant le charger
+                      une fois, dès qu'on l'a choisi, et n'attendre plus jamais.
+                      La barre de mémoire tampon ci-dessous montre ce qui est
+                      déjà là, donc où l'on peut sauter sans attendre. */}
                   <audio
                     ref={preview}
                     src={draft.music.url}
-                    preload="metadata"
+                    preload="auto"
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
                     onEnded={() => setPlaying(false)}
+                    onWaiting={() => setBuffering(true)}
+                    onPlaying={() => setBuffering(false)}
+                    onCanPlay={() => setBuffering(false)}
                     onLoadedMetadata={(e) => setLen(e.currentTarget.duration || 0)}
                     onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
+                    onProgress={(e) => {
+                      const el = e.currentTarget;
+                      const b = el.buffered;
+                      setBuf(b.length && el.duration ? b.end(b.length - 1) / el.duration : 0);
+                    }}
                   />
-                  {draft.music.cover ? (
-                    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-black/50">
-                      <Image src={draft.music.cover} alt="" fill sizes="40px" className="object-cover" />
-                    </span>
-                  ) : null}
+                  {/* La pochette EST le bouton, comme dans un lecteur de
+                      musique : l'image porte le triangle, au lieu d'une pastille
+                      rose posée à côté qui doublait la mise. */}
                   <button
                     type="button"
                     onClick={() => {
@@ -876,13 +898,20 @@ export default function BannerStudio({
                       else el.pause();
                     }}
                     aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-action text-white transition-transform hover:scale-105"
+                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
                   >
-                    {playing ? (
-                      <PauseIcon className="h-4 w-4" />
-                    ) : (
-                      <PlayIcon className="ml-0.5 h-4 w-4" />
-                    )}
+                    {draft.music.cover ? (
+                      <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
+                    ) : null}
+                    <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
+                      {buffering ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : playing ? (
+                        <PauseIcon className="h-5 w-5 drop-shadow" />
+                      ) : (
+                        <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
+                      )}
+                    </span>
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-outfit text-[13px] font-bold text-white">
@@ -911,6 +940,10 @@ export default function BannerStudio({
                         }}
                         className="relative h-1.5 flex-1 cursor-pointer rounded-full bg-white/12"
                       >
+                        <span
+                          className="absolute inset-y-0 left-0 rounded-full bg-white/20"
+                          style={{ width: `${buf * 100}%` }}
+                        />
                         <span
                           className="absolute inset-y-0 left-0 rounded-full bg-action"
                           style={{ width: `${len ? (at / len) * 100 : 0}%` }}
