@@ -99,9 +99,10 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   upload: ArrowUpTrayIcon,
 };
 
-/** Les hachures de ce qui est écarté d'un extrait. */
+/** Les hachures de ce qui est écarté d'un extrait — jaunes, comme les poignées
+    qui les délimitent : c'est la même information, elle a la même couleur. */
 const HATCH =
-  "repeating-linear-gradient(45deg, rgba(255,255,255,.22) 0 2px, rgba(255,255,255,0) 2px 6px)";
+  "repeating-linear-gradient(45deg, rgba(250,204,21,.55) 0 2px, rgba(250,204,21,0) 2px 6px)";
 
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
@@ -1084,10 +1085,14 @@ export default function BannerStudio({
                         {clock(len)}
                       </span>
 
-                      {/* Le volume. Le haut-parleur coupe et rétablit — c'est le
+                      {/* Le volume dans sa propre pastille : posé à même le pied
+                          du panneau, il flottait entre le minutage et le bord et
+                          on ne voyait pas où commençait la commande. Le fond la
+                          délimite, comme les pastilles de valeur des réglages de
+                          widget. Le haut-parleur coupe et rétablit — c'est le
                           geste qu'on cherche en premier, et il évite d'avoir à
                           viser le zéro du rail. */}
-                      <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+                      <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.07] px-2.5 py-1.5 ring-1 ring-white/[0.06]">
                       <button
                         type="button"
                         onClick={() =>
@@ -1147,6 +1152,7 @@ export default function BannerStudio({
                           className="pointer-events-none absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
                           style={{ left: `${vol * 100}%` }}
                         />
+                      </div>
                       </div>
                     </div>
                   </div>
@@ -1279,23 +1285,21 @@ export default function BannerStudio({
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
               </span>
+              {/* La progression sous le texte, donc alignée sur lui et à droite
+                  de la pochette — elle appartient au titre qu'elle suit, pas au
+                  bloc entier. Elle ne montre QUE l'extrait retenu : c'est lui
+                  qui tourne. */}
+              {draft.music && to > from ? (
+                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
+                  <span
+                    className="block h-full rounded-full bg-action"
+                    style={{
+                      width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
+                    }}
+                  />
+                </span>
+              ) : null}
             </button>
-
-            {/* La progression tient dans le PIED du bloc, en absolu, et non
-                sous le texte : en flux, elle allongeait la colonne de titre et
-                la pochette cessait d'être centrée en face. Là, elle occupe la
-                marge basse qui existait déjà et ne pousse rien. Elle ne montre
-                QUE l'extrait retenu — c'est lui qui tourne. */}
-            {draft.music && to > from ? (
-              <span className="pointer-events-none absolute inset-x-2.5 bottom-1 h-[3px] overflow-hidden rounded-full bg-white/12">
-                <span
-                  className="block h-full rounded-full bg-action"
-                  style={{
-                    width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
-                  }}
-                />
-              </span>
-            ) : null}
           </div>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
