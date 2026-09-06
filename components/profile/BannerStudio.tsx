@@ -986,12 +986,12 @@ export default function BannerStudio({
                 )}
               </div>
 
-              {/* ── L'écoute ────────────────────────────────────────────── */}
+              {/* ── L'écoute ──────────────────────────────────────────────
+                  `select-none` sur tout le pied : un glissé qui commence sur le
+                  rail et finit sur le titre surlignait le texte au passage, et
+                  le curseur d'interdiction du glisser-déposer apparaissait
+                  par-dessus. */}
               {scope === "music" && draft.music ? (
-                {/* `select-none` sur tout le pied : un glissé qui commence sur
-                    le rail et finit sur le titre surlignait le texte au passage,
-                    et le curseur d'interdiction du glisser-déposer apparaissait
-                    par-dessus. */}
                 <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
