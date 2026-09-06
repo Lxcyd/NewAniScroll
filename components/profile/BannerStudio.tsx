@@ -191,6 +191,8 @@ export default function BannerStudio({
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
+  /** Vrai tant qu'on tient le rail : le glissement déplace alors l'écoute. */
+  const [seeking, setSeeking] = useState(false);
   /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
   const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
@@ -686,6 +688,16 @@ export default function BannerStudio({
   const to = draft.music?.to ?? len;
   const pct = (s: number) => (len ? Math.min(100, Math.max(0, (s / len) * 100)) : 0);
 
+  /** Poser l'écoute à une fraction du rail, en la gardant DANS l'extrait : le
+      son entendu doit être celui qui sera joué sur le profil. */
+  const seek = (ratio: number) => {
+    const el = preview.current;
+    if (!el || !len) return;
+    const p = Math.min(to, Math.max(from, ratio * len));
+    el.currentTime = p;
+    setAt(p);
+  };
+
   /** Déplacer une borne. La seconde borne ne bouge pas, mais elle repousse la
       première : un extrait plus court que trois secondes ne s'entend pas. */
   const setTrim = (edge: "from" | "to", raw: number) => {
@@ -1026,15 +1038,25 @@ export default function BannerStudio({
                       <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
+                      {/* Le rail s'écoute EN GLISSANT, pas seulement au clic :
+                          chercher un refrain, c'est balayer le morceau, et un
+                          rail qui ne répond qu'au relâchement oblige à cliquer
+                          dix fois pour trouver le bon endroit. Le pointeur est
+                          capturé, donc le geste survit à une sortie du rail —
+                          sans quoi il s'interrompait au premier écart vertical.
+                          `data-grab` laisse les poignées à leur propre geste. */}
                       <div
                         onPointerDown={(e) => {
-                          const el = preview.current;
-                          if (!el || !len) return;
                           if ((e.target as HTMLElement).dataset.grab) return;
-                          const p = Math.min(to, Math.max(from, railAt(e) * len));
-                          el.currentTime = p;
-                          setAt(p);
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          setSeeking(true);
+                          seek(railAt(e));
                         }}
+                        onPointerMove={(e) => {
+                          if (seeking) seek(railAt(e));
+                        }}
+                        onPointerUp={() => setSeeking(false)}
+                        onPointerCancel={() => setSeeking(false)}
                         className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
                       >
                         {/* La mémoire tampon ne se montre QUE dans l'extrait
