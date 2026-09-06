@@ -34,6 +34,7 @@ import {
   visibleTo,
 } from "@/lib/profile/blocks";
 import {
+  MAX_VALUE as MAX_NAME,
   addItem,
   compact,
   sanitizeLayout,
@@ -277,8 +278,14 @@ export default function ProfileOverview({
     /* « Reprendre la lecture » est écrit pour celui qui lit. Sur le profil d'un
        autre, c'est lui qui regarde, pas nous. */
     const other = !isOwner && id === "resume";
+    const name = customName(id);
     return {
-      title: blockTitle(id, other),
+      /* Le nom donné l'emporte sur celui du catalogue — c'est tout l'objet du
+         renommage. Il n'a pas de forme courte : celle du catalogue existait
+         pour des libellés qu'on n'avait pas écrits soi-même. */
+      title: name || blockTitle(id, other),
+      name,
+      defaultName: blockName(id, other),
       /* AUCUN BLOC N'A DE MÉTA. « 18 uniques » a été essayé sur les genres, pour
          dire que le radar n'en dessine que seize : c'était vrai et sans intérêt
          — un nombre de plus dans un en-tête, là où la carte entière parle déjà
@@ -341,6 +348,38 @@ export default function ProfileOverview({
       (layout || []).map((o) =>
         o.i === id ? { ...o, s: { ...(o.s ?? {}), [key]: value } } : o,
       ),
+    );
+  }
+
+  /**
+   * Le nom qu'on a donné au bloc, ou rien.
+   *
+   * Il vit dans les réglages du bloc, sous la clé réservée `title` — le même
+   * canal que les interrupteurs, donc la même colonne, la même route et le même
+   * nettoyage (`sanitizeLayout` plafonne déjà une valeur de réglage à 48
+   * caractères, ce qui est aussi la bonne longueur pour un titre de carte).
+   * Aucun bloc du catalogue n'a de réglage nommé ainsi, et c'est la condition
+   * pour que la clé reste libre.
+   */
+  function customName(id: string): string {
+    const v = saved(id)?.title;
+    return typeof v === "string" ? v : "";
+  }
+
+  /** Renommer. Un nom vidé n'est pas un nom vide : le bloc reprend le sien.
+      La longueur est celle qu'une valeur de réglage supporte (`sanitizeLayout`,
+      lib/profile/grid.ts) : la couper ici évite qu'un nom écrit soit accepté à
+      l'écran puis jeté au nettoyage, ce qui se lirait comme une perte. */
+  function setName(id: string, raw: string) {
+    const name = raw.slice(0, MAX_NAME).trimStart();
+    commit(
+      (layout || []).map((o) => {
+        if (o.i !== id) return o;
+        const s = { ...(o.s ?? {}) };
+        if (name.trim()) s.title = name;
+        else delete s.title;
+        return { ...o, s };
+      }),
     );
   }
 
@@ -465,6 +504,31 @@ export default function ProfileOverview({
     }
     /* Le bloc ne compte plus des statuts : son nom doit le dire. Sans ça,
        « Répartition par statut » chapeautait une liste de noms inventés. */
+    if (id === "statuses" && optionOn("statuses", "customLists")) {
+      return t("profile.blocks.statuses.titleCustom");
+    }
+    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
+  }
+
+  /**
+   * Le même titre, mais EN TEXTE — ce que le champ de renommage affiche en
+   * suggestion tant qu'on n'a rien écrit.
+   *
+   * `blockTitle` rend un nœud (il porte deux formes, longue et courte, que le
+   * CSS choisit), et un attribut `placeholder` ne prend qu'une chaîne. D'où ces
+   * quelques lignes qui refont le même choix sans le balisage : c'est la forme
+   * LONGUE qu'on suggère, celle qu'on lirait sur une carte large.
+   */
+  function blockName(id: string, other: boolean): string {
+    if (id === "favorites") {
+      const src = optionValue("favorites", "source");
+      if (src && src !== "favourites") {
+        const list = src.startsWith(CUSTOM_PREFIX)
+          ? src.slice(CUSTOM_PREFIX.length)
+          : t(`profile.blocks.favorites.listPlural.${src}`, listLabel(t, src));
+        return t("profile.blocks.favorites.titleList", { list });
+      }
+    }
     if (id === "statuses" && optionOn("statuses", "customLists")) {
       return t("profile.blocks.statuses.titleCustom");
     }
@@ -616,6 +680,7 @@ export default function ProfileOverview({
         limits={blockBounds}
         options={widgetOptions}
         onOption={setOption}
+        onRename={setName}
         editing={editing && isOwner}
       />
 

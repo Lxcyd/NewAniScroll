@@ -846,6 +846,7 @@
       "reset": "Reset",
       "remove": "Remove",
       "resize": "Resize",
+      "rename": "Rename this block",
       "settings": "Widget settings",
       "settingsTitle_one": "Widget setting",
       "settingsTitle_other": "Widget settings",

@@ -203,7 +203,10 @@ export function isValidLayout(value: unknown): value is GridItem[] {
  * Ce qui compte ici est qu'elle ne puisse pas être un roman.
  */
 const MAX_OPTIONS = 8;
-const MAX_VALUE = 48;
+/** La longueur d'une valeur de réglage — dont le NOM qu'on donne à un bloc
+    (clé réservée `title`), d'où l'export : le champ de renommage coupe à la
+    même longueur plutôt que de laisser écrire ce que le nettoyage jettera. */
+export const MAX_VALUE = 48;
 function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   if (!s || typeof s !== "object") return null;
   const out: Record<string, boolean | string> = {};

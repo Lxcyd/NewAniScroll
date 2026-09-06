@@ -59,6 +59,10 @@ export type BlockChrome = {
   /** Un nœud et pas une chaîne : un titre peut avoir une forme courte pour les
    *  cartes étroites (cf. `blockTitle` dans ProfileOverview.tsx). */
   title: React.ReactNode;
+  /** Le nom donné au bloc par le propriétaire, vide s'il n'en a pas donné. */
+  name?: string;
+  /** Le nom du catalogue, en texte : ce que le champ de renommage suggère. */
+  defaultName?: string;
   /** Petite ligne grise à côté du titre (« 5 », « cette semaine »…). */
   meta?: string | null;
   /** Le bloc pose SES PROPRES commandes dans le coin haut-droit de l'en-tête
@@ -81,6 +85,8 @@ type Props = {
   /** Les réglages d'un bloc, déjà traduits et déjà résolus à leur état. */
   options?: (id: string) => WidgetOption[];
   onOption?: (id: string, key: string, value: boolean | string) => void;
+  /** Renommer un bloc. Absent : les titres ne se modifient pas. */
+  onRename?: (id: string, name: string) => void;
   editing: boolean;
 };
 
@@ -131,6 +137,7 @@ export default function WidgetGrid({
   limits,
   options,
   onOption,
+  onRename,
   editing,
 }: Props) {
   const { t } = useTranslation();
@@ -444,7 +451,38 @@ export default function WidgetGrid({
                   à côté. La couleur reste où elle sert, sur les icônes de la
                   bibliothèque, où l'on choisit un bloc avant de savoir son nom. */}
               <h2 className="as-widget-head flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
-                <span className="truncate">{chrome.title}</span>
+                {/* En réorganisation, le titre devient un champ — et le tireté
+                    est ce qui le dit : c'est la convention du site pour « ceci
+                    s'écrit », et elle évite un crayon de plus dans un en-tête
+                    qui porte déjà la roue et le moins. Le champ garde la police
+                    et la taille du titre, donc le nom ne saute pas en entrant
+                    ni en sortant du mode.
+
+                    `stopPropagation` sur le pointeur : sans lui, cliquer dans
+                    le champ démarre le glissement de la carte qui le porte, et
+                    on ne peut jamais poser le curseur. Même raison que pour le
+                    moins et le coin. */}
+                {editing && onRename ? (
+                  <input
+                    value={chrome.name ?? ""}
+                    onChange={(e) => onRename(it.i, e.target.value)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      /* Entrée et Échap rendent la main au clavier : la carte
+                         écoute les flèches pour se déplacer, et taper un nom ne
+                         doit pas la faire bouger. */
+                      if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                      e.stopPropagation();
+                    }}
+                    placeholder={chrome.defaultName ?? ""}
+                    maxLength={48}
+                    aria-label={t("profile.widgets.rename")}
+                    title={t("profile.widgets.rename")}
+                    className="min-w-0 flex-1 rounded-md border border-dashed border-white/25 bg-transparent px-2 py-0.5 font-outfit text-lg font-bold text-white outline-none transition-colors placeholder:text-white/35 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
+                  />
+                ) : (
+                  <span className="truncate">{chrome.title}</span>
+                )}
                 {chrome.meta ? (
                   <span className="shrink-0 font-karla text-[11px] font-medium text-white/35">
                     {chrome.meta}
