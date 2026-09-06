@@ -99,10 +99,14 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   upload: ArrowUpTrayIcon,
 };
 
-/** Les hachures de ce qui est écarté d'un extrait — jaunes, comme les poignées
-    qui les délimitent : c'est la même information, elle a la même couleur. */
+/** Les hachures de ce qui est écarté d'un extrait. Jaunes, elles criaient plus
+    fort que l'extrait lui-même et volaient l'œil aux poignées ; les monteurs
+    audio rayent au contraire en NEUTRE, fin et discret (un voile sombre plus
+    des traits blancs à peine visibles) : la zone écartée se lit comme mise de
+    côté, pas comme signalée. Le jaune reste aux seules poignées, qui portent le
+    geste. */
 const HATCH =
-  "repeating-linear-gradient(45deg, rgba(250,204,21,.55) 0 2px, rgba(250,204,21,0) 2px 6px)";
+  "repeating-linear-gradient(45deg, rgba(255,255,255,.13) 0 1px, rgba(255,255,255,0) 1px 5px)";
 
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
@@ -1020,13 +1024,13 @@ export default function BannerStudio({
                             alors qu'une rayure dit « écarté » sans légende. */}
                         {from > 0 ? (
                           <span
-                            className="absolute inset-y-0 left-0 rounded-l-full"
+                            className="absolute inset-y-0 left-0 rounded-l-full bg-black/25"
                             style={{ width: `${pct(from)}%`, backgroundImage: HATCH }}
                           />
                         ) : null}
                         {to < len ? (
                           <span
-                            className="absolute inset-y-0 right-0 rounded-r-full"
+                            className="absolute inset-y-0 right-0 rounded-r-full bg-black/25"
                             style={{ left: `${pct(to)}%`, backgroundImage: HATCH }}
                           />
                         ) : null}
@@ -1092,7 +1096,7 @@ export default function BannerStudio({
                           widget. Le haut-parleur coupe et rétablit — c'est le
                           geste qu'on cherche en premier, et il évite d'avoir à
                           viser le zéro du rail. */}
-                      <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.07] px-2.5 py-1.5 ring-1 ring-white/[0.06]">
+                      <div className="flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.07] px-2 ring-1 ring-white/[0.06]">
                       <button
                         type="button"
                         onClick={() =>
@@ -1115,11 +1119,14 @@ export default function BannerStudio({
                           <SpeakerXMarkIcon className="h-4 w-4" />
                         )}
                       </button>
-                      {/* Le curseur de volume est celui du site : rail de 3 px,
-                          remplissage à l'accent, pastille blanche cerclée
-                          d'accent — le même que le lecteur vidéo et que le flou
-                          du dock. Une barre pleine sans pastille ne disait pas
-                          qu'elle se prend en main. */}
+                      {/* Le curseur de volume est celui du site : remplissage à
+                          l'accent, pastille blanche cerclée d'accent — le même
+                          que le lecteur vidéo et que le flou du dock. Une barre
+                          pleine sans pastille ne disait pas qu'elle se prend en
+                          main. Le rail est ici à 4 px et non 3 : la pastille qui
+                          l'enferme est courte, et un trait de 3 px au milieu de
+                          28 px de fond se lisait comme une grosse boîte autour
+                          d'un fil. */}
                       <div
                         onPointerDown={(e) => {
                           e.currentTarget.setPointerCapture(e.pointerId);
@@ -1141,15 +1148,15 @@ export default function BannerStudio({
                           else return;
                           e.preventDefault();
                         }}
-                        className="relative h-4 w-24 shrink-0 cursor-pointer touch-none rounded-full outline-none"
+                        className="relative h-4 w-[72px] shrink-0 cursor-pointer touch-none rounded-full outline-none"
                       >
-                        <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+                        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/12" />
                         <span
-                          className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                          className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-action"
                           style={{ width: `${vol * 100}%` }}
                         />
                         <span
-                          className="pointer-events-none absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
+                          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
                           style={{ left: `${vol * 100}%` }}
                         />
                       </div>
@@ -1236,7 +1243,7 @@ export default function BannerStudio({
               qu'on veut d'un lecteur. Ils ne peuvent pas être imbriqués — un
               bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
           <div
-            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-2 transition-colors ${
+            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-0.5 transition-colors ${
               scope === "music" ? "bg-white/[0.10]" : ""
             }`}
           >
@@ -1252,10 +1259,10 @@ export default function BannerStudio({
                   } else el.pause();
                 }}
                 aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                className="group relative h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-black/50"
+                className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-black/50"
               >
                 {draft.music.cover ? (
-                  <Image src={draft.music.cover} alt="" fill sizes="36px" className="object-cover" />
+                  <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
                 ) : null}
                 <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/65">
                   {buffering ? (
@@ -1268,7 +1275,7 @@ export default function BannerStudio({
                 </span>
               </button>
             ) : (
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.07] text-white/45">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/[0.07] text-white/45">
                 <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
               </span>
             )}
@@ -1277,10 +1284,10 @@ export default function BannerStudio({
               onClick={() => openScope("music")}
               className="min-w-0 flex-1 rounded-lg text-left"
             >
-              <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
+              <span className="block truncate font-outfit text-[13.5px] font-bold leading-tight text-white">
                 {draft.music ? draft.music.title : t("profile.studioMusicNone")}
               </span>
-              <span className="block truncate font-karla text-[11.5px] leading-snug text-white/40">
+              <span className="block truncate font-karla text-[11.5px] leading-tight text-white/40">
                 {draft.music
                   ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
                   : t("profile.studioMusicAdd")}
@@ -1288,9 +1295,12 @@ export default function BannerStudio({
               {/* La progression sous le texte, donc alignée sur lui et à droite
                   de la pochette — elle appartient au titre qu'elle suit, pas au
                   bloc entier. Elle ne montre QUE l'extrait retenu : c'est lui
-                  qui tourne. */}
+                  qui tourne. Les deux lignes et le rail tiennent dans la HAUTEUR
+                  DE LA POCHETTE (44 px, d'où l'interligne serré) : le rail
+                  débordait sous elle, et une colonne plus longue que l'image
+                  qu'elle accompagne fait pencher tout le bloc. */}
               {draft.music && to > from ? (
-                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
+                <span className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
                   <span
                     className="block h-full rounded-full bg-action"
                     style={{
