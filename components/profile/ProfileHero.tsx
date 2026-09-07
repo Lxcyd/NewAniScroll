@@ -348,15 +348,26 @@ export default function ProfileHero({
         {/* The name can overlap a plate that is anything at all: the shadow is
             what keeps it readable over a bright artwork.
 
-            SAUF SUR UN APLAT DE COULEUR. Là, le contraste est choisi et connu —
-            c'est la couleur qu'on vient de cliquer — et une ombre de 18 px de
-            flou n'a plus rien à corriger : elle se voit pour ce qu'elle est,
-            une tache sombre derrière le pseudo, avec la forme du texte. Les
-            aplats ont déjà leur propre voile allégé pour cette raison (voir
-            `.as-page-scrim-tint`, globals.css). */}
+            LA BOÎTE NOIRE DERRIÈRE LE PSEUDO ÉTAIT CETTE OMBRE, DÉCOUPÉE.
+            `truncate` pose `overflow: hidden`, et un `overflow: hidden` ROGNE
+            l'ombre du texte : une ombre de 18 px de flou à 0,75 remplissait
+            toute la boîte du titre puis s'arrêtait net sur ses bords — d'où un
+            rectangle sombre aux angles droits, et non un halo. Deux corrections
+            en une : le flou descend à 10 px (il s'éteint avant le bord) et la
+            boîte gagne la marge qui lui manquait pour contenir ce qui reste, en
+            padding compensé par une marge négative pour ne pas décaler le
+            texte d'un pixel.
+
+            SUR UN APLAT DE COULEUR, pas d'ombre du tout : le contraste y est
+            choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
+            voile allégé, `.as-page-scrim-tint`). */}
         <h1
-          className="truncate font-outfit text-3xl font-bold leading-tight md:text-5xl"
-          style={flat ? undefined : { textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
+          className="-mx-2 -my-1 truncate px-2 py-1 font-outfit text-3xl font-bold leading-tight md:text-5xl"
+          style={
+            flat
+              ? undefined
+              : { textShadow: "0 1px 2px rgba(0,0,0,0.85), 0 2px 10px rgba(0,0,0,0.45)" }
+          }
         >
           {name}
         </h1>
