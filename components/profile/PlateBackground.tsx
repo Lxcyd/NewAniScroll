@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { useEffect, useRef, type MutableRefObject } from "react";
-import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 
 /**
  * Le fond d'un profil, quel qu'il soit — couleur, image, vidéo.
@@ -24,7 +24,7 @@ import { isVideoKind, type Dressing } from "@/lib/profile/dressing";
  */
 const YT_ORIGIN = "https://www.youtube-nocookie.com";
 
-/** La télécommande d'une bande-annonce, pour qui la pilote de l'extérieur. */
+/** La télécommande d'un fond vidéo, pour qui le pilote de l'extérieur. */
 export type TrailerRemote = {
   seek: (seconds: number) => void;
   play: () => void;
@@ -35,8 +35,9 @@ type Props = {
   dressing: Pick<Dressing, "kind" | "url" | "color"> & {
     source?: Dressing["source"];
     trailerId?: Dressing["trailerId"];
-    trailerFrom?: Dressing["trailerFrom"];
-    trailerTo?: Dressing["trailerTo"];
+    videoFrom?: Dressing["videoFrom"];
+    videoTo?: Dressing["videoTo"];
+    videoFade?: Dressing["videoFade"];
   };
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
@@ -52,12 +53,12 @@ type Props = {
   unmuted?: boolean;
   sizes?: string;
   /**
-   * Le studio écoute la bande-annonce pour dessiner son rail : position et
-   * durée telles que le lecteur les rapporte, jamais un compteur local.
+   * Le studio écoute le fond vidéo pour dessiner son rail : position et durée
+   * telles que le lecteur les rapporte, jamais un compteur local.
    */
-  onTrailerProgress?: (at: number, duration: number, playing: boolean) => void;
-  /** Rempli d'une télécommande tant qu'une bande-annonce est à l'écran. */
-  trailerRemote?: MutableRefObject<TrailerRemote | null>;
+  onVideoProgress?: (at: number, duration: number, playing: boolean) => void;
+  /** Rempli d'une télécommande tant qu'une vidéo est à l'écran. */
+  videoRemote?: MutableRefObject<TrailerRemote | null>;
 };
 
 export default function PlateBackground({
@@ -67,8 +68,8 @@ export default function PlateBackground({
   priority,
   unmuted,
   sizes = "100vw",
-  onTrailerProgress,
-  trailerRemote,
+  onVideoProgress,
+  videoRemote,
 }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -79,14 +80,23 @@ export default function PlateBackground({
   /* Les bornes voyagent par référence : elles bougent à chaque image pendant
      qu'on tire une poignée, et l'abonnement aux messages ne doit pas se
      défaire (donc se réabonner, donc se taire une seconde) à chaque pixel. */
-  const bounds = useRef({ from: 0, to: 0 });
+  const bounds = useRef({ from: 0, to: 0, fade: 0 });
   bounds.current = {
-    from: dressing.trailerFrom ?? 0,
-    to: dressing.trailerTo ?? 0,
+    from: dressing.videoFrom ?? 0,
+    to: dressing.videoTo ?? 0,
+    fade: dressing.videoFade ?? 0,
   };
-  const report = useRef(onTrailerProgress);
-  report.current = onTrailerProgress;
+  const report = useRef(onVideoProgress);
+  report.current = onVideoProgress;
   const duration = useRef(0);
+  /* La dernière position CONNUE d'un lecteur YouTube, et l'instant où il l'a
+     dite. Il ne parle que toutes les 250 ms environ : le fondu, lui, se
+     redessine à chaque image, donc entre deux messages on extrapole. */
+  const said = useRef({ at: 0, wall: 0, playing: false });
+  /** Le voile noir du fondu. Écrit à même le DOM : soixante rendus React par
+      seconde pour une opacité, c'est le genre de boucle qui fait ramer une
+      page qu'on est en train de lire. */
+  const veil = useRef<HTMLDivElement | null>(null);
   /* L'endroit où la vidéo DÉMARRE, figé au moment où la bande-annonce change.
      Il part dans l'URL du cadre pour éviter la seconde de carton de titre qui
      précède sinon le premier saut ; s'il suivait la borne, tirer la poignée
@@ -130,9 +140,12 @@ export default function PlateBackground({
         YT_ORIGIN,
       );
     };
-    if (trailerRemote) {
-      trailerRemote.current = {
-        seek: (s) => post("seekTo", [s, true]),
+    if (videoRemote) {
+      videoRemote.current = {
+        seek: (s) => {
+          post("seekTo", [s, true]);
+          said.current = { at: s, wall: performance.now(), playing: said.current.playing };
+        },
         play: () => post("playVideo"),
         pause: () => post("pauseVideo"),
       };
@@ -171,22 +184,110 @@ export default function PlateBackground({
       const at = info?.currentTime;
       if (typeof at !== "number") return;
 
+      said.current = {
+        at,
+        wall: performance.now(),
+        playing: state === undefined ? said.current.playing : state === 1,
+      };
+
       const { from, to } = bounds.current;
       /* Deux sorties à rattraper : la fin de l'extrait, et le retour à zéro que
          la boucle de YouTube fait d'elle-même. Une seconde de marge en amont,
          sinon un lecteur qui rapporte 4,98 s pour une borne à 5 s se ferait
          renvoyer en boucle sur sa propre position. */
-      if (to > from && (at >= to || at < from - 1)) post("seekTo", [from, true]);
-      report.current?.(at, duration.current, state === 1);
+      if (to > from && (at >= to || at < from - 1)) {
+        post("seekTo", [from, true]);
+        said.current = { at: from, wall: performance.now(), playing: said.current.playing };
+      }
     };
     window.addEventListener("message", onMessage);
 
     return () => {
       window.clearInterval(ping);
       window.removeEventListener("message", onMessage);
-      if (trailerRemote) trailerRemote.current = null;
+      if (videoRemote) videoRemote.current = null;
     };
-  }, [trailerId, trailerRemote]);
+  }, [trailerId, videoRemote]);
+
+  /* ── Le fondu au noir, et la boucle d'un fichier ─────────────────────────
+     Une seule boucle d'animation pour les deux sortes de fond vidéo, parce que
+     le fondu se dessine à l'image et qu'aucun lecteur ne le fait pour nous :
+     un `<video>` n'a pas de bornes, et YouTube ne parle que quatre fois par
+     seconde — trop peu pour une opacité, assez pour l'extrapoler entre deux
+     messages (`said`).
+
+     Le voile est écrit directement sur le nœud. C'est le même raisonnement que
+     la boucle du studio : passer par un état React ferait rendre la page
+     soixante fois par seconde pour animer une seule valeur. */
+  const fileVideo = !trailerId && !!dressing.url && isVideoKind(dressing.kind);
+  useEffect(() => {
+    if (!trailerId && !fileVideo) return;
+    let raf = 0;
+    const tick = () => {
+      const { from, to, fade } = bounds.current;
+      let at = 0;
+      let len = 0;
+      let playing = false;
+
+      const el = video.current;
+      if (el) {
+        at = el.currentTime;
+        len = el.duration || 0;
+        playing = !el.paused;
+        /* La boucle du fichier : `loop` ne connaît que la fin du fichier. */
+        if (to > from && at >= to) {
+          el.currentTime = from;
+          at = from;
+        } else if (from > 0 && at < from - 0.5) {
+          el.currentTime = from;
+          at = from;
+        }
+      } else {
+        len = duration.current;
+        playing = said.current.playing;
+        at = said.current.at + (playing ? (performance.now() - said.current.wall) / 1000 : 0);
+        /* L'extrapolation ne doit pas dépasser la borne : le lecteur nous dira
+           qu'il est revenu, et d'ici là le voile resterait au noir. */
+        if (to > from) at = Math.min(at, to);
+      }
+
+      if (veil.current) {
+        /* `fadeGain` rend 1 en plein milieu et 0 aux extrémités : le voile est
+           son complément. Bornes absentes, l'extrait vaut tout le fichier — le
+           fondu se pose alors au début et à la fin de la vidéo. */
+        const gain = fadeGain(at, from, to > from ? to : len, fade);
+        veil.current.style.opacity = String(1 - gain);
+      }
+      report.current?.(at, len, playing);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [trailerId, fileVideo, dressing.url]);
+
+  /* Un fichier vidéo se pilote directement : pas de messages, pas d'attente. */
+  useEffect(() => {
+    if (!fileVideo || !videoRemote) return;
+    videoRemote.current = {
+      seek: (s) => {
+        if (video.current) video.current.currentTime = s;
+      },
+      play: () => void video.current?.play().catch(() => {}),
+      pause: () => video.current?.pause(),
+    };
+    return () => {
+      videoRemote.current = null;
+    };
+  }, [fileVideo, videoRemote]);
+
+  /** Le voile du fondu, posé par-dessus la vidéo — et seulement par-dessus. */
+  const fadeVeil = (
+    <div
+      ref={veil}
+      className="pointer-events-none absolute inset-0 bg-black"
+      style={{ opacity: 0 }}
+    />
+  );
 
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     return (
@@ -233,7 +334,7 @@ export default function PlateBackground({
     const SCALE = 200;
     if (startFor.current !== dressing.trailerId) {
       startFor.current = dressing.trailerId;
-      startAt.current = Math.max(0, Math.floor(dressing.trailerFrom ?? 0));
+      startAt.current = Math.max(0, Math.floor(dressing.videoFrom ?? 0));
     }
     return (
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -274,6 +375,7 @@ export default function PlateBackground({
             }}
           />
         </div>
+        {fadeVeil}
       </div>
     );
   }
@@ -282,18 +384,21 @@ export default function PlateBackground({
 
   if (isVideoKind(dressing.kind)) {
     return (
-      <video
-        ref={video}
-        src={dressing.url}
-        autoPlay
-        loop
-        playsInline
-        muted={!unmuted}
-        preload="metadata"
-        className={`absolute inset-0 h-full w-full ${
-          contain ? "object-contain" : "object-cover"
-        }`}
-      />
+      <div className="absolute inset-0 overflow-hidden">
+        <video
+          ref={video}
+          src={dressing.url}
+          autoPlay
+          loop
+          playsInline
+          muted={!unmuted}
+          preload="metadata"
+          className={`absolute inset-0 h-full w-full ${
+            contain ? "object-contain" : "object-cover"
+          }`}
+        />
+        {fadeVeil}
+      </div>
     );
   }
 

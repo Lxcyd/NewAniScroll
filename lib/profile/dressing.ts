@@ -89,6 +89,10 @@ export type DressingMusic = {
 /** Le fondu le plus long qu'on accepte : au-delà, l'extrait n'est plus que montée et descente. */
 export const MAX_FADE = 5;
 
+/** Le fondu au noir d'un fond vidéo, tant que personne ne l'a réglé. Une
+    seconde : de quoi effacer le raccord sans que la page clignote. */
+export const DEFAULT_VIDEO_FADE = 1;
+
 export function clampFade(v: unknown): number {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return 0;
@@ -160,19 +164,30 @@ export type Dressing = {
    */
   trailerId: string | null;
   /**
-   * Les bornes de la bande-annonce, en secondes — mêmes règles que celles de la
-   * musique (`DressingMusic.from`), et pour la même raison.
+   * Les bornes du FOND VIDÉO, en secondes — bande-annonce comme générique.
+   * Mêmes règles que celles de la musique (`DressingMusic.from`), et pour la
+   * même raison : une bande-annonce commence par un logo de studio, un opening
+   * par un carton de titre, et ce n'est pas ce qu'on veut voir tourner.
    *
-   * Une bande-annonce dure une minute et demie dont la moitié est un carton de
-   * titre et un logo de studio ; en fond de profil on n'en veut qu'un plan.
    * `null` des deux côtés veut dire « toute la vidéo », et c'est le défaut.
    *
-   * Le découpage est tenu à la main par-dessus le lecteur YouTube (voir
-   * PlateBackground) : les paramètres `start`/`end` de l'embed ne survivent pas
-   * à la boucle, qui repart du début de la vidéo et non de la borne.
+   * Le découpage est tenu à la main par-dessus le lecteur (voir
+   * PlateBackground) : côté YouTube les paramètres `start`/`end` de l'embed ne
+   * survivent pas à la boucle, qui repart du début de la vidéo et non de la
+   * borne ; côté fichier, un `<video>` n'a pas de bornes du tout.
    */
-  trailerFrom: number | null;
-  trailerTo: number | null;
+  videoFrom: number | null;
+  videoTo: number | null;
+  /**
+   * Fondu AU NOIR à la reprise de la boucle, en secondes. `0` = coupe franche.
+   *
+   * L'équivalent visuel du fondu de la musique, et le même besoin : un extrait
+   * qui repart claque, et l'œil le voit encore mieux que l'oreille ne l'entend.
+   * Il vaut une seconde par défaut — non pas zéro : un fond de profil boucle
+   * toutes les vingt secondes sous les yeux de qui lit la page, et la coupe
+   * franche y est la gêne, pas l'exception.
+   */
+  videoFade: number;
   /** Musique du profil. Prioritaire sur la bande-son d'une vidéo de fond. */
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
@@ -329,11 +344,14 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     : null;
 
   const animeId = Number(obj.animeId);
-  /* Les bornes ne se gardent qu'avec la bande-annonce qu'elles découpent :
-     sinon un fond changé pour une image laisserait derrière lui un extrait qui
-     réapparaîtrait au prochain trailer choisi. */
-  const trailerTrim = trailerId
-    ? trim(obj.trailerFrom, obj.trailerTo)
+  /* Les bornes ne se gardent qu'avec la vidéo qu'elles découpent : sinon un
+     fond changé pour une image laisserait derrière lui un extrait qui
+     réapparaîtrait à la prochaine vidéo choisie.
+     `trailerFrom`/`trailerTo` sont l'orthographe des tout premiers profils
+     découpés (08/09/2026), quand seule la bande-annonce l'était. */
+  const hasVideo = isVideoKind(kind) && (!!url || !!trailerId);
+  const videoTrim = hasVideo
+    ? trim(obj.videoFrom ?? obj.trailerFrom, obj.videoTo ?? obj.trailerTo)
     : { from: null, to: null };
 
   return {
@@ -344,8 +362,16 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     title: str(obj.title, 300),
     source: SOURCES.has(obj.source) ? obj.source : null,
     trailerId: kind === "video" ? trailerId : null,
-    trailerFrom: kind === "video" ? trailerTrim.from : null,
-    trailerTo: kind === "video" ? trailerTrim.to : null,
+    videoFrom: videoTrim.from,
+    videoTo: videoTrim.to,
+    /* Le fondu vaut une seconde tant que personne ne l'a réglé — un `0` écrit,
+       lui, est un choix et se respecte. D'où le test sur l'ABSENCE du champ
+       plutôt qu'un `||` qui rallumerait le fondu qu'on vient d'éteindre. */
+    videoFade: hasVideo
+      ? obj.videoFade === undefined || obj.videoFade === null
+        ? DEFAULT_VIDEO_FADE
+        : clampFade(obj.videoFade)
+      : 0,
     music,
     blur: clampBlur(obj.blur),
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
@@ -362,8 +388,9 @@ export function emptyDressing(): Dressing {
     title: null,
     source: null,
     trailerId: null,
-    trailerFrom: null,
-    trailerTo: null,
+    videoFrom: null,
+    videoTo: null,
+    videoFade: DEFAULT_VIDEO_FADE,
     music: null,
     blur: 0,
     layout: "band",

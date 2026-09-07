@@ -1082,6 +1082,7 @@
     "studioMusicMute": "Mute",
     "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
+    "studioVideoFadeHint": "Fade to black when the loop restarts, so the cut doesn't jump",
     "studioVideoPlay": "Play trailer",
     "studioVideoPause": "Pause trailer",
     "studioMusicFull": "Full version on your profile",

@@ -1082,6 +1082,7 @@
     "studioMusicMute": "Couper le son",
     "studioMusicUnmute": "Rétablir le son",
     "studioMusicPause": "Mettre en pause",
+    "studioVideoFadeHint": "Fondu au noir à la reprise de la boucle, pour que le raccord ne saute pas",
     "studioVideoPlay": "Lire la bande-annonce",
     "studioVideoPause": "Mettre la bande-annonce en pause",
     "studioMusicFull": "Version complète sur le profil",

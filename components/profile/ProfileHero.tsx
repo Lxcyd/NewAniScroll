@@ -44,6 +44,10 @@ export type HeroBanner = {
   blur?: number | null;
   /** Bande-annonce YouTube portée en fond (kind « video »). */
   trailerId?: Dressing["trailerId"];
+  /** Le découpage du fond vidéo, et le fondu au noir de sa boucle. */
+  videoFrom?: Dressing["videoFrom"];
+  videoTo?: Dressing["videoTo"];
+  videoFade?: Dressing["videoFade"];
   /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
   layout?: Dressing["layout"] | null;
 };
@@ -501,6 +505,11 @@ export default function ProfileHero({
               color: banner.color ?? null,
               source: banner.source ?? null,
               trailerId: banner.trailerId ?? null,
+              /* Le découpage et le fondu voyagent avec le fond : c'est le
+                 plateau qui tient la boucle, ici comme dans le studio. */
+              videoFrom: banner.videoFrom ?? null,
+              videoTo: banner.videoTo ?? null,
+              videoFade: banner.videoFade ?? 0,
             }}
             fallback={cover}
             unmuted={sound && !banner.music}
@@ -527,6 +536,9 @@ export default function ProfileHero({
               url: banner.url,
               color: null,
               source: banner.source ?? null,
+              videoFrom: banner.videoFrom ?? null,
+              videoTo: banner.videoTo ?? null,
+              videoFade: banner.videoFade ?? 0,
             }}
             contain={!!ratio}
             priority

@@ -28,6 +28,7 @@ import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
+  DEFAULT_VIDEO_FADE,
   DRESSING_KINDS,
   HERO_LAYOUTS,
   MAX_BLUR,
@@ -36,6 +37,7 @@ import {
   emptyDressing,
   fadeGain,
   isHexColor,
+  isVideoKind,
   type Dressing,
   type DressingKind,
   type HeroLayout,
@@ -245,7 +247,7 @@ export default function BannerStudio({
   const [vAt, setVAt] = useState(0);
   const [vLen, setVLen] = useState(0);
   const [vPlaying, setVPlaying] = useState(false);
-  const onTrailerProgress = useCallback(
+  const onVideoProgress = useCallback(
     (at: number, duration: number, playing: boolean) => {
       setVAt(at);
       setVLen(duration);
@@ -742,8 +744,8 @@ export default function BannerStudio({
                     /* Une vidéo qu'on vient de choisir est entière : le
                        découpage se fait ensuite, aux poignées — et les bornes
                        de la précédente n'ont aucun sens sur celle-ci. */
-                    trailerFrom: null,
-                    trailerTo: null,
+                    videoFrom: null,
+                    videoTo: null,
                     color: null,
                     source: null,
                     animeId: picked?.mediaId ?? null,
@@ -839,6 +841,11 @@ export default function BannerStudio({
                     : patch({
                         kind: "oped" as const,
                         url,
+                        /* Entier, comme une bande-annonce qu'on vient de
+                           choisir : les bornes du générique précédent n'ont
+                           aucun sens sur celui-ci. */
+                        videoFrom: null,
+                        videoTo: null,
                         color: null,
                         source: null,
                         animeId: currentAnime?.mediaId ?? null,
@@ -1012,19 +1019,22 @@ export default function BannerStudio({
     }
   };
 
-  /* Les mêmes bornes, pour la vidéo. La durée ne vient pas d'un `<video>` mais
-     de ce que le lecteur YouTube rapporte : tant qu'il n'a rien dit, le rail
-     n'a pas d'échelle et ne se dessine pas. */
-  const vFrom = draft.trailerFrom ?? 0;
-  const vTo = draft.trailerTo ?? vLen;
+  /* ── L'extrait du fond vidéo ─────────────────────────────────────────────
+     Les mêmes bornes que la musique, pour LES DEUX sortes de vidéo : la
+     bande-annonce YouTube et le générique d'AnimeThemes. La durée ne vient pas
+     de nous mais du lecteur — tant qu'il n'a rien dit, le rail n'a pas
+     d'échelle et ne se dessine pas. */
+  const videoDraft = !!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url);
+  const vFrom = draft.videoFrom ?? 0;
+  const vTo = draft.videoTo ?? vLen;
 
-  /* L'anime de la bande-annonce EN COURS, qui n'est pas forcément celui que la
-     liste montre : on peut revenir à « tous les animés » sans rien changer au
+  /* L'anime de la vidéo EN COURS, qui n'est pas forcément celui que la liste
+     montre : on peut revenir à « tous les animés » sans rien changer au
      brouillon, et le pied doit continuer de dire de quoi il parle. */
   const trailerAnime =
     animes.find((a) => a.mediaId === draft.animeId) ?? listedAnime ?? null;
 
-  /** Poser la lecture de la bande-annonce, en la gardant DANS l'extrait. */
+  /** Poser la lecture de la vidéo, en la gardant DANS l'extrait. */
   const vSeek = (ratio: number) => {
     if (!vLen) return;
     const p = Math.min(vTo, Math.max(vFrom, ratio * vLen));
@@ -1032,23 +1042,23 @@ export default function BannerStudio({
     setVAt(p);
   };
 
-  /** Déplacer une borne de la bande-annonce. Trois secondes au minimum, comme
+  /** Déplacer une borne de la vidéo. Trois secondes au minimum, comme
       pour la musique : plus court, le fond n'est plus qu'un battement. */
   const setVTrim = (edge: "from" | "to", raw: number) => {
-    if (!draft.trailerId || !vLen) return;
+    if (!videoDraft || !vLen) return;
     const MIN = 3;
     const s = Math.min(vLen, Math.max(0, raw));
     const next =
       edge === "from"
-        ? { trailerFrom: Math.max(0, Math.min(s, vTo - MIN)), trailerTo: vTo }
-        : { trailerFrom: vFrom, trailerTo: Math.min(vLen, Math.max(s, vFrom + MIN)) };
+        ? { videoFrom: Math.max(0, Math.min(s, vTo - MIN)), videoTo: vTo }
+        : { videoFrom: vFrom, videoTo: Math.min(vLen, Math.max(s, vFrom + MIN)) };
     patch(next);
     /* La lecture doit rester dans l'extrait : sinon l'aperçu montre un plan qui
        ne sera jamais joué sur le profil. C'est le lecteur, et non nous, qui
        dira où il est retombé — d'où le simple saut. */
-    if (vAt < next.trailerFrom || vAt > next.trailerTo) {
-      remote.current?.seek(next.trailerFrom);
-      setVAt(next.trailerFrom);
+    if (vAt < next.videoFrom || vAt > next.videoTo) {
+      remote.current?.seek(next.videoFrom);
+      setVAt(next.videoFrom);
     }
   };
 
@@ -1076,8 +1086,8 @@ export default function BannerStudio({
           fallback={shown.source === "cover"}
           /* L'aperçu EST le lecteur de la bande-annonce : le pied du panneau
              Vidéo le pilote plutôt que d'en monter un second. */
-          onTrailerProgress={onTrailerProgress}
-          trailerRemote={remote}
+          onVideoProgress={onVideoProgress}
+          videoRemote={remote}
         />
         {/* Le voile : lourd en haut pour porter la barre — il n'y a plus de
             navigation derrière elle — lourd en bas pour porter le dock, et
@@ -1536,17 +1546,22 @@ export default function BannerStudio({
                 </div>
               ) : null}
 
-              {/* ── L'extrait de la bande-annonce ────────────────────────
+              {/* ── L'extrait du fond vidéo ──────────────────────────────
                   Le même pied, le même rail et le même geste que la musique —
                   c'est le même besoin : une bande-annonce commence par un logo
-                  de studio et un carton de titre, et ce n'est pas ce qu'on veut
-                  voir tourner en fond de profil.
+                  de studio, un opening par un carton de titre, et ce n'est pas
+                  ce qu'on veut voir tourner en fond de profil.
 
-                  Pas de volume ici : le fond de profil est muet par principe
-                  (c'est la musique qui a le droit de faire du bruit), et pas de
-                  fondu non plus — le raccord d'un plan ne claque pas comme
-                  celui d'une mesure. */}
-              {scope === "video" && draft.trailerId ? (
+                  Il sert les DEUX onglets vidéo, et c'est voulu : « Vidéo » et
+                  « Intro / Outro » ne diffèrent que par la provenance du plan
+                  (un lecteur YouTube d'un côté, un fichier d'AnimeThemes de
+                  l'autre) ; le geste de découpe, lui, est le même, et le
+                  plateau les pilote déjà tous les deux par la même
+                  télécommande.
+
+                  Pas de volume ici : le fond de profil est muet par principe —
+                  c'est la musique qui a le droit de faire du bruit. */}
+              {(scope === "video" || scope === "oped") && videoDraft ? (
                 <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
                   <button
                     type="button"
@@ -1571,7 +1586,7 @@ export default function BannerStudio({
                     <p className="truncate font-outfit text-[13px] font-bold text-white">
                       {draft.title || t("profile.artTrailer")}
                       <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
-                        {t("profile.artTrailer")}
+                        {t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
                       </span>
                     </p>
                     <div className="mt-2 flex items-center gap-2">
@@ -1590,6 +1605,32 @@ export default function BannerStudio({
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(vLen)}
                       </span>
+
+                      {/* Le fondu AU NOIR, à la reprise de la boucle. Même
+                          bascule que celle de la musique, et même défaut d'une
+                          seconde et demie une fois allumée — sauf qu'ici elle
+                          naît allumée : un fond qui reboucle sous les yeux de
+                          qui lit la page saute à chaque tour, et la coupe
+                          franche y est la gêne plutôt que l'exception. */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          patch({
+                            videoFade: clampFade(
+                              (draft.videoFade ?? 0) > 0 ? 0 : DEFAULT_VIDEO_FADE,
+                            ),
+                          })
+                        }
+                        aria-pressed={(draft.videoFade ?? 0) > 0}
+                        title={t("profile.studioVideoFadeHint")}
+                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+                          (draft.videoFade ?? 0) > 0
+                            ? "bg-action/20 text-white ring-action/50"
+                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+                        }`}
+                      >
+                        {t("profile.studioMusicFade")}
+                      </button>
                     </div>
                   </div>
                 </div>
