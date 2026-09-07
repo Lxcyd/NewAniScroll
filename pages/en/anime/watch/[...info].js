@@ -26,7 +26,7 @@ import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary"
 import { setPlayerFullscreen } from "@/lib/player/playerFullscreen";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getRemovedMedia } from "@/prisma/removed";
-import { getServer } from "@/lib/servers";
+import { DEFAULT_SERVER_ID, getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -393,7 +393,7 @@ export default function Watch({
   // ── Server state ──
   // Stable initial value to avoid SSR/CSR hydration mismatch.
   // The user's saved preference is loaded after mount in a useEffect below.
-  const [activeServer, setActiveServer] = useState("megaplay");
+  const [activeServer, setActiveServer] = useState(DEFAULT_SERVER_ID);
   // Gates the first source fetch until we've read the user's saved server
   // preference from localStorage. Without this gate the page fetched + showed
   // megaplay (the SSR-safe default) first, then visibly SWITCHED to the user's
@@ -1164,7 +1164,7 @@ export default function Watch({
           setepisodesList(episodeList);
           const epNum = parseInt(epiNumber);
           const currentEpisode  = episodeList?.find((i) => i.number === epNum)
-            || { id: `megaplay-${info.id}-${epNum}`, number: epNum };
+            || { id: `${DEFAULT_SERVER_ID}-${info.id}-${epNum}`, number: epNum };
           /* Le fournisseur liste les episodes ANNONCES d'une saison en cours :
              sur une serie hebdomadaire, "l'episode suivant" existe dans la liste
              une semaine avant d'exister tout court. AniList dit lequel est le
@@ -2576,7 +2576,6 @@ export default function Watch({
             ~100-300 ms handshake when the actual stream/iframe request
             fires. preconnect handles all three; dns-prefetch is a fallback
             for older browsers that ignore preconnect. */}
-        <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
@@ -2586,7 +2585,6 @@ export default function Watch({
             resolved base, not gate on the env var being present. */}
         <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
         <link rel="dns-prefetch" href={PROXY_BASE} />
-        <link rel="dns-prefetch" href="https://megaplay.buzz" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
@@ -3054,7 +3052,7 @@ export default function Watch({
 // the address but not the page ("redirigé mais la page ne se met pas à jour").
 // Mirrors the form used everywhere else in the app, with ?party preserved.
 function buildWatchUrl(aniId, ep, dub, server, roomId) {
-  const provider = server || "megaplay";
+  const provider = server || DEFAULT_SERVER_ID;
   const params = new URLSearchParams({
     id: `${provider}-${ep}`,
     num: String(ep),

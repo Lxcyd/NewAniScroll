@@ -24,7 +24,7 @@
  *
  *   1. une exception memorisee pour cet anime          → ce lecteur
  *   2. un lecteur epingle dans les Reglages            → ce lecteur
- *   3. aucun des deux ET aucun ordre de langues actif  → megaplay, le defaut
+ *   3. aucun des deux ET aucun ordre de langues actif  → DEFAULT_SERVER_ID
  *
  * Reste le cas ou un ordre de langues doit trancher : la, le choix appartient
  * au code (il consulte aussi l'instantane de disponibilite et les mesures de
@@ -38,6 +38,8 @@
  */
 
 /** Ou la promesse attend. Un seul objet, remplace a chaque chargement. */
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
+
 export const EARLY_SOURCE_KEY = "__asEarlySource";
 
 export type EarlySource = { url: string; promise: Promise<Response> };
@@ -59,7 +61,7 @@ if(!s){try{s=localStorage.getItem("preferred_server")||"";}catch(e){}}
 if(!s){var on=true,order=null;
 try{on=localStorage.getItem("lang_pref_enabled")!=="0";
 order=JSON.parse(localStorage.getItem("lang_pref_order")||"null");}catch(e){}
-if(on&&order&&order.length)return;s="megaplay";}
+if(on&&order&&order.length)return;s="${DEFAULT_SERVER_ID}";}
 var u="/api/v2/source?server="+encodeURIComponent(s)+"&aniId="+aniId+"&episode="+ep+"&sub="+sub;
 window.${EARLY_SOURCE_KEY}={url:u,promise:fetch(u,{priority:"high"})};
 }catch(e){}})();`;

@@ -41,6 +41,7 @@ import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 
 // Behind `open`, which starts false — the editor is a dialog the visitor has to
 // ask for. Deferring it keeps its AniList mutations and its whole form out of
@@ -325,7 +326,11 @@ export default function Info({
     if (!info?.id) return;
     if (!resumeKnown) return;
     const resumeEp = Math.max(1, (progress || 0) + 1);
-    const server = "megaplay";
+    /* Le lecteur qu'on PRECHAUFFE doit etre celui que la page de lecture va
+       reellement ouvrir : « megaplay » etait ecrit ici, et depuis son retrait
+       (lib/servers.js) c'etait un scrape jete a chaque visite de la page la
+       plus vue du site, sur un hote qui ne rend plus de source. */
+    const server = DEFAULT_SERVER_ID;
     const watchHref = `/en/anime/watch/${info.id}/${server}?id=${server}-${info.id}-${resumeEp}&num=${resumeEp}`;
 
     const releasing = info.status === "RELEASING";
