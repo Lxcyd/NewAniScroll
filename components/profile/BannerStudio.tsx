@@ -23,7 +23,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
-import PlateBackground from "@/components/profile/PlateBackground";
+import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
 import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
@@ -219,8 +219,6 @@ export default function BannerStudio({
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
-  /** Vrai tant qu'on tient le rail : le glissement déplace alors l'écoute. */
-  const seeking = useRef(false);
   /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
   const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
@@ -233,12 +231,28 @@ export default function BannerStudio({
    */
   const [vol, setVol] = useState(PREVIEW_DEFAULT_VOLUME);
   const lastVol = useRef(PREVIEW_DEFAULT_VOLUME);
-  /** La poignée d'extrait en cours de déplacement, s'il y en a une. */
-  const [grab, setGrab] = useState<"from" | "to" | null>(null);
   /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
   const [wantPlay, setWantPlay] = useState(false);
+
+  /* ── La bande-annonce ────────────────────────────────────────────────────
+     Elle se découpe comme un morceau, et sur le MÊME aperçu : ce qui joue en
+     fond de l'écran est déjà la vidéo, il n'y a donc pas de second lecteur à
+     monter — le pied du panneau ne fait que la piloter (PlateBackground rend
+     la télécommande, et rapporte la position que le lecteur annonce). */
+  const remote = useRef<TrailerRemote | null>(null);
+  const [vAt, setVAt] = useState(0);
+  const [vLen, setVLen] = useState(0);
+  const [vPlaying, setVPlaying] = useState(false);
+  const onTrailerProgress = useCallback(
+    (at: number, duration: number, playing: boolean) => {
+      setVAt(at);
+      setVLen(duration);
+      setVPlaying(playing);
+    },
+    [],
+  );
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
@@ -725,6 +739,11 @@ export default function BannerStudio({
                        YouTube, jamais comme un fichier (cf. `trailerId`). */
                     url: null,
                     trailerId: trailer,
+                    /* Une vidéo qu'on vient de choisir est entière : le
+                       découpage se fait ensuite, aux poignées — et les bornes
+                       de la précédente n'ont aucun sens sur celle-ci. */
+                    trailerFrom: null,
+                    trailerTo: null,
                     color: null,
                     source: null,
                     animeId: picked?.mediaId ?? null,
@@ -993,6 +1012,46 @@ export default function BannerStudio({
     }
   };
 
+  /* Les mêmes bornes, pour la vidéo. La durée ne vient pas d'un `<video>` mais
+     de ce que le lecteur YouTube rapporte : tant qu'il n'a rien dit, le rail
+     n'a pas d'échelle et ne se dessine pas. */
+  const vFrom = draft.trailerFrom ?? 0;
+  const vTo = draft.trailerTo ?? vLen;
+
+  /* L'anime de la bande-annonce EN COURS, qui n'est pas forcément celui que la
+     liste montre : on peut revenir à « tous les animés » sans rien changer au
+     brouillon, et le pied doit continuer de dire de quoi il parle. */
+  const trailerAnime =
+    animes.find((a) => a.mediaId === draft.animeId) ?? listedAnime ?? null;
+
+  /** Poser la lecture de la bande-annonce, en la gardant DANS l'extrait. */
+  const vSeek = (ratio: number) => {
+    if (!vLen) return;
+    const p = Math.min(vTo, Math.max(vFrom, ratio * vLen));
+    remote.current?.seek(p);
+    setVAt(p);
+  };
+
+  /** Déplacer une borne de la bande-annonce. Trois secondes au minimum, comme
+      pour la musique : plus court, le fond n'est plus qu'un battement. */
+  const setVTrim = (edge: "from" | "to", raw: number) => {
+    if (!draft.trailerId || !vLen) return;
+    const MIN = 3;
+    const s = Math.min(vLen, Math.max(0, raw));
+    const next =
+      edge === "from"
+        ? { trailerFrom: Math.max(0, Math.min(s, vTo - MIN)), trailerTo: vTo }
+        : { trailerFrom: vFrom, trailerTo: Math.min(vLen, Math.max(s, vFrom + MIN)) };
+    patch(next);
+    /* La lecture doit rester dans l'extrait : sinon l'aperçu montre un plan qui
+       ne sera jamais joué sur le profil. C'est le lecteur, et non nous, qui
+       dira où il est retombé — d'où le simple saut. */
+    if (vAt < next.trailerFrom || vAt > next.trailerTo) {
+      remote.current?.seek(next.trailerFrom);
+      setVAt(next.trailerFrom);
+    }
+  };
+
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
@@ -1012,7 +1071,14 @@ export default function BannerStudio({
     <div className="fixed inset-0 z-[10000] overflow-hidden bg-primary text-white">
       {/* ── L'aperçu, à taille réelle ─────────────────────────────────── */}
       <div className="absolute inset-0">
-        <PlateBackground dressing={shown} fallback={shown.source === "cover"} />
+        <PlateBackground
+          dressing={shown}
+          fallback={shown.source === "cover"}
+          /* L'aperçu EST le lecteur de la bande-annonce : le pied du panneau
+             Vidéo le pilote plutôt que d'en monter un second. */
+          onTrailerProgress={onTrailerProgress}
+          trailerRemote={remote}
+        />
         {/* Le voile : lourd en haut pour porter la barre — il n'y a plus de
             navigation derrière elle — lourd en bas pour porter le dock, et
             presque rien au milieu, là où l'on regarde l'image.
@@ -1351,118 +1417,16 @@ export default function BannerStudio({
                       <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
-                      {/* Le rail s'écoute EN GLISSANT, pas seulement au clic :
-                          chercher un refrain, c'est balayer le morceau, et un
-                          rail qui ne répond qu'au relâchement oblige à cliquer
-                          dix fois pour trouver le bon endroit. Le pointeur est
-                          capturé, donc le geste survit à une sortie du rail —
-                          sans quoi il s'interrompait au premier écart vertical.
-                          `data-grab` laisse les poignées à leur propre geste.
-
-                          Le « on tient » vit dans une RÉFÉRENCE et non dans un
-                          état : les remplissages du rail se redessinent à chaque
-                          image pendant le glissement, et le gestionnaire de
-                          `pointermove` lisait un état d'avant le rendu — le
-                          geste mourait dès qu'il partait de la zone jouée, celle
-                          qui bouge le plus. */}
-                      <div
-                        onPointerDown={(e) => {
-                          if ((e.target as HTMLElement).dataset.grab) return;
-                          /* Sans ça, le navigateur voit un glissé de SÉLECTION
-                             (le pied du panneau est du texte) et affiche son
-                             curseur d'interdiction par-dessus le geste. */
-                          e.preventDefault();
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                          seeking.current = true;
-                          seek(railAt(e));
-                        }}
-                        onPointerMove={(e) => {
-                          if (seeking.current && e.buttons & 1) seek(railAt(e));
-                        }}
-                        onPointerUp={() => {
-                          seeking.current = false;
-                        }}
-                        onPointerCancel={() => {
-                          seeking.current = false;
-                        }}
-                        className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
-                      >
-                        <span
-                          className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
-                          style={{ width: `${buf * 100}%` }}
-                        />
-                        {/* Ce qui NE SERA PAS joué part en hachures : une zone
-                            simplement plus sombre se confond avec un rail vide,
-                            alors qu'une rayure dit « écarté » sans légende.
-                            Elles se posent sur le gris clair de la mémoire
-                            tampon, TOUJOURS, et non sur ce qui est réellement
-                            chargé : le bord du tampon y dessinait une marche,
-                            c'est-à-dire un chargement à moitié fait dans une
-                            zone qui ne sera jamais jouée. */}
-                        {from > 0 ? (
-                          <span
-                            className="absolute inset-y-0 left-0 rounded-l-full bg-white/[0.14]"
-                            style={{ width: `${pct(from)}%`, backgroundImage: HATCH }}
-                          />
-                        ) : null}
-                        {to < len ? (
-                          <span
-                            className="absolute inset-y-0 right-0 rounded-r-full bg-white/[0.14]"
-                            style={{ left: `${pct(to)}%`, backgroundImage: HATCH }}
-                          />
-                        ) : null}
-                        {/* L'extrait retenu, éclairci entre ses deux bornes. */}
-                        <span
-                          className="absolute inset-y-0 rounded-full bg-white/[0.18]"
-                          style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
-                        />
-                        <span
-                          className="absolute inset-y-0 rounded-full bg-action"
-                          style={{
-                            left: `${pct(from)}%`,
-                            right: `${100 - pct(Math.min(Math.max(at, from), to))}%`,
-                          }}
-                        />
-                        {([
-                          ["from", from] as const,
-                          ["to", to] as const,
-                        ]).map(([edge, value]) => (
-                          <span
-                            key={edge}
-                            data-grab="1"
-                            role="slider"
-                            tabIndex={0}
-                            aria-label={t(
-                              edge === "from" ? "profile.studioMusicFrom" : "profile.studioMusicTo",
-                            )}
-                            aria-valuemin={0}
-                            aria-valuemax={Math.round(len)}
-                            aria-valuenow={Math.round(value)}
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              e.currentTarget.setPointerCapture(e.pointerId);
-                              setGrab(edge);
-                            }}
-                            onPointerMove={(e) => {
-                              if (grab !== edge || !len) return;
-                              const r = e.currentTarget.parentElement!.getBoundingClientRect();
-                              const s = ((e.clientX - r.left) / r.width) * len;
-                              setTrim(edge, s);
-                            }}
-                            onPointerUp={() => setGrab(null)}
-                            onKeyDown={(e) => {
-                              const step = e.shiftKey ? 5 : 1;
-                              if (e.key === "ArrowLeft") setTrim(edge, value - step);
-                              else if (e.key === "ArrowRight") setTrim(edge, value + step);
-                              else return;
-                              e.preventDefault();
-                            }}
-                            className="absolute top-1/2 h-4 w-[7px] -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-[#facc15] shadow-[0_1px_4px_rgba(0,0,0,.6)] outline-none ring-offset-2 ring-offset-[#15161d] focus-visible:ring-2 focus-visible:ring-[#facc15]"
-                            style={{ left: `${pct(value)}%` }}
-                          />
-                        ))}
-                      </div>
+                      <TrimRail
+                        len={len}
+                        from={from}
+                        to={to}
+                        at={at}
+                        buf={buf}
+                        onSeek={seek}
+                        onTrim={setTrim}
+                        t={t}
+                      />
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(len)}
                       </span>
@@ -1567,6 +1531,65 @@ export default function BannerStudio({
                         />
                       </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ── L'extrait de la bande-annonce ────────────────────────
+                  Le même pied, le même rail et le même geste que la musique —
+                  c'est le même besoin : une bande-annonce commence par un logo
+                  de studio et un carton de titre, et ce n'est pas ce qu'on veut
+                  voir tourner en fond de profil.
+
+                  Pas de volume ici : le fond de profil est muet par principe
+                  (c'est la musique qui a le droit de faire du bruit), et pas de
+                  fondu non plus — le raccord d'un plan ne claque pas comme
+                  celui d'une mesure. */}
+              {scope === "video" && draft.trailerId ? (
+                <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      vPlaying ? remote.current?.pause() : remote.current?.play()
+                    }
+                    aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
+                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+                  >
+                    {trailerAnime?.cover ? (
+                      <Image src={trailerAnime.cover} alt="" fill sizes="44px" className="object-cover" />
+                    ) : null}
+                    <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
+                      {vPlaying ? (
+                        <PauseIcon className="h-5 w-5 drop-shadow" />
+                      ) : (
+                        <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
+                      )}
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-outfit text-[13px] font-bold text-white">
+                      {draft.title || t("profile.artTrailer")}
+                      <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+                        {t("profile.artTrailer")}
+                      </span>
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+                        {clock(vAt)}
+                      </span>
+                      <TrimRail
+                        len={vLen}
+                        from={vFrom}
+                        to={vTo}
+                        at={vAt}
+                        onSeek={vSeek}
+                        onTrim={setVTrim}
+                        t={t}
+                      />
+                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+                        {clock(vLen)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1780,6 +1803,162 @@ export default function BannerStudio({
           </label>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * LE RAIL À DEUX POIGNÉES — celui de la musique, et celui de la bande-annonce.
+ *
+ * Un seul exemplaire pour les deux : le geste est le même (cliquer-glisser dans
+ * le rail déplace la lecture, saisir une poignée déplace une borne), et deux
+ * copies auraient divergé au premier réglage — la première version de l'extrait
+ * vidéo, écrite à part, avait déjà perdu la capture du pointeur en route.
+ *
+ * Il ne joue rien lui-même et ne connaît ni `<audio>` ni lecteur YouTube : il
+ * reçoit des secondes, il rend des secondes. C'est ce qui lui permet de servir
+ * un fichier local comme une iframe qu'on ne pilote que par messages.
+ */
+function TrimRail({
+  len,
+  from,
+  to,
+  at,
+  buf = 0,
+  onSeek,
+  onTrim,
+  t,
+}: {
+  /** La durée totale. Rien ne se dessine tant qu'elle est inconnue. */
+  len: number;
+  from: number;
+  to: number;
+  /** Où en est la lecture. */
+  at: number;
+  /** La part déjà chargée, 0 à 1 — un lecteur YouTube ne la dit pas : 0. */
+  buf?: number;
+  /** Une fraction du rail, 0 à 1. */
+  onSeek: (ratio: number) => void;
+  onTrim: (edge: "from" | "to", seconds: number) => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+}) {
+  /** Vrai tant qu'on tient le rail : le glissement déplace alors l'écoute. */
+  const seeking = useRef(false);
+  /** La poignée d'extrait en cours de déplacement, s'il y en a une. */
+  const [grab, setGrab] = useState<"from" | "to" | null>(null);
+  const pct = (s: number) => (len ? Math.min(100, Math.max(0, (s / len) * 100)) : 0);
+  const railAt = (e: React.PointerEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  };
+
+  return (
+    /* Le rail s'écoute EN GLISSANT, pas seulement au clic : chercher un refrain,
+       c'est balayer le morceau, et un rail qui ne répond qu'au relâchement
+       oblige à cliquer dix fois pour trouver le bon endroit. Le pointeur est
+       capturé, donc le geste survit à une sortie du rail — sans quoi il
+       s'interrompait au premier écart vertical. `data-grab` laisse les poignées
+       à leur propre geste.
+
+       Le « on tient » vit dans une RÉFÉRENCE et non dans un état : les
+       remplissages du rail se redessinent à chaque image pendant le glissement,
+       et le gestionnaire de `pointermove` lisait un état d'avant le rendu — le
+       geste mourait dès qu'il partait de la zone jouée, celle qui bouge le
+       plus. */
+    <div
+      onPointerDown={(e) => {
+        if ((e.target as HTMLElement).dataset.grab) return;
+        /* Sans ça, le navigateur voit un glissé de SÉLECTION (le pied du
+           panneau est du texte) et affiche son curseur d'interdiction
+           par-dessus le geste. */
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        seeking.current = true;
+        onSeek(railAt(e));
+      }}
+      onPointerMove={(e) => {
+        if (seeking.current && e.buttons & 1) onSeek(railAt(e));
+      }}
+      onPointerUp={() => {
+        seeking.current = false;
+      }}
+      onPointerCancel={() => {
+        seeking.current = false;
+      }}
+      className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
+    >
+      <span
+        className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
+        style={{ width: `${buf * 100}%` }}
+      />
+      {/* Ce qui NE SERA PAS joué part en hachures : une zone simplement plus
+          sombre se confond avec un rail vide, alors qu'une rayure dit « écarté »
+          sans légende. Elles se posent sur le gris clair de la mémoire tampon,
+          TOUJOURS, et non sur ce qui est réellement chargé : le bord du tampon y
+          dessinait une marche, c'est-à-dire un chargement à moitié fait dans une
+          zone qui ne sera jamais jouée. */}
+      {from > 0 ? (
+        <span
+          className="absolute inset-y-0 left-0 rounded-l-full bg-white/[0.14]"
+          style={{ width: `${pct(from)}%`, backgroundImage: HATCH }}
+        />
+      ) : null}
+      {to < len ? (
+        <span
+          className="absolute inset-y-0 right-0 rounded-r-full bg-white/[0.14]"
+          style={{ left: `${pct(to)}%`, backgroundImage: HATCH }}
+        />
+      ) : null}
+      {/* L'extrait retenu, éclairci entre ses deux bornes. */}
+      <span
+        className="absolute inset-y-0 rounded-full bg-white/[0.18]"
+        style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
+      />
+      <span
+        className="absolute inset-y-0 rounded-full bg-action"
+        style={{
+          left: `${pct(from)}%`,
+          right: `${100 - pct(Math.min(Math.max(at, from), to))}%`,
+        }}
+      />
+      {([
+        ["from", from] as const,
+        ["to", to] as const,
+      ]).map(([edge, value]) => (
+        <span
+          key={edge}
+          data-grab="1"
+          role="slider"
+          tabIndex={0}
+          aria-label={t(
+            edge === "from" ? "profile.studioMusicFrom" : "profile.studioMusicTo",
+          )}
+          aria-valuemin={0}
+          aria-valuemax={Math.round(len)}
+          aria-valuenow={Math.round(value)}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setGrab(edge);
+          }}
+          onPointerMove={(e) => {
+            if (grab !== edge || !len) return;
+            const r = e.currentTarget.parentElement!.getBoundingClientRect();
+            onTrim(edge, ((e.clientX - r.left) / r.width) * len);
+          }}
+          onPointerUp={() => setGrab(null)}
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 5 : 1;
+            if (e.key === "ArrowLeft") onTrim(edge, value - step);
+            else if (e.key === "ArrowRight") onTrim(edge, value + step);
+            else return;
+            e.preventDefault();
+          }}
+          className="absolute top-1/2 h-4 w-[7px] -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-[#facc15] shadow-[0_1px_4px_rgba(0,0,0,.6)] outline-none ring-offset-2 ring-offset-[#15161d] focus-visible:ring-2 focus-visible:ring-[#facc15]"
+          style={{ left: `${pct(value)}%` }}
+        />
+      ))}
     </div>
   );
 }

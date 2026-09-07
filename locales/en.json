@@ -1082,6 +1082,8 @@
     "studioMusicMute": "Mute",
     "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
+    "studioVideoPlay": "Play trailer",
+    "studioVideoPause": "Pause trailer",
     "studioMusicFull": "Full version on your profile",
     "studioMusicCount": "{{count}} themes",
     "studioSeason": "Season",

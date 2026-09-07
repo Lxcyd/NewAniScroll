@@ -1082,6 +1082,8 @@
     "studioMusicMute": "Couper le son",
     "studioMusicUnmute": "Rétablir le son",
     "studioMusicPause": "Mettre en pause",
+    "studioVideoPlay": "Lire la bande-annonce",
+    "studioVideoPause": "Mettre la bande-annonce en pause",
     "studioMusicFull": "Version complète sur le profil",
     "studioMusicCount": "{{count}} génériques",
     "studioSeason": "Saison",
