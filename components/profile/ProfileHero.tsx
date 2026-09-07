@@ -360,16 +360,20 @@ export default function ProfileHero({
             perdu — un nom d'AniList fait vingt caractères au plus, un pseudo
             AniScroll autant — et sans clip, l'ombre s'éteint où elle veut.
 
+            CE QUI RESTE EST L'OMBRE ELLE-MÊME, et elle est maintenant SERRÉE.
+            Mesuré au CDP sur dev.aniscroll.com (08/09/2026, modale de changelog
+            écartée) : aucun élément n'est peint derrière le nom, et le voile de
+            page assombrit uniformément toute la largeur (255 → 187), sans bord.
+            Le halo sombre autour des lettres était donc le seul « noir
+            derrière » qui restait. Un rayon de 2 px suffit à décoller le texte
+            d'une image claire ; au-delà, on repeint le fond.
+
             SUR UN APLAT DE COULEUR, pas d'ombre du tout : le contraste y est
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
         <h1
           className="break-words font-outfit text-3xl font-bold leading-tight md:text-5xl"
-          style={
-            flat
-              ? undefined
-              : { textShadow: "0 1px 2px rgba(0,0,0,0.85), 0 2px 12px rgba(0,0,0,0.5)" }
-          }
+          style={flat ? undefined : { textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}
         >
           {name}
         </h1>
