@@ -348,25 +348,27 @@ export default function ProfileHero({
         {/* The name can overlap a plate that is anything at all: the shadow is
             what keeps it readable over a bright artwork.
 
-            LA BOÎTE NOIRE DERRIÈRE LE PSEUDO ÉTAIT CETTE OMBRE, DÉCOUPÉE.
-            `truncate` pose `overflow: hidden`, et un `overflow: hidden` ROGNE
-            l'ombre du texte : une ombre de 18 px de flou à 0,75 remplissait
-            toute la boîte du titre puis s'arrêtait net sur ses bords — d'où un
-            rectangle sombre aux angles droits, et non un halo. Deux corrections
-            en une : le flou descend à 10 px (il s'éteint avant le bord) et la
-            boîte gagne la marge qui lui manquait pour contenir ce qui reste, en
-            padding compensé par une marge négative pour ne pas décaler le
-            texte d'un pixel.
+            LA BOÎTE NOIRE DERRIÈRE LE PSEUDO ÉTAIT CETTE OMBRE, DÉCOUPÉE, et
+            le remède n'est pas de la rendre plus discrète : c'est d'enlever ce
+            qui la découpe. `truncate` pose `overflow: hidden`, et un overflow
+            caché ROGNE l'ombre du texte — elle remplit la boîte du titre puis
+            s'arrête net sur ses bords, d'où un rectangle à angles droits. Tant
+            que le texte est aussi haut que sa boîte, aucun flou n'y échappe :
+            baisser le flou n'a fait qu'éclaircir le rectangle.
+
+            Le pseudo REVIENT donc À LA LIGNE au lieu d'être coupé. Rien n'est
+            perdu — un nom d'AniList fait vingt caractères au plus, un pseudo
+            AniScroll autant — et sans clip, l'ombre s'éteint où elle veut.
 
             SUR UN APLAT DE COULEUR, pas d'ombre du tout : le contraste y est
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
         <h1
-          className="-mx-2 -my-1 truncate px-2 py-1 font-outfit text-3xl font-bold leading-tight md:text-5xl"
+          className="break-words font-outfit text-3xl font-bold leading-tight md:text-5xl"
           style={
             flat
               ? undefined
-              : { textShadow: "0 1px 2px rgba(0,0,0,0.85), 0 2px 10px rgba(0,0,0,0.45)" }
+              : { textShadow: "0 1px 2px rgba(0,0,0,0.85), 0 2px 12px rgba(0,0,0,0.5)" }
           }
         >
           {name}
