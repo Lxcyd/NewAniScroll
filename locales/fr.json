@@ -900,6 +900,7 @@
       },
       "favorites": {
         "title": "Animes favoris",
+        "titleTopRated": "Les mieux notés",
         "desc": "Ta vitrine de posters, favoris AniList en tête.",
         "listPlural": {
           "Watching": "En cours",

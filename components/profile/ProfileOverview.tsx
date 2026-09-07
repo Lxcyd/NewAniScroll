@@ -336,6 +336,12 @@ export default function ProfileOverview({
     return map;
   }, [entries]);
 
+  /* Y a-t-il seulement un favori déclaré ? C'est ce qui décide du TITRE de la
+     vitrine : sans favori, elle montre les mieux notés, et l'annoncer comme
+     « favoris » présenterait comme tels des titres qui ne le sont pas. Une
+     liste locale n'a pas la notion, un profil AniList sans favori non plus. */
+  const hasFavourites = useMemo(() => entries.some((e) => e.favourite), [entries]);
+
   const customLists = useMemo(() => customListNames(entries), [entries]);
   const customValues = useMemo(
     () => customLists.map((n) => `${CUSTOM_PREFIX}${n}`),
@@ -501,6 +507,11 @@ export default function ProfileOverview({
           </>
         );
       }
+      /* Sans favori déclaré, la vitrine montre les MIEUX NOTÉS (le repli de
+         `favoriteShowcase`) : le titre doit alors dire cela et pas « favoris »,
+         sinon le bloc présente comme favoris treize titres qui ne le sont
+         pas. */
+      if (!hasFavourites) return t("profile.blocks.favorites.titleTopRated");
     }
     /* Le bloc ne compte plus des statuts : son nom doit le dire. Sans ça,
        « Répartition par statut » chapeautait une liste de noms inventés. */
@@ -528,6 +539,7 @@ export default function ProfileOverview({
           : t(`profile.blocks.favorites.listPlural.${src}`, listLabel(t, src));
         return t("profile.blocks.favorites.titleList", { list });
       }
+      if (!hasFavourites) return t("profile.blocks.favorites.titleTopRated");
     }
     if (id === "statuses" && optionOn("statuses", "customLists")) {
       return t("profile.blocks.statuses.titleCustom");

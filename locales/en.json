@@ -900,6 +900,7 @@
       },
       "favorites": {
         "title": "Favourite anime",
+        "titleTopRated": "Highest rated",
         "desc": "Your poster shelf, AniList favourites first.",
         "listPlural": {
           "Watching": "Watching",

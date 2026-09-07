@@ -617,14 +617,19 @@ export default function ProfileHero({
         </dl>
       ) : null}
 
+      {/* LES CHIFFRES N'ONT PLUS DE CADRE. Ils en portaient un — fond sombre,
+          anneau blanc — posé là pour les détacher d'une illustration claire.
+          Sur un fond sombre, et c'est le cas de la plupart des plaques, ce cadre
+          ne détachait plus rien : il dessinait quatre carrés noirs en travers de
+          l'image. Le texte se défend maintenant tout seul, par l'ombre portée
+          qui rend déjà le nom lisible juste au-dessus, sur la même image et sans
+          boîte. La carte, elle, reste là où elle est vraiment une carte : dans
+          la colonne de l'agencement « Colonne » (ProfileAside). */}
       {!medallion && !asColumn && stats.length > 0 ? (
         <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
           {stats.map((s) => (
-            <div
-              key={s.key}
-              className="as-stat-card rounded-xl px-3.5 py-3 ring-1 ring-white/10"
-            >
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+            <div key={s.key} className="px-1 py-1" style={{ textShadow: "0 2px 14px rgba(0,0,0,0.8)" }}>
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/55">
                 {s.label}
               </dt>
               <dd
@@ -635,7 +640,7 @@ export default function ProfileHero({
                 {s.value}
               </dd>
               {s.hint ? (
-                <p className="mt-1 text-[10px] text-white/35">{s.hint}</p>
+                <p className="mt-1 text-[10px] text-white/45">{s.hint}</p>
               ) : null}
             </div>
           ))}
