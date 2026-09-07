@@ -2309,17 +2309,16 @@ input[type="number"] {
   );
   pointer-events: none;
 }
-/* The colour bleed under the avatar: the accent, blurred, so the header sits
-   in its own light instead of on a hard edge. */
-.as-hero-glow {
-  background: radial-gradient(
-    50% 60% at 50% 100%,
-    var(--brand-primary, #e94560) 0%,
-    transparent 70%
-  );
-  opacity: 0.35;
-  filter: blur(40px);
-}
+/* `.as-hero-glow` A ÉTÉ RETIRÉE (07/09/2026), et il ne faut pas la remettre
+   telle quelle. C'était la fuite de couleur sous l'avatar : l'accent, flouté,
+   pour que l'en-tête baigne dans sa propre lumière au lieu de s'arrêter net.
+   Sur une plaque sombre — le cas courant, et systématique quand le fond est une
+   bande-annonce — elle ne se lisait plus comme une lumière mais comme un voile
+   presque transparent sous le nom et derrière les chiffres, ses bords droits
+   compris. Le calque a été identifié au CDP comme le seul de cette taille peint
+   dans l'en-tête. Une lueur qui ne se voit que sur les fonds clairs doit être
+   conditionnée à la clarté du fond (lib/color/navContrast.ts sait la mesurer),
+   pas posée pour tout le monde. */
 /* The cards float over a picture that scrolls behind them and can be pale, so
    they carry their own opacity rather than trusting the scrim underneath.
 
