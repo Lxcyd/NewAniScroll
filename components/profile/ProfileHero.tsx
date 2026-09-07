@@ -346,10 +346,17 @@ export default function ProfileHero({
 
       <div className={`min-w-0 pb-1 ${centered ? "flex flex-col items-center" : ""}`}>
         {/* The name can overlap a plate that is anything at all: the shadow is
-            what keeps it readable over a bright artwork. */}
+            what keeps it readable over a bright artwork.
+
+            SAUF SUR UN APLAT DE COULEUR. Là, le contraste est choisi et connu —
+            c'est la couleur qu'on vient de cliquer — et une ombre de 18 px de
+            flou n'a plus rien à corriger : elle se voit pour ce qu'elle est,
+            une tache sombre derrière le pseudo, avec la forme du texte. Les
+            aplats ont déjà leur propre voile allégé pour cette raison (voir
+            `.as-page-scrim-tint`, globals.css). */}
         <h1
           className="truncate font-outfit text-3xl font-bold leading-tight md:text-5xl"
-          style={{ textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
+          style={flat ? undefined : { textShadow: "0 2px 18px rgba(0,0,0,0.75)" }}
         >
           {name}
         </h1>

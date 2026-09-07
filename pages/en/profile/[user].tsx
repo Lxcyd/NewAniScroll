@@ -22,7 +22,7 @@ import { redis } from "@/lib/redis";
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
-import { getData, type DataKind } from "@/lib/auth/userData";
+import { getData, putData, type DataKind } from "@/lib/auth/userData";
 import {
   entriesFromAniList,
   entriesFromLocalList,
@@ -686,7 +686,7 @@ export async function getServerSideProps(context: any) {
       : DEFAULT_BLOCKS.some((id) => ACTIVITY_BLOCKS.has(id));
 
   const kinds: DataKind[] = [];
-  if (account && !collection?.user) kinds.push("list");
+  if (account && !collection?.user) kinds.push("list", "favourites");
   if (account && !layoutInColumn) kinds.push("prefs");
   if (account && (!layoutInColumn || layoutWantsActivity(layoutInColumn))) {
     kinds.push("progress", "recent");
@@ -705,6 +705,20 @@ export async function getServerSideProps(context: any) {
       (collection.user.favourites?.anime?.nodes || []).map((n: any) => n.id),
     );
     entries = entriesFromAniList(collection.lists, favIds);
+    /* LES FAVORIS SONT RECOPIÉS DANS LE COMPTE, et ce n'est pas du confort.
+       Ils n'existent que chez AniList : la sauvegarde AniScroll de la liste,
+       elle, n'a jamais porté la notion. Le jour où AniList ne répond plus — 403
+       sur tout depuis le 02/09/2026 — le profil bascule sur cette sauvegarde et
+       tous les favoris disparaissent d'un coup, ce qui fait retomber la vitrine
+       sur les mieux notés. Une copie, écrite à chaque passage où AniList a
+       répondu, suffit à traverser la panne suivante.
+
+       Seulement pour le propriétaire, seulement quand la liste est non vide (un
+       zéro pendant une réponse partielle d'AniList effacerait la copie), et
+       jamais en bloquant le rendu. */
+    if (isOwner && account && favIds.size) {
+      putData(account.id, "favourites", [...favIds]).catch(() => {});
+    }
     // The banner and mean score of every entry arrived with the query — keep
     // them here rather than in the props, so the chain below needs no extra
     // request and the payload stays the size of the list itself.
@@ -748,6 +762,16 @@ export async function getServerSideProps(context: any) {
     // AniScroll-only account: its list is the cloud backup of the local one.
     entries = entriesFromLocalList(localListFromCloudPayload(payloadOf("list")));
     stats = statsFromEntries(entries);
+    /* Les favoris repris de la copie écrite quand AniList répondait encore.
+       C'est le seul moment où ils peuvent revenir : la sauvegarde de la liste
+       ne les porte pas, et sans eux la vitrine « Favoris » retombe sur les
+       mieux notés — ce qu'elle dit alors honnêtement, mais ce n'est pas ce
+       qu'on lui demandait. */
+    const savedFav = payloadOf("favourites");
+    if (Array.isArray(savedFav) && savedFav.length) {
+      const ids = new Set<number>(savedFav.map((n: unknown) => Number(n)).filter(Boolean));
+      for (const e of entries) if (ids.has(e.mediaId)) e.favourite = true;
+    }
   }
 
   /* Les bandes-annonces que la liste ne porte pas, reprises du cache d'animés.
