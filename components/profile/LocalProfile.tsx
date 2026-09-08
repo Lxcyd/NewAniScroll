@@ -101,7 +101,22 @@ export default function LocalProfile() {
       />
 
       {/* relative z-10, and no veil over it: see the note in profile/[user].tsx. */}
-      <div className="as-fade-in relative z-10">
+      {/* PAS de `as-fade-in` ici, et c'est ce qui rend le flou des widgets
+          visible. Mesure du 08/09/2026 sur dev, gradient moyen a l'interieur
+          d'une carte : 15,27 avec l'animation, 13,76 sans — a papier peint
+          identique (temoin hors carte : 0,92 dans les deux cas).
+
+          La regle est celle des « backdrop root » : une animation d'opacite en
+          `fill-mode: both` garde son effet indefiniment, donc ce conteneur
+          restait une racine de fond bien apres ses 0,3 s. Un `backdrop-filter`
+          ne floute que ce qui est peint DANS sa racine — et le papier peint
+          (.as-page-plate) est peint dehors, un etage plus haut. Le filtre etait
+          donc parfaitement declare, calcule a `blur(32px)`, et sans le moindre
+          effet.
+
+          Le fondu d'arrivee n'est pas perdu : le conteneur du dessus le porte
+          pour toute la page, papier peint compris. */}
+      <div className="relative z-10">
         <div
           className={`mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10 ${
             /* Agencement « column » : l'identité quitte le bandeau pour une
