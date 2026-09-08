@@ -348,7 +348,10 @@ export default function BannerStudio({
      serait vide sur la moitié des franchises. */
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
-    if (scope !== "oped" && scope !== "music" && scope !== "video") return;
+    /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
+       en-tête porte la même affiche et le même sélecteur de saison, et une
+       saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
+    if (scope === "color" || scope === "layout" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
