@@ -24,6 +24,9 @@ import {
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
+import { collectArtworks } from "@/components/anime/v2/helpers";
+import { useFanarts } from "@/lib/hooks/useFanarts";
+import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
@@ -151,7 +154,16 @@ type Row = {
 /** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
     sélecteur de couleur n'est pas une ligne qu'on parcourt aux flèches, mais il
     appartient bien à l'onglet Couleur. */
-type Section = { title: string; rows: Row[]; node?: ReactNode };
+type Section = {
+  title: string;
+  rows: Row[];
+  node?: ReactNode;
+  /* Les illustrations se rendent EN GRILLE, cote a cote et en grand : une
+     image ne se choisit pas a son nom (elles n'en ont pas), elle se choisit a
+     l'oeil, et une vignette de 64 px posee au bout d'une ligne ne permet pas de
+     voir ce qu'on prend. */
+  grid?: boolean;
+};
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout";
@@ -312,6 +324,17 @@ export default function BannerStudio({
     ? (meta?.mediaId === pick ? meta : animes.find((a) => a.mediaId === pick)) ?? null
     : searchedAnime ?? currentAnime;
   const listedAnimeId = twoScreens ? pick : listedAnime?.mediaId ?? animeId;
+
+  /* TOUTE la galerie de l'anime ouvert, et pas seulement les formats larges :
+     ce sont les deux memes points d'entree que l'onglet Illustrations de la
+     fiche anime (fanart.tv puis TMDB), avec leurs propres memos — ouvrir ici un
+     titre deja consulte ne coute donc rien. `bannerOptions` seul en laissait la
+     moitie dehors : il ne collecte que les types larges, pas les affiches, les
+     logos, les clear arts, ni le fonds TMDB.
+     `null` hors de ces deux onglets : les hooks ne demandent alors rien. */
+  const galerieId = scope === "banner" || scope === "image" ? pick : null;
+  const { fanarts } = useFanarts(galerieId);
+  const { tmdbArts } = useTmdbArtworks(galerieId ?? 0);
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
@@ -637,12 +660,24 @@ export default function BannerStudio({
        miniature de saison n'ont ni le même cadrage ni le même usage, et une
        grille indistincte obligeait à les reconnaître à l'œil. */
     if (scope === "banner" || scope === "image") {
-      /* Ce que chaque onglet propose, dans l'ordre où il le propose. Bannière
-         ne montre que les formats en bande ; Image, les formats en tableau. */
-      const familles: Array<BannerOption["source"]> =
-        scope === "banner"
-          ? ["banner", "seasonbanner", "anilist"]
-          : ["background", "thumb", "seasonthumb", "cover"];
+      /* TOUS les formats, et dans l'ordre qui convient à l'onglet : Bannière
+         mène avec ce qui se porte en bande, Image avec ce qui se porte en
+         pleine page. Aucun n'est écarté — « il en manque » était vrai, et
+         c'était le filtre qui les écartait. */
+      const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
+      const PLEIN: string[] = [
+        "background",
+        "thumb",
+        "seasonthumb",
+        "poster",
+        "seasonposter",
+        "clearart",
+        "character",
+        "logo",
+        "disc",
+      ];
+      const familles =
+        scope === "banner" ? [...LARGE, ...PLEIN] : [...PLEIN, ...LARGE];
 
       if (pick == null) {
         const rows = animes
@@ -662,21 +697,46 @@ export default function BannerStudio({
         out.push({ title: t(`profile.studioKind_${scope}`), rows });
       } else {
         const cible = listedAnime;
-        /* La pochette de l'anime ouvert vaut une illustration : elle n'est pas
-           dans `art` (elle vient de la liste), et c'est le fond de dernier
-           recours que la plaque porte déjà, flouté. */
-        const galerie: BannerOption[] = [
-          ...art,
-          ...(cible?.cover && !art.some((o) => o.url === cible.cover)
-            ? [{ url: cible.cover, source: "cover" as const, likes: 0 }]
-            : []),
-        ];
+        /* Trois provenances pour une seule galerie : fanart.tv (tous ses
+           types), TMDB (fonds, affiches, logos — il couvre les titres que
+           fanart.tv ignore), et ce que le profil connaît déjà de cet anime (la
+           bannière AniList et son affiche). Dédoublonnage par URL : les trois
+           se recoupent, et fanart.tv passe en premier parce que ses lignes sont
+           classées par votes. */
+        const vues = new Set<string>();
+        const galerie: Array<{ url: string; type: string; likes: number }> = [];
+        const ajouter = (url: string | null | undefined, type: string, likes = 0) => {
+          if (!url || vues.has(url)) return;
+          vues.add(url);
+          galerie.push({ url, type, likes });
+        };
+        for (const a of collectArtworks(fanarts)) ajouter(a.url, a.type, a.likes || 0);
+        for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0);
+        for (const o of art) {
+          ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
+        }
+        ajouter(cible?.cover, "poster");
+
+        /* Où se pose une image qu'on choisit : en bande ou en pleine page. La
+           réponse tient dans `source`, que le profil relit ensuite (plateMode)
+           — les formats que le stockage ne connaît pas se rangent donc sous le
+           plus proche qu'il connaisse. */
+        const rangement: Record<string, BannerOption["source"]> = {
+          background: "background",
+          thumb: "thumb",
+          seasonthumb: "seasonthumb",
+          banner: "banner",
+          seasonbanner: "seasonbanner",
+          anilist: "anilist",
+          poster: "cover",
+          seasonposter: "cover",
+        };
 
         let total = 0;
         const sections: Section[] = [];
         for (const famille of familles) {
           const rows = galerie
-            .filter((o) => o.source === famille)
+            .filter((o) => o.type === famille)
             .map((o) => ({
               key: o.url,
               label: cible?.title || "",
@@ -688,7 +748,7 @@ export default function BannerStudio({
                   kind: scope as "banner" | "image",
                   url: o.url,
                   color: null,
-                  source: o.source,
+                  source: rangement[famille] ?? "background",
                   animeId: cible?.mediaId ?? null,
                   title: cible?.title ?? null,
                 }),
@@ -704,6 +764,7 @@ export default function BannerStudio({
                 ? t("profile.artKind_anilist")
                 : t(`anime.artType.${famille}`),
             rows,
+            grid: true,
           });
         }
 
@@ -1010,8 +1071,9 @@ export default function BannerStudio({
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
     return out.filter((s) => s.rows.length > 0 || s.node);
-  }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
-      listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft, accent, patch, t]);
+  }, [scope, query, art, fanarts, tmdbArts, themes, animes, animeId, currentAnime,
+      searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
+      accent, patch, t]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1153,6 +1215,8 @@ export default function BannerStudio({
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
   const searchable = scope !== "color" && scope !== "layout";
+  /** On regarde des illustrations : le panneau prend toute la place qu'il peut. */
+  const galerieOuverte = (scope === "banner" || scope === "image") && pick != null;
   const ScopeIcon =
     !scope || scope === "music"
       ? SpeakerWaveIcon
@@ -1314,8 +1378,15 @@ export default function BannerStudio({
               cela, cliquer À CÔTÉ du panneau — la bande le traverse d'un bord à
               l'autre de l'écran — tombait sur ce conteneur et non sur le voile
               en dessous, et le menu ne se fermait pas. */}
+          {/* LE PANNEAU S'ELARGIT POUR LES IMAGES. Trois colonnes de vignettes
+              dans 768 px, ce sont des timbres-poste ; le reste des onglets, lui,
+              est fait de lignes de texte et n'a rien a gagner a s'etaler. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
-            <div className="pointer-events-auto w-full max-w-3xl overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10">
+            <div
+              className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
+                galerieOuverte ? "max-w-6xl" : "max-w-3xl"
+              }`}
+            >
               <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
@@ -1352,7 +1423,11 @@ export default function BannerStudio({
                 </button>
               </div>
 
-              <div className="max-h-[54vh] overflow-y-auto p-2.5">
+              <div
+                className={`overflow-y-auto p-2.5 ${
+                  galerieOuverte ? "max-h-[62vh]" : "max-h-[54vh]"
+                }`}
+              >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
                     {[0, 1, 2, 3].map((i) => (
@@ -1375,7 +1450,57 @@ export default function BannerStudio({
                         </p>
                       ) : null}
                       {s.node ? <div className="px-1 pb-1">{s.node}</div> : null}
-                      {s.rows.map((row) => {
+                      {s.grid ? (
+                        /* LA GRILLE D'ILLUSTRATIONS. Les mêmes `rows`, donc le
+                           même curseur clavier et la même coche que partout
+                           ailleurs — seule la mise en page change. `contain` et
+                           non `cover` : une affiche est en portrait, un visuel
+                           clé en 16/9, et recadrer pour aligner les tuiles
+                           montrerait de chaque image ce qu'on n'a pas choisi. */
+                        <div className="grid grid-cols-2 gap-2 px-1 pb-2 sm:grid-cols-3 lg:grid-cols-4">
+                          {s.rows.map((row) => {
+                            index += 1;
+                            const active = index === cursor;
+                            return (
+                              <button
+                                key={row.key}
+                                type="button"
+                                onMouseMove={() => setCursor(flat.indexOf(row))}
+                                onClick={() => row.run?.()}
+                                title={row.hint || row.label}
+                                className={`relative h-36 overflow-hidden rounded-xl bg-black/40 ring-1 transition-colors ${
+                                  row.selected
+                                    ? "ring-2 ring-action"
+                                    : active
+                                      ? "ring-white/35"
+                                      : "ring-white/10"
+                                }`}
+                              >
+                                {row.thumb ? (
+                                  <Image
+                                    src={row.thumb}
+                                    alt=""
+                                    fill
+                                    sizes="(min-width: 1024px) 20vw, 40vw"
+                                    className="object-contain"
+                                  />
+                                ) : null}
+                                {row.selected ? (
+                                  <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-action text-white">
+                                    <CheckIcon className="h-4 w-4" />
+                                  </span>
+                                ) : null}
+                                {row.hint ? (
+                                  <span className="absolute bottom-1.5 left-1.5 rounded bg-black/65 px-1.5 py-0.5 font-karla text-[10px] font-bold text-white/80">
+                                    {row.hint}
+                                  </span>
+                                ) : null}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {s.grid ? null : s.rows.map((row) => {
                         index += 1;
                         const active = index === cursor;
                         const Icon = row.icon;
