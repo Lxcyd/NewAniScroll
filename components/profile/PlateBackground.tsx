@@ -254,8 +254,18 @@ export default function PlateBackground({
       if (veil.current) {
         /* `fadeGain` rend 1 en plein milieu et 0 aux extrémités : le voile est
            son complément. Bornes absentes, l'extrait vaut tout le fichier — le
-           fondu se pose alors au début et à la fin de la vidéo. */
-        const gain = fadeGain(at, from, to > from ? to : len, fade);
+           fondu se pose alors au début et à la fin de la vidéo.
+
+           LE FONDU NE MANGE JAMAIS PLUS DU QUART DE L'EXTRAIT. Une seconde de
+           chaque côté est douce sur un générique entier ; sur un extrait de
+           cinq secondes, c'est deux secondes de noir sur cinq — mesuré sur un
+           profil réel le 08/09/2026, où le fond passait pour éteint et le flou
+           des widgets n'avait plus rien à flouter. Le plafond ne mord que sur
+           les extraits courts : au-delà de huit secondes, le réglage passe
+           intact. */
+        const fin = to > from ? to : len;
+        const f = Math.min(fade, Math.max(0, (fin - from) / 8));
+        const gain = fadeGain(at, from, fin, f);
         veil.current.style.opacity = String(1 - gain);
       }
       report.current?.(at, len, playing);

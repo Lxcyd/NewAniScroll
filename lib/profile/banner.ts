@@ -38,6 +38,11 @@ export type ProfileBanner = {
 /** Order fanart types by how well they fill a hero band. */
 const WIDE_TYPES: Array<BannerOption["source"]> = ["background", "thumb", "banner"];
 
+/* Les memes images, propres a une saison. Elles viennent APRES, et jamais dans
+   le choix automatique : « la banniere d'un anime » est celle de la serie, pas
+   celle de sa troisieme saison. Le studio, lui, les propose sous leur nom. */
+const SEASON_TYPES: Array<BannerOption["source"]> = ["seasonthumb", "seasonbanner"];
+
 export type MediaArt = {
   id: number;
   title?: string | null;
@@ -58,6 +63,17 @@ export async function bannerOptions(media: MediaArt): Promise<BannerOption[]> {
       isAcceptableLang(r.language),
     );
     // loadFanarts already returns each type likes-desc; keep that order.
+    for (const r of rows) out.push({ url: r.url, source: type, likes: r.likes || 0 });
+  }
+
+  /* Les illustrations de saison, en queue de liste : le studio les range dans
+     leurs propres sections, et le choix automatique — qui prend la premiere
+     ligne — n'a aucune raison de porter la banniere de la saison 3 quand on lui
+     demande celle de la serie. */
+  for (const type of SEASON_TYPES) {
+    const rows = (fanarts?.types?.[type] || []).filter((r) =>
+      isAcceptableLang(r.language),
+    );
     for (const r of rows) out.push({ url: r.url, source: type, likes: r.likes || 0 });
   }
 

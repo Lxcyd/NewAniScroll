@@ -13,8 +13,19 @@
 
 export type BannerOption = {
   url: string;
-  /** fanart type, or where it came from when it isn't a fanart. */
-  source: "background" | "thumb" | "banner" | "anilist" | "cover";
+  /* fanart type, or where it came from when it isn't a fanart.
+     `seasonthumb` et `seasonbanner` sont les memes images, propres a UNE
+     saison : fanart.tv les range a part, la fiche anime les nomme deja
+     (anime.artType.*), et le studio les propose donc sous ces noms-la plutot
+     que melees aux illustrations de la serie entiere. */
+  source:
+    | "background"
+    | "thumb"
+    | "seasonthumb"
+    | "banner"
+    | "seasonbanner"
+    | "anilist"
+    | "cover";
   likes: number;
 };
 
@@ -36,7 +47,9 @@ export type BannerOption = {
 export function plateMode(
   source: BannerOption["source"] | null | undefined,
 ): "page" | "band" {
-  return source === "anilist" || source === "banner" ? "band" : "page";
+  return source === "anilist" || source === "banner" || source === "seasonbanner"
+    ? "band"
+    : "page";
 }
 
 export type ProfileTitle = {

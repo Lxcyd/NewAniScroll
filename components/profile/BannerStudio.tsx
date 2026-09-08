@@ -97,10 +97,6 @@ type Props = {
   onApply: (value: Dressing | null) => void;
 };
 
-/* Les illustrations qui remplissent une plaque large. Une pochette portrait n'en
-   est pas une : elle est proposée sous « Image », où elle est portée floutée. */
-const WIDE = new Set<BannerOption["source"]>(["background", "thumb", "anilist", "banner"]);
-
 /** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
 const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
   band: Bars3BottomLeftIcon,
@@ -299,36 +295,44 @@ export default function BannerStudio({
     return animes.find((a) => fold(a.title).includes(q)) ?? null;
   }, [scope, query, animes]);
 
-  /* L'anime dont l'onglet Vidéo montre les vidéos. `null` : on est encore
-     devant la liste des animés. Ce sont deux écrans et non un — voir plus bas
-     la note de la section. */
-  const [videoPick, setVideoPick] = useState<number | null>(null);
+  /* L'anime OUVERT, dans les onglets qui se parcourent en deux écrans —
+     Vidéo, Bannière et Image. `null` : on est encore devant la liste des
+     animés. Un seul état pour les trois : un seul onglet est ouvert à la fois,
+     et `openScope` le remet à zéro.
 
-  const listedAnime =
-    scope === "video"
-      ? (meta?.mediaId === videoPick ? meta : animes.find((a) => a.mediaId === videoPick)) ?? null
-      : searchedAnime ?? currentAnime;
-  const listedAnimeId = scope === "video" ? videoPick : listedAnime?.mediaId ?? animeId;
+     POURQUOI DEUX ÉCRANS. La liste des animés d'abord, ses illustrations
+     ensuite, comme partout ailleurs sur le site. L'onglet Bannière ne montrait
+     que les illustrations d'UN anime — celui du profil — et rien ne permettait
+     d'en atteindre un autre : la recherche filtrait des images qui n'ont pas de
+     nom, donc elle ne trouvait rien. */
+  const [pick, setPick] = useState<number | null>(null);
+  const twoScreens = scope === "video" || scope === "banner" || scope === "image";
+
+  const listedAnime = twoScreens
+    ? (meta?.mediaId === pick ? meta : animes.find((a) => a.mediaId === pick)) ?? null
+    : searchedAnime ?? currentAnime;
+  const listedAnimeId = twoScreens ? pick : listedAnime?.mediaId ?? animeId;
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
      ouvrir le studio sur son propre profil ne coûte donc en général rien. */
   useEffect(() => {
-    if (!open || animeId == null) return;
+    if (!open || listedAnimeId == null) return;
     if (scope !== "banner" && scope !== "image") return;
-    const hit = artCache.current.get(animeId);
+    const cible = listedAnimeId;
+    const hit = artCache.current.get(cible);
     if (hit) {
       setArt(hit);
       return;
     }
     let alive = true;
     setLoading(true);
-    fetch(`/api/v2/profile-banner?anime=${animeId}`)
+    fetch(`/api/v2/profile-banner?anime=${cible}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive) return;
         const options: BannerOption[] = Array.isArray(json?.options) ? json.options : [];
-        artCache.current.set(animeId, options);
+        artCache.current.set(cible, options);
         setArt(options);
       })
       .catch(() => alive && setArt([]))
@@ -336,7 +340,7 @@ export default function BannerStudio({
     return () => {
       alive = false;
     };
-  }, [open, animeId, scope]);
+  }, [open, listedAnimeId, scope]);
 
   /* L'identité de l'anime listé : prise dans la liste de l'utilisateur quand
      elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
@@ -513,10 +517,10 @@ export default function BannerStudio({
     setScope(s);
     setQuery("");
     setCursor(0);
-    /* L'onglet Vidéo s'ouvre TOUJOURS sur la liste des animés : rouvrir un menu
-       et tomber sur le titre d'avant, c'est se demander où est passée la
-       liste. */
-    setVideoPick(null);
+    /* Un onglet à deux écrans s'ouvre TOUJOURS sur la liste des animés :
+       rouvrir un menu et tomber sur le titre d'avant, c'est se demander où est
+       passée la liste. */
+    setPick(null);
     requestAnimationFrame(() => search.current?.focus());
   }, []);
 
@@ -618,52 +622,132 @@ export default function BannerStudio({
       });
     }
 
-    if (scope === "banner") {
-      const rows = art
-        .filter((o) => WIDE.has(o.source))
-        .map((o) => ({
-          key: o.url,
-          label: currentAnime?.title || "",
-          hint: o.likes > 0 ? `♥ ${o.likes}` : t(`profile.artKind_${o.source}`),
-          thumb: o.url,
-          selected: draft.url === o.url,
-          run: () =>
-            patch({
-              kind: "banner" as const,
-              url: o.url,
-              color: null,
-              source: o.source,
-              animeId: currentAnime?.mediaId ?? null,
-              title: currentAnime?.title ?? null,
-            }),
-        }));
-      out.push({
-        title: t("profile.studioArtOf", { title: currentAnime?.title ?? "—" }),
-        rows,
-      });
-    }
+    /* ── Les illustrations ────────────────────────────────────────────────
+       Bannière et Image marchent comme l'onglet Vidéo : la liste des animés,
+       puis les illustrations de celui qu'on ouvre. Elles montraient jusqu'ici
+       les seules illustrations de l'anime du PROFIL, sans aucun moyen d'en
+       atteindre un autre — la recherche filtrait des images, qui n'ont pas de
+       nom, donc elle ne rendait jamais rien.
 
-    if (scope === "image") {
-      /* Les pochettes : elles sont déjà en main (la liste les porte), donc
-         cette section ne coûte aucune requête. Portées floutées et
-         sur-dimensionnées, comme le fait déjà la plaque de dernier recours. */
-      const rows = animes.filter((a) => a.cover && match(a.title)).map((a) => ({
-        key: `cover-${a.mediaId}`,
-        label: a.title,
-        hint: t("profile.artPoster"),
-        thumb: a.cover!,
-        selected: draft.url === a.cover,
-        run: () =>
-          patch({
-            kind: "image" as const,
-            url: a.cover!,
-            color: null,
-            source: "cover" as const,
-            animeId: a.mediaId,
-            title: a.title,
-          }),
-      }));
-      out.push({ title: t("profile.studioCovers"), rows });
+       Et elles sont RANGÉES PAR NATURE, sous les noms que la fiche anime leur
+       donne déjà (`anime.artType.*`) : un visuel clé, une miniature et une
+       miniature de saison n'ont ni le même cadrage ni le même usage, et une
+       grille indistincte obligeait à les reconnaître à l'œil. */
+    if (scope === "banner" || scope === "image") {
+      /* Ce que chaque onglet propose, dans l'ordre où il le propose. Bannière
+         ne montre que les formats en bande ; Image, les formats en tableau. */
+      const familles: Array<BannerOption["source"]> =
+        scope === "banner"
+          ? ["banner", "seasonbanner", "anilist"]
+          : ["background", "thumb", "seasonthumb", "cover"];
+
+      if (pick == null) {
+        const rows = animes
+          .filter((a) => match(a.title))
+          .map((a) => ({
+            key: `anime-art-${a.mediaId}`,
+            label: a.title,
+            hint: t("profile.studioSeeArt"),
+            thumb: a.cover ?? null,
+            selected: draft.animeId === a.mediaId && !!draft.url,
+            run: () => {
+              setPick(a.mediaId);
+              setQuery("");
+              setCursor(0);
+            },
+          }));
+        out.push({ title: t(`profile.studioKind_${scope}`), rows });
+      } else {
+        const cible = listedAnime;
+        /* La pochette de l'anime ouvert vaut une illustration : elle n'est pas
+           dans `art` (elle vient de la liste), et c'est le fond de dernier
+           recours que la plaque porte déjà, flouté. */
+        const galerie: BannerOption[] = [
+          ...art,
+          ...(cible?.cover && !art.some((o) => o.url === cible.cover)
+            ? [{ url: cible.cover, source: "cover" as const, likes: 0 }]
+            : []),
+        ];
+
+        let total = 0;
+        const sections: Section[] = [];
+        for (const famille of familles) {
+          const rows = galerie
+            .filter((o) => o.source === famille)
+            .map((o) => ({
+              key: o.url,
+              label: cible?.title || "",
+              hint: o.likes > 0 ? `♥ ${o.likes}` : null,
+              thumb: o.url,
+              selected: draft.url === o.url,
+              run: () =>
+                patch({
+                  kind: scope as "banner" | "image",
+                  url: o.url,
+                  color: null,
+                  source: o.source,
+                  animeId: cible?.mediaId ?? null,
+                  title: cible?.title ?? null,
+                }),
+            }));
+          if (!rows.length) continue;
+          total += rows.length;
+          sections.push({
+            /* Le nom vient de la fiche anime : « Visuel clé », « Miniature de
+               saison »… La bannière d'AniList n'y figure pas — c'est la seule
+               qui ne soit pas un fanart — donc elle garde le sien. */
+            title:
+              famille === "anilist"
+                ? t("profile.artKind_anilist")
+                : t(`anime.artType.${famille}`),
+            rows,
+          });
+        }
+
+        out.push({
+          title: "",
+          node: (
+            <AnimeHead
+              anime={cible}
+              count={total}
+              countKey="profile.studioArtCount"
+              seasons={seasons}
+              current={pick}
+              onPick={(id) => {
+                setPick(id);
+                setCursor(0);
+              }}
+              t={t}
+            />
+          ),
+          rows: [
+            {
+              key: "art-back",
+              label: t("profile.studioAllAnimes"),
+              icon: ArrowUturnLeftIcon,
+              run: () => {
+                setPick(null);
+                setQuery("");
+                setCursor(0);
+              },
+            },
+          ],
+        });
+        if (sections.length) out.push(...sections);
+        else
+          out.push({
+            title: "",
+            rows: [
+              {
+                key: "no-art",
+                label: t("profile.studioNoArtHere"),
+                hint: t("profile.studioNoArtHereHint"),
+                icon: PhotoIcon,
+                disabled: true,
+              },
+            ],
+          });
+      }
     }
 
     /* ── Les bandes-annonces ──────────────────────────────────────────────
@@ -679,7 +763,7 @@ export default function BannerStudio({
          qu'une vidéo par titre ; il n'aurait plus de place le jour où un titre
          en a deux, et il ne laissait pas atteindre les saisons absentes de la
          liste, que le sélecteur de saison de l'écran suivant, lui, atteint. */
-      if (videoPick == null) {
+      if (pick == null) {
         const rows = animes
           .filter((a) => a.trailer && match(a.title))
           .map((a) => ({
@@ -689,7 +773,7 @@ export default function BannerStudio({
             thumb: a.cover ?? null,
             selected: draft.animeId === a.mediaId && !!draft.trailerId,
             run: () => {
-              setVideoPick(a.mediaId);
+              setPick(a.mediaId);
               setQuery("");
               setCursor(0);
             },
@@ -720,7 +804,7 @@ export default function BannerStudio({
             label: t("profile.studioAllAnimes"),
             icon: ArrowUturnLeftIcon,
             run: () => {
-              setVideoPick(null);
+              setPick(null);
               setQuery("");
               setCursor(0);
             },
@@ -768,9 +852,9 @@ export default function BannerStudio({
               count={trailer ? 1 : 0}
               countKey="profile.studioVideoCount"
               seasons={seasons}
-              current={videoPick}
+              current={pick}
               onPick={(id) => {
-                setVideoPick(id);
+                setPick(id);
                 setCursor(0);
               }}
               t={t}
@@ -924,7 +1008,7 @@ export default function BannerStudio({
 
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, themes, animes, animeId, currentAnime, searchedAnime,
-      listedAnime, listedAnimeId, meta, seasons, videoPick, fadeSec, draft, accent, patch, t]);
+      listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft, accent, patch, t]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 

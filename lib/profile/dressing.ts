@@ -260,7 +260,15 @@ export function isVideoKind(kind: DressingKind | null | undefined): boolean {
 }
 
 const KINDS = new Set<string>(DRESSING_KINDS.map((k) => k.id));
-const SOURCES = new Set(["background", "thumb", "banner", "anilist", "cover"]);
+const SOURCES = new Set([
+  "background",
+  "thumb",
+  "seasonthumb",
+  "banner",
+  "seasonbanner",
+  "anilist",
+  "cover",
+]);
 
 function str(v: unknown, max = 200): string | null {
   return typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null;
