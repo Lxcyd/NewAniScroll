@@ -732,41 +732,37 @@ export default function BannerStudio({
           seasonposter: "cover",
         };
 
-        let total = 0;
-        const sections: Section[] = [];
-        for (const famille of familles) {
-          const rows = galerie
-            .filter((o) => o.type === famille)
-            .map((o) => ({
-              key: o.url,
-              label: cible?.title || "",
-              hint: o.likes > 0 ? `♥ ${o.likes}` : null,
-              thumb: o.url,
-              selected: draft.url === o.url,
-              run: () =>
-                patch({
-                  kind: scope as "banner" | "image",
-                  url: o.url,
-                  color: null,
-                  source: rangement[famille] ?? "background",
-                  animeId: cible?.mediaId ?? null,
-                  title: cible?.title ?? null,
-                }),
-            }));
-          if (!rows.length) continue;
-          total += rows.length;
-          sections.push({
-            /* Le nom vient de la fiche anime : « Visuel clé », « Miniature de
-               saison »… La bannière d'AniList n'y figure pas — c'est la seule
-               qui ne soit pas un fanart — donc elle garde le sien. */
-            title:
-              famille === "anilist"
-                ? t("profile.artKind_anilist")
-                : t(`anime.artType.${famille}`),
-            rows,
-            grid: true,
-          });
-        }
+        /* UNE SEULE GRILLE, sans intitulés. Le classement par nature reste,
+           mais il ne se lit plus : il ne sert qu'à décider ce qui vient en
+           premier — les formats de l'onglet, puis tout le reste. Des en-têtes
+           tous les quatre images hachaient la planche en tranches, et on ne
+           choisit pas une image à sa dénomination : on la reconnaît. */
+        const rang = new Map(familles.map((f, i) => [f, i]));
+        const rows = galerie
+          .slice()
+          .sort(
+            (a, b) =>
+              (rang.get(a.type) ?? 99) - (rang.get(b.type) ?? 99) || b.likes - a.likes,
+          )
+          .map((o) => ({
+            key: o.url,
+            label: cible?.title || "",
+            hint: o.likes > 0 ? `♥ ${o.likes}` : null,
+            thumb: o.url,
+            selected: draft.url === o.url,
+            run: () =>
+              patch({
+                kind: scope as "banner" | "image",
+                url: o.url,
+                color: null,
+                /* Où se pose l'image — bandeau ou pleine page — reste décidé
+                   par sa nature, même si elle ne s'affiche plus. */
+                source: rangement[o.type] ?? "background",
+                animeId: cible?.mediaId ?? null,
+                title: cible?.title ?? null,
+              }),
+          }));
+        const total = rows.length;
 
         out.push({
           title: "",
@@ -797,7 +793,7 @@ export default function BannerStudio({
             },
           ],
         });
-        if (sections.length) out.push(...sections);
+        if (rows.length) out.push({ title: "", rows, grid: true });
         else
           out.push({
             title: "",
