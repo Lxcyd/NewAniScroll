@@ -294,21 +294,37 @@ function youtubeId(raw: unknown): string | null {
 }
 
 /**
- * Une URL TMDB ramenee a l'image entiere.
+ * Une URL d'image ramenee a la plus grande taille que l'hote publie a la meme
+ * adresse.
  *
- * TMDB sert la meme photo sous une echelle de tailles (`/t/p/w780/…`), et une
- * galerie affiche forcement la vignette. Un fond de profil qui garde cette
- * vignette l'etire ensuite sur toute la largeur de l'ecran — 780 px pour 1900,
- * ce qui se voit. On remonte donc a `original` a la relecture, ce qui rattrape
- * AUSSI les bannieres deja enregistrees a la mauvaise taille : rien a
- * rechoisir.
+ * Deux hotes servent la MEME image sous une echelle de tailles, et une galerie
+ * y affiche forcement la vignette. Posee en fond de profil, cette vignette est
+ * ensuite etiree sur toute la largeur de l'ecran. Mesures du 08/09/2026 :
  *
- * Seul le chemin de taille change, jamais l'hote : la liste blanche
+ *   TMDB     `/t/p/w780/…`     780x439   ->  `/t/p/original/…`  1920x1080
+ *   AniList  `/cover/medium/…` 230x320   ->  `/cover/large/…`   460x640
+ *
+ * `extraLarge` n'est PAS une troisieme marche accessible ici : le fichier y
+ * porte un autre nom, et la substitution rend 404 sur les cinq affiches
+ * testees. `large` est donc le plafond atteignable sans aller redemander la
+ * fiche a AniList.
+ *
+ * La reecriture vaut aussi pour les valeurs DEJA enregistrees, puisqu'elle a
+ * lieu a la relecture : une banniere posee avant ce correctif se rattrape sans
+ * qu'on ait a la rechoisir.
+ *
+ * Seul le segment de taille change, jamais l'hote : la liste blanche
  * (lib/profile/banner.ts) garde exactement la meme prise.
  */
-function pleineTaille(url: string | null): string | null {
-  if (!url || !url.includes("image.tmdb.org")) return url;
-  return url.replace(/\/t\/p\/w\d+\//, "/t/p/original/");
+export function pleineTaille(url: string | null): string | null {
+  if (!url) return url;
+  if (url.includes("image.tmdb.org")) {
+    return url.replace(/\/t\/p\/w\d+\//, "/t/p/original/");
+  }
+  if (url.includes("anilist.co")) {
+    return url.replace("/cover/medium/", "/cover/large/");
+  }
+  return url;
 }
 
 function trim(rawFrom: unknown, rawTo: unknown): { from: number | null; to: number | null } {

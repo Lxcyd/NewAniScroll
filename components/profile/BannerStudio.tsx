@@ -41,6 +41,7 @@ import {
   fadeGain,
   isHexColor,
   isVideoKind,
+  pleineTaille,
   type Dressing,
   type DressingKind,
   type HeroLayout,
@@ -733,7 +734,10 @@ export default function BannerStudio({
         for (const o of art) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
-        ajouter(cible?.cover, "poster");
+        /* L'affiche de la liste arrive en `medium` — 230 px de large. La
+           galerie la montre telle quelle (c'est une tuile) mais ce qui part en
+           fond passe par la meme regle que partout ailleurs. */
+        ajouter(cible?.cover, "poster", 0, pleineTaille(cible?.cover ?? null));
 
         /* Où se pose une image qu'on choisit : en bande ou en pleine page. La
            réponse tient dans `source`, que le profil relit ensuite (plateMode)
