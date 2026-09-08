@@ -293,6 +293,24 @@ function youtubeId(raw: unknown): string | null {
   return s && /^[A-Za-z0-9_-]{11}$/.test(s) ? s : null;
 }
 
+/**
+ * Une URL TMDB ramenee a l'image entiere.
+ *
+ * TMDB sert la meme photo sous une echelle de tailles (`/t/p/w780/…`), et une
+ * galerie affiche forcement la vignette. Un fond de profil qui garde cette
+ * vignette l'etire ensuite sur toute la largeur de l'ecran — 780 px pour 1900,
+ * ce qui se voit. On remonte donc a `original` a la relecture, ce qui rattrape
+ * AUSSI les bannieres deja enregistrees a la mauvaise taille : rien a
+ * rechoisir.
+ *
+ * Seul le chemin de taille change, jamais l'hote : la liste blanche
+ * (lib/profile/banner.ts) garde exactement la meme prise.
+ */
+function pleineTaille(url: string | null): string | null {
+  if (!url || !url.includes("image.tmdb.org")) return url;
+  return url.replace(/\/t\/p\/w\d+\//, "/t/p/original/");
+}
+
 function trim(rawFrom: unknown, rawTo: unknown): { from: number | null; to: number | null } {
   const from = Number(rawFrom);
   const to = Number(rawTo);
@@ -326,7 +344,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
       ? "color"
       : "banner"; /* l'ancienne forme n'avait pas de type : c'était une bannière */
 
-  const url = str(obj.url, 500);
+  const url = pleineTaille(str(obj.url, 500));
   const color = isHexColor(obj.color) ? obj.color : null;
   /* Une bande-annonce est un fond à elle seule : ni fichier, ni couleur. Sans
      elle dans ce garde-fou, tout l'habillage — musique et agencement compris —

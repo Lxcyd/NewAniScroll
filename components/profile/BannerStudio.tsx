@@ -704,14 +704,32 @@ export default function BannerStudio({
            se recoupent, et fanart.tv passe en premier parce que ses lignes sont
            classées par votes. */
         const vues = new Set<string>();
-        const galerie: Array<{ url: string; type: string; likes: number }> = [];
-        const ajouter = (url: string | null | undefined, type: string, likes = 0) => {
+        /* DEUX URL PAR IMAGE, et c'est tout l'objet de `plein`. TMDB sert ses
+           galeries en `w780` — une vignette — et l'image entiere sous
+           `original`. Poser la vignette en fond de profil, c'est etirer 780 px
+           sur 1900 : mesure du 08/09/2026, w780 = 780x439 pour 81 Ko quand
+           l'original fait 1920x1080 pour 165 Ko. La tuile garde la vignette (on
+           en affiche des centaines), le fond prend l'image.
+           fanart.tv n'a pas ce probleme : son proxy sert deja le 1920x1080,
+           simplement transcode en WebP. */
+        const galerie: Array<{
+          url: string;
+          plein: string;
+          type: string;
+          likes: number;
+        }> = [];
+        const ajouter = (
+          url: string | null | undefined,
+          type: string,
+          likes = 0,
+          plein?: string | null,
+        ) => {
           if (!url || vues.has(url)) return;
           vues.add(url);
-          galerie.push({ url, type, likes });
+          galerie.push({ url, plein: plein || url, type, likes });
         };
         for (const a of collectArtworks(fanarts)) ajouter(a.url, a.type, a.likes || 0);
-        for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0);
+        for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0, a.fullUrl);
         for (const o of art) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
@@ -753,7 +771,7 @@ export default function BannerStudio({
             run: () =>
               patch({
                 kind: scope as "banner" | "image",
-                url: o.url,
+                url: o.plein,
                 color: null,
                 /* Où se pose l'image — bandeau ou pleine page — reste décidé
                    par sa nature, même si elle ne s'affiche plus. */
