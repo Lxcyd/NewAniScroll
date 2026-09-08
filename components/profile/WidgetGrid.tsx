@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -16,6 +16,12 @@ import {
   type GridItem,
 } from "@/lib/profile/grid";
 import WidgetSettings from "./WidgetSettings";
+
+/* `useLayoutEffect` n'existe pas au rendu serveur — React y avertit. Ce module
+   est rendu des deux cotes : on prend l'effet de mise en page dans le
+   navigateur, et l'effet ordinaire (jamais execute) sur le serveur. */
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /**
  * La grille de widgets : pose, déplacement, redimensionnement.
@@ -158,8 +164,15 @@ export default function WidgetGrid({
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   /* La largeur du conteneur EST l'unité de la grille : sans elle rien ne peut
-     être placé, et elle change avec la fenêtre comme avec un panneau latéral. */
-  useEffect(() => {
+     être placé, et elle change avec la fenêtre comme avec un panneau latéral.
+
+     LA MESURE SE PREND AVANT LA PEINTURE (`useLayoutEffect`), et c'est ce qui
+     enlève le saut du chargement. En `useEffect`, le navigateur peignait
+     d'abord la disposition calculée sur `width || 1` — tous les blocs empilés à
+     un pixel de large — puis la vraie mesure arrivait et les 200 ms de
+     transition les faisaient GLISSER en place. Avec le flou par-dessus, ce sont
+     des rectangles troubles qui traversent l'écran. */
+  useIsoLayoutEffect(() => {
     const el = hostRef.current;
     if (!el) return;
     const measure = () => setWidth(el.clientWidth);
@@ -423,13 +436,23 @@ export default function WidgetGrid({
                  `.react-grid-item.react-draggable-dragging`. */
               active
                 ? "z-30 shadow-[0_26px_60px_rgba(0,0,0,0.65)]"
-                : "z-10 transition-[left,top,width,height] duration-200 ease-in-out"
+                : /* Et AUCUNE transition tant que la largeur n'est pas connue :
+                     sinon le premier vrai placement s'anime depuis la
+                     disposition d'un pixel, ce qui est le glissement qu'on
+                     cherche justement a supprimer. */
+                  `z-10 ${width ? "transition-[left,top,width,height] duration-200 ease-in-out" : ""}`
             }`}
             style={{
               left: Math.round(rect.left),
               top: Math.round(rect.top),
               width: Math.round(rect.width),
               height: Math.round(rect.height),
+              /* Le HTML du serveur porte forcement la disposition d'un pixel —
+                 il n'a pas de fenetre a mesurer. On le laisse occuper sa place
+                 (la hauteur du conteneur, elle, ne depend pas de la largeur)
+                 mais on ne le montre pas : la premiere image visible est deja
+                 la bonne. */
+              visibility: width ? undefined : "hidden",
               // Sans quoi un glissement au doigt fait défiler la page.
               touchAction: editing ? "none" : undefined,
             }}
