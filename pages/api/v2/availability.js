@@ -1,4 +1,5 @@
 import { redis } from "@/lib/redis";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * Per-episode player availability cache.
@@ -130,6 +131,10 @@ export default async function handler(req, res) {
       // client; `absent` is additive so a stale client just ignores it.
       return res.status(200).json({ servers: ok, absent, cached: !!raw });
     } catch {
+      /* Redis unreachable (or over quota). Without a header this 200 is a fresh
+         function invocation for every probe of the watch page's server fan-out,
+         which is ~17 of them per episode. */
+      setEdgeErrorCache(res, 30);
       return res.status(200).json({ servers: [], absent: [], cached: false });
     }
   }
