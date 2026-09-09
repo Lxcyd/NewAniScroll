@@ -34,8 +34,9 @@ export function getAblyRest(): Ably.Rest | null {
   return restClient;
 }
 
-/** The Ably channel name for a room. Mirrors redisRoom.channelKey so a single
- *  publish reaches both transports during migration. */
+/** The Ably channel name for a room. It kept the `w2g:channel:` shape from the
+ *  Redis pub/sub era so the migration could publish to both at once; the Redis
+ *  side is gone, and the name stays only because live rooms subscribe to it. */
 export function ablyChannelName(roomId: string): string {
   return `w2g:channel:${roomId}`;
 }

@@ -3,15 +3,11 @@ import { getPartyUser } from "@/lib/watch2gether/auth";
 import { allowByIp } from "@/lib/watch2gether/rateLimit";
 import {
   acquireThrottle,
-  getSnapshot,
-  isBanned,
-  isInactive,
-  isMember,
   isValidRoomId,
   listMembers,
   publishEvent,
+  readRoomGate,
   reapInactiveMembers,
-  roomExists,
   touchPresence,
 } from "@/lib/watch2gether/redisRoom";
 
@@ -31,22 +27,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    if (!(await roomExists(roomId))) return res.status(404).json({ error: "Room not found" });
-    // touchPresence adds the caller to the member set, so it must enforce the
-    // same gates as join() — otherwise a banned/locked-out user could POST
-    // /presence directly to sneak back in.
-    if (await isBanned(roomId, user.userId)) {
+    /* Reap FIRST, then read the gates — the reap is what flags a member as
+       inactive, so reading before it would let a just-reaped user through for
+       one more beat. Throttled to once every 30 s per room: MEMBER_TTL is five
+       minutes, so nothing is decided any later than it used to be, and the
+       broadcast branch below reaps again via listMembers every ~6 s anyway.
+       Un-throttled, this ran on EVERY heartbeat of EVERY participant. */
+    if (await acquireThrottle(roomId, "presence-reap", 30)) {
+      await reapInactiveMembers(roomId);
+    }
+
+    /* One command for the five questions this route used to ask one at a time.
+       touchPresence adds the caller to the member set, so it must enforce the
+       same gates as join() — otherwise a banned/locked-out user could POST
+       /presence directly to sneak back in. */
+    const gate = await readRoomGate(roomId, user.userId);
+    if (!gate.exists) return res.status(404).json({ error: "Room not found" });
+    if (gate.banned) {
       return res.status(403).json({ error: "You are banned from this room" });
     }
-    // Reap timed-out members, then reject a heartbeat from someone reaped for
-    // inactivity — otherwise touchPresence below would silently re-admit them
-    // before the client's join() rejection strips the room.
-    await reapInactiveMembers(roomId);
-    if (!(await isMember(roomId, user.userId)) && (await isInactive(roomId, user.userId))) {
+    // Reject a heartbeat from someone reaped for inactivity — otherwise
+    // touchPresence below would silently re-admit them before the client's
+    // join() rejection strips the room.
+    if (!gate.member && gate.inactive) {
       return res.status(403).json({ error: "Removed for inactivity" });
     }
-    const snap = await getSnapshot(roomId);
-    if (snap?.locked && !(await isMember(roomId, user.userId))) {
+    const snap = gate.snapshot;
+    if (snap?.locked && !gate.member) {
       return res.status(403).json({ error: "This room is locked" });
     }
     await touchPresence(roomId, user);

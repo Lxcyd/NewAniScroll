@@ -50,7 +50,6 @@ const seenKey = (id: string) => `w2g:room:${id}:seen`;
 // consumed, so a deliberate manual rejoin afterwards succeeds. Set, room TTL.
 const inactiveKey = (id: string) => `w2g:room:${id}:inactive`;
 const chatKey = (id: string) => `w2g:chat:${id}`;
-export const channelKey = (id: string) => `w2g:channel:${id}`;
 
 function assertRedis() {
   if (!redis) throw new Error("REDIS_URL is not configured — Watch2gether is unavailable");
@@ -133,10 +132,9 @@ export async function canEmit(roomId: string, userId: string): Promise<boolean> 
   return (await redis.exists(presenceKey(roomId, userId))) === 1;
 }
 
-export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> {
-  assertRedis();
-  const h = await redis.hgetall(roomKey(roomId));
-  if (!h || Object.keys(h).length === 0) return null;
+/** The room hash → a snapshot. Extracted so the batched gate below decodes it
+ *  exactly the same way as `getSnapshot`, rather than growing a second copy. */
+function snapshotFromHash(h: Record<string, string>): RoomSnapshot {
   return {
     aniId: h.aniId,
     epiNumber: h.epiNumber,
@@ -150,7 +148,14 @@ export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> 
     locked: h.locked === "true",
     // Absent on older rooms → treat as known (native default).
     positionKnown: h.positionKnown === undefined ? true : h.positionKnown === "true",
-  };
+  } as RoomSnapshot;
+}
+
+export async function getSnapshot(roomId: string): Promise<RoomSnapshot | null> {
+  assertRedis();
+  const h = await redis.hgetall(roomKey(roomId));
+  if (!h || Object.keys(h).length === 0) return null;
+  return snapshotFromHash(h);
 }
 
 /** Apply a partial update to the snapshot and bump TTL. */
@@ -240,6 +245,48 @@ export async function consumeInactive(roomId: string, userId: string): Promise<b
 
 /** Peek the inactivity flag WITHOUT consuming it (for the SSE stream gate, which
  *  must not race-consume the flag the join route needs to report the reason). */
+/**
+ * Every gate a per-request handler needs, in ONE command.
+ *
+ * The heartbeat route asked five questions in a row — does the room exist, is
+ * this user banned, are they a member, are they flagged inactive, what is the
+ * room showing — and each was its own HTTPS round-trip because over REST there
+ * is nothing to multiplex. They are independent, so the sequencing bought only
+ * latency and quota, on a request that repeats every five seconds per viewer.
+ *
+ * `roomExists` is not in the batch because it asks the SAME key as the snapshot:
+ * an empty hash already means "no room". It was a whole extra command spent
+ * re-learning what the next one returned.
+ */
+export async function readRoomGate(
+  roomId: string,
+  userId: string,
+): Promise<{
+  snapshot: RoomSnapshot | null;
+  exists: boolean;
+  banned: boolean;
+  member: boolean;
+  inactive: boolean;
+}> {
+  assertRedis();
+  const [hash, banned, member, inactive] = (await redis
+    .pipeline()
+    .hgetall(roomKey(roomId))
+    .sismember(bansKey(roomId), userId)
+    .sismember(membersKey(roomId), userId)
+    .sismember(inactiveKey(roomId), userId)
+    .exec()) as [Record<string, string> | null, number, number, number];
+
+  const exists = !!hash && Object.keys(hash).length > 0;
+  return {
+    snapshot: exists ? snapshotFromHash(hash as Record<string, string>) : null,
+    exists,
+    banned: banned === 1,
+    member: member === 1,
+    inactive: inactive === 1,
+  };
+}
+
 export async function isInactive(roomId: string, userId: string): Promise<boolean> {
   assertRedis();
   return (await redis.sismember(inactiveKey(roomId), userId)) === 1;
@@ -349,20 +396,31 @@ export async function touchPresence(roomId: string, member: Member): Promise<voi
   assertRedis();
   const now = Date.now();
   const profile = JSON.stringify({ name: member.name, image: member.image || "" });
-  // ONLINE flag — short TTL; its expiry only flips the member to offline.
-  await redis.set(presenceKey(roomId, member.userId), profile, "EX", PRESENCE_TTL);
-  // DURABLE profile — survives the online flag so a sleeping member still renders.
-  await redis.hset(profilesKey(roomId), member.userId, profile);
-  await redis.expire(profilesKey(roomId), ROOM_TTL);
-  await redis.sadd(membersKey(roomId), member.userId);
-  await redis.expire(membersKey(roomId), ROOM_TTL);
-  // Keep this member in the join-order zset (NX = preserve their first-seen
-  // time so render order is stable across offline/online transitions).
-  await redis.zadd(orderKey(roomId), "NX", now, member.userId);
-  await redis.expire(orderKey(roomId), ROOM_TTL);
-  // Bump last-seen (NOT NX — this one DOES advance) for the MEMBER_TTL prune.
-  await redis.zadd(seenKey(roomId), now, member.userId);
-  await redis.expire(seenKey(roomId), ROOM_TTL);
+  /* NINE commands, one round-trip.
+
+     These nine awaits were nine sequential HTTPS requests to Upstash, and nine
+     billed commands — for one heartbeat, which every participant sends every
+     five seconds. None of them depends on the result of the one before, so the
+     sequencing bought nothing but latency and quota. The shim exposes a pipeline
+     for exactly this (lib/redisRest.ts). Order within the batch is preserved,
+     so the semantics below are unchanged. */
+  await redis
+    .pipeline()
+    // ONLINE flag — short TTL; its expiry only flips the member to offline.
+    .set(presenceKey(roomId, member.userId), profile, "EX", PRESENCE_TTL)
+    // DURABLE profile — survives the online flag so a sleeping member still renders.
+    .hset(profilesKey(roomId), member.userId, profile)
+    .expire(profilesKey(roomId), ROOM_TTL)
+    .sadd(membersKey(roomId), member.userId)
+    .expire(membersKey(roomId), ROOM_TTL)
+    // Keep this member in the join-order zset (NX = preserve their first-seen
+    // time so render order is stable across offline/online transitions).
+    .zadd(orderKey(roomId), "NX", now, member.userId)
+    .expire(orderKey(roomId), ROOM_TTL)
+    // Bump last-seen (NOT NX — this one DOES advance) for the MEMBER_TTL prune.
+    .zadd(seenKey(roomId), now, member.userId)
+    .expire(seenKey(roomId), ROOM_TTL)
+    .exec();
 }
 
 /** Reap members who've been offline past MEMBER_TTL (a missed departure beacon /
@@ -378,18 +436,34 @@ export async function reapInactiveMembers(roomId: string): Promise<string[]> {
   const ordered = await redis.zrange(orderKey(roomId), 0, -1);
   if (!ordered.length) return [];
   const now = Date.now();
-  const seenFlat = await redis.zrange(seenKey(roomId), 0, -1, "WITHSCORES");
+  // The last-seen scores and the profile hash, in one round-trip.
+  const [seenFlat, profiles] = (await redis
+    .pipeline()
+    .zrange(seenKey(roomId), 0, -1, "WITHSCORES")
+    .hgetall(profilesKey(roomId))
+    .exec()) as [string[], Record<string, string> | null];
   const lastSeen = new Map<string, number>();
-  for (let i = 0; i < seenFlat.length; i += 2) {
+  for (let i = 0; i < (seenFlat?.length ?? 0); i += 2) {
     lastSeen.set(seenFlat[i], Number(seenFlat[i + 1]) || 0);
   }
-  const profiles = await redis.hgetall(profilesKey(roomId));
+
+  /* One MGET instead of one EXISTS per member.
+
+     The old loop awaited `exists` per user, serially, so a room of N cost N
+     round-trips here — and this function runs on EVERY presence heartbeat, then
+     again inside listMembers. A presence key holds a JSON profile, so a non-null
+     value is exactly what `exists` was testing. */
+  const presenceVals = await redis.mget(
+    ...ordered.map((userId) => presenceKey(roomId, userId)),
+  );
+  const onlineSet = new Set(
+    ordered.filter((_, i) => presenceVals[i] != null),
+  );
 
   const ghosts: string[] = [];
   const inactiveGhosts: string[] = [];
   for (const userId of ordered) {
-    const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
-    if (online) continue;
+    if (onlineSet.has(userId)) continue;
     const seen = lastSeen.get(userId);
     const hasProfile = !!profiles?.[userId];
     const stale = seen !== undefined && now - seen > MEMBER_TTL_MS;
@@ -400,14 +474,18 @@ export async function reapInactiveMembers(roomId: string): Promise<string[]> {
     }
   }
   if (ghosts.length) {
-    await redis.srem(membersKey(roomId), ...ghosts);
-    await redis.zrem(orderKey(roomId), ...ghosts);
-    await redis.zrem(seenKey(roomId), ...ghosts);
-    await redis.hdel(profilesKey(roomId), ...ghosts);
+    const pipe = redis
+      .pipeline()
+      .srem(membersKey(roomId), ...ghosts)
+      .zrem(orderKey(roomId), ...ghosts)
+      .zrem(seenKey(roomId), ...ghosts)
+      .hdel(profilesKey(roomId), ...ghosts);
     if (inactiveGhosts.length) {
-      await redis.sadd(inactiveKey(roomId), ...inactiveGhosts);
-      await redis.expire(inactiveKey(roomId), ROOM_TTL);
+      pipe
+        .sadd(inactiveKey(roomId), ...inactiveGhosts)
+        .expire(inactiveKey(roomId), ROOM_TTL);
     }
+    await pipe.exec();
     // If the host timed out, hand the crown to the oldest remaining member so the
     // room isn't left hostless (mirrors removeMember's succession).
     const host = await getHostId(roomId);
@@ -435,17 +513,40 @@ export async function listMembers(roomId: string): Promise<Member[]> {
   const ordered = await redis.zrange(orderKey(roomId), 0, -1);
   if (!ordered.length) return [];
 
-  const profiles = await redis.hgetall(profilesKey(roomId));
-  const hostId = await getHostId(roomId);
-  const mutes = await getMutes(roomId);
-  const pbBlocks = await getPlaybackBlocks(roomId);
+  /* Four independent reads, one round-trip — they were four awaits in a row.
+     `getHostId` / `getMutes` / `getPlaybackBlocks` are inlined here rather than
+     called: their bodies are a single command each, and calling them is what
+     forced the sequencing. */
+  const [profiles, hostId, muteList, pbList] = (await redis
+    .pipeline()
+    .hgetall(profilesKey(roomId))
+    .hget(roomKey(roomId), "hostId")
+    .smembers(mutesKey(roomId))
+    .smembers(pbBlockKey(roomId))
+    .exec()) as [
+    Record<string, string> | null,
+    string | null,
+    string[],
+    string[],
+  ];
+  const mutes = new Set(muteList || []);
+  const pbBlocks = new Set(pbList || []);
+
+  /* One MGET for every member's presence key. It replaces BOTH per-member
+     commands the loop used to issue — the `exists` probe and the `get` fallback
+     for a member with no durable profile — because the value IS the profile. */
+  const presenceVals = await redis.mget(
+    ...ordered.map((userId) => presenceKey(roomId, userId)),
+  );
 
   const members: Member[] = [];
-  for (const userId of ordered) {
-    const online = (await redis.exists(presenceKey(roomId, userId))) === 1;
+  for (let i = 0; i < ordered.length; i++) {
+    const userId = ordered[i];
+    const presence = presenceVals[i];
+    const online = presence != null;
     // Durable profile (survives presence expiry); fall back to the online key.
     let raw = profiles?.[userId];
-    if (!raw) raw = (await redis.get(presenceKey(roomId, userId))) || "";
+    if (!raw) raw = presence || "";
     let name = "";
     let image = "";
     try {
@@ -497,20 +598,33 @@ export async function getChat(roomId: string): Promise<ChatMessage[]> {
  *  the Redis publish can go too. The Ably publish is fire-and-forget so a slow
  *  Ably round-trip never delays the API response that triggered the event. */
 export async function publishEvent(roomId: string, event: PartyEvent): Promise<void> {
-  assertRedis();
-  const payload = JSON.stringify(event);
-  // New transport: Ably (only when configured). Non-blocking — failures here
-  // must not break moderation/playback actions that call publishEvent.
+  // Ably is now the only transport. The Redis PUBLISH that used to follow was
+  // for the SSE fallback, and it was AWAITED "to preserve ordering for any
+  // remaining SSE listeners" — there are none: the route that subscribed
+  // (pages/api/v2/watch2gether/stream.ts) is gone, and it could not have worked
+  // anyway, since its subscriber opened a native connection on port 6379, which
+  // this network blocks. So every chat message, play, pause and seek paid an
+  // awaited Upstash command to publish into a channel nobody was listening to.
+  //
+  // `assertRedis()` went with it: this function no longer touches Redis, and
+  // throwing here would have failed a moderation action for a store it does not
+  // use.
+  //
+  // The Ably publish is now AWAITED, where it used to be fire-and-forget. That
+  // is not a style change: the awaited Redis publish underneath it was what kept
+  // the lambda alive long enough for the fire-and-forget one to leave. Remove
+  // one and keep the other and events would vanish whenever the function froze
+  // first — intermittently, under load, which is the worst way to find out. The
+  // catch below preserves the original guarantee that a publish failure cannot
+  // break the action that triggered it.
   const rest = getAblyRest();
-  if (rest) {
-    rest
-      .channels.get(ablyChannelName(roomId))
-      .publish("event", event)
-      .catch((e: any) => console.error("[w2g] ably publish failed:", e?.message || e));
+  if (!rest) return;
+  try {
+    await rest.channels.get(ablyChannelName(roomId)).publish("event", event);
+  } catch (e: any) {
+    // Failures must not break the moderation/playback action that triggered it.
+    console.error("[w2g] ably publish failed:", e?.message || e);
   }
-  // Legacy transport: Redis pub/sub for the SSE fallback. Awaited to preserve
-  // the original ordering guarantee for any remaining SSE listeners.
-  await redis.publish(channelKey(roomId), payload);
 }
 
 // ioredis hset expects string values; coerce everything.

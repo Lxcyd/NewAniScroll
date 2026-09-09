@@ -121,7 +121,15 @@ for (const [nom, args, want] of attendu) {
    des appelants (`const [cached, lock] = await redis.mget(...)`). */
 eq("mget rend autant d'entrées que de clés demandées", (await redis.mget("x")).length, 1);
 
-/* ── 2. Le disjoncteur est ouvert, et il coupe vraiment le réseau ──
+/* ── 2. Le pipeline aussi ── */
+try {
+  const r = await redis.pipeline().hset("h", { a: "1" }).expire("h", 60).exec();
+  eq("un pipeline refusé rend une liste vide", r, []);
+} catch (e) {
+  fails.push(`pipeline.exec a LEVÉ (${e?.message ?? e})`);
+}
+
+/* ── 3. Le disjoncteur est ouvert, et il coupe vraiment le réseau ──
  *
  * La mesure de temps est le seul moyen de distinguer « rendu par repli sans
  * appel » de « appelé puis rattrapé ». Cent commandes qui partiraient vraiment
