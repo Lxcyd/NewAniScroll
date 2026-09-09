@@ -50,6 +50,31 @@ export type IoRedisish = {
   publish(channel: string, message: string): Promise<number>;
   scan(cursor: string | number, ...args: any[]): Promise<[string, string[]]>;
   on(event: string, cb: (...a: any[]) => void): void;
+  /** Batch several commands into ONE HTTPS round-trip. See `RedisPipeline`. */
+  pipeline(): RedisPipeline;
+};
+
+/**
+ * A chainable batch of the same commands, sent as one request.
+ *
+ * Why it exists: over REST there is no connection to multiplex, so every method
+ * on the shim above is its own HTTPS round-trip AND its own billed Upstash
+ * command. Code written against ioredis doesn't read that way — a helper that
+ * does `hset` then `expire` looks like one operation and costs two. Watch-party
+ * presence was the extreme case: `touchPresence` was nine sequential awaits, one
+ * heartbeat was ~18 commands, and it fires every five seconds per participant —
+ * about 29k commands an hour for a room of two, against a 500k monthly cap.
+ *
+ * `@upstash/redis` has supported this all along; the shim simply never exposed
+ * it, so no call site could reach for it.
+ */
+export type RedisPipeline = {
+  [K in Exclude<keyof IoRedisish, "on" | "pipeline">]: (
+    ...args: Parameters<IoRedisish[K]>
+  ) => RedisPipeline;
+} & {
+  /** Sends the batch. Results come back in the order the commands were queued. */
+  exec(): Promise<any[]>;
 };
 
 /** Parse a rediss://default:<token>@<host>:<port> URL into REST url + token. */
@@ -98,23 +123,28 @@ export function createRestRedis(): IoRedisish | null {
     automaticDeserialization: false,
   });
 
-  const shim: IoRedisish = {
-    get: (k) => c.get<string | null>(k) as Promise<string | null>,
-    set: (k, v, ...args) => {
+  /* One definition, two targets: the client itself and a pipeline object.
+     The argument normalisation below (ioredis varargs → Upstash options) has to
+     apply identically either way, and duplicating it is how the two drift. */  /* One definition, two targets: the client itself and a pipeline object.
+     The argument normalisation below (ioredis varargs -> Upstash options) has to
+     apply identically either way, and duplicating it is how the two drift. */
+  const makeOps = (t: any) => ({
+    get: (k: string) => t.get(k) as Promise<string | null>,
+    set: (k: string, v: string, ...args: any[]) => {
       const opts = setOpts(args);
-      return c.set(k, v, opts) as Promise<string | null>;
+      return t.set(k, v, opts) as Promise<string | null>;
     },
-    del: (...keys) => c.del(...keys),
-    mget: (...keys) => c.mget<(string | null)[]>(...keys) as Promise<(string | null)[]>,
-    keys: (pattern) => c.keys(pattern),
-    exists: (...keys) => c.exists(...keys),
-    expire: (k, s) => c.expire(k, s),
-    incr: (k) => c.incr(k),
-    sadd: (k, ...m) => c.sadd(k, ...(m as [string, ...string[]])),
-    srem: (k, ...m) => c.srem(k, ...(m as [string, ...string[]])),
-    sismember: (k, m) => c.sismember(k, m),
-    smembers: (k) => c.smembers(k),
-    hset: (k, ...args) => {
+    del: (...keys: string[]) => t.del(...keys),
+    mget: (...keys: string[]) => t.mget(...keys) as Promise<(string | null)[]>,
+    keys: (pattern: string) => t.keys(pattern),
+    exists: (...keys: string[]) => t.exists(...keys),
+    expire: (k: string, s: number) => t.expire(k, s),
+    incr: (k: string) => t.incr(k),
+    sadd: (k: string, ...m: string[]) => t.sadd(k, ...m),
+    srem: (k: string, ...m: string[]) => t.srem(k, ...m),
+    sismember: (k: string, m: string) => t.sismember(k, m),
+    smembers: (k: string) => t.smembers(k),
+    hset: (k: string, ...args: any[]) => {
       // ioredis: hset(k, f1, v1, f2, v2) OR hset(k, obj). Normalize to object.
       let obj: Record<string, any>;
       if (args.length === 1 && typeof args[0] === "object") obj = args[0];
@@ -122,16 +152,16 @@ export function createRestRedis(): IoRedisish | null {
         obj = {};
         for (let i = 0; i < args.length; i += 2) obj[args[i]] = args[i + 1];
       }
-      return c.hset(k, obj);
+      return t.hset(k, obj);
     },
-    hget: (k, f) => c.hget<string | null>(k, f) as Promise<string | null>,
-    hgetall: (k) => c.hgetall<Record<string, string>>(k),
-    hdel: (k, ...f) => c.hdel(k, ...(f as [string, ...string[]])),
-    zadd: (k, ...args) => {
+    hget: (k: string, f: string) => t.hget(k, f) as Promise<string | null>,
+    hgetall: (k: string) => t.hgetall(k) as Promise<Record<string, string> | null>,
+    hdel: (k: string, ...f: string[]) => t.hdel(k, ...f),
+    zadd: (k: string, ...args: any[]) => {
       // ioredis: zadd(k, [NX|XX|GT|LT], [CH], score, member). Upstash takes the
       // flags as an options object, then {score, member}. Peel any leading
       // string flags off before reading the score/member pair — otherwise the
-      // flag is parsed AS the score (Number("NX") → NaN), which Upstash rejects
+      // flag is parsed AS the score (Number("NX") -> NaN), which Upstash rejects
       // with a 500 and takes the whole request (e.g. w2g room create) down.
       const opts: Record<string, boolean> = {};
       let i = 0;
@@ -148,24 +178,24 @@ export function createRestRedis(): IoRedisish | null {
       const member = args[i + 1];
       const payload = { score, member };
       return (
-        Object.keys(opts).length ? c.zadd(k, opts, payload) : c.zadd(k, payload)
+        Object.keys(opts).length ? t.zadd(k, opts, payload) : t.zadd(k, payload)
       ) as Promise<number>;
     },
-    zrem: (k, ...m) => c.zrem(k, ...(m as [string, ...string[]])),
-    zrange: (k, start, stop, ...args) => {
+    zrem: (k: string, ...m: string[]) => t.zrem(k, ...m),
+    zrange: (k: string, start: number, stop: number, ...args: any[]) => {
       // ioredis: zrange(k, start, stop, [WITHSCORES]). Upstash flattens
       // member/score pairs into the same array when withScores is set, matching
       // ioredis's output shape, so downstream WITHSCORES parsing is unchanged.
       const withScores = args.some((a) => String(a).toUpperCase() === "WITHSCORES");
-      return c.zrange(k, start, stop, withScores ? { withScores: true } : undefined) as Promise<
+      return t.zrange(k, start, stop, withScores ? { withScores: true } : undefined) as Promise<
         string[]
       >;
     },
-    rpush: (k, ...v) => c.rpush(k, ...(v as [string, ...string[]])),
-    lrange: (k, start, stop) => c.lrange(k, start, stop),
-    ltrim: (k, start, stop) => c.ltrim(k, start, stop),
-    publish: (ch, msg) => c.publish(ch, msg),
-    scan: async (cursor, ...args) => {
+    rpush: (k: string, ...v: string[]) => t.rpush(k, ...v),
+    lrange: (k: string, start: number, stop: number) => t.lrange(k, start, stop),
+    ltrim: (k: string, start: number, stop: number) => t.ltrim(k, start, stop),
+    publish: (ch: string, msg: string) => t.publish(ch, msg),
+    scan: async (cursor: string | number, ...args: any[]) => {
       // ioredis: scan(cursor, "MATCH", pat, "COUNT", n). Upstash: scan(cursor,{match,count}).
       const opts: Record<string, any> = {};
       for (let i = 0; i < args.length; i++) {
@@ -173,11 +203,35 @@ export function createRestRedis(): IoRedisish | null {
         if (tok === "MATCH") opts.match = args[++i];
         else if (tok === "COUNT") opts.count = Number(args[++i]);
       }
-      const [next, keys] = await c.scan(Number(cursor), opts);
-      return [String(next), keys as string[]];
+      const [next, keys] = await t.scan(Number(cursor), opts);
+      return [String(next), keys as string[]] as [string, string[]];
     },
+  });
+
+  /* The pipeline wrapper. Each queued call must return the WRAPPER, not the
+     underlying Upstash pipeline, so `.hset(...).expire(...)` keeps going through
+     the same argument normalisation instead of falling back to raw Upstash
+     signatures halfway down a chain. */
+  const makePipeline = (): RedisPipeline => {
+    const p = c.pipeline();
+    const ops = makeOps(p) as Record<string, (...a: any[]) => unknown>;
+    const wrapper: Record<string, unknown> = {
+      exec: () => p.exec(),
+    };
+    for (const [name, fn] of Object.entries(ops)) {
+      wrapper[name] = (...args: any[]) => {
+        fn(...args);
+        return wrapper;
+      };
+    }
+    return wrapper as RedisPipeline;
+  };
+
+  const shim: IoRedisish = {
+    ...(makeOps(c) as unknown as Omit<IoRedisish, "on" | "pipeline">),
     // REST has no persistent connection, so there are no connection events.
     on: () => {},
+    pipeline: makePipeline,
   };
 
   return shim;
