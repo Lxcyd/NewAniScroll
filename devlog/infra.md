@@ -6,6 +6,108 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
+
+**Le constat.** AniList répond `403` depuis le 02/09 (« temporarily disabled due
+to severe stability issues »), **en 110 ms**. Un refus instantané, donc sans le
+moindre freinage : rien ne ralentit un réessai qui ne coûte rien. En huit jours :
+Turso 428 M lignes lues (87 % du plafond mensuel, 60 M/jour contre ~0 avant),
+Upstash **au-delà** des 500 k commandes — le compteur du moniteur refuse déjà de
+s'exécuter (`Usage: 500000`) —, edge requests à 130 k/jour, Fast Origin 7,8 Go.
+
+**La cause est un raisonnement, pas un bug, et il était écrit SIX fois.**
+Partout : « ne mettons pas un échec en cache, il est sans doute passager ».
+Chaque occurrence porte son commentaire et chacune a raison pour un hoquet de
+trente secondes. Ensemble, au huitième jour, elles garantissent qu'aucune requête
+n'est jamais amortie. Le seul cache négatif correct du dépôt était
+`/api/v2/anilist-health`, qui écrit bien son `{up:false}` pendant 60 s — et ce
+signal n'était consulté nulle part sauf dans `getMediaMeta`.
+
+**Le mécanisme le plus cher.** `listAnime("TRENDING_DESC")`, le repli d'accueil,
+triait sur `CAST(json_extract(data,'$.trending') AS INTEGER)` — une expression
+qu'aucun index ne peut servir. `EXPLAIN QUERY PLAN` : `SCAN anime` sur les
+**22 643** lignes, avec désérialisation d'un blob de ~15 ko chacune, pour en
+garder 15. L'accueil en lançait **trois en parallèle**, et `index.tsx` refusait
+d'écrire le lot `degraded`. Soit ~45 000 lignes par rendu, à chaque visite.
+Corrigé en deux temps : la rangée vise les séries en cours
+(`SEARCH … USING INDEX idx_anime_status`, **314** lignes) et le lot dégradé
+s'écrit sous une clé distincte pour 120 s.
+
+> Piège évité de justesse : faire retomber `TRENDING_DESC` sur `popularity`
+> rendait les rangées « tendances » et « populaires » **identiques à l'écran**.
+> Une régression bien plus visible que le classement périmé qu'on acceptait.
+
+**Deux TTL qui auraient survécu à la panne.** C'est la partie qui ne se voyait
+sur aucun compteur :
+
+- `seasonList` mettait en cache **même un tableau vide, pour 7 jours** (« an
+  anime with no season siblings is a stable fact » — vrai quand l'amont répond,
+  faux quand il est mort). Chaque fiche visitée depuis le 02/09 a écrit un faux
+  « série unique » qui aurait tenu une semaine **après** le retour du service ;
+- la fiche anime lisait sa durée de cache sur la charge utile
+  (`nextAiringEpisode` → 10 min, sinon **30 jours**) sans savoir si celle-ci
+  venait d'AniList ou du repli Turso. Or une ligne périmée depuis une semaine n'a
+  souvent plus de `nextAiringEpisode` : une série **en cours** partait donc pour
+  30 jours. Les clés `anime:` d'Upstash le disent — 10 902 → 16 191 entre le 4 et
+  le 8 septembre, **~5 300 clés** écrites pendant la panne. Idem pour la liste
+  d'épisodes, dont la durée se lisait sur `releasing`, **un paramètre envoyé par
+  le client** : il décrit l'anime, pas la réponse, et ne peut pas savoir qu'elle
+  a été bâtie sans vignettes depuis une ligne périmée.
+
+D'où la règle qui unifie tout : **la provenance décide du TTL, pas la clé.** Sain
+→ durée normale ; repli → ≤ 5 min. `degraded` est *déduit* et non transporté : un
+résultat qui porte des données ne l'est jamais, un résultat vide ne l'est que si
+la santé AniList dit « down ».
+
+**Ce que la mesure a démenti.** La base Turso ne perdra rien : 1 362 lignes
+périmées seulement, et surtout **zéro re-fetch en 72 h** — preuve que le cron
+échoue *proprement*, en sortant en 1 sans jamais avancer un `expires_at`. Le
+balayage par TTL n'a pas de curseur, la file de travail *est* la table (design du
+16/08) : un seul passage rattrapera tout. Le rattrapage à écrire était donc
+côté Redis, pas côté base.
+
+**L'edge ne cache pas les 5xx.** Mesuré en GET sur dev : les 404 et les 200
+passent en `HIT` une fois `CDN-Cache-Control` posé, les 503/500 restent `MISS`
+quoi qu'on demande. Poser un TTL sur un 503 ne sert donc à rien. Les deux routes
+concernées distinguent maintenant l'état dégradé **connu** (200 + `degraded`) du
+plantage (500). Vérifié avant de le faire : les trois clients lisent `?.media` /
+`?.results` et **aucun ne regarde le code de statut**, donc rien ne change pour
+eux.
+
+> Piège d'outillage : `curl -sI` (HEAD) rapporte `MISS` là où le GET dit `HIT`.
+> Un premier relevé a conclu à tort que les 404 n'étaient pas cachés.
+
+**Le watch-party, découvert en chemin et sans rapport avec la panne.** Le shim
+Upstash n'exposait ni pipeline ni multi, alors que `@upstash/redis` le fournit :
+sans connexion à multiplexer, chaque méthode était un aller-retour ET une
+commande facturée. Du code écrit pour ioredis ne se lit pas comme ça — un helper
+qui fait `hset` puis `expire` ressemble à *une* opération. `touchPresence`
+coûtait **9 commandes**, un battement complet **18 + N**, toutes les 5 s par
+participant : ~29 000 commandes/heure pour une salle de deux, une soirée de 4 h
+mangeait un quart du quota mensuel du site. Ramené à **3** (pipeline, `MGET` au
+lieu d'un `exists` par membre, et les cinq gardes en une commande — `roomExists`
+interrogeait la MÊME clé que `getSnapshot`).
+
+**Deux morceaux de code mort trouvés là.** La route SSE `watch2gether/stream.ts`
+n'a plus aucun appelant depuis le passage à Ably et ne pouvait de toute façon pas
+marcher — son subscriber ouvre le port 6379, que le réseau bloque — mais elle
+dépensait ~10 commandes avant d'échouer et gardait une fonction en vie ~58 s. Et
+`publishEvent` faisait un `PUBLISH` **awaité** vers un canal que plus personne
+n'écoutait, à chaque message et à chaque action.
+
+> **Piège à retenir**, trouvé en le retirant : c'est cet `await` mort qui gardait
+> la lambda éveillée le temps que le publish Ably (fire-and-forget) parte. Retirer
+> l'un en gardant l'autre aurait fait disparaître des événements par
+> intermittence, sous charge — la pire façon de l'apprendre. Ably est donc awaité
+> à sa place.
+
+**Ce qui reste à faire, et qui n'est pas du code.** Upstash est **au plafond** :
+tant qu'il refuse, aucun de ces correctifs n'est mesurable, chaque garde de cache
+retombant dans sa branche « pas de Redis ». Une base gratuite neuve (ou le
+pay-as-you-go) est le préalable, plus une **seconde base pour Preview** — le
+moniteur la réclame depuis le 30/07, et `dev.aniscroll.com` mange le quota de
+prod à chaque session de test. Ne pas supprimer la base actuelle.
+
 ## 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1
 
 **Le constat.** Fluid Active CPU a **3 h 59 sur les 4 h** du plan Hobby le 30/08,
