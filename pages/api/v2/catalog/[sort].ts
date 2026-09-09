@@ -77,11 +77,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     label: `catalog:${sortKey}:${page}`,
   });
   if (!json?.data?.Page) {
-    // The edge must absorb this. Infinite scroll re-requests the same page on
-    // every scroll, so an uncacheable 503 turns one visitor into a stream of
-    // function invocations for as long as AniList is down.
+    /* 200, not 503 — and the status is the whole point.
+       Measured on dev: Vercel's edge does NOT cache a 5xx, whatever the
+       Cache-Control says. A 503 here therefore stayed a function invocation per
+       visitor per scroll, for as long as AniList was down, however short the TTL
+       we asked for.
+
+       Nothing observable changes for the client: CatalogGrid never reads the
+       status. It does `res.json()`, takes `get?.media`, and on an empty array
+       stops paginating — which is exactly what it already did with the 503 body.
+       `degraded` is added so a future client CAN tell "we could not ask" from
+       "there is nothing here", a distinction the 503 carried in principle and
+       that nothing was reading in practice. */
     setEdgeErrorCache(res);
-    return res.status(503).json({ error: "AniList unavailable" });
+    return res
+      .status(200)
+      .json({ media: [], hasNextPage: false, degraded: true, error: "AniList unavailable" });
   }
 
   const payload = {
