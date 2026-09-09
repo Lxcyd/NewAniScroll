@@ -1,0 +1,41 @@
+{
+  "date": "2026-09-09",
+  "generatedAt": "2026-09-09T11:27:56.710Z",
+  "census": {
+    "error": "Upstash REST 400: {\"error\":\"ERR max requests limit exceeded. Limit: 500000, Usage: 500000. See https://upstash.com/docs/redis/troubleshooting/max_requests_limit for details\"}"
+  },
+  "upstashStats": {
+    "dbId": "0fc53b75-3b30-41bd-9cce-d739790fbb61",
+    "dbName": "aniscroll-cache",
+    "databaseCount": 1,
+    "daily": [
+      {
+        "x": "2026-09-05",
+        "y": 75512
+      },
+      {
+        "x": "2026-09-06",
+        "y": 163891
+      },
+      {
+        "x": "2026-09-07",
+        "y": 214782
+      },
+      {
+        "x": "2026-09-08",
+        "y": 146200
+      },
+      {
+        "x": "2026-09-09",
+        "y": 89484
+      }
+    ],
+    "today": 89484,
+    "yesterday": 146200,
+    "avgPerDay7d": 137974,
+    "projectedMonthly": 4139220,
+    "freeCapMonthly": 500000,
+    "projectedCapPct": 828
+  },
+  "vercel": null
+}
