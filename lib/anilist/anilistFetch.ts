@@ -273,8 +273,15 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
       if (!res.ok) {
         // Refused, not throttled. Record it so the next caller pays a cache
         // HIT instead of another round-trip, and give the token back.
+        //
+        // `cacheSeconds > 0` matters, and not only for tidiness: the health
+        // probe passes 0 precisely because it must observe reality every time.
+        // Letting it record a failure would have let it read its OWN mark on the
+        // next run and re-report "down" without testing anything — the one
+        // caller whose job is to notice the recovery, suppressed by the
+        // mechanism meant to make outages cheap.
         refund(skipCache);
-        if (cacheKey) await writeFailureCache(cacheKey, res.status);
+        if (cacheKey && cacheSeconds > 0) await writeFailureCache(cacheKey, res.status);
         console.warn(`[anilist-fetch] HTTP ${res.status} (${label})`);
         return null;
       }
