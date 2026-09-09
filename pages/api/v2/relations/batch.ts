@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchRelationsBatch } from "@/lib/anilist/relationsBatch";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * GET /api/v2/relations/batch?ids=1,2,3
@@ -54,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Every id missing means the upstream is unreachable, not that all of them
   // are unknown — don't let that answer sit in a cache for a day.
   if (items.length === 0) {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    setEdgeErrorCache(res);
     return res.status(200).json({ items });
   }
 

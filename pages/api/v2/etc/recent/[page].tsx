@@ -1,7 +1,7 @@
 import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
-import { setEdgeCache } from "@/lib/http/edgeCache";
+import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 // Fetches recently updated anime from AniList (replaces dead api.anify.tv).
 // We pull a larger recently-updated pool, then sort it by popularity so the
@@ -115,6 +115,9 @@ export default async function handler(
     return res.status(200).json({ results });
   } catch (error) {
     console.error("[recent] error:", error);
+    // Without a CDN header this 500 is a fresh function invocation for every
+    // visitor of the homepage rail, for as long as the upstream is unwell.
+    setEdgeErrorCache(res);
     return res.status(500).json({ error: "Failed to fetch recent episodes" });
   }
 }

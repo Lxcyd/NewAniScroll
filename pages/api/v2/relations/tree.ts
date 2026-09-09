@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getFranchiseTree, type TreeMeta } from "@/lib/anilist/franchiseTree";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * GET /api/v2/relations/tree?id=N
@@ -54,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // no relations — an empty franchise still contains the anime itself. Don't
   // let that answer sit in a cache for a day.
   if (!tree || tree.nodes.length === 0) {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    setEdgeErrorCache(res);
     return res.status(200).json({ nodes: [], edges: [], partial: true });
   }
 

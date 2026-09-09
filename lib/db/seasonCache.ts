@@ -50,6 +50,26 @@ async function ensureTable(): Promise<void> {
  *  A stale row (older than TTL) is treated as a miss so the caller recomputes;
  *  we never serve a value past its freshness window. */
 export async function seasonCacheGet<T>(key: string): Promise<T | null> {
+  const entry = await seasonCacheGetEntry<T>(key);
+  if (!entry) return null;
+  return entry.ageSeconds > TTL_SECONDS ? null : entry.value;
+}
+
+/**
+ * Same read, but WITHOUT applying a freshness window — it hands back the age so
+ * the caller can pick the TTL itself.
+ *
+ * It exists because one TTL per key is not enough: a value's usable lifetime
+ * depends on how it was obtained, not only on what it is. An empty season list
+ * resolved from a healthy AniList is a stable fact worth a week; the same empty
+ * list produced while AniList was refusing every call is an artefact of the
+ * outage, and pinning it for a week means the season picker stays wrong for a
+ * week after the service returns — silently. See `cacheGetJson` in
+ * lib/anilist/seasonChain.ts for the two windows.
+ */
+export async function seasonCacheGetEntry<T>(
+  key: string,
+): Promise<{ value: T; ageSeconds: number } | null> {
   const db = getTursoClient();
   if (!db) return null;
   await ensureTable();
@@ -60,9 +80,10 @@ export async function seasonCacheGet<T>(key: string): Promise<T | null> {
     });
     if (!r.rows.length) return null;
     const row = r.rows[0] as any;
-    const age = Math.floor(Date.now() / 1000) - Number(row.updated_at);
-    if (age > TTL_SECONDS) return null;
-    return JSON.parse(String(row.value)) as T;
+    return {
+      value: JSON.parse(String(row.value)) as T,
+      ageSeconds: Math.floor(Date.now() / 1000) - Number(row.updated_at),
+    };
   } catch {
     return null;
   }

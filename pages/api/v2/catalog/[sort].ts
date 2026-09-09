@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { redis } from "@/lib/redis";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
-import { setEdgeCache } from "@/lib/http/edgeCache";
+import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * Server-cached catalog list for the /en/anime/popular and /trending
@@ -77,6 +77,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     label: `catalog:${sortKey}:${page}`,
   });
   if (!json?.data?.Page) {
+    // The edge must absorb this. Infinite scroll re-requests the same page on
+    // every scroll, so an uncacheable 503 turns one visitor into a stream of
+    // function invocations for as long as AniList is down.
+    setEdgeErrorCache(res);
     return res.status(503).json({ error: "AniList unavailable" });
   }
 
