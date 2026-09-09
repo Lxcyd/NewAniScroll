@@ -231,9 +231,16 @@ function filterData(data: any[], type: "sub" | "dub") {
  * This is the same trap as CACHE_VERSION in lib/db/tmdbImagesCache.ts, hit
  * twice in one afternoon: a cache outlives the reason its contents were what
  * they were, and no TTL can notice.
+ *
+ * v11 -> v12 (2026-09-09): et le piege ci-dessus s'est referme sur ce fichier.
+ * Pendant la panne AniList du 02/09, le repli Turso batissait la liste « without
+ * per-episode thumbs » (le commentaire du repli le dit lui-meme) et elle partait
+ * en cache pour TRENTE JOURS, parce que la duree se lisait sur `releasing`, un
+ * parametre envoye par le client. Le TTL se deduit desormais de la provenance,
+ * et cette version evince les listes amoindries deja ecrites.
  */
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
-  `episode:v11:${id}`;
+  `episode:v12:${id}`;
 
 export default async function handler(
   req: NextApiRequest,
@@ -242,6 +249,11 @@ export default async function handler(
   const { id, releasing = "false", dub = false, refresh = null } = req.query;
 
   let cacheTime = releasing === "true" ? 60 * 60 * 3 : 60 * 60 * 24 * 30;
+  /* Raised to true when the list below was built from the Turso fallback rather
+     than from AniList. Such a list is knowingly incomplete — no per-episode
+     stills, and no episode that aired since the row went stale — so it must not
+     inherit the lifetime of a complete one. */
+  let fromFallback = false;
 
   // Edge TTL mirrors the cache lifetime. An airing show keeps a short 30 min
   // window so a freshly aired episode shows up promptly; a finished show's
@@ -322,7 +334,10 @@ export default async function handler(
   if (!media) {
     try {
       const cached = await getCachedAnime(Number(id));
-      if (cached?.data) media = cached.data;
+      if (cached?.data) {
+        media = cached.data;
+        fromFallback = true;
+      }
     } catch (e) {
       console.warn("[episode] DB fallback failed:", (e as Error)?.message);
     }
@@ -393,6 +408,13 @@ export default async function handler(
     filled.hd,
   );
 
+  /* A fallback-built list is worth five minutes, whatever `releasing` said.
+     `releasing` comes from the CLIENT's query string and describes the anime,
+     not the answer: it cannot know that this particular response was assembled
+     from a stale Turso row with no stills. Reading the lifetime off it is how a
+     knowingly-incomplete list ended up cached for thirty days. */
+  if (fromFallback) cacheTime = 5 * 60;
+
   // Cache
   if (redis && cacheTime !== null && rawData.length > 0) {
     await redis.set(
@@ -414,10 +436,15 @@ export default async function handler(
 
   // Same 5 min browser window as the cached branch above — kept in sync so the
   // two exit paths don't disagree about how long a client may hold the list.
+  // The EDGE window follows the same provenance rule as the Redis TTL: an edge
+  // copy of an incomplete list would outlive the Redis one otherwise, and the
+  // edge is what actually answers visitors.
   res.setHeader("Cache-Control", "public, max-age=300");
   res.setHeader(
     "CDN-Cache-Control",
-    "public, s-maxage=1800, stale-while-revalidate=86400",
+    fromFallback
+      ? "public, s-maxage=300, stale-while-revalidate=600"
+      : "public, s-maxage=1800, stale-while-revalidate=86400",
   );
   return res.status(200).json(data.filter((i) => i.episodes.length > 0));
 }
