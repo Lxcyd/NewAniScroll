@@ -1,5 +1,6 @@
 import { redis } from "@/lib/redis";
 import { RateLimiterMemory } from "rate-limiter-flexible";
+import { isAnilistLikelyUp } from "./health";
 
 /**
  * Central choke point for every server-side AniList GraphQL request.
@@ -25,6 +26,12 @@ import { RateLimiterMemory } from "rate-limiter-flexible";
  *     season walker, dashboard widgets, etc., that don't have their
  *     own cache layer.
  *  4. **AbortController + timeout** — never hang SSR on AniList.
+ *  5. **Failure is a result too** — a refusal (403/5xx) is written to the same
+ *     response cache as a success, with a 60s TTL, and the health signal
+ *     short-circuits before the network. Without these, an outage made every
+ *     layer above pure overhead: a Redis GET that could never hit, a token
+ *     spent on a call that never landed, and a fresh upstream attempt per
+ *     visitor. See `writeFailureCache` and `refund`.
  *
  * Client-side fetches (useAnilist hook) intentionally don't go through
  * here — they carry user-specific Authorization headers and the rate
@@ -103,11 +110,27 @@ function hashKey(body: string): string {
   return h.toString(36);
 }
 
-async function readResponseCache(key: string): Promise<Json | null> {
+/* Marker stored IN PLACE of a response when AniList refused the call. See
+   `writeFailureCache` for why it exists. Shaped as an object with a reserved
+   key so it can never collide with a real GraphQL body (which always has
+   `data` and/or `errors` at the top level, never this). */
+const FAILURE_MARK = "__anilistUnavailable";
+type FailureMark = { [FAILURE_MARK]: true; status: number; at: number };
+
+function isFailureMark(v: any): v is FailureMark {
+  return !!v && typeof v === "object" && v[FAILURE_MARK] === true;
+}
+
+/** Reads the response cache. Returns the body on a hit, the string "failed"
+ *  when the hit is a stored failure, and null on a genuine miss — the three
+ *  cases the caller has to tell apart. */
+async function readResponseCache(key: string): Promise<Json | "failed" | null> {
   if (!redis) return null;
   try {
     const raw = await redis.get(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isFailureMark(parsed) ? "failed" : parsed;
   } catch {
     return null;
   }
@@ -120,6 +143,26 @@ async function writeResponseCache(key: string, ttl: number, value: Json): Promis
   } catch {
     /* non-fatal */
   }
+}
+
+/* How long a recorded failure suppresses the next attempt. Deliberately SHORT:
+   long enough that a multi-day outage costs one upstream call per minute per
+   distinct query instead of one per visitor, short enough that a recovery is
+   visible within a minute.
+
+   Why this exists at all. Until now `!res.ok` returned null WITHOUT writing
+   anything, so the `redis.get` above was spent on a miss that would miss again
+   on the very next request — for every AniList query, on every page, for as
+   long as the outage lasted. During the 02/09/2026 outage (a hard 403, answered
+   in ~110 ms, so nothing throttled the retry rate) that turned the response
+   cache into a pure tax: ~150k Upstash commands a day with a 0% hit rate, and
+   the quota died mid-month. Recording the failure turns that same GET into a
+   HIT, which is the difference between a cache and a toll booth. */
+const FAILURE_CACHE_TTL_S = 60;
+
+async function writeFailureCache(key: string, status: number): Promise<void> {
+  const mark: FailureMark = { [FAILURE_MARK]: true, status, at: Date.now() };
+  await writeResponseCache(key, FAILURE_CACHE_TTL_S, mark);
 }
 
 /* Wait for the limiter to grant a point, with a hard wait cap so we don't
@@ -142,6 +185,20 @@ async function acquire(label: string, useMemory = false): Promise<boolean> {
   return false;
 }
 
+/* Give the point back when the call never reached a healthy AniList.
+   The budget exists to stay under AniList's ~30 req/min, and a request they
+   refused in 110 ms consumed none of that. Without this refund an outage
+   emptied the bucket in 28 calls, after which EVERY subsequent call sat out the
+   full QUEUE_WAIT_MS (5 s) in `acquire` before returning null — 5 s of billed
+   Vercel active time, per call, buying nothing. A 429 is the one failure that
+   must NOT be refunded: there, the request really did land. */
+function refund(useMemory: boolean): void {
+  const lim = useMemory ? memLimiter : limiter;
+  lim.reward("global", 1).catch(() => {
+    /* non-fatal — the bucket refills on its own within the minute */
+  });
+}
+
 export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
   const {
     query,
@@ -158,10 +215,22 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
   // skipCache (audit) → no Redis response cache at all.
   const cacheKey = authToken || skipCache ? null : `anilist:resp:v1:${hashKey(body)}`;
 
-  // 1. Response cache (skipped for authenticated user-specific calls + audit)
+  // 1. Response cache (skipped for authenticated user-specific calls + audit).
+  //    A stored failure answers null here, WITHOUT touching the network.
   if (cacheKey && cacheSeconds > 0) {
     const cached = await readResponseCache(cacheKey);
+    if (cached === "failed") return null;
     if (cached) return cached;
+  }
+
+  // 1b. Known-down short-circuit. The health probe already writes {up:false}
+  //     to `anilist:health` every minute, and that signal is memoised 30 s per
+  //     process — so this is free almost always, and it covers the queries that
+  //     have no failure mark of their own yet (a first visit to any page during
+  //     an outage). The probe itself must be exempt or it can never observe a
+  //     recovery: it would be short-circuited by its own verdict.
+  if (label !== "health" && !skipCache && !authToken) {
+    if (!(await isAnilistLikelyUp())) return null;
   }
 
   // 2. In-flight dedup
@@ -201,16 +270,28 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
         return null;
       }
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Refused, not throttled. Record it so the next caller pays a cache
+        // HIT instead of another round-trip, and give the token back.
+        refund(skipCache);
+        if (cacheKey) await writeFailureCache(cacheKey, res.status);
+        console.warn(`[anilist-fetch] HTTP ${res.status} (${label})`);
+        return null;
+      }
       const json = await res.json();
       if (cacheKey && cacheSeconds > 0) await writeResponseCache(cacheKey, cacheSeconds, json);
       return json;
     } catch (e: any) {
+      refund(skipCache);
       if (e?.name === "AbortError") {
         console.warn(`[anilist-fetch] timeout (${label})`);
       } else {
         console.warn(`[anilist-fetch] error (${label}):`, e?.message);
       }
+      // A timeout / socket error is NOT recorded: unlike a 403 it says nothing
+      // about AniList's availability (it can be our own egress, or one slow
+      // query), and pinning it for a minute would suppress calls that would
+      // have worked.
       return null;
     } finally {
       clearTimeout(timer);

@@ -67,6 +67,20 @@ import { previewAnchor } from "@/lib/preview/anchor";
    Upcoming section is where those belong. */
 const HERO_SLOTS = 8;
 
+/* Key bumped whenever the payload gains a field the page reads.
+   v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such key, so the
+   hero would silently keep falling back to trending for up to 2 h — the same
+   "cache outlives the change" trap already hit three times that day (TMDB
+   artwork, episode lists, discover). */
+const HOME_KEY = "index_server_v3";
+const HOME_TTL = 60 * 60 * 2;
+
+/* The same payload built WITHOUT AniList (Turso fallback: no heroPool, no
+   season, no movies). Separate key so it can never overwrite a healthy blob,
+   short TTL so it can never outlive the outage by more than two minutes. */
+const HOME_KEY_DEGRADED = "index_server_v3:degraded";
+const HOME_TTL_DEGRADED = 120;
+
 function heroHash(id: number): number {
   return (id * 2654435761) >>> 0;
 }
@@ -99,8 +113,15 @@ export async function getServerSideProps(ctx: any) {
   // A dead/unreachable Redis (e.g. a rotated REDIS_URL an older deployment
   // never picked up) must NOT take the whole homepage down — swallow the error
   // and treat it as a cache miss so we fall through to a live AniList fetch.
+  //
+  // Two keys, read in ONE command: the healthy blob, then the degraded one.
+  // The degraded blob (see the write below) is a strictly worse page, so it is
+  // only ever consulted when the good one has expired or was never written.
   if (redis) {
-    cachedData = await redis.get("index_server_v3").catch(() => null);
+    const [fresh, degraded] = await redis
+      .mget(HOME_KEY, HOME_KEY_DEGRADED)
+      .catch(() => [null, null]);
+    cachedData = fresh || degraded;
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -206,22 +227,28 @@ export async function getServerSideProps(ctx: any) {
     const seasonDetail = batch.thisSeason;
     const moviesDetail = batch.movies;
 
-    /* Un lot DEGRADE ne s'ecrit pas. `aniListHomepageBatch` pose ce drapeau
-       quand AniList n'a pas repondu et qu'il a servi Turso : la moitie saison
-       (heroPool / thisSeason / movies) est alors vide. L'ecrire, c'est geler
-       une page d'accueil amputee pour deux heures — bien apres le retour
-       d'AniList. Sans cache, la requete suivante retente et sert la vraie
-       page. */
-    if (redis && !batch.degraded) {
+    /* Un lot DEGRADE s'ecrit AUSSI, mais brievement et a part.
+
+       L'entree du 29/08 refusait de l'ecrire, et elle avait raison sur son cas :
+       une panne AniList de trente secondes gelait une page amputee (heroPool /
+       thisSeason / movies vides) pour deux heures, longtemps apres le retour du
+       service. Mais «ne pas ecrire» n'est pas le seul remede a «ecrire trop
+       longtemps», et sur une panne LONGUE il se retourne : le repli Turso de
+       `aniListHomepageBatch` balaie la table `anime` en entier, et le refus
+       d'ecrire le faisait recommencer a CHAQUE rendu. Mesure pendant la panne du
+       02/09/2026 : ~45 000 lignes lues par vue d'accueil, 60 M par jour, 87 % du
+       quota mensuel Turso mange en huit jours.
+
+       Deux cles plutot qu'une seule a TTL court : sinon un lot amputé ecraserait
+       un lot sain encore valide. Et 120 s plutot que 2 h : c'est le delai au
+       bout duquel le retour d'AniList redevient visible — le souci du 29/08,
+       reduit de deux heures a deux minutes au lieu d'etre paye par un balayage
+       par visiteur. */
+    if (redis) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
         .set(
-          /* Key bumped whenever the payload gains a field the page reads.
-             v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such
-             key, so the hero would silently keep falling back to trending for
-             up to 2 h — the same "cache outlives the change" trap already hit
-             three times today (TMDB artwork, episode lists, discover). */
-          "index_server_v3",
+          batch.degraded ? HOME_KEY_DEGRADED : HOME_KEY,
           JSON.stringify({
             genre: genreDetail.props,
             detail: trendingDetail.props,
@@ -230,9 +257,9 @@ export async function getServerSideProps(ctx: any) {
             thisSeason: seasonDetail.props,
             movies: moviesDetail.props,
             heroPool: batch.heroPool?.props ?? null,
-          }), // set cache for 2 hours
+          }),
           "EX",
-          60 * 60 * 2
+          batch.degraded ? HOME_TTL_DEGRADED : HOME_TTL,
         )
         .catch(() => {});
     }
