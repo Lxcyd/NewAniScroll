@@ -83,8 +83,11 @@ const TTL_EMPTY_S = 3 * 24 * 60 * 60;
  *
  * v2 → v3 (10/09/2026) : plancher de favoris (MIN_FAVORITES). Les lignes v2
  * contiennent la queue qu'il écarte.
+ *
+ * v3 → v4 (10/09/2026) : paysage seulement, plancher à 2560×1440, deux pages,
+ * trente gardées. Une ligne v3 contient des portraits et du 1920×1080.
  */
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 const API = "https://wallhaven.cc/api/v1/search";
 
@@ -100,17 +103,37 @@ const API = "https://wallhaven.cc/api/v1/search";
  *    à chaud est une mauvaise idée ;
  *  • la galerie elle-même — les 929 images de One Piece ne se regardent pas.
  *
- * Trois pages, soixante gardées : cinq fois plus qu'avant, ~21 ko par ligne,
- * trois requêtes sur une clé froide (donc une fois par mois et par titre).
- * Comme le classement est `favorites` décroissant, ces soixante-là sont les
- * soixante meilleures, pas soixante au hasard.
+ * Deux pages, trente gardées. Soixante était trop — la galerie fusionne trois
+ * sources et Wallhaven finissait par écraser les visuels officiels. Comme le
+ * classement est `favorites` décroissant, ces trente-là sont les trente
+ * meilleures, pas trente au hasard.
  */
-const PAGES = 3;
-const KEEP = 60;
+const PAGES = 2;
+const KEEP = 30;
 
-/* En dessous, ça ne vaut pas un fond d'écran — et c'est le filtre qui coûte le
-   moins cher, puisque l'API l'applique elle-même (`atleast`). */
-const MIN_RES = "1920x1080";
+/**
+ * Les deux filtres que l'API applique elle-même — donc les moins chers de tous,
+ * puisqu'ils écartent avant que l'image n'entre dans la page.
+ *
+ * `atleast=2560x1440` — une plaque de profil fait ~1900 px de large. Le Full HD
+ * y tient à peine, et pas du tout sur un écran à densité double. 2560×1440
+ * laisse de la marge. Mesuré le 10/09/2026 : One Piece passe de 929 à 312
+ * candidats, Koe no Katachi de 63 à 23, Gachiakuta de 19 à 15 — sans effet réel
+ * puisqu'on n'en garde que trente, pris par le haut du classement.
+ *
+ * `ratios=landscape` — ET C'EST LUI QUI CORRIGEAIT UN VRAI DÉFAUT. `atleast`
+ * exige une largeur ET une hauteur minimales, donc un PORTRAIT les satisfait :
+ * la plus grande image de Steins;Gate servie en v3 était un 3532×5000, un fond
+ * d'écran de téléphone. Ni un bandeau ni une pleine page n'en font quoi que ce
+ * soit. 65 portraits écartés sur One Piece.
+ *
+ * Ce filtre est aussi la réponse à « seulement bannière et image » : une image
+ * paysage sert les deux, et c'est ProfileHero qui tranche — il MESURE l'image
+ * et pose en bandeau ce qui dépasse le ratio 3, en pleine page le reste. Rien
+ * à décider ici.
+ */
+const MIN_RES = "2560x1440";
+const RATIOS = "landscape";
 
 /**
  * Le plancher de favoris.
@@ -122,17 +145,16 @@ const MIN_RES = "1920x1080";
  * le poids du fichier non plus. Le nombre de favoris est le seul jugement
  * disponible, et c'est un jugement humain : ces images-là n'en récoltent pas.
  *
- * Dix, et pas plus haut. Mesuré le 10/09/2026 sur les trois premières pages
- * classées par favoris :
+ * Dix. Mesuré le 10/09/2026 sur les deux pages qu'on interroge, sous les
+ * filtres ci-dessus :
  *
- *   one piece    72 images, la 60e à 94 favoris, la dernière à 82 → 0 écartée
- *   steins gate  72 images, la 60e à 33, la dernière à 31        → 0 écartée
- *   koe no katachi  63 images, la 60e à 4, la dernière à 3       → 14 écartées
- *   gachiakuta      19 images, la dernière à 5                   → 3 écartées
+ *   one piece       48 candidats, du 839e au 67e favori   → 0 écartée
+ *   steins gate     48 candidats, de 105 à 19             → 0 écartée
+ *   koe no katachi  23 candidats, de 67 à 3               → 3 écartées
+ *   gachiakuta      15 candidats, de 62 à 5               → 3 écartées
  *
  * Le seuil ne coûte donc RIEN sur un titre populaire et taille exactement là
- * où il faut : la queue des petits titres, celle qu'on descend justement en
- * allant chercher soixante images au lieu de douze.
+ * où il faut : la queue des petits titres.
  *
  * Conséquence assumée : un titre dont TOUTES les images sont sous le seuil
  * n'en aura aucune. C'est le bon résultat — la galerie retombe alors sur
@@ -212,7 +234,8 @@ export async function getWallhavenArtworks(
 
   const base =
     `${API}?q=${encodeURIComponent(q)}` +
-    `&categories=010&purity=100&sorting=favorites&order=desc&atleast=${MIN_RES}`;
+    `&categories=010&purity=100&sorting=favorites&order=desc` +
+    `&atleast=${MIN_RES}&ratios=${RATIOS}`;
 
   /** Une page. `null` distingue « la question n'a pas abouti » de « la page est
    *  vide », et c'est cette distinction qui décide de ce qu'on met en cache. */
