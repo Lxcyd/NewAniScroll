@@ -80,8 +80,11 @@ const TTL_EMPTY_S = 3 * 24 * 60 * 60;
  * Garder 12 revenait à montrer le sommet du classement et rien d'autre. Une
  * ligne en cache ne sait pas que le code a changé : sans ce bump, tout titre
  * déjà consulté aurait gardé ses 12 images pendant trente jours.
+ *
+ * v2 → v3 (10/09/2026) : plancher de favoris (MIN_FAVORITES). Les lignes v2
+ * contiennent la queue qu'il écarte.
  */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 const API = "https://wallhaven.cc/api/v1/search";
 
@@ -108,6 +111,34 @@ const KEEP = 60;
 /* En dessous, ça ne vaut pas un fond d'écran — et c'est le filtre qui coûte le
    moins cher, puisque l'API l'applique elle-même (`atleast`). */
 const MIN_RES = "1920x1080";
+
+/**
+ * Le plancher de favoris.
+ *
+ * POURQUOI C'EST AUSSI LE FILTRE DE QUALITÉ, et pas seulement un filtre de
+ * popularité : « mauvaise qualité » au sens où on l'entend ici — un scan de
+ * manga, un croquis, un montage bâclé — ne se mesure dans aucun champ de
+ * l'API. La résolution ne le voit pas (un scan peut faire 3000 px de large),
+ * le poids du fichier non plus. Le nombre de favoris est le seul jugement
+ * disponible, et c'est un jugement humain : ces images-là n'en récoltent pas.
+ *
+ * Dix, et pas plus haut. Mesuré le 10/09/2026 sur les trois premières pages
+ * classées par favoris :
+ *
+ *   one piece    72 images, la 60e à 94 favoris, la dernière à 82 → 0 écartée
+ *   steins gate  72 images, la 60e à 33, la dernière à 31        → 0 écartée
+ *   koe no katachi  63 images, la 60e à 4, la dernière à 3       → 14 écartées
+ *   gachiakuta      19 images, la dernière à 5                   → 3 écartées
+ *
+ * Le seuil ne coûte donc RIEN sur un titre populaire et taille exactement là
+ * où il faut : la queue des petits titres, celle qu'on descend justement en
+ * allant chercher soixante images au lieu de douze.
+ *
+ * Conséquence assumée : un titre dont TOUTES les images sont sous le seuil
+ * n'en aura aucune. C'est le bon résultat — la galerie retombe alors sur
+ * fanart.tv et TMDB, c'est-à-dire sur les visuels officiels.
+ */
+const MIN_FAVORITES = 10;
 
 /* Wallhaven répond en ~300 ms. Six secondes est large, et borne le cas où le
    site est lent : la galerie s'affiche alors sans lui, ce qui est le
@@ -224,11 +255,18 @@ export async function getWallhavenArtworks(
       const thumb = w.thumbs?.large || w.thumbs?.original || w.thumbs?.small;
       const full = w.path;
       if (!thumb || !full) continue;
+      const favoris = Number(w.favorites) || 0;
+      /* La liste arrive classée par favoris décroissants : la première image
+         sous le plancher est suivie de rien qui le repasse. On pourrait donc
+         sortir des deux boucles — mais `continue` reste juste si Wallhaven
+         change un jour son ordre, et ne coûte que de parcourir une page déjà
+         téléchargée. */
+      if (favoris < MIN_FAVORITES) continue;
       arts.push({
         url: thumb,
         type: "wallpaper",
         language: null,
-        likes: Number(w.favorites) || 0,
+        likes: favoris,
         season: null,
         fullUrl: full,
         width: Number(w.dimension_x) || 0,
