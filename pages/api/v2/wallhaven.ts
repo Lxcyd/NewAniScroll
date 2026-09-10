@@ -26,13 +26,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .json({ error: "Missing or invalid `anime` query parameter" });
   }
 
-  // Ne lève jamais : un titre absent de Wallhaven est une liste vide, que la
+  /* La page demandée. Wallhaven en a 1 445 pour One Piece : les servir d'un
+     coup coûterait 61 requêtes contre un quota de 45 par minute, donc la
+     galerie les déroule et n'en paie que ce qu'elle regarde. */
+  const page = Number(req.query.page) || 1;
+
+  // Ne lève jamais : un titre absent de Wallhaven est une page vide, que la
   // galerie rend comme « les deux autres sources », c'est-à-dire l'existant.
-  const arts = await getWallhavenArtworks(animeId);
+  const { arts, hasMore } = await getWallhavenArtworks(animeId, page);
 
   res.setHeader(
     "Cache-Control",
     "public, s-maxage=3600, stale-while-revalidate=86400",
   );
-  return res.status(200).json({ animeId, arts });
+  return res.status(200).json({ animeId, page, arts, hasMore });
 }

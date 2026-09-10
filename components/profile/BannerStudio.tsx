@@ -349,7 +349,12 @@ export default function BannerStudio({
      10/09/2026 : 10 resultats en 21/9 et 32/9 sur One Piece, contre 506 au
      total). L'appeler depuis l'onglet Banniere serait une requete pour rien
      contre un quota de 45/min partage par toutes les lambdas. */
-  const { wallpapers } = useWallhaven(scope === "image" ? galerieId ?? 0 : 0);
+  const {
+    wallpapers,
+    hasMore: wallHasMore,
+    loading: wallLoading,
+    loadMore: loadMoreWall,
+  } = useWallhaven(scope === "image" ? galerieId ?? 0 : 0);
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
@@ -870,9 +875,28 @@ export default function BannerStudio({
             },
           ],
         });
-        if (rows.length)
+        if (rows.length) {
           out.push({ title: "", rows, grid: true, bande: scope === "banner" });
-        else
+          /* DÉROULER WALLHAVEN. Une ligne ordinaire, pas un bouton à part :
+             elle hérite ainsi du curseur clavier et du survol de toutes les
+             autres, et se place naturellement au bout de la grille. Seul
+             l'onglet Image en a une — c'est le seul qui interroge Wallhaven. */
+          if (wallHasMore)
+            out.push({
+              title: "",
+              rows: [
+                {
+                  key: "wall-more",
+                  label: wallLoading
+                    ? t("anime.artLoading")
+                    : t("anime.artMore"),
+                  icon: PhotoIcon,
+                  disabled: wallLoading,
+                  run: loadMoreWall,
+                },
+              ],
+            });
+        } else
           out.push({
             title: "",
             rows: [
@@ -1145,7 +1169,8 @@ export default function BannerStudio({
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
     return out.filter((s) => s.rows.length > 0 || s.node);
-  }, [scope, query, art, fanarts, tmdbArts, wallpapers, themes, animes, animeId, currentAnime,
+  }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
+    loadMoreWall, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t]);
 

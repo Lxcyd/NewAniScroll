@@ -78,7 +78,12 @@ export default function Artworks({
      officiels, sous un type à elles — que le filtre par type de la barre
      transforme gratuitement en « ne me montre que les fonds d'écran », ou en
      l'inverse. */
-  const { wallpapers } = useWallhaven(animeId);
+  const {
+    wallpapers,
+    hasMore: wallHasMore,
+    loading: wallLoading,
+    loadMore: loadMoreWall,
+  } = useWallhaven(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
   /* PUIS CLASSÉES PAR RÉSOLUTION. L'ordre de fusion ci-dessus ne décide plus
@@ -300,6 +305,24 @@ export default function Artworks({
         ))}
       </div>
 
+      {/* DÉROULER WALLHAVEN. Seule des trois sources à ne pas tenir en une
+          réponse — 1 445 images pour One Piece — donc seule à avoir un bouton.
+          Il n'apparaît que quand ses images sont à l'écran : sous « Tout » (où
+          elles sont mêlées aux autres) et sous son propre filtre, jamais sous
+          « Affiche » ou « Logo », où charger des fonds d'écran ne montrerait
+          rien de nouveau. */}
+      {wallHasMore && (selectedType === "all" || selectedType === "wallpaper") && (
+        <div style={aStyles.moreRow}>
+          <button
+            onClick={loadMoreWall}
+            disabled={wallLoading}
+            style={{ ...aStyles.moreBtn, opacity: wallLoading ? 0.5 : 1 }}
+          >
+            {wallLoading ? t("anime.artLoading") : t("anime.artMore")}
+          </button>
+        </div>
+      )}
+
       {lightbox && (
         <div
           onClick={() => setLightbox(null)}
@@ -354,6 +377,21 @@ const aStyles: Record<string, CSSProperties> = {
     background: "var(--accent-soft)",
     color: "var(--accent)",
     borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
+  },
+  moreRow: {
+    display: "flex",
+    justifyContent: "center",
+    marginTop: 16,
+  },
+  moreBtn: {
+    padding: "10px 20px",
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--txt-1)",
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    cursor: "pointer",
   },
   card: {
     /* `break-inside: avoid` keeps a card from being split across

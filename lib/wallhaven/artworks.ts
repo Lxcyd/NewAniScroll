@@ -92,39 +92,23 @@ const TTL_EMPTY_S = 3 * 24 * 60 * 60;
  * juste, une queue peu likée), pas le nombre. Les filtres de v4 réglant la
  * qualité, soixante images toutes utilisables n'est pas la même chose que
  * soixante dont un tiers ne servait à rien.
+ *
+ * v5 → v6 (11/09/2026) : PAGINATION. La clé porte désormais un numéro de page
+ * et la ligne a changé de forme (`{arts, hasMore}`). 12, 60, 30, 60 : quatre
+ * nombres en deux jours, parce qu'aucun ne pouvait être le bon — One Piece a
+ * 1 445 images. La pagination supprime la question au lieu d'y répondre.
  */
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 
 const API = "https://wallhaven.cc/api/v1/search";
 
-/**
- * Combien de pages on va chercher, et combien d'images on garde.
- *
- * L'ARBITRAGE EST ENTRE TROIS CHOSES, et aucune ne permet de tout prendre :
- *
- *  • le quota — une page = une requête, contre 45 par minute et par IP, celle
- *    de la lambda, partagée par tous les visiteurs ;
- *  • la ligne de cache — chaque entrée pèse ~350 octets sérialisés, et
- *    `tmdb_images_cache` documente déjà qu'une ligne de 80 ko sur une table lue
- *    à chaud est une mauvaise idée ;
- *  • la galerie elle-même — les 929 images de One Piece ne se regardent pas.
- *
- * Trois pages, soixante gardées — et l'aller-retour 60 → 30 → 60 vaut d'être
- * expliqué, parce que ce n'est pas une hésitation.
- *
- * « Il y en a beaucoup trop » visait la QUALITÉ, pas le nombre : des portraits,
- * du Full HD juste, une queue à trois favoris. J'ai d'abord répondu en coupant
- * le nombre, ce qui traitait le symptôme. Les filtres ci-dessous traitent la
- * cause — et soixante images toutes utilisables n'est pas la même chose que
- * soixante dont un tiers ne servait à rien.
- *
- * Le coût reste borné : trois requêtes sur une clé froide (donc une fois par
- * mois et par titre), ~15 ko par ligne — mesuré, pas estimé. Comme le
- * classement est `favorites` décroissant, ces soixante-là sont les soixante
- * meilleures, pas soixante au hasard.
- */
-const PAGES = 3;
-const KEEP = 60;
+/** La taille d'une page chez Wallhaven. Sert à savoir si une autre suit : une
+ *  page pleine en annonce une, une page courte est la dernière. */
+const PAGE_SIZE = 24;
+
+/** Garde-fou contre un client qui bouclerait. 40 pages ≈ 960 images, bien
+ *  au-delà de ce que le plus fourni des titres offre sous nos planchers. */
+const MAX_PAGE = 40;
 
 /**
  * Les deux filtres que l'API applique elle-même — donc les moins chers de tous,
@@ -134,10 +118,8 @@ const KEEP = 60;
  * y tient à peine, et pas du tout sur un écran à densité double. 2560×1440
  * laisse de la marge. Mesuré le 10/09/2026 : One Piece passe de 929 à 312
  * candidats, Steins;Gate de 384 à 140, Koe no Katachi de 63 à 23, Gachiakuta de
- * 19 à 15. Sur les gros titres c'est sans effet réel — on en garde soixante,
- * pris par le haut du classement, et 312 en laissent largement le choix. Sur
- * les petits, ça mord, et c'est le but : leur queue est précisément ce qui ne
- * valait pas la peine d'être montré.
+ * 19 à 15. Ce qui disparaît est la queue, pas le choix — 312 images font
+ * treize pages, et personne n'en déroule treize.
  *
  * `ratios=landscape` — ET C'EST LUI QUI CORRIGEAIT UN VRAI DÉFAUT. `atleast`
  * exige une largeur ET une hauteur minimales, donc un PORTRAIT les satisfait :
@@ -222,25 +204,57 @@ type WhItem = {
   thumbs?: { large?: string; original?: string; small?: string };
 };
 
-/** Les illustrations Wallhaven d'un id AniList. Liste vide sur tout échec. */
+/** Une page de galerie, telle que le client la consomme. */
+export type WallhavenPage = {
+  arts: WallhavenArtwork[];
+  /** Une page suivante existe. Calculé sur le nombre BRUT de résultats, pas sur
+   *  ce qui survit aux planchers : une page où tout serait filtré aurait sinon
+   *  l'air d'être la dernière alors que la suivante peut être pleine. */
+  hasMore: boolean;
+};
+
+/**
+ * UNE page d'illustrations Wallhaven, à la demande.
+ *
+ * POURQUOI PAGE PAR PAGE, et non « les N meilleures » comme fanart.tv et TMDB.
+ * Les deux autres sources rendent tout leur catalogue d'un coup parce que ce
+ * catalogue est petit — quelques dizaines d'images par titre, connues d'avance.
+ * Wallhaven en a 1 445 pour One Piece (312 sous nos planchers), et aucun nombre
+ * fixe ne convient : trop bas on ampute un gros titre, trop haut on paie 13
+ * requêtes sur une clé froide contre un quota de 45 par minute — et quatre
+ * fiches ouvertes en même temps suffiraient à le faire sauter.
+ *
+ * La pagination supprime l'arbitrage au lieu de le trancher. Le coût d'ouvrir
+ * une galerie redevient UNE requête, quel que soit le titre ; les pages
+ * suivantes ne sont payées que par qui les regarde, et chacune est mise en
+ * cache pour elle-même — la page 7 d'un titre populaire finit par être gratuite
+ * pour tout le monde.
+ *
+ * Rend une page vide sur tout échec ; ne lève jamais.
+ */
 export async function getWallhavenArtworks(
   anilistId: number,
-): Promise<WallhavenArtwork[]> {
-  if (!Number.isFinite(anilistId) || anilistId <= 0) return [];
+  page = 1,
+): Promise<WallhavenPage> {
+  const vide: WallhavenPage = { arts: [], hasMore: false };
+  if (!Number.isFinite(anilistId) || anilistId <= 0) return vide;
+  /* Borne haute : au-delà, c'est un client qui boucle, pas quelqu'un qui
+     regarde des images. Wallhaven plafonne de toute façon bien avant. */
+  const p = Math.min(Math.max(1, Math.floor(page)), MAX_PAGE);
 
-  type Row = { arts: WallhavenArtwork[]; partiel?: boolean };
-
-  const key = `wallhaven:${CACHE_VERSION}:${anilistId}`;
-  /* DEUX TTL POUR UNE SEULE CLÉ. On lit d'abord au plus long ; une ligne qui
-     n'est pas un résultat complet — vide, ou interrompue par une page en échec
-     — est ensuite relue au TTL court, et traitée comme absente au-delà. C'est
-     ce qui empêche un hoquet d'une seconde de graver un manque pour un mois. */
-  const cached = await getCachedJson<Row>(key, TTL_HIT_S);
+  /* UNE LIGNE PAR PAGE. Chacune est indépendante : une page qui échoue
+     n'invalide pas les autres, et une ligne pèse ~6 ko au lieu des 78 ko
+     qu'aurait fait un catalogue entier sur une table lue à chaud. */
+  const key = `wallhaven:${CACHE_VERSION}:${anilistId}:p${p}`;
+  /* DEUX TTL POUR UNE SEULE CLÉ : on lit d'abord au plus long, et une page
+     VIDE est ensuite relue au TTL court, donc traitée comme absente au-delà.
+     Un titre récent finit par être illustré ; une absence gravée un mois est
+     le piège documenté dans tmdbImagesCache. */
+  const cached = await getCachedJson<WallhavenPage>(key, TTL_HIT_S);
   if (cached) {
-    const complet = !!cached.arts?.length && !cached.partiel;
-    if (complet) return cached.arts;
-    const frais = await getCachedJson<Row>(key, TTL_EMPTY_S);
-    if (frais) return frais.arts ?? [];
+    if (cached.arts?.length) return cached;
+    const frais = await getCachedJson<WallhavenPage>(key, TTL_EMPTY_S);
+    if (frais) return { arts: frais.arts ?? [], hasMore: !!frais.hasMore };
   }
 
   const anime = await getCachedAnime(anilistId).catch(() => null);
@@ -248,85 +262,60 @@ export async function getWallhavenArtworks(
   if (!q) {
     /* Titre inconnu de notre cache : ce n'est pas une réponse de Wallhaven, et
        la mettre en cache graverait une absence qui n'a rien à voir avec lui. */
-    return [];
+    return vide;
   }
 
-  const base =
+  const url =
     `${API}?q=${encodeURIComponent(q)}` +
     `&categories=010&purity=100&sorting=favorites&order=desc` +
-    `&atleast=${MIN_RES}&ratios=${RATIOS}`;
+    `&atleast=${MIN_RES}&ratios=${RATIOS}&page=${p}`;
 
-  /** Une page. `null` distingue « la question n'a pas abouti » de « la page est
-   *  vide », et c'est cette distinction qui décide de ce qu'on met en cache. */
-  const fetchPage = async (page: number): Promise<WhItem[] | null> => {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(`${base}&page=${page}`, { signal: ctl.signal });
-      /* 429 = notre quota de 45/min, 5xx = leur panne. Ni l'un ni l'autre n'est
-         une réponse sur ce titre. */
-      if (!res.ok) return null;
-      const json = (await res.json()) as { data?: WhItem[] };
-      return Array.isArray(json?.data) ? json.data : [];
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  const arts: WallhavenArtwork[] = [];
-  /* Séquentiel, et non en parallèle : trois requêtes simultanées comptent
-     autant contre le quota, mais toutes les lambdas qui ouvrent une fiche au
-     même instant les enverraient en même temps — c'est le profil qui déclenche
-     un 429. À ~300 ms la page, la boucle coûte moins d'une seconde. */
-  let partiel = false;
-  for (let page = 1; page <= PAGES && arts.length < KEEP; page++) {
-    const items = await fetchPage(page);
-    if (items === null) {
-      /* La page a échoué. Ce qu'on a déjà reste bon — on le garde — mais le
-         résultat n'est PAS complet, et le mettre en cache pour trente jours
-         graverait un manque dû à un hoquet. Le drapeau raccourcit le TTL. */
-      partiel = true;
-      break;
-    }
-    /* Une page courte est la dernière : Wallhaven en sert 24, moins veut dire
-       qu'il n'y en a plus. Continuer coûterait une requête pour rien. */
-    const court = items.length < 24;
-    for (const w of items) {
-      const thumb = w.thumbs?.large || w.thumbs?.original || w.thumbs?.small;
-      const full = w.path;
-      if (!thumb || !full) continue;
-      const favoris = Number(w.favorites) || 0;
-      /* La liste arrive classée par favoris décroissants : la première image
-         sous le plancher est suivie de rien qui le repasse. On pourrait donc
-         sortir des deux boucles — mais `continue` reste juste si Wallhaven
-         change un jour son ordre, et ne coûte que de parcourir une page déjà
-         téléchargée. */
-      if (favoris < MIN_FAVORITES) continue;
-      arts.push({
-        url: thumb,
-        type: "wallpaper",
-        language: null,
-        likes: favoris,
-        season: null,
-        fullUrl: full,
-        width: Number(w.dimension_x) || 0,
-        height: Number(w.dimension_y) || 0,
-        source: w.source || null,
-      });
-      if (arts.length >= KEEP) break;
-    }
-    if (court) break;
+  let items: WhItem[];
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    /* 429 = notre quota de 45/min, 5xx = leur panne. Ni l'un ni l'autre n'est
+       une réponse sur ce titre : on rend vide SANS écrire, pour que l'appel
+       suivant repose la question. */
+    if (!res.ok) return vide;
+    const json = (await res.json()) as { data?: WhItem[] };
+    items = Array.isArray(json?.data) ? json.data : [];
+  } catch {
+    return vide;
+  } finally {
+    clearTimeout(timer);
   }
 
-  /* Rien du tout ET la première page a échoué : ce n'est pas une réponse sur ce
-     titre, donc pas d'écriture — l'appel suivant repose la question. */
-  if (partiel && arts.length === 0) return [];
+  const arts: WallhavenArtwork[] = [];
+  for (const w of items) {
+    const thumb = w.thumbs?.large || w.thumbs?.original || w.thumbs?.small;
+    const full = w.path;
+    if (!thumb || !full) continue;
+    if ((Number(w.favorites) || 0) < MIN_FAVORITES) continue;
+    arts.push({
+      url: thumb,
+      type: "wallpaper",
+      language: null,
+      likes: Number(w.favorites) || 0,
+      season: null,
+      fullUrl: full,
+      width: Number(w.dimension_x) || 0,
+      height: Number(w.dimension_y) || 0,
+      source: w.source || null,
+    });
+  }
+
+  /* Une page pleine (24 bruts) veut dire qu'il y en a une autre ; une page
+     courte est la dernière. C'est le compte BRUT qui décide — voir `hasMore`. */
+  const out: WallhavenPage = {
+    arts,
+    hasMore: items.length >= PAGE_SIZE && p < MAX_PAGE,
+  };
 
   /* Le vide est écrit lui aussi (au TTL court) : la plupart des titres de
      niche n'ont rien sur Wallhaven, et sans ça chaque ouverture de la galerie
      re-poserait la même question à un quota de 45/min. */
-  await setCachedJson(key, { arts, partiel });
-  return arts;
+  await setCachedJson(key, out);
+  return out;
 }
