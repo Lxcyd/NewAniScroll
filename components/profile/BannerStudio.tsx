@@ -684,22 +684,17 @@ export default function BannerStudio({
 
          Bannière : les seuls formats en bande. Image : la pleine page, d'où
          sortent les formats qui n'y tiennent pas : disque, affiche, bannière,
-         clear art et logo. Les deux derniers sont des calques transparents,
-         faits pour être POSÉS sur une image et non pour en être une — ils
-         donnaient un fond de profil vide avec un titre flottant au milieu.
-         (`character` est transparent lui aussi ; il reste, il n'a pas été
-         demandé — à retirer d'un mot si le rendu déçoit.) */
+         clear art, logo et art de personnage. Les trois derniers sont des
+         calques à fond transparent, faits pour être POSÉS sur une image et non
+         pour en être une — ils donnaient une plaque de profil vide avec un
+         titre ou un personnage flottant au milieu. L'art de personnage cumulait
+         d'ailleurs les deux défauts : transparent ET 512×512, soit le plus
+         petit format du catalogue pour la plus grande des surfaces. */
       const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
       /* `wallpaper` EN TETE de la pleine page : c'est le seul format qui soit
          fait pour ca, et le seul qui monte au-dela du 1920x1080 auquel
          fanart.tv est plafonne par sa propre specification. */
-      const PLEIN: string[] = [
-        "wallpaper",
-        "background",
-        "thumb",
-        "seasonthumb",
-        "character",
-      ];
+      const PLEIN: string[] = ["wallpaper", "background", "thumb", "seasonthumb"];
       const familles = scope === "banner" ? LARGE : PLEIN;
 
       if (pick == null) {
