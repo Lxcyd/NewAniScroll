@@ -28,6 +28,7 @@ import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import { useWallhaven } from "@/lib/hooks/useWallhaven";
+import { byQuality } from "@/lib/images/artQuality";
 import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
@@ -734,21 +735,29 @@ export default function BannerStudio({
            en affiche des centaines), le fond prend l'image.
            fanart.tv n'a pas ce probleme : son proxy sert deja le 1920x1080,
            simplement transcode en WebP. */
+        /* `width`/`height` ne sont renseignes que par Wallhaven, seule source a
+           les declarer. Ailleurs ils restent absents et `artPixels` deduit la
+           resolution du type, ce que la specification de fanart.tv rend exact
+           (cf. lib/images/artQuality.ts). */
         const galerie: Array<{
           url: string;
           plein: string;
           type: string;
           likes: number;
+          width?: number;
+          height?: number;
         }> = [];
         const ajouter = (
           url: string | null | undefined,
           type: string,
           likes = 0,
           plein?: string | null,
+          width?: number,
+          height?: number,
         ) => {
           if (!url || vues.has(url)) return;
           vues.add(url);
-          galerie.push({ url, plein: plein || url, type, likes });
+          galerie.push({ url, plein: plein || url, type, likes, width, height });
         };
         for (const a of collectArtworks(fanarts)) ajouter(a.url, a.type, a.likes || 0);
         for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0, a.fullUrl);
@@ -757,7 +766,8 @@ export default function BannerStudio({
            puissent appartenir a un autre anime. La vignette pour la tuile, le
            fichier entier pour le fond — jusqu'a 7680x4320, ce qu'aucune des
            deux autres sources ne propose. */
-        for (const w of wallpapers) ajouter(w.url, w.type, w.likes || 0, w.fullUrl);
+        for (const w of wallpapers)
+          ajouter(w.url, w.type, w.likes || 0, w.fullUrl, w.width, w.height);
         for (const o of art) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
@@ -794,7 +804,15 @@ export default function BannerStudio({
              on ne montre que ce que l'onglet porte. */
           .filter((o) => rang.has(o.type))
           .sort(
-            (a, b) => rang.get(a.type)! - rang.get(b.type)! || b.likes - a.likes,
+            /* LE FORMAT D'ABORD, LA QUALITE ENSUITE — et non l'inverse. Ici,
+               contrairement a l'onglet Illustrations de la fiche, le
+               regroupement par nature est ce qui rend la planche lisible : on
+               choisit un fond de profil dans une famille, pas dans un
+               classement. `byQuality` departage a l'interieur d'une famille, ou
+               il se reduit exactement aux votes tant que les dimensions sont
+               fixes (fanart.tv) et classe les fonds d'ecran Wallhaven par
+               resolution reelle entre eux. */
+            (a, b) => rang.get(a.type)! - rang.get(b.type)! || byQuality(a, b),
           )
           .map((o) => ({
             key: o.url,

@@ -3,6 +3,7 @@ import { collectArtworks } from "./helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import { useWallhaven } from "@/lib/hooks/useWallhaven";
+import { byQuality } from "@/lib/images/artQuality";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
@@ -80,10 +81,22 @@ export default function Artworks({
   const { wallpapers } = useWallhaven(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
+  /* PUIS CLASSÉES PAR RÉSOLUTION. L'ordre de fusion ci-dessus ne décide plus
+     que du dédoublonnage — qui garde quelle copie d'une image présente deux
+     fois — et non plus de ce qu'on voit en premier.
+
+     C'est un renversement assumé : la galerie menait avec fanart.tv classé par
+     votes, ce qui revenait à classer par PROVENANCE, puisque les trois sources
+     ne comptent pas la même chose sous le nom de « likes ». Le nombre de
+     pixels, lui, veut dire la même chose partout. Les votes restent, en
+     départage. Voir lib/images/artQuality.ts.
+
+     La barre de filtres par type reste le moyen de revenir aux visuels
+     officiels d'un clic. */
   const arts = mergeArtworks<any>(
     mergeArtworks<any>(collectArtworks(fanarts), tmdbArts),
     wallpapers,
-  );
+  ).sort(byQuality);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>("all");
   // false on SSR + first client render (markup matches), true after mount
