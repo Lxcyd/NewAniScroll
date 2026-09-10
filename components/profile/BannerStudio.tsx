@@ -661,24 +661,25 @@ export default function BannerStudio({
        miniature de saison n'ont ni le même cadrage ni le même usage, et une
        grille indistincte obligeait à les reconnaître à l'œil. */
     if (scope === "banner" || scope === "image") {
-      /* TOUS les formats, et dans l'ordre qui convient à l'onglet : Bannière
-         mène avec ce qui se porte en bande, Image avec ce qui se porte en
-         pleine page. Aucun n'est écarté — « il en manque » était vrai, et
-         c'était le filtre qui les écartait. */
+      /* CHAQUE ONGLET NE MONTRE QUE CE QU'IL SAIT PORTER, et `familles` fait
+         les deux choses à la fois : elle dit ce qui entre et dans quel ordre.
+         Les deux onglets ont d'abord tout montré, au motif qu'« il en manque »
+         — mais tout montrer a son propre défaut : une bande de profil fait
+         1900 px de large pour 300 de haut, et une affiche 2:3 ou un disque
+         rond n'y entrent que rognés au point de ne plus rien représenter.
+
+         Bannière : les seuls formats en bande. Image : la pleine page, d'où
+         sortent les quatre formats qui n'y tiennent pas plus qu'ailleurs
+         (disque, affiche, bannière, clear art). */
       const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
       const PLEIN: string[] = [
         "background",
         "thumb",
         "seasonthumb",
-        "poster",
-        "seasonposter",
-        "clearart",
         "character",
         "logo",
-        "disc",
       ];
-      const familles =
-        scope === "banner" ? [...LARGE, ...PLEIN] : [...PLEIN, ...LARGE];
+      const familles = scope === "banner" ? LARGE : PLEIN;
 
       if (pick == null) {
         const rows = animes
@@ -761,10 +762,13 @@ export default function BannerStudio({
            choisit pas une image à sa dénomination : on la reconnaît. */
         const rang = new Map(familles.map((f, i) => [f, i]));
         const rows = galerie
-          .slice()
+          /* Le filtre est ici, et pas au moment de collecter : les trois
+             provenances se dédoublonnent par URL, et une même image peut
+             arriver sous deux noms de type selon la source. On collecte tout,
+             on ne montre que ce que l'onglet porte. */
+          .filter((o) => rang.has(o.type))
           .sort(
-            (a, b) =>
-              (rang.get(a.type) ?? 99) - (rang.get(b.type) ?? 99) || b.likes - a.likes,
+            (a, b) => rang.get(a.type)! - rang.get(b.type)! || b.likes - a.likes,
           )
           .map((o) => ({
             key: o.url,
