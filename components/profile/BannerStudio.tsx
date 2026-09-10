@@ -683,18 +683,30 @@ export default function BannerStudio({
          rond n'y entrent que rognés au point de ne plus rien représenter.
 
          Bannière : les seuls formats en bande. Image : la pleine page, d'où
-         sortent les formats qui n'y tiennent pas : disque, affiche, bannière,
-         clear art, logo et art de personnage. Les trois derniers sont des
-         calques à fond transparent, faits pour être POSÉS sur une image et non
-         pour en être une — ils donnaient une plaque de profil vide avec un
-         titre ou un personnage flottant au milieu. L'art de personnage cumulait
-         d'ailleurs les deux défauts : transparent ET 512×512, soit le plus
-         petit format du catalogue pour la plus grande des surfaces. */
+         sortent les formats qui n'y tiennent pas, pour DEUX raisons distinctes.
+
+         Le cadrage : une affiche 2:3, un disque rond, une bande de 1000×185
+         n'entrent dans une pleine page que rognés au point de ne plus rien
+         représenter. Le fond transparent : clear art, logo et art de personnage
+         sont des calques faits pour être POSÉS sur une image, pas pour en être
+         une — ils donnaient une plaque vide avec un titre ou un personnage qui
+         flotte au milieu.
+
+         Et la résolution, traitée juste en dessous. */
       const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
-      /* `wallpaper` EN TETE de la pleine page : c'est le seul format qui soit
-         fait pour ca, et le seul qui monte au-dela du 1920x1080 auquel
-         fanart.tv est plafonne par sa propre specification. */
-      const PLEIN: string[] = ["wallpaper", "background", "thumb", "seasonthumb"];
+      /* LA PLEINE PAGE NE DESCEND PAS SOUS LE FULL HD, et c'est un critere de
+         qualite a part entiere : une plaque de profil fait ~1900 px de large,
+         donc une image plus etroite y est AGRANDIE, et un agrandissement ne
+         s'ameliore jamais. La miniature et la miniature de saison font
+         1000x562 par specification fanart.tv — 1,9x d'etirement. Elles
+         sortent.
+         Restent les deux formats qui tiennent : `background` (1920x1080 pile,
+         impose par fanart.tv) et `wallpaper`, en tete parce que c'est le seul
+         a monter AU-DESSUS — jusqu'a 7680x4320.
+         L'onglet Illustrations de la fiche, lui, garde tout : on y parcourt
+         des illustrations, on n'y choisit pas un fond. Une miniature de
+         1000x562 y est parfaitement legitime a sa taille. */
+      const PLEIN: string[] = ["wallpaper", "background"];
       const familles = scope === "banner" ? LARGE : PLEIN;
 
       if (pick == null) {
