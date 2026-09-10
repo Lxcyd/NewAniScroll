@@ -4962,6 +4962,19 @@ export default function UniversalPlayer({
     let inFlight = false; // a play() attempt is awaiting — don't overlap
     let boundVideo: HTMLVideoElement | null = null; // element our events sit on
 
+    // ── Never start an episode behind the user's back ──
+    // Autoplay means "start when I get here", not "start while I'm reading
+    // something else". Opening episodes in background tabs (middle-click from a
+    // season list) or alt-tabbing away during the ~10s a source takes to resolve
+    // both used to end with an episode playing — and burning progress — in a tab
+    // the user wasn't looking at. Chrome mutes background media instead of
+    // blocking it, so the browser will NOT stop this for us.
+    //
+    // Both conditions, not just `hidden`: a visible tab in an unfocused window
+    // is still not somewhere the user is watching, and that's the case a
+    // second-monitor layout hits constantly.
+    const pageActive = () => !document.hidden && document.hasFocus();
+
     const getPlayerEl = () =>
       (playerRef.current?.el as HTMLElement | undefined) || undefined;
     const getVideo = () =>
@@ -4987,6 +5000,9 @@ export default function UniversalPlayer({
       // `play`/`snapshot` sync instead. So skip local autoplay entirely while in
       // a party — the sync engine (applyRemote) owns play/pause here.
       if (partyRef.current) return;
+      // Nothing is latched here: `started` stays false, so coming back to the
+      // tab resumes the normal path instead of needing its own start logic.
+      if (!pageActive()) return;
       const video = getVideo();
       if (!video) return;
       // Consider playback truly started ONLY if the element is unpaused AND
@@ -5141,6 +5157,7 @@ export default function UniversalPlayer({
     };
 
     let ticks = 0;
+    let pollId = 0;
     const tick = () => {
       if (cancelled || started) {
         window.clearInterval(pollId);
@@ -5153,12 +5170,31 @@ export default function UniversalPlayer({
       // source genuinely can't autoplay, or the user has taken over.
       if (++ticks > 100) window.clearInterval(pollId);
     };
-    const pollId = window.setInterval(tick, 100);
-    tick(); // run once immediately, don't wait 100ms
+    const startPoll = () => {
+      window.clearInterval(pollId);
+      ticks = 0;
+      pollId = window.setInterval(tick, 100);
+      tick(); // run once immediately, don't wait 100ms
+    };
+    startPoll();
+
+    // Coming back to the tab restarts the poll from zero rather than just
+    // calling tryPlay() once: the 10s ceiling has almost certainly expired
+    // while we were away, and the <video> may have been swapped since (a
+    // source fallback keeps running in a hidden tab). One shot would land on
+    // a detached node and stay paused for good.
+    const onPageActive = () => {
+      if (cancelled || started || !pageActive()) return;
+      startPoll();
+    };
+    document.addEventListener("visibilitychange", onPageActive);
+    window.addEventListener("focus", onPageActive);
 
     return () => {
       cancelled = true;
       window.clearInterval(pollId);
+      document.removeEventListener("visibilitychange", onPageActive);
+      window.removeEventListener("focus", onPageActive);
       teardownGestures();
       if (boundVideo) {
         boundVideo.removeEventListener("canplay", onReady);

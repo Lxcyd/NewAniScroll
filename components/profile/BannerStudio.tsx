@@ -164,6 +164,12 @@ type Section = {
      l'oeil, et une vignette de 64 px posee au bout d'une ligne ne permet pas de
      voir ce qu'on prend. */
   grid?: boolean;
+  /* La grille de l'onglet Bannière. Les tuiles carrées de la grille normale
+     conviennent à une image de page ; une bande de 1000×185 y apparaissait en
+     filet au milieu de deux tiers de noir, et on ne distinguait pas deux
+     bannières l'une de l'autre. Moins de colonnes, au format de ce qu'elles
+     montrent. */
+  bande?: boolean;
 };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
@@ -669,16 +675,14 @@ export default function BannerStudio({
          rond n'y entrent que rognés au point de ne plus rien représenter.
 
          Bannière : les seuls formats en bande. Image : la pleine page, d'où
-         sortent les quatre formats qui n'y tiennent pas plus qu'ailleurs
-         (disque, affiche, bannière, clear art). */
+         sortent les formats qui n'y tiennent pas : disque, affiche, bannière,
+         clear art et logo. Les deux derniers sont des calques transparents,
+         faits pour être POSÉS sur une image et non pour en être une — ils
+         donnaient un fond de profil vide avec un titre flottant au milieu.
+         (`character` est transparent lui aussi ; il reste, il n'a pas été
+         demandé — à retirer d'un mot si le rendu déçoit.) */
       const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
-      const PLEIN: string[] = [
-        "background",
-        "thumb",
-        "seasonthumb",
-        "character",
-        "logo",
-      ];
+      const PLEIN: string[] = ["background", "thumb", "seasonthumb", "character"];
       const familles = scope === "banner" ? LARGE : PLEIN;
 
       if (pick == null) {
@@ -819,7 +823,8 @@ export default function BannerStudio({
             },
           ],
         });
-        if (rows.length) out.push({ title: "", rows, grid: true });
+        if (rows.length)
+          out.push({ title: "", rows, grid: true, bande: scope === "banner" });
         else
           out.push({
             title: "",
@@ -1479,7 +1484,13 @@ export default function BannerStudio({
                            non `cover` : une affiche est en portrait, un visuel
                            clé en 16/9, et recadrer pour aligner les tuiles
                            montrerait de chaque image ce qu'on n'a pas choisi. */
-                        <div className="grid grid-cols-2 gap-2 px-1 pb-2 sm:grid-cols-3 lg:grid-cols-4">
+                        <div
+                          className={`grid gap-2 px-1 pb-2 ${
+                            s.bande
+                              ? "grid-cols-1 lg:grid-cols-2"
+                              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                          }`}
+                        >
                           {s.rows.map((row) => {
                             index += 1;
                             const active = index === cursor;
@@ -1490,7 +1501,15 @@ export default function BannerStudio({
                                 onMouseMove={() => setCursor(flat.indexOf(row))}
                                 onClick={() => row.run?.()}
                                 title={row.hint || row.label}
-                                className={`relative h-36 overflow-hidden rounded-xl bg-black/40 ring-1 transition-colors ${
+                                /* La tuile prend le FORMAT de ce qu'elle
+                                   montre : 1000×185 pour une bande — la mesure
+                                   de fanart.tv, et le plus étroit des deux, de
+                                   sorte qu'une bannière AniList (1900×400) y
+                                   entre entière avec un filet de noir plutôt
+                                   que l'inverse. */
+                                className={`relative overflow-hidden rounded-xl bg-black/40 ring-1 transition-colors ${
+                                  s.bande ? "aspect-[1000/185]" : "h-36"
+                                } ${
                                   row.selected
                                     ? "ring-2 ring-action"
                                     : active
@@ -1503,7 +1522,11 @@ export default function BannerStudio({
                                     src={row.thumb}
                                     alt=""
                                     fill
-                                    sizes="(min-width: 1024px) 20vw, 40vw"
+                                    sizes={
+                                      s.bande
+                                        ? "(min-width: 1024px) 45vw, 90vw"
+                                        : "(min-width: 1024px) 20vw, 40vw"
+                                    }
                                     className="object-contain"
                                   />
                                 ) : null}
