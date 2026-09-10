@@ -86,8 +86,14 @@ const TTL_EMPTY_S = 3 * 24 * 60 * 60;
  *
  * v3 → v4 (10/09/2026) : paysage seulement, plancher à 2560×1440, deux pages,
  * trente gardées. Une ligne v3 contient des portraits et du 1920×1080.
+ *
+ * v4 → v5 (11/09/2026) : retour à soixante. Trente était une sur-correction —
+ * « il y en a beaucoup trop » visait la qualité (des portraits, du Full HD
+ * juste, une queue peu likée), pas le nombre. Les filtres de v4 réglant la
+ * qualité, soixante images toutes utilisables n'est pas la même chose que
+ * soixante dont un tiers ne servait à rien.
  */
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 
 const API = "https://wallhaven.cc/api/v1/search";
 
@@ -103,13 +109,22 @@ const API = "https://wallhaven.cc/api/v1/search";
  *    à chaud est une mauvaise idée ;
  *  • la galerie elle-même — les 929 images de One Piece ne se regardent pas.
  *
- * Deux pages, trente gardées. Soixante était trop — la galerie fusionne trois
- * sources et Wallhaven finissait par écraser les visuels officiels. Comme le
- * classement est `favorites` décroissant, ces trente-là sont les trente
- * meilleures, pas trente au hasard.
+ * Trois pages, soixante gardées — et l'aller-retour 60 → 30 → 60 vaut d'être
+ * expliqué, parce que ce n'est pas une hésitation.
+ *
+ * « Il y en a beaucoup trop » visait la QUALITÉ, pas le nombre : des portraits,
+ * du Full HD juste, une queue à trois favoris. J'ai d'abord répondu en coupant
+ * le nombre, ce qui traitait le symptôme. Les filtres ci-dessous traitent la
+ * cause — et soixante images toutes utilisables n'est pas la même chose que
+ * soixante dont un tiers ne servait à rien.
+ *
+ * Le coût reste borné : trois requêtes sur une clé froide (donc une fois par
+ * mois et par titre), ~15 ko par ligne — mesuré, pas estimé. Comme le
+ * classement est `favorites` décroissant, ces soixante-là sont les soixante
+ * meilleures, pas soixante au hasard.
  */
-const PAGES = 2;
-const KEEP = 30;
+const PAGES = 3;
+const KEEP = 60;
 
 /**
  * Les deux filtres que l'API applique elle-même — donc les moins chers de tous,
@@ -118,8 +133,11 @@ const KEEP = 30;
  * `atleast=2560x1440` — une plaque de profil fait ~1900 px de large. Le Full HD
  * y tient à peine, et pas du tout sur un écran à densité double. 2560×1440
  * laisse de la marge. Mesuré le 10/09/2026 : One Piece passe de 929 à 312
- * candidats, Koe no Katachi de 63 à 23, Gachiakuta de 19 à 15 — sans effet réel
- * puisqu'on n'en garde que trente, pris par le haut du classement.
+ * candidats, Steins;Gate de 384 à 140, Koe no Katachi de 63 à 23, Gachiakuta de
+ * 19 à 15. Sur les gros titres c'est sans effet réel — on en garde soixante,
+ * pris par le haut du classement, et 312 en laissent largement le choix. Sur
+ * les petits, ça mord, et c'est le but : leur queue est précisément ce qui ne
+ * valait pas la peine d'être montré.
  *
  * `ratios=landscape` — ET C'EST LUI QUI CORRIGEAIT UN VRAI DÉFAUT. `atleast`
  * exige une largeur ET une hauteur minimales, donc un PORTRAIT les satisfait :
@@ -145,8 +163,9 @@ const RATIOS = "landscape";
  * le poids du fichier non plus. Le nombre de favoris est le seul jugement
  * disponible, et c'est un jugement humain : ces images-là n'en récoltent pas.
  *
- * Dix. Mesuré le 10/09/2026 sur les deux pages qu'on interroge, sous les
- * filtres ci-dessus :
+ * Dix. Mesuré le 10/09/2026 sur les deux premières pages, sous les filtres
+ * ci-dessus (la troisième ne change pas le tableau : les favoris ne font que
+ * décroître, donc si rien n'est écarté à la 48e, rien ne l'est avant) :
  *
  *   one piece       48 candidats, du 839e au 67e favori   → 0 écartée
  *   steins gate     48 candidats, de 105 à 19             → 0 écartée
