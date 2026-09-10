@@ -27,6 +27,7 @@ import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateB
 import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
+import { useWallhaven } from "@/lib/hooks/useWallhaven";
 import ColorPicker from "@/components/shared/ColorPicker";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
@@ -342,6 +343,12 @@ export default function BannerStudio({
   const galerieId = scope === "banner" || scope === "image" ? pick : null;
   const { fanarts } = useFanarts(galerieId);
   const { tmdbArts } = useTmdbArtworks(galerieId ?? 0);
+  /* Wallhaven, la troisieme source — mais seulement pour l'onglet Image : elle
+     sert des fonds d'ecran en 16/9, et n'a a peu pres rien en bande (mesure le
+     10/09/2026 : 10 resultats en 21/9 et 32/9 sur One Piece, contre 506 au
+     total). L'appeler depuis l'onglet Banniere serait une requete pour rien
+     contre un quota de 45/min partage par toutes les lambdas. */
+  const { wallpapers } = useWallhaven(scope === "image" ? galerieId ?? 0 : 0);
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
      cache à la périphérie, que celui dont le profil tire déjà sa plaque —
@@ -682,7 +689,16 @@ export default function BannerStudio({
          (`character` est transparent lui aussi ; il reste, il n'a pas été
          demandé — à retirer d'un mot si le rendu déçoit.) */
       const LARGE: string[] = ["banner", "seasonbanner", "anilist"];
-      const PLEIN: string[] = ["background", "thumb", "seasonthumb", "character"];
+      /* `wallpaper` EN TETE de la pleine page : c'est le seul format qui soit
+         fait pour ca, et le seul qui monte au-dela du 1920x1080 auquel
+         fanart.tv est plafonne par sa propre specification. */
+      const PLEIN: string[] = [
+        "wallpaper",
+        "background",
+        "thumb",
+        "seasonthumb",
+        "character",
+      ];
       const familles = scope === "banner" ? LARGE : PLEIN;
 
       if (pick == null) {
@@ -736,6 +752,12 @@ export default function BannerStudio({
         };
         for (const a of collectArtworks(fanarts)) ajouter(a.url, a.type, a.likes || 0);
         for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0, a.fullUrl);
+        /* Wallhaven en dernier : ses images sont trouvees par recherche texte
+           et non par identifiant, donc ce sont les seules des trois qui
+           puissent appartenir a un autre anime. La vignette pour la tuile, le
+           fichier entier pour le fond — jusqu'a 7680x4320, ce qu'aucune des
+           deux autres sources ne propose. */
+        for (const w of wallpapers) ajouter(w.url, w.type, w.likes || 0, w.fullUrl);
         for (const o of art) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
@@ -1098,7 +1120,7 @@ export default function BannerStudio({
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
     return out.filter((s) => s.rows.length > 0 || s.node);
-  }, [scope, query, art, fanarts, tmdbArts, themes, animes, animeId, currentAnime,
+  }, [scope, query, art, fanarts, tmdbArts, wallpapers, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t]);
 

@@ -2,6 +2,7 @@ import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks } from "./helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
+import { useWallhaven } from "@/lib/hooks/useWallhaven";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
@@ -27,6 +28,7 @@ const TYPE_LABEL: Record<string, string> = {
   clearart: "Clear Art",
   character: "Character Art",
   disc: "Disc",
+  wallpaper: "Wallpaper",
 };
 
 /* Merge the two providers into one gallery, keeping a single copy of anything
@@ -69,9 +71,19 @@ export default function Artworks({
      cost an upstream call, so the gallery paints the first without waiting on
      the second. See lib/hooks/useTmdbArtworks.ts. */
   const { tmdbArts } = useTmdbArtworks(animeId);
+  /* Wallhaven en DERNIER, et c'est délibéré. Ses images sont trouvées par
+     recherche texte, pas par identifiant : elles sont donc les seules des trois
+     qui puissent appartenir à un autre anime. Elles viennent après les visuels
+     officiels, sous un type à elles — que le filtre par type de la barre
+     transforme gratuitement en « ne me montre que les fonds d'écran », ou en
+     l'inverse. */
+  const { wallpapers } = useWallhaven(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
-  const arts = mergeArtworks<any>(collectArtworks(fanarts), tmdbArts);
+  const arts = mergeArtworks<any>(
+    mergeArtworks<any>(collectArtworks(fanarts), tmdbArts),
+    wallpapers,
+  );
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>("all");
   // false on SSR + first client render (markup matches), true after mount
