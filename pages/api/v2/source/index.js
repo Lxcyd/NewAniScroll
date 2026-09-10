@@ -1094,20 +1094,118 @@ function animeSamaLangDirs(langPath, exclude) {
  * « panneau sain, hote absent » (absence honnete), ce que fetchPanelIframe doit
  * rendre a son appelant.
  */
+/* ── episodes.js, telecharge UNE fois pour tous les serveurs d'un meme panneau ──
+ *
+ * L'URL ne depend que de (slug, seasonDir, langDir). Le seul morceau specifique
+ * au serveur est `pickPreferredEpisodeUrl`, qui choisit l'hote DANS le contenu
+ * deja telecharge. Or six des dix serveurs du catalogue vivent sur anime-sama
+ * (sibnet, ansembed, uqload x sub/vo) : chacun telechargeait donc le meme
+ * fichier, de son cote, dans sa propre invocation.
+ *
+ * Le releve de production du 10/09 le montre a nu — quatre lignes
+ * « no episodes.js for <le meme titre>/saison1 », quatre invocations, quatre
+ * allers-retours vers le Worker Cloudflare pour decouvrir la meme absence. Et
+ * /api/v2/source pesait 40 invocations sur 60 dans l'echantillon.
+ *
+ * Le cache memoire ne pouvait pas aider : les dix sondes partent en parallele et
+ * atterrissent sur dix lambdas differentes. Il faut donc un cache PARTAGE, et
+ * c'est ce que Redis est. Le memo de processus reste devant, pour les appels
+ * repetes d'une meme invocation (les boucles de langue en font).
+ *
+ * On cache la RESSOURCE, pas un verdict. Cacher « anime-sama n'a rien pour cet
+ * anime » confondrait deux choses distinctes : « le panneau n'existe pas » et
+ * « le panneau existe mais cet hote n'y est pas ». La seconde est une absence
+ * honnete, propre a un serveur, et elle continue d'etre decidee par appelant. */
+const EPISODES_KEY = (slug, seasonDir, langDir) =>
+  `asEps:v1:${slug}:${seasonDir}:${langDir}`;
+/* Assez long pour couvrir le fan-out d'un visiteur et de ses voisins immediats,
+   assez court pour qu'un panneau repare se voie dans la minute qui suit. */
+const EPISODES_TTL_S = 300;
+/* Une absence tient moins longtemps qu'une presence : un episode qui vient
+   d'etre poste ne doit pas rester invisible cinq minutes. */
+const EPISODES_MISS_TTL_S = 60;
+/* One Piece & consorts ont des panneaux enormes. Au-dela, on garde le memo de
+   processus mais on n'ecrit pas dans Redis : le plan gratuit plafonne a 256 Mo
+   et 50 Go de bande passante, et un panneau geant les mangerait pour un gain
+   qui ne concerne qu'un titre. */
+const EPISODES_MAX_BYTES = 256 * 1024;
+
+const episodesMemo = new Map(); // key → { t, arrays }
+const EPISODES_MEMO_MAX = 300;
+
+function rememberEpisodes(key, arrays) {
+  if (episodesMemo.size > EPISODES_MEMO_MAX) episodesMemo.clear();
+  episodesMemo.set(key, { t: Date.now(), arrays });
+}
+
+/**
+ * Les tableaux d'episodes d'un panneau, ou `null` quand on n'a PAS PU savoir.
+ *
+ * Les trois retours sont distincts et l'appelant doit les traiter pareil (passer
+ * a la langue suivante), mais le cache, lui, ne doit surtout pas les confondre :
+ *   - tableaux non vides → panneau sain, cache EPISODES_TTL_S ;
+ *   - tableau vide       → 404 ou fichier vide, une vraie absence, cache court ;
+ *   - `null`             → le fetch a leve (Worker injoignable, timeout). Ce
+ *                          n'est pas une information sur anime-sama, c'est une
+ *                          information sur NOUS, et la cacher figerait un
+ *                          panneau sain sur un hoquet de reseau.
+ */
+async function loadEpisodeArrays(slug, seasonDir, langDir) {
+  const key = EPISODES_KEY(slug, seasonDir, langDir);
+
+  const memo = episodesMemo.get(key);
+  if (memo && Date.now() - memo.t < EPISODES_TTL_S * 1000) return memo.arrays;
+
+  if (redis) {
+    try {
+      const raw = await redis.get(key);
+      if (raw) {
+        const arrays = JSON.parse(raw);
+        rememberEpisodes(key, arrays);
+        return arrays;
+      }
+    } catch {
+      /* cache indisponible — on retombe sur le telechargement */
+    }
+  }
+
+  let arrays;
+  try {
+    const res = await fetchViaWorker(
+      `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${langDir}/episodes.js`,
+    );
+    arrays = res.ok ? parseEpisodesJs(await res.text()) : [];
+  } catch {
+    return null; // indetermine : ni memo, ni cache
+  }
+
+  rememberEpisodes(key, arrays);
+  if (redis) {
+    try {
+      const payload = JSON.stringify(arrays);
+      if (payload.length <= EPISODES_MAX_BYTES) {
+        await redis.set(
+          key,
+          payload,
+          "EX",
+          arrays.length ? EPISODES_TTL_S : EPISODES_MISS_TTL_S,
+        );
+      }
+    } catch {
+      /* non fatal */
+    }
+  }
+  return arrays;
+}
+
 async function pickLangDirForHost(slug, seasonDir, langDirs, serverDef, index) {
   let fallback = null;
   for (const lp of langDirs) {
-    let res;
-    try {
-      res = await fetchViaWorker(
-        `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`,
-      );
-    } catch {
-      continue;
-    }
-    if (!res.ok) continue;
-    const episodeArrays = parseEpisodesJs(await res.text());
-    if (episodeArrays.length === 0) continue;
+    /* Les trois issues de loadEpisodeArrays (panneau sain / absent / indetermine)
+       se traitent ici de la meme facon — passer a la langue suivante — comme
+       le faisaient les trois `continue` d'origine. */
+    const episodeArrays = await loadEpisodeArrays(slug, seasonDir, lp);
+    if (!episodeArrays || episodeArrays.length === 0) continue;
     if (!fallback) fallback = { langDir: lp, episodeArrays };
     const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
     if (url) return { langDir: lp, episodeArrays, url };
@@ -2106,9 +2204,40 @@ function slugTitleConfidence(slug, titles) {
   return best;
 }
 
+/* Le slug est le MEME pour les six serveurs anime-sama d'un titre, mais
+   `slugCache` est une Map de processus : les sondes partent en parallele sur des
+   lambdas differentes, donc pendant le fan-out — le seul moment ou ce cache
+   servirait — il est toujours vide. Un miroir Redis le rend enfin partage.
+
+   Les titres deja resolus une fois n'y passent pas : player_map porte le slug
+   verifie, de facon durable et deja partagee. Ce miroir ne couvre que le chemin
+   heuristique, c'est-a-dire exactement les titres qui coutent cher.
+
+   Le chemin d'audit (`skipCache`) reste a l'ecart de Redis, comme partout. */
+const SLUG_KEY = (aniId, title) => `asSlug:v1:${aniId}:${title}`;
+const SLUG_TTL_S = 60 * 60;
+/* Une absence tient moins longtemps : un titre ajoute au catalogue doit pouvoir
+   apparaitre sans attendre une heure. */
+const SLUG_MISS_TTL_S = 5 * 60;
+
 async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const cacheKey = `${aniId}-${title}`;
   if (slugCache.has(cacheKey)) return slugCache.get(cacheKey);
+
+  const shareKey = SLUG_KEY(aniId, title);
+  const shareable = redis && !mediaOpts.skipCache;
+  if (shareable) {
+    try {
+      const raw = await redis.get(shareKey);
+      if (raw) {
+        const { s: cached } = JSON.parse(raw);
+        slugCache.set(cacheKey, cached);
+        return cached;
+      }
+    } catch {
+      /* cache indisponible — on resout normalement */
+    }
+  }
 
   // Strip season suffixes to find the base anime on anime-sama
   const stripSeason = (t) =>
@@ -2271,6 +2400,21 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   }
 
   slugCache.set(cacheKey, chosen);
+  /* On n'arrive ici que sur un verdict FERME : le `throw` ci-dessus a deja
+     ecarte le cas « recherche injoignable », qui ne dit rien sur anime-sama et
+     ne doit donc jamais etre partage. */
+  if (shareable) {
+    try {
+      await redis.set(
+        shareKey,
+        JSON.stringify({ s: chosen }),
+        "EX",
+        chosen ? SLUG_TTL_S : SLUG_MISS_TTL_S,
+      );
+    } catch {
+      /* non fatal */
+    }
+  }
   return chosen;
 }
 
