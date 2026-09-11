@@ -1,0 +1,56 @@
+{
+  "date": "2026-09-11",
+  "generatedAt": "2026-09-11T11:26:06.985Z",
+  "census": {
+    "dbsize": 304,
+    "scanned": 304,
+    "complete": true,
+    "iters": 1,
+    "buckets": {
+      "ftree": 214,
+      "anime": 75,
+      "tr": 11,
+      "episode": 4
+    },
+    "topTwoSeg": {
+      "ftree:v5": 214,
+      "anime:v5": 75,
+      "tr:fr": 11,
+      "episode:v11": 4
+    }
+  },
+  "upstashStats": {
+    "dbId": "5568017c-9425-4b58-b1d2-dacc38fa73b0",
+    "dbName": "aniscroll-cache",
+    "databaseCount": 1,
+    "daily": [
+      {
+        "x": "2026-09-07",
+        "y": 0
+      },
+      {
+        "x": "2026-09-08",
+        "y": 0
+      },
+      {
+        "x": "2026-09-09",
+        "y": 18893
+      },
+      {
+        "x": "2026-09-10",
+        "y": 321885
+      },
+      {
+        "x": "2026-09-11",
+        "y": 69659
+      }
+    ],
+    "today": 69659,
+    "yesterday": 321885,
+    "avgPerDay7d": 82087,
+    "projectedMonthly": 2462610,
+    "freeCapMonthly": 500000,
+    "projectedCapPct": 493
+  },
+  "vercel": null
+}
