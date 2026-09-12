@@ -46,6 +46,32 @@ const OU_TROUVER = {
   SIMKL_CLIENT_ID: "console Simkl. Sans elle, la source d'episodes est degradee.",
 };
 
+/** Lit un fichier d'env en Map, en ignorant commentaires et lignes vides. */
+function lire(chemin) {
+  const m = new Map();
+  if (!fs.existsSync(chemin)) return m;
+  for (const ligne of fs.readFileSync(chemin, "utf8").split(/\r?\n/)) {
+    const v = ligne.match(/^([A-Z][A-Z0-9_]*)=(.*)$/);
+    if (v && v[2].trim()) m.set(v[1], v[2]);
+  }
+  return m;
+}
+
+/* Ce qui a deja ete rempli dans le .env existant est PRIORITAIRE sur la
+   sauvegarde. Regenerer ne doit jamais effacer une valeur saisie a la main :
+   c'est le seul moyen que l'outil reste utilisable apres le premier jour. */
+const dejaRempli = lire(destination);
+
+/* Recupere l'id du namespace KV depuis wrangler.toml, ou il est deja versionne.
+   Aller le chercher dans une console alors qu'il est dans le depot serait une
+   corvee inventee. */
+const wrangler = path.join(RACINE, "worker", "wrangler.toml");
+let kvNamespace = null;
+if (fs.existsSync(wrangler)) {
+  const m = fs.readFileSync(wrangler, "utf8").match(/binding\s*=\s*"W2G_CACHE"[\s\S]{0,200}?id\s*=\s*"([a-f0-9]+)"/);
+  if (m) kvNamespace = m[1];
+}
+
 const entrees = new Map();
 for (const ligne of fs.readFileSync(source, "utf8").split(/\r?\n/)) {
   const manquante = ligne.match(/^# MANQUANT ([A-Z][A-Z0-9_]*)=$/);
@@ -58,6 +84,11 @@ for (const ligne of fs.readFileSync(source, "utf8").split(/\r?\n/)) {
   if (/^(VERCEL|NX_|TURBO)/.test(v[1])) continue; // injectees par Vercel
   entrees.set(v[1], v[2]);
 }
+
+if (kvNamespace && !entrees.get("CF_KV_NAMESPACE_ID")) {
+  entrees.set("CF_KV_NAMESPACE_ID", kvNamespace);
+}
+for (const [k, v] of dejaRempli) entrees.set(k, v);
 
 const noms = [...entrees.keys()].sort();
 const remplies = noms.filter((n) => entrees.get(n));
