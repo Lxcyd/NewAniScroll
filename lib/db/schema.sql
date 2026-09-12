@@ -36,6 +36,11 @@ CREATE INDEX IF NOT EXISTS idx_anime_status        ON anime(status);
 CREATE INDEX IF NOT EXISTS idx_anime_format        ON anime(format);
 CREATE INDEX IF NOT EXISTS idx_anime_expires_at    ON anime(expires_at);
 CREATE INDEX IF NOT EXISTS idx_anime_popularity    ON anime(popularity DESC);
+-- Ajoute le 12/09/2026. Sans lui, `ORDER BY average_score` materialisait un
+-- B-TREE temporaire et lisait les 20 915 lignes candidates pour en garder 15 —
+-- une colonne nue ne suffit pas, il faut l'index. Plan verifie apres coup :
+-- `SCAN anime USING INDEX idx_anime_average_score`, sans tri materialise.
+CREATE INDEX IF NOT EXISTS idx_anime_average_score ON anime(average_score DESC);
 CREATE INDEX IF NOT EXISTS idx_anime_season        ON anime(season_year, season);
 CREATE INDEX IF NOT EXISTS idx_anime_last_accessed ON anime(last_accessed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_anime_id_mal        ON anime(id_mal);

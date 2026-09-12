@@ -299,11 +299,32 @@ export async function listAnime(
   const orderBy = (() => {
     switch (sort) {
       case "TRENDING_DESC":
-        // `trending` lives inside the JSON blob; SQLite supports json_extract.
-        return "CAST(json_extract(data, '$.trending') AS INTEGER) DESC NULLS LAST";
+        /* `trending` vit DANS le blob JSON, et aucun index ne peut servir un
+           `json_extract`. Mesure du 12/09/2026 (tools/cache/explain-listanime.mjs) :
+
+               SCAN anime
+               USE TEMP B-TREE FOR ORDER BY
+
+           soit 20 915 lignes lues et autant de blobs de ~15 ko deserialises,
+           pour en garder 15. L'accueil en lancait trois en parallele : ~60 k
+           lignes par rendu, ce qui explique les 60 M de lignes/jour mesurees
+           pendant la panne AniList.
+
+           On retombe sur `popularity`, qui est une VRAIE colonne indexee
+           (`idx_anime_popularity`, plan verifie : pas de tri materialise).
+           Ce n'est pas le meme classement, et c'est assume : cette requete est
+           le REPLI servi quand AniList ne repond pas. Un « trending » fige dans
+           un blob depuis le dernier rafraichissement n'est de toute facon plus
+           une tendance — c'est une popularite avec du retard. */
+        return "popularity DESC NULLS LAST";
       case "POPULARITY_DESC":
         return "popularity DESC NULLS LAST";
       case "SCORE_DESC":
+        /* Celle-ci balayait aussi — le plan d'audit ne l'avait pas vue, parce
+           qu'on cherchait un `json_extract` et que celui-la n'en a pas. Une
+           colonne nue ne suffit pas : sans index, `ORDER BY` materialise quand
+           meme. Corrige par `idx_anime_average_score`, cree le 12/09/2026 et
+           consigne dans schema.sql. */
         return "average_score DESC NULLS LAST";
       case "ID_DESC":
       default:

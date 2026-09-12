@@ -12,7 +12,12 @@ import { RateLimiterMemory } from "rate-limiter-flexible";
  * cascade into stale data, broken pages, and outage banners.
  *
  * Strategy:
- *  1. **Shared Redis limiter** — 28 req/min across the whole fleet,
+ *  1. **Limiteur a deux etages** — un seau en memoire par lambda (instantane,
+ *     gratuit) ET un compteur partage dans Redis, une fenetre fixe d'une
+ *     minute. Le seau memoire seul ne tenait qu'UNE instance : avec N lambdas
+ *     chaudes la flotte s'autorisait N x 28 req/min contre les 30 qu'AniList
+ *     accorde reellement (`X-RateLimit-Limit: 30`, mesure le 12/09/2026).
+ *     28 req/min across the whole fleet,
  *     leaving 2 req/min of headroom for callers that bypass this
  *     module (client-side mutations from useAnilist) and for AniList's
  *     own jitter on the limit. When out of points we queue up to a
@@ -122,6 +127,102 @@ async function writeResponseCache(key: string, ttl: number, value: Json): Promis
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * COMPTEUR DE FLOTTE
+ *
+ * Le limiteur en memoire ci-dessus est PAR LAMBDA. Avec N instances chaudes,
+ * la flotte s'autorise N x 28 requetes/minute, alors qu'AniList en accorde 30
+ * — mesure le 12/09/2026 sur l'en-tete de reponse :
+ *
+ *     X-RateLimit-Limit: 30
+ *
+ * Autrement dit, le garde-fou tenait une instance seule et rien d'autre. Tant
+ * qu'AniList repondait 403 a tout le monde la question ne se posait pas ; elle
+ * se pose de nouveau depuis son retour.
+ *
+ * Le compteur est une fenetre FIXE d'une minute, portee par une seule cle
+ * `anilist:rl:<minute>` incrementee par toute la flotte. Fixe et non glissante
+ * parce qu'une fenetre glissante demande un tri par score a chaque appel, la
+ * ou celle-ci coute UN `INCR` — et le quota Upstash est lui-meme une ressource
+ * rare (500 k commandes/mois).
+ *
+ * CE QUE CA COUTE, calcule et non estime. Un `INCR` par appel sortant, plus un
+ * `EXPIRE` par minute. Sature en permanence a 28 appels/minute, cela ferait
+ * 1,3 M de commandes par mois — DEUX FOIS ET DEMIE le plafond gratuit. Ce n'est
+ * pas un scenario realiste, et la raison est structurelle : `acquire()` n'est
+ * appele qu'APRES le cache de reponse et la deduplication en vol, donc le
+ * compteur ne bouge que pour un appel qui part vraiment chez AniList. Il suit
+ * le trafic SORTANT, pas le trafic entrant.
+ *
+ * La borne merite quand meme d'etre ecrite, parce qu'elle designe le bon levier
+ * le jour ou le chiffre deviendrait genant : ce serait la duree du cache de
+ * reponse (30 min aujourd'hui) qu'il faudrait allonger, PAS ce compteur qu'il
+ * faudrait retirer. Le retirer rendrait les appels invisibles sans les rendre
+ * moins nombreux.
+ *
+ * Le defaut connu d'une fenetre fixe est la rafale de bordure : 28 requetes a
+ * la fin d'une minute et 28 au debut de la suivante font 56 en deux secondes.
+ * On l'accepte ici, pour deux raisons : le budget est deja sous la limite
+ * reelle (28 sur 30), et c'est AniList qui arbitre en dernier ressort — un 429
+ * est traite plus bas. Une fenetre glissante couterait plus cher a proteger
+ * qu'elle ne rapporte.
+ *
+ * PANNE REDIS : on rend `null`, c'est-a-dire « pas d'avis », et l'appelant
+ * s'en remet au limiteur memoire. Refuser l'appel parce que le cache est
+ * indisponible transformerait une panne de cache en panne de site.
+ * ------------------------------------------------------------------ */
+const FLEET_TIMEOUT_MS = 1_200;
+
+function fleetKey(at = Date.now()): string {
+  return `anilist:rl:${Math.floor(at / 60_000)}`;
+}
+
+/** Delai avant la prochaine fenetre, en ms. */
+function msToNextBucket(at = Date.now()): number {
+  return 60_000 - (at % 60_000);
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+  ]);
+}
+
+/** true = la flotte a de la marge, false = budget epuise, null = pas d'avis. */
+async function fleetAllows(): Promise<boolean | null> {
+  if (!redis) return null;
+  const key = fleetKey();
+  try {
+    const n = await withTimeout(redis.incr(key), FLEET_TIMEOUT_MS);
+    if (n === 1) {
+      // Sans expiration la cle d'une minute passee resterait a vie. On ne
+      // l'attend pas : la valeur est deja comptee, et un echec d'expiration
+      // ne fausse rien dans la minute en cours.
+      Promise.resolve(redis.expire(key, 120)).catch(() => {});
+    }
+    return n <= POINTS_PER_MINUTE;
+  } catch {
+    return null;
+  }
+}
+
+/** Sur 429, saturer la fenetre courante pour toute la flotte : sans ca, les
+ *  autres instances continuent d'appeler pendant qu'une seule recule. */
+async function fleetBlock(): Promise<void> {
+  if (!redis) return;
+  try {
+    await withTimeout(
+      Promise.resolve(
+        redis.set(fleetKey(), String(POINTS_PER_MINUTE + 100), "EX", 120),
+      ),
+      FLEET_TIMEOUT_MS,
+    );
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /* Wait for the limiter to grant a point, with a hard wait cap so we don't
    block SSR for 30s when the budget is exhausted. Returns true if we got
    a point, false if we should fail-fast. */
@@ -131,7 +232,32 @@ async function acquire(label: string, useMemory = false): Promise<boolean> {
   while (Date.now() - start < QUEUE_WAIT_MS) {
     try {
       await lim.consume("global", 1);
-      return true;
+
+      /* Le jeton local est accorde ; reste a savoir si la FLOTTE a de la
+         marge. Les appels `skipCache` (l'audit du lecteur) restent
+         volontairement hors du compteur partage : leur fan-out depenserait
+         une commande Upstash par requete, ce que ce mode existe justement
+         pour eviter. */
+      if (useMemory) return true;
+
+      const flotte = await fleetAllows();
+      if (flotte !== false) return true; // true ou « pas d'avis »
+
+      /* Budget de flotte epuise. On n'insiste pas par de nouveaux INCR — ils
+         gonfleraient le compteur sans rien accorder. On attend la fenetre
+         suivante si elle tient dans le budget d'attente, sinon on echoue vite
+         et l'appelant retombe sur son cache. */
+      const reste = QUEUE_WAIT_MS - (Date.now() - start);
+      const prochaine = msToNextBucket();
+      if (prochaine > reste) {
+        console.warn(`[anilist-fetch] budget de flotte epuise (${label})`);
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, prochaine + 50));
+      const seconde = await fleetAllows();
+      if (seconde !== false) return true;
+      console.warn(`[anilist-fetch] budget de flotte toujours epuise (${label})`);
+      return false;
     } catch (rej: any) {
       // RateLimiterRes when blocked — wait the suggested ms, capped.
       const wait = Math.min(rej?.msBeforeNext ?? 500, 1000);
@@ -197,6 +323,9 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
         } catch {
           /* non-fatal */
         }
+        // Bloquer la seule instance qui a pris le 429 ne sert a rien : les
+        // autres continuent d'appeler. On sature la fenetre partagee.
+        if (!skipCache) await fleetBlock();
         console.warn(`[anilist-fetch] 429 from upstream (${label}), pausing ${retryAfter}s`);
         return null;
       }
