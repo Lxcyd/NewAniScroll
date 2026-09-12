@@ -92,8 +92,10 @@ const VERCEL: Quota[] = [
     source: "docs",
     note:
       "Le compteur qui a mis le compte en pause (12 h 05 pour 4 h le 11/09/2026). " +
-      "Il est par PROJET et la prod comme dev.aniscroll.com y puisent — une preview " +
-      "est un MISS d'edge par construction, donc l'environnement le plus cher.",
+      "Il est par COMPTE, tous projets et environnements confondus : la ventilation " +
+      "par projet du dashboard est une attribution, pas une enveloppe separee. " +
+      "Un second projet n'apporterait donc aucune allocation. Et chaque preview a " +
+      "sa propre cle de cache d'edge, donc chaque vue y est un MISS par construction.",
   },
   {
     id: "vercel.provisioned-memory",

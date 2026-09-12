@@ -42,7 +42,11 @@ Un curl unique pour lire un en-tete reste parfaitement legitime ; quarante ne
 le sont pas. Pour attendre un deploiement : demander, ou revenir plus tard dans
 la conversation.
 
-**3. Le dev et la prod puisent dans le MEME pot.**
+**3. Le dev et la prod puisent dans le MEME pot — celui du COMPTE.**
+Les allocations Hobby (4 h de CPU, 1 M d'invocations, 1 M d'edge requests) sont
+**par compte, tous projets confondus** ; la ventilation « par projet » du
+dashboard est une attribution, pas une enveloppe. Ouvrir un second projet ne
+donne donc rien de plus.
 `dev.aniscroll.com` n'est pas gratuit. Chaque preview a sa propre cle de cache
 d'edge, donc chaque vue y est un MISS par construction — c'est l'environnement
 le plus cher du projet, pas le moins cher.
