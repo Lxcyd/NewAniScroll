@@ -1,0 +1,10 @@
+#!/bin/sh
+# Le gardien REEL du budget de deploiement. Voir tools/quota-guard/guard.mjs.
+#
+# Ici et pas seulement dans .claude/settings.json, parce qu'un push peut venir
+# d'un terminal, d'un IDE ou de n'importe quel outil : la garde doit tenir
+# quelle que soit la main qui lance la commande.
+#
+# Actif via `git config core.hooksPath .githooks` (versionne, donc il survit a
+# un clone, contrairement a .git/hooks/).
+exec node "$(git rev-parse --show-toplevel)/tools/quota-guard/guard.mjs" check-push

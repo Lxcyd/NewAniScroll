@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/quota-guard/guard.mjs inspect",
+            "timeout": 15,
+            "statusMessage": "Verification du budget de deploiement..."
+          }
+        ]
+      }
+    ]
+  }
+}
