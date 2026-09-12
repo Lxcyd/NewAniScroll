@@ -3373,15 +3373,40 @@ async function releaseScrapeLock(cacheKey) {
 // Follower path: poll the cache until the leader publishes a result (positive
 // payload or the NOT_FOUND sentinel) or we exhaust LOCK_WAIT_MS. Returns the
 // raw cached string, or null on timeout (caller then scrapes as a fallback).
+//
+// It watches the LOCK as well as the cache, in the same command (MGET, so this
+// costs no more than the old cache-only GET). The reason: a leader that ends in
+// `sendRetryable` publishes NOTHING and releases the lock — deliberately, so a
+// flaky scrape can't hide a working chip. The old loop couldn't tell that from
+// "leader still working", so it polled the full 6 s: 17 Upstash commands and six
+// seconds of billed time to learn something knowable after one.
+//
+// That was invisible while the cache filled normally. During the 02/09/2026
+// AniList outage nothing could resolve — no media meta, no slug — so EVERY
+// probe ended in sendRetryable, and the watch page fires ~17 servers x 2
+// attempts per episode. Several hundred Upstash commands per page load, for a
+// wait whose answer was always "the leader gave up".
+//
+// The ordering makes this sound: the leader writes the cache and only then
+// releases the lock (`write.finally(...)` at both success call sites), so
+// "lock gone AND cache empty" cannot be a race — it means the leader finished
+// without a result, and waiting longer is pointless.
 async function waitForLeaderResult(cacheKey) {
   const deadline = Date.now() + LOCK_WAIT_MS;
+  let errors = 0;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
     try {
-      const cached = await redis.get(cacheKey);
+      const [cached, lock] = await redis.mget(cacheKey, lockKey(cacheKey));
       if (cached) return cached;
+      if (!lock) return null; // leader finished empty — go scrape ourselves
+      errors = 0;
     } catch {
-      /* transient — keep polling until the deadline */
+      // Redis unreachable (a blip, or the free-tier request cap). Polling a
+      // store that cannot answer is the one case where waiting is certainly
+      // wasted, so give up after a couple of tries instead of spending the
+      // whole deadline on commands that will keep failing.
+      if (++errors >= 2) return null;
     }
   }
   return null;
@@ -3628,6 +3653,15 @@ export default async function handler(req, res) {
   // the 6h availability `absent` snapshot. Otherwise a single flaky scrape hides
   // a working chip (e.g. Megaplay) for everyone until the TTL expires. We still
   // release the scrape lock so followers aren't wedged; they just re-scrape.
+  //
+  // `no-store` is deliberate and must STAY. Every other error path on this site
+  // gained a short edge TTL (see lib/http/edgeCache.ts) because an uncacheable
+  // error is a function invocation per visitor. Not this one: the client probes
+  // each server up to twice, and the second attempt is the same URL — so any
+  // edge TTL at all, even five seconds, would serve the retry its own cached
+  // failure and silently delete the retry. The follower cost this path used to
+  // carry was real but lived elsewhere, in waitForLeaderResult; it is fixed
+  // there, where fixing it costs nothing.
   const sendRetryable = (msg, { hostDown = false } = {}) => {
     if (canCache && isLeader) releaseScrapeLock(cacheKey).catch(() => {});
     res.setHeader("Cache-Control", "no-store");

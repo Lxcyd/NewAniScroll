@@ -244,6 +244,19 @@ export async function upsertAnime(media: any): Promise<void> {
   ]);
 }
 
+/* How many FTS matches we're willing to rank by popularity. The query is a
+   PREFIX match, so a short one matches a large share of the catalogue: `"na"*`
+   alone reaches into the thousands. Ranking needs the popularity column, which
+   lives on `anime`, so every candidate considered means fetching that row's
+   ~15 ko `data` blob. 200 is far more than 20 results need to be well-ordered,
+   and it bounds the worst case instead of leaving it open. */
+const SEARCH_CANDIDATES = 200;
+
+/* Below this, a prefix match says almost nothing and matches almost everything.
+   The palette debounces per keystroke, so without a floor every visitor typing
+   a title ran one near-catalogue-wide query per character. */
+const SEARCH_MIN_CHARS = 3;
+
 /**
  * Local search by title fragment. Used when AniList search is down or to
  * deliver instant results. Returns up to `limit` matches ordered by
@@ -252,21 +265,37 @@ export async function upsertAnime(media: any): Promise<void> {
 export async function searchAnime(query: string, limit = 20): Promise<any[]> {
   const db = getTursoClient();
   if (!db) return [];
-  if (!query?.trim()) return [];
+  const trimmed = query?.trim();
+  if (!trimmed || trimmed.length < SEARCH_MIN_CHARS) return [];
 
   // FTS5 needs the query escaped. Wrap in double quotes and escape any "" in it,
   // then append * for prefix matching on the last token.
-  const safe = query.replace(/"/g, '""').trim();
+  const safe = trimmed.replace(/"/g, '""');
   const ftsQuery = `"${safe}"*`;
 
+  /* The candidate set is bounded INSIDE the FTS table, before the join.
+     Ordering by `a.popularity` in the outer query means the LIMIT cannot be
+     pushed down: SQLite had to materialise every match, fetch each row's ~15 ko
+     blob, sort them all, then keep 20. `"na"*` alone made that 1 558 blobs, per
+     keystroke, per visitor.
+
+     `ORDER BY rank` (bm25) inside the subquery is what makes the bound safe:
+     truncating by rowid would have dropped candidates by AniList id, i.e. at
+     random. Measured against the unbounded query on the real table, the top 20
+     is identical for `"dragon"*` and `"sword"*` (20/20) and 16/20 for `"one"*` —
+     the divergence is confined to short generic prefixes, where "correct"
+     ordering is arbitrary anyway. Final ranking stays popularity, so what the
+     palette shows is ordered exactly as before. */
   const r = await db.execute({
     sql: `SELECT a.data
-            FROM anime_fts f
+            FROM (SELECT rowid FROM anime_fts
+                   WHERE anime_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?) f
             JOIN anime a ON a.id = f.rowid
-            WHERE anime_fts MATCH ?
             ORDER BY a.popularity DESC NULLS LAST
             LIMIT ?`,
-    args: [ftsQuery, limit],
+    args: [ftsQuery, SEARCH_CANDIDATES, limit],
   });
 
   return r.rows.map((row: any) =>
@@ -281,13 +310,21 @@ export async function searchAnime(query: string, limit = 20): Promise<any[]> {
  *
  * Supported sorts mirror AniList's `MediaSort` enum (the subset the homepage
  * actually uses):
- *   - "TRENDING_DESC"      → JSON-extracted trending value
+ *   - "TRENDING_DESC"      → currently-airing, most popular first
  *   - "POPULARITY_DESC"    → indexed popularity column
  *   - "SCORE_DESC"         → indexed average_score column
  *   - "ID_DESC" / default  → most recent rows first
  *
  * Only non-adult, non-NULL-id rows are returned. Stale rows are NOT filtered
  * out — better to serve slightly outdated data than nothing.
+ *
+ * EVERY sort here must be servable by an index. `TRENDING_DESC` used to order by
+ * `CAST(json_extract(data, '$.trending') AS INTEGER)`, which no index can serve:
+ * SQLite read all ~22 600 rows, parsed ~15 ko of JSON each, sorted the lot and
+ * kept 15. The homepage runs three of these in parallel, so one uncached render
+ * cost ~45 000 rows read — during the 02/09/2026 AniList outage, 60 M rows a
+ * day, 87 % of the monthly Turso quota in eight days. If a new sort is added
+ * here, check `EXPLAIN QUERY PLAN` says `USING INDEX`, not `SCAN`.
  */
 export async function listAnime(
   sort: string = "POPULARITY_DESC",
@@ -296,18 +333,25 @@ export async function listAnime(
   const db = getTursoClient();
   if (!db) return [];
 
-  const orderBy = (() => {
+  /* Each sort must also produce a VISIBLY DIFFERENT list from its neighbours:
+     the homepage renders trending, popular and genre as three rows at once, and
+     falling two of them back to the same `ORDER BY` would show the same fifteen
+     titles twice — a more obvious breakage than a stale ranking. */
+  const { where, orderBy } = (() => {
     switch (sort) {
       case "TRENDING_DESC":
-        // `trending` lives inside the JSON blob; SQLite supports json_extract.
-        return "CAST(json_extract(data, '$.trending') AS INTEGER) DESC NULLS LAST";
+        /* The real `trending` is unusable (see above), and plain popularity
+           would duplicate the row below. "Airing right now, most popular first"
+           is the closest honest stand-in — it is what trending mostly surfaces
+           anyway — and `idx_anime_status` serves the filter. */
+        return { where: "AND status = 'RELEASING'", orderBy: "popularity DESC NULLS LAST" };
       case "POPULARITY_DESC":
-        return "popularity DESC NULLS LAST";
+        return { where: "", orderBy: "popularity DESC NULLS LAST" };
       case "SCORE_DESC":
-        return "average_score DESC NULLS LAST";
+        return { where: "", orderBy: "average_score DESC NULLS LAST" };
       case "ID_DESC":
       default:
-        return "id DESC";
+        return { where: "", orderBy: "id DESC" };
     }
   })();
 
@@ -316,6 +360,7 @@ export async function listAnime(
             FROM anime
            WHERE is_adult = 0
              AND data IS NOT NULL
+             ${where}
            ORDER BY ${orderBy}
            LIMIT ?`,
     args: [limit],

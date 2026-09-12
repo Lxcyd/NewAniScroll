@@ -413,15 +413,26 @@ async function readCache(id: number): Promise<FranchiseTree | null> {
     const raw = await redis?.get(cacheKey(id));
     if (!raw) return null;
     const tree = JSON.parse(raw) as FranchiseTree;
-    return Array.isArray(tree?.nodes) && tree.nodes.length > 0 ? tree : null;
+    return Array.isArray(tree?.nodes) ? tree : null;
   } catch {
     return null;
   }
 }
 
+/* An empty walk is written too, but for two minutes instead of a day.
+
+   It is not an answer — `readCache` still refuses to serve it — it is a note
+   saying "we just tried this and got nothing", and its only job is to stop the
+   NEXT request from repeating the walk. Not writing it at all was the previous
+   rule, and it held for a blink: for a multi-day outage it meant every visitor
+   paid the full walk (the lock, up to 8 polling GETs waiting on a holder, then
+   `MAX_ROUNDS` waves of relation fetches) to reach the same nothing. */
+const EMPTY_CACHE_TTL_S = 120;
+
 async function writeCache(id: number, tree: FranchiseTree): Promise<void> {
   try {
-    await redis?.set(cacheKey(id), JSON.stringify(tree), "EX", CACHE_TTL_S);
+    const ttl = tree.nodes.length > 0 ? CACHE_TTL_S : EMPTY_CACHE_TTL_S;
+    await redis?.set(cacheKey(id), JSON.stringify(tree), "EX", ttl);
   } catch {
     /* the answer is already on its way to the caller */
   }
@@ -463,7 +474,12 @@ export async function getFranchiseTree(
   const cached = await readCache(id);
   if (cached) {
     mark("redis");
-    remember(id, cached);
+    /* An empty note is returned but NOT memoised. It is the same answer the
+       walk would produce right now, minus the walk — but the process memo has
+       a single one-hour window, so remembering it would pin "this franchise is
+       empty" for an hour inside this lambda, well past the two minutes the
+       shared note is meant to last. */
+    if (cached.nodes.length > 0) remember(id, cached);
     return cached;
   }
 
@@ -489,7 +505,7 @@ export async function getFranchiseTree(
       const arrived = await readCache(id);
       if (arrived) {
         mark("redis");
-        remember(id, arrived);
+        if (arrived.nodes.length > 0) remember(id, arrived);
         return arrived;
       }
     }
@@ -506,13 +522,12 @@ export async function getFranchiseTree(
   if (tree.partial) return tree;
 
   remember(id, tree);
-  // An EMPTY walk is never shared. `nodes: []` does not mean "this anime has no
-  // relations" — a franchise always contains the anime itself — it means the
-  // upstream was unreachable, and the route says as much by answering
-  // `partial`. `readCache` already refuses to serve one; not writing it is the
-  // other half, and the half that matters: a day of everyone being told a
-  // franchise is empty because AniList blinked once.
-  if (tree.nodes.length > 0) await writeCache(id, tree);
+  // An EMPTY walk is still never SERVED — `readCache` refuses it, and the route
+  // answers `partial`. `nodes: []` does not mean "this anime has no relations"
+  // (a franchise always contains the anime itself), it means the upstream was
+  // unreachable. It is now written anyway, on a two-minute TTL, purely so the
+  // next request doesn't redo the walk to learn the same thing. See writeCache.
+  await writeCache(id, tree);
 
   return tree;
 }

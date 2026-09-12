@@ -97,7 +97,12 @@ type InfoTypes = {
 //      required for the switcher to work.
 // v5: flush any partial/legacy SSR blobs (missing coverImage/title) that
 // crashed Hero with FUNCTION_INVOCATION_FAILED on the back-button path.
-const CACHE_VERSION = "v5";
+// v6: evicts the blobs written from the Turso fallback during the 02/09/2026
+// AniList outage. They were stored with the FULL 30-day TTL (see cacheTime
+// below), so ~5 300 pages would otherwise have served outage-era metadata for
+// up to a month after the service came back — long past anything a counter
+// would have shown.
+const CACHE_VERSION = "v6";
 
 export default function Info({
   info,
@@ -831,7 +836,7 @@ function toFanartsMeta(fanarts: any): FanartsMeta | null {
    CharactersTab pulls the rows from /api/v2/characters/[id]. The count is kept
    inline so the tab badge is correct on first paint.
 
-   Applied at the props boundary only: the Redis blob under `anime:v5:<id>` and
+   Applied at the props boundary only: the Redis blob under `anime:v6:<id>` and
    the media cache primed by primeMediaCache both keep the full object, so
    nothing downstream (the watch page, /api/v2/media) loses a field. */
 function stripCharacters(info: any): any {
@@ -1023,19 +1028,43 @@ export async function getServerSideProps(ctx: any) {
   }
   timer.mark("anilist");
 
+  /* Whether `data` came from AniList or from the Turso fallback. It decides the
+     cache lifetime below, so it has to be tracked here — this is the only place
+     that still knows. */
+  let fromFallback = false;
+
   if (data) {
     primeMediaCache(animeIdNum, data);
   } else {
     try {
       const cached = await getCachedAnime(animeIdNum);
-      if (cached?.data) data = cached.data;
+      if (cached?.data) {
+        data = cached.data;
+        fromFallback = true;
+      }
     } catch (e: any) {
       console.warn(`[anime SSR] DB fallback failed:`, e?.message);
     }
   }
   timer.mark("dbFallback");
 
-  const cacheTime = data?.nextAiringEpisode?.episode ? 60 * 10 : 60 * 60 * 24 * 30;
+  /* The provenance decides the TTL, not the shape of the payload.
+
+     This used to read the payload alone: airing → 10 min, otherwise 30 days.
+     That is right for a live answer and wrong for a fallback one, and the two
+     were indistinguishable at this line. A Turso row that has been stale for a
+     week often has no `nextAiringEpisode` left — so a series that IS airing,
+     served from that row during the 02/09/2026 outage, took the 30-DAY branch.
+     Roughly 5 300 keys were written that way in four days.
+
+     A fallback payload gets five minutes: long enough to spare the next visitor
+     the same three-layer lookup, short enough that the page is correct within
+     minutes of AniList returning rather than within a month. */
+  const cacheTime = fromFallback
+    ? 5 * 60
+    : data?.nextAiringEpisode?.episode
+      ? 60 * 10
+      : 60 * 60 * 24 * 30;
 
   if (!data) {
     return { notFound: true };
