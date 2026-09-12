@@ -6,6 +6,74 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
+
+**Le problème n'était pas qu'un compteur était faux.** Le 11/09, aucun des
+chiffres qui ont mis le compte en pause n'était erroné : Functions Storage
+35,85/10 Go, Deployment Storage 15,23/10 Go, Fluid CPU 12 h 05/4 h. Ils étaient
+répartis sur quatre tableaux de bord, dans quatre unités et quatre périodes, et
+personne ne les regardait ensemble. La seule question utile — *de quoi suis-je
+le plus près ?* — n'avait aucun endroit où être posée. D'où `/admin/quotas`.
+
+**67 plafonds, et la règle d'admission est stricte** : une entrée n'y figure que
+si elle a une limite chiffrée. Un compteur sans plafond (nombre d'animes,
+visiteurs) n'est pas un quota et reste sur le Dashboard. Chaque chiffre porte sa
+source (`docs`, `observed`, `code`) et son lien : un plafond écrit de mémoire est
+un plafond faux. Deux entrées sont marquées `observed` et méritent d'être
+signalées — **Functions Storage et Deployment Storage n'apparaissent dans aucune
+page de documentation Vercel**. Ce sont pourtant les deux qui ont cassé. Ils ne
+se voient que dans l'onglet Usage, ce qui explique assez bien qu'on ne les ait
+jamais surveillés.
+
+**Trois mondes, et la distinction est la partie utile.** `live` : la
+consommation se lit par API (Upstash mgmt, Turso platform, et côté Vercel les
+seuls déploiements). `manual` : le chiffre n'existe que dans un tableau de bord.
+`static` : il n'y a rien à consommer, c'est un débit ou une borne.
+
+**Vercel est le fournisseur le plus important et le moins instrumenté.** Il
+n'expose aucune API d'usage sur Hobby : ni Active CPU, ni invocations, ni edge
+requests, ni les deux stockages. Exactement les compteurs qui ont cassé. Plutôt
+que de laisser ces lignes vides à jamais, la page accepte un relevé saisi à la
+main (table `quota_readings` dans la base admin) et **affiche son âge** : un
+relevé de plus d'une semaine s'affiche en orange, « relevé périmé ». Un chiffre
+noté à la main et daté vaut mieux qu'une case qu'on n'ouvre jamais ; un chiffre
+noté à la main et *non* daté vaut pire que rien.
+
+**Ce que la page refuse de faire.** Un pourcentage inconnu n'est pas 0 % : il
+reste `null`, s'affiche « non mesuré », et le tri le renvoie en queue dans les
+deux sens. Le résumé en tête ne compte que les lignes mesurées — annoncer « 0
+dépassement » avec trente lignes inconnues serait un mensonge par omission. Et
+une API qui ne répond pas est affichée comme une panne nommée, pas avalée en
+silence : sans ça, « non mesuré » et « non mesurable » se confondent.
+
+**Elle a elle-même un coût, donc elle se l'applique.** Les plans de contrôle ne
+comptent pas dans les quotas qu'ils rapportent, mais le temps de fonction, lui,
+sort du budget Fluid. Cache Redis de 10 minutes, `?fresh=1` pour forcer, et
+`no-store` au bord puisque la réponse dépend de la session admin. Le `DBSIZE`
+Redis, qui aurait été la façon évidente de mesurer la taille des données, est
+délibérément évité : il aurait consommé une commande du quota qu'il rapporte.
+
+**Un détail que la page corrige au passage.** Le commentaire de
+`lib/db/turso-fanarts.ts` affirme que « chaque base a son propre quota de
+lignes lues sur le plan gratuit ». C'est faux : l'API de plateforme renvoie
+l'usage de l'**organisation**. Séparer fanarts et anime isole la contention, pas
+le budget.
+
+**Vérifié** : 37 assertions sur les fonctions pures (seuils, pourcentages,
+tri dans les deux sens, inconnus en queue, formatage) et sur les collecteurs
+contre un `fetch` factice — fenêtre de comptage mensuelle (un point du mois
+précédent ne doit pas compter), taille de données lue comme dernière valeur et
+non comme somme, fenêtres 1 h/24 h des déploiements, et surtout : une panne
+Turso n'emporte ni Upstash ni Vercel, et l'absence de token ne produit aucune
+erreur (une absence n'est pas une panne). Aucune API réelle n'a été appelée —
+les tokens ne sont pas configurés, voir ci-dessous.
+
+**Reste à la main de l'utilisateur.** Sans ces variables, les lignes `live`
+restent vides : `UPSTASH_EMAIL` + `UPSTASH_API_KEY` (console → Developer API),
+`TURSO_API_TOKEN` + `TURSO_ORG` (`turso auth api-tokens create`), `VERCEL_TOKEN`
+(+ `VERCEL_PROJECT_ID`). Ce sont les mêmes que `tools/usage-monitor`, à
+l'exception du couple Turso, nouveau.
+
 ## 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
 
 **Le constat.** AniList répond `403` depuis le 02/09 (« temporarily disabled due

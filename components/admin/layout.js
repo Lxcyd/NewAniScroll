@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ChartBarIcon,
   CloudArrowUpIcon,
   Cog6ToothIcon,
   FlagIcon,
@@ -21,6 +22,7 @@ const Navigation = [
   { name: "Metadata",      page: 2, icon: <CloudArrowUpIcon /> },
   { name: "Fanarts queue", href: "/admin/fanarts-review",   icon: <PhotoIcon /> },
   { name: "Fanarts by id", href: "/admin/fanarts-by-anime", icon: <PhotoIcon /> },
+  { name: "Quotas",        href: "/admin/quotas",         icon: <ChartBarIcon /> },
   { name: "Users",         page: 3, icon: <UserIcon /> },
   { name: "Settings",      page: 4, icon: <Cog6ToothIcon /> },
 ];

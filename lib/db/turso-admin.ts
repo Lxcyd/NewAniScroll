@@ -162,6 +162,23 @@ export async function ensureAdminSchema(): Promise<void> {
     )
   `);
 
+  /* Releves de quotas saisis a la main. Vercel n'expose aucune API d'usage sur
+     le plan Hobby : Active CPU, invocations, edge requests et les deux
+     stockages ne se lisent que dans le dashboard. Or ce sont exactement les
+     compteurs qui ont mis le compte en pause le 11/09/2026. Un chiffre note a
+     la main et date vaut infiniment mieux qu'une case vide qu'on n'ouvre
+     jamais — la page de quotas affiche l'age du releve a cote de la valeur,
+     pour qu'un releve perime se voie comme tel. */
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS quota_readings (
+      quota_id    TEXT PRIMARY KEY,
+      used        REAL NOT NULL,
+      note        TEXT,
+      recorded_by TEXT,
+      recorded_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    )
+  `);
+
   schemaReady = true;
 }
 

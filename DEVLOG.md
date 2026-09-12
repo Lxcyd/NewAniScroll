@@ -204,6 +204,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
 - 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
 - 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1
 - 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
