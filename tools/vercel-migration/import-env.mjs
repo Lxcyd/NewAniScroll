@@ -28,6 +28,14 @@ import { spawnSync } from "node:child_process";
 const args = process.argv.slice(2);
 const fichier = args.find((a) => !a.startsWith("--"));
 const apply = args.includes("--apply");
+
+/* Jeton d'API. Utile quand la session de la CLI est celle d'un AUTRE compte —
+   c'est le cas pendant une migration, ou l'ancien compte detient encore le
+   domaine et ou se deconnecter serait irreversible sans navigateur. Se donne
+   par --token=... ou par la variable VERCEL_TOKEN, que la CLI ne lit pas
+   d'elle-meme. Jamais journalise. */
+const tokenArg = args.find((a) => a.startsWith("--token="));
+const token = tokenArg ? tokenArg.slice(8) : process.env.VERCEL_TOKEN || null;
 const envArg = args.find((a) => a.startsWith("--env="));
 const cibles = envArg
   ? envArg.slice(6).split(",")
@@ -102,18 +110,84 @@ if (!apply) {
   process.exit(0);
 }
 
+/**
+ * Chemin API. Un jeton de portee EQUIPE n'a pas d'utilisateur derriere lui :
+ * `vercel whoami` rend 404 et la CLI refuse de resoudre le projet ("Could not
+ * retrieve Project Settings"), meme avec un .vercel/project.json correct.
+ * L'API REST, elle, ne demande aucun utilisateur — juste le projet et l'equipe.
+ * C'est donc la seule voie praticable pendant une migration entre comptes.
+ */
+async function pousserParApi(projet, equipe) {
+  let ok = 0;
+  let ko = 0;
+  for (const v of vars) {
+    const url =
+      `https://api.vercel.com/v10/projects/${projet}/env` +
+      `?upsert=true${equipe ? `&teamId=${equipe}` : ""}`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          key: v.nom,
+          value: v.valeur,
+          type: "encrypted",
+          target: cibles,
+        }),
+      });
+      if (res.ok) {
+        ok++;
+        console.log(`  ok     ${v.nom.padEnd(30)} ${cibles.join(", ")}`);
+      } else {
+        ko++;
+        const corps = await res.text();
+        console.log(`  ECHEC  ${v.nom.padEnd(30)} HTTP ${res.status} — ${corps.slice(0, 120)}`);
+      }
+    } catch (e) {
+      ko++;
+      console.log(`  ECHEC  ${v.nom.padEnd(30)} ${String(e.message).slice(0, 120)}`);
+    }
+  }
+  return { ok, ko };
+}
+
+const projetArg = args.find((a) => a.startsWith("--project="));
+const equipeArg = args.find((a) => a.startsWith("--team="));
+
+if (token && projetArg) {
+  const { ok, ko } = await pousserParApi(
+    projetArg.slice(10),
+    equipeArg ? equipeArg.slice(7) : null,
+  );
+  console.log(`\n${ok} ecriture(s), ${ko} echec(s).`);
+  if (manquantes.length) {
+    console.log(
+      `\nRappel — ${manquantes.length} variable(s) restent sans valeur :\n  ${manquantes.join("\n  ")}`,
+    );
+  }
+  process.exit(ko ? 1 : 0);
+}
+
 let ok = 0;
 let ko = 0;
 for (const v of vars) {
   for (const cible of cibles) {
     // --force ecrase une variable deja presente : l'outil doit etre rejouable
     // sans qu'on ait a nettoyer entre deux essais.
-    const r = spawnSync(
-      "npx",
-      ["vercel", "env", "add", v.nom, cible, "--force"],
-      { input: v.valeur, encoding: "utf8", shell: true },
-    );
-    const sortie = `${r.stdout || ""}${r.stderr || ""}`;
+    const argv = ["vercel", "env", "add", v.nom, cible, "--force"];
+    if (token) argv.push(`--token=${token}`);
+    const r = spawnSync("npx", argv, {
+      input: v.valeur,
+      encoding: "utf8",
+      shell: true,
+    });
+    // La CLI peut recracher la ligne de commande dans une erreur d'usage, jeton
+    // compris. On le masque avant toute lecture de la sortie, pas apres.
+    let sortie = `${r.stdout || ""}${r.stderr || ""}`;
+    if (token) sortie = sortie.split(token).join("[token masque]");
     if (r.status === 0) {
       ok++;
       console.log(`  ok     ${v.nom.padEnd(30)} ${cible}`);
