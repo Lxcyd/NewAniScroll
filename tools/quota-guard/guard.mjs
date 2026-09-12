@@ -143,8 +143,30 @@ CE QU'IL FAUT FAIRE A LA PLACE :
    reste permis — c'est l'outil normal pour verifier un en-tete. */
 function estBoucleDeSondage(cmd) {
   const c = String(cmd || "");
-  if (!/aniscroll\.com/i.test(c)) return false;
-  return /\b(for|while|until)\b|\bseq\s|\bsleep\s/.test(c);
+
+  // Il faut TROIS choses pour qu'une commande martele le site, et la regle
+  // exigeait les deux premieres seulement :
+  //
+  //   1. une boucle,
+  //   2. la chaine "aniscroll.com" quelque part,
+  //   3. ... et que cette chaine soit bien l'HOTE d'une requete reseau.
+  //
+  // Sans le point 3, la regle a refuse deux fois des commandes legitimes le
+  // 12/09/2026 : une boucle Python dont une constante contenait le nom de
+  // domaine, et un `for` qui appelait api.vercel.com pour rattacher justement
+  // ce domaine. Un garde qui crie a tort finit contourne — c'est la seule
+  // facon dont celui-ci peut echouer, puisqu'il ne protege rien tout seul.
+
+  const boucle = /\b(for|while|until)\b|\bseq\s|\bsleep\s/.test(c);
+  if (!boucle) return false;
+
+  const reseau = /\b(curl|wget|http|Invoke-WebRequest|Invoke-RestMethod|fetch)\b/i.test(c);
+  if (!reseau) return false;
+
+  // L'hote doit etre aniscroll.com ou un de ses sous-domaines, pris juste
+  // apres le schema ou en debut d'hote — pas api.vercel.com, pas une chaine
+  // de caracteres au milieu d'un texte.
+  return /(?:https?:\/\/|@|\/\/)(?:[a-z0-9-]+\.)*aniscroll\.com\b/i.test(c);
 }
 
 function estPush(cmd) {
