@@ -43,7 +43,20 @@ const OU_TROUVER = {
   ABLY_API_KEY: "console Ably. Sans elle, le watch-party perd son transport temps reel.",
   RESEND_API_KEY:
     "console Resend (regenerable). Sans elle, les liens d'inscription partent dans les logs au lieu des mails.",
-  SIMKL_CLIENT_ID: "console Simkl. Sans elle, la source d'episodes est degradee.",
+};
+
+/**
+ * Variables encore declarees sur Vercel mais que PLUS AUCUN code ne lit. Les
+ * reporter dans le .env ferait perdre du temps a aller chercher une valeur qui
+ * ne sert a rien — c'est exactement ce qui a failli arriver avec Simkl.
+ *
+ * Verification : `rg "process\.env\.<NOM>"` hors .next/ et hors cet outil. Si
+ * une variable reapparait dans le code, la retirer d'ici.
+ */
+const OBSOLETES = {
+  SIMKL_CLIENT_ID:
+    "Simkl a ete retire de la chaine d'episodes le 22/08/2026 (voir " +
+    "pages/api/v2/episode/[id].tsx, passage v6 -> v7). Plus aucun appel, plus de cle a tenir.",
 };
 
 /** Lit un fichier d'env en Map, en ignorant commentaires et lignes vides. */
@@ -90,6 +103,8 @@ if (kvNamespace && !entrees.get("CF_KV_NAMESPACE_ID")) {
 }
 for (const [k, v] of dejaRempli) entrees.set(k, v);
 
+for (const nom of Object.keys(OBSOLETES)) entrees.delete(nom);
+
 const noms = [...entrees.keys()].sort();
 const remplies = noms.filter((n) => entrees.get(n));
 const vides = noms.filter((n) => !entrees.get(n));
@@ -103,6 +118,10 @@ const out = [
   "#",
   `# ${remplies.length} renseignees, ${vides.length} a completer (lignes vides, chacune commentee).`,
   "#",
+  ...Object.entries(OBSOLETES).flatMap(([nom, raison]) => [
+    `# ${nom} n'y figure PLUS : ${raison}`,
+    "#",
+  ]),
   "# Pour pousser ce fichier vers un projet Vercel :",
   "#   node tools/vercel-migration/import-env.mjs .env --env=production --apply",
   "# Les lignes vides sont sautees — jamais poussees comme chaine vide.",

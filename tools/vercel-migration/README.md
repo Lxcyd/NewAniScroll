@@ -111,7 +111,14 @@ de la pousser. À remplacer par la base vivante, ou à laisser absente au profit
 | `CF_ACCOUNT_ID`, `CF_KV_NAMESPACE_ID`, `CF_KV_API_TOKEN` | Cloudflare → Workers KV (jeton : *Workers KV Storage: Edit*) | Le cache KV du watch-party est muet |
 | `ABLY_API_KEY` | console Ably | Le watch-party perd son transport temps réel |
 | `RESEND_API_KEY` | console Resend (régénérable) | Les liens d'inscription partent dans les logs au lieu des mails |
-| `SIMKL_CLIENT_ID` | console Simkl | Source d'épisodes dégradée |
+> `SIMKL_CLIENT_ID` figurait dans cette liste par erreur. **Simkl a été retiré
+> de la chaîne d'épisodes le 22/08/2026** ([episode/[id].tsx:365](../../pages/api/v2/episode/%5Bid%5D.tsx#L365)
+> — « plus d'appel, plus de clé à tenir ») et plus aucun code ne lit cette
+> variable. Ne pas la reporter sur le nouveau compte.
+>
+> Leçon : la liste des variables du dashboard Vercel est un **historique**, pas
+> un inventaire de ce dont le site a besoin. Vérifier chaque nom avec
+> `rg "process\.env\.<NOM>"` avant d'aller chercher une valeur.
 
 Aucune n'est perdue : toutes sont relisibles ou régénérables à leur source.
 
