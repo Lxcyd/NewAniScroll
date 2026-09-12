@@ -63,15 +63,31 @@ cat .vercel/project.json   # VÉRIFIER le projectId avant d'écrire quoi que ce 
 
 ## 3. Pousser les variables
 
+Le fichier de référence est **`.env` à la racine** — les 32 variables du projet,
+par ordre alphabétique, les manquantes écrites `NOM=` vide avec, juste au-dessus,
+où aller la chercher. Une ligne vide se **voit** ; une absence, non.
+
 ```bash
 # simulation : n'écrit rien, liste ce qui partirait
-node tools/vercel-migration/import-env.mjs \
-  C:/Users/Luc/aniscroll-vercel-backup/env.production.merged --env=production
+node tools/vercel-migration/import-env.mjs .env --env=production
 
 # pour de vrai
-node tools/vercel-migration/import-env.mjs \
-  C:/Users/Luc/aniscroll-vercel-backup/env.production.merged --env=production --apply
+node tools/vercel-migration/import-env.mjs .env --env=production --apply
 ```
+
+Les lignes vides sont **sautées**, jamais poussées comme chaîne vide — ce n'est
+pas la même chose qu'une variable absente, et le code teste partout
+`if (!process.env.X)`.
+
+Pour régénérer `.env` depuis les sauvegardes :
+
+```bash
+node tools/vercel-migration/build-env.mjs
+```
+
+> `.env` est couvert par `.gitignore` (ligne 18). **Ne jamais le renommer en
+> `.env.production`** : ce nom-là n'est pas ignoré, et le fichier contient de
+> vrais jetons.
 
 L'outil n'affiche jamais une valeur — seulement le nom, la longueur, le verdict.
 Il est rejouable (`--force`), donc un échec partiel se rattrape en relançant.
