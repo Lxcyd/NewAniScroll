@@ -39,6 +39,7 @@
 import {
   chargerEnv, baseAnime, baseImages, appel, preparerProgres,
   lireCurseur, ecrireCurseur, maintenant, duree, avancement,
+  listerIds, parLots,
 } from "./socle.mjs";
 import {
   urlFiche, facettesDepuisTags, serieConfirmee, titresConnus,
@@ -82,30 +83,32 @@ await preparerProgres(images);
    la base IMAGES : les deux peuvent etre des bases distinctes, donc pas de
    jointure possible. On boucle titre par titre. */
 const curseur = Number(await lireCurseur(images, "tags")) || 0;
-const rangs = unSeul
-  ? (await anime.execute({ sql: "SELECT id, data FROM anime WHERE id = ?", args: [unSeul] })).rows
-  : (await anime.execute({
-      sql: `SELECT id, data FROM anime
-             WHERE is_adult = 0 AND data IS NOT NULL
-             ORDER BY popularity DESC NULLS LAST, id`,
-    })).rows;
+/* Les IDS d'abord, les blobs par lots — cf. `parLots` dans socle.mjs. Demander
+   les 22 643 `data` d'un coup fait ~340 Mo de reponse et Turso coupe la
+   communication ; le premier moissonnage est mort la-dessus. */
+const ids = unSeul
+  ? [unSeul]
+  : await listerIds(anime, `SELECT id FROM anime
+                             WHERE is_adult = 0 AND data IS NOT NULL
+                             ORDER BY popularity DESC NULLS LAST, id`);
 
 /* Le curseur est un RANG dans ce classement, pas un id : le classement par
    popularite est stable d'un passage a l'autre, et reprendre a un id
    obligerait a re-parcourir la liste pour le retrouver. */
-const depart = unSeul ? 0 : curseur;
+const depart = unSeul ? 0 : Math.min(curseur, ids.length);
 console.error(
-  `${rangs.length} titres classes par popularite, reprise au rang ${depart}.\n` +
+  `${ids.length} titres classes par popularite, reprise au rang ${depart}.\n` +
   `Profondeur : ${profondeur || "toutes les images"} par titre.\n`,
 );
 
 const t0 = Date.now();
 let taguees = 0, confirmees = 0, dementies = 0, illus = 0, captures = 0, titresVus = 0;
+let rang = depart - 1;
 
-for (let rang = depart; rang < rangs.length; rang++) {
+for await (const ligne of parLots(anime, ids.slice(depart))) {
+  rang++;
   if (taguees >= limite) break;
-  const ligne = rangs[rang];
-  const id = Number(ligne.id);
+  const id = ligne.id;
   let data;
   try { data = JSON.parse(String(ligne.data)); } catch { data = null; }
   const titres = data ? titresConnus(data) : [];
@@ -139,7 +142,7 @@ for (let rang = depart; rang < rangs.length; rang++) {
 
     const parSec = taguees / ((Date.now() - t0) / 1000);
     avancement(
-      `rang ${rang}/${rangs.length}  anime ${id}  ${taguees} taguees  ` +
+      `rang ${rang}/${ids.length}  anime ${id}  ${taguees} taguees  ` +
       `serie ok ${confirmees} / hors-sujet ${dementies}  ` +
       `illu ${illus} capt ${captures}  ${(parSec * 3600).toFixed(0)}/h`,
     );

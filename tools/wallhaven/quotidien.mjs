@@ -38,6 +38,7 @@
 import {
   chargerEnv, baseAnime, baseImages, appel, preparerProgres,
   lireCurseur, ecrireCurseur, maintenant, duree, avancement,
+  listerIds, parLots,
 } from "./socle.mjs";
 import {
   requetePourAnime, urlRecherche,
@@ -69,22 +70,20 @@ const t0 = Date.now();
 
 /* ── 1. Les nouveautes ────────────────────────────────────────────────────── */
 
-const enCours = (await anime.execute({
-  sql: `SELECT id, data FROM anime
-         WHERE is_adult = 0 AND data IS NOT NULL AND status = 'RELEASING'
-         ORDER BY popularity DESC NULLS LAST`,
-})).rows;
+/* Les IDS seuls, les blobs par lots — cf. `parLots` dans socle.mjs. Ici la
+   liste est courte, mais `RELEASING` grandit a chaque saison et un blob
+   `anime.data` pese ~15 ko : c'est la meme mecanique qui a tue le premier
+   moissonnage complet, et rien ne justifie de la laisser en embuscade. */
+const enCours = await listerIds(anime, `SELECT id FROM anime
+   WHERE is_adult = 0 AND data IS NOT NULL AND status = 'RELEASING'
+   ORDER BY popularity DESC NULLS LAST`);
 
 /* La rotation reprend la ou elle s'est arretee, pour parcourir le catalogue
    entier plutot que de repasser sur les memes titres chaque jour. */
 const rangRotation = Number(await lireCurseur(images, "rotation")) || 0;
-const reste = (await anime.execute({
-  sql: `SELECT id, data FROM anime
-         WHERE is_adult = 0 AND data IS NOT NULL AND (status IS NULL OR status <> 'RELEASING')
-         ORDER BY id
-         LIMIT ? OFFSET ?`,
-  args: [ROTATION, rangRotation],
-})).rows;
+const reste = await listerIds(anime, `SELECT id FROM anime
+   WHERE is_adult = 0 AND data IS NOT NULL AND (status IS NULL OR status <> 'RELEASING')
+   ORDER BY id LIMIT ? OFFSET ?`, [ROTATION, rangRotation]);
 await ecrireCurseur(
   images, "rotation",
   reste.length < ROTATION ? 0 : rangRotation + ROTATION,  // boucle en fin de catalogue
@@ -94,8 +93,8 @@ const aVoir = [...enCours, ...reste];
 console.error(`Nouveautes : ${enCours.length} en diffusion + ${reste.length} en rotation.`);
 
 let neuves = 0, revues = 0;
-for (const ligne of aVoir) {
-  const id = Number(ligne.id);
+for await (const ligne of parLots(anime, aVoir)) {
+  const id = ligne.id;
   let data;
   try { data = JSON.parse(String(ligne.data)); } catch { continue; }
   const q = requetePourAnime(data);

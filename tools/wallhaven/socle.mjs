@@ -132,6 +132,55 @@ export async function ecrireCurseur(db, tache, curseur, note = null) {
   }
 }
 
+/* ── Parcourir le catalogue sans le charger d'un bloc ─────────────────────── */
+
+/**
+ * LA LECON DU 13/09/2026, apprise a l'execution.
+ *
+ * Le premier moissonnage est mort sur
+ * « Resource exhausted: mem_hrana_response » des la requete d'ouverture. La
+ * cause etait dans la charge utile, pas dans le code : `SELECT id, data FROM
+ * anime` rend 22 643 lignes dont chaque `data` est un blob AniList d'environ
+ * 15 ko. Soit **~340 Mo dans une seule reponse**. Turso refuse, et il a raison.
+ *
+ * D'ou ce decoupage en deux temps : la LISTE DES IDS d'abord — 22 643 entiers,
+ * quelques centaines de kilo-octets et l'ordre qu'on veut — puis les blobs par
+ * lots. Ce qui tient en memoire est alors borne par la taille du lot, jamais
+ * par celle du catalogue.
+ */
+export async function listerIds(db, sql, args = []) {
+  const r = await db.execute({ sql, args });
+  return r.rows.map((x) => Number(x.id));
+}
+
+/** La taille d'un lot : 150 x 15 ko ≈ 2 Mo, loin de la limite. */
+const LOT = 150;
+
+/**
+ * Rend `{id, data}` un par un, en ne chargeant qu'un lot a la fois.
+ *
+ * L'ORDRE DEMANDE EST PRESERVE : un `IN (...)` rend les lignes dans l'ordre qui
+ * arrange SQLite, or l'ordre est ici porteur de sens — le moissonneur de tags
+ * descend le catalogue par popularite, et le rendre melange ferait taguer des
+ * titres obscurs avant les titres qu'on ouvre vraiment.
+ */
+export async function* parLots(db, ids, taille = LOT) {
+  for (let i = 0; i < ids.length; i += taille) {
+    const lot = ids.slice(i, i + taille);
+    let parId = new Map();
+    try {
+      const r = await db.execute({
+        sql: `SELECT id, data FROM anime WHERE id IN (${lot.map(() => "?").join(",")})`,
+        args: lot,
+      });
+      parId = new Map(r.rows.map((x) => [Number(x.id), x.data]));
+    } catch (e) {
+      console.error(`\n  lot de ${lot.length} illisible (${e.message}) — ignore`);
+    }
+    for (const id of lot) yield { id, data: parId.get(id) ?? null };
+  }
+}
+
 /* ── Confort ──────────────────────────────────────────────────────────────── */
 
 export const maintenant = () => Math.floor(Date.now() / 1000);

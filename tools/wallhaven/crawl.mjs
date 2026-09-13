@@ -28,6 +28,7 @@
 import {
   chargerEnv, baseAnime, baseImages, appel, preparerProgres,
   lireCurseur, ecrireCurseur, maintenant, duree, avancement,
+  listerIds, parLots,
 } from "./socle.mjs";
 import {
   requetePourAnime, urlRecherche, PAGE_SIZE,
@@ -61,25 +62,27 @@ await preparerProgres(images);
 await creerTables(images);
 
 /* On ne moissonne pas l'adulte : la galerie ne l'affiche pas, et Wallhaven
-   refuse de toute facon le non-SFW sans cle d'API. */
-const titres = unSeul
-  ? (await anime.execute({ sql: "SELECT id, data FROM anime WHERE id = ?", args: [unSeul] })).rows
-  : (await anime.execute({
-      sql: `SELECT id, data FROM anime
-             WHERE is_adult = 0 AND data IS NOT NULL AND id > ?
-             ORDER BY id`,
-      args: [Number.isFinite(depuisArg) ? depuisArg : Number(await lireCurseur(images, "crawl")) || 0],
-    })).rows;
+   refuse de toute facon le non-SFW sans cle d'API.
+   Les IDS d'abord, les blobs par lots — cf. `parLots` dans socle.mjs : demander
+   les 22 643 `data` d'un coup fait ~340 Mo et Turso coupe la communication. */
+const depart = Number.isFinite(depuisArg)
+  ? depuisArg
+  : Number(await lireCurseur(images, "crawl")) || 0;
+const ids = unSeul
+  ? [unSeul]
+  : await listerIds(anime, `SELECT id FROM anime
+                             WHERE is_adult = 0 AND data IS NOT NULL AND id > ?
+                             ORDER BY id`, [depart]);
 
-console.error(`${titres.length} animes a traiter.`);
-if (!titres.length) process.exit(0);
+console.error(`${ids.length} animes a traiter${depart ? ` (reprise apres ${depart})` : ""}.`);
+if (!ids.length) process.exit(0);
 
 const t0 = Date.now();
 let traites = 0, ecrites = 0, sansRequete = 0, vides = 0, appels = 0;
 
-for (const ligne of titres) {
+for await (const ligne of parLots(anime, ids)) {
   if (traites >= limite) break;
-  const id = Number(ligne.id);
+  const id = ligne.id;
   let data;
   try { data = JSON.parse(String(ligne.data)); } catch { data = null; }
 
@@ -117,9 +120,9 @@ for (const ligne of titres) {
   if (!unSeul) await ecrireCurseur(images, "crawl", id, `${ecrites} images`);
 
   const parSec = traites / ((Date.now() - t0) / 1000);
-  const reste = (titres.length - traites) / Math.max(parSec, 1e-9);
+  const reste = (ids.length - traites) / Math.max(parSec, 1e-9);
   avancement(
-    `${traites}/${titres.length}  anime ${id}  «${q.slice(0, 28)}»  ` +
+    `${traites}/${ids.length}  anime ${id}  «${q.slice(0, 28)}»  ` +
     `+${lot.length}  total ${ecrites}  ${appels} appels  reste ~${duree(reste * 1000)}`,
   );
 }
