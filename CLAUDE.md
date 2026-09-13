@@ -19,43 +19,44 @@ journee**, sur une serie d'allers-retours d'affinage.
 
 ### Les trois regles qui en decoulent
 
-**1. UN PUSH = UN DEPLOIEMENT. Grouper.**
-Commiter autant que necessaire ; ne pousser qu'une fois la serie terminee, ou
-quand l'utilisateur a besoin de voir le resultat sur dev. Un aller-retour sur
-une constante (« plus », « moins », « encore plus ») ne merite pas trois
-deploiements : il merite trois commits et un push.
+**1. UN PUSH = UN DEPLOIEMENT. Grouper quand c'est naturel.**
+Il n'y a plus de budget de pushs (retire le 13/09/2026 a la demande de
+l'utilisateur) : pousser sur dev des que l'utilisateur a besoin de voir le
+resultat. Un aller-retour sur une constante reste mieux servi par plusieurs
+commits et un push.
 
-Un budget de **3 pushs/jour sur `dev`** est applique mecaniquement par
-[tools/quota-guard/guard.mjs](tools/quota-guard/guard.mjs), a deux niveaux :
-un hook `pre-push` (versionne dans `.githooks/`) et un hook `PreToolUse` de
-Claude Code. `node tools/quota-guard/guard.mjs status` dit ou on en est.
+Ce qui borne le stockage a la place d'un compteur :
+- dev vit sur **son propre compte Vercel** (`aniscroll-dev`, cf.
+  [tools/vercel/](tools/vercel/)) : ses deploiements ne touchent pas le quota
+  de la prod ;
+- retention du projet dev a **1 jour** pour tous les types (reglee le 13/09 via
+  `vc.mjs dev api /v9/projects/<id>/deployment-expiration`), plus les 10
+  derniers gardes d'office — soit ~1 Go + les pushs du jour ;
+- [should-build.sh](tools/quota-guard/should-build.sh) annule les previews et
+  les commits sans effet sur le site.
 
-Au-dela du budget, **demander a l'utilisateur** — c'est lui qui accorde
-`ANISCROLL_PUSH_OVERRIDE=1`. Ne jamais contourner la garde de sa propre
-initiative.
+Verifier `node tools/vercel/vc.mjs dev ls` si les pushs s'enchainent.
 
 **2. JAMAIS de boucle de sondage contre le site.**
 Chaque iteration d'un `for`/`while` qui curl `aniscroll.com` ou
 `dev.aniscroll.com` est une invocation de fonction facturee, et le compteur
-Fluid Active CPU est **partage entre la prod et dev** ([[fluid-quota-tous-environnements]]).
-Un curl unique pour lire un en-tete reste parfaitement legitime ; quarante ne
+Fluid Active CPU ne se reinitialise que le 1er du mois (le hook `PreToolUse`
+de [guard.mjs](tools/quota-guard/guard.mjs) refuse ces boucles). Un curl unique pour lire un en-tete reste parfaitement legitime ; quarante ne
 le sont pas. Pour attendre un deploiement : demander, ou revenir plus tard dans
 la conversation.
 
-**3. Le dev et la prod puisent dans le MEME pot — celui du COMPTE.**
-Les allocations Hobby (4 h de CPU, 1 M d'invocations, 1 M d'edge requests) sont
-**par compte, tous projets confondus** ; la ventilation « par projet » du
-dashboard est une attribution, pas une enveloppe. Ouvrir un second projet ne
-donne donc rien de plus.
-`dev.aniscroll.com` n'est pas gratuit. Chaque preview a sa propre cle de cache
-d'edge, donc chaque vue y est un MISS par construction — c'est l'environnement
-le plus cher du projet, pas le moins cher.
+**3. Les allocations Hobby sont par COMPTE, pas par projet.**
+4 h de CPU, 1 M d'invocations, 1 M d'edge requests : tous projets d'un compte
+confondus. Depuis le 12/09/2026 la prod (`aniscroll`) et la dev
+(`aniscroll-dev`) sont sur **deux comptes distincts**, donc deux pots ; mais
+`dev.aniscroll.com` a toujours 4 h de CPU a lui seul, et un nouveau
+deploiement repart avec un cache d'edge vide.
 
 ### Ce qui reste a la main de l'utilisateur
 
-- **Deployment Retention** (dashboard, *Project → Settings*) : sans elle, tout
-  ce qui a ete supprime se reconstitue. Valeurs retenues : Canceled 1 j,
-  Errored 7 j, Pre-Production 7 j, Production 30 j.
+- **Deployment Retention** : prod = Canceled 1 j, Errored 7 j, Pre-Production
+  7 j, Production 30 j ; dev = 1 j partout. Sans elle, tout ce qui a ete
+  supprime se reconstitue.
 - L'upgrade Pro, seule action qui relance un compte deja en pause : le Fluid
   CPU deja consomme ne redescend qu'au 1er du mois.
 
@@ -64,7 +65,7 @@ le plus cher du projet, pas le moins cher.
 - **Prod = `main`**, dev = `dev`. Mesurer l'ecart sur le REMOTE
   (`origin/main..origin/dev`) : le `main` local ment.
 - **Tout test navigateur se fait sur dev.aniscroll.com**, jamais sur localhost
-  (pas de Redis, pas de CDN, compilations froides) — mais voir la regle 1 : ca
-  coute un deploiement, donc on groupe.
+  (pas de Redis, pas de CDN, compilations froides) — ca coute un deploiement,
+  voir la regle 1.
 - Le devlog est decoupe par sous-systeme sous `devlog/`. Lire seulement
   l'index `DEVLOG.md` en debut de session.

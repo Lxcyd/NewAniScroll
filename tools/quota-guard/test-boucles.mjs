@@ -14,6 +14,7 @@ const cas = [
   ["FAUX POSITIF 2 : boucle qui appelle api.vercel.com", `for d in a b; do curl -X POST https://api.vercel.com/v9/projects/p/domains -d '{"name":"dev.${H}"}'; done`, false],
   ["FAUX POSITIF 3 : printf du domaine + fetch ailleurs", `for E in production preview; do printf 'https://dev.${H}' | node vc.mjs dev env add NEXTAUTH_URL $E; done && node -e "await fetch('https://api.vercel.com/v13/deployments')"`, false],
   ["boucle sur le plan de controle Vercel seul", `while true; do curl https://api.vercel.com/v13/deployments/x; sleep 20; done`, false],
+  ["push sur dev (plus de budget depuis le 13/09)", `git push origin dev`, false],
 ];
 
 let fail = 0;

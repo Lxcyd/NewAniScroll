@@ -59,11 +59,18 @@ fi
 # Chemins qui ne changent RIEN au site servi.
 INERTES='^(devlog/|changelog/|tools/|scripts/|\.github/|\.githooks/|[^/]*\.md$)'
 
-# Sans historique (clone superficiel, premier commit), on ne peut pas comparer :
-# on construit.
-git rev-parse HEAD^ >/dev/null 2>&1 || exit 1
+# Comparer au DERNIER DEPLOIEMENT, pas au commit precedent : un push de
+# plusieurs commits dont le dernier ne touche qu'au devlog aurait sinon annule
+# le build des commits d'avant (13/09/2026, sans budget de pushs, les pushs
+# groupes deviennent la norme). Vercel fournit VERCEL_GIT_PREVIOUS_SHA ; sans
+# lui, HEAD^.
+BASE="${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}"
 
-FICHIERS=$(git diff --name-only HEAD^ HEAD 2>/dev/null) || exit 1
+# Sans historique (clone superficiel, premier commit, base absente du clone),
+# on ne peut pas comparer : on construit.
+git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null 2>&1 || exit 1
+
+FICHIERS=$(git diff --name-only "$BASE" HEAD 2>/dev/null) || exit 1
 
 # Diff vide (merge sans changement, commit vide) : on construit, par prudence.
 [ -z "$FICHIERS" ] && exit 1

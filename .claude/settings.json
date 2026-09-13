@@ -9,7 +9,7 @@
             "type": "command",
             "command": "node tools/quota-guard/guard.mjs inspect",
             "timeout": 15,
-            "statusMessage": "Verification du budget de deploiement..."
+            "statusMessage": "Verification anti-boucle de sondage..."
           }
         ]
       }
