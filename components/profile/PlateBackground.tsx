@@ -412,16 +412,37 @@ export default function PlateBackground({
     );
   }
 
+  const fit = contain ? "object-contain" : "object-cover";
+  const apercu = apercuWallhaven(dressing.url);
   return (
-    <Image
-      src={dressing.url}
-      alt=""
-      fill
-      priority={priority}
-      sizes={sizes}
-      className={`${contain ? "object-contain" : "object-cover"} ${
-        fallback ? "as-hero-cover" : ""
-      }`}
-    />
+    <>
+      {/* Un fond Wallhaven pese souvent des dizaines de Mo (jusqu'a 8K, parfois
+          en PNG) et les images ne sont pas optimisees : la vignette, quelques
+          Ko, tient la place pendant que le fichier entier arrive par-dessus. */}
+      {apercu && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={apercu}
+          alt=""
+          aria-hidden
+          className={`absolute inset-0 h-full w-full ${fit} blur-sm`}
+        />
+      )}
+      <Image
+        src={dressing.url}
+        alt=""
+        fill
+        priority={priority}
+        sizes={sizes}
+        className={`${fit} ${fallback ? "as-hero-cover" : ""}`}
+      />
+    </>
   );
+}
+
+/** `w.wallhaven.cc/full/72/wallhaven-72lej9.png` → `th.wallhaven.cc/orig/72/72lej9.jpg`
+ *  (la vignette « orig » garde les proportions, « lg » est recadree en 3:2). */
+function apercuWallhaven(url: string | null | undefined): string | null {
+  const m = url?.match(/^https:\/\/w\.wallhaven\.cc\/full\/(\w+)\/wallhaven-(\w+)\.\w+$/);
+  return m ? `https://th.wallhaven.cc/orig/${m[1]}/${m[2]}.jpg` : null;
 }

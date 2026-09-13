@@ -1087,6 +1087,7 @@
     "studioMusicMute": "Mute",
     "studioMusicUnmute": "Unmute",
     "studioMusicPause": "Pause",
+    "studioSaveError": "Your profile look could not be saved.",
     "studioVideoFadeHint": "Fade to black when the loop restarts, so the cut doesn't jump",
     "studioVideoPlay": "Play trailer",
     "studioVideoPause": "Pause trailer",

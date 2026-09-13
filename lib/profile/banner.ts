@@ -133,6 +133,10 @@ const ALLOWED_HOSTS = [
   "image.tmdb.org",
   "media.kitsu.io",
   "media.kitsu.app",
+  /* Les fonds d'ecran que le studio propose depuis le 13/09/2026. Absents
+     d'ici, le PUT rendait 400 et le choix disparaissait au rechargement. */
+  "w.wallhaven.cc",
+  "th.wallhaven.cc",
 ];
 
 export function isAllowedBannerUrl(url: unknown): url is string {

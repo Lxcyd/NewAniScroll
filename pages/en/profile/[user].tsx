@@ -18,6 +18,7 @@ import ProfileAside from "@/components/profile/ProfileAside";
 import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
+import { notify } from "@/lib/notifications/noticeStore";
 import { redis } from "@/lib/redis";
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
@@ -215,6 +216,7 @@ export default function Profile({
 
   /** Pin an habillage on the account, or drop the pin and go back to automatic. */
   async function save(choice: Dressing | null) {
+    const before = { banner, pinned };
     if (choice) {
       setBanner(choice);
       setPinned(true);
@@ -224,11 +226,18 @@ export default function Profile({
     }
     setPicker(false);
     try {
-      await fetch("/api/v2/account/profile-banner", {
+      const r = await fetch("/api/v2/account/profile-banner", {
         method: choice ? "PUT" : "DELETE",
         headers: { "Content-Type": "application/json" },
         body: choice ? JSON.stringify(choice) : undefined,
       });
+      /* Un refus (400, 401) n'est pas une panne reseau : sans ce test, la plaque
+         restait changee a l'ecran et l'ancienne revenait au rechargement. */
+      if (!r.ok) {
+        setBanner(before.banner);
+        setPinned(before.pinned);
+        notify.error(t("profile.studioSaveError"));
+      }
     } catch {
       /* the plate is already swapped locally; a failed write just isn't kept */
     }
