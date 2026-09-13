@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
@@ -213,15 +213,48 @@ export function ResumeBlock({
   /* Réglable depuis la roue dentée du bloc, en mode réorganisation (cf.
      lib/profile/blocks.ts). Allumée par défaut. */
   ambient = true,
-}: ActivityProps & { ambient?: boolean } = {}) {
+  totals,
+}: ActivityProps & {
+  ambient?: boolean;
+  /** Nombre d'épisodes par `mediaId`, tiré de la liste — `null` si inconnu. */
+  totals?: Map<number, number | null>;
+} = {}) {
   const { t } = useTranslation();
   const rowTitle = useRowTitle(titles);
   const { rows, loaded } = useRows(served, 12);
 
-  /* Le dernier épisode COMMENCÉ mais pas fini. Proposer de « reprendre » un
-     épisode terminé enverrait au générique de fin ; l'épisode suivant serait la
-     bonne suite, et c'est une autre question (on ne sait pas ici s'il existe). */
-  const row = rows.find((r) => !r.done && r.pct > 0);
+  /* L'ANIME LE PLUS RÉCENT, et la bonne suite pour lui.
+     — épisode commencé, pas fini : on le reprend ;
+     — épisode TERMINÉ : on propose le suivant. L'ancienne règle ne gardait que
+       les épisodes en cours, et sautait donc l'anime qu'on venait de regarder
+       dès qu'on avait vu son épisode jusqu'au bout (13/09/2026) ;
+     — dernier épisode de la série (total connu par la liste) : rien à suivre,
+       on passe à l'anime d'avant.
+     Total inconnu (série en cours, anime hors liste) : on propose le suivant. */
+  const row = useMemo(() => {
+    for (const r of rows) {
+      if (!r.done) {
+        if (r.pct > 0) return { ...r, href: watchHref(r) };
+        continue;
+      }
+      const total = totals?.get(r.aniId) ?? null;
+      if (total != null && r.episode >= total) continue;
+      const n = r.episode + 1;
+      return {
+        ...r,
+        episode: n,
+        pct: 0,
+        /* Même forme que le bouton de lecture de la fiche : la page de lecture
+           résout l'épisode par `num`, l'identifiant d'hôte n'est connu que pour
+           l'épisode déjà ouvert. */
+        href:
+          `/en/anime/watch/${r.aniId}/${r.provider || "watch"}` +
+          `?id=megaplay-${r.aniId}-${n}&num=${n}` +
+          (r.dub ? "&dub=true" : ""),
+      };
+    }
+    return null;
+  }, [rows, totals]);
   /* Avant les sorties anticipées : un hook ne se saute pas. */
   const season = useSeasonNumber(row?.aniId ?? null, row?.animeTitle ?? null);
   /* Même repli que la liste voisine : un anime absent de la liste n'a pas de
@@ -240,7 +273,7 @@ export function ResumeBlock({
     );
 
   const art = row.image || row.cover;
-  const href = watchHref(row);
+  const href = row.href;
 
   /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
      donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la

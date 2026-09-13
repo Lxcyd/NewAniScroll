@@ -336,6 +336,14 @@ export default function ProfileOverview({
     return map;
   }, [entries]);
 
+  /* Le nombre d'épisodes, pour que « Reprendre » ne propose pas un épisode
+     après le dernier. */
+  const totalsById = useMemo(() => {
+    const map = new Map<number, number | null>();
+    for (const e of entries) map.set(e.mediaId, e.total);
+    return map;
+  }, [entries]);
+
   /* Y a-t-il seulement un favori déclaré ? C'est ce qui décide du TITRE de la
      vitrine : sans favori, elle montre les mieux notés, et l'annoncer comme
      « favoris » présenterait comme tels des titres qui ne le sont pas. Une
@@ -561,6 +569,7 @@ export default function ProfileOverview({
             rows={served}
             other={!isOwner}
             titles={titlesById}
+            totals={totalsById}
             ambient={optionOn("resume", "ambient")}
           />
         );
