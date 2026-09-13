@@ -1,35 +1,45 @@
-# Usage Monitor — 2026-09-12
+# Usage Monitor — 2026-09-13
 
-_Generated 2026-09-12T10:51:20.446Z_
-
-## ⚠️ Flags
-- **Upstash on track to blow the free cap** (~493% of 500,000) → cache will die mid-month. Split dev/prod or go pay-as-you-go.
-- Only **1 Upstash DB** on the account → dev & prod likely share it (see DEVLOG 2026-07-30).
+_Generated 2026-09-13T12:37:20.121Z_
 
 ## Upstash — daily commands
-> DBs on account: **1** — dev (Preview) & prod SHARE this DB; the number below mixes both.
-
-- DB: `aniscroll-cache`
-- Today: **0** (-69,661 -100%) vs yesterday
-- 7-day avg/day: **82,088**
-- Projected month: **2,462,640** / 500,000 cap — **493%**
+> _skipped: Upstash mgmt 401 on /v2/redis/databases: {"error":"Unauthorized"}_
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **90** | scanned: 90 keys
+- DBSIZE: **942** | scanned: 894 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 75 | 83.3% | (=) |
-| `tr:` | 11 | 12.2% | (=) |
-| `episode:` | 4 | 4.4% | (=) |
+| `anilist:` | 376 | 42.1% | — |
+| `episode:` | 207 | 23.2% | (+203 +5075%) |
+| `src:` | 105 | 11.7% | — |
+| `anime:` | 98 | 11.0% | (+23 +31%) |
+| `avail:` | 68 | 7.6% | — |
+| `asSlug:` | 20 | 2.2% | — |
+| `tr:` | 9 | 1.0% | (-2 -18%) |
+| `ftree:` | 8 | 0.9% | — |
+| `asEps:` | 1 | 0.1% | — |
+| `index_server_v3:` | 1 | 0.1% | — |
+| `new_schedule:` | 1 | 0.1% | — |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 75 |
-| `tr:fr` | 11 |
-| `episode:v11` | 4 |
+| `anilist:resp` | 374 |
+| `episode:v12` | 202 |
+| `src:v14` | 105 |
+| `anime:v5` | 88 |
+| `avail:v5` | 66 |
+| `asSlug:v1` | 20 |
+| `anime:v6` | 10 |
+| `tr:fr` | 9 |
+| `ftree:v5` | 8 |
+| `episode:v11` | 5 |
+| `avail:v4` | 2 |
+| `anilist:list` | 1 |
+| `anilist:upcoming` | 1 |
+| `asEps:v1` | 1 |
 
 </details>
 
