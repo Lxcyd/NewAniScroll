@@ -160,13 +160,26 @@ function estBoucleDeSondage(cmd) {
   const boucle = /\b(for|while|until)\b|\bseq\s|\bsleep\s/.test(c);
   if (!boucle) return false;
 
-  const reseau = /\b(curl|wget|http|Invoke-WebRequest|Invoke-RestMethod|fetch)\b/i.test(c);
-  if (!reseau) return false;
+  // CORRECTIF DU 13/09/2026. Les points 2 et 3 etaient verifies SEPAREMENT :
+  // il suffisait qu'un appel reseau existe quelque part, et que la chaine
+  // "aniscroll.com" existe ailleurs, pour que la commande soit refusee. Une
+  // commande qui posait NEXTAUTH_URL=https://dev.aniscroll.com dans une boucle
+  // ET appelait api.vercel.com plus loin cochait les trois cases sans jamais
+  // toucher au site. Troisieme faux positif de la semaine.
+  //
+  // On exige desormais que l'hote aniscroll.com apparaisse DANS la portee d'un
+  // appel reseau : on repart de chaque verbe reseau et on ne regarde que ce qui
+  // le suit immediatement. Une URL citee ailleurs — un printf, une constante,
+  // un commentaire — ne compte plus.
+  const HOTE = /(?:https?:\/\/|@|\/\/)(?:[a-z0-9-]+\.)*aniscroll\.com\b/i;
+  const VERBE = /\b(curl|wget|Invoke-WebRequest|Invoke-RestMethod|fetch)\b/gi;
+  const PORTEE = 200; // caracteres apres le verbe : de quoi couvrir l'URL
 
-  // L'hote doit etre aniscroll.com ou un de ses sous-domaines, pris juste
-  // apres le schema ou en debut d'hote — pas api.vercel.com, pas une chaine
-  // de caracteres au milieu d'un texte.
-  return /(?:https?:\/\/|@|\/\/)(?:[a-z0-9-]+\.)*aniscroll\.com\b/i.test(c);
+  let m;
+  while ((m = VERBE.exec(c)) !== null) {
+    if (HOTE.test(c.slice(m.index, m.index + PORTEE))) return true;
+  }
+  return false;
 }
 
 function estPush(cmd) {
