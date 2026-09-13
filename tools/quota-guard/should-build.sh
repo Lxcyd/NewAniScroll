@@ -18,6 +18,27 @@
 # piege dans lequel on est tombe le 12/09 (trois commits jamais deployes, une
 # verification qui cherchait un bug inexistant).
 
+# UNIQUEMENT DE LA PRODUCTION, sur les deux comptes (13/09/2026).
+#
+# Les deux projets Vercel — prod (branche `main`) et dev (branche `dev`) —
+# surveillent le MEME depot, donc chacun recoit les pushes des deux branches.
+# Sans ce qui suit, chaque push sur `dev` construisait aussi un preview sur le
+# projet prod : un build et un bundle de plus dans le quota, pour une URL que
+# personne n'ouvre.
+#
+# Ce fichier est l'ignoreCommand de vercel.json, et vercel.json L'EMPORTE sur
+# le reglage « Ignored Build Step » du projet : le filtre par branche pose dans
+# chaque projet ne s'applique donc qu'aux commits qui n'ont pas ce fichier (ceux
+# de `main`). Pour ceux de `dev`, c'est ici qu'il faut refuser.
+#
+# `VERCEL_ENV` vaut `preview` des qu'un commit n'est pas sur la branche de
+# production DU PROJET qui construit. Absent (build local, autre CI), on ne
+# decide rien et on continue — en cas de doute, on construit.
+if [ "$VERCEL_ENV" = "preview" ]; then
+  echo "[quota-guard] preview ($VERCEL_GIT_COMMIT_REF) — seule la production se deploie."
+  exit 0
+fi
+
 # SOUPAPE. Ce filtre juge le DIFF D'UN COMMIT, et il y a des raisons de
 # construire qu'un diff ne contient pas : une variable d'environnement modifiee,
 # un cache a reconstruire, un projet fraichement cree dont le premier build a
