@@ -83,6 +83,9 @@ export default function Artworks({
     hasMore: wallHasMore,
     loading: wallLoading,
     loadMore: loadMoreWall,
+    facettes,
+    facette,
+    setFacette,
   } = useWallhaven(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
@@ -250,6 +253,39 @@ export default function Artworks({
               {typeLabel(type)}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Sous-filtre des fonds d'écran, par NATURE de l'image.
+
+          Il n'apparaît que quand l'utilisateur a déjà restreint aux fonds
+          d'écran : ce sont les seules images qui portent des facettes — elles
+          viennent des tags Wallhaven, et ni fanart.tv ni TMDB n'ont de
+          vocabulaire. L'afficher sur « toutes » laisserait croire qu'il filtre
+          aussi les visuels officiels.
+
+          Un bouton n'est proposé que s'il mène quelque part : un « Captures »
+          vide est un bouton qui ment. Les décomptes portent sur le titre
+          entier, pas sur la page affichée. */}
+      {selectedType === "wallpaper" && facettes.tout > 0 && (
+        <div style={aStyles.filterBar}>
+          {(["tout", "illustration", "capture", "personnage", "paysage"] as const)
+            .filter((f) => f === "tout" || facettes[f] > 0)
+            .map((f) => (
+              <button
+                key={f}
+                onClick={() => setFacette(f)}
+                style={{
+                  ...aStyles.filterChip,
+                  ...(facette === f ? aStyles.filterChipActive : null),
+                }}
+              >
+                {t(`anime.artFacet.${f}`)}
+                <span style={{ opacity: 0.55, marginLeft: 6, fontSize: 11 }}>
+                  {facettes[f]}
+                </span>
+              </button>
+            ))}
         </div>
       )}
 

@@ -347,13 +347,19 @@ export default function BannerStudio({
   /* Wallhaven, la troisieme source — mais seulement pour l'onglet Image : elle
      sert des fonds d'ecran en 16/9, et n'a a peu pres rien en bande (mesure le
      10/09/2026 : 10 resultats en 21/9 et 32/9 sur One Piece, contre 506 au
-     total). L'appeler depuis l'onglet Banniere serait une requete pour rien
-     contre un quota de 45/min partage par toutes les lambdas. */
+     total). Depuis le 13/09/2026 ce n'est plus une question de quota — la
+     lecture vient de `wallhaven_image`, remplie depuis le poste, et non plus
+     d'un appel sortant contre les 45 requetes/minute de l'IP de la lambda.
+     C'est desormais une question de pertinence : l'onglet Banniere n'a rien a
+     tirer d'un catalogue en 16/9. */
   const {
     wallpapers,
     hasMore: wallHasMore,
     loading: wallLoading,
     loadMore: loadMoreWall,
+    facettes,
+    facette,
+    setFacette,
   } = useWallhaven(scope === "image" ? galerieId ?? 0 : 0);
 
   /* Les illustrations d'un anime : le même point d'entrée, partagé et mis en
@@ -876,6 +882,36 @@ export default function BannerStudio({
           ],
         });
         if (rows.length) {
+          /* TRIER LES FONDS D'ÉCRAN PAR NATURE, avant la grille.
+
+             Ce sont les seules images de la planche qui portent des facettes :
+             elles viennent des tags Wallhaven, et ni fanart.tv ni TMDB n'ont de
+             vocabulaire. C'est ici qu'elles servent le plus — on ouvre le studio
+             pour choisir UNE image, et pouvoir dire « des illustrations, pas des
+             captures » ou « avec le personnage » est exactement la question
+             qu'on se pose à ce moment-là.
+
+             Des lignes ordinaires, comme « dérouler » plus bas : elles héritent
+             du curseur clavier. Et seulement celles qui mènent quelque part —
+             une facette vide serait une ligne qui ne fait rien. */
+          if (scope === "image" && facettes.tout > 0) {
+            const proposables = (
+              ["tout", "illustration", "capture", "personnage", "paysage"] as const
+            ).filter((f) => f === "tout" || facettes[f] > 0);
+            if (proposables.length > 1) {
+              out.push({
+                title: "",
+                rows: proposables.map((f) => ({
+                  key: `wall-facette-${f}`,
+                  label: t(`anime.artFacet.${f}`),
+                  chip: { text: String(facettes[f]), op: false },
+                  icon: PhotoIcon,
+                  selected: facette === f,
+                  run: () => setFacette(f),
+                })),
+              });
+            }
+          }
           out.push({ title: "", rows, grid: true, bande: scope === "banner" });
           /* DÉROULER WALLHAVEN. Une ligne ordinaire, pas un bouton à part :
              elle hérite ainsi du curseur clavier et du survol de toutes les
@@ -1170,7 +1206,7 @@ export default function BannerStudio({
 
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
-    loadMoreWall, themes, animes, animeId, currentAnime,
+    loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t]);
 

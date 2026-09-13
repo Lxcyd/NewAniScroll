@@ -1473,6 +1473,13 @@
       "wallpaper": "Fond d'écran"
     },
     "artFilterAll": "Toutes",
+    "artFacet": {
+      "tout": "Tous",
+      "illustration": "Illustrations",
+      "capture": "Captures",
+      "personnage": "Personnages",
+      "paysage": "Paysages"
+    },
     "artMore": "Voir plus de fonds d'écran",
     "artLoading": "Chargement…",
     "fullscreen": "Plein écran",
