@@ -172,6 +172,5 @@ Vérifié, pour éviter de chercher des problèmes qui n'existent pas :
 2. **Fusionner la PR #16** avant d'envoyer du trafic. Elle contient les caches
    négatifs qui rendent la panne AniList bon marché. Sans elle, le compte neuf
    rebrûlera ses 4 h de CPU de la même façon.
-3. Vérifier `/admin/quotas` — la page existe pour ça.
-4. Ne supprimer l'ancien compte qu'**après** avoir constaté que tout fonctionne.
+3. Ne supprimer l'ancien compte qu'**après** avoir constaté que tout fonctionne.
    Une fois supprimé, les 7 variables en clair disparaissent avec lui.
