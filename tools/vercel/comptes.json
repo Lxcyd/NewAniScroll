@@ -1,0 +1,14 @@
+{
+  "prod": {
+    "libelle": "Production — aniscroll.com",
+    "orgId": "team_ZzntjDEDtJ0UVAlQZjVkUQpL",
+    "projectId": "prj_vjyHC0Mj6ZzG3glD3HfpsyuTDVsX",
+    "scope": "aniscroll"
+  },
+  "dev": {
+    "libelle": "Developpement — a completer apres le premier login",
+    "orgId": null,
+    "projectId": null,
+    "scope": null
+  }
+}
