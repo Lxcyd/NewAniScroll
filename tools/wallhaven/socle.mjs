@@ -75,7 +75,12 @@ export async function appel(url, essais = 3) {
     if (attente > 0) await new Promise((r) => setTimeout(r, attente));
     prochain = Date.now() + ENTRE_APPELS_MS;
     try {
-      const r = await fetch(url, { headers: { "User-Agent": "aniscroll-moissonneur" } });
+      /* Sans timeout, une connexion morte sans FIN bloque le moissonneur pour
+         toujours : vu le 13/09, deux heures figees sur le curseur 11 212. */
+      const r = await fetch(url, {
+        headers: { "User-Agent": "aniscroll-moissonneur" },
+        signal: AbortSignal.timeout(30_000),
+      });
       if (r.status === 429) {
         console.error("  429 — fenetre saturee, pause d'une minute");
         prochain = Date.now() + 60_000;
