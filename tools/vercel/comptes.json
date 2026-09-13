@@ -6,9 +6,9 @@
     "scope": "aniscroll"
   },
   "dev": {
-    "libelle": "Developpement — a completer apres le premier login",
-    "orgId": null,
-    "projectId": null,
-    "scope": null
+    "libelle": "Developpement — aniscroll-dev",
+    "orgId": "team_lYeKrZiCGhVDCbAhhvsBImk8",
+    "projectId": "prj_FqGro9Ms5uKi8nFb7jpAtnRKnvJA",
+    "scope": "aniscroll-dev"
   }
 }

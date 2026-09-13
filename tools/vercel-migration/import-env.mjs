@@ -28,6 +28,13 @@ import { spawnSync } from "node:child_process";
 const args = process.argv.slice(2);
 const fichier = args.find((a) => !a.startsWith("--"));
 const apply = args.includes("--apply");
+/* Depuis qu'il y a DEUX comptes Vercel, viser le bon projet n'est plus
+   implicite : `vercel env add` ecrit dans le projet lie au dossier courant.
+   `--compte=dev` fait passer chaque ecriture par tools/vercel/vc.mjs, qui
+   impose la session ET les identifiants du compte vise. Sans lui, on garde le
+   comportement historique (projet lie au dossier). */
+const compteArg = args.find((a) => a.startsWith("--compte="));
+const compte = compteArg ? compteArg.slice(9) : null;
 
 /* Jeton d'API. Utile quand la session de la CLI est celle d'un AUTRE compte —
    c'est le cas pendant une migration, ou l'ancien compte detient encore le
@@ -177,9 +184,16 @@ for (const v of vars) {
   for (const cible of cibles) {
     // --force ecrase une variable deja presente : l'outil doit etre rejouable
     // sans qu'on ait a nettoyer entre deux essais.
-    const argv = ["vercel", "env", "add", v.nom, cible, "--force"];
-    if (token) argv.push(`--token=${token}`);
-    const r = spawnSync("npx", argv, {
+    const sousCommande = ["env", "add", v.nom, cible, "--force"];
+    if (token) sousCommande.push(`--token=${token}`);
+    /* Avec --compte, tout passe par vc.mjs : il impose la session du compte
+       ET ses identifiants d'equipe/projet. Sans lui, `vercel env add` viserait
+       le projet lie au dossier courant — qui ne peut en designer qu'un seul,
+       alors qu'il y a deux comptes depuis le 12/09/2026. */
+    const [exe, argv] = compte
+      ? ["node", ["tools/vercel/vc.mjs", compte, ...sousCommande]]
+      : ["npx", ["vercel", ...sousCommande]];
+    const r = spawnSync(exe, argv, {
       input: v.valeur,
       encoding: "utf8",
       shell: true,

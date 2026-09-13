@@ -18,6 +18,23 @@
 # piege dans lequel on est tombe le 12/09 (trois commits jamais deployes, une
 # verification qui cherchait un bug inexistant).
 
+# SOUPAPE. Ce filtre juge le DIFF D'UN COMMIT, et il y a des raisons de
+# construire qu'un diff ne contient pas : une variable d'environnement modifiee,
+# un cache a reconstruire, un projet fraichement cree dont le premier build a
+# echoue. Le 13/09/2026 le compte dev s'est retrouve sans aucun deploiement
+# valide pour exactement cette raison — les variables venaient d'etre posees, et
+# le dernier commit ne touchait qu'a tools/.
+#
+# Poser ANISCROLL_FORCE_BUILD=1 dans les variables du projet Vercel force le
+# build. A RETIRER ensuite : laissee en place, elle desactive le filtre pour
+# toujours et on revient a l'accumulation de deploiements qui a mis le compte en
+# pause le 11/09.
+if [ -n "$ANISCROLL_FORCE_BUILD" ]; then
+  echo "[quota-guard] ANISCROLL_FORCE_BUILD pose — build force."
+  echo "[quota-guard] pense a retirer cette variable du projet."
+  exit 1
+fi
+
 # Chemins qui ne changent RIEN au site servi.
 INERTES='^(devlog/|changelog/|tools/|scripts/|\.github/|\.githooks/|[^/]*\.md$)'
 
