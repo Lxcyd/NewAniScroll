@@ -589,45 +589,267 @@ export async function deleteAccount(userId: string): Promise<void> {
   await client.execute({ sql: `DELETE FROM users WHERE id = ?`, args: [userId] });
 }
 
-/** Admin listing: paginated, searchable, with the stored payload size. */
-export async function listUsers(params: {
+/* ── Admin panel ─────────────────────────────────────────────────────────── */
+
+/** How someone gets into their account. Derived, never stored: it follows
+ *  the two columns that actually decide it. */
+export type AuthMethod = "password" | "anilist" | "both" | "none";
+
+export type AdminUserRow = PublicUser & {
+  dataBytes: number;
+  authMethod: AuthMethod;
+  /** Entries in the synced local list — the best single measure of use. */
+  listCount: number;
+};
+
+export type UserFilters = {
   q?: string;
+  role?: "user" | "admin";
+  status?: "active" | "disabled";
+  auth?: AuthMethod;
+  verified?: "yes" | "no";
+  sort?: "created" | "lastSeen" | "data" | "name";
+  dir?: "asc" | "desc";
   limit?: number;
   offset?: number;
-}): Promise<{ users: (PublicUser & { dataBytes: number })[]; total: number }> {
+};
+
+const AUTH_SQL = `CASE
+  WHEN u.password_hash IS NOT NULL AND u.anilist_id IS NOT NULL THEN 'both'
+  WHEN u.password_hash IS NOT NULL THEN 'password'
+  WHEN u.anilist_id IS NOT NULL THEN 'anilist'
+  ELSE 'none' END`;
+
+/* Whitelisted, so a query string can never reach ORDER BY as SQL. */
+const SORTS: Record<NonNullable<UserFilters["sort"]>, string> = {
+  created: "u.created_at",
+  lastSeen: "u.last_seen_at",
+  data: "data_bytes",
+  name: "COALESCE(u.username_lower, LOWER(u.anilist_name), u.tag)",
+};
+
+/**
+ * Admin listing: searchable, filterable, sortable, with what each account
+ * stores. The list size comes out of the payload with json_each rather than
+ * by shipping 750 KB of list back to Node to count it.
+ */
+export async function listUsers(
+  params: UserFilters,
+): Promise<{ users: AdminUserRow[]; total: number }> {
   const client = await db();
   if (!client) return { users: [], total: 0 };
 
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
   const offset = Math.max(params.offset ?? 0, 0);
+  const clauses: string[] = [];
+  const args: unknown[] = [];
+
   const q = params.q?.trim().toLowerCase();
-  const where = q
-    ? `WHERE username_lower LIKE ? OR email_lower LIKE ? OR tag LIKE ?
-         OR LOWER(anilist_name) LIKE ?`
-    : "";
-  const like = q ? [`%${q}%`, `%${q}%`, `%${q.toUpperCase()}%`, `%${q}%`] : [];
+  if (q) {
+    clauses.push(`(u.username_lower LIKE ? OR u.email_lower LIKE ? OR LOWER(u.tag) LIKE ?
+                   OR LOWER(u.anilist_name) LIKE ? OR u.id = ?)`);
+    args.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, params.q!.trim());
+  }
+  if (params.role) { clauses.push("u.role = ?"); args.push(params.role); }
+  if (params.status) { clauses.push("u.status = ?"); args.push(params.status); }
+  if (params.auth) { clauses.push(`${AUTH_SQL} = ?`); args.push(params.auth); }
+  if (params.verified === "yes") clauses.push("u.email_verified_at IS NOT NULL");
+  if (params.verified === "no") clauses.push("u.email IS NOT NULL AND u.email_verified_at IS NULL");
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 
   const countRes = await client.execute({
-    sql: `SELECT COUNT(*) AS n FROM users ${where}`,
-    args: like as any,
+    sql: `SELECT COUNT(*) AS n FROM users u ${where}`,
+    args: args as any,
   });
   const total = Number(countRes.rows[0]?.n ?? 0);
 
+  const order = SORTS[params.sort ?? "created"] ?? SORTS.created;
+  const dir = params.dir === "asc" ? "ASC" : "DESC";
+
   const res = await client.execute({
     sql: `SELECT u.*,
+                 ${AUTH_SQL} AS auth_method,
                  COALESCE((SELECT SUM(LENGTH(d.payload)) FROM user_data d
-                            WHERE d.user_id = u.id), 0) AS data_bytes
-            FROM users u ${where ? where.replace(/\b(username_lower|email_lower|tag|anilist_name)\b/g, "u.$1") : ""}
-           ORDER BY u.created_at DESC
+                            WHERE d.user_id = u.id), 0) AS data_bytes,
+                 COALESCE((SELECT COUNT(*) FROM user_data d,
+                                  json_each(json_extract(d.payload, '$."aniscroll:localList"'))
+                            WHERE d.user_id = u.id AND d.kind = 'list'
+                              AND json_valid(d.payload)), 0) AS list_count
+            FROM users u ${where}
+           ORDER BY ${order} ${dir}, u.id
            LIMIT ? OFFSET ?`,
-    args: [...like, limit, offset] as any,
+    args: [...args, limit, offset] as any,
   });
 
   return {
     users: res.rows.map((row) => ({
       ...toPublicUser(toRecord(row)),
       dataBytes: Number(row.data_bytes ?? 0),
+      authMethod: String(row.auth_method) as AuthMethod,
+      listCount: Number(row.list_count ?? 0),
     })),
     total,
   };
+}
+
+/** Headline numbers for the Users tab. One query, one row. */
+export async function userStats() {
+  const client = await db();
+  if (!client) return null;
+  const now = Date.now();
+  const day = 86_400_000;
+  const r = await client.execute({
+    sql: `SELECT
+            COUNT(*)                                                   AS total,
+            SUM(role = 'admin')                                        AS admins,
+            SUM(status = 'disabled')                                   AS disabled,
+            SUM(last_seen_at >= ?)                                     AS active24h,
+            SUM(last_seen_at >= ?)                                     AS active7d,
+            SUM(last_seen_at >= ?)                                     AS active30d,
+            SUM(created_at >= ?)                                       AS new7d,
+            SUM(created_at >= ?)                                       AS new30d,
+            SUM(anilist_id IS NOT NULL)                                AS anilistLinked,
+            SUM(password_hash IS NOT NULL)                             AS withPassword,
+            SUM(email IS NOT NULL AND email_verified_at IS NULL)       AS unverified
+          FROM users`,
+    args: [now - day, now - 7 * day, now - 30 * day, now - 7 * day, now - 30 * day],
+  });
+  const extra = await client.execute(`
+    SELECT
+      (SELECT COALESCE(SUM(LENGTH(payload)), 0) FROM user_data)                          AS dataBytes,
+      (SELECT COUNT(*) FROM user_data d LEFT JOIN users u ON u.id = d.user_id
+        WHERE u.id IS NULL)                                                               AS orphanRows,
+      (SELECT COUNT(*) FROM auth_tokens WHERE expires_at > ${now} AND used_at IS NULL)   AS liveTokens`);
+  const row = { ...(r.rows[0] as any), ...(extra.rows[0] as any) };
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(row)) out[k] = Number(v ?? 0);
+  return out;
+}
+
+/**
+ * Everything the detail drawer shows about one account, beyond the row.
+ * Payloads are summarised here, server-side: the drawer needs "682 anime, 40
+ * watching", not the 750 KB list itself.
+ */
+export async function userDetail(userId: string) {
+  const client = await db();
+  if (!client) return null;
+  const user = await findById(userId);
+  if (!user) return null;
+
+  const data = await client.execute({
+    sql: `SELECT kind, payload, rev, updated_at FROM user_data WHERE user_id = ? ORDER BY kind`,
+    args: [userId],
+  });
+  const kinds = data.rows.map((row: any) => {
+    const payload = String(row.payload ?? "");
+    let parsed: any = null;
+    try { parsed = JSON.parse(payload); } catch {}
+    const inner = (key: string) => {
+      const v = parsed?.[key];
+      if (typeof v !== "string") return v;
+      try { return JSON.parse(v); } catch { return v; }
+    };
+    let summary: Record<string, unknown> = {};
+    if (row.kind === "list") {
+      const list = inner("aniscroll:localList") || {};
+      const byStatus: Record<string, number> = {};
+      let scored = 0;
+      let episodes = 0;
+      for (const e of Object.values<any>(list)) {
+        byStatus[e?.status || "?"] = (byStatus[e?.status || "?"] || 0) + 1;
+        if (Number(e?.score) > 0) scored++;
+        episodes += Number(e?.progress) || 0;
+      }
+      summary = { entries: Object.keys(list).length, byStatus, scored, episodes };
+    } else if (row.kind === "progress") {
+      const p = inner("aniscroll:progress") || {};
+      const vals = Object.values<any>(p);
+      const last = vals.reduce((m, v) => Math.max(m, Number(v?.updatedAt) || 0), 0);
+      const seconds = vals.reduce((s, v) => s + (Number(v?.time) || 0), 0);
+      summary = { episodes: vals.length, lastWatchedAt: last || null, hoursWatched: +(seconds / 3600).toFixed(1) };
+    } else if (row.kind === "favourites") {
+      summary = { count: Array.isArray(parsed) ? parsed.length : 0 };
+    } else if (parsed && typeof parsed === "object") {
+      summary = { keys: Object.keys(parsed) };
+    }
+    return {
+      kind: String(row.kind),
+      bytes: payload.length,
+      rev: Number(row.rev ?? 0),
+      updatedAt: Number(row.updated_at ?? 0),
+      summary,
+    };
+  });
+
+  const now = Date.now();
+  const tokens = await client.execute({
+    sql: `SELECT kind,
+                 SUM(expires_at > ? AND used_at IS NULL) AS live,
+                 COUNT(*) AS total
+            FROM auth_tokens WHERE user_id = ? GROUP BY kind`,
+    args: [now, userId],
+  });
+
+  return {
+    user: toPublicUser(user),
+    authMethod: (user.passwordHash && user.anilistId
+      ? "both"
+      : user.passwordHash
+        ? "password"
+        : user.anilistId
+          ? "anilist"
+          : "none") as AuthMethod,
+    hasAnilistToken: await client
+      .execute({ sql: "SELECT anilist_token IS NOT NULL AS t FROM users WHERE id = ?", args: [userId] })
+      .then((r) => Number((r.rows[0] as any)?.t) === 1)
+      .catch(() => false),
+    data: kinds,
+    tokens: tokens.rows.map((t: any) => ({
+      kind: String(t.kind),
+      live: Number(t.live ?? 0),
+      total: Number(t.total ?? 0),
+    })),
+  };
+}
+
+export async function setRole(userId: string, role: "user" | "admin") {
+  const client = await db();
+  if (!client) return;
+  await client.execute({ sql: `UPDATE users SET role = ? WHERE id = ?`, args: [role, userId] });
+}
+
+export async function countAdmins(): Promise<number> {
+  const client = await db();
+  if (!client) return 0;
+  const r = await client.execute(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`);
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/** Kills every pending e-mail / reset link. Sessions are JWTs and cannot be
+ *  revoked from here — disabling the account is what locks someone out. */
+export async function revokeTokens(userId: string): Promise<number> {
+  const client = await db();
+  if (!client) return 0;
+  const r = await client.execute({ sql: `DELETE FROM auth_tokens WHERE user_id = ?`, args: [userId] });
+  return r.rowsAffected ?? 0;
+}
+
+export async function clearUserData(userId: string, kind?: string): Promise<number> {
+  const client = await db();
+  if (!client) return 0;
+  const r = kind
+    ? await client.execute({ sql: `DELETE FROM user_data WHERE user_id = ? AND kind = ?`, args: [userId, kind] })
+    : await client.execute({ sql: `DELETE FROM user_data WHERE user_id = ?`, args: [userId] });
+  return r.rowsAffected ?? 0;
+}
+
+/** Synced data left behind by accounts that no longer exist. */
+export async function purgeOrphanData(): Promise<number> {
+  const client = await db();
+  if (!client) return 0;
+  const r = await client.execute(
+    `DELETE FROM user_data WHERE user_id NOT IN (SELECT id FROM users)`,
+  );
+  return r.rowsAffected ?? 0;
 }
