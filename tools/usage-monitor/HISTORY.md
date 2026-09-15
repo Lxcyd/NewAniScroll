@@ -1,5 +1,6 @@
 # Usage Monitor — history
 
+- **2026-09-15** — DBSIZE 7,960, top prefix `episode:` 2,879
 - **2026-09-14** — DBSIZE 3,959, top prefix `episode:` 1,833
 - **2026-09-13** — DBSIZE 942, top prefix `anilist:` 376
 - **2026-09-12** — Upstash today 0 (proj 493% cap), DBSIZE 90, top prefix `anime:` 75
