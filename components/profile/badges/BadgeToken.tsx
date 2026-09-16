@@ -7,10 +7,11 @@
  * (dégradés, masques) vivent dans <BadgeDefs/>, monté une fois par page.
  *
  * TROIS ÉTATS, et ils doivent se distinguer sans lire le texte :
- *   - obtenu    : en couleur, animé ;
- *   - à obtenir : désaturé et assombri, sans étoiles ni balayage — il est là,
- *                 on voit ce qu'on vise, mais il n'a pas l'air gagné ;
- *   - secret    : un point d'interrogation à la place de l'icône, anneau neutre.
+ *   - obtenu    : pleine opacité, étoiles, balayage, liserés nets ;
+ *   - à obtenir : la MÊME couleur de rareté, simplement moins opaque et sans
+ *                 animation — on voit ce qu'on vise, et de quelle rareté il
+ *                 est ;
+ *   - secret    : un point d'interrogation à la place de l'icône.
  *
  * Le SURVOL agrandit le jeton. En CSS et pas en state React : la page de profil
  * en aligne cent quatre-vingts, et faire passer un survol par React ferait
@@ -55,11 +56,17 @@ function BadgeTokenInner({
   const lit = unlocked && animate;
   const stars = lit && !hidden ? starsFor(id + rarity, R.stars, R.starColors) : [];
 
-  /* Verrouillé : on garde la FORME (l'anneau dit déjà la rareté visée) et on
-     retire la couleur. Un jeton grisé à côté d'un jeton doré se lit tout de
-     suite, là où deux jetons dorés dont l'un serait juste un peu pâle non. */
-  const ink = unlocked ? R.ic : "#6b7280";
-  const ring = unlocked ? R.ring : "rgba(148,163,184,.35)";
+  /* LA COULEUR DE RARETÉ EST PORTÉE PAR TOUS LES JETONS, OBTENUS OU NON.
+     Une première version grisait les badges verrouillés : sur un compte neuf,
+     où tout l'est, la page entière devenait grise et plus rien ne disait ce
+     qu'on visait. La maquette du catalogue, elle, montre chaque jeton dans sa
+     couleur — c'est elle qui a raison : la couleur annonce la rareté de
+     l'objectif, elle n'est pas la récompense.
+
+     Ce qui distingue l'obtenu, alors : l'opacité, les étoiles, le balayage, les
+     liserés internes — et, dans la ligne, la date au lieu d'une barre. */
+  const ink = R.ic;
+  const ring = R.ring;
 
   return (
     <div
@@ -70,7 +77,9 @@ function BadgeTokenInner({
         height: size,
         display: "grid",
         placeItems: "center",
-        opacity: unlocked ? 1 : 0.55,
+        /* Assez d'ecart pour lire l'etat d'un coup d'oeil, pas assez pour
+           eteindre la couleur. */
+        opacity: unlocked ? 1 : 0.72,
         /* Le grossissement au survol. `will-change` évite que le navigateur
            redessine le SVG à chaque image de la transition. */
         willChange: "transform",
@@ -87,21 +96,23 @@ function BadgeTokenInner({
             jeton du fond sans ajouter de trait net. */}
         <path d={HEX} fill="none" stroke={ink} strokeOpacity={0.2} strokeWidth={R.sw + 3} />
         <path d={HEX} fill="url(#asPlate)" stroke={ring} strokeWidth={R.sw} />
-        {unlocked && R.inner && (
+        {R.inner && (
           <path
             transform="translate(59 59) scale(.89) translate(-59 -59)"
             d={HEX}
             fill="none"
             stroke={R.inner}
+            strokeOpacity={unlocked ? 1 : 0.5}
             strokeWidth={1.2}
           />
         )}
-        {unlocked && R.deep && (
+        {R.deep && (
           <path
             transform="translate(59 59) scale(.76) translate(-59 -59)"
             d={HEX}
             fill="none"
             stroke={R.deep}
+            strokeOpacity={unlocked ? 1 : 0.5}
             strokeWidth={1}
           />
         )}
@@ -163,12 +174,12 @@ function BadgeTokenInner({
             justifyContent: "center",
             height: 21 * scale,
             padding: `0 ${10 * scale}px`,
-            background: unlocked ? R.plaque[0] : "linear-gradient(90deg,#9ca3af,#4b5563)",
+            background: R.plaque[0],
             fontFamily: "Outfit, sans-serif",
             fontWeight: 700,
             fontSize: 11 * scale,
             lineHeight: 1,
-            color: unlocked ? R.plaque[1] : "#111827",
+            color: R.plaque[1],
           }}
         >
           {tag}

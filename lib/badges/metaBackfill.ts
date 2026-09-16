@@ -178,6 +178,15 @@ export function backfillMetadata(opts?: { force?: boolean }): Promise<void> {
   })();
   if (done && !opts?.force && readVocab()) return Promise.resolve();
 
+  /* CE QUE CE MODULE NE FAIT PAS : decider du silence.
+     Ce rattrapage rend mesurables, d'un seul coup, les familles Genres et
+     Decouverte pour une liste entiere — donc il merite des dizaines de badges a
+     la fois, et les annoncer deroulerait quarante notifications d'affilee pour
+     des anime termines il y a deux ans. Mais c'est a l'APPELANT de le taire :
+     lui seul sait pourquoi il lance la passe. L'onglet Badges l'entoure d'une
+     portee silencieuse (cf. beginQuiet/endQuiet dans lib/badges/evaluate.ts).
+     Le faire ici creerait un cycle d'imports entre les deux modules pour une
+     decision qui n'appartient pas a celui-ci. */
   running = (async () => {
     const vocabOk = readVocab() ? true : await fetchVocab();
 

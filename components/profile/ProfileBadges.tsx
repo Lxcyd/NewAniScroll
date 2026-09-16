@@ -26,7 +26,7 @@ import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
   type BadgeDef, type Rarity,
 } from "@/lib/badges/catalog";
-import { progressAll } from "@/lib/badges/evaluate";
+import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
 import type { BadgeState } from "@/lib/badges/store";
@@ -61,8 +61,30 @@ export default function ProfileBadges({
   useEffect(() => {
     if (!live) return;
     recordFlag("badgesTab");
+    /* Évalué TOUT DE SUITE, avant d'ouvrir la portée silencieuse : « Vitrine
+       ouverte » est un vrai geste et mérite sa notification. Sans ce passage
+       immédiat, l'évaluation débouncée du drapeau tomberait deux secondes plus
+       tard, c'est-à-dire pendant le rattrapage — et serait tue avec lui. */
+    flush();
     setProgress(progressAll().progress);
-    void backfillMetadata().then(() => setProgress(progressAll().progress));
+
+    /* LE RATTRAPAGE EST SILENCIEUX, ET C'EST ICI QU'ON LE DÉCIDE.
+       Il rend mesurables d'un coup les familles Genres et Découverte pour toute
+       la liste : sans cette portée, la première ouverture de l'onglet déroule
+       quarante notifications d'affilée pour des anime terminés il y a deux ans.
+       Les badges sont bien accordés, avec leur vraie date — ils se découvrent
+       dans l'onglet au lieu d'être annoncés.
+
+       `flush()` AVANT `endQuiet()` : chaque lot écrit dans la liste et
+       programme une évaluation débouncée à deux secondes. Rendre la main sans
+       la forcer maintenant la laisserait tomber une fois la portée refermée,
+       c'est-à-dire en annonçant — précisément ce qu'on évite. */
+    beginQuiet();
+    void backfillMetadata().finally(() => {
+      flush();
+      endQuiet();
+      setProgress(progressAll().progress);
+    });
   }, [live]);
 
   const got = state.got;
@@ -117,8 +139,13 @@ export default function ProfileBadges({
     <div className="flex flex-col gap-8">
       <BadgeDefs />
 
-      {/* En-tête : où en est la collection, et les trois filtres. */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* En-tête : où en est la collection, et les trois filtres.
+          `as-stat-card` comme partout ailleurs sur le profil : quand le
+          propriétaire a posé une illustration en fond de page, un texte nu
+          par-dessus ne se lit pas. La classe porte le fond sombre ET le flou
+          d'arrière-plan que le studio de bannière règle (`--as-plate-blur`,
+          nul par défaut, donc gratuit pour tous les autres profils). */}
+      <div className="as-stat-card flex flex-wrap items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-white/[.08]">
         <div className="flex items-baseline gap-3">
           <span className="font-outfit text-2xl font-semibold text-white">
             {gotCount}
@@ -159,7 +186,7 @@ export default function ProfileBadges({
         if (!rows.length) return null;
         return (
           <section key={family} className="flex flex-col gap-3">
-            <div className="flex items-baseline gap-3 border-l-2 border-as-accent pl-3">
+            <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-as-accent py-2 pl-3 pr-4">
               <h3 className="font-outfit m-0 text-lg font-semibold text-white">
                 {t(`badges.ui.family.${family}`, family)}
               </h3>
@@ -215,7 +242,7 @@ function BadgeRow({
   const R = RARITY[def.rarity];
 
   return (
-    <div className="as-badge-row flex flex-col rounded-xl border border-white/[.06] bg-white/[.02] px-3 py-2.5 transition-colors hocus:border-white/[.12]">
+    <div className="as-badge-row as-stat-card flex flex-col rounded-xl px-3 py-2.5 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]">
       <div className="flex items-center gap-4">
         <div className="shrink-0">
           <BadgeToken
@@ -443,7 +470,7 @@ function SecretSection({
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-baseline gap-3 border-l-2 border-[#FF7F57] pl-3">
+      <div className="as-stat-card flex items-baseline gap-3 rounded-lg border-l-2 border-[#FF7F57] py-2 pl-3 pr-4">
         <h3 className="font-outfit m-0 text-lg font-semibold text-white">
           {t("badges.ui.family.secret", "Secret")}
         </h3>

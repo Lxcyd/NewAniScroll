@@ -240,12 +240,38 @@ export function silenceNextEvaluation(): void {
   silenceNext = true;
 }
 
+/**
+ * UNE PORTÉE silencieuse, et pas seulement « la prochaine ».
+ *
+ * `silenceNextEvaluation()` ne couvre qu'un passage, ce qui suffit pour une
+ * synchro : elle dépose tout d'un coup. Le rattrapage de métadonnées, lui, dure
+ * — vingt requêtes espacées pour une liste de mille titres — et chaque lot
+ * écrit dans la liste, donc chaque lot réveille l'évaluateur. Un drapeau à
+ * usage unique serait consommé par le premier et laisserait les dix-neuf autres
+ * annoncer.
+ *
+ * Et ils ont beaucoup à annoncer : le rattrapage rend d'un seul coup mesurables
+ * toutes les familles Genres et Découverte. C'est exactement la rafale qu'on a
+ * vue à la première ouverture de l'onglet.
+ *
+ * Un COMPTEUR et non un booléen, pour que deux portées imbriquées ne se
+ * décomptent pas l'une l'autre.
+ */
+let quiet = 0;
+
+export function beginQuiet(): void {
+  quiet += 1;
+}
+export function endQuiet(): void {
+  quiet = Math.max(0, quiet - 1);
+}
+
 export function flush(): void {
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
-  const silent = silenceNext;
+  const silent = silenceNext || quiet > 0;
   silenceNext = false;
   try {
     evaluate(silent ? { silent: true } : undefined);
