@@ -135,6 +135,76 @@ for (const [name, ids] of Object.entries(LADDERS)) {
   }
 }
 
+/* ══ 1 bis. Chaque geste a-t-il un point d'accroche ? ══════════════════════
+   Un badge dont la metrique est un drapeau ou un compteur ne se debloque que si
+   QUELQU'UN l'enregistre. Rien dans le catalogue ne le garantit, et un badge
+   inerte ressemble exactement a un badge difficile — on ne s'en apercoit
+   jamais. Cette passe balaie le code a la recherche de l'appel correspondant.
+
+   Les lignes de COMMENTAIRE sont ecartees : un exemple dans une docstring a
+   deja fait passer un compteur pour branche alors qu'il ne l'etait pas. Les
+   exceptions connues sont listees, nommement, avec leur raison. */
+{
+  const { readdirSync, statSync } = await import("node:fs");
+  const walk = (dir, out = []) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full, out);
+      else if (/\.(tsx?|jsx?|mjs)$/.test(name)) out.push(full);
+    }
+    return out;
+  };
+
+  let code = "";
+  for (const dir of ["lib", "components", "pages"]) {
+    for (const f of walk(join(ROOT, dir))) {
+      /* Seul `facts.ts` est ecarte, et pas tout lib/badges : c'est lui qui
+         DEFINIT `recordFlag`/`bumpCounter`, et ses exemples de documentation
+         ont deja fait passer un compteur pour branche alors qu'il ne l'etait
+         pas. `gestures.ts`, lui, est un appelant legitime — la sequence de
+         touches et la console y sont enregistrees. */
+      if (f.endsWith(join("lib", "badges", "facts.ts"))) continue;
+      code += readFileSync(f, "utf8")
+        .split("\n")
+        .filter((l) => !/^\s*(\*|\/\/)/.test(l))
+        .join("\n");
+    }
+  }
+  const called = new Set(
+    [...code.matchAll(/(?:recordFlag|bumpCounter|bumpDistinct|dwell)\(\s*["']([A-Za-z0-9]+)["']/g)]
+      .map((m) => m[1]),
+  );
+  if (/recordNoPause\(/.test(code)) called.add("noPause");
+  if (/noteLang\(/.test(code)) called.add("bothLangs");
+
+  /* Les badges qui attendent une fonctionnalite qui n'existe pas encore. Les
+     laisser ici plutot que de faire echouer la passe est un choix : ils sont
+     au catalogue, on sait qu'ils sont inertes, et le jour ou la
+     fonctionnalite arrive c'est cette liste qu'on vient raccourcir. */
+  const PENDING = new Map([
+    ["random", "le site n'a pas de bouton « anime au hasard »"],
+    ["pinMythic", "on ne peut pas encore epingler un badge sur son profil"],
+  ]);
+
+  for (const b of all) {
+    const k = b.metric.k;
+    if (k !== "flag" && k !== "counter") continue;
+    const name = b.metric.name;
+    if (PENDING.has(name)) continue;
+    ok(`geste « ${name} » enregistre quelque part (${b.id})`, called.has(name));
+  }
+  const stale = [...PENDING.keys()].filter((n) => called.has(n));
+  ok(
+    `aucun geste en attente n'est en fait branche (${stale.join(", ") || "—"})`,
+    stale.length === 0,
+  );
+  console.log(
+    `  (${PENDING.size} badge(s) en attente d'une fonctionnalite : ` +
+      [...PENDING].map(([n, why]) => `${n} — ${why}`).join(" ; ") + ")",
+  );
+}
+
 /* ══ 2. Comportement ═══════════════════════════════════════════════════════ */
 
 const { derive } = await load("lib/badges/derive.ts");

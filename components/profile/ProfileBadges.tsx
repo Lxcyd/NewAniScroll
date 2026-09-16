@@ -309,10 +309,20 @@ function BadgeRow({
  * premier passage, et la date ensuite.
  */
 function ObtainedOn({ at }: { at: number }) {
+  const { i18n } = useTranslation();
   const [text, setText] = useState<string | null>(null);
   useEffect(() => {
-    setText(new Date(at).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }));
-  }, [at]);
+    /* La langue de l'INTERFACE, pas celle du navigateur : quelqu'un qui lit le
+       site en français sur un Chrome en anglais doit lire « sept. », pas
+       « Sep ». C'est la langue qu'il a choisie qui gouverne. */
+    setText(
+      new Date(at).toLocaleDateString(i18n.language || undefined, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+    );
+  }, [at, i18n.language]);
   return <>{text ?? "—"}</>;
 }
 
@@ -360,7 +370,7 @@ function ProgressLine({
   live: boolean;
   color: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (unlocked) return null;
   if (!live) return null;
   if (!progress) {
@@ -378,7 +388,10 @@ function ProgressLine({
         <Bar pct={Math.min(100, (cur / target) * 100)} color={color} />
       </div>
       <span className="font-karla text-[10.5px] tabular-nums text-white/40">
-        {cur.toLocaleString("fr-FR")} / {target.toLocaleString("fr-FR")}
+        {/* Le séparateur de milliers suit la langue choisie : « 10 000 » en
+            français, « 10,000 » en anglais. Il était figé en fr-FR. */}
+        {cur.toLocaleString(i18n.language || undefined)} /{" "}
+        {target.toLocaleString(i18n.language || undefined)}
       </span>
     </div>
   );
@@ -400,7 +413,7 @@ function LadderDetails({
   live: boolean;
   filter: Filter;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ids = LADDERS[ladder] ?? [];
   const head = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
   const others = ids.filter((id) => id !== head);
@@ -441,7 +454,7 @@ function LadderDetails({
                 {at != null ? (
                   <ObtainedOn at={at} />
                 ) : p && p[1] > 1 ? (
-                  `${p[0].toLocaleString("fr-FR")} / ${p[1].toLocaleString("fr-FR")}`
+                  `${p[0].toLocaleString(i18n.language || undefined)} / ${p[1].toLocaleString(i18n.language || undefined)}`
                 ) : null}
               </span>
             </div>

@@ -105,6 +105,15 @@ type InfoTypes = {
 // would have shown.
 const CACHE_VERSION = "v6";
 
+/**
+ * L'anime le plus ancien qu'AniList connaisse : Katsudou Shashin, 1907.
+ *
+ * Verifie contre l'API le 16/09/2026 (`sort: START_DATE`, dates nulles
+ * ecartees). C'est le plus vieux film d'animation japonais connu : la liste
+ * n'aura pas de nouveau premier, sauf decouverte d'archive.
+ */
+const OLDEST_ANIME_ID = 101429;
+
 export default function Info({
   info,
   chapterNotFound,
@@ -144,6 +153,28 @@ export default function Info({
   const [statusResolved, setStatusResolved] = useState<boolean>(!session);
 
   const [open, setOpen] = useState(false);
+
+  /* Deux badges se jouent a l'ouverture d'une fiche.
+
+     « Curieux » compte des fiches DISTINCTES : recharger dix fois la meme page
+     ne doit rien donner, d'ou `bumpDistinct` et non `bumpCounter`.
+
+     « Le tout premier » demande l'anime le plus ancien du catalogue. Notre
+     table `anime` ne pouvait pas repondre : c'est un cache a TTL, son plus
+     ancien change au fil des fetches et des expirations. Le catalogue du site,
+     c'est AniList — et la, la reponse est stable et definitive : Katsudou
+     Shashin (1907), le plus vieux film d'animation japonais connu. Une
+     constante, donc, et pas une requete. */
+  useEffect(() => {
+    const id = Number(info?.id);
+    if (!Number.isFinite(id)) return;
+    import("@/lib/badges/facts")
+      .then((f) => {
+        f.bumpDistinct("animeOpened", id);
+        if (id === OLDEST_ANIME_ID) f.recordFlag("oldest");
+      })
+      .catch(() => {});
+  }, [info?.id]);
 
   useEffect(() => {
     if (chapterNotFound) {

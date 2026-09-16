@@ -50,10 +50,13 @@ export type Facts = {
   opSkipped: string[];
   /** `aniId` dont un épisode a été vu en VO ET en VF. */
   bothLangs: number[];
+  /** Clés déjà comptées par les compteurs DISTINCTS (`bumpDistinct`), sous la
+   *  forme `<compteur>:<clé>`. Borné — cf. DISTINCT_CAP. */
+  seen?: string[];
 };
 
 const EMPTY: Facts = {
-  v: 1, flags: {}, counters: {}, hosts: [], noPause: [], opSkipped: [], bothLangs: [],
+  v: 1, flags: {}, counters: {}, hosts: [], noPause: [], opSkipped: [], bothLangs: [], seen: [],
 };
 
 const strArray = (v: unknown, cap: number): string[] =>
@@ -83,6 +86,7 @@ function parse(raw: string | null): Facts {
       bothLangs: Array.isArray(p.bothLangs)
         ? p.bothLangs.map(Number).filter(Number.isFinite).slice(-EPISODE_SET_CAP)
         : [],
+      seen: strArray(p.seen, 200),
     };
   } catch {
     return EMPTY;
@@ -137,18 +141,47 @@ export function recordFlag(name: string, at = Date.now()): boolean {
   );
 }
 
-/**
- * Incrémente un compteur.
- *
- * `once` sert aux compteurs qui doivent compter des CHOSES DISTINCTES et pas des
- * gestes : « ouvrir la fiche de dix anime DIFFÉRENTS » ne se gagne pas en
- * rechargeant dix fois la même page. La clé de distinction est passée par
- * l'appelant et gardée dans un drapeau dédié, ce qui borne aussi les rappels.
- */
+/** Incrémente un compteur de GESTES : chaque appel compte. */
 export function bumpCounter(name: string, at = Date.now()): boolean {
   return update((f) => {
     const cur = f.counters[name] ?? { n: 0, at: 0 };
     return { ...f, counters: { ...f.counters, [name]: { n: cur.n + 1, at: sane(at) ?? Date.now() } } };
+  });
+}
+
+/**
+ * Combien de clés distinctes on retient par compteur.
+ *
+ * Assez pour tous les objectifs du catalogue (le plus exigeant en demande dix),
+ * avec de la marge, et borné : sans plafond, « fiches ouvertes » retiendrait un
+ * identifiant par anime jamais consulté, c'est-à-dire un journal — exactement
+ * ce que l'en-tête de ce fichier refuse.
+ */
+const DISTINCT_CAP = 40;
+
+/**
+ * Incrémente un compteur de CHOSES DISTINCTES.
+ *
+ * « Ouvrir la fiche de dix anime DIFFÉRENTS » ne se gagne pas en rechargeant
+ * dix fois la même page. La clé est fournie par l'appelant (ici l'id de
+ * l'anime) et gardée dans un ensemble dédié ; une clé déjà vue ne compte pas et
+ * n'écrit rien.
+ *
+ * Une fois le plafond atteint, on arrête de retenir ET d'incrémenter : aucun
+ * badge ne demande plus, et continuer ne ferait que grossir la sauvegarde.
+ */
+export function bumpDistinct(name: string, key: string | number, at = Date.now()): boolean {
+  const k = `${name}:${key}`;
+  return update((f) => {
+    const seen = f.seen ?? [];
+    if (seen.includes(k)) return f;
+    if (seen.filter((x) => x.startsWith(`${name}:`)).length >= DISTINCT_CAP) return f;
+    const cur = f.counters[name] ?? { n: 0, at: 0 };
+    return {
+      ...f,
+      seen: [...seen, k].slice(-DISTINCT_CAP * 2),
+      counters: { ...f.counters, [name]: { n: cur.n + 1, at: sane(at) ?? Date.now() } },
+    };
   });
 }
 
