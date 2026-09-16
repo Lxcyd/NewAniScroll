@@ -1,5 +1,5 @@
 import { RateLimiterMemory } from "rate-limiter-flexible";
-import { createRestRedis, type IoRedisish } from "./redisRest";
+import { createRestRedis, redisAvailable, type IoRedisish } from "./redisRest";
 
 // CACHING CLIENT — Upstash REST over HTTPS (port 443). The native Redis
 // protocol (port 6379) is blocked outbound from our network and the Vercel
@@ -41,4 +41,7 @@ const rateSuperStrict = new RateLimiterMemory({
   blockDuration: 10 * 60,
 });
 
-export { redis, rateLimiterRedis, rateLimitStrict, rateSuperStrict };
+/* `redisAvailable` est reexporte ici pour que les appelants n'aient qu'UN seul
+   module a connaitre : le jour ou le cache change de fournisseur, c'est
+   `lib/redis` qu'on remplace, pas trente imports. */
+export { redis, redisAvailable, rateLimiterRedis, rateLimitStrict, rateSuperStrict };

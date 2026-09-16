@@ -72,6 +72,83 @@ function resolveConfig(): { url: string; token: string } | null {
   return null;
 }
 
+/* ── LE DISJONCTEUR ───────────────────────────────────────────────────────────
+ *
+ * LE 16/09/2026, UN CACHE PLEIN A MIS LE SITE HORS SERVICE. Le palier gratuit
+ * d'Upstash (500 000 commandes par mois) a été atteint, chaque commande s'est
+ * mise à répondre `ERR max requests limit exceeded`, et cette erreur est
+ * remontée telle quelle jusqu'à la réponse HTTP : `/api/v2/episode/:id` en 500,
+ * `/api/v2/source` en 503, tous les lecteurs cassés sur toutes les pages.
+ *
+ * C'est une faute de conception, indépendante du quota. UN CACHE EST UNE
+ * OPTIMISATION, PAS UNE DÉPENDANCE : quand il ne répond plus, le site doit
+ * devenir lent, pas mort. Un `try/catch` par appelant ne suffit pas — il faut
+ * qu'un seul oubli quelque part ne puisse plus faire tomber une route entière,
+ * donc la garantie est posée ICI, au seul endroit par lequel tout passe.
+ *
+ * Et un disjoncteur, pas seulement un filet : une fois qu'Upstash a refusé une
+ * commande, il refusera les suivantes. Continuer à l'appeler coûterait un
+ * aller-retour HTTPS par commande, sur une fonction facturée à la seconde de
+ * CPU — c'est-à-dire payer le quota Vercel pour attendre un refus connu
+ * d'avance. Après une erreur, on cesse d'appeler pendant `OUTAGE_MS` et on rend
+ * immédiatement la valeur de repli.
+ *
+ * LE PRIX, ET IL EST RÉEL : une erreur avalée est une erreur qu'on ne voit
+ * plus. Le bug du `zadd` mal traduit plus bas (« NX » lu comme score) s'était
+ * signalé par un 500 bien visible ; il serait désormais silencieux. D'où le
+ * journal ci-dessous — une ligne par ouverture du disjoncteur, pas une par
+ * commande, sinon une panne de cache remplit les logs de Vercel.
+ */
+const OUTAGE_MS = 60_000;
+let deadUntil = 0;
+
+/**
+ * Le cache répond-il ?
+ *
+ * À lire par les appelants pour qui « pas de réponse » et « la réponse est
+ * vide » ne sont PAS la même chose — typiquement un verrou anti-ruée : un
+ * `SET NX` sans réponse ne veut pas dire « quelqu'un d'autre tient le verrou »,
+ * il veut dire qu'il n'y a plus de verrou du tout, et il faut alors avancer
+ * seul plutôt qu'attendre un chef qui n'existe pas.
+ */
+export function redisAvailable(): boolean {
+  return Date.now() >= deadUntil;
+}
+
+function trip(op: string, err: unknown): void {
+  const first = redisAvailable();
+  deadUntil = Date.now() + OUTAGE_MS;
+  if (first) {
+    console.error(
+      `[redis] indisponible (${op}) — cache coupé ${OUTAGE_MS / 1000}s :`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * Enrobe une commande : jamais d'exception, et aucun appel réseau tant que le
+ * disjoncteur est ouvert.
+ *
+ * `fallback` est une FONCTION et non une valeur parce que `mget` doit rendre un
+ * tableau de la longueur demandée : la valeur de repli dépend des arguments.
+ */
+function soft<A extends any[], R>(
+  op: string,
+  fn: (...a: A) => Promise<R>,
+  fallback: (...a: A) => R,
+): (...a: A) => Promise<R> {
+  return async (...a: A) => {
+    if (!redisAvailable()) return fallback(...a);
+    try {
+      return await fn(...a);
+    } catch (err) {
+      trip(op, err);
+      return fallback(...a);
+    }
+  };
+}
+
 /** Translate an ioredis `set(k, v, "EX", n, "NX")` varargs tail into the
  *  Upstash options object. Supports EX/PX (ttl) and NX/XX (conditional). */
 function setOpts(args: any[]): Record<string, any> {
@@ -98,7 +175,10 @@ export function createRestRedis(): IoRedisish | null {
     automaticDeserialization: false,
   });
 
-  const shim: IoRedisish = {
+  /* Les commandes telles quelles. Elles ne sont PAS exposées directement : le
+     shim rendu plus bas est leur version enrobée par `soft`, qui ne lève jamais
+     et n'appelle plus le réseau quand le disjoncteur est ouvert. */
+  const raw: Omit<IoRedisish, "on"> = {
     get: (k) => c.get<string | null>(k) as Promise<string | null>,
     set: (k, v, ...args) => {
       const opts = setOpts(args);
@@ -176,6 +256,54 @@ export function createRestRedis(): IoRedisish | null {
       const [next, keys] = await c.scan(Number(cursor), opts);
       return [String(next), keys as string[]];
     },
+  };
+
+  /* LES VALEURS DE REPLI, une par commande.
+   *
+   * Chacune répond à la question « que vaut cette commande quand il n'y a pas
+   * de cache du tout ? ». Une lecture rend le vide, une écriture rend « rien
+   * écrit ». Elles sont ce qui transforme une panne de cache en site lent
+   * plutôt qu'en site mort.
+   *
+   * `set` rend `null` et NON `"OK"` : un `SET NX` sert de verrou, et prétendre
+   * l'avoir posé alors qu'aucun verrou n'existe ferait croire à l'exclusivité à
+   * tout le monde à la fois. Les appelants qui ont besoin de la nuance lisent
+   * `redisAvailable()` — cf. son commentaire. */
+  const FALLBACKS: Record<string, (...a: any[]) => any> = {
+    get: () => null,
+    set: () => null,
+    del: () => 0,
+    mget: (...keys: string[]) => keys.map(() => null),
+    keys: () => [],
+    exists: () => 0,
+    expire: () => 0,
+    incr: () => 0,
+    sadd: () => 0,
+    srem: () => 0,
+    sismember: () => 0,
+    smembers: () => [],
+    hset: () => 0,
+    hget: () => null,
+    hgetall: () => null,
+    hdel: () => 0,
+    zadd: () => 0,
+    zrem: () => 0,
+    zrange: () => [],
+    rpush: () => 0,
+    lrange: () => [],
+    ltrim: () => "OK",
+    publish: () => 0,
+    scan: () => ["0", []],
+  };
+
+  const guarded = Object.fromEntries(
+    Object.entries(raw as unknown as Record<string, (...a: any[]) => Promise<any>>).map(
+      ([name, fn]) => [name, soft(name, fn, FALLBACKS[name] ?? (() => null))],
+    ),
+  );
+
+  const shim: IoRedisish = {
+    ...(guarded as unknown as Omit<IoRedisish, "on">),
     // REST has no persistent connection, so there are no connection events.
     on: () => {},
   };
