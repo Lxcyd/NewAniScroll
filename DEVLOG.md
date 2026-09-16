@@ -73,7 +73,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 45 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 16 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -183,6 +183,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-16 — Les badges, ou comment ajouter 176 récompenses sans une requête
 - 2026-09-02 (suite) — « Le chargement est très long » : la page était rendue deux fois (une date formatée contre l'environnement) ; nouvel outil `hydration-check.mjs` ; liste AniList à deux étages + copie de secours (AniList 403 ce jour-là)
 - 2026-09-02 — Quatre défauts de la vitrine du profil, quatre causes distinctes (liste AniList en cache mémoire ; plafond à 60 ; le repli qui inventait des favoris ; la mesure forcée qui tuait l'animation)
 - 2026-08-30 — Le profil se pare de l'anime préféré, et cesse d'être réservé à AniList  _(voir aussi `devlog/comptes.md`)_

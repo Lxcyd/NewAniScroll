@@ -6,6 +6,157 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-16 — Les badges, ou comment ajouter 176 recompenses sans une requete
+
+**La demande** : un onglet Badges sur le profil, des paliers evolutifs avec
+barre de progression, des secrets a la condition masquee, une notification
+d'achievement qui survit au plein ecran — et, en tete de tout, « ne pas exploser
+les quotas ».
+
+### La decision qui a rendu le reste facile
+
+Le premier reflexe serait une table `badges`, une route qui la lit, un cron qui
+recalcule. Sur ce projet, chacune de ces trois choses est une facture.
+
+Elles etaient toutes les trois inutiles : **le substrat etait deja en
+localStorage**. `aniscroll:progress` porte la duree ET l'horodatage de chaque
+episode termine, `aniscroll:localList` le statut, la note et les dates de chaque
+titre, `artplayer_settings` le lecteur et la langue, `aniscroll:streak` les
+jours consecutifs. De quoi juger la grande majorite des 176 badges sans sortir
+du navigateur.
+
+L'evaluation est donc une fonction pure sur quatre objets deja en memoire :
+**zero requete API, zero commande Upstash, zero lecture Turso, zero invocation
+de fonction**. Ajouter un badge coute du CPU navigateur, pas du quota. Les deux
+seuls points qui sortent : la sauvegarde, qui rejoint une requete que
+`cloudSync` emettait deja, et le rattrapage de metadonnees, qui tape AniList —
+un tiers, pas nous.
+
+**Corollaire sur la page de profil** : elle lisait deja `user_data` en une seule
+requete avec une liste de categories choisie. Ajouter `"badges"` a cette liste,
+c'est zero requete de plus pour un onglet complet.
+
+### Recalcul complet, et pas incremental
+
+Tenir des compteurs a jour geste par geste serait plus « efficace » et
+impossible a garder juste : un import de huit cents titres, une synchro AniList,
+un historique efface, deux onglets ouverts — chacun est une occasion de
+desynchroniser un compteur, **et un compteur faux ne se voit pas**. Un balayage
+de dix mille episodes prend quelques millisecondes. On refait tout, et il n'y a
+rien a desynchroniser.
+
+C'est aussi ce qui rend l'import gratuit : `importEntries` n'emet qu'un seul
+evenement pour N titres, donc un import de huit cents titres est naturellement
+une evaluation en lot.
+
+### L'heure locale, et ses huit exceptions
+
+Tout passe par le calendrier de l'APPAREIL. Les pieges, chacun avec son
+assertion dans le banc de test :
+
+- **minuit** se juge a la MINUTE : la sauvegarde du lecteur est throttlee a 3 s,
+  la seconde exacte est hors de portee. Un badge inatteignable n'est pas un
+  badge difficile, c'est un badge casse ;
+- une **fenetre horaire traverse minuit** (« 23 h - 2 h ») : on compare des
+  heures, pas des instants, donc la question « quel jour ? » ne se pose jamais ;
+- le **changement d'heure** fait des journees de 23 h et de 25 h. Les series
+  comptent des jours CALENDAIRES reprojetes sur UTC, jamais des tranches de
+  86 400 s ;
+- la **nuit** est une grappe d'activite, pas une date : commencer a 23 h et
+  finir a 3 h est UNE nuit et deux dates ;
+- les **fenetres glissantes** (« 20 en 24 h ») ne sont pas des cases du
+  calendrier : dix episodes lundi soir et dix mardi matin font bien vingt en
+  vingt-quatre heures ;
+- une **horloge en avance** est ignoree, pas ramenee a maintenant — la ramener
+  inventerait un visionnage a cette seconde-la ;
+- une **liste importee sans horodatage** n'alimente aucun badge horaire : un
+  `completedAt` est une date, pas une heure ;
+- un **re-visionnage** ecrase l'horodatage au lieu d'ajouter un episode, donc
+  les compteurs comptent des episodes DISTINCTS — ce que les libelles disent.
+
+### Les deux invariants de l'etat persiste
+
+**Un badge obtenu ne se reperd jamais**, et ce n'est pas de la gentillesse : les
+compteurs peuvent DESCENDRE. « Effacer l'historique de visionnage » remet
+`aniscroll:progress` a zero, retirer un titre baisse le nombre d'anime termines.
+Un systeme qui reprendrait ses badges punirait le menage.
+
+**La date la plus ancienne gagne** a la fusion. C'est ce qui la rend commutative
+et idempotente : l'ordre dans lequel deux appareils se synchronisent n'a aucune
+influence. Sans cela, le dernier connecte reecrirait toute la collection a
+aujourd'hui.
+
+Corollaire sur `cloudSync` : `badges` est la premiere categorie qui se FUSIONNE
+au lieu de s'ecraser, et donc la seule qui n'a jamais de conflit a faire
+arbitrer. Le dernier-ecrivain-gagne convient a une couleur d'accent, pas a une
+collection — le telephone debloque un badge, l'ordinateur un autre, et le
+premier arrive perdrait le sien.
+
+### Le contrat du `null`
+
+Un badge dont la donnee manque rend `null`, jamais `0`. L'interface affiche
+« pas encore mesurable » au lieu d'une barre vide, parce qu'une barre a 0 % dit
+« tu n'en as aucun » la ou la verite est « je ne sais pas ». Meme regle qu'en
+tete de `lib/profile/insights.ts` et de `lib/profile/blocks.ts`.
+
+La couverture PARTIELLE, elle, se mesure quand meme, et c'est sans risque : tous
+ces badges demandent « au moins N », donc une metadonnee incomplete ne peut que
+SOUS-estimer. Elle retarde un badge, elle n'en accorde jamais un a tort.
+
+### Le plein ecran etait deja resolu
+
+Crainte initiale : une notification invisible pendant un episode. Verification
+faite, l'element plein ecran est **`<html>`** (`enterRootFullscreen()`), et « le
+lecteur remplit l'ecran » n'est que du CSS. Un portal sur `document.body` avec
+un z-index au-dessus du 9999 de `.aniscroll-player-fs` suffit — ce que
+`NoticeStack` faisait deja. Le portal dans la surface du lecteur ne reste utile
+que pour le pseudo-plein-ecran iOS, ou la video elle-meme prend l'ecran.
+
+### Trois pieges de cout evites en route
+
+1. **La webfont d'icones.** La maquette pose ses glyphes avec « Material Symbols
+   Rounded » de Google. Le site dessine ses Material Symbols en SVG inline
+   partout ailleurs, pour ne pas payer une webfont sur une vue que la plupart
+   n'ouvrent pas. `react-icons` etait deja une dependance et porte les 4341
+   Material Icons : 148 cles, 137 composants, zero requete. Trois glyphes de la
+   maquette n'existent pas dans ce jeu (`skull`, `neurology`, `event_upcoming`)
+   et sont remplaces, ce que le generateur documente.
+2. **Le chunk partage.** `dynamic()` seul n'aurait rien resolu : le composant
+   est rendu sur toutes les pages, donc son chunk — catalogue + 137 icones —
+   serait parti a chaque chargement. Il est derriere une garde qui ne depend que
+   du store d'achievements, quelques lignes sans dependance.
+3. **Le rattrapage de metadonnees**, 800 titres : `upsertLocalEntry` par titre
+   aurait relu et reecrit la liste entiere 800 fois, avec 800 evenements dont
+   chacun reveille la synchro et l'evaluateur. D'ou `patchLocalEntries`.
+
+### La notification ne se declenche pas sur une synchro
+
+Arriver depuis son telephone ne doit pas annoncer en rafale la semaine passee
+devant l'ordinateur. Le critere n'est PAS un delai apres le chargement —
+quelqu'un qui reprend un episode huit secondes apres etre arrive merite sa
+notification — mais la CAUSE du changement : `pullAll` leve un drapeau,
+l'utilisateur non.
+
+### Ce qui a ete mesure, et ce qui ne peut pas l'etre
+
+`node tools/badges/check-catalog.mjs` : 1017 assertions, sans reseau. Les cas
+d'heure locale y sont prouves sur des instantanes fabriques, parce qu'aucun
+d'eux n'est atteignable sur un profil de test.
+
+`node tools/badges/check-works.mjs` : les 74 ids AniList des badges par titre
+confrontes a leur titre attendu. **Il a trouve deux erreurs** — Yowamushi Pedal
+portait l'id de JoJo partie 1, et Stone Ocean un id qui n'existe pas. Un id faux
+est le pire defaut possible de ce systeme : le badge ne se debloque jamais, et
+rien dans l'interface ne le distingue d'un badge difficile.
+
+**Trois badges restent inertes faute de fonctionnalite** : « A l'aveugle » (pas
+de bouton aleatoire sur le site), « Vitrine » (on ne peut pas epingler un badge)
+et « Le tout premier » (il faut connaitre l'anime le plus ancien du catalogue).
+Et deux reposent sur une approximation assumee, commentee sur place : « Jour de
+diffusion » et « Jour J » deduisent la date du dernier episode sorti en retirant
+une semaine a `nextAiringEpisode`, AniList ne publiant jamais la date des
+episodes passes — ils ne sont donc pas retroactifs, et ne peuvent pas l'etre.
+
 ## 2026-09-02 (suite) — « Le chargement est tres long » : la page etait rendue deux fois
 
 **Le rapport.** « Le chargement est tres long entre les pages, beaucoup plus
