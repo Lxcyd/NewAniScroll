@@ -831,7 +831,8 @@
     "tabs": {
       "overview": "Overview",
       "list": "My list",
-      "stats": "Statistics"
+      "stats": "Statistics",
+      "badges": "Badges"
     },
     "ago": {
       "minutes": "{{count}} min ago",
@@ -1551,6 +1552,50 @@
     "fsHint": "Chat is here"
   },
   "badges": {
+    "ui": {
+      "unlocked": "Badge unlocked",
+      "total": "badges earned",
+      "secretsShort": "secrets",
+      "all": "All",
+      "got": "Earned",
+      "todo": "To earn",
+      "notMeasurable": "Not measurable yet",
+      "secretHidden": "Condition hidden",
+      "tiersDone": "{{done}} earned",
+      "tiersTodo": "{{todo}} to go",
+      "rarity": {
+        "c": "Common",
+        "u": "Uncommon",
+        "r": "Rare",
+        "e": "Epic",
+        "l": "Legendary",
+        "m": "Mythic"
+      },
+      "family": {
+        "episodes": "Episodes",
+        "time": "Time watched",
+        "sessions": "Sessions",
+        "finished": "Anime finished",
+        "discovery": "Discovery",
+        "genres": "Genres",
+        "franchise": "Franchises",
+        "regularity": "Consistency",
+        "profile": "Profile & collection",
+        "secret": "Secret"
+      },
+      "familyDesc": {
+        "episodes": "The profile's most visible counter, from your first episode to ten thousand.",
+        "time": "One scale: an hours tier, then everything counts in whole days.",
+        "sessions": "What happens in a single sitting.",
+        "finished": "Series carried to the end, from the first closing credits to five hundred.",
+        "discovery": "Digging through the catalogue beyond this season's releases.",
+        "genres": "One badge per family, over the anime you finished in that genre.",
+        "franchise": "Seeing a saga through, season after season.",
+        "regularity": "Consecutive days, from one week to a full year.",
+        "profile": "Keeping your list, rating, sorting — and collecting the badges themselves.",
+        "secret": "Off the progression and out of the total: account linking, status, and a few finds."
+      }
+    },
     "ep-1": {
       "name": "First episode",
       "cond": "Watch 1 episode."

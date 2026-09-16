@@ -10,6 +10,8 @@ import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileAside from "@/components/profile/ProfileAside";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
+import ProfileBadges from "@/components/profile/ProfileBadges";
+import { useBadgeState } from "@/lib/badges/store";
 import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
 
 import { useLocalList } from "@/lib/list/localList";
@@ -43,6 +45,9 @@ export default function LocalProfile() {
   const [picker, setPicker] = useState(false);
   const [pinned, setPinned] = useState<Dressing | null>(null);
   const [tab, setTab] = useState("overview");
+  /* Lu en direct : un badge debloque pendant qu'on est sur la page doit
+     apparaitre dans l'onglet sans rechargement. */
+  const badgeState = useBadgeState();
   /* Une note cliquee dans l'histogramme ouvre l'onglet de la liste, filtre
      dessus -- comme sur un vrai profil (cf. pages/en/profile/[user].tsx). Sans
      le defilement : cette page-ci n'a pas d'en-tete a rattraper. */
@@ -157,6 +162,7 @@ export default function LocalProfile() {
                 { key: "overview", label: t("profile.tabs.overview") },
                 { key: "list", label: t("profile.tabs.list"), count: entries.length },
                 { key: "stats", label: t("profile.tabs.stats") },
+                { key: "badges", label: t("profile.tabs.badges") },
               ]}
               active={tab}
               onChange={setTab}
@@ -181,6 +187,11 @@ export default function LocalProfile() {
           ) : null}
 
           {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+
+          {/* Toujours `live` ici : cette page EST celle de son proprietaire, et
+              un invite gagne des badges comme les autres -- ils vivent sur son
+              appareil jusqu'au jour ou il cree un compte. */}
+          {tab === "badges" ? <ProfileBadges state={badgeState} live /> : null}
 
           {tab === "list" ? (
             <>

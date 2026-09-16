@@ -217,13 +217,38 @@ const DEBOUNCE_MS = 2000;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
+/**
+ * LA PROCHAINE ÉVALUATION NE NOTIFIE PAS.
+ *
+ * Une récompense s'annonce pour un geste qu'on VIENT de faire. Or les données
+ * peuvent aussi changer sans que personne n'ait rien fait : `cloudSync.pullAll()`
+ * dépose, quelques centaines de millisecondes après l'ouverture, la liste et la
+ * progression d'un autre appareil. Sans ce drapeau, arriver sur le site depuis
+ * son téléphone annoncerait en rafale tout ce qui a été mérité la semaine
+ * précédente devant l'ordinateur.
+ *
+ * Le critère n'est donc PAS un délai après le chargement — quelqu'un qui reprend
+ * un épisode huit secondes après être arrivé mérite sa notification — mais la
+ * CAUSE du changement. La synchro lève le drapeau, l'utilisateur non.
+ *
+ * Ce qu'on découvre en arrivant, on le trouve dans l'onglet ; ce qu'on gagne en
+ * regardant, on le voit surgir.
+ */
+let silenceNext = false;
+
+export function silenceNextEvaluation(): void {
+  silenceNext = true;
+}
+
 export function flush(): void {
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
+  const silent = silenceNext;
+  silenceNext = false;
   try {
-    evaluate();
+    evaluate(silent ? { silent: true } : undefined);
   } catch {
     /* Un badge qui ne se calcule pas ne doit jamais casser la page qui l'a
        déclenché : l'évaluation est un à-côté du visionnage, pas l'inverse. */
@@ -256,19 +281,29 @@ export function start(): () => void {
     "aniscroll:favourites:change",
   ];
   for (const e of events) window.addEventListener(e, on);
+
+  /* La synchro vient de déposer les données d'un autre appareil : on réévalue
+     — ces données peuvent mériter des badges — mais EN SILENCE. */
+  const onPull = () => {
+    silenceNextEvaluation();
+    scheduleEvaluate();
+  };
+  window.addEventListener("aniscroll:cloudPull", onPull);
   /* Le dernier changement d'une session doit survivre : le débounce mourrait
      avec la page. Même garde que cloudSync. */
   const onLeave = () => flush();
   window.addEventListener("pagehide", onLeave);
 
-  /* Le premier passage est le rattrapage. Il est différé d'un tour de boucle
-     pour ne pas peser sur le rendu initial : personne n'attend ses badges à la
-     milliseconde, et la page, si. */
+  /* Le premier passage est le rattrapage, et il est silencieux pour la même
+     raison que ceux de la synchro : rien de ce qu'on trouve en arrivant n'a été
+     fait à l'instant. Différé d'un tour de boucle pour ne pas peser sur le
+     rendu initial — personne n'attend ses badges à la milliseconde, la page si. */
+  silenceNextEvaluation();
   setTimeout(() => flush(), 0);
 
-  started = true;
   return () => {
     for (const e of events) window.removeEventListener(e, on);
+    window.removeEventListener("aniscroll:cloudPull", onPull);
     window.removeEventListener("pagehide", onLeave);
     started = false;
   };

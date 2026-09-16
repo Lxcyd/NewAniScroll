@@ -140,7 +140,11 @@ export const CATALOG = {
     ["midnight", "r", "dialMoon", "00:00", midnight(),
       "Minuit pile", "Lancer un épisode à 00 h 00 pile.",
       "On the stroke of midnight", "Start an episode at exactly 00:00."],
-    ["by-the-end", "u", "swap", "", flag("byTheEnd"),
+    /* DERIVE, et non enregistre au vol : la liste et la table de progression
+       portent deja de quoi repondre (le dernier episode vu, et lui seul). Un
+       drapeau pose par le lecteur ne vaudrait que pour l'avenir ; ceci vaut
+       aussi pour ce qui a deja ete regarde. */
+    ["by-the-end", "u", "swap", "", { k: "onlyLastEpisode", n: 1 },
       "Par la fin", "Regarder le dernier épisode d'un anime sans en avoir vu aucun autre.",
       "Straight to the end", "Watch an anime's final episode without having seen any other."],
     ["lunch", "c", "cutlery", "", hourWin(12, 14),
@@ -229,7 +233,7 @@ export const CATALOG = {
      popularité) que la liste locale ne porte pas d'origine : tant qu'elles
      manquent, le badge est « pas encore mesurable » et jamais « 0 % ». */
   discovery: [
-    ["first-add", "c", "bookmark", "", flag("firstAdd"),
+    ["first-add", "c", "bookmark", "", { k: "listSize", n: 1 },
       "Premier pas", "Ajouter un premier anime à sa liste.",
       "First step", "Add your first anime to your list."],
     ["curious-10", "c", "curious", "10", counter("animeOpened", 10),
@@ -277,7 +281,9 @@ export const CATALOG = {
     ["day-one", "r", "dayD", "", flag("dayOne"),
       "Jour J", "Terminer un anime le jour même de sa sortie.",
       "Day one", "Finish an anime on its release day."],
-    ["one-sitting", "r", "flame", "", flag("oneSitting"),
+    /* Commence et termine le meme jour : les deux dates sont sur l'entree de
+       liste, il n'y a rien a observer en direct. */
+    ["one-sitting", "r", "flame", "", { k: "sameDayFinish", n: 1 },
       "D'une traite", "Commencer et terminer un anime dans la même journée.",
       "In one sitting", "Start and finish an anime on the same day."],
     ["movies-30", "e", "cinema", "30", format("MOVIE", 30),

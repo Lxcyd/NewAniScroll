@@ -14,6 +14,7 @@ import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
 import NoticeStack from "@/components/shared/NoticeStack";
+import { useAchievement } from "@/lib/badges/achievementStore";
 import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
 import { notify } from "@/lib/notifications/noticeStore";
 import { Analytics } from "@vercel/analytics/react";
@@ -57,6 +58,14 @@ const SyncDirectionModal = dynamic(
 );
 const DangerConfirmModal = dynamic(
   () => import("@/components/shared/DangerConfirmModal"),
+  { ssr: false },
+);
+/* En différé, et pour une raison mesurable : ce composant tire le catalogue des
+   badges (176 définitions) et son jeu d'icônes (137 composants react-icons).
+   Statique, tout cela entrerait dans le chunk partagé que PERSONNE ne peut
+   éviter — celui-là même qu'on a divisé par deux le 26/08 (devlog/infra.md). */
+const AchievementToast = dynamic(
+  () => import("@/components/shared/AchievementToast"),
   { ssr: false },
 );
 
@@ -192,6 +201,73 @@ function SyncBootstrap() {
  * only opens the merge modal for the categories that moved on both sides. Then
  * it subscribes to the stores for the rest of the session.
  */
+/**
+ * Démarre l'évaluateur de badges, pour TOUT LE MONDE — invités compris.
+ *
+ * Les badges se calculent depuis les stores de l'appareil (localStorage), pas
+ * depuis un compte : quelqu'un qui n'est pas connecté en gagne comme les
+ * autres, ils vivent simplement sur sa machine jusqu'au jour où il s'inscrit
+ * (`snapshotAll()` les emporte alors, cf. lib/list/cloudSync.ts).
+ *
+ * Chargé en différé : le module n'entre pas dans le bundle initial, et rien de
+ * tout ceci ne tourne avant que la page soit rendue.
+ */
+function BadgesBootstrap() {
+  const { data: session, status } = useSession();
+  const createdAt = (session as any)?.user?.createdAt as number | undefined;
+  const anilistLinked = !!(session as any)?.user?.anilistId;
+
+  useEffect(() => {
+    if (status === "loading") return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const badges = await import("@/lib/badges/evaluate");
+      if (cancelled) return;
+      /* « Un an ici » a besoin de la date de création du compte. Un invité n'en
+         a pas : le badge reste « pas encore mesurable » plutôt que d'être
+         compté depuis une date inventée. */
+      badges.setAccountCreatedAt(createdAt ?? null);
+      /* « Compte lie » se LIT sur la session : il n'y a aucun geste a
+         intercepter, et le lire ici le rend retroactif pour tous ceux qui
+         avaient deja lie leur compte avant que les badges existent. */
+      if (anilistLinked) {
+        const { recordFlag } = await import("@/lib/badges/facts");
+        recordFlag("anilistLinked");
+      }
+      const stopEval = badges.start();
+      /* Les gestes qui n'appartiennent a aucune page (sequence de touches,
+         console, changements de langue en rafale). Deux ecouteurs et un
+         intervalle qui s'eteint : rien qui tourne en continu. */
+      const { startGestures } = await import("@/lib/badges/gestures");
+      const stopGestures = startGestures();
+      stop = () => { stopEval(); stopGestures(); };
+    })();
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [status, createdAt, anilistLinked]);
+
+  return null;
+}
+
+/**
+ * La garde qui empêche le chunk des badges d'être chargé pour rien.
+ *
+ * `dynamic()` ne suffit pas à lui seul : le composant est rendu sur toutes les
+ * pages, donc son chunk partirait à chaque chargement du site — exactement ce
+ * qu'on voulait éviter. Cette garde-ci ne dépend que du store d'achievements,
+ * qui pèse quelques lignes et n'importe ni le catalogue ni les icônes. Le vrai
+ * composant, et ses cent trente-sept icônes, ne sont demandés qu'au moment où
+ * un badge tombe réellement.
+ */
+function AchievementGate() {
+  const ach = useAchievement();
+  if (!ach) return null;
+  return <AchievementToast />;
+}
+
 function CloudSyncBootstrap() {
   const { data: session, status } = useSession();
   const { t } = useTranslation();
@@ -594,6 +670,11 @@ export default function App({
                 <AnilistHealthBanner />
                 <SyncBootstrap />
                 <CloudSyncBootstrap />
+                <BadgesBootstrap />
+                {/* La notification d'achievement. Comme <NoticeStack/>, elle
+                    vit HORS de <Component> : un badge peut tomber pendant une
+                    navigation d'épisode, et elle doit y survivre. */}
+                <AchievementGate />
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}

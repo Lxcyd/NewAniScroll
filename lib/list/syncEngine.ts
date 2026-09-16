@@ -418,6 +418,21 @@ export async function onEpisodeFinished(
 
   const prefs = getSyncPrefs();
   const prev = peekLocalEntry(aniId);
+
+  /* « Retour de flamme » : reprendre une serie apres trente jours d'absence.
+     C'est ICI, et seulement ici, que la question peut se poser : `activityAt`
+     porte la DERNIERE activite reelle, et l'instruction juste en dessous
+     s'apprete a l'ecraser par maintenant. Une fois cette ligne passee, l'ecart
+     qu'on cherche a disparu -- il n'y a pas d'historique pour le retrouver.
+
+     `activityAt` et non `updatedAt` : importer ou resynchroniser reecrit le
+     second a « maintenant » sans que personne n'ait rien regarde, et le badge
+     se donnerait a chaque import. La distinction est deja documentee sur le
+     champ lui-meme (lib/list/localList.ts). */
+  const lastActivity = prev?.activityAt ?? null;
+  if (lastActivity && Date.now() - lastActivity > 30 * 86_400_000) {
+    import("../badges/facts").then((f) => f.recordFlag("comeback")).catch(() => {});
+  }
   const totalEp = Number.isFinite(total as number) && (total as number) > 0 ? (total as number) : null;
 
   // ── Local update (always) ──────────────────────────────────────

@@ -49,6 +49,7 @@ const LangPreferenceModal = dynamic(
   { ssr: false },
 );
 import { recordWatchToday } from "@/lib/stats/streak";
+import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
@@ -1288,8 +1289,46 @@ export default function Watch({
         .catch(() => {});
       // Count today toward the watch streak (idempotent within a day).
       recordWatchToday();
+
+      /* Les faits que les stores existants ne portent pas.
+         Charge differee, comme le moteur de synchro juste au-dessus : rien de
+         tout ceci n'est utile avant qu'un episode se termine, ce qui arrive des
+         minutes apres l'ouverture de la page -- si tant est que ca arrive. */
+      import("@/lib/badges/facts")
+        .then((facts) => {
+          const host = serverToHost(activeServerRef.current);
+          if (host) facts.recordHost(host);
+          /* « Deux voix » : le meme episode vu en VO puis en VF. La trace par
+             episode vit en sessionStorage, seule la conclusion est gardee. */
+          facts.noteLang(Number(aniListId), episodeNumber, !!dub);
+          /* Un OAV rattache a une serie. Le format est celui de l'oeuvre qu'on
+             regarde, donc la question se pose ici et nulle part ailleurs. */
+          if (info?.format === "OVA" || info?.format === "SPECIAL") {
+            facts.recordFlag("oav");
+          }
+          /* Termine en Watch2Gether. */
+          if (partyRoomId) facts.recordFlag("w2g");
+          /* « Jour de diffusion ».
+             CE BADGE REPOSE SUR UNE APPROXIMATION, ET ELLE EST ASSUMEE.
+             AniList ne publie QUE la prochaine diffusion (`nextAiringEpisode`),
+             jamais la date de chaque episode passe. On en deduit celle du
+             dernier sorti en retirant une semaine -- ce qui suppose une cadence
+             hebdomadaire, vraie pour l'ecrasante majorite des series en cours et
+             fausse pour une diffusion groupee. La fenetre de 24 h autour de
+             cette date bornee est ce qui rend l'erreur inoffensive.
+             Corollaire : le badge ne peut pas etre retroactif, il ne se mesure
+             qu'a l'instant ou l'episode se termine. */
+          const next = info?.nextAiringEpisode;
+          if (next?.episode && next?.airingAt && Number(episodeNumber) === next.episode - 1) {
+            const airedAt = (next.airingAt - 7 * 86400) * 1000;
+            if (Math.abs(Date.now() - airedAt) < 86400_000) {
+              facts.bumpCounter("onAirDay");
+            }
+          }
+        })
+        .catch(() => {});
     },
-    [info],
+    [info, dub, partyRoomId],
   );
 
   // Total episodes for the current anime (same derivation as above), so we can

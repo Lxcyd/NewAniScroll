@@ -38,6 +38,8 @@ import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid
 import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
+import ProfileBadges from "@/components/profile/ProfileBadges";
+import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import type {
@@ -102,6 +104,9 @@ type Props = {
   activity: ActivityRow[] | null;
   /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
   streak: number | null;
+  /** La collection de badges du proprietaire, telle qu'elle est sauvegardee.
+   *  Absente sur un profil prive, `got` vide pour un compte qui n'a rien encore. */
+  badges?: BadgeState | null;
   /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
@@ -119,6 +124,7 @@ export default function Profile({
   profileLayout,
   activity,
   streak,
+  badges,
   isPrivate,
   viewedName,
 }: Props) {
@@ -322,6 +328,7 @@ export default function Profile({
               { key: "overview", label: t("profile.tabs.overview") },
               { key: "list", label: t("profile.tabs.list"), count: entries.length },
               { key: "stats", label: t("profile.tabs.stats") },
+              { key: "badges", label: t("profile.tabs.badges") },
             ]}
             active={tab}
             onChange={setTab}
@@ -351,6 +358,14 @@ export default function Profile({
         ) : null}
 
         {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+
+        {/* `live` seulement chez soi : les barres se calculent depuis les
+            stores de CET appareil. Sur le profil d'un autre, on n'a que sa
+            collection sauvegardee, et inventer un avancement qu'on n'a pas
+            mesure serait un chiffre faux. */}
+        {tab === "badges" ? (
+          <ProfileBadges state={badges ?? { v: 1, got: {} }} live={isOwner} />
+        ) : null}
 
         {tab === "list" ? (
           <>
@@ -710,6 +725,11 @@ export async function getServerSideProps(context: any) {
       : DEFAULT_BLOCKS.some((id) => ACTIVITY_BLOCKS.has(id));
 
   const kinds: DataKind[] = [];
+  /* Les badges sont TOUJOURS demandes : l'onglet existe sur tous les profils,
+     et la charge est minuscule (un objet id -> date). Ils rejoignent la lecture
+     unique de `user_data` deja faite ici, donc ils ne coutent AUCUNE requete de
+     plus -- cf. le commentaire de getData() dans lib/auth/userData.ts. */
+  if (account) kinds.push("badges");
   if (account && !collection?.user) kinds.push("list", "favourites");
   if (account && !layoutInColumn) kinds.push("prefs");
   if (account && (!layoutInColumn || layoutWantsActivity(layoutInColumn))) {
@@ -925,6 +945,16 @@ export async function getServerSideProps(context: any) {
     createdAt: account?.createdAt ?? (collection?.user?.createdAt ? collection.user.createdAt * 1000 : null),
   };
 
+  /* La collection, telle qu'elle est sauvegardee. On la parse ici plutot que
+     dans le composant pour que le visiteur recoive une forme propre, et que
+     `payload` -- ecrit par un client qu'on ne controle pas -- ne traverse pas
+     la page tel quel. */
+  const badges = parseBadgeState(
+    ((payloadOf("badges") as Record<string, string> | undefined)?.[
+      "aniscroll:badges"
+    ]) ?? null,
+  );
+
   return {
     props: {
       identity,
@@ -938,6 +968,7 @@ export async function getServerSideProps(context: any) {
       profileLayout,
       activity,
       streak,
+      badges,
     },
   };
 }

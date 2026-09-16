@@ -85,6 +85,12 @@ export type Derived = {
    *  « celui-ci est-il terminé ? » à chaque fin d'épisode. */
   completedIds: Set<number>;
   completedCount: number;
+  /** Combien d'entrées dans la liste, tous statuts confondus. */
+  listSize: number;
+  /** Un anime dont on n'a regardé QUE le dernier épisode. */
+  onlyLastEpisode: boolean;
+  /** Un anime commencé et terminé le même jour du calendrier. */
+  sameDayFinish: boolean;
   /** Titres portant une note. */
   rated: number;
   /** Séries revues au moins une fois. */
@@ -143,6 +149,12 @@ export type Derived = {
 /** Les statuts qui veulent dire « je l'ai fini ». Même ensemble que
  *  lib/profile/insights.ts : on ne re-regarde que ce qu'on a terminé une fois. */
 const FINISHED = new Set(["COMPLETED", "REPEATING"]);
+
+/** Une date floue AniList réduite à son jour, ou `null` si elle est incomplète. */
+function fuzzyDay(d: { year: number | null; month: number | null; day: number | null } | null): string | null {
+  if (!d?.year || !d?.month || !d?.day) return null;
+  return `${d.year}-${d.month}-${d.day}`;
+}
 
 /** Le titre d'une entrée, dans l'ordre de préférence habituel. */
 function titleOf(e: LocalEntry): string {
@@ -297,6 +309,27 @@ export function derive(s: Snapshot): Derived {
     completed,
     completedIds: new Set(completed.map((e) => e.mediaId)),
     completedCount: completed.length,
+    listSize: entries.length,
+
+    /* « Par la fin » : le dernier épisode d'un anime, et aucun autre. On lit la
+       table de progression, pas la liste — c'est le seul endroit qui sache
+       QUELS épisodes ont été vus, là où la liste ne connaît qu'un compteur.
+       Il faut connaître le total, sans quoi « le dernier » n'a pas de sens. */
+    onlyLastEpisode: entries.some((e) => {
+      const eps = perAnime.get(e.mediaId);
+      if (!eps || eps.size !== 1 || !e.total || e.total < 2) return false;
+      return eps.has(String(e.total));
+    }),
+
+    /* « D'une traite » : commencé et terminé le même jour du calendrier LOCAL.
+       Les deux dates sont sur l'entrée de liste, posées par le moteur de
+       synchro ; une série d'un seul épisode ne compte pas — ce serait un film,
+       et le badge parle de dévorer une série. */
+    sameDayFinish: completed.some((e) => {
+      const a = fuzzyDay(e.startedAt);
+      const b = fuzzyDay(e.completedAt);
+      return !!a && a === b && (e.total ?? 0) > 1;
+    }),
     rated,
     rewatched,
     mostRepeats,

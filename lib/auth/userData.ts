@@ -17,6 +17,13 @@ export const DATA_KINDS = [
   "favourites",
   "recent", // recently watched
   "player", // playerPrefs, keybindings, autoplay, ambient lights, volume…
+  /* Les badges obtenus et les faits qui les nourrissent. Une catégorie à part
+     et non un fourre-tout dans `prefs`, pour la même raison que `player` :
+     débloquer un badge ne doit pas pousser tous les réglages du site, et
+     surtout c'est la SEULE catégorie qui se FUSIONNE au lieu de s'écraser —
+     deux appareils qui débloquent chacun un badge doivent garder les deux
+     (cf. lib/badges/store.ts et le crochet de fusion de lib/list/cloudSync.ts). */
+  "badges",
 ] as const;
 
 export type DataKind = (typeof DATA_KINDS)[number];

@@ -4,9 +4,16 @@ import Footer from "@/components/shared/footer";
 import { Navbar } from "@/components/shared/NavBar";
 import { useRouter } from "next/router";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
+import { useEffect } from "react";
+import { bumpCounter } from "@/lib/badges/facts";
 
 export default function Custom404() {
   const router = useRouter();
+  /* « Cul-de-sac » : tomber trois fois sur cette page. Un compteur, pas un
+     drapeau -- c'est la repetition qui fait le badge. */
+  useEffect(() => {
+    bumpCounter("notFound");
+  }, []);
   return (
     <>
       <Head>

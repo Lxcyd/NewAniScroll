@@ -831,7 +831,8 @@
     "tabs": {
       "overview": "Aperçu",
       "list": "Ma liste",
-      "stats": "Statistiques"
+      "stats": "Statistiques",
+      "badges": "Badges"
     },
     "ago": {
       "minutes": "il y a {{count}} min",
@@ -1551,6 +1552,50 @@
     "fsHint": "Le chat est ici"
   },
   "badges": {
+    "ui": {
+      "unlocked": "Badge débloqué",
+      "total": "badges obtenus",
+      "secretsShort": "secrets",
+      "all": "Tous",
+      "got": "Obtenus",
+      "todo": "À obtenir",
+      "notMeasurable": "Pas encore mesurable",
+      "secretHidden": "Condition masquée",
+      "tiersDone": "{{done}} obtenus",
+      "tiersTodo": "{{todo}} à venir",
+      "rarity": {
+        "c": "Commun",
+        "u": "Peu commun",
+        "r": "Rare",
+        "e": "Épique",
+        "l": "Légendaire",
+        "m": "Mythique"
+      },
+      "family": {
+        "episodes": "Épisodes",
+        "time": "Temps cumulé",
+        "sessions": "Sessions",
+        "finished": "Anime terminés",
+        "discovery": "Découverte",
+        "genres": "Genres",
+        "franchise": "Franchises",
+        "regularity": "Régularité",
+        "profile": "Profil et collection",
+        "secret": "Secret"
+      },
+      "familyDesc": {
+        "episodes": "Le compteur le plus visible du profil : de l'épisode d'essai à la barre des dix mille.",
+        "time": "Une seule échelle : un palier en heures, puis tout se compte en jours pleins.",
+        "sessions": "Ce qui se joue en une seule traite.",
+        "finished": "Les œuvres menées au bout, du premier générique de fin aux cinq cents.",
+        "discovery": "Fouiller le catalogue au-delà des sorties du moment.",
+        "genres": "Un badge par famille, sur les anime terminés dans le genre.",
+        "franchise": "Aller au bout d'une saga, saison après saison.",
+        "regularity": "La série de jours consécutifs, de la semaine à l'année pleine.",
+        "profile": "Tenir sa liste, noter, ranger — et collectionner les badges eux-mêmes.",
+        "secret": "Hors progression et hors total : liaison de compte, statut et quelques trouvailles."
+      }
+    },
     "ep-1": {
       "name": "Premier épisode",
       "cond": "1 épisode vu."

@@ -19,6 +19,7 @@ import { LOCAL_LIST_EVENT } from "./localList";
 import { QUEUE_EVENT } from "./queue";
 import { HISTORY_EVENT } from "../profile/history";
 import { DATA_KINDS, type DataKind } from "../auth/userData";
+import { mergeIntoLocal } from "../badges/store";
 
 const ENDPOINT = "/api/v2/account/sync";
 /** Coalesce bursts: finishing an episode touches three stores at once. */
@@ -49,6 +50,44 @@ const KEYS: Partial<Record<DataKind, string[]>> = {
     "autoNext",
     "ambient_lights",
   ],
+  badges: ["aniscroll:badges", "aniscroll:badgeFacts"],
+};
+
+/**
+ * Les catégories qui se FUSIONNENT au lieu de s'écraser.
+ *
+ * Le dernier-écrivain-gagne convient à un réglage : deux appareils qui n'ont
+ * pas la même couleur d'accent, l'un des deux a raison et c'est le plus récent.
+ * Il ne convient pas à une COLLECTION. Le téléphone débloque « Minuit pile »,
+ * l'ordinateur débloque « Vingt en un jour », et le premier des deux à
+ * atteindre le serveur perdrait le sien.
+ *
+ * `badges` déclare donc son propre recollement (union des badges, date la plus
+ * ancienne — cf. lib/badges/store.ts), appliqué À LA PLACE de l'écrasement à la
+ * réception. Le reste du fichier ne change pas.
+ */
+const MERGERS: Partial<Record<DataKind, (payload: unknown) => boolean>> = {
+  badges: (payload) => {
+    if (!payload || typeof payload !== "object") return false;
+    const p = payload as Record<string, unknown>;
+    let touched = false;
+    if (typeof p["aniscroll:badges"] === "string") {
+      touched = mergeIntoLocal(p["aniscroll:badges"] as string) || touched;
+    }
+    /* Les FAITS, eux, s'écrasent comme avant : ce sont des compteurs de gestes
+       propres à l'appareil, et le badge qu'ils ont produit est déjà dans
+       `aniscroll:badges`, qui lui est fusionné. Perdre un compteur intermédiaire
+       ne retire donc aucun badge acquis. */
+    if (typeof p["aniscroll:badgeFacts"] === "string") {
+      try {
+        localStorage.setItem("aniscroll:badgeFacts", p["aniscroll:badgeFacts"] as string);
+        touched = true;
+      } catch {
+        /* best-effort */
+      }
+    }
+    return touched;
+  },
 };
 
 /**
@@ -64,6 +103,13 @@ const PREFS_EXCLUDED = new Set<string>([
   "aniscroll:runtimes",
   "aniscroll:serverPerf",
   "aniscroll:serverPerf:shared",
+  /* Le vocabulaire du catalogue (tous les genres, tous les tags) et le drapeau
+     du rattrapage : des caches, pas des données de l'utilisateur. Le premier
+     pèse plusieurs dizaines de kilo-octets et se retrouve gratuitement ;
+     sauvegarder les deux gonflerait la catégorie `prefs` à chaque appareil
+     sans rien préserver. */
+  "aniscroll:badgeVocab",
+  "aniscroll:badgeMetaDone",
 ]);
 
 function isPrefsKey(key: string): boolean {
@@ -172,6 +218,8 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
     const local = readKind(entry.kind);
     const known = revs[entry.kind];
 
+    const merge = MERGERS[entry.kind];
+
     if (options?.force || !local) {
       // Nothing here (or the visitor asked for the cloud to win outright) —
       // the cloud copy replaces whatever this device had.
@@ -181,6 +229,20 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
     } else if (known === entry.rev) {
       // We are already on this revision; local edits since then are ours to push.
       nextRevs[entry.kind] = entry.rev;
+    } else if (merge) {
+      /* UNE CATÉGORIE FUSIONNABLE N'A PAS DE CONFLIT À ARBITRER.
+         Les deux côtés ont bougé ? Tant mieux : on prend les deux. C'est tout
+         l'intérêt d'une union — il n'y a pas de question à poser à
+         l'utilisateur, et il ne faut surtout pas la lui poser, sans quoi
+         débloquer un badge sur son téléphone ouvrirait une fenêtre de conflit
+         sur son ordinateur.
+
+         La révision n'est PAS enregistrée : le local vient de changer (il porte
+         maintenant l'union), donc il doit repartir vers le serveur au prochain
+         passage, et c'est `pushKinds` qui posera la révision de la version
+         fusionnée. */
+      if (merge(entry.payload)) result.applied.push(entry.kind);
+      else nextRevs[entry.kind] = entry.rev;
     } else if (known == null) {
       // Both sides have data and this device never synced: only the user knows.
       result.conflicts.push(entry.kind);
@@ -197,6 +259,12 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
     // Every store listens to `storage` as well as its own event, so a single
     // notification is enough to refresh the whole UI.
     window.dispatchEvent(new StorageEvent("storage"));
+    /* Signal SÉPARÉ pour l'évaluateur de badges : il doit réévaluer (ces
+       données peuvent mériter des badges) mais sans rien annoncer. Ce qui
+       arrive d'un autre appareil n'a pas été fait à l'instant, et l'annoncer
+       ferait défiler en rafale la semaine passée devant l'autre écran.
+       Cf. lib/badges/evaluate.ts. */
+    window.dispatchEvent(new CustomEvent("aniscroll:cloudPull"));
   }
   return result;
 }
@@ -280,6 +348,10 @@ export function start(): () => void {
   const onHistory = () => mark("recent");
   const onPlayer = () => mark("player");
   const onPrefs = () => mark("prefs");
+  /* Les deux événements des badges. Celui des faits compte autant que celui de
+     la collection : un geste enregistré ici (un lecteur utilisé, un opening
+     sauté) est ce qui débloquera le badge sur un AUTRE appareil. */
+  const onBadges = () => mark("badges");
   // A flush on the way out is what makes the last change of a session
   // survive: the debounce would otherwise die with the page.
   const onLeave = () => flush();
@@ -290,6 +362,8 @@ export function start(): () => void {
   window.addEventListener(HISTORY_EVENT, onHistory);
   window.addEventListener("aniscroll:playerPrefs:change", onPlayer);
   window.addEventListener("aniscroll:keybindings:change", onPlayer);
+  window.addEventListener("aniscroll:badges:change", onBadges);
+  window.addEventListener("aniscroll:badgeFacts:change", onBadges);
   window.addEventListener("aniscroll:syncPrefs:change", onPrefs);
   window.addEventListener("aniscroll:titlePref:change", onPrefs);
   window.addEventListener("aniscroll:accent:change", onPrefs);
@@ -315,6 +389,8 @@ export function start(): () => void {
     window.removeEventListener(HISTORY_EVENT, onHistory);
     window.removeEventListener("aniscroll:playerPrefs:change", onPlayer);
     window.removeEventListener("aniscroll:keybindings:change", onPlayer);
+    window.removeEventListener("aniscroll:badges:change", onBadges);
+    window.removeEventListener("aniscroll:badgeFacts:change", onBadges);
     window.removeEventListener("aniscroll:syncPrefs:change", onPrefs);
     window.removeEventListener("aniscroll:titlePref:change", onPrefs);
     window.removeEventListener("aniscroll:accent:change", onPrefs);

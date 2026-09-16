@@ -3264,3 +3264,160 @@ input[type="number"] {
 .as-widget-scroll::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BADGES — jetons, constellations, et la notification d'achievement.
+
+   Tout est en CSS et rien en JavaScript : l'onglet Badges aligne jusqu'à cent
+   quatre-vingts jetons, et la notification peut surgir par-dessus un lecteur
+   vidéo dont les mouvements de souris re-rendent l'interface en continu. Une
+   animation pilotée par React s'y interromprait — c'est la leçon déjà tirée
+   pour la pile de toasts (.ip-toast-card plus haut dans ce fichier).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Le reflet qui balaie les jetons légendaires et mythiques. */
+@keyframes asSweep {
+  0% { transform: translateX(-100px); }
+  55%, 100% { transform: translateX(245px); }
+}
+
+/* Les étoiles. Cinq cycles au lieu d'un seul : deux étoiles qui clignotent
+   exactement au même rythme forment un motif que l'œil repère tout de suite et
+   qui fait mécanique. Chaque canal tire le sien (cf. starsFor dans
+   components/profile/badges/rarity.ts), et le résultat respire.
+   Le chiffre du nom est le pourcentage du cycle pendant lequel l'étoile est
+   allumée — le reste du temps elle est éteinte, ailleurs. */
+@keyframes asTw14 {
+  0% { opacity: 0; transform: scale(.4); }
+  2.5% { opacity: 1; transform: scale(.98); }
+  7% { opacity: 1; transform: scale(1.09); }
+  11.5% { opacity: 1; transform: scale(.98); }
+  14%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw17 {
+  0% { opacity: 0; transform: scale(.4); }
+  3.1% { opacity: 1; transform: scale(.98); }
+  8.5% { opacity: 1; transform: scale(1.09); }
+  13.9% { opacity: 1; transform: scale(.98); }
+  17%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw20 {
+  0% { opacity: 0; transform: scale(.4); }
+  3.6% { opacity: 1; transform: scale(.98); }
+  10% { opacity: 1; transform: scale(1.09); }
+  16.4% { opacity: 1; transform: scale(.98); }
+  20%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw23 {
+  0% { opacity: 0; transform: scale(.4); }
+  4.1% { opacity: 1; transform: scale(.98); }
+  11.5% { opacity: 1; transform: scale(1.09); }
+  18.9% { opacity: 1; transform: scale(.98); }
+  23%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw26 {
+  0% { opacity: 0; transform: scale(.4); }
+  4.7% { opacity: 1; transform: scale(.98); }
+  13% { opacity: 1; transform: scale(1.09); }
+  21.3% { opacity: 1; transform: scale(.98); }
+  26%, 100% { opacity: 0; transform: scale(.4); }
+}
+
+/* Le grossissement au survol. La même courbe que la pile de toasts, pour que
+   les deux gestes du site aient la même sensation. */
+.as-badge-token {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.as-badge-row:hover .as-badge-token,
+.as-badge-token:hover {
+  transform: scale(1.08);
+}
+
+/* La condition d'un secret non débloqué. Le flou est un effet, pas une
+   protection : le texte réel n'est JAMAIS rendu dans le DOM (cf.
+   ProfileBadges.tsx), on ne floute qu'une chaîne de remplissage. Sans quoi
+   l'inspecteur du navigateur donnerait la réponse en deux clics. */
+.as-badge-blur {
+  filter: blur(4px);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ── La notification d'achievement ─────────────────────────────────────────
+   Quatre temps, une seule ligne du temps. Les durées sont partagées avec le
+   composant, qui déclenche le suivant sur `animationend` du dernier élément.
+
+   1. le jeton surgit, seul, au centre        0 → 600 ms
+   2. il glisse à gauche, la carte s'ouvre  600 → 1100 ms
+   3. la pose, lisible                     1100 → 4600 ms
+   4. la carte se referme, le jeton part   4600 → 5200 ms              */
+
+@keyframes asAchIn {
+  0% { transform: translateY(-120%) scale(0.3); opacity: 0; }
+  55% { transform: translateY(0) scale(1.15); opacity: 1; }
+  80% { transform: translateY(0) scale(0.96); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes asAchOut {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-120%) scale(0.4); opacity: 0; }
+}
+
+/* La carte s'ouvre EN LARGEUR derrière le jeton : c'est ce qui donne
+   l'impression que le jeton se décale pour laisser la place au texte, plutôt
+   que deux éléments qui apparaissent côte à côte. */
+@keyframes asAchOpen {
+  0% { width: 0; opacity: 0; }
+  20% { opacity: 0; }
+  100% { width: var(--as-ach-w); opacity: 1; }
+}
+@keyframes asAchClose {
+  0% { width: var(--as-ach-w); opacity: 1; }
+  100% { width: 0; opacity: 0; }
+}
+
+/* Le halo qui s'ouvre sous le jeton au moment de l'impact. */
+@keyframes asAchHalo {
+  0% { transform: scale(0.2); opacity: 0; }
+  40% { opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Les particules : douze éclats projetés en étoile. Chacune porte son propre
+   angle et sa propre distance en variables CSS, posées par le composant. */
+@keyframes asAchSpark {
+  0% { transform: translate(0, 0) scale(0); opacity: 0; }
+  15% { opacity: 1; }
+  100% {
+    transform: translate(var(--as-dx), var(--as-dy)) scale(var(--as-sc));
+    opacity: 0;
+  }
+}
+
+/* Le liseré qui court autour de la carte pendant la pose. */
+@keyframes asAchShine {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(260%); }
+}
+
+/* RESPECT DU RÉGLAGE SYSTÈME. On garde l'apparition et le texte — sans quoi la
+   notification ne se verrait pas du tout — et on retire ce qui bouge pour le
+   plaisir : les particules, le halo, le balayage, le scintillement. */
+@media (prefers-reduced-motion: reduce) {
+  .as-ach-spark,
+  .as-ach-halo,
+  .as-ach-shine {
+    display: none !important;
+  }
+  .as-badge-token svg[style*="asTw"],
+  .as-badge-token rect[style*="asSweep"] {
+    animation: none !important;
+  }
+  .as-badge-token {
+    transition: none;
+  }
+  .as-ach-token,
+  .as-ach-card {
+    animation-duration: 0.01ms !important;
+  }
+}

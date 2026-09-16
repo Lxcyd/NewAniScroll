@@ -1,4 +1,5 @@
 import Head from "next/head";
+import { recordFlag } from "@/lib/badges/facts";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { Navbar } from "@/components/shared/NavBar";
@@ -349,6 +350,12 @@ function SettingsNav({
 }
 
 export default function Settings() {
+  /* « Reglages » : simplement ouvrir cette page. `recordFlag` n'ecrit que la
+     premiere fois, donc les visites suivantes ne coutent rien -- ni ecriture,
+     ni evenement, ni poussee vers le compte (cf. lib/badges/facts.ts). */
+  useEffect(() => {
+    recordFlag("settings");
+  }, []);
   /* Hydration guard: localStorage isn't available during SSR, so on the
      first render we display the default ("en") and immediately re-read
      after mount. Without this guard the SSR HTML would always show

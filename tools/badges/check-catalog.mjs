@@ -247,6 +247,38 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("...ni de série de jours", m("streak-7", s), [0, 7]);
 }
 
+/* ── Les badges dérivés de la liste, qui n'observent rien en direct ────────── */
+{
+  const entry = (over) => ({
+    mediaId: 1, status: "COMPLETED", score: 8, progress: 12, total: 12,
+    startedAt: null, completedAt: null, notes: null, updatedAt: 1, ...over,
+  });
+  /* « Par la fin » : le dernier épisode, et aucun autre. */
+  check("seul le dernier épisode vu → obtenu",
+    m("by-the-end", snap({ list: { 1: entry({ status: "CURRENT" }) }, progress: Object.fromEntries([ep(1, 12, local(2026, 9, 10, 20))]) })), [1, 1]);
+  check("les épisodes 1 et 12 → pas « par la fin »",
+    m("by-the-end", snap({ list: { 1: entry({ status: "CURRENT" }) }, progress: Object.fromEntries([ep(1, 1, local(2026, 9, 10, 19)), ep(1, 12, local(2026, 9, 10, 20))]) })), [0, 1]);
+  check("le seul épisode d'un one-shot ne compte pas",
+    m("by-the-end", snap({ list: { 1: entry({ total: 1 }) }, progress: Object.fromEntries([ep(1, 1, local(2026, 9, 10, 20))]) })), [0, 1]);
+
+  /* « D'une traite » : les deux dates sur la même journée. */
+  const d1 = { year: 2026, month: 9, day: 10 };
+  const d2 = { year: 2026, month: 9, day: 11 };
+  check("commencé et terminé le même jour → obtenu",
+    m("one-sitting", snap({ list: { 1: entry({ startedAt: d1, completedAt: d1 }) } })), [1, 1]);
+  check("deux jours différents → pas obtenu",
+    m("one-sitting", snap({ list: { 1: entry({ startedAt: d1, completedAt: d2 }) } })), [0, 1]);
+  check("un film d'un seul épisode ne compte pas",
+    m("one-sitting", snap({ list: { 1: entry({ total: 1, startedAt: d1, completedAt: d1 }) } })), [0, 1]);
+  check("une date incomplète ne compte pas",
+    m("one-sitting", snap({ list: { 1: entry({ startedAt: { year: 2026, month: null, day: null }, completedAt: d1 }) } })), [0, 1]);
+
+  /* « Premier pas » : une entrée dans la liste suffit, quel que soit le statut. */
+  check("liste vide → 0 / 1", m("first-add", snap()), [0, 1]);
+  check("un titre en projet suffit",
+    m("first-add", snap({ list: { 1: entry({ status: "PLANNING", progress: 0 }) } })), [1, 1]);
+}
+
 /* ── Le contrat du `null` : pas encore mesurable ≠ zéro ────────────────────── */
 {
   const list = {

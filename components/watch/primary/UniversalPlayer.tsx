@@ -4176,6 +4176,14 @@ export default function UniversalPlayer({
         try {
           video.currentTime = at;
         } catch {}
+        /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
+           est pose ICI et pas a l'arrivee sur la page, parce que c'est la seule
+           ligne qui prouve qu'il y avait REELLEMENT un point de reprise, et
+           qu'on y est alle. Un lien horodate partage (`?t=`) compte aussi :
+           dans les deux cas la lecture ne commence pas au debut. */
+        import("@/lib/badges/facts")
+          .then((f) => f.recordFlag("resume"))
+          .catch(() => {});
       }
       // Mark applied even when there's nothing to resume — we only want to
       // honour the saved point ONCE per mount, never fight a later user seek.
@@ -4207,9 +4215,30 @@ export default function UniversalPlayer({
       }
     };
 
+    /* « Sans une pause » : un episode entier sans jamais mettre pause.
+       Observe ICI plutot que par un etat React : le lecteur fenetre re-rend en
+       continu sur les mouvements de souris, et un drapeau pose dans un state
+       traverserait ces re-rendus sans qu'on sache pourquoi il a bouge.
+
+       La pause de DEPART ne compte pas -- une video demarre pausee, et l'evenement
+       `pause` part aussi a la fin naturelle du fichier. On ne retient donc que
+       les pauses survenues EN COURS de lecture. */
+    let paused = false;
+    const onPause = () => {
+      if (!video) return;
+      if (video.ended) return;                    // fin naturelle, pas une pause
+      if (video.currentTime < 1) return;          // l'arret initial
+      paused = true;
+    };
+
     const onEnded = () => {
       if (!video) return;
       markComplete(aniListId, episodeNumber, video.duration || 0);
+      if (!paused) {
+        import("@/lib/badges/facts")
+          .then((f) => f.recordNoPause(aniListId, episodeNumber))
+          .catch(() => {});
+      }
       // Notify the list sync engine (local list + optional AniList push). The
       // watch page owns the actual sync logic since it has `info` + session.
       fireComplete();
@@ -4235,6 +4264,7 @@ export default function UniversalPlayer({
       video.addEventListener("durationchange", onMeta);
       video.addEventListener("timeupdate", onTimeUpdate);
       video.addEventListener("ended", onEnded);
+      video.addEventListener("pause", onPause);
       onMeta();
       // Last-chance save when the user navigates away / closes the tab.
       window.addEventListener("pagehide", onTimeUpdate);
@@ -4256,6 +4286,7 @@ export default function UniversalPlayer({
       video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);
       video?.removeEventListener("ended", onEnded);
+      video?.removeEventListener("pause", onPause);
       window.removeEventListener("pagehide", onTimeUpdate);
     };
     // Re-bind per episode/anime and whenever the stream (server) changes so the

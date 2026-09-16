@@ -1,0 +1,476 @@
+/**
+ * L'onglet Badges d'un profil.
+ *
+ * Une LISTE, pas une grille : jeton à gauche, titre, condition et barre à
+ * droite, les uns sous les autres. Une grille de cent quatre-vingts jetons est
+ * jolie et illisible — on ne peut y mettre ni la condition, ni l'avancement, ni
+ * la date, qui sont précisément ce qu'on vient lire.
+ *
+ * ── LES PALIERS ──────────────────────────────────────────────────────────────
+ * Une échelle (1 → 25 → 250 → 1 000 épisodes) n'affiche qu'UNE ligne : le
+ * premier palier non atteint, avec sa barre. À neuf épisodes, on voit donc le
+ * badge des vingt-cinq à 9/25, et non six lignes dont cinq sont hors de portée.
+ * Le dépli montre le reste, obtenus et à venir.
+ *
+ * ── LE PROPRIÉTAIRE ET LE VISITEUR ───────────────────────────────────────────
+ * `live` distingue les deux. Chez soi, tout est recalculé depuis les stores de
+ * l'appareil, donc les barres avancent. Chez quelqu'un d'autre, on n'a que sa
+ * collection (sauvegardée dans `user_data`) : les badges obtenus s'affichent
+ * avec leur date, les autres restent verrouillés SANS barre — inventer un
+ * avancement qu'on n'a pas mesuré serait un chiffre faux.
+ */
+
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
+  type BadgeDef, type Rarity,
+} from "@/lib/badges/catalog";
+import { progressAll } from "@/lib/badges/evaluate";
+import { backfillMetadata } from "@/lib/badges/metaBackfill";
+import { recordFlag } from "@/lib/badges/facts";
+import type { BadgeState } from "@/lib/badges/store";
+import { Bar } from "./widgets/common";
+import BadgeDefs from "./badges/BadgeDefs";
+import BadgeToken from "./badges/BadgeToken";
+import { RARITY } from "./badges/rarity";
+
+type Filter = "all" | "got" | "todo";
+type Progress = [number, number] | null;
+
+const FAMILY_ORDER = [
+  "episodes", "time", "sessions", "finished",
+  "discovery", "genres", "franchise", "regularity", "profile",
+] as const;
+
+export default function ProfileBadges({
+  state,
+  live = false,
+}: {
+  state: BadgeState;
+  /** Vrai sur son propre profil : les barres sont alors mesurables. */
+  live?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [filter, setFilter] = useState<Filter>("all");
+  const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
+
+  /* Chez soi : on mesure, et on lance le rattrapage des métadonnées.
+     Les DEUX sont ici et pas au chargement du site — personne ne doit payer,
+     en requêtes comme en calcul, pour un onglet qu'il n'ouvre pas. */
+  useEffect(() => {
+    if (!live) return;
+    recordFlag("badgesTab");
+    setProgress(progressAll().progress);
+    void backfillMetadata().then(() => setProgress(progressAll().progress));
+  }, [live]);
+
+  const got = state.got;
+  const gotCount = MAIN.filter((b) => got[b.id] != null).length;
+  const secretCount = SECRETS.filter((b) => got[b.id] != null).length;
+
+  /* Le palier VISIBLE d'une échelle : le premier non atteint, ou le dernier
+     quand tout est fait. Les autres partent dans le dépli. */
+  const ladderHead = useMemo(() => {
+    const head = new Map<string, string>();
+    for (const [name, ids] of Object.entries(LADDERS)) {
+      const open = ids.find((id) => got[id] == null);
+      head.set(name, open ?? ids[ids.length - 1]);
+    }
+    return head;
+  }, [got]);
+
+  const keep = (b: BadgeDef) => {
+    if (filter === "got") return got[b.id] != null;
+    if (filter === "todo") return got[b.id] == null;
+    return true;
+  };
+
+  /** Les lignes d'une famille, échelles repliées sur leur palier courant. */
+  const rowsOf = (family: string): BadgeDef[] => {
+    const out: BadgeDef[] = [];
+    const seen = new Set<string>();
+    for (const b of BADGES) {
+      if (b.family !== family) continue;
+      if (b.ladder) {
+        if (seen.has(b.ladder)) continue;
+        seen.add(b.ladder);
+        const head = BY_ID[ladderHead.get(b.ladder) ?? b.id];
+        /* Le filtre s'applique au palier MONTRÉ : « à obtenir » sur une échelle
+           entièrement faite doit la faire disparaître, pas afficher son dernier
+           barreau. */
+        if (keep(head)) out.push(head);
+        continue;
+      }
+      if (keep(b)) out.push(b);
+    }
+    return out;
+  };
+
+  const chips: { k: Filter; label: string; n: number }[] = [
+    { k: "all", label: t("badges.ui.all", "Tous"), n: BADGES.length },
+    { k: "got", label: t("badges.ui.got", "Obtenus"), n: gotCount + secretCount },
+    { k: "todo", label: t("badges.ui.todo", "À obtenir"), n: BADGES.length - gotCount - secretCount },
+  ];
+
+  return (
+    <div className="flex flex-col gap-8">
+      <BadgeDefs />
+
+      {/* En-tête : où en est la collection, et les trois filtres. */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-baseline gap-3">
+          <span className="font-outfit text-2xl font-semibold text-white">
+            {gotCount}
+            <span className="text-white/35"> / {MAIN.length}</span>
+          </span>
+          <span className="font-karla text-[11px] uppercase tracking-[.16em] text-white/40">
+            {t("badges.ui.total", "badges obtenus")}
+          </span>
+          {secretCount > 0 && (
+            <span className="font-outfit text-[11px] font-semibold text-[#FF7F57]">
+              + {secretCount} {t("badges.ui.secretsShort", "secrets")}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {chips.map((c) => (
+            <button
+              key={c.k}
+              type="button"
+              onClick={() => setFilter(c.k)}
+              className={
+                "font-outfit rounded-md border px-3 py-1.5 text-[12px] font-semibold transition-colors " +
+                (filter === c.k
+                  ? "border-as-accent bg-as-accent text-white"
+                  : "border-white/10 bg-white/[.04] text-white/60 hocus:text-white/85")
+              }
+            >
+              {c.label}
+              <span className="ml-1.5 text-[10px] opacity-60">{c.n}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Les familles. */}
+      {FAMILY_ORDER.map((family) => {
+        const rows = rowsOf(family);
+        if (!rows.length) return null;
+        return (
+          <section key={family} className="flex flex-col gap-3">
+            <div className="flex items-baseline gap-3 border-l-2 border-as-accent pl-3">
+              <h3 className="font-outfit m-0 text-lg font-semibold text-white">
+                {t(`badges.ui.family.${family}`, family)}
+              </h3>
+              <span className="font-karla text-[12px] text-white/40">
+                {t(`badges.ui.familyDesc.${family}`, "")}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {rows.map((b) => (
+                <BadgeRow
+                  key={b.id}
+                  def={b}
+                  state={state}
+                  progress={live ? progress.get(b.id) ?? null : null}
+                  live={live}
+                  filter={filter}
+                  ladderProgress={progress}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+
+      {/* Les secrets, à part et hors du total. */}
+      <SecretSection
+        state={state}
+        progress={progress}
+        live={live}
+        filter={filter}
+        keep={keep}
+      />
+    </div>
+  );
+}
+
+/* ── Une ligne ──────────────────────────────────────────────────────────────── */
+
+function BadgeRow({
+  def, state, progress, live, filter, ladderProgress, hidden = false,
+}: {
+  def: BadgeDef;
+  state: BadgeState;
+  progress: Progress;
+  live: boolean;
+  filter: Filter;
+  ladderProgress: Map<string, Progress>;
+  hidden?: boolean;
+}) {
+  const { t } = useTranslation();
+  const at = state.got[def.id];
+  const unlocked = at != null;
+  const R = RARITY[def.rarity];
+
+  return (
+    <div className="as-badge-row flex flex-col rounded-xl border border-white/[.06] bg-white/[.02] px-3 py-2.5 transition-colors hocus:border-white/[.12]">
+      <div className="flex items-center gap-4">
+        <div className="shrink-0">
+          <BadgeToken
+            id={def.id}
+            rarity={def.rarity}
+            icon={def.icon}
+            tag={def.tag}
+            unlocked={unlocked}
+            hidden={hidden && !unlocked}
+            size={72}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-outfit text-[14px] font-semibold text-white">
+              {t(`badges.${def.id}.name`)}
+            </span>
+            <span
+              className="font-karla text-[9px] uppercase tracking-[.16em]"
+              style={{ color: unlocked ? R.ic : "rgba(255,255,255,.28)" }}
+            >
+              {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
+            </span>
+            {unlocked && (
+              <span className="ml-auto font-karla text-[11px] tabular-nums text-white/35">
+                <ObtainedOn at={at} />
+              </span>
+            )}
+          </div>
+
+          <Condition def={def} hidden={hidden && !unlocked} />
+
+          <ProgressLine
+            progress={progress}
+            unlocked={unlocked}
+            live={live}
+            color={R.ic}
+          />
+        </div>
+      </div>
+
+      {def.ladder && (
+        <LadderDetails
+          ladder={def.ladder}
+          state={state}
+          progress={ladderProgress}
+          live={live}
+          filter={filter}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * La date d'obtention, formatée APRÈS le montage.
+ *
+ * `toLocaleDateString` dépend du fuseau et de la locale du navigateur : rendue
+ * côté serveur elle donne autre chose que côté client, et React rejette
+ * l'hydratation. C'est exactement le défaut qui a rendu la page profil « très
+ * longue à charger » le 02/09/2026 (devlog/site.md) — une date formatée contre
+ * l'environnement faisait rendre la page deux fois. On rend donc un tiret au
+ * premier passage, et la date ensuite.
+ */
+function ObtainedOn({ at }: { at: number }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    setText(new Date(at).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }));
+  }, [at]);
+  return <>{text ?? "—"}</>;
+}
+
+/**
+ * La condition. Pour un secret verrouillé, le VRAI TEXTE N'EST PAS RENDU.
+ *
+ * Un `filter: blur()` n'est qu'un effet de peinture : le texte reste dans le
+ * DOM et l'inspecteur du navigateur le donne en deux clics — autant l'afficher
+ * en clair. On rend donc une chaîne de remplissage de longueur comparable, et
+ * on la floute pour l'allure.
+ */
+function Condition({ def, hidden }: { def: BadgeDef; hidden: boolean }) {
+  const { t } = useTranslation();
+  if (hidden) {
+    return (
+      <p
+        className="as-badge-blur m-0 mt-0.5 font-karla text-[11.5px] leading-snug text-white/30"
+        aria-label={t("badges.ui.secretHidden", "Condition masquée")}
+      >
+        {"▒".repeat(34)}
+      </p>
+    );
+  }
+  return (
+    <p className="m-0 mt-0.5 font-karla text-[11.5px] leading-snug text-white/45">
+      {t(`badges.${def.id}.cond`)}
+    </p>
+  );
+}
+
+/**
+ * La barre. Trois états, et ils disent trois choses différentes :
+ *   - obtenu            : pas de barre, la date suffit ;
+ *   - mesurable         : la barre et « 9 / 10 » ;
+ *   - pas mesurable     : une phrase, PAS une barre à 0 %. Une barre vide dit
+ *                         « tu n'en as aucun » ; la vérité est « je ne sais
+ *                         pas encore ». Cf. le contrat du `null` dans
+ *                         lib/badges/measure.ts.
+ */
+function ProgressLine({
+  progress, unlocked, live, color,
+}: {
+  progress: Progress;
+  unlocked: boolean;
+  live: boolean;
+  color: string;
+}) {
+  const { t } = useTranslation();
+  if (unlocked) return null;
+  if (!live) return null;
+  if (!progress) {
+    return (
+      <p className="m-0 mt-1.5 font-karla text-[10.5px] italic text-white/25">
+        {t("badges.ui.notMeasurable", "Pas encore mesurable")}
+      </p>
+    );
+  }
+  const [cur, target] = progress;
+  if (target <= 1) return null; // un fait binaire n'a pas d'avancement à montrer
+  return (
+    <div className="mt-1.5 flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <Bar pct={Math.min(100, (cur / target) * 100)} color={color} />
+      </div>
+      <span className="font-karla text-[10.5px] tabular-nums text-white/40">
+        {cur.toLocaleString("fr-FR")} / {target.toLocaleString("fr-FR")}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Le dépli d'une échelle : les autres paliers, obtenus et à venir.
+ *
+ * `<details>` natif plutôt qu'un état React — l'ouverture d'un dépli ne doit
+ * pas re-rendre une liste de cent quatre-vingts lignes, et le navigateur sait
+ * déjà le faire, au clavier compris.
+ */
+function LadderDetails({
+  ladder, state, progress, live, filter,
+}: {
+  ladder: string;
+  state: BadgeState;
+  progress: Map<string, Progress>;
+  live: boolean;
+  filter: Filter;
+}) {
+  const { t } = useTranslation();
+  const ids = LADDERS[ladder] ?? [];
+  const head = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
+  const others = ids.filter((id) => id !== head);
+  if (!others.length) return null;
+
+  const done = others.filter((id) => state.got[id] != null).length;
+
+  return (
+    <details className="group mt-1.5">
+      <summary className="ml-auto flex w-fit cursor-pointer list-none items-center gap-1.5 font-karla text-[10.5px] text-white/30 transition-colors hocus:text-white/60">
+        <span className="transition-transform group-open:rotate-90">›</span>
+        {t("badges.ui.tiersDone", "{{done}} obtenus", { done })}
+        {" · "}
+        {t("badges.ui.tiersTodo", "{{todo}} à venir", { todo: others.length - done })}
+      </summary>
+      <div className="mt-2 flex flex-col gap-1 border-t border-white/[.06] pt-2">
+        {others.map((id) => {
+          const def = BY_ID[id];
+          const at = state.got[id];
+          const p = live ? progress.get(id) ?? null : null;
+          if (filter === "got" && at == null) return null;
+          if (filter === "todo" && at != null) return null;
+          return (
+            <div key={id} className="flex items-center gap-3 pl-1">
+              <BadgeToken
+                id={def.id}
+                rarity={def.rarity}
+                icon={def.icon}
+                tag={def.tag}
+                unlocked={at != null}
+                size={40}
+                animate={false}
+              />
+              <span className="font-outfit text-[12.5px] text-white/70">
+                {t(`badges.${id}.name`)}
+              </span>
+              <span className="ml-auto font-karla text-[10.5px] tabular-nums text-white/30">
+                {at != null ? (
+                  <ObtainedOn at={at} />
+                ) : p && p[1] > 1 ? (
+                  `${p[0].toLocaleString("fr-FR")} / ${p[1].toLocaleString("fr-FR")}`
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+/* ── Les secrets ────────────────────────────────────────────────────────────── */
+
+function SecretSection({
+  state, progress, live, filter, keep,
+}: {
+  state: BadgeState;
+  progress: Map<string, Progress>;
+  live: boolean;
+  filter: Filter;
+  keep: (b: BadgeDef) => boolean;
+}) {
+  const { t } = useTranslation();
+  const rows = SECRETS.filter(keep);
+  if (!rows.length) return null;
+  const done = SECRETS.filter((b) => state.got[b.id] != null).length;
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-baseline gap-3 border-l-2 border-[#FF7F57] pl-3">
+        <h3 className="font-outfit m-0 text-lg font-semibold text-white">
+          {t("badges.ui.family.secret", "Secret")}
+        </h3>
+        <span className="font-outfit rounded border border-white/10 bg-white/[.04] px-2 py-0.5 text-[11px] font-semibold text-[#FF7F57]">
+          {done} / {SECRETS.length}
+        </span>
+        <span className="font-karla text-[12px] text-white/40">
+          {t("badges.ui.familyDesc.secret", "")}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {rows.map((b) => (
+          <BadgeRow
+            key={b.id}
+            def={b}
+            state={state}
+            progress={live ? progress.get(b.id) ?? null : null}
+            live={live}
+            filter={filter}
+            ladderProgress={progress}
+            hidden
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export { RARITY_ORDER };
+export type { Rarity };

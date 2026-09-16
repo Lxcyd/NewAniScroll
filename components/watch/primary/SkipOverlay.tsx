@@ -359,7 +359,16 @@ export default function SkipOverlay({
     return () => mo.disconnect();
   }, [playerEl]);
 
-  const skipTo = (endSeconds: number) => {
+  const skipTo = (endSeconds: number, type?: string) => {
+    /* « Jamais l'opening » se juge EN NEGATIF : on n'enregistre pas les
+       openings regardes -- ce serait un par episode de tout le catalogue --
+       mais les rares fois ou l'un est saute. L'ensemble des exceptions est
+       minuscule la ou celui des observations serait sans fin. */
+    if (type === "op" && aniListId != null && episode != null) {
+      import("@/lib/badges/facts")
+        .then((f) => f.recordOpSkipped(aniListId, episode))
+        .catch(() => {});
+    }
     const player = playerRef.current;
     if (!player) return;
     let target = Math.max(0, endSeconds - SKIP_PRELOAD_LEAD_MS / 1000);
@@ -413,7 +422,10 @@ export default function SkipOverlay({
     const key = `${active.type}:${active.start}-${active.end}`;
     if (autoSkippedRef.current.has(key)) return; // already auto-skipped once
     autoSkippedRef.current.add(key);
-    skipTo(active.end);
+    /* Le saut AUTOMATIQUE compte comme un saut, et ce n'est pas une severite :
+       quelqu'un qui a active « passer l'opening » ne regarde pas les openings.
+       Lui donner « Jamais l'opening » viderait le badge de son sens. */
+    skipTo(active.end, active.type);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, playerPrefs.autoSkipIntro, playerPrefs.autoSkipOutro]);
 
@@ -497,7 +509,7 @@ export default function SkipOverlay({
       {active && SEGMENT_LABEL_KEY[active.type] && (
         <button
           type="button"
-          onClick={() => skipTo(active.end)}
+          onClick={() => skipTo(active.end, active.type)}
           className="aniscroll-skip-btn"
           style={btnStyle}
         >
