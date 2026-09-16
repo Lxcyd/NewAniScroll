@@ -1,4 +1,4 @@
-import { rateLimiterRedis, redis } from "@/lib/redis";
+import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
@@ -3968,7 +3968,15 @@ const lockKey = (cacheKey) => `lock:${cacheKey}`;
 async function acquireScrapeLock(cacheKey) {
   try {
     const ok = await redis.set(lockKey(cacheKey), "1", "EX", LOCK_TTL_S, "NX");
-    return ok === "OK";
+    if (ok === "OK") return true;
+    /* PAS DE VERROU N'EST PAS « QUELQU'UN D'AUTRE LE TIENT ».
+       Depuis que le client rend une valeur de repli au lieu de lever (cf. le
+       disjoncteur de lib/redisRest.ts), un `SET NX` sans reponse ressemble
+       exactement a un verrou deja pris. Les distinguer est indispensable :
+       se croire suiveur quand il n'y a plus de cache du tout, c'est attendre
+       six secondes un chef qui n'existe pas, sur chacune des dix-sept sondes
+       de la page de lecture. */
+    return !redisAvailable();
   } catch {
     // Redis hiccup → don't block the user; behave as leader (scrape).
     return true;
