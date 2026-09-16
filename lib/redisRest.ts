@@ -158,6 +158,52 @@ function trip(op: string, err: unknown): void {
  * `fallback` est une FONCTION et non une valeur parce que `mget` doit rendre un
  * tableau de la longueur demandée : la valeur de repli dépend des arguments.
  */
+/* ── LE COMPTEUR ──────────────────────────────────────────────────────────────
+ *
+ * Le 16/09/2026 le quota a sauté et PERSONNE ne pouvait dire quelle route
+ * l'avait mangé : le relevé quotidien compte des CLÉS, pas des commandes, et
+ * l'API de gestion d'Upstash lui répond 401. Le 30/07, faute de ce chiffre, une
+ * passe d'optimisation entière avait déjà visé les mauvaises routes.
+ *
+ * Chaque lambda compte donc ses commandes par `commande espace-de-clés` (les
+ * deux premiers segments de la clé : `get src:v14`, `incr anilist:rl`) et en
+ * écrit un résumé dans les logs Vercel. Coût Redis : ZÉRO — c'est un compteur
+ * en mémoire. Pas d'attribution par requête : en Fluid Compute plusieurs
+ * requêtes partagent le module, et l'espace de clés dit déjà d'où vient la
+ * charge.
+ *
+ * Écrit toutes les 60 s ou toutes les 500 commandes, au moment d'une commande
+ * et non sur un minuteur — une lambda gelée n'exécute pas de `setInterval`, et
+ * un minuteur la garderait éveillée. Le reliquat d'une lambda qui meurt est
+ * perdu : on veut un classement, pas une comptabilité. */
+const COUNT_FLUSH_MS = 60_000;
+const COUNT_FLUSH_N = 500;
+let counts = new Map<string, number>();
+let countTotal = 0;
+let countSince = Date.now();
+
+function space(key: unknown): string {
+  if (typeof key !== "string") return "?";
+  return key.split(":").slice(0, 2).join(":");
+}
+
+function count(op: string, key: unknown, n = 1): void {
+  const k = `${op} ${space(key)}`;
+  counts.set(k, (counts.get(k) ?? 0) + n);
+  countTotal += n;
+  const now = Date.now();
+  if (countTotal < COUNT_FLUSH_N && now - countSince < COUNT_FLUSH_MS) return;
+  const top = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([name, v]) => `${name}=${v}`)
+    .join(" ");
+  console.log(`[redis-cmd] ${countTotal} en ${Math.round((now - countSince) / 1000)}s : ${top}`);
+  counts = new Map();
+  countTotal = 0;
+  countSince = now;
+}
+
 function soft<A extends any[], R>(
   op: string,
   fn: (...a: A) => Promise<R>,
@@ -165,6 +211,7 @@ function soft<A extends any[], R>(
 ): (...a: A) => Promise<R> {
   return async (...a: A) => {
     if (!redisAvailable()) return fallback(...a);
+    if (op !== "pipeline.exec") count(op, a[0]);
     try {
       return await fn(...a);
     } catch (err) {
@@ -300,6 +347,9 @@ export function createRestRedis(): IoRedisish | null {
     };
     for (const [name, fn] of Object.entries(ops)) {
       wrapper[name] = (...args: any[]) => {
+        /* Compté à la mise en file, sous son propre nom : un pipeline reste une
+           commande par ligne pour savoir d'où vient la charge. */
+        count(`pipe.${name}`, args[0]);
         fn(...args);
         return wrapper;
       };
