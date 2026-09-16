@@ -459,6 +459,15 @@ const ListEditor: React.FC<ListEditorProps> = ({
         customLists,
       });
     }
+    /* « Rangement » : ranger un titre dans une liste personnalisee. Le libelle
+       dit « creer une liste », mais rien ici ne distingue la creation de
+       l'ajout -- et du point de vue de l'utilisateur, une liste vide n'existe
+       pas. On pose donc le drapeau des qu'un titre y atterrit. */
+    if (customLists.length) {
+      import("@/lib/badges/facts")
+        .then((f) => f.recordFlag("customList"))
+        .catch(() => {});
+    }
     /* LE MIROIR LOCAL EST ÉCRIT MAINTENANT, PAS À LA RÉPONSE D'ANILIST.
        Il ne l'était que dans le `.then` de la mutation, et c'est ce qui
        produisait le signalement « pastille verte, mais rien dans Ma liste » :

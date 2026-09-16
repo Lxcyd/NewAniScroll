@@ -150,6 +150,35 @@ function ChangelogOverlay({
     };
   }, []);
 
+  /* « Lecteur de notes » : avoir lu le changelog JUSQU'EN BAS.
+     Surveille sur le panneau, avec une tolerance de deux pixels -- un arrondi
+     sous-pixel (zoom du navigateur, ecran a densite fractionnaire) laisse
+     souvent `scrollTop + clientHeight` une fraction en dessous de
+     `scrollHeight`, et un badge qui exige l'egalite exacte serait hors de
+     portee la moitie du temps.
+     Un changelog plus court que la fenetre est deja « lu jusqu'en bas » : il
+     n'y a rien a faire defiler, et le refuser punirait la brievete. */
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const check = () => {
+      if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) {
+        import("@/lib/badges/facts")
+          .then((f) => f.recordFlag("changelog"))
+          .catch(() => {});
+        panel.removeEventListener("scroll", check);
+      }
+    };
+    /* Differe d'une image : a l'ouverture, le contenu n'est pas encore mis en
+       page et `scrollHeight` vaut celui d'un panneau vide. */
+    const id = requestAnimationFrame(check);
+    panel.addEventListener("scroll", check, { passive: true });
+    return () => {
+      cancelAnimationFrame(id);
+      panel.removeEventListener("scroll", check);
+    };
+  }, []);
+
   // Forward wheel events on the backdrop into the panel so the user can
   // scroll the changelog with their mouse positioned anywhere.
   const onWheelBackdrop = (e: React.WheelEvent<HTMLDivElement>) => {

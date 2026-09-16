@@ -106,6 +106,7 @@ const MEDIA_QUERY = `query ($ids: [Int]) {
     media(id_in: $ids, type: ANIME) {
       id
       format
+      status
       popularity
       duration
       seasonYear
@@ -121,6 +122,7 @@ const MEDIA_QUERY = `query ($ids: [Int]) {
 type MediaRow = {
   id: number;
   format: string | null;
+  status: string | null;
   popularity: number | null;
   seasonYear: number | null;
   startDate: { year: number | null } | null;
@@ -202,6 +204,7 @@ export function backfillMetadata(opts?: { force?: boolean }): Promise<void> {
             tags: (m.tags ?? []).filter((t) => !t.isAdult).map((t) => t.name),
             year: m.seasonYear ?? m.startDate?.year ?? null,
             format: m.format ?? null,
+            mediaStatus: m.status ?? null,
             studio: m.studios?.nodes?.[0]?.name ?? null,
             popularity: m.popularity ?? null,
             relIds: (m.relations?.edges ?? [])

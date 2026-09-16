@@ -91,6 +91,9 @@ export type Derived = {
   onlyLastEpisode: boolean;
   /** Un anime commencé et terminé le même jour du calendrier. */
   sameDayFinish: boolean;
+  /** Un titre en projet dont la diffusion n'a pas commencé. `null` tant que la
+   *  liste ne porte pas le statut de diffusion des œuvres. */
+  planningUnaired: boolean | null;
   /** Titres portant une note. */
   rated: number;
   /** Séries revues au moins une fois. */
@@ -320,6 +323,15 @@ export function derive(s: Snapshot): Derived {
       if (!eps || eps.size !== 1 || !e.total || e.total < 2) return false;
       return eps.has(String(e.total));
     }),
+
+    /* « Liste d'attente » : un titre AJOUTÉ alors qu'il n'est pas encore sorti.
+       Les deux statuts se ressemblent et ne parlent pas de la même chose :
+       `status` est celui du SPECTATEUR (il prévoit de le voir), `mediaStatus`
+       celui de l'ŒUVRE (elle n'est pas diffusée). Le badge demande les deux à
+       la fois. */
+    planningUnaired: !entries.some((e) => e.mediaStatus)
+      ? null
+      : entries.some((e) => e.mediaStatus === "NOT_YET_RELEASED"),
 
     /* « D'une traite » : commencé et terminé le même jour du calendrier LOCAL.
        Les deux dates sont sur l'entrée de liste, posées par le moteur de

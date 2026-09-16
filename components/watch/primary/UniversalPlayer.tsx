@@ -5782,6 +5782,11 @@ export default function UniversalPlayer({
       const url = new URL(window.location.href);
       url.searchParams.set("t", String(seconds));
       await navigator.clipboard.writeText(url.toString());
+      /* Le meme badge que le bouton « partager » de la fiche : copier le lien
+         d'un anime. L'horodatage en plus ne change pas le geste. */
+      import("@/lib/badges/facts")
+        .then((f) => f.recordFlag("copyLink"))
+        .catch(() => {});
       const mm = Math.floor(seconds / 60);
       const ss = String(seconds % 60).padStart(2, "0");
       showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 5000, "success");

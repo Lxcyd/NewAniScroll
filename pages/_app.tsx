@@ -216,6 +216,7 @@ function BadgesBootstrap() {
   const { data: session, status } = useSession();
   const createdAt = (session as any)?.user?.createdAt as number | undefined;
   const anilistLinked = !!(session as any)?.user?.anilistId;
+  const hasAvatar = !!(session as any)?.user?.image;
 
   useEffect(() => {
     if (status === "loading") return;
@@ -231,9 +232,13 @@ function BadgesBootstrap() {
       /* « Compte lie » se LIT sur la session : il n'y a aucun geste a
          intercepter, et le lire ici le rend retroactif pour tous ceux qui
          avaient deja lie leur compte avant que les badges existent. */
-      if (anilistLinked) {
+      if (anilistLinked || hasAvatar) {
         const { recordFlag } = await import("@/lib/badges/facts");
-        recordFlag("anilistLinked");
+        if (anilistLinked) recordFlag("anilistLinked");
+        /* Idem pour « Avatar » : la photo de profil est un ETAT, pas un geste.
+           La lire ici la rend retroactive, et evite d'aller instrumenter les
+           trois endroits d'ou elle peut changer. */
+        if (hasAvatar) recordFlag("avatar");
       }
       const stopEval = badges.start();
       /* Les gestes qui n'appartiennent a aucune page (sequence de touches,
@@ -247,7 +252,7 @@ function BadgesBootstrap() {
       cancelled = true;
       stop?.();
     };
-  }, [status, createdAt, anilistLinked]);
+  }, [status, createdAt, anilistLinked, hasAvatar]);
 
   return null;
 }

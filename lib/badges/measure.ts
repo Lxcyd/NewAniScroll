@@ -140,6 +140,8 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
     case "listSize": return [d.listSize, n];
     case "onlyLastEpisode": return bool(d.onlyLastEpisode);
     case "sameDayFinish": return bool(d.sameDayFinish);
+    case "planningUnaired":
+      return d.planningUnaired == null ? null : bool(d.planningUnaired);
     case "repeatSame":
       /* AniList compte les RE-visionnages : terminer trois fois, c'est `repeat`
          à deux. Compter `repeat >= 3` donnerait le badge au quatrième tour. */

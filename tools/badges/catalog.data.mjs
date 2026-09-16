@@ -254,7 +254,9 @@ export const CATALOG = {
     ["big-three", "u", "three", "", works("bigThree", "any"),
       "Les trois grands", "Commencer un anime du big 3.",
       "The big three", "Start one of the big three."],
-    ["planning", "c", "calendarPlus", "", flag("planning"),
+    /* Derive du statut de diffusion mis en cache, pas observe a l'ajout : ainsi
+       le badge vaut aussi pour ce qui est deja dans la liste. */
+    ["planning", "c", "calendarPlus", "", { k: "planningUnaired", n: 1 },
       "Liste d'attente", "Ajouter un anime pas encore diffusé.",
       "Waiting list", "Add an anime that hasn't aired yet."],
     ["two-voices", "u", "speech", "", flag("bothLangs"),

@@ -89,7 +89,7 @@ export const BADGES: BadgeDef[] = [
   { id: "pioneer-1975", family: "discovery", rarity: "e", icon: "history", tag: "", metric: {"k":"yearBefore","year":1975,"n":1} },
   { id: "decades", family: "discovery", rarity: "l", icon: "timeline", tag: "", metric: {"k":"decades","from":1970,"n":6} },
   { id: "big-three", family: "discovery", rarity: "u", icon: "three", tag: "", metric: {"k":"works","key":"bigThree","mode":"any","n":1} },
-  { id: "planning", family: "discovery", rarity: "c", icon: "calendarPlus", tag: "", metric: {"k":"flag","name":"planning","n":1} },
+  { id: "planning", family: "discovery", rarity: "c", icon: "calendarPlus", tag: "", metric: {"k":"planningUnaired","n":1} },
   { id: "two-voices", family: "discovery", rarity: "u", icon: "speech", tag: "", metric: {"k":"flag","name":"bothLangs","n":1} },
   { id: "blind-pick", family: "discovery", rarity: "c", icon: "shuffle", tag: "", metric: {"k":"flag","name":"random","n":1} },
   { id: "studio-10", family: "discovery", rarity: "r", icon: "clapper", tag: "10", metric: {"k":"studio","n":10} },

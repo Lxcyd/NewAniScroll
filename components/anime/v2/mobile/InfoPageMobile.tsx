@@ -634,6 +634,12 @@ function MActions({
         <QueueButton mediaId={mediaId} title={mediaTitle} coverImage={mediaCover} size={44} />
         <button
           onClick={() => {
+            /* « Episode partage » : partager, ou copier le lien -- les deux
+               chemins comptent, c'est le meme geste selon ce que le navigateur
+               sait faire. */
+            import("@/lib/badges/facts")
+              .then((f) => f.recordFlag("copyLink"))
+              .catch(() => {});
             if (typeof navigator !== "undefined" && (navigator as any).share) {
               (navigator as any)
                 .share({ title: document.title, url: location.href })

@@ -1325,6 +1325,15 @@ export default function Watch({
               facts.bumpCounter("onAirDay");
             }
           }
+          /* « Jour J » : terminer un anime le jour meme de sa sortie. Meme
+             mesure que ci-dessus, restreinte au DERNIER episode -- terminer
+             l'anime, et le faire le jour ou l'episode est tombe. Un anime
+             deja termine (`nextAiringEpisode` absent) ne peut plus donner ce
+             badge, ce qui est exact : sa derniere sortie est passee. */
+          if (total && Number(episodeNumber) === total && next?.airingAt) {
+            const airedAt = (next.airingAt - 7 * 86400) * 1000;
+            if (Math.abs(Date.now() - airedAt) < 86400_000) facts.recordFlag("dayOne");
+          }
         })
         .catch(() => {});
     },

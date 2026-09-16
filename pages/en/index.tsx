@@ -1183,11 +1183,18 @@ export default function Home({
         <HeroBanner
           entries={heroEntries}
           firstTrend={firstTrend}
-          onPlay={(id) =>
+          onPlay={(id) => {
+            /* « Coup de projecteur » : lancer un episode depuis le carrousel de
+               l'accueil. Pose au CLIC et non a la fin de l'episode -- c'est ici,
+               et seulement ici, qu'on sait d'ou vient la lecture ; la page de
+               lecture, elle, ne saura jamais par quelle porte on est entre. */
+            import("@/lib/badges/facts")
+              .then((f) => f.recordFlag("spotlight"))
+              .catch(() => {});
             router.push(
               `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-1&num=1`,
-            )
-          }
+            );
+          }}
           stripDescription={removeHtmlTags}
         />
 

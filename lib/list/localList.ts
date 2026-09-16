@@ -69,6 +69,9 @@ export type LocalEntry = {
   year?: number | null;
   /** TV, MOVIE, OVA, ONA, SPECIAL… */
   format?: string | null;
+  /** Statut de diffusion de l'ŒUVRE (FINISHED, RELEASING, NOT_YET_RELEASED…),
+   *  à ne pas confondre avec `status`, qui est celui du SPECTATEUR. */
+  mediaStatus?: string | null;
   /** Studio principal. */
   studio?: string | null;
   /** Combien de personnes l'ont sur leur liste, chez AniList. */
@@ -151,6 +154,7 @@ export function upsertLocalEntry(
     tags: patch.tags !== undefined ? patch.tags : prev?.tags,
     year: patch.year !== undefined ? patch.year : prev?.year,
     format: patch.format !== undefined ? patch.format : prev?.format,
+    mediaStatus: patch.mediaStatus !== undefined ? patch.mediaStatus : prev?.mediaStatus,
     studio: patch.studio !== undefined ? patch.studio : prev?.studio,
     popularity: patch.popularity !== undefined ? patch.popularity : prev?.popularity,
     relIds: patch.relIds !== undefined ? patch.relIds : prev?.relIds,
@@ -231,6 +235,7 @@ export function importEntries(entries: LocalEntry[], mode: ImportMode): number {
       tags: e.tags ?? kept?.tags,
       year: e.year ?? kept?.year,
       format: e.format ?? kept?.format,
+      mediaStatus: e.mediaStatus ?? kept?.mediaStatus,
       studio: e.studio ?? kept?.studio,
       popularity: e.popularity ?? kept?.popularity,
       relIds: e.relIds ?? kept?.relIds,
