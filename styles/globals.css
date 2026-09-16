@@ -3347,20 +3347,67 @@ input[type="number"] {
    Quatre temps, une seule ligne du temps. Les durées sont partagées avec le
    composant, qui déclenche le suivant sur `animationend` du dernier élément.
 
-   1. le jeton surgit, seul, au centre        0 → 600 ms
-   2. il glisse à gauche, la carte s'ouvre  600 → 1100 ms
-   3. la pose, lisible                     1100 → 4600 ms
-   4. la carte se referme, le jeton part   4600 → 5200 ms              */
+   1. le jeton surgit, seul, au centre        0 → 720 ms
+   2. il glisse à gauche, la carte s'ouvre  720 → 1240 ms
+   3. la pose, lisible                     1240 → 4840 ms
+   4. la carte se referme, le jeton part   4840 → 5460 ms
 
+   Tout est en `transform` et en `opacity` — les deux seules propriétés que le
+   navigateur anime sans repeindre — À UNE EXCEPTION PRÈS, assumée : la largeur
+   de la carte. C'est elle qui pousse le jeton vers la gauche, et c'est tout le
+   deuxième temps ; un `scaleX` déformerait le texte, un `clip-path` laisserait
+   le jeton là où il est. Une largeur, sur un seul élément de 300 px pendant
+   520 ms, est le prix de ce mouvement.                                     */
+
+/* Le surgissement : une chute, un impact qui écrase, deux rebonds qui
+   s'amortissent. La rotation est ce qui sépare « un objet qui arrive » de
+   « une div qui grandit » — elle reste faible (‑28° → 0) pour qu'on lise le
+   jeton pendant tout le trajet. */
 @keyframes asAchIn {
-  0% { transform: translateY(-120%) scale(0.3); opacity: 0; }
-  55% { transform: translateY(0) scale(1.15); opacity: 1; }
-  80% { transform: translateY(0) scale(0.96); opacity: 1; }
-  100% { transform: translateY(0) scale(1); opacity: 1; }
+  0% { transform: translateY(-150%) scale(0.2) rotate(-28deg); opacity: 0; }
+  30% { opacity: 1; }
+  46% { transform: translateY(7%) scale(1.3) rotate(7deg); opacity: 1; }
+  62% { transform: translateY(0) scale(0.88) rotate(-5deg); }
+  78% { transform: translateY(0) scale(1.09) rotate(3deg); }
+  90% { transform: translateY(0) scale(0.98) rotate(-1deg); }
+  100% { transform: translateY(0) scale(1) rotate(0deg); }
 }
+/* Le retrait : une petite reprise d'élan vers le bas avant de partir, pour que
+   le départ ait la même matière que l'arrivée. */
 @keyframes asAchOut {
-  0% { transform: translateY(0) scale(1); opacity: 1; }
-  100% { transform: translateY(-120%) scale(0.4); opacity: 0; }
+  0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+  22% { transform: translateY(8%) scale(1.07) rotate(-4deg); opacity: 1; }
+  100% { transform: translateY(-140%) scale(0.3) rotate(20deg); opacity: 0; }
+}
+
+/* La respiration pendant la pose : très faible amplitude, longue période. Le
+   jeton reste vivant sous le texte sans attirer l'œil qui lit. */
+@keyframes asAchBreathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+/* L'onde de choc de l'impact : un anneau qui se détend et s'affine. */
+@keyframes asAchRing {
+  0% { transform: scale(0.2); opacity: 0; border-width: 12px; }
+  10% { opacity: 0.9; }
+  100% { transform: scale(2.7); opacity: 0; border-width: 1px; }
+}
+
+/* Les rayons : huit traits qui jaillissent du centre puis se rétractent. Ils
+   ne durent que le temps de l'impact — c'est un éclat, pas un décor. */
+@keyframes asAchRay {
+  0% { transform: rotate(var(--as-rot)) scaleY(0.15); opacity: 0; }
+  20% { opacity: 0.85; }
+  55% { transform: rotate(var(--as-rot)) scaleY(1.25); opacity: 0.5; }
+  100% { transform: rotate(var(--as-rot)) scaleY(0.5); opacity: 0; }
+}
+
+/* Les trois lignes de texte entrent décalées, derrière l'ouverture de la
+   carte : le nom du badge se lit avant sa condition. */
+@keyframes asAchLine {
+  0% { opacity: 0; transform: translateX(-14px); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 
 /* La carte s'ouvre EN LARGEUR derrière le jeton : c'est ce qui donne
@@ -3383,13 +3430,24 @@ input[type="number"] {
   100% { transform: scale(2.4); opacity: 0; }
 }
 
-/* Les particules : douze éclats projetés en étoile. Chacune porte son propre
-   angle et sa propre distance en variables CSS, posées par le composant. */
+/* Les particules : une gerbe d'éclats projetés en étoile. Chacun porte son
+   angle, sa distance, sa taille et sa CHUTE en variables CSS, posées par le
+   composant.
+
+   `--as-fall` est ce qui distingue une gerbe d'une roue de clipart : sans lui
+   les douze éclats partent en rayon parfait et reviennent nulle part. Avec, ils
+   montent, ralentissent et retombent — chacun d'une hauteur différente. */
 @keyframes asAchSpark {
-  0% { transform: translate(0, 0) scale(0); opacity: 0; }
-  15% { opacity: 1; }
+  0% { transform: translate(0, 0) scale(0) rotate(0deg); opacity: 0; }
+  12% {
+    opacity: 1;
+    transform: translate(calc(var(--as-dx) * 0.3), calc(var(--as-dy) * 0.3))
+      scale(var(--as-sc)) rotate(40deg);
+  }
+  65% { opacity: 1; }
   100% {
-    transform: translate(var(--as-dx), var(--as-dy)) scale(var(--as-sc));
+    transform: translate(var(--as-dx), calc(var(--as-dy) + var(--as-fall)))
+      scale(calc(var(--as-sc) * 0.25)) rotate(220deg);
     opacity: 0;
   }
 }
@@ -3397,7 +3455,7 @@ input[type="number"] {
 /* Le liseré qui court autour de la carte pendant la pose. */
 @keyframes asAchShine {
   0% { transform: translateX(-60%); }
-  100% { transform: translateX(260%); }
+  100% { transform: translateX(560%); }
 }
 
 /* RESPECT DU RÉGLAGE SYSTÈME. On garde l'apparition et le texte — sans quoi la
@@ -3406,8 +3464,17 @@ input[type="number"] {
 @media (prefers-reduced-motion: reduce) {
   .as-ach-spark,
   .as-ach-halo,
+  .as-ach-ring,
+  .as-ach-ray,
   .as-ach-shine {
     display: none !important;
+  }
+  /* La respiration de la pose et l'entrée décalée des lignes : du confort, pas
+     de l'information. On les coupe, le texte reste lisible d'emblée. */
+  .as-ach-breathe,
+  .as-ach-line {
+    animation: none !important;
+    opacity: 1 !important;
   }
   .as-badge-token svg[style*="asTw"],
   .as-badge-token rect[style*="asSweep"] {

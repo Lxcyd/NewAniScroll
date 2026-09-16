@@ -40,37 +40,75 @@ import { RARITY } from "@/components/profile/badges/rarity";
 /* La ligne du temps, en millisecondes. Les mêmes valeurs que les keyframes
    asAch* de globals.css — elles vivent des deux côtés parce que l'une dessine
    et l'autre enchaîne, et elles doivent rester d'accord. */
-const IN_MS = 600;      // le jeton surgit
-const OPEN_MS = 500;    // la carte s'ouvre
-const HOLD_MS = 3500;   // la pose
-const OUT_MS = 600;     // le retrait
-const CARD_W = 300;
+const IN_MS = 720;      // le jeton surgit
+const OPEN_MS = 520;    // la carte s'ouvre
+const HOLD_MS = 3600;   // la pose
+const OUT_MS = 620;     // le retrait
+const CARD_W = 316;
+/** Le côté du jeton dans la notification. Plus gros que dans la liste : il est
+ *  seul à l'écran pendant tout le premier temps, c'est lui le spectacle. */
+const TOKEN = 104;
+const SPARKS = 18;
 
 type Phase = "in" | "open" | "hold" | "out";
 
-/** Douze éclats, semés une fois par badge pour qu'ils ne sautent pas au re-rendu. */
-function sparks(seed: number) {
-  const out: { dx: number; dy: number; sc: number; delay: number; color: string }[] = [];
+type Spark = {
+  dx: number; dy: number; fall: number;
+  sc: number; delay: number; size: number; square: boolean;
+};
+
+/**
+ * La gerbe d'éclats, semée une fois par badge pour qu'elle ne saute pas au
+ * re-rendu.
+ *
+ * Trois désordres, et chacun corrige un défaut visible : les ANGLES sont
+ * bruités (douze rayons réguliers font une roue de clipart), les DÉPARTS sont
+ * décalés (tout partir à la même image fait un seul « pouf » plat), et chaque
+ * éclat RETOMBE d'une hauteur qui lui est propre — c'est ce qui donne une
+ * gerbe plutôt qu'une explosion symétrique.
+ */
+function sparks(seed: number): Spark[] {
+  const out: Spark[] = [];
   let s = seed || 1;
   const rnd = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
-  for (let i = 0; i < 12; i++) {
-    /* Répartis sur le cercle, avec un peu de désordre : douze angles
-       parfaitement réguliers donneraient une roue de feu d'artifice de
-       clipart. */
-    const a = (i / 12) * Math.PI * 2 + (rnd() - 0.5) * 0.5;
-    const dist = 42 + rnd() * 38;
+  for (let i = 0; i < SPARKS; i++) {
+    const a = (i / SPARKS) * Math.PI * 2 + (rnd() - 0.5) * 0.7;
+    const dist = 46 + rnd() * 52;
     out.push({
       dx: Math.cos(a) * dist,
       dy: Math.sin(a) * dist,
-      sc: 0.4 + rnd() * 0.8,
-      delay: rnd() * 120,
-      color: "",
+      /* La chute est plus forte sur les éclats partis vers le haut : ce sont
+         eux qu'on voit retomber, et c'est ce retour qui donne du poids. */
+      fall: 22 + rnd() * 46,
+      sc: 0.45 + rnd() * 0.9,
+      delay: rnd() * 160,
+      size: 4 + Math.round(rnd() * 4),
+      /* Un éclat sur trois est un carré : deux formes qui tournent lisent
+         mieux qu'une pluie de ronds identiques. */
+      square: rnd() < 0.34,
     });
   }
   return out;
+}
+
+/** Les huit rayons de l'impact, à angles réguliers — eux ont le droit. */
+const RAYS = Array.from({ length: 8 }, (_, i) => i * 45);
+
+/**
+ * L'entrée d'une ligne de texte, décalée de `delay`.
+ *
+ * `"none"` tant que la carte n'est pas ouverte : le style de repli du CSS
+ * (`.as-ach-line` sans animation) laisse la ligne visible, et c'est voulu —
+ * elle est de toute façon derrière une carte de largeur nulle, et un
+ * `opacity: 0` en dur laisserait le texte invisible si l'animation ne partait
+ * jamais (onglet en arrière-plan, animations coupées par le système).
+ */
+function line(phase: Phase, delay: number): string {
+  if (phase === "in" || phase === "out") return "none";
+  return `asAchLine 380ms cubic-bezier(.22,1,.36,1) ${delay}ms both`;
 }
 
 export default function AchievementToast() {
@@ -130,20 +168,27 @@ export default function AchievementToast() {
           display: "flex",
           alignItems: "center",
           pointerEvents: "none",
-          maxWidth: "min(92vw, 460px)",
+          maxWidth: "min(94vw, 470px)",
         }}
       >
-        {/* Le jeton, et ce qui l'accompagne à l'impact. */}
+        {/* Le jeton, et ce qui l'accompagne à l'impact.
+
+            DEUX NIVEAUX, et il en faut deux : l'extérieur joue l'arrivée puis
+            le départ, l'intérieur respire pendant la pose. Empiler les deux
+            animations sur le même élément ferait que la seconde écrase la
+            transformation finale de la première — le jeton sauterait. */}
         <div
           className="as-ach-token"
           style={{
             position: "relative",
             flexShrink: 0,
             animation: closing
-              ? `asAchOut ${OUT_MS}ms cubic-bezier(.4,0,.8,.2) forwards`
-              : `asAchIn ${IN_MS}ms cubic-bezier(.22,1.2,.36,1) both`,
+              ? `asAchOut ${OUT_MS}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
+              : `asAchIn ${IN_MS}ms cubic-bezier(.3,.8,.3,1) both`,
           }}
         >
+          {/* L'impact : le halo, l'onde, les rayons, la gerbe. Tout est
+              `aria-hidden` et `pointer-events:none` — c'est de la peinture. */}
           <div
             className="as-ach-halo"
             aria-hidden="true"
@@ -151,14 +196,50 @@ export default function AchievementToast() {
               position: "absolute",
               inset: 0,
               margin: "auto",
-              width: 96,
-              height: 96,
+              width: TOKEN + 20,
+              height: TOKEN + 20,
               borderRadius: "50%",
-              background: `radial-gradient(circle, ${R.ic}55 0%, transparent 70%)`,
-              animation: `asAchHalo 900ms ease-out ${IN_MS * 0.4}ms both`,
+              background: `radial-gradient(circle, ${R.ic}66 0%, transparent 70%)`,
+              animation: `asAchHalo 950ms ease-out ${IN_MS * 0.38}ms both`,
               pointerEvents: "none",
             }}
           />
+          <div
+            className="as-ach-ring"
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              margin: "auto",
+              width: TOKEN,
+              height: TOKEN,
+              borderRadius: "50%",
+              border: `10px solid ${R.ic}`,
+              animation: `asAchRing 760ms cubic-bezier(.16,.8,.3,1) ${IN_MS * 0.4}ms both`,
+              pointerEvents: "none",
+            }}
+          />
+          {RAYS.map((deg) => (
+            <span
+              key={deg}
+              className="as-ach-ray"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                width: 3,
+                height: TOKEN * 1.5,
+                marginTop: -TOKEN * 0.75,
+                marginLeft: -1.5,
+                borderRadius: 2,
+                background: `linear-gradient(to bottom, transparent, ${R.ic}, transparent)`,
+                ["--as-rot" as string]: `${deg}deg`,
+                animation: `asAchRay 620ms cubic-bezier(.2,.9,.3,1) ${IN_MS * 0.42}ms both`,
+                pointerEvents: "none",
+              }}
+            />
+          ))}
           {bits.map((b, i) => (
             <span
               key={i}
@@ -168,28 +249,40 @@ export default function AchievementToast() {
                 position: "absolute",
                 top: "50%",
                 left: "50%",
-                width: 6,
-                height: 6,
-                marginTop: -3,
-                marginLeft: -3,
-                borderRadius: "50%",
+                width: b.size,
+                height: b.size,
+                marginTop: -b.size / 2,
+                marginLeft: -b.size / 2,
+                borderRadius: b.square ? 1 : "50%",
                 background: R.starColors[i % (R.starColors.length || 1)] || R.ic,
+                boxShadow: `0 0 6px ${R.ic}aa`,
                 ["--as-dx" as string]: `${b.dx}px`,
                 ["--as-dy" as string]: `${b.dy}px`,
+                ["--as-fall" as string]: `${b.fall}px`,
                 ["--as-sc" as string]: String(b.sc),
-                animation: `asAchSpark 850ms ease-out ${IN_MS * 0.35 + b.delay}ms both`,
+                animation: `asAchSpark 1100ms cubic-bezier(.12,.7,.3,1) ${IN_MS * 0.34 + b.delay}ms both`,
                 pointerEvents: "none",
               }}
             />
           ))}
-          <BadgeToken
-            id={def.id}
-            rarity={def.rarity}
-            icon={def.icon}
-            tag={def.tag}
-            unlocked
-            size={86}
-          />
+          <div
+            className="as-ach-breathe"
+            style={{
+              /* La respiration ne démarre qu'à la pose : pendant l'arrivée elle
+                 se battrait avec les rebonds. */
+              animation:
+                phase === "hold" ? "asAchBreathe 2.6s ease-in-out infinite" : "none",
+            }}
+          >
+            <BadgeToken
+              id={def.id}
+              rarity={def.rarity}
+              icon={def.icon}
+              tag={def.tag}
+              unlocked
+              size={TOKEN}
+            />
+          </div>
         </div>
 
         {/* La carte : elle s'ouvre en largeur derrière le jeton, ce qui donne
@@ -202,12 +295,14 @@ export default function AchievementToast() {
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
             marginLeft: -10,
-            borderRadius: "0 12px 12px 0",
-            background: "linear-gradient(90deg, rgba(20,20,31,.97), rgba(20,20,31,.88))",
+            borderRadius: "0 14px 14px 0",
+            background: `linear-gradient(90deg, ${R.ic}1f, rgba(20,20,31,.96) 38%, rgba(20,20,31,.9))`,
             border: "1px solid rgba(255,255,255,.1)",
             borderLeft: "none",
-            boxShadow: "0 8px 30px rgba(0,0,0,.55)",
-            padding: opened ? "12px 18px 12px 24px" : "12px 0",
+            /* L'ombre porte la couleur de la rareté : c'est ce qui fait qu'un
+               mythique ne ressemble pas à un commun une fois la carte ouverte. */
+            boxShadow: `0 10px 34px rgba(0,0,0,.55), 0 0 26px ${R.ic}22`,
+            padding: opened ? "12px 18px 12px 26px" : "12px 0",
             position: "relative",
             animation: closing
               ? `asAchClose ${OUT_MS}ms ease-in forwards`
@@ -216,34 +311,44 @@ export default function AchievementToast() {
                 : `asAchOpen ${OPEN_MS}ms cubic-bezier(.22,1,.36,1) both`,
           }}
         >
+          {/* Les trois lignes entrent DÉCALÉES, une fois la carte ouverte : on
+              lit « badge débloqué », puis son nom, puis sa condition — dans
+              l'ordre où on veut qu'ils soient lus. Apparaître d'un bloc ferait
+              de la carte un panneau au lieu d'une annonce. */}
           <div
+            className="as-ach-line"
             style={{
               font: "500 9px Karla, sans-serif",
               letterSpacing: ".18em",
               textTransform: "uppercase",
               color: R.ic,
               marginBottom: 4,
+              animation: line(phase, 0),
             }}
           >
             {t("badges.ui.unlocked", "Badge débloqué")}
           </div>
           <div
+            className="as-ach-line"
             style={{
-              font: "600 15px/1.2 Outfit, sans-serif",
+              font: "600 15.5px/1.2 Outfit, sans-serif",
               color: "#fff",
               overflow: "hidden",
               textOverflow: "ellipsis",
+              animation: line(phase, 90),
             }}
           >
             {t(`badges.${def.id}.name`)}
           </div>
           <div
+            className="as-ach-line"
             style={{
               font: "400 11.5px/1.35 Karla, sans-serif",
               color: "rgba(255,255,255,.55)",
               marginTop: 3,
               overflow: "hidden",
               textOverflow: "ellipsis",
+              animation: line(phase, 175),
             }}
           >
             {t(`badges.${def.id}.cond`)}
@@ -258,8 +363,10 @@ export default function AchievementToast() {
               bottom: 0,
               left: 0,
               width: 60,
-              background: `linear-gradient(90deg, transparent, ${R.ic}22, transparent)`,
-              animation: phase === "hold" ? "asAchShine 1.6s ease-in-out 1" : "none",
+              background: `linear-gradient(90deg, transparent, ${R.ic}33, transparent)`,
+              /* Deux passages pendant la pose, pas un : le premier tombe encore
+                 dans l'ouverture de la carte et se voit mal. */
+              animation: phase === "hold" ? "asAchShine 1.7s ease-in-out .15s 2" : "none",
               pointerEvents: "none",
             }}
           />

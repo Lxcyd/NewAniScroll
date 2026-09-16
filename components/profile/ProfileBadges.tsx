@@ -20,12 +20,13 @@
  * avancement qu'on n'a pas mesuré serait un chiffre faux.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
   type BadgeDef, type Rarity,
 } from "@/lib/badges/catalog";
+import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
@@ -42,6 +43,20 @@ const FAMILY_ORDER = [
   "episodes", "time", "sessions", "finished",
   "discovery", "genres", "franchise", "regularity", "profile",
 ] as const;
+
+/**
+ * Le côté d'un jeton, en px.
+ *
+ * Le dessin de la maquette est fait pour 118 : en dessous d'une centaine, la
+ * plaque de palier et la constellation deviennent des taches. On s'en approche
+ * dans la liste, et on garde le palier du dépli à une taille de vignette — il
+ * est là pour situer, pas pour se regarder.
+ *
+ * Le jeton grossit encore de 8 % au survol (.as-badge-token), donc la ligne
+ * réserve un peu plus que `ROW_TOKEN`.
+ */
+const ROW_TOKEN = 100;
+const TIER_TOKEN = 54;
 
 export default function ProfileBadges({
   state,
@@ -161,6 +176,7 @@ export default function ProfileBadges({
           )}
         </div>
         <div className="flex flex-wrap gap-2">
+          {live && <PreviewButton />}
           {chips.map((c) => (
             <button
               key={c.k}
@@ -223,6 +239,50 @@ export default function ProfileBadges({
   );
 }
 
+/* ── ⚠ TEMPORAIRE — le bouton d'essai de la notification ────────────────────
+ *
+ * À RETIRER une fois l'animation validée. Tout ce qui le concerne tient dans ce
+ * bloc et dans le `{live && <PreviewButton />}` de l'en-tête : deux suppressions
+ * et il n'en reste rien.
+ *
+ * Il N'ACCORDE AUCUN BADGE — il ne touche ni `aniscroll:badges`, ni les faits,
+ * ni la sauvegarde. Il pousse un id dans la file d'affichage, point. Un bouton
+ * d'essai qui accorderait pour de vrai fabriquerait une fausse collection qu'il
+ * faudrait ensuite démêler, et l'invariant « un badge obtenu ne se reperd
+ * jamais » rend ce démêlage impossible.
+ *
+ * Chaque clic avance d'une RARETÉ : les six ont des couleurs, des étoiles et un
+ * balayage différents, et c'est justement ça qu'on vient regarder.
+ *
+ * Son libellé n'est PAS traduit, et c'est délibéré : ajouter deux clés dans les
+ * deux locales pour un bouton qu'on va enlever laisserait deux orphelines
+ * derrière lui. « Test » se lit dans les deux langues.
+ */
+function PreviewButton() {
+  const step = useRef(0);
+
+  const fire = () => {
+    const rarity = RARITY_ORDER[step.current % RARITY_ORDER.length];
+    step.current += 1;
+    const pool = BADGES.filter((b) => b.rarity === rarity && !b.secret);
+    const pick = (pool.length ? pool : BADGES)[
+      Math.floor(Math.random() * (pool.length || BADGES.length))
+    ];
+    announce([pick.id]);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={fire}
+      title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
+      className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
+    >
+      Test
+    </button>
+  );
+}
+
 /* ── Une ligne ──────────────────────────────────────────────────────────────── */
 
 function BadgeRow({
@@ -242,7 +302,7 @@ function BadgeRow({
   const R = RARITY[def.rarity];
 
   return (
-    <div className="as-badge-row as-stat-card flex flex-col rounded-xl px-3 py-2.5 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]">
+    <div className="as-badge-row as-stat-card flex flex-col rounded-xl px-3.5 py-3 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]">
       <div className="flex items-center gap-4">
         <div className="shrink-0">
           <BadgeToken
@@ -252,13 +312,13 @@ function BadgeRow({
             tag={def.tag}
             unlocked={unlocked}
             hidden={hidden && !unlocked}
-            size={72}
+            size={ROW_TOKEN}
           />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-outfit text-[14px] font-semibold text-white">
+            <span className="font-outfit text-[15.5px] font-semibold text-white">
               {t(`badges.${def.id}.name`)}
             </span>
             <span
@@ -339,7 +399,7 @@ function Condition({ def, hidden }: { def: BadgeDef; hidden: boolean }) {
   if (hidden) {
     return (
       <p
-        className="as-badge-blur m-0 mt-0.5 font-karla text-[11.5px] leading-snug text-white/30"
+        className="as-badge-blur m-0 mt-1 font-karla text-[12.5px] leading-snug text-white/30"
         aria-label={t("badges.ui.secretHidden", "Condition masquée")}
       >
         {"▒".repeat(34)}
@@ -347,7 +407,7 @@ function Condition({ def, hidden }: { def: BadgeDef; hidden: boolean }) {
     );
   }
   return (
-    <p className="m-0 mt-0.5 font-karla text-[11.5px] leading-snug text-white/45">
+    <p className="m-0 mt-1 font-karla text-[12.5px] leading-snug text-white/45">
       {t(`badges.${def.id}.cond`)}
     </p>
   );
@@ -444,7 +504,7 @@ function LadderDetails({
                 icon={def.icon}
                 tag={def.tag}
                 unlocked={at != null}
-                size={40}
+                size={TIER_TOKEN}
                 animate={false}
               />
               <span className="font-outfit text-[12.5px] text-white/70">
