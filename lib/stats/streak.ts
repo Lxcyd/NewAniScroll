@@ -11,6 +11,12 @@
  */
 
 import { useEffect, useState } from "react";
+/* Le calendrier vient de lib/badges/localtime.ts depuis que les badges comptent
+   des jours eux aussi : deux helpers de date dans le même site finiraient par
+   diverger, et le badge « Un mois » doit compter exactement les jours que la
+   série affichée sur le profil compte. Le traitement du changement d'heure et de
+   l'horloge fausse y est documenté. */
+import { dayKey, dayDiff } from "../badges/localtime";
 
 export type StreakState = {
   /** Last day (YYYY-MM-DD) an episode was finished. */
@@ -23,22 +29,6 @@ export type StreakState = {
 
 const KEY = "aniscroll:streak";
 export const STREAK_EVENT = "aniscroll:streak:change";
-
-function dayKey(d = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Difference in whole calendar days between two YYYY-MM-DD strings (b - a). */
-function dayDiff(a: string, b: string): number {
-  const [ay, am, ad] = a.split("-").map(Number);
-  const [by, bm, bd] = b.split("-").map(Number);
-  const ta = Date.UTC(ay, am - 1, ad);
-  const tb = Date.UTC(by, bm - 1, bd);
-  return Math.round((tb - ta) / 86_400_000);
-}
 
 const EMPTY: StreakState = { lastDay: null, current: 0, best: 0 };
 

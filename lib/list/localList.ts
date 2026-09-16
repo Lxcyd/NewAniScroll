@@ -47,6 +47,35 @@ export type LocalEntry = {
    *  reset inactivity — otherwise nothing ever looks stale. Falls back to
    *  `updatedAt` when missing (older entries written before this field). */
   activityAt?: number;
+
+  /* ── Métadonnées d'œuvre, mises en cache pour les badges ────────────────────
+     Une liste locale ne connaissait que le titre, la jaquette et l'avancement.
+     Les familles Genres, Découverte et Franchises en demandent plus, et
+     l'inventer n'est pas une option : « pas de chiffre faux sur un profil »
+     (lib/profile/insights.ts). Ces champs sont donc remplis OPPORTUNISTEMENT,
+     là où la donnée est déjà en main et ne coûte rien de plus :
+       - la synchro AniList, qui demandait déjà `media { … }` ;
+       - la page anime et la page de lecture, qui les ont affichées ;
+       - un rattrapage unique pour les listes déjà constituées
+         (lib/badges/metaBackfill.ts), contre AniList et non contre nous.
+
+     Tant qu'ils sont absents, le badge qui en dépend est « pas encore
+     mesurable » — jamais « zéro ». */
+  /** Genres AniList, en anglais (c'est ce que portent les données). */
+  genres?: string[];
+  /** Tags AniList, en anglais. */
+  tags?: string[];
+  /** Année de première diffusion. */
+  year?: number | null;
+  /** TV, MOVIE, OVA, ONA, SPECIAL… */
+  format?: string | null;
+  /** Studio principal. */
+  studio?: string | null;
+  /** Combien de personnes l'ont sur leur liste, chez AniList. */
+  popularity?: number | null;
+  /** Ids AniList des œuvres liées — de quoi reconstruire une franchise sans
+   *  interroger notre propre base. */
+  relIds?: number[];
 };
 
 export type LocalListMap = Record<number, LocalEntry>;
@@ -115,10 +144,51 @@ export function upsertLocalEntry(
     updatedAt: patch.updatedAt !== undefined ? patch.updatedAt : Date.now(),
     activityAt:
       patch.activityAt !== undefined ? patch.activityAt : prev?.activityAt,
+    /* Les métadonnées se conservent au patch, comme tout le reste : un
+       `upsertLocalEntry(id, { progress })` venu du lecteur ne doit pas effacer
+       les genres posés par la page anime. */
+    genres: patch.genres !== undefined ? patch.genres : prev?.genres,
+    tags: patch.tags !== undefined ? patch.tags : prev?.tags,
+    year: patch.year !== undefined ? patch.year : prev?.year,
+    format: patch.format !== undefined ? patch.format : prev?.format,
+    studio: patch.studio !== undefined ? patch.studio : prev?.studio,
+    popularity: patch.popularity !== undefined ? patch.popularity : prev?.popularity,
+    relIds: patch.relIds !== undefined ? patch.relIds : prev?.relIds,
   };
   map[mediaId] = next;
   writeLocalList(map);
   return next;
+}
+
+/**
+ * Patcher BEAUCOUP d'entrées d'un coup : une lecture, une écriture, un
+ * événement.
+ *
+ * `upsertLocalEntry` relit et réécrit toute la liste à chaque appel — parfait
+ * pour un épisode terminé, ruineux pour les huit cents titres du rattrapage de
+ * métadonnées (lib/badges/metaBackfill.ts) : ce serait huit cents
+ * sérialisations d'une liste d'un mégaoctet, et huit cents événements dont
+ * chacun réveille la synchro cloud et l'évaluateur de badges.
+ *
+ * Une entrée absente est IGNORÉE et non créée : ce chemin sert à enrichir ce
+ * qu'on a, pas à inventer des lignes de liste.
+ */
+export function patchLocalEntries(
+  patches: { mediaId: number; patch: Partial<Omit<LocalEntry, "mediaId">> }[],
+): number {
+  const map = getLocalList();
+  let touched = 0;
+  for (const { mediaId, patch } of patches) {
+    const prev = map[mediaId];
+    if (!prev) continue;
+    /* `updatedAt` n'est PAS remonté : un enrichissement n'est pas une activité
+       de l'utilisateur, et le faire remonter réordonnerait « Ma liste » (triée
+       par « récemment touché ») sur toute sa longueur d'un seul coup. */
+    map[mediaId] = { ...prev, ...patch, mediaId, updatedAt: prev.updatedAt };
+    touched++;
+  }
+  if (touched) writeLocalList(map);
+  return touched;
 }
 
 /** Remove one entry (no-op when absent). */
@@ -140,12 +210,32 @@ export type ImportMode = "merge" | "replace";
  */
 export function importEntries(entries: LocalEntry[], mode: ImportMode): number {
   const incoming = entries.filter((e) => e && Number.isFinite(e.mediaId));
-  let map: LocalListMap = mode === "replace" ? {} : getLocalList();
+  /* L'ÉTAT D'AVANT EST LU DANS LES DEUX MODES, y compris « replace ».
+     Un import remplace le STATUT, l'avancement, la note — ce qu'il apporte.
+     Il ne connaît pas les métadonnées d'œuvre (un export JSON d'une version
+     antérieure, un XML MyAnimeList) et les écraserait par `undefined` : les
+     familles Genres et Découverte redeviendraient « pas encore mesurables »
+     après chaque resynchronisation, jusqu'au prochain rattrapage. Ce sont des
+     données de cache, pas de la liste : elles survivent à ce que l'import dit
+     d'elle. */
+  const before = getLocalList();
+  const map: LocalListMap = mode === "replace" ? {} : before;
   let written = 0;
   for (const e of incoming) {
     const prev = map[e.mediaId];
     if (mode === "merge" && prev && prev.updatedAt >= (e.updatedAt || 0)) continue;
-    map[e.mediaId] = { ...e, updatedAt: e.updatedAt || Date.now() };
+    const kept = before[e.mediaId];
+    map[e.mediaId] = {
+      ...e,
+      genres: e.genres ?? kept?.genres,
+      tags: e.tags ?? kept?.tags,
+      year: e.year ?? kept?.year,
+      format: e.format ?? kept?.format,
+      studio: e.studio ?? kept?.studio,
+      popularity: e.popularity ?? kept?.popularity,
+      relIds: e.relIds ?? kept?.relIds,
+      updatedAt: e.updatedAt || Date.now(),
+    };
     written++;
   }
   writeLocalList(map);
