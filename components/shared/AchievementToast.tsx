@@ -43,14 +43,19 @@ import { RARITY } from "@/components/profile/badges/rarity";
 const IN_MS = 720;      // le jeton surgit
 const OPEN_MS = 520;    // la carte s'ouvre
 const HOLD_MS = 3600;   // la pose
-const OUT_MS = 620;     // le retrait
+/* LA SORTIE EN DEUX TEMPS. Le texte s'efface et la carte se referme (le jeton
+   revient donc au centre tout seul, puisque le bloc est centré et rétrécit vers
+   son milieu) ; ensuite seulement le jeton remonte en rétrécissant, comme il
+   est venu. */
+const TEXT_OUT_MS = 420;
+const OUT_MS = 620;     // le retrait du jeton
 const CARD_W = 316;
 /** Le côté du jeton dans la notification. Plus gros que dans la liste : il est
  *  seul à l'écran pendant tout le premier temps, c'est lui le spectacle. */
 const TOKEN = 104;
 const SPARKS = 18;
 
-type Phase = "in" | "open" | "hold" | "out";
+type Phase = "in" | "open" | "hold" | "textOut" | "out";
 
 type Spark = {
   dx: number; dy: number; fall: number;
@@ -108,6 +113,11 @@ const RAYS = Array.from({ length: 8 }, (_, i) => i * 45);
  */
 function line(phase: Phase, delay: number): string {
   if (phase === "in" || phase === "out") return "none";
+  /* À la sortie les lignes partent DANS L'ORDRE INVERSE : la condition d'abord,
+     le nom en dernier — on quitte le texte par où on ne lisait plus. */
+  if (phase === "textOut") {
+    return `asAchLineOut 240ms ease-in ${Math.max(0, 175 - delay)}ms both`;
+  }
   return `asAchLine 380ms cubic-bezier(.22,1,.36,1) ${delay}ms both`;
 }
 
@@ -130,8 +140,9 @@ export default function AchievementToast() {
     const at = (ms: number, fn: () => void) => timers.current.push(setTimeout(fn, ms));
     at(IN_MS, () => setPhase("open"));
     at(IN_MS + OPEN_MS, () => setPhase("hold"));
-    at(IN_MS + OPEN_MS + HOLD_MS, () => setPhase("out"));
-    at(IN_MS + OPEN_MS + HOLD_MS + OUT_MS, () => next());
+    at(IN_MS + OPEN_MS + HOLD_MS, () => setPhase("textOut"));
+    at(IN_MS + OPEN_MS + HOLD_MS + TEXT_OUT_MS, () => setPhase("out"));
+    at(IN_MS + OPEN_MS + HOLD_MS + TEXT_OUT_MS + OUT_MS, () => next());
     return () => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
@@ -295,20 +306,31 @@ export default function AchievementToast() {
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
             marginLeft: -10,
-            borderRadius: "0 14px 14px 0",
-            background: `linear-gradient(90deg, ${R.ic}1f, rgba(20,20,31,.96) 38%, rgba(20,20,31,.9))`,
-            border: "1px solid rgba(255,255,255,.1)",
-            borderLeft: "none",
-            /* L'ombre porte la couleur de la rareté : c'est ce qui fait qu'un
-               mythique ne ressemble pas à un commun une fois la carte ouverte. */
-            boxShadow: `0 10px 34px rgba(0,0,0,.55), 0 0 26px ${R.ic}22`,
-            padding: opened ? "12px 18px 12px 26px" : "12px 0",
+            /* PAS DE BOÎTE. Une carte opaque posée en haut de l'écran masque la
+               page et se voit comme un panneau collé par-dessus. On ne garde
+               que ce qui rend le texte LISIBLE : un flou d'arrière-plan et un
+               voile très léger. Le contenu de la page reste visible dessous,
+               simplement adouci. */
+            borderRadius: 16,
+            background:
+              "linear-gradient(90deg, rgba(10,10,16,.55), rgba(10,10,16,.3) 70%, rgba(10,10,16,0))",
+            backdropFilter: "blur(14px) saturate(120%)",
+            WebkitBackdropFilter: "blur(14px) saturate(120%)",
+            /* Le bord droit se dissout au lieu de s'arrêter net : sans masque,
+               un flou rectangulaire redevient une boîte. */
+            maskImage:
+              "linear-gradient(90deg, #000 0%, #000 72%, transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(90deg, #000 0%, #000 72%, transparent 100%)",
+            textShadow: "0 1px 10px rgba(0,0,0,.85)",
+            padding: opened ? "12px 26px 12px 26px" : "12px 0",
             position: "relative",
-            animation: closing
-              ? `asAchClose ${OUT_MS}ms ease-in forwards`
-              : phase === "in"
-                ? "none"
-                : `asAchOpen ${OPEN_MS}ms cubic-bezier(.22,1,.36,1) both`,
+            animation:
+              phase === "textOut" || closing
+                ? `asAchClose ${TEXT_OUT_MS}ms cubic-bezier(.4,0,.6,1) forwards`
+                : phase === "in"
+                  ? "none"
+                  : `asAchOpen ${OPEN_MS}ms cubic-bezier(.22,1,.36,1) both`,
           }}
         >
           {/* Les trois lignes entrent DÉCALÉES, une fois la carte ouverte : on

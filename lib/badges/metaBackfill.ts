@@ -124,6 +124,7 @@ type MediaRow = {
   format: string | null;
   status: string | null;
   popularity: number | null;
+  duration: number | null;
   seasonYear: number | null;
   startDate: { year: number | null } | null;
   genres: string[] | null;
@@ -216,6 +217,7 @@ export function backfillMetadata(opts?: { force?: boolean }): Promise<void> {
             mediaStatus: m.status ?? null,
             studio: m.studios?.nodes?.[0]?.name ?? null,
             popularity: m.popularity ?? null,
+            duration: m.duration ?? null,
             relIds: (m.relations?.edges ?? [])
               .filter((e) => e?.node?.type === "ANIME" && FRANCHISE_RELATIONS.has(e.relationType))
               .map((e) => e.node.id),

@@ -3410,6 +3410,16 @@ input[type="number"] {
   100% { opacity: 1; transform: translateX(0); }
 }
 
+/* LA SORTIE SE FAIT EN DEUX TEMPS, dans l'ordre inverse de l'entrée : le texte
+   s'efface d'abord, la carte se referme donc le jeton REVIENT AU CENTRE tout
+   seul (le bloc est centré, il rétrécit vers son milieu), et seulement ensuite
+   le jeton remonte en rétrécissant. Tout partir ensemble donnait une
+   disparition sans lecture — on ne voyait pas le badge une dernière fois. */
+@keyframes asAchLineOut {
+  0% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-10px); }
+}
+
 /* La carte s'ouvre EN LARGEUR derrière le jeton : c'est ce qui donne
    l'impression que le jeton se décale pour laisser la place au texte, plutôt
    que deux éléments qui apparaissent côte à côte. */
@@ -3483,8 +3493,25 @@ input[type="number"] {
   .as-badge-token {
     transition: none;
   }
-  .as-ach-token,
-  .as-ach-card {
-    animation-duration: 0.01ms !important;
+  /* LE JETON ET LA CARTE GARDENT UNE ANIMATION, PLUS COURTE ET SANS TRAJET.
+     Elles étaient coupées à 0,01 ms, c'est-à-dire supprimées : sur un poste où
+     Windows a « Effets d'animation » désactivé, la notification apparaissait
+     d'un bloc et l'achievement n'en était plus un. « Réduire les animations »
+     demande de retirer les grands mouvements et les particules — c'est fait
+     au-dessus — pas de retirer tout signal d'apparition. Il reste donc un
+     fondu-agrandissement bref, sans chute, sans rotation, sans rebond. */
+  .as-ach-token {
+    animation-name: asAchSoftIn !important;
+    animation-duration: 260ms !important;
   }
+  .as-ach-card {
+    animation-duration: 200ms !important;
+  }
+}
+
+/* L'apparition sobre du mode « animations réduites » : opacité et échelle, rien
+   qui se déplace. */
+@keyframes asAchSoftIn {
+  0% { opacity: 0; transform: scale(0.9); }
+  100% { opacity: 1; transform: scale(1); }
 }

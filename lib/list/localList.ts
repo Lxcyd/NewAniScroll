@@ -76,6 +76,12 @@ export type LocalEntry = {
   studio?: string | null;
   /** Combien de personnes l'ont sur leur liste, chez AniList. */
   popularity?: number | null;
+  /** Durée d'UN épisode, en minutes, telle qu'AniList la donne.
+   *  Sert à compter le temps de visionnage des épisodes vus AILLEURS que sur le
+   *  site (une liste importée ne laisse aucune trace de lecture ici). Absente =
+   *  ces épisodes ne comptent simplement pas de minutes, plutôt que de compter
+   *  une durée inventée. */
+  duration?: number | null;
   /** Ids AniList des œuvres liées — de quoi reconstruire une franchise sans
    *  interroger notre propre base. */
   relIds?: number[];
@@ -157,6 +163,7 @@ export function upsertLocalEntry(
     mediaStatus: patch.mediaStatus !== undefined ? patch.mediaStatus : prev?.mediaStatus,
     studio: patch.studio !== undefined ? patch.studio : prev?.studio,
     popularity: patch.popularity !== undefined ? patch.popularity : prev?.popularity,
+    duration: patch.duration !== undefined ? patch.duration : prev?.duration,
     relIds: patch.relIds !== undefined ? patch.relIds : prev?.relIds,
   };
   map[mediaId] = next;
@@ -238,6 +245,7 @@ export function importEntries(entries: LocalEntry[], mode: ImportMode): number {
       mediaStatus: e.mediaStatus ?? kept?.mediaStatus,
       studio: e.studio ?? kept?.studio,
       popularity: e.popularity ?? kept?.popularity,
+      duration: e.duration ?? kept?.duration,
       relIds: e.relIds ?? kept?.relIds,
       updatedAt: e.updatedAt || Date.now(),
     };

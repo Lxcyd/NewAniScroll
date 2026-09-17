@@ -311,10 +311,47 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   );
   const s = snap({ list });
   check("30 anime importés comptent comme terminés", m("fin-25", s), [30, 25]);
-  check("...mais ne donnent aucun épisode", derive(s).episodes, 0);
+  /* LES ÉPISODES D'UNE LISTE IMPORTÉE COMPTENT (corrigé le 17/09/2026).
+     Ils ne comptaient pas, et un compte à cinq mille épisodes sur son profil
+     n'avait que le badge du premier — le profil et l'onglet Badges affichaient
+     deux chiffres contradictoires sur la même page. Ce qu'une liste importée ne
+     donne toujours pas, ce sont les badges qui demandent une HEURE : elle porte
+     des dates, pas des horodatages de lecture. */
+  check("...et donnent bien leurs épisodes", derive(s).episodes, 360);
   check("...ni minuit", m("midnight", s), [0, 1]);
   check("...ni la fenêtre nocturne", m("late-night", s), [0, 1]);
   check("...ni de série de jours", m("streak-7", s), [0, 7]);
+  /* Sans durée connue, aucune minute inventée. */
+  check("...ni la moindre minute sans durée connue", Math.round(derive(s).minutes), 0);
+}
+{
+  /* LE DOUBLE COMPTAGE, qui est le piège de ce calcul : un épisode lu ici est
+     aussi, en principe, dans le `progress` de la liste. On prend le plus grand
+     des deux par anime, jamais la somme. */
+  const list = {
+    1: { mediaId: 1, status: "CURRENT", score: null, progress: 10, total: 24,
+         startedAt: null, completedAt: null, notes: null, updatedAt: 1, duration: 24 },
+  };
+  const progress = Object.fromEntries(
+    Array.from({ length: 4 }, (_, i) => ep(1, i + 1, local(2026, 9, 16, 20))),
+  );
+  const d = derive(snap({ list, progress }));
+  check("4 lus ici + 10 dans la liste = 10, pas 14", d.episodes, 10);
+  /* Les 6 épisodes vus AILLEURS comptent la durée qu'AniList donne ; les 4 lus
+     ici gardent leur durée mesurée (ep() pose 24 min). */
+  check("les minutes suivent la même règle", Math.round(d.minutes), 10 * 24);
+}
+{
+  /* Et l'avance locale n'est pas perdue quand la synchro n'a pas encore eu
+     lieu : la liste dit 2, on en a lu 5 ici. */
+  const list = {
+    1: { mediaId: 1, status: "CURRENT", score: null, progress: 2, total: 24,
+         startedAt: null, completedAt: null, notes: null, updatedAt: 1 },
+  };
+  const progress = Object.fromEntries(
+    Array.from({ length: 5 }, (_, i) => ep(1, i + 1, local(2026, 9, 16, 20))),
+  );
+  check("l'avance locale gagne sur une liste en retard", derive(snap({ list, progress })).episodes, 5);
 }
 
 /* ── Les badges dérivés de la liste, qui n'observent rien en direct ────────── */

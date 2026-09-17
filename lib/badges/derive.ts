@@ -222,6 +222,43 @@ export function derive(s: Snapshot): Derived {
   const completed = entries.filter((e) => FINISHED.has(String(e.status ?? "").toUpperCase()));
   const rated = entries.filter((e) => (e.score ?? 0) > 0).length;
   const rewatched = entries.filter((e) => (e.repeat ?? 0) >= 1).length;
+
+  /* ── LE COMPTE D'ÉPISODES, ET POURQUOI IL NE PEUT PAS VENIR DE LA SEULE
+     TABLE DE PROGRESSION ────────────────────────────────────────────────────
+     Première version : on ne comptait que les épisodes LUS SUR LE SITE. Un
+     compte avec cinq mille épisodes sur son profil — tous venus d'une liste
+     AniList importée — n'avait donc que le badge du premier épisode, et sa
+     barre affichait 1/25. Le profil, lui, somme `progress` sur les entrées de
+     liste (lib/profile/sources.ts) : les deux chiffres se contredisaient à
+     l'écran, sur la même page.
+
+     La source de vérité est donc la liste, avec la lecture locale par-dessus :
+     pour chaque anime on prend le PLUS GRAND des deux. Un `max`, et non une
+     somme — les épisodes lus ici sont déjà, en principe, dans `progress`, et
+     les additionner compterait deux fois le même épisode. Le max garde aussi
+     l'avance locale quand la synchro n'a pas encore eu lieu. */
+  const perAnimeCount = new Map<number, number>();
+  for (const [aniId, eps] of perAnime) perAnimeCount.set(aniId, eps.size);
+  for (const e of entries) {
+    const listed = Math.max(0, Math.floor(e.progress || 0));
+    if (listed > (perAnimeCount.get(e.mediaId) ?? 0)) perAnimeCount.set(e.mediaId, listed);
+  }
+  let episodeCount = 0;
+  for (const n of perAnimeCount.values()) episodeCount += n;
+
+  /* Les MINUTES suivent la même logique, sans jamais inventer une durée. Ce qui
+     a été lu ici est mesuré (durée réelle du fichier) ; les épisodes vus
+     ailleurs comptent la durée d'épisode qu'AniList donne pour l'œuvre, et rien
+     du tout quand elle est inconnue. Un badge de temps qui resterait à zéro
+     pour cinq mille épisodes serait aussi faux que le compteur d'épisodes. */
+  const localMinutes = watched.reduce((m, w) => m + w.minutes, 0);
+  let importedMinutes = 0;
+  for (const e of entries) {
+    const per = e.duration;
+    if (!per || per <= 0) continue;
+    const extra = Math.max(0, Math.floor(e.progress || 0) - (perAnime.get(e.mediaId)?.size ?? 0));
+    importedMinutes += extra * per;
+  }
   const mostRepeats = entries.reduce((m, e) => Math.max(m, e.repeat ?? 0), 0);
 
   /* ── Les métadonnées, et le contrat du `null` ───────────────────────────────
@@ -282,8 +319,8 @@ export function derive(s: Snapshot): Derived {
 
   return {
     now,
-    episodes: watched.length,
-    minutes: watched.reduce((m, w) => m + w.minutes, 0),
+    episodes: episodeCount,
+    minutes: localMinutes + importedMinutes,
     stamps,
     days,
     streak: currentRun(days, dayKey(now)),
