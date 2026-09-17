@@ -6,6 +6,32 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-17 (suite 2) — Le rond coupé par le haut de l'écran, et un flou qui n'est pas une boîte
+
+**L'IMPACT SORTAIT DE LA PAGE.** L'onde se détend jusqu'à 2,7 fois le jeton,
+soit un rayon de 140 px autour d'un centre posé à 70 px du haut de l'écran : la
+moitié du cercle était hors cadre, et les étincelles montantes avec. La
+notification descend à `top: 54` (44 dans le lecteur) — une demi-onde, ce qui
+laisse le rond entier visible tant qu'il se voit encore.
+
+**LE FLOU EST REVENU DERRIÈRE LE TEXTE, LA BOÎTE NON.** Ce qui faisait la boîte
+était le voile sombre et ses angles arrondis, pas le flou : un rectangle
+assombri se voit, une zone floutée ne se voit que par ce qu'elle adoucit.
+Deux choses ont demandé un banc de mesure (capture d'écran sur des bandes
+blanches et jaunes, le pire cas) :
+
+- **le masque doit s'éteindre en haut et en bas aussi.** À un rayon vertical de
+  130 %, il ne s'éteignait que sur les côtés : le flou se terminait sur deux
+  bords horizontaux nets et redevenait une barre. À 60 %, la chute tombe à
+  l'intérieur de la carte. Ça ne se voyait pas en lisant le CSS ; ça saute aux
+  yeux sur la capture.
+- **un flou ne fonce pas.** Du blanc sur une scène de jour floutée reste du
+  blanc sur blanc. `brightness(.5)` dans le `backdrop-filter` rend la lisibilité
+  du voile sans rien peindre — et il s'éteint avec le masque, donc sans bord.
+
+Le liseré qui balayait le texte est retiré (`asAchShine` avec) : il se disputait
+l'attention avec la seule chose à lire.
+
 ## 2026-09-17 (suite) — Trois causes pour deux symptômes, et une mesure qui contredit le registre
 
 **LE REGISTRE WINDOWS M'A MENTI, LE NAVIGATEUR NON.** L'entrée précédente écarte

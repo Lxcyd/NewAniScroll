@@ -183,6 +183,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-17 (suite 2) — L'onde coupée par le haut de l'écran (notification descendue), et un flou derrière le texte qui n'est pas une boîte (masque qui s'éteint aussi en haut/bas, `brightness` au lieu d'un voile)
 - 2026-09-17 (suite) — `prefers-reduced-motion` coupait la fête du badge (le registre mentait, pas `matchMedia`) ; l'onglet lisait la copie serveur ; et les 66 épisodes qu'AniList ne sait pas justifier
 - 2026-09-17 — L'impact qui ne jouait qu'une fois (réconciliation React), la boîte en fond retirée, et les relectures ajoutées au compteur d'épisodes
 - 2026-09-16 — Les badges, ou comment ajouter 176 récompenses sans une requête

@@ -188,9 +188,17 @@ export default function AchievementToast() {
         aria-live="polite"
         style={{
           /* Dans le lecteur : absolu, sous la barre de titre. Sinon : fixé à
-             l'écran, au-dessus du 9999 de `.aniscroll-player-fs`. */
+             l'écran, au-dessus du 9999 de `.aniscroll-player-fs`.
+
+             LA HAUTEUR EST DICTÉE PAR L'IMPACT, PAS PAR LE JETON. À 18 px du
+             bord, l'onde se faisait couper : elle se détend jusqu'à 2,7 fois le
+             jeton, soit un rayon de 140 px autour d'un centre qui était à 70 px
+             du haut de l'écran — la moitié du rond sortait de la page, et les
+             étincelles montantes avec. On descend donc le tout d'une demi-onde,
+             ce qui laisse le cercle entier dans le cadre au moment où il se
+             voit encore (il s'efface avant sa taille maximale). */
           position: insidePlayer ? "absolute" : "fixed",
-          top: insidePlayer ? 24 : 18,
+          top: insidePlayer ? 44 : 54,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: insidePlayer ? 60 : 999999999,
@@ -324,14 +332,32 @@ export default function AchievementToast() {
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
             marginLeft: -10,
-            /* PLUS DE BOÎTE DU TOUT. Le voile flouté et son masque étaient déjà
-               une boîte discrète : un rectangle assombri, aux angles arrondis,
-               posé en haut de l'écran pendant quatre secondes. Ne restent que
-               des lettres, au-dessus de la page ou de l'épisode.
-               Ce qui remplace le fond pour la LISIBILITÉ est une ombre portée en
-               deux couches : une halo large qui décolle le texte d'une image
-               claire, un liseré serré qui tient les pleins et déliés sur un fond
-               chargé. Une ombre suit la forme des lettres ; un rectangle, non. */
+            /* UN FLOU, PAS UNE BOÎTE — et toute la différence tient au masque.
+               Ce qui faisait la boîte était le VOILE SOMBRE (un dégradé opaque)
+               et ses angles arrondis, pas le flou : un rectangle assombri se
+               voit, une zone floutée ne se voit que par ce qu'elle adoucit. On
+               garde donc le `backdrop-filter` et on jette le fond.
+               Le masque radial est ce qui l'empêche de redevenir un cadre : sans
+               lui, le flou s'arrête net sur quatre bords droits. Il porte aussi
+               sur le texte, et c'est le compromis assumé — il est réglé pour que
+               la coupure tombe après la fin des lignes (82 % de 316 px). */
+            /* `brightness` fait le travail que faisait le voile sombre, SANS
+               peindre quoi que ce soit : un flou seul ne fonce pas, et du blanc
+               sur une scène de jour floutée reste du blanc sur blanc. Assombrir
+               le fond plutôt que poser un rectangle par-dessus, c'est la même
+               lisibilité et aucune boîte — vérifié sur banc, sur des bandes
+               blanches et jaunes, le pire cas.
+               Le masque s'éteint AUSSI en haut et en bas (rayon vertical 60 %,
+               donc la chute tombe dans la carte) : à 130 %, il ne s'éteignait
+               que sur les côtés et le flou redevenait une barre à bords nets. */
+            backdropFilter: "blur(18px) saturate(112%) brightness(.5)",
+            WebkitBackdropFilter: "blur(18px) saturate(112%) brightness(.5)",
+            maskImage:
+              "radial-gradient(80% 60% at 30% 50%, #000 26%, rgba(0,0,0,.6) 66%, transparent 100%)",
+            WebkitMaskImage:
+              "radial-gradient(80% 60% at 30% 50%, #000 26%, rgba(0,0,0,.6) 66%, transparent 100%)",
+            /* L'ombre reste : le flou adoucit ce qu'il y a derrière, il ne le
+               fonce pas. Sur une image claire, seule l'ombre tient les lettres. */
             textShadow:
               "0 2px 16px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9), 0 1px 2px rgba(0,0,0,.8)",
             padding: opened ? "12px 26px 12px 26px" : "12px 0",
@@ -377,7 +403,9 @@ export default function AchievementToast() {
             className="as-ach-line"
             style={{
               font: "400 11.5px/1.35 Karla, sans-serif",
-              color: "rgba(255,255,255,.55)",
+              /* Remontée de .55 : la condition se lisait sur un voile opaque,
+                 elle se lit maintenant sur un fond seulement assombri. */
+              color: "rgba(255,255,255,.74)",
               marginTop: 3,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -386,32 +414,9 @@ export default function AchievementToast() {
           >
             {t(`badges.${def.id}.cond`)}
           </div>
-          {/* La lueur qui court DERRIÈRE le texte pendant la pose.
-              Elle passait devant : un élément positionné peint au-dessus de ses
-              frères restés dans le flux, donc le liseré barrait les lettres au
-              lieu de les éclairer. `z-index: -1` le remet derrière — il reste
-              dans le contexte d'empilement de la notification, donc au-dessus de
-              la page, jamais dessous.
-              Et c'est une LUEUR, plus un liseré : sans la carte, un bandeau
-              rectangulaire n'a plus rien sur quoi glisser et se lit comme un
-              défaut d'affichage. Un dégradé radial n'a pas de bord. */}
-          <span
-            className="as-ach-shine"
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              left: 0,
-              width: 130,
-              zIndex: -1,
-              background: `radial-gradient(55% 60% at 50% 50%, ${R.ic}66, ${R.ic}1f 55%, transparent 75%)`,
-              /* Deux passages pendant la pose, pas un : le premier tombe encore
-                 dans l'ouverture de la carte et se voit mal. */
-              animation: phase === "hold" ? "asAchShine 1.7s ease-in-out .15s 2" : "none",
-              pointerEvents: "none",
-            }}
-          />
+          {/* (La lueur qui balayait le texte pendant la pose a été retirée : elle
+              se disputait l'attention avec la seule chose à lire, et le flou
+              d'arrière-plan fait maintenant tout le travail de lisibilité.) */}
         </div>
       </div>
     </Fragment>,

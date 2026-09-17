@@ -3462,14 +3462,9 @@ input[type="number"] {
   }
 }
 
-/* La lueur qui court derrière le texte pendant la pose. La course s'arrête au
-   bord droit du texte (130 px de lueur pour 316 px de carte) au lieu de partir
-   à 560 % : au-delà, la lueur passait le plus clair de son temps hors du cadre,
-   et deux passages ne s'en voyaient qu'un. */
-@keyframes asAchShine {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
-}
+/* (`asAchShine` — la lueur qui balayait le texte — a été retirée le 17/09 :
+   elle se disputait l'attention avec la seule chose à lire. Le flou
+   d'arrière-plan de la carte porte seul la lisibilité.) */
 
 /* ── LA NOTIFICATION DE BADGE NE SUIT PLUS LE RÉGLAGE SYSTÈME ────────────────
  *
