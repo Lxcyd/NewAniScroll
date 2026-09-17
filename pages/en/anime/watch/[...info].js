@@ -1796,6 +1796,9 @@ export default function Watch({
     // background probe flips them to a green chip + re-publishes `ok` the moment
     // one resolves 200. A genuine 204/404 simply re-confirms the absence.
     const snapshotAbsent = new Set();
+    // Ce que l'instantané serveur disait DÉJÀ être disponible. Sert uniquement à
+    // savoir, en fin de visite, si on a quelque chose de NOUVEAU à publier.
+    const snapshotOk = new Set();
     // Save back to sessionStorage as confirmations come in. Failed probes
     // are intentionally not persisted (see comment above).
     const persistProbeCache = () => {
@@ -1987,6 +1990,7 @@ export default function Watch({
           for (const id of servers) {
             // Trust the snapshot: paint the chip AND suppress the re-probe.
             cachedConfirmed.add(id);
+            snapshotOk.add(id);
             if (typeof markConfirmed === "function") markConfirmed(id);
           }
         }
@@ -2088,7 +2092,18 @@ export default function Watch({
       ]);
       // A server can't be both — a confirmation always wins over a stale absence.
       for (const id of publishOk) publishAbsent.delete(id);
-      if (!cancelled && (publishOk.size > 0 || publishAbsent.size > 0)) {
+      // NE PUBLIER QUE DU NOUVEAU (16/09/2026, jour où le quota Upstash a sauté).
+      // `publishOk` contient les serveurs que l'instantané nous a DONNÉS : sans
+      // ce test, chaque visite renvoyait au serveur ce qu'il venait de lui
+      // dire — une invocation Vercel et deux à trois commandes Upstash par page
+      // de lecture, pour réécrire la même valeur. On poste seulement si un
+      // serveur change de verdict (nouvel ok, nouvelle absence, ou bascule).
+      // Le prix : un instantané qui n'apprend plus rien n'est plus prolongé et
+      // expire au bout de ses 6 h ; le visiteur suivant le reconstruit.
+      const addsInfo =
+        [...publishOk].some((id) => !snapshotOk.has(id)) ||
+        [...publishAbsent].some((id) => !snapshotAbsent.has(id));
+      if (!cancelled && addsInfo) {
         try {
           fetch("/api/v2/availability", {
             method: "POST",
