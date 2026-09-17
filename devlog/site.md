@@ -6,6 +6,53 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-17 — L'impact qui ne jouait qu'une fois, et les relectures qui manquaient au compteur
+
+**LE DEUXIÈME BADGE N'AVAIT PLUS D'IMPACT.** Le bouton d'essai le montrait à
+chaque clic : le premier badge sortait avec son halo, son onde, ses huit rayons ;
+tous les suivants n'avaient qu'une carte qui s'ouvre. Ce n'est pas le CSS, et ce
+n'est pas `prefers-reduced-motion` — vérifié dans le registre, la machine a bien
+les effets d'animation activés. **C'est la réconciliation React** : ces éléments
+portent une `animation` dont la valeur ne change jamais (`asAchHalo 950ms … both`)
+et React réutilise les mêmes nœuds d'une annonce à l'autre. Même propriété, même
+élément : le navigateur ne rejoue rien, et l'animation reste figée sur sa
+dernière image — laquelle est, pour toutes, une opacité nulle. Les étincelles
+échappaient seules à la panne, par accident : leur `delay` est tiré au sort,
+donc leur valeur d'animation change à chaque badge.
+
+Correctif d'une ligne : une `key` sur le sous-arbre porté (`ach.key`), qui
+démonte et reconstruit. C'est la seule façon fiable de rejouer un LOT
+d'animations CSS — annuler à la main (`getAnimations().forEach(a => a.cancel())`)
+demanderait une ref par élément et un effet de plus pour le même résultat.
+
+**LA BOÎTE EN FOND EST PARTIE.** Le voile flouté avec son masque de bord était
+déjà une boîte, simplement discrète : un rectangle assombri, arrondi, posé quatre
+secondes en haut de l'écran. Ne restent que les lettres. La lisibilité passe à
+une ombre portée en deux couches (halo large + liseré serré) : une ombre suit la
+forme des lettres, un rectangle non.
+
+**ET LE LISERÉ PASSAIT DEVANT LE TEXTE.** Un élément positionné peint au-dessus
+de ses frères restés dans le flux — la bande barrait les mots au lieu de les
+éclairer. `z-index: -1` la remet derrière, et elle devient une LUEUR (dégradé
+radial, pas de bord) : sans carte, un bandeau rectangulaire n'a plus rien sur
+quoi glisser et se lit comme un défaut d'affichage. Sa course s'arrête au bord
+droit du texte au lieu de filer à 560 %, où elle passait le plus clair de son
+temps hors cadre — deux passages ne s'en voyaient qu'un.
+
+**LE COMPTEUR D'ÉPISODES, DEUXIÈME CORRECTION EN DEUX JOURS.** Le 16/09 les
+badges ne comptaient que les épisodes lus SUR LE SITE ; la liste est devenue la
+source. Il restait un écart, visible sur la même page : **5261 épisodes en tête
+de profil, « 4917 / 5000 » sur le badge juste dessous.** Le compteur du haut est
+`statistics.anime.episodesWatched` d'AniList, qui ajoute chaque relecture
+(`progress + repeat × épisodes`) ; le nôtre sommait les épisodes DISTINCTS.
+Défendable en soi, mais pas à côté de l'autre — et le badge se présente comme
+« le compteur le plus visible du profil ». Les relectures comptent donc, et les
+minutes suivent (`minutesWatched` les compte aussi ; les inclure d'un côté
+seulement aurait remis en désaccord les deux chiffres qu'on venait d'accorder).
+Quand `total` est inconnu — série en cours, liste importée sans métadonnées —
+une relecture vaut ce qui a été vu, jamais davantage : c'est la borne
+qu'AniList prend aussi. Banc de test : 1051 assertions.
+
 ## 2026-09-16 — Les badges, ou comment ajouter 176 recompenses sans une requete
 
 **La demande** : un onglet Badges sur le profil, des paliers evolutifs avec

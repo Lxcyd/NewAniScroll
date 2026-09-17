@@ -3462,10 +3462,13 @@ input[type="number"] {
   }
 }
 
-/* Le liseré qui court autour de la carte pendant la pose. */
+/* La lueur qui court derrière le texte pendant la pose. La course s'arrête au
+   bord droit du texte (130 px de lueur pour 316 px de carte) au lieu de partir
+   à 560 % : au-delà, la lueur passait le plus clair de son temps hors du cadre,
+   et deux passages ne s'en voyaient qu'un. */
 @keyframes asAchShine {
-  0% { transform: translateX(-60%); }
-  100% { transform: translateX(560%); }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
 }
 
 /* RESPECT DU RÉGLAGE SYSTÈME. On garde l'apparition et le texte — sans quoi la

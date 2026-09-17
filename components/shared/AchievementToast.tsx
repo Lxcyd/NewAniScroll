@@ -27,7 +27,7 @@
  * l'en-tête de lib/badges/achievementStore.ts.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
@@ -162,8 +162,26 @@ export default function AchievementToast() {
   const closing = phase === "out";
   const opened = phase === "open" || phase === "hold";
 
+  /* ── POURQUOI CE `key`, ET IL EST TOUT LE SUJET ─────────────────────────────
+     Au deuxième badge, l'impact ne jouait plus : ni halo, ni onde, ni rayons.
+     Le bouton d'essai le montrait à chaque clic — le premier était une fête, les
+     suivants une carte qui s'ouvre toute seule.
+
+     Ce n'est pas le CSS, c'est la réconciliation. Ces éléments portent une
+     `animation` dont la valeur ne change JAMAIS (`asAchHalo 950ms … both`), et
+     React réutilise les mêmes nœuds d'un badge à l'autre : le navigateur voit la
+     même propriété sur le même élément, donc il ne rejoue rien. L'animation
+     restait figée sur sa dernière image — laquelle est, pour toutes, une opacité
+     nulle. Les étincelles échappaient seules à la panne, par accident : leur
+     `delay` est tiré au sort, donc leur valeur d'animation change.
+
+     Une clé sur tout le sous-arbre démonte et reconstruit, ce qui est la seule
+     façon FIABLE de rejouer un lot d'animations CSS — la relance manuelle
+     (`element.getAnimations().forEach(a => a.cancel())`, ou le tour du reflow
+     forcé) demanderait une ref par élément et un effet de plus, pour le même
+     résultat. */
   return createPortal(
-    <>
+    <Fragment key={ach.key}>
       <BadgeDefs />
       <div
         role="status"
@@ -306,23 +324,16 @@ export default function AchievementToast() {
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
             marginLeft: -10,
-            /* PAS DE BOÎTE. Une carte opaque posée en haut de l'écran masque la
-               page et se voit comme un panneau collé par-dessus. On ne garde
-               que ce qui rend le texte LISIBLE : un flou d'arrière-plan et un
-               voile très léger. Le contenu de la page reste visible dessous,
-               simplement adouci. */
-            borderRadius: 16,
-            background:
-              "linear-gradient(90deg, rgba(10,10,16,.55), rgba(10,10,16,.3) 70%, rgba(10,10,16,0))",
-            backdropFilter: "blur(14px) saturate(120%)",
-            WebkitBackdropFilter: "blur(14px) saturate(120%)",
-            /* Le bord droit se dissout au lieu de s'arrêter net : sans masque,
-               un flou rectangulaire redevient une boîte. */
-            maskImage:
-              "linear-gradient(90deg, #000 0%, #000 72%, transparent 100%)",
-            WebkitMaskImage:
-              "linear-gradient(90deg, #000 0%, #000 72%, transparent 100%)",
-            textShadow: "0 1px 10px rgba(0,0,0,.85)",
+            /* PLUS DE BOÎTE DU TOUT. Le voile flouté et son masque étaient déjà
+               une boîte discrète : un rectangle assombri, aux angles arrondis,
+               posé en haut de l'écran pendant quatre secondes. Ne restent que
+               des lettres, au-dessus de la page ou de l'épisode.
+               Ce qui remplace le fond pour la LISIBILITÉ est une ombre portée en
+               deux couches : une halo large qui décolle le texte d'une image
+               claire, un liseré serré qui tient les pleins et déliés sur un fond
+               chargé. Une ombre suit la forme des lettres ; un rectangle, non. */
+            textShadow:
+              "0 2px 16px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9), 0 1px 2px rgba(0,0,0,.8)",
             padding: opened ? "12px 26px 12px 26px" : "12px 0",
             position: "relative",
             animation:
@@ -375,7 +386,15 @@ export default function AchievementToast() {
           >
             {t(`badges.${def.id}.cond`)}
           </div>
-          {/* Le liseré qui court pendant la pose. */}
+          {/* La lueur qui court DERRIÈRE le texte pendant la pose.
+              Elle passait devant : un élément positionné peint au-dessus de ses
+              frères restés dans le flux, donc le liseré barrait les lettres au
+              lieu de les éclairer. `z-index: -1` le remet derrière — il reste
+              dans le contexte d'empilement de la notification, donc au-dessus de
+              la page, jamais dessous.
+              Et c'est une LUEUR, plus un liseré : sans la carte, un bandeau
+              rectangulaire n'a plus rien sur quoi glisser et se lit comme un
+              défaut d'affichage. Un dégradé radial n'a pas de bord. */}
           <span
             className="as-ach-shine"
             aria-hidden="true"
@@ -384,8 +403,9 @@ export default function AchievementToast() {
               top: 0,
               bottom: 0,
               left: 0,
-              width: 60,
-              background: `linear-gradient(90deg, transparent, ${R.ic}33, transparent)`,
+              width: 130,
+              zIndex: -1,
+              background: `radial-gradient(55% 60% at 50% 50%, ${R.ic}66, ${R.ic}1f 55%, transparent 75%)`,
               /* Deux passages pendant la pose, pas un : le premier tombe encore
                  dans l'ouverture de la carte et se voit mal. */
               animation: phase === "hold" ? "asAchShine 1.7s ease-in-out .15s 2" : "none",
@@ -394,7 +414,7 @@ export default function AchievementToast() {
           />
         </div>
       </div>
-    </>,
+    </Fragment>,
     target,
   );
 }

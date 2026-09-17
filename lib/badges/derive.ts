@@ -246,6 +246,26 @@ export function derive(s: Snapshot): Derived {
   let episodeCount = 0;
   for (const n of perAnimeCount.values()) episodeCount += n;
 
+  /* ── LES REVISIONNAGES COMPTENT, PARCE QUE LE PROFIL LES COMPTE ─────────────
+     Il restait un écart, et il se lisait sur la même page : 5261 épisodes en
+     tête de profil, « 4917 / 5000 » sur le badge juste dessous. Le compteur du
+     haut vient de `statistics.anime.episodesWatched` d'AniList
+     (pages/en/profile/[user].tsx), et AniList y ajoute chaque relecture :
+     `progress + repeat × épisodes de l'œuvre`. Le nôtre sommait les épisodes
+     DISTINCTS, ce qui est un autre chiffre — défendable en soi, mais pas à côté
+     de l'autre. Le badge dit « le compteur le plus visible du profil » : c'est
+     donc ce compteur-là qu'il doit suivre.
+
+     `total` est le nombre d'épisodes de l'œuvre. Quand il est inconnu (série en
+     cours, liste importée sans métadonnées), une relecture vaut ce qui a été vu
+     — on ne peut pas inventer mieux, et c'est la même borne qu'AniList prend. */
+  for (const e of entries) {
+    const times = Math.max(0, Math.floor(e.repeat ?? 0));
+    if (!times) continue;
+    const per = Math.max(0, Math.floor(e.total ?? e.progress ?? 0));
+    episodeCount += times * per;
+  }
+
   /* Les MINUTES suivent la même logique, sans jamais inventer une durée. Ce qui
      a été lu ici est mesuré (durée réelle du fichier) ; les épisodes vus
      ailleurs comptent la durée d'épisode qu'AniList donne pour l'œuvre, et rien
@@ -257,7 +277,11 @@ export function derive(s: Snapshot): Derived {
     const per = e.duration;
     if (!per || per <= 0) continue;
     const extra = Math.max(0, Math.floor(e.progress || 0) - (perAnime.get(e.mediaId)?.size ?? 0));
-    importedMinutes += extra * per;
+    /* Les relectures comptent ici aussi : `minutesWatched` d'AniList les compte,
+       et laisser les épisodes les inclure sans les minutes remettrait deux
+       chiffres en désaccord — celui qu'on vient justement de réconcilier. */
+    const again = Math.max(0, Math.floor(e.repeat ?? 0)) * Math.max(0, Math.floor(e.total ?? e.progress ?? 0));
+    importedMinutes += (extra + again) * per;
   }
   const mostRepeats = entries.reduce((m, e) => Math.max(m, e.repeat ?? 0), 0);
 

@@ -183,6 +183,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-17 — L'impact qui ne jouait qu'une fois (réconciliation React), la boîte en fond retirée, et les relectures ajoutées au compteur d'épisodes
 - 2026-09-16 — Les badges, ou comment ajouter 176 récompenses sans une requête
 - 2026-09-02 (suite) — « Le chargement est très long » : la page était rendue deux fois (une date formatée contre l'environnement) ; nouvel outil `hydration-check.mjs` ; liste AniList à deux étages + copie de secours (AniList 403 ce jour-là)
 - 2026-09-02 — Quatre défauts de la vitrine du profil, quatre causes distinctes (liste AniList en cache mémoire ; plafond à 60 ; le repli qui inventait des favoris ; la mesure forcée qui tuait l'animation)

@@ -342,6 +342,25 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("les minutes suivent la même règle", Math.round(d.minutes), 10 * 24);
 }
 {
+  /* LES RELECTURES COMPTENT (corrigé le 17/09/2026). Le profil affichait 5261
+     épisodes et le badge « 4917 / 5000 » sur la même page : `episodesWatched`
+     d'AniList ajoute `repeat × épisodes`, pas nous. Ici : 24 vus + 2 relectures
+     complètes d'une série de 24 = 72. */
+  const list = {
+    1: { mediaId: 1, status: "COMPLETED", score: null, progress: 24, total: 24, repeat: 2,
+         startedAt: null, completedAt: null, notes: null, updatedAt: 1, duration: 24 },
+  };
+  const d = derive(snap({ list }));
+  check("deux relectures d'une série de 24 = 72 épisodes", d.episodes, 72);
+  check("...et les minutes suivent", Math.round(d.minutes), 72 * 24);
+  /* Sans `total` connu, une relecture vaut ce qui a été vu — jamais davantage. */
+  const sansTotal = {
+    1: { mediaId: 1, status: "CURRENT", score: null, progress: 10, total: null, repeat: 1,
+         startedAt: null, completedAt: null, notes: null, updatedAt: 1 },
+  };
+  check("sans total connu, la relecture vaut l'avancement", derive(snap({ list: sansTotal })).episodes, 20);
+}
+{
   /* Et l'avance locale n'est pas perdue quand la synchro n'a pas encore eu
      lieu : la liste dit 2, on en a lu 5 ici. */
   const list = {
