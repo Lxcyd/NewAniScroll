@@ -31,7 +31,7 @@ import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
-import type { BadgeState } from "@/lib/badges/store";
+import { mergeBadgeState, useBadgeState, type BadgeState } from "@/lib/badges/store";
 import { Bar } from "./widgets/common";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
@@ -60,7 +60,7 @@ const ROW_TOKEN = 100;
 const TIER_TOKEN = 54;
 
 export default function ProfileBadges({
-  state,
+  state: saved,
   live = false,
 }: {
   state: BadgeState;
@@ -68,6 +68,24 @@ export default function ProfileBadges({
   live?: boolean;
 }) {
   const { t } = useTranslation();
+
+  /* ── CHEZ SOI, C'EST LE MAGASIN LOCAL QUI FAIT FOI ──────────────────────────
+     `saved` est la collection telle qu'elle est EN BASE, lue au rendu serveur
+     (pages/en/profile/[user].tsx). Elle a un retard structurel : l'évaluation
+     tourne dans le navigateur, écrit dans `aniscroll:badges`, et la sauvegarde
+     cloud part après. Un badge gagné pendant la visite — ou par le `flush()`
+     ci-dessous, qui est justement le premier à voir le compteur franchir son
+     palier — n'apparaissait donc qu'AU CHARGEMENT SUIVANT : la barre restait à
+     « 5208 / 5000 », sur un palier déjà acquis, et l'échelle ne montait pas.
+
+     `useBadgeState()` s'abonne au magasin (événement maison + `storage`), et la
+     fusion garde la date la PLUS ANCIENNE des deux côtés — l'invariant du
+     magasin : un badge obtenu ne se reperd jamais, et ne se redate pas. */
+  const localState = useBadgeState();
+  const state = useMemo(
+    () => (live ? mergeBadgeState(saved, localState) : saved),
+    [live, saved, localState],
+  );
   const [filter, setFilter] = useState<Filter>("all");
   const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
 

@@ -266,6 +266,15 @@ export function derive(s: Snapshot): Derived {
     episodeCount += times * per;
   }
 
+  /* ET MÊME AINSI, IL RESTAIT UN ÉCART. Le compteur du profil vient d'AniList,
+     qui ne le calcule pas comme nous et ne le dérive pas de sa propre liste :
+     4904 + 291 de relectures = 5195, pour 5261 affichés. Les soixante-six
+     manquants n'existent nulle part dans les entrées. La page recopie donc son
+     chiffre dans les faits (`noteListCounter`, lib/badges/facts.ts) et il sert
+     de PLANCHER : le calcul local reste dessous et gagne quand il est plus
+     haut — un épisode lu ici il y a trois secondes n'est pas encore chez eux. */
+  episodeCount = Math.max(episodeCount, s.facts.counters.listEpisodes?.n ?? 0);
+
   /* Les MINUTES suivent la même logique, sans jamais inventer une durée. Ce qui
      a été lu ici est mesuré (durée réelle du fichier) ; les épisodes vus
      ailleurs comptent la durée d'épisode qu'AniList donne pour l'œuvre, et rien
@@ -344,7 +353,9 @@ export function derive(s: Snapshot): Derived {
   return {
     now,
     episodes: episodeCount,
-    minutes: localMinutes + importedMinutes,
+    /* Même plancher que les épisodes, même raison : « Temps » est affiché en
+       tête de profil (88,2 j) et vient du `minutesWatched` d'AniList. */
+    minutes: Math.max(localMinutes + importedMinutes, s.facts.counters.listMinutes?.n ?? 0),
     stamps,
     days,
     streak: currentRun(days, dayKey(now)),

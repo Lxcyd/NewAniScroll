@@ -361,6 +361,26 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("sans total connu, la relecture vaut l'avancement", derive(snap({ list: sansTotal })).episodes, 20);
 }
 {
+  /* LE PLANCHER RECOPIÉ DU PROFIL (17/09/2026). AniList affiche un total que sa
+     propre liste ne permet pas de recalculer — 5261 contre 5195 sur un compte
+     réel. La page le recopie dans les faits, l'évaluateur le prend comme
+     plancher, et le calcul local garde la main quand il est plus haut. */
+  const facts = { ...EMPTY_FACTS, counters: { listEpisodes: { n: 5261, at: 1 } } };
+  const list = {
+    1: { mediaId: 1, status: "COMPLETED", score: null, progress: 12, total: 12, repeat: 0,
+         startedAt: null, completedAt: null, notes: null, updatedAt: 1 },
+  };
+  check("le chiffre du profil sert de plancher", derive(snap({ list, facts })).episodes, 5261);
+  const gros = Object.fromEntries(
+    Array.from({ length: 30 }, (_, i) => [
+      i + 1,
+      { mediaId: i + 1, status: "COMPLETED", score: null, progress: 300, total: 300, repeat: 0,
+        startedAt: null, completedAt: null, notes: null, updatedAt: 1 },
+    ]),
+  );
+  check("...mais ne plafonne pas le calcul local", derive(snap({ list: gros, facts })).episodes, 9000);
+}
+{
   /* Et l'avance locale n'est pas perdue quand la synchro n'a pas encore eu
      lieu : la liste dit 2, on en a lu 5 ici. */
   const list = {

@@ -114,7 +114,19 @@ export function statsFromEntries(entries: ProfileEntry[]): ProfileStats {
   const rated = entries.filter((e) => e.score != null);
   return {
     count: entries.length,
-    episodes: entries.reduce((n, e) => n + (e.progress || 0), 0),
+    /* Les relectures comptent, comme chez AniList (`progress + repeat ×
+       épisodes`) : c'est ce total-là que l'en-tête affiche sur un compte
+       AniList, et que les badges suivent maintenant. Sans ce terme, un compte
+       AniScroll seul verrait l'en-tête ET son badge se contredire — le défaut
+       qu'on vient de corriger, à l'envers. Sans `total` connu, une relecture
+       vaut ce qui a été vu. */
+    episodes: entries.reduce(
+      (n, e) =>
+        n +
+        (e.progress || 0) +
+        Math.max(0, Math.floor(e.repeat || 0)) * Math.max(0, Math.floor(e.total ?? e.progress ?? 0)),
+      0,
+    ),
     minutes: null,
     meanScore: rated.length
       ? Math.round((rated.reduce((n, e) => n + (e.score || 0), 0) / rated.length) * 10) /

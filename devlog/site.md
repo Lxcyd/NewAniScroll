@@ -6,13 +6,74 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-17 (suite) — Trois causes pour deux symptômes, et une mesure qui contredit le registre
+
+**LE REGISTRE WINDOWS M'A MENTI, LE NAVIGATEUR NON.** L'entrée précédente écarte
+`prefers-reduced-motion` sur la foi d'une lecture de `UserPreferencesMask` —
+mauvais bit. En posant la question à Chrome lui-même (fenêtre RÉELLE : en
+headless, Chrome ignore les réglages système et répond toujours
+« no-preference »), la réponse est `reduce: true`. Le bloc CSS faisait alors
+exactement ce qu'il annonçait : `display: none` sur les étincelles, le halo,
+l'onde, les rayons et la lueur, et le jeton rétrogradé à un fondu de 260 ms.
+« Il manque les particules et le smooth », mot pour mot.
+
+**LA RÈGLE À EN TIRER** : pour un réglage système qui se lit côté navigateur, la
+mesure est `matchMedia`, dans une vraie fenêtre. Le registre demande de connaître
+le bon bit ; le navigateur, lui, répond ce qu'il applique.
+
+**CE QUI A ÉTÉ DÉCIDÉ, ET CE QUE ÇA COÛTE.** La notification de badge ne suit
+plus le réglage système. Windows livre « Effets d'animation » désactivé sur
+beaucoup de postes, ce qui met Chrome en `reduce` sans que personne n'ait demandé
+moins d'animations à un site — et le `display:none` portait sur exactement ce qui
+FAIT la récompense. Le prix est réel : qui a vraiment demandé moins de mouvement
+reçoit la gerbe complète. Le vrai correctif est un réglage DU SITE, distinct de
+celui du système ; il n'existe pas encore. Le reste de la feuille continue
+d'obéir.
+
+Vérifié après coup sur le banc (CSS extrait du fichier, vrai Chrome, `reduce`
+actif) : jeton y −156 → 0 avec son rebond (scale 1,28 → 0,88 → 1), halo 0,2 →
+1,59, rayons opacité 0 → 0,85 → 0,14, étincelles x 0 → 52. Les cinq couches
+tournent.
+
+**LE BADGE ÉTAIT DÉBLOQUÉ, L'ONGLET NE LE SAVAIT PAS.** Deuxième symptôme :
+« 5208 / 5000 » sur un palier déjà franchi, et l'échelle qui ne montait pas.
+`ProfileBadges` recevait `state` en prop, lu AU RENDU SERVEUR depuis la
+sauvegarde cloud. Or l'évaluation tourne dans le navigateur et écrit dans
+`localStorage` — le `flush()` de l'onglet est même le premier à voir le compteur
+franchir son palier. Le badge était donc accordé et invisible jusqu'au
+chargement suivant. L'onglet s'abonne désormais au magasin local
+(`useBadgeState`) et fusionne : union des ids, date la plus ancienne.
+
+**LES 66 ÉPISODES QU'ANILIST NE SAIT PAS JUSTIFIER.** Le compteur restait faux
+(5208 contre 5261). Mesuré contre l'API AniList, sur le compte réel : somme des
+`progress` = 4904, relectures (`repeat × épisodes`) = 291, total reconstructible
+= **5195**. AniList en affiche **5261**. Soixante-six épisodes que sa propre
+liste ne contient pas — un agrégat calculé chez eux, qu'aucune formule appliquée
+aux entrées ne retrouve (aucune entrée n'a `progress > episodes`, et les sept
+sans `media.episodes` sont à `progress 0`, sauf ONE PIECE qui n'a pas de
+relecture).
+
+Conclusion : **on a arrêté de le recalculer**. La page recopie le chiffre qu'elle
+affiche déjà dans les faits (`noteListCounter`), et l'évaluateur le prend comme
+PLANCHER — le calcul local reste dessous et gagne quand il est plus haut (un
+épisode lu ici il y a trois secondes n'est pas encore chez eux). Deux chiffres à
+dix lignes d'écart sur la même page ne se réconcilient pas par une meilleure
+formule : ils se réconcilient par une seule source. Les comptes sans AniList
+suivent, `statsFromEntries` comptant désormais les relectures elle aussi.
+1053 assertions.
+
 ## 2026-09-17 — L'impact qui ne jouait qu'une fois, et les relectures qui manquaient au compteur
+
+> ⚠ **Ce paragraphe s'est trompé de coupable — voir l'entrée du 17/09 (suite).**
+> `prefers-reduced-motion` ÉTAIT actif, et c'était la cause dominante : la
+> vérification par le registre Windows visait le mauvais bit. Le défaut de
+> réconciliation décrit ci-dessous est réel, mais il était masqué par un
+> `display: none`.
 
 **LE DEUXIÈME BADGE N'AVAIT PLUS D'IMPACT.** Le bouton d'essai le montrait à
 chaque clic : le premier badge sortait avec son halo, son onde, ses huit rayons ;
-tous les suivants n'avaient qu'une carte qui s'ouvre. Ce n'est pas le CSS, et ce
-n'est pas `prefers-reduced-motion` — vérifié dans le registre, la machine a bien
-les effets d'animation activés. **C'est la réconciliation React** : ces éléments
+tous les suivants n'avaient qu'une carte qui s'ouvre. **C'est la réconciliation
+React** : ces éléments
 portent une `animation` dont la valeur ne change jamais (`asAchHalo 950ms … both`)
 et React réutilise les mêmes nœuds d'une annonce à l'autre. Même propriété, même
 élément : le navigateur ne rejoue rien, et l'animation reste figée sur sa

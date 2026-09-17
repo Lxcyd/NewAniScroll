@@ -141,6 +141,34 @@ export function recordFlag(name: string, at = Date.now()): boolean {
   );
 }
 
+/* ── LE COMPTEUR DU PROFIL, RECOPIÉ TEL QUEL ────────────────────────────────
+ *
+ * Les badges d'épisodes visent « le compteur le plus visible du profil ». Ce
+ * compteur, sur un compte AniList, est `statistics.anime.episodesWatched` —
+ * et il N'EST PAS REPRODUCTIBLE depuis la liste. Mesuré sur un compte réel le
+ * 17/09/2026 : somme des `progress` = 4904, plus les relectures
+ * (`repeat × épisodes`) = 5195, quand AniList affiche 5261. Soixante-six
+ * épisodes que son propre inventaire ne rend pas — un agrégat maison, calculé
+ * chez eux, qu'aucune formule appliquée aux entrées ne retrouve.
+ *
+ * On a donc arrêté de le recalculer et on le RECOPIE, depuis la page qui
+ * l'affiche déjà. Deux chiffres à dix lignes d'écart sur la même page ne se
+ * réconcilient pas par une meilleure formule : ils se réconcilient par une
+ * seule source.
+ *
+ * UN PLANCHER ET NON UNE VALEUR : le nombre d'épisodes vus ne redescend
+ * jamais, et le jour où AniList ne répond pas, la page passe `0` ou rien.
+ * Prendre le maximum garde le dernier chiffre connu ; le calcul local reste
+ * là-dessous, pour les comptes sans AniList et pour l'avance locale. */
+export function noteListCounter(name: string, n: number, at = Date.now()): boolean {
+  if (!Number.isFinite(n) || n <= 0) return false;
+  return update((f) => {
+    const cur = f.counters[name] ?? { n: 0, at: 0 };
+    if (cur.n >= Math.floor(n)) return f;
+    return { ...f, counters: { ...f.counters, [name]: { n: Math.floor(n), at: sane(at) ?? Date.now() } } };
+  });
+}
+
 /** Incrémente un compteur de GESTES : chaque appel compte. */
 export function bumpCounter(name: string, at = Date.now()): boolean {
   return update((f) => {

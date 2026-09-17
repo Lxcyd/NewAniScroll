@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import Head from "next/head";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
@@ -40,6 +40,8 @@ import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
+import { noteListCounter } from "@/lib/badges/facts";
+import { silenceNextEvaluation } from "@/lib/badges/evaluate";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import type {
@@ -154,6 +156,25 @@ export default function Profile({
       }));
     return [...topAnimes, ...reste];
   }, [isOwner, topAnimes, entries]);
+
+  /* ── LES DEUX COMPTEURS DE LA PAGE N'EN FONT PLUS QU'UN ─────────────────────
+     L'en-tête affiche « ÉPISODES 5261 », et l'onglet Badges affichait
+     « 5208 / 5000 » quinze centimètres plus bas. Le premier est
+     `statistics.anime.episodesWatched` d'AniList, que rien dans la liste ne
+     permet de retrouver (cf. lib/badges/facts.ts) ; le second était recalculé.
+     On recopie donc celui qui est AFFICHÉ dans les faits, où l'évaluateur des
+     badges le lira comme un plancher.
+
+     Chez soi seulement : les faits sont un magasin local, et y écrire le total
+     d'un profil visité fabriquerait des badges avec les épisodes d'un autre.
+     Et en silence, comme une synchro — ce chiffre arrive avec la page, il ne
+     récompense aucun geste qu'on vient de faire. */
+  useEffect(() => {
+    if (!isOwner) return;
+    silenceNextEvaluation();
+    noteListCounter("listEpisodes", stats.episodes);
+    if (stats.minutes) noteListCounter("listMinutes", stats.minutes);
+  }, [isOwner, stats.episodes, stats.minutes]);
 
   const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });
   /* L'identité descend dans une colonne à gauche — et le bandeau ne la porte

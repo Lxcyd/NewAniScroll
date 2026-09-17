@@ -3471,53 +3471,27 @@ input[type="number"] {
   100% { transform: translateX(300%); }
 }
 
-/* RESPECT DU RÉGLAGE SYSTÈME. On garde l'apparition et le texte — sans quoi la
-   notification ne se verrait pas du tout — et on retire ce qui bouge pour le
-   plaisir : les particules, le halo, le balayage, le scintillement. */
-@media (prefers-reduced-motion: reduce) {
-  .as-ach-spark,
-  .as-ach-halo,
-  .as-ach-ring,
-  .as-ach-ray,
-  .as-ach-shine {
-    display: none !important;
-  }
-  /* La respiration de la pose et l'entrée décalée des lignes : du confort, pas
-     de l'information. On les coupe, le texte reste lisible d'emblée. */
-  .as-ach-breathe,
-  .as-ach-line {
-    animation: none !important;
-    opacity: 1 !important;
-  }
-  .as-badge-token svg[style*="asTw"],
-  .as-badge-token rect[style*="asSweep"] {
-    animation: none !important;
-  }
-  .as-badge-token {
-    transition: none;
-  }
-  /* LE JETON ET LA CARTE GARDENT UNE ANIMATION, PLUS COURTE ET SANS TRAJET.
-     Elles étaient coupées à 0,01 ms, c'est-à-dire supprimées : sur un poste où
-     Windows a « Effets d'animation » désactivé, la notification apparaissait
-     d'un bloc et l'achievement n'en était plus un. « Réduire les animations »
-     demande de retirer les grands mouvements et les particules — c'est fait
-     au-dessus — pas de retirer tout signal d'apparition. Il reste donc un
-     fondu-agrandissement bref, sans chute, sans rotation, sans rebond. */
-  .as-ach-token {
-    animation-name: asAchSoftIn !important;
-    animation-duration: 260ms !important;
-  }
-  .as-ach-card {
-    animation-duration: 200ms !important;
-  }
-}
-
-/* L'apparition sobre du mode « animations réduites » : opacité et échelle, rien
-   qui se déplace. */
-@keyframes asAchSoftIn {
-  0% { opacity: 0; transform: scale(0.9); }
-  100% { opacity: 1; transform: scale(1); }
-}
+/* ── LA NOTIFICATION DE BADGE NE SUIT PLUS LE RÉGLAGE SYSTÈME ────────────────
+ *
+ * Elle le suivait, et personne ne l'avait vue jouer : Windows livre « Effets
+ * d'animation » désactivé sur beaucoup de postes, ce qui met Chrome en
+ * `prefers-reduced-motion: reduce` sans que personne n'ait jamais demandé moins
+ * d'animations à un site. Chez l'auteur de ces lignes, le résultat était une
+ * carte qui s'ouvre toute seule : pas d'étincelles, pas de halo, pas de rebond.
+ * Le `display: none` était posé ici sur exactement ce qui FAIT la récompense.
+ *
+ * LE PRIX EST RÉEL ET ASSUMÉ : quelqu'un qui a vraiment demandé moins de
+ * mouvement reçoit maintenant la gerbe complète, pendant quatre secondes, en
+ * haut de l'écran. C'est une burst de 100 px, sans parallaxe ni défilement —
+ * la catégorie la moins agressive de ce que la règle vise — mais c'en est.
+ * Le vrai correctif est un réglage DU SITE, distinct de celui du système :
+ * tant qu'il n'existe pas, on choisit de montrer.
+ *
+ * Le reste de la feuille continue d'obéir au réglage système (cf. les autres
+ * blocs `prefers-reduced-motion`) : seule la fête d'un badge en sort. */
+/* (Le jeton de la liste scintille et se laisse balayer comme celui de la
+   notification : les deux sont le même composant, et le réglage système ne
+   peut plus éteindre l'un sans éteindre l'autre. Assumé avec le reste.) */
 
 /* ── Le panneau d'une échelle de paliers ───────────────────────────────────
    Le fond s'assombrit et se floute, le panneau monte en s'agrandissant à peine,
