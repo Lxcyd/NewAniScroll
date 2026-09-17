@@ -10,7 +10,7 @@
  * Une échelle (1 → 25 → 250 → 1 000 épisodes) n'affiche qu'UNE ligne : le
  * premier palier non atteint, avec sa barre. À neuf épisodes, on voit donc le
  * badge des vingt-cinq à 9/25, et non six lignes dont cinq sont hors de portée.
- * Le dépli montre le reste, obtenus et à venir.
+ * Le chevron au bout de la ligne ouvre un panneau avec TOUS les paliers.
  *
  * ── LE PROPRIÉTAIRE ET LE VISITEUR ───────────────────────────────────────────
  * `live` distingue les deux. Chez soi, tout est recalculé depuis les stores de
@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
@@ -49,7 +50,7 @@ const FAMILY_ORDER = [
  *
  * Le dessin de la maquette est fait pour 118 : en dessous d'une centaine, la
  * plaque de palier et la constellation deviennent des taches. On s'en approche
- * dans la liste, et on garde le palier du dépli à une taille de vignette — il
+ * dans la liste, et on garde le palier du panneau à une taille de vignette — il
  * est là pour situer, pas pour se regarder.
  *
  * Le jeton grossit encore de 8 % au survol (.as-badge-token), donc la ligne
@@ -343,17 +344,22 @@ function BadgeRow({
             color={R.ic}
           />
         </div>
-      </div>
 
-      {def.ladder && (
-        <LadderDetails
-          ladder={def.ladder}
-          state={state}
-          progress={ladderProgress}
-          live={live}
-          filter={filter}
-        />
-      )}
+        {/* L'ÉCHELLE COMPLÈTE S'OUVRE, ELLE NE SE DÉPLIE PLUS.
+            Le dépli montrait les AUTRES paliers : la suite avait donc un trou à
+            l'endroit du palier courant — on lisait 1, puis 250, et le 25 qu'on
+            est justement en train de viser manquait. Un panneau montre les six,
+            celui du moment compris et mis en avant. */}
+        {def.ladder && (
+          <LadderButton
+            ladder={def.ladder}
+            state={state}
+            progress={ladderProgress}
+            live={live}
+            color={R.ic}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -457,71 +463,206 @@ function ProgressLine({
   );
 }
 
-/**
- * Le dépli d'une échelle : les autres paliers, obtenus et à venir.
- *
- * `<details>` natif plutôt qu'un état React — l'ouverture d'un dépli ne doit
- * pas re-rendre une liste de cent quatre-vingts lignes, et le navigateur sait
- * déjà le faire, au clavier compris.
- */
-function LadderDetails({
-  ladder, state, progress, live, filter,
+/* ── L'échelle complète, dans un panneau ───────────────────────────────────── */
+
+/** Le chevron au bout de la ligne, et le panneau qu'il ouvre. */
+function LadderButton({
+  ladder, state, progress, live, color,
 }: {
   ladder: string;
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
-  filter: Filter;
+  color: string;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
   const ids = LADDERS[ladder] ?? [];
-  const head = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
-  const others = ids.filter((id) => id !== head);
-  if (!others.length) return null;
-
-  const done = others.filter((id) => state.got[id] != null).length;
+  const done = ids.filter((id) => state.got[id] != null).length;
+  if (ids.length < 2) return null;
 
   return (
-    <details className="group mt-1.5">
-      <summary className="ml-auto flex w-fit cursor-pointer list-none items-center gap-1.5 font-karla text-[10.5px] text-white/30 transition-colors hocus:text-white/60">
-        <span className="transition-transform group-open:rotate-90">›</span>
-        {t("badges.ui.tiersDone", "{{done}} obtenus", { done })}
-        {" · "}
-        {t("badges.ui.tiersTodo", "{{todo}} à venir", { todo: others.length - done })}
-      </summary>
-      <div className="mt-2 flex flex-col gap-1 border-t border-white/[.06] pt-2">
-        {others.map((id) => {
-          const def = BY_ID[id];
-          const at = state.got[id];
-          const p = live ? progress.get(id) ?? null : null;
-          if (filter === "got" && at == null) return null;
-          if (filter === "todo" && at != null) return null;
-          return (
-            <div key={id} className="flex items-center gap-3 pl-1">
-              <BadgeToken
-                id={def.id}
-                rarity={def.rarity}
-                icon={def.icon}
-                tag={def.tag}
-                unlocked={at != null}
-                size={TIER_TOKEN}
-                animate={false}
-              />
-              <span className="font-outfit text-[12.5px] text-white/70">
-                {t(`badges.${id}.name`)}
-              </span>
-              <span className="ml-auto font-karla text-[10.5px] tabular-nums text-white/30">
-                {at != null ? (
-                  <ObtainedOn at={at} />
-                ) : p && p[1] > 1 ? (
-                  `${p[0].toLocaleString(i18n.language || undefined)} / ${p[1].toLocaleString(i18n.language || undefined)}`
-                ) : null}
-              </span>
-            </div>
-          );
-        })}
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={t("badges.ui.seeTiers", "Voir tous les paliers")}
+        aria-label={t("badges.ui.seeTiers", "Voir tous les paliers")}
+        className="ml-1 flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
+      >
+        <span className="font-outfit text-[15px] leading-none text-white/45">›</span>
+        <span className="font-karla text-[9px] tabular-nums leading-none text-white/30">
+          {done}/{ids.length}
+        </span>
+      </button>
+      {open && (
+        <LadderPopup
+          ids={ids}
+          state={state}
+          progress={progress}
+          live={live}
+          color={color}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Le panneau d'une échelle : TOUS les paliers, avec leur barre.
+ *
+ * Porté sur `document.body` : la ligne d'où il part vit dans une carte qui a son
+ * propre contexte d'empilement et un fond flouté — un panneau rendu là-dedans
+ * se retrouverait coincé derrière la ligne suivante.
+ */
+function LadderPopup({
+  ids, state, progress, live, color, onClose,
+}: {
+  ids: string[];
+  state: BadgeState;
+  progress: Map<string, Progress>;
+  live: boolean;
+  color: string;
+  onClose: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+
+  /* Échap ferme, et le défilement de la page est gelé tant que le panneau est
+     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+  const done = ids.filter((id) => state.got[id] != null).length;
+  const current = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
+
+  return createPortal(
+    <div
+      className="as-pop-back"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 999999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        className="as-pop-card"
+        /* Le clic sur le panneau ne doit pas traverser jusqu'au fond, qui ferme. */
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(560px, 100%)",
+          maxHeight: "min(82vh, 760px)",
+          overflowY: "auto",
+          borderRadius: 18,
+          border: "1px solid rgba(255,255,255,.1)",
+          background: `linear-gradient(180deg, ${color}14, rgba(18,18,26,.98) 22%, rgba(14,14,20,.98))`,
+          boxShadow: `0 24px 70px rgba(0,0,0,.6), 0 0 40px ${color}1f`,
+          padding: 18,
+        }}
+      >
+        <div className="mb-4 flex items-baseline gap-3">
+          <h3 className="font-outfit m-0 text-[16px] font-semibold text-white">
+            {t(`badges.${ids[0]}.name`)}
+            <span className="text-white/30">
+              {" → "}
+              {t(`badges.${ids[ids.length - 1]}.name`)}
+            </span>
+          </h3>
+          <span
+            className="font-karla ml-auto shrink-0 text-[11px] tabular-nums"
+            style={{ color }}
+          >
+            {done} / {ids.length}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {ids.map((id, i) => {
+            const def = BY_ID[id];
+            const at = state.got[id];
+            const p = live ? progress.get(id) ?? null : null;
+            const isCurrent = id === current;
+            const R = RARITY[def.rarity];
+            return (
+              <div
+                key={id}
+                className="as-pop-row flex items-center gap-3 rounded-xl px-2.5 py-2"
+                style={{
+                  /* Le palier du moment est le seul à porter un fond et un
+                     liseré : c'est lui qu'on est venu regarder. */
+                  background: isCurrent ? `${R.ic}14` : "transparent",
+                  border: `1px solid ${isCurrent ? `${R.ic}59` : "transparent"}`,
+                  /* Les lignes arrivent l'une après l'autre, de haut en bas :
+                     l'échelle se lit dans l'ordre où elle se gravit. */
+                  animationDelay: `${40 + i * 45}ms`,
+                }}
+              >
+                <BadgeToken
+                  id={def.id}
+                  rarity={def.rarity}
+                  icon={def.icon}
+                  tag={def.tag}
+                  unlocked={at != null}
+                  size={isCurrent ? TIER_TOKEN + 12 : TIER_TOKEN}
+                  animate={false}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="font-outfit truncate text-[13px]"
+                      style={{ color: at != null ? "#fff" : "rgba(255,255,255,.72)" }}
+                    >
+                      {t(`badges.${id}.name`)}
+                    </span>
+                    <span className="ml-auto shrink-0 font-karla text-[10.5px] tabular-nums text-white/35">
+                      {at != null ? <ObtainedOn at={at} /> : null}
+                    </span>
+                  </div>
+                  {at == null && live && p && p[1] > 1 ? (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Bar pct={Math.min(100, (p[0] / p[1]) * 100)} color={R.ic} />
+                      </div>
+                      <span className="font-karla shrink-0 text-[10px] tabular-nums text-white/40">
+                        {p[0].toLocaleString(i18n.language || undefined)} /{" "}
+                        {p[1].toLocaleString(i18n.language || undefined)}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="font-outfit mt-4 w-full rounded-lg border border-white/10 bg-white/[.04] py-2 text-[12px] font-semibold text-white/60 transition-colors hocus:bg-white/[.08] hocus:text-white/90"
+        >
+          {t("badges.ui.close", "Fermer")}
+        </button>
       </div>
-    </details>
+    </div>,
+    document.body,
   );
 }
 

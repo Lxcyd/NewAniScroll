@@ -1594,7 +1594,9 @@
         "regularity": "La série de jours consécutifs, de la semaine à l'année pleine.",
         "profile": "Tenir sa liste, noter, ranger — et collectionner les badges eux-mêmes.",
         "secret": "Hors progression et hors total : liaison de compte, statut et quelques trouvailles."
-      }
+      },
+      "seeTiers": "Voir tous les paliers",
+      "close": "Fermer"
     },
     "ep-1": {
       "name": "Premier épisode",

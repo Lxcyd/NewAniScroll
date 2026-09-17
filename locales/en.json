@@ -1594,7 +1594,9 @@
         "regularity": "Consecutive days, from one week to a full year.",
         "profile": "Keeping your list, rating, sorting — and collecting the badges themselves.",
         "secret": "Off the progression and out of the total: account linking, status, and a few finds."
-      }
+      },
+      "seeTiers": "See all tiers",
+      "close": "Close"
     },
     "ep-1": {
       "name": "First episode",
