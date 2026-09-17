@@ -1013,6 +1013,18 @@ export async function getServerSideProps(ctx: any) {
   try {
     if (simulateDown) throw new Error("simulated AniList outage");
     const resp = await anilistFetch({
+      /* PAS DE CACHE DE REPONSE ICI (16/09/2026, jour ou le quota Upstash a
+         saute). Mesure sur les logs de prod : `get anilist:resp` 44 pour
+         `set anilist:resp` 44 -- cette couche n'a quasiment jamais servi, elle
+         n'a fait qu'ecrire. La raison est structurelle : la requete est unique
+         par anime, et le resultat COMPOSE de cette page est deja garde sous
+         `anime:vN` juste en dessous, bien plus longtemps. Deux caches du meme
+         contenu, dont celui du dessus repond le premier : le second coutait un
+         GET et un SET par page vue, sur la page la plus visitee du site, et
+         n'epargnait rien.
+         `mediaInfoQuery` n'a pas d'autre appelant, donc cette cle n'est
+         partagee avec personne. */
+      cacheSeconds: 0,
       query: mediaInfoQuery,
       variables: { id: id?.[0] },
       label: `info-ssr:${id?.[0]}`,

@@ -30,6 +30,12 @@ async function fetchAniListEpisodes(id: string) {
     }`,
     variables: { id: Number(id) },
     label: `episode:${id}`,
+    /* Meme raison que sur la page anime : la liste COMPOSEE est deja gardee
+       sous `episode:vN` juste apres, et cette requete est unique par anime.
+       Le cache de reponse d'AniList etait donc un second cache du meme
+       contenu, place DERRIERE le premier : un GET et un SET par liste
+       reconstruite, pour une cle que personne ne relit. */
+    cacheSeconds: 0,
   });
   return json?.data?.Media || null;
 }
