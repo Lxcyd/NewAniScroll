@@ -205,6 +205,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 - 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
 - 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
 - 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1

@@ -6,6 +6,50 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
+
+**Le symptôme ment sur sa cause.** Le graphe Vercel du compte `aniscroll-dev`
+montrait 3 h 25 sur 4 h consommées en cinq jours, des barres partant du 13/09,
+pendant que la prod restait à ~20 min. Rien à voir avec le trafic : les logs
+runtime de `dev.aniscroll.com` étaient saturés de
+`[redis] indisponible (get) — cache coupé 60s : fetch failed`, sur `/api/v2/source`,
+`/api/v2/preview/*`, `/fr/profile/…`. Le disjoncteur de `lib/redisRest.ts` ne
+journalise qu'une ligne par réouverture, donc **chaque ligne = 60 s entières sans
+cache**. Dev tournait sans cache du tout, chaque requête recalculant en Fluid CPU.
+
+**`fetch failed` est une erreur réseau, pas un refus d'Upstash** — et c'est ce qui
+désigne le coupable. Un `curl` sur chaque hôte trouvé dans les `.env` et dans les
+variables du projet :
+
+| Hôte | Code | État |
+| --- | --: | --- |
+| `lucky-anchovy-281968` (paire REST du `.env`) | 401 | vivante |
+| `stable-tahr-110008` (`REDIS_URL` de `.env.local`) | 000 | DNS ne résout pas |
+| `giving-platypus-66269` (variables du projet dev) | 000 | DNS ne résout pas |
+
+Le projet dev pointait sur **sa propre base, supprimée depuis**. Les barres
+commencent le 13/09, jour de création des variables sur le nouveau compte : ça
+n'a jamais fonctionné depuis la séparation des comptes du 12/09.
+
+**Fausse piste écartée, à ne pas re-suivre** : les variables étaient de type
+`Secret` sur dev, et on a d'abord soupçonné qu'elles ressortaient vides au
+runtime (d'où un repli sur `REDIS_URL`, mort lui aussi). C'est faux — une
+variable « sensible » s'injecte normalement, elle n'est simplement plus lisible
+par CLI ou dashboard. La seule chose qui clochait était la valeur.
+
+**Correctif** : `UPSTASH_REDIS_REST_URL`/`_TOKEN` du `.env` reposées sur dev
+(Production + Preview), `REDIS_URL` supprimée du projet (elle ne servait qu'au
+Watch2gether natif, bloqué sur Vercel de toute façon), puis redeploy.
+Vérification, deux requêtes uniques sur `/api/v2/preview/21` : **2,07 s puis
+0,19 s**, et plus une seule ligne `[redis] indisponible`.
+
+**Ce qui reste ouvert** : dev partage désormais la base Upstash de la prod, donc
+le plafond de 500 000 commandes/mois — celui-là même qui a mis le site à terre le
+16/09 — est maintenant mangé par les deux. Une base dédiée à dev reste la bonne
+cible. Vu aussi dans les mêmes logs, non traité : `/api/v2/skip/:id/:ep` appelée
+4 fois en 7 s sur une même page, et `/api/v2/preview/*` en rafales d'une
+quinzaine.
+
 ## 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
 
 **Le problème n'était pas qu'un compteur était faux.** Le 11/09, aucun des
