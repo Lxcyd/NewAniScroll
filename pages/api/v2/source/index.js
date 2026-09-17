@@ -3910,7 +3910,7 @@ async function getConsumetStream(providerKey, title, episode, sub) {
 // the same dead servers.
 //
 // Two TTLs:
-//   - OK_TTL  (5 min): tokens we proxy last 60-240 min, so 5 min is safe.
+//   - OK_TTL  (20 min): tokens we proxy last 60-240 min, so 20 min is safe.
 //   - 404_TTL (2 min): shorter, because some 404s are transient (upstream
 //     rate-limit, brief CDN outage). 2 min collapses the probe burst from
 //     concurrent viewers without locking in a transient failure for long.
@@ -3918,7 +3918,13 @@ async function getConsumetStream(providerKey, title, episode, sub) {
 // Negative entries store a sentinel ({__nf: true}) under the same key as
 // positive entries — a hit is either parsed JSON we serve as 200, or the
 // sentinel we turn into 404.
-const SOURCE_CACHE_TTL_S = 300;
+/* 5 min -> 20 min le 16/09/2026, jour ou le quota Upstash a saute. Chaque
+   entree expiree, c'est le chemin cher : GET, SET du verrou, SET du resultat,
+   et surtout un scrape complet. Le commentaire ci-dessus donne la vraie borne :
+   les jetons servis vivent 60 a 240 min. Vingt minutes laissent au pire
+   quarante minutes de validite a qui lit l'entree a sa derniere seconde, plus
+   qu'un episode. */
+const SOURCE_CACHE_TTL_S = 20 * 60;
 // Negative cache: keep dead probes out of the scrape rotation for 10 min.
 // A server that has no source for an episode now (anti-bot reject, slug not
 // listed, episode not posted yet) almost never flips to available within a few
@@ -3930,6 +3936,13 @@ const SOURCE_CACHE_TTL_S = 300;
 // cover the initial viewing wave. A genuinely transient miss self-heals after
 // the TTL with no user-visible difference (the chip just stays grey until then).
 const SOURCE_NOTFOUND_TTL_S = 600;
+/* Une absence PROUVEE (HardAbsenceError : le lecteur a lui-meme repondu 404 pour
+   ce televersement) ne bascule pas en dix minutes : le fichier n'existe pas.
+   Elle garde donc 6 h, la duree de l'instantane de disponibilite. L'absence
+   simple, elle, reste a 10 min : « episode pas encore mis en ligne » est
+   exactement le cas qui bascule le jour de sortie, au moment ou l'episode
+   compte le plus. */
+const SOURCE_HARD_NOTFOUND_TTL_S = 6 * 60 * 60;
 const NOT_FOUND_SENTINEL = '{"__nf":1}';
 // Same sentinel, plus "and we proved it" — so a cache hit (or a follower waiting
 // on the leader) answers with the same `hard` flag the scrape would have. Without
@@ -3981,6 +3994,22 @@ async function acquireScrapeLock(cacheKey) {
     // Redis hiccup → don't block the user; behave as leader (scrape).
     return true;
   }
+}
+
+/* LE VERROU N'A PAS BESOIN D'ÊTRE SUPPRIMÉ QUAND LE RÉSULTAT EST ÉCRIT.
+   Un suiveur lit la cache ET le verrou dans le même MGET, et regarde la cache
+   en premier : dès que la valeur est là, le verrou n'est plus lu par personne,
+   et il expire tout seul en LOCK_TTL_S. Le supprimer coûtait une commande
+   Upstash de plus sur chaque résolution — c'est-à-dire sur le chemin cher de
+   la route qui domine le volume (quota épuisé le 16/09/2026).
+
+   Il reste supprimé dans les deux cas où il compte encore : l'écriture a
+   échoué (sans ça les suiveurs attendraient le TTL pour rien), et
+   `sendRetryable`, qui n'écrit rien exprès. */
+function releaseIfUnwritten(write, cacheKey) {
+  write.then((ok) => {
+    if (ok !== "OK") releaseScrapeLock(cacheKey);
+  });
 }
 
 async function releaseScrapeLock(cacheKey) {
@@ -4251,8 +4280,8 @@ export default async function handler(req, res) {
       // the lock gone before the result is visible (which would let it scrape).
       const write = redis
         .set(cacheKey, JSON.stringify(payload), "EX", SOURCE_CACHE_TTL_S)
-        .catch(() => {});
-      if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
+        .catch(() => null);
+      if (isLeader) releaseIfUnwritten(write, cacheKey);
     }
     cacheFound();
     return res.status(200).json(payload);
@@ -4265,10 +4294,10 @@ export default async function handler(req, res) {
           cacheKey,
           hard ? HARD_NOT_FOUND_SENTINEL : NOT_FOUND_SENTINEL,
           "EX",
-          SOURCE_NOTFOUND_TTL_S,
+          hard ? SOURCE_HARD_NOTFOUND_TTL_S : SOURCE_NOTFOUND_TTL_S,
         )
-        .catch(() => {});
-      if (isLeader) write.finally(() => releaseScrapeLock(cacheKey));
+        .catch(() => null);
+      if (isLeader) releaseIfUnwritten(write, cacheKey);
     }
     cacheAbsent();
     return notFoundStatus(msg, { hard });

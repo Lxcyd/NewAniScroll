@@ -123,9 +123,17 @@ export default async function handler(req, res) {
       // so ~10 min of edge staleness is harmless. A HIT never reaches the
       // function and never spends the Redis GET below. Browser stays at 60s.
       res.setHeader("Cache-Control", "public, max-age=60");
+      /* UN VIDE NE SE GARDE PAS 10 MIN. Tant qu'il n'y a pas d'instantané, chaque
+         visiteur sonde tous les serveurs (≈ vingt invocations de /source et
+         leurs commandes Upstash) puis publie le résultat. Servir ce vide depuis
+         le bord pendant dix minutes, plus une heure de stale, c'était faire
+         refaire ce travail à tous ceux qui arrivent APRÈS la première
+         publication — exactement la situation d'une base neuve (16/09/2026). */
       res.setHeader(
         "CDN-Cache-Control",
-        "public, s-maxage=600, stale-while-revalidate=3600",
+        raw
+          ? "public, s-maxage=600, stale-while-revalidate=3600"
+          : "public, s-maxage=60",
       );
       // `servers` keeps the original field name (= confirmed/ok) for any older
       // client; `absent` is additive so a stale client just ignores it.
