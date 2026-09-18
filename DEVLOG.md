@@ -74,7 +74,7 @@ construit depuis `git log --since=<derniere release>`.
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 45 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
-| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 16 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
 ## Index des entrees
@@ -208,6 +208,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-18 — Grande passe de vitesse : squelette de navigation, requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
 - 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 - 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
 - 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part

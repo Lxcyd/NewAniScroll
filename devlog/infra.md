@@ -6,6 +6,76 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-18 — Grande passe de vitesse : squelette de navigation, requetes dedoublonnees, images de repli
+
+**La question de depart : « Upstash est-il si important ? »** Oui, mais pour
+une raison sur deux. Son role d'ETAT est irremplacable : salles Watch2gether,
+verrou single-flight de `/api/v2/source`, fusion `avail:` des lecteurs, signal
+`anilist:health`. Son role de CACHE est un amortisseur des MISS de l'edge — le
+retirer, c'est le Fluid CPU du 17/07 et du 17/09. Les limiteurs de debit sont en
+memoire (0 commande), `/skip` et `/preview` n'y touchent pas. Le vrai correctif
+infra reste une base gratuite dediee a dev (toujours partagee au 18/09).
+
+**Ce qui rendait le site « lent » n'etait pas le framework.** Un clic sur une
+carte attendait le `getServerSideProps` de la fiche, ancienne page figee a
+l'ecran, barre rose pour seul signe. Next.js n'est pas en cause : Astro ou
+SvelteKit attendraient les memes AniList. Le levier structurel, s'il en faut un,
+est l'hebergement (Vercel Pro, ou OpenNext sur Workers payant a 5 $/mois), pas
+une reecriture.
+
+Cinq commits, un par vague :
+
+| Vague | Changement | Mesure |
+| --- | --- | --- |
+| 1 | Font Awesome retire (aucune classe `fa`), Google Fonts -> Fontsource, spinner vidstack recopie en SVG, onglets de la fiche en chunks precharges | watch 274 -> 224 ko, fiche 264 -> 247 ko (First Load) |
+| 2 | `RouteSkeleton` + prechauffage `/_next/data` au survol prolonge | squelette des le clic |
+| 3 | `/skip` une fois par (episode, langue), `/translate` et `/anilist-search` en GET cachable, `list-entry` lu en session, GetMedia sans collection MANGA | ~4 -> 1 appel skip par page |
+| 4 | MISS de la fiche parallelise, `upcoming` dans le MGET de l'accueil, 404 caches au bord | -1 commande par rendu d'accueil |
+| 5 | Repli fanart par wsrv.nl avant l'original | 1 017 ko -> 589 ko, 1,06 s -> 0,16 s |
+
+**Pieges rencontres, a ne pas refaire :**
+
+- *next/font renomme les familles* (`__Karla_1a2b3c`). « Karla » est ecrit en
+  dur dans des SVG, des `ctx.font` de canvas, les CSS modules de discover — et
+  dans la preference de sous-titres DEJA enregistree chez les visiteurs.
+  Fontsource garde les noms. Et la liste des graisses doit etre EXACTEMENT celle
+  de l'ancienne URL Google : ajouter Roboto 600 changerait le rendu de tout texte
+  qui se rabattait sur 700.
+- *`next/dynamic` n'expose pas `.preload()`* : il renvoie un `forwardRef`, et
+  meme un chunk deja la passe par un rendu `loading` (une image vide). D'ou
+  `lib/hooks/lazyWithPreload.tsx`, qui rend le composant des le premier rendu
+  une fois precharge.
+- *Le squelette doit vivre DANS le conteneur `as-fade-in`* : son animation
+  d'opacite en fill cree un contexte d'empilement ; a cote, le squelette en
+  z 9000 passait au-dessus de la navbar (z 9999) de la page.
+- *L'URL de donnees d'une route dynamique porte ses parametres* :
+  `/_next/data/<b>/en/anime/21.json?id=21`. Le prechauffage la calcule avec
+  `pageLoader.getDataHref` du routeur et envoie `x-nextjs-data: 1`, sinon il
+  remplit une autre entree de cache. Page de lecture exclue : son `?id=`
+  entre en collision avec le parametre de route.
+- *`cacheSeconds: 0` sur `anilistFetch` coupe aussi le marqueur d'echec* qui
+  protege des pannes AniList (02/09). Ne pas s'en servir pour economiser un GET.
+- *wsrv.nl bloque le domaine d'AniList* (« Domain or TLD blocked by policy ») :
+  seules les images fanart.tv/TMDB passent. Et le tout premier visiteur d'une
+  image paie la transformation a froid (5,2 s mesure).
+
+**Ecartes apres examen** : TTL Redis de `anilist:health` a 300 s (il commande
+le court-circuit « AniList en panne » du site entier : la reprise se verrait
+5 min plus tard) ; `readRoomGate` dans `watch2gether/event.ts` (`canEmit`
+verifie aussi la presence, ce n'est pas la meme garde) ; fusionner les trois
+GetMedia de l'accueil (le filtre de statut filtre aussi les listes perso) ;
+proxifier les bannieres AniList (la carte de survol prechauffe l'URL exacte
+que la fiche affichera).
+
+**Reste ouvert** : le cache edge de la fiche ne varie pas selon l'appareil,
+donc `initialUA` vient du premier visiteur de la fenetre de 6 h (flash de mise
+en page corrige apres montage) — une reecriture `has: user-agent` ne
+s'appliquerait pas aux navigations client. Et la base Upstash de dev.
+
+Deploiement : les pushs du soir sont tombes pendant l'incident Vercel
+« Elevated Errors Triggering Deployments » (20:32 UTC) — aucun deploiement
+cree, aucun statut GitHub. A verifier sur dev.aniscroll.com une fois repris.
+
 ## 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 
 **Le symptôme ment sur sa cause.** Le graphe Vercel du compte `aniscroll-dev`
