@@ -119,6 +119,20 @@ await attends(() => evalue(`document.readyState === "complete"`), 45000);
 await dors(6000);
 console.log(`origine : ${ORIGINE}\n`);
 
+/* Un profil neuf voit la fenetre « Nouveautes » (changelog) a la premiere
+   visite : elle couvre toute la page et intercepte le pointeur — sans cette
+   etape, le survol et le clic tombent dessus et tout se lit comme une
+   regression. Echap la ferme (dialogue headlessui) ; l'evenement est fabrique
+   dans la page, le dispatch CDP brut n'atteignant pas l'ecouteur en headless. */
+for (let i = 0; i < 3; i++) {
+  const ouverte = await evalue(`!!document.querySelector('[role="dialog"]')`);
+  if (!ouverte) break;
+  await evalue(
+    `(document.activeElement || document).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", code: "Escape", bubbles: true}))`,
+  );
+  await dors(800);
+}
+
 // 6. Pas de CSS/polices tierces bloquantes.
 const tiers = [...reqs.values()].filter((r) => /fonts\.googleapis|cdnjs\.cloudflare\.com\/ajax\/libs\/font-awesome/.test(r.url));
 verdict(tiers.length === 0, "aucune police/CSS tierce", `${tiers.length} requete(s)`);
@@ -192,6 +206,21 @@ verdict(
   skips.length <= 1 && skips.every((r) => !/[?&]server=/.test(r.url)),
   "un seul /api/v2/skip",
   skips.map((r) => r.url.split("/api/v2/skip/")[1]).join(" | ") || "aucun",
+);
+
+// 5 bis. Meme controle sur un titre qui A un id MAL (One Piece) : un anime tout
+// neuf n'en a souvent pas, et zero appel ne prouverait alors rien.
+const tOP = Date.now();
+await envoie("Page.navigate", {
+  url: `${ORIGINE}/en/anime/watch/21/megaplay?id=megaplay-21-1&num=1`,
+});
+await attends(() => evalue(`document.readyState === "complete"`), 45000);
+await dors(15000);
+const skipsOP = depuis(tOP, /\/api\/v2\/skip\//);
+verdict(
+  skipsOP.length === 1 && !/[?&]server=/.test(skipsOP[0].url),
+  "un seul /api/v2/skip (One Piece)",
+  skipsOP.map((r) => `${r.url.split("/api/v2/skip/")[1]} ${r.cache ? "cache" : r.xcache ?? ""}`).join(" | ") || "aucun",
 );
 
 console.log("");

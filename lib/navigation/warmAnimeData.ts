@@ -72,11 +72,58 @@ export function warmAnimeData(id: number): void {
     credentials: "same-origin",
     headers: { "x-nextjs-data": "1" },
   })
-    .then((r) => {
-      if (!r.ok) warmed.delete(id); // un 5xx ne doit pas bloquer un nouvel essai
-      return r.body?.cancel?.();
+    .then(async (r) => {
+      if (!r.ok) {
+        warmed.delete(id); // un 5xx ne doit pas bloquer un nouvel essai
+        return r.body?.cancel?.();
+      }
+      const text = await r.text();
+      handToRouter(href, r, text, () => warmed.delete(id));
     })
     .catch(() => warmed.delete(id));
+}
+
+/* Combien de temps une reponse prechauffee attend le clic. Au-dela, on la
+   rend : la fiche serait servie telle qu'elle etait au survol. */
+const ROUTER_HANDOFF_MS = 60_000;
+
+/**
+ * Depose la reponse dans le cache de donnees du routeur (`router.sdc`).
+ *
+ * Le cache HTTP du navigateur ne suffit PAS, mesure le 18/09 : le `max-age=60`
+ * du SSR se compte depuis la generation au bord, et Vercel renvoie `Age` —
+ * une fiche restee plus d'une minute au CDN arrive deja perimee, et le clic
+ * repart sur le reseau (un HIT, ~100 ms, pas zero).
+ *
+ * `fetchNextData` (next/dist/shared/lib/router/router.js) lit
+ * `inflightCache[cacheKey]` AVANT tout fetch, et pour une page SSP efface
+ * l'entree apres usage. On y place donc exactement ce qu'il y aurait mis
+ * lui-meme ({ dataHref, json, response, text, cacheKey }). Interne a Next 14 :
+ * si la structure n'est pas la, on ne fait rien et le clic retombe sur le
+ * chemin normal (HIT au bord).
+ */
+function handToRouter(
+  href: string,
+  response: Response,
+  text: string,
+  onExpire: () => void,
+) {
+  const sdc = (window as any).next?.router?.sdc;
+  if (!sdc || typeof sdc !== "object") return;
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return;
+  }
+  const cacheKey = new URL(href, window.location.href).href;
+  if (sdc[cacheKey] !== undefined) return; // le routeur a deja la sienne
+  const entry = Promise.resolve({ dataHref: href, json, response, text, cacheKey });
+  sdc[cacheKey] = entry;
+  window.setTimeout(() => {
+    if (sdc[cacheKey] === entry) delete sdc[cacheKey];
+    onExpire(); // un survol ulterieur pourra prechauffer a nouveau
+  }, ROUTER_HANDOFF_MS);
 }
 
 function anchorId(target: EventTarget | null): { el: Element; id: number } | null {
