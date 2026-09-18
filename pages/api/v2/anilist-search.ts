@@ -42,9 +42,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       seasonYear: body.seasonYear,
       perPage: body.perPage,
     });
-    // Short SWR header — the response cache inside anilistFetch already
-    // dedups within a 30s window, but this lets edge CDNs piggyback.
-    res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
+    // Un echec (null) n'est pas une reponse : ne pas le garder au bord.
+    if (!page) {
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json(page);
+    }
+    // Navigateur : 30 s, comme avant. Bord : 10 min puis stale-while-revalidate
+    // un jour. Mesure du 18/09/2026 : la page de recherche par defaut (sans
+    // texte) attendait 5,1 s un MISS — et avec 30 s de bord, presque chaque
+    // visite en etait un. Un classement par popularite ne bouge pas en dix
+    // minutes ; au-dela, le visiteur recoit la copie tout de suite pendant que
+    // le bord la rafraichit.
+    res.setHeader("Cache-Control", "public, max-age=30");
+    res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=600, stale-while-revalidate=86400",
+    );
     return res.status(200).json(page);
   } catch (e: any) {
     console.error("[/api/v2/anilist-search] error:", e?.message);

@@ -1,7 +1,6 @@
 import "@/lib/fonts";
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
-import Script from "next/script";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
@@ -69,8 +68,8 @@ const AchievementToast = dynamic(
   () => import("@/components/shared/AchievementToast"),
   { ssr: false },
 );
-/* Squelette de navigation vers une fiche / une page de lecture, et le
-   prechauffage de donnees au survol. Rien a rendre avant une navigation. */
+/* Squelette de navigation vers une page de lecture, et les prechauffages de
+   donnees (fiche, profil, pages du menu). Rien a rendre avant une navigation. */
 const RouteSkeleton = dynamic(
   () => import("@/components/shared/RouteSkeleton"),
   { ssr: false },
@@ -650,11 +649,10 @@ export default function App({
 
   return (
     <>
-      {/* Google Cast SDK — enables the Chromecast button in the video player */}
-      <Script
-        src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
-        strategy="afterInteractive"
-      />
+      {/* Le SDK Google Cast n'est plus charge ici, sur TOUTES les pages : le
+          lecteur (UniversalPlayer) l'injecte lui-meme a son montage, seul
+          endroit ou le bouton Chromecast existe. Deux scripts tiers de moins
+          sur l'accueil, la fiche, la recherche… (18/09/2026). */}
       {/* SessionProvider polls /api/auth/session every minute by default
           AND on every window focus. Each poll = 1 Vercel function
           invocation. With users keeping tabs open for hours that adds up

@@ -7,7 +7,7 @@
  * la reponse au routeur (cf. handToRouter) : le clic ne fait alors plus aucun
  * aller-retour.
  *
- * Deux pages en profitent :
+ * Trois familles de pages en profitent :
  *
  *  - LA FICHE ANIME, quand un survol devient une INTENTION : 150 ms immobile sur
  *    la carte (un balayage de carrousel ne declenche rien), ou `pointerdown`
@@ -15,7 +15,9 @@
  *    froid = une invocation, d'ou le seuil ;
  *  - LE PROFIL DU COMPTE CONNECTE, des l'ouverture du site (cf. warmOwnProfile),
  *    et a nouveau au survol de son lien si la copie a expire. C'est la page la
- *    plus lente du site (liste AniList entiere, plusieurs secondes sur un MISS).
+ *    plus lente du site (liste AniList entiere, plusieurs secondes sur un MISS) ;
+ *  - LES PAGES DU MENU rendues par le serveur (accueil, planning, recherche), au
+ *    survol ou a l'appui de leur lien.
  *
  * Rien en mode economie de donnees. La fiche seulement quand la carte mene a la
  * FICHE (preference de clic par defaut) : la page de lecture porte un `?id=` qui
@@ -53,11 +55,12 @@ function dataHref(route: string, query: string, asPath: string): string | null {
   const w = window as any;
   const buildId: string | undefined = w.__NEXT_DATA__?.buildId;
   if (!buildId) return null;
+  const search = query ? `?${query}` : "";
   const loader = w.next?.router?.pageLoader;
   if (loader?.getDataHref) {
     try {
       return loader.getDataHref({
-        href: `${route}?${query}`,
+        href: `${route}${search}`,
         asPath,
         skipInterpolation: true,
       });
@@ -65,7 +68,7 @@ function dataHref(route: string, query: string, asPath: string): string | null {
       /* repli ci-dessous */
     }
   }
-  return `/_next/data/${buildId}${asPath}.json?${query}`;
+  return `/_next/data/${buildId}${asPath}.json${search}`;
 }
 
 function routerCache(): Record<string, unknown> | null {
@@ -126,6 +129,41 @@ export function warmProfileData(path: string): void {
   const q = new URLSearchParams({ user }).toString();
   const href = dataHref("/en/profile/[user]", q, asPath);
   if (href) warm(href, PROFILE_HOLD_MS);
+}
+
+/**
+ * Les pages du menu rendues par le serveur : accueil, planning, recherche.
+ * Leur rendu est deja cache au bord ; le prechauffage retire l'aller-retour
+ * restant, et le MISS quand le cache vient d'etre vide (deploiement).
+ * `null` pour tout autre chemin.
+ */
+function menuRoute(path: string): { route: string; query: string; asPath: string } | null {
+  const [beforeHash] = path.split("#");
+  const [rawPath, rawQuery = ""] = beforeHash.split("?");
+  const p = rawPath.replace(/\/+$/, "") || "/";
+  // Le routeur fusionne la query du lien PUIS les parametres de route
+  // (Object.assign) : meme ordre ici. Seule la recherche en porte une.
+  const own = new URLSearchParams(rawQuery);
+  if (p === "/en" || p === "/en/schedule") {
+    return rawQuery ? null : { route: p, query: "", asPath: p };
+  }
+  const s = p.match(/^\/en\/search\/(.+)$/);
+  if (s && !own.has("param")) {
+    try {
+      for (const seg of s[1].split("/")) own.append("param", decodeURIComponent(seg));
+    } catch {
+      return null;
+    }
+    return { route: "/en/search/[...param]", query: own.toString(), asPath: p };
+  }
+  return null;
+}
+
+export function warmMenuPage(path: string): void {
+  const r = menuRoute(path);
+  if (!r || window.location.pathname.replace(/\/+$/, "") === r.asPath) return;
+  const href = dataHref(r.route, r.query, r.asPath);
+  if (href) warm(href, ANIME_HOLD_MS);
 }
 
 /**
@@ -200,12 +238,19 @@ function anchorId(target: EventTarget | null): { el: Element; id: number } | nul
   return Number.isFinite(id) && id > 0 ? { el, id } : null;
 }
 
-/** Un lien vers un profil (navbar, barre mobile, carte d'un membre…). */
-function profileLink(target: EventTarget | null): { el: Element; path: string } | null {
-  const el = (target as Element | null)?.closest?.('a[href^="/en/profile/"]:not([target="_blank"])');
+/** Un lien interne vers une page qu'on sait prechauffer : un profil (navbar,
+ *  barre mobile, carte d'un membre…) ou une page du menu. */
+function warmableLink(target: EventTarget | null): { el: Element; path: string } | null {
+  const el = (target as Element | null)?.closest?.('a[href^="/en"]:not([target="_blank"])');
   if (!el) return null;
   const path = el.getAttribute("href") || "";
-  return path ? { el, path } : null;
+  if (path.startsWith("/en/profile/") || menuRoute(path)) return { el, path };
+  return null;
+}
+
+function warmLink(path: string): void {
+  if (path.startsWith("/en/profile/")) warmProfileData(path);
+  else warmMenuPage(path);
 }
 
 /** Ecouteurs delegues sur le document ; renvoie leur nettoyage. */
@@ -222,13 +267,13 @@ export function installAnimeDataWarmer(): () => void {
   const onOver = (e: PointerEvent) => {
     if (e.pointerType !== "mouse") return; // le tactile passe par pointerdown
     const hit = anchorId(e.target);
-    const prof = hit ? null : profileLink(e.target);
+    const prof = hit ? null : warmableLink(e.target);
     const el = hit?.el ?? prof?.el;
     if (!el || el === current) return;
     clear();
     current = el;
     timer = window.setTimeout(
-      () => (hit ? warmAnimeData(hit.id) : warmProfileData(prof!.path)),
+      () => (hit ? warmAnimeData(hit.id) : warmLink(prof!.path)),
       HOVER_INTENT_MS,
     );
   };
@@ -241,8 +286,8 @@ export function installAnimeDataWarmer(): () => void {
   const onDown = (e: PointerEvent) => {
     const hit = anchorId(e.target);
     if (hit) return warmAnimeData(hit.id);
-    const prof = profileLink(e.target);
-    if (prof) warmProfileData(prof.path);
+    const link = warmableLink(e.target);
+    if (link) warmLink(link.path);
   };
 
   document.addEventListener("pointerover", onOver, { passive: true });
