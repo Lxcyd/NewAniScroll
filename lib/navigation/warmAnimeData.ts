@@ -32,19 +32,27 @@ function dataHrefFor(id: number): string | null {
   if (!buildId) return null;
   // Meme calcul que le routeur (router.js → pageLoader.getDataHref) : c'est la
   // seule facon de garantir la meme URL, donc la meme entree de cache.
+  // Sur mobile, le rewrite UA de next.config.js ajoute `__m=1` AVANT les
+  // parametres de route (resolve-rewrites, puis le matcher de route) : meme
+  // ordre ici, sinon on chaufferait une autre entree de cache.
+  const q = MOBILE_UA.test(navigator.userAgent) ? `__m=1&id=${id}` : `id=${id}`;
   const loader = w.next?.router?.pageLoader;
   if (loader?.getDataHref) {
     try {
       return loader.getDataHref({
-        href: `/en/anime/[...id]?id=${id}`,
+        href: `/en/anime/[...id]?${q}`,
         asPath: `/en/anime/${id}`,
       });
     } catch {
       /* repli ci-dessous */
     }
   }
-  return `/_next/data/${buildId}/en/anime/${id}.json?id=${id}`;
+  return `/_next/data/${buildId}/en/anime/${id}.json?${q}`;
 }
+
+/* La condition `has` du rewrite mobile de next.config.js, a l'identique. */
+const MOBILE_UA =
+  /^.*(Android|android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini).*$/;
 
 function currentAnimeId(): number | null {
   const m = window.location.pathname.match(/^\/(?:en|fr)\/anime\/(\d+)/);

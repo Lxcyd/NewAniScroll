@@ -885,6 +885,14 @@ export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
   const timer = makeTimer();
 
+  // Mobile or desktop layout, decided by the URL and NEVER by this request's
+  // User-Agent: the response is edge-cached per URL, so reading the UA here let
+  // the first visitor of each 6 h window pick the layout for everyone. The
+  // `__m=1` flag is added by a UA-conditioned rewrite (next.config.js), on the
+  // server and in the client router alike. The value only feeds
+  // useIsMobile's UA test, so any string it classifies as mobile will do.
+  const initialUA = ctx.query.__m === "1" ? "iPhone" : null;
+
   // Absolute origin for OG meta. Crawlers read the SSR HTML (no client JS), so
   // a relative og:image won't unfurl — we need the scheme+host here. Prefer the
   // forwarded headers Vercel sets, fall back to host, then to the prod domain.
@@ -1052,7 +1060,7 @@ export async function getServerSideProps(ctx: any) {
         initialFav: false,
         initialStatusLabel: null,
         initialProgress: 0,
-        initialUA: ctx.req?.headers?.["user-agent"] || null,
+        initialUA,
         baseUrl,
       },
     };
@@ -1204,7 +1212,7 @@ export async function getServerSideProps(ctx: any) {
       initialFav: false,
       initialStatusLabel: null,
       initialProgress: 0,
-      initialUA: ctx.req?.headers?.["user-agent"] || null,
+      initialUA,
       baseUrl,
     },
   };

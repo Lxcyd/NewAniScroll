@@ -214,16 +214,49 @@ module.exports = withPWA({
   // zero page duplication. getServerSideProps reads `query`, not the locale
   // segment, so it works identically under either prefix.
   async rewrites() {
-    return [
-      {
-        source: "/fr",
-        destination: "/en",
-      },
-      {
-        source: "/fr/:path*",
-        destination: "/en/:path*",
-      },
-    ];
+    return {
+      /* La fiche anime choisit sa mise en page (InfoPage / InfoPageMobile)
+         d'apres le User-Agent lu au SSR — mais elle est cachee au bord 6 h par
+         URL, pas par appareil : le premier visiteur de la fenetre decidait pour
+         tous les autres, et un telephone recevait le HTML desktop (ou
+         l'inverse) jusqu'a la bascule apres hydratation. Un flash de mauvaise
+         mise en page, a chaque chargement « perdant ».
+
+         Le telephone recoit donc une AUTRE URL interne, `?__m=1`, que le SSR
+         lit a la place du User-Agent : sa sortie ne depend plus que de l'URL,
+         et chaque variante a sa propre entree de cache. Cote client, le routeur
+         de Next evalue la meme condition sur `navigator.userAgent`
+         (resolve-rewrites.js) et ajoute le parametre a l'URL de donnees : les
+         navigations client sont separees de la meme facon. La barre d'adresse
+         ne change pas.
+
+         En beforeFiles pour passer avant le rewrite /fr -> /en, et le faire
+         lui-meme pour les URL /fr. La regex est celle de lib/hooks/useIsMobile
+         (qui est insensible a la casse : les variantes utiles sont ecrites). */
+      beforeFiles: ["en", "fr"].map((lang) => ({
+        source: `/${lang}/anime/:id(\\d+)/:rest*`,
+        has: [
+          {
+            type: "header",
+            key: "user-agent",
+            value:
+              ".*(Android|android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini).*",
+          },
+        ],
+        missing: [{ type: "query", key: "__m" }],
+        destination: "/en/anime/:id/:rest*?__m=1",
+      })),
+      afterFiles: [
+        {
+          source: "/fr",
+          destination: "/en",
+        },
+        {
+          source: "/fr/:path*",
+          destination: "/en/:path*",
+        },
+      ],
+    };
   },
   async redirects() {
     return [
