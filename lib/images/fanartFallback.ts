@@ -31,6 +31,7 @@
 
 import { useEffect, useState } from "react";
 import type { SyntheticEvent } from "react";
+import { unwrapWsrv, wsrvUrl } from "@/lib/images/imgProxy";
 
 const FANART_ORIGIN = "https://assets.fanart.tv";
 const FLAG = "fanart-proxy-exhausted";
@@ -53,6 +54,16 @@ export function originalFanartUrl(url: string | null | undefined): string | null
   } catch {
     return null;
   }
+}
+
+/** Where a proxied fanart goes when our proxy can't serve it: the same image
+ *  through wsrv.nl (WebP, CDN-cached, no quota — lib/images/imgProxy.ts), and
+ *  only if that is switched off, the multi-MB original from fanart.tv's single
+ *  origin. Null when `url` isn't a proxied fanart. */
+function fallbackFanartUrl(url: string | null | undefined): string | null {
+  const original = originalFanartUrl(url);
+  if (!original) return null;
+  return wsrvUrl(original) ?? original;
 }
 
 function proxyMarkedDown(): boolean {
@@ -91,7 +102,7 @@ export function useFanartSrc<T extends string | null | undefined>(url: T): T | s
       setResolved(url);
       return;
     }
-    setResolved(proxyMarkedDown() ? originalFanartUrl(url) ?? url : url);
+    setResolved(proxyMarkedDown() ? fallbackFanartUrl(url) ?? url : url);
   }, [url]);
   return resolved;
 }
@@ -119,7 +130,7 @@ export function resolveFanartSrc<T extends string | null | undefined>(
   proxyDown: boolean,
 ): T | string {
   if (!url || !proxyDown) return url;
-  return originalFanartUrl(url) ?? url;
+  return fallbackFanartUrl(url) ?? url;
 }
 
 /** Imperative variant for use OUTSIDE render (effects, event handlers, plain
@@ -127,7 +138,7 @@ export function resolveFanartSrc<T extends string | null | undefined>(
  *  this during render; use useFanartSrc there or hydration will break. */
 export function fanartSrcNow<T extends string | null | undefined>(url: T): T | string {
   if (!url) return url;
-  return proxyMarkedDown() ? originalFanartUrl(url) ?? url : url;
+  return proxyMarkedDown() ? fallbackFanartUrl(url) ?? url : url;
 }
 
 /** onError handler for any <img>/<Image> showing a fanart. Swaps to the
@@ -137,7 +148,16 @@ export function fanartSrcNow<T extends string | null | undefined>(url: T): T | s
  *  handler), so it can read/write sessionStorage freely. */
 export function onFanartError(e: SyntheticEvent<HTMLImageElement>): void {
   const img = e.currentTarget;
-  const fallback = originalFanartUrl(img.src);
+  // Second rung: wsrv itself failed (it normally redirects to the original on
+  // its own via `default=`, so this is belt and braces) → the original.
+  const wrapped = unwrapWsrv(img.src);
+  if (wrapped) {
+    if (wrapped === img.src) return;
+    img.src = wrapped;
+    img.srcset = "";
+    return;
+  }
+  const fallback = fallbackFanartUrl(img.src);
   if (!fallback || fallback === img.src) return;
   recordFailure();
   img.src = fallback;
