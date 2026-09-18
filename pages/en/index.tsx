@@ -909,6 +909,8 @@ export default function Home({
     loading: boolean;
   } = GetMedia(sessions, {
     stats: "CURRENT",
+    // Only this call feeds a carousel from the recommendations page.
+    withRecs: true,
   });
   const { anime: plan, loading: planLoading }: { anime: CurrentMediaTypes[]; loading: boolean } =
     GetMedia(sessions, {

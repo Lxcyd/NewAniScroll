@@ -201,20 +201,22 @@ export default function Card({
        try to pull in ioredis (used by the AniList rate-limiter inside
        aniAdvanceSearch's transitive deps), which would fail with
        "Module not found: Can't resolve 'dns'". */
-    const res = await fetch("/api/v2/anilist-search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        search: debounceSearch,
-        type: type?.value,
-        genres: genre,
-        page: page,
-        sort: sort?.value,
-        format: format?.value,
-        season: season?.value,
-        seasonYear: year?.value,
-      }),
+    // GET with the arguments as one JSON param: same payload as the old POST
+    // body, but the URL is now a cache key, so the edge can answer a repeated
+    // search (and every "next page" another visitor already loaded).
+    const params = JSON.stringify({
+      search: debounceSearch,
+      type: type?.value,
+      genres: genre,
+      page: page,
+      sort: sort?.value,
+      format: format?.value,
+      season: season?.value,
+      seasonYear: year?.value,
     });
+    const res = await fetch(
+      `/api/v2/anilist-search?p=${encodeURIComponent(params)}`,
+    );
     const data = res.ok ? await res.json() : null;
     if (data?.media?.length === 0) {
       setNextPage(false);

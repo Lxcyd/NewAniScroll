@@ -58,6 +58,7 @@ import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
+import { hasFreshUserList, peekListEntry } from "@/lib/anilist/userListCache";
 import { markComplete, getProgress, isCompleted } from "@/lib/watch/progress";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
@@ -359,6 +360,32 @@ export default function Watch({
     if (!sessions?.user?.name) return;
     if (!info?.id) return;
     if (info.mediaListEntry) return;
+    // The session already holds the whole list whenever the viewer came
+    // through an info page (userListCache, kept in step by syncEngine on every
+    // progress write): read it there, no request at all. The per-user endpoint
+    // below is `no-store` + a session decode + an AniList call from Vercel —
+    // one invocation per watch view and per episode change. It stays for a
+    // cold landing, where fetching the full list instead would be far heavier.
+    const userName = sessions.user.name;
+    if (hasFreshUserList(userName)) {
+      const e = peekListEntry(userName, info.id);
+      if (e) {
+        setInfo((prev) =>
+          prev
+            ? {
+                ...prev,
+                mediaListEntry: {
+                  progress: e.progress,
+                  status: e.status,
+                  repeat: e.repeat,
+                  customLists: e.customLists,
+                },
+              }
+            : prev,
+        );
+      }
+      return;
+    }
     let cancelled = false;
     fetch(`/api/v2/list-entry/${info.id}`)
       .then((r) => (r.ok ? r.json() : null))
