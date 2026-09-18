@@ -69,6 +69,12 @@ const AchievementToast = dynamic(
   () => import("@/components/shared/AchievementToast"),
   { ssr: false },
 );
+/* Squelette de navigation vers une fiche / une page de lecture, et le
+   prechauffage de donnees au survol. Rien a rendre avant une navigation. */
+const RouteSkeleton = dynamic(
+  () => import("@/components/shared/RouteSkeleton"),
+  { ssr: false },
+);
 
 /** Mounts the palette on its first open — see useMountedOnce. */
 function SearchPaletteMount() {
@@ -702,6 +708,11 @@ export default function App({
                   />
 
                   <SearchPaletteMount />
+                  {/* Dans CE conteneur, pas a cote : son animation d'opacite en
+                      fill cree un contexte d'empilement, et le squelette doit
+                      partager celui de la navbar de la page (z-[9999]) pour
+                      passer dessous au lieu de la recouvrir. */}
+                  <RouteSkeleton />
                   <Component {...pageProps} />
                   {/* Vercel Web Analytics — free, beacon-based, doesn't count
                       against the Hobby function quota and gives us per-page

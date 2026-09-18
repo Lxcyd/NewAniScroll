@@ -57,6 +57,18 @@ html.tab-hidden *::after {
 .as-fade-in {
   animation: as-fade-in 0.3s ease both;
 }
+/* Squelette de navigation (components/shared/RouteSkeleton) : il apparait des
+   le clic, mais en 120 ms — une navigation servie par le cache se termine
+   souvent avant, et un squelette plein cadre d'une frame se lirait comme un
+   clignotement. */
+.as-route-skeleton {
+  animation: as-fade-in 0.12s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-route-skeleton {
+    animation: none;
+  }
+}
 .as-pop-in {
   animation: as-pop-in 0.35s ease both;
 }
