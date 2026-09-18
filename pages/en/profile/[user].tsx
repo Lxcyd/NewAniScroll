@@ -20,10 +20,11 @@ import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudi
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { notify } from "@/lib/notifications/noticeStore";
 import { redis } from "@/lib/redis";
+import { waitUntil } from "@/lib/http/waitUntil";
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
-import { getData, putData, type DataKind } from "@/lib/auth/userData";
+import { getData, putData, type DataKind, type StoredKind } from "@/lib/auth/userData";
 import {
   entriesFromAniList,
   entriesFromLocalList,
@@ -558,6 +559,10 @@ const listCache = new Map<string, { at: number; data: any }>();
 /** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
 const FRAIS_MS = 5 * 60_000;
 const PARTAGE_TTL_S = 24 * 60 * 60;
+/** Une copie assez récente pour être servie si AniList traîne… */
+const RECENTE_MS = 2 * 60 * 60_000;
+/** …au-delà de ce délai d'attente. */
+const PATIENCE_MS = 2500;
 /**
  * v2 : la requête demande la bande-annonce de chaque titre (`trailer`) depuis le
  * 06/09/2026, et une copie v1 n'en porte aucune — d'où « aucune bande-annonce
@@ -629,12 +634,34 @@ async function cachedAniList(username: string): Promise<any | null> {
     return partage.data;
   }
 
-  const data = await fetchAniList(username);
-  if (data) {
-    memoire(key, data);
-    await partageEcrit(key, data);
+  const frais = fetchAniList(username).catch(() => null).then(async (data) => {
+    if (data) {
+      memoire(key, data);
+      await partageEcrit(key, data);
+    }
     return data;
+  });
+
+  /* AniList met 4 à 12 s sur une grosse liste. Avec une copie RÉCENTE en main,
+     on ne l'attend que PATIENCE_MS : au-delà, la copie est servie tout de suite
+     et la réponse fraîche finit en arrière-plan (waitUntil), rangée pour la
+     visite suivante. Sans copie récente, on attend comme avant. */
+  if (partage && Date.now() - partage.at < RECENTE_MS) {
+    const vite = await Promise.race([
+      frais,
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), PATIENCE_MS)),
+    ]);
+    if (vite) return vite;
+    if (vite === undefined) {
+      waitUntil(frais);
+      memoire(key, partage.data);
+      return partage.data;
+    }
+    // vite === null : AniList a refusé, on retombe sur la copie ci-dessous.
   }
+
+  const data = await frais;
+  if (data) return data;
   // AniList a refusé ou traîné. La copie d'hier, si elle existe, plutôt qu'un
   // profil vide — et on la remet en mémoire pour ne pas re-sonder une API en
   // panne à chaque visite.
@@ -694,34 +721,6 @@ export async function getServerSideProps(context: any) {
   const account = match ? await findByTag(match[2]).catch(() => null) : null;
   const anilistName = account ? account.anilistName : segment;
 
-  /* LES DEUX EN MÊME TEMPS. La session ne dit rien de la liste et la liste ne
-     dit rien de la session : les attendre l'une après l'autre ajoutait la
-     lecture du cookie devant une requête qui dure déjà plusieurs secondes. */
-  const [session, collection] = await Promise.all([
-    getServerSession(context.req, context.res, authOptions).catch(() => null) as any,
-    anilistName ? cachedAniList(anilistName) : null,
-  ]);
-
-  const isOwner = account
-    ? session?.user?.uid === account.id
-    : !!session?.user?.name &&
-      String(session.user.name).toLowerCase() === String(anilistName).toLowerCase();
-
-  if (!account && !collection?.user) return { notFound: true };
-
-  /* Visibility. The setting lives in the legacy Prisma profile, keyed by the
-     name the account signs in with. */
-  const settingsKey = anilistName || account?.username || null;
-  const viewed = settingsKey ? await getUser(settingsKey, false).catch(() => null) : null;
-  if (viewed?.setting?.private === true && !isOwner) {
-    return {
-      props: {
-        isPrivate: true,
-        viewedName: account?.username || anilistName || segment,
-      },
-    };
-  }
-
   /* ── UNE SEULE LECTURE DE user_data, ET SEULEMENT CE QU'ON AFFICHERA ──
      Cette page est en getServerSideProps : chaque vue est un MISS, et tout ce
      qu'on demande ici est payé à chaque visite. D'où deux règles.
@@ -736,7 +735,8 @@ export async function getServerSideProps(context: any) {
 
      Quand la colonne est vide, on demande l'activité d'office : la disposition
      viendra du rattrapage `prefs` ou du défaut, et le défaut contient les deux
-     blocs. Une requête dans tous les cas, jamais deux. */
+     blocs. Une requête dans le cas courant, lancée EN MÊME TEMPS que la liste :
+     elle ne dépend que de la ligne `users`, déjà en main. */
   const layoutInColumn = parseLayout(account?.profileLayout);
   /* Une disposition absente n'est pas une disposition vide : c'est celle par
      défaut, et DEFAULT_BLOCKS contient les deux blocs d'activité. */
@@ -751,13 +751,51 @@ export async function getServerSideProps(context: any) {
      unique de `user_data` deja faite ici, donc ils ne coutent AUCUNE requete de
      plus -- cf. le commentaire de getData() dans lib/auth/userData.ts. */
   if (account) kinds.push("badges");
-  if (account && !collection?.user) kinds.push("list", "favourites");
+  /* La liste et les favoris sauvegardes ne servent que sans liste AniList.
+     Sans nom AniList, on le sait d'avance ; avec, seulement si AniList n'a
+     rien rendu — une seconde lecture, alors, apres coup (cas de panne). */
+  if (account && !anilistName) kinds.push("list", "favourites");
   if (account && !layoutInColumn) kinds.push("prefs");
   if (account && (!layoutInColumn || layoutWantsActivity(layoutInColumn))) {
     kinds.push("progress", "recent");
   }
-  const stored = account && kinds.length ? await getData(account.id, kinds).catch(() => []) : [];
+
+  /* LES DEUX EN MÊME TEMPS. La session ne dit rien de la liste et la liste ne
+     dit rien de la session : les attendre l'une après l'autre ajoutait la
+     lecture du cookie devant une requête qui dure déjà plusieurs secondes. Le
+     réglage de visibilité et `user_data` ne dépendent que du compte : ils
+     partent avec elles. */
+  const settingsKey = anilistName || account?.username || null;
+  const [session, collection, viewed, stored] = await Promise.all([
+    getServerSession(context.req, context.res, authOptions).catch(() => null) as any,
+    anilistName ? cachedAniList(anilistName) : null,
+    settingsKey ? getUser(settingsKey, false).catch(() => null) : null,
+    account && kinds.length
+      ? getData(account.id, kinds).catch(() => [] as StoredKind[])
+      : ([] as StoredKind[]),
+  ]);
+  if (account && anilistName && !collection?.user) {
+    stored.push(...(await getData(account.id, ["list", "favourites"]).catch(() => [])));
+  }
   const payloadOf = (kind: DataKind) => stored.find((d) => d.kind === kind)?.payload;
+
+  const isOwner = account
+    ? session?.user?.uid === account.id
+    : !!session?.user?.name &&
+      String(session.user.name).toLowerCase() === String(anilistName).toLowerCase();
+
+  if (!account && !collection?.user) return { notFound: true };
+
+  /* Visibility. The setting lives in the legacy Prisma profile, keyed by the
+     name the account signs in with (read above, alongside the list). */
+  if (viewed?.setting?.private === true && !isOwner) {
+    return {
+      props: {
+        isPrivate: true,
+        viewedName: account?.username || anilistName || segment,
+      },
+    };
+  }
 
   /* ── The list ───────────────────────────────────────────────── */
   const known = new Map<number, KnownArt>();
@@ -848,22 +886,30 @@ export async function getServerSideProps(context: any) {
      alimente. C'est donc la même source, en une requête pour toute la liste.
 
      Réservé au PROPRIÉTAIRE : seul le studio les propose, et lui seul l'ouvre. */
-  if (isOwner) {
-    const missing = entries.filter((e) => !e.trailer).map((e) => e.mediaId);
-    const found = await trailersFor(missing);
-    if (found.size) {
-      for (const e of entries) {
-        const id = found.get(e.mediaId);
-        if (id) e.trailer = id;
-      }
-    }
-  }
-
   /* ── The plate ──────────────────────────────────────────────── */
   /* L'habillage épinglé. `normalizeDressing` relit aussi bien la forme du
      studio que l'ancienne (`{url, animeId, title, source}`) — donc rien à
      migrer en base, et une valeur illisible vaut « pas d'épinglage ». */
   const pinnedBanner = normalizeDressing(account?.profileBanner ?? null);
+
+  /* Les bandes-annonces et la bannière automatique, EN MÊME TEMPS : deux
+     allers-retours indépendants (Turso d'un côté, fanart/TMDB de l'autre) qui
+     s'additionnaient. La bannière ne lit pas `trailer`. */
+  const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
+  const [found, resolved] = await Promise.all([
+    isOwner
+      ? trailersFor(entries.filter((e) => !e.trailer).map((e) => e.mediaId))
+      : null,
+    pinnedBanner
+      ? null
+      : resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known),
+  ]);
+  if (found?.size) {
+    for (const e of entries) {
+      const id = found.get(e.mediaId);
+      if (id) e.trailer = id;
+    }
+  }
 
   /* ── La grille, et l'activité qu'elle demande ────────────────────
      La disposition est lue sur la ligne DU PROFIL, jamais sur la session :
@@ -908,11 +954,6 @@ export async function getServerSideProps(context: any) {
      lecture du proprietaire, elle ne doit pas rester lisible dans
      __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
   const streak: number | null = read?.streak ?? null;
-
-  const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
-  const resolved = pinnedBanner
-    ? null
-    : await resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known);
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more

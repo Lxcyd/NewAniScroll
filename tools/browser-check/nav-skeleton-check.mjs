@@ -3,9 +3,8 @@
  *
  *   1. le prechauffage au survol : apres 150 ms immobile sur une carte, UNE
  *      requete /_next/data/.../anime/<id>.json part ;
- *   2. le squelette : au clic, `.as-route-skeleton` est la en quelques ms, la
- *      navbar reste AU-DESSUS (elementFromPoint en haut de l'ecran), et il
- *      disparait quand la fiche est peinte ;
+ *   2. AUCUN squelette sur la fiche (retire le 18/09 : « ca fait bizarre ») —
+ *      il reste reserve a la page de lecture ;
  *   3. la requete de donnees du clic sort du cache (fromDiskCache) ;
  *   4. les onglets differes : clic « Episodes » -> des lignes apparaissent ;
  *   5. la page de lecture : UN seul /api/v2/skip, aucun `server=` dedans ;
@@ -155,12 +154,11 @@ await dors(900);
 const chauffe = depuis(tSurvol, new RegExp(`/_next/data/.*/anime/${carte.id}\\.json`));
 verdict(chauffe.length === 1, "prechauffage au survol", chauffe.map((r) => r.url.split("/_next/data/")[1]).join(" ") || "aucune requete");
 
-// 2 + 3. Clic : squelette, navbar au-dessus, donnees depuis le cache.
+// 2 + 3. Clic : pas de squelette, donnees depuis le cache.
 const tClic = Date.now();
 await envoie("Input.dispatchMouseEvent", { type: "mousePressed", x: carte.x, y: carte.y, button: "left", clickCount: 1 });
 await envoie("Input.dispatchMouseEvent", { type: "mouseReleased", x: carte.x, y: carte.y, button: "left", clickCount: 1 });
 let vuSquelette = null;
-let navDessus = null;
 for (let i = 0; i < 200; i++) {
   const etat = await evalue(`(() => {
     const s = document.querySelector(".as-route-skeleton");
@@ -169,14 +167,12 @@ for (let i = 0; i < 200; i++) {
   })()`);
   if (etat?.s && vuSquelette == null) {
     vuSquelette = Date.now() - tClic;
-    navDessus = etat.nav;
   }
   if (etat?.path?.includes(`/anime/${carte.id}`) && !etat.s) break;
   await dors(15);
 }
 const finNav = Date.now() - tClic;
-verdict(vuSquelette != null, "squelette au clic", vuSquelette != null ? `+${vuSquelette} ms` : "jamais vu (navigation plus rapide que le sondage ?)");
-if (vuSquelette != null) verdict(!!navDessus, "navbar au-dessus du squelette", navDessus ? "oui" : "NON — le squelette la recouvre");
+verdict(vuSquelette == null, "pas de squelette sur la fiche", vuSquelette == null ? "aucun" : `VU a +${vuSquelette} ms`);
 const donneesClic = depuis(tClic, new RegExp(`/_next/data/.*/anime/${carte.id}\\.json`));
 verdict(
   donneesClic.length === 0 || donneesClic.every((r) => r.cache),
