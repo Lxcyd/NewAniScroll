@@ -559,10 +559,12 @@ const listCache = new Map<string, { at: number; data: any }>();
 /** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
 const FRAIS_MS = 5 * 60_000;
 const PARTAGE_TTL_S = 24 * 60 * 60;
-/** Une copie assez récente pour être servie si AniList traîne… */
-const RECENTE_MS = 2 * 60 * 60_000;
+/** Une copie assez récente pour être servie si AniList traîne — toute copie
+ *  encore rangée (24 h) : c'est l'attente d'AniList, 4 à 12 s sur une grosse
+ *  liste, qui rendait le profil « extrêmement long » (18/09/2026)… */
+const RECENTE_MS = PARTAGE_TTL_S * 1000;
 /** …au-delà de ce délai d'attente. */
-const PATIENCE_MS = 2500;
+const PATIENCE_MS = 1500;
 /**
  * v2 : la requête demande la bande-annonce de chaque titre (`trailer`) depuis le
  * 06/09/2026, et une copie v1 n'en porte aucune — d'où « aucune bande-annonce
