@@ -208,7 +208,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
-- 2026-09-18 — Grande passe de vitesse : squelette de navigation, requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
+- 2026-09-18 — Grande passe de vitesse : préchauffage fiche + profil remis au routeur (squelette gardé sur la lecture seulement), requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
 - 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 - 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
 - 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part

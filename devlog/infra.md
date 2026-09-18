@@ -67,14 +67,39 @@ GetMedia de l'accueil (le filtre de statut filtre aussi les listes perso) ;
 proxifier les bannieres AniList (la carte de survol prechauffe l'URL exacte
 que la fiche affichera).
 
-**Reste ouvert** : le cache edge de la fiche ne varie pas selon l'appareil,
-donc `initialUA` vient du premier visiteur de la fenetre de 6 h (flash de mise
-en page corrige apres montage) — une reecriture `has: user-agent` ne
-s'appliquerait pas aux navigations client. Et la base Upstash de dev.
+**Fiche : mise en page mobile/desktop par appareil** (`082b23b`). Le cache edge
+ne variait pas selon l'appareil : `initialUA` venait du premier visiteur de la
+fenetre de 6 h. Une reecriture `beforeFiles` de next.config.js (`has:
+user-agent` mobile, `missing: __m`) envoie les mobiles sur `?__m=1` : deux URL,
+donc deux entrees de cache. Elle S'APPLIQUE aux navigations client : le
+`resolve-rewrites` du routeur evalue `has` avec `navigator.userAgent`. Le SSR
+lit `__m`, plus l'en-tete UA.
+
+**Le clic repartait sur le reseau malgre le prechauffage** (`3daad82`). Le
+`max-age=60` du SSR se compte depuis la generation au bord, et Vercel renvoie
+`Age` : une fiche vieille de plus d'une minute au CDN arrive deja perimee. La
+reponse prechauffee est donc deposee dans `router.sdc`, que `fetchNextData`
+lit avant tout fetch.
+
+**Suite du soir** (`c10027c`, a la demande de l'utilisateur) :
+- squelette RETIRE de la fiche (« ca fait bizarre ») ; garde sur la lecture ;
+- profil du compte connecte prechauffe des l'ouverture du site
+  (`requestIdleCallback`), garde 5 min dans `router.sdc` ; survol/appui d'un
+  lien de profil le re-prechauffe ;
+- SSR du profil : visibilite (Prisma) et `user_data` lus en meme temps que la
+  liste ; bandes-annonces et banniere en parallele ; copie Upstash de moins de
+  2 h servie si AniList depasse 2,5 s, la fraiche finissant en arriere-plan
+  (`lib/http/waitUntil.ts` : le contexte `@vercel/request-context`, sans le
+  paquet `@vercel/functions` qui tire ~15 dependances).
+
+**Reste ouvert** : la base Upstash de dev.
 
 Deploiement : les pushs du soir sont tombes pendant l'incident Vercel
-« Elevated Errors Triggering Deployments » (20:32 UTC) — aucun deploiement
-cree, aucun statut GitHub. A verifier sur dev.aniscroll.com une fois repris.
+« Elevated Errors Triggering Deployments » (20:32 UTC). Apres reprise, le
+build de `c63be44` etait pret mais `dev.aniscroll.com` n'y pointait pas :
+`vc.mjs dev promote <url> --yes` (un `vc alias set` est refuse, domaine d'un
+autre compte). `082b23b` et `3daad82` n'ont eu AUCUN deploiement (webhook
+perdu) ; le push suivant les a emportes.
 
 ## 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 
