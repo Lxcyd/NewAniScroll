@@ -1,3 +1,4 @@
+import "@/lib/fonts";
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
 import Script from "next/script";

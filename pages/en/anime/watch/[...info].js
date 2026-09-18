@@ -80,7 +80,6 @@ import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { touchHistory } from "@/lib/profile/history";
-import { Spinner } from "@vidstack/react";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
@@ -3162,10 +3161,41 @@ function CarteIndisponible({ nom, secours, onSwitch, t }) {
 function SpinLoader() {
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex h-full w-full items-center justify-center">
-      <Spinner.Root className="text-white animate-spin opacity-100" size={84}>
-        <Spinner.Track className="opacity-25" width={8} />
-        <Spinner.TrackFill className="opacity-75" width={8} />
-      </Spinner.Root>
+      {/* Le SVG exact de <Spinner> de vidstack (Root/Track/TrackFill, defaut
+          fillPercent 50), recopie ici : l'importer statiquement tirait tout le
+          chunk vidstack (~134 Ko) dans le chargement initial de la page, alors
+          que le lecteur qui en a besoin est un import dynamique. */}
+      <svg
+        width={84}
+        height={84}
+        fill="none"
+        viewBox="0 0 120 120"
+        aria-hidden="true"
+        data-part="root"
+        className="text-white animate-spin opacity-100"
+      >
+        <circle
+          cx="60"
+          cy="60"
+          r="54"
+          stroke="currentColor"
+          strokeWidth={8}
+          data-part="track"
+          className="opacity-25"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r="54"
+          stroke="currentColor"
+          pathLength="100"
+          strokeWidth={8}
+          strokeDasharray={100}
+          strokeDashoffset={50}
+          data-part="track-fill"
+          className="opacity-75"
+        />
+      </svg>
     </div>
   );
 }

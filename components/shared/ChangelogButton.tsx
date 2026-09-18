@@ -46,10 +46,13 @@ export default function ChangelogButton() {
     if (!open || content !== null) return;
     let cancelled = false;
     setLoading(true);
-    // Cache-bust + no-store so a returning visitor always gets the latest
-    // changelog after a release — without this the browser served its cached
-    // copy for the API's full max-age (1h), even across page reloads.
-    fetch(`/api/v2/changelog?lang=${lang}&t=${Date.now()}`, { cache: "no-store" })
+    // Keyed on the build id so a returning visitor gets the latest changelog
+    // after a release (the file ships with the deploy, so a new build is the only
+    // thing that can change it). It used to be `&t=${Date.now()}` + no-store,
+    // which also defeated the route's edge cache: every open was an invocation.
+    const build =
+      (typeof window !== "undefined" && (window as any).__NEXT_DATA__?.buildId) || "";
+    fetch(`/api/v2/changelog?lang=${lang}&b=${encodeURIComponent(build)}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((text) => {
         if (!cancelled) setContent(text);
