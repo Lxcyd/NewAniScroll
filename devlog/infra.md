@@ -92,6 +92,21 @@ lit avant tout fetch.
   (`lib/http/waitUntil.ts` : le contexte `@vercel/request-context`, sans le
   paquet `@vercel/functions` qui tire ~15 dependances).
 
+**Encore** (`2331c3c`), apres mesure CDP de chaque page :
+- accueil, planning, recherche prechauffes au survol de leur lien du menu
+  (la recherche : query du lien PUIS `param`, l'ordre d'`Object.assign` du
+  routeur) ;
+- SDK Google Cast retire de `_app` (toutes les pages) : le lecteur l'injecte
+  deja a son montage ;
+- `/api/v2/anilist-search` : 10 min au bord + SWR 1 j. La recherche par
+  defaut : 5,1 s (MISS a chaque visite avec 30 s de bord) → servie du bord ;
+- `viewportPrefetch` attend l'evenement `load` : ses 16 bannieres (3,2 Mo,
+  pour les cartes de survol) partaient avant les jaquettes visibles. Accueil,
+  cache chaud : LCP 1,45 s → 0,95 s, 5,8 → 4,5 Mo pendant le chargement.
+
+A retenir : apres chaque deploiement le bord est VIDE (tout est MISS au 1er
+passage) — toujours mesurer deux fois.
+
 **Reste ouvert** : la base Upstash de dev.
 
 Deploiement : les pushs du soir sont tombes pendant l'incident Vercel
