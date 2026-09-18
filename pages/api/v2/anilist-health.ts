@@ -73,6 +73,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 2. In-process cache (single-instance fallback)
   if (memCache && memCache.expiresAt > Date.now()) {
+    // Same edge window as the other two exits — this one had none, so a
+    // memory hit (Redis down or throttled) was never absorbed by the CDN.
+    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
     return res.status(200).json(memCache.value);
   }
 

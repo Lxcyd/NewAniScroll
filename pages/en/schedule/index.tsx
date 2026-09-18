@@ -122,7 +122,12 @@ export async function getServerSideProps(ctx: any) {
     let page = 1;
     const airingSchedules = [];
 
-    while (true) {
+    // A week is 5-7 pages. The cap is a safety net, never reached in normal
+    // operation: an AniList that kept answering with non-empty pages (a bug on
+    // their side, or a paging change) would otherwise hold this SSR — and the
+    // function's CPU — in an unbounded serial loop.
+    const MAX_PAGES = 20;
+    while (page <= MAX_PAGES) {
       const json = await anilistFetch({
         query: scheduleQuery,
         variables: { weekStart, weekEnd, page },

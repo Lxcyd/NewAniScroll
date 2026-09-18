@@ -989,6 +989,15 @@ export async function getServerSideProps(ctx: any) {
     const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
     if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
+    // The season walkers are the slowest part and need nothing but the id:
+    // start them now, so they run under the fanarts/TMDB reads instead of
+    // after them.
+    const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
+      () => ({ number: null, total: null }),
+    );
+    const seasonListP = resolveSeasonList(animeIdNum).catch(() => [] as SeasonEntry[]);
+    const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(() => [] as FilmVariant[]);
+
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
     // Single-row Turso read, typically <50ms. TMDB rides along: warm it is
@@ -1015,9 +1024,9 @@ export async function getServerSideProps(ctx: any) {
     // the split bought latency and no earlier bytes.
     const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
       resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
-      resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
-      resolveSeasonList(animeIdNum).catch(() => []),
-      resolveBonusFilms(animeIdNum).catch(() => []),
+      seasonInfoP,
+      seasonListP,
+      bonusFilmsP,
     ]);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     timer.end(`cache-hit id=${id?.[0]}`);
@@ -1129,6 +1138,30 @@ export async function getServerSideProps(ctx: any) {
   const coverUrl = data?.coverImage?.extraLarge || data?.coverImage?.large;
   if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
+  // Everything below is independent of everything else once `data` is known,
+  // and it used to run as four serial waits (fanarts → hero banner → redis.set
+  // → season walkers) on every edge MISS of the busiest page. Now: the walkers
+  // (slowest, id-only — `data` is already primed into the media cache) and the
+  // Redis write start immediately; fanarts → hero banner run alongside.
+  const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
+    () => ({ number: null, total: null })
+  );
+  const seasonListP = resolveSeasonList(animeIdNum).catch(
+    () => [] as SeasonEntry[]
+  );
+  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
+    () => [] as FilmVariant[]
+  );
+  // Still awaited below (with the walkers) so the write can't be cut off when
+  // the response returns — it just no longer delays anything else.
+  const cacheWriteP = redis
+    ? redis
+        .set(cacheKey, JSON.stringify({ info: data, color }), "EX", cacheTime)
+        .catch((e: any) => {
+          console.warn(`[anime SSR] redis.set failed:`, e?.message);
+        })
+    : Promise.resolve();
+
   // Resolve fanarts ahead of the slower walker work so we can emit the
   // clearart preload header before the response body is sent. TMDB rides
   // along — see the cache-hit path above for why the banner preload waits.
@@ -1139,39 +1172,17 @@ export async function getServerSideProps(ctx: any) {
   timer.mark("fanarts");
   const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
   const fanartsMeta = toFanartsMeta(fanarts);
-  const heroBanner = await resolveHeroBanner(data?.bannerImage, tmdb.backdrop);
-  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
   // No clearart preload header — the <img> may swap to assets.fanart.tv on
   // proxy error, which would leave a proxy-URL preload unconsumed.
 
-  const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
-    () => ({ number: null, total: null })
-  );
-  const seasonListP = resolveSeasonList(animeIdNum).catch(
-    () => [] as SeasonEntry[]
-  );
-  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
-    () => [] as FilmVariant[]
-  );
-
-  if (redis) {
-    try {
-      await redis.set(
-        cacheKey,
-        JSON.stringify({ info: data, color }),
-        "EX",
-        cacheTime
-      );
-    } catch (e: any) {
-      console.warn(`[anime SSR] redis.set failed:`, e?.message);
-    }
-  }
-
-  const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
+  const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+    resolveHeroBanner(data?.bannerImage, tmdb.backdrop).catch(() => null),
     seasonInfoP,
     seasonListP,
     bonusFilmsP,
+    cacheWriteP,
   ]);
+  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
   timer.end(`cache-miss id=${id?.[0]}`);
 
   return {

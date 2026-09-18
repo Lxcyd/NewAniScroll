@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { signOut, useSession } from "next-auth/react";
 import Genres from "@/components/home/genres";
 import Schedule from "@/components/home/schedule";
-import getUpcomingAnime from "@/lib/anilist/getUpcomingAnime";
+import getUpcomingAnime, { UPCOMING_CACHE_KEY } from "@/lib/anilist/getUpcomingAnime";
 
 import GetMedia from "@/lib/anilist/getMedia";
 import MobileNav from "@/components/shared/MobileNav";
@@ -117,11 +117,16 @@ export async function getServerSideProps(ctx: any) {
   // Two keys, read in ONE command: the healthy blob, then the degraded one.
   // The degraded blob (see the write below) is a strictly worse page, so it is
   // only ever consulted when the good one has expired or was never written.
+  // The upcoming carousel's key rides in the same MGET: getUpcomingAnime would
+  // otherwise spend its own GET on every render, on both branches below.
+  // `undefined` (Redis failed / absent) lets it do its own read as before.
+  let upcomingRaw: string | null | undefined = undefined;
   if (redis) {
-    const [fresh, degraded] = await redis
-      .mget(HOME_KEY, HOME_KEY_DEGRADED)
-      .catch(() => [null, null]);
+    const [fresh, degraded, upcoming] = await redis
+      .mget(HOME_KEY, HOME_KEY_DEGRADED, UPCOMING_CACHE_KEY)
+      .catch(() => [null, null, undefined]);
     cachedData = fresh || degraded;
+    upcomingRaw = upcoming;
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -183,7 +188,7 @@ export async function getServerSideProps(ctx: any) {
       JSON.parse(cachedData);
     const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
-      getUpcomingAnime(),
+      getUpcomingAnime(upcomingRaw),
       /* `?? detail` is a safety net, not a design: a blob written by an older
          deploy has no `heroPool`, and a hero of trending titles beats no hero
          at all for the few minutes before the key bump takes effect.
@@ -217,7 +222,7 @@ export async function getServerSideProps(ctx: any) {
     const [batch, upComing] = await Promise.all([
       aniListHomepageBatch(),
       Promise.race([
-        getUpcomingAnime().catch(() => null),
+        getUpcomingAnime(upcomingRaw).catch(() => null),
         new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
       ]),
     ]);

@@ -4,6 +4,7 @@ import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 import { fillStillGaps } from "@/lib/tmdb/episodeStills";
 import {
   getAniZipEpisodes,
@@ -350,6 +351,10 @@ export default async function handler(
   }
 
   if (!media) {
+    // Short edge window: without it every visitor of an unknown id — or of any
+    // id during an AniList outage — woke the function (a bare 404 isn't cached
+    // at the edge).
+    setEdgeErrorCache(res);
     return res.status(404).json({ error: "Anime not found" });
   }
 
@@ -450,7 +455,13 @@ export default async function handler(
     "CDN-Cache-Control",
     fromFallback
       ? "public, s-maxage=300, stale-while-revalidate=600"
-      : "public, s-maxage=1800, stale-while-revalidate=86400",
+      : rawData.length > 0
+        ? // Same window as the cache-hit branch. This list was just written to
+          // Redis for 30 days (finished show): the next edge refresh would read
+          // back exactly this, so expiring the edge copy after 30 min only
+          // bought an invocation + a Redis GET.
+          `public, s-maxage=${edgeSmaxage}, stale-while-revalidate=86400`
+        : "public, s-maxage=1800, stale-while-revalidate=86400",
   );
   return res.status(200).json(data.filter((i) => i.episodes.length > 0));
 }
