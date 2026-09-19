@@ -84,6 +84,7 @@ import { touchHistory } from "@/lib/profile/history";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
+import { warmVidmolyClient } from "@/lib/clientVidmoly";
 // Watch-party UI: split out of the page bundle. It only ever renders behind
 // `party || partyUIOpen` (see `partyPanelBlock` below), and it drags the whole
 // chat stack — composer, member menu, and the ~24 kB unicode + anime emoji
@@ -100,6 +101,16 @@ const WatchPartyPanel = dynamic(
 const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
   "https://proxy.aniscroll.com";
+
+/* Lance l'extraction cote navigateur d'un embed vidmoly/ansembed des que
+   /api/v2/source l'annonce, sans attendre que le lecteur ait telecharge son
+   code et monte (cf. warmVidmolyClient). Appele AVANT setHlsData : les effets
+   d'un enfant passent avant ceux du parent, un useEffect ici arriverait apres
+   celui du lecteur lors d'un changement d'episode. */
+function warmClientExtract(data) {
+  const ce = data?.clientExtract;
+  if (ce?.type === "vidmoly" && ce.embedUrl) warmVidmolyClient(ce.embedUrl);
+}
 
 // Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
 // (sibnet) answer a cold hit with a decoy that extracts to nothing (204); the
@@ -1555,6 +1566,7 @@ export default function Watch({
     );
     if (prefetched && !signal?.aborted) {
       markSourceMs();
+      warmClientExtract(prefetched);
       setHlsData(prefetched);
       setHlsLoading(false);
       markConfirmed(serverId);
@@ -1638,6 +1650,7 @@ export default function Watch({
       } else if (out.kind === "ok") {
         const data = out.data;
         markSourceMs();
+        warmClientExtract(data);
         setHlsData(data);
         setPrefetchedSource(
           sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
@@ -2677,6 +2690,12 @@ export default function Watch({
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
         <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
+        {/* hls.js, que vidstack charge lui-meme depuis jsDelivr (sans
+            crossorigin, d'ou ce preload sans l'attribut : meme requete, reprise
+            telle quelle). Sans lui, le telechargement ne partait qu'une fois le
+            lecteur monte ET l'embed lu : 150 ms de plus sur le chemin de la
+            premiere image (mesure du 18/09/2026). */}
+        <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/hls.js@^1.0.0/dist/hls.min.js" />
         {/* La vignette de l'episode, demandee des qu'on connait son adresse et
             en haute priorite. Elle est bien consommee — c'est le <img
             class="as-poster"> du lecteur, meme URL — donc pas de « preloaded

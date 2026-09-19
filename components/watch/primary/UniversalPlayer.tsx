@@ -310,6 +310,44 @@ const HLS_CONFIG_DIRECT = {
   nudgeMaxRetry: 10,
 };
 
+/* ── Debit memorise ─────────────────────────────────────────────────────────
+   En qualite auto, hls.js commence par un TEST de debit : il charge le premier
+   segment dans la plus BASSE qualite pour mesurer la connexion, le jette, puis
+   recharge ce meme segment dans la qualite choisie. Mesure du 18/09/2026
+   (ansembed, 480p 0,48 Mb/s puis 1080p 3,9 Mb/s) : ~0,5 s avant la premiere
+   image, a chaque ouverture.
+
+   On garde donc la mesure d'hls.js (par profil : proxifie ou direct, les deux
+   n'ont pas le meme debit) et on la lui redonne a la visite suivante comme
+   estimation de depart, test coupe : il choisit d'emblee la qualite que le
+   test aurait choisie. Premiere visite, ou mesure de plus de 7 jours : le test
+   reste. */
+const BW_KEY = "aniscroll:hlsBandwidth";
+const BW_MAX_AGE_MS = 7 * 24 * 3600_000;
+
+function readSavedBandwidth(profile: "direct" | "proxied"): number | null {
+  try {
+    const all = JSON.parse(localStorage.getItem(BW_KEY) || "{}");
+    const e = all?.[profile];
+    if (!e || typeof e.bps !== "number" || !(e.bps > 0)) return null;
+    if (Date.now() - (e.at || 0) > BW_MAX_AGE_MS) return null;
+    return e.bps;
+  } catch {
+    return null;
+  }
+}
+
+function saveBandwidth(profile: "direct" | "proxied", bps: number) {
+  if (!Number.isFinite(bps) || bps <= 0) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(BW_KEY) || "{}") || {};
+    all[profile] = { bps: Math.round(bps), at: Date.now() };
+    localStorage.setItem(BW_KEY, JSON.stringify(all));
+  } catch {
+    /* stockage indisponible : le test de debit continue de s'appliquer */
+  }
+}
+
 // Never auto-resume into the last few seconds of an episode — at that point
 // the episode is effectively done, so we'd rather start it (or the next one)
 // clean than drop the user onto the end card.
@@ -1737,10 +1775,12 @@ export default function UniversalPlayer({
          `hls.subtitleDisplay = false` ne pouvait pas y suffire : il empeche
          l'AFFICHAGE, pas la CREATION des pistes — donc pas le decalage
          d'index. C'est bien la creation qu'il fallait couper. */
+      const savedBw = readSavedBandwidth(directPlaybackRef.current ? "direct" : "proxied");
       provider.config = {
         ...provider.config,
         ...cfg,
         renderTextTracksNatively: false,
+        ...(savedBw ? { testBandwidth: false, abrEwmaDefaultEstimate: savedBw } : null),
       };
     }
   };
@@ -1823,6 +1863,17 @@ export default function UniversalPlayer({
             if (srcCommitAtRef.current)
               manifestMsRef.current =
                 manifestAtRef.current - srcCommitAtRef.current;
+          });
+          // Le debit mesure, pour la prochaine ouverture (cf. BW_KEY). Au
+          // plus une ecriture toutes les 30 s.
+          const bwProfile = directPlaybackRef.current ? "direct" : "proxied";
+          let bwSavedAt = 0;
+          (hls as any).on("hlsFragLoaded", () => {
+            const now = Date.now();
+            if (now - bwSavedAt > 30_000) {
+              bwSavedAt = now;
+              saveBandwidth(bwProfile, (hls as any).bandwidthEstimate);
+            }
           });
           (hls as any).on("hlsFragLoaded", () => {
             if (frag1AtRef.current || !manifestAtRef.current) return;
@@ -3971,13 +4022,25 @@ export default function UniversalPlayer({
     (async () => {
       try {
         const mod = await import("@/lib/clientVidmoly");
+        // Deja lancee par la page de lecture des la reponse de /source (cf.
+        // warmVidmolyClient) : on la reprend, sous le meme delai de 6 s.
+        const warm = multipart ? null : mod.takeWarmVidmoly(ce.embedUrl);
         const res = multipart
           ? await mod.extractVidmolyMultipartClient(ce.embedUrls, {
               signal: ac.signal,
             })
-          : await mod.extractVidmolyClient(ce.embedUrl, {
-              signal: ac.signal,
-            });
+          : warm
+            ? await Promise.race([
+                warm,
+                new Promise<{ error: string }>((resolve) =>
+                  ac.signal.addEventListener("abort", () => resolve({ error: "aborted" }), {
+                    once: true,
+                  }),
+                ),
+              ])
+            : await mod.extractVidmolyClient(ce.embedUrl, {
+                signal: ac.signal,
+              });
         // Timeout fired: the extractor resolves with {error:"aborted"} (it
         // swallows the AbortError internally), so we must flip to "failed"
         // HERE — before the generic aborted-guard below — or we'd stay stuck
