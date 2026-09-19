@@ -6,6 +6,33 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-19 — Frembed a demenage ; le lecteur demarre deux fois plus tot
+
+**Frembed mort** (`bc5ac24`) : `frembed.casa` redirige (302) vers
+`frembed.surf`. `fetch` suit la redirection mais garde le Referer de l'ancien
+domaine, que l'API refuse : 403 sur tout, `/source` en 503, les chips VF et VO
+morts. Base passee a `frembed.surf`, et si une redirection finit en refus, un
+second essai part avec le Referer du domaine d'arrivee — le prochain
+demenagement se rattrape sans deploiement. Verifie dans Chrome : master, VTT et
+video en 200 depuis `free.finepulfe.xyz`, `readyState` 4. (Ce CDN repond un
+challenge Cloudflare a un UA curl : tester avec un UA navigateur.)
+
+**Demarrage du lecteur** (`60caa2c`), chronologie CDP sur ansembed/One Piece 1 :
+tout etait en cascade, premiere image a 3,4-5,2 s.
+- l'embed ansembed partait a 1,29 s pour un `/source` repondu a 0,4 s : il
+  attendait le code du lecteur, son montage, puis l'import de `clientVidmoly`.
+  La page lance maintenant l'extraction des la reponse (`warmVidmolyClient`,
+  appele AVANT `setHlsData` — un effet parent passerait apres celui du
+  lecteur) et le lecteur reprend la promesse (`takeWarmVidmoly`, usage
+  unique, 60 s, sous son delai de 6 s) ;
+- hls.js vient de jsDelivr, charge par vidstack : `preload` dans le HTML (sans
+  `crossorigin`, comme le `<script>` que vidstack injecte) ;
+- le TEST DE DEBIT d'hls.js (1er segment en 480p, jete, recharge en 1080p :
+  ~0,5 s) est coupe quand un debit mesure existe : `aniscroll:hlsBandwidth`,
+  par profil proxifie/direct, 7 jours, redonne en `abrEwmaDefaultEstimate`.
+  Premiere visite inchangee.
+Second passage mesure : premiere image a 0,96 s, directement en 1080p.
+
 ## 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
 
 Deux hotes, deux verdicts opposes tires de la meme question : « ce que notre

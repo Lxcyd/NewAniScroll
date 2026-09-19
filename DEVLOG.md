@@ -71,7 +71,7 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 45 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 46 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 16 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
@@ -116,6 +116,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-09-19 — Frembed a déménagé (casa → surf, Referer de l'ancien domaine → 403) ; le lecteur démarre deux fois plus tôt (extraction dès /source, hls.js préchargé, test de débit remplacé par le débit mémorisé)
 - 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
 - 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
 - 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
