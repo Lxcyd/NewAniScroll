@@ -236,7 +236,7 @@ const EXTRACTABLE_HOSTS = [
 //
 // Two asymmetric gates, both measured 2026-08-30 — get them backwards and
 // everything 403s:
-//   • the JSON api REQUIRES a frembed.casa Referer;
+//   • the JSON api REQUIRES a Referer on its OWN current domain;
 //   • its CDN REFUSES that same Referer, and serves anyone else.
 // So the api call below sends it, and playback strips it — the streams are
 // flagged `directUrl`, which makes UniversalPlayer set referrerPolicy
@@ -252,7 +252,12 @@ const EXTRACTABLE_HOSTS = [
 // saison + episode), les FILMS sous `type=movie` (id TMDB *movie*, sans
 // coordonnees). Un film n'a donc ni saison a detecter ni concatenation a
 // parcourir — et son master n'est pas toujours bilingue, cf. frembedCarriesAudio.
-const FREMBED_BASE = "https://frembed.casa";
+/* Le domaine TOURNE : frembed.casa redirige vers frembed.surf depuis le
+   19/09/2026, et la redirection garde l'ancien Referer -> 403 sur tout, le
+   serveur paraissait mort. D'ou la reprise dans fetchFrembedPayload : si une
+   redirection finit en refus, un second essai avec le Referer du NOUVEAU
+   domaine, qui survit au prochain demenagement sans deploiement. */
+const FREMBED_BASE = "https://frembed.surf";
 // The master ships TWO French subtitle tracks — "FR Forced" (on-screen signs
 // only, and flagged DEFAULT) and "FR Full". Which one a chip wants follows its
 // audio: a French dub needs signs only, the Japanese original needs the full
@@ -283,15 +288,18 @@ async function fetchFrembedPayload(tmdbId, sa, ep) {
     sa == null
       ? `?tmdb=${tmdbId}&type=movie`
       : `?tmdb=${tmdbId}&type=serie&sa=${sa}&ep=${ep}`;
-  const res = await fetchWithTimeout(
-    `${FREMBED_BASE}/api/streaming/player${query}`,
-    {
+  const call = (base) =>
+    fetchWithTimeout(`${base}/api/streaming/player${query}`, {
       headers: {
-        Referer: `${FREMBED_BASE}/streaming/player`,
+        Referer: `${base}/streaming/player`,
         Accept: "application/json",
       },
-    },
-  );
+    });
+  let res = await call(FREMBED_BASE);
+  if (!res.ok && res.redirected) {
+    const moved = new URL(res.url).origin;
+    if (moved !== FREMBED_BASE) res = await call(moved);
+  }
   // 404 = frembed has never heard of this tmdb id. A real, deterministic
   // absence — not worth a retry.
   if (res.status === 404) return null;
