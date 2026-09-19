@@ -1556,9 +1556,18 @@ function CenterPlayButton({
   useEffect(() => {
     let mort = false;
     let video: HTMLVideoElement | null = null;
+    /* HAVE_FUTURE_DATA, ou une image decodee qui dure : un flux lent peut
+       rester longtemps a HAVE_CURRENT_DATA sans que rien soit casse, et cacher
+       le bouton pour ca serait remplacer une attente par une autre. Passe deux
+       secondes dans cet etat, la video a bel et bien de quoi demarrer. */
+    let imageDepuis = 0;
     const relire = () => {
       if (mort) return;
-      setPretALire(!!video && video.readyState >= 3 && video.videoWidth > 0);
+      const rs = video?.readyState ?? 0;
+      const image = !!video && rs >= 2 && video.videoWidth > 0;
+      if (!image) imageDepuis = 0;
+      else if (!imageDepuis) imageDepuis = Date.now();
+      setPretALire(image && (rs >= 3 || Date.now() - imageDepuis > 2000));
     };
     const EVENEMENTS = [
       "loadeddata",
@@ -6098,6 +6107,13 @@ export default function UniversalPlayer({
         onProviderSetup={onProviderSetup}
         poster={poster}
         load="eager"
+        /* `preload` n'etait pas pose, donc « metadata » : sur un MP4 progressif
+           (sibnet), le navigateur s'arretait apres l'entete et n'allait pas
+           chercher d'image. Un flux HLS ne s'en apercevait pas (hls.js remplit
+           son tampon tout seul), mais le bouton de lecture attend desormais une
+           image DECODEE — et le chien de garde la surveille. On demande donc
+           les donnees tout de suite, comme pour l'HLS. */
+        preload="auto"
         playsinline
         // Playback speed is restored app-wide via the remote (see the rate
         // correction effect). We only listen for changes here; we don't pass it

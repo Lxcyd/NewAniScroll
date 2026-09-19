@@ -116,6 +116,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-09-20 — hls.js jetait son premier segment (test de débit) et était téléchargé deux fois ; le bouton play s'affichait avant la première image ; le doute prépare le lecteur suivant ; `PREFERRED_FALLBACK_ORDER` inexistant lu dans un effet ; le gestionnaire d'erreurs hls jamais posé sur le lecteur par défaut
 - 2026-09-19 — Frembed a déménagé (casa → surf, Referer de l'ancien domaine → 403) ; le lecteur démarre deux fois plus tôt (extraction dès /source, hls.js préchargé, test de débit remplacé par le débit mémorisé)
 - 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
 - 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait

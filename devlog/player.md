@@ -6,6 +6,113 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 — hls.js jetait son premier segment, et le bouton play mentait
+
+Chronologie CDP, profil Chrome neuf, One Piece 1100 sur ansembed (le lecteur
+par defaut), `tools/browser-check` + un script de chronologie maison :
+
+| | avant |
+| --- | --: |
+| document (HIT) | 0,33 s |
+| `/api/v2/source` (HIT) | 0,46 s |
+| `/api/v2/episode` (HIT) | 0,76 s |
+| element `<video>` | 1,5 s |
+| **bouton play affiche** | **4,4 s** |
+| premiere image | **17,4 s** |
+
+**Le bouton play mentait.** Il etait garde par `canPlay` de Vidstack — qui,
+sur un flux HLS, emet un `canplay` de SYNTHESE des que la playlist de niveau
+est lue (`_onLevelLoaded`), avant tout segment, `readyState` a 0. D'ou le
+signalement : on clique, le bouton disparait (la video n'est plus en pause),
+et l'ecran reste noir plusieurs secondes. Il attend maintenant une image
+DECODEE sur l'element lui-meme, et une roue occupe l'attente — Vidstack ne
+dessine la sienne que tant que `canPlay` est faux, c'est-a-dire pas pendant
+cette fenetre-la. `preload` n'etait pas pose non plus (« metadata ») : sans
+correctif, un MP4 progressif s'arretait apres l'entete et le bouton n'arrivait
+jamais.
+
+**hls.js jetait son premier segment.** En qualite auto sans debit memorise, il
+charge `_l/seg-1` pour TESTER la connexion — un fragment `bitrateTest` n'est
+jamais ajoute au tampon —, puis bascule sur `_n` et redemande le meme segment,
+que vmpx.online a mis **10 s** a livrer. Un segment jouable etait arrive a
+5,8 s ; la premiere image est tombee a 17,4 s. Et le correctif du 19/09 avait
+le travers inverse : avec un debit memorise, on partait d'emblee au plus haut
+niveau, dont le premier segment pese 8x celui du plus bas.
+Regle posee : **partir bas, monter tout de suite**. `testBandwidth: false`
+toujours, estimation de depart = debit memorise x 0,25, l'ABR remonte des le
+2e segment avec la vraie mesure. Le debit est desormais range PAR CDN
+(domaine enregistrable) et non par profil direct/proxifie : frembed (~100 ms)
+et vidmoly (plusieurs secondes) etaient melanges, l'un reglait le depart de
+l'autre.
+
+**hls.js etait telecharge DEUX fois.** Vidstack le charge depuis
+`cdn.jsdelivr.net/npm/hls.js@^1.0.0` (autre origine, DNS+TLS a froid, version
+flottante, dependance externe) — alors que `HoverPreview` l'importe
+statiquement, donc le bundle en servait deja un exemplaire de 572 Ko. Il vient
+maintenant du bundle seul (`provider.library = () => import("hls.js")`,
+version epinglee a celle que servait jsDelivr), precharge avec le chunk du
+lecteur.
+
+**Ce que le lecteur attendait pour rien.**
+- Le chunk du lecteur ne partait qu'au PREMIER RENDU de `<UniversalPlayer>`,
+  donc apres la source et la liste d'episodes. Il part a l'evaluation du module
+  de la page (`preloadPlayerCode`).
+- `playerNode` rendait une roue tant que `episodeNavigation` etait nul, et
+  celui-ci attendait `/api/v2/episode`. Or l'URL porte le numero d'episode :
+  on pose la navigation minimale tout de suite, la vraie liste l'enrichit.
+- L'extraction vidmoly essayait ses domaines strictement l'un apres l'autre
+  (2,2 s pour ansembed) : course decalee de 700 ms, le premier master gagne.
+- La sonde de vignette (`blindProbeSrc`) tirait une COPIE du debut du fichier
+  par le Worker pendant que le vrai flux chargeait son premier segment, pour un
+  verdict que l'autoplay ne lit jamais — le voile tombe sur `data-started`.
+  Coupee dans ce cas.
+
+**Deux bugs trouves en lisant.**
+- `PREFERRED_FALLBACK_ORDER` etait encore lu dans le filet de securite de la
+  page de lecture alors que la constante n'existe plus (retiree avec la liste
+  ecrite a la main) : ReferenceError dans un `useEffect`, donc page emportee,
+  des qu'aucun ordre de langues n'etait regle.
+- Le gestionnaire `hls-error` lisait `playerRef.current?.el` avec `streamData`
+  en dependance. Sur le chemin d'extraction navigateur — ansembed et vidmoly,
+  donc le lecteur PAR DEFAUT — le rendu qui change `streamData` affiche
+  « Loading… », il n'y a pas encore de `<MediaPlayer>` ; quand l'extraction
+  aboutit, `streamData` n'a pas bouge et l'effet ne repassait pas. Ni la
+  detection « flux disparu » (401/403/404/410) ni la reprise (`startLoad` /
+  `recoverMediaError`) n'etaient donc JAMAIS posees sur l'hote le plus
+  utilise. Meme defaut sur l'effet anti-spam de seek. Les deux s'accrochent
+  desormais a `playerElState`.
+
+**Le doute, un etat qu'on ne nommait pas.** Entre « tout va bien » et
+« erreur », il n'y avait rien : un flux dont les segments n'arrivent jamais
+restait noir le temps des retries d'hls.js (jusqu'a 30 s par segment) puis des
+5 s de Vidstack. Le lecteur emet maintenant `onDoubt` (extraction qui depasse
+2,5 s, aucune image a 3,5 s, deux erreurs de chargement non fatales) et la page
+prechauffe le lecteur SUIVANT en parallele, sans rien interrompre : si ca
+repart, le prechauffage est perdu et tant mieux. Passe 10 s sans image (15 s en
+MP4 progressif), le lecteur est declare mort et la page bascule sur celui qui
+est deja chaud. Le suivant est choisi par `pickNextServer`, extrait de
+`markFailed` et partage avec le filet de securite — sans quoi on prechaufferait
+un lecteur pour en ouvrir un autre.
+
+**Page info : une chaine, pas un seul lecteur.** `runCritical` n'en prechauffait
+qu'UN ; s'il ne repondait pas, personne ne prenait le relais. `warmChain`
+descend jusqu'a 3 candidats, mais ne lance le suivant que sur une mort
+(absence, hote a terre, manifeste injouable) ou un silence de 2,5 s — le cas
+normal coute donc toujours UNE resolution, ce qui etait tout l'enjeu : huit
+scrapes par visite d'une page que la plupart des gens quittent sans rien
+regarder, c'etait le poste le plus cher du site.
+Au passage, `warmStream` ne chauffait rien : il prenait la premiere URI d'un
+MASTER, qui est une playlist de VARIANTE et non un segment. Il descend
+maintenant jusqu'au vrai segment, par la variante qu'hls.js demandera.
+
+**Frembed.** Le domaine d'arrivee apres redirection n'etait retenu nulle part :
+chaque appel payait la redirection PLUS la vraie requete, jusqu'a ce que
+quelqu'un edite la constante. Il est desormais memorise (Redis `frembed:base`,
+7 j, une ecriture par demenagement) — le prochain demenagement se repare seul.
+Et un master lisible ne dit pas qu'une VARIANTE l'est (deux chemins
+differents) : la premiere variante est verifiee en parallele des sous-titres,
+donc sans allonger la reponse.
+
 ## 2026-09-19 — Frembed a demenage ; le lecteur demarre deux fois plus tot
 
 **Frembed mort** (`bc5ac24`) : `frembed.casa` redirige (302) vers
