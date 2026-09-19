@@ -1,7 +1,9 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { resolveSource, warmStream, clearPrefetchedSourcesFor, setPlannedServer } from "@/lib/watch/sourcePrefetch";
+import { warmChain, clearPrefetchedSourcesFor, setPlannedServer } from "@/lib/watch/sourcePrefetch";
+import { preloadPlayerCode } from "@/lib/watch/playerCode";
+import { warmVidmolyClient } from "@/lib/clientVidmoly";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
@@ -41,7 +43,8 @@ import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
-import { DEFAULT_SERVER_ID } from "@/lib/servers";
+import { DEFAULT_SERVER_ID, getServersByLang } from "@/lib/servers";
+import { serverPerfRank } from "@/lib/watch/serverPerf";
 
 // Behind `open`, which starts false — the editor is a dialog the visitor has to
 // ask for. Deferring it keeps its AniList mutations and its whole form out of
@@ -395,7 +398,8 @@ export default function Info({
       try {
         router.prefetch(watchHref);
       } catch {}
-      void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+      // Le chunk du lecteur ET hls.js, qui ne vient plus de jsDelivr.
+      preloadPlayerCode();
 
       // Episode list — the request the player waits on. Writes to the shared
       // cache the watch page reads first, and primes the browser HTTP cache.
@@ -409,13 +413,6 @@ export default function Info({
         relations: info.relations,
       };
       const titleStr = info?.title?.romaji || info?.title?.english || undefined;
-      const warmServer = (srv: string, priority: "high" | "low") =>
-        resolveSource(
-          { aniId: info.id, episode: resumeEp, server: srv, sub: "sub", title: titleStr, mediaMeta },
-          { priority: priority as any, signal: ac.signal },
-        ).then((data) => {
-          if (!cancelled && data) warmStream(data, ac.signal);
-        });
 
       // On prechauffe LE serveur que la page de lecture va reellement ouvrir,
       // et lui seul.
@@ -435,36 +432,83 @@ export default function Info({
       // classe la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en
       // a pas — le pire des deux mondes. Avec, on choisit le meilleur hote de la
       // langue n°1 PARMI ceux qui marchent.
-      const resolveWatchServer = async (): Promise<string> => {
+      /* Non plus UN serveur, mais l'ORDRE dans lequel on les essaierait. Le
+         prechauffage ne descendait pas cette liste : quand le premier ne
+         repondait pas, plus personne ne prenait le relais et la page de
+         lecture repartait a froid. `warmChain` ne lance le suivant que sur une
+         mort ou un doute, donc le cas normal coute toujours UNE resolution. */
+      const resolveWatchCandidates = async (): Promise<string[]> => {
         const pinned = getAnimeServer(info.id) || getServerPref();
-        if (pinned) return pinned;
         const order = getEffectiveLangOrder();
-        if (!order) return server;
-        try {
-          const r = await fetch(
-            `/api/v2/availability?aniId=${info.id}&episode=${resumeEp}&sub=sub`,
-            { signal: ac.signal },
-          );
-          if (r.ok) {
-            const { servers } = await r.json();
-            if (Array.isArray(servers) && servers.length) {
-              const best = pickServerForLangs(order, { confirmed: new Set(servers) });
-              if (best) return best;
+        let confirmed: Set<string> | null = null;
+        if (order) {
+          try {
+            const r = await fetch(
+              `/api/v2/availability?aniId=${info.id}&episode=${resumeEp}&sub=sub`,
+              { signal: ac.signal },
+            );
+            if (r.ok) {
+              const { servers } = await r.json();
+              if (Array.isArray(servers) && servers.length) confirmed = new Set(servers);
             }
+          } catch {
+            /* hors ligne / annule — on retombe sur le choix a l'aveugle */
           }
-        } catch {
-          /* hors ligne / annule — on retombe sur le choix a l'aveugle */
         }
-        return pickServerForLangs(order) || server;
+        const liste: string[] = [];
+        const ajoute = (id?: string | null) => {
+          if (id && !liste.includes(id)) liste.push(id);
+        };
+        // 1. L'exception memorisee pour cette serie, ou le lecteur epingle.
+        ajoute(pinned);
+        // 2. Le classement de langues, epuise par appels successifs : chaque
+        //    choix rejoint `failed` pour que le suivant en sorte un autre.
+        if (order) {
+          for (let i = 0; i < 3; i++) {
+            const pick =
+              pickServerForLangs(order, {
+                ...(confirmed ? { confirmed } : null),
+                failed: new Set(liste),
+              }) || pickServerForLangs(order, { failed: new Set(liste) });
+            if (!pick) break;
+            ajoute(pick);
+          }
+        }
+        // 3. Sans classement : le defaut, puis les plus rapides mesures.
+        ajoute(server);
+        const groups = getServersByLang(serverPerfRank);
+        for (const s of [...groups.multi, ...groups.vo, ...groups.vf]) ajoute(s.id);
+        return liste.slice(0, 3);
       };
 
-      warmTargetP = resolveWatchServer();
-      void warmTargetP.then((srv) => {
+      const candidatsP = resolveWatchCandidates();
+      warmTargetP = candidatsP.then((c) => c[0] || server);
+      void candidatsP.then((candidats) => {
         if (cancelled) return;
         // Dire a la page de lecture SUR QUOI on a mise, pour qu'elle ouvre le
         // meme hote et lise la source deja resolue au lieu d'en redemander une.
-        setPlannedServer(info.id, srv);
-        void warmServer(srv, "high");
+        setPlannedServer(info.id, candidats[0] || server);
+        void warmChain(
+          candidats,
+          { aniId: info.id, episode: resumeEp, sub: "sub", title: titleStr, mediaMeta },
+          {
+            signal: ac.signal,
+            onPlanned: (srv) => {
+              if (cancelled) return;
+              setPlannedServer(info.id, srv);
+              warmTargetP = Promise.resolve(srv);
+            },
+            /* L'extraction de l'embed (ansembed/vidmoly) est faite par le
+               NAVIGATEUR : elle ne coute rien au quota, et c'est le poste le
+               plus lent du demarrage (2,2 s mesurees le 20/09). Son jeton est
+               lie a l'IP et a l'instant, d'ou la reprise a usage unique et les
+               60 s de validite cote clientVidmoly. */
+            onStream: (_srv, data) => {
+              const ce = data?.clientExtract;
+              if (ce?.type === "vidmoly" && ce.embedUrl) warmVidmolyClient(ce.embedUrl);
+            },
+          },
+        );
       });
 
       // We deliberately DON'T warm every other server here anymore. Doing so

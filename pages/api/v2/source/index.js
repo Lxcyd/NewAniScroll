@@ -258,6 +258,44 @@ const EXTRACTABLE_HOSTS = [
    redirection finit en refus, un second essai avec le Referer du NOUVEAU
    domaine, qui survit au prochain demenagement sans deploiement. */
 const FREMBED_BASE = "https://frembed.surf";
+
+/* …et on RETIENT le domaine d'arrivee, au lieu de repayer la redirection.
+   Le demenagement etait absorbe a chaque appel : une requete pour se faire
+   rediriger, une seconde pour la vraie reponse, sur un lambda qui repart froid
+   — et tant que personne n'editait la constante, tout le monde payait les deux.
+   La valeur vit dans Redis (une ecriture par demenagement, soit rien) et dans
+   une variable de module qui evite la lecture sur un lambda deja chaud. Effet
+   de bord voulu : le prochain demenagement se repare tout seul, sans deploy. */
+const FREMBED_BASE_KEY = "frembed:base";
+const FREMBED_BASE_TTL_S = 7 * 24 * 3600;
+let frembedBaseMemo = null;
+
+async function frembedBase() {
+  if (frembedBaseMemo) return frembedBaseMemo;
+  if (redis) {
+    try {
+      const vu = await redis.get(FREMBED_BASE_KEY);
+      if (typeof vu === "string" && /^https:\/\/[\w.-]+$/.test(vu)) {
+        frembedBaseMemo = vu;
+        return vu;
+      }
+    } catch {
+      /* Redis indisponible : la constante fait le travail */
+    }
+  }
+  frembedBaseMemo = FREMBED_BASE;
+  return frembedBaseMemo;
+}
+
+function frembedBaseMoved(origine) {
+  frembedBaseMemo = origine;
+  if (!redis) return;
+  try {
+    void redis.set(FREMBED_BASE_KEY, origine, { ex: FREMBED_BASE_TTL_S });
+  } catch {
+    /* tant pis : on repaiera la redirection */
+  }
+}
 // The master ships TWO French subtitle tracks — "FR Forced" (on-screen signs
 // only, and flagged DEFAULT) and "FR Full". Which one a chip wants follows its
 // audio: a French dub needs signs only, the Japanese original needs the full
@@ -295,10 +333,16 @@ async function fetchFrembedPayload(tmdbId, sa, ep) {
         Accept: "application/json",
       },
     });
-  let res = await call(FREMBED_BASE);
+  const base = await frembedBase();
+  let res = await call(base);
   if (!res.ok && res.redirected) {
     const moved = new URL(res.url).origin;
-    if (moved !== FREMBED_BASE) res = await call(moved);
+    if (moved !== base) {
+      res = await call(moved);
+      // Retenu SEULEMENT si le nouveau domaine repond vraiment : une
+      // redirection vers une page d'erreur ne doit pas devenir notre base.
+      if (res.ok || res.status === 404) frembedBaseMoved(moved);
+    }
   }
   // 404 = frembed has never heard of this tmdb id. A real, deterministic
   // absence — not worth a retry.
@@ -496,6 +540,44 @@ async function frembedProbeMaster(masterUrl) {
 }
 
 /**
+ * Le meme controle, un cran plus bas : la premiere variante du master repond-
+ * elle ? Le master et les segments ne sortent pas du meme chemin, et c'est la
+ * variante que le lecteur demande juste apres. Verdict a trois etats comme
+ * frembedProbeMaster, `null` quand il n'y a rien a verifier (playlist de media
+ * directe, ou aucune variante annoncee : on ne condamne pas sur une absence de
+ * preuve).
+ */
+async function frembedProbeVariant(manifest, masterUrl) {
+  const lignes = manifest.split("\n").map((l) => l.trim());
+  const i = lignes.findIndex((l) => l.startsWith("#EXT-X-STREAM-INF:"));
+  if (i < 0) return null;
+  const uri = lignes.slice(i + 1).find((l) => l && !l.startsWith("#"));
+  if (!uri) return null;
+  let url;
+  try {
+    url = new URL(uri, masterUrl).toString();
+  } catch {
+    return null;
+  }
+  let res;
+  try {
+    // Sans Referer, comme le master : c'est le meme CDN.
+    res = await fetchWithTimeout(url, {}, 3000);
+  } catch (e) {
+    return { transient: true, reason: `frembed variant unreachable: ${e.message}` };
+  }
+  if (res.status === 404 || res.status === 410) {
+    return { absent: true, reason: `frembed variant ${res.status}` };
+  }
+  if (!res.ok) return { transient: true, reason: `frembed variant ${res.status}` };
+  const corps = await res.text();
+  if (!/^\s*#EXTM3U/.test(corps)) {
+    return { transient: true, reason: "frembed variant returned a non-playlist body" };
+  }
+  return { ok: true };
+}
+
+/**
  * Second-chance coordinates when (detected season, episode) came back empty.
  *
  * Every payload — even one for a season that doesn't exist — carries the full
@@ -657,6 +739,22 @@ async function getFrembedStream(serverKey, aniId, episode) {
     return null;
   }
 
+  /* Un master lisible ne dit pas qu'une VARIANTE l'est : le master vient d'un
+     chemin, les segments d'un autre, et c'est le second que la lecture demande.
+     On verifie donc la premiere variante annoncee — en MEME TEMPS que les
+     sous-titres, qui lisent deja ce manifeste, donc sans allonger la reponse.
+     Un 404/410 sur la variante est une absence (le fichier n'est plus la) ; le
+     reste est passager et laisse le chip en place, comme pour le master. */
+  const [variante, subtitles] = await Promise.all([
+    frembedProbeVariant(probe.manifest, master),
+    frembedSubtitles(probe.manifest, master, def.subtitlePref),
+  ]);
+  if (variante?.transient) throw new TransientSourceError(variante.reason);
+  if (variante?.absent) {
+    dlog(`[frembed] ${variante.reason} for ${master}`);
+    return null;
+  }
+
   return {
     streams: [
       {
@@ -676,7 +774,7 @@ async function getFrembedStream(serverKey, aniId, episode) {
     // Lifted out of the master and handed over as ordinary sidecar tracks —
     // see frembedSubtitles for why in-manifest renditions were invisible to
     // the player's own subtitle UI.
-    subtitles: await frembedSubtitles(probe.manifest, master, def.subtitlePref),
+    subtitles,
   };
 }
 

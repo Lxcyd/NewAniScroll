@@ -67,6 +67,8 @@ import {
   publishDuration,
 } from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
+import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
+import { loadHlsLibrary } from "@/lib/watch/playerCode";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
@@ -167,6 +169,12 @@ type Props = {
    *  lecture des preferences — en ms. Meme usage que `sourceMs`. */
   pageMs?: number;
   onError?: (reason?: string) => void;
+  /** Le lecteur repond encore mais rien n'arrive (extraction qui traine, aucune
+   *  premiere image, erreurs de chargement a repetition). La page s'en sert
+   *  pour preparer le lecteur SUIVANT pendant que celui-ci finit ses essais —
+   *  cf. le bloc « Doute, puis constat de mort ». Jamais plus d'une fois par
+   *  source, et sans interrompre la lecture en cours. */
+  onDoubt?: (reason: string) => void;
   ambient?: boolean;
   serverId?: string;
   /** Used as the download filename when the user hits the download button. */
@@ -310,43 +318,7 @@ const HLS_CONFIG_DIRECT = {
   nudgeMaxRetry: 10,
 };
 
-/* ── Debit memorise ─────────────────────────────────────────────────────────
-   En qualite auto, hls.js commence par un TEST de debit : il charge le premier
-   segment dans la plus BASSE qualite pour mesurer la connexion, le jette, puis
-   recharge ce meme segment dans la qualite choisie. Mesure du 18/09/2026
-   (ansembed, 480p 0,48 Mb/s puis 1080p 3,9 Mb/s) : ~0,5 s avant la premiere
-   image, a chaque ouverture.
-
-   On garde donc la mesure d'hls.js (par profil : proxifie ou direct, les deux
-   n'ont pas le meme debit) et on la lui redonne a la visite suivante comme
-   estimation de depart, test coupe : il choisit d'emblee la qualite que le
-   test aurait choisie. Premiere visite, ou mesure de plus de 7 jours : le test
-   reste. */
-const BW_KEY = "aniscroll:hlsBandwidth";
-const BW_MAX_AGE_MS = 7 * 24 * 3600_000;
-
-function readSavedBandwidth(profile: "direct" | "proxied"): number | null {
-  try {
-    const all = JSON.parse(localStorage.getItem(BW_KEY) || "{}");
-    const e = all?.[profile];
-    if (!e || typeof e.bps !== "number" || !(e.bps > 0)) return null;
-    if (Date.now() - (e.at || 0) > BW_MAX_AGE_MS) return null;
-    return e.bps;
-  } catch {
-    return null;
-  }
-}
-
-function saveBandwidth(profile: "direct" | "proxied", bps: number) {
-  if (!Number.isFinite(bps) || bps <= 0) return;
-  try {
-    const all = JSON.parse(localStorage.getItem(BW_KEY) || "{}") || {};
-    all[profile] = { bps: Math.round(bps), at: Date.now() };
-    localStorage.setItem(BW_KEY, JSON.stringify(all));
-  } catch {
-    /* stockage indisponible : le test de debit continue de s'appliquer */
-  }
-}
+/* Debit memorise et depart du lecteur : cf. lib/watch/hlsBandwidth.ts. */
 
 // Never auto-resume into the last few seconds of an episode — at that point
 // the episode is effectively done, so we'd rather start it (or the next one)
@@ -1572,6 +1544,53 @@ function CenterPlayButton({
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
   const canPlay = useMediaState("canPlay", playerRef);
+  /* `canPlay` de Vidstack ne dit PAS que la video peut jouer.
+     Sur un flux HLS, il est emis des que la playlist de niveau est lue — un
+     `canplay` de synthese, avant qu'un seul segment soit telecharge, donc avec
+     un `readyState` qui peut valoir 0. Le bouton s'affichait la : on cliquait,
+     il disparaissait (la video n'est plus en pause), et l'ecran restait noir le
+     temps que le premier segment arrive. Mesure du 20/09/2026 sur dev, profil
+     neuf : bouton a 4,4 s, premiere image a 17,4 s.
+     On lit donc l'etat de l'element : HAVE_FUTURE_DATA, et une image decodee. */
+  const [pretALire, setPretALire] = useState(false);
+  useEffect(() => {
+    let mort = false;
+    let video: HTMLVideoElement | null = null;
+    const relire = () => {
+      if (mort) return;
+      setPretALire(!!video && video.readyState >= 3 && video.videoWidth > 0);
+    };
+    const EVENEMENTS = [
+      "loadeddata",
+      "canplay",
+      "canplaythrough",
+      "playing",
+      "progress",
+      "emptied",
+      "loadstart",
+      "error",
+    ];
+    /* L'element <video> appartient a Vidstack, qui le REMPLACE a chaque
+       changement de source : on le retrouve au lieu de le capturer. */
+    const brancher = () => {
+      if (mort) return;
+      const racine = playerRef.current?.el as HTMLElement | undefined;
+      const v = racine?.querySelector("video") || null;
+      if (v !== video) {
+        for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+        video = v;
+        for (const e of EVENEMENTS) video?.addEventListener(e, relire);
+      }
+      relire();
+    };
+    brancher();
+    const id = setInterval(brancher, 250);
+    return () => {
+      mort = true;
+      clearInterval(id);
+      for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+    };
+  }, [playerRef]);
   // One-shot: this is purely the INITIAL "start the anime" affordance. Once
   // playback has begun even once, it's gone for good — later manual pauses use
   // the small play/pause control in the bottom-left bar, not this big overlay.
@@ -1589,11 +1608,34 @@ function CenterPlayButton({
   // loading (Vidstack draws its buffering spinner then).
   if (everStarted) return null;
   if (!paused || !canPlay) return null;
-  // A Vidstack menu (chapters / settings / subtitles) is open: it must sit ON
-  // TOP, not be covered by this big center button — hide the button while any
-  // menu is open (it reappears when the menu closes, playback still not begun).
+  // Un menu Vidstack ouvert doit rester AU-DESSUS : ni bouton ni roue dessous.
   if (menuOpen) return null;
-
+  /* Pas encore jouable : une roue a la place du bouton. Elle ne double pas
+     celle de Vidstack, qui ne s'affiche que TANT QUE `canPlay` est faux —
+     c'est-a-dire avant cette fenetre-ci, pas pendant. Sans elle, l'attente du
+     premier segment ne montrait rien du tout. Le chien de garde de la page
+     (« pas de premiere image ») borne cette roue : elle ne peut pas tourner
+     indefiniment sur un flux mort. */
+  if (!pretALire) {
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 grid place-items-center"
+        style={{ zIndex: 15 }}
+        aria-label={t("player.loading", { defaultValue: "Loading" })}
+        role="status"
+      >
+        <div
+          className="animate-spin rounded-full"
+          style={{
+            width: 44,
+            height: 44,
+            border: "3px solid rgba(255,255,255,0.18)",
+            borderTopColor: "#E94560",
+          }}
+        />
+      </div>
+    );
+  }
   const start = () => {
     const player = playerRef.current;
     const video = (player?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video");
@@ -1675,6 +1717,7 @@ export default function UniversalPlayer({
   sourceMs,
   pageMs,
   onError,
+  onDoubt,
   ambient = true,
   serverId,
   downloadName = "anime.mp4",
@@ -1718,6 +1761,25 @@ export default function UniversalPlayer({
   // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
   // the <video> referrerPolicy for direct streams.
   const directPlaybackRef = useRef<boolean>(false);
+  // Sous quelle cle le debit de la source courante est mesure et relu (le CDN
+  // reel pour un flux direct, le Worker sinon). Meme passage de main par ref :
+  // onProviderChange ne voit pas `bestStream`.
+  const bwKeyRef = useRef<string>("proxied");
+  // La source courante est-elle un HLS ? Lu par le chien de garde de la
+  // premiere image, qui laisse plus de temps a un MP4 progressif.
+  const m3u8Ref = useRef<boolean>(true);
+  /* L'alerte « ca sent mauvais », au plus une par source. Le raisonnement est
+     avec les deux effets qui l'emettent (« Doute, puis constat de mort »). */
+  const douteEmisRef = useRef(false);
+  const emettreDoute = useCallback(
+    (raison: string) => {
+      if (douteEmisRef.current) return;
+      douteEmisRef.current = true;
+      dwarn("[UniversalPlayer] doute :", raison);
+      onDoubt?.(raison);
+    },
+    [onDoubt],
+  );
   // Audio rendition the CURRENT source asked for ("fr", "ja"), when its master
   // holds more than one. Same render-time hand-off as directPlaybackRef, for
   // the same reason: onProviderSetup can't see `bestStream`.
@@ -1775,12 +1837,16 @@ export default function UniversalPlayer({
          `hls.subtitleDisplay = false` ne pouvait pas y suffire : il empeche
          l'AFFICHAGE, pas la CREATION des pistes — donc pas le decalage
          d'index. C'est bien la creation qu'il fallait couper. */
-      const savedBw = readSavedBandwidth(directPlaybackRef.current ? "direct" : "proxied");
+      // hls.js du bundle, pas de jsDelivr — cf. lib/watch/playerCode.ts.
+      provider.library = loadHlsLibrary;
+      // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
+      const depart = startEstimate(bwKeyRef.current);
       provider.config = {
         ...provider.config,
         ...cfg,
         renderTextTracksNatively: false,
-        ...(savedBw ? { testBandwidth: false, abrEwmaDefaultEstimate: savedBw } : null),
+        testBandwidth: false,
+        ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
       };
     }
   };
@@ -1864,9 +1930,9 @@ export default function UniversalPlayer({
               manifestMsRef.current =
                 manifestAtRef.current - srcCommitAtRef.current;
           });
-          // Le debit mesure, pour la prochaine ouverture (cf. BW_KEY). Au
-          // plus une ecriture toutes les 30 s.
-          const bwProfile = directPlaybackRef.current ? "direct" : "proxied";
+          // Le debit mesure, pour la prochaine ouverture (cf. hlsBandwidth).
+          // Au plus une ecriture toutes les 30 s.
+          const bwProfile = bwKeyRef.current;
           let bwSavedAt = 0;
           (hls as any).on("hlsFragLoaded", () => {
             const now = Date.now();
@@ -2714,6 +2780,12 @@ export default function UniversalPlayer({
     // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
     // ne servirait a rien.
     if (!poster) return;
+    /* En lecture automatique non plus : le voile tombe sur `data-started`, donc
+       ce verdict n'est jamais lu — et cette sonde tire une COPIE du debut du
+       fichier par le Worker en meme temps que le vrai flux telecharge son
+       premier segment. Deux lectures de la meme video sur le meme lien, au
+       moment precis ou la premiere image se joue. */
+    if (autoplay) return;
     /* Sous le CHEMIN du fichier, pas son URL : la query est signee et change a
        chaque resolution. Deja mesure = verdict immediat, zero octet. */
     const path = blindStream!.url.split("?")[0];
@@ -2765,7 +2837,7 @@ export default function UniversalPlayer({
     };
     // `blindStream` ne bouge pas sans `blindProbeSrc`, qui en derive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blindProbeSrc, poster]);
+  }, [blindProbeSrc, poster, autoplay]);
 
   /* Chemin 2 — le flux est lisible : on lit sa premiere image directement.
      Rien a decider avant qu'une image existe, d'ou l'attente ; et un canvas
@@ -3724,17 +3796,35 @@ export default function UniversalPlayer({
   //      errors. A short cap on consecutive recoveries prevents an infinite
   //      recover loop on a genuinely dead CDN → then we bubble to onError.
   //   3. Non-fatal: ignore, hls.js handles it.
+  /* Accroche sur `playerElState` et NON sur `playerRef.current?.el` : un ref lu
+     dans un effet ne redeclenche rien quand il se remplit. Sur le chemin
+     d'extraction navigateur (ansembed, vidmoly — le lecteur PAR DEFAUT), le
+     premier rendu avec ce `streamData` est le « Loading… », donc il n'y a
+     aucun <MediaPlayer> a ce moment-la ; quand l'extraction aboutit et que le
+     lecteur monte, `streamData` n'a pas bouge et cet effet ne repassait pas.
+     Resultat : sur l'hote le plus utilise du site, ni la detection « flux
+     disparu » (401/403/404/410) ni la reprise (`startLoad` /
+     `recoverMediaError`) n'etaient jamais posees — les pannes n'arrivaient
+     qu'au bout des retries d'hls.js, en ecran noir. */
   useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    const playerEl = playerElState;
     if (!playerEl) return;
 
     let recoveries = 0;
     let recoverWindowResetTimer = 0;
     const MAX_RECOVERIES = 4; // within the rolling window before giving up
 
+    let nonFatales = 0;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (!detail || !detail.fatal) return;
+      if (!detail) return;
+      /* Non fatal : hls.js s'en occupe, on ne touche a rien. Mais deux de ces
+         hoquets sur le chemin de la premiere image disent deja que ce CDN ne
+         suit pas — on prepare le suivant sans rien interrompre. */
+      if (!detail.fatal) {
+        if (++nonFatales >= 2) emettreDoute("erreurs de chargement repetees");
+        return;
+      }
       const status = detail.response?.code || detail.response?.status;
 
       // Tier 1 — genuine "stream gone": don't try to recover, fall back.
@@ -3784,7 +3874,7 @@ export default function UniversalPlayer({
       window.clearTimeout(recoverWindowResetTimer);
       playerEl.removeEventListener("hls-error", handler as EventListener);
     };
-  }, [onError, streamData]);
+  }, [onError, streamData, playerElState, emettreDoute]);
 
   // NOTE: the earlier "end-reset guard" (watching for seek/reload to 0 near the
   // end) was removed. A full event trace proved the real cause was NOT the
@@ -3809,8 +3899,11 @@ export default function UniversalPlayer({
   // fetched, instead of every spot you flew over. We never touch the isolated
   // single-seek path, so normal seeking keeps hls.js's native (no-extra-latency)
   // behaviour.
+  // Meme accroche que le gestionnaire d'erreurs ci-dessus, et pour la meme
+  // raison : sur le chemin d'extraction navigateur, le lecteur n'existe pas
+  // encore au rendu ou `streamData` change.
   useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    const playerEl = playerElState;
     if (!playerEl) return;
 
     let video: HTMLVideoElement | null = null;
@@ -3871,7 +3964,7 @@ export default function UniversalPlayer({
       window.clearInterval(pollId);
       video?.removeEventListener("seeking", onSeeking);
     };
-  }, [streamData]);
+  }, [streamData, playerElState]);
 
   // ── Hover pre-warm ──
   // The server pre-warms only a SPARSE sample of segments, so a first-time seek
@@ -4097,6 +4190,59 @@ export default function UniversalPlayer({
       revokeMerged?.();
     };
   }, [streamData]);
+
+  /* ── Doute, puis constat de mort ─────────────────────────────────────────
+     Entre « tout va bien » et « erreur », il y a un etat qu'on ne nommait pas :
+     le lecteur repond encore, mais rien n'arrive. Il n'existait AUCUN chien de
+     garde sur la premiere image — un flux dont les segments ne viennent jamais
+     restait noir le temps des retries d'hls.js (jusqu'a 30 s par segment) puis
+     des 5 s de Vidstack avant de tomber en erreur.
+     On emet donc deux choses :
+       `onDoubt` — la page prepare le lecteur suivant EN PARALLELE, sans rien
+                   interrompre ici : si ca repart, le prechauffage est perdu et
+                   ce n'est pas grave ; sinon la bascule est instantanee ;
+       `onError` — passe le delai, le lecteur est declare mort et la page
+                   bascule. C'est la seule chose qui sorte de l'ecran noir.
+     Une seule alerte par source : la reprise d'hls.js a le droit de reussir.
+     (`emettreDoute` est declare plus haut, avec les refs : le gestionnaire
+     d'erreurs hls.js s'en sert avant ce point du fichier.) */
+  useEffect(() => {
+    douteEmisRef.current = false;
+  }, [streamData, clientStream]);
+
+  // L'extraction navigateur traine : l'embed vidmoly met parfois plus de 2 s a
+  // repondre, et l'abandon n'est prononce qu'a 6 s. Autant chauffer le suivant
+  // pendant qu'on finit d'attendre celui-ci.
+  useEffect(() => {
+    if (clientStatus !== "pending") return;
+    const id = window.setTimeout(
+      () => emettreDoute("extraction > 2,5 s"),
+      2500,
+    );
+    return () => window.clearTimeout(id);
+  }, [clientStatus, emettreDoute]);
+
+  useEffect(() => {
+    if (!playerElState) return;
+    if (videoAUneImage) return; // une image est la : plus rien a surveiller
+    /* Un MP4 progressif (sibnet sert a ~670 Ko/s) met legitimement plus
+       longtemps qu'un HLS a livrer de quoi decoder : le constat de mort lui
+       laisse donc plus de temps. Le doute, lui, est le meme pour tous — il ne
+       coute qu'un prechauffage. */
+    const progressif = !m3u8Ref.current;
+    const doute = window.setTimeout(
+      () => emettreDoute("aucune image apres 3,5 s"),
+      3500,
+    );
+    const mort = window.setTimeout(
+      () => onError?.("No first frame"),
+      progressif ? 15000 : 10000,
+    );
+    return () => {
+      window.clearTimeout(doute);
+      window.clearTimeout(mort);
+    };
+  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError]);
 
   // ── Persistent volume (app-wide, shared across every player) ──
   // One value in localStorage, restored onto every player instance and every
@@ -5483,11 +5629,13 @@ export default function UniversalPlayer({
   // scope) knows to strip the Referer on the underlying <video>. Only direct
   // streams need it — proxied ones carry their Referer via the Worker query.
   directPlaybackRef.current = bestStream!.directUrl === true;
+  bwKeyRef.current = bandwidthKey(bestStream!.url, directPlaybackRef.current);
   audioLangRef.current = bestStream!.audioLang || null;
   subtitlePrefRef.current = bestStream!.subtitlePref || null;
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
+  m3u8Ref.current = isM3U8;
 
   // CRITICAL: memoize the src object handed to <MediaPlayer>. Passing an inline
   // object literal `src={{ src, type }}` minted a NEW identity on EVERY render,

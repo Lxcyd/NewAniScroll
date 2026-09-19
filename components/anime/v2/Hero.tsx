@@ -20,6 +20,10 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
+import { preloadPlayerCode } from "@/lib/watch/playerCode";
+import { getPlannedServer, getPrefetchedSource, sourceKey } from "@/lib/watch/sourcePrefetch";
+import { preconnectOrigin } from "@/lib/watch/streamUrl";
+import { warmVidmolyClient } from "@/lib/clientVidmoly";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import QueueButton from "./QueueButton";
@@ -153,7 +157,23 @@ export default function Hero({
     try {
       router.prefetch(watchHref);
     } catch {}
-    void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+    preloadPlayerCode();
+    /* Et on RELANCE l'extraction de l'embed du lecteur prevu : son jeton est
+       lie a l'IP et a l'instant, donc celle qu'a lancee la page info se perime
+       (60 s, cf. clientVidmoly). Au survol de « Regarder », la personne est a
+       un clic de la lecture : c'est le moment de l'avoir fraiche. Cote
+       navigateur uniquement — aucun appel a nous. */
+    try {
+      const srv = getPlannedServer(info.id);
+      if (srv) {
+        const data = getPrefetchedSource(sourceKey(info.id, epNum, srv, "sub"));
+        const ce = data?.clientExtract;
+        if (ce?.type === "vidmoly" && ce.embedUrl) {
+          preconnectOrigin(ce.embedUrl);
+          warmVidmolyClient(ce.embedUrl);
+        }
+      }
+    } catch {}
     void prefetchEpisodeList(info.id, {
       releasing: (info as any)?.status === "RELEASING",
       priority: "high",

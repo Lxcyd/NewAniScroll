@@ -12,6 +12,12 @@ import v2Styles from "@/components/anime/v2/styles.module.css";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import dynamic from "next/dynamic";
+import { preloadPlayerCode } from "@/lib/watch/playerCode";
+/* Le chunk du lecteur et hls.js partent DES l'evaluation de ce module, pendant
+   l'hydratation. `dynamic()` ne les demandait qu'au premier rendu de
+   <UniversalPlayer>, c'est-a-dire apres la source ET la liste d'episodes : sur
+   une arrivee directe, tout le telechargement du lecteur s'ajoutait en serie. */
+preloadPlayerCode();
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 const UniversalPlayer = dynamic(
   () => import("@/components/watch/primary/UniversalPlayer"),
@@ -52,7 +58,8 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
@@ -109,7 +116,18 @@ const PROXY_BASE =
    celui du lecteur lors d'un changement d'episode. */
 function warmClientExtract(data) {
   const ce = data?.clientExtract;
-  if (ce?.type === "vidmoly" && ce.embedUrl) warmVidmolyClient(ce.embedUrl);
+  if (ce?.type === "vidmoly" && ce.embedUrl) {
+    // La connexion vers l'embed AVANT de le demander : c'est le premier
+    // aller-retour hors de chez nous sur le chemin de la premiere image.
+    preconnectOrigin(ce.embedUrl);
+    warmVidmolyClient(ce.embedUrl);
+  }
+  // Et vers le CDN du flux quand il est deja connu (frembed sert son adresse
+  // directement) : les preconnect ecrits en dur ne peuvent pas suivre un CDN
+  // dont le nom change.
+  preconnectOrigin(
+    playbackUrl(data?.streams?.[0] || data?.sources?.[0], data?.referer),
+  );
 }
 
 // Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
@@ -553,6 +571,53 @@ export default function Watch({
   const serveurPrecedentRef = useRef(null);
   const basculeVoulueRef = useRef(false);
 
+  /* « Le lecteur suivant », calcule a UN SEUL endroit.
+     Trois appelants en ont besoin et doivent tomber sur le MEME : la bascule
+     (markFailed), le filet de securite plus bas, et le prechauffage sur doute
+     — sans quoi on prepare un lecteur et on en ouvre un autre, ce qui rend le
+     prechauffage inutile. `apres` permet de demander « le suivant en comptant
+     celui-ci comme perdu » sans rien ecrire dans les memoires d'echec. */
+  const pickNextServer = useCallback((id, { apres = [] } = {}) => {
+    const SERVERS = require("@/lib/servers").default;
+    const { getServersByLang } = require("@/lib/servers");
+    const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
+    const failedDef = SERVERS.find((s) => s.id === id);
+    const failedLang = failedDef?.lang;
+
+    const failedSet = new Set([
+      ...failedServersRef.current.keys(),
+      ...triedFailedRef.current,
+      ...apres,
+      id,
+    ]);
+
+    // Le classement des chips, tel quel : chaque groupe est deja trie du plus
+    // rapide au plus lent par serverPerfRankFrozen (mesures reelles, `speed`
+    // a defaut). On ne reordonne rien ici — on lit.
+    const groups = getServersByLang(serverPerfRankFrozen);
+    const libre = (s) => s && s.id !== id && !failedSet.has(s.id);
+
+    // 1. MEME LANGUE, le plus rapide d'abord. Une personne qui a choisi un
+    //    doublage francais veut un autre doublage francais, pas les
+    //    sous-titres d'un lecteur VO — d'ou la priorite stricte, conservee.
+    let next = (groups[failedLang] || []).find(libre)?.id;
+
+    // 2. Langue epuisee : le classement de langues de l'utilisateur (2 puis
+    //    3) avant toute heuristique. Sans ca, perdre le dernier lecteur VF
+    //    renvoyait ailleurs meme quand la personne avait classe le VOSTFR
+    //    juste apres la VF.
+    if (!next && langOrderRef.current) {
+      next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
+    }
+
+    // 3. Filet : n'importe quel lecteur libre, toujours dans l'ordre affiche
+    //    (multi, puis vo, puis vf — l'ordre du selecteur).
+    if (!next) {
+      next = [...groups.multi, ...groups.vo, ...groups.vf].find(libre)?.id;
+    }
+    return next || null;
+  }, []);
+
   const markFailed = useCallback((id, reason, { hostDown = false } = {}) => {
     /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
      *
@@ -595,45 +660,59 @@ export default function Watch({
     // we want to remember the user's intentional choice.
     setActiveServer((current) => {
       if (current !== id) return current;
-      const SERVERS = require("@/lib/servers").default;
-      const { getServersByLang } = require("@/lib/servers");
-      const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
-      const failedDef = SERVERS.find((s) => s.id === id);
-      const failedLang = failedDef?.lang;
-
-      const failedSet = new Set([
-        ...failedServersRef.current.keys(),
-        ...triedFailedRef.current,
-        id,
-      ]);
-
-      // Le classement des chips, tel quel : chaque groupe est deja trie du plus
-      // rapide au plus lent par serverPerfRankFrozen (mesures reelles, `speed`
-      // a defaut). On ne reordonne rien ici — on lit.
-      const groups = getServersByLang(serverPerfRankFrozen);
-      const libre = (s) => s && s.id !== id && !failedSet.has(s.id);
-
-      // 1. MEME LANGUE, le plus rapide d'abord. Une personne qui a choisi un
-      //    doublage francais veut un autre doublage francais, pas les
-      //    sous-titres de Megaplay — d'ou la priorite stricte, conservee.
-      let next = (groups[failedLang] || []).find(libre)?.id;
-
-      // 2. Langue epuisee : le classement de langues de l'utilisateur (2 puis
-      //    3) avant toute heuristique. Sans ca, perdre le dernier lecteur VF
-      //    renvoyait sur megaplay meme quand la personne avait classe le VOSTFR
-      //    juste apres la VF.
-      if (!next && langOrderRef.current) {
-        next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
-      }
-
-      // 3. Filet : n'importe quel lecteur libre, toujours dans l'ordre affiche
-      //    (multi, puis vo, puis vf — l'ordre du selecteur).
-      if (!next) {
-        next = [...groups.multi, ...groups.vo, ...groups.vf].find(libre)?.id;
-      }
-      return next || current;
+      return pickNextServer(id) || current;
     });
-  }, []);
+  }, [pickNextServer]);
+
+  /* Le lecteur doute : on prepare le SUIVANT pendant qu'il finit ses essais.
+     Rien n'est interrompu — si le lecteur en cours repart, ce prechauffage est
+     perdu et ce n'est pas grave ; s'il meurt, la bascule est deja prete et ne
+     coute plus l'aller-retour de resolution ni l'extraction a froid.
+     Le suivant est choisi par `pickNextServer`, le MEME que la bascule : sans
+     ca, on chaufferait un lecteur et on en ouvrirait un autre.
+     Une seule fois par (lecteur, episode) : le doute peut etre emis plusieurs
+     fois, le travail ne doit l'etre qu'une. */
+  const dejaPrechauffeRef = useRef(new Set());
+  const prewarmNext = useCallback(
+    async (from) => {
+      if (!info?.id || !epiNumber) return;
+      const next = pickNextServer(from);
+      if (!next) return;
+      const marque = `${epiNumber}:${next}`;
+      if (dejaPrechauffeRef.current.has(marque)) return;
+      dejaPrechauffeRef.current.add(marque);
+      const sub = dub ? "dub" : "sub";
+      const episode = parseInt(epiNumber);
+      // Les sondes de fond ont peut-etre deja resolu ce lecteur : on lit leur
+      // resultat avant d'en redemander un.
+      let data = getPrefetchedSource(sourceKey(info.id, episode, next, sub));
+      if (!data) {
+        data = await resolveSource(
+          {
+            aniId: info.id,
+            episode,
+            server: next,
+            sub,
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: { idMal: info?.idMal ?? null },
+          },
+          { priority: "high" },
+        );
+      }
+      if (!data) return;
+      warmClientExtract(data);
+      preconnectOrigin(
+        playbackUrl(data?.streams?.[0] || data?.sources?.[0], data?.referer),
+      );
+      /* `viaProxy` : un flux proxifie ne se lit QUE par le Worker, donc le
+         chauffer ailleurs ne sert a rien. On tire 256 Ko par le Worker, ce
+         qu'on refuse sur la page info (visiteur qui ne regardera peut-etre
+         jamais) mais qui se justifie ici : la personne regarde deja, et c'est
+         le prix d'une bascule instantanee. */
+      void warmStream(data, undefined, { viaProxy: true });
+    },
+    [info?.id, info?.idMal, info?.title, epiNumber, dub, pickNextServer],
+  );
 
   // Load the user's saved preferred server after hydration.
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
@@ -744,9 +823,12 @@ export default function Watch({
           confirmed: confirmedServers,
           failed: dejaRates,
         })) ||
-      PREFERRED_FALLBACK_ORDER.find(
-        (id) => confirmedServers.has(id) && !dejaRates.has(id),
-      ) ||
+      /* `PREFERRED_FALLBACK_ORDER` etait lu ICI alors qu'il n'existe plus
+         (retire avec la liste ecrite a la main, cf. le commentaire de
+         `pickNextServer`) : sans classement de langues, cette ligne levait une
+         ReferenceError dans un effet, donc emportait la page de lecture. Le
+         meme choix que la bascule le remplace. */
+      pickNextServer(activeServer, { apres: [...dejaRates] }) ||
       [...confirmedServers].find((id) => !dejaRates.has(id));
     /* Rien de neuf a proposer : on RESTE. Repartir sur un lecteur deja rate
        etait precisement le tourniquet — mieux vaut un lecteur arrete, dont
@@ -1142,12 +1224,21 @@ export default function Watch({
      L'URL porte tout ce dont le lecteur a besoin pour demarrer. On pose donc le
      minimum, et l'effet suivant l'ecrase des que la vraie liste arrive. Jamais
      par-dessus une navigation deja construite : `prev ||`. */
+  /* Et ce filet vaut AUSSI quand les metadonnees sont la : le lecteur n'a
+     besoin que du NUMERO d'episode, que porte l'URL, alors qu'il attendait
+     `/api/v2/episode/{id}` — un effet qui ne part qu'apres l'hydratation, et
+     qui scrape quand le cache d'edge manque. Mesure du 20/09/2026 : la source
+     etait resolue a 0,47 s, la liste a 0,9 s, et le lecteur n'etait monte qu'a
+     1,1 s. Sur un manque de cache, c'est plusieurs secondes de roue devant une
+     source deja prete. On pose donc le minimum TOUT DE SUITE ; l'effet suivant
+     ecrase avec la vraie liste (titre, vignette, precedent/suivant) des
+     qu'elle arrive. */
   useEffect(() => {
-    if (info || !aniId || !epiNumber) return;
+    if (!aniId || !epiNumber) return;
     setEpisodeNavigation(
       (prev) => prev || { playing: { number: Number(epiNumber) } },
     );
-  }, [info, aniId, epiNumber]);
+  }, [aniId, epiNumber]);
 
   /* Le spinner n'est pas un etat d'arrivee. Passe ce delai, on montre l'erreur
      — qui nomme le lecteur et propose d'en changer — plutot qu'une roue qui
@@ -2533,6 +2624,7 @@ export default function Watch({
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
             party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
+            onDoubt={() => prewarmNext(server.id)}
             onError={(reason) =>
               markFailed(
                 server.id,
@@ -2576,7 +2668,7 @@ export default function Watch({
     // (which changes on every chat/presence update) — otherwise the player
     // rebuilds on each message, restarting playback and breaking sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
 
   // ── Render ───────────────────────────────────────────────────
   // The Watch-Party panel. Rendered in two places: on mobile it sits in the
@@ -2678,8 +2770,11 @@ export default function Watch({
             ~100-300 ms handshake when the actual stream/iframe request
             fires. preconnect handles all three; dns-prefetch is a fallback
             for older browsers that ignore preconnect. */}
+        {/* ansembed.net : l'embed du lecteur PAR DEFAUT, que le navigateur lit
+            lui-meme (clientVidmoly) — le premier aller-retour hors de chez nous
+            sur le chemin de la premiere image. sendvid est retire. */}
+        <link rel="preconnect" href="https://ansembed.net" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
         {/* Warm the video proxy Worker unconditionally: the env var is only a
             build-time override, and when it's unset the player still hardcodes
@@ -2687,15 +2782,11 @@ export default function Watch({
             resolved base, not gate on the env var being present. */}
         <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
         <link rel="dns-prefetch" href={PROXY_BASE} />
+        <link rel="dns-prefetch" href="https://ansembed.net" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
-        <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
-        {/* hls.js, que vidstack charge lui-meme depuis jsDelivr (sans
-            crossorigin, d'ou ce preload sans l'attribut : meme requete, reprise
-            telle quelle). Sans lui, le telechargement ne partait qu'une fois le
-            lecteur monte ET l'embed lu : 150 ms de plus sur le chemin de la
-            premiere image (mesure du 18/09/2026). */}
-        <link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/hls.js@^1.0.0/dist/hls.min.js" />
+        {/* hls.js ne vient plus de jsDelivr mais du bundle, precharge avec le
+            chunk du lecteur (preloadPlayerCode, en tete de ce module). */}
         {/* La vignette de l'episode, demandee des qu'on connait son adresse et
             en haute priorite. Elle est bien consommee — c'est le <img
             class="as-poster"> du lecteur, meme URL — donc pas de « preloaded
