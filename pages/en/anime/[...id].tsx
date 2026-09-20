@@ -34,6 +34,7 @@ import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref"
 import { getAnimeServer } from "@/lib/prefs/animeServerPref";
 import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { chargeFrembedCatalog, sansFrembed } from "@/lib/watch/frembedCatalog";
+import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -475,13 +476,25 @@ export default function Info({
         ajoute(getAnimeHost(info.id));
         // 2. Le classement de langues, epuise par appels successifs : chaque
         //    choix rejoint `failed` pour que le suivant en sorte un autre.
+        /* Meme verdict que la page de lecture : sur une serie que MyDubList ne
+           donne pas doublee en francais, prechauffer un lecteur VF c'est payer
+           une resolution pour s'entendre dire non. On les renvoie en fin
+           d'ordre sans les retirer — la liste est tronquee a 3, donc ils n'y
+           figureront pas, mais ils restent atteignables par les sondes de la
+           page de lecture. */
+        const sansVf = vfPossible(info.idMal) ? null : (["vf"] as const);
         if (order) {
           for (let i = 0; i < 3; i++) {
             const pick =
               pickServerForLangs(order, {
                 ...(confirmed ? { confirmed } : null),
                 failed: new Set(liste),
-              }) || pickServerForLangs(order, { failed: new Set(liste) });
+                deprioriser: sansVf ? [...sansVf] : null,
+              }) ||
+              pickServerForLangs(order, {
+                failed: new Set(liste),
+                deprioriser: sansVf ? [...sansVf] : null,
+              });
             if (!pick) break;
             ajoute(pick);
           }
@@ -554,6 +567,7 @@ export default function Info({
       // vain (cf. lib/watch/frembedCatalog). Une fois par jour et par visiteur,
       // servie par le cache d'edge.
       chargeFrembedCatalog();
+      chargeDubCatalog();
       // Warm the per-host entry for the server the watch page starts on, so the
       // overlay reads a hit on arrival. Sur le serveur reellement prechauffe, et
       // non plus megaplay en dur : les skips sont stockes PAR HOTE, une entree

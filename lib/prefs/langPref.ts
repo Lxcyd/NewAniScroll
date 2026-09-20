@@ -154,10 +154,43 @@ type PickOpts = {
    * rafraichi pendant que l'autre garde celui du chargement.
    */
   rank?: (server: ServerDef) => number;
+  /**
+   * Langues renvoyees en FIN d'ordre pour cet anime precis, sans etre retirees.
+   *
+   * Sert au verdict de doublage (cf. lib/watch/dubCatalog) : sur une serie que
+   * MyDubList ne donne pas doublee, ouvrir un lecteur VF coute une dizaine de
+   * secondes d'« absent » enchaines. On n'ouvre donc plus la VF d'emblee.
+   *
+   * RETROGRADER et non exclure, deliberement : MyDubList recense les doublages
+   * officiels, et anime-sama heberge parfois une VF qui n'en est pas un —
+   * mesure du 20/09/2026, 97,8 % de concordance, donc ~2 % de titres ou la
+   * langue existe quand meme. Les laisser dans l'ordre les garde atteignables
+   * (les sondes de fond allument leur chip) ; les retirer les rendrait
+   * invisibles pour ne gagner que des invocations de sonde.
+   */
+  deprioriser?: Lang[] | null;
 };
 
 /** Le rang d'origine, garde comme repli explicite et pour les tests. */
 export const staticRank = (s: ServerDef) => s.speed ?? 99;
+
+/**
+ * Le meme ordre, les langues citees renvoyees a la fin. Aucune n'est perdue :
+ * c'est ce qui distingue une retrogradation d'un filtre (cf. `deprioriser`).
+ */
+export function ordreDeprioriseEn(
+  langs: Lang[],
+  deprioriser?: Lang[] | null,
+): Lang[] {
+  if (!deprioriser?.length) return langs;
+  const arriere = new Set(deprioriser);
+  const devant = langs.filter((l) => !arriere.has(l));
+  /* Si TOUT serait retrograde, on ne change rien : un ordre integralement
+     renvoye a la fin est le meme ordre, et pretendre le contraire ferait croire
+     a un arbitrage qui n'a pas eu lieu. */
+  if (devant.length === 0) return langs;
+  return [...devant, ...langs.filter((l) => arriere.has(l))];
+}
 
 /**
  * Le meilleur serveur selon l'ordre de langues : premiere langue qui a un
@@ -165,9 +198,12 @@ export const staticRank = (s: ServerDef) => s.speed ?? 99;
  */
 export function pickServerForLangs(
   order: Lang[] | null | undefined,
-  { confirmed, failed, rank = serverPerfRankFrozen }: PickOpts = {},
+  { confirmed, failed, rank = serverPerfRankFrozen, deprioriser }: PickOpts = {},
 ): string | null {
-  const langs = order && order.length ? order : DEFAULT_LANG_ORDER;
+  const langs = ordreDeprioriseEn(
+    order && order.length ? order : DEFAULT_LANG_ORDER,
+    deprioriser,
+  );
   const isFailed = (id: string) =>
     failed instanceof Map ? failed.has(id) : !!failed?.has?.(id);
   for (const lang of langs) {

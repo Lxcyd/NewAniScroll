@@ -56,6 +56,7 @@ import {
 import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
 import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { chargeFrembedCatalog, frembedPossible } from "@/lib/watch/frembedCatalog";
+import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
 import { memoriseChoix } from "@/lib/watch/earlyPick";
 // Two dialogs the page only ever shows on request. LangPreferenceModal already
 // returns null while closed and ReportModal renders an empty headless-ui
@@ -539,6 +540,11 @@ export default function Watch({
   // comportement historique. Lu dans un ref pour rester accessible aux callbacks
   // stables (markFailed) sans les recreer.
   const langOrderRef = useRef(null);
+  /* `["vf"]` quand MyDubList ne connait pas de doublage francais pour cette
+     serie, `null` sinon — les langues a renvoyer en fin d'ordre sans les
+     retirer. Un ref, parce que la bascule et le filet de securite s'en servent
+     bien apres l'effet qui le calcule. */
+  const sansVfRef = useRef(null);
   const [langModalOpen, setLangModalOpen] = useState(false);
 
   const markConfirmed = useCallback((id) => {
@@ -624,7 +630,10 @@ export default function Watch({
     //    renvoyait ailleurs meme quand la personne avait classe le VOSTFR
     //    juste apres la VF.
     if (!next && langOrderRef.current) {
-      next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
+      next = pickServerForLangs(langOrderRef.current, {
+        failed: failedSet,
+        deprioriser: sansVfRef.current,
+      });
     }
 
     // 3. Filet : n'importe quel lecteur libre, toujours dans l'ordre affiche
@@ -823,6 +832,17 @@ export default function Watch({
     // trop tard pour CE choix-ci, jamais pour les suivants — et elle tient dans
     // le stockage local une demi-journee.
     chargeFrembedCatalog();
+    // Meme chose pour le verdict de doublage : sur une serie que MyDubList ne
+    // donne pas doublee en francais, ouvrir un lecteur VF coute une dizaine de
+    // secondes d'« absent » enchaines.
+    chargeDubCatalog();
+    /* RETROGRADER, pas exclure : les lecteurs VF restent dans l'ordre, ils
+       passent seulement derriere. Les sondes de fond les atteignent donc quand
+       meme, et le chip s'allume si une VF existe malgre tout — ~2 % des cas,
+       MyDubList recensant les doublages officiels quand anime-sama heberge
+       parfois autre chose. */
+    const sansVf = vfPossible(info?.idMal) ? null : ["vf"];
+    sansVfRef.current = sansVf;
     const recales = getPlannedFailures(aniId);
     // Hors catalogue frembed : on ne le propose pas, ni ici ni a la bascule.
     if (!frembedPossible(aniId)) {
@@ -881,7 +901,10 @@ export default function Watch({
       // voir echouer aussitot.
       const guess =
         getPlannedServer(aniId) ||
-        pickServerForLangs(langOrder, { failed: triedFailedRef.current });
+        pickServerForLangs(langOrder, {
+          failed: triedFailedRef.current,
+          deprioriser: sansVf,
+        });
       if (guess) setActiveServer(guess);
     }
     // Select the user's server UP FRONT so it's the one loaded in priority — not
@@ -904,7 +927,14 @@ export default function Watch({
        Sans `failed` : cette liste vaut pour TOUTES les series, alors que les
        echecs sont propres a celle-ci et a cet episode. Le filtre qui depend de
        la serie — frembed hors catalogue — est applique a la relecture. */
-    if (langOrder) {
+    /* Rien a memoriser quand la VF vient d'etre retrogradee POUR CETTE SERIE :
+       `earlyPick` est une memoire globale, relue par le script du `<head>` sur
+       n'importe quel anime. Ce script connait l'id AniList de la page, jamais
+       son `idMal` — il ne peut donc pas rejuger le doublage, et un ordre calcule
+       ici pour une serie sans VF serait rejoue tel quel sur une serie qui en a
+       une. On prefere ne rien ecrire : le chargement suivant retombe sur le
+       comportement d'avant, qui est correct, simplement moins rapide. */
+    if (langOrder && !sansVf) {
       const ordre = [];
       for (let i = 0; i < 4; i++) {
         const s = pickServerForLangs(langOrder, { failed: new Set(ordre) });
@@ -957,6 +987,7 @@ export default function Watch({
         pickServerForLangs(langOrderRef.current, {
           confirmed: confirmedServers,
           failed: dejaRates,
+          deprioriser: sansVfRef.current,
         })) ||
       /* `PREFERRED_FALLBACK_ORDER` etait lu ICI alors qu'il n'existe plus
          (retire avec la liste ecrite a la main, cf. le commentaire de
@@ -2401,6 +2432,17 @@ export default function Watch({
       const activeIdx = remaining.findIndex((s) => s.id === liveActive);
       if (activeIdx >= 0) remaining.splice(activeIdx, 1);
 
+      /* Quand MyDubList ne connait pas de doublage francais pour cette serie,
+         les sondes VF passent en DERNIER — elles ne sont pas supprimees. Elles
+         echoueront presque toujours, mais presque n'est pas toujours : ~2 % des
+         titres portent une VF non officielle qu'anime-sama heberge quand meme,
+         et c'est ce qui allume leur chip. Les repousser ne coute rien (personne
+         n'attend une sonde) et libere le pool pour celles qui ont une chance. */
+      if (sansVfRef.current) {
+        const vf = (s) => (s.lang === "vf" ? 1 : 0);
+        remaining.sort((a, b) => vf(a) - vf(b));
+      }
+
       await runPool(remaining, MAX_CONCURRENT);
 
       // Publish the confirmed-server snapshot so the NEXT visitor's chips
@@ -2997,7 +3039,12 @@ export default function Watch({
               pickServerForLangs(order, {
                 confirmed: confirmedServers,
                 failed: failedServers,
-              }) || pickServerForLangs(order, { failed: failedServers });
+                deprioriser: sansVfRef.current,
+              }) ||
+              pickServerForLangs(order, {
+                failed: failedServers,
+                deprioriser: sansVfRef.current,
+              });
             if (best) setActiveServer(best);
           }}
         />
