@@ -133,6 +133,7 @@ export function ouvrePont(
   let mort = false;
   let finTiree = false;
   let vuCompte = false;
+  let dureePubliee = false;
 
   const envoie = (charge: Record<string, unknown>) => {
     if (mort) return;
@@ -184,7 +185,14 @@ export function ouvrePont(
       const d = Number(donnee.duration);
       if (aniListId == null || episodeNumber == null) return;
       if (!Number.isFinite(t) || t < 0) return;
-      if (Number.isFinite(d) && d > 0) publishDuration(aniListId, episodeNumber, d);
+      /* Une seule fois : la duree ne change pas en cours d'episode, et le
+         chemin video ne la publie qu'aux evenements de metadonnees. La
+         republier toutes les 5 s reveillerait pour rien tous les abonnes de
+         `PROGRESS_EVENT` (la liste d'episodes, la barre de la carte…). */
+      if (!dureePubliee && Number.isFinite(d) && d > 0) {
+        dureePubliee = true;
+        publishDuration(aniListId, episodeNumber, d);
+      }
       saveProgress(aniListId, episodeNumber, t, Number.isFinite(d) ? d : 0);
       if (!vuCompte && t >= 120) {
         vuCompte = true;
