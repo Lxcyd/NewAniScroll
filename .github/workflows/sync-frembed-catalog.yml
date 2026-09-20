@@ -10,9 +10,13 @@
 # directement a Turso et a frembed. Le catalogue bouge de quelques titres par
 # semaine, une passe par nuit suffit largement.
 #
-# Le script REFUSE d'ecraser la table si frembed rend une liste vide ou
-# minuscule (site en panne, API changee) : mieux vaut servir la liste d'hier que
-# d'eteindre le lecteur le plus rapide du site.
+# Le script REFUSE d'ecraser la table dans deux cas : une liste vide ou
+# minuscule (< 20 entrees : site en panne), et une chute de plus de 60 % par
+# rapport a ce qui est deja en base (pagination amputee, champ renomme). Mieux
+# vaut servir la liste d'hier que d'eteindre le lecteur le plus rapide du site.
+# Un echec ici est donc une ALERTE a lire, pas un incident a ignorer : la table
+# reste valable, mais elle vieillit. Si frembed a vraiment coupe son catalogue,
+# relancer a la main avec `force`.
 #
 # Secrets requis (Repository → Settings → Secrets and variables → Actions) :
 #   TURSO_DATABASE_URL   → la base aniscroll-cache
@@ -27,6 +31,11 @@ on:
     inputs:
       dry:
         description: "Ne rien ecrire, seulement rapporter"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "Ecrire malgre une chute d'effectif (coupe reelle chez frembed)"
         required: false
         type: boolean
         default: false
@@ -53,4 +62,5 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           node scripts/frembed/sync-catalog.mjs \
-            ${{ inputs.dry == true && '--dry' || '' }}
+            ${{ inputs.dry == true && '--dry' || '' }} \
+            ${{ inputs.force == true && '--force' || '' }}
