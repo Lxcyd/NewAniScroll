@@ -516,6 +516,7 @@
     "casting": "Casting…",
     "switchedTo": "Player: {{name}}",
     "rememberedForAnime": "Player remembered for this anime",
+    "externalForSession": "External player — this session only",
     "pip": "Picture-in-picture",
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",

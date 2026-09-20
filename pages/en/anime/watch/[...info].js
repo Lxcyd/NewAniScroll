@@ -2542,8 +2542,20 @@ export default function Watch({
       // le catalogue et rendu le classement inerte partout ailleurs. Le serveur
       // epingle des Reglages redevient donc ce qu'il pretend etre : un choix
       // explicite, que seule la page Reglages modifie.
-      setAnimeServer(aniId, serverId);
-      notify.success(t("player.rememberedForAnime"));
+      /* …sauf pour un lecteur EXTERNE (megaplay, cf. lib/servers.js). Il
+         remplace notre lecteur par le sien, avec son habillage et ses
+         publicites : c'est un repli, pas une preference. L'epingler faisait
+         qu'un SEUL essai — y compris un essai fait juste pour verifier que
+         l'hote repond — condamnait la serie a s'ouvrir sur une interface
+         etrangere a chaque visite, alors que nos propres lecteurs la
+         servaient. On le choisit donc pour la session, et la prochaine
+         ouverture repart du classement normal. */
+      if (getServer(serverId)?.lecteurExterne) {
+        notify.message(t("player.externalForSession"));
+      } else {
+        setAnimeServer(aniId, serverId);
+        notify.success(t("player.rememberedForAnime"));
+      }
       // The URL no longer encodes the server — preference lives entirely
       // in localStorage, so shares/bookmarks don't pin a stale server id
       // and switching players doesn't dirty the browser history.
