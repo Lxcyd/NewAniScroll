@@ -67,43 +67,68 @@ VERROU_PERIME_S=1800
 DEBOUNCE_S=600
 _HORODATAGE="graphify-out/.derniere-reconstruction"
 
-# 1. Verrou. `mkdir` echoue si le repertoire existe : c'est le test et la prise
-#    en une seule operation atomique, sans course possible.
+# COMMENT ON REFUSE. Ce fichier est SOURCE par un hook qui s'ecrit
+# `. guard.sh || exit 0`. Un refus doit donc rendre un statut NON NUL, sinon le
+# `||` ne se declenche pas et le hook enchaine sur la reconstruction qu'on
+# vient de refuser. Premiere version : les deux chemins de refus rendaient 0.
+# Le journal l'a montre noir sur blanc, les deux lignes a la suite :
+#
+#   [garde graphify] reconstruit il y a 295s — on attend (seuil 600s)
+#   [graphify hook] launching background rebuild
+#
+# Le plafond de workers, lui, s'appliquait bien — d'ou une mesure « 6 workers
+# au lieu de 24 » parfaitement vraie qui masquait un verrou et un anti-rebond
+# entierement inertes. Exactement le defaut que ce fichier existe pour
+# corriger, reproduit dans le correctif. Toute modification ici se verifie en
+# regardant si « launching background rebuild » suit un refus.
+_refuse() {
+  echo "[garde graphify] $1"
+  return 1
+}
+
+mkdir -p graphify-out 2>/dev/null
+
+# 1. Verrou. `mkdir` echoue si le repertoire existe : le test et la prise en une
+#    seule operation atomique, la ou `flock` n'existe pas (Windows).
+#
+#    Il ne couvre QUE l'instant de la decision — lire l'horodatage puis
+#    l'ecrire — et non la duree de la reconstruction. C'est l'anti-rebond qui
+#    borne celle-ci. Le verrou est donc rendu quelques lignes plus bas, dans ce
+#    meme processus : pas de veilleur detache, pas d'orphelin a faire perimer.
+#
+#    La version precedente confiait sa liberation a une boucle detachee qui
+#    interrogeait `pgrep` — absent de ce shell, comme `flock`. La boucle sortait
+#    donc au premier tour et relachait le verrou au bout de 20 secondes.
 if ! mkdir "$_VERROU" 2>/dev/null; then
   _age=$(( $(date +%s) - $(date -r "$_VERROU" +%s 2>/dev/null || echo 0) ))
   if [ "$_age" -lt "$VERROU_PERIME_S" ]; then
-    echo "[garde graphify] une reconstruction tourne deja (${_age}s) — on ne l'empile pas"
-    return 0 2>/dev/null || exit 0
+    _refuse "une decision est en cours (${_age}s) — on ne l'empile pas"
+    return 1 2>/dev/null || exit 1
   fi
+  # Un verrou plus vieux que la peremption vient d'un processus tue : on le
+  # reprend plutot que de bloquer les reconstructions pour toujours.
   echo "[garde graphify] verrou perime (${_age}s) — reprise"
   rm -rf "$_VERROU" 2>/dev/null
-  mkdir "$_VERROU" 2>/dev/null || { return 0 2>/dev/null || exit 0; }
+  if ! mkdir "$_VERROU" 2>/dev/null; then
+    _refuse "verrou impossible a prendre"
+    return 1 2>/dev/null || exit 1
+  fi
 fi
 
-# 2. Anti-rebond. Apres la prise du verrou, sinon deux hooks simultanes liraient
-#    le meme horodatage et passeraient tous les deux.
+# 2. Anti-rebond : au plus une reconstruction par DEBOUNCE_S. C'est LUI qui fait
+#    le vrai travail — vingt commits d'affilee ne valent pas vingt
+#    reconstructions, le graphe n'est pas une source de verite temps reel.
 if [ "${GRAPHIFY_FORCE:-}" != "1" ] && [ -f "$_HORODATAGE" ]; then
   _depuis=$(( $(date +%s) - $(date -r "$_HORODATAGE" +%s 2>/dev/null || echo 0) ))
   if [ "$_depuis" -lt "$DEBOUNCE_S" ]; then
-    echo "[garde graphify] reconstruit il y a ${_depuis}s — on attend (seuil ${DEBOUNCE_S}s)"
     rmdir "$_VERROU" 2>/dev/null
-    return 0 2>/dev/null || exit 0
+    _refuse "reconstruit il y a ${_depuis}s — on attend (seuil ${DEBOUNCE_S}s)"
+    return 1 2>/dev/null || exit 1
   fi
 fi
-mkdir -p graphify-out 2>/dev/null
-: > "$_HORODATAGE"
 
-# 3. Le verrou doit etre rendu quand la reconstruction DETACHEE se termine, pas
-#    quand le hook rend la main — il rend la main tout de suite. On confie donc
-#    sa liberation a un veilleur detache, borne par la meme peremption pour
-#    qu'un processus tue ne laisse jamais le verrou derriere lui.
-(
-  _fin=$(( $(date +%s) + VERROU_PERIME_S ))
-  while [ "$(date +%s)" -lt "$_fin" ]; do
-    sleep 20
-    pgrep -f "graphify" >/dev/null 2>&1 || break
-  done
-  rm -rf "$_VERROU" 2>/dev/null
-) >/dev/null 2>&1 &
+: > "$_HORODATAGE"
+rmdir "$_VERROU" 2>/dev/null
 
 echo "[garde graphify] reconstruction autorisee (${GRAPHIFY_MAX_WORKERS} workers)"
+true
