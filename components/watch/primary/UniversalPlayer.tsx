@@ -69,6 +69,7 @@ import {
 import { recordWatchToday } from "@/lib/stats/streak";
 import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
 import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
@@ -5626,7 +5627,9 @@ export default function UniversalPlayer({
     // …including the white-label domains of the same backend (ansembed for
     // anime-sama, voembed for voir-anime's myTV panel) — they embed-gate the
     // same way, so they need the same no-referrer treatment.
-    const isVidmoly = /(vidmoly\.(to|biz|net)|ansembed\.net|voembed\.net)/i.test(iframeSrc);
+    // Cinquieme copie de cette regex avant le 20/09/2026 : elle vit desormais
+    // dans lib/players/vidmolyDomains.js, derivee de la liste des domaines.
+    const isVidmoly = VIDMOLY_HOST_RE.test(iframeSrc);
     return (
       <div
         className={`relative h-full w-full${

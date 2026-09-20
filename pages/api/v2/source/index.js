@@ -1,6 +1,6 @@
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
+import { getExtractor, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
@@ -165,38 +165,20 @@ async function isVidmolyEmbedAlive(embedUrl) {
 // Dingtezuni / callistanise share the same packed-JS embed format. They're
 // included optimistically â€” extractor will return { error: ... } if they're
 // not actually playable, and the caller falls back to the raw iframe.
+/* Les hotes dont on extrait REELLEMENT un flux cote serveur.
+   Il y en avait quinze, dont onze morts : sendvid (hote HS), embed4me, lpayer,
+   smoothpre, movearnpre, dingtezuni, callistanise (aucun chip ne peut les
+   choisir depuis leur retrait de lib/servers.js), et voe (chips retires le
+   04/07/2026). La famille vidmoly y figurait aussi « en dernier recours »,
+   alors que la branche VIDMOLY_HOST_RE rend un `clientExtract` bien avant —
+   et qu'extraire ici donnerait un jeton lie a NOTRE IP, injouable chez le
+   spectateur. Restent les deux qui servent. */
 const EXTRACTABLE_HOSTS = [
   "sibnet.ru",
-  "sendvid.com",
-  // vidmoly: extraction + playback both route through the CF Worker. As
-  // long as the extracted-from IP and the segment-fetched-from IP match
-  // (both = Worker), the IP-bound master token stays valid end-to-end and
-  // the user plays in the Universal Player without an iframe.
-  "vidmoly",
-  // ansembed.net — same white-label vidmoly backend, so it is listed for the
-  // same reason "vidmoly" is: as a last-resort net. In practice neither is
-  // reached from the anime-sama / voir-anime routes, because the VIDMOLY_HOST_RE
-  // branch above returns a `clientExtract` first. That is deliberate — this
-  // family's master token binds to whoever fetched the embed, so extracting it
-  // HERE yields a stream only our own IP can play.
-  "ansembed",
-  // voembed.net — voir-anime's white-label of the same backend; same reason.
-  "voembed",
-  "embed4me",
-  "lpayer",        // lpayer.embed4me.com
-  "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
-  "movearnpre",
-  "dingtezuni",
-  "callistanise",
-  // VOE serves voe.sx → JS-redirect → mirror domain → obfuscated JSON payload.
-  // The extractor follows the redirect chain and decodes the payload to a
-  // signed master.m3u8. See lib/extractors.js → extractVoe.
-  "voe.sx",
-  "voe.",          // catches voe-network.net, voe-unblock.com, etc.
   // uqload gates the embed on the EMBEDDING site's Referer (anime-sama), so a
   // raw iframe fallback would just render its "embed restricted" page — treat
-  // it like sibnet/sendvid below and hide the chip on extraction failure
-  // rather than degrade to a dead iframe. See lib/extractors.js → extractUqload.
+  // it like sibnet below and hide the chip on extraction failure rather than
+  // degrade to a dead iframe. See lib/extractors.js → extractUqload.
   "uqload.",
 ];
 
@@ -758,7 +740,6 @@ async function getFrembedStream(serverKey, aniId, episode) {
  * Returns: { streams, subtitles } OR { iframe } for embed-based servers
  */
 
-const COOREN_BASE = process.env.COOREN_API_URL || "";
 
 // â”€â”€ HiAnime (direct AJAX) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const HIANIME_BASE = "https://aniwatchtv.to";
@@ -853,250 +834,12 @@ async function getHiAnimeIframe(serverKey, title, episode, sub) {
   }
 }
 
-// â”€â”€ CoorenLabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const COOREN_PROVIDERS = {
-  "cooren-animepahe":  "animepahe",
-  "cooren-animekai":   "animekai",
-  "cooren-toonstream": "toonstream",
-  "cooren-animesalt":  "animesalt",
-};
-
-async function getCoorenStream(providerKey, title, episode, sub) {
-  if (!COOREN_BASE) return null;
-
-  try {
-    const provider = COOREN_PROVIDERS[providerKey];
-    if (!provider) return null;
-
-    if (provider === "animepahe")  return await getCoorenAnimePahe(title, episode, sub);
-    if (provider === "animekai")   return await getCoorenAnimekai(title, episode, sub);
-    if (provider === "toonstream") return await getCoorenToonstream(title, episode);
-    if (provider === "animesalt")  return await getCoorenAnimesalt(title, episode);
-
-    return null;
-  } catch (e) {
-    console.error(`Cooren ${providerKey} error:`, e.message);
-    return null;
-  }
-}
-
-// â”€â”€ Toonstream â€” series + episode â†’ m3u8 sources â”€â”€
-async function getCoorenToonstream(title, episode) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-  const series = searchData?.results?.[0] || searchData?.[0] || null;
-  if (!series?.slug && !series?.id) return null;
-
-  const slug = series.slug || series.id;
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/series/info/${encodeURIComponent(slug)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-  const episodes = infoData?.episodes || infoData?.results || [];
-  const ep = episodes.find(
-    (e) => Number(e.number ?? e.episode) === Number(episode)
-  ) || episodes[Number(episode) - 1];
-  if (!ep?.slug && !ep?.id) return null;
-
-  const epSlug = ep.slug || ep.id;
-  const srcRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/episode/sources/${encodeURIComponent(epSlug)}`
-  );
-  if (!srcRes.ok) return null;
-  const srcData = await srcRes.json();
-  const sources = srcData?.sources || srcData?.results || [];
-  if (!sources.length) return null;
-
-  return {
-    streams: sources
-      .filter((s) => s.url || s.file)
-      .map((s) => ({
-        url: s.url || s.file,
-        quality: s.quality || s.label || "default",
-        isM3U8: (s.url || s.file || "").includes(".m3u8"),
-      })),
-    subtitles: (srcData?.subtitles || []).map((s) => ({
-      file: s.url || s.file,
-      label: s.lang || s.label || "Subtitle",
-      kind: s.kind || "captions",
-    })),
-    referer: srcData?.headers?.Referer || null,
-  };
-}
-
-// â”€â”€ Animesalt â€” same shape as Toonstream â”€â”€
-async function getCoorenAnimesalt(title, episode) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-  const series = searchData?.results?.[0] || searchData?.[0] || null;
-  if (!series?.slug && !series?.id) return null;
-
-  const slug = series.slug || series.id;
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/series/info/${encodeURIComponent(slug)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-  const episodes = infoData?.episodes || infoData?.results || [];
-  const ep = episodes.find(
-    (e) => Number(e.number ?? e.episode) === Number(episode)
-  ) || episodes[Number(episode) - 1];
-  if (!ep?.slug && !ep?.id) return null;
-
-  const epSlug = ep.slug || ep.id;
-  const srcRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/episode/sources/${encodeURIComponent(epSlug)}`
-  );
-  if (!srcRes.ok) return null;
-  const srcData = await srcRes.json();
-  const sources = srcData?.sources || srcData?.results || [];
-  if (!sources.length) return null;
-
-  return {
-    streams: sources
-      .filter((s) => s.url || s.file)
-      .map((s) => ({
-        url: s.url || s.file,
-        quality: s.quality || s.label || "default",
-        isM3U8: (s.url || s.file || "").includes(".m3u8"),
-      })),
-    subtitles: (srcData?.subtitles || []).map((s) => ({
-      file: s.url || s.file,
-      label: s.lang || s.label || "Subtitle",
-      kind: s.kind || "captions",
-    })),
-    referer: srcData?.headers?.Referer || null,
-  };
-}
-
-async function getCoorenAnimePahe(title, episode, sub) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-
-  const anime =
-    searchData?.results?.[0] || searchData?.data?.results?.[0] || null;
-  if (!anime?.session && !anime?.id) return null;
-
-  const animeId = anime.session || anime.id;
-
-  // Get episodes
-  const epRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/episodes/${animeId}`
-  );
-  if (!epRes.ok) return null;
-  const epData = await epRes.json();
-
-  const episodes = epData?.data || epData?.results || epData || [];
-  const ep = Array.isArray(episodes)
-    ? episodes.find((e) => e.episode === Number(episode) || e.number === Number(episode))
-    : null;
-  if (!ep?.session) return null;
-
-  // Get stream - returns NDJSON
-  const streamRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/episode/${animeId}/${ep.session}`
-  );
-  if (!streamRes.ok) return null;
-  const text = await streamRes.text();
-
-  // Parse NDJSON lines
-  const sources = text
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      try { return JSON.parse(line); } catch { return null; }
-    })
-    .filter(Boolean);
-
-  // Filter by sub/dub preference
-  const filtered = sources.filter((s) =>
-    sub === "dub" ? s.isDub === true : s.isDub !== true
-  );
-  const best = filtered.length > 0 ? filtered : sources;
-
-  return {
-    streams: best.map((s) => ({
-      url: s.directUrl || s.url,
-      quality: s.quality || s.resolution || "default",
-    })),
-    // Pass corsHeaders so the client proxy can use them
-    referer: best[0]?.corsHeaders?.Referer || null,
-  };
-}
-
-async function getCoorenAnimekai(title, episode, sub) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-
-  const anime = searchData?.results?.[0] || null;
-  if (!anime?.id) return null;
-
-  // Get info + episodes (path param, not query string)
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/info/${encodeURIComponent(anime.id)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-
-  const episodes = infoData?.episodes || [];
-  const ep = episodes.find(
-    (e) => e.number === Number(episode)
-  );
-  if (!ep?.id) return null;
-
-  dlog(`[animekai] Episode ID: ${ep.id}`);
-
-  // Get stream sources â€” returns { results: [{ sources, subtitles, name }] }
-  const watchRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/watch/${encodeURIComponent(ep.id)}${
-      sub === "dub" ? "?dub=true" : ""
-    }`
-  );
-  if (!watchRes.ok) return null;
-  const watchData = await watchRes.json();
-
-  // Each result has its own sources/subtitles â€” merge all
-  const results = watchData?.results || [];
-  if (results.length === 0) return null;
-
-  const allStreams = [];
-  const allSubtitles = [];
-  for (const r of results) {
-    const sources = r.sources || [];
-    const subs = r.subtitles || [];
-    for (const s of sources) {
-      allStreams.push({ url: s.url, quality: r.name || "default" });
-    }
-    for (const s of subs) {
-      if (!allSubtitles.find((x) => x.label === (s.lang || s.label))) {
-        allSubtitles.push({
-          file: s.url || s.file,
-          label: s.lang || s.label,
-          kind: s.kind || "captions",
-        });
-      }
-    }
-  }
-
-  return {
-    streams: allStreams,
-    subtitles: allSubtitles,
-    referer: "https://megaup.cc/",
-  };
-}
+/* CoorenLabs (animepahe, animekai, toonstream, animesalt) retire le
+   20/09/2026 : ~220 lignes et quatre resolveurs qu'AUCUNE route ne pouvait
+   atteindre — il n'y a jamais eu de branche `COOREN_PROVIDERS[server]` dans le
+   dispatch, aucun chip ne portait ces ids, et `COOREN_API_URL` n'est pas
+   renseignee. Le code mort qui ressemble a du code vivant se fait relire a
+   chaque passage dans ce fichier. */
 
 // â”€â”€ Anime-Sama (VF + VOSTFR) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ANIMESAMA_BASE = "https://anime-sama.to";
@@ -1117,8 +860,6 @@ const ANIMESAMA_SERVERS = {
   // resolution attempt per episode. Voir-Anime's vidmoly is a DIFFERENT site
   // with its own uploads and stays.
   "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
-  "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
-  "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
   // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
   // pull 403s), so it's the least reliable host; kept last so it's offered only
   // when the more robust players above are unavailable.
@@ -1127,8 +868,6 @@ const ANIMESAMA_SERVERS = {
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   // "animesama-sendvid-vo" retire avec son jumeau VF (31/08/2026).
   "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
-  "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
-  "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
   "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
 };
 
@@ -4478,96 +4217,11 @@ export default async function handler(req, res) {
   // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
   // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
-  // Megaplay exposes two equivalent stream routes (both verified live):
-  //   /stream/mal/<malId>/<episode>/<sub|dub>
-  //   /stream/ani/<aniListId>/<episode>/<sub|dub>
-  // They resolve to the SAME MegaCloud source when both ids map. We try the MAL
-  // route first (historically the better-mapped of the two) and fall back to the
-  // AniList route â€” which crucially also covers titles that have NO MAL id, or
-  // whose MAL mapping Megaplay hasn't synced yet (their own docs warn the
-  // AniList/MAL mapping is incomplete). Either route succeeding is a hit.
-  if (server === "megaplay") {
-    let malId = mediaMeta?.idMal || null;
-    if (!malId) {
-      const meta = await getMediaMeta(aniId);
-      malId = meta?.idMal || null;
-    }
-    const lang = sub === "dub" ? "dub" : "sub";
-    // Candidate routes in priority order; skip the MAL one when there's no id.
-    const routes = [];
-    if (malId) routes.push(`https://megaplay.buzz/stream/mal/${malId}/${episode}/${lang}`);
-    if (aniId) routes.push(`https://megaplay.buzz/stream/ani/${aniId}/${episode}/${lang}`);
-    if (routes.length === 0) {
-      return sendNotFound("megaplay: no MAL or AniList id for this anime");
-    }
-    // Try every route once; return the first hit. Reports whether the run was
-    // ALL genuine "file not found" (safe to negative-cache) vs any transient
-    // failure (must 503-retry).
-    const tryRoutes = async () => {
-      let lastError = "Source not found";
-      let allAbsent = true;
-      for (const url of routes) {
-        const result = await extractMegaplay(url);
-        if (!result.error && result.streams?.length) return { hit: result };
-        lastError = result.error || lastError;
-        // A route that failed for any reason OTHER than a confirmed absence
-        // marks the run as transient — don't negative-cache a timeout just
-        // because the other route legitimately 404s.
-        if (!result.absent) allAbsent = false;
-      }
-      return { hit: null, allAbsent, lastError };
-    };
-
-    const warmMegaplay = (result) => {
-      // Pre-warm the edge cache NOW, at resolve time — before the player even
-      // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer but
-      // megaplay.buzz, which a browser can't forge), so its cold start pays a
-      // double hop. Firing the master through the Worker here (with the megaplay
-      // Referer) triggers the Worker's warm chain (variant + sampled segments),
-      // so by the time the user hits Play the opening is a cache HIT.
-      // Fire-and-forget: never delays the resolve response.
-      const m3u8 = result.streams[0]?.url;
-      if (m3u8 && /\.m3u8/i.test(m3u8)) {
-        const warmUrl =
-          `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
-          `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
-        fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
-          () => {},
-        );
-      }
-    };
-
-    let run = await tryRoutes();
-    if (run.hit) {
-      warmMegaplay(run.hit);
-      return sendOk(run.hit);
-    }
-    // A verdict of "genuinely absent on every route" that came from a SINGLE
-    // pass is not trustworthy enough to broadcast: megaplay serves its
-    // "Error - MegaPlay / We can't find the file" page (a 200) during transient
-    // outages too, and the active-source path — unlike the probe fan-out — has
-    // no retry of its own. A one-shot false absence gets negative-cached (10 min)
-    // AND published into the 6h availability snapshot, so the Megaplay chip
-    // vanishes for everyone until the TTL expires (the "megaplay disappeared
-    // after a reload" bug). Confirm a genuine absence with ONE retry: a real
-    // "file not found" is deterministic and stays absent; a transient error page
-    // clears to a hit or a non-200 (→ transient) on the second look.
-    if (run.allAbsent) {
-      await new Promise((r) => setTimeout(r, 500));
-      run = await tryRoutes();
-      if (run.hit) {
-        warmMegaplay(run.hit);
-        return sendOk(run.hit);
-      }
-    }
-    // Only negative-cache + hide the chip when the absence survived the retry.
-    // Anything else stays transient → 503 so the client retries and never buries
-    // the chip in the snapshot.
-    return run.allAbsent
-      ? sendNotFound(run.lastError)
-      : sendRetryable(run.lastError);
-  }
-
+  /* La branche megaplay a ete retiree le 20/09/2026. L'hote est mort depuis le
+     08/09 (plus aucun chip dans lib/servers.js), donc `server === "megaplay"`
+     ne pouvait plus etre vrai : c'etait ~90 lignes, un extracteur, un
+     prechauffage par le Worker et une table de Referer entretenus pour
+     personne. L'historique garde tout ca si l'hote revient. */
 
   // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
