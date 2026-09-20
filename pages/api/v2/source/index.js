@@ -1082,7 +1082,7 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, exc
   return { panelOk: true, iframeUrl: hit.url, langDir: hit.langDir };
 }
 
-async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
+async function getAnimeSamaIframe(serverKey, title, episode, aniId, probe) {
   try {
     const serverDef = ANIMESAMA_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -1197,7 +1197,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       }
       if (!iframeUrl) return null;
 
-      const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
+      const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl, probe);
       if (finalized) return finalized;
 
       // Candidat mort. Sans repertoire identifie on ne saurait pas quoi
@@ -1532,7 +1532,7 @@ async function resolveAnimeSamaHeuristically(
  * Runs on the iframe URL whether it came from the player_map fast-path or the
  * heuristic pipeline.
  */
-async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
+async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl, probe) {
   try {
     // Per-host iframe rewriting before extraction.
     // - vidmoly.to currently 302s to a HTTP survey scam. extractVidmoly
@@ -1568,10 +1568,18 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // server-side extractor instead, which either failed (→ raw JW iframe) or
     // "succeeded" with a token bound to our IP that 410s on every segment.
     if (VIDMOLY_HOST_RE.test(lower)) {
-      // Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
-      // after the file is deleted. Probe before serving the chip so a dead
-      // slug yields "server unavailable" instead of vidmoly's own 404 page.
-      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
+      /* Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
+         after the file is deleted. Probe before serving the chip so a dead
+         slug yields "server unavailable" instead of vidmoly's own 404 page.
+         POUR LES SONDES SEULEMENT, depuis le 20/09/2026. Ce HEAD a 3 s de
+         budget etait en serie devant la reponse que le visiteur attend, pour
+         n'attraper qu'un 404 franc — une erreur reseau rend « vivant » de toute
+         facon (voir isVidmolyEmbedAlive), et le navigateur decouvre le meme 404
+         tout seul, puis bascule par `markFailed`. On paie donc jusqu'a 3 s sur
+         le chemin le plus sensible du site pour une information que le chemin
+         de repli produit gratuitement. Les sondes de fond, elles, gardent la
+         verification : c'est leur travail, et leur latence ne se voit pas. */
+      if (probe && !(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[anime-sama] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         return null;
       }
@@ -2595,7 +2603,7 @@ async function voiranimePrequelChain(aniId, isVF, episode, trace = null) {
   return null;
 }
 
-async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
+async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null, probe = false) {
   try {
     const serverDef = VOIRANIME_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -2887,7 +2895,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
           dlog(`[voiranime] ep ${episode} part page has no ${serverDef.name} embed: ${url}`);
           return null;
         }
-        if (!(await isVidmolyEmbedAlive(embed))) {
+        // Sondes seulement — voir finalizeAnimeSamaIframe.
+        if (probe && !(await isVidmolyEmbedAlive(embed))) {
           dlog(`[voiranime] ep ${episode} part embed is dead — hiding chip: ${embed}`);
           return null;
         }
@@ -2957,7 +2966,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
     if (VIDMOLY_HOST_RE.test(lower)) {
-      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
+      // Sondes seulement — voir finalizeAnimeSamaIframe.
+      if (probe && !(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         // PROVEN gone: the probe only answers false on an explicit 404 (a network
         // error returns true so we never punish a chip for our own hiccup). Say
@@ -3932,6 +3942,21 @@ async function waitForLeaderResult(cacheKey) {
  *  rien », qui autorise l'appelant a scraper lui-meme. */
 const LEADER_BUSY = Symbol("leader-busy");
 
+/* `probe` n'entre VOLONTAIREMENT pas dans cette cle.
+ *
+ * Une sonde et une ouverture de lecteur demandent la meme chose et ne different
+ * que par une verification de liveness. Les separer donnerait deux entrees par
+ * (anime, episode, lecteur, langue) la ou il y en a une — donc plus de commandes
+ * Upstash, dont le budget est la contrainte dure de ce projet — et surtout, la
+ * sonde ne rechaufferait plus le cache du lecteur : changer de lecteur en cours
+ * d'episode repartirait d'une resolution froide. On echangerait une latence
+ * contre une autre.
+ *
+ * Consequence acceptee : les deux chemins partagent le verdict du PREMIER
+ * arrive, pendant les 5 min du cache. Un embed mort peut donc etre servi au
+ * lecteur si l'ouverture a devance la sonde — cas que le repli client
+ * (`markFailed`) traite deja, et qui dure au plus le temps du cache.
+ */
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
   // embeds (vidmoly.biz 410 from CF IPs) get extracted via Fly and the
@@ -4005,6 +4030,14 @@ export default async function handler(req, res) {
   const aniId = input.aniId != null ? Number(input.aniId) : undefined;
   const episode = input.episode != null ? Number(input.episode) : undefined;
   const sub = input.sub === "dub" ? "dub" : "sub";
+  /* « Cette requete sert-elle a PEINDRE un chip, ou a OUVRIR un lecteur ? »
+     Les deux veulent la meme donnee, mais pas au meme prix. Une sonde de fond
+     peut payer une verification de plus pour qu'un chip soit juste — personne
+     ne l'attend. La requete du lecteur actif, elle, est exactement ce que
+     l'utilisateur regarde se charger.
+     Pose par le fan-out de sondage de la page de lecture ; absent partout
+     ailleurs, donc le defaut est « c'est pour tout de suite ». */
+  const probe = input.probe === "1" || input.probe === true;
   const title = input.title;
   const mediaMeta = isGet
     ? input.malId
@@ -4285,7 +4318,7 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const { data, retry, hostDown } = await resolveProvider(() =>
-      getAnimeSamaIframe(server, searchTitle, episode, aniId),
+      getAnimeSamaIframe(server, searchTitle, episode, aniId, probe),
     );
     if (retry) return sendRetryable(retry, { hostDown });
     if (!data) return sendNotFound("Source not found");
@@ -4297,7 +4330,7 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const { data, retry, hardAbsent, hostDown } = await resolveProvider(() =>
-      getVoiranimeIframe(server, searchTitle, episode, aniId),
+      getVoiranimeIframe(server, searchTitle, episode, aniId, null, probe),
     );
     if (retry) return sendRetryable(retry, { hostDown });
     if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });

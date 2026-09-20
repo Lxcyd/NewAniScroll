@@ -16,6 +16,7 @@ import { requestSource } from "./sourceRequest";
 import { peekWarmVidmoly } from "../clientVidmoly";
 import { bandwidthKey, pickStartVariant } from "./hlsBandwidth";
 import { playbackUrl, preconnectOrigin, proxied } from "./streamUrl";
+import { manifesteEnMemoire } from "./hlsPreload";
 
 type CacheEntry = { data: any; at: number };
 
@@ -353,10 +354,23 @@ export async function warmStream(
       return false;
     }
   }
+  /* Le manifeste est peut-etre deja en memoire : `prechargeManifeste` le tire
+     des que l'extraction rend l'adresse du master, master ET variantes
+     (lib/watch/hlsPreload.ts). On le relisait quand meme par le reseau — deux
+     allers-retours CDN, sur la page info, pour des octets qu'on tenait deja.
+     La cle est l'URL exacte, et elle ne coincide que sur un flux DIRECT : c'est
+     precisement le cas ou cette fonction travaille par defaut (`!direct &&
+     !viaProxy` sort plus haut). Un flux proxifie repasse donc par le reseau,
+     comme avant. */
+  const litManifeste = async (url: string): Promise<string | null> => {
+    const memoire = manifesteEnMemoire(url);
+    if (memoire) return memoire;
+    const r = await fetch(url, commeLeLecteur() as any);
+    return r.ok ? await r.text() : null;
+  };
   try {
-    const res = await fetch(depart, commeLeLecteur() as any);
-    if (!res.ok) return false;
-    const text = await res.text();
+    const text = await litManifeste(depart);
+    if (text === null) return false;
     if (!/^#EXTM3U/.test(text.trimStart())) return false;
     const absolu = (uri: string) =>
       uri.startsWith("http") ? uri : new URL(uri, source.url).toString();
@@ -367,12 +381,11 @@ export async function warmStream(
     if (variante) {
       const url = absolu(variante);
       baseUrl = url;
-      const r = await fetch(
+      const p = await litManifeste(
         direct ? url : proxied(url, source.referer || streamData?.referer, source.voeCookie),
-        commeLeLecteur() as any,
       );
-      if (!r.ok) return false;
-      playlist = await r.text();
+      if (p === null) return false;
+      playlist = p;
     }
     const premier = playlist
       .split("\n")

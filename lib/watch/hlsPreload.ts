@@ -18,7 +18,14 @@
  * requete normalement. Mieux vaut un aller-retour qu'un manifeste perime.
  */
 
-const PEREMPTION_MS = 30_000;
+/* Alignee sur la duree de vie de l'extraction qu'elle sert (60 s, cf.
+   `warmExtractions` dans lib/clientVidmoly.js). Elle valait 30 s, soit la
+   MOITIE : une chauffe consommee entre 30 et 60 s apres coup rendait alors une
+   URL parfaitement valable et un manifeste deja jete, donc l'aller-retour CDN
+   qu'on venait de supprimer, repaye. Les deux memoires parlent du meme jeton —
+   elles doivent expirer ensemble. Au-dela, c'est l'URL elle-meme qui est
+   perimee et hls.js a raison de tout redemander. */
+const PEREMPTION_MS = 60_000;
 
 /** Les playlists de variante annoncees par un master (vide si ce n'en est pas un). */
 function variantesDe(master: string): string[] {

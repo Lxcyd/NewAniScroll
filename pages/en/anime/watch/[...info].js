@@ -56,6 +56,7 @@ import {
 import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
 import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { chargeFrembedCatalog, frembedPossible } from "@/lib/watch/frembedCatalog";
+import { memoriseChoix } from "@/lib/watch/earlyPick";
 // Two dialogs the page only ever shows on request. LangPreferenceModal already
 // returns null while closed and ReportModal renders an empty headless-ui
 // Transition, so neither contributes a node to the watch page's HTML until it
@@ -144,9 +145,15 @@ function warmClientExtract(data) {
 // Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
 // (sibnet) answer a cold hit with a decoy that extracts to nothing (204); the
 // route seeds its player_map and the next call resolves. Seeding can outlast a
-// single short retry, so back off across attempts — total ~5.6s worst case,
-// only ever paid on a 204 that would otherwise drop the chip.
-const DECOY_BACKOFF_MS = [800, 1600, 3200];
+// single short retry, so back off across attempts — only ever paid on a 204
+// that would otherwise drop the chip.
+/* Ramene de [800, 1600, 3200] a [500, 1200] le 20/09/2026. Trois tentatives
+   tenaient jusqu'a 5,6 s de roue qui tourne AVANT que quoi que ce soit d'autre
+   ne soit tente — et pendant ce temps un lecteur libre attendait a cote. Un
+   hote qui repond deux fois « reessaie » ne merite pas un troisieme tour devant
+   lui : la bascule prend le relais a 1,7 s, et le troisieme essai est de toute
+   facon celui qui aboutissait le moins souvent. */
+const DECOY_BACKOFF_MS = [500, 1200];
 const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
 
 /* Au-dela, une roue qui tourne n'informe plus : on nomme le lecteur en cause et
@@ -887,6 +894,24 @@ export default function Watch({
     if (pref && !recales.includes(pref)) {
       appliedPrefRef.current = true;
       setActiveServer(pref);
+    }
+
+    /* Et on retient l'ordre que la regle vient de produire, pour que le
+       PROCHAIN chargement puisse tirer /api/v2/source avant le bundle (cf.
+       lib/watch/earlyPick.ts). On rappelle `pickServerForLangs` en lui
+       interdisant ce qu'il vient de rendre : c'est la regle elle-meme qui
+       enumere, on ne la reimplemente pas.
+       Sans `failed` : cette liste vaut pour TOUTES les series, alors que les
+       echecs sont propres a celle-ci et a cet episode. Le filtre qui depend de
+       la serie — frembed hors catalogue — est applique a la relecture. */
+    if (langOrder) {
+      const ordre = [];
+      for (let i = 0; i < 4; i++) {
+        const s = pickServerForLangs(langOrder, { failed: new Set(ordre) });
+        if (!s) break;
+        ordre.push(s);
+      }
+      memoriseChoix(ordre);
     }
     setServerResolved(true);
     // Cle sur l'anime : une navigation SPA vers une AUTRE serie doit relire son
@@ -2107,6 +2132,9 @@ export default function Watch({
             sub: dub ? "dub" : "sub",
             title: info?.title?.romaji || info?.title?.english,
             malId: info?.idMal ?? null,
+            // Ce fan-out peint les chips : il paie la verification de liveness
+            // que l'ouverture du lecteur ne paie plus.
+            probe: true,
           },
           {
             signal: controller.signal,
