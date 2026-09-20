@@ -6,6 +6,97 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 (soir) — frembed publie son catalogue : 146 titres, et on l'ignorait
+
+**Le fait qui change tout.** frembed a une API publique, `/api/public/v1/anime`,
+qui rend chaque titre avec son **id TMDB** — la cle meme sur laquelle notre
+resolveur l'interroge. Relevé du 20/09/2026 : **146 entrees** (104 series,
+42 films), soit **340 fiches AniList** apres passage par `fribb_map`.
+
+Or on essayait frembed sur TOUT le catalogue, parce qu'il est classe premier
+(CDN direct, ~100 ms). Pour l'immense majorite des animes, cela voulait dire :
+une lecture Fribb, un appel a l'API frembed, une sonde du CDN — **1,66 s
+mesurees** — pour apprendre « absent ». Plus deux sondes de chip par ouverture.
+Plus un chip qui s'allume avant de s'eteindre. Tout cela pour une reponse que
+frembed publie.
+
+Une table `frembed_catalog`, synchronisee chaque nuit par une GitHub Action
+(donc **zero invocation Vercel** : le script parle directement a frembed et a
+Turso), rend la reponse gratuite. La route repond « absent » sans rien resoudre,
+et le navigateur ne propose meme plus frembed pour un anime qu'il n'a pas.
+Garde-fou : **table vide = liste inconnue = ancien comportement**. Une panne de
+synchronisation ne doit pas eteindre le lecteur le plus rapide du site, et le
+script refuse d'ecraser la table avec une liste vide ou minuscule.
+
+**La page info publiait son PARI, pas son verdict.** Signale le meme jour : dix
+secondes passees sur la fiche, clic sur « Regarder », frembed demarre, echoue,
+vidmoly prend le relais. `setPlannedServer` etait appele **avant** le moindre
+test, et la page de lecture ouvrait ce serveur sur parole. Le relais porte
+desormais un verdict — `verifie` / `recales` — et la page de lecture n'ouvre
+plus un hote que la fiche vient de prouver mort.
+
+**Et le test mentait aussi.** `warmStream` telechargeait bien 256 Ko du premier
+segment, mais le `fetch` etait suivi d'un `.catch(() => {})` et la fonction
+renvoyait `true` quand meme : un hote dont le manifeste repond et dont les
+**segments** sont refuses (403 du CDN) passait pour sain. Il juge maintenant le
+segment, et teste dans les memes conditions que la lecture (`no-referrer` sur un
+flux direct, comme le lecteur le pose sur le `<video>`).
+
+**Chemin froid anime-sama : ce qui etait en serie sans raison.**
+- `findAnimeSamaSlug` lancait **5 a 12 recherches catalogue l'une apres
+  l'autre** (5 s de plafond chacune) **sans sortie anticipee** — alors que le
+  score se calcule sur l'ensemble des reponses et que la fusion se moque de
+  l'ordre. 2 a 8 s, le premier poste du chemin froid. En parallele, plafonnees
+  a huit.
+- `pickLangDirForHost` enchainait jusqu'a 4 `episodes.js` (`vf`, `vf1`, `vf2`,
+  `vf3`). Depart **hedge** : le premier seul, les autres seulement s'il tarde
+  (250 ms) ou ne donne rien — un `Promise.all` sec aurait ajoute trois requetes
+  Worker inutiles a chaque resolution, `vf1/vf2/vf3` n'existant presque jamais.
+- Les membres Fribb d'une franchise sont charges en parallele (leurs ids sont
+  tous connus d'avance, contrairement a la marche PREQUEL/SEQUEL).
+- Le suiveur du verrou **dormait 350 ms avant de regarder le cache**, et si le
+  leader depassait 6 s il refaisait **tout le scrape lui-meme** — 6 s brulees
+  plus 8 a 13 s de resolution contre un `maxDuration` de 15, donc deux timeouts
+  au lieu d'un. Il regarde d'abord, et rend la main (503, le client reessaie)
+  si le leader travaille encore. La cadence de 350 ms est CONSERVEE : elle
+  protege le budget de commandes Upstash, ce que son commentaire explique.
+- La lecture de `player_map` part en meme temps que la resolution du titre, et
+  `getPlayerMap` deduplique enfin ses vols en cours.
+- `isIframeReachable` (sonde de 4 s) supprimee : appelee nulle part.
+
+**Le lecteur retient qui a marche.** Rien ne reliait un anime a un hote :
+`serverPerf` mesure les hotes globalement, `animeServerPref` attend un clic, et
+l'instantane de disponibilite est lu APRES le premier rendu. La meme bascule
+ratee se rejouait donc a chaque ouverture. `animeHostMemory` retient l'hote qui
+a **reellement rendu une image** pour cette serie — la seule preuve qui vaille.
+
+**Episode suivant, prepare a l'APPARITION du bouton** (debut de l'ED, ou fin de
+l'episode) et non a son survol : l'enchainement automatique ne survole rien et
+repartait a froid. On y prepare le FLUX (extraction + manifeste), pas seulement
+la source — le jeton etant lie a l'IP et a l'instant, plus tot ne servirait a
+rien. Survol d'une ligne de la liste aussi, par delegation.
+
+**Manifeste precharge.** Des que l'extraction rend l'adresse du master, on ouvre
+la connexion vers le CDN (son nom change a chaque resolution : aucun preconnect
+ecrit dans la page ne peut le couvrir) et on telecharge le manifeste — plus la
+variante de depart. hls.js les lit ensuite **en memoire** via un `loader`
+dedie, au lieu de deux allers-retours sur un CDN lent.
+
+**Consolidation.** La famille de domaines vidmoly existait en **cinq copies**
+litterales dans deux ordres, avec la regex reecrite a la main a chaque fois :
+elle vit dans `lib/players/vidmolyDomains.js`, regex DERIVEE de la liste. Et
+~300 lignes nettes de code mort sont parties : CoorenLabs (4 resolveurs qu'aucun
+dispatch n'atteignait), la branche megaplay, `EXTRACTABLE_HOSTS` (15 entrees →
+2), les aiguillages de `getExtractor` vers des hotes retires, quatre ids
+fantomes d'`ANIMESAMA_SERVERS`. `hostRegistry` surveille desormais le sens
+inverse (mapping sans serveur) — c'est ce trou qui avait laisse `megaplay` dans
+trois des quatre listes d'hotes du depot.
+
+**Reste ouvert** : les outils OP/ED en Python gardent `megaplay` et il leur
+manque toujours `frembed` dans `MULTI_HOSTS` — la derive que leur propre
+commentaire signale. Y toucher engage les skips deja stockes, d'ou le garde qui
+avertit plutot que de lever.
+
 ## 2026-09-20 — hls.js jetait son premier segment, et le bouton play mentait
 
 Chronologie CDP, profil Chrome neuf, One Piece 1100 sur ansembed (le lecteur
