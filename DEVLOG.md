@@ -214,6 +214,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-20 — **Un déploiement vide le cache d'edge, et personne ne le remplissait** : les en-têtes étaient bons (`s-maxage` 2-6 h + 1 j de `stale-while-revalidate`) mais SWR ne sert que s'il existe déjà une copie — 26 URL sur 27 froides une heure après un déploiement prod, `/en/anime/2706` à **11 959 ms → 85 ms** après chauffe ; nouveau `warm-pages` déclenché par `deployment_status`, priorisé sur `last_accessed_at` ; **le rendu froid ne supporte pas la concurrence** (0,4 s → 12 s à concurrence 3), donc une requête à la fois
 - 2026-09-18 — Grande passe de vitesse : préchauffage fiche + profil remis au routeur (squelette gardé sur la lecture seulement), requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
 - 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
 - 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »

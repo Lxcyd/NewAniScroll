@@ -1,0 +1,71 @@
+# Rechauffe le cache d'edge des pages qui comptent, juste apres un deploiement.
+#
+# Un nouveau deploiement Vercel repart avec un cache d'edge VIDE. Les pages SSR
+# portent pourtant de bons en-tetes (s-maxage 2 a 6 h + un jour de
+# stale-while-revalidate), mais `stale-while-revalidate` ne sert que s'il existe
+# deja une copie a servir : sur un site a faible trafic, la premiere entree de
+# chaque URL est payee plein tarif par un visiteur, qui attend.
+#
+# Mesure du 20/09/2026, une heure apres un deploiement de prod :
+#   /en                        MISS 2,33 s      |  une fois chaud : 0,12 s
+#   /en/anime/watch/154587/…   MISS 2,09 s      |
+#   /en/anime/154587/frieren   MISS 1,11 s      |  0,07 s
+#
+# BUDGET. Quelques dizaines d'URL, une fois par deploiement — a comparer a la
+# marche complete du catalogue (`warm-cache`, declenchee a la main), qui chauffe
+# des milliers de fiches et que son propre workflow decrit comme « le plus gros
+# cout Vercel auto-infflige du site ». Ici c'est borne par `limit`, et ce n'est
+# pas une boucle de sondage : une passe unique, declenchee par un evenement.
+#
+# Le declencheur `deployment_status` ne se lit que sur la branche par defaut,
+# comme tout `on:` — et il ne tire que sur un deploiement de PRODUCTION reussi.
+#
+# Secrets requis :
+#   TURSO_DATABASE_URL / TURSO_AUTH_TOKEN   (pour choisir les fiches a chauffer)
+
+name: warm-pages
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Site a chauffer"
+        required: false
+        default: "https://aniscroll.com"
+      limit:
+        description: "Nombre de fiches anime a chauffer"
+        required: false
+        default: "40"
+
+jobs:
+  warm:
+    # Uniquement un deploiement de PRODUCTION qui a REUSSI. Sans ce garde, le
+    # job tirerait aussi sur chaque preview et sur les etats intermediaires.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Warm the pages that matter
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/cache/warm-pages.mjs \
+            --site=${{ inputs.site || 'https://aniscroll.com' }} \
+            --limit=${{ inputs.limit || '40' }} \
+            --concurrency=1

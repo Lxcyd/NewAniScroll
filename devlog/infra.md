@@ -6,6 +6,57 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 — Un deploiement vide le cache d'edge, et personne ne le remplissait
+
+Signale : « le chargement des pages est **redevenu** un poil long ». Le
+« redevenu » etait le bon mot, et la cause etait moi : une heure plus tot, la
+fusion d'une PR avait deployé la prod.
+
+**Les en-tetes n'etaient pas en cause.** Les pages SSR portent deja de bons
+reglages — `s-maxage=21600` sur la fiche anime, `7200` sur l'accueil, `1800` sur
+la page de lecture, plus un jour de `stale-while-revalidate`. Ma premiere lecture
+disait le contraire parce que mon `grep` avait coupe la ligne suivante, et parce
+que Vercel **consomme** `CDN-Cache-Control` sans le reemettre : la reponse ne
+montre que le `max-age=60` destine au navigateur. Verifier sur la reponse ce
+qu'on a ecrit dans le code ne marche pas ici.
+
+**Le vrai defaut : `stale-while-revalidate` ne sert que s'il existe deja une
+copie a servir.** Un nouveau deploiement repart avec un cache d'edge vide, donc
+la premiere entree de chaque URL est payee plein tarif par un visiteur, qui
+attend. Sur un site a faible trafic, « la premiere » veut dire beaucoup de
+monde, longtemps.
+
+Mesure, une heure apres le deploiement — **26 URL sur 27 etaient froides** :
+
+| | avant | apres chauffe |
+| --- | --: | --: |
+| `/en/anime/2706` | **11 959 ms** | **85 ms** |
+| `/en/schedule` | 3 670 ms | 82 ms |
+| `/en/anime/154587` | 1 595 ms | 79 ms |
+| `/en/anime/21` | 2 012 ms | 88 ms |
+
+D'ou `scripts/cache/warm-pages.mjs` et le workflow `warm-pages`, declenche par
+`deployment_status` sur un deploiement de **production reussi**. Quelques
+dizaines d'URL, une fois par deploiement — a ne pas confondre avec la marche
+complete du catalogue (`warm-cache`, manuelle), que son propre workflow decrit
+comme « le plus gros cout Vercel auto-inflige du site ».
+
+L'ordre de priorite vient de `last_accessed_at`, c'est-a-dire de ce que **nos**
+visiteurs ouvrent reellement ; la popularite AniList ne sert que de secours.
+
+**Une decouverte au passage, a ne pas perdre.** A concurrence 3, le rendu froid
+se degrade violemment : 0,4 s, puis 2 s, puis 5, puis **12 s**, avec un
+depassement de delai sur la derniere URL. Le rendu froid ne supporte pas d'etre
+concurrent de lui-meme — et pendant qu'il se piétine, il degrade aussi les vrais
+visiteurs, soit exactement ce que la passe est censee eviter. Ramene a **une
+requete a la fois** : 40 pages a ~1,5 s tiennent dans le timeout et ne se
+remarquent nulle part.
+
+Ce chiffre vaut aussi comme avertissement general : si trois requetes froides
+suffisent a faire passer le SSR de 0,4 s a 12 s, un pic de trafic reel sur des
+pages non chauffees ferait la meme chose. C'est un argument de plus pour
+l'ISR de la fiche anime, toujours ouvert depuis le 03/08.
+
 ## 2026-09-18 — Grande passe de vitesse : squelette de navigation, requetes dedoublonnees, images de repli
 
 **La question de depart : « Upstash est-il si important ? »** Oui, mais pour
