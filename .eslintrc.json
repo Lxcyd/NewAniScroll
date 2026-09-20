@@ -1,6 +1,26 @@
 {
   "extends": "next/core-web-vitals",
-  // ignore react-hooks/exhaustive-deps
+  // `no-undef` attrape la variable libre : un nom lu sans jamais avoir ete
+  // declare dans une portee visible. C'est exactement ce qui a rendu la page de
+  // lecture inutilisable le 20/09/2026 — `SERVERS` y etait `require` a
+  // l'interieur de trois fonctions, un quatrieme appelant l'a ecrit sans le
+  // require, et rien ne l'a vu : ni la relecture (le nom existe trois fois dans
+  // le fichier), ni `tsc` (le fichier est en JS), ni `next build` (une variable
+  // libre est du JavaScript parfaitement valide). Seule l'execution le disait,
+  // en ReferenceError, donc en page d'erreur pour le visiteur.
+  //
+  // `env` va avec : sans lui la regle ne connait pas Map/Set/Promise/Uint8Array
+  // et rend 93 faux positifs. Avec, elle n'en rend aucun.
+  "env": { "browser": true, "node": true, "es2022": true },
+  // …et seulement sur le JS. En TypeScript, `tsc` fait deja ce controle, en
+  // mieux ; `no-undef` y ajoute surtout des faux positifs sur les noms qui ne
+  // vivent que dans l'espace des TYPES (`React.ReactNode` sans import de React,
+  // parfaitement valide avec la transformation JSX actuelle). Le JS est
+  // justement l'angle mort qu'on veut couvrir : le fichier ou le bug est ne,
+  // pages/en/anime/watch/[...info].js, echappe a `tsc`.
+  "overrides": [
+    { "files": ["**/*.js", "**/*.jsx", "**/*.mjs"], "rules": { "no-undef": "error" } }
+  ],
   "rules": {
     "react-hooks/exhaustive-deps": "off",
     "react/no-unescaped-entities": 0,

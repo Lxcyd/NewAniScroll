@@ -32,7 +32,15 @@ import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary"
 import { setPlayerFullscreen } from "@/lib/player/playerFullscreen";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getRemovedMedia } from "@/prisma/removed";
-import { DEFAULT_SERVER_ID, getServer } from "@/lib/servers";
+/* La liste des lecteurs est importee UNE fois, en tete.
+   Elle etait jusqu'ici `require`e a l'interieur de trois fonctions — et un
+   quatrieme appelant, ajoute le 20/09/2026, s'est contente d'ecrire `SERVERS`
+   sans le require qui allait avec. Ca ne pouvait pas se voir a la relecture (le
+   nom est defini trois fois dans le fichier) ni au build (c'est une variable
+   libre, pas une erreur de syntaxe) : ca ne se voyait qu'a l'execution, en
+   ReferenceError, donc en page d'erreur. Un import de module rend l'oubli
+   impossible. */
+import SERVERS, { DEFAULT_SERVER_ID, getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -581,7 +589,6 @@ export default function Watch({
      prechauffage inutile. `apres` permet de demander « le suivant en comptant
      celui-ci comme perdu » sans rien ecrire dans les memoires d'echec. */
   const pickNextServer = useCallback((id, { apres = [] } = {}) => {
-    const SERVERS = require("@/lib/servers").default;
     const { getServersByLang } = require("@/lib/servers");
     const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
     const failedDef = SERVERS.find((s) => s.id === id);
@@ -1969,7 +1976,6 @@ export default function Watch({
   useEffect(() => {
     if (!info?.id || !epiNumber) return;
 
-    const SERVERS = require("@/lib/servers").default;
     // Probe every API/HLS server, including the currently active one.
     // (We previously skipped activeServer to save one request, but that
     // meant if the user changed away from the default before the probe
@@ -2536,7 +2542,6 @@ export default function Watch({
       return;
     }
     if (!triedFailedRef.current.has(avant)) return;
-    const SERVERS = require("@/lib/servers").default;
     const nom = (sid) => SERVERS.find((s) => s.id === sid)?.name || sid;
     notify(t("player.autoSwitched", { from: nom(avant), to: nom(activeServer) }));
   }, [activeServer, t]);
