@@ -15,6 +15,7 @@
  */
 
 import { clearServerPerf } from "@/lib/watch/serverPerf";
+import { clearAllProgress } from "@/lib/watch/progress";
 
 const KEEP = new Set(["aniscroll:localList"]);
 const EXTRA_KEYS = [
@@ -30,7 +31,11 @@ const EXTRA_KEYS = [
   "aniscroll:muted",
 ];
 
-export function restoreDefaultSettings(): void {
+/** Rend une promesse pour que l'appelant puisse attendre que l'effacement soit
+ *  ARRIVE au compte avant de recharger : un rechargement a 600 ms peut couper
+ *  la requete en vol, et la page reviendrait alors chercher au compte ce qu'on
+ *  vient d'effacer. Ignorer la promesse reste licite (rien ne casse). */
+export async function restoreDefaultSettings(): Promise<void> {
   if (typeof window === "undefined") return;
   try {
     const toRemove: string[] = [];
@@ -51,4 +56,23 @@ export function restoreDefaultSettings(): void {
   // en garde un miroir vivant : sans ceci, la premiere mesure suivante le
   // reecrirait entier et les scores « effaces » seraient de retour.
   clearServerPerf();
+
+  /* La position de lecture, VIDEE et non SUPPRIMEE — et repoussee au compte
+     dans la foulee.
+     Le balayage ci-dessus emportait bien `aniscroll:progress` et
+     `artplayer_settings`, mais par `removeItem`. Or `readKind` de cloudSync
+     rend `null` quand toutes les cles d'une categorie sont ABSENTES, et
+     `pullAll` lit ce null comme « cet appareil n'a encore rien » : au
+     rechargement suivant il reecrivait la copie du compte. On revenait donc a
+     12:42 sur chaque episode. C'est exactement le defaut deja corrige dans
+     `clearAllProgress` (dont le commentaire porte la demonstration) ; il
+     restait ici, dans le bouton que l'on presse justement en croyant tout
+     remettre a zero. Signale trois fois, corrige ici.
+     `{}` est une VALEUR : elle se pousse comme une autre, la copie du compte
+     devient vide a son tour, et les lecteurs ne voient pas la difference. */
+  clearAllProgress();
+  /* Sur `dev`, un `pushKinds(["progress", "recent"])` propage l'effacement a la
+     copie du compte AniScroll. Le socle n'a pas ce compte (cf.
+     tools/release/socle.mjs), donc l'effacement est purement local — ce qui
+     est exactement le comportement de la prod d'aujourd'hui. */
 }

@@ -19,7 +19,7 @@ import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { onFirstTrailer } from "@/lib/preview/previewStore";
 import { detectBars, peekBars, type TrailerBars } from "@/lib/preview/trailerBars";
 import { isFatalTrailerError, markTrailerBlocked } from "@/lib/preview/trailerBlocked";
-import { getStage, subscribeStage } from "./stageStore";
+import { getStage, subscribeStage, type StageScene } from "./stageStore";
 
 /**
  * ONE trailer player for the whole session, drawn over whichever card is open.
@@ -295,8 +295,25 @@ const PROGRESS_TICK_MS = 200;
  */
 const GLOW_SWEEP_S = 9;
 
-export default function TrailerStage() {
-  const attachment = useSyncExternalStore(subscribeStage, getStage, () => null);
+/**
+ * `scene` names the player this instance IS. Each scene keeps its own iframe and
+ * its own attachment, so the hover preview and the profile music never take the
+ * stage from one another — see stageStore for why that had to stop being one
+ * shared player.
+ */
+export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }) {
+  /* Nommé `…Scene` et pas `subscribe` : ce fichier a déjà un `subscribe`, celui
+     de l'abonnement postMessage du lecteur (voir plus bas). */
+  const subscribeToScene = useCallback(
+    (l: () => void) => subscribeStage(scene, l),
+    [scene],
+  );
+  const sceneSnapshot = useCallback(() => getStage(scene), [scene]);
+  const attachment = useSyncExternalStore(
+    subscribeToScene,
+    sceneSnapshot,
+    () => null,
+  );
   /**
    * No second decoder on a device whose owner asked us to spare it.
    *
@@ -637,7 +654,7 @@ export default function TrailerStage() {
     const wanted = attachment.id;
     void detectBars(wanted).then((b) => {
       // The pointer may have moved on to another card while those loaded.
-      if (getStage()?.id !== wanted) return;
+      if (getStage(scene)?.id !== wanted) return;
       /*
        * Too late to crop THIS showing, and that is deliberate. Changing the
        * player's size resizes a ×200 iframe and makes it lay itself out again;
@@ -785,7 +802,7 @@ export default function TrailerStage() {
       handlersRef.current?.onHide(true);
     };
     revealTimerRef.current = setTimeout(backstop, REVEAL_ANYWAY_MS);
-  }, [attachment, bootId, post, reveal]);
+  }, [attachment, bootId, post, reveal, scene]);
 
   /**
    * Draw over the card's video slot, and keep doing so.

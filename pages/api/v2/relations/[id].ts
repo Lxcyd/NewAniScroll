@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 import { toRelationsPayload } from "@/lib/anilist/relationsPayload";
 
 /**
@@ -41,8 +42,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (!media) {
     // A short window: a miss is usually AniList being unreachable rather than a
-    // permanently unknown id.
-    res.setHeader("Cache-Control", "public, max-age=60");
+    // permanently unknown id. It has to carry a CDN header to mean anything —
+    // a bare `Cache-Control` stops at the browser and the edge re-invokes.
+    setEdgeErrorCache(res);
     return res.status(404).json({ error: "Anime not found" });
   }
 

@@ -17,6 +17,10 @@ import {
   type FuzzyDate,
 } from "@/lib/list/types";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+/* La couleur d'une liste personnalisée vit avec les autres couleurs de listes
+   depuis que le menu déroulant des réglages de widget peint les mêmes
+   pastilles : deux hachages parallèles auraient fini par diverger. */
+import { customListColor } from "@/components/anime/v2/helpers";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -96,18 +100,6 @@ function scoreHexColor(score: number): string {
   );
 }
 
-// Deterministic, vivid colour for a custom-list chip derived from its name —
-// same list always gets the same colour, but each list a different one. We hash
-// the name to a hue and use a fixed pleasant saturation/lightness so every
-// colour reads well on the dark modal (no muddy/near-black hues).
-function customListColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  const hue = hash % 360;
-  return `hsl(${hue}, 70%, 58%)`;
-}
 
 const ListEditor: React.FC<ListEditorProps> = ({
   animeId,
@@ -466,6 +458,15 @@ const ListEditor: React.FC<ListEditorProps> = ({
         completedAt: finishDate ? inputToFuzzy(finishDate) : null,
         customLists,
       });
+    }
+    /* « Rangement » : ranger un titre dans une liste personnalisee. Le libelle
+       dit « creer une liste », mais rien ici ne distingue la creation de
+       l'ajout -- et du point de vue de l'utilisateur, une liste vide n'existe
+       pas. On pose donc le drapeau des qu'un titre y atterrit. */
+    if (customLists.length) {
+      import("@/lib/badges/facts")
+        .then((f) => f.recordFlag("customList"))
+        .catch(() => {});
     }
     /* LE MIROIR LOCAL EST ÉCRIT MAINTENANT, PAS À LA RÉPONSE D'ANILIST.
        Il ne l'était que dans le `.then` de la mutation, et c'est ce qui

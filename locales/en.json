@@ -23,7 +23,8 @@
     "more": "More",
     "showMore": "Show more",
     "showLess": "Show less",
-    "done": "Done"
+    "done": "Done",
+    "holdToConfirm": "Hold…"
   },
   "footer": {
     "disclaimer": "This site does not store any files on our server, we only linked to the media which is hosted on 3rd party services.",
@@ -55,6 +56,117 @@
     "changelog": "Changelog",
     "report": "Report",
     "backToTop": "Back to top"
+  },
+  "auth": {
+    "sectionTitle": "Account",
+    "sectionDesc": "Your identity on AniScroll, and where your data is kept.",
+    "signinTitle": "Sign in",
+    "signinBody": "Get your list, your progress and your settings back on any device.",
+    "signinAction": "Sign in",
+    "signupTitle": "Create an account",
+    "signupBody": "Your current list and settings are carried over to the new account.",
+    "signupAction": "Create my account",
+    "forgotTitle": "Forgotten password",
+    "forgotBody": "Enter your address and we'll send you a link to choose a new password.",
+    "forgotAction": "Send the link",
+    "identifierLabel": "E-mail, or username#tag",
+    "emailLabel": "E-mail address",
+    "passwordLabel": "Password",
+    "passwordHint": "At least 8 characters.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "usernameLabel": "Username",
+    "usernamePlaceholder": "3–20 characters, letters, digits, . and _",
+    "working": "Working…",
+    "save": "Save",
+    "change": "Change",
+    "or": "or",
+    "continueWithAniList": "Continue with AniList",
+    "forgotLink": "Forgotten password?",
+    "toSignup": "Create an account",
+    "toSignin": "Back to sign in",
+    "signedIn": "Signed in",
+    "accountCreated": "Account created — check your e-mail to confirm your address",
+    "resetSent": "If that address has an account, the link is on its way",
+    "verifySent": "Confirmation e-mail sent",
+    "passwordChanged": "Password changed",
+    "renamed": "Username changed",
+    "anilistUnlinked": "AniList unlinked",
+    "deleted": "Account deleted",
+    "guestWord": "Guest",
+    "guestDesc": "You are browsing without an account.",
+    "guestWarning": "Everything is stored in this browser only: clearing your data loses your list, your progress and your settings.",
+    "createAccount": "Create an account",
+    "accountDesc": "AniScroll account — your data is backed up.",
+    "anilistOnlyDesc": "Signed in with AniList. Create an AniScroll account to add an address and a password.",
+    "noUsername": "Not set",
+    "noEmail": "No address — AniList does not provide one",
+    "noPassword": "No password on this account yet",
+    "verified": "verified",
+    "unverified": "not verified",
+    "resend": "Resend",
+    "anilistLinked": "Linked",
+    "anilistNotLinked": "Not linked",
+    "link": "Link",
+    "unlink": "Unlink",
+    "upgradeTitle": "Add an AniScroll account",
+    "upgradeDesc": "Keep this AniList login and add an address and a password on top.",
+    "exportTitle": "Export my data",
+    "exportDesc": "Download everything we store about you, as JSON.",
+    "export": "Export",
+    "deleteTitle": "Delete my account",
+    "deleteDesc": "Erases the account and every backed-up category. Irreversible.",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this account and all its data? This cannot be undone.",
+    "username": {
+      "tooShort": "At least 3 characters",
+      "tooLong": "At most 20 characters",
+      "charset": "Letters, digits, . and _ only",
+      "edge": "Cannot start or end with . or _",
+      "repeat": "No two . or _ in a row",
+      "reserved": "This name is reserved",
+      "guestFormat": "This name is reserved for guests"
+    },
+    "errors": {
+      "generic": "Something went wrong",
+      "badCredentials": "Wrong username or password",
+      "throttled": "Too many attempts — try again later",
+      "email": "Invalid e-mail address",
+      "emailTaken": "An account already uses this address",
+      "conflict": "Someone just took that address",
+      "tooShort": "Password too short (8 characters minimum)",
+      "tooLong": "Password too long",
+      "wrongPassword": "Wrong password",
+      "invalidToken": "This link has expired or has already been used",
+      "anilistOnlyAccount": "Set a password first — unlinking would lock you out",
+      "anilist-already-linked": "This AniList account is already linked elsewhere",
+      "accounts-unavailable": "Accounts are unavailable right now",
+      "badCode": "Wrong or expired code",
+      "noEmail": "No address on this account",
+      "anilist-unavailable": "AniList did not answer — signing in with AniList is temporarily impossible",
+      "signInFailed": "Sign-in did not go through",
+      "signInFailedBody": "Nothing changed on your account. AniList refused or did not answer; try again in a moment.",
+      "backToSettings": "Back to settings",
+      "callbackBody": "Two possible causes, and nothing changed on your account: AniList didn't answer in time — try again in a moment — or this AniList identity belongs to another AniScroll account, one with a password of its own. In that second case, sign into that account, or sign out and go through AniList directly."
+    },
+    "verifyOk": "Address confirmed",
+    "verifySignedOut": "You can now sign in, here or on the device where you created the account.",
+    "verifyInvalid": "This confirmation link has expired or has already been used",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "cloudReplace": {
+      "title": "Warning",
+      "body": "Your account data will replace the data in this browser.",
+      "confirm": "Replace"
+    },
+    "code": {
+      "send": "Get a code",
+      "resend": "Resend",
+      "placeholder": "000000",
+      "hint": "A code will be mailed to you to confirm.",
+      "check": "Check your mailbox, then type the 6 digits.",
+      "sent": "Code sent to {{email}}"
+    }
   },
   "language": {
     "label": "Language",
@@ -184,7 +296,8 @@
       "dirToDesc": "Combine both lists and push the result to AniList. On any conflict, this site takes priority. Nothing on AniList is deleted.",
       "dismissedToast": "Sync left off — enable it anytime in settings.",
       "dirOffTitle": "Don't sync",
-      "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings."
+      "dirOffDesc": "Keep both lists as they are. Sync stays off — you can enable it later in settings.",
+      "dirConfirm": "Apply this choice"
     },
     "list": {
       "title": "My list (local)",
@@ -690,11 +803,317 @@
     "startWatching": "Start Watching",
     "watchedToggleTooltip": "Disabling this will stop adding your Anime to 'Watched using AniScroll' list.",
     "privateTitle": "This profile is private",
-    "privateBody": "This user has chosen to keep their list hidden. Only they can view it."
+    "privateBody": "This user has chosen to keep their list hidden. Only they can view it.",
+    "statAnime": "Anime",
+    "statEpisodes": "Episodes",
+    "statWatched": "Watched",
+    "statMeanScore": "Mean score",
+    "unitDays": "d",
+    "unitHours": "h",
+    "memberSince": "Member since {{date}}",
+    "myProfile": "My profile",
+    "localOnly": "Local profile — this list lives on this device only.",
+    "bannerFrom": "Banner — {{title}}",
+    "changeBanner": "Change banner",
+    "pickBanner": "Choose your banner",
+    "pickBannerHint": "Pick an artwork, then confirm. Left alone, your profile follows your favourite anime on its own.",
+    "pickBannerEmpty": "Add an anime to your list and its artwork will show up here.",
+    "pickBannerNoArt": "No wide artwork for this anime.",
+    "bannerPinned": "Banner pinned by you.",
+    "bannerAuto": "Automatic — follows your favourite anime.",
+    "bannerReset": "Back to automatic",
+    "bannerApply": "Use this banner",
+    "artInPlace": "In place",
+    "artPoster": "Poster",
+    "artTrailer": "Trailer",
+    "artThin": "Thin banner",
+    "favouriteAnime": "Your favourite anime",
+    "tabs": {
+      "overview": "Overview",
+      "list": "My list",
+      "stats": "Statistics",
+      "badges": "Badges"
+    },
+    "ago": {
+      "minutes": "{{count}} min ago",
+      "hours": "{{count}}h ago",
+      "days": "{{count}}d ago",
+      "weeks": "{{count}}w ago"
+    },
+    "widgets": {
+      "add": "Add a block",
+      "rearrange": "Rearrange",
+      "done": "Done",
+      "reset": "Reset",
+      "remove": "Remove",
+      "resize": "Resize",
+      "rename": "Rename this block",
+      "settings": "Widget settings",
+      "settingsTitle_one": "Widget setting",
+      "settingsTitle_other": "Widget settings",
+      "saveError": "That arrangement could not be saved.",
+      "noOptions": "This widget has no settings.",
+      "options": {
+        "ambient": "Ambient light",
+        "streak": "Day streak",
+        "streakDesc": "The flame in the corner, and how many days running you have watched.",
+        "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it.",
+        "source": "List shown",
+        "sourceDesc": "The best-rated titles from this list.",
+        "sourceFavourites": "Favourites",
+        "scores": "Score range",
+        "scoresDesc": "Shows only titles rated inside this range.",
+        "unrated": "Include unrated",
+        "unratedDesc": "Titles you have not given a score.",
+        "trailer": "Trailer on hover",
+        "trailerDesc": "The preview that opens when the pointer settles on a poster.",
+        "completedOnly": "Completed only",
+        "completedOnlyDesc": "Counts only the anime you have finished, rewatches included.",
+        "skipEmpty": "Hide empty years",
+        "skipEmptyDesc": "Tightens the timeline onto the years you actually watched something. Skipped years are no longer visible: two neighbouring points can be ten years apart.",
+        "customLists": "Count custom lists",
+        "customListsDesc": "Replaces the statuses with your custom lists. An entry can sit in several lists, so the totals don't add up to your list size."
+      },
+      "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
+    },
+    "library": {
+      "title": "Block library",
+      "desc": "Click to put a block on your profile, click again to take it off. You can move it afterwards.",
+      "close": "Close",
+      "add": "Add",
+      "added": "Added",
+      "noData": "no data yet",
+      "count_one": "{{count}} block on your profile",
+      "count_other": "{{count}} blocks on your profile"
+    },
+    "blocks": {
+      "resume": {
+        "title": "Continue watching",
+        "desc": "The last episode you started, with its season and progress.",
+        "empty": "Nothing in progress on this device — start an episode and it shows up here.",
+        "ep": "Episode {{episode}}",
+        "seasonEp": "Season {{season}} · Episode {{episode}}",
+        "cta": "Resume",
+        "info": "More info",
+        "titleOther": "Currently watching",
+        "emptyOther": "Nothing in progress.",
+        "ctaOther": "Open the episode"
+      },
+      "favorites": {
+        "title": "Favourite anime",
+        "titleTopRated": "Highest rated",
+        "desc": "Your poster shelf, AniList favourites first.",
+        "listPlural": {
+          "Watching": "Watching",
+          "Rewatching": "Rewatching",
+          "Completed": "Completed",
+          "Planning": "Planning",
+          "Paused": "Paused",
+          "Dropped": "Dropped"
+        },
+        "titleList": "Favourite anime · {{list}}",
+        "empty": "No favourites or scores yet — rate a title and it appears here.",
+        "emptyList": "This list is empty — add titles to it and the best-rated show up here."
+      },
+      "recents": {
+        "title": "Recently watched",
+        "desc": "The last episodes played on this device.",
+        "empty": "Nothing has been played on this device yet.",
+        "line": "Episode {{episode}} · {{when}}",
+        "ep": "Episode {{episode}}",
+        "epRange": "Episodes {{from}}–{{to}}",
+        "seasonEp": "Season {{season}} · Episode {{episode}}",
+        "seasonEpRange": "Season {{season}} · Episodes {{from}}–{{to}}",
+        "done": "Finished",
+        "left": "{{minutes}} min left",
+        "emptyOther": "Nothing played yet.",
+        "streakTitle_one": "{{count}} day in a row",
+        "streakTitle_other": "{{count}} days in a row"
+      },
+      "statuses": {
+        "title": "By status",
+        "desc": "Watching, completed, planning…",
+        "empty": "Your list is empty — nothing to break down yet.",
+        "titleCustom": "By list",
+        "emptyCustom": "No custom lists on this profile — the lists you create on AniList will show up here."
+      },
+      "scores": {
+        "title": "Scores",
+        "desc": "How your scores spread, 1 to 10.",
+        "empty": "No scores given yet.",
+        "emptyCompleted": "No scores on a finished anime. This block's “Completed only” setting leaves out what you are still watching or dropped.",
+        "barTitle_one": "{{score}}/10 — {{count}} anime",
+        "barTitle_other": "{{score}}/10 — {{count}} anime",
+        "meanTitle_one": "Average over {{count}} rated title",
+        "meanTitle_other": "Average over {{count}} rated titles"
+      },
+      "genres": {
+        "title": "Genres",
+        "desc": "A radar of the genres your list leans on.",
+        "empty": "Genres come from AniList — a local list doesn't carry them.",
+        "emptyCompleted": "Not enough finished anime to draw a shape. This block's “Completed only” setting leaves out what you are still watching, planning or dropped."
+      },
+      "years": {
+        "title": "Watched by release year",
+        "desc": "Which years the anime you have watched come from.",
+        "empty": "Release years come from AniList — a local list doesn't carry them.",
+        "emptyCompleted": "Not enough finished anime to draw a timeline. This block's “Completed only” setting leaves out what you are still watching, planning or dropped.",
+        "tipTitle": "Released in {{year}}",
+        "tipCount": "Anime",
+        "tipHours": "Hours watched",
+        "tipMean": "Mean score"
+      },
+      "studios": {
+        "title": "Studios by score",
+        "desc": "Your studio ranking, backed by your own average.",
+        "empty": "Studios come from AniList, and an average needs at least two titles to mean anything.",
+        "titles_one": "{{count}} title",
+        "titles_other": "{{count}} titles"
+      },
+      "season": {
+        "title": "Currently watching",
+        "desc": "The shows you're following, with progress.",
+        "empty": "Nothing in progress in your list.",
+        "progress": "ep. {{progress}} / {{total}}"
+      },
+      "characters": {
+        "title": "Favourite characters",
+        "desc": "The characters you favourited on AniList.",
+        "empty": "No favourite characters on AniList."
+      },
+      "calendar": {
+        "title": "This month",
+        "desc": "One day, one watch.",
+        "soon": "This needs a log of which days you watched — nothing records that yet."
+      },
+      "heatmap": {
+        "title": "Year heatmap",
+        "desc": "Twelve months of watching in one grid.",
+        "soon": "Same as the calendar: the per-day history is missing."
+      },
+      "binge": {
+        "title": "Longest binge",
+        "desc": "Your record run of episodes.",
+        "soon": "This needs watch sessions to be measured; only the position inside an episode is kept today."
+      },
+      "goal": {
+        "title": "Yearly goal",
+        "desc": "Your progress through the year.",
+        "soon": "No goal can be set yet, so there is nothing to track."
+      },
+      "pinned": {
+        "title": "Three pinned",
+        "desc": "Three titles you put forward, in your own words.",
+        "soon": "There is nowhere yet to write and keep those three lines."
+      },
+      "themes": {
+        "title": "Top OP / ED",
+        "desc": "Your favourite openings and endings, playable here.",
+        "soon": "Nothing records a favourite theme yet."
+      },
+      "badges": {
+        "title": "Badges & achievements",
+        "desc": "What you've unlocked.",
+        "soon": "No badge exists yet."
+      },
+      "affinity": {
+        "title": "Taste affinity",
+        "desc": "Your friends, ranked by affinity.",
+        "soon": "There are no friends on AniScroll yet."
+      },
+      "bingo": {
+        "title": "Season bingo",
+        "desc": "Nine watching challenges to tick off.",
+        "soon": "The challenges are still to be written, and nothing tracks them yet."
+      }
+    },
+    "studioTitle": "Customise",
+    "studioPreviewNote": "Live preview - nothing is saved until you Apply.",
+    "studioSearch": "Search an anime, an artwork, an opening…",
+    "studioNoResult": "Nothing matches.",
+    "studioKind_color": "Colour",
+    "studioKind_banner": "Banner",
+    "studioKind_anim": "Animated banner",
+    "studioKind_image": "Image",
+    "studioKind_video": "Video",
+    "studioKind_oped": "Intro / Outro",
+    "studioKind_clip": "Anime clip",
+    "studioKind_upload": "Your own file",
+    "studioKind_layout": "Layout",
+    "studioLayoutSection": "Profile layout",
+    "studioLayout_band": "Banner",
+    "studioLayoutHint_band": "Avatar and name bottom-left, the four figures as cards below",
+    "studioLayout_center": "Centred",
+    "studioLayoutHint_center": "Avatar, name and badges on the centre line — the name becomes the page title",
+    "studioLayout_medallion": "Medallion",
+    "studioLayoutHint_medallion": "Large round portrait overlapping the plate, figures on one line",
+    "studioLayout_column": "Column",
+    "studioLayoutHint_column": "Identity in a sticky left column, widgets to its right and then below",
+    "studioKind_music": "Music",
+    "studioSoon_anim": "No animated banners yet",
+    "studioSoon_video": "No videos offered yet",
+    "studioSoon_clip": "Trimming a clip isn't open yet",
+    "studioSoon_upload": "Uploading your own file isn't open yet",
+    "studioSoonHint": "The other types in the dock already work.",
+    "studioColorSection": "Base colours",
+    "studioColorCustomSection": "Custom colour",
+    "studioColorTheme": "My theme colour",
+    "studioColorCustom": "Custom",
+    "studioArtOf": "Artwork · {{title}}",
+    "studioCovers": "Posters from my list",
+    "studioTrailers": "Trailers from my list",
+    "studioNoTrailer": "No trailer in this list",
+    "studioSeeArt": "See its artwork",
+    "studioArtCount_one": "{{count}} artwork",
+    "studioArtCount_other": "{{count}} artworks",
+    "studioNoArtHere": "No artwork for this title",
+    "studioNoArtHereHint": "Try another season, or another anime",
+    "studioSeeVideos": "See its videos",
+    "studioAllAnimes": "All anime",
+    "studioVideoCount_one": "{{count}} video",
+    "studioVideoCount_other": "{{count}} videos",
+    "studioNoVideoHere": "No video for this title",
+    "studioNoVideoHereHint": "Its trailer isn't known — try another season.",
+    "studioNoTrailerHint": "They come from AniList: a local list carries none.",
+    "studioThemesOf": "Openings & endings · {{title}}",
+    "studioMusicOf": "Music · {{title}}",
+    "studioMusicNone": "No music",
+    "studioMusicAdd": "Add an opening",
+    "studioMusicOff": "Turn music off",
+    "studioMusicEpisodes": "ep. {{episodes}}",
+    "studioMusicPlay": "Play",
+    "studioMusicFrom": "Clip start",
+    "studioMusicTo": "Clip end",
+    "studioMusicVolume": "Preview volume",
+    "studioMusicMute": "Mute",
+    "studioMusicUnmute": "Unmute",
+    "studioMusicPause": "Pause",
+    "studioSaveError": "Your profile look could not be saved.",
+    "studioVideoFadeHint": "Fade to black when the loop restarts, so the cut doesn't jump",
+    "studioVideoPlay": "Play trailer",
+    "studioVideoPause": "Pause trailer",
+    "studioMusicFull": "Full version on your profile",
+    "studioMusicCount": "{{count}} themes",
+    "studioSeason": "Season",
+    "studioMusicFade": "Fade",
+    "studioMusicFadeHint": "Fade in and out of the excerpt, so the loop doesn't snap",
+    "studioOtherAnime": "Other anime",
+    "studioSwitchAnime": "Search inside this anime",
+    "studioBlur": "Blur",
+    "artKind_background": "Wide artwork",
+    "artKind_thumb": "Wide thumb",
+    "artKind_banner": "Thin banner",
+    "artKind_anilist": "AniList banner",
+    "artKind_cover": "Poster",
+    "playSound": "Play the profile's sound",
+    "playMusic": "Play “{{title}}”",
+    "studioLive": "live"
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",
     "manageInSettings": "Import / export in Settings",
+    "clearScore": "Show the whole list",
+    "noneAtScore": "No title scored {{score}} in your list.",
     "streakDays": "day streak",
     "streakDays_other": "day streak",
     "bestStreak": "Best streak: {{count}} days",
@@ -1052,9 +1471,19 @@
       "clearart": "Clear Art",
       "character": "Character Art",
       "disc": "Disc",
-      "logo": "Logo"
+      "logo": "Logo",
+      "wallpaper": "Wallpaper"
     },
     "artFilterAll": "All",
+    "artFacet": {
+      "tout": "All",
+      "illustration": "Artwork",
+      "capture": "Screenshots",
+      "personnage": "Characters",
+      "paysage": "Scenery"
+    },
+    "artMore": "Load more wallpapers",
+    "artLoading": "Loading…",
     "fullscreen": "Fullscreen",
     "notYetReleased": "Not yet released",
     "inYourList": "In your list",
@@ -1121,5 +1550,757 @@
     "fsHide": "Hide chat",
     "fsShow": "Show chat",
     "fsHint": "Chat is here"
+  },
+  "badges": {
+    "ui": {
+      "unlocked": "Badge unlocked",
+      "total": "badges earned",
+      "secretsShort": "secrets",
+      "all": "All",
+      "got": "Earned",
+      "todo": "To earn",
+      "notMeasurable": "Not measurable yet",
+      "secretHidden": "Condition hidden",
+      "tiersDone": "{{done}} earned",
+      "tiersTodo": "{{todo}} to go",
+      "rarity": {
+        "c": "Common",
+        "u": "Uncommon",
+        "r": "Rare",
+        "e": "Epic",
+        "l": "Legendary",
+        "m": "Mythic"
+      },
+      "family": {
+        "episodes": "Episodes",
+        "time": "Time watched",
+        "sessions": "Sessions",
+        "finished": "Anime finished",
+        "discovery": "Discovery",
+        "genres": "Genres",
+        "franchise": "Franchises",
+        "regularity": "Consistency",
+        "profile": "Profile & collection",
+        "secret": "Secret"
+      },
+      "familyDesc": {
+        "episodes": "The profile's most visible counter, from your first episode to ten thousand.",
+        "time": "One scale: an hours tier, then everything counts in whole days.",
+        "sessions": "What happens in a single sitting.",
+        "finished": "Series carried to the end, from the first closing credits to five hundred.",
+        "discovery": "Digging through the catalogue beyond this season's releases.",
+        "genres": "One badge per family, over the anime you finished in that genre.",
+        "franchise": "Seeing a saga through, season after season.",
+        "regularity": "Consecutive days, from one week to a full year.",
+        "profile": "Keeping your list, rating, sorting — and collecting the badges themselves.",
+        "secret": "Off the progression and out of the total: account linking, status, and a few finds."
+      },
+      "seeTiers": "See all tiers",
+      "close": "Close"
+    },
+    "ep-1": {
+      "name": "First episode",
+      "cond": "Watch 1 episode."
+    },
+    "ep-25": {
+      "name": "Twenty-five episodes",
+      "cond": "Watch 25 episodes."
+    },
+    "ep-250": {
+      "name": "Two hundred and fifty episodes",
+      "cond": "Watch 250 episodes."
+    },
+    "ep-1000": {
+      "name": "A thousand episodes",
+      "cond": "Watch 1,000 episodes."
+    },
+    "ep-5000": {
+      "name": "Five thousand episodes",
+      "cond": "Watch 5,000 episodes."
+    },
+    "ep-10000": {
+      "name": "Ten thousand episodes",
+      "cond": "Watch 10,000 episodes."
+    },
+    "resume": {
+      "name": "Picked up again",
+      "cond": "Resume an episode where you left off."
+    },
+    "spotlight": {
+      "name": "Spotlight",
+      "cond": "Watch an episode suggested in the home page carousel."
+    },
+    "no-pause": {
+      "name": "No pause",
+      "cond": "Watch a whole episode without pausing once."
+    },
+    "burst-20": {
+      "name": "Twenty in a day",
+      "cond": "Watch 20 episodes within 24 hours."
+    },
+    "burst-50": {
+      "name": "Fifty in a week",
+      "cond": "Watch 50 episodes within 7 days."
+    },
+    "night-12": {
+      "name": "Twelve in one go",
+      "cond": "Watch 12 episodes in a single night."
+    },
+    "late-night": {
+      "name": "Two in the morning",
+      "cond": "Start an episode between 2 and 5 a.m."
+    },
+    "midnight": {
+      "name": "On the stroke of midnight",
+      "cond": "Start an episode at exactly 00:00."
+    },
+    "by-the-end": {
+      "name": "Straight to the end",
+      "cond": "Watch an anime's final episode without having seen any other."
+    },
+    "lunch": {
+      "name": "Lunch break",
+      "cond": "Watch an episode between noon and 2 p.m."
+    },
+    "airday-50": {
+      "name": "Release day",
+      "cond": "Watch 50 episodes on the day they aired."
+    },
+    "w2g": {
+      "name": "Side by side",
+      "cond": "Finish an episode in a Watch2Gether party."
+    },
+    "oav": {
+      "name": "Episode extra",
+      "cond": "Watch an OVA attached to a series."
+    },
+    "never-op": {
+      "name": "Never the opening",
+      "cond": "Finish a whole anime without ever skipping the opening."
+    },
+    "time-10h": {
+      "name": "Ten hours",
+      "cond": "Ten hours watched in total."
+    },
+    "time-1d": {
+      "name": "A full day",
+      "cond": "One full day watched — 24 hours."
+    },
+    "time-7d": {
+      "name": "Seven days on the clock",
+      "cond": "Seven days watched in total."
+    },
+    "time-30d": {
+      "name": "A month elsewhere",
+      "cond": "Thirty days watched in total."
+    },
+    "time-100d": {
+      "name": "A hundred days on the clock",
+      "cond": "A hundred days watched — 2,400 hours."
+    },
+    "time-365d": {
+      "name": "A whole year",
+      "cond": "365 days spent in front of the player."
+    },
+    "session-6h": {
+      "name": "Six hours straight",
+      "cond": "Six hours in a single sitting."
+    },
+    "session-12h": {
+      "name": "Weekend marathon",
+      "cond": "Twelve hours over one weekend."
+    },
+    "fin-1": {
+      "name": "First anime",
+      "cond": "Finish your first anime."
+    },
+    "fin-5": {
+      "name": "Five finished",
+      "cond": "Finish 5 anime."
+    },
+    "fin-25": {
+      "name": "Twenty-five finished",
+      "cond": "Finish 25 anime."
+    },
+    "fin-75": {
+      "name": "Seventy-five finished",
+      "cond": "Finish 75 anime."
+    },
+    "fin-200": {
+      "name": "Two hundred finished",
+      "cond": "Finish 200 anime."
+    },
+    "fin-500": {
+      "name": "Five hundred finished",
+      "cond": "Finish 500 anime."
+    },
+    "first-add": {
+      "name": "First step",
+      "cond": "Add your first anime to your list."
+    },
+    "curious-10": {
+      "name": "Curious",
+      "cond": "Open ten different anime pages."
+    },
+    "hidden-gem": {
+      "name": "Forgotten gem",
+      "cond": "Finish an anime with fewer than 5,000 viewers."
+    },
+    "archive-1990": {
+      "name": "From the archives",
+      "cond": "Finish an anime released before 1990."
+    },
+    "pioneer-1975": {
+      "name": "Pioneer",
+      "cond": "Finish an anime released before 1975."
+    },
+    "decades": {
+      "name": "Across the decades",
+      "cond": "Finish an anime from every decade since 1970."
+    },
+    "big-three": {
+      "name": "The big three",
+      "cond": "Start one of the big three."
+    },
+    "planning": {
+      "name": "Waiting list",
+      "cond": "Add an anime that hasn't aired yet."
+    },
+    "two-voices": {
+      "name": "Two voices",
+      "cond": "Watch the same episode subbed, then dubbed."
+    },
+    "blind-pick": {
+      "name": "Blind pick",
+      "cond": "Start an anime chosen at random."
+    },
+    "studio-10": {
+      "name": "Studio signature",
+      "cond": "Finish 10 anime from the same studio."
+    },
+    "rewatch-1": {
+      "name": "Second time around",
+      "cond": "Rewatch a series you had already finished."
+    },
+    "rewatch-10": {
+      "name": "Eternal return",
+      "cond": "Rewatch ten series you had already finished."
+    },
+    "thrice": {
+      "name": "Third time lucky",
+      "cond": "Finish the same anime three times."
+    },
+    "comeback": {
+      "name": "Rekindled",
+      "cond": "Pick a series back up after 30 days away."
+    },
+    "day-one": {
+      "name": "Day one",
+      "cond": "Finish an anime on its release day."
+    },
+    "one-sitting": {
+      "name": "In one sitting",
+      "cond": "Start and finish an anime on the same day."
+    },
+    "movies-30": {
+      "name": "Films only",
+      "cond": "Finish 30 films."
+    },
+    "alphabet": {
+      "name": "Alphabet completionist",
+      "cond": "Finish an anime for every letter of the alphabet."
+    },
+    "long-title": {
+      "name": "Mouthful of a title",
+      "cond": "Finish an anime whose title runs past 100 characters."
+    },
+    "all-players": {
+      "name": "Every player",
+      "cond": "Watch an episode on each available player."
+    },
+    "halloween": {
+      "name": "Halloween night",
+      "cond": "Watch a horror anime on 31 October."
+    },
+    "valentine": {
+      "name": "Valentine's Day",
+      "cond": "Watch a romance on 14 February."
+    },
+    "april-fool": {
+      "name": "April Fools'",
+      "cond": "Watch a comedy on 1 April."
+    },
+    "g-action": {
+      "name": "Shōnen blood",
+      "cond": "Finish 30 action anime."
+    },
+    "g-romance": {
+      "name": "Hopeless romantic",
+      "cond": "Finish 20 romances."
+    },
+    "g-horror": {
+      "name": "Guaranteed chills",
+      "cond": "Finish 15 horror anime."
+    },
+    "g-mecha": {
+      "name": "Mecha pilot",
+      "cond": "Finish 10 mecha anime."
+    },
+    "g-slice": {
+      "name": "Slice of life",
+      "cond": "Finish 20 slice-of-life anime."
+    },
+    "g-isekai": {
+      "name": "Reincarnated",
+      "cond": "Finish 15 isekai. The truck had nothing to do with it."
+    },
+    "g-fantasy": {
+      "name": "Dragon hunter",
+      "cond": "Finish 20 fantasy anime."
+    },
+    "g-scifi": {
+      "name": "Star traveller",
+      "cond": "Finish 15 sci-fi anime."
+    },
+    "g-mystery": {
+      "name": "Detective",
+      "cond": "Finish 15 mystery anime."
+    },
+    "g-drama": {
+      "name": "Teary-eyed",
+      "cond": "Finish 20 dramas."
+    },
+    "g-comedy": {
+      "name": "Fits of laughter",
+      "cond": "Finish 25 comedies."
+    },
+    "g-sports": {
+      "name": "Team spirit",
+      "cond": "Finish 10 sports anime."
+    },
+    "g-music": {
+      "name": "On stage",
+      "cond": "Finish 10 music anime."
+    },
+    "g-psycho": {
+      "name": "Mind game",
+      "cond": "Finish 10 psychological anime."
+    },
+    "g-thriller": {
+      "name": "Cold sweat",
+      "cond": "Finish 10 thrillers."
+    },
+    "g-school": {
+      "name": "After-school club",
+      "cond": "Finish 20 school anime."
+    },
+    "g-food": {
+      "name": "Golden toque",
+      "cond": "Finish 5 cooking anime."
+    },
+    "all-genres": {
+      "name": "Every genre",
+      "cond": "Finish an anime in every genre of the catalogue."
+    },
+    "all-tags": {
+      "name": "Every tag",
+      "cond": "Finish an anime carrying every tag of the catalogue."
+    },
+    "saga-2": {
+      "name": "Saga complete",
+      "cond": "Every season of a franchise (two seasons minimum)."
+    },
+    "saga-4": {
+      "name": "Great saga",
+      "cond": "Every season of a franchise of at least four seasons."
+    },
+    "streak-7": {
+      "name": "One week",
+      "cond": "Seven consecutive days."
+    },
+    "streak-30": {
+      "name": "One month",
+      "cond": "Thirty consecutive days."
+    },
+    "streak-90": {
+      "name": "One quarter",
+      "cond": "Ninety consecutive days."
+    },
+    "streak-180": {
+      "name": "Six months",
+      "cond": "A hundred and eighty consecutive days."
+    },
+    "streak-270": {
+      "name": "Nine months",
+      "cond": "Two hundred and seventy consecutive days."
+    },
+    "streak-365": {
+      "name": "One year",
+      "cond": "Three hundred and sixty-five consecutive days."
+    },
+    "rated-50": {
+      "name": "Critic",
+      "cond": "Rate 50 titles."
+    },
+    "rated-200": {
+      "name": "Seasoned critic",
+      "cond": "Rate 200 titles."
+    },
+    "fav-1": {
+      "name": "Favourite",
+      "cond": "Mark an anime as a favourite."
+    },
+    "fav-10": {
+      "name": "Ten favourites",
+      "cond": "Mark ten anime as favourites."
+    },
+    "first-rating": {
+      "name": "First rating",
+      "cond": "Rate your first anime."
+    },
+    "avatar": {
+      "name": "Avatar",
+      "cond": "Set a profile picture of your own."
+    },
+    "share-link": {
+      "name": "Shared",
+      "cond": "Copy an anime's link."
+    },
+    "settings": {
+      "name": "Settings",
+      "cond": "Open the settings."
+    },
+    "custom-list": {
+      "name": "Tidy",
+      "cond": "Create a custom list."
+    },
+    "one-year-here": {
+      "name": "A year here",
+      "cond": "One year on AniScroll."
+    },
+    "badges-50": {
+      "name": "Fifty badges",
+      "cond": "Earn 50 badges."
+    },
+    "badges-75": {
+      "name": "Seventy-five badges",
+      "cond": "Earn 75 badges."
+    },
+    "legendary-5": {
+      "name": "Five legendaries",
+      "cond": "Earn five legendary badges."
+    },
+    "showcase-open": {
+      "name": "Showcase open",
+      "cond": "Open your badges page."
+    },
+    "secret-50": {
+      "name": "Secret hunter",
+      "cond": "Earn 50 secret badges."
+    },
+    "complete": {
+      "name": "Full collection",
+      "cond": "Earn every other badge."
+    },
+    "anilist-linked": {
+      "name": "Account linked",
+      "cond": "Link your AniList account."
+    },
+    "staff": {
+      "name": "Staff",
+      "cond": "Reserved for the administration."
+    },
+    "beta": {
+      "name": "Beta",
+      "cond": "Account created during the beta."
+    },
+    "changelog": {
+      "name": "Release-note reader",
+      "cond": "Read the changelog page all the way down."
+    },
+    "dead-end": {
+      "name": "Dead end",
+      "cond": "Land on the not-found page three times."
+    },
+    "konami": {
+      "name": "Secret sequence",
+      "cond": "Enter the key sequence hidden in the code."
+    },
+    "devtools": {
+      "name": "Inspector",
+      "cond": "Open the developer console."
+    },
+    "dmca": {
+      "name": "Close reading",
+      "cond": "Spend three minutes on the DMCA page."
+    },
+    "recursive": {
+      "name": "Recursive",
+      "cond": "Search for “AniScroll” in AniScroll's search."
+    },
+    "not-here": {
+      "name": "Not on this site",
+      "cond": "Search for “hentai”. Not here."
+    },
+    "polyglot": {
+      "name": "Translator",
+      "cond": "Switch the interface language ten times in a minute."
+    },
+    "oldest": {
+      "name": "The very first",
+      "cond": "Open the page of the catalogue's oldest anime."
+    },
+    "self-search": {
+      "name": "Self-portrait",
+      "cond": "Search for your own username."
+    },
+    "pin-mythic": {
+      "name": "Showcase",
+      "cond": "Pin a mythic badge to your profile."
+    },
+    "one-piece": {
+      "name": "Find the One Piece",
+      "cond": "Finish One Piece."
+    },
+    "hokage": {
+      "name": "Become Hokage",
+      "cond": "Finish Naruto and Naruto Shippuden."
+    },
+    "boruto": {
+      "name": "The next generation",
+      "cond": "Finish Boruto."
+    },
+    "super-saiyan": {
+      "name": "Beyond Super Saiyan",
+      "cond": "Finish Dragon Ball, Dragon Ball Z and Dragon Ball Super."
+    },
+    "hashira": {
+      "name": "Last of the Hashira",
+      "cond": "Finish Demon Slayer, films included."
+    },
+    "walls": {
+      "name": "Freedom behind the walls",
+      "cond": "Finish Attack on Titan."
+    },
+    "hunter-licence": {
+      "name": "Licensed hunter",
+      "cond": "Finish Hunter x Hunter."
+    },
+    "bankai": {
+      "name": "Bankai",
+      "cond": "Finish Bleach, Thousand-Year Blood War included."
+    },
+    "equivalent-exchange": {
+      "name": "The price of equivalence",
+      "cond": "Finish Fullmetal Alchemist: Brotherhood."
+    },
+    "conan-1000": {
+      "name": "A thousand cases",
+      "cond": "Pass 1,000 episodes of Detective Conan."
+    },
+    "pokemon-500": {
+      "name": "Catch them all",
+      "cond": "Pass 500 episodes of Pokémon."
+    },
+    "plus-ultra": {
+      "name": "Plus Ultra",
+      "cond": "Finish My Hero Academia."
+    },
+    "death-note": {
+      "name": "The notebook",
+      "cond": "Finish Death Note."
+    },
+    "jujutsu": {
+      "name": "Qualified exorcist",
+      "cond": "Finish Jujutsu Kaisen."
+    },
+    "chainsaw": {
+      "name": "Contract signed with a devil",
+      "cond": "Finish Chainsaw Man."
+    },
+    "rank-s": {
+      "name": "S-Class",
+      "cond": "Finish One Punch Man."
+    },
+    "black-clover": {
+      "name": "Self-taught wizard",
+      "cond": "Finish Black Clover."
+    },
+    "steins-gate": {
+      "name": "The ringing of the alarm",
+      "cond": "Finish Steins;Gate."
+    },
+    "re-zero": {
+      "name": "Return by death",
+      "cond": "Finish Re:Zero."
+    },
+    "sao": {
+      "name": "Guild master",
+      "cond": "Finish Sword Art Online."
+    },
+    "slime": {
+      "name": "King of the slimes",
+      "cond": "Finish That Time I Got Reincarnated as a Slime."
+    },
+    "shield-hero": {
+      "name": "Shield raised",
+      "cond": "Finish The Rising of the Shield Hero."
+    },
+    "mushoku": {
+      "name": "A studious second life",
+      "cond": "Finish Mushoku Tensei."
+    },
+    "overlord": {
+      "name": "Lord of the tomb",
+      "cond": "Finish Overlord."
+    },
+    "konosuba": {
+      "name": "Full party",
+      "cond": "Finish Konosuba."
+    },
+    "frieren": {
+      "name": "Two worlds",
+      "cond": "Finish Frieren."
+    },
+    "solo-leveling": {
+      "name": "E-rank hunter",
+      "cond": "Finish Solo Leveling."
+    },
+    "code-geass": {
+      "name": "Zero's mask",
+      "cond": "Finish Code Geass."
+    },
+    "evangelion": {
+      "name": "Empty shell",
+      "cond": "Finish Neon Genesis Evangelion."
+    },
+    "bebop": {
+      "name": "Bounty collected",
+      "cond": "Finish Cowboy Bebop."
+    },
+    "champloo": {
+      "name": "Three drifters",
+      "cond": "Finish Samurai Champloo."
+    },
+    "ghost-shell": {
+      "name": "Ghost in the shell",
+      "cond": "Finish Ghost in the Shell: Stand Alone Complex."
+    },
+    "trigun": {
+      "name": "The humanoid typhoon",
+      "cond": "Finish Trigun."
+    },
+    "berserk": {
+      "name": "The black armour",
+      "cond": "Finish Berserk."
+    },
+    "monster": {
+      "name": "Nameless",
+      "cond": "Finish Monster."
+    },
+    "vinland": {
+      "name": "Promised land",
+      "cond": "Finish Vinland Saga."
+    },
+    "kingdom": {
+      "name": "Under one sky",
+      "cond": "Finish Kingdom."
+    },
+    "ngnl": {
+      "name": "The real game",
+      "cond": "Finish No Game No Life."
+    },
+    "yugioh": {
+      "name": "Duel of kings",
+      "cond": "Finish Yu-Gi-Oh! Duel Monsters."
+    },
+    "haikyu": {
+      "name": "The team spike",
+      "cond": "Finish Haikyu!!."
+    },
+    "kuroko": {
+      "name": "Winning basket",
+      "cond": "Finish Kuroko's Basketball."
+    },
+    "blue-lock": {
+      "name": "Free kick",
+      "cond": "Finish Blue Lock."
+    },
+    "yowamushi": {
+      "name": "Final lap",
+      "cond": "Finish Yowamushi Pedal."
+    },
+    "slam-dunk": {
+      "name": "In the stands",
+      "cond": "Finish Slam Dunk."
+    },
+    "food-wars": {
+      "name": "The perfect plate",
+      "cond": "Finish Food Wars."
+    },
+    "assassination": {
+      "name": "Final scan",
+      "cond": "Finish Assassination Classroom."
+    },
+    "fruits-basket": {
+      "name": "The twelve signs",
+      "cond": "Finish Fruits Basket."
+    },
+    "toradora": {
+      "name": "Tiger and dragon",
+      "cond": "Finish Toradora!."
+    },
+    "clannad": {
+      "name": "The town that remembers",
+      "cond": "Finish Clannad and After Story."
+    },
+    "your-lie": {
+      "name": "April's lie",
+      "cond": "Finish Your Lie in April."
+    },
+    "ghibli-1": {
+      "name": "Neighbour Totoro",
+      "cond": "Finish a Studio Ghibli film."
+    },
+    "ghibli-10": {
+      "name": "Ghibli anthology",
+      "cond": "Finish ten Studio Ghibli films."
+    },
+    "shinkai": {
+      "name": "Complete Shinkai",
+      "cond": "Finish every Makoto Shinkai film."
+    },
+    "gintama": {
+      "name": "The Gintama tape",
+      "cond": "Finish Gintama."
+    },
+    "mirai-nikki": {
+      "name": "Future diary",
+      "cond": "Finish Mirai Nikki."
+    },
+    "jojo": {
+      "name": "JoJo to the end",
+      "cond": "Finish every part of JoJo's Bizarre Adventure."
+    },
+    "spy-family": {
+      "name": "The world of Spy",
+      "cond": "Finish Spy x Family."
+    },
+    "dr-stone": {
+      "name": "Ten billion percent",
+      "cond": "Finish Dr. Stone."
+    },
+    "tokyo-ghoul": {
+      "name": "A thousand masks",
+      "cond": "Finish Tokyo Ghoul."
+    },
+    "parasyte": {
+      "name": "The right hand",
+      "cond": "Finish Parasyte."
+    },
+    "neverland": {
+      "name": "Over the wall",
+      "cond": "Finish The Promised Neverland."
+    }
   }
 }

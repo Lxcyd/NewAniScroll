@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
-import { setEdgeCache } from "@/lib/http/edgeCache";
+import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { resolveHeroBanner } from "@/lib/images/heroBanner";
 import { youtubeTrailerId } from "@/lib/preview/trailerId";
@@ -70,7 +70,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!media) {
     // Short window only: a miss is usually AniList being unreachable, not a
     // permanently unknown id, and we don't want to pin that at the edge for a day.
-    res.setHeader("Cache-Control", "public, max-age=60");
+    // But a window AT the edge, not just in the browser: a bare Cache-Control
+    // never reaches Vercel's cache, so during an outage every hover of every
+    // card on a carousel woke this function (viewportPrefetch fires ~15 at once).
+    setEdgeErrorCache(res);
     return res.status(404).json({ error: "Anime not found" });
   }
 

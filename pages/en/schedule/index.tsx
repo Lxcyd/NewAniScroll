@@ -122,7 +122,12 @@ export async function getServerSideProps(ctx: any) {
     let page = 1;
     const airingSchedules = [];
 
-    while (true) {
+    // A week is 5-7 pages. The cap is a safety net, never reached in normal
+    // operation: an AniList that kept answering with non-empty pages (a bug on
+    // their side, or a paging change) would otherwise hold this SSR — and the
+    // function's CPU — in an unbounded serial loop.
+    const MAX_PAGES = 20;
+    while (page <= MAX_PAGES) {
       const json = await anilistFetch({
         query: scheduleQuery,
         variables: { weekStart, weekEnd, page },
@@ -164,6 +169,18 @@ export async function getServerSideProps(ctx: any) {
     // every later visit read the empty cache and rendered nothing. By skipping
     // the write when empty we let the next request retry AniList instead.
     const hasData = Object.keys(scheduleByDay).length > 0;
+    /* An empty schedule must not sit at the EDGE for an hour either. Skipping
+       the Redis write (below) protected the Redis blob but not the CDN copy,
+       and the CDN is what actually answers visitors: during the 02/09/2026
+       AniList outage an empty page was served for a full hour per edge region,
+       then re-rendered empty, indefinitely. Shortening the edge TTL is the same
+       decision as skipping the write, applied to the layer that serves. */
+    if (!hasData) {
+      ctx?.res?.setHeader?.(
+        "CDN-Cache-Control",
+        "public, s-maxage=120, stale-while-revalidate=300",
+      );
+    }
     if (redis && hasData) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis

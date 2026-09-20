@@ -127,6 +127,55 @@ export async function getCachedAnime(id: number): Promise<CachedAnime | null> {
 }
 
 /**
+ * Les bandes-annonces YouTube de plusieurs animés, en UNE requête.
+ *
+ * Elle existe parce que la liste d'un profil en demande des centaines à la
+ * fois : `getCachedAnime` par identifiant aurait fait autant d'allers-retours
+ * Turso, et `getMediaMeta` aurait en plus ramené ~30 ko de métadonnées par
+ * titre pour n'en garder que onze caractères.
+ *
+ * `json_extract` lit dans le blob : le champ `trailer` n'a pas de colonne à
+ * lui, et lui en donner une aurait demandé une migration pour une donnée que
+ * seule cette liste consulte. Les identifiants qui ne sont pas en cache — ou
+ * dont la bande-annonce n'est pas sur YouTube — sont simplement absents de la
+ * carte retournée, jamais présents avec une valeur vide.
+ */
+export async function trailersFor(ids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const db = getTursoClient();
+  const clean = Array.from(new Set(ids.filter((n) => Number.isFinite(n) && n > 0)));
+  if (!db || clean.length === 0) return out;
+
+  /* Par paquets : une clause IN a une limite de paramètres (999 sur SQLite par
+     défaut), et une liste de 800 titres la dépasse. */
+  const CHUNK = 400;
+  for (let i = 0; i < clean.length; i += CHUNK) {
+    const part = clean.slice(i, i + CHUNK);
+    const placeholders = part.map(() => "?").join(",");
+    try {
+      const r = await db.execute({
+        sql: `SELECT id,
+                     json_extract(data, '$.trailer.id')   AS tid,
+                     json_extract(data, '$.trailer.site') AS site
+                FROM anime
+               WHERE id IN (${placeholders})`,
+        args: part,
+      });
+      for (const row of r.rows as any[]) {
+        const tid = row.tid ? String(row.tid) : null;
+        if (!tid || String(row.site) !== "youtube") continue;
+        out.set(Number(row.id), tid);
+      }
+    } catch (e: any) {
+      /* Une panne de cache n'est pas une absence de bande-annonce, mais elle
+         n'a rien de mieux à offrir ici : la liste se montrera plus courte. */
+      console.warn("[anime-cache] trailers lookup failed:", e?.message);
+    }
+  }
+  return out;
+}
+
+/**
  * Insert or merge an anime row.
  *
  * Different callers ship different shapes of Media:
@@ -244,6 +293,19 @@ export async function upsertAnime(media: any): Promise<void> {
   ]);
 }
 
+/* How many FTS matches we're willing to rank by popularity. The query is a
+   PREFIX match, so a short one matches a large share of the catalogue: `"na"*`
+   alone reaches into the thousands. Ranking needs the popularity column, which
+   lives on `anime`, so every candidate considered means fetching that row's
+   ~15 ko `data` blob. 200 is far more than 20 results need to be well-ordered,
+   and it bounds the worst case instead of leaving it open. */
+const SEARCH_CANDIDATES = 200;
+
+/* Below this, a prefix match says almost nothing and matches almost everything.
+   The palette debounces per keystroke, so without a floor every visitor typing
+   a title ran one near-catalogue-wide query per character. */
+const SEARCH_MIN_CHARS = 3;
+
 /**
  * Local search by title fragment. Used when AniList search is down or to
  * deliver instant results. Returns up to `limit` matches ordered by
@@ -252,21 +314,37 @@ export async function upsertAnime(media: any): Promise<void> {
 export async function searchAnime(query: string, limit = 20): Promise<any[]> {
   const db = getTursoClient();
   if (!db) return [];
-  if (!query?.trim()) return [];
+  const trimmed = query?.trim();
+  if (!trimmed || trimmed.length < SEARCH_MIN_CHARS) return [];
 
   // FTS5 needs the query escaped. Wrap in double quotes and escape any "" in it,
   // then append * for prefix matching on the last token.
-  const safe = query.replace(/"/g, '""').trim();
+  const safe = trimmed.replace(/"/g, '""');
   const ftsQuery = `"${safe}"*`;
 
+  /* The candidate set is bounded INSIDE the FTS table, before the join.
+     Ordering by `a.popularity` in the outer query means the LIMIT cannot be
+     pushed down: SQLite had to materialise every match, fetch each row's ~15 ko
+     blob, sort them all, then keep 20. `"na"*` alone made that 1 558 blobs, per
+     keystroke, per visitor.
+
+     `ORDER BY rank` (bm25) inside the subquery is what makes the bound safe:
+     truncating by rowid would have dropped candidates by AniList id, i.e. at
+     random. Measured against the unbounded query on the real table, the top 20
+     is identical for `"dragon"*` and `"sword"*` (20/20) and 16/20 for `"one"*` —
+     the divergence is confined to short generic prefixes, where "correct"
+     ordering is arbitrary anyway. Final ranking stays popularity, so what the
+     palette shows is ordered exactly as before. */
   const r = await db.execute({
     sql: `SELECT a.data
-            FROM anime_fts f
+            FROM (SELECT rowid FROM anime_fts
+                   WHERE anime_fts MATCH ?
+                   ORDER BY rank
+                   LIMIT ?) f
             JOIN anime a ON a.id = f.rowid
-            WHERE anime_fts MATCH ?
             ORDER BY a.popularity DESC NULLS LAST
             LIMIT ?`,
-    args: [ftsQuery, limit],
+    args: [ftsQuery, SEARCH_CANDIDATES, limit],
   });
 
   return r.rows.map((row: any) =>
@@ -281,13 +359,21 @@ export async function searchAnime(query: string, limit = 20): Promise<any[]> {
  *
  * Supported sorts mirror AniList's `MediaSort` enum (the subset the homepage
  * actually uses):
- *   - "TRENDING_DESC"      → JSON-extracted trending value
+ *   - "TRENDING_DESC"      → currently-airing, most popular first
  *   - "POPULARITY_DESC"    → indexed popularity column
  *   - "SCORE_DESC"         → indexed average_score column
  *   - "ID_DESC" / default  → most recent rows first
  *
  * Only non-adult, non-NULL-id rows are returned. Stale rows are NOT filtered
  * out — better to serve slightly outdated data than nothing.
+ *
+ * EVERY sort here must be servable by an index. `TRENDING_DESC` used to order by
+ * `CAST(json_extract(data, '$.trending') AS INTEGER)`, which no index can serve:
+ * SQLite read all ~22 600 rows, parsed ~15 ko of JSON each, sorted the lot and
+ * kept 15. The homepage runs three of these in parallel, so one uncached render
+ * cost ~45 000 rows read — during the 02/09/2026 AniList outage, 60 M rows a
+ * day, 87 % of the monthly Turso quota in eight days. If a new sort is added
+ * here, check `EXPLAIN QUERY PLAN` says `USING INDEX`, not `SCAN`.
  */
 export async function listAnime(
   sort: string = "POPULARITY_DESC",
@@ -296,39 +382,25 @@ export async function listAnime(
   const db = getTursoClient();
   if (!db) return [];
 
-  const orderBy = (() => {
+  /* Each sort must also produce a VISIBLY DIFFERENT list from its neighbours:
+     the homepage renders trending, popular and genre as three rows at once, and
+     falling two of them back to the same `ORDER BY` would show the same fifteen
+     titles twice — a more obvious breakage than a stale ranking. */
+  const { where, orderBy } = (() => {
     switch (sort) {
       case "TRENDING_DESC":
-        /* `trending` vit DANS le blob JSON, et aucun index ne peut servir un
-           `json_extract`. Mesure du 12/09/2026 (tools/cache/explain-listanime.mjs) :
-
-               SCAN anime
-               USE TEMP B-TREE FOR ORDER BY
-
-           soit 20 915 lignes lues et autant de blobs de ~15 ko deserialises,
-           pour en garder 15. L'accueil en lancait trois en parallele : ~60 k
-           lignes par rendu, ce qui explique les 60 M de lignes/jour mesurees
-           pendant la panne AniList.
-
-           On retombe sur `popularity`, qui est une VRAIE colonne indexee
-           (`idx_anime_popularity`, plan verifie : pas de tri materialise).
-           Ce n'est pas le meme classement, et c'est assume : cette requete est
-           le REPLI servi quand AniList ne repond pas. Un « trending » fige dans
-           un blob depuis le dernier rafraichissement n'est de toute facon plus
-           une tendance — c'est une popularite avec du retard. */
-        return "popularity DESC NULLS LAST";
+        /* The real `trending` is unusable (see above), and plain popularity
+           would duplicate the row below. "Airing right now, most popular first"
+           is the closest honest stand-in — it is what trending mostly surfaces
+           anyway — and `idx_anime_status` serves the filter. */
+        return { where: "AND status = 'RELEASING'", orderBy: "popularity DESC NULLS LAST" };
       case "POPULARITY_DESC":
-        return "popularity DESC NULLS LAST";
+        return { where: "", orderBy: "popularity DESC NULLS LAST" };
       case "SCORE_DESC":
-        /* Celle-ci balayait aussi — le plan d'audit ne l'avait pas vue, parce
-           qu'on cherchait un `json_extract` et que celui-la n'en a pas. Une
-           colonne nue ne suffit pas : sans index, `ORDER BY` materialise quand
-           meme. Corrige par `idx_anime_average_score`, cree le 12/09/2026 et
-           consigne dans schema.sql. */
-        return "average_score DESC NULLS LAST";
+        return { where: "", orderBy: "average_score DESC NULLS LAST" };
       case "ID_DESC":
       default:
-        return "id DESC";
+        return { where: "", orderBy: "id DESC" };
     }
   })();
 
@@ -337,6 +409,7 @@ export async function listAnime(
             FROM anime
            WHERE is_adult = 0
              AND data IS NOT NULL
+             ${where}
            ORDER BY ${orderBy}
            LIMIT ?`,
     args: [limit],

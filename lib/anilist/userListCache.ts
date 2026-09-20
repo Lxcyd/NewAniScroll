@@ -203,6 +203,15 @@ export function hasUserList(userName: string): boolean {
   return false;
 }
 
+/** Like hasUserList, but only within the same TTL getUserList honours — so a
+ *  caller that reads the cache INSTEAD of asking AniList never trusts a copy
+ *  older than the one getUserList itself would have refetched. */
+export function hasFreshUserList(userName: string): boolean {
+  if (!hasUserList(userName)) return false;
+  const mem = memCache.get(userName);
+  return !!mem && Date.now() - mem.ts < TTL_MS;
+}
+
 /** Apply a single entry update into the cache (after a save) so the next read
  *  is correct without re-fetching. Pass null to remove (after delete). */
 export function patchListEntry(

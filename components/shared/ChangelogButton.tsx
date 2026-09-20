@@ -46,10 +46,13 @@ export default function ChangelogButton() {
     if (!open || content !== null) return;
     let cancelled = false;
     setLoading(true);
-    // Cache-bust + no-store so a returning visitor always gets the latest
-    // changelog after a release — without this the browser served its cached
-    // copy for the API's full max-age (1h), even across page reloads.
-    fetch(`/api/v2/changelog?lang=${lang}&t=${Date.now()}`, { cache: "no-store" })
+    // Keyed on the build id so a returning visitor gets the latest changelog
+    // after a release (the file ships with the deploy, so a new build is the only
+    // thing that can change it). It used to be `&t=${Date.now()}` + no-store,
+    // which also defeated the route's edge cache: every open was an invocation.
+    const build =
+      (typeof window !== "undefined" && (window as any).__NEXT_DATA__?.buildId) || "";
+    fetch(`/api/v2/changelog?lang=${lang}&b=${encodeURIComponent(build)}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then((text) => {
         if (!cancelled) setContent(text);
@@ -147,6 +150,35 @@ function ChangelogOverlay({
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
+    };
+  }, []);
+
+  /* « Lecteur de notes » : avoir lu le changelog JUSQU'EN BAS.
+     Surveille sur le panneau, avec une tolerance de deux pixels -- un arrondi
+     sous-pixel (zoom du navigateur, ecran a densite fractionnaire) laisse
+     souvent `scrollTop + clientHeight` une fraction en dessous de
+     `scrollHeight`, et un badge qui exige l'egalite exacte serait hors de
+     portee la moitie du temps.
+     Un changelog plus court que la fenetre est deja « lu jusqu'en bas » : il
+     n'y a rien a faire defiler, et le refuser punirait la brievete. */
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const check = () => {
+      if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) {
+        import("@/lib/badges/facts")
+          .then((f) => f.recordFlag("changelog"))
+          .catch(() => {});
+        panel.removeEventListener("scroll", check);
+      }
+    };
+    /* Differe d'une image : a l'ouverture, le contenu n'est pas encore mis en
+       page et `scrollHeight` vaut celui d'un panneau vide. */
+    const id = requestAnimationFrame(check);
+    panel.addEventListener("scroll", check, { passive: true });
+    return () => {
+      cancelAnimationFrame(id);
+      panel.removeEventListener("scroll", check);
     };
   }, []);
 

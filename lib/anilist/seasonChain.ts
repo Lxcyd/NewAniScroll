@@ -6,7 +6,8 @@ import {
   findFilmVariants,
   type FilmVariant,
 } from "./resolveSeason";
-import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
+import { seasonCacheGetEntry, seasonCacheSet } from "@/lib/db/seasonCache";
+import { isAnilistLikelyUp } from "./health";
 import {
   computeSeasonInfo,
   extractSeasonFromTitle,
@@ -57,7 +58,10 @@ import {
 //      reduit a la meme base que "JUJUTSU KAISEN" et heritait donc du 1.
 // v11: le meme garde ne peut plus, a lui seul, retenir le compteur — "Attack on
 //      Titan: The Final Season" (aucun numero, meme base) heritait du 3.
-const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v11:${id}`;
+// v12: la provenance decide du TTL (enveloppe { v, deg }) — l'ancienne forme
+//      n'est plus lisible, ce qui evince du meme coup les resultats vides
+//      ecrits pendant la panne AniList du 02/09/2026.
+const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v12:${id}`;
 // v3: SeasonEntry gained `idMal` (feeds Jikan per-episode score lookups).
 // v4: numbering now uses a running counter so split-cours + unnumbered
 //     "Final Season" entries get the right S<n> (AoT Final Season = S4, not S5).
@@ -105,19 +109,53 @@ const REDIS_KEY_CHAIN = (id: number) => `seasonChain:v11:${id}`;
 //      "Season 1" a la file (2020 et 2023).
 // v22: idem seasonChain v11 — Attack on Titan affichait deux "Season 3" et
 //      deux "Season 3 Part 2".
-const REDIS_KEY_LIST = (id: number) => `seasonList:v22:${id}`;
+// v23: idem seasonChain v12 — nouvelle enveloppe, et eviction des fausses
+//      listes vides mises en cache pour 7 jours pendant la panne.
+const REDIS_KEY_LIST = (id: number) => `seasonList:v23:${id}`;
 
 // Cache accessors now hit Turso (see lib/db/seasonCache.ts) instead of Redis.
 // The cache_key strings keep their version tag, so a version bump still evicts
 // stale rows. A miss or DB error returns null → the caller recomputes from
 // AniList, so a slow/unreachable store can never serve the WRONG season (the
 // bug we're fixing) and never blocks the request for the Redis connect timeout.
+
+/* Two windows, chosen by PROVENANCE rather than by key.
+
+   A result obtained from a healthy AniList keeps the week it always had. A
+   result obtained while AniList was refusing calls keeps five minutes.
+
+   This distinction is the whole point. `resolveSeasonList` cached even an empty
+   array — "an anime with no season siblings is a stable fact", which is true
+   when the upstream answered and false when it did not. During the 02/09/2026
+   outage every info page visited wrote a false "single season" valid for seven
+   days: the season picker would have stayed wrong for a week AFTER the service
+   came back, with nothing on screen to say so. The mirror image was also true
+   and also wrong — `resolveSeasonChain` cached ONLY successes, so an unresolved
+   chain re-walked the whole franchise (10-30 Turso reads) on every single
+   render for as long as the outage lasted. Neither "always cache" nor "never
+   cache" is right; how the value was obtained is what decides. */
+const FRESH_TTL_S = 7 * 24 * 60 * 60;
+const DEGRADED_TTL_S = 5 * 60;
+
+type CacheEnvelope<T> = { v: T; deg?: 1 };
+
 async function cacheGetJson<T>(key: string): Promise<T | null> {
-  return seasonCacheGet<T>(key);
+  const entry = await seasonCacheGetEntry<CacheEnvelope<T>>(key);
+  if (!entry) return null;
+  const { v, deg } = entry.value ?? ({} as CacheEnvelope<T>);
+  if (v === undefined) return null;
+  return entry.ageSeconds > (deg ? DEGRADED_TTL_S : FRESH_TTL_S) ? null : v;
 }
 
-async function cacheSetJson(key: string, value: unknown): Promise<void> {
-  await seasonCacheSet(key, value);
+/* `degraded` is derived, not plumbed: a result that carries data is never
+   degraded (we got it from somewhere real), and an EMPTY one is degraded only
+   if AniList is currently known-down. That check is the health signal, memoised
+   30 s per process, so it costs nothing on the common path — and it is only
+   ever consulted for empty results. */
+async function cacheSetJson(key: string, value: unknown, isEmpty: boolean): Promise<void> {
+  const degraded = isEmpty && !(await isAnilistLikelyUp());
+  const envelope: CacheEnvelope<unknown> = degraded ? { v: value, deg: 1 } : { v: value };
+  await seasonCacheSet(key, envelope);
 }
 
 /* Walk PREQUEL / SEQUEL edges starting from `startId` and resolve every
@@ -199,9 +237,11 @@ export async function resolveSeasonChain(startId: number): Promise<SeasonInfo> {
   } catch {
     result = await resolveSeasonChainUncached(startId);
   }
-  // Only cache positive resolutions to avoid pinning a "no info" answer
-  // for 7 days when the underlying issue was a transient AniList blip.
-  if (result.number != null) await cacheSetJson(REDIS_KEY_CHAIN(startId), result);
+  // Cached either way, but a "no info" answer only holds for five minutes —
+  // see cacheSetJson. Refusing to cache it at all (the old rule) meant the
+  // whole franchise was re-walked on every render for as long as the upstream
+  // stayed down, which is the case it was meant to protect.
+  await cacheSetJson(REDIS_KEY_CHAIN(startId), result, result.number == null);
   return result;
 }
 
@@ -327,9 +367,12 @@ export async function resolveSeasonList(
   } catch {
     result = await resolveSeasonListUncached(startId);
   }
-  // Cache even empty arrays — an anime with no season siblings is a
-  // stable fact; recomputing it every page render wastes the walk.
-  await cacheSetJson(REDIS_KEY_LIST(startId), result);
+  // Cache even empty arrays — an anime with no season siblings (a film, an OVA)
+  // is a stable fact, and recomputing it every page render wastes the walk. But
+  // only when the walk HAD a source: the same empty array produced during an
+  // AniList outage is an artefact, and it now expires in five minutes instead
+  // of outliving the outage by a week. See cacheSetJson.
+  await cacheSetJson(REDIS_KEY_LIST(startId), result, !result?.length);
   return result;
 }
 
@@ -357,7 +400,8 @@ export async function resolveSeasonList(
 // v8: PREQUEL movies (Jujutsu Kaisen 0) are now surfaced as bonus films.
 // v9: recompilation movies with a PARENT-to-TV edge (JJK: Execution) are
 //     re-classified kind="compilation" so they land in the Compilations section.
-const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v9:${id}`;
+// v10: idem seasonList v23 — nouvelle enveloppe, eviction des vides de panne.
+const REDIS_KEY_FILMS = (id: number) => `bonusFilms:v10:${id}`;
 export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]> {
   const cached = await cacheGetJson<FilmVariant[]>(REDIS_KEY_FILMS(startId));
   if (cached) return cached;
@@ -367,7 +411,7 @@ export async function resolveBonusFilms(startId: number): Promise<FilmVariant[]>
   } catch {
     result = [];
   }
-  await cacheSetJson(REDIS_KEY_FILMS(startId), result);
+  await cacheSetJson(REDIS_KEY_FILMS(startId), result, !result?.length);
   return result;
 }
 

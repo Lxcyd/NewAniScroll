@@ -6,6 +6,381 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 — Un deploiement vide le cache d'edge, et personne ne le remplissait
+
+Signale : « le chargement des pages est **redevenu** un poil long ». Le
+« redevenu » etait le bon mot, et la cause etait moi : une heure plus tot, la
+fusion d'une PR avait deployé la prod.
+
+**Les en-tetes n'etaient pas en cause.** Les pages SSR portent deja de bons
+reglages — `s-maxage=21600` sur la fiche anime, `7200` sur l'accueil, `1800` sur
+la page de lecture, plus un jour de `stale-while-revalidate`. Ma premiere lecture
+disait le contraire parce que mon `grep` avait coupe la ligne suivante, et parce
+que Vercel **consomme** `CDN-Cache-Control` sans le reemettre : la reponse ne
+montre que le `max-age=60` destine au navigateur. Verifier sur la reponse ce
+qu'on a ecrit dans le code ne marche pas ici.
+
+**Le vrai defaut : `stale-while-revalidate` ne sert que s'il existe deja une
+copie a servir.** Un nouveau deploiement repart avec un cache d'edge vide, donc
+la premiere entree de chaque URL est payee plein tarif par un visiteur, qui
+attend. Sur un site a faible trafic, « la premiere » veut dire beaucoup de
+monde, longtemps.
+
+Mesure, une heure apres le deploiement — **26 URL sur 27 etaient froides** :
+
+| | avant | apres chauffe |
+| --- | --: | --: |
+| `/en/anime/2706` | **11 959 ms** | **85 ms** |
+| `/en/schedule` | 3 670 ms | 82 ms |
+| `/en/anime/154587` | 1 595 ms | 79 ms |
+| `/en/anime/21` | 2 012 ms | 88 ms |
+
+D'ou `scripts/cache/warm-pages.mjs` et le workflow `warm-pages`, declenche par
+`deployment_status` sur un deploiement de **production reussi**. Quelques
+dizaines d'URL, une fois par deploiement — a ne pas confondre avec la marche
+complete du catalogue (`warm-cache`, manuelle), que son propre workflow decrit
+comme « le plus gros cout Vercel auto-inflige du site ».
+
+L'ordre de priorite vient de `last_accessed_at`, c'est-a-dire de ce que **nos**
+visiteurs ouvrent reellement ; la popularite AniList ne sert que de secours.
+
+**Une decouverte au passage, a ne pas perdre.** A concurrence 3, le rendu froid
+se degrade violemment : 0,4 s, puis 2 s, puis 5, puis **12 s**, avec un
+depassement de delai sur la derniere URL. Le rendu froid ne supporte pas d'etre
+concurrent de lui-meme — et pendant qu'il se piétine, il degrade aussi les vrais
+visiteurs, soit exactement ce que la passe est censee eviter. Ramene a **une
+requete a la fois** : 40 pages a ~1,5 s tiennent dans le timeout et ne se
+remarquent nulle part.
+
+Ce chiffre vaut aussi comme avertissement general : si trois requetes froides
+suffisent a faire passer le SSR de 0,4 s a 12 s, un pic de trafic reel sur des
+pages non chauffees ferait la meme chose. C'est un argument de plus pour
+l'ISR de la fiche anime, toujours ouvert depuis le 03/08.
+
+## 2026-09-18 — Grande passe de vitesse : squelette de navigation, requetes dedoublonnees, images de repli
+
+**La question de depart : « Upstash est-il si important ? »** Oui, mais pour
+une raison sur deux. Son role d'ETAT est irremplacable : salles Watch2gether,
+verrou single-flight de `/api/v2/source`, fusion `avail:` des lecteurs, signal
+`anilist:health`. Son role de CACHE est un amortisseur des MISS de l'edge — le
+retirer, c'est le Fluid CPU du 17/07 et du 17/09. Les limiteurs de debit sont en
+memoire (0 commande), `/skip` et `/preview` n'y touchent pas. Le vrai correctif
+infra reste une base gratuite dediee a dev (toujours partagee au 18/09).
+
+**Ce qui rendait le site « lent » n'etait pas le framework.** Un clic sur une
+carte attendait le `getServerSideProps` de la fiche, ancienne page figee a
+l'ecran, barre rose pour seul signe. Next.js n'est pas en cause : Astro ou
+SvelteKit attendraient les memes AniList. Le levier structurel, s'il en faut un,
+est l'hebergement (Vercel Pro, ou OpenNext sur Workers payant a 5 $/mois), pas
+une reecriture.
+
+Cinq commits, un par vague :
+
+| Vague | Changement | Mesure |
+| --- | --- | --- |
+| 1 | Font Awesome retire (aucune classe `fa`), Google Fonts -> Fontsource, spinner vidstack recopie en SVG, onglets de la fiche en chunks precharges | watch 274 -> 224 ko, fiche 264 -> 247 ko (First Load) |
+| 2 | `RouteSkeleton` + prechauffage `/_next/data` au survol prolonge | squelette des le clic |
+| 3 | `/skip` une fois par (episode, langue), `/translate` et `/anilist-search` en GET cachable, `list-entry` lu en session, GetMedia sans collection MANGA | ~4 -> 1 appel skip par page |
+| 4 | MISS de la fiche parallelise, `upcoming` dans le MGET de l'accueil, 404 caches au bord | -1 commande par rendu d'accueil |
+| 5 | Repli fanart par wsrv.nl avant l'original | 1 017 ko -> 589 ko, 1,06 s -> 0,16 s |
+
+**Pieges rencontres, a ne pas refaire :**
+
+- *next/font renomme les familles* (`__Karla_1a2b3c`). « Karla » est ecrit en
+  dur dans des SVG, des `ctx.font` de canvas, les CSS modules de discover — et
+  dans la preference de sous-titres DEJA enregistree chez les visiteurs.
+  Fontsource garde les noms. Et la liste des graisses doit etre EXACTEMENT celle
+  de l'ancienne URL Google : ajouter Roboto 600 changerait le rendu de tout texte
+  qui se rabattait sur 700.
+- *`next/dynamic` n'expose pas `.preload()`* : il renvoie un `forwardRef`, et
+  meme un chunk deja la passe par un rendu `loading` (une image vide). D'ou
+  `lib/hooks/lazyWithPreload.tsx`, qui rend le composant des le premier rendu
+  une fois precharge.
+- *Le squelette doit vivre DANS le conteneur `as-fade-in`* : son animation
+  d'opacite en fill cree un contexte d'empilement ; a cote, le squelette en
+  z 9000 passait au-dessus de la navbar (z 9999) de la page.
+- *L'URL de donnees d'une route dynamique porte ses parametres* :
+  `/_next/data/<b>/en/anime/21.json?id=21`. Le prechauffage la calcule avec
+  `pageLoader.getDataHref` du routeur et envoie `x-nextjs-data: 1`, sinon il
+  remplit une autre entree de cache. Page de lecture exclue : son `?id=`
+  entre en collision avec le parametre de route.
+- *`cacheSeconds: 0` sur `anilistFetch` coupe aussi le marqueur d'echec* qui
+  protege des pannes AniList (02/09). Ne pas s'en servir pour economiser un GET.
+- *wsrv.nl bloque le domaine d'AniList* (« Domain or TLD blocked by policy ») :
+  seules les images fanart.tv/TMDB passent. Et le tout premier visiteur d'une
+  image paie la transformation a froid (5,2 s mesure).
+
+**Ecartes apres examen** : TTL Redis de `anilist:health` a 300 s (il commande
+le court-circuit « AniList en panne » du site entier : la reprise se verrait
+5 min plus tard) ; `readRoomGate` dans `watch2gether/event.ts` (`canEmit`
+verifie aussi la presence, ce n'est pas la meme garde) ; fusionner les trois
+GetMedia de l'accueil (le filtre de statut filtre aussi les listes perso) ;
+proxifier les bannieres AniList (la carte de survol prechauffe l'URL exacte
+que la fiche affichera).
+
+**Fiche : mise en page mobile/desktop par appareil** (`082b23b`). Le cache edge
+ne variait pas selon l'appareil : `initialUA` venait du premier visiteur de la
+fenetre de 6 h. Une reecriture `beforeFiles` de next.config.js (`has:
+user-agent` mobile, `missing: __m`) envoie les mobiles sur `?__m=1` : deux URL,
+donc deux entrees de cache. Elle S'APPLIQUE aux navigations client : le
+`resolve-rewrites` du routeur evalue `has` avec `navigator.userAgent`. Le SSR
+lit `__m`, plus l'en-tete UA.
+
+**Le clic repartait sur le reseau malgre le prechauffage** (`3daad82`). Le
+`max-age=60` du SSR se compte depuis la generation au bord, et Vercel renvoie
+`Age` : une fiche vieille de plus d'une minute au CDN arrive deja perimee. La
+reponse prechauffee est donc deposee dans `router.sdc`, que `fetchNextData`
+lit avant tout fetch.
+
+**Suite du soir** (`c10027c`, a la demande de l'utilisateur) :
+- squelette RETIRE de la fiche (« ca fait bizarre ») ; garde sur la lecture ;
+- profil du compte connecte prechauffe des l'ouverture du site
+  (`requestIdleCallback`), garde 5 min dans `router.sdc` ; survol/appui d'un
+  lien de profil le re-prechauffe ;
+- SSR du profil : visibilite (Prisma) et `user_data` lus en meme temps que la
+  liste ; bandes-annonces et banniere en parallele ; copie Upstash de moins de
+  2 h servie si AniList depasse 2,5 s, la fraiche finissant en arriere-plan
+  (`lib/http/waitUntil.ts` : le contexte `@vercel/request-context`, sans le
+  paquet `@vercel/functions` qui tire ~15 dependances).
+
+**Encore** (`2331c3c`), apres mesure CDP de chaque page :
+- accueil, planning, recherche prechauffes au survol de leur lien du menu
+  (la recherche : query du lien PUIS `param`, l'ordre d'`Object.assign` du
+  routeur) ;
+- SDK Google Cast retire de `_app` (toutes les pages) : le lecteur l'injecte
+  deja a son montage ;
+- `/api/v2/anilist-search` : 10 min au bord + SWR 1 j. La recherche par
+  defaut : 5,1 s (MISS a chaque visite avec 30 s de bord) → servie du bord ;
+- `viewportPrefetch` attend l'evenement `load` : ses 16 bannieres (3,2 Mo,
+  pour les cartes de survol) partaient avant les jaquettes visibles. Accueil,
+  cache chaud : LCP 1,45 s → 0,95 s, 5,8 → 4,5 Mo pendant le chargement.
+
+A retenir : apres chaque deploiement le bord est VIDE (tout est MISS au 1er
+passage) — toujours mesurer deux fois.
+
+**Reste ouvert** : la base Upstash de dev.
+
+Deploiement : les pushs du soir sont tombes pendant l'incident Vercel
+« Elevated Errors Triggering Deployments » (20:32 UTC). Apres reprise, le
+build de `c63be44` etait pret mais `dev.aniscroll.com` n'y pointait pas :
+`vc.mjs dev promote <url> --yes` (un `vc alias set` est refuse, domaine d'un
+autre compte). `082b23b` et `3daad82` n'ont eu AUCUN deploiement (webhook
+perdu) ; le push suivant les a emportes.
+
+## 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
+
+**Le symptôme ment sur sa cause.** Le graphe Vercel du compte `aniscroll-dev`
+montrait 3 h 25 sur 4 h consommées en cinq jours, des barres partant du 13/09,
+pendant que la prod restait à ~20 min. Rien à voir avec le trafic : les logs
+runtime de `dev.aniscroll.com` étaient saturés de
+`[redis] indisponible (get) — cache coupé 60s : fetch failed`, sur `/api/v2/source`,
+`/api/v2/preview/*`, `/fr/profile/…`. Le disjoncteur de `lib/redisRest.ts` ne
+journalise qu'une ligne par réouverture, donc **chaque ligne = 60 s entières sans
+cache**. Dev tournait sans cache du tout, chaque requête recalculant en Fluid CPU.
+
+**`fetch failed` est une erreur réseau, pas un refus d'Upstash** — et c'est ce qui
+désigne le coupable. Un `curl` sur chaque hôte trouvé dans les `.env` et dans les
+variables du projet :
+
+| Hôte | Code | État |
+| --- | --: | --- |
+| `lucky-anchovy-281968` (paire REST du `.env`) | 401 | vivante |
+| `stable-tahr-110008` (`REDIS_URL` de `.env.local`) | 000 | DNS ne résout pas |
+| `giving-platypus-66269` (variables du projet dev) | 000 | DNS ne résout pas |
+
+Le projet dev pointait sur **sa propre base, supprimée depuis**. Les barres
+commencent le 13/09, jour de création des variables sur le nouveau compte : ça
+n'a jamais fonctionné depuis la séparation des comptes du 12/09.
+
+**Fausse piste écartée, à ne pas re-suivre** : les variables étaient de type
+`Secret` sur dev, et on a d'abord soupçonné qu'elles ressortaient vides au
+runtime (d'où un repli sur `REDIS_URL`, mort lui aussi). C'est faux — une
+variable « sensible » s'injecte normalement, elle n'est simplement plus lisible
+par CLI ou dashboard. La seule chose qui clochait était la valeur.
+
+**Correctif** : `UPSTASH_REDIS_REST_URL`/`_TOKEN` du `.env` reposées sur dev
+(Production + Preview), `REDIS_URL` supprimée du projet (elle ne servait qu'au
+Watch2gether natif, bloqué sur Vercel de toute façon), puis redeploy.
+Vérification, deux requêtes uniques sur `/api/v2/preview/21` : **2,07 s puis
+0,19 s**, et plus une seule ligne `[redis] indisponible`.
+
+**Ce qui reste ouvert** : dev partage désormais la base Upstash de la prod, donc
+le plafond de 500 000 commandes/mois — celui-là même qui a mis le site à terre le
+16/09 — est maintenant mangé par les deux. Une base dédiée à dev reste la bonne
+cible. Vu aussi dans les mêmes logs, non traité : `/api/v2/skip/:id/:ep` appelée
+4 fois en 7 s sur une même page, et `/api/v2/preview/*` en rafales d'une
+quinzaine.
+
+## 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
+
+**Le problème n'était pas qu'un compteur était faux.** Le 11/09, aucun des
+chiffres qui ont mis le compte en pause n'était erroné : Functions Storage
+35,85/10 Go, Deployment Storage 15,23/10 Go, Fluid CPU 12 h 05/4 h. Ils étaient
+répartis sur quatre tableaux de bord, dans quatre unités et quatre périodes, et
+personne ne les regardait ensemble. La seule question utile — *de quoi suis-je
+le plus près ?* — n'avait aucun endroit où être posée. D'où `/admin/quotas`.
+
+**67 plafonds, et la règle d'admission est stricte** : une entrée n'y figure que
+si elle a une limite chiffrée. Un compteur sans plafond (nombre d'animes,
+visiteurs) n'est pas un quota et reste sur le Dashboard. Chaque chiffre porte sa
+source (`docs`, `observed`, `code`) et son lien : un plafond écrit de mémoire est
+un plafond faux. Deux entrées sont marquées `observed` et méritent d'être
+signalées — **Functions Storage et Deployment Storage n'apparaissent dans aucune
+page de documentation Vercel**. Ce sont pourtant les deux qui ont cassé. Ils ne
+se voient que dans l'onglet Usage, ce qui explique assez bien qu'on ne les ait
+jamais surveillés.
+
+**Trois mondes, et la distinction est la partie utile.** `live` : la
+consommation se lit par API (Upstash mgmt, Turso platform, et côté Vercel les
+seuls déploiements). `manual` : le chiffre n'existe que dans un tableau de bord.
+`static` : il n'y a rien à consommer, c'est un débit ou une borne.
+
+**Vercel est le fournisseur le plus important et le moins instrumenté.** Il
+n'expose aucune API d'usage sur Hobby : ni Active CPU, ni invocations, ni edge
+requests, ni les deux stockages. Exactement les compteurs qui ont cassé. Plutôt
+que de laisser ces lignes vides à jamais, la page accepte un relevé saisi à la
+main (table `quota_readings` dans la base admin) et **affiche son âge** : un
+relevé de plus d'une semaine s'affiche en orange, « relevé périmé ». Un chiffre
+noté à la main et daté vaut mieux qu'une case qu'on n'ouvre jamais ; un chiffre
+noté à la main et *non* daté vaut pire que rien.
+
+**Ce que la page refuse de faire.** Un pourcentage inconnu n'est pas 0 % : il
+reste `null`, s'affiche « non mesuré », et le tri le renvoie en queue dans les
+deux sens. Le résumé en tête ne compte que les lignes mesurées — annoncer « 0
+dépassement » avec trente lignes inconnues serait un mensonge par omission. Et
+une API qui ne répond pas est affichée comme une panne nommée, pas avalée en
+silence : sans ça, « non mesuré » et « non mesurable » se confondent.
+
+**Elle a elle-même un coût, donc elle se l'applique.** Les plans de contrôle ne
+comptent pas dans les quotas qu'ils rapportent, mais le temps de fonction, lui,
+sort du budget Fluid. Cache Redis de 10 minutes, `?fresh=1` pour forcer, et
+`no-store` au bord puisque la réponse dépend de la session admin. Le `DBSIZE`
+Redis, qui aurait été la façon évidente de mesurer la taille des données, est
+délibérément évité : il aurait consommé une commande du quota qu'il rapporte.
+
+**Un détail que la page corrige au passage.** Le commentaire de
+`lib/db/turso-fanarts.ts` affirme que « chaque base a son propre quota de
+lignes lues sur le plan gratuit ». C'est faux : l'API de plateforme renvoie
+l'usage de l'**organisation**. Séparer fanarts et anime isole la contention, pas
+le budget.
+
+**Vérifié** : 37 assertions sur les fonctions pures (seuils, pourcentages,
+tri dans les deux sens, inconnus en queue, formatage) et sur les collecteurs
+contre un `fetch` factice — fenêtre de comptage mensuelle (un point du mois
+précédent ne doit pas compter), taille de données lue comme dernière valeur et
+non comme somme, fenêtres 1 h/24 h des déploiements, et surtout : une panne
+Turso n'emporte ni Upstash ni Vercel, et l'absence de token ne produit aucune
+erreur (une absence n'est pas une panne). Aucune API réelle n'a été appelée —
+les tokens ne sont pas configurés, voir ci-dessous.
+
+**Reste à la main de l'utilisateur.** Sans ces variables, les lignes `live`
+restent vides : `UPSTASH_EMAIL` + `UPSTASH_API_KEY` (console → Developer API),
+`TURSO_API_TOKEN` + `TURSO_ORG` (`turso auth api-tokens create`), `VERCEL_TOKEN`
+(+ `VERCEL_PROJECT_ID`). Ce sont les mêmes que `tools/usage-monitor`, à
+l'exception du couple Turso, nouveau.
+
+## 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
+
+**Le constat.** AniList répond `403` depuis le 02/09 (« temporarily disabled due
+to severe stability issues »), **en 110 ms**. Un refus instantané, donc sans le
+moindre freinage : rien ne ralentit un réessai qui ne coûte rien. En huit jours :
+Turso 428 M lignes lues (87 % du plafond mensuel, 60 M/jour contre ~0 avant),
+Upstash **au-delà** des 500 k commandes — le compteur du moniteur refuse déjà de
+s'exécuter (`Usage: 500000`) —, edge requests à 130 k/jour, Fast Origin 7,8 Go.
+
+**La cause est un raisonnement, pas un bug, et il était écrit SIX fois.**
+Partout : « ne mettons pas un échec en cache, il est sans doute passager ».
+Chaque occurrence porte son commentaire et chacune a raison pour un hoquet de
+trente secondes. Ensemble, au huitième jour, elles garantissent qu'aucune requête
+n'est jamais amortie. Le seul cache négatif correct du dépôt était
+`/api/v2/anilist-health`, qui écrit bien son `{up:false}` pendant 60 s — et ce
+signal n'était consulté nulle part sauf dans `getMediaMeta`.
+
+**Le mécanisme le plus cher.** `listAnime("TRENDING_DESC")`, le repli d'accueil,
+triait sur `CAST(json_extract(data,'$.trending') AS INTEGER)` — une expression
+qu'aucun index ne peut servir. `EXPLAIN QUERY PLAN` : `SCAN anime` sur les
+**22 643** lignes, avec désérialisation d'un blob de ~15 ko chacune, pour en
+garder 15. L'accueil en lançait **trois en parallèle**, et `index.tsx` refusait
+d'écrire le lot `degraded`. Soit ~45 000 lignes par rendu, à chaque visite.
+Corrigé en deux temps : la rangée vise les séries en cours
+(`SEARCH … USING INDEX idx_anime_status`, **314** lignes) et le lot dégradé
+s'écrit sous une clé distincte pour 120 s.
+
+> Piège évité de justesse : faire retomber `TRENDING_DESC` sur `popularity`
+> rendait les rangées « tendances » et « populaires » **identiques à l'écran**.
+> Une régression bien plus visible que le classement périmé qu'on acceptait.
+
+**Deux TTL qui auraient survécu à la panne.** C'est la partie qui ne se voyait
+sur aucun compteur :
+
+- `seasonList` mettait en cache **même un tableau vide, pour 7 jours** (« an
+  anime with no season siblings is a stable fact » — vrai quand l'amont répond,
+  faux quand il est mort). Chaque fiche visitée depuis le 02/09 a écrit un faux
+  « série unique » qui aurait tenu une semaine **après** le retour du service ;
+- la fiche anime lisait sa durée de cache sur la charge utile
+  (`nextAiringEpisode` → 10 min, sinon **30 jours**) sans savoir si celle-ci
+  venait d'AniList ou du repli Turso. Or une ligne périmée depuis une semaine n'a
+  souvent plus de `nextAiringEpisode` : une série **en cours** partait donc pour
+  30 jours. Les clés `anime:` d'Upstash le disent — 10 902 → 16 191 entre le 4 et
+  le 8 septembre, **~5 300 clés** écrites pendant la panne. Idem pour la liste
+  d'épisodes, dont la durée se lisait sur `releasing`, **un paramètre envoyé par
+  le client** : il décrit l'anime, pas la réponse, et ne peut pas savoir qu'elle
+  a été bâtie sans vignettes depuis une ligne périmée.
+
+D'où la règle qui unifie tout : **la provenance décide du TTL, pas la clé.** Sain
+→ durée normale ; repli → ≤ 5 min. `degraded` est *déduit* et non transporté : un
+résultat qui porte des données ne l'est jamais, un résultat vide ne l'est que si
+la santé AniList dit « down ».
+
+**Ce que la mesure a démenti.** La base Turso ne perdra rien : 1 362 lignes
+périmées seulement, et surtout **zéro re-fetch en 72 h** — preuve que le cron
+échoue *proprement*, en sortant en 1 sans jamais avancer un `expires_at`. Le
+balayage par TTL n'a pas de curseur, la file de travail *est* la table (design du
+16/08) : un seul passage rattrapera tout. Le rattrapage à écrire était donc
+côté Redis, pas côté base.
+
+**L'edge ne cache pas les 5xx.** Mesuré en GET sur dev : les 404 et les 200
+passent en `HIT` une fois `CDN-Cache-Control` posé, les 503/500 restent `MISS`
+quoi qu'on demande. Poser un TTL sur un 503 ne sert donc à rien. Les deux routes
+concernées distinguent maintenant l'état dégradé **connu** (200 + `degraded`) du
+plantage (500). Vérifié avant de le faire : les trois clients lisent `?.media` /
+`?.results` et **aucun ne regarde le code de statut**, donc rien ne change pour
+eux.
+
+> Piège d'outillage : `curl -sI` (HEAD) rapporte `MISS` là où le GET dit `HIT`.
+> Un premier relevé a conclu à tort que les 404 n'étaient pas cachés.
+
+**Le watch-party, découvert en chemin et sans rapport avec la panne.** Le shim
+Upstash n'exposait ni pipeline ni multi, alors que `@upstash/redis` le fournit :
+sans connexion à multiplexer, chaque méthode était un aller-retour ET une
+commande facturée. Du code écrit pour ioredis ne se lit pas comme ça — un helper
+qui fait `hset` puis `expire` ressemble à *une* opération. `touchPresence`
+coûtait **9 commandes**, un battement complet **18 + N**, toutes les 5 s par
+participant : ~29 000 commandes/heure pour une salle de deux, une soirée de 4 h
+mangeait un quart du quota mensuel du site. Ramené à **3** (pipeline, `MGET` au
+lieu d'un `exists` par membre, et les cinq gardes en une commande — `roomExists`
+interrogeait la MÊME clé que `getSnapshot`).
+
+**Deux morceaux de code mort trouvés là.** La route SSE `watch2gether/stream.ts`
+n'a plus aucun appelant depuis le passage à Ably et ne pouvait de toute façon pas
+marcher — son subscriber ouvre le port 6379, que le réseau bloque — mais elle
+dépensait ~10 commandes avant d'échouer et gardait une fonction en vie ~58 s. Et
+`publishEvent` faisait un `PUBLISH` **awaité** vers un canal que plus personne
+n'écoutait, à chaque message et à chaque action.
+
+> **Piège à retenir**, trouvé en le retirant : c'est cet `await` mort qui gardait
+> la lambda éveillée le temps que le publish Ably (fire-and-forget) parte. Retirer
+> l'un en gardant l'autre aurait fait disparaître des événements par
+> intermittence, sous charge — la pire façon de l'apprendre. Ably est donc awaité
+> à sa place.
+
+**Ce qui reste à faire, et qui n'est pas du code.** Upstash est **au plafond** :
+tant qu'il refuse, aucun de ces correctifs n'est mesurable, chaque garde de cache
+retombant dans sa branche « pas de Redis ». Une base gratuite neuve (ou le
+pay-as-you-go) est le préalable, plus une **seconde base pour Preview** — le
+moniteur la réclame depuis le 30/07, et `dev.aniscroll.com` mange le quota de
+prod à chaque session de test. Ne pas supprimer la base actuelle.
+
 ## 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1
 
 **Le constat.** Fluid Active CPU a **3 h 59 sur les 4 h** du plan Hobby le 30/08,

@@ -3,11 +3,14 @@ import { getCurrentSeason } from "@/utils/getTimes";
 import { ArrowUpCircleIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/solid";
 import { signIn, signOut, useSession } from "next-auth/react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
+import { pickAvatar } from "@/lib/auth/avatar";
+import { profileHref } from "@/lib/profile/href";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
@@ -23,6 +26,7 @@ import { useTranslation } from "react-i18next";
    `scrollPosition?.y ?? (0 >= 180)` — so the test was "is y a non-zero number",
    and the button actually appeared after ONE pixel of scroll, not 180. */
 const TOP_BUTTON_AT = 180;
+
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -66,6 +70,22 @@ export function Navbar({
   const { t } = useTranslation();
   const [scrolled, setScrolled] = useState(false);
   const [pastTopButton, setPastTopButton] = useState(false);
+  /* Sur `dev`, ces deux entrees ouvrent le formulaire de compte AniScroll
+     (`components/auth/AuthModal`). Le socle n'emporte pas les comptes maison,
+     donc on se connecte par AniList — exactement ce que fait la prod
+     d'aujourd'hui. Point de divergence volontaire, cf. tools/release/socle.mjs. */
+  const openAuth = (_view: "signin" | "signup") => {
+    signIn("AniListProvider");
+  };
+
+  /* An AniScroll-only account has no AniList avatar: the picture falls back to
+     the generic icon. It DOES have a profile page — the route reads its list
+     from the account's cloud backup — so "Profile" no longer detours through
+     the settings. The tag goes in the URL because two people can share a
+     pseudo; "-" separates it, since a browser would swallow everything after a
+     "#" as a fragment and the server would never see it. */
+  const avatarUrl = pickAvatar(session?.user);
+  const profileTarget = profileHref(session?.user);
   const { setIsOpen } = useSearch();
 
   const year = new Date().getFullYear();
@@ -252,7 +272,7 @@ export function Navbar({
                 <li>
                   <Link
                     href={
-                      session ? `/en/profile/${session?.user?.name}` : "/en/my-list"
+                      session ? profileTarget : "/en/my-list"
                     }
                     className="hover:text-action/80 transition-all duration-150 ease-linear whitespace-nowrap"
                   >
@@ -334,25 +354,27 @@ export function Navbar({
               {session ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    router.push(`/en/profile/${session?.user?.name}`)
-                  }
+                  onClick={() => router.push(profileTarget)}
                   className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
                   title={t("nav.profile")}
                 >
-                  <Image
-                    src={session?.user?.image?.large}
-                    alt="avatar"
-                    width={64}
-                    height={64}
-                    className="w-10 h-10 object-cover"
-                  />
+                  {avatarUrl ? (
+                    <Image
+                      src={avatarUrl}
+                      alt="avatar"
+                      width={64}
+                      height={64}
+                      className="w-10 h-10 object-cover"
+                    />
+                  ) : (
+                    <UserIcon className="w-full h-full translate-y-1" />
+                  )}
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={() => signIn("AniListProvider")}
-                  title={t("nav.signInWithAniList")}
+                  onClick={() => openAuth("signin")}
+                  title={t("nav.signIn")}
                   className={`w-10 h-10 rounded-full overflow-hidden shrink-0 ${
                     onLight ? "bg-black/10 text-black/70" : "bg-white/30"
                   }`}
@@ -368,15 +390,13 @@ export function Navbar({
                 <div className="bg-secondary text-white shadow-2xl rounded-md p-1 py-2 font-karla font-light grid place-items-stretch gap-1 text-center">
                   {session ? (
                     <>
-                      <Link
-                        href={`/en/profile/${session?.user?.name}`}
-                        className="hover:text-action py-1"
-                      >
+                      <Link href={profileTarget} className="hover:text-action py-1">
                         {t("nav.profile")}
                       </Link>
-                      {/* Admin link shows only for users matching the
-                          NEXT_PUBLIC_ADMIN_USERNAMES env var. */}
-                      {isAdminName(session?.user?.name) && (
+                      {/* Admin link shows for the NEXT_PUBLIC_ADMIN_USERNAMES
+                          list, or for an account whose row carries role=admin. */}
+                      {(session?.user?.role === "admin" ||
+                        isAdminName(session?.user?.name)) && (
                         <Link href="/admin" className="hover:text-action py-1">
                           {t("nav.admin")}
                         </Link>
@@ -396,11 +416,14 @@ export function Navbar({
                     <>
                       <button
                         type="button"
-                        onClick={() => signIn("AniListProvider")}
+                        onClick={() => openAuth("signin")}
                         className="hover:text-action py-1"
                       >
                         {t("nav.signIn")}
                       </button>
+                      {/* Le bouton « Creer un compte » vit sur `dev` : sans les
+                          comptes maison il n'y a rien a creer, et il n'aurait
+                          mene qu'a la meme connexion AniList que ci-dessus. */}
                       <Link href="/en/my-list" className="hover:text-action py-1">
                         {t("nav.myList")}
                       </Link>

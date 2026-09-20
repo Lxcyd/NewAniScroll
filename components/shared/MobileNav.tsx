@@ -1,6 +1,15 @@
 import { SparklesIcon } from "@heroicons/react/20/solid";
-import { CalendarIcon, HomeIcon } from "@heroicons/react/24/outline";
+import {
+  CalendarIcon,
+  HomeIcon,
+  MagnifyingGlassIcon,
+} from "@heroicons/react/24/outline";
+import { UserIcon } from "@heroicons/react/24/solid";
+import { pickAvatar } from "@/lib/auth/avatar";
+import { useSearch } from "@/lib/context/isOpenState";
+import { profileHref } from "@/lib/profile/href";
 import { signIn, signOut, useSession } from "next-auth/react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
@@ -10,10 +19,26 @@ type MobileNavProps = {
   hideProfile?: boolean;
 };
 
+
 export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const { data: sessions }: { data: any } = useSession();
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
+  /* Cf. NavBar : sans les comptes maison, la connexion passe par AniList,
+     comme en prod. Point de divergence volontaire du socle. */
+  const setAuthOpen = (_: boolean) => signIn("AniListProvider");
+
+  /* La palette de recherche. Sur ordinateur elle s'ouvre au Ctrl+S ou par la
+     barre du haut ; sur téléphone il n'y avait AUCUN moyen de l'atteindre —
+     l'icône prévue dans <NavBar> porte `hidden` et ne s'est jamais affichée.
+     Elle entre donc ici, dans le seul menu que le téléphone ait.
+
+     `useSearch()` peut rendre `undefined` : <MobileNav> est monté par des pages
+     d'erreur qui, selon le moment où elles rendent, sont hors du fournisseur.
+     On ne fait pas tomber la barre de navigation entière pour un bouton. */
+  const search = useSearch();
+
+  const avatarUrl = pickAvatar(sessions?.user);
 
   const handleShowClick = () => {
     setIsVisible(true);
@@ -52,24 +77,53 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
       <div
         className={`transition-all duration-150 subpixel-antialiased z-[500]`}
       >
+        {/* An AniScroll account has no AniList avatar: `src` would be
+            undefined, next/image throws, and the whole bar disappears. Fall
+            back to the generic icon. Where the button GOES is decided in one
+            place for every surface (lib/profile/href.ts). */}
         {isVisible && sessions && !hideProfile && (
           <Link
-            href={`/en/profile/${sessions?.user?.name}`}
+            href={profileHref(sessions?.user)}
             className="fixed lg:hidden bottom-[100px] w-[60px] h-[60px] flex items-center justify-center right-[20px] rounded-full z-50 bg-[#17171f]"
           >
-            <Image
-              src={sessions?.user?.image?.large}
-              alt="user avatar"
-              width={60}
-              height={60}
-              className="object-cover w-[60px] h-[60px] rounded-full"
-            />
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                alt="user avatar"
+                width={60}
+                height={60}
+                className="object-cover w-[60px] h-[60px] rounded-full"
+              />
+            ) : (
+              <UserIcon className="w-8 h-8 text-white/70" />
+            )}
           </Link>
         )}
         {isVisible && (
-          <div className="fixed bottom-[30px] right-[20px] z-[500] flex h-[51px] px-5 items-center justify-center gap-8 rounded-[8px] text-[11px] bg-[#17171f] shadow-lg lg:hidden">
-            <div className="flex items-center gap-5">
-              <button className="group flex flex-col items-center">
+          /* Six entrées au lieu de cinq : la barre ne tient plus à sa largeur
+             naturelle sur un téléphone étroit. Elle s'étire donc entre les deux
+             bords (`left`/`right`), reste plafonnée à 420 px et collée à droite
+             par `ml-auto` — la position qu'elle avait toujours sur les écrans
+             où elle tenait. */
+          <div className="fixed bottom-[30px] left-[20px] right-[20px] z-[500] ml-auto flex h-[51px] max-w-[420px] items-center justify-between gap-4 rounded-[8px] px-4 text-[11px] bg-[#17171f] shadow-lg lg:hidden">
+            {/* `scrollbar-hide` + `shrink-0` sur chaque entrée : sur un
+                téléphone très étroit, six entrées ne tiennent pas, et le choix
+                est entre des libellés qui passent à la ligne — la barre grandit
+                et casse — et un défilement horizontal. Le défilement gagne :
+                rien ne se déforme, et « Rechercher » est de toute façon la
+                première, donc visible sans défiler. */}
+            <div className="flex flex-1 items-center justify-between gap-3 overflow-x-auto scrollbar-hide">
+              <button
+                type="button"
+                onClick={() => search?.setIsOpen(true)}
+                className="group flex shrink-0 flex-col items-center gap-[1px] whitespace-nowrap"
+              >
+                <MagnifyingGlassIcon className="w-6 h-6 group-hover:text-action" />
+                <span className="font-karla font-bold text-white/60 group-hover:text-action">
+                  {t("nav.search")}
+                </span>
+              </button>
+              <button className="group flex shrink-0 flex-col items-center whitespace-nowrap">
                 <Link href="/en/">
                   <HomeIcon className="w-6 h-6 group-hover:text-action" />
                 </Link>
@@ -80,7 +134,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                   home
                 </Link>
               </button>
-              <button className="group flex flex-col items-center gap-[1px]">
+              <button className="group flex shrink-0 flex-col items-center gap-[1px] whitespace-nowrap">
                 <Link href="/en/schedule">
                   <CalendarIcon className="w-6 h-6 group-hover:text-action" />
                 </Link>
@@ -91,7 +145,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                   {t("nav.schedule")}
                 </Link>
               </button>
-              <button className="group flex gap-[1px] flex-col items-center">
+              <button className="group flex shrink-0 gap-[1px] flex-col items-center whitespace-nowrap">
                 <Link href="/en/discover">
                   <SparklesIcon className="w-6 h-6 group-hover:text-action" />
                 </Link>
@@ -103,7 +157,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                   {t("nav.discover")}
                 </Link>
               </button>
-              <button className="group flex gap-[1px] flex-col items-center">
+              <button className="group flex shrink-0 gap-[1px] flex-col items-center whitespace-nowrap">
                 <Link href="/en/settings">
                   {/* gear icon */}
                   <svg
@@ -136,7 +190,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
               {sessions ? (
                 <button
                   onClick={() => signOut({ redirect: true })}
-                  className="group flex gap-[1.5px] flex-col items-center "
+                  className="group flex shrink-0 gap-[1.5px] flex-col items-center whitespace-nowrap"
                 >
                   <div>
                     <svg
@@ -153,8 +207,8 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
                 </button>
               ) : (
                 <button
-                  onClick={() => signIn("AniListProvider")}
-                  className="group flex gap-[1.5px] flex-col items-center "
+                  onClick={() => setAuthOpen(true)}
+                  className="group flex shrink-0 gap-[1.5px] flex-col items-center whitespace-nowrap"
                 >
                   <div>
                     <svg

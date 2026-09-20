@@ -1,6 +1,6 @@
+import "@/lib/fonts";
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
-import Script from "next/script";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
@@ -53,6 +53,16 @@ const HoverPreviewProvider = dynamic(
 );
 const SyncDirectionModal = dynamic(
   () => import("@/components/shared/SyncDirectionModal"),
+  { ssr: false },
+);
+const DangerConfirmModal = dynamic(
+  () => import("@/components/shared/DangerConfirmModal"),
+  { ssr: false },
+);
+/* Squelette de navigation vers une page de lecture, et les prechauffages de
+   donnees (fiche, profil, pages du menu). Rien a rendre avant une navigation. */
+const RouteSkeleton = dynamic(
+  () => import("@/components/shared/RouteSkeleton"),
   { ssr: false },
 );
 
@@ -176,6 +186,7 @@ function SyncBootstrap() {
     />
   );
 }
+
 
 /**
  * Replaces every {{date:VALUE}} placeholder in `text` with a date string
@@ -458,11 +469,10 @@ export default function App({
 
   return (
     <>
-      {/* Google Cast SDK — enables the Chromecast button in the video player */}
-      <Script
-        src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
-        strategy="afterInteractive"
-      />
+      {/* Le SDK Google Cast n'est plus charge ici, sur TOUTES les pages : le
+          lecteur (UniversalPlayer) l'injecte lui-meme a son montage, seul
+          endroit ou le bouton Chromecast existe. Deux scripts tiers de moins
+          sur l'accueil, la fiche, la recherche… (18/09/2026). */}
       {/* SessionProvider polls /api/auth/session every minute by default
           AND on every window focus. Each poll = 1 Vercel function
           invocation. With users keeping tabs open for hours that adds up
@@ -489,6 +499,11 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
+                {/* `CloudSyncBootstrap`, `BadgesBootstrap` et `AchievementGate`
+                    vivent ici sur `dev`. Ils sont retires du socle : ils sont
+                    l'amorce du compte AniScroll et du moteur de badges, qui
+                    n'en font pas partie. C'est l'un des six points de
+                    divergence volontaire — cf. tools/release/socle.mjs. */}
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}
@@ -510,6 +525,11 @@ export default function App({
                   />
 
                   <SearchPaletteMount />
+                  {/* Dans CE conteneur, pas a cote : son animation d'opacite en
+                      fill cree un contexte d'empilement, et le squelette doit
+                      partager celui de la navbar de la page (z-[9999]) pour
+                      passer dessous au lieu de la recouvrir. */}
+                  <RouteSkeleton />
                   <Component {...pageProps} />
                   {/* Vercel Web Analytics — free, beacon-based, doesn't count
                       against the Hobby function quota and gives us per-page

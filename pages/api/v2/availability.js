@@ -1,4 +1,5 @@
 import { redis } from "@/lib/redis";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * Per-episode player availability cache.
@@ -54,8 +55,16 @@ const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
  * Le cout d'un bump ici est faible et borne, contrairement au cache anime : un
  * instantane vaut pour un couple (anime, episode) precis, donc seuls les
  * episodes REELLEMENT ouverts paient un nouveau fan-out, une fois.
+ *
+ * Bumpe 2026-09-01 avec le correctif voir-anime (une ligne player_map
+ * `verified` echappe au garde de coherence de saison et porte enfin son
+ * `ep_offset`). Les saisons 2+ de Demon Slayer avaient ete sondees par un
+ * resolveur qui n'atteignait pas leurs pages : l'instantane disait « absent »
+ * pour Voir-Anime Vidmoly, donc le chip restait masque sur un build qui le
+ * sert. Bumper `src:` ne suffit pas — c'est ICI que le selecteur lit son
+ * verdict, et le fan-out ne repart meme pas.
  */
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 
 function key(aniId, episode, sub) {
   const s = sub === "dub" ? "dub" : "sub";
@@ -130,6 +139,10 @@ export default async function handler(req, res) {
       // client; `absent` is additive so a stale client just ignores it.
       return res.status(200).json({ servers: ok, absent, cached: !!raw });
     } catch {
+      /* Redis unreachable (or over quota). Without a header this 200 is a fresh
+         function invocation for every probe of the watch page's server fan-out,
+         which is ~17 of them per episode. */
+      setEdgeErrorCache(res, 30);
       return res.status(200).json({ servers: [], absent: [], cached: false });
     }
   }

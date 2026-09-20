@@ -90,7 +90,14 @@ export function startViewportPrefetch(): () => void {
     root.querySelectorAll(`[${PREVIEW_ATTR}]`).forEach((el) => io.observe(el));
   };
 
-  observeAll(document);
+  /* Seulement une fois la page chargee : ces bannieres (3 Mo sur l'accueil,
+     mesure du 18/09/2026) ne servent qu'au survol, et partaient avant les
+     jaquettes visibles, a qui elles disputaient la bande passante. */
+  const begin = () => {
+    if (!stopped) observeAll(document);
+  };
+  if (document.readyState === "complete") begin();
+  else window.addEventListener("load", begin, { once: true });
 
   const mo = new MutationObserver((records) => {
     for (const record of records) {
@@ -105,6 +112,7 @@ export function startViewportPrefetch(): () => void {
 
   return () => {
     stopped = true;
+    window.removeEventListener("load", begin);
     io.disconnect();
     mo.disconnect();
   };

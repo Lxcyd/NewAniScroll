@@ -22,6 +22,7 @@ import { onFanartError, originalFanartUrl } from "@/lib/images/fanartFallback";
 import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
 import FilmsPanel from "./FilmsPanel";
 import { useFanarts } from "@/lib/hooks/useFanarts";
+import { getPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
 import { useTranslation } from "react-i18next";
 
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
@@ -317,6 +318,19 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
           setError(e?.message || "Failed to load films");
           setLoading(false);
         });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // The page already fetched this exact list in the background (Hero /
+    // [...id] prefetchEpisodeList): paint it now instead of issuing the same
+    // request and flashing the loading rows while it comes back from cache.
+    const warm =
+      source.id === info.id ? getPrefetchedEpisodes(info.id, isDub) : null;
+    if (warm) {
+      setEps(mapProvider(warm));
+      setLoading(false);
       return () => {
         cancelled = true;
       };

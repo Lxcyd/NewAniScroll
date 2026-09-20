@@ -91,6 +91,28 @@ export const LIST_COLORS: Record<string, string> = {
   Dropped: "#ef4444",
 };
 
+/**
+ * La couleur d'une liste personnalisée, déduite de son nom.
+ *
+ * Les six listes de statut ont chacune la sienne (LIST_COLORS) ; les listes que
+ * l'utilisateur invente n'en ont aucune, et il en a autant qu'il veut. Le nom
+ * est donc haché vers une teinte, à saturation et clarté fixes : la même liste
+ * a toujours la même couleur, deux listes différentes en ont deux différentes,
+ * et aucune ne tombe dans un ton boueux illisible sur fond sombre.
+ *
+ * Vient de l'éditeur de liste, qui en avait besoin le premier pour ses pastilles
+ * (components/listEditor.tsx) et qui l'importe maintenant d'ici : le menu
+ * déroulant des réglages de widget doit peindre EXACTEMENT les mêmes pastilles,
+ * et deux hachages parallèles finiraient par diverger.
+ */
+export function customListColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  }
+  return `hsl(${hash % 360}, 70%, 58%)`;
+}
+
 export const STATUS_TO_LIST: Record<string, string> = {
   CURRENT: "Watching",
   REPEATING: "Rewatching",

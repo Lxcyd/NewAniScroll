@@ -151,6 +151,20 @@ export default function HoverPreviewProvider() {
     let pendingEl: HTMLElement | null = null;
     /** Last pointer position seen, so a re-fired event at rest isn't movement. */
     let lastPos: { x: number; y: number } | null = null;
+    /**
+     * A button is down somewhere on the page.
+     *
+     * The press is the whole reason: dragging a carousel scrolls posters PAST a
+     * pointer that never moves, so `pointerover` fires on card after card while
+     * `pointermove` — the thing that re-arms the countdown — never does. The
+     * countdown therefore ran to term mid-drag and the card opened over the row
+     * being dragged, then travelled with it. Closing on `pointerdown` was not
+     * enough: it only kills the countdown that was already running, not the ones
+     * the drag itself arms afterwards. Nothing is armed while the button is
+     * held, and the drag ends with no preview until the hand moves again — which
+     * is also the right answer for the press that turns out to be a plain click.
+     */
+    let pressed = false;
 
     const cancel = () => {
       if (timer) clearTimeout(timer);
@@ -190,9 +204,30 @@ export default function HoverPreviewProvider() {
       }, prefs.delay);
     };
 
-    const arm = (el: HTMLElement) => {
+    /**
+     * Le bouton est-il enfoncé — MAINTENANT, d'après l'événement lui-même.
+     *
+     * `pressed` est un cache, et un cache de cette nature est une classe de
+     * bugs, pas un bug : chaque geste qui avale son `pointerup` le laisse posé,
+     * et plus AUCUN survol ne s'arme de toute la vie de la page. On a déjà
+     * rattrapé `pointercancel`, `dragend`, `drop` et `blur` un par un ; il
+     * suffit d'un avaleur de plus, jamais prévu, pour rendre la page muette.
+     *
+     * `PointerEvent.buttons` porte la vérité sur chaque événement, sans
+     * mémoire à tenir. Le lire ICI, à l'instant d'armer, retire au cache tout
+     * pouvoir de bloquer : il ne sert plus que de repli quand l'événement ne
+     * dit rien (ce qui n'arrive pas sur un vrai pointeur).
+     */
+    const boutonEnfonce = (e?: Event) => {
+      const b = (e as PointerEvent | undefined)?.buttons;
+      return typeof b === "number" ? b !== 0 : pressed;
+    };
+
+    const arm = (el: HTMLElement, e?: Event) => {
       // Already showing this card — nothing to do.
       if (openRef.current?.el === el) return;
+      // A drag in progress, or a click being made: not a hover.
+      if (boutonEnfonce(e)) return cancel();
       armCountdown(el);
       // Start the fetch immediately: the wait for stillness buys nothing here,
       // and the card is mounted before the response lands either way.
@@ -232,7 +267,30 @@ export default function HoverPreviewProvider() {
       return node.closest(`[${PREVIEW_ATTR}]`) as HTMLElement | null;
     };
 
+    /**
+     * LE VERROU DU BOUTON ENFONCÉ SE RELIT SUR CHAQUE ÉVÉNEMENT, il ne se
+     * mémorise pas.
+     *
+     * `pressed` était posé au `pointerdown` et levé au `pointerup` — et tout
+     * geste qui avale le `pointerup` le laissait posé POUR TOUJOURS : plus aucun
+     * survol ne s'armait de toute la vie de la page. Les avaleurs sont
+     * nombreux : un glisser-déposer natif (attraper une jaquette, que le
+     * navigateur transforme en `dragstart`, puis `dragend` — jamais de
+     * `pointerup`), un relâchement au-dessus d'une fenêtre d'un autre programme,
+     * une capture de pointeur perdue.
+     *
+     * `PointerEvent.buttons` porte la réponse sur CHAQUE événement : zéro veut
+     * dire qu'aucun bouton n'est enfoncé, maintenant, quoi qu'il se soit passé
+     * avant. Le verrou n'est donc plus qu'un cache de cette valeur, et il se
+     * répare tout seul au premier mouvement qui suit le geste perdu.
+     */
+    const syncPressed = (e: Event) => {
+      const b = (e as PointerEvent).buttons;
+      if (typeof b === "number") pressed = b !== 0;
+    };
+
     const onPointerOver = (e: Event) => {
+      syncPressed(e);
       const node = e.target as Element | null;
       if (!node || typeof node.closest !== "function") return;
       // Inside the popup itself — that's still "hovering the preview".
@@ -241,7 +299,7 @@ export default function HoverPreviewProvider() {
         return;
       }
       const anchor = anchorAt(e.target);
-      if (anchor) arm(anchor);
+      if (anchor) arm(anchor, e);
       else close();
     };
 
@@ -255,6 +313,18 @@ export default function HoverPreviewProvider() {
     // why the previous coordinates are compared rather than just counting the
     // event: browsers do emit pointermove without displacement.
     const onPointerMove = (e: Event) => {
+      const wasPressed = pressed;
+      syncPressed(e);
+      /* LE VERROU VIENT DE SE LEVER, et rien n'attend. C'est le geste qui a
+         avalé son `pointerup` : sans ce rattrapage, la jaquette sous le
+         pointeur resterait muette jusqu'à ce qu'on aille en survoler une autre,
+         puisque `pointerover` ne se redéclenche pas sans changer d'élément.
+         Uniquement sur la TRANSITION, pour ne pas rouvrir une carte que la
+         touche Échap vient de fermer. */
+      if (wasPressed && !pressed && !pendingEl && !openRef.current) {
+        const under = anchorAt(e.target);
+        if (under) arm(under, e);
+      }
       const p = e as PointerEvent;
       const moved = !lastPos || lastPos.x !== p.clientX || lastPos.y !== p.clientY;
       lastPos = { x: p.clientX, y: p.clientY };
@@ -303,6 +373,16 @@ export default function HoverPreviewProvider() {
       if (node && typeof node.closest === "function" && node.closest("[data-preview-popup]")) {
         return;
       }
+      pressed = true;
+      close();
+    };
+    const onPointerUp = () => {
+      pressed = false;
+    };
+    // Alt-tab pendant un glissement : sans ca, la page revient avec un bouton
+    // encore "enfonce" pour toujours, et plus aucun survol ne s'arme.
+    const onBlur = () => {
+      pressed = false;
       close();
     };
 
@@ -313,11 +393,21 @@ export default function HoverPreviewProvider() {
     document.addEventListener("pointerover", onPointerOver, true);
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerdown", onPointerDown, true);
+    // Sur `window` et pas `document` : un relachement hors de la page (au-dessus
+    // de la barre de defilement, ou apres etre sorti de la fenetre) doit quand
+    // meme rendre le survol, sans quoi la page reste sourde jusqu'au clic
+    // suivant.
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerUp, true);
+    /* Le glisser-déposer natif : attraper une jaquette peut devenir un
+       `dragstart`, et le navigateur ne rend alors JAMAIS de `pointerup`. */
+    window.addEventListener("dragend", onPointerUp, true);
+    window.addEventListener("drop", onPointerUp, true);
     document.addEventListener("scroll", onScroll, true);
     document.addEventListener("keydown", onKey);
     // Pointer left the window entirely — no further pointerover will arrive.
     document.addEventListener("mouseleave", close);
-    window.addEventListener("blur", close);
+    window.addEventListener("blur", onBlur);
 
     return () => {
       cancel();
@@ -325,11 +415,15 @@ export default function HoverPreviewProvider() {
       document.removeEventListener("pointerover", onPointerOver, true);
       document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
+      window.removeEventListener("dragend", onPointerUp, true);
+      window.removeEventListener("drop", onPointerUp, true);
       document.removeEventListener("scroll", onScroll, true);
       if (raf) cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mouseleave", close);
-      window.removeEventListener("blur", close);
+      window.removeEventListener("blur", onBlur);
     };
     // `prefs.delay` is read inside the countdown, so the listeners have to be
     // rebound when it changes or the old value keeps arming the card.

@@ -214,15 +214,23 @@ async function buildFranchise(
   let fribbGroup: FribbEntry[] = [];
   if (fribbSelf?.tmdbTvId && !selfIsFicheExtra) {
     fribbGroup = await getFribbFranchise(fribbSelf.tmdbTvId);
-    for (const e of fribbGroup) {
-      // Same rule for the members: a film parked on the fiche's specials is not
-      // a season of it either. One that genuinely continues the story is on the
-      // PREQUEL/SEQUEL chain, so the walk above has already brought it in.
-      if (e.tmdbSeason === 0) continue;
-      if (!byId.has(e.anilistId)) {
-        const m = await load(e.anilistId);
-        if (m) byId.set(e.anilistId, m);
-      }
+    // Same rule for the members: a film parked on the fiche's specials is not
+    // a season of it either. One that genuinely continues the story is on the
+    // PREQUEL/SEQUEL chain, so the walk above has already brought it in.
+    //
+    // EN PARALLELE : contrairement a la marche PREQUEL/SEQUEL, ou chaque saut
+    // decouvre le suivant, ces ids sont tous connus d'avance. Les charger l'un
+    // apres l'autre ajoutait un aller-retour AniList par membre au chemin le
+    // plus froid du site. `load` (getMediaMeta) deduplique deja les vols en
+    // cours, donc rien n'est demande deux fois.
+    const aCharger = fribbGroup.filter(
+      (e) => e.tmdbSeason !== 0 && !byId.has(e.anilistId),
+    );
+    const charges = await Promise.all(
+      aCharger.map(async (e) => [e.anilistId, await load(e.anilistId)] as const),
+    );
+    for (const [id, m] of charges) {
+      if (m && !byId.has(id)) byId.set(id, m);
     }
   }
 

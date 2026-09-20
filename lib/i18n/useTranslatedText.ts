@@ -17,6 +17,10 @@ const memCache = new Map<string, string>();
 // don't fire duplicate POSTs for the same text.
 const inflight = new Map<string, Promise<string>>();
 
+/* Encoded-query budget for the GET form. Vercel accepts URLs far longer, but
+   proxies and the service worker's cache keys are happier well under 8 KB. */
+const MAX_GET_QUERY = 4000;
+
 function cacheKeyOf(text: string, lang: string) {
   return `${lang}:${text}`;
 }
@@ -29,11 +33,21 @@ function translateOne(text: string, lang: string): Promise<string> {
   const existing = inflight.get(key);
   if (existing) return existing;
 
-  const p = fetch("/api/v2/translate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, target: lang }),
-  })
+  // GET whenever the text fits comfortably in a URL: the response then depends
+  // on the URL alone, so the CDN keeps it for a month and a synopsis someone has
+  // already had translated is served to every later visitor without waking the
+  // function. A POST can never be edge-cached — it was one invocation per
+  // synopsis per French visitor. Longer texts (rare) keep the POST.
+  const q = encodeURIComponent(text);
+  const req =
+    q.length <= MAX_GET_QUERY
+      ? fetch(`/api/v2/translate?target=${encodeURIComponent(lang)}&q=${q}`)
+      : fetch("/api/v2/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, target: lang }),
+        });
+  const p = req
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((data) => {
       const result = data?.translated && data.text ? data.text : text;

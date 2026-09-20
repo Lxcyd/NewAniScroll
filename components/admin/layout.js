@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ClipboardDocumentListIcon,
   CloudArrowUpIcon,
   Cog6ToothIcon,
   FlagIcon,
@@ -22,7 +23,8 @@ const Navigation = [
   { name: "Fanarts queue", href: "/admin/fanarts-review",   icon: <PhotoIcon /> },
   { name: "Fanarts by id", href: "/admin/fanarts-by-anime", icon: <PhotoIcon /> },
   { name: "Users",         page: 3, icon: <UserIcon /> },
-  { name: "Settings",      page: 4, icon: <Cog6ToothIcon /> },
+  { name: "Audit log",     page: 6, icon: <ClipboardDocumentListIcon /> },
+  { name: "System",        page: 4, icon: <Cog6ToothIcon /> },
 ];
 
 export default function AdminLayout({ children, page, setPage }) {

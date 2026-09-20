@@ -10,7 +10,11 @@ import {
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { ExclamationCircleIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { useRouter } from "next/router";
+import { touchHistory } from "@/lib/profile/history";
+import { useSession } from "next-auth/react";
+import { profileHref } from "@/lib/profile/href";
 import HistoryOptions from "./historyOptions";
+import { useEdgeFade } from "@/lib/ui/edgeFade";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
 import { coverUrl } from "@/lib/images/cover";
@@ -191,6 +195,7 @@ export default function Content({
   };
 
   const router = useRouter();
+  const { data: session }: { data: any } = useSession();
 
   const [clicked, setClicked] = useState(false);
 
@@ -233,6 +238,10 @@ export default function Content({
       e.target.scrollLeft < e.target.scrollWidth - e.target.clientWidth;
     setScrollLeft(scrollLeft);
     setScrollRight(scrollRight);
+    /* Les bords estompés, les mêmes que partout ailleurs (lib/ui/edgeFade.ts).
+       Greffés sur le gestionnaire existant plutôt qu'ajoutés à côté : deux
+       `onScroll` sur le même nœud, c'est le second qui écrase le premier. */
+    syncFades();
   };
 
   function handleAlert(e: string) {
@@ -275,6 +284,12 @@ export default function Content({
   const slicedData: SlicedDataTypes[] =
     filteredData?.length > 15 ? filteredData?.slice(0, 15) : filteredData;
 
+  /* Les bords estompés, communs à tous les carrousels (cf. lib/ui/edgeFade.ts).
+     Le nombre de cartes sert de témoin : une rangée de l'accueil se remplit
+     APRÈS son premier rendu, et sa boîte ne change pas de taille en
+     s'allongeant — un ResizeObserver seul ne le verrait donc pas. */
+  const syncFades = useEdgeFade(ref, slicedData?.length);
+
   const goToPage = () => {
     if (section === "Recently Watched") {
       router.push(`/en/anime/recently-watched`);
@@ -294,11 +309,14 @@ export default function Content({
     if (section === "Popular Movies") {
       router.push(`/en/search/anime?sort=POPULARITY_DESC&format=MOVIE`);
     }
+    /* Through the shared resolver: an AniScroll-only account is not addressed
+       by its pseudo (only its tag is unique) and a guest has no public profile
+       at all — both used to land on a 404 here. */
     if (section === "Your Plan") {
-      router.push(`/en/profile/${userName}/#planning`);
+      router.push(`${profileHref(session?.user)}#planning`);
     }
     if (section === "On-Going Anime" || section === "Your Watch List") {
-      router.push(`/en/profile/${userName}/#current`);
+      router.push(`${profileHref(session?.user)}#current`);
     }
   };
 
@@ -328,6 +346,7 @@ export default function Content({
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
       }
       if (aniId) {
@@ -344,6 +363,7 @@ export default function Content({
         }
 
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
       }
 
       // update client
@@ -363,6 +383,7 @@ export default function Content({
             "artplayer_settings",
             JSON.stringify(artplayerSettings)
           );
+          touchHistory();
         }
         setRemoved(id);
       }
@@ -383,6 +404,7 @@ export default function Content({
 
         // Update localStorage with the filtered data
         localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+        touchHistory();
         setRemoved(aniId);
       }
     }
@@ -422,7 +444,7 @@ export default function Content({
         </div>
         <div
           id={ids}
-          className="flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 lg:cursor-grab lg:active:cursor-grabbing"
+          className="as-fade-x flex h-full w-full select-none overflow-x-scroll overflow-y-hidden scrollbar-hide lg:gap-8 gap-4 lg:p-10 py-8 px-5 z-30 lg:cursor-grab lg:active:cursor-grabbing"
           onScroll={handleScroll}
           onClickCapture={onClickCapture}
           ref={ref}

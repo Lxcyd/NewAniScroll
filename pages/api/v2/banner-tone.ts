@@ -33,8 +33,27 @@ import sharp from "sharp";
  * not follow. Every one of those pages asked about a host that was refused: a
  * `400` per visit in the console, and — the part that is not console noise — a
  * navbar that kept its default chrome over artwork it had never measured.
+ *
+ * ET LA MÊME CHOSE EST ARRIVÉE UNE SECONDE FOIS, avec la bannière de profil.
+ * Relevé le 02/09/2026 dans la console d'un profil : `400` sur
+ * `fanart-proxy.aniscroll.com` — le miroir Cloudflare de fanart.tv, d'où sort
+ * désormais la plaque d'un profil (lib/profile/banner.ts). La liste ci-dessous
+ * est donc alignée sur celle de `lib/profile/banner.ts` (`ALLOWED_HOSTS`), qui
+ * dit ce qu'une bannière a le droit d'être : deux listes qui répondent à la
+ * même question doivent nommer les mêmes hôtes, sinon la seconde se fait
+ * oublier à chaque fois qu'une source s'ajoute — deux fois sur deux jusqu'ici.
+ * Elles restent séparées faute de pouvoir importer l'autre sans traîner le
+ * client Turso dans cette fonction.
  */
-const ALLOWED_HOSTS = new Set(["s4.anilist.co", "image.tmdb.org"]);
+const ALLOWED_HOSTS = new Set([
+  "s4.anilist.co",
+  "img.anili.st",
+  "image.tmdb.org",
+  "assets.fanart.tv",
+  "fanart-proxy.aniscroll.com",
+  "media.kitsu.io",
+  "media.kitsu.app",
+]);
 
 /**
  * Share of the image height we judge.

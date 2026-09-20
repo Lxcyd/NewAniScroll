@@ -76,13 +76,11 @@ export const getUser = async (
   list = true
 ): Promise<any | null> => {
   try {
+    // A missing name used to dump EVERY profile with its watch history. No
+    // caller wants that, and the one route reaching here is authenticated but
+    // not authorised per-user — so an absent name is now simply "no user".
     if (!name) {
-      const user = await prisma.userProfile.findMany({
-        include: {
-          WatchListEpisode: list,
-        },
-      });
-      return user;
+      return null;
     } else {
       const user = await prisma.userProfile.findFirst({
         where: {

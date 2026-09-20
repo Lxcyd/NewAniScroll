@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
+import { recordFlag } from "@/lib/badges/facts";
 import { Combobox, Dialog, Menu, Transition } from "@headlessui/react";
 import useDebounce from "@/lib/hooks/useDebounce";
 import Image from "next/image";
@@ -49,6 +51,32 @@ export default function SearchPalette() {
   const { t } = useTranslation();
 
   const [query, setQuery] = useState<string>("");
+
+  /* TROIS BADGES SECRETS SE JOUENT DANS CE CHAMP, et tous les trois se lisent
+     au meme endroit : ce qu'on vient de taper. On compare sur une forme
+     normalisee (sans accent, sans casse) parce qu'on cherche une INTENTION, pas
+     une orthographe.
+
+     Le pseudo n'est compare que s'il fait au moins trois caracteres : en
+     dessous, la collision avec un vrai titre est trop probable pour que le
+     badge veuille dire quelque chose. */
+  const { data: searchSession } = useSession();
+  useEffect(() => {
+    const q = query
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .trim();
+    if (!q) return;
+    if (q === "aniscroll") recordFlag("recursive");
+    if (q === "hentai") recordFlag("notHere");
+    const me = String((searchSession as any)?.user?.name ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .trim();
+    if (me.length >= 3 && q === me) recordFlag("selfSearch");
+  }, [query, searchSession]);
   const [data, setData] = useState<DataTypes[] | null>(null);
   const debounceSearch = useDebounce(query, 500);
   const [loading, setLoading] = useState<boolean>(false);

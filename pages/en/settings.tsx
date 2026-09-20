@@ -1,9 +1,11 @@
 import Head from "next/head";
+import { recordFlag } from "@/lib/badges/facts";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import AniListLogo from "@/components/media/aniList";
+import { pickAvatar } from "@/lib/auth/avatar";
 import {
   getTitlePref,
   setTitlePref,
@@ -70,7 +72,10 @@ import {
   BellIcon,
   CursorArrowRaysIcon,
   WrenchScrewdriverIcon,
+  UserCircleIcon,
 } from "@heroicons/react/24/outline";
+import ColorPicker from "@/components/shared/ColorPicker";
+import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -242,6 +247,9 @@ type SectionDef = {
 };
 
 const SECTIONS: SectionDef[] = [
+  /* Account comes first and is shown to everyone: a signed-out visitor needs
+     it too (guest name, and the way in). */
+  { id: "account", labelKey: "auth.sectionTitle", Icon: UserCircleIcon },
   { id: "language", labelKey: "settings.language.title", Icon: LanguageIcon },
   { id: "browsing", labelKey: "settings.browsing.title", Icon: CursorArrowRaysIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
@@ -340,6 +348,12 @@ function SettingsNav({
 }
 
 export default function Settings() {
+  /* « Reglages » : simplement ouvrir cette page. `recordFlag` n'ecrit que la
+     premiere fois, donc les visites suivantes ne coutent rien -- ni ecriture,
+     ni evenement, ni poussee vers le compte (cf. lib/badges/facts.ts). */
+  useEffect(() => {
+    recordFlag("settings");
+  }, []);
   /* Hydration guard: localStorage isn't available during SSR, so on the
      first render we display the default ("en") and immediately re-read
      after mount. Without this guard the SSR HTML would always show
@@ -359,6 +373,8 @@ export default function Settings() {
   const serverPref = useServerPref();
   const serverPerfEnabled = useServerPerfEnabled();
   const accent = useAccent();
+  /** Le sélecteur de couleur libre, ouvert sous la pastille arc-en-ciel. */
+  const [pickerOpen, setPickerOpen] = useState(false);
   const localList = useLocalList();
   // Visual keyboard shortcut editor overlay (shared with the player).
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
@@ -485,12 +501,19 @@ export default function Settings() {
   const [confirmReset, setConfirmReset] = useState(false);
   const handleClearHistory = () => {
     clearAllProgress();
+    // Sur `dev`, un `pushKinds(["progress", "recent"])` propage l'effacement a
+    // la copie du compte AniScroll. Le socle n'emporte pas ce compte : ici
+    // l'effacement est purement local, comme en prod aujourd'hui.
     setConfirmClearHistory(false);
     notify.success(t("settings.advanced.clearHistoryDone"));
   };
-  const handleRestoreDefaults = () => {
-    restoreDefaultSettings();
+  const handleRestoreDefaults = async () => {
     setConfirmReset(false);
+    // On ATTEND que l'effacement soit parti au compte avant de recharger :
+    // sinon la page revient chercher au compte ce qu'on vient d'effacer (c'est
+    // le retour des positions de lecture signale trois fois). Sans compte,
+    // c'est immediat.
+    await restoreDefaultSettings();
     notify.success(t("settings.advanced.restoreDone"));
     // Reflect the reset immediately without a manual reload.
     setTimeout(() => window.location.reload(), 600);
@@ -700,113 +723,34 @@ export default function Settings() {
         busy={syncing}
       />
 
-      {/* Confirmation before deleting the local list — irreversible. */}
-      {confirmClear && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmClear(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.list.clearConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.list.clearConfirmBody", { count: localList.length })}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmClear(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleClearList}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.list.clearConfirmButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The three irreversible actions of this page all go through the same
+          dialog and the same hold-to-confirm gesture. */}
+      <DangerConfirmModal
+        open={confirmClear}
+        title={t("settings.list.clearConfirmTitle")}
+        body={t("settings.list.clearConfirmBody", { count: localList.length })}
+        confirmLabel={t("settings.list.clearConfirmButton")}
+        onConfirm={handleClearList}
+        onCancel={() => setConfirmClear(false)}
+      />
 
-      {/* Confirmation before clearing local watch history. */}
-      {confirmClearHistory && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmClearHistory(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.advanced.clearHistoryConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.advanced.clearHistoryConfirmBody")}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmClearHistory(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleClearHistory}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.advanced.clearHistoryButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DangerConfirmModal
+        open={confirmClearHistory}
+        title={t("settings.advanced.clearHistoryConfirmTitle")}
+        body={t("settings.advanced.clearHistoryConfirmBody")}
+        confirmLabel={t("settings.advanced.clearHistoryButton")}
+        onConfirm={handleClearHistory}
+        onCancel={() => setConfirmClearHistory(false)}
+      />
 
-      {/* Confirmation before restoring default settings. */}
-      {confirmReset && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
-          onClick={() => setConfirmReset(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-secondary ring-1 ring-white/10 p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold mb-2">
-              {t("settings.advanced.restoreConfirmTitle")}
-            </h3>
-            <p className="text-white/70 text-sm mb-6">
-              {t("settings.advanced.restoreConfirmBody")}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmReset(false)}
-                className="px-4 py-2 rounded-lg bg-white/10 ring-1 ring-white/10 text-sm hover:bg-white/15"
-              >
-                {t("settings.list.clearCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={handleRestoreDefaults}
-                className="px-4 py-2 rounded-lg bg-red-500/90 text-white text-sm font-medium hover:bg-red-500"
-              >
-                {t("settings.advanced.restoreButton")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DangerConfirmModal
+        open={confirmReset}
+        title={t("settings.advanced.restoreConfirmTitle")}
+        body={t("settings.advanced.restoreConfirmBody")}
+        confirmLabel={t("settings.advanced.restoreButton")}
+        onConfirm={handleRestoreDefaults}
+        onCancel={() => setConfirmReset(false)}
+      />
 
       {/* Fixed full-height left rail (desktop). Out of normal flow, so the
           content below is pushed right by a matching margin. */}
@@ -820,6 +764,9 @@ export default function Settings() {
           </p>
 
           <div className="divide-y divide-white/10">
+          {/* La section « Compte » (identite d'invite + compte AniScroll) vit
+              sur `dev`. Hors du socle, cf. tools/release/socle.mjs. */}
+
           {/* ── Language (anime titles + interface) ──────────────── */}
           <section id="language" className="pb-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.language.title")}</h2>
@@ -1145,22 +1092,39 @@ export default function Settings() {
                     />
                   );
                 })}
-                {/* Free colour picker */}
-                <label
-                  className="w-9 h-9 rounded-full grid place-items-center cursor-pointer ring-1 ring-white/20 relative overflow-hidden"
-                  title={t("settings.theme.custom")}
-                  style={{
-                    background:
-                      "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)",
-                  }}
-                >
-                  <input
-                    type="color"
-                    value={accent}
-                    onChange={(e) => setAccent(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
+                {/* La couleur libre. Le sélecteur du système ouvrait une
+                    fenêtre grise qui ne ressemblait à rien du site et ne disait
+                    pas la même chose d'un OS à l'autre — c'est le nôtre qui
+                    s'ouvre ici, celui du studio de profil. */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen((o) => !o)}
+                    title={t("settings.theme.custom")}
+                    aria-label={t("settings.theme.custom")}
+                    aria-expanded={pickerOpen}
+                    className={`w-9 h-9 rounded-full transition-transform hover:scale-110 ${
+                      pickerOpen ? "ring-2 ring-white" : "ring-1 ring-white/20"
+                    }`}
+                    style={{
+                      background:
+                        "conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red)",
+                    }}
                   />
-                </label>
+                  {pickerOpen ? (
+                    <>
+                      <button
+                        type="button"
+                        aria-label={t("common.close", { defaultValue: "Close" })}
+                        onClick={() => setPickerOpen(false)}
+                        className="fixed inset-0 z-40 cursor-default"
+                      />
+                      <div className="absolute left-1/2 top-11 z-50 w-[290px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl bg-[#15161d] p-1.5 shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/10">
+                        <ColorPicker value={accent} onChange={setAccent} />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
                 {accent.toLowerCase() !== DEFAULT_ACCENT.toLowerCase() && (
                   <button
                     type="button"
@@ -1184,9 +1148,12 @@ export default function Settings() {
             <div className="mb-4 rounded-xl bg-white/5 ring-1 ring-white/10 p-4 flex items-center gap-4">
               {isLoggedIn ? (
                 <>
-                  {session?.user?.image?.large ? (
+                  {/* Not `image.large`: that is only the AniList shape, and
+                      reading it alone left this circle empty for anyone who
+                      signed in with a password. */}
+                  {pickAvatar(session?.user) ? (
                     <Image
-                      src={session.user.image.large}
+                      src={pickAvatar(session?.user) as string}
                       alt={session?.user?.name || "avatar"}
                       width={48}
                       height={48}

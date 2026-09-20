@@ -43,11 +43,14 @@ import { useNavBackdrop } from "@/lib/color/navContrast";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
-import CharactersTab from "../CharactersTab";
-import Episodes from "../Episodes";
-import Artworks from "../Artworks";
+import {
+  CharactersTab,
+  Episodes,
+  Artworks,
+  ScoresTab,
+  preloadTabBodies,
+} from "../lazyTabs";
 import QueueButton from "../QueueButton";
-import ScoresTab from "../ScoresTab";
 import Related from "../Related";
 import RelationsGraph from "../RelationsGraph";
 import { coverUrl } from "@/lib/images/cover";
@@ -103,6 +106,8 @@ export default function InfoPageMobile({
   // aired-so-far before the tab has loaded.
   const [loadedEpCount, setLoadedEpCount] = useState<number | null>(null);
   useEffect(() => setLoadedEpCount(null), [info.id]);
+  // Corps d'onglets en chunks separes (../lazyTabs) : precharges au repos.
+  useEffect(() => preloadTabBodies(), []);
   const epCount =
     loadedEpCount ??
     info.episodes ??
@@ -634,6 +639,12 @@ function MActions({
         <QueueButton mediaId={mediaId} title={mediaTitle} coverImage={mediaCover} size={44} />
         <button
           onClick={() => {
+            /* « Episode partage » : partager, ou copier le lien -- les deux
+               chemins comptent, c'est le meme geste selon ce que le navigateur
+               sait faire. */
+            import("@/lib/badges/facts")
+              .then((f) => f.recordFlag("copyLink"))
+              .catch(() => {});
             if (typeof navigator !== "undefined" && (navigator as any).share) {
               (navigator as any)
                 .share({ title: document.title, url: location.href })

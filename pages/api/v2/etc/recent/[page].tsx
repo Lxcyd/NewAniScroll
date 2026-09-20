@@ -1,7 +1,7 @@
 import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
-import { setEdgeCache } from "@/lib/http/edgeCache";
+import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 // Fetches recently updated anime from AniList (replaces dead api.anify.tv).
 // We pull a larger recently-updated pool, then sort it by popularity so the
@@ -78,7 +78,18 @@ export default async function handler(
       label: "recent",
     });
     if (!json) {
-      throw new Error("AniList unreachable");
+      /* A KNOWN degraded state, answered as a cacheable 200 — not thrown into
+         the catch below, which exists for genuine bugs and must keep saying 500.
+         Measured on dev: Vercel's edge does not cache a 5xx whatever the
+         Cache-Control asks for, so routing this through the catch made every
+         homepage visit a fresh function invocation for as long as AniList was
+         down. Both callers (pages/en/index.tsx and pages/en/anime/recent.js)
+         read `data?.results` and never look at the status, so the rail behaves
+         exactly as it did — it just stops costing an invocation each time. */
+      setEdgeErrorCache(res);
+      return res
+        .status(200)
+        .json({ results: [], hasNextPage: false, degraded: true });
     }
 
     const mediaList = json?.data?.Page?.media ?? [];
@@ -115,6 +126,11 @@ export default async function handler(
     return res.status(200).json({ results });
   } catch (error) {
     console.error("[recent] error:", error);
+    /* A genuine bug, and it keeps saying 500. The header is set anyway on the
+       chance the platform ever caches 5xx — today it does not (measured), which
+       is precisely why the KNOWN degraded state above answers 200 instead of
+       being funnelled in here. */
+    setEdgeErrorCache(res);
     return res.status(500).json({ error: "Failed to fetch recent episodes" });
   }
 }
