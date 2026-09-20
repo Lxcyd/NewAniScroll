@@ -31,6 +31,7 @@ import {
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import { previewAnchor } from "@/lib/preview/anchor";
+import { watchHref } from "@/lib/prefs/clickTarget";
 
 /* Which titles get the hero, and in what order — Hayase's algorithm
    (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
@@ -1198,9 +1199,7 @@ export default function Home({
             import("@/lib/badges/facts")
               .then((f) => f.recordFlag("spotlight"))
               .catch(() => {});
-            router.push(
-              `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-1&num=1`,
-            );
+            router.push(watchHref(id));
           }}
           stripDescription={removeHtmlTags}
         />

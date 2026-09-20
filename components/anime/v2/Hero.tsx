@@ -17,6 +17,7 @@ import {
 } from "./helpers";
 import { notify } from "@/lib/notifications/noticeStore";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
@@ -135,11 +136,11 @@ export default function Hero({
   // Human-readable anime slug for the second path segment (was "megaplay").
   // The watch route treats this segment as cosmetic, so it's safe as a slug.
   const watchSlug = slugifyTitle(info?.title) || "watch";
-  const watchHref = isNotYetReleased
-    ? "#"
-    : isCompleted
-    ? `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-1&num=1`
-    : watchUrl || `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-1&num=1`;
+  /* Le `?id=` est cosmetique, mais il nomme un hote : l'ecrire en dur a laisse
+     ici `megaplay`, retire de lib/servers.js le 08/09/2026. Il vient donc de
+     DEFAULT_SERVER_ID, comme partout ailleurs (lib/prefs/clickTarget.ts). */
+  const epUn = `/en/anime/watch/${info.id}/${watchSlug}?id=${DEFAULT_SERVER_ID}-${info.id}-1&num=1`;
+  const watchHref = isNotYetReleased ? "#" : isCompleted ? epUn : watchUrl || epUn;
 
   // ── Intent-based prefetch ──────────────────────────────────────────────
   // Warm the entire playback path the instant the user shows intent to watch

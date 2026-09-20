@@ -10,6 +10,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { Bar, EmptyBlock, useAgo } from "./common";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 
 /**
  * Les deux widgets d'activité de lecture.
@@ -249,7 +250,7 @@ export function ResumeBlock({
            l'épisode déjà ouvert. */
         href:
           `/en/anime/watch/${r.aniId}/${r.provider || "watch"}` +
-          `?id=megaplay-${r.aniId}-${n}&num=${n}` +
+          `?id=${DEFAULT_SERVER_ID}-${r.aniId}-${n}&num=${n}` +
           (r.dub ? "&dub=true" : ""),
       };
     }

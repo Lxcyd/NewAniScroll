@@ -33,7 +33,7 @@ import {
    l'ascenseur `.customScroll` de cette meme feuille. */
 import v2Styles from "@/components/anime/v2/styles.module.css";
 import { seasonSubtitle } from "@/components/anime/v2/helpers";
-import { animeHref } from "@/lib/prefs/clickTarget";
+import { animeHref, watchHref } from "@/lib/prefs/clickTarget";
 import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
 
 type EpisodeListsProps = {
@@ -1309,9 +1309,7 @@ export default function EpisodeLists({
                              partout ailleurs sur le site (Hero, accueil,
                              decouverte). */
                           router.push(
-                            `/en/anime/watch/${s.id}/megaplay?id=megaplay-${s.id}-1&num=1${
-                              dub ? `&dub=${dub}` : ""
-                            }`,
+                            watchHref(s.id) + (dub ? `&dub=${dub}` : ""),
                           );
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.05]"

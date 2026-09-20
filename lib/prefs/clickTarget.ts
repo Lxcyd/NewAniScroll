@@ -9,12 +9,13 @@
  *   - "watch"           → straight into episode 1 via the site-default player.
  *
  * A "watch" link needs a provider + episode (unlike the info page), so we build
- * the same minimal megaplay URL the home page / swipe deck already use for
- * "jump straight in": /en/anime/watch/{id}/megaplay?id=megaplay-{id}-1&num=1.
+ * the same minimal URL the home page / swipe deck already use for "jump
+ * straight in" — voir `watchHref` plus bas, la SEULE fabrique de ces liens.
  */
 
 import { useEffect, useState } from "react";
 import { peekLocalEntry } from "@/lib/list/localList";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 
 export type ClickTarget = "info" | "watch";
 
@@ -61,13 +62,29 @@ function resumeEpisode(id: number | string): number {
   return progress + 1;
 }
 
+/**
+ * Le lien « ouvrir cet anime dans le lecteur », fabrique a UN SEUL endroit.
+ *
+ * Le `?id=` est un identifiant d'episode purement cosmetique : la page de
+ * lecture derive sa vraie cle de l'anime et du numero, et choisit son lecteur
+ * d'apres les preferences, jamais d'apres l'URL. Mais il porte un nom d'hote,
+ * et ce nom etait ecrit en dur — `megaplay`, retire de lib/servers.js le
+ * 08/09/2026 — dans QUATRE fichiers (ici, ScrollCard, episodeLists, Hero).
+ * Resultat : des liens qui annoncaient un lecteur mort, et l'impression, tres
+ * raisonnable, que le site essayait de l'ouvrir. Il tire desormais son nom de
+ * `DEFAULT_SERVER_ID`, donc il ne peut plus designer un hote qui n'existe pas.
+ *
+ * Le second segment du chemin est decoratif de la meme facon (la page ne le
+ * lit pas) ; on y met le meme nom, faute de slug de titre sous la main.
+ */
+export function watchHref(id: number | string, ep: number = 1): string {
+  return `/en/anime/watch/${id}/${DEFAULT_SERVER_ID}?id=${DEFAULT_SERVER_ID}-${id}-${ep}&num=${ep}`;
+}
+
 /** The href an anime card/poster should link to, honouring the preference. */
 export function animeHref(id: number | string, target?: ClickTarget): string {
   const t = target ?? getClickTarget();
-  if (t === "watch") {
-    const ep = resumeEpisode(id);
-    return `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-${ep}&num=${ep}`;
-  }
+  if (t === "watch") return watchHref(id, resumeEpisode(id));
   return `/en/anime/${id}`;
 }
 

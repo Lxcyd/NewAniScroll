@@ -673,7 +673,7 @@ export default function Info({
   // when the title hasn't resolved yet so the URL is never empty.
   const watchSlug = slugifyTitle(info?.title) || "watch";
   const watchUrl = info
-    ? `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-${
+    ? `/en/anime/watch/${info.id}/${watchSlug}?id=${DEFAULT_SERVER_ID}-${info.id}-${
         Math.max(1, progress + 1)
       }&num=${Math.max(1, progress + 1)}`
     : undefined;

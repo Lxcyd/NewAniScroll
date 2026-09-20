@@ -6,6 +6,7 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
 import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 import { fillStillGaps } from "@/lib/tmdb/episodeStills";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import {
   getAniZipEpisodes,
   type AniZipEpisodeData,
@@ -119,7 +120,7 @@ function buildEpisodeList(
       .replace(/\s*\(\d+\)\s*$/, "")
       .trim();
     return {
-      id: `megaplay-${id}-${num}`,
+      id: `${DEFAULT_SERVER_ID}-${id}-${num}`,
       /* ani.zip backs the sequels up: it keys on THIS entry and numbers from
          1, so it has real titles exactly where streamingEpisodes was rejected
          as foreign (and where AniList lists nothing at all — Chainsaw Man). */
