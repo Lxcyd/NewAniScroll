@@ -676,6 +676,10 @@ export default function Watch({
      Une seule fois par (lecteur, episode) : le doute peut etre emis plusieurs
      fois, le travail ne doit l'etre qu'une. */
   const dejaPrechauffeRef = useRef(new Set());
+  /* La premiere image est arrivee : c'est le signal qui libere la rafale de
+     sondes (cf. l'effet des sondes de fond). Un ref, pas un state : personne
+     n'a besoin d'un rendu pour ca. */
+  const premiereImageRef = useRef(false);
   const prewarmNext = useCallback(
     async (from) => {
       if (!info?.id || !epiNumber) return;
@@ -1971,15 +1975,7 @@ export default function Watch({
     // meant if the user changed away from the default before the probe
     // completed, the original default never got marked as confirmed and
     // disappeared from the selector.)
-    /* Frembed est ecarte quand son catalogue — qu'il publie, et qu'on lit une
-       fois par jour — ne contient pas cet anime : c'etaient deux sondes (VF et
-       VO) par ouverture pour une reponse connue d'avance, sur l'immense
-       majorite des series. Catalogue inconnu = on sonde comme avant. */
-    const toProbe = SERVERS.filter(
-      (s) =>
-        (s.type === "hls" || s.type === "api") &&
-        (!/^frembed/.test(s.id) || frembedPossible(info?.id)),
-    );
+    const toProbe = SERVERS.filter((s) => s.type === "hls" || s.type === "api");
 
     const controller = new AbortController();
     // On phones / Save-Data mode the previous 8-way fan-out competes with the
@@ -2312,8 +2308,21 @@ export default function Watch({
         }
       };
       await waitForActive();
-      // A short extra beat so the first segment warm (warmStream) also gets a
-      // head-start before the probe burst hits the pool.
+      /* …puis la PREMIERE IMAGE, pas seulement la source resolue.
+         Les sondes partaient 250 ms apres que /api/v2/source ait repondu,
+         c'est-a-dire en plein pendant l'extraction de l'embed et le
+         chargement du manifeste : huit requetes vers notre API disputant le
+         pool de connexions au demarrage que l'utilisateur regarde. Elles ne
+         servent qu'a peindre les chips — personne ne les attend. Plafond a
+         6 s pour qu'un flux qui ne demarre jamais ne gele pas le selecteur.
+         Effet de bord utile : le catalogue frembed (charge au repos) a le
+         temps d'arriver, donc on cesse aussi de sonder un hote dont on sait
+         deja qu'il n'a pas la serie. */
+      const plafond = Date.now() + 6000;
+      while (!premiereImageRef.current && !cancelled && Date.now() < plafond) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      if (cancelled) return;
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
 
@@ -2325,6 +2334,14 @@ export default function Watch({
 
       const remaining = toProbe.filter((s) => {
         if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return false;
+        /* Frembed est ecarte quand son catalogue — qu'il publie, et qu'on lit
+           une fois par jour — ne contient pas cet anime : c'etaient deux
+           sondes (VF et VO) par ouverture pour une reponse connue d'avance,
+           sur l'immense majorite des series. Le test est fait ICI et non a la
+           construction de la liste : le catalogue arrive au repos, donc apres:
+           filtrer trop tot le manquait d'une poignee de millisecondes (mesure
+           du 20/09). Catalogue inconnu = on sonde comme avant. */
+        if (/^frembed/.test(s.id) && !frembedPossible(info?.id)) return false;
         // Snapshot-absent servers are re-probed only on a fraction of visits
         // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
         // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
@@ -2731,6 +2748,9 @@ export default function Watch({
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onDoubt={() => prewarmNext(server.id)}
             onPrepareNextEpisode={() => prepareEpisode(nextEp?.number)}
+            onFirstFrame={() => {
+              premiereImageRef.current = true;
+            }}
             onError={(reason) =>
               markFailed(
                 server.id,

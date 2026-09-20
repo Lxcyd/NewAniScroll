@@ -176,6 +176,9 @@ type Props = {
    *  bouton et non a son survol, sans quoi l'enchainement automatique — qui ne
    *  survole rien — repartirait a froid. */
   onPrepareNextEpisode?: () => void;
+  /** La video a decode sa premiere image. La page s'en sert pour lancer ce
+   *  qu'elle avait mis en attente derriere le demarrage (les sondes de chips). */
+  onFirstFrame?: () => void;
   /** Le lecteur repond encore mais rien n'arrive (extraction qui traine, aucune
    *  premiere image, erreurs de chargement a repetition). La page s'en sert
    *  pour preparer le lecteur SUIVANT pendant que celui-ci finit ses essais —
@@ -1735,6 +1738,7 @@ export default function UniversalPlayer({
   onError,
   onDoubt,
   onPrepareNextEpisode,
+  onFirstFrame,
   ambient = true,
   serverId,
   downloadName = "anime.mp4",
@@ -4252,9 +4256,12 @@ export default function UniversalPlayer({
      chaque ouverture sur les series ou le lecteur le mieux classe n'existe
      pas. Lecture au chargement suivant : lib/prefs/animeHostMemory. */
   useEffect(() => {
-    if (!videoAUneImage || !serverId || aniListId == null) return;
-    rememberAnimeHost(aniListId, serverId);
-  }, [videoAUneImage, serverId, aniListId]);
+    if (!videoAUneImage) return;
+    if (serverId && aniListId != null) rememberAnimeHost(aniListId, serverId);
+    // …et on le DIT a la page : elle retient sa rafale de sondes jusque-la,
+    // pour ne pas disputer la bande passante au demarrage qu'on mesure.
+    onFirstFrame?.();
+  }, [videoAUneImage, serverId, aniListId, onFirstFrame]);
 
   useEffect(() => {
     if (!playerElState) return;

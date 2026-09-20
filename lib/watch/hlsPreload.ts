@@ -18,9 +18,19 @@
  * requete normalement. Mieux vaut un aller-retour qu'un manifeste perime.
  */
 
-import { bandwidthKey, pickStartVariant } from "./hlsBandwidth";
-
 const PEREMPTION_MS = 30_000;
+
+/** Les playlists de variante annoncees par un master (vide si ce n'en est pas un). */
+function variantesDe(master: string): string[] {
+  const lignes = master.split("\n").map((l) => l.trim());
+  const out: string[] = [];
+  lignes.forEach((l, i) => {
+    if (!l.startsWith("#EXT-X-STREAM-INF:")) return;
+    const uri = lignes.slice(i + 1).find((x) => x && !x.startsWith("#"));
+    if (uri) out.push(uri);
+  });
+  return out;
+}
 
 type Entree = { texte: string; at: number };
 
@@ -41,19 +51,25 @@ export function prechargeManifeste(url: string): void {
       const texte = await r.text();
       if (!/^\s*#EXTM3U/.test(texte)) return null;
       magasin.set(url, { texte, at: Date.now() });
-      /* Et la variante dans la foulee : un master ne se joue pas, il annonce.
+      /* Et les variantes dans la foulee : un master ne se joue pas, il annonce.
          hls.js demanderait ensuite la playlist du niveau choisi — un
-         aller-retour de plus sur le meme CDN lent. On prend celle qu'il
-         choisira (meme calcul que son ABR au demarrage, cf. pickStartVariant)
-         pendant qu'il n'existe pas encore. */
-      const variante = pickStartVariant(texte, bandwidthKey(url, true));
-      if (variante) {
-        try {
-          prechargeManifeste(new URL(variante, url).toString());
-        } catch {
-          /* URI relative illisible : hls.js s'en chargera */
-        }
-      }
+         aller-retour de plus sur le meme CDN lent.
+         TOUTES, pas seulement celle qu'on predit : mesure du 20/09/2026 sur
+         Frieren, notre calcul designait `_l` et hls.js a demande `_n`. Predire
+         son choix demande de rejouer son ABR (estimation memorisee, ordre du
+         manifeste, `firstLevel`), et se tromper coute justement l'aller-retour
+         qu'on voulait supprimer. Une playlist de variante pese 1 a 3 Ko : les
+         prendre toutes est plus simple ET toujours juste. Plafonnees a quatre,
+         par prudence sur un manifeste bavard. */
+      variantesDe(texte)
+        .slice(0, 4)
+        .forEach((uri) => {
+          try {
+            prechargeManifeste(new URL(uri, url).toString());
+          } catch {
+            /* URI relative illisible : hls.js s'en chargera */
+          }
+        });
       return texte;
     })
     .catch(() => null)
