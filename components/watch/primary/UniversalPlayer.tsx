@@ -1,7 +1,7 @@
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import {
@@ -66,6 +66,7 @@ import {
   markComplete,
   publishDuration,
 } from "@/lib/watch/progress";
+import { avecReprise, estMegaplay, ouvrePont } from "@/lib/watch/megaplayBridge";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
@@ -5684,6 +5685,19 @@ export default function UniversalPlayer({
           serverId={serverId}
           onError={onError}
           referrerPolicy={isVidmoly ? "no-referrer" : "origin"}
+          /* Megaplay seul s'en sert (les autres iframes n'ont pas de pont) :
+             reprise de lecture, progression enregistree, saut d'OP/ED. Passe
+             inconditionnellement — c'est `estMegaplay` qui decide, pour qu'un
+             futur hote dote du meme pont n'ait rien a rebrancher ici. */
+          aniListId={aniListId}
+          episodeNumber={episodeNumber}
+          segments={skipTimes}
+          autoSaut={playerPrefs.autoSkipIntro || playerPrefs.autoSkipOutro}
+          surFin={() =>
+            aniListId != null && episodeNumber != null
+              ? onEpisodeCompleteRef.current?.({ aniListId, episodeNumber })
+              : undefined
+          }
         />
         {/* No explicit exit-fullscreen cross: re-tapping the fullscreen
             button toggles pseudo-fullscreen off. */}
@@ -6653,20 +6667,69 @@ function IframeEmbed({
   serverId,
   onError,
   referrerPolicy = "origin",
+  aniListId = null,
+  episodeNumber = null,
+  segments,
+  autoSaut = false,
+  surFin,
 }: {
   src: string;
   serverId?: string;
   onError?: (reason?: string) => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
+  aniListId?: number | null;
+  episodeNumber?: number | null;
+  segments?: Array<{ start: number; end: number; type: string }>;
+  autoSaut?: boolean;
+  surFin?: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
+
+  /* ── Megaplay : reprise de lecture ──
+     Fige a l'ouverture, et surtout PAS recalcule a chaque rendu : ce `src`
+     est celui de l'iframe, donc le recalculer au fil de la progression
+     rechargerait le lecteur en boucle. Les dependances sont exactement ce qui
+     doit provoquer un rechargement (l'episode change, la source change). */
+  const srcFige = useMemo(
+    () => avecReprise(src, aniListId, episodeNumber),
+    [src, aniListId, episodeNumber],
+  );
+
+  /* La signature des segments plutot que le tableau : son identite change a
+     chaque rendu du parent, et le pont serait alors rebati sans arret. */
+  const signatureSegments = useMemo(
+    () => (segments || []).map((s) => `${s.type}:${s.start}-${s.end}`).join("|"),
+    [segments],
+  );
+  const segmentsRef = useRef(segments);
+  const surFinRef = useRef(surFin);
+  useEffect(() => {
+    segmentsRef.current = segments;
+    surFinRef.current = surFin;
+  });
 
   // The embed is on screen — drop the episode-transition loading host. No-op
   // unless a transition is pending.
   useEffect(() => {
     claimEpisodeTransition();
   }, []);
+
+  /* ── Megaplay : progression, duree, « vu », saut d'OP/ED ──
+     Tout ce que l'encadrement nous avait coute et que leur propre pont rend.
+     Voir lib/watch/megaplayBridge.ts, qui documente le protocole ET ce qui a
+     ete essaye sans succes (le `sandbox`, qu'ils detectent et refusent). */
+  useEffect(() => {
+    const el = iframeRef.current;
+    if (!el || !estMegaplay(srcFige)) return;
+    return ouvrePont(el, srcFige, {
+      aniListId,
+      episodeNumber,
+      segments: segmentsRef.current || [],
+      autoSaut,
+      surFin: () => surFinRef.current?.(),
+    });
+  }, [srcFige, aniListId, episodeNumber, autoSaut, signatureSegments]);
 
   useEffect(() => {
     setFailed(false);
@@ -6699,7 +6762,7 @@ function IframeEmbed({
   return (
     <iframe
       ref={iframeRef}
-      src={src}
+      src={srcFige}
       className="relative z-10 aspect-video h-full w-full bg-black"
       frameBorder="0"
       scrolling="no"
