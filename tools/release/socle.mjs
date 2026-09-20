@@ -116,12 +116,28 @@ if (process.argv.includes("--frontiere")) {
 }
 
 if (process.argv.includes("--appliquer")) {
+  /* Un fichier SUPPRIME sur dev ne peut pas etre « checkout » : git repond
+     « pathspec did not match any file(s) known to git » et le lot entier
+     echoue. Les deux cas se traitent separement — porter une suppression fait
+     partie de porter le travail.
+
+     A savoir : ce fichier fait lui-meme partie du socle, donc l'application
+     l'ECRASE par la version de la source. C'est voulu (la definition du
+     perimetre doit venir de la source, pas de la branche de sortie), mais ca
+     surprend : une modification locale non poussee sur SOURCE est perdue ici. */
+  const surSource = new Set(git("ls-tree", "-r", "--name-only", SOURCE).split("\n").filter(Boolean));
+  const aPorter = dedans.filter((f) => surSource.has(f));
+  const aSupprimer = dedans.filter((f) => !surSource.has(f));
+
   /* Par paquets : la ligne de commande Windows plafonne, et un `git checkout`
-     de 260 chemins la depasse. */
-  for (let i = 0; i < dedans.length; i += 60) {
-    git("checkout", SOURCE, "--", ...dedans.slice(i, i + 60));
+     de 190 chemins la depasse. */
+  for (let i = 0; i < aPorter.length; i += 60) {
+    git("checkout", SOURCE, "--", ...aPorter.slice(i, i + 60));
   }
-  console.log(`${dedans.length} fichier(s) portes de ${SOURCE} dans l'index.`);
+  for (let i = 0; i < aSupprimer.length; i += 60) {
+    git("rm", "-q", "--", ...aSupprimer.slice(i, i + 60));
+  }
+  console.log(`${aPorter.length} fichier(s) portes, ${aSupprimer.length} supprime(s).`);
   process.exit(0);
 }
 
