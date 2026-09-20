@@ -6,6 +6,143 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 (nuit) — ansembed devant, et trois fausses pistes instructives
+
+**L'ordre ne se change pas en deplaçant une ligne.** Demande : « priorise
+ansembed qui est plus rapide a se lancer ». `voiranime-vidmoly` et
+`animesama-ansembed` avaient tous deux `speed: 2` et l'egalite semblait
+tranchee par l'ordre de declaration. Elle ne l'etait pas : l'ordre effectif
+melange trois etages (`speed` ecrit a la main → agregat mesure des visiteurs,
+plafond 0,6 → mesures locales de l'appareil, plafond 0,75), et l'agregat placait
+deja voiranime devant — **19,3 contre 19,6** au calcul. Les permuter dans le
+fichier n'aurait rien change. Il a fallu les separer d'un rang.
+
+Releve dans `server_perf` ce jour-la, qui donne raison a la demande cote VO :
+
+| lecteur | demarrage `t` |
+| --- | --: |
+| `voiranime-vidmoly-vo` | 3 103 ms (n10) |
+| `animesama-ansembed-vo` | **1 312 ms** (n4) |
+
+Cote VF l'agregat ne dit rien d'ansembed. Le rang y est pose sur la foi du
+report — c'est l'usage meme de `speed` : un prior, que la mesure corrigera si
+elle le contredit. Les rangs sont desormais tenus **sans ex aequo** (1 frembed,
+2 ansembed, 3 voiranime, 4 sibnet, 5 uqload) pour que l'ordre ne depende plus
+jamais de l'ordre de declaration. Ce qu'on echange est ecrit dans le fichier :
+voir-anime gardait des uploads frais plus longtemps, et c'est le verdict de la
+page info, le souvenir par anime et la bascule qui rendent l'echange tenable.
+
+**Le montage du lecteur ne coutait rien — mesure avant de corriger.** Le plan
+prevoyait de monter Vidstack PENDANT l'extraction, au motif que
+`UniversalPlayer` renvoie une div « chargement » tant que l'URL du master est
+inconnue : le montage semblait donc suivre les ~2 s au lieu de courir pendant.
+Chronometre sur dev avant d'y toucher :
+
+```
+  1404  requete embed part
+  1528  requete embed FINIE
+  1529  1er manifeste demande      <- 1 ms plus tard
+  1863  1er segment demande
+  2929  PREMIERE IMAGE
+```
+
+**1 ms.** `prechargeManifeste` part a la reussite de l'extraction, dans
+`essayeDomaine`, donc avant tout rendu React : le montage ne s'intercale nulle
+part. Le changement a ete abandonne. La lecon n'est pas « le plan avait tort »
+mais « la lecture du code disait ou etait le retour anticipe, pas ce qu'il
+coutait » — et un refactor de rendu sur 400 lignes se justifie par une mesure,
+pas par une lecture.
+
+**Ce qui a ete retire du chemin critique**, lui :
+
+- la **sonde de liveness** (`isVidmolyEmbedAlive`, HEAD, 3 s de budget) courait
+  en serie devant la reponse que l'utilisateur attend, pour n'attraper qu'un
+  404 franc — une erreur reseau rend « vivant » de toute facon. Elle ne sert
+  plus qu'aux **sondes de fond** (`probe=1`), celles qui peignent les chips et
+  que personne n'attend ; le lecteur actif decouvre le meme 404 seul et bascule.
+  `probe` n'entre **pas** dans la cle Redis : separer les deux doublerait les
+  entrees (budget Upstash) et surtout la sonde ne rechaufferait plus le cache du
+  lecteur, donc changer de lecteur repartirait a froid — on echangerait une
+  latence contre une autre. Au bord, en revanche, les deux URL sont distinctes,
+  ce qui est assume : la separation suit l'USAGE, et chaque population alimente
+  son entree (le cas pathologique de 2026-08, `title` present/absent, coupait en
+  deux LA MEME population) ;
+- le **script du `<head>`** ne s'abstient plus des qu'un ordre de langues
+  existe — c'est-a-dire presque toujours. Il lit maintenant le lecteur qui a
+  reellement joue la serie (`aniscroll:animeHost`), puis l'ordre que la regle a
+  produit au chargement precedent (`aniscroll:earlyPick`). **On ne copie pas la
+  regle, on met en cache sa sortie, ecrite par elle** : une copie derive, un
+  cache non. Invalide des que la signature de `lang_pref_order` change ;
+- l'**extraction ansembed** n'avait qu'un seul candidat de domaine, donc
+  `RELANCE_MS` ne relançait rien : une requete qui pend coutait les 6 s de
+  l'abandon. Une relance de la meme adresse part passe le delai — et c'est
+  desormais la premiere qui ABOUTIT qui gagne, non la derniere qui finit (un
+  `Promise.all` annulait le benefice de sa propre relance) ;
+- `warmStream` relisait master et variante **par le reseau** alors que
+  `prechargeManifeste` les tenait en memoire.
+
+Plus deux constantes mal reglees : `PEREMPTION_MS` valait 30 s, soit la MOITIE
+de la duree de vie de l'extraction qu'elle sert (60 s) — une chauffe consommee
+entre les deux rendait une URL valable et un manifeste deja jete ; et
+`DECOY_BACKOFF_MS` tenait jusqu'a 5,6 s de roue qui tourne avant qu'un autre
+lecteur soit tente, ramene a 1,7 s.
+
+**Le script du `<head>` ne passe ni par `tsc` ni par le bundler.** Il part en
+clair dans le HTML, ecrit en ES5, et rien ne le verifie. Il est desormais
+eprouve hors navigateur sur dix etats de stockage — dont « serie hors catalogue
+frembed » et « signature de langues perimee », les deux qui se traduiraient par
+une abstention silencieuse, donc par une lenteur que personne ne relierait a ce
+fichier.
+
+## 2026-09-20 (soir, 2) — deux pannes que la mesure reseau ne pouvait pas voir
+
+Deux bugs signales a quelques minutes d'intervalle, tous deux rendant la page de
+lecture inutilisable, tous deux invisibles aux outils que j'utilisais.
+
+**`ReferenceError: SERVERS is not defined`.** Regression du jour meme :
+`SERVERS` etait `require` a l'interieur de trois fonctions de
+`pages/en/anime/watch/[...info].js`, et le filtre frembed ajoute a l'effet de
+preference l'a ecrit dans une **quatrieme** portee sans le require qui va avec.
+
+Ce qui rend le cas instructif, c'est que **rien de la chaine de verification ne
+pouvait l'attraper** : pas la relecture (le nom est defini trois fois dans le
+fichier), pas `tsc --noEmit` (le fichier est en JS), pas `next build` (une
+variable libre est du JavaScript parfaitement valide). J'ai annonce « build ✓ »
+sur du code casse, puis cherche la panne du cote du reseau — en mesurant des
+routes au lieu de charger la page. **La console du navigateur avait la reponse
+depuis le debut.**
+
+Deux corrections, l'une pour le bug, l'autre pour sa classe : un import de
+module unique en tete (la forme qui a permis l'oubli n'existe plus), et
+`no-undef` active **sur le JS seulement**. Il rendait 93 faux positifs faute
+d'`env` declare ; avec `browser/node/es2022`, zero sur `pages+lib+components+
+tools`. Cantonne au JS parce qu'en TypeScript `tsc` fait deja ce controle et que
+la regle y bute sur les noms de TYPES (`React.ReactNode` sans import de React).
+`next build` fait tourner ESLint : ce bug ne peut plus passer un build.
+
+**Le prefixe `/fr` ne couvrait pas les routes de donnees.** Une page a
+`getServerSideProps` voit son URL de donnees construite par Next a partir de
+`asPath` — donc du chemin cosmetique `/fr/...` que pose `I18nProvider`. Le
+rewrite `/fr/:path*` → `/en/:path*` ne couvrant que les documents, toute
+navigation client redemandant les props tombait sur
+`/_next/data/<build>/fr/....json` → 404 → `_error`.
+
+Mesure qui isole le fait : `/en/.../frieren.json` rend **200**, `/fr/.../frieren.json`
+rend **404** — pour Frieren comme pour l'anime signale, donc ni megaplay ni
+frembed n'y etaient pour rien, et **toute** page SSR ouverte en francais etait
+touchee. Le document, lui, repondait parfaitement : le bug ne se voyait qu'en
+navigation interne, jamais au rechargement ni au partage de lien. Le rewrite
+couvre desormais `/_next/data/:build/fr/:path*`, en `beforeFiles` — seul rang
+qui passe devant le gestionnaire `_next/data` de Next.
+
+**Au passage, le lecteur fantome qui a mis sur la piste.** `megaplay`, retire de
+`lib/servers.js` le 08/09/2026, etait encore ecrit en dur dans les liens
+« ouvrir dans le lecteur » de **sept** fichiers. Cosmetique — la page de lecture
+choisit son hote d'apres les preferences, jamais d'apres l'URL — mais trompeur
+jusque dans la barre d'adresse, au point de designer un coupable innocent. Une
+seule fabrique desormais, `watchHref()`, dont le nom vient de
+`DEFAULT_SERVER_ID` : il ne peut plus designer un hote disparu.
+
 ## 2026-09-20 (soir) — frembed publie son catalogue : 146 titres, et on l'ignorait
 
 **Le fait qui change tout.** frembed a une API publique, `/api/public/v1/anime`,
