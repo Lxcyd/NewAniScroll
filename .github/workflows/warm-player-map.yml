@@ -1,0 +1,71 @@
+# Entretient `player_map`, la table qui fait disparaitre le chemin froid.
+#
+# Une ligne `verified` transforme la resolution anime-sama / voir-anime en UNE
+# requete au lieu de la marche complete (recherche catalogue, detection de
+# saison, page detail, panneaux). Au 20/09/2026 la table couvre 3 881 animes :
+# au-dela, chaque premiere ouverture paie le chemin long, et c'est exactement ce
+# qu'on ressent quand frembed n'a pas la serie.
+#
+# Le script existait deja (scripts/player-map/verify-player-map.mjs) mais rien
+# ne le lancait. Il reprend les lignes `heuristic` et celles dont l'echeance est
+# passee, les re-derive avec le resolveur ACTUEL, et promeut ou retrograde.
+#
+# BUDGET. C'est le seul travail de cette liste qui appelle le site, donc qui
+# consomme des invocations Vercel : `--limit` les borne. 150 titres par nuit, a
+# comparer aux ~17 sondes que coute UNE visite d'un episode. `--concurrency=4`
+# garde la charge basse sur les sites scrapes en amont — on n'est pas presses,
+# c'est une passe de fond.
+#
+# Vise dev par defaut : la prod n'a pas a servir de banc d'essai a une passe de
+# maintenance, et les deux comptes partagent la meme base Turso.
+#
+# Secrets requis :
+#   TURSO_DATABASE_URL / TURSO_AUTH_TOKEN
+
+name: warm-player-map
+
+on:
+  schedule:
+    - cron: "20 4 * * *" # 04:20 UTC, apres la synchro du catalogue frembed
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Nombre de titres a verifier"
+        required: false
+        default: "150"
+      site:
+        description: "Site interroge (dev par defaut)"
+        required: false
+        default: "https://dev.aniscroll.com"
+      dry:
+        description: "Ne rien ecrire"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17
+
+      - name: Verify a bounded batch
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/player-map/verify-player-map.mjs \
+            --site=${{ inputs.site || 'https://dev.aniscroll.com' }} \
+            --limit=${{ inputs.limit || '150' }} \
+            --concurrency=4 \
+            ${{ inputs.dry == true && '--dry' || '' }}
