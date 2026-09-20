@@ -11,10 +11,24 @@
 # passee, les re-derive avec le resolveur ACTUEL, et promeut ou retrograde.
 #
 # BUDGET. C'est le seul travail de cette liste qui appelle le site, donc qui
-# consomme des invocations Vercel : `--limit` les borne. 150 titres par nuit, a
-# comparer aux ~17 sondes que coute UNE visite d'un episode. `--concurrency=4`
-# garde la charge basse sur les sites scrapes en amont — on n'est pas presses,
-# c'est une passe de fond.
+# consomme des invocations Vercel : `--limit` les borne. `--concurrency=4` garde
+# la charge basse sur les sites scrapes en amont — on n'est pas presses, c'est
+# une passe de fond.
+#
+# 500 par nuit, et non 150 : mesure du 20/09/2026, un lot de 150 prend 1 min 29
+# a concurrence 4, soit ~0,6 s par ligne. L'arriere accumule etait de 4 217
+# lignes — a 150 par nuit il ne se resorbait pas, chaque journee en produisant
+# de nouvelles. 500 le vide en une semaine et tient dans le timeout.
+#
+# `from` choisit la liste de travail :
+#   due       (defaut) les lignes echues et les `heuristic`
+#   seed      les lignes `verified` d'un algorithme perime — elles viennent d'un
+#             semis, pas d'un controle, et le chemin de lecture les honore sans
+#             reserve. A drainer en priorite (2 315 lignes au 20/09/2026 ; sur
+#             un echantillon de 150, 135 se re-confirment, 6 cassent, 9 sont
+#             absentes : le semis etait juste a ~90 %, simplement jamais audite).
+#   mydublist les titres doubles en francais qu'on n'a JAMAIS sondes en VF
+#             (1 295 au 20/09/2026) — des doublages que le site pourrait offrir.
 #
 # Vise dev par defaut : la prod n'a pas a servir de banc d'essai a une passe de
 # maintenance, et les deux comptes partagent la meme base Turso.
@@ -32,7 +46,11 @@ on:
       limit:
         description: "Nombre de titres a verifier"
         required: false
-        default: "150"
+        default: "500"
+      from:
+        description: "Liste de travail : due | seed | mydublist"
+        required: false
+        default: "due"
       site:
         description: "Site interroge (dev par defaut)"
         required: false
@@ -66,6 +84,7 @@ jobs:
         run: |
           node scripts/player-map/verify-player-map.mjs \
             --site=${{ inputs.site || 'https://dev.aniscroll.com' }} \
-            --limit=${{ inputs.limit || '150' }} \
+            --limit=${{ inputs.limit || '500' }} \
+            --from=${{ inputs.from || 'due' }} \
             --concurrency=4 \
             ${{ inputs.dry == true && '--dry' || '' }}

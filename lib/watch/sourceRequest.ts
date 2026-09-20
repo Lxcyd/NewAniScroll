@@ -50,6 +50,19 @@ export type SourceParams = {
   title?: string | null;
   /** The only field the route ever read out of the old `mediaMeta` blob. */
   malId?: number | string | null;
+  /**
+   * « Cette requete sert a peindre un chip, pas a ouvrir un lecteur. »
+   *
+   * Elle autorise la route a payer une verification de liveness de plus (un
+   * HEAD, jusqu'a 3 s) pour qu'un chip mort ne s'allume pas. L'ouverture du
+   * lecteur, elle, ne la paie plus : c'est le chemin que l'utilisateur regarde,
+   * et le meme 404 s'y decouvre tout seul.
+   *
+   * Reservee au fan-out de sondage. Un prechauffage (episode suivant, chaine de
+   * la page info) n'est PAS une sonde : il prepare une vraie lecture et doit
+   * donc partager l'entree de cache du lecteur.
+   */
+  probe?: boolean;
 };
 
 export function sourceRequestUrl(params: SourceParams): string {
@@ -69,6 +82,16 @@ export function sourceRequestUrl(params: SourceParams): string {
     episode: String(params.episode),
     sub: params.sub,
   });
+  /* Cinquieme parametre, et il SEPARE bien deux entrees de cache d'edge — ce
+     que le paragraphe ci-dessus met en garde de faire a la legere. C'est
+     assume ici, parce que la separation n'est pas aleatoire : elle suit
+     l'USAGE, pas l'appelant. Les sondes ont leur entree, les ouvertures de
+     lecteur la leur, et chacune est alimentee par sa propre population. Le cas
+     pathologique d'alors etait tout autre : `title` present ou absent coupait
+     en deux LA MEME population, si bien qu'une moitie ratait le cache rempli
+     par l'autre. Cote Redis la cle reste commune, volontairement (cf.
+     `sourceCacheKey`). */
+  if (params.probe) q.set("probe", "1");
   return `/api/v2/source?${q.toString()}`;
 }
 

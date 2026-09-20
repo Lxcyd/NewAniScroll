@@ -86,6 +86,10 @@ type Props = {
   server?: string;
   /** Pre-computed URL for the next episode. */
   nextEpisodeHref?: string | null;
+  /** Appele quand le « suivant » devient imminent (debut de l'ED, ou fin de
+   *  l'episode) : la page en profite pour preparer le FLUX du prochain
+   *  episode, enchainement automatique compris. */
+  onPrepareNext?: () => void;
   /** Set to true when a non-Vidstack popover (subtitle picker, etc.)
    *  is open inside the player — same hide behaviour as Vidstack's
    *  native menus. */
@@ -120,6 +124,7 @@ export default function SkipOverlay({
   episode,
   server,
   nextEpisodeHref,
+  onPrepareNext,
   externalMenuOpen = false,
   isFinalEpisode = false,
   isSingleEpisode = false,
@@ -264,7 +269,13 @@ export default function SkipOverlay({
     }
     // Warm the player chunk too (idempotent dynamic import).
     void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
-  }, [shouldPreloadNext, nextEpisodeHref, router]);
+    /* …et le FLUX de l'episode suivant, pas seulement sa page. C'est le moment
+       ou jamais : le jeton du master est lie a l'IP et a l'instant, donc le
+       preparer plus tot ne servirait a rien, et le preparer au survol du bouton
+       laisserait l'enchainement AUTOMATIQUE partir a froid — il ne survole
+       rien. La page se charge du detail (cf. `prepareEpisode`). */
+    onPrepareNext?.();
+  }, [shouldPreloadNext, nextEpisodeHref, router, onPrepareNext]);
 
   /* Player root portal target — for the floating buttons. Must be
      inside the element the Fullscreen API hands off, otherwise the
@@ -359,7 +370,16 @@ export default function SkipOverlay({
     return () => mo.disconnect();
   }, [playerEl]);
 
-  const skipTo = (endSeconds: number) => {
+  const skipTo = (endSeconds: number, type?: string) => {
+    /* « Jamais l'opening » se juge EN NEGATIF : on n'enregistre pas les
+       openings regardes -- ce serait un par episode de tout le catalogue --
+       mais les rares fois ou l'un est saute. L'ensemble des exceptions est
+       minuscule la ou celui des observations serait sans fin. */
+    if (type === "op" && aniListId != null && episode != null) {
+      import("@/lib/badges/facts")
+        .then((f) => f.recordOpSkipped(aniListId, episode))
+        .catch(() => {});
+    }
     const player = playerRef.current;
     if (!player) return;
     let target = Math.max(0, endSeconds - SKIP_PRELOAD_LEAD_MS / 1000);
@@ -413,7 +433,10 @@ export default function SkipOverlay({
     const key = `${active.type}:${active.start}-${active.end}`;
     if (autoSkippedRef.current.has(key)) return; // already auto-skipped once
     autoSkippedRef.current.add(key);
-    skipTo(active.end);
+    /* Le saut AUTOMATIQUE compte comme un saut, et ce n'est pas une severite :
+       quelqu'un qui a active « passer l'opening » ne regarde pas les openings.
+       Lui donner « Jamais l'opening » viderait le badge de son sens. */
+    skipTo(active.end, active.type);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, playerPrefs.autoSkipIntro, playerPrefs.autoSkipOutro]);
 
@@ -497,7 +520,7 @@ export default function SkipOverlay({
       {active && SEGMENT_LABEL_KEY[active.type] && (
         <button
           type="button"
-          onClick={() => skipTo(active.end)}
+          onClick={() => skipTo(active.end, active.type)}
           className="aniscroll-skip-btn"
           style={btnStyle}
         >

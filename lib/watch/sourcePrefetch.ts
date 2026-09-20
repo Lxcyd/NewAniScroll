@@ -13,6 +13,10 @@
  */
 
 import { requestSource } from "./sourceRequest";
+import { peekWarmVidmoly } from "../clientVidmoly";
+import { bandwidthKey, pickStartVariant } from "./hlsBandwidth";
+import { playbackUrl, preconnectOrigin, proxied } from "./streamUrl";
+import { manifesteEnMemoire } from "./hlsPreload";
 
 type CacheEntry = { data: any; at: number };
 
@@ -74,15 +78,79 @@ export function clearPrefetchedSourcesFor(aniId: number | string): void {
  * En memoire, meme onglet, meme duree de vie que les sources prechauffees
  * (purge en quittant la page info sans aller regarder).
  */
-const planned = new Map<string, string>();
+/* Ce relais porte un VERDICT, pas un pari.
+ *
+ * Il ne transportait qu'un nom de serveur, ecrit AVANT le moindre test — la
+ * page de lecture l'ouvrait donc sur parole. Cas signale le 20/09/2026 : dix
+ * secondes passees sur la page info, clic, frembed demarre, echoue, vidmoly
+ * prend le relais. On avait tout le temps de savoir, et on le savait peut-etre
+ * deja : l'information etait simplement jetee.
+ *
+ * Trois champs, donc :
+ *   planned  — le candidat ;
+ *   verifie  — a-t-il ete PROUVE jouable (manifeste ET segment) ;
+ *   recales  — ceux que la chaine a prouves morts, pour que la page de lecture
+ *              ne les ouvre pas a son tour.
+ * Un candidat non verifie reste un indice utile (clic en deux secondes), il
+ * cesse seulement d'etre presente comme une certitude.
+ */
+type Pari = { planned: string; verifie: boolean; recales: Set<string> };
 
+const planned = new Map<string, Pari>();
+
+function pari(aniId: number | string): Pari {
+  const k = String(aniId);
+  let p = planned.get(k);
+  if (!p) {
+    p = { planned: "", verifie: false, recales: new Set() };
+    planned.set(k, p);
+  }
+  return p;
+}
+
+/** Le candidat sur lequel on mise, sans preuve encore. */
 export function setPlannedServer(aniId: number | string, server: string): void {
-  if (server) planned.set(String(aniId), server);
+  if (!server) return;
+  const p = pari(aniId);
+  // Un candidat VERIFIE ne se fait pas deloger par un simple pari.
+  if (p.verifie) return;
+  p.planned = server;
+}
+
+/** Ce lecteur a rendu un flux reellement jouable pour cet anime. */
+export function setVerifiedServer(aniId: number | string, server: string): void {
+  if (!server) return;
+  const p = pari(aniId);
+  p.planned = server;
+  p.verifie = true;
+  p.recales.delete(server);
+}
+
+/** Ce lecteur a ete prouve mort : la page de lecture ne doit pas l'ouvrir. */
+export function markPlannedFailed(aniId: number | string, server: string): void {
+  if (!server) return;
+  const p = pari(aniId);
+  p.recales.add(server);
+  if (p.planned === server && !p.verifie) p.planned = "";
 }
 
 export function getPlannedServer(aniId: number | string | null | undefined): string {
   if (aniId == null) return "";
-  return planned.get(String(aniId)) || "";
+  return planned.get(String(aniId))?.planned || "";
+}
+
+/** `true` seulement si le serveur annonce a ete prouve jouable. */
+export function isPlannedVerified(aniId: number | string | null | undefined): boolean {
+  if (aniId == null) return false;
+  return planned.get(String(aniId))?.verifie === true;
+}
+
+/** Les lecteurs que la page info a prouves morts pour cet anime. */
+export function getPlannedFailures(
+  aniId: number | string | null | undefined,
+): string[] {
+  if (aniId == null) return [];
+  return Array.from(planned.get(String(aniId))?.recales || []);
 }
 
 /**
@@ -136,52 +204,215 @@ export async function resolveSource(
 }
 
 /**
- * Best-effort warm of the HLS manifest + first segment through whatever proxy
- * the stream URL already points at, so playback starts with zero buffering.
- * Fire-and-forget; failures are silently ignored. Only fetches a small slice
- * of the first segment (Range) to avoid pulling the whole episode.
+ * Chauffe le lecteur qu'on va ouvrir — et seulement lui, tant qu'il tient.
  *
- * DIRECT STREAMS ONLY, and the docstring above is why the restriction is not a
- * loss. "Whatever proxy the stream URL already points at" describes a source
- * that plays as-is; everything else is wrapped through our Worker by the player
- * (`proxied()` in UniversalPlayer) and never fetched at this address at all. So
- * warming the raw URL was doing neither of the two things it exists for: the
- * host CDN refuses a bare browser request — `403` on cdn.watching.onl, once per
- * info page, in everyone's console — and even when it answered it primed the
- * CDN's edge instead of the Worker's, which is the only one playback reads.
+ * La page info n'en prechauffait qu'UN : s'il ne repondait pas, personne ne
+ * prenait le relais et la page de lecture repartait a froid, sur le lecteur le
+ * plus lent du lot. Prechauffer les huit, a l'inverse, c'etait huit scrapes
+ * (le poste le plus cher du site) par visite d'une page que la plupart des
+ * gens quittent sans rien regarder.
  *
- * Warming the proxied URL instead is a real option, and deliberately not taken
- * here: it would turn a request that has been failing for free into 256 KB of
- * video pulled through the Worker on every info page, for an episode the
- * visitor may never open. That is a cost decision, not a console fix.
+ * Entre les deux : une chaine. Le candidat n°1 part seul ; le n°2 ne part que
+ * si le n°1 est MORT (absence, hote a terre, flux injouable) ou DOUTEUX (rien
+ * au bout de DOUTE_MS) — et dans ce dernier cas les deux courent ensemble,
+ * parce qu'un candidat lent n'est pas forcement perdu.
+ *
+ * `onPlanned` recoit le meilleur candidat SAIN connu a cet instant, et peut
+ * donc etre appele deux fois : le n°2 s'annonce, puis le n°1 finit par
+ * repondre et reprend la main — il etait mieux classe, c'est lui qu'on veut.
  */
-export async function warmStream(streamData: any, signal?: AbortSignal) {
+const DOUTE_MS = 2500;
+
+export async function warmChain(
+  candidats: string[],
+  params: { aniId: number; episode: number; sub: "sub" | "dub"; title?: string; mediaMeta?: any },
+  opts: {
+    signal?: AbortSignal;
+    onPlanned?: (server: string) => void;
+    onFailed?: (server: string) => void;
+    onStream?: (server: string, data: any) => void;
+    max?: number;
+  } = {},
+): Promise<void> {
+  const liste = candidats.filter(Boolean).slice(0, opts.max ?? 3);
+  let meilleurRang = Infinity;
+  const attendre = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  const tenter = async (server: string, rang: number): Promise<boolean> => {
+    const data = await resolveSource({ ...params, server }, { priority: "high", signal: opts.signal });
+    if (opts.signal?.aborted) return false;
+    if (!data) {
+      opts.onFailed?.(server);
+      return false;
+    }
+    // Le flux lui-meme, pas seulement sa resolution : une source qui pointe sur
+    // un manifeste mort est un lecteur mort, et on a de quoi le savoir ici.
+    opts.onStream?.(server, data);
+    /* Y COMPRIS pour l'extraction navigateur, qu'on tenait pour saine sans rien
+       verifier : on attend son master (l'extraction est deja lancee par
+       `onStream`, on ne fait que lire son resultat) puis on le traite comme
+       n'importe quel flux direct. Sans ca, le seul lecteur qu'on ne validait
+       pas etait celui par defaut. */
+    let ok: boolean;
+    const ce = data.clientExtract;
+    if (ce?.type === "vidmoly" && ce.embedUrl) {
+      const master = await peekWarmVidmoly(ce.embedUrl);
+      ok = master
+        ? await warmStream(
+            { streams: [{ url: master, isM3U8: true, directUrl: true }] },
+            opts.signal,
+          )
+        : false;
+    } else if (ce) {
+      // Multipart : on ne prechauffe pas, mais on ne le declare pas mort non plus.
+      ok = true;
+    } else {
+      ok = await warmStream(data, opts.signal);
+    }
+    if (opts.signal?.aborted) return false;
+    if (!ok) {
+      opts.onFailed?.(server);
+      return false;
+    }
+    if (rang < meilleurRang) {
+      meilleurRang = rang;
+      opts.onPlanned?.(server);
+    }
+    return true;
+  };
+
+  const enCours: Promise<boolean>[] = [];
+  for (let i = 0; i < liste.length; i++) {
+    const essai = tenter(liste[i], i);
+    enCours.push(essai);
+    // Mort tout de suite, ou muet passe le delai : on lance le suivant. Un
+    // `race` contre une minuterie, pour ne pas attendre un candidat qui ne
+    // repondra peut-etre jamais.
+    const verdict = await Promise.race([
+      essai.then((ok) => (ok ? "ok" : "mort")),
+      attendre(DOUTE_MS).then(() => "doute" as const),
+    ]);
+    if (verdict === "ok" || opts.signal?.aborted) return;
+  }
+  await Promise.allSettled(enCours);
+}
+
+/**
+ * Chauffe un flux ET dit s'il est SAIN. Deux usages, un seul aller-retour : on
+ * lisait deja le manifeste, il suffisait d'en retenir le verdict.
+ *
+ * `true`  — manifeste lu (et, si c'est un master, sa variante de depart).
+ * `false` — l'hote a refuse ou n'a rien rendu d'exploitable : l'appelant passe
+ *           au lecteur suivant SANS attendre que le lecteur monte et echoue.
+ *
+ * Deux corrections par rapport a la version d'origine :
+ *   - la premiere URI d'un MASTER est une playlist de VARIANTE, pas un
+ *     segment : on descendait donc « les 256 Ko du premier segment » sur un
+ *     fichier texte de 300 octets, et rien n'etait chauffe. On descend
+ *     maintenant jusqu'au vrai segment, par la variante qu'hls.js demandera
+ *     (cf. pickStartVariant) ;
+ *   - un flux proxifie se chauffe par le Worker quand on le demande
+ *     explicitement (`viaProxy`), puisque c'est le seul chemin que la lecture
+ *     lit. Par defaut on s'en abstient : 256 Ko de video tires par le Worker
+ *     sur une page info que le visiteur peut ne jamais quitter, ce serait un
+ *     cout pour rien. Au moment du doute, en revanche, la personne regarde
+ *     deja — et la bascule doit etre instantanee.
+ */
+export async function warmStream(
+  streamData: any,
+  signal?: AbortSignal,
+  opts: { viaProxy?: boolean } = {},
+): Promise<boolean> {
+  const source = streamData?.sources?.[0] ?? streamData?.streams?.[0];
+  if (!source?.url) return false;
+  const direct = source.directUrl === true;
+  if (!direct && !opts.viaProxy) return false;
+  const depart = playbackUrl(source, streamData?.referer);
+  if (!depart) return false;
+  // On ouvre la connexion tout de suite : elle servira a la lecture elle-meme.
+  preconnectOrigin(depart);
+  /* Dans les MEMES conditions que la lecture. Le lecteur pose
+     `referrerPolicy = "no-referrer"` sur le <video> d'un flux direct
+     (cf. `directPlaybackRef` dans UniversalPlayer) parce que plusieurs CDN
+     refusent un Referer ; valider avec le notre reviendrait a prouver un
+     chemin que personne n'emprunte. */
+  const commeLeLecteur = (extra: any = {}) => ({
+    priority: "low",
+    signal,
+    ...(direct ? { referrerPolicy: "no-referrer" as const } : null),
+    ...extra,
+  });
+  if (!/\.m3u8(\?|$)/i.test(source.url)) {
+    // MP4 progressif (sibnet) : un bout du fichier suffit a dire s'il repond.
+    try {
+      const res = await fetch(
+        depart,
+        commeLeLecteur({ headers: { Range: "bytes=0-262143" } }) as any,
+      );
+      return res.ok || res.status === 206;
+    } catch {
+      return false;
+    }
+  }
+  /* Le manifeste est peut-etre deja en memoire : `prechargeManifeste` le tire
+     des que l'extraction rend l'adresse du master, master ET variantes
+     (lib/watch/hlsPreload.ts). On le relisait quand meme par le reseau — deux
+     allers-retours CDN, sur la page info, pour des octets qu'on tenait deja.
+     La cle est l'URL exacte, et elle ne coincide que sur un flux DIRECT : c'est
+     precisement le cas ou cette fonction travaille par defaut (`!direct &&
+     !viaProxy` sort plus haut). Un flux proxifie repasse donc par le reseau,
+     comme avant. */
+  const litManifeste = async (url: string): Promise<string | null> => {
+    const memoire = manifesteEnMemoire(url);
+    if (memoire) return memoire;
+    const r = await fetch(url, commeLeLecteur() as any);
+    return r.ok ? await r.text() : null;
+  };
   try {
-    const source = streamData?.sources?.[0] ?? streamData?.streams?.[0];
-    const url: string | undefined = source?.url;
-    if (!url || !/\.m3u8(\?|$)/i.test(url)) return;
-    if (!source?.directUrl) return;
-    const res = await fetch(url, { priority: "low", signal } as any);
-    if (!res.ok) return;
-    const text = await res.text();
-    // Pull the first media segment URI from the manifest and warm a small
-    // Range of it. Lines that aren't comments are segment/sub-playlist URIs.
-    const firstUri = text
+    const text = await litManifeste(depart);
+    if (text === null) return false;
+    if (!/^#EXTM3U/.test(text.trimStart())) return false;
+    const absolu = (uri: string) =>
+      uri.startsWith("http") ? uri : new URL(uri, source.url).toString();
+    // Master : on descend par la variante qu'hls.js demandera en premier.
+    const variante = pickStartVariant(text, bandwidthKey(source.url, direct));
+    let playlist = text;
+    let baseUrl = source.url;
+    if (variante) {
+      const url = absolu(variante);
+      baseUrl = url;
+      const p = await litManifeste(
+        direct ? url : proxied(url, source.referer || streamData?.referer, source.voeCookie),
+      );
+      if (p === null) return false;
+      playlist = p;
+    }
+    const premier = playlist
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l && !l.startsWith("#"));
-    if (!firstUri) return;
-    const segUrl = firstUri.startsWith("http")
-      ? firstUri
-      : new URL(firstUri, url).toString();
-    // 256 KB is enough to prime the CDN/proxy edge cache for the opening of
-    // playback without downloading the full segment.
-    await fetch(segUrl, {
-      headers: { Range: "bytes=0-262143" },
-      priority: "low",
-      signal,
-    } as any).catch(() => {});
+    if (!premier) return false;
+    const segUrl = premier.startsWith("http")
+      ? premier
+      : new URL(premier, baseUrl).toString();
+    /* 256 Ko : de quoi amorcer le cache d'edge sur l'ouverture de la lecture,
+       sans tirer le segment entier. Et on JUGE cette reponse : elle etait
+       avalee par un `.catch(() => {})` suivi d'un `return true`, si bien qu'un
+       hote dont le manifeste repond et dont les SEGMENTS sont refuses (403 du
+       CDN) passait pour sain. C'est exactement la panne frembed du 20/09 : la
+       page info donnait son feu vert a un lecteur qui ne pouvait pas jouer. */
+    try {
+      const seg = await fetch(
+        direct ? segUrl : proxied(segUrl, source.referer || streamData?.referer, source.voeCookie),
+        commeLeLecteur({ headers: { Range: "bytes=0-262143" } }) as any,
+      );
+      return seg.ok || seg.status === 206;
+    } catch {
+      return false;
+    }
   } catch {
-    /* ignore */
+    // Annulation (depart de la page) comprise : rien a conclure sur l'hote,
+    // mais rien a chauffer non plus.
+    return false;
   }
 }

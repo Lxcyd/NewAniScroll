@@ -16,6 +16,8 @@
  * to the end" even when the user skips the final seconds.
  */
 
+import { touchHistory } from "../profile/history";
+
 const KEY = "aniscroll:progress";
 
 /** Don't persist the first few seconds — a fresh resume seek hasn't applied
@@ -70,6 +72,19 @@ function emitTick(detail: ProgressTick): void {
 
 function progressKey(aniId: number | string, episode: number | string): string {
   return `${aniId}:${episode}`;
+}
+
+/**
+ * La table entière de CET appareil, `{}` hors navigateur.
+ *
+ * Exportée depuis que l'avancement se calcule aussi à partir d'une table venue
+ * d'ailleurs (celle du compte d'un autre, cf. lib/profile/activity.ts) : les
+ * appelants qui décorent une liste de lignes prennent la table en paramètre, et
+ * il leur faut donc un moyen d'obtenir celle d'ici. Un `getProgress` par ligne
+ * relirait et reparserait le localStorage à chaque appel.
+ */
+export function readProgressMap(): ProgressMap {
+  return readMap();
 }
 
 function readMap(): ProgressMap {
@@ -228,12 +243,34 @@ export function clearProgress(
  *  action. Clears both the resume-position map (`aniscroll:progress`) AND the
  *  watch-history store the "recently watched" page reads (`artplayer_settings`,
  *  which holds the per-episode rows for anonymous users / the local mirror).
- *  Local only — doesn't touch AniList or the signed-in user's server history. */
+ *
+ *  EMPTIED, NOT REMOVED — and that distinction is the whole fix. For a
+ *  signed-in account these two keys are backed up by lib/list/cloudSync, whose
+ *  `readKind` reports an ABSENT key as `null`. A null payload is skipped by
+ *  `pushKinds`, so the erasure never reached the account; and on the next load
+ *  `pullAll` read the same absence as "this device has nothing yet" and wrote
+ *  the account's copy straight back. Clearing your history returned every
+ *  resume point at 12:42, exactly as before.
+ *
+ *  An empty map is a value, so it pushes like any other and the account's copy
+ *  becomes empty too. The readers can't tell the difference: `readMap` parses
+ *  `{}` to `{}`, and the `artplayer_settings` readers all do
+ *  `JSON.parse(raw || "{}")`.
+ *
+ *  Still local-only in the sense that matters: it doesn't touch AniList. The
+ *  caller is responsible for pushing the cleared state to the account — see
+ *  the settings handler, which does it immediately rather than waiting for the
+ *  5 s debounce a destructive action shouldn't rely on. */
 export function clearAllProgress(): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(KEY);
-    localStorage.removeItem("artplayer_settings");
+    localStorage.setItem(KEY, "{}");
+    localStorage.setItem("artplayer_settings", "{}");
+    /* L'appelant pousse déjà tout de suite (voir ci-dessus), donc ceci ne fait
+       que doubler d'une poussée débouncée. On le garde quand même : la règle
+       « toute écriture de l'historique le signale » ne souffre pas d'exception,
+       sinon c'est le prochain appelant qui oubliera de pousser. */
+    touchHistory();
   } catch {
     /* best-effort */
   }
