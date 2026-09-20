@@ -155,6 +155,64 @@ const dubFr = await (async () => {
   }
 })();
 
+/**
+ * Les fiches ETRANGERES a leur propre slug, jugees par CONTRASTE.
+ *
+ * Plusieurs fiches AniList partagent legitimement un slug et un panneau : les
+ * treize films Conan vivent tous dans `detective-conan/film`. Une collision
+ * n'est donc pas une faute en soi, et la compter comme telle retirerait des
+ * mappings parfaitement justes.
+ *
+ * Ce qui juge, c'est le contraste A L'INTERIEUR du groupe : quand certaines
+ * fiches partagent un token significatif avec le slug et qu'une autre n'en
+ * partage AUCUN, celle-la ne s'est pas rangee la par parente. Mesure du
+ * 20/09/2026 : 69 groupes au contraste net, 83 fiches etrangeres, et
+ * l'echantillon ne laisse aucun doute — « RED », « Quote », « FLAG », « Ys »,
+ * « Journey », des titres d'un seul mot que le scorer accroche par accident.
+ *
+ * Pourquoi ce juge-la marche quand la confiance seule echoue : un slug francais
+ * (`shirayuki-aux-cheveux-rouges`) partage peu avec son titre anglais, donc une
+ * confiance basse ne prouve rien. Mais si ses VOISINS de panneau, eux,
+ * correspondent et pas lui, ce n'est plus une question de traduction.
+ *
+ * Cout mesure avant d'ecrire : les 83 sont TOUTES `heuristic`, aucune
+ * `verified`. On n'en retrograde donc pas une ; on les empeche d'etre promues.
+ */
+const etrangeres = await (async () => {
+  const r = await db.execute(`
+    SELECT ani_id, source, lang, slug, COALESCE(season_dir,'-') dir, ep_offset
+      FROM player_map WHERE slug IS NOT NULL AND status IN ('verified','heuristic')`);
+  const parGroupe = new Map();
+  for (const x of r.rows) {
+    const k = `${x.source}|${x.lang}|${x.slug}|${x.dir}|${x.ep_offset}`;
+    if (!parGroupe.has(k)) parGroupe.set(k, []);
+    parGroupe.get(k).push({ aniId: Number(x.ani_id), slug: String(x.slug) });
+  }
+  return parGroupe;
+})();
+
+/** `true` si cette fiche est etrangere a son slug alors que ses voisines ne le
+ *  sont pas. `false` des qu'il n'y a pas de groupe, pas de contraste, ou pas de
+ *  titres pour juger — une ignorance ne ferme pas une porte. */
+function etrangereDansSonGroupe(aniId, source, lang, slug, dir, offset, titresPar) {
+  const membres = etrangeres.get(`${source}|${lang}|${slug}|${dir || "-"}|${offset || 0}`);
+  if (!membres || membres.length < 2) return false;
+  const jetons = new Set(significantTokens(String(slug).replace(/-vf$/i, "")));
+  if (!jetons.size) return false;
+  /* `null` quand on n'a pas les titres : ni « correspond » ni « ne correspond
+     pas ». La distinction compte des deux cotes — un sujet sans titres ne doit
+     pas etre accuse, et un VOISIN sans titres ne doit pas servir de preuve a
+     charge. Compter l'inconnu comme correspondant ferait tirer la porte sur une
+     ignorance, soit l'inverse exact de ce qu'on veut. */
+  const correspond = (id) => {
+    const t = titresPar(id);
+    if (!t.length) return null;
+    return t.some((x) => significantTokens(x).some((j) => jetons.has(j)));
+  };
+  if (correspond(aniId) !== false) return false; // inconnu ou correspondant : on n'accuse pas
+  return membres.some((m) => m.aniId !== aniId && correspond(m.aniId) === true);
+}
+
 const DAY = 86400;
 const ttl = (status, animeStatus) => {
   switch (status) {
@@ -243,7 +301,7 @@ for (let i = 0; i < aniIds.length; i += 500) {
   const chunk = aniIds.slice(i, i + 500);
   const ph = chunk.map(() => "?").join(",");
   const r = await db.execute({
-    sql: `SELECT id, status,
+    sql: `SELECT id, status, format,
                  json_extract(data,'$.idMal')          AS mal,
                  json_extract(data,'$.episodes')       AS eps,
                  json_extract(data,'$.title.english')  AS en,
@@ -257,6 +315,7 @@ for (let i = 0; i < aniIds.length; i += 500) {
     let syn = []; try { syn = JSON.parse(row.syn || "[]"); } catch {}
     metaById.set(Number(row.id), {
       status: row.status,
+      format: row.format ?? null,
       idMal: row.mal == null ? null : Number(row.mal),
       episodes: row.eps == null ? null : Number(row.eps),
       titles: [row.en, row.ro, row.na, ...syn].filter(Boolean),
@@ -279,6 +338,17 @@ function judge(aniId, source, lang, insp, sibling, meta) {
   if (!insp.found || !insp.slug) return { status: "absent", note: "verify:not-found" };
   if (source === "animesama" && !insp.chosenSeasonDir) return { status: "absent", note: "verify:no-panel" };
 
+  /* Un CLIP n'est pas un episode. Les fiches AniList de format MUSIC portent
+     des titres d'un seul mot — « Clover », « Universe », « Nexus », « RED » —
+     que le scorer accroche par sous-chaine sur le premier slug venu :
+     `black-clover-vf`, `steven-universe`, `scarlet-nexus`. Anime-sama
+     n'heberge pas de clips, donc aucun de ces mappings ne peut etre bon.
+     Mesure du 20/09/2026 : 111 lignes MUSIC, toutes `heuristic`, aucune
+     `verified` — les bloquer ne retire rien et ferme une classe entiere. */
+  if (meta?.format === "MUSIC") {
+    return { status: "absent", note: "verify:format-musique" };
+  }
+
   const conf = slugTitleConfidence(insp.slug.replace(/-vf$/i, ""), meta?.titles || []);
   if (conf <= 0) return { status: "broken", note: "verify:zero-title-confidence" };
 
@@ -292,6 +362,33 @@ function judge(aniId, source, lang, insp, sibling, meta) {
      amont. Inerte si la liste manque, ou si l'anime n'a pas d'id MAL. */
   if (lang === "vf" && dubFr && meta?.idMal && !dubFr.has(meta.idMal)) {
     return { status: "broken", note: "verify:vf-inconnue-de-mydublist" };
+  }
+
+  /* Le juge par CONTRASTE : cette fiche est-elle la seule de son panneau a
+     n'avoir aucun mot en commun avec le slug ? Voir le commentaire long de
+     `etrangereDansSonGroupe`. `heuristic` et non `broken` : la fiche est
+     douteuse, pas prouvee morte — elle reste servie, elle n'est simplement
+     jamais certifiee, et le prochain passage la re-derivera. */
+  if (
+    etrangereDansSonGroupe(
+      aniId, source, lang, insp.slug,
+      source === "animesama" ? insp.chosenSeasonDir : null,
+      insp.mergedOffset || 0,
+      (id) => metaById.get(id)?.titles || [],
+    )
+  ) {
+    /* On GARDE le slug et le panneau : la ligne reste servie, elle perd
+       seulement son droit a etre certifiee. Les effacer reviendrait a la
+       declarer absente, ce qu'on ne sait pas. */
+    return {
+      status: "heuristic",
+      note: "verify:etrangere-a-son-panneau",
+      slug: insp.slug,
+      seasonDir: source === "animesama" ? insp.chosenSeasonDir : null,
+      epOffset: insp.mergedOffset || 0,
+      episodeCount: insp.episodeCount ?? null,
+      confidence: Math.round(conf * 100) / 100,
+    };
   }
 
   // S1-collapse shape: a later season on saison1 with no merged offset.

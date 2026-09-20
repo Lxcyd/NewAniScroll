@@ -4358,7 +4358,14 @@ export default async function handler(req, res) {
           continue;
         }
         const html = await r.text();
-        if (!/data-id="\d+"/.test(html)) continue; // page d'erreur : episode absent
+        /* DEUX marqueurs independants, et non un seul. Une page valide porte le
+           `data-id` du lecteur ET un titre « File <n> - MegaPlay » ; la page
+           d'erreur n'a ni l'un ni l'autre (elle dit « Error - MegaPlay »,
+           « Error Code: 410 »). N'en verifier qu'un ferait de son renommage une
+           panne SILENCIEUSE : tout le catalogue passerait d'un coup en
+           « absent », ce qui ressemble a une lacune et non a un bug. */
+        const valide = /data-id="\d+"/.test(html) || /<title>\s*File\s+\d+/i.test(html);
+        if (!valide) continue; // page d'erreur : episode absent chez megaplay
         return sendOk({ iframe: url });
       } catch {
         injoignable = true;
