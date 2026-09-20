@@ -153,26 +153,40 @@ async function ensureAlgoVersionColumn(): Promise<void> {
   algoColEnsured = true;
 }
 
+/* Le memo ne se pose qu'une fois la requete revenue : deux appels rapproches
+   partaient donc tous les deux vers Turso. C'est exactement ce que fait la
+   route /api/v2/source depuis qu'elle lance cette lecture en meme temps que la
+   resolution du titre. Un registre des vols en cours suffit. */
+const enVol = new Map<string, Promise<PlayerMapRow[]>>();
+
 /** All map rows for one anime (covers both sources × both langs in one read). */
 export async function getPlayerMap(aniId: number): Promise<PlayerMapRow[]> {
   const hit = memo.get(memoKey(aniId));
   if (hit && Date.now() - hit.t < MEMO_TTL_MS) return hit.rows;
+  const deja = enVol.get(memoKey(aniId));
+  if (deja) return deja;
 
   const db = getTursoClient();
   if (!db) return [];
-  try {
-    const r = await db.execute({
-      sql: "SELECT * FROM player_map WHERE ani_id = ?",
-      args: [aniId],
-    });
-    const rows = r.rows.map(rowFromDb);
-    memo.set(memoKey(aniId), { t: Date.now(), rows });
-    if (memo.size > 2000) memo.clear(); // crude bound; lambdas are short-lived
-    return rows;
-  } catch (e: any) {
-    console.warn("[player-map] read failed:", e?.message);
-    return [];
-  }
+  const p = (async () => {
+    try {
+      const r = await db.execute({
+        sql: "SELECT * FROM player_map WHERE ani_id = ?",
+        args: [aniId],
+      });
+      const rows = r.rows.map(rowFromDb);
+      memo.set(memoKey(aniId), { t: Date.now(), rows });
+      if (memo.size > 2000) memo.clear(); // crude bound; lambdas are short-lived
+      return rows;
+    } catch (e: any) {
+      console.warn("[player-map] read failed:", e?.message);
+      return [];
+    } finally {
+      enVol.delete(memoKey(aniId));
+    }
+  })();
+  enVol.set(memoKey(aniId), p);
+  return p;
 }
 
 /** One entry, or null. */

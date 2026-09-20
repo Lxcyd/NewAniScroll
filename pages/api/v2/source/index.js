@@ -2,7 +2,8 @@ import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
-import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
 import { getFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
@@ -143,45 +144,12 @@ async function isVidmolyEmbedAlive(embedUrl) {
   }
 }
 
-// Quick reachability probe for iframe-fallback URLs. Returns true if the URL
-// (after following redirects) responds with 2xx/3xx that the browser would
-// actually render — false if the embed slug 404s or the host is otherwise
-// dead. We use this so a "degraded" chip never points at a black 404 page.
-// For Vidmoly specifically we also try .biz/.net/.to in turn since anime-sama
-// sometimes lists a slug under whichever variant they scraped from.
-async function isIframeReachable(iframeUrl) {
-  const candidates = /vidmoly\.(to|net|biz)/i.test(iframeUrl)
-    ? ["vidmoly.biz", "vidmoly.net", "vidmoly.to"].map((d) =>
-        iframeUrl.replace(/vidmoly\.(to|net|biz)/i, d),
-      )
-    : [iframeUrl];
-  for (const url of candidates) {
-    try {
-      const res = await fetchWithTimeout(
-        url,
-        {
-          method: "GET",
-          headers: {
-            "User-Agent": SCRAPER_UA,
-            Accept: "text/html,application/xhtml+xml",
-          },
-          redirect: "follow",
-        },
-        4000,
-      );
-      // 4xx (excl 405) means the embed slug is gone from this host. 5xx is
-      // transient — accept it. Off-host HTTP redirect (vidmoly.to → scam) is
-      // also a reject.
-      const finalUrl = new URL(res.url);
-      if (finalUrl.protocol !== "https:") continue;
-      if (res.status >= 400 && res.status < 500 && res.status !== 405) continue;
-      return true;
-    } catch {
-      // network error — try next candidate
-    }
-  }
-  return false;
-}
+/* `isIframeReachable` vivait ici : une sonde GET de 4 s, essayant jusqu'a trois
+   domaines vidmoly a la suite, pour ne pas peindre un chip « degrade » pointant
+   sur une page 404. Elle n'etait appelee de NULLE PART (verifie sur tout le
+   depot le 20/09/2026) : un repli iframe ne passe plus par elle. Supprimee
+   plutot que gardee « au cas ou » — un mort qui ressemble a un vivant se fait
+   relire a chaque lecture de ce fichier, et on finit par croire qu'il coute. */
 
 // Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
@@ -1304,13 +1272,42 @@ async function loadEpisodeArrays(slug, seasonDir, langDir) {
   return arrays;
 }
 
+/* Depart HEDGE, pas fan-out sec.
+   Ces `episodes.js` etaient charges l'un apres l'autre : pour une demande VF,
+   `animeSamaLangDirs` renvoie ["vf","vf1","vf2","vf3"], donc jusqu'a quatre
+   allers-retours en serie a 5 s de plafond chacun. Or « vf » repond dans
+   l'immense majorite des cas, et vf1/vf2/vf3 n'existent presque jamais : les
+   lancer tous d'emblee ajouterait trois requetes Worker inutiles a CHAQUE
+   resolution. On lance donc le premier seul, et on n'ouvre les autres que s'il
+   tarde (250 ms) ou s'il ne donne rien. La priorite d'origine continue de
+   decider du gagnant — on ne prend pas « le premier arrive » mais « le premier
+   de la liste qui convient ». */
+const HEDGE_MS = 250;
+
 async function pickLangDirForHost(slug, seasonDir, langDirs, serverDef, index) {
+  if (!langDirs.length) return null;
+  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+  const vols = new Map();
+  const lance = (lp) => {
+    if (!vols.has(lp)) vols.set(lp, loadEpisodeArrays(slug, seasonDir, lp).catch(() => null));
+    return vols.get(lp);
+  };
+
+  const premier = lance(langDirs[0]);
+  const gagneVite = await Promise.race([premier, attendre(HEDGE_MS).then(() => "lent")]);
+  // Le premier a repondu a temps ET porte cet hote : rien d'autre a demander.
+  if (gagneVite !== "lent" && gagneVite?.length) {
+    const url = pickPreferredEpisodeUrl(gagneVite, serverDef.preferred, index);
+    if (url) return { langDir: langDirs[0], episodeArrays: gagneVite, url };
+  }
+  // Sinon on ouvre le reste en parallele et on depouille DANS L'ORDRE.
+  langDirs.slice(1).forEach(lance);
   let fallback = null;
   for (const lp of langDirs) {
     /* Les trois issues de loadEpisodeArrays (panneau sain / absent / indetermine)
        se traitent ici de la meme facon — passer a la langue suivante — comme
        le faisaient les trois `continue` d'origine. */
-    const episodeArrays = await loadEpisodeArrays(slug, seasonDir, lp);
+    const episodeArrays = await vols.get(lp);
     if (!episodeArrays || episodeArrays.length === 0) continue;
     if (!fallback) fallback = { langDir: lp, episodeArrays };
     const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
@@ -2418,22 +2415,35 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
   const candidates = new Map(); // slug â†’ best score
   let anySearchOk = false; // did at least one query reach anime-sama and parse?
-  for (const q of queries) {
-    let searchRes;
-    try {
-      searchRes = await fetchViaWorker(
-        `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
-      );
-    } catch (e) {
-      console.error(`[anime-sama] search "${q}" failed:`, e.message);
-      continue;
-    }
-    if (!searchRes.ok) {
-      console.error(`[anime-sama] search "${q}" HTTP ${searchRes.status}`);
-      continue;
-    }
+  /* EN PARALLELE. Ces recherches etaient faites l'une apres l'autre, cinq a
+     douze fois, chacune sous un plafond de 5 s et sans sortie anticipee
+     (le score se calcule sur l'ENSEMBLE des reponses, il n'y a donc rien a
+     interrompre). C'etait le premier poste du chemin froid : 2 a 8 s, alors
+     que les requetes ne dependent pas les unes des autres et que la fusion
+     ci-dessous — un maximum par slug — se moque de l'ordre d'arrivee.
+     Plafonnees a huit : au-dela, ce sont des synonymes qui n'ont jamais
+     departage personne, et chacun coute une requete au Worker. */
+  const MAX_RECHERCHES = 8;
+  const reponses = await Promise.all(
+    queries.slice(0, MAX_RECHERCHES).map(async (q) => {
+      try {
+        const res = await fetchViaWorker(
+          `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
+        );
+        if (!res.ok) {
+          console.error(`[anime-sama] search "${q}" HTTP ${res.status}`);
+          return null;
+        }
+        return await res.text();
+      } catch (e) {
+        console.error(`[anime-sama] search "${q}" failed:`, e.message);
+        return null;
+      }
+    }),
+  );
+  for (const html of reponses) {
+    if (html == null) continue;
     anySearchOk = true;
-    const html = await searchRes.text();
     const $ = cheerio.load(html);
 
     $("a[href*='/catalogue/']").each((_, el) => {
@@ -4150,8 +4160,14 @@ async function releaseScrapeLock(cacheKey) {
 async function waitForLeaderResult(cacheKey) {
   const deadline = Date.now() + LOCK_WAIT_MS;
   let errors = 0;
+  // On REGARDE avant de dormir : le leader a souvent deja publie quand on
+  // arrive (le verrou est pris pour 20 s, la resolution dure moins), et ce
+  // sommeil en tete de boucle faisait payer LOCK_POLL_MS a tout le monde pour
+  // une reponse qui etait deja la.
+  let premierTour = true;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    if (!premierTour) await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    premierTour = false;
     try {
       const [cached, lock] = await redis.mget(cacheKey, lockKey(cacheKey));
       if (cached) return cached;
@@ -4165,8 +4181,17 @@ async function waitForLeaderResult(cacheKey) {
       if (++errors >= 2) return null;
     }
   }
-  return null;
+  /* Budget epuise ET le leader tient toujours son verrou : il travaille encore.
+     Se mettre a scraper a notre tour, c'est ajouter 8 a 13 s de resolution aux
+     6 s deja brulees, contre un `maxDuration` de 15 — donc deux timeouts au
+     lieu d'un, et deux fois la charge en amont au pire moment. On le dit, le
+     client reessaie (DECOY_BACKOFF_MS), et il tombera sur le cache du leader. */
+  return LEADER_BUSY;
 }
+
+/** Le leader n'a pas fini dans les temps — a distinguer de « il a fini sans
+ *  rien », qui autorise l'appelant a scraper lui-meme. */
+const LEADER_BUSY = Symbol("leader-busy");
 
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
@@ -4363,6 +4388,14 @@ export default async function handler(req, res) {
     isLeader = await acquireScrapeLock(cacheKey);
     if (!isLeader) {
       const leaderResult = await waitForLeaderResult(cacheKey);
+      if (leaderResult === LEADER_BUSY) {
+        /* Le leader travaille encore : on rend la main plutot que de doubler le
+           scrape (cf. waitForLeaderResult). Reponse ecrite ici plutot qu'avec
+           `sendRetryable`, qui n'est declare que plus bas — et qui relacherait
+           un verrou que, suiveur, nous ne tenons pas. */
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({ error: "Source temporarily unavailable" });
+      }
       if (leaderResult) {
         if (isNotFoundSentinel(leaderResult)) {
           cacheAbsent();
@@ -4543,6 +4576,15 @@ export default async function handler(req, res) {
     return m?.title?.english || m?.title?.romaji || null;
   }
 
+  /* La table de correspondance des lecteurs, demandee MAINTENANT.
+     Les resolveurs anime-sama et voir-anime commencent tous les deux par la
+     lire, mais seulement apres `resolveTitle()` — soit un aller-retour AniList
+     devant un aller-retour Turso, alors que les deux sont independants. On
+     amorce donc la lecture ici, sans l'attendre : le memo (et, depuis peu, le
+     registre des vols en cours de lib/db/playerMap) fait que le resolveur
+     retrouvera la reponse au lieu d'en redemander une. */
+  if (aniId) void getPlayerMap(Number(aniId)).catch(() => {});
+
   // A provider resolver returning null = genuine "no source for this episode"
   // (→ 204 absent). A TransientSourceError = an upstream hiccup (worker/host
   // timeout) → 503 retryable, so the watch page retries instead of freezing the
@@ -4562,6 +4604,20 @@ export default async function handler(req, res) {
   // providers because it needs neither a title nor a slug: the AniList id maps
   // straight to TMDB through Fribb's static cross-map.
   if (FREMBED_SERVERS[server]) {
+    /* Frembed PUBLIE son catalogue, alors on le lit au lieu de le deviner.
+       146 entrees au 20/09/2026, soit 340 fiches AniList — donc pour presque
+       tout le site la reponse est « absent », et on la payait a chaque fois :
+       lecture Fribb, appel a l'API frembed, sonde du CDN (1,66 s mesurees),
+       plus un chip qui s'allumait avant de s'eteindre. Une lecture de table
+       memoisee remplace tout ca.
+       `hard: true` parce que c'est le catalogue de l'hote lui-meme qui le dit,
+       pas une resolution qui a echoue : le client peut le cacher sans risque.
+       Table vide (jamais synchronisee) = on ne sait pas, et on repasse par le
+       chemin complet — une panne de synchro ne doit pas eteindre frembed. */
+    if (!(await frembedPeutAvoir(aniId))) {
+      dlog(`[frembed] ${aniId} hors catalogue — absent sans resolution`);
+      return sendNotFound("Source not found", { hard: true });
+    }
     const { data, retry, hostDown } = await resolveProvider(() =>
       getFrembedStream(server, aniId, episode),
     );

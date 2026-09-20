@@ -14,10 +14,28 @@
    aussi. Les `import()` sont dedupliques par webpack : appeler plusieurs fois
    ne coute rien. */
 
+import { fabriqueLoader } from "./hlsPreload";
+
 export const loadHlsLibrary = () => import("hls.js");
+
+/* Le chargeur d'hls.js qui lit d'abord les manifestes deja en memoire.
+   Il ne peut etre fabrique qu'une fois hls.js la (il herite de son chargeur par
+   defaut), alors que `onProviderChange` est synchrone : on le prepare donc des
+   le prechargement, et le lecteur le prend s'il est pret. Sinon il s'en passe,
+   et hls.js fait ses requetes comme avant — un prechargement rate n'est jamais
+   une panne. */
+let loaderMemoire: any = null;
+
+export function getLoaderMemoire(): any {
+  return loaderMemoire;
+}
 
 export function preloadPlayerCode(): void {
   if (typeof window === "undefined") return;
   void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
-  void loadHlsLibrary().catch(() => {});
+  void loadHlsLibrary()
+    .then((m) => {
+      if (!loaderMemoire) loaderMemoire = fabriqueLoader((m as any).default || m);
+    })
+    .catch(() => {});
 }

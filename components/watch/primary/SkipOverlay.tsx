@@ -86,6 +86,10 @@ type Props = {
   server?: string;
   /** Pre-computed URL for the next episode. */
   nextEpisodeHref?: string | null;
+  /** Appele quand le « suivant » devient imminent (debut de l'ED, ou fin de
+   *  l'episode) : la page en profite pour preparer le FLUX du prochain
+   *  episode, enchainement automatique compris. */
+  onPrepareNext?: () => void;
   /** Set to true when a non-Vidstack popover (subtitle picker, etc.)
    *  is open inside the player — same hide behaviour as Vidstack's
    *  native menus. */
@@ -120,6 +124,7 @@ export default function SkipOverlay({
   episode,
   server,
   nextEpisodeHref,
+  onPrepareNext,
   externalMenuOpen = false,
   isFinalEpisode = false,
   isSingleEpisode = false,
@@ -264,7 +269,13 @@ export default function SkipOverlay({
     }
     // Warm the player chunk too (idempotent dynamic import).
     void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
-  }, [shouldPreloadNext, nextEpisodeHref, router]);
+    /* …et le FLUX de l'episode suivant, pas seulement sa page. C'est le moment
+       ou jamais : le jeton du master est lie a l'IP et a l'instant, donc le
+       preparer plus tot ne servirait a rien, et le preparer au survol du bouton
+       laisserait l'enchainement AUTOMATIQUE partir a froid — il ne survole
+       rien. La page se charge du detail (cf. `prepareEpisode`). */
+    onPrepareNext?.();
+  }, [shouldPreloadNext, nextEpisodeHref, router, onPrepareNext]);
 
   /* Player root portal target — for the floating buttons. Must be
      inside the element the Fullscreen API hands off, otherwise the

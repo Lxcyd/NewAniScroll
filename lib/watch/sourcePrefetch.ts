@@ -13,6 +13,7 @@
  */
 
 import { requestSource } from "./sourceRequest";
+import { peekWarmVidmoly } from "../clientVidmoly";
 import { bandwidthKey, pickStartVariant } from "./hlsBandwidth";
 import { playbackUrl, preconnectOrigin, proxied } from "./streamUrl";
 
@@ -76,15 +77,79 @@ export function clearPrefetchedSourcesFor(aniId: number | string): void {
  * En memoire, meme onglet, meme duree de vie que les sources prechauffees
  * (purge en quittant la page info sans aller regarder).
  */
-const planned = new Map<string, string>();
+/* Ce relais porte un VERDICT, pas un pari.
+ *
+ * Il ne transportait qu'un nom de serveur, ecrit AVANT le moindre test — la
+ * page de lecture l'ouvrait donc sur parole. Cas signale le 20/09/2026 : dix
+ * secondes passees sur la page info, clic, frembed demarre, echoue, vidmoly
+ * prend le relais. On avait tout le temps de savoir, et on le savait peut-etre
+ * deja : l'information etait simplement jetee.
+ *
+ * Trois champs, donc :
+ *   planned  — le candidat ;
+ *   verifie  — a-t-il ete PROUVE jouable (manifeste ET segment) ;
+ *   recales  — ceux que la chaine a prouves morts, pour que la page de lecture
+ *              ne les ouvre pas a son tour.
+ * Un candidat non verifie reste un indice utile (clic en deux secondes), il
+ * cesse seulement d'etre presente comme une certitude.
+ */
+type Pari = { planned: string; verifie: boolean; recales: Set<string> };
 
+const planned = new Map<string, Pari>();
+
+function pari(aniId: number | string): Pari {
+  const k = String(aniId);
+  let p = planned.get(k);
+  if (!p) {
+    p = { planned: "", verifie: false, recales: new Set() };
+    planned.set(k, p);
+  }
+  return p;
+}
+
+/** Le candidat sur lequel on mise, sans preuve encore. */
 export function setPlannedServer(aniId: number | string, server: string): void {
-  if (server) planned.set(String(aniId), server);
+  if (!server) return;
+  const p = pari(aniId);
+  // Un candidat VERIFIE ne se fait pas deloger par un simple pari.
+  if (p.verifie) return;
+  p.planned = server;
+}
+
+/** Ce lecteur a rendu un flux reellement jouable pour cet anime. */
+export function setVerifiedServer(aniId: number | string, server: string): void {
+  if (!server) return;
+  const p = pari(aniId);
+  p.planned = server;
+  p.verifie = true;
+  p.recales.delete(server);
+}
+
+/** Ce lecteur a ete prouve mort : la page de lecture ne doit pas l'ouvrir. */
+export function markPlannedFailed(aniId: number | string, server: string): void {
+  if (!server) return;
+  const p = pari(aniId);
+  p.recales.add(server);
+  if (p.planned === server && !p.verifie) p.planned = "";
 }
 
 export function getPlannedServer(aniId: number | string | null | undefined): string {
   if (aniId == null) return "";
-  return planned.get(String(aniId)) || "";
+  return planned.get(String(aniId))?.planned || "";
+}
+
+/** `true` seulement si le serveur annonce a ete prouve jouable. */
+export function isPlannedVerified(aniId: number | string | null | undefined): boolean {
+  if (aniId == null) return false;
+  return planned.get(String(aniId))?.verifie === true;
+}
+
+/** Les lecteurs que la page info a prouves morts pour cet anime. */
+export function getPlannedFailures(
+  aniId: number | string | null | undefined,
+): string[] {
+  if (aniId == null) return [];
+  return Array.from(planned.get(String(aniId))?.recales || []);
 }
 
 /**
@@ -163,6 +228,7 @@ export async function warmChain(
   opts: {
     signal?: AbortSignal;
     onPlanned?: (server: string) => void;
+    onFailed?: (server: string) => void;
     onStream?: (server: string, data: any) => void;
     max?: number;
   } = {},
@@ -173,12 +239,40 @@ export async function warmChain(
 
   const tenter = async (server: string, rang: number): Promise<boolean> => {
     const data = await resolveSource({ ...params, server }, { priority: "high", signal: opts.signal });
-    if (!data || opts.signal?.aborted) return false;
+    if (opts.signal?.aborted) return false;
+    if (!data) {
+      opts.onFailed?.(server);
+      return false;
+    }
     // Le flux lui-meme, pas seulement sa resolution : une source qui pointe sur
     // un manifeste mort est un lecteur mort, et on a de quoi le savoir ici.
     opts.onStream?.(server, data);
-    const ok = data.clientExtract ? true : await warmStream(data, opts.signal);
-    if (!ok || opts.signal?.aborted) return false;
+    /* Y COMPRIS pour l'extraction navigateur, qu'on tenait pour saine sans rien
+       verifier : on attend son master (l'extraction est deja lancee par
+       `onStream`, on ne fait que lire son resultat) puis on le traite comme
+       n'importe quel flux direct. Sans ca, le seul lecteur qu'on ne validait
+       pas etait celui par defaut. */
+    let ok: boolean;
+    const ce = data.clientExtract;
+    if (ce?.type === "vidmoly" && ce.embedUrl) {
+      const master = await peekWarmVidmoly(ce.embedUrl);
+      ok = master
+        ? await warmStream(
+            { streams: [{ url: master, isM3U8: true, directUrl: true }] },
+            opts.signal,
+          )
+        : false;
+    } else if (ce) {
+      // Multipart : on ne prechauffe pas, mais on ne le declare pas mort non plus.
+      ok = true;
+    } else {
+      ok = await warmStream(data, opts.signal);
+    }
+    if (opts.signal?.aborted) return false;
+    if (!ok) {
+      opts.onFailed?.(server);
+      return false;
+    }
     if (rang < meilleurRang) {
       meilleurRang = rang;
       opts.onPlanned?.(server);
@@ -236,21 +330,31 @@ export async function warmStream(
   if (!depart) return false;
   // On ouvre la connexion tout de suite : elle servira a la lecture elle-meme.
   preconnectOrigin(depart);
+  /* Dans les MEMES conditions que la lecture. Le lecteur pose
+     `referrerPolicy = "no-referrer"` sur le <video> d'un flux direct
+     (cf. `directPlaybackRef` dans UniversalPlayer) parce que plusieurs CDN
+     refusent un Referer ; valider avec le notre reviendrait a prouver un
+     chemin que personne n'emprunte. */
+  const commeLeLecteur = (extra: any = {}) => ({
+    priority: "low",
+    signal,
+    ...(direct ? { referrerPolicy: "no-referrer" as const } : null),
+    ...extra,
+  });
   if (!/\.m3u8(\?|$)/i.test(source.url)) {
     // MP4 progressif (sibnet) : un bout du fichier suffit a dire s'il repond.
     try {
-      const res = await fetch(depart, {
-        headers: { Range: "bytes=0-262143" },
-        priority: "low",
-        signal,
-      } as any);
+      const res = await fetch(
+        depart,
+        commeLeLecteur({ headers: { Range: "bytes=0-262143" } }) as any,
+      );
       return res.ok || res.status === 206;
     } catch {
       return false;
     }
   }
   try {
-    const res = await fetch(depart, { priority: "low", signal } as any);
+    const res = await fetch(depart, commeLeLecteur() as any);
     if (!res.ok) return false;
     const text = await res.text();
     if (!/^#EXTM3U/.test(text.trimStart())) return false;
@@ -265,7 +369,7 @@ export async function warmStream(
       baseUrl = url;
       const r = await fetch(
         direct ? url : proxied(url, source.referer || streamData?.referer, source.voeCookie),
-        { priority: "low", signal } as any,
+        commeLeLecteur() as any,
       );
       if (!r.ok) return false;
       playlist = await r.text();
@@ -278,13 +382,21 @@ export async function warmStream(
     const segUrl = premier.startsWith("http")
       ? premier
       : new URL(premier, baseUrl).toString();
-    // 256 Ko : de quoi amorcer le cache d'edge sur l'ouverture de la lecture,
-    // sans tirer le segment entier.
-    await fetch(
-      direct ? segUrl : proxied(segUrl, source.referer || streamData?.referer, source.voeCookie),
-      { headers: { Range: "bytes=0-262143" }, priority: "low", signal } as any,
-    ).catch(() => {});
-    return true;
+    /* 256 Ko : de quoi amorcer le cache d'edge sur l'ouverture de la lecture,
+       sans tirer le segment entier. Et on JUGE cette reponse : elle etait
+       avalee par un `.catch(() => {})` suivi d'un `return true`, si bien qu'un
+       hote dont le manifeste repond et dont les SEGMENTS sont refuses (403 du
+       CDN) passait pour sain. C'est exactement la panne frembed du 20/09 : la
+       page info donnait son feu vert a un lecteur qui ne pouvait pas jouer. */
+    try {
+      const seg = await fetch(
+        direct ? segUrl : proxied(segUrl, source.referer || streamData?.referer, source.voeCookie),
+        commeLeLecteur({ headers: { Range: "bytes=0-262143" } }) as any,
+      );
+      return seg.ok || seg.status === 206;
+    } catch {
+      return false;
+    }
   } catch {
     // Annulation (depart de la page) comprise : rien a conclure sur l'hote,
     // mais rien a chauffer non plus.

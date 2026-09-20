@@ -46,6 +46,8 @@ import {
   pickServerForLangs,
 } from "@/lib/prefs/langPref";
 import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
+import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { chargeFrembedCatalog, frembedPossible } from "@/lib/watch/frembedCatalog";
 // Two dialogs the page only ever shows on request. LangPreferenceModal already
 // returns null while closed and ReportModal renders an empty headless-ui
 // Transition, so neither contributes a node to the watch page's HTML until it
@@ -58,8 +60,9 @@ import { recordWatchToday } from "@/lib/stats/streak";
 import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
 import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, isPlannedVerified, getPlannedFailures, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
+import { prechargeManifeste } from "@/lib/watch/hlsPreload";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
@@ -714,6 +717,50 @@ export default function Watch({
     [info?.id, info?.idMal, info?.title, epiNumber, dub, pickNextServer],
   );
 
+  /* L'episode SUIVANT, prepare jusqu'au flux.
+     La source etait deja resolue cinq secondes apres le demarrage, mais c'est
+     le poste le moins cher : ce qui coute, c'est l'extraction de l'embed puis
+     le manifeste (2 a 4 s). On ne pouvait pas les faire plus tot pour autant —
+     le jeton du master est lie a l'IP et a l'instant. Le bon moment est celui
+     ou le « suivant » apparait (debut de l'ED, ou la fin de l'episode) : le
+     jeton est frais au moment du saut, et surtout ca marche aussi pour
+     l'ENCHAINEMENT AUTOMATIQUE, qui ne survole jamais rien. */
+  const prepareEpisode = useCallback(
+    async (numero) => {
+      if (!info?.id || !numero) return;
+      const episode = parseInt(numero);
+      if (!Number.isFinite(episode)) return;
+      const sub = dub ? "dub" : "sub";
+      const marque = `ep:${episode}:${activeServer}`;
+      if (dejaPrechauffeRef.current.has(marque)) return;
+      dejaPrechauffeRef.current.add(marque);
+      let data = getPrefetchedSource(sourceKey(info.id, episode, activeServer, sub));
+      if (!data) {
+        data = await resolveSource(
+          {
+            aniId: info.id,
+            episode,
+            server: activeServer,
+            sub,
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: { idMal: info?.idMal ?? null },
+          },
+          { priority: "low" },
+        );
+      }
+      if (!data) return;
+      // Extraction navigateur (gratuite pour nous) + manifeste : le gros du
+      // demarrage, fait pendant que l'episode courant se termine.
+      warmClientExtract(data);
+      const flux = data?.streams?.[0] || data?.sources?.[0];
+      if (flux?.directUrl && /\.m3u8(\?|$)/i.test(flux.url || "")) {
+        preconnectOrigin(flux.url);
+        prechargeManifeste(flux.url);
+      }
+    },
+    [info?.id, info?.idMal, info?.title, dub, activeServer],
+  );
+
   // Load the user's saved preferred server after hydration.
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
   // We also patch the URL so the slug reflects the actual server in use,
@@ -748,6 +795,34 @@ export default function Watch({
     const pref = getAnimeServer(aniId) || getServerPref() || null;
     preferredServerRef.current = pref;
 
+    /* Ce que la page info a PROUVE mort pendant que la personne lisait la
+       fiche. Sans ca on rouvrait l'hote qu'elle venait d'ecarter, on le
+       regardait echouer, et on basculait — le trajet exact signale le
+       20/09/2026 (frembed demarre, echoue, vidmoly prend le relais). Inscrit
+       dans les deux memoires : `triedFailedRef` gouverne la bascule,
+       `failedServers` l'affichage du chip. */
+    // La liste frembed, si on ne l'a pas encore (arrivee directe). Elle arrive
+    // trop tard pour CE choix-ci, jamais pour les suivants — et elle tient dans
+    // le stockage local une demi-journee.
+    chargeFrembedCatalog();
+    const recales = getPlannedFailures(aniId);
+    // Hors catalogue frembed : on ne le propose pas, ni ici ni a la bascule.
+    if (!frembedPossible(aniId)) {
+      SERVERS.filter((s) => /^frembed/.test(s.id)).forEach((s) =>
+        triedFailedRef.current.add(s.id),
+      );
+    }
+    if (recales.length) {
+      recales.forEach((id) => triedFailedRef.current.add(id));
+      setFailedServers((prev) => {
+        const next = new Map(prev);
+        for (const id of recales) {
+          if (!next.has(id)) next.set(id, "Verifie sans succes avant lecture");
+        }
+        return next;
+      });
+    }
+
     // Classement des langues. Absent = l'utilisateur n'a jamais repondu : on
     // ouvre la popup (une seule fois, elle n'a pas de sortie « sans reponse »)
     // et on ne touche a rien pour CE chargement. Eteint dans les Reglages, on
@@ -759,14 +834,36 @@ export default function Watch({
     // prioritaire sur le classement de langues : c'est un choix plus precis.
     // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
     // si cet anime ne l'offre pas (effet « filet de securite » plus bas).
-    if (!pref && langOrder) {
+    /* Un lecteur que la page info a PROUVE jouable passe avant l'aveugle : elle
+       a fait, pendant que la personne lisait la fiche, exactement le test que
+       cette page ferait en ouvrant le lecteur. Il ne passe pas avant un choix
+       EXPLICITE (epinglage), qui reste la volonte de l'utilisateur. */
+    const verifie = isPlannedVerified(aniId) ? getPlannedServer(aniId) : "";
+    /* A defaut de preuve fraiche, le souvenir : le lecteur qui a REELLEMENT
+       rendu une image pour cette serie la derniere fois (animeHostMemory).
+       Sur les series ou le mieux classe n'existe pas — frembed absent, le cas
+       le plus courant — c'est ce qui evite de rejouer la meme bascule ratee a
+       chaque ouverture. Il ne passe ni devant un choix explicite, ni devant une
+       verification faite il y a dix secondes. */
+    const souvenir = recales.includes(getAnimeHost(aniId)) ? "" : getAnimeHost(aniId);
+    if (!pref && verifie) {
+      setActiveServer(verifie);
+    } else if (!pref && souvenir) {
+      setActiveServer(souvenir);
+    } else if (!pref && langOrder) {
       // La page info a peut-etre deja mise sur un hote pour cette serie — et
       // elle a pu affiner son choix avec l'instantane de disponibilite, ce
       // qu'on ne peut pas se permettre ici (ce serait un aller-retour reseau
       // DEVANT le premier chargement). Suivre son pari aligne les deux pages :
       // la source prechauffee est alors lue telle quelle, sans rien redemander.
       // Absent (arrivee directe, lien partage), on choisit a l'aveugle.
-      const guess = getPlannedServer(aniId) || pickServerForLangs(langOrder);
+      // `failed` porte ici les lecteurs qu'on sait hors jeu : ceux que la page
+      // info a prouves morts, et frembed quand son catalogue ne contient pas
+      // cette serie. Sans ca on ouvrait le plus rapide sur le papier pour le
+      // voir echouer aussitot.
+      const guess =
+        getPlannedServer(aniId) ||
+        pickServerForLangs(langOrder, { failed: triedFailedRef.current });
       if (guess) setActiveServer(guess);
     }
     // Select the user's server UP FRONT so it's the one loaded in priority — not
@@ -774,7 +871,9 @@ export default function Watch({
     // fetch fails and the safety-net effect below falls back to a confirmed one,
     // which is exactly the "sauf s'il n'a pas l'anime" behaviour we want. With
     // no saved preference we keep the megaplay default.
-    if (pref) {
+    // …sauf s'il vient d'etre prouve mort pour cet episode : on laisse alors le
+    // filet de securite choisir, plutot que d'ouvrir un lecteur qu'on sait KO.
+    if (pref && !recales.includes(pref)) {
       appliedPrefRef.current = true;
       setActiveServer(pref);
     }
@@ -1872,8 +1971,14 @@ export default function Watch({
     // meant if the user changed away from the default before the probe
     // completed, the original default never got marked as confirmed and
     // disappeared from the selector.)
+    /* Frembed est ecarte quand son catalogue — qu'il publie, et qu'on lit une
+       fois par jour — ne contient pas cet anime : c'etaient deux sondes (VF et
+       VO) par ouverture pour une reponse connue d'avance, sur l'immense
+       majorite des series. Catalogue inconnu = on sonde comme avant. */
     const toProbe = SERVERS.filter(
-      (s) => s.type === "hls" || s.type === "api"
+      (s) =>
+        (s.type === "hls" || s.type === "api") &&
+        (!/^frembed/.test(s.id) || frembedPossible(info?.id)),
     );
 
     const controller = new AbortController();
@@ -2625,6 +2730,7 @@ export default function Watch({
             party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
             onDoubt={() => prewarmNext(server.id)}
+            onPrepareNextEpisode={() => prepareEpisode(nextEp?.number)}
             onError={(reason) =>
               markFailed(
                 server.id,
@@ -2668,7 +2774,7 @@ export default function Watch({
     // (which changes on every chat/presence update) — otherwise the player
     // rebuilds on each message, restarting playback and breaking sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, prepareEpisode, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
 
   // ── Render ───────────────────────────────────────────────────
   // The Watch-Party panel. Rendered in two places: on mobile it sits in the
@@ -2707,6 +2813,7 @@ export default function Watch({
       episode={episodesList}
       track={episodeNavigation}
       dub={dub}
+      onPrepareEpisode={prepareEpisode}
       /* La duree d'un episode depend de l'ENCODAGE, donc du lecteur : la liste
          a besoin de savoir lequel est actif pour afficher la bonne
          (cf. /api/v2/runtimes). */

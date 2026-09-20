@@ -68,7 +68,8 @@ import {
 } from "@/lib/watch/progress";
 import { recordWatchToday } from "@/lib/stats/streak";
 import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
-import { loadHlsLibrary } from "@/lib/watch/playerCode";
+import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
@@ -169,6 +170,11 @@ type Props = {
    *  lecture des preferences — en ms. Meme usage que `sourceMs`. */
   pageMs?: number;
   onError?: (reason?: string) => void;
+  /** Le « suivant » devient imminent (debut de l'ED, ou fin de l'episode) :
+   *  la page prepare le FLUX du prochain episode. Declenche a l'APPARITION du
+   *  bouton et non a son survol, sans quoi l'enchainement automatique — qui ne
+   *  survole rien — repartirait a froid. */
+  onPrepareNextEpisode?: () => void;
   /** Le lecteur repond encore mais rien n'arrive (extraction qui traine, aucune
    *  premiere image, erreurs de chargement a repetition). La page s'en sert
    *  pour preparer le lecteur SUIVANT pendant que celui-ci finit ses essais —
@@ -1727,6 +1733,7 @@ export default function UniversalPlayer({
   pageMs,
   onError,
   onDoubt,
+  onPrepareNextEpisode,
   ambient = true,
   serverId,
   downloadName = "anime.mp4",
@@ -1848,6 +1855,12 @@ export default function UniversalPlayer({
          d'index. C'est bien la creation qu'il fallait couper. */
       // hls.js du bundle, pas de jsDelivr — cf. lib/watch/playerCode.ts.
       provider.library = loadHlsLibrary;
+      /* Le manifeste a peut-etre deja ete telecharge pendant l'extraction (cf.
+         lib/watch/hlsPreload) : ce chargeur le sert depuis la memoire au lieu
+         de refaire l'aller-retour, et delegue tout le reste. Absent — hls.js
+         pas encore la — on s'en passe, le lecteur fait simplement ses requetes
+         comme avant. */
+      const loaderMemoire = getLoaderMemoire();
       // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
       const depart = startEstimate(bwKeyRef.current);
       provider.config = {
@@ -1856,6 +1869,7 @@ export default function UniversalPlayer({
         renderTextTracksNatively: false,
         testBandwidth: false,
         ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
+        ...(loaderMemoire ? { loader: loaderMemoire } : null),
       };
     }
   };
@@ -4231,6 +4245,16 @@ export default function UniversalPlayer({
     return () => window.clearTimeout(id);
   }, [clientStatus, emettreDoute]);
 
+  /* Une image est arrivee : on retient QUEL lecteur l'a rendue, pour cette
+     serie. C'est la seule preuve qui vaille — pas « le chip est vert », pas
+     « la source a resolu » — et c'est ce qui evite de rejouer la meme panne a
+     chaque ouverture sur les series ou le lecteur le mieux classe n'existe
+     pas. Lecture au chargement suivant : lib/prefs/animeHostMemory. */
+  useEffect(() => {
+    if (!videoAUneImage || !serverId || aniListId == null) return;
+    rememberAnimeHost(aniListId, serverId);
+  }, [videoAUneImage, serverId, aniListId]);
+
   useEffect(() => {
     if (!playerElState) return;
     if (videoAUneImage) return; // une image est la : plus rien a surveiller
@@ -6513,6 +6537,7 @@ export default function UniversalPlayer({
         episode={episodeNumber}
         server={serverId}
         nextEpisodeHref={nextEpisodeHref}
+        onPrepareNext={onPrepareNextEpisode}
         externalMenuOpen={subMenuOpen || subStyleOpen}
         isFinalEpisode={isFinalEpisode}
         isSingleEpisode={isSingleEpisode}

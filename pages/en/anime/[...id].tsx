@@ -1,7 +1,13 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { warmChain, clearPrefetchedSourcesFor, setPlannedServer } from "@/lib/watch/sourcePrefetch";
+import {
+  warmChain,
+  clearPrefetchedSourcesFor,
+  setPlannedServer,
+  setVerifiedServer,
+  markPlannedFailed,
+} from "@/lib/watch/sourcePrefetch";
 import { preloadPlayerCode } from "@/lib/watch/playerCode";
 import { warmVidmolyClient } from "@/lib/clientVidmoly";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
@@ -26,6 +32,8 @@ import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
 import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
 import { getAnimeServer } from "@/lib/prefs/animeServerPref";
+import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { chargeFrembedCatalog, sansFrembed } from "@/lib/watch/frembedCatalog";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -459,8 +467,12 @@ export default function Info({
         const ajoute = (id?: string | null) => {
           if (id && !liste.includes(id)) liste.push(id);
         };
-        // 1. L'exception memorisee pour cette serie, ou le lecteur epingle.
+        // 1. L'exception memorisee pour cette serie, ou le lecteur epingle…
         ajoute(pinned);
+        // …puis celui qui a REELLEMENT joue cette serie la derniere fois. Le
+        // prechauffer d'abord, c'est commencer par la reponse qu'on connait
+        // deja au lieu de reparcourir un classement theorique.
+        ajoute(getAnimeHost(info.id));
         // 2. Le classement de langues, epuise par appels successifs : chaque
         //    choix rejoint `failed` pour que le suivant en sorte un autre.
         if (order) {
@@ -478,15 +490,23 @@ export default function Info({
         ajoute(server);
         const groups = getServersByLang(serverPerfRank);
         for (const s of [...groups.multi, ...groups.vo, ...groups.vf]) ajoute(s.id);
-        return liste.slice(0, 3);
+        /* Frembed est classe premier (CDN direct, ~100 ms) mais son catalogue
+           ne compte que quelques centaines de fiches : hors de cette liste, le
+           prechauffer c'est payer une resolution pour s'entendre dire non.
+           Liste inconnue = on ne filtre pas. */
+        return sansFrembed(liste, info.id).slice(0, 3);
       };
 
       const candidatsP = resolveWatchCandidates();
       warmTargetP = candidatsP.then((c) => c[0] || server);
       void candidatsP.then((candidats) => {
         if (cancelled) return;
-        // Dire a la page de lecture SUR QUOI on a mise, pour qu'elle ouvre le
-        // meme hote et lise la source deja resolue au lieu d'en redemander une.
+        /* Le premier candidat n'est qu'un PARI tant que rien ne l'a prouve —
+           il sert au clic tres rapide, pas de certitude. Le verdict vient de
+           `onPlanned` (flux prouve jouable) et de `onFailed` (prouve mort), et
+           c'est lui que la page de lecture suit. Publier le pari comme un
+           verdict etait le defaut signale : dix secondes sur la page info,
+           clic, frembed demarre et echoue alors qu'on avait de quoi savoir. */
         setPlannedServer(info.id, candidats[0] || server);
         void warmChain(
           candidats,
@@ -495,8 +515,11 @@ export default function Info({
             signal: ac.signal,
             onPlanned: (srv) => {
               if (cancelled) return;
-              setPlannedServer(info.id, srv);
+              setVerifiedServer(info.id, srv);
               warmTargetP = Promise.resolve(srv);
+            },
+            onFailed: (srv) => {
+              if (!cancelled) markPlannedFailed(info.id, srv);
             },
             /* L'extraction de l'embed (ansembed/vidmoly) est faite par le
                NAVIGATEUR : elle ne coute rien au quota, et c'est le poste le
@@ -527,6 +550,10 @@ export default function Info({
     // matters once the video reports its duration, so it can wait for idle.
     const runIdle = () => {
       if (cancelled) return;
+      // La liste des animes que frembed possede, pour ne plus le proposer en
+      // vain (cf. lib/watch/frembedCatalog). Une fois par jour et par visiteur,
+      // servie par le cache d'edge.
+      chargeFrembedCatalog();
       // Warm the per-host entry for the server the watch page starts on, so the
       // overlay reads a hit on arrival. Sur le serveur reellement prechauffe, et
       // non plus megaplay en dur : les skips sont stockes PAR HOTE, une entree

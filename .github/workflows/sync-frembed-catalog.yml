@@ -1,0 +1,56 @@
+# Recopie le catalogue anime de frembed dans la table `frembed_catalog`.
+#
+# Frembed publie sa liste (/api/public/v1/anime) avec l'id TMDB de chaque titre.
+# Au 20/09/2026 : 146 entrees = 340 fiches AniList. Sans cette table, le site
+# essayait frembed sur TOUT le catalogue et payait, pour presque chaque anime,
+# une resolution qui ne pouvait qu'echouer (1,66 s mesurees) — plus un chip qui
+# s'allumait avant de s'eteindre.
+#
+# Tourne sur GitHub Actions : aucune invocation Vercel, le script parle
+# directement a Turso et a frembed. Le catalogue bouge de quelques titres par
+# semaine, une passe par nuit suffit largement.
+#
+# Le script REFUSE d'ecraser la table si frembed rend une liste vide ou
+# minuscule (site en panne, API changee) : mieux vaut servir la liste d'hier que
+# d'eteindre le lecteur le plus rapide du site.
+#
+# Secrets requis (Repository → Settings → Secrets and variables → Actions) :
+#   TURSO_DATABASE_URL   → la base aniscroll-cache
+#   TURSO_AUTH_TOKEN
+
+name: sync-frembed-catalog
+
+on:
+  schedule:
+    - cron: "40 3 * * *" # 03:40 UTC, hors des heures de pointe
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Ne rien ecrire, seulement rapporter"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Sync catalogue
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/frembed/sync-catalog.mjs \
+            ${{ inputs.dry == true && '--dry' || '' }}
