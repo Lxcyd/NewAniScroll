@@ -12,15 +12,25 @@
  * l'appelant ; les deux repondent a `.has()`, et le `.get()` couvre le cas ou
  * une Map porterait une entree a valeur falsy.
  *
- * DEUX natures d'echec, et elles ne meritent pas le meme sort (29/08/2026) :
+ * UN LECTEUR QUI NE MARCHE PAS NE S'AFFICHE PAS (30/08/2026). Le 29/08 avait
+ * introduit deux sorts distincts — l'absence prouvee retirait le chip, la panne
+ * le laissait grise et cliquable, au motif qu'une panne se termine. A l'usage
+ * la nuance ne se voit pas : cote spectateur, « Sibnet » en gris qui ne lit rien
+ * est un lecteur casse, pas une invitation. On ne propose donc plus que ce dont
+ * on n'a AUCUNE raison de douter.
  *
- *   - l'absence PROUVEE — cet episode n'existe pas chez cet hote — n'a aucune
- *     raison d'occuper une place : le chip disparait ;
- *   - tout le reste (hote qui refuse, 5xx, reseau, delai) est une panne, et une
- *     panne se termine. Le chip RESTE, grise et cliquable.
+ * Ce qui rend la regle tenable, et sans quoi elle reviendrait au bug du
+ * 17/08 (« sibnet s'affiche puis disparait ») : `markFailed` filtre DEJA en
+ * amont. Un echec passager sur un hote CONFIRME n'entre jamais dans
+ * `failedServers` — un 503 dit « je n'ai pas pu savoir », pas « ce lecteur
+ * n'existe pas ». N'y figurent donc que l'absence prouvee, le `hostDown`, et
+ * les echecs d'un hote qu'on n'a jamais vu marcher. Trois verdicts, aucune
+ * non-connaissance : les masquer ne cache rien de recuperable.
  *
- * Les confondre les faisait tous disparaitre : la barre se vidait sous les
- * yeux, et un hote retabli n'etait plus atteignable — il fallait recharger.
+ * Deux filets subsistent : le lecteur ACTIF reste toujours visible (sinon on
+ * regarderait un flux qu'aucun chip ne designe), et l'etat est remis a zero a
+ * chaque changement d'episode — un hote mort sur l'episode 3 repart intact
+ * sur le 4.
  */
 
 type ServerLike = { id: string; type?: string };
@@ -44,7 +54,9 @@ export function isProvenAbsent(failedServers: FailedLike, id: string): boolean {
   return raison === ABSENCE_PROUVEE;
 }
 
-/** L'hote a-t-il echoue d'une facon qui peut se terminer ? (chip grise) */
+/** L'hote a-t-il echoue d'une facon qui peut se terminer ?
+ *  Ne gouverne PLUS l'affichage depuis le 30/08 — tout echec masque. Reste
+ *  expose pour le diagnostic et pour distinguer les verdicts dans les traces. */
 export function isDegraded(failedServers: FailedLike, id: string): boolean {
   return !!failedServers?.has?.(id) && !isProvenAbsent(failedServers, id);
 }
@@ -58,10 +70,9 @@ export function shouldShowServer(
   // Le lecteur en cours reste visible meme en echec : le masquer laisserait
   // l'utilisateur devant un lecteur qu'aucun chip ne designe.
   if (server.id === activeServer) return true;
-  if (isProvenAbsent(failedServers, server.id)) return false;
-  // Une panne ne retire pas le chip — elle le grise. Y compris sur un lecteur
-  // jamais confirme : proposer un essai vaut mieux qu'une barre vide.
-  if (failedServers?.has?.(server.id)) return true;
+  // Tout echec retire le chip, quelle qu'en soit la raison : ne figurent ici
+  // que des verdicts, jamais un simple « je n'ai pas pu savoir » (cf. en-tete).
+  if (failedServers?.has?.(server.id)) return false;
   // Un iframe ne se sonde pas — on ne peut rien confirmer a son sujet.
   if (server.type === "iframe") return true;
   return !!confirmedServers?.has(server.id);

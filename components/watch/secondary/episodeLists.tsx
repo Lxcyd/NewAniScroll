@@ -33,7 +33,7 @@ import {
    l'ascenseur `.customScroll` de cette meme feuille. */
 import v2Styles from "@/components/anime/v2/styles.module.css";
 import { seasonSubtitle } from "@/components/anime/v2/helpers";
-import { animeHref } from "@/lib/prefs/clickTarget";
+import { animeHref, watchHref } from "@/lib/prefs/clickTarget";
 import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
 
 type EpisodeListsProps = {
@@ -48,6 +48,10 @@ type EpisodeListsProps = {
    *  meme episode ne dure pas la meme chose chez deux hotes. Absent = on
    *  retombe sur les sources qui ignorent le lecteur (AniSkip, AniList). */
   server?: string | null;
+  /** Survol d'une ligne : la page prepare le flux de cet episode (extraction +
+   *  manifeste) pour que le clic soit immediat. Optionnel — la liste sert aussi
+   *  ailleurs que sur la page de lecture. */
+  onPrepareEpisode?: (episode: number) => void;
 };
 
 type SeasonRow = {
@@ -655,7 +659,18 @@ export default function EpisodeLists({
   track,
   dub,
   server,
+  onPrepareEpisode,
 }: EpisodeListsProps) {
+  const onEpisodeHover = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onPrepareEpisode) return;
+      const lien = (e.target as HTMLElement)?.closest?.("a[href*='num=']");
+      const href = lien?.getAttribute("href");
+      const n = href ? Number(new URLSearchParams(href.split("?")[1] || "").get("num")) : NaN;
+      if (Number.isFinite(n) && n > 0) onPrepareEpisode(n);
+    },
+    [onPrepareEpisode],
+  );
   // Watched-episode count for the "seen" bar. Source of truth must match the
   // rest of the app: the LOCAL list when sync is off / guest (the editor and
   // Hero read it there), and only fall back to AniList's mediaListEntry when
@@ -1294,9 +1309,7 @@ export default function EpisodeLists({
                              partout ailleurs sur le site (Hero, accueil,
                              decouverte). */
                           router.push(
-                            `/en/anime/watch/${s.id}/megaplay?id=megaplay-${s.id}-1&num=1${
-                              dub ? `&dub=${dub}` : ""
-                            }`,
+                            watchHref(s.id) + (dub ? `&dub=${dub}` : ""),
                           );
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.05]"
@@ -1457,6 +1470,12 @@ export default function EpisodeLists({
           ref={listRef}
           onScroll={onListScroll}
           onPointerDown={onListPointerDown}
+          /* Survol d'un episode = intention d'y aller. On prepare son flux
+             (extraction + manifeste) sans attendre le clic. Un seul
+             gestionnaire, par delegation, plutot qu'un par ligne dans chacune
+             des trois vues — et la page se charge de ne rien refaire deux
+             fois. */
+          onMouseOver={onEpisodeHover}
           /* Repere pour les lignes : c'est ce cadre, et non la fenetre, qui
              sert de reference aux observateurs qui prennent de l'avance. */
           data-eplist=""

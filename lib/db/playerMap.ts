@@ -153,26 +153,40 @@ async function ensureAlgoVersionColumn(): Promise<void> {
   algoColEnsured = true;
 }
 
+/* Le memo ne se pose qu'une fois la requete revenue : deux appels rapproches
+   partaient donc tous les deux vers Turso. C'est exactement ce que fait la
+   route /api/v2/source depuis qu'elle lance cette lecture en meme temps que la
+   resolution du titre. Un registre des vols en cours suffit. */
+const enVol = new Map<string, Promise<PlayerMapRow[]>>();
+
 /** All map rows for one anime (covers both sources × both langs in one read). */
 export async function getPlayerMap(aniId: number): Promise<PlayerMapRow[]> {
   const hit = memo.get(memoKey(aniId));
   if (hit && Date.now() - hit.t < MEMO_TTL_MS) return hit.rows;
+  const deja = enVol.get(memoKey(aniId));
+  if (deja) return deja;
 
   const db = getTursoClient();
   if (!db) return [];
-  try {
-    const r = await db.execute({
-      sql: "SELECT * FROM player_map WHERE ani_id = ?",
-      args: [aniId],
-    });
-    const rows = r.rows.map(rowFromDb);
-    memo.set(memoKey(aniId), { t: Date.now(), rows });
-    if (memo.size > 2000) memo.clear(); // crude bound; lambdas are short-lived
-    return rows;
-  } catch (e: any) {
-    console.warn("[player-map] read failed:", e?.message);
-    return [];
-  }
+  const p = (async () => {
+    try {
+      const r = await db.execute({
+        sql: "SELECT * FROM player_map WHERE ani_id = ?",
+        args: [aniId],
+      });
+      const rows = r.rows.map(rowFromDb);
+      memo.set(memoKey(aniId), { t: Date.now(), rows });
+      if (memo.size > 2000) memo.clear(); // crude bound; lambdas are short-lived
+      return rows;
+    } catch (e: any) {
+      console.warn("[player-map] read failed:", e?.message);
+      return [];
+    } finally {
+      enVol.delete(memoKey(aniId));
+    }
+  })();
+  enVol.set(memoKey(aniId), p);
+  return p;
 }
 
 /** One entry, or null. */
@@ -263,19 +277,49 @@ export async function upsertPlayerMap(input: UpsertPlayerMapInput): Promise<void
  * forces re-verification (expires immediately). Three strikes demote a
  * `verified` row to `broken` so we stop serving something users say is wrong —
  * the verifier then re-derives it from scratch.
+ *
+ * `proven` distingue un SOUPCON d'une PREUVE, et les deux ne meritent pas le
+ * meme traitement.
+ *
+ * Un echec d'execution est bruite : le CDN coupe, l'hote a un hoquet, l'upload
+ * de la semaine manque. Trois coups avant de retrograder est le bon reglage
+ * pour ce signal-la, et il ne bouge pas.
+ *
+ * Une incoherence de saison n'est pas un soupcon : le resolveur vient de
+ * CALCULER que le panneau mappe designe une autre saison que celle de cet
+ * anime. Attendre deux visites de plus n'apporte aucune information — et sur un
+ * titre que personne n'ouvre, elles n'arrivent jamais. Au 20/09/2026, onze
+ * lignes portaient une note `season mismatch` en etant toujours `verified`,
+ * bloquees a `fail_count` 1 ou 2 : chaque visite contournait la ligne, re-payait
+ * `detectSeasonNumber` et repartait sur le chemin long, sans jamais converger.
+ *
+ * Sur preuve on retrograde donc tout de suite en `heuristic` — pas en `broken` :
+ * la ligne n'est pas morte, elle est perimee. Et on remet `algo_version` a 0
+ * pour que la garde de lecture la neutralise jusqu'a ce que le resolveur la
+ * reecrive a la version du jour. C'est le chemin d'auto-reparation.
  */
 export async function flagPlayerMap(
   aniId: number,
   source: PlayerSource,
   lang: PlayerLang,
   reason: string,
+  proven = false,
 ): Promise<void> {
   const db = getTursoClient();
   if (!db) return;
   const now = Math.floor(Date.now() / 1000);
   try {
     await db.execute({
-      sql: `UPDATE player_map SET
+      sql: proven
+        ? `UPDATE player_map SET
+              fail_count   = fail_count + 1,
+              note         = ?,
+              expires_at   = ?,
+              status       = CASE WHEN status = 'verified' THEN 'heuristic'
+                                  ELSE status END,
+              algo_version = 0
+            WHERE ani_id = ? AND source = ? AND lang = ?`
+        : `UPDATE player_map SET
               fail_count = fail_count + 1,
               note       = ?,
               expires_at = ?,

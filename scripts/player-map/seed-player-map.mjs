@@ -6,8 +6,26 @@
  *
  * The full audit already paid the worker cost of verifying every anime ×
  * source × lang; this script turns those observations into production
- * mappings. SAFE-FIRST gating — a row is seeded as `verified` only when ALL
- * of:
+ * mappings.
+ *
+ * ── UN SEMIS N'EST PAS UN CONTROLE ──────────────────────────────────────────
+ * Ce script ecrit `heuristic`, jamais `verified`. Il rejoue un audit FIGE,
+ * produit par le resolveur d'un autre jour : ce qu'il ecrit est une hypothese
+ * bien fondee, servie en attendant, soumise a la garde de peremption
+ * d'algorithme, et re-derivee par le resolveur quand celui-ci a evolue. Seul
+ * scripts/player-map/verify-player-map.mjs promeut en `verified`, parce que lui
+ * seul re-interroge la source avec le code du jour.
+ *
+ * Il a ecrit `verified` jusqu'au 20/09/2026, et c'est de la que venait toute
+ * une classe d'erreurs : 2 246 lignes semees portaient un statut que le chemin
+ * de lecture honore SANS controle de version (lib/db/playerMap.ts), si bien
+ * qu'une ligne fausse d'algorithme 0 masquait un resolveur qui avait raison —
+ * `black-cat` servi pour Kurokami pendant que la ligne d'execution, juste a
+ * cote, disait `kurokami-the-animation`. Trois lignes sur 2 325 etaient
+ * reellement passees par le verificateur.
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * SAFE-FIRST gating — a row is seeded at all only when ALL of:
  *
  *   1. The audit verdict was `ok` or `ongoing-behind` (episode count matched
  *      AniList, or was merely behind on a RELEASING show). `wrong-season`,
@@ -78,8 +96,11 @@ function slugTitleConfidence(slug, titles) {
     const matched = slugSig
       .filter((tok) => titleSig.has(tok))
       .reduce((a, tok) => a + tok.length, 0);
-    const titleLen = significantTokens(t).reduce((a, tok) => a + tok.length, 0);
-    const cov = matched / Math.min(slugLen, titleLen);
+    /* Par la longueur du SLUG, pas par `Math.min(slugLen, titleLen)` — cf. le
+       commentaire long dans pages/api/v2/source/index.js. Diviser par le plus
+       court des deux laissait un synonyme d'un seul mot certifier n'importe
+       quel slug le contenant. */
+    const cov = matched / slugLen;
     if (cov > best) best = cov;
   }
   return best;
@@ -87,8 +108,11 @@ function slugTitleConfidence(slug, titles) {
 
 /* ── TTLs (mirror lib/db/playerMap.ts playerMapTtl) ─────────────────────── */
 const DAY = 86400;
-const ttlVerified = (animeStatus) =>
-  animeStatus === "RELEASING" ? 7 * DAY : 90 * DAY;
+/* 14 jours, l'echeance d'une `heuristic` : un semis est une hypothese, et le
+   verificateur doit passer avant. C'etait 90 jours tant que le semis
+   s'estampillait `verified` — echeance qu'aucune de ces lignes n'a jamais
+   tenue, personne ne lancant le verificateur. */
+const ttlSeed = () => 14 * DAY;
 
 /* ── load audit ─────────────────────────────────────────────────────────── */
 const audit = JSON.parse(fs.readFileSync(AUDIT, "utf8"));
@@ -203,9 +227,9 @@ for (let i = 0; i < rows.length; i += 100) {
       sql: `INSERT INTO player_map
               (ani_id, source, lang, status, slug, season_dir, ep_offset,
                episode_count, confidence, fail_count, note, checked_at, expires_at)
-            VALUES (?, ?, ?, 'verified', ?, ?, ?, ?, ?, 0, ?, ?, ?)
+            VALUES (?, ?, ?, 'heuristic', ?, ?, ?, ?, ?, 0, ?, ?, ?)
             ON CONFLICT(ani_id, source, lang) DO UPDATE SET
-              status        = 'verified',
+              status        = 'heuristic',
               slug          = excluded.slug,
               season_dir    = excluded.season_dir,
               ep_offset     = excluded.ep_offset,
@@ -216,7 +240,7 @@ for (let i = 0; i < rows.length; i += 100) {
               expires_at    = excluded.expires_at`,
       args: [
         x.aniId, x.source, x.lang, x.slug, x.seasonDir, x.epOffset,
-        x.episodeCount, x.confidence, x.note, now, now + ttlVerified(x.animeStatus),
+        x.episodeCount, x.confidence, x.note, now, now + ttlSeed(),
       ],
     })),
   );

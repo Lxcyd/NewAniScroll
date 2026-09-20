@@ -16,12 +16,12 @@ export default function Document() {
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/logo.png" />
         <meta name="theme-color" content="#0c0d10" />
-        <link
-          rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.14.0/css/all.min.css"
-          integrity="sha512-1PKOgIY59xJ8Co8+NE6FZ+LOAZKjy+KY8iq0G4B3CyeY6wYHN3yt9PW0XpSriVlkMXe40PTKnXrLnZ9+fkDaog=="
-          crossOrigin="anonymous"
-        />
+        {/* Les covers et bannieres viennent d'AniList sur toutes les pages :
+            ouvrir la connexion pendant que le HTML se lit, pas a la premiere
+            <img>. (Font Awesome 5 etait charge ici en CSS bloquante depuis
+            cdnjs ; aucune classe `fa` n'existe dans le depot — retire.) */}
+        <link rel="preconnect" href="https://s4.anilist.co" />
+        <link rel="dns-prefetch" href="https://fanart-proxy.aniscroll.com" />
         <link rel="icon" type="image/png" href="/logo.png" />
         {/* Chrome deprecated the apple- prefixed meta in favour of the
             standard one; ship both (Safari still reads the apple- one). */}

@@ -214,16 +214,75 @@ module.exports = withPWA({
   // zero page duplication. getServerSideProps reads `query`, not the locale
   // segment, so it works identically under either prefix.
   async rewrites() {
-    return [
-      {
-        source: "/fr",
-        destination: "/en",
-      },
-      {
-        source: "/fr/:path*",
-        destination: "/en/:path*",
-      },
-    ];
+    return {
+      /* La fiche anime choisit sa mise en page (InfoPage / InfoPageMobile)
+         d'apres le User-Agent lu au SSR — mais elle est cachee au bord 6 h par
+         URL, pas par appareil : le premier visiteur de la fenetre decidait pour
+         tous les autres, et un telephone recevait le HTML desktop (ou
+         l'inverse) jusqu'a la bascule apres hydratation. Un flash de mauvaise
+         mise en page, a chaque chargement « perdant ».
+
+         Le telephone recoit donc une AUTRE URL interne, `?__m=1`, que le SSR
+         lit a la place du User-Agent : sa sortie ne depend plus que de l'URL,
+         et chaque variante a sa propre entree de cache. Cote client, le routeur
+         de Next evalue la meme condition sur `navigator.userAgent`
+         (resolve-rewrites.js) et ajoute le parametre a l'URL de donnees : les
+         navigations client sont separees de la meme facon. La barre d'adresse
+         ne change pas.
+
+         En beforeFiles pour passer avant le rewrite /fr -> /en, et le faire
+         lui-meme pour les URL /fr. La regex est celle de lib/hooks/useIsMobile
+         (qui est insensible a la casse : les variantes utiles sont ecrites). */
+      beforeFiles: [
+        /* Le prefixe /fr vaut aussi pour les ROUTES DE DONNEES.
+         *
+         * Une page a `getServerSideProps` voit son URL de donnees construite par
+         * Next a partir de `asPath` — c'est-a-dire, sur une session francaise,
+         * du chemin cosmetique `/fr/...` pose par I18nProvider. Le rewrite plus
+         * bas ne couvrant que les documents, toute navigation client qui
+         * redemande les props tombait sur
+         * `/_next/data/<build>/fr/anime/watch/....json` → 404, et Next affichait
+         * `_error` : « An error occurred on client ». Le document, lui,
+         * repondait parfaitement — d'ou un bug qui ne se voyait qu'en
+         * navigation interne, jamais au rechargement ni en partage de lien.
+         * Signale le 20/09/2026 sur la page de lecture ; il touchait en realite
+         * TOUTE page SSR ouverte en francais (verifie : Frieren aussi).
+         *
+         * En beforeFiles, seul rang ou l'on passe devant le gestionnaire
+         * `_next/data` de Next — un rewrite afterFiles arriverait apres son 404. */
+        {
+          source: "/_next/data/:build/fr/:path*",
+          destination: "/_next/data/:build/en/:path*",
+        },
+        {
+          source: "/_next/data/:build/fr.json",
+          destination: "/_next/data/:build/en.json",
+        },
+        ...["en", "fr"].map((lang) => ({
+        source: `/${lang}/anime/:id(\\d+)/:rest*`,
+        has: [
+          {
+            type: "header",
+            key: "user-agent",
+            value:
+              ".*(Android|android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini).*",
+          },
+        ],
+        missing: [{ type: "query", key: "__m" }],
+        destination: "/en/anime/:id/:rest*?__m=1",
+        })),
+      ],
+      afterFiles: [
+        {
+          source: "/fr",
+          destination: "/en",
+        },
+        {
+          source: "/fr/:path*",
+          destination: "/en/:path*",
+        },
+      ],
+    };
   },
   async redirects() {
     return [
