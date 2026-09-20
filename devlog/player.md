@@ -172,6 +172,55 @@ balayage —, plafond de 4 chauffes par episode, et rien du tout sous `saveData`
 ou en 2G. Un segment pese ~6 Mo : on chauffe l'endroit ou le curseur s'arrete,
 jamais ceux qu'il survole.
 
+### Pourquoi un mauvais slug est choisi — et pourquoi on ne peut pas le durcir
+
+`scoreSlugAgainstTitle` n'additionne que les correspondances : ce que le slug
+porte **en trop** ne lui coute rien. Un seul token partage suffit donc a faire
+gagner un candidat quand le bon n'est pas au catalogue.
+
+Les deux filets censes rattraper ca en sont incapables, et c'est **mesure** :
+
+**La confiance titre↔slug.** Un plancher a 0,60 rejetterait 534 lignes. Les
+quatorze echantillonnees sont **toutes correctes** — titres francais et
+variantes d'orthographe : `shirayuki-aux-cheveux-rouges` (0,41),
+`craque-pour-moi-medaka` (0,32), `le-healer-rejete-est-invincible` (0,19),
+`amagi-brillant-park` (0,53, « brillant » a la francaise). Le score ne sait pas
+distinguer une traduction francaise du bon anime d'un titre anglais du mauvais :
+les deux ne partagent qu'un token. **Piste fermee, et il faut le dire, sans quoi
+quelqu'un la rouvrira en croyant bien faire.**
+
+**Le nombre d'episodes.** Les sept mauvais slugs tombent tous a ±1 :
+
+| AniList | vrai titre | eps | slug choisi | eps | ecart |
+| --: | --- | --: | --- | --: | --: |
+| 20818 | Mysterious Joker | 13 | `joker-game` | 12 | −1 |
+| 98186 | Youjo Shenki | 13 | `youjo-senki` | 12 | −1 |
+| 171019 | Isekai Onsen Paradise | 12 | `isekai-ojisan` | 13 | +1 |
+| 112818 | SUPER HXEROS | 12 | `super-crooks` | 13 | +1 |
+| 6166 | Cat Planet Cuties | 12 | `lets-play` | 12 | 0 |
+| 5079 | Black God | 23 | `black-cat` | 24 | +1 |
+| **20779** | **Beyond the Boundary: Daybreak** | **1** | `beyond-the-boundary` | **12** | **+11** |
+
+La porte accepte ±1. Sur un parc ou presque tout fait 12 ou 13 episodes, elle ne
+discrimine rien.
+
+La derniere ligne est d'une autre nature : une OVA d'**un** episode posee sur un
+panneau de douze, acceptee par la clause « panneau plus gros = cours fusionnes ».
+Cette clause acceptait n'importe quel depassement. Resserree pour les fiches
+minuscules (< 6 episodes sans `ep_offset`), et le cout a ete mesure avant :
+490 lignes entrent dans ce cas, **aucune n'est `verified`** — on n'en retrograde
+donc pas une, on empeche seulement de les certifier a tort quand le
+verificateur passera.
+
+A egalite de score, le departage se fait desormais sur la couverture avant la
+longueur : `hokuto-no-ken` est entierement explique par son titre,
+`ken-le-survivant` au quart, et les deux partagent le meme token.
+
+**Ce qui reste ouvert, honnetement** : la moitie VOSTFR. MyDubList couvre la
+moitie VF. L'annee de diffusion serait le bon signal — `joker-game` est de 2016,
+*Mysterious Joker* de 2014 — mais il faudrait qu'anime-sama l'expose sur sa page
+catalogue, et je n'ai pas pu le verifier (le Worker n'a pas joint le site).
+
 ### A retenir
 
 - Un statut qui porte une autorite doit etre gagne par **un seul** chemin.

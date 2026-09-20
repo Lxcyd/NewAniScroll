@@ -1996,6 +1996,29 @@ function normalizeForMatch(s) {
 // title? Measured as token overlap weighted by token length.
 //   "baki" vs target "baki hanma"  â†’ 1 token match (baki, len 4) â†’ score 4
 //   "baccano" vs target "baki hanma" â†’ 0 token match â†’ score 0
+//
+// LIMITE CONNUE, mesuree le 20/09/2026 — a lire avant de « durcir » ce scorer.
+// Il n'additionne que les correspondances : ce que le slug porte EN TROP ne lui
+// coute rien. Un seul token partage suffit donc a faire gagner un candidat quand
+// le bon n'est pas au catalogue — `joker-game` l'emporte pour *Kaitou Joker*
+// (synonyme « JOKER »), `black-cat` pour *Kurokami*, `lets-play` pour *Asobi ni
+// Iku yo!*.
+//
+// Les deux filets censes rattraper ca sont incapables de le faire, et c'est
+// MESURE, pas suppose :
+//   - la confiance titre<->slug : un plancher a 0,60 rejetterait 534 lignes, et
+//     les quatorze echantillonnees sont TOUTES correctes — ce sont des titres
+//     francais et des variantes d'orthographe (`shirayuki-aux-cheveux-rouges`
+//     0,41, `craque-pour-moi-medaka` 0,32, `amagi-brillant-park` 0,53). Le score
+//     ne sait pas distinguer « traduction francaise du bon anime » de « titre
+//     anglais du mauvais » : les deux ne partagent qu'un token.
+//   - le nombre d'episodes : les sept mauvais slugs tombent tous a ±1 de la
+//     fiche AniList, et la porte accepte ±1. Sur un parc ou presque tout fait 12
+//     ou 13 episodes, elle ne discrimine rien.
+//
+// Ce qui marche, c'est un juge EXTERIEUR : MyDubList couvre la moitie VF (cf.
+// verify-player-map.mjs). La moitie VOSTFR reste ouverte — l'annee de diffusion
+// serait le bon signal, encore faut-il qu'anime-sama l'expose.
 function scoreSlugAgainstTitle(slug, target) {
   const a = new Set(normalizeForMatch(slug.replace(/-/g, " ")).split(" ").filter(Boolean));
   const b = normalizeForMatch(target).split(" ").filter(Boolean);
@@ -2240,6 +2263,7 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
 
   let chosen = null;
   let chosenScore = -Infinity;
+  let chosenCouverture = -1;
   for (const [slug, score] of candidates) {
     if (score === 0) continue;
     // CONFIDENCE FLOOR: reject a slug whose only overlap with every known title
@@ -2257,13 +2281,25 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
     let composite = score;
     if (yearStr && slugYear === aniYear) composite += 100;
     else if (yearStr && slugYear && slugYear !== aniYear) composite -= 100;
-    // Tie-break on slug length when composites are equal.
-    if (
+    /* A egalite, on departage d'abord sur la COUVERTURE : lequel des deux slugs
+       le titre explique-t-il le mieux ? `hokuto-no-ken` est entierement explique
+       par « Hokuto no Ken », `ken-le-survivant` ne l'est qu'au quart — et les
+       deux partagent exactement le meme token, donc le meme score de base. La
+       longueur ne departageait ca que par accident.
+       Ce n'est qu'un departage : quand un seul candidat revient de la recherche,
+       il gagne quel que soit son score, et c'est la limite connue de ce
+       chooser — cf. le commentaire de `scoreSlugAgainstTitle`. */
+    const couverture = slugTitleConfidence(slug, targets);
+    const meilleur =
       composite > chosenScore ||
-      (composite === chosenScore && chosen && slug.length < chosen.length)
-    ) {
+      (composite === chosenScore &&
+        chosen &&
+        (couverture > chosenCouverture ||
+          (couverture === chosenCouverture && slug.length < chosen.length)));
+    if (meilleur) {
       chosen = slug;
       chosenScore = composite;
+      chosenCouverture = couverture;
     }
   }
 

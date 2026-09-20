@@ -330,9 +330,24 @@ function judge(aniId, source, lang, insp, sibling, meta) {
   if (ani && got) {
     const diff = got - ani;
     const releasing = meta?.status === "RELEASING";
+    /* Un panneau PLUS GROS que la fiche est legitime quand il couvre plusieurs
+       cours d'une serie — mais la clause acceptait n'importe quel depassement,
+       y compris celui qui trahit un mauvais mappage. Mesure du 20/09/2026 :
+       AniList 20779 (« Beyond the Boundary: Daybreak », UN episode) tombait sur
+       `beyond-the-boundary/saison1` et ses douze episodes, et cette clause
+       repondait « contenu correct ».
+       Une fiche minuscule — OVA, special, film, clip — posee sur un panneau bien
+       plus gros n'est pas un cours fusionne : c'est une confusion d'entree. Sauf
+       quand un `ep_offset` designe explicitement sa place dedans, ce qui est
+       precisement le cas du film range dans un panneau `/film`.
+       Cout du resserrement, mesure avant de l'ecrire : 490 lignes entrent dans
+       ce cas, et AUCUNE n'est `verified` aujourd'hui. On n'en retrograde donc
+       pas une ; on empeche seulement de les certifier a tort. */
+    const grosPanneauPlausible =
+      diff > 1 && !insp.merged && (ani >= 6 || (insp.mergedOffset || 0) > 0);
     const countOk =
       Math.abs(diff) <= 1 ||
-      (diff > 1 && !insp.merged) ||      // bigger panel (cours merged) — content right
+      grosPanneauPlausible ||
       (diff < 0 && releasing);           // source behind on an airing show
     if (!countOk) return { status: "broken", note: `verify:count ${got}/${ani}` };
   }
