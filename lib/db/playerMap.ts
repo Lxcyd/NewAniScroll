@@ -277,19 +277,49 @@ export async function upsertPlayerMap(input: UpsertPlayerMapInput): Promise<void
  * forces re-verification (expires immediately). Three strikes demote a
  * `verified` row to `broken` so we stop serving something users say is wrong —
  * the verifier then re-derives it from scratch.
+ *
+ * `proven` distingue un SOUPCON d'une PREUVE, et les deux ne meritent pas le
+ * meme traitement.
+ *
+ * Un echec d'execution est bruite : le CDN coupe, l'hote a un hoquet, l'upload
+ * de la semaine manque. Trois coups avant de retrograder est le bon reglage
+ * pour ce signal-la, et il ne bouge pas.
+ *
+ * Une incoherence de saison n'est pas un soupcon : le resolveur vient de
+ * CALCULER que le panneau mappe designe une autre saison que celle de cet
+ * anime. Attendre deux visites de plus n'apporte aucune information — et sur un
+ * titre que personne n'ouvre, elles n'arrivent jamais. Au 20/09/2026, onze
+ * lignes portaient une note `season mismatch` en etant toujours `verified`,
+ * bloquees a `fail_count` 1 ou 2 : chaque visite contournait la ligne, re-payait
+ * `detectSeasonNumber` et repartait sur le chemin long, sans jamais converger.
+ *
+ * Sur preuve on retrograde donc tout de suite en `heuristic` — pas en `broken` :
+ * la ligne n'est pas morte, elle est perimee. Et on remet `algo_version` a 0
+ * pour que la garde de lecture la neutralise jusqu'a ce que le resolveur la
+ * reecrive a la version du jour. C'est le chemin d'auto-reparation.
  */
 export async function flagPlayerMap(
   aniId: number,
   source: PlayerSource,
   lang: PlayerLang,
   reason: string,
+  proven = false,
 ): Promise<void> {
   const db = getTursoClient();
   if (!db) return;
   const now = Math.floor(Date.now() / 1000);
   try {
     await db.execute({
-      sql: `UPDATE player_map SET
+      sql: proven
+        ? `UPDATE player_map SET
+              fail_count   = fail_count + 1,
+              note         = ?,
+              expires_at   = ?,
+              status       = CASE WHEN status = 'verified' THEN 'heuristic'
+                                  ELSE status END,
+              algo_version = 0
+            WHERE ani_id = ? AND source = ? AND lang = ?`
+        : `UPDATE player_map SET
               fail_count = fail_count + 1,
               note       = ?,
               expires_at = ?,

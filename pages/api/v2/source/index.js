@@ -1136,7 +1136,10 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId, probe) {
       const expectedSeason = await detectSeasonNumber(aniId);
       if (dirSeason !== expectedSeason) {
         dlog(`[anime-sama] player_map ${mapRow.seasonDir} implies S${dirSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
-        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`).catch(() => {});
+        // `proven` : on ne soupconne pas, on vient de calculer que le panneau
+        // designe une autre saison. La ligne est retrogradee tout de suite, au
+        // lieu d'attendre trois visites qui n'arriveront pas.
+        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`, true).catch(() => {});
         mapPanelCoherent = false;
       }
     }
@@ -2047,8 +2050,18 @@ function slugTitleConfidence(slug, titles) {
     const titleSig = new Set(significantTokens(t));
     if (titleSig.size === 0) continue;
     const matched = slugSig.filter((tok) => titleSig.has(tok)).reduce((a, tok) => a + tok.length, 0);
-    const titleLen = significantTokens(t).reduce((a, tok) => a + tok.length, 0);
-    const cov = matched / Math.min(slugLen, titleLen);
+    /* On divise par la longueur du SLUG, pas par `Math.min(slugLen, titleLen)`.
+       Diviser par le plus court des deux faisait qu'un synonyme d'un seul mot
+       certifiait n'importe quel slug le contenant : Kaitou Joker porte le
+       synonyme « JOKER », donc `joker-game` sortait a 1,00 et « game » n'etait
+       demande a personne. Meme mecanique pour `isekai-ojisan` contre le
+       synonyme « Isekai no Yu ». Au 20/09/2026 la colonne affichait 1,00 sur
+       6 496 lignes de 6 962 : elle ne discriminait plus rien.
+       La porte `<= 0` des appelants ne bouge PAS : `matched` vaut zero dans les
+       deux formules ou dans aucune, donc ce changement n'accepte ni ne refuse
+       un slug de plus. Il rend seulement la valeur relisible, pour qu'un seuil
+       puisse un jour se choisir sur des mesures plutot qu'au jugé. */
+    const cov = matched / slugLen;
     if (cov > best) best = cov;
   }
   return best;
@@ -2662,7 +2675,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       if (trace) trace.guard = { slugSeason, expectedSeason, mismatch: slugSeason !== expectedSeason };
       if (slugSeason !== expectedSeason) {
         dlog(`[voiranime] player_map slug ${mappedSlug} implies S${slugSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
-        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`).catch(() => {});
+        // `proven` : cf. le meme appel cote anime-sama.
+        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`, true).catch(() => {});
         mappedSlug = null;
       }
     }
