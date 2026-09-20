@@ -4299,12 +4299,77 @@ export default async function handler(req, res) {
   // client-controlled data — nothing a client sends should overwrite server
   // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
-  // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
-  /* La branche megaplay a ete retiree le 20/09/2026. L'hote est mort depuis le
-     08/09 (plus aucun chip dans lib/servers.js), donc `server === "megaplay"`
-     ne pouvait plus etre vrai : c'etait ~90 lignes, un extracteur, un
-     prechauffage par le Worker et une table de Referer entretenus pour
-     personne. L'historique garde tout ca si l'hote revient. */
+  /* ── Megaplay, en IFRAME et non plus en extraction ──────────────────────
+   *
+   * L'extraction est morte, l'hote non. Mesure du 20/09/2026 :
+   *
+   *   page embed  /stream/mal/52991/1/sub   200, « File 13461 - MegaPlay »
+   *   getSources  ?id=13461                 200, mais { tracks, intro, outro,
+   *                                         server, enc } — plus de sources.file
+   *
+   * L'adresse du flux ne vit plus que dans le blob `enc`. Cinq variantes
+   * essayees, dont les deux valeurs de `s` que leur propre page utilise
+   * (`s=tcdn`, `s=bcdn`, reperees dans son script en ligne) et le `bypass=yes`
+   * qu'elle force : toutes rendent la meme forme. Il n'y a pas d'endpoint en
+   * clair qui nous aurait echappe — on a cherche.
+   *
+   * Mais leur page, ELLE, sait jouer. On la lui laisse donc faire, et on
+   * l'encadre. Ce que la mesure a valide, point par point :
+   *   - aucun `X-Frame-Options`, aucun CSP `frame-ancestors` : l'encadrement
+   *     est autorise ;
+   *   - avec `Referer: https://aniscroll.com/` la page rend 200 et le vrai
+   *     lecteur ; SANS referer elle rend une page « Error 410 ». L'iframe doit
+   *     donc envoyer un referer — c'est `referrerPolicy="origin"`, le DEFAUT de
+   *     notre composant, et surtout PAS `no-referrer`. Se tromper de sens ici ne
+   *     casse rien visiblement : ca rend juste un lecteur qui dit « fichier
+   *     introuvable » pour tout le catalogue.
+   *
+   * Ce qu'on perd en passant a l'iframe, et qu'il faut savoir : notre habillage,
+   * le saut d'OP/ED, les raccourcis clavier et la synchro watch2gether. D'ou son
+   * rang en fin d'echelle — c'est un filet, pas un premier choix.
+   *
+   * Ce qu'on ne fait pas : dechiffrer `enc`. C'est la protection que megaplay a
+   * posee pour empecher exactement ca, et un lecteur bati dessus serait de toute
+   * facon en sursis.
+   */
+  if (server === "megaplay") {
+    const malId =
+      Number(mediaMeta?.idMal) || Number((await getMediaMeta(aniId))?.idMal) || null;
+    /* La route MAL d'abord, la route AniList en secours : les deux resolvent le
+       meme fichier (verifie — `mal/52991/1/sub` et `ani/154587/1/sub` rendent
+       tous deux « File 13461 »), mais megaplay n'indexe pas tout sous les deux. */
+    const routes = [];
+    if (malId) routes.push(`https://megaplay.buzz/stream/mal/${malId}/${episode}/${sub}`);
+    if (aniId) routes.push(`https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub}`);
+    if (!routes.length) return sendNotFound("megaplay: aucun identifiant utilisable");
+
+    /* On valide la page AVANT d'allumer le chip. Une page d'erreur repond 200
+       elle aussi — c'est le `data-id` du lecteur qui distingue un fichier reel
+       d'un « Error 410 », et lui seul. Par le Worker, parce que megaplay est
+       derriere Cloudflare, qui repond 403 aux IP de centre de donnees de
+       Vercel : c'est de la que venait le chip qui « disparaissait souvent alors
+       que la video existe ». */
+    let injoignable = false;
+    for (const url of routes) {
+      try {
+        const r = await fetchViaWorker(url);
+        if (!r.ok) {
+          injoignable = true;
+          continue;
+        }
+        const html = await r.text();
+        if (!/data-id="\d+"/.test(html)) continue; // page d'erreur : episode absent
+        return sendOk({ iframe: url });
+      } catch {
+        injoignable = true;
+      }
+    }
+    /* Injoignable n'est pas absent. Un Worker qui tombe ne dit rien sur
+       megaplay, et le consigner en « absent » masquerait le chip six heures
+       pour tout le monde (cf. le commentaire de `sendRetryable`). */
+    if (injoignable) return sendRetryable("megaplay injoignable");
+    return sendNotFound("megaplay: pas de fichier pour cet episode");
+  }
 
   // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
