@@ -6,6 +6,184 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-20 (soir) — `verified` voulait dire deux choses
+
+Parti d'une demande de vitesse, arrive sur un defaut de conception. Le fil :
+brancher [MyDubList](https://github.com/Joelis57/MyDubList) pour cesser
+d'essayer les lecteurs VF sur des series jamais doublees.
+
+### Un juge exterieur, et ce qu'il a trouve
+
+MyDubList publie par langue la liste des titres doubles, indexee par id MAL.
+Croisee avec nos lignes `player_map` en VF **reellement constatees**
+(`status='verified'`), la concordance est de **541 sur 553, soit 97,8 %**.
+
+Les douze desaccords, inspectes un par un : **zero faux positif**. Douze vraies
+erreurs — `joker-game` servi pour *Kaitou Joker*, `youjo-senki` pour le court
+*Youjo Shenki*, `black-cat` pour *Kurokami*, `lets-play` pour *Asobi ni Iku
+yo!*. Et **cinq des douze portaient `confidence: 1,00`**.
+
+C'est tout l'interet d'un juge EXTERIEUR : un score calcule sur nos propres
+donnees ne peut pas voir une erreur que nos propres donnees produisent.
+
+### Pourquoi la confiance ne les voyait pas
+
+`slugTitleConfidence` divisait par `Math.min(slugLen, titleLen)`. Diviser par le
+plus **court** des deux fait qu'un synonyme d'un seul mot certifie n'importe
+quel slug qui le contient : *Kaitou Joker* porte le synonyme **« JOKER »**, donc
+`joker-game` sortait a 5/5 = 1,00 et « game » n'etait demande a personne. Meme
+mecanique pour `isekai-ojisan` contre « Isekai no Yu ».
+
+Symptome mesurable : **6 496 lignes sur 6 962 affichaient 1,00**. La colonne ne
+discriminait plus rien. On divise desormais par la longueur du slug. La porte
+`<= 0` des appelants ne bouge pas d'un iota — `matched` vaut zero dans les deux
+formules ou dans aucune — donc le changement n'accepte ni ne refuse un slug de
+plus : il rend seulement la valeur relisible, pour qu'un seuil puisse un jour se
+choisir sur des mesures. 216 lignes perdent leur 1,00 : une liste a examiner.
+
+### La racine : un mot gagne par deux chemins
+
+| lignes `verified` | nombre |
+| --- | --: |
+| total | 2 325 |
+| `algo_version = 0` | **2 315** |
+| passees par le verificateur (`note='verify:ok'`) | **3** |
+
+Les 2 246 lignes `seed:ok` viennent de `seed-player-map.mjs`, qui rejoue un
+audit **fige** produit par le resolveur d'un autre jour et les estampille
+`verified`. Verifiees au sens de *semees*, pas de *controlees*.
+
+Or `lib/db/playerMap.ts` n'applique la garde de peremption d'algorithme qu'aux
+lignes `heuristic` — « verified/broken/absent are human/verifier-owned states —
+always honoured » — en s'appuyant sur une premisse ecrite plus haut dans le meme
+fichier : « `verified` rows — checked by verify-player-map.mjs ». **Fausse pour
+2 315 lignes sur 2 318.**
+
+Et comme `player_map` est lu AVANT toute heuristique, une ligne semee fausse
+masque un resolveur qui a raison. La preuve etait dans la table, a deux lignes
+d'ecart :
+
+| AniList | ligne `seed` (algo 0, `verified`) | ligne `runtime` (algo 2, `heuristic`) |
+| --: | --- | --- |
+| 5079 | `black-cat` | **`kurokami-the-animation`** |
+| 6166 | `lets-play` | **`asobi-ni-iku-yo`** |
+| 112818 | `super-crooks` | **`dokyuu-hentai-hxeros`** |
+| 21451 | `full-metal-panic/saison3` | **`full-metal-panic/saison4`** |
+
+**Nuance mesuree, contre ma propre conclusion initiale** : le resolveur
+*voiranime* corrige ces titres, le resolveur *anime-sama* non. Passer les lignes
+anime-sama a la re-derivation les reconfirme a l'identique. Flipper la garde de
+version ne suffira donc pas pour cette source-la.
+
+Rien ne corrigeait tout ca parce que **personne ne lançait le verificateur** :
+`warm-player-map.yml` a ete ecrit la veille et ne vivait que sur `dev`, or
+GitHub ne planifie que les workflows de la branche par defaut. Les 2 315 lignes
+etaient **toutes** echues, l'arriere total montait a 4 217, et le job nocturne
+en traitait 150.
+
+Trois correctifs, dans cet ordre, l'ordre etant le fond du sujet :
+
+1. **Le prerequis.** Le verificateur n'ecrivait JAMAIS `algo_version` — ni dans
+   la liste de colonnes, ni dans le `DO UPDATE SET`. Une ligne qu'il venait de
+   confirmer restait indiscernable d'une ligne semee, donc toute garde fondee
+   sur la version aurait rejete les deux, pour toujours.
+2. **Le semis ecrit `heuristic`**, avec l'echeance qui va avec (14 jours, pas
+   90). Seul le verificateur promeut, parce que lui seul re-interroge la source.
+3. **Drainer avant de changer la lecture.** Mesure : 150 lignes en **1 min 29**
+   a concurrence 4, dont **135 re-confirmees, 6 cassees, 9 absentes**. Le semis
+   etait donc juste a ~90 % : flipper la garde d'abord aurait envoye neuf titres
+   sur dix sur le chemin long pour rien. Le job passe a 500 par nuit et gagne un
+   `--from=due|seed|mydublist`.
+
+### Retrograder sur preuve, pas sur comptage
+
+Une incoherence de saison n'est pas un soupcon : le resolveur vient de
+**calculer** que le panneau designe une autre saison. Elle passait pourtant par
+`fail_count >= 3`, incremente une fois par visite reelle — onze lignes
+stagnaient a 1 ou 2 sur des titres que personne n'ouvre, chacune re-payant
+`detectSeasonNumber` et le chemin long a chaque passage sans jamais converger.
+Ce n'etait pas une faute de contenu (le resolveur contourne bien la ligne) mais
+une fuite de performance qui ne se refermait jamais.
+
+`flagPlayerMap` prend un `proven` : sur preuve, retrogradation immediate en
+`heuristic` et `algo_version` remis a 0. Le seuil a trois coups **reste** pour
+les echecs d'execution — un CDN qui coupe ne prouve rien.
+
+### Un effet de cascade rattrape de justesse
+
+La porte MyDubList cassait la ligne VF, et la garde inter-langues propageait au
+VOSTFR du meme slug. Sur les douze c'etait le bon resultat. Mais « pas de
+doublage francais » a **deux** lectures — le slug pointe ailleurs, ou la VF
+n'est pas officielle — et propager choisit la premiere sans preuve. Sur les ~2 %
+ou c'est la seconde, ca retirerait un VOSTFR parfaitement valable, dans la
+langue principale du site. La cascade est donc desarmee pour cette porte-la, et
+pour elle seule.
+
+### Cote navigateur : retrograder, pas exclure
+
+`vfPossible(idMal)` renvoie les lecteurs VF en **fin** d'ordre au lieu de les
+retirer. Les sondes de fond les atteignent toujours, en dernier, donc le chip
+s'allume si une VF existe malgre tout. L'exclusion franche ne gagnerait que des
+invocations de sonde, pas une seconde pour la personne qui regarde, et rendrait
+les ~2 % invisibles ET irrecuperables.
+
+**Ce que ça ne couvre pas, et pourquoi.** Le script du `<head>` connait l'id
+AniList de la page, jamais son `idMal`. Lui donner une liste indexee AniList
+supposerait de passer par `fribb_map`, qui a des trous — on echangerait un
+signal exact contre un signal approximatif. On ne memorise donc simplement pas
+l'ordre calcule sur une serie sans VF : le chargement suivant retombe sur le
+comportement d'avant, correct, seulement moins rapide.
+
+### Le seek : une piste fermee, une piste rouverte
+
+Le constat de depart etait juste. En mettant ansembed en tete la veille, on
+avait desactive les **deux** accelerateurs de saut : ansembed joue en
+`directUrl: true`, donc sans le Worker qui pre-chauffe tous les segments d'une
+playlist media dans le cache edge, et le pre-chauffage au survol de la barre
+etait explicitement coupe pour les flux directs.
+
+**Faire repasser les segments par le Worker : mesure, puis abandon.** Le meme
+segment, a la meme seconde :
+
+```
+direct        : 200  video/MP2T  6 437 496 octets
+par le Worker : 410  {"error":"Upstream error","upstream":403}
+```
+
+Le jeton est lie a l'IP : Cloudflare n'est pas le navigateur, le CDN refuse.
+Abandonne, comme le montage recouvrant la veille.
+
+**Mais la meme mesure en a ouvert une autre.** Le garde-fou du survol disait que
+« chauffer n'aide que les sources proxifiees, ou la requete peuple le cache
+edge ». Faux pour moitie : la reponse directe porte
+
+```
+cache-control: max-age=8640000, public, no-transform
+etag: "5f693e80-623a78"
+accept-ranges: bytes
+```
+
+Cent jours. Le CDN autorise le cache du **navigateur** — le Worker n'a jamais
+ete necessaire pour ca. Le survol chauffe donc aussi les sources directes, avec
+trois freins qui n'existent que sur ce chemin, parce que l'autre moitie du
+commentaire restait vraie (marteler ce CDN declenche `ERR_EMPTY_RESPONSE`) :
+repos de 400 ms au lieu de 120 — « ou est-ce que je saute ? » et non un
+balayage —, plafond de 4 chauffes par episode, et rien du tout sous `saveData`
+ou en 2G. Un segment pese ~6 Mo : on chauffe l'endroit ou le curseur s'arrete,
+jamais ceux qu'il survole.
+
+### A retenir
+
+- Un statut qui porte une autorite doit etre gagne par **un seul** chemin.
+  `verified` en avait deux, dont un qui ne verifiait rien.
+- Un score calcule sur ses propres donnees ne voit pas les erreurs que ces
+  donnees produisent. Cinq des douze etaient notees 1,00.
+- `hlsDirect` etait un bon pari pour la premiere image et un mauvais pour le
+  seek. Les deux ne se mesurent pas au meme endroit.
+- Mesurer AVANT de conclure a coute trois conclusions ce jour-la : le Worker
+  (ferme), le cache navigateur (ouvert), et le resolveur anime-sama qui, lui,
+  ne se corrige pas tout seul.
+
 ## 2026-09-20 (nuit) — ansembed devant, et trois fausses pistes instructives
 
 **L'ordre ne se change pas en deplaçant une ligne.** Demande : « priorise

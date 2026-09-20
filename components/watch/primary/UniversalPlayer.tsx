@@ -4014,6 +4014,14 @@ export default function UniversalPlayer({
     let hoverTimer = 0;
     const warmed = new Set<string>(); // dedupe by fragment URL this session
     let lastFireAt = 0;
+    /* Plafond par episode sur les sources DIRECTES seulement. Un segment pese
+       ~6 Mo : quatre chauffes non suivies d'un clic coutent ~26 Mo, ce qui est
+       le prix qu'on accepte de payer pour des sauts instantanes. Les sources
+       proxifiees n'ont pas ce plafond — le cache edge est partage entre
+       visiteurs, donc une chauffe y sert a quelqu'un meme si celui qui l'a
+       declenchee ne clique pas. */
+    const MAX_CHAUFFES_DIRECTES = 4;
+    let chauffesDirectes = 0;
 
     // Map a timestamp to the fragment covering it, using the level hls.js is
     // actually playing (its details hold the fragment list once parsed).
@@ -4034,11 +4042,27 @@ export default function UniversalPlayer({
     };
 
     const warmAt = (timeSec: number) => {
-      // NEVER hover-prefetch a direct/fragile CDN (vidmoly): the warm fetch hits
-      // the CDN itself (not our cache), and hammering it is exactly what triggers
-      // the ERR_EMPTY_RESPONSE cutoff. Warming only helps PROXIED sources, where
-      // the fetch populates the edge cache. Direct streams get nothing here.
-      if (directPlaybackRef.current) return;
+      /* Les flux DIRECTS (vidmoly / ansembed) chauffent aussi, mais avec
+         parcimonie — et il a fallu mesurer pour le savoir.
+         Ce garde-fou refusait tout flux direct, au motif que « chauffer n'aide
+         que les sources proxifiees, ou la requete peuple le cache edge ». La
+         moitie etait vraie, l'autre non : mesure du 20/09/2026, un segment
+         vidmoly repond `cache-control: max-age=8640000, public` avec un `etag`
+         — cent jours. Le CDN autorise donc le cache du NAVIGATEUR, et une
+         chauffe y atterrit sans que le Worker ait rien a faire. (Le Worker, lui,
+         est definitivement hors jeu : le meme segment rend 200 en direct et 403
+         a travers Cloudflare, le jeton etant lie a l'IP.)
+         Ce qui reste vrai, c'est le reste du commentaire : marteler ce CDN
+         declenche l'ERR_EMPTY_RESPONSE. D'ou trois freins qui ne s'appliquent
+         qu'a ce chemin — un repos plus long, un plafond par episode, et rien du
+         tout sur une connexion menagee. Un segment pese ~6 Mo : on chauffe
+         l'endroit ou le curseur s'arrete, jamais ceux qu'il survole. */
+      if (directPlaybackRef.current) {
+        if (chauffesDirectes >= MAX_CHAUFFES_DIRECTES) return;
+        const co = (navigator as any)?.connection;
+        if (co?.saveData) return;
+        if (/(^|-)2g$/.test(String(co?.effectiveType || ""))) return;
+      }
       const url = fragmentAt(timeSec);
       if (!url || warmed.has(url)) return;
       // If it's already buffered we don't need to warm it.
@@ -4052,9 +4076,14 @@ export default function UniversalPlayer({
         }
       } catch {}
       warmed.add(url);
-      // Low-priority, credentials-free, body-discarded warm. The Worker stores
-      // it under the same cache key the player's real fetch will look up.
-      // `priority` isn't in the RequestInit type yet — cast to pass it through.
+      if (directPlaybackRef.current) chauffesDirectes++;
+      /* Chauffe a basse priorite, sans identifiants, corps jete. Source
+         proxifiee : le Worker la range sous la cle que la vraie requete ira
+         chercher. Source directe : c'est le cache HTTP du navigateur qui la
+         garde, le CDN l'y autorisant pour cent jours.
+         Le corps DOIT etre lu ou annule, sinon la connexion reste ouverte —
+         `cancel()` suffit, l'entree de cache est deja posee.
+         `priority` n'est pas encore dans le type RequestInit, d'ou le cast. */
       try {
         fetch(url, { credentials: "omit", priority: "low" } as RequestInit)
           .then((r) => r.body?.cancel?.())
@@ -4071,13 +4100,17 @@ export default function UniversalPlayer({
       const t = ratio * dur;
       // Debounce: only warm after the cursor rests ~120ms on a spot, and never
       // more than ~5 warms/sec, so dragging across the bar doesn't fire hundreds.
+      // Sur une source DIRECTE on attend nettement plus : un repos de 400 ms
+      // distingue « ou est-ce que je saute ? » d'un simple balayage, et c'est
+      // ce qui evite de reclamer 6 Mo au CDN pour chaque endroit survole.
+      const direct = directPlaybackRef.current;
       window.clearTimeout(hoverTimer);
       hoverTimer = window.setTimeout(() => {
         const now = performance.now();
-        if (now - lastFireAt < 180) return;
+        if (now - lastFireAt < (direct ? 600 : 180)) return;
         lastFireAt = now;
         warmAt(t);
-      }, 120);
+      }, direct ? 400 : 120);
     };
 
     let pollId = 0;
