@@ -90,31 +90,3 @@ export async function frembedPeutAvoir(aniId: number | string): Promise<boolean>
   return ids.has(Number(aniId));
 }
 
-/** Remplace tout le catalogue (utilise par le script de synchronisation). */
-export async function replaceFrembedCatalog(
-  rows: FrembedCatalogRow[],
-): Promise<void> {
-  const db = getTursoClient();
-  if (!db) throw new Error("Turso indisponible");
-  await ensureTable();
-  const now = Math.floor(Date.now() / 1000);
-  /* Un remplacement, pas une fusion : un titre RETIRE de frembed doit
-     disparaitre de chez nous, sinon on continuerait de proposer un lecteur qui
-     n'existe plus. La suppression et les insertions dans une seule transaction,
-     pour qu'aucune lecture ne tombe sur un catalogue vide. */
-  const tx = await db.transaction("write");
-  try {
-    await tx.execute("DELETE FROM frembed_catalog");
-    for (const r of rows) {
-      await tx.execute({
-        sql: `INSERT OR REPLACE INTO frembed_catalog (anilist_id, tmdb_id, kind, updated_at)
-              VALUES (?, ?, ?, ?)`,
-        args: [r.anilistId, r.tmdbId, r.kind, now],
-      });
-    }
-    await tx.commit();
-  } catch (e) {
-    await tx.rollback().catch(() => {});
-    throw e;
-  }
-}

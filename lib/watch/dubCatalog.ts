@@ -76,16 +76,3 @@ export function vfPossible(idMal: number | string | null | undefined): boolean {
   return memo.has(Number(idMal));
 }
 
-/**
- * La signature du verdict VF, a joindre a celle des langues dans
- * `aniscroll:earlyPick`. Sans elle, le script du `<head>` rejouerait pour un
- * anime sans VF l'ordre calcule pour un anime qui en a une.
- *
- * `?` quand la liste est encore inconnue : ce n'est ni un oui ni un non, et un
- * ordre memorise dans l'ignorance ne doit pas servir une fois la liste connue.
- */
-export function signatureVf(idMal: number | string | null | undefined): string {
-  if (idMal == null) return "-";
-  if (!memo) return "?";
-  return memo.has(Number(idMal)) ? "1" : "0";
-}

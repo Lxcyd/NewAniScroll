@@ -154,65 +154,6 @@ export async function getHostSkip(
 }
 
 /**
- * Upsert per-host rows in ONE transaction. Last-write-wins on
- * (mal_id, episode, lang, host). Non-fatal on error (returns 0).
- */
-export async function upsertHostSkips(rows: OpedHostSkipRow[]): Promise<number> {
-  const db = getTursoClient();
-  if (!db || rows.length === 0) return 0;
-  await ensureTable();
-  const now = Math.floor(Date.now() / 1000);
-  const stmts = rows.map((row) => ({
-    sql: `INSERT INTO oped_host_skips
-            (mal_id, episode, lang, host, op_start, op_end, op_votes,
-             ed_start, ed_end, ed_from_end_start, ed_from_end_end, ed_votes,
-             duration, source, confirmed_by_video, algo_version, serve, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(mal_id, episode, lang, host) DO UPDATE SET
-            op_start = excluded.op_start,
-            op_end = excluded.op_end,
-            op_votes = excluded.op_votes,
-            ed_start = excluded.ed_start,
-            ed_end = excluded.ed_end,
-            ed_from_end_start = excluded.ed_from_end_start,
-            ed_from_end_end = excluded.ed_from_end_end,
-            ed_votes = excluded.ed_votes,
-            duration = excluded.duration,
-            source = excluded.source,
-            confirmed_by_video = excluded.confirmed_by_video,
-            algo_version = excluded.algo_version,
-            serve = excluded.serve,
-            updated_at = excluded.updated_at`,
-    args: [
-      row.malId,
-      row.episode,
-      row.lang,
-      row.host,
-      row.opStart,
-      row.opEnd,
-      row.opVotes,
-      row.edStart,
-      row.edEnd,
-      row.edFromEndStart,
-      row.edFromEndEnd,
-      row.edVotes,
-      row.duration,
-      row.source,
-      row.confirmedByVideo ? 1 : 0,
-      row.algoVersion,
-      row.serve ? 1 : 0,
-      row.updatedAt || now,
-    ] as any[],
-  }));
-  try {
-    await db.batch(stmts, "write");
-    return rows.length;
-  } catch {
-    return 0;
-  }
-}
-
-/**
  * Delete every row whose host is NOT in `displayedHosts` (lib/hostRegistry.js
  * DISPLAYED_HOSTS). Called by the importer so the table only ever holds hosts a
  * viewer can pick — removing a server from lib/servers.js purges its rows on the

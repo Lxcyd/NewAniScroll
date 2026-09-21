@@ -102,10 +102,6 @@ export function getFacts(): Facts {
   }
 }
 
-export function parseFacts(raw: string | null): Facts {
-  return parse(raw);
-}
-
 function write(next: Facts): void {
   if (typeof window === "undefined") return;
   try {

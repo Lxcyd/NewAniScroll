@@ -320,9 +320,6 @@ export default function Schedule({ schedule }: any) {
       <MobileNav hideProfile={true} />
       <Navbar scrollP={10} toTop={true} />
       <div className="w-screen">
-        {/* <span className="absolute w-screen h-[190px] lg:h-[250px] bg-white overflow-hidden">
-          <div className="w-full h-full bg-white rounded" />
-        </span> */}
         <div className="flex flex-col mx-auto my-10 w-full mt-16 lg:mt-24 max-w-screen-2xl gap-10">
           <div className="flex flex-col lg:flex-row gap-2 justify-between px-5">
             <ul
@@ -532,7 +529,6 @@ export default function Schedule({ schedule }: any) {
                               : "" // Add a class for currently airing anime
                           }`}
                         >
-                          {/* <p className={``}> */}
                           <p className="absolute flex top-0 right-0 -mt-1 -mr-1 justify-center items-center">
                             <span
                               className={`relative flex justify-center h-3 w-3 tooltip-container ${

@@ -336,22 +336,3 @@ export async function flagPlayerMap(
   }
 }
 
-/** Rows needing (re-)verification, oldest deadline first. */
-export async function getStalePlayerMap(limit = 200): Promise<PlayerMapRow[]> {
-  const db = getTursoClient();
-  if (!db) return [];
-  const now = Math.floor(Date.now() / 1000);
-  try {
-    const r = await db.execute({
-      sql: `SELECT * FROM player_map
-             WHERE expires_at < ? OR status = 'heuristic'
-             ORDER BY expires_at ASC
-             LIMIT ?`,
-      args: [now, limit],
-    });
-    return r.rows.map(rowFromDb);
-  } catch (e: any) {
-    console.warn("[player-map] stale read failed:", e?.message);
-    return [];
-  }
-}

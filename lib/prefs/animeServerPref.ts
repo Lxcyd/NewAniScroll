@@ -94,11 +94,3 @@ export function setAnimeServer(
   write(store);
 }
 
-export function clearAnimeServers(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(KEY);
-  } catch {
-    /* best-effort */
-  }
-}

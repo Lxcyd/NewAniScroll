@@ -122,15 +122,6 @@ export const STATUS_TO_LIST: Record<string, string> = {
   DROPPED: "Dropped",
 };
 
-export const LIST_TO_STATUS: Record<string, string> = {
-  Watching: "CURRENT",
-  Rewatching: "REPEATING",
-  Completed: "COMPLETED",
-  Planning: "PLANNING",
-  Paused: "PAUSED",
-  Dropped: "DROPPED",
-};
-
 const MONTHS = [
   "Jan",
   "Feb",
@@ -209,21 +200,6 @@ export function prettySource(src: string | null): string {
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export function prettyCountry(c: string | null): string {
-  switch (c) {
-    case "JP":
-      return "Japan";
-    case "KR":
-      return "Korea";
-    case "CN":
-      return "China";
-    case "TW":
-      return "Taiwan";
-    default:
-      return c || "N/A";
-  }
 }
 
 export function capitalize(s: string): string {
@@ -309,11 +285,6 @@ export function slugifyTitle(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-export function pickRandom<T>(arr: T[]): T | null {
-  if (!arr || arr.length === 0) return null;
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 /* Language filter used for clearart / logo selection on the hero.

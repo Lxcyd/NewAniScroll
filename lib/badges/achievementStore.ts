@@ -69,14 +69,3 @@ export function useAchievement(): Achievement | null {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-/** Combien attendent derrière — le composant en fait un « +2 ». */
-export function pendingCount(): number {
-  return queue.length;
-}
-
-/** Vide la file (déconnexion, remise à zéro des données). */
-export function clearAchievements(): void {
-  queue = [];
-  current = null;
-  emit();
-}

@@ -315,10 +315,6 @@ export function Navbar({
                 ></path>
               </svg>
             </button>
-            {/* <div
-                className="bg-white"
-                // title={sessions ? "Go to Profile" : "Login With AniList"}
-              > */}
             {/* Discord + report + changelog — sit just left of the avatar so
                 users can always reach them no matter what page they're on.
                 They share a tight gap so they read as a group, not separate
@@ -451,7 +447,6 @@ export function Navbar({
                 </div>
               </div>
             </div>
-            {/* </div> */}
           </div>
         </div>
       </nav>

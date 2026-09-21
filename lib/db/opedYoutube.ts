@@ -70,35 +70,3 @@ export async function resolvedVideoIds(
   }
 }
 
-/**
- * Every row for one anime, verdicts included — for tooling and admin views that
- * need to see what was rejected, which {@link resolvedVideoIds} deliberately
- * hides.
- */
-export async function allRowsFor(aniId: number): Promise<OpedYoutubeRow[]> {
-  const client = getTursoClient();
-  if (!client || !Number.isFinite(aniId)) return [];
-
-  try {
-    const rs = await client.execute({
-      sql: `SELECT * FROM oped_youtube WHERE ani_id = ? ORDER BY slug`,
-      args: [aniId],
-    });
-    return rs.rows.map((r: any) => ({
-      aniId: Number(r.ani_id),
-      slug: String(r.slug),
-      verdict: String(r.verdict) as OpedVerdict,
-      videoId: r.video_id ? String(r.video_id) : null,
-      ytTitle: r.yt_title ? String(r.yt_title) : null,
-      ytChannel: r.yt_channel ? String(r.yt_channel) : null,
-      duration: r.duration == null ? null : Number(r.duration),
-      artist: r.artist ? String(r.artist) : null,
-      artistSrc: r.artist_src ? String(r.artist_src) : null,
-      algoVersion: Number(r.algo_version ?? 1),
-      checkedAt: Number(r.checked_at ?? 0),
-    }));
-  } catch (e: any) {
-    console.warn(`[oped_youtube] full read failed for ${aniId}:`, e?.message);
-    return [];
-  }
-}

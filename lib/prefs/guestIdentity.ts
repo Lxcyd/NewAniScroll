@@ -88,19 +88,6 @@ export function guestTag(identity: GuestIdentity): string {
   return String(hash % 1_000_000).padStart(6, "0");
 }
 
-/**
- * Display name, always generated. `guestLabel` is the localised word ("Guest"
- * / "Invité") the caller pulls from its i18n dictionary — this module stays
- * language-free so nothing stored depends on the language at the time it was
- * written.
- */
-export function guestDisplayName(
-  identity: GuestIdentity,
-  guestLabel = "Guest"
-): string {
-  return `${guestLabel}#${guestTag(identity)}`;
-}
-
 export function useGuestIdentity(): GuestIdentity | null {
   const [identity, setIdentity] = useState<GuestIdentity | null>(null);
   useEffect(() => {

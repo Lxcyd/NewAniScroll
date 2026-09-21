@@ -37,7 +37,7 @@ import { getUsersClient } from "@/lib/db/turso-users";
  *
  * Session shape is explicit (see the jwt callback). `session.user.name`,
  * `.token`, `.id`/`.sub`, `.image` and `.list` keep their AniList semantics —
- * utils/request, lib/list/syncEngine, lib/anilist/favouritesCache,
+ * lib/list/syncEngine, lib/anilist/favouritesCache,
  * lib/auth/isAdmin, lib/watch2gether/auth and the admin routes all depend on
  * them.
  */

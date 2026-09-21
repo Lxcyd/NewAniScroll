@@ -32,6 +32,7 @@
  */
 
 import { getLocalList, patchLocalEntries } from "../list/localList";
+import { sleep } from "@/utils/sleep";
 
 const API = "https://graphql.anilist.co/";
 const VOCAB_KEY = "aniscroll:badgeVocab";
@@ -146,8 +147,6 @@ const FRANCHISE_RELATIONS = new Set([
   "SEQUEL", "PREQUEL", "SIDE_STORY", "PARENT", "ALTERNATIVE", "SPIN_OFF",
 ]);
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /** Les titres de la liste à qui il manque encore les métadonnées. */
 function missingIds(): number[] {
   const list = getLocalList();
@@ -239,10 +238,4 @@ export function backfillMetadata(opts?: { force?: boolean }): Promise<void> {
   });
 
   return running;
-}
-
-/** Le rattrapage a-t-il encore du travail ? Sert à l'état « pas encore mesurable ». */
-export function metadataPending(): boolean {
-  if (typeof window === "undefined") return false;
-  return missingIds().length > 0 || !readVocab();
 }

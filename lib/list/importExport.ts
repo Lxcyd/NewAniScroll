@@ -23,6 +23,7 @@ import {
   ImportMode,
 } from "./localList";
 import type { Status, FuzzyDate } from "./types";
+import { sleep } from "@/utils/sleep";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -347,8 +348,6 @@ async function mapMalBatch(
 const MAL_BATCH = 25;
 // Polite spacing between batches — AniList rate-limits to ~90 req/min.
 const MAL_BATCH_DELAY_MS = 750;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function importFromMalXml(
   xml: string,

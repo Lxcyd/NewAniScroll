@@ -1,4 +1,5 @@
 import { redis } from "@/lib/redis";
+import { sleep } from "@/utils/sleep";
 
 /**
  * Per-episode anime ratings via Jikan (the unofficial MyAnimeList API).
@@ -224,8 +225,4 @@ export async function getSeasonEpisodeScores(
   const result: SeasonScores = { aniId: input.aniId, episodes, source: "jikan" };
   await setJson(cacheKey, result, TTL_OK_S);
   return result;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }

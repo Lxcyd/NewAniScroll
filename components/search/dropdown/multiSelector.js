@@ -12,7 +12,6 @@ export default function MultiSelector({
   setSelected,
   inputRef,
 }) {
-  // const [selected, setSelected] = useState();
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
 
