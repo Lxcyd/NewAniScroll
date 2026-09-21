@@ -559,12 +559,10 @@ const listCache = new Map<string, { at: number; data: any }>();
 /** Au-delà, on redemande à AniList — mais on garde l'ancienne s'il refuse. */
 const FRAIS_MS = 5 * 60_000;
 const PARTAGE_TTL_S = 24 * 60 * 60;
-/** Une copie assez récente pour être servie si AniList traîne — toute copie
+/** Une copie assez récente pour être servie sans attendre AniList — toute copie
  *  encore rangée (24 h) : c'est l'attente d'AniList, 4 à 12 s sur une grosse
- *  liste, qui rendait le profil « extrêmement long » (18/09/2026)… */
+ *  liste, qui rendait le profil « extrêmement long » (18/09/2026). */
 const RECENTE_MS = PARTAGE_TTL_S * 1000;
-/** …au-delà de ce délai d'attente. */
-const PATIENCE_MS = 1500;
 /**
  * v2 : la requête demande la bande-annonce de chaque titre (`trailer`) depuis le
  * 06/09/2026, et une copie v1 n'en porte aucune — d'où « aucune bande-annonce
@@ -645,21 +643,19 @@ async function cachedAniList(username: string): Promise<any | null> {
   });
 
   /* AniList met 4 à 12 s sur une grosse liste. Avec une copie RÉCENTE en main,
-     on ne l'attend que PATIENCE_MS : au-delà, la copie est servie tout de suite
-     et la réponse fraîche finit en arrière-plan (waitUntil), rangée pour la
-     visite suivante. Sans copie récente, on attend comme avant. */
+     elle est servie TOUT DE SUITE et la réponse fraîche finit en arrière-plan
+     (waitUntil), rangée pour la visite suivante — stale-while-revalidate.
+
+     On l'attendait PATIENCE_MS (1,5 s) avant, « au cas où ». Mesuré le
+     21/09/2026 sur dev : 2,0 s de TTFB au premier passage contre 0,7 s au
+     second — l'écart EST cette attente, payée par presque chaque visite
+     puisque la copie a plus de FRAIS_MS dès qu'on revient après 5 min, et
+     AniList ne répond jamais en 1,5 s sur une grosse liste. Sans copie
+     récente, on attend comme avant. */
   if (partage && Date.now() - partage.at < RECENTE_MS) {
-    const vite = await Promise.race([
-      frais,
-      new Promise<undefined>((r) => setTimeout(() => r(undefined), PATIENCE_MS)),
-    ]);
-    if (vite) return vite;
-    if (vite === undefined) {
-      waitUntil(frais);
-      memoire(key, partage.data);
-      return partage.data;
-    }
-    // vite === null : AniList a refusé, on retombe sur la copie ci-dessous.
+    waitUntil(frais);
+    memoire(key, partage.data);
+    return partage.data;
   }
 
   const data = await frais;
@@ -711,6 +707,43 @@ async function fetchAniList(username: string): Promise<any | null> {
     label: "profile-list",
   })) as any;
   return json?.data?.MediaListCollection ?? null;
+}
+
+/** `p`, ou `repli` s'il échoue ou tarde au-delà de `ms`. */
+function borne<T, R>(p: Promise<T>, ms: number, repli: R): Promise<T | R> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p.catch(() => repli),
+    new Promise<R>((r) => {
+      timer = setTimeout(() => r(repli), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Une entrée allégée pour __NEXT_DATA__ — rien que le client ne relise.
+ *
+ * Les entrées faisaient 343 Ko sur les 352 Ko de props d'un profil de 682
+ * titres (mesuré le 21/09/2026), sérialisées dans le HTML PUIS reparsées à
+ * l'hydratation. Un tiers était du vide : `native` et `userPreferred` ne sont
+ * que des replis de pickTitle derrière `english`/`romaji`, et `favourite:
+ * false`, `repeat: 0`, `customLists: []`, `trailer: null` sont les valeurs
+ * par défaut que tout lecteur de ProfileEntry sait déjà supposer (`?.`, `|| 0`).
+ */
+function compacte(e: ProfileEntry): ProfileEntry {
+  const out: ProfileEntry = { ...e };
+  const t = e.title;
+  if (t && (t.english || t.romaji)) {
+    out.title = {
+      ...(t.english ? { english: t.english } : {}),
+      ...(t.romaji ? { romaji: t.romaji } : {}),
+    };
+  }
+  if (!out.favourite) delete out.favourite;
+  if (!out.repeat) delete out.repeat;
+  if (!out.customLists?.length) delete out.customLists;
+  if (!out.trailer) delete out.trailer;
+  return out;
 }
 
 export async function getServerSideProps(context: any) {
@@ -898,13 +931,16 @@ export async function getServerSideProps(context: any) {
      allers-retours indépendants (Turso d'un côté, fanart/TMDB de l'autre) qui
      s'additionnaient. La bannière ne lit pas `trailer`. */
   const meanScoreOf = (id: number) => known.get(id)?.meanScore ?? null;
+  /* BORNÉS : deux compléments, pas le profil. Une base lente ou muette ne doit
+     pas tenir la page entière en otage — la bannière retombe alors sur celle
+     d'AniList (cf. `ownBanner`), le studio sur les bandes-annonces de la liste. */
   const [found, resolved] = await Promise.all([
     isOwner
-      ? trailersFor(entries.filter((e) => !e.trailer).map((e) => e.mediaId))
+      ? borne(trailersFor(entries.filter((e) => !e.trailer).map((e) => e.mediaId)), 1500, null)
       : null,
     pinnedBanner
       ? null
-      : resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known),
+      : borne(resolveFavoriteBanner(bannerCandidates(entries, meanScoreOf), known), 2500, null),
   ]);
   if (found?.size) {
     for (const e of entries) {
@@ -1023,7 +1059,7 @@ export async function getServerSideProps(context: any) {
     props: {
       identity,
       stats,
-      entries,
+      entries: entries.map(compacte),
       characters,
       banner,
       topAnimes,
