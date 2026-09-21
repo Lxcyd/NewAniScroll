@@ -506,6 +506,8 @@
     "serverBroken": "Broken: {{reason}}",
     "serverDegraded": "Degraded — falls back to host's own player (extraction failed). Click to test.",
     "serverUnavailable": "Server \"{{name}}\" unavailable",
+    "offline": "Connection lost — try again once you're back online.",
+    "loadFailed": "The player failed to load",
     "switchTo": "Switch to {{name}}",
     "autoSwitched": "\"{{from}}\" did not respond — switching to {{to}}",
     "loading": "Loading…",

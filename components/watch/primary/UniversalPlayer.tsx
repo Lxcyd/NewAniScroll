@@ -3847,6 +3847,17 @@ export default function UniversalPlayer({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
+      /* Hors ligne, hls.js emet une RAFALE d'erreurs fatales : le budget de
+         MAX_RECOVERIES ci-dessus se consomme en moins d'une seconde, on conclut
+         « Playback stalled », et la page bascule de lecteur — donc UNE REQUETE
+         /api/v2/source PAR LECTEUR ESSAYE, jusqu'a les avoir tous brules, pour
+         une coupure de trois secondes. C'est une des causes du « au reveil du
+         PC, une page d'erreur au lieu de la video » (21/09/2026).
+         `onLine === false` est le seul sens fiable de ce drapeau : il peut se
+         croire en ligne a tort, jamais hors ligne a tort. On ne conclut donc
+         rien et on ne depense rien ; la reprise sur `online` de la page de
+         visionnage relance proprement une fois la connexion revenue. */
+      if (navigator.onLine === false) return;
       /* Non fatal : hls.js s'en occupe, on ne touche a rien. Mais deux de ces
          hoquets sur le chemin de la premiere image disent deja que ce CDN ne
          suit pas — on prepare le suivant sans rien interrompre. */
@@ -6685,6 +6696,13 @@ function IframeEmbed({
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
+  const { t } = useTranslation();
+  /* Nonce de relance manuelle. Il sert DEUX fois : en `key` de l'<iframe>, pour
+     forcer un element neuf (changer le `src` ne suffirait pas, il est fige), et
+     en dependance de l'effet du chrono, sans quoi celui-ci ne se rearmerait
+     pas et le nouvel essai n'aurait plus de garde-fou. */
+  const [cleRecharge, setCleRecharge] = useState(0);
+  const chronoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Megaplay : reprise de lecture ──
      Fige a l'ouverture, et surtout PAS recalcule a chaque rendu : ce `src`
@@ -6742,26 +6760,54 @@ function IframeEmbed({
       setFailed(true);
       onError?.("Iframe didn't load within 30s");
     }, 30000);
-    const iframe = iframeRef.current;
-    const handleLoad = () => clearTimeout(timeout);
-    iframe?.addEventListener("load", handleLoad);
+    /* Le chrono est desarme par le prop `onLoad` de l'<iframe>, et non plus par
+       un `addEventListener` sur `iframeRef.current`. Raison : quand on relance
+       depuis l'ecran d'echec, cet effet rejoue ALORS QUE l'ecran d'erreur est
+       encore monte — `iframeRef.current` vaut donc null, aucun ecouteur n'est
+       pose, et l'<iframe> qui apparait au rendu suivant ne re-declenche pas
+       l'effet (ses dependances n'ont pas bouge). Le chrono repartait alors sans
+       jamais pouvoir etre desarme : un lecteur parfaitement charge retombait en
+       erreur trente secondes plus tard. Le prop, lui, part avec l'element.
+       21/09/2026. */
+    chronoRef.current = timeout;
     return () => {
       clearTimeout(timeout);
-      iframe?.removeEventListener("load", handleLoad);
+      chronoRef.current = null;
     };
-  }, [src, serverId]);
+  }, [src, serverId, cleRecharge]);
 
   if (failed) {
+    /* Etait un « Failed to load player » en dur, en anglais, hors i18n et SANS
+       AUCUNE ACTION : la personne lisait une phrase qu'elle ne comprenait
+       peut-etre pas, et n'avait que F5. Cet ecran n'est atteint que pour le
+       DERNIER lecteur disponible — sinon la bascule a deja eu lieu au `onError`
+       du chrono — c'est-a-dire exactement le cas desespere (21/09/2026). */
+    const horsLigne =
+      typeof navigator !== "undefined" && navigator.onLine === false;
     return (
-      <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla">
-        Failed to load player
+      <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2">
+        <p>{horsLigne ? t("player.offline") : t("player.loadFailed")}</p>
+        <button
+          type="button"
+          onClick={() => setCleRecharge((n) => n + 1)}
+          className="text-as-accent underline text-sm"
+        >
+          {t("common.retry")}
+        </button>
       </div>
     );
   }
 
   return (
     <iframe
+      // Element NEUF a chaque relance manuelle : le `src` est fige, le changer
+      // n'est pas une option, et sans nouvelle cle le navigateur ne retenterait
+      // rien du tout.
+      key={cleRecharge}
       ref={iframeRef}
+      onLoad={() => {
+        if (chronoRef.current) clearTimeout(chronoRef.current);
+      }}
       src={srcFige}
       className="relative z-10 aspect-video h-full w-full bg-black"
       frameBorder="0"

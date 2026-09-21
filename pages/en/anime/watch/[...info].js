@@ -163,6 +163,13 @@ const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
    plusieurs secondes. Ce delai coupe les pannes, pas la lenteur. */
 const SPINNER_MAX_MS = 15000;
 
+/* Bornes de la reprise sur retour de reseau (cf. l'effet `reprendre`). Chaque
+   relance automatique est une invocation de fonction Vercel : on en autorise
+   trois par episode, espacees de 5 s. Au-dela c'est le bouton « Reessayer » de
+   la carte d'erreur qui prend le relais — un clic humain, pas un compteur. */
+const MAX_REPRISES_AUTO = 3;
+const REPRISE_THROTTLE_MS = 5000;
+
 /* The SSR fetches FULL_MEDIA_FIELDS because the server-side caches this page
    primes (`primeMediaCache`) are shared with the info page, which needs the
    whole record. The PROP, though, is serialised into the HTML of every episode
@@ -588,6 +595,12 @@ export default function Watch({
      Remis a zero au changement d'episode : un lecteur mort sur l'episode 3 n'a
      aucune raison d'etre condamne sur le 4. */
   const triedFailedRef = useRef(new Set());
+
+  /* Bornes de la reprise sur retour de reseau (l'effet `reprendre`, plus bas).
+     Posees ICI, aux cotes de `triedFailedRef`, parce que l'effet de remise a
+     zero au changement d'episode les touche bien avant que `reprendre` existe. */
+  const dernierEssaiRef = useRef(0);
+  const reprisesAutoRef = useRef(0);
 
   /* De quel lecteur on vient, et si on l'a quitte de son plein gre. Lus par
      l'effet d'annonce de la bascule (plus bas) ; poses ici parce que
@@ -1378,6 +1391,9 @@ export default function Watch({
     // La memoire de bascule vit le temps d'UN episode : un lecteur mort sur
     // l'episode 3 doit pouvoir etre retente sur le 4.
     triedFailedRef.current = new Set();
+    // Meme portee pour le budget de reprises automatiques (cf. `reprendre`) :
+    // il borne un episode, pas une session entiere.
+    reprisesAutoRef.current = 0;
   }, [info?.id, epiNumber, dub]);
 
   /* Filet : le lecteur ne doit pas dependre des METADONNEES pour exister.
@@ -1417,6 +1433,77 @@ export default function Watch({
     return () => clearTimeout(id);
   }, [activeServer, info?.id, aniId, epiNumber, dub, episodeNavigation, hlsLoading]);
 
+  /* ── Reprise au retour du reseau ────────────────────────────────
+     21/09/2026 — « quand on recharge une page apres longtemps, par exemple
+     apres redemarrage du PC, parfois les lecteurs ne se rechargent pas ».
+     Le reseau revient quelques SECONDES apres l'onglet. A ce moment la page a
+     deja conclu — source en erreur, ou spinner epuise — et toutes ses memoires
+     d'echec sont TERMINALES : `triedFailedRef` et `failedServers` ne se vident
+     qu'au changement d'episode (cf. l'effet plus haut). Plus rien ne bouge
+     jusqu'a un rechargement manuel, qui coute un rendu SSR complet.
+
+     Trois bornes, parce que chaque relance est une invocation de fonction :
+       — on ne relance QUE si quelque chose est casse. Une micro-coupure
+         pendant une lecture qui tourne ne doit RIEN remonter : on perdrait la
+         position de lecture, ce qui serait pire que le mal ;
+       — 5 s entre deux relances : `online` part plusieurs fois sur un meme
+         reveil, le temps que le Wi-Fi s'accroche ;
+       — 3 relances automatiques par episode, point final. Au-dela, la carte
+         d'erreur porte « Reessayer » et c'est un humain qui decide.
+     C'est un EVENEMENT, pas un timer : ni sondage, ni boucle. */
+  const [tentative, setTentative] = useState(0);
+
+  /* `episodeNavigation` est volontairement HORS de ce test : le filet plus haut
+     pose deja une navigation minimale depuis l'URL, donc il n'est jamais
+     durablement nul et le lire ici rendrait la page « en panne » a chaque
+     montage. */
+  const enPanneRef = useRef(false);
+  useEffect(() => {
+    enPanneRef.current = !!(hlsData?.error || attenteEpuisee);
+  }, [hlsData, attenteEpuisee]);
+
+  const reprendre = useCallback((force = false) => {
+    if (!force) {
+      if (!enPanneRef.current) return;
+      if (reprisesAutoRef.current >= MAX_REPRISES_AUTO) return;
+    }
+    const now = Date.now();
+    if (now - dernierEssaiRef.current < REPRISE_THROTTLE_MS) return;
+    dernierEssaiRef.current = now;
+    if (!force) reprisesAutoRef.current += 1;
+
+    setFailedServers(new Map());
+    setDegradedServers(new Set());
+    triedFailedRef.current = new Set();
+    setHlsData(null);
+    setAttenteEpuisee(false);
+    /* SANS CECI, LA REPRISE EST UN LEURRE : `fetchStreamSource` lit d'abord le
+       cache memoire des sources (TTL 5 min) et rendrait exactement la meme
+       charge utile — donc la meme URL au token mort — sans jamais toucher au
+       reseau. C'est precisement la fenetre ou la reprise sert. La fonction
+       existe deja pour ce motif, son commentaire dit « a possibly rotated
+       token » ; on s'en sert ici pour la meme raison. */
+    if (aniId) clearPrefetchedSourcesFor(aniId);
+    /* Le nonce : l'effet de resolution ne depend que de [activeServer, …], donc
+       rejouer le MEME lecteur est invisible pour lui sans ca. */
+    setTentative((n) => n + 1);
+  }, [aniId]);
+
+  useEffect(() => {
+    const surOnline = () => reprendre();
+    /* bfcache : un onglet restaure depuis le cache arriere/avant ne re-execute
+       AUCUN effet — son etat d'echec est celui d'il y a des heures. */
+    const surPageshow = (e) => {
+      if (e.persisted) reprendre();
+    };
+    window.addEventListener("online", surOnline);
+    window.addEventListener("pageshow", surPageshow);
+    return () => {
+      window.removeEventListener("online", surOnline);
+      window.removeEventListener("pageshow", surPageshow);
+    };
+  }, [reprendre]);
+
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
     async function getInfo() {
@@ -1428,11 +1515,25 @@ export default function Watch({
       // can build `episodeNavigation` and render without waiting on the network.
       let raw = getPrefetchedEpisodes(info.id, !!dub);
       if (!raw) {
-        raw = await fetch(
-          `/api/v2/episode/${info.id}?releasing=${
-            info.status === "RELEASING" ? "true" : "false"
-          }${dub ? "&dub=true" : ""}`
-        ).then((res) => res.json());
+        /* Ce fetch n'avait AUCUN try/catch. Une panne reseau — typiquement au
+           reveil du PC, l'onglet restaure avant que la connexion soit prete —
+           rejetait la promesse de `getInfo()` sans que personne ne l'attrape :
+           rejet non gere en console, et surtout toute la suite de l'effet, celle
+           qui pose `episodeNavigation` complet, n'etait jamais atteinte. Or
+           l'effet ne rejoue que sur [session, epiNumber, dub, info.id] : un seul
+           hoquet condamnait le titre, la vignette et precedent/suivant pour
+           toute la duree de la page. On avale donc, et le nonce `tentative` le
+           rejoue au retour du reseau (21/09/2026). */
+        try {
+          const res = await fetch(
+            `/api/v2/episode/${info.id}?releasing=${
+              info.status === "RELEASING" ? "true" : "false"
+            }${dub ? "&dub=true" : ""}`
+          );
+          raw = res.ok ? await res.json() : null;
+        } catch {
+          raw = null;
+        }
         if (Array.isArray(raw)) setPrefetchedEpisodes(info.id, !!dub, raw);
       }
 
@@ -1544,7 +1645,9 @@ export default function Watch({
     // cold SSR it arrives after mount, and without it here getInfo() would bail
     // early (if (!info) return) and never re-run, leaving the player stuck.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions?.user?.name, epiNumber, dub, info?.id]);
+    // `tentative` : idem, pour que la liste d'episodes soit retentee elle aussi
+    // au retour du reseau (son fetch avale desormais les pannes, cf. plus haut).
+  }, [sessions?.user?.name, epiNumber, dub, info?.id, tentative]);
 
   // ── List sync on episode finish ──────────────────────────────
   // Hands the sync engine the full media context (total episodes, title,
@@ -1962,7 +2065,9 @@ export default function Watch({
     activeSourceSettledRef.current = false; // gate the probe fan-out again
     fetchStreamSource(activeServer, ctrl.signal);
     return () => ctrl.abort();
-  }, [activeServer, fetchStreamSource, serverResolved]);
+    // `tentative` : le nonce de la reprise sur retour de reseau. Sans lui,
+    // rejouer le MEME lecteur ne change aucune dependance et l'effet dort.
+  }, [activeServer, fetchStreamSource, serverResolved, tentative]);
 
   // ── Prefetch the NEXT episode ──────────────────────────────
   // When the user hits "Next episode", nothing is warm: the source resolves from
@@ -2764,6 +2869,7 @@ export default function Watch({
             nom={server.name}
             secours={lecteurDeSecours}
             onSwitch={handleServerChange}
+            onReessayer={() => reprendre(true)}
             t={t}
           />
         );
@@ -2804,6 +2910,7 @@ export default function Watch({
             nom={server.name}
             secours={lecteurDeSecours}
             onSwitch={handleServerChange}
+            onReessayer={() => reprendre(true)}
             t={t}
           />
         );
@@ -2881,7 +2988,7 @@ export default function Watch({
     // (which changes on every chat/presence update) — otherwise the player
     // rebuilds on each message, restarting playback and breaking sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, prepareEpisode, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, prepareEpisode, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, reprendre, t]);
 
   // ── Render ───────────────────────────────────────────────────
   // The Watch-Party panel. Rendered in two places: on mobile it sits in the
@@ -3497,19 +3604,41 @@ const WATCH_BTN =
    rendaient tous deux un spinner, avant elle. Un seul exemplaire, employe aux
    deux endroits, pour qu'ils ne divergent pas.
    Sans lecteur de secours a proposer, on n'affiche pas de bouton mort. */
-function CarteIndisponible({ nom, secours, onSwitch, t }) {
+function CarteIndisponible({ nom, secours, onSwitch, onReessayer, t }) {
+  /* Hors ligne, nommer le lecteur est trompeur : ce n'est pas lui qui est
+     indisponible, c'est la connexion. `onLine === false` est le seul sens
+     fiable de ce drapeau (il peut mentir dans l'autre). */
+  const horsLigne =
+    typeof navigator !== "undefined" && navigator.onLine === false;
   return (
     <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
-      <p>{t("player.serverUnavailable", { name: nom })}</p>
-      {secours && (
+      <p>
+        {horsLigne
+          ? t("player.offline")
+          : t("player.serverUnavailable", { name: nom })}
+      </p>
+      <div className="flex items-center gap-4">
+        {/* TOUJOURS la, meme sans lecteur de secours. C'etait le seul cas ou
+            cette carte devenait un cul-de-sac total : plus aucune sortie hors
+            rechargement manuel — qui coute un rendu SSR complet de la page,
+            l'operation la plus chere du lot (21/09/2026). */}
         <button
           type="button"
-          onClick={() => onSwitch(secours.id)}
+          onClick={onReessayer}
           className="text-as-accent underline text-sm"
         >
-          {t("player.switchTo", { name: secours.name })}
+          {t("common.retry")}
         </button>
-      )}
+        {secours && (
+          <button
+            type="button"
+            onClick={() => onSwitch(secours.id)}
+            className="text-as-accent underline text-sm"
+          >
+            {t("player.switchTo", { name: secours.name })}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

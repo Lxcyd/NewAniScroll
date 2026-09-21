@@ -506,6 +506,8 @@
     "serverBroken": "Cassé : {{reason}}",
     "serverDegraded": "Dégradé — repli sur le lecteur de l'hébergeur (échec d'extraction). Cliquez pour tester.",
     "serverUnavailable": "Serveur « {{name}} » indisponible",
+    "offline": "Connexion perdue — réessayez une fois revenu en ligne.",
+    "loadFailed": "Le lecteur n'a pas pu se charger",
     "switchTo": "Passer à {{name}}",
     "autoSwitched": "« {{from}} » n'a pas répondu — passage à {{to}}",
     "loading": "Chargement…",
