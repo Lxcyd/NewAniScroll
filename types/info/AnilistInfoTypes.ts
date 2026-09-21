@@ -24,6 +24,12 @@ export interface AniListInfoTypes {
   source: string | null;
   countryOfOrigin: string | null;
   isAdult: boolean;
+  /** MAL-only facts added at SSR (see withMalMeta in pages/en/anime/[...id]). */
+  malMeta?: {
+    titleFr: string | null;
+    rating: "G" | "PG" | "PG-13" | "R" | "R+" | "Rx" | null;
+    synopsis: string | null;
+  };
   synonyms: string[] | null;
   siteUrl: string | null;
   hashtag: string | null;

@@ -1126,3 +1126,19 @@ function computeFromAnchor(
     total: currentNumber + sequelSeasons,
   };
 }
+
+/** MAL-only rows, present only when MAL knows them: the French title (for a
+ *  French reader — AniList's synonyms carry no language) and the age rating
+ *  (AniList only has isAdult). Shared with the mobile page. */
+export function malDetails(
+  info: AniListInfoTypes,
+  t: TFunction,
+  lang: string,
+): Array<[string, string]> {
+  const m = info.malMeta;
+  if (!m) return [];
+  const rows: Array<[string, string]> = [];
+  if (m.titleFr && lang.startsWith("fr")) rows.push([t("anime.detailTitleFr"), m.titleFr]);
+  if (m.rating) rows.push([t("anime.detailRating"), t(`anime.malRating.${m.rating}`)]);
+  return rows;
+}

@@ -30,6 +30,13 @@ function epTitle(ep: { number: number; title: string }, hide: boolean): string {
   return hide ? `Episode ${ep.number}` : ep.title;
 }
 
+/** MAL air date (YYYY-MM-DD) → "20 oct. 1999" in the UI language. */
+function formatAired(iso: string, lang: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(lang, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 /** Locale-aware info-page href for an anime id, landing on its Episodes tab.
  *  The page canonicalises `/…/anime/<id>` to add the slug itself, so id alone
  *  is enough. Used when a dropdown holds a single entry — clicking it navigates
@@ -43,9 +50,78 @@ type EpisodeRow = {
   number: number;
   id: string;
   title: string;
+  /** False when `title` is our "Episode N" placeholder — MAL's may replace it. */
+  ownTitle: boolean;
   duration: number | null;
   img: string | null;
+  /** From MAL (AniList has no per-episode equivalent). */
+  kind?: "filler" | "recap";
+  aired?: string;
 };
+
+/* MAL per-episode facts for one season (/api/v2/episode-meta): filler / recap
+   flags, title, first air date. Keyed by MAL id and memoised for the session —
+   switching seasons back and forth costs one request per season. */
+type MalEp = { n: number; t?: string; a?: string; f?: 1; r?: 1 };
+const malEpsCache = new Map<number, Promise<Map<number, MalEp>>>();
+
+function loadMalEpisodes(idMal: number): Promise<Map<number, MalEp>> {
+  let p = malEpsCache.get(idMal);
+  if (!p) {
+    p = fetch(`/api/v2/episode-meta/${idMal}`)
+      .then((r) => (r.ok ? r.json() : { episodes: [] }))
+      .then((j) => new Map<number, MalEp>((j.episodes || []).map((e: MalEp) => [e.n, e])))
+      .catch(() => {
+        malEpsCache.delete(idMal); // a network blip must not stick for the session
+        return new Map<number, MalEp>();
+      });
+    malEpsCache.set(idMal, p);
+  }
+  return p;
+}
+
+function useMalEpisodes(idMal: number | null | undefined): Map<number, MalEp> | null {
+  const [data, setData] = useState<{ id: number; map: Map<number, MalEp> } | null>(null);
+  useEffect(() => {
+    if (!idMal) return;
+    let cancelled = false;
+    loadMalEpisodes(idMal).then((map) => {
+      if (!cancelled) setData({ id: idMal, map });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [idMal]);
+  // Never hand back the previous season's map while the new one loads.
+  return idMal && data?.id === idMal ? data.map : null;
+}
+
+/** Laces MAL's facts into the provider rows. The provider's own title wins;
+ *  MAL's only fills the "Episode N" placeholder. */
+function withMal(eps: EpisodeRow[], mal: Map<number, MalEp> | null): EpisodeRow[] {
+  if (!mal || mal.size === 0) return eps;
+  return eps.map((e) => {
+    const m = mal.get(e.number);
+    if (!m) return e;
+    return {
+      ...e,
+      title: !e.ownTitle && m.t ? m.t : e.title,
+      kind: m.f ? "filler" : m.r ? "recap" : undefined,
+      aired: m.a,
+    };
+  });
+}
+
+/** "Filler" / "Recap" pill — shared by the detailed and compact rows. */
+function KindTag({ kind }: { kind?: EpisodeRow["kind"] }) {
+  const { t } = useTranslation();
+  if (!kind) return null;
+  return (
+    <span style={kind === "filler" ? tStyles.fillerTag : tStyles.recapTag}>
+      {t(kind === "filler" ? "anime.epFiller" : "anime.epRecap")}
+    </span>
+  );
+}
 
 /**
  * Windowing hook: given the scroll container's live scrollTop, the row height,
@@ -269,6 +345,7 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
         number: e.number,
         id: e.id,
         title: e.title || `${t("common.episode")} ${e.number}`,
+        ownTitle: !!e.title,
         duration: info.duration ?? null,
         img: e.img || null,
       }));
@@ -375,16 +452,27 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
     if (source.kind === "episodes" && eps) onEpisodeCount?.(eps.length);
   }, [eps, source.kind, onEpisodeCount]);
 
+  // MAL facts only apply to a real season (films are concatenated MOVIE ids,
+  // renumbered "Film N" — MAL's numbering would not line up).
+  const activeIdMal =
+    source.kind === "episodes"
+      ? source.id === info.id
+        ? info.idMal
+        : seasonList?.find((s) => s.id === source.id)?.idMal
+      : null;
+  const malEps = useMalEpisodes(activeIdMal);
+  const rows = useMemo(() => (eps ? withMal(eps, malEps) : null), [eps, malEps]);
+
   const filtered = useMemo(() => {
-    if (!eps) return [];
+    if (!rows) return [];
     const q = filter.trim().toLowerCase();
-    if (!q) return eps;
-    return eps.filter(
+    if (!q) return rows;
+    return rows.filter(
       (e) =>
         e.title.toLowerCase().includes(q) ||
         String(e.number).padStart(2, "0").includes(q)
     );
-  }, [eps, filter]);
+  }, [rows, filter]);
 
   /* The scroll container's max-height drives "show N at a time". We
      compute it from the row geometry so detailed/compact/grid modes
@@ -1245,7 +1333,7 @@ function DetailedList({
   scrollTop,
   maxHeight,
 }: ListProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const hideSpoilers = useHideSpoilers();
   const { start, end, padTop, totalHeight } = useWindowedSlice(
     scrollTop,
@@ -1290,12 +1378,15 @@ function DetailedList({
                   </span>
                   {watched && <span style={tStyles.watchedTag}>✓ {t("anime.watched")}</span>}
                   {current && <span style={tStyles.currentTag}>● {t("anime.upNext")}</span>}
+                  <KindTag kind={ep.kind} />
                 </div>
                 <div style={tStyles.epTitle}>{epTitle(ep, hideSpoilers)}</div>
                 <div style={tStyles.epMeta}>
                   {ep.duration && <span>{ep.duration} min</span>}
                   {ep.duration && <span style={tStyles.dotSep} />}
                   <span>{isDub ? "Dub" : "Sub"}</span>
+                  {ep.aired && <span style={tStyles.dotSep} />}
+                  {ep.aired && <span>{formatAired(ep.aired, i18n.language)}</span>}
                 </div>
               </div>
               <span style={{ ...tStyles.epPlay, pointerEvents: "none" }}>
@@ -1357,6 +1448,7 @@ function CompactList({
             <span style={tStyles.compactTitle} title={epTitle(ep, hideSpoilers)}>
               {epTitle(ep, hideSpoilers)}
             </span>
+            <KindTag kind={ep.kind} />
             {watched && <span style={tStyles.compactBadge}>✓</span>}
             {current && (
               <span style={{ ...tStyles.compactBadge, color: "var(--accent)" }}>
@@ -1401,6 +1493,7 @@ function GridView({
   scrollTop,
   maxHeight,
 }: ListProps) {
+  const { t } = useTranslation();
   const hideSpoilers = useHideSpoilers();
   const wrapRef = useRef<HTMLDivElement>(null);
   const [perRow, setPerRow] = useState(8);
@@ -1439,7 +1532,11 @@ function GridView({
                 ? "var(--accent)"
                 : watched
                 ? "rgba(45,212,122,0.3)"
+                : ep.kind === "filler"
+                ? "rgba(240,180,41,0.45)"
                 : "var(--line)",
+              // Filler / recap tiles: dashed, so a filler arc reads as a block.
+              borderStyle: ep.kind ? "dashed" : undefined,
               background: current
                 ? "var(--accent-soft)"
                 : watched
@@ -1452,7 +1549,10 @@ function GridView({
                 : "var(--txt-0)",
               pointerEvents: locked ? "none" : "auto",
             }}
-            title={epTitle(ep, hideSpoilers)}
+            title={
+              epTitle(ep, hideSpoilers) +
+              (ep.kind ? ` · ${t(ep.kind === "filler" ? "anime.epFiller" : "anime.epRecap")}` : "")
+            }
           >
             {ep.number}
           </Link>
@@ -1804,6 +1904,26 @@ const tStyles: Record<string, CSSProperties> = {
     background: "rgba(45,212,122,0.1)",
     borderRadius: 3,
     letterSpacing: "0.04em",
+  },
+  fillerTag: {
+    fontSize: 9.5,
+    fontWeight: 600,
+    color: "#f0b429",
+    padding: "2px 6px",
+    background: "rgba(240,180,41,0.12)",
+    borderRadius: 3,
+    letterSpacing: "0.04em",
+    flexShrink: 0,
+  },
+  recapTag: {
+    fontSize: 9.5,
+    fontWeight: 600,
+    color: "var(--txt-2)",
+    padding: "2px 6px",
+    background: "rgba(150,160,180,0.14)",
+    borderRadius: 3,
+    letterSpacing: "0.04em",
+    flexShrink: 0,
   },
   currentTag: {
     fontSize: 9.5,

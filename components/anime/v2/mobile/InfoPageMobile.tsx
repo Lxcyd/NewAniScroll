@@ -31,6 +31,7 @@ import {
   statusLabel as statusLabelI18n,
   countryLabel,
   listLabel,
+  malDetails,
 } from "../helpers";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -772,7 +773,10 @@ function MOverview({
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
-  const description = useTranslatedText(stripHtml(info.description || ""));
+  // MAL's synopsis stands in only when AniList has none (see withMalMeta).
+  const description = useTranslatedText(
+    stripHtml(info.description || "") || info.malMeta?.synopsis || "",
+  );
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
   const studios = (info.studios?.edges || [])
@@ -795,6 +799,7 @@ function MOverview({
     [t("anime.detailStudios"), studios || null],
     [t("anime.detailProducers"), producers || null],
     [t("anime.detailCountry"), countryLabel(t, (info as any).countryOfOrigin || null)],
+    ...malDetails(info, t, i18n.language),
   ].filter(([, v]) => !!v) as Array<[string, string]>;
 
   const tags = (info.tags || [])

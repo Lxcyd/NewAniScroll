@@ -131,7 +131,7 @@ const runtimeCaching = [
   {
     urlPattern: ({ url, sameOrigin }) =>
       sameOrigin &&
-      /^\/api\/v2\/(skip|themes|episode-scores|changelog-popup|changelog|banner-tone|fanarts)\b/.test(
+      /^\/api\/v2\/(skip|themes|episode-scores|episode-meta|changelog-popup|changelog|banner-tone|fanarts)\b/.test(
         url.pathname,
       ),
     handler: "CacheFirst",
