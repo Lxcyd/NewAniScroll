@@ -1142,3 +1142,9 @@ export function malDetails(
   if (m.rating) rows.push([t("anime.detailRating"), t(`anime.malRating.${m.rating}`)]);
   return rows;
 }
+
+/** Height floor of the Relations embed's header row — see the note on its use
+ *  in RelationsGraph. Lives here, not there, so Overview can align its
+ *  "Details" heading to it without statically importing the graph (and dagre)
+ *  that is now loaded with next/dynamic. */
+export const EMBED_HEADER_H = 28;

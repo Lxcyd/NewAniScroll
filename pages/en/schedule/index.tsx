@@ -1,7 +1,9 @@
 // @ts-nocheck
 
 import Image from "next/image";
-import { cubicBezier, motion } from "framer-motion";
+// `m` + LazyMotion(domAnimation): only initial/whileInView are used here — see
+// the home page for why this beats `motion`.
+import { cubicBezier, m, LazyMotion, domAnimation } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarIcon } from "@heroicons/react/24/solid";
@@ -276,7 +278,7 @@ export default function Schedule({ schedule }: any) {
   }, [filterDay]);
 
   return (
-    <>
+    <LazyMotion features={domAnimation}>
       <Head>
         <title>AniScroll • Beta</title>
         <meta
@@ -384,7 +386,7 @@ export default function Schedule({ schedule }: any) {
                     {dayLabel(day as string)}
                   </h2>
                   {Object.entries(timeSlots).map(([time, animeList]) => (
-                    <motion.div
+                    <m.div
                       initial={{
                         y: 30,
                         opacity: 0
@@ -462,7 +464,7 @@ export default function Schedule({ schedule }: any) {
                           );
                         })}
                       </div>
-                    </motion.div>
+                    </m.div>
                   ))}
                 </div>
               ))
@@ -485,7 +487,7 @@ export default function Schedule({ schedule }: any) {
                   >
                     {dayLabel(day)}
                   </h2>
-                  <motion.div
+                  <m.div
                     initial={{
                       y: 30,
                       opacity: 0
@@ -571,7 +573,7 @@ export default function Schedule({ schedule }: any) {
                         </Link>
                       );
                     })}
-                  </motion.div>
+                  </m.div>
                 </div>
               )
             )
@@ -582,6 +584,6 @@ export default function Schedule({ schedule }: any) {
           )}
         </div>
       </div>
-    </>
+    </LazyMotion>
   );
 }

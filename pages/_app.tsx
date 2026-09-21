@@ -20,7 +20,6 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Analytics } from "@vercel/analytics/react";
 import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
-import { chargerPriorPartage } from "@/lib/watch/serverPerf";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
@@ -441,7 +440,11 @@ export default function App({
      Sans effet sur la page en cours — l'ordre y est fige au chargement — il
      prepare la suivante. Voir lib/watch/serverPerf. */
   useEffect(() => {
-    chargerPriorPartage();
+    // Import differe : serverPerf tire lib/servers, inutile au premier rendu
+    // de chaque page — ce travail part deja sur temps mort.
+    import("@/lib/watch/serverPerf")
+      .then((m) => m.chargerPriorPartage())
+      .catch(() => {});
   }, []);
 
   // Lightweight pageview analytics — fires on every route change. The

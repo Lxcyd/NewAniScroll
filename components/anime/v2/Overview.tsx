@@ -10,8 +10,13 @@ import {
   countryLabel,
   capitalize,
   malDetails,
+  EMBED_HEADER_H,
 } from "./helpers";
-import RelationsGraph, { EMBED_HEADER_H } from "./RelationsGraph";
+import dynamic from "next/dynamic";
+/* The graph (and its dagre layout, ~25 KB gz) draws nothing before mount — the
+   server HTML is empty either way — so it comes in its own chunk instead of
+   the info page's first load. */
+const RelationsGraph = dynamic(() => import("./RelationsGraph"), { ssr: false });
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
