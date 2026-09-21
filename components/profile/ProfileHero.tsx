@@ -12,7 +12,11 @@ import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
 import PlateBackground from "@/components/profile/PlateBackground";
-import TrailerStage from "@/components/shared/HoverPreview/TrailerStage";
+import dynamic from "next/dynamic";
+/* Only mounted for a YouTube music banner. next/dynamic keeps SSR (the server
+   still renders it when it applies) but its chunk leaves the profile's first
+   load for every other banner. */
+const TrailerStage = dynamic(() => import("@/components/shared/HoverPreview/TrailerStage"));
 import { attachStage, detachStage } from "@/components/shared/HoverPreview/stageStore";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileStats } from "@/lib/profile/types";

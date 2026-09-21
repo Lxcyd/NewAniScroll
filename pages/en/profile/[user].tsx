@@ -15,7 +15,12 @@ import ForYouPanel from "@/components/discover/ForYouPanel";
 import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileAside from "@/components/profile/ProfileAside";
-import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
+import dynamic from "next/dynamic";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+import type { StudioAnime } from "@/components/profile/BannerStudio";
+/* Full-screen editor that renders nothing while closed (~40 KB raw with its
+   colour picker): fetched on the first open, then kept mounted. */
+const BannerStudio = dynamic(() => import("@/components/profile/BannerStudio"), { ssr: false });
 
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -183,6 +188,7 @@ export default function Profile({
   const asideLayout = banner.layout === "column";
   const [pinned, setPinned] = useState(!!initialPinned);
   const [picker, setPicker] = useState(false);
+  const studioEverOpened = useMountedOnce(picker);
   const [showForYou, setShowForYou] = useState(false);
   /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
      est à un clic. L'état est volontairement local — une URL par onglet ferait
@@ -417,20 +423,22 @@ export default function Profile({
       {isOwner && (
         <>
           <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
-          <BannerStudio
-            open={picker}
-            onClose={() => setPicker(false)}
-            animes={studioAnimes}
-            value={pinned ? normalizeDressing(banner) : null}
-            auto={{
-              url: initialBanner?.url ?? null,
-              source: initialBanner?.source ?? null,
-              title: initialBanner?.title ?? null,
-            }}
-            identity={{ name: identity.name, avatar: identity.avatar ?? null }}
-            stats={heroStats(t, stats)}
-            onApply={(d) => void save(d)}
-          />
+          {studioEverOpened && (
+            <BannerStudio
+              open={picker}
+              onClose={() => setPicker(false)}
+              animes={studioAnimes}
+              value={pinned ? normalizeDressing(banner) : null}
+              auto={{
+                url: initialBanner?.url ?? null,
+                source: initialBanner?.source ?? null,
+                title: initialBanner?.title ?? null,
+              }}
+              identity={{ name: identity.name, avatar: identity.avatar ?? null }}
+              stats={heroStats(t, stats)}
+              onApply={(d) => void save(d)}
+            />
+          )}
         </>
       )}
     </>

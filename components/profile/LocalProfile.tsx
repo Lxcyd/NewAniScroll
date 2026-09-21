@@ -12,7 +12,12 @@ import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { useBadgeState } from "@/lib/badges/store";
-import BannerStudio, { type StudioAnime } from "@/components/profile/BannerStudio";
+import dynamic from "next/dynamic";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+import type { StudioAnime } from "@/components/profile/BannerStudio";
+/* Full-screen editor that renders nothing while closed (~40 KB raw with its
+   colour picker): fetched on the first open, then kept mounted. */
+const BannerStudio = dynamic(() => import("@/components/profile/BannerStudio"), { ssr: false });
 
 import { useLocalList } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
@@ -43,6 +48,7 @@ export default function LocalProfile() {
   const raw = useLocalList();
   const { current: streak, best: bestStreak } = useStreak();
   const [picker, setPicker] = useState(false);
+  const studioEverOpened = useMountedOnce(picker);
   const [pinned, setPinned] = useState<Dressing | null>(null);
   const [tab, setTab] = useState("overview");
   /* Lu en direct : un badge debloque pendant qu'on est sur la page doit
@@ -225,20 +231,22 @@ export default function LocalProfile() {
         <Footer />
       </div>
 
-      <BannerStudio
-        open={picker}
-        onClose={() => setPicker(false)}
-        animes={topAnimes}
-        value={pinned}
-        auto={{
-          url: auto?.url ?? null,
-          source: auto?.source ?? null,
-          title: auto?.title ?? null,
-        }}
-        identity={{ name: name || t("nav.myList"), avatar: null }}
-        stats={heroStats(t, stats)}
-        onApply={pick}
-      />
+      {studioEverOpened && (
+        <BannerStudio
+          open={picker}
+          onClose={() => setPicker(false)}
+          animes={topAnimes}
+          value={pinned}
+          auto={{
+            url: auto?.url ?? null,
+            source: auto?.source ?? null,
+            title: auto?.title ?? null,
+          }}
+          identity={{ name: name || t("nav.myList"), avatar: null }}
+          stats={heroStats(t, stats)}
+          onApply={pick}
+        />
+      )}
     </>
   );
 }
