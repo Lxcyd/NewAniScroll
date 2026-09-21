@@ -6,6 +6,28 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 — Le profil n'attend plus AniList, et ne tombe plus pour un complément
+
+**Mesure (dev, `Lucyd-952364`, 682 titres)** : TTFB **2,0 s** au premier passage,
+**0,7 s** au second. L'écart était l'attente fixe `PATIENCE_MS` de 1,5 s :
+dès que la copie Upstash avait plus de 5 min, c'est-à-dire presque à chaque
+visite, on laissait à AniList 1,5 s pour répondre. Il n'y arrive jamais sur
+une grosse liste (4 à 12 s).
+
+- **Stale-while-revalidate franc** : une copie de moins de 24 h est servie
+  tout de suite, et la fraîche se range en arrière-plan (`waitUntil`) pour la
+  visite suivante. Sans copie, on attend comme avant.
+- **`getUser(name, false)` ignorait `false`** : la lecture de visibilité
+  chargeait tout l'historique `WatchListEpisode` Prisma à chaque rendu.
+- **Props allégées** : les entrées pesaient 343 Ko sur 352 Ko. On retire
+  `native`/`userPreferred` quand `english` ou `romaji` existe (ce ne sont que
+  des replis de `pickTitle`), ainsi que `favourite:false`, `repeat:0`,
+  `customLists:[]` et `trailer:null`.
+- **Robustesse** : la bannière automatique (fanart/Turso) et les
+  bandes-annonces du studio sont bornées (2,5 s / 1,5 s). Avant, un rejet de
+  `resolveFavoriteBanner` faisait tomber tout le `Promise.all`, donc la page
+  en 500.
+
 ## 2026-09-17 (suite 2) — Le rond coupé par le haut de l'écran, et un flou qui n'est pas une boîte
 
 **L'IMPACT SORTAIT DE LA PAGE.** L'onde se détend jusqu'à 2,7 fois le jeton,

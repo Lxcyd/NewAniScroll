@@ -87,6 +87,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Apercu au survol & bandes-annonces — [`devlog/preview.md`](devlog/preview.md)
 
+- 2026-09-21 — Le son du trailer qui continuait en fond sans carte : un `pauseVideo` avalé par un chargement, puis `reveal()` (et son `unMute`) appelé par le listener sans carte ouverte
 - 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 - 2026-08-15 — Nettoyage de l'aperçu au survol
 - 2026-08-15 — Le fondu bas de la carte, et le rail du hero rendu survolable
@@ -195,6 +196,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-21 — Profil : TTFB 2,0 s → ~0,7 s visé (l'attente fixe de 1,5 s d'AniList devient un vrai SWR), `getUser` ne charge plus l'historique, props allégées, bannière et bandes-annonces bornées
 - 2026-09-17 (suite 2) — L'onde coupée par le haut de l'écran (notification descendue), et un flou derrière le texte qui n'est pas une boîte (masque qui s'éteint aussi en haut/bas, `brightness` au lieu d'un voile)
 - 2026-09-17 (suite) — `prefers-reduced-motion` coupait la fête du badge (le registre mentait, pas `matchMedia`) ; l'onglet lisait la copie serveur ; et les 66 épisodes qu'AniList ne sait pas justifier
 - 2026-09-17 — L'impact qui ne jouait qu'une fois (réconciliation React), la boîte en fond retirée, et les relectures ajoutées au compteur d'épisodes
