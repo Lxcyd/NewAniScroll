@@ -574,11 +574,13 @@ const RECENTE_MS = PARTAGE_TTL_S * 1000;
  * disabled due to severe stability issues », vérifié le 07/09). Pendant une
  * panne pareille, aucune requête neuve n'aboutit : jeter la copie v1 en même
  * temps qu'on change de clé aurait vidé les profils au lieu de leur ajouter des
- * bandes-annonces. On lit donc v2, puis v1 à défaut, et on n'écrit que v2 —
- * la première réponse fraîche fait la bascule toute seule.
+ * bandes-annonces. On a donc lu v2 puis v1 à défaut, le temps de la bascule.
+ *
+ * Repli v1 retiré le 21/09/2026 : ces clés vivaient 24 h et ne sont plus
+ * écrites depuis le 07/09, il ne restait donc qu'un GET Upstash raté à chaque
+ * absence de v2.
  */
 const partageKey = (name: string) => `anilist:list:v2:${name.toLowerCase()}`;
-const partageKeyV1 = (name: string) => `anilist:list:v1:${name.toLowerCase()}`;
 
 /** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
 type ListePartagee = { at: number; z: string };
@@ -586,7 +588,7 @@ type ListePartagee = { at: number; z: string };
 async function partageLu(name: string): Promise<{ at: number; data: any } | null> {
   try {
     if (!redis) return null;
-    const raw = (await redis.get(partageKey(name))) ?? (await redis.get(partageKeyV1(name)));
+    const raw = await redis.get(partageKey(name));
     if (!raw) return null;
     const box = JSON.parse(raw) as ListePartagee;
     if (!box?.z || typeof box.at !== "number") return null;

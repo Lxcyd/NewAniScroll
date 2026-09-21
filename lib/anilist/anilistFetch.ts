@@ -89,6 +89,12 @@ type FetchOpts = {
   cacheSeconds?: number;
   /** Short label used in logs to identify the caller. */
   label?: string;
+  /** False = do not store a SUCCESSFUL body (the failure mark is still read
+   *  and written). For callers that already cache the result under their own
+   *  key for at least as long: the response cache behind it can never hit —
+   *  the caller's key answers first — so its SET was a pure Upstash cost on
+   *  every miss. Unlike `cacheSeconds: 0`, this keeps the outage protection. */
+  cacheSuccess?: boolean;
   /** Skip ALL Redis touches for this call: no response-cache read/write and an
    *  in-process limiter instead of the Redis one. Used by the player audit so
    *  its big fan-out doesn't spend Redis requests (Upstash free quota). The call
@@ -208,6 +214,7 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
     cacheSeconds = RESPONSE_CACHE_TTL_S,
     label = "anilist",
     skipCache = false,
+    cacheSuccess = true,
   } = opts;
 
   const body = JSON.stringify({ query, variables });
@@ -286,7 +293,9 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
         return null;
       }
       const json = await res.json();
-      if (cacheKey && cacheSeconds > 0) await writeResponseCache(cacheKey, cacheSeconds, json);
+      if (cacheKey && cacheSeconds > 0 && cacheSuccess) {
+        await writeResponseCache(cacheKey, cacheSeconds, json);
+      }
       return json;
     } catch (e: any) {
       refund(skipCache);

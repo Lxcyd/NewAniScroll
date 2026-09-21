@@ -242,7 +242,9 @@ function frembedBaseMoved(origine) {
   frembedBaseMemo = origine;
   if (!redis) return;
   try {
-    void redis.set(FREMBED_BASE_KEY, origine, { ex: FREMBED_BASE_TTL_S });
+    // Varargs form: the lib/redisRest shim reads `"EX", n` and ignored the
+    // `{ ex }` object this used to pass, so the key never expired.
+    void redis.set(FREMBED_BASE_KEY, origine, "EX", FREMBED_BASE_TTL_S);
   } catch {
     /* tant pis : on repaiera la redirection */
   }

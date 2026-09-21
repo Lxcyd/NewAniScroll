@@ -68,6 +68,8 @@ async function get(path: string, params: Record<string, string | number>) {
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const res = await fetch(`${API}${path}?${qs.toString()}`, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    // Cuts a hung upstream only; /api/v2/themes does not cache a failure.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`animethemes ${res.status}`);
   return res.json();

@@ -17,8 +17,9 @@ import { seasonCacheGetEntry, seasonCacheSet } from "@/lib/db/seasonCache";
  *     the season walkers, so it rarely adds latency, and never more than the
  *     timeout;
  *   - a real "nothing" (404, no fields) is cached 3 days; a transient failure
- *     (429, 5xx — Jikan relays MAL outages as 504 — timeout) is NOT cached, so
- *     the next edge-cache miss retries.
+ *     (429, 5xx — Jikan relays MAL outages as 504 — timeout) is remembered
+ *     10 minutes, so an outage costs one 2.5 s wait per anime per 10 min
+ *     instead of one per edge-cache miss. A previously good value is kept.
  * Never throws: every failure is `null`, and the page renders without the rows.
  */
 
@@ -33,6 +34,7 @@ export type MalMeta = {
 const KEY = (idMal: number) => `malMeta:v1:${idMal}`;
 const TTL_HIT_S = 30 * 24 * 3600;
 const TTL_MISS_S = 3 * 24 * 3600;
+const TTL_RETRY_S = 10 * 60;
 const TIMEOUT_MS = 2500;
 
 /** Jikan spells the rating as a sentence ("PG-13 - Teens 13 or older"); keep
@@ -74,17 +76,26 @@ async function fetchFromJikan(idMal: number): Promise<MalMeta | "miss" | "transi
   }
 }
 
+type Stored = MalMeta | { miss: true } | { retry: true };
+
 export async function getMalMeta(idMal: number | null | undefined): Promise<MalMeta | null> {
   if (!idMal) return null;
-  const cached = await seasonCacheGetEntry<MalMeta | { miss: true }>(KEY(idMal));
+  const cached = await seasonCacheGetEntry<Stored>(KEY(idMal));
   if (cached) {
-    const isMiss = "miss" in cached.value;
-    if (cached.ageSeconds <= (isMiss ? TTL_MISS_S : TTL_HIT_S)) {
-      return isMiss ? null : (cached.value as MalMeta);
-    }
+    const v = cached.value;
+    const ttl = "retry" in v ? TTL_RETRY_S : "miss" in v ? TTL_MISS_S : TTL_HIT_S;
+    if (cached.ageSeconds <= ttl) return "retry" in v || "miss" in v ? null : v;
   }
   const r = await fetchFromJikan(idMal);
-  if (r === "transient") return cached && !("miss" in cached.value) ? (cached.value as MalMeta) : null;
+  if (r === "transient") {
+    const stale = cached && !("retry" in cached.value) && !("miss" in cached.value)
+      ? (cached.value as MalMeta)
+      : null;
+    // A stale good value keeps being served (and re-tried next miss); with
+    // nothing to serve, park the id for 10 min.
+    if (!stale) await seasonCacheSet(KEY(idMal), { retry: true });
+    return stale;
+  }
   await seasonCacheSet(KEY(idMal), r === "miss" ? { miss: true } : r);
   return r === "miss" ? null : r;
 }
