@@ -61,6 +61,12 @@ construit depuis `git log --since=<derniere release>`.
 - **Le cout qui montait etait celui du Worker Cloudflare, pas Upstash** : 310
   requetes par visionnage contre un palier gratuit de 100 000/jour. Ramene a
   55 le 29/08 (PR #9). A re-mesurer si la page de lecture change encore.
+- **Confirmer le cache SW perime** (21/09) : le correctif « video qui ne se
+  recharge pas au reveil du PC » est pose, mais l'hypothese n'a pas ete vue a
+  l'oeil. Sur dev : Cache Storage -> `apis`, chercher des entrees
+  `/api/v2/source` et lire leur en-tete `date` ; et verifier que la mention
+  **(ServiceWorker)** a disparu de la requete de source dans Network.
+  -> `devlog/player.md`
 - **Bandes noires 4:3** (Mobile Suit Gundam) : mesure faite, fichier 1440x1080
   sans bandes incrustees, donc la boite du lecteur reste en 16:9 alors que
   `videoRatio` sait la mesurer. Cause non tracee, correctif non ecrit.
