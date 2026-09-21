@@ -84,6 +84,12 @@ import {
   togglePlayerFullscreen,
   usePlayerFullscreen,
 } from "@/lib/player/usePlayerFullscreen";
+// Proxy base + URL builder: ONE definition in lib/watch/streamUrl, shared with
+// the watch page and the prefetch — they must produce the very same string or
+// the warmed cache is not the one playback reads. Defaults to the Cloudflare
+// Worker (unmetered + edge cache): an empty NEXT_PUBLIC_PROXY_BASE once fell
+// back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
+import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -226,16 +232,6 @@ type Props = {
   party?: import("@/lib/watch2gether/useWatchParty").PartyContext | null;
 };
 
-// Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
-// We hardcode the Worker as the DEFAULT (not the in-tree Vercel proxy)
-// because the NEXT_PUBLIC_PROXY_BASE env var proved unreliable: an empty
-// value silently fell back to /api/v2/proxy/m3u8, which Vercel throttles
-// once Fast Origin Transfer is over budget — that took every proxy-routed
-// server down in prod. The env var still overrides this if ever set.
-const PROXY_BASE =
-  (typeof process !== "undefined" &&
-    (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
-  "https://proxy.aniscroll.com";
 
 // hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
 // keep almost no back-buffer, so every seek forces a fresh network round-trip —
@@ -358,17 +354,6 @@ function getOutroStart(
     if (best == null || s.start < best) best = s.start;
   }
   return best;
-}
-
-function proxied(
-  url: string,
-  referer?: string | null,
-  voeCookie?: string | null,
-): string {
-  if (!url) return url;
-  const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
-  const ck = voeCookie ? `&vcookie=${encodeURIComponent(voeCookie)}` : "";
-  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}${ck}`;
 }
 
 /**

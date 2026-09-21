@@ -21,58 +21,13 @@
  * Donnees : MyDubList — https://mydublist.com — CC BY 4.0.
  */
 
-const KEY = "aniscroll:dubCatalog";
-const TTL_MS = 12 * 3600_000;
+import { idCatalog } from "./idCatalog";
 
-type Store = { ids: number[]; at: number };
-
-let memo: Set<number> | null = null;
-let enVol: Promise<void> | null = null;
-
-function lireStockage(): Store | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const p = raw ? (JSON.parse(raw) as Store) : null;
-    if (!p || !Array.isArray(p.ids)) return null;
-    if (Date.now() - (p.at || 0) > TTL_MS) return null;
-    return p;
-  } catch {
-    return null;
-  }
-}
+const catalogue = idCatalog("aniscroll:dubCatalog", "/api/v2/dub-catalog?lang=french");
 
 /** Charge la liste si besoin. A appeler au repos, jamais dans un chemin bloquant. */
-export function chargeDubCatalog(): void {
-  if (typeof window === "undefined" || memo || enVol) return;
-  const local = lireStockage();
-  if (local) {
-    memo = new Set(local.ids);
-    return;
-  }
-  enVol = fetch("/api/v2/dub-catalog?lang=french")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((j) => {
-      if (!j?.known || !Array.isArray(j.ids)) return;
-      memo = new Set(j.ids.map(Number));
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ ids: j.ids, at: Date.now() }));
-      } catch {
-        /* stockage plein ou mode prive : on garde la liste en memoire */
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      enVol = null;
-    });
-}
+export const chargeDubCatalog: () => void = catalogue.charge;
 
-/** `false` seulement si la liste est connue ET ne contient pas cet anime. */
-export function vfPossible(idMal: number | string | null | undefined): boolean {
-  if (idMal == null) return true;
-  if (!memo) {
-    chargeDubCatalog();
-    return true;
-  }
-  return memo.has(Number(idMal));
-}
-
+/** `false` seulement si la liste est connue ET ne contient pas cet anime (id MAL). */
+export const vfPossible: (idMal: number | string | null | undefined) => boolean =
+  catalogue.possible;

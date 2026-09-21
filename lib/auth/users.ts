@@ -6,7 +6,7 @@
  */
 
 import type { Row } from "@libsql/client";
-import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
+import { usersDb as db } from "../db/turso-users";
 import { mintTag, ulid } from "./ids";
 import { open, seal } from "./secretBox";
 import { normalizeUsername, sanitizeUsername } from "./username";
@@ -78,13 +78,6 @@ export function toPublicUser(u: UserRecord): PublicUser {
 /** Display name: the AniList name when linked, else the AniScroll pseudo. */
 export function displayName(u: UserRecord | PublicUser): string {
   return u.anilistName || u.username || `Guest#${u.tag}`;
-}
-
-async function db() {
-  const client = getUsersClient();
-  if (!client) return null;
-  await ensureUsersSchema();
-  return client;
 }
 
 const SELECT = `SELECT * FROM users`;

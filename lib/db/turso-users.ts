@@ -197,3 +197,12 @@ export async function ensureUsersSchema(): Promise<void> {
 
   schemaReady = true;
 }
+
+/** The users DB, schema ensured — or null when it is not configured. The one
+ *  entry point of lib/auth/{users,tokens,userData}. */
+export async function usersDb(): Promise<Client | null> {
+  const client = getUsersClient();
+  if (!client) return null;
+  await ensureUsersSchema();
+  return client;
+}

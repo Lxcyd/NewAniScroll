@@ -1119,3 +1119,11 @@ export function malDetails(
  *  "Details" heading to it without statically importing the graph (and dagre)
  *  that is now loaded with next/dynamic. */
 export const EMBED_HEADER_H = 28;
+
+/** Locale-aware info-page href for an anime (or film) id, landing on its
+ *  Episodes tab. The page canonicalises `/…/anime/<id>` to add the slug itself,
+ *  so the id alone is enough. Shared by the season dropdown and the Films panel. */
+export function infoHref(id: number, locale: string): string {
+  const lang = locale === "fr" ? "fr" : "en";
+  return `/${lang}/anime/${id}#episodes`;
+}

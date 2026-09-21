@@ -13,7 +13,7 @@ import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useHideSpoilers } from "@/lib/prefs/spoilerPrefs";
-import { seasonSubtitle, slugifyTitle } from "./helpers";
+import { infoHref, seasonSubtitle, slugifyTitle } from "./helpers";
 import {
   buildEpisodeImagePool,
   pickEpisodeImage,
@@ -24,6 +24,7 @@ import FilmsPanel from "./FilmsPanel";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { getPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
 import { useTranslation } from "react-i18next";
+import ViewModeIcon from "@/components/shared/ViewModeIcon";
 
 /** Episode title to display — a neutral "Episode N" when spoilers are hidden. */
 function epTitle(ep: { number: number; title: string }, hide: boolean): string {
@@ -35,15 +36,6 @@ function formatAired(iso: string, lang: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(lang, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-}
-
-/** Locale-aware info-page href for an anime id, landing on its Episodes tab.
- *  The page canonicalises `/…/anime/<id>` to add the slug itself, so id alone
- *  is enough. Used when a dropdown holds a single entry — clicking it navigates
- *  to that anime instead of opening a one-item menu. */
-function infoHref(id: number, locale: string): string {
-  const lang = locale === "fr" ? "fr" : "en";
-  return `/${lang}/anime/${id}#episodes`;
 }
 
 type EpisodeRow = {
@@ -165,44 +157,6 @@ const VIEW_LABEL_KEY: Record<ViewMode, string> = {
   grid: "anime.gridOfNumbers",
 };
 
-/* The icon of the view you are currently IN: a picture for the thumbnail
-   mode, rules for the one-line list, tiles for the grid of numbers. */
-function ViewModeIcon({ view }: { view: ViewMode }) {
-  const common = {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-  } as const;
-  if (view === "detailed") {
-    return (
-      <svg {...common}>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
-        <path d="m4 18 5-5 4 4 3-3 4 4" />
-      </svg>
-    );
-  }
-  if (view === "compact") {
-    return (
-      <svg {...common}>
-        <line x1="4" y1="6" x2="20" y2="6" />
-        <line x1="4" y1="12" x2="20" y2="12" />
-        <line x1="4" y1="18" x2="20" y2="18" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
 
 /* Which source the episode panel is showing. "episodes" = one season id.
    "films" = one or more MOVIE ids, concatenated into a single numbered list. */

@@ -1,4 +1,4 @@
-import { getTursoClient } from "./turso";
+import { getTursoClient, tableEnsurer } from "./turso";
 
 /**
  * episode_runtimes — duree EXACTE d'un episode SUR UN HOTE donne, une ligne par
@@ -53,18 +53,8 @@ CREATE TABLE IF NOT EXISTS episode_runtimes (
   PRIMARY KEY (mal_id, episode, lang, host)
 )`;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getTursoClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non fatal — la lecture rend {} et l'appelant retombe sur AniSkip */
-  }
-}
+// non fatal — la lecture rend {} et l'appelant retombe sur AniSkip
+const ensureTable = tableEnsurer(CREATE_SQL);
 
 /**
  * Bornes de vraisemblance. Le POST qui alimente cette table n'est pas

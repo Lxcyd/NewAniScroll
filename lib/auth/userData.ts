@@ -7,7 +7,7 @@
  * That is why `prefs` and `player` are separate kinds.
  */
 
-import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
+import { usersDb as db } from "../db/turso-users";
 
 export const DATA_KINDS = [
   "list", // aniscroll:localList
@@ -36,13 +36,6 @@ export function isDataKind(v: unknown): v is DataKind {
 export const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 export type StoredKind = { kind: DataKind; payload: unknown; rev: number; updatedAt: number };
-
-async function db() {
-  const client = getUsersClient();
-  if (!client) return null;
-  await ensureUsersSchema();
-  return client;
-}
 
 function toStored(rows: { kind: unknown; payload: unknown; rev: unknown; updated_at: unknown }[]) {
   return rows.flatMap((row) => {

@@ -1,4 +1,5 @@
 import { getFanartsClient } from "./turso-fanarts";
+import { tableEnsurer } from "./turso";
 
 /**
  * tmdb_images_cache — the PICKED backdrop and logo URL per AniList id.
@@ -88,18 +89,8 @@ export const TTL_REFUSAL_S = 24 * 60 * 60;
  */
 const CACHE_VERSION = "v3";
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getFanartsClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non-fatal — reads return null and the caller recomputes */
-  }
-}
+// non-fatal — reads return null and the caller recomputes
+const ensureTable = tableEnsurer(CREATE_SQL, getFanartsClient);
 
 function keyFor(anilistId: number): string {
   return `tmdbImages:${CACHE_VERSION}:${anilistId}`;

@@ -1,4 +1,4 @@
-import { getTursoClient } from "./turso";
+import { getTursoClient, tableEnsurer } from "./turso";
 
 /**
  * oped_skips — persistent store for the OFFLINE OP/ED detector's output
@@ -63,18 +63,8 @@ CREATE TABLE IF NOT EXISTS oped_skips (
   PRIMARY KEY (mal_id, episode, lang, kind)
 )`;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getTursoClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non-fatal — lookups return [] and the caller falls back */
-  }
-}
+// non-fatal — lookups return [] and the caller falls back
+const ensureTable = tableEnsurer(CREATE_SQL);
 
 function rowFrom(r: any): OpedSkipRow {
   return {

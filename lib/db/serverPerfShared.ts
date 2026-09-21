@@ -1,4 +1,4 @@
-import { getTursoClient } from "./turso";
+import { getTursoClient, tableEnsurer } from "./turso";
 
 /**
  * server_perf — le classement des lecteurs, AGREGE sur tous les visiteurs.
@@ -69,18 +69,8 @@ CREATE TABLE IF NOT EXISTS server_perf (
   PRIMARY KEY (server_id, crit)
 )`;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getTursoClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non fatal — la lecture rend {} et le client garde son prior statique */
-  }
-}
+// non fatal — la lecture rend {} et le client garde son prior statique
+const ensureTable = tableEnsurer(CREATE_SQL);
 
 export function estCritValide(c: unknown): c is CritPartage {
   return typeof c === "string" && (CRITERES as readonly string[]).includes(c);

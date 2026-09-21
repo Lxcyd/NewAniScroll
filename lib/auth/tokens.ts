@@ -7,7 +7,7 @@
  */
 
 import { createHash, randomBytes, randomInt } from "node:crypto";
-import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
+import { usersDb as db } from "../db/turso-users";
 
 export type TokenKind = "verify" | "reset" | "password" | "delete";
 
@@ -24,13 +24,6 @@ const TTL_MS: Record<TokenKind, number> = {
 
 function hash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
-}
-
-async function db() {
-  const client = getUsersClient();
-  if (!client) return null;
-  await ensureUsersSchema();
-  return client;
 }
 
 /** Returns the clear token to put in the mailed link. Never stored as-is. */

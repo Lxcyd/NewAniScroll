@@ -1,4 +1,5 @@
 import { getFanartsClient } from "./turso-fanarts";
+import { tableEnsurer } from "./turso";
 
 /**
  * tmdb_stills_cache — per-anime episode still URLs, and the refusals.
@@ -48,18 +49,8 @@ CREATE TABLE IF NOT EXISTS tmdb_stills_cache (
 export const TTL_HIT_S = 7 * 24 * 60 * 60;
 export const TTL_REFUSAL_S = 24 * 60 * 60;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getFanartsClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non-fatal — reads return null and the caller recomputes */
-  }
-}
+// non-fatal — reads return null and the caller recomputes
+const ensureTable = tableEnsurer(CREATE_SQL, getFanartsClient);
 
 /** Stills source. Part of the cache key so no two overwrite each other. */
 export type StillsSource = "tmdb" | "anizip";

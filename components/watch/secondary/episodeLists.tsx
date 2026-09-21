@@ -35,6 +35,7 @@ import v2Styles from "@/components/anime/v2/styles.module.css";
 import { seasonSubtitle } from "@/components/anime/v2/helpers";
 import { animeHref, watchHref } from "@/lib/prefs/clickTarget";
 import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
+import ViewModeIcon from "@/components/shared/ViewModeIcon";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -300,43 +301,6 @@ export function nextView(current: View): View {
   return VIEWS[(VIEWS.indexOf(current) + 1) % VIEWS.length];
 }
 
-function ViewIcon({ view }: { view: View }) {
-  const common = {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-  } as const;
-  if (view === "detailed") {
-    // Picture glyph — this is the mode that shows the thumbnails.
-    return (
-      <svg {...common}>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
-        <path d="m4 18 5-5 4 4 3-3 4 4" />
-      </svg>
-    );
-  }
-  if (view === "compact") {
-    return (
-      <svg {...common}>
-        <line x1="4" y1="6" x2="20" y2="6" />
-        <line x1="4" y1="12" x2="20" y2="12" />
-        <line x1="4" y1="18" x2="20" y2="18" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
 
 /**
  * "23:40" — la lecture minutes:secondes du lecteur. Elle se passe d'unite
@@ -1457,7 +1421,7 @@ export default function EpisodeLists({
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
-            <ViewIcon view={view} />
+            <ViewModeIcon view={view} />
           </button>
         </div>
 
