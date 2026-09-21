@@ -647,6 +647,39 @@ export default function App({
     return () => clearTimeout(tid);
   }, []);
 
+  /* Purge UNIQUE du cache SW `apis` d'avant le 21/09/2026. Il peut contenir des
+     reponses `/api/v2/source` dont les URL sont mortes depuis des heures — c'est
+     ce qui donnait « une page d'erreur au lieu que la video se recharge » au
+     reveil du PC (voir le commentaire d'API_VOLATILE dans next.config.js).
+     Depuis ce correctif ces entrees ne sont plus jamais LUES, puisque plus
+     aucune route du SW ne matche ces URL : cette purge est de l'hygiene de
+     stockage, pas le correctif. D'ou le temps mort — elle ne doit rien couter
+     au chargement — et le drapeau, qui la rend definitivement non rejouable.
+     Zero requete reseau. */
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("aniscroll:purgeApis") === "1") return;
+    } catch {
+      return; // stockage refuse (navigation privee) : on ne tente rien
+    }
+    const run = () => {
+      const marquer = () => {
+        try {
+          localStorage.setItem("aniscroll:purgeApis", "1");
+        } catch {}
+      };
+      if (typeof caches === "undefined") return marquer();
+      caches.delete("apis").then(marquer, marquer);
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === "function") {
+      const id = ric(run, { timeout: 4000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const tid = setTimeout(run, 2000);
+    return () => clearTimeout(tid);
+  }, []);
+
   return (
     <>
       {/* Le SDK Google Cast n'est plus charge ici, sur TOUTES les pages : le
