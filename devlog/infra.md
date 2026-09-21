@@ -6,6 +6,66 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 — Passe vitesse / usage / nettoyage, et le monitor rouge depuis cinq jours
+
+**Le monitor.** `usage-monitor` échouait chaque jour depuis le 16/09. Le
+recensement renvoyait `fetch failed` : le secret GitHub
+`UPSTASH_REDIS_REST_URL`, posé le 13/09, visait une base supprimée depuis
+(`fetch failed` = DNS, cf. l'entrée du 17/09). Les secrets ont été reposés
+depuis le `.env` (`lucky-anchovy`) : run vert, 1 482 clés. **Reste rouge :**
+l'API de gestion (`UPSTASH_API_KEY` → 401). Elle ne fait plus échouer le run,
+mais la courbe « commandes par jour » et la projection vers le plafond restent
+vides tant qu'une nouvelle clé n'est pas créée dans la console.
+
+**Premier chargement JS (gzip, `build-manifest`)** : `/en` 293 → 250 Ko,
+page anime 283 → 259 Ko, planning 247 → 236 Ko, `_app` 190 → 188 Ko.
+- Un seul `MdChevronRight` tirait le module partagé des 137 icônes de badges
+  dans l'accueil : SVG inline, même balisage.
+- framer : `m` + `LazyMotion(domAnimation)` en features SYNCHRONES (les
+  `initial` rendus au SSR ne doivent pas attendre un chunk pour devenir
+  visibles). Rien n'utilise `layout` ni `drag`.
+- `RelationsGraph` (dagre) en `next/dynamic` : il ne rendait rien avant son
+  montage, donc le HTML serveur est identique. La constante `EMBED_HEADER_H`
+  est déplacée dans `helpers.ts`, sinon l'import de la constante ramenait tout
+  le module.
+- Props de l'accueil allégées à la frontière (`genre`, `description`,
+  `bannerImage`, `idMal`), après `firstTrend`, qui garde ses champs.
+
+**Usage.**
+- La santé AniList mémorise aussi l'absence de clé : 1 GET économisé par
+  appel, souvent 2 par requête.
+- `anilistFetch({ cacheSuccess: false })` pour les routes qui ont leur propre
+  clé : le SET ne pouvait jamais servir, le marqueur d'échec reste.
+- Le préchauffage de son propre profil passe à 1 fois toutes les 5 min par
+  onglet.
+- Timeouts de 10 s sur anime-skip, aniskip et animethemes.
+- Échec transitoire Jikan parqué 10 min.
+
+**Deux bugs trouvés en route :**
+- `/en/anime/recent` ne dépassait jamais la page 1 : clé Redis unique et
+  aucun `hasNextPage`. Corrigé en `recent-episode-v3:<page>`.
+- `frembed:base` n'expirait jamais : `{ ex }` est ignoré par le shim, qui ne
+  lit que `"EX", n`. Aucune autre occurrence.
+
+**Nettoyage** : 8 fichiers morts, `axios`/`depcheck` retirés, `ioredis` en
+dev, ~50 exports sans aucune référence (tools/ et scripts/ compris), `sleep`
+unifié.
+
+**Leçon sur l'outil de suppression.** Le premier script retirait « la
+déclaration et son commentaire » par regex, et le motif `/\*[\s\S]*?\*/$`
+partait du PREMIER `/*` du fichier. Il a avalé 17 Ko de `lib/db/anime.ts`,
+et tsc l'a vu à peine. Tout a été annulé puis refait par plage AST
+(`ts.createSourceFile`, `getFullStart`), avec une vérification des symboles
+rendus orphelins (`tsc --noUnusedLocals`, avant/après). **Ne jamais couper du
+code par regex quand un parseur est disponible.**
+
+**Pas fait, volontairement** :
+- le cookie `has_session` pour épargner `/api/auth/session` aux anonymes ;
+- le plafond du préchargement des aperçus ;
+- le découpage des locales ;
+- la popup changelog en une seule langue. Elle charge les deux langues exprès,
+  pour enregistrer les deux signatures de congé.
+
 ## 2026-09-20 — Un deploiement vide le cache d'edge, et personne ne le remplissait
 
 Signale : « le chargement des pages est **redevenu** un poil long ». Le
