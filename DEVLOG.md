@@ -223,6 +223,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-21 (suite) — 2e passe : BannerStudio et modale changelog chargés à l'ouverture (my-list 277 → 252 Ko, profil 282 → 256) ; doublons strictement identiques fusionnés (streamUrl, idCatalog, usersDb, tableEnsurer…)
 - 2026-09-21 — Passe vitesse/usage/nettoyage : accueil **293 → 250 Ko** de JS gz, page anime 283 → 259 ; santé AniList mémorisée à vide, `cacheSuccess:false`, timeouts tiers ; bugs `recent` (jamais de page 2) et `frembed:base` (sans TTL) ; ~50 exports et 8 fichiers morts ; **monitor rouge depuis le 16/09 = secret Upstash vers une base supprimée** (reposé ; `UPSTASH_API_KEY` reste à refaire)
 - 2026-09-20 — **Un déploiement vide le cache d'edge, et personne ne le remplissait** : les en-têtes étaient bons (`s-maxage` 2-6 h + 1 j de `stale-while-revalidate`) mais SWR ne sert que s'il existe déjà une copie — 26 URL sur 27 froides une heure après un déploiement prod, `/en/anime/2706` à **11 959 ms → 85 ms** après chauffe ; nouveau `warm-pages` déclenché par `deployment_status`, priorisé sur `last_accessed_at` ; **le rendu froid ne supporte pas la concurrence** (0,4 s → 12 s à concurrence 3), donc une requête à la fois
 - 2026-09-18 — Grande passe de vitesse : préchauffage fiche + profil remis au routeur (squelette gardé sur la lecture seulement), requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl

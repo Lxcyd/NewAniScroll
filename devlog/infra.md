@@ -6,6 +6,34 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 (suite) — Deuxième passe : éditeurs chargés à l'ouverture, doublons fusionnés
+
+Mesuré avec un build à source maps (local, non commité) et l'attribution des
+octets par fichier source. **`_app` (188 Ko gz) est structurel** : i18next
+42 Ko bruts, next-auth 20 Ko + son runtime Babel 12 Ko, et `en.json`. On n'y
+touche pas sans remplacer une brique.
+
+- `BannerStudio` (profil + Ma liste) monté à la première ouverture. Il rendait
+  `null` fermé, et aucun effet ne tournait avant l'ouverture. Ma liste passe
+  de 277 à 252 Ko, le profil de 282 à 256 Ko.
+- La modale du changelog sort du chunk de la navbar (toutes les pages).
+- Le hero de profil charge `TrailerStage` en `dynamic`, SSR gardé.
+- Doublons **strictement** identiques fusionnés :
+  - `proxied`/`PROXY_BASE` du lecteur, désormais importés de `streamUrl` ;
+  - `ViewModeIcon` et `infoHref` ;
+  - les deux chargeurs de catalogue, remplacés par une fabrique `idCatalog` ;
+  - `usersDb()` ;
+  - `tableEnsurer()` pour 8 `ensureTable` ;
+  - `openImageInNewTab` (admin).
+- Laissés tels quels, parce que leur sémantique diffère :
+  - `ensureTable` de dub/frembed, qui verrouille même sur un échec ;
+  - wallhaven, qui exécute deux requêtes ;
+  - les 52 lecteurs de `localStorage`, chacun avec sa propre validation ;
+  - `isWalkable` (frontière client/serveur).
+- Détecteur de doublons : comparaison des corps de fonctions normalisés par AST.
+  Piège : un `diff` sur deux extractions awk vides répond « identique ».
+  Toujours vérifier que ce qu'on compare n'est pas vide.
+
 ## 2026-09-21 — Passe vitesse / usage / nettoyage, et le monitor rouge depuis cinq jours
 
 **Le monitor.** `usage-monitor` échouait chaque jour depuis le 16/09. Le
