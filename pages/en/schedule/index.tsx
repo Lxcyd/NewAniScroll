@@ -134,6 +134,9 @@ export async function getServerSideProps(ctx: any) {
         query: scheduleQuery,
         variables: { weekStart, weekEnd, page },
         label: `schedule:${page}`,
+        // `new_schedule` keeps the assembled week until midnight (JST): a
+        // per-page copy behind it was 5-7 SETs per miss that nothing read.
+        cacheSuccess: false,
       });
       const schedules = json?.data?.Page?.airingSchedules;
 

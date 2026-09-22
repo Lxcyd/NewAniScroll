@@ -78,7 +78,7 @@ export default function SearchPalette() {
     if (me.length >= 3 && q === me) recordFlag("selfSearch");
   }, [query, searchSession]);
   const [data, setData] = useState<DataTypes[] | null>(null);
-  const debounceSearch = useDebounce(query, 500);
+  const debounceSearch = useDebounce(query, 300);
   const [loading, setLoading] = useState<boolean>(false);
   const [type, setType] = useState<SearchType>("ANIME");
 
@@ -100,7 +100,19 @@ export default function SearchPalette() {
     );
   }
 
+  // Only the latest query may write: a slow answer to "nar" must not land
+  // over the answer to "naruto".
+  const requestSeq = useRef(0);
+
   async function advance(): Promise<void> {
+    const seq = ++requestSeq.current;
+    const q = debounceSearch;
+    if (!q.trim()) {
+      setData(null);
+      setNextPage(false);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     // Run AniList live search AND our local Turso FTS in parallel, then merge.
@@ -112,28 +124,45 @@ export default function SearchPalette() {
     // plus synonym/French-title matching, deduped by id. AniList results come
     // first (more authoritative ordering); local-only hits are appended.
     // Manga uses AniList only — the local FTS is anime-only.
-    const [aniRes, localRes] = await Promise.all([
-      quickSearch({ search: debounceSearch, type }),
-      type === "ANIME" ? fetchLocalSearch(debounceSearch) : Promise.resolve([]),
+    //
+    // Each side is shown AS SOON AS it answers: waiting for both made every
+    // search as slow as the slower one (often the cold Turso function).
+    let aniResults: DataTypes[] | null = null;
+    let localResults: DataTypes[] | null = null;
+    const render = () => {
+      if (seq !== requestSeq.current) return;
+      const ani = aniResults || [];
+      const seen = new Set(ani.map((r) => r.id));
+      setData([...ani, ...(localResults || []).filter((r) => r && !seen.has(r.id))]);
+      // The spinner stays until one side has something, or both are done.
+      const done = aniResults !== null && localResults !== null;
+      if (done || ani.length > 0 || (localResults?.length ?? 0) > 0) setLoading(false);
+    };
+
+    await Promise.all([
+      quickSearch({ search: q, type }).then((res) => {
+        aniResults = res?.data?.Page?.results || [];
+        if (seq === requestSeq.current)
+          setNextPage(res?.data?.Page?.pageInfo?.hasNextPage ?? false);
+        render();
+      }),
+      (type === "ANIME" ? fetchLocalSearch(q) : Promise.resolve([])).then((res) => {
+        localResults = res;
+        render();
+      }),
     ]);
-
-    const aniResults: DataTypes[] = aniRes?.data?.Page?.results || [];
-    const seen = new Set(aniResults.map((r) => r.id));
-    const merged = [
-      ...aniResults,
-      ...localRes.filter((r) => r && !seen.has(r.id)),
-    ];
-
-    setData(merged);
-    setNextPage(aniRes?.data?.Page?.pageInfo?.hasNextPage ?? false);
-    setLoading(false);
   }
 
   // Query the local Turso FTS endpoint. Maps the cached Media payload onto the
   // subset of fields this palette renders. Never throws — a search outage on
   // our side must not break AniList results.
-  async function fetchLocalSearch(q: string): Promise<DataTypes[]> {
-    if (!q || q === " ") return [];
+  async function fetchLocalSearch(raw: string): Promise<DataTypes[]> {
+    /* The FTS table is case- and accent-insensitive (unicode61), so "Naruto",
+       "naruto " and "NARUTO" return the same rows: one spelling = one edge
+       cache entry. Under 3 characters the route answers [] (SEARCH_MIN_CHARS)
+       — skip the call. */
+    const q = (raw || "").trim().replace(/\s+/g, " ").toLowerCase();
+    if (q.length < 3) return [];
     try {
       const res = await fetch(`/api/v2/search?q=${encodeURIComponent(q)}&limit=8`);
       if (!res.ok) return [];

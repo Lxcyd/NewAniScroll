@@ -1855,3 +1855,13 @@ changes, not just when this file does », precedents d'aout 2026), et je l'avais
 manque en ne bumpant que `sourceCacheKey`. Ces deux caches se bumpent
 ENSEMBLE : `src:` v14, `avail:` v5. Le cout est borne — seuls les episodes
 reellement ouverts repaient un fan-out, une fois.
+
+## 2026-09-22 — Recherche plus rapide (e585cd7f)
+- Page `/en/search` : une recherche TAPEE va d'AniList au navigateur directement
+  (`advanceSearchVars` extrait, sans import serveur). Avant, elle passait par
+  `/api/v2/anilist-search` -> `anilistFetch`, limiteur partage de tout le site
+  (28 req/min) : jusqu'a 5 s de file + 5 s d'appel, et une invocation par frappe.
+  Sans texte : toujours la route API (cachee au bord), qui sert aussi de repli.
+- Palette Ctrl+S : AniList et FTS Turso affiches chacun des qu'ils repondent
+  (avant : `Promise.all`, donc le plus lent), debounce 300 ms.
+- Garde de sequence : une reponse perimee n'ecrase plus la recherche courante.

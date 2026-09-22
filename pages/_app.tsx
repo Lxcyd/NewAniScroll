@@ -186,6 +186,26 @@ function SyncBootstrap() {
   );
 }
 
+/**
+ * Même idée pour l'aperçu au survol : le provider se désactive lui-même hors
+ * d'un vrai pointeur (HoverPreviewProvider, `(hover: hover) and (pointer:
+ * fine)`), mais son chunk (~40 Ko gz : carte, TrailerStage, icônes) partait
+ * quand même sur chaque téléphone. On ne le monte que là où il peut servir, et
+ * on suit le changement si l'appareil bascule (souris branchée sur une tablette).
+ */
+function HoverPreviewGate() {
+  const [pointer, setPointer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const apply = () => {
+      if (mq.matches) setPointer(true);
+    };
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
+  return pointer ? <HoverPreviewProvider /> : null;
+}
 
 /**
  * Replaces every {{date:VALUE}} placeholder in `text` with a date string
@@ -543,7 +563,7 @@ export default function App({
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}
-                <HoverPreviewProvider />
+                <HoverPreviewGate />
                 {/* App-shell fade-in only (CSS keyframe, see globals.css). We
                     deliberately do NOT use an enter/exit transition here: on
                     browser back/forward (popstate) the exit animation could

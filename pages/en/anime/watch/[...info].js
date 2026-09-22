@@ -69,7 +69,7 @@ const LangPreferenceModal = dynamic(
 import { recordWatchToday } from "@/lib/stats/streak";
 import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
-import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
+import { FULL_MEDIA_QUERY } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, isPlannedVerified, getPlannedFailures, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
 import { prechargeManifeste } from "@/lib/watch/hlsPreload";
@@ -238,11 +238,9 @@ export async function getServerSideProps(context) {
   const watchId =
     aniId && epiNumber ? `${aniId}-${epiNumber}` : query?.id || null;
 
-  const removed   = await getRemovedMedia();
-  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
-  if (isRemoved) {
-    return { redirect: { destination: "/en/removed", permanent: false } };
-  }
+  // Started now, awaited after the metadata: on a cold function it is a
+  // Postgres round trip that used to sit in front of the AniList fetch.
+  const removedPromise = getRemovedMedia().catch(() => null);
 
   // ── Non-blocking metadata resolution ──────────────────────────────────
   // Navigation here is SPA (router.push from the info page), but the Pages
@@ -273,11 +271,10 @@ export async function getServerSideProps(context) {
       // as such), so it must not carry anyone's list entry. The client backfills
       // `mediaListEntry` right after mount — see the effect below.
       const json = await anilistFetch({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            ${FULL_MEDIA_FIELDS}
-          }
-        }`,
+        // The exact string getMediaMeta sends: the response cache is keyed on
+        // the request body, so the same query spelled with other whitespace
+        // stored a second copy that the preview / media routes never read.
+        query: FULL_MEDIA_QUERY,
         variables: { id: Number(aniId) },
         timeoutMs: 2500,
         label: `watch-ssr:${aniId}`,
@@ -302,6 +299,12 @@ export async function getServerSideProps(context) {
     } catch (e) {
       console.warn(`[watch SSR] DB fallback failed for ${aniId}:`, e?.message);
     }
+  }
+
+  const removed   = await removedPromise;
+  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
+  if (isRemoved) {
+    return { redirect: { destination: "/en/removed", permanent: false } };
   }
 
   /* NOTE — three Prisma round-trips used to run here on every signed-in view
@@ -514,7 +517,7 @@ export default function Watch({
   // where the route proved the upload is gone (404 from the host itself, see the
   // `hard` flag in lib/watch/sourceRequest). An ordinary absence still never
   // lands here: a cold anti-bot decoy and a genuine soft404 look identical, and
-  // guessing wrong hides a working host for the snapshot's 6h TTL. The
+  // guessing wrong hides a working host for the snapshot's TTL (18 h). The
   // background probe, which retries properly, owns those via confirmedAbsent.
   const activeVerdictRef = useRef({ ok: new Set(), hardAbsent: new Set() });
 
@@ -1969,7 +1972,7 @@ export default function Watch({
       //
       // One 800ms retry was not enough: seeding the player_map can outlast it,
       // so a second decoy still concluded "absent" and hid a WORKING chip for
-      // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
+      // the snapshot's TTL (18 h) — the user-visible bug is the chip vanishing at
       // the very moment you click it. Back off over a few attempts instead.
       //
       // A PROVEN absence (`hard`) skips the backoff entirely: the host answered
@@ -2021,7 +2024,7 @@ export default function Watch({
         if (data?.degraded) markDegraded(serverId);
       } else {
         // 5xx / transient — mark failed for the UI but do NOT publish as absent
-        // (would wrongly hide a working server in the 6h snapshot).
+        // (would wrongly hide a working server in the 18 h snapshot).
         setHlsData({ error: true });
         /* `hostDown` : l'hote refuse TOUT, pas seulement cet episode. La regle
            du 17/08 — un echec passager n'efface pas un chip confirme — vaut
@@ -2176,7 +2179,7 @@ export default function Watch({
     // (POST, non-edge-cachable → ≥1 Upstash command each) consumer, and it dwarfed
     // everything the July edge-cache pass optimized. We still re-probe absents to
     // catch a recovered host, but only on a FRACTION of visits: across ~1/p visitors
-    // a recovered host is rediscovered well within the snapshot's 6h TTL, while the
+    // a recovered host is rediscovered well within the snapshot's TTL (18 h), while the
     // per-visit Upstash cost drops ~p×. See DEVLOG 2026-07-30.
     const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
@@ -2229,13 +2232,13 @@ export default function Watch({
     // episode). Kept apart from cachedFailed, which also holds TRANSIENT
     // failures (anti-bot rejects that flip to OK next time). Only stable
     // absences are published to the availability snapshot — persisting a
-    // transient one would wrongly hide a working host for 6h (the snapshot TTL).
+    // transient one would wrongly hide a working host for 18 h (the snapshot TTL).
     const confirmedAbsent = new Set();
     // Servers the cross-visitor snapshot reported as absent. Unlike cachedFailed
     // these are NOT skipped by the probe fan-out — they get RE-PROBED in the
     // background this visit. Reason: an `absent` entry is otherwise self-
     // perpetuating — hidden at paint, skipped by the probe, then re-published as
-    // absent → frozen for the snapshot's whole 6h TTL even after the host is
+    // absent → frozen for the snapshot's whole TTL (18 h) even after the host is
     // healthy again (the megaplay / sibnet-vo "chip never comes back" bug). They
     // still stay HIDDEN at first paint (we don't markConfirmed them); the
     // background probe flips them to a green chip + re-publishes `ok` the moment
@@ -2446,7 +2449,7 @@ export default function Watch({
           // Snapshot-absent servers stay HIDDEN at first paint (we don't paint
           // them green), but we do NOT drop them into cachedFailed — that would
           // make the probe fan-out skip them and re-publish the same absence,
-          // freezing a since-recovered host for the whole 6h TTL. Instead they
+          // freezing a since-recovered host for the whole TTL (18 h). Instead they
           // go into snapshotAbsent so they get a background re-probe this visit:
           // a host that now resolves flips its chip green and re-publishes `ok`.
           for (const id of absent) snapshotAbsent.add(id);
@@ -2514,7 +2517,7 @@ export default function Watch({
         if (/^frembed/.test(s.id) && !frembedPossible(info?.id)) return false;
         // Snapshot-absent servers are re-probed only on a fraction of visits
         // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
-        // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
+        // within ~1/p visitors (well inside the 18 h snapshot TTL), but we stop
         // paying a per-visit /api/v2/source POST (= an Upstash command) to
         // rediscover an absence a previous visitor already confirmed. This is
         // the dominant steady-state Upstash saving. Servers with NO snapshot

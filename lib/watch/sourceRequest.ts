@@ -53,14 +53,10 @@ export type SourceParams = {
   /**
    * « Cette requete sert a peindre un chip, pas a ouvrir un lecteur. »
    *
-   * Elle autorise la route a payer une verification de liveness de plus (un
-   * HEAD, jusqu'a 3 s) pour qu'un chip mort ne s'allume pas. L'ouverture du
-   * lecteur, elle, ne la paie plus : c'est le chemin que l'utilisateur regarde,
-   * et le meme 404 s'y decouvre tout seul.
-   *
-   * Reservee au fan-out de sondage. Un prechauffage (episode suivant, chaine de
-   * la page info) n'est PAS une sonde : il prepare une vraie lecture et doit
-   * donc partager l'entree de cache du lecteur.
+   * N'A PLUS AUCUN EFFET SUR LE RESEAU depuis le 22/09/2026 : ni la route (qui
+   * a cesse de lire `input.probe`) ni l'URL (cf. `sourceRequestUrl`) ne le
+   * distinguent. Garde parce qu'il dit l'intention du site d'appel, et parce
+   * que le retirer ne changerait pas une requete.
    */
   probe?: boolean;
 };
@@ -82,16 +78,19 @@ export function sourceRequestUrl(params: SourceParams): string {
     episode: String(params.episode),
     sub: params.sub,
   });
-  /* Cinquieme parametre, et il SEPARE bien deux entrees de cache d'edge — ce
-     que le paragraphe ci-dessus met en garde de faire a la legere. C'est
-     assume ici, parce que la separation n'est pas aleatoire : elle suit
-     l'USAGE, pas l'appelant. Les sondes ont leur entree, les ouvertures de
-     lecteur la leur, et chacune est alimentee par sa propre population. Le cas
-     pathologique d'alors etait tout autre : `title` present ou absent coupait
-     en deux LA MEME population, si bien qu'une moitie ratait le cache rempli
-     par l'autre. Cote Redis la cle reste commune, volontairement (cf.
-     `sourceCacheKey`). */
-  if (params.probe) q.set("probe", "1");
+  /* `probe` n'entre PLUS dans l'URL (22/09/2026, deuxieme passe). Il separait
+     deux entrees de cache d'edge — les sondes d'un cote, les ouvertures de
+     lecteur de l'autre — et cette separation se defendait tant que la route
+     repondait differemment aux deux. Elle ne le fait plus : le handler a cesse
+     de lire `input.probe` le matin meme (la verification de liveness a
+     l'ouverture servait un embed mort en iframe, pub comprise). Restait donc
+     une cle de cache dedoublee pour des reponses IDENTIQUES : un chip sonde
+     par un visiteur ne servait pas le clic du suivant, qui repayait une
+     invocation de fonction. Or `/api/v2/source` est le premier poste de Fluid
+     CPU du site (mesure du 22/09 : la moitie du CPU a lui seul). Cote Redis la
+     cle etait deja commune (cf. `sourceCacheKey`) — c'est le bord qui ne
+     l'etait pas. Le champ reste accepte par le type : il dit encore a l'appelant
+     ce qu'il fait, et le supprimer partout ne change rien au reseau. */
   return `/api/v2/source?${q.toString()}`;
 }
 

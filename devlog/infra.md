@@ -6,6 +6,155 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — Fluid CPU : `/api/v2/source` est la moitié du poste
+
+Enfin des chiffres, et ils viennent du dashboard (l'API `observability/query`
+reste en 402). **dev, 12 h** : 13 K invocations, 6 min d'Active CPU, P75 51 ms,
+1,1 % de démarrages à froid. Le classement par route :
+
+| route | invocations | Active CPU |
+| --- | --: | --: |
+| `/api/v2/source` | 6,6 K | **3 min** |
+| `/en/anime/watch/[...info]` | 1,3 K | 51 s |
+| `/api/v2/skip/[malId]/[episode]` | 1 K | 33 s |
+| `/api/v2/preview/[id]` | 717 | 18 s |
+| `/api/auth/[...nextauth]` | 730 | 15 s |
+| `/api/v2/availability` | 913 | 14 s |
+| `/api/v2/runtimes/[malId]` | 851 | 12 s |
+
+**6,6 K appels de `/source` pour 1,3 K pages de lecture, soit ~5 par page.** Le
+reste du classement est sain (une route par ouverture, en-têtes d'edge déjà
+posés). Deux corrections, toutes deux sur le nombre d'appels :
+
+**1. `probe=1` coupait le cache d'edge en deux.** L'URL portait un cinquième
+paramètre qui distinguait « peindre un chip » de « ouvrir un lecteur ». Cette
+séparation se défendait tant que la route répondait différemment aux deux —
+elle a cessé de lire `input.probe` **le matin même** (correctif de l'embed mort
+en iframe). Restaient deux entrées de cache pour des réponses identiques : un
+serveur sondé par un visiteur ne servait pas le clic du suivant, qui repayait
+une invocation. Côté Redis la clé était déjà commune ; c'est le bord qui ne
+l'était pas.
+
+**2. Instantané de disponibilité : 6 h → 18 h.** Le verdict expirait avant
+d'avoir resservi. Un épisode vu le soir et rouvert le lendemain matin repartait
+pour un fan-out complet, ~17 sondes. Un épisode populaire, lui, ne changeait
+rien : chaque POST repose le TTL, son instantané ne mourait déjà jamais. Ce
+qu'on accepte : un verdict faux vit plus longtemps — borné des deux côtés par
+des chemins qui existaient déjà (un `ok` mort est corrigé par le clic qui
+échoue, un `absent` ressuscité par le re-sondage d'un visiteur sur cinq). Un
+changement de RÉSOLVEUR, lui, ne se rattrape toujours que par un bump de
+`CACHE_VERSION`.
+
+À remesurer sur le même dashboard dans 24 h : le rapport appels de `/source` /
+pages de lecture. S'il ne descend pas sous ~4, c'est que le fan-out lui-même
+est à retailler (plafonner le nombre d'inconnus sondés par visite), et non plus
+son cache.
+
+## 2026-09-22 — Précache du SW : 249 → 131 fichiers (ce qu'on a pu MESURER)
+
+Suite demandée de la passe ci-dessous. La mesure d'abord, et elle a surtout dit
+où l'on est aveugle :
+
+- **Logs Vercel de prod** : l'offre Hobby n'en garde qu'**une heure**. Sur cette
+  heure : 14 invocations de fonction (3 `/en`, 4 fiches, 2 pages de lecture, le
+  reste en routes légères). Rien d'anormal ; le double appel à
+  `changelog-popup` est la paire `en` + `fr`, pas un doublon.
+- **CPU par route sur plusieurs jours** : `POST /v2/observability/query` existe
+  et répond **402 — Observability Plus requis (plan Pro)**. Inaccessible.
+- **Upstash** : `tools/usage-monitor` n'a pas de `UPSTASH_EMAIL` /
+  `UPSTASH_API_KEY` en local, il ne collecte rien. Les fichiers qu'il avait
+  écrits ont été annulés (`git checkout`).
+
+Ce qui restait mesurable localement : le manifeste de précache, lisible dans
+`public/sw.js`. **Chaque entrée est une Edge Request facturée par nouveau
+visiteur**, et de nouveau après un déploiement pour chaque hash qui change.
+Il pesait **249 fichiers / 6,05 Mo**, dont 112 polices (1,8 Mo) et hls.js
+(584 Ko). Résultat : **131 fichiers / 3,08 Mo**.
+
+Sortent du précache (`horsPrecache` dans `next.config.js`) : **toutes** les
+polices, **hls.js**, **Ably**, les **pages admin**, et `svg/404.svg` (384 Ko,
+via `publicExcludes`). Rien ne disparaît du site : le précache n'est qu'un
+téléchargement de fond après `load`, et tout cela reste servi à la demande par
+le cache HTTP `immutable` d'un an et par les règles runtime. hls.js est de
+toute façon préchargé par la fiche anime (`preloadPlayerCode`) juste avant le
+lecteur.
+
+**Le piège de workbox 6.6** : `checkConditions` **retourne** le verdict de la
+première fonction rencontrée dans `exclude`. La fonction de next-pwa (celle qui
+écarte `server/**` et les manifestes) est ajoutée APRÈS nos `buildExcludes`,
+donc elle ne serait plus jamais consultée — `horsPrecache` recopie ses
+exclusions. Un chunk ne sort que si **tous** ses modules viennent des paquets
+visés, pour qu'un morceau d'appli collé au même chunk le retienne.
+
+**Contrepartie réglée dans le même souffle** : ce qui sort du précache retombe
+sur les caches runtime, dont les quotas dataient d'avant. `static-font-assets`
+tenait **4** fichiers — chaque page évinçait les polices de la précédente, donc
+le cache ne servait jamais. Passés à 40 (polices), 96 (JS : hls.js, Ably, admin
+en plus des chunks de route) et 200 (images : les ~250 emojis d'un salon sont
+maintenant chargés à la demande). Mêmes stratégies, mêmes durées de vie.
+
+Vérifié après build : les entrées de `/_app`, `/_offline`, `/_error`, `/en`, la
+fiche et la page de lecture sont toutes présentes (les crochets y sont
+URL-encodés, `%5B...%5D` — de quoi croire à tort qu'elles manquent).
+
+## 2026-09-22 — Passe globale vitesse / usage, un seul déploiement
+
+Trois audits (pages SSR, routes API et infra, bundle client), puis seulement ce
+qui ne change aucun comportement visible. Build de prod local OK, `tsc` et
+ESLint propres.
+
+**Usage Vercel / Upstash**
+- `/api/v2/source` : une absence PROUVÉE (sentinelle dure, 6 h dans Redis)
+  reste 1 h au bord au lieu de 5 min. L'absence simple garde 5 min (elle
+  bascule le jour de sortie).
+- Watch2gether : le battement de présence d'un membre déjà inscrit fait 2
+  commandes au lieu de 9 (`touchPresence({ light })`). Une fois sur douze
+  (~1/min), il refait le passage complet (TTL 6 h, profil). **Correction du
+  09/09** : Upstash facture chaque commande d'un pipeline, donc le pipeline ne
+  faisait gagner que la latence.
+- `cacheSuccess:false` pour le lot de l'accueil (~60 Ko de SET que la clé
+  `index_server_v3` rendait illisible) et pour les 5 à 7 pages du planning
+  (`new_schedule` garde la semaine jusqu'à minuit).
+- La page de lecture envoie `FULL_MEDIA_QUERY` tel quel : la même requête
+  écrite avec d'autres espaces avait sa propre clé de cache de réponses, que
+  `getMediaMeta` (preview, media) ne lisait jamais.
+- Accueil connecté : le POST « crée l'utilisateur » part une fois par appareil
+  et par semaine, plus à chaque chargement.
+- Recherche locale : requête normalisée côté client (la FTS `unicode61` ignore
+  déjà casse et accents), pas d'appel sous 3 caractères, 1 h au bord.
+- Service worker : précache 571 → 249 fichiers. Les `.woff` (jamais utilisés,
+  `.woff2` partout) et les sous-ensembles cyrillique/grec/vietnamien sortent
+  via `buildExcludes`, soit ~320 requêtes d'edge de moins par nouveau visiteur.
+
+**Vitesse**
+- Accueil : hero en `AnimatePresence initial={false}`. La bannière est dans le
+  HTML au lieu d'une boîte à opacité 0 qui attendait l'hydratation + 0,8 s (le
+  LCP). Les slides suivantes gardent leur fondu. La bannière passe en
+  `<picture>` avec source `min-width:1024px`, pour que les téléphones ne
+  préchargent plus une w1280 cachée.
+- Accueil, MISS : l'écriture Redis court en même temps que la résolution du
+  hero au lieu de la précéder.
+- Lecture : `getRemovedMedia()` (Prisma) part en parallèle des métadonnées au
+  lieu de passer devant.
+- Profil : la session est lue pendant `findByTag`.
+- hls.js sort du chunk du lecteur : `HoverPreview` l'importait statiquement,
+  ce qui rendait `loadHlsLibrary` inutile.
+- `HoverPreviewProvider` (~40 Ko gz) n'est monté que sous `(hover: hover) and
+  (pointer: fine)`, comme sa propre garde interne.
+- Badges évalués en `requestIdleCallback`. Code du lecteur non préchargé sur la
+  fiche en Save-Data / 2G. `loading="lazy"` sur recommandations, relations et
+  vignette de trailer.
+
+**Écarté, et pourquoi**
+- InfoPage / InfoPageMobile en `dynamic` : l'iPad est rendu mobile (UA) puis
+  bascule en desktop au montage, et le chunk manquant y ferait un blanc.
+- Suppression des routes « mortes » : download/download-stream sont encore
+  référencées par le lecteur, `AppendMeta` sert dans l'admin, et
+  `relations/batch` est gardée exprès.
+- `no-store` de la bannière de santé AniList : voulu, et le gain est incertain.
+- Déjà refusés au devlog, non rouverts : le cookie `has_session`, l'ISR de la
+  fiche, la fusion des `GetMedia` de l'accueil, le découpage des locales.
+
 ## 2026-09-21 (suite) — Deuxième passe : éditeurs chargés à l'ouverture, doublons fusionnés
 
 Mesuré avec un build à source maps (local, non commité) et l'attribution des

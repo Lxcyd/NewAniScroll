@@ -408,8 +408,13 @@ export default function Info({
       try {
         router.prefetch(watchHref);
       } catch {}
-      // Le chunk du lecteur ET hls.js, qui ne vient plus de jsDelivr.
-      preloadPlayerCode();
+      // Le chunk du lecteur ET hls.js, qui ne vient plus de jsDelivr. Pas sur
+      // une connexion économe ou en 2G : ~280 Ko gz que la page de lecture
+      // chargera de toute façon si l'on clique « Regarder ».
+      const conn = (navigator as any).connection;
+      if (!conn?.saveData && !/2g/.test(conn?.effectiveType || "")) {
+        preloadPlayerCode();
+      }
 
       // Episode list — the request the player waits on. Writes to the shared
       // cache the watch page reads first, and primes the browser HTTP cache.

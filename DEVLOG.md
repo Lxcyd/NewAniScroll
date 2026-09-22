@@ -223,6 +223,12 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-22 (suite 2) — **Fluid CPU mesuré** (dev, 12 h : 13 K invocations, 6 min CPU) : `/api/v2/source` = la moitié du CPU et ~5 appels par page de lecture ; `probe=1` dédoublait le cache d'edge pour des réponses devenues identiques ; instantané de disponibilité 6 h → 18 h
+
+- 2026-09-22 (suite) — Précache SW 249 → 131 fichiers (6,05 → 3,08 Mo) : polices, hls.js, Ably, pages admin et 404.svg en dehors ; piège de workbox 6.6 (la 1re fonction d'`exclude` court-circuite celle de next-pwa) ; **mesure impossible ailleurs** : logs Hobby = 1 h, `observability/query` = 402 (Pro), pas d'accès Upstash en local
+
+- 2026-09-22 — Passe globale en un déploiement : absence prouvée 1 h au bord sur `/source`, battement W2G 9 → 2 commandes (le pipeline n'économisait pas de commandes), doubles caches AniList coupés, précache SW 571 → 249, hero de l'accueil visible dès le HTML, hls.js hors du chunk du lecteur, aperçu au survol non chargé sur tactile
+
 - 2026-09-21 (suite) — 2e passe : BannerStudio et modale changelog chargés à l'ouverture (my-list 277 → 252 Ko, profil 282 → 256) ; doublons strictement identiques fusionnés (streamUrl, idCatalog, usersDb, tableEnsurer…)
 - 2026-09-21 — Passe vitesse/usage/nettoyage : accueil **293 → 250 Ko** de JS gz, page anime 283 → 259 ; santé AniList mémorisée à vide, `cacheSuccess:false`, timeouts tiers ; bugs `recent` (jamais de page 2) et `frembed:base` (sans TTL) ; ~50 exports et 8 fichiers morts ; **monitor rouge depuis le 16/09 = secret Upstash vers une base supprimée** (reposé ; `UPSTASH_API_KEY` reste à refaire)
 - 2026-09-20 — **Un déploiement vide le cache d'edge, et personne ne le remplissait** : les en-têtes étaient bons (`s-maxage` 2-6 h + 1 j de `stale-while-revalidate`) mais SWR ne sert que s'il existe déjà une copie — 26 URL sur 27 froides une heure après un déploiement prod, `/en/anime/2706` à **11 959 ms → 85 ms** après chauffe ; nouveau `warm-pages` déclenché par `deployment_status`, priorisé sur `last_accessed_at` ; **le rendu froid ne supporte pas la concurrence** (0,4 s → 12 s à concurrence 3), donc une requête à la fois

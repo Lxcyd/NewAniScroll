@@ -71,7 +71,13 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-font-assets",
-      expiration: { maxEntries: 4, maxAgeSeconds: 7 * 24 * 60 * 60 },
+      /* 40, pas 4 : quatre familles x leurs graisses, et depuis le 22/09
+         AUCUNE police n'est prechargee (cf. `horsPrecache`). A 4 entrees,
+         chaque page evinçait les polices de la precedente et le cache ne
+         servait jamais. Rien ne cassait — le cache HTTP `immutable` d'un an
+         reprend derriere — mais hors ligne on retombait sur la police
+         systeme. */
+      expiration: { maxEntries: 40, maxAgeSeconds: 7 * 24 * 60 * 60 },
     },
   },
   {
@@ -79,7 +85,10 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-image-assets",
-      expiration: { maxEntries: 64, maxAgeSeconds: 24 * 60 * 60 },
+      // 200 : les ~250 emojis d'un salon Watch2gether sont charges a la
+      // demande (hors precache), et une grille d'affiches remplit 64 entrees
+      // a elle seule.
+      expiration: { maxEntries: 200, maxAgeSeconds: 24 * 60 * 60 },
     },
   },
   {
@@ -96,7 +105,9 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-js-assets",
-      expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
+      // 96 : c'est ce cache qui rattrape ce qui est sorti du precache le
+      // 22/09 (hls.js, Ably, admin) en plus des chunks de route habituels.
+      expiration: { maxEntries: 96, maxAgeSeconds: 24 * 60 * 60 },
     },
   },
   {
@@ -224,6 +235,62 @@ const runtimeCaching = [
   }
 }
 
+/* Ce que le SW ne precharge PAS. Le precache n'est qu'un telechargement en
+   arriere-plan apres `load` : tout ce qui en sort reste servi exactement comme
+   avant, a la demande, par le navigateur (cache HTTP immutable d'un an) et par
+   les regles runtime ci-dessus. Ce qu'on y gagne : chaque entree du manifeste
+   est une Edge Request facturee pour CHAQUE nouveau visiteur, et de nouveau
+   pour chaque visiteur qui revient apres un deploiement si son hash a change.
+
+   - toutes les polices : 112 fichiers (1,8 Mo) dont le navigateur n'utilise
+     qu'une poignee, qu'il va de toute facon chercher lui-meme a l'affichage ;
+   - hls.js (~580 Ko) : deja precharge par la fiche anime (preloadPlayerCode)
+     juste avant le lecteur, et charge a la demande par l'apercu au survol ;
+   - Ably (~180 Ko) : uniquement dans un salon Watch2gether ;
+   - les pages admin : une poignee de comptes.
+
+   UNE SEULE fonction, et elle reprend les exclusions de next-pwa : workbox
+   6.6 (checkConditions) RETOURNE le verdict de la premiere fonction qu'il
+   croise, donc la fonction de next-pwa, placee apres nos `buildExcludes`, ne
+   serait plus jamais consultee. */
+const PRECACHE_HORS_PAQUETS = /[\\/]node_modules[\\/](hls\.js|ably)[\\/]/;
+const paquetsParAsset = new WeakMap();
+function horsPrecache({ asset, compilation }) {
+  const nom = asset.name;
+  // Exclusions d'origine de next-pwa (index.js), recopiees.
+  if (
+    nom.startsWith("server/") ||
+    /^(build-manifest\.json|react-loadable-manifest\.json)$/.test(nom)
+  ) {
+    return true;
+  }
+  if (/\.woff2?$/.test(nom)) return true;
+  if (/^static\/chunks\/pages\/admin[-/]/.test(nom)) return true;
+  if (!nom.startsWith("static/chunks/") || !nom.endsWith(".js")) return false;
+
+  // Un chunk sort seulement si TOUS ses modules viennent des paquets vises :
+  // un morceau d'appli colle au meme chunk le garde dans le precache.
+  let exclus = paquetsParAsset.get(compilation);
+  if (!exclus) {
+    exclus = new Set();
+    for (const chunk of compilation.chunks) {
+      const modules = Array.from(
+        compilation.chunkGraph.getChunkModulesIterable(chunk),
+      );
+      const tousVises =
+        modules.length > 0 &&
+        modules.every((m) =>
+          PRECACHE_HORS_PAQUETS.test(
+            (m.rootModule || m).resource || m.identifier(),
+          ),
+        );
+      if (tousVises) for (const f of chunk.files) exclus.add(f);
+    }
+    paquetsParAsset.set(compilation, exclus);
+  }
+  return exclus.has(nom);
+}
+
 const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
@@ -237,7 +304,13 @@ const withPWA = require("next-pwa")({
   // a flood of /emojis/*.png|gif fetches with a workbox initiator on the watch
   // page). Excluding them here means they load lazily, on demand, only when the
   // emoji picker actually renders them in a room.
-  publicExcludes: ["!emojis/**/*"],
+  // 404.svg (384 Ko) : l'illustration de la page 404, pour tout le monde.
+  publicExcludes: ["!emojis/**/*", "!svg/404.svg"],
+  /* Fontsource ships every subset in .woff2 AND legacy .woff: the precache
+     manifest listed all 434 font files (5.6 MB) and every new visitor fetched
+     them after `load`, each one a billed edge request. Since 22/09 no font is
+     precached at all — see `horsPrecache` above. */
+  buildExcludes: [horsPrecache],
 });
 
 module.exports = withPWA({
