@@ -68,6 +68,11 @@ const DEHORS = [
   /^pages\/en\/auth\//,
   /^pages\/reset-password\./,
   /^tools\/badges\//,
+  /* Le client axios de l'ANCIEN profil : mort sur dev (supprime le 21/09), mais
+     la page de profil de main — que le socle garde telle quelle — l'importe
+     encore. Exclu, il reste dans sa version main. `axios` reste donc dans
+     package.json tant que le profil n'est pas livre. */
+  /^utils\/request\//,
 ];
 
 /* Les outils Python d'OP/ED et leurs donnees : hors sujet pour une release du
