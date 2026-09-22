@@ -1,42 +1,51 @@
-# Usage Monitor — 2026-09-21
+# Usage Monitor — 2026-09-22
 
-_Generated 2026-09-21T17:15:31.564Z_
+_Generated 2026-09-22T11:43:37.366Z_
+
+## ⚠️ Flags
+- Key prefix `src:` **doubled** (227 → 643) — possible key-explosion or a cache-key bump.
+- Key prefix `anilist:` **doubled** (50 → 217) — possible key-explosion or a cache-key bump.
 
 ## Upstash — daily commands
 > _skipped: Upstash mgmt 401 on /v2/redis/databases: {"error":"Unauthorized"}_
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **1,482** | scanned: 1,482 keys
+- DBSIZE: **2,321** | scanned: 2,294 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 630 | 42.5% | (-1,018 -62%) |
-| `episode:` | 427 | 28.8% | (-2,452 -85%) |
-| `src:` | 227 | 15.3% | (-192 -46%) |
-| `tr:` | 86 | 5.8% | (+59 +219%) |
-| `avail:` | 51 | 3.4% | (-316 -86%) |
-| `anilist:` | 50 | 3.4% | (-857 -94%) |
-| `ftree:` | 6 | 0.4% | (-127 -95%) |
-| `asSlug:` | 3 | 0.2% | (-94 -97%) |
-| `index_server_v3:` | 1 | 0.1% | (=) |
-| `recent-episode-v2:` | 1 | 0.1% | (=) |
+| `anime:` | 740 | 32.3% | (+110 +17%) |
+| `src:` | 643 | 28.0% | (+416 +183%) |
+| `episode:` | 505 | 22.0% | (+78 +18%) |
+| `anilist:` | 217 | 9.5% | (+167 +334%) |
+| `tr:` | 91 | 4.0% | (+5 +6%) |
+| `avail:` | 70 | 3.1% | (+19 +37%) |
+| `ftree:` | 12 | 0.5% | (+6 +100%) |
+| `lock:` | 6 | 0.3% | — |
+| `asSlug:` | 4 | 0.2% | (+1 +33%) |
+| `jikan:` | 3 | 0.1% | — |
+| `index_server_v3:` | 1 | 0.0% | (=) |
+| `new_schedule:` | 1 | 0.0% | — |
+| `recent-episode-v3:` | 1 | 0.0% | — |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 472 |
-| `episode:v12` | 418 |
-| `src:v14` | 227 |
-| `anime:v6` | 158 |
-| `tr:fr` | 86 |
-| `avail:v5` | 51 |
-| `anilist:resp` | 48 |
-| `episode:v11` | 9 |
-| `ftree:v5` | 6 |
-| `asSlug:v1` | 3 |
-| `anilist:list` | 1 |
-| `anilist:rl` | 1 |
+| `src:v15` | 643 |
+| `anime:v5` | 575 |
+| `episode:v12` | 492 |
+| `anilist:resp` | 215 |
+| `anime:v6` | 165 |
+| `tr:fr` | 91 |
+| `avail:v5` | 70 |
+| `episode:v11` | 13 |
+| `ftree:v5` | 12 |
+| `lock:src` | 6 |
+| `asSlug:v1` | 4 |
+| `jikan:eps` | 3 |
+| `anilist:list` | 2 |
+| `recent-episode-v3:1` | 1 |
 
 </details>
 
