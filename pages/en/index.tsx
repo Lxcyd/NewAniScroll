@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, useCallback, useRef, Fragment } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -9,7 +9,12 @@ import CarouselSkeleton from "@/components/home/CarouselSkeleton";
 import { useTranslation } from "react-i18next";
 import { useTranslatedText, prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 
-import { motion, AnimatePresence } from "framer-motion";
+// `m` + LazyMotion(domAnimation) instead of `motion`: every animation here is
+// initial/animate/exit/variants/whileInView — no layout or drag — so the
+// layout/drag features `motion` bundles are dead weight on the home page.
+// Features load synchronously (not the async form), so SSR'd `initial` states
+// never wait on a chunk to become visible.
+import { m, AnimatePresence, LazyMotion, domAnimation } from "framer-motion";
 
 import { signOut, useSession } from "next-auth/react";
 import Genres from "@/components/home/genres";
@@ -94,6 +99,24 @@ export function pickHeroRotation(items: any[]): any[] {
     .slice()
     .sort((a, b) => heroHash(Number(a?.id)) - heroHash(Number(b?.id)))
     .slice(0, HERO_SLOTS);
+}
+
+/* Props boundary only — the Redis blob keeps every field. The carousels read
+   id / title / cover / status / episode fields; `description`, `bannerImage`
+   and `idMal` of these rows were serialised into __NEXT_DATA__ (~50 KB raw
+   with the unused `genre` block) and never read: the hero has its own props
+   (`heroEntries`, `firstTrend`, picked BEFORE this trim) and the hover card
+   fetches by id. */
+function slimRow<T extends { data?: any[] } | null | undefined>(row: T): T {
+  if (!row || !Array.isArray(row.data)) return row;
+  return {
+    ...row,
+    data: row.data.map((it: any) => {
+      if (!it || typeof it !== "object") return it;
+      const { description, bannerImage, idMal, ...rest } = it;
+      return rest;
+    }),
+  };
 }
 
 export async function getServerSideProps(ctx: any) {
@@ -185,7 +208,7 @@ export async function getServerSideProps(ctx: any) {
     null;
 
   if (cachedData) {
-    const { genre, detail, populars, thisSeason, movies, heroPool } =
+    const { detail, populars, thisSeason, movies, heroPool } =
       JSON.parse(cachedData);
     const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
@@ -207,14 +230,13 @@ export async function getServerSideProps(ctx: any) {
     ]);
     return {
       props: {
-        genre,
-        detail,
-        populars,
+        detail: slimRow(detail),
+        populars: slimRow(populars),
         upComing,
         firstTrend,
         heroEntries,
-        thisSeason: thisSeason || null,
-        movies: movies || null,
+        thisSeason: slimRow(thisSeason) || null,
+        movies: slimRow(movies) || null,
       },
     };
   } else {
@@ -279,14 +301,13 @@ export async function getServerSideProps(ctx: any) {
 
     return {
       props: {
-        genre: genreDetail.props,
-        detail: trendingDetail.props,
-        populars: popularDetail.props,
+        detail: slimRow(trendingDetail.props),
+        populars: slimRow(popularDetail.props),
         upComing,
         firstTrend: pickFirstTrend(trendingDetail.props.data || []),
         heroEntries,
-        thisSeason: seasonDetail.props,
-        movies: moviesDetail.props,
+        thisSeason: slimRow(seasonDetail.props),
+        movies: slimRow(moviesDetail.props),
       },
     };
   }
@@ -303,7 +324,6 @@ type HeroEntry = {
 };
 
 type HomeProps = {
-  genre: any;
   detail: any;
   populars: any;
   upComing: any;
@@ -540,7 +560,7 @@ function HeroBanner({
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
         <AnimatePresence mode="popLayout">
-          <motion.div
+          <m.div
             key={`bg-${active.id}`}
             // Opacity-only crossfade. The previous 8 s Ken-Burns `scale`
             // animation ran continuously behind ~6 backdrop-blur layers
@@ -570,7 +590,7 @@ function HeroBanner({
                 style={{ backgroundColor: accent }}
               />
             )}
-          </motion.div>
+          </m.div>
         </AnimatePresence>
 
         {/* Cinematic gradients. Left fade boosts text contrast on the
@@ -626,7 +646,7 @@ function HeroBanner({
               half-leading above. */}
           <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
             <AnimatePresence mode="wait" custom={dir}>
-              <motion.div
+              <m.div
                 key={`stack-${active.id}`}
                 custom={dir}
                 variants={{
@@ -727,7 +747,7 @@ function HeroBanner({
                   </div>
 
                 </div>
-              </motion.div>
+              </m.div>
             </AnimatePresence>
 
             {/* Segmented progress bar — outside AnimatePresence so it
@@ -997,50 +1017,29 @@ export default function Home({
 
   useEffect(() => {
     async function userData() {
-      try {
-        if (userSession?.name) {
-          await fetch(`/api/user/profile`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: sessions.user.name,
-            }),
-          });
-        }
-      } catch (error) {
-        console.log(error);
-      }
       let data: UserDataType | null = null;
-      try {
-        if (userSession?.name) {
+      if (userSession?.name) {
+        // The POST is an idempotent "create if missing" and the GET below falls
+        // back to the local history whether the user is missing (404) or empty,
+        // so the two no longer wait on each other: one round-trip instead of two.
+        const ensureUser = fetch(`/api/user/profile`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: sessions.user.name,
+          }),
+        }).catch(() => {});
+        try {
           const res = await fetch(
             `/api/user/profile?name=${sessions.user.name}`
           );
-          if (!res.ok) {
-            switch (res.status) {
-              case 404: {
-                console.log("user not found");
-                break;
-              }
-              case 500: {
-                console.log("server error");
-                break;
-              }
-              default: {
-                console.log("unknown error");
-                break;
-              }
-            }
-          } else {
-            data = await res.json();
-            // Do something with the data
-          }
+          if (res.ok) data = await res.json();
+        } catch (error) {
+          console.error(error);
         }
-      } catch (error) {
-        console.error(error);
-        // Handle the error here
+        await ensureUser;
       }
       // Read the device-local watch history (artplayer_settings) — works for
       // everyone, signed in or not. Most-recent-first, deduped by aniId.
@@ -1109,7 +1108,7 @@ export default function Home({
         // their device-local history rather than an empty section.
         setUser(filteredData.length ? filteredData : readLocalHistory());
       }
-      // const data = await res.json();
+
     }
     userData();
   }, [userSession?.name, removed]);
@@ -1145,7 +1144,7 @@ export default function Home({
   }
 
   return (
-    <Fragment>
+    <LazyMotion features={domAnimation}>
       <Head>
         <title>AniScroll • Beta</title>
         <meta charSet="UTF-8"></meta>
@@ -1232,14 +1231,14 @@ export default function Home({
             The hero's own bottom padding (pb-2) is already at its floor, so
             this is the only remaining lever on that gap. */}
         <div className="lg:mt-6 mt-5 flex flex-col items-center">
-          <motion.div
+          <m.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, staggerChildren: 0.2 }} // Add staggerChildren prop
           >
             {user && user?.length > 0 && user?.some((i) => i?.watchId || i?.aniId) && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="recentlyWatched"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1253,11 +1252,11 @@ export default function Home({
                   userName={userSession?.name}
                   setRemoved={setRemoved}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {sessions && releaseData?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="onGoing"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1271,7 +1270,7 @@ export default function Home({
                   og={prog}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {/* Reserve the row's height while the signed-in user's lists are
                 still loading, so the carousel doesn't pop in and shove the
@@ -1281,7 +1280,7 @@ export default function Home({
             )}
 
             {sessions && listAnime && listAnime?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="listAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1295,14 +1294,14 @@ export default function Home({
                   og={prog}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && currentLoading && !listAnime?.length && (
               <CarouselSkeleton />
             )}
 
             {recommendations.length > 0 && (
-              <motion.section
+              <m.section
                 key="recommendationAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1314,7 +1313,7 @@ export default function Home({
                   section="Recommendations"
                   data={recommendations}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && currentLoading && recommendations.length === 0 && (
               <CarouselSkeleton />
@@ -1322,7 +1321,7 @@ export default function Home({
 
             {/* SECTION 2 */}
             {sessions && planned && planned?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="plannedAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1335,14 +1334,14 @@ export default function Home({
                   data={planned}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && planLoading && !planned?.length && (
               <CarouselSkeleton />
             )}
-          </motion.div>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1350,7 +1349,7 @@ export default function Home({
           >
             {/* SECTION 3 */}
             {recentAdded?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="recentAdded"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1362,12 +1361,12 @@ export default function Home({
                   section="Freshly Added"
                   data={recentAdded}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* SECTION 4 */}
             {detail && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="trendingAnime"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1379,12 +1378,12 @@ export default function Home({
                   section="Trending Now"
                   data={detail.data}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* This Season — current-quarter anime by popularity */}
             {thisSeason?.data?.length > 0 && (
-              <motion.section
+              <m.section
                 key="thisSeason"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1396,7 +1395,7 @@ export default function Home({
                   section="This Season"
                   data={thisSeason.data}
                 />
-              </motion.section>
+              </m.section>
             )}
             {/* <div className="w-full h-[150px] bg-white flex-center my-5 text-black">
               ad banner
@@ -1404,7 +1403,7 @@ export default function Home({
 
             {/* Schedule */}
             {anime.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="schedule"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1417,12 +1416,12 @@ export default function Home({
                   update={update}
                   scheduleData={schedules}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* SECTION 5 */}
             {popular && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="popularAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1434,12 +1433,12 @@ export default function Home({
                   section="Popular Anime"
                   data={popular}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* Popular Movies — MOVIE-format anime by popularity */}
             {movies?.data?.length > 0 && (
-              <motion.section
+              <m.section
                 key="popularMovies"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1451,10 +1450,10 @@ export default function Home({
                   section="Popular Movies"
                   data={movies.data}
                 />
-              </motion.section>
+              </m.section>
             )}
 
-            <motion.section // Add motion.div to each child component
+            <m.section // Add motion.div to each child component
               key="Genres"
               initial={{ y: 20, opacity: 0 }}
               whileInView={{ y: 0, opacity: 1 }}
@@ -1462,12 +1461,12 @@ export default function Home({
               viewport={{ once: true }}
             >
               <Genres />
-            </motion.section>
-          </motion.div>
+            </m.section>
+          </m.div>
         </div>
       </div>
       <Footer />
-    </Fragment>
+    </LazyMotion>
   );
 }
 

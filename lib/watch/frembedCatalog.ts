@@ -13,60 +13,16 @@
  * une ignorance.
  */
 
-const KEY = "aniscroll:frembedCatalog";
-const TTL_MS = 12 * 3600_000;
+import { idCatalog } from "./idCatalog";
 
-type Store = { ids: number[]; at: number };
-
-let memo: Set<number> | null = null;
-let enVol: Promise<void> | null = null;
-
-function lireStockage(): Store | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const p = raw ? (JSON.parse(raw) as Store) : null;
-    if (!p || !Array.isArray(p.ids)) return null;
-    if (Date.now() - (p.at || 0) > TTL_MS) return null;
-    return p;
-  } catch {
-    return null;
-  }
-}
+const catalogue = idCatalog("aniscroll:frembedCatalog", "/api/v2/frembed-catalog");
 
 /** Charge la liste si besoin. A appeler au repos, jamais dans un chemin bloquant. */
-export function chargeFrembedCatalog(): void {
-  if (typeof window === "undefined" || memo || enVol) return;
-  const local = lireStockage();
-  if (local) {
-    memo = new Set(local.ids);
-    return;
-  }
-  enVol = fetch("/api/v2/frembed-catalog")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((j) => {
-      if (!j?.known || !Array.isArray(j.ids)) return;
-      memo = new Set(j.ids.map(Number));
-      try {
-        localStorage.setItem(KEY, JSON.stringify({ ids: j.ids, at: Date.now() }));
-      } catch {
-        /* stockage plein ou mode prive : on garde la liste en memoire */
-      }
-    })
-    .catch(() => {})
-    .finally(() => {
-      enVol = null;
-    });
-}
+export const chargeFrembedCatalog: () => void = catalogue.charge;
 
-/** `false` seulement si la liste est connue ET ne contient pas cet anime. */
-export function frembedPossible(aniId: number | string | null | undefined): boolean {
-  if (aniId == null) return true;
-  if (!memo) {
-    chargeFrembedCatalog();
-    return true;
-  }
-  return memo.has(Number(aniId));
-}
+/** `false` seulement si la liste est connue ET ne contient pas cet anime (id AniList). */
+export const frembedPossible: (aniId: number | string | null | undefined) => boolean =
+  catalogue.possible;
 
 /** Les ids frembed a ecarter d'une liste de candidats pour cet anime. */
 export function sansFrembed(servers: string[], aniId: number | string): string[] {

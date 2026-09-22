@@ -51,6 +51,8 @@ const ANIME_SKIP_TYPE: Record<string, "op" | "ed"> = {
   "Mixed Ending": "ed",
 };
 
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
 async function gql<T>(query: string, variables: any): Promise<T> {
   const res = await fetch(ANIME_SKIP_ENDPOINT, {
     method: "POST",
@@ -59,6 +61,9 @@ async function gql<T>(query: string, variables: any): Promise<T> {
       "X-Client-ID": ANIME_SKIP_CLIENT_ID,
     },
     body: JSON.stringify({ query, variables }),
+    // Only cuts a HUNG upstream (billed function time); a slow-but-alive one
+    // still answers. The route already turns a throw into "no skips".
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`anime-skip ${res.status}`);
   const json = await res.json();
@@ -163,6 +168,7 @@ export async function fetchFromAniSkip(
   params.set("episodeLength", String(Math.max(0, Math.round(episodeLength))));
   const res = await fetch(
     `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?${params}`,
+    { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) },
   );
   if (!res.ok) return [];
   const json = await res.json();

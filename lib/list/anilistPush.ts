@@ -76,36 +76,3 @@ export async function saveMediaListEntry(
   }
 }
 
-/** Read the current AniList entry (status + progress) for one media. Used to
- *  decide whether an automation should run (e.g. don't auto-pause something
- *  the user just bumped on AniList). Returns null when not in list / on error. */
-export async function readMediaListEntry(
-  token: string,
-  mediaId: number,
-): Promise<{ id: number; status: Status | null; progress: number } | null> {
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        query: `query ($id: Int) {
-          Media(id: $id) { mediaListEntry { id status progress } }
-        }`,
-        variables: { id: mediaId },
-      }),
-    });
-    const json = await res.json();
-    const e = json?.data?.Media?.mediaListEntry;
-    if (!e) return null;
-    return {
-      id: Number(e.id),
-      status: (e.status as Status) ?? null,
-      progress: Number(e.progress) || 0,
-    };
-  } catch {
-    return null;
-  }
-}

@@ -19,7 +19,11 @@ export type HealthPayload = {
 const REDIS_KEY = "anilist:health";
 const MEM_TTL_MS = 30_000;
 
-let memCache: { value: HealthPayload; expiresAt: number } | null = null;
+// `value: null` is memoised too: the key only lives 60 s in Redis while the
+// route that writes it is edge-cached 300 s, so it is ABSENT most of the time,
+// and an unmemoised miss cost a Redis GET on every call (up to two per request
+// via getMediaMeta + anilistFetch). Null already means "assume up".
+let memCache: { value: HealthPayload | null; expiresAt: number } | null = null;
 
 /**
  * Best-effort read of AniList health. Returns `null` when we have no
@@ -32,8 +36,7 @@ export async function getAnilistHealth(): Promise<HealthPayload | null> {
   if (!redis) return null;
   try {
     const raw = await redis.get(REDIS_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as HealthPayload;
+    const value = raw ? (JSON.parse(raw) as HealthPayload) : null;
     memCache = { value, expiresAt: Date.now() + MEM_TTL_MS };
     return value;
   } catch {

@@ -6,6 +6,29 @@ embed nu, geo-blocage).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 — Le son du trailer qui continuait en fond, sans carte pour l'arrêter
+
+**Le symptôme** (profil, widget Favoris) : survoler une jaquette puis partir
+laissait parfois la musique du trailer jouer en fond, sans contrôle visible ;
+seul un rechargement l'arrêtait.
+
+**La cause.** `TrailerStage` survit aux cartes et se met en veille (« parqué »)
+par un `pauseVideo` quand la carte se ferme. Mais un `pauseVideo` visant un
+lecteur qui finit un `loadVideoById` est **ignoré**, comme la charge perdue
+du 16/08. Partir pendant le chargement laissait donc la vidéo tourner cachée,
+en muet. Le listener de messages ne vérifiait pas qu'une carte tenait encore la
+scène : l'horloge avançait, la preuve de révélation était remplie, et `reveal()`
+rendait le son (`unMute` selon la préférence) à un lecteur que plus rien
+n'affichait. Le profil, lourd, allonge le chargement et donc la fenêtre du bug.
+Deux chemins de plus lançaient la lecture sans carte : `wantPlayRef` (vidéo de
+démarrage) et l'id en attente rejoué dans `onLoad`.
+
+**Le correctif** : en l'absence de carte, le listener ne joue ni ne révèle
+plus rien, et remet au silence et à l'arrêt tout lecteur qui annonce PLAYING ou
+BUFFERING. La veille coupe d'abord le son, puis redit `mute`+`pauseVideo` à
+400 ms, 1,2 s et 3 s (minuteries annulées par la carte suivante).
+`wantPlayRef` est vidé et `onLoad` ne lance rien sans carte.
+
 ## 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 
 **Le symptôme** : sur certaines cartes le haut restait un rectangle noir — pas

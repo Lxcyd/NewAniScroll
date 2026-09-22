@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { createPortal } from "react-dom";
 import dagre from "@dagrejs/dagre";
+import { EMBED_HEADER_H } from "./helpers";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { relationsTreeUrl } from "@/lib/anilist/franchiseTreeVersion";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -245,7 +246,7 @@ const DONE_GREEN = "#22c55e";
  * A floor rather than a fixed height so the row can still grow if the chips
  * wrap; below 900px the grid is one column and there is nothing left to align.
  */
-export const EMBED_HEADER_H = 28;
+export { EMBED_HEADER_H };
 
 type Props = {
   open: boolean;

@@ -85,11 +85,6 @@ export function hourOf(ts: number): number {
   return new Date(ts).getHours();
 }
 
-/** La minute locale (0-59). */
-export function minuteOf(ts: number): number {
-  return new Date(ts).getMinutes();
-}
-
 /**
  * MINUIT PILE, à la minute et non à la seconde.
  *

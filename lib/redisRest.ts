@@ -249,8 +249,6 @@ export function createRestRedis(): IoRedisish | null {
 
   /* One definition, two targets: the client itself and a pipeline object.
      The argument normalisation below (ioredis varargs → Upstash options) has to
-     apply identically either way, and duplicating it is how the two drift. */  /* One definition, two targets: the client itself and a pipeline object.
-     The argument normalisation below (ioredis varargs -> Upstash options) has to
      apply identically either way, and duplicating it is how the two drift. */
   const makeOps = (t: any) => ({
     get: (k: string) => t.get(k) as Promise<string | null>,

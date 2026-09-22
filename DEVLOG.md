@@ -61,6 +61,12 @@ construit depuis `git log --since=<derniere release>`.
 - **Le cout qui montait etait celui du Worker Cloudflare, pas Upstash** : 310
   requetes par visionnage contre un palier gratuit de 100 000/jour. Ramene a
   55 le 29/08 (PR #9). A re-mesurer si la page de lecture change encore.
+- **Confirmer le cache SW perime** (21/09) : le correctif « video qui ne se
+  recharge pas au reveil du PC » est pose, mais l'hypothese n'a pas ete vue a
+  l'oeil. Sur dev : Cache Storage -> `apis`, chercher des entrees
+  `/api/v2/source` et lire leur en-tete `date` ; et verifier que la mention
+  **(ServiceWorker)** a disparu de la requete de source dans Network.
+  -> `devlog/player.md`
 - **Bandes noires 4:3** (Mobile Suit Gundam) : mesure faite, fichier 1440x1080
   sans bandes incrustees, donc la boite du lecteur reste en 16:9 alors que
   `videoRatio` sait la mesurer. Cause non tracee, correctif non ecrit.
@@ -81,6 +87,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Apercu au survol & bandes-annonces — [`devlog/preview.md`](devlog/preview.md)
 
+- 2026-09-21 — Le son du trailer qui continuait en fond sans carte : un `pauseVideo` avalé par un chargement, puis `reveal()` (et son `unMute`) appelé par le listener sans carte ouverte
 - 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 - 2026-08-15 — Nettoyage de l'aperçu au survol
 - 2026-08-15 — Le fondu bas de la carte, et le rail du hero rendu survolable
@@ -189,6 +196,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-21 (suite) — Jikan en complément d'AniList, seulement là où AniList n'a rien : filler/récap, date et titre par épisode (même page Jikan que les scores, 0 appel en plus), titre français, classification d'âge, synopsis MAL en repli
+- 2026-09-21 — Profil : TTFB 2,0 s → ~0,7 s visé (l'attente fixe de 1,5 s d'AniList devient un vrai SWR), `getUser` ne charge plus l'historique, props allégées, bannière et bandes-annonces bornées
 - 2026-09-17 (suite 2) — L'onde coupée par le haut de l'écran (notification descendue), et un flou derrière le texte qui n'est pas une boîte (masque qui s'éteint aussi en haut/bas, `brightness` au lieu d'un voile)
 - 2026-09-17 (suite) — `prefers-reduced-motion` coupait la fête du badge (le registre mentait, pas `matchMedia`) ; l'onglet lisait la copie serveur ; et les 66 épisodes qu'AniList ne sait pas justifier
 - 2026-09-17 — L'impact qui ne jouait qu'une fois (réconciliation React), la boîte en fond retirée, et les relectures ajoutées au compteur d'épisodes
@@ -214,6 +223,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-21 (suite) — 2e passe : BannerStudio et modale changelog chargés à l'ouverture (my-list 277 → 252 Ko, profil 282 → 256) ; doublons strictement identiques fusionnés (streamUrl, idCatalog, usersDb, tableEnsurer…)
+- 2026-09-21 — Passe vitesse/usage/nettoyage : accueil **293 → 250 Ko** de JS gz, page anime 283 → 259 ; santé AniList mémorisée à vide, `cacheSuccess:false`, timeouts tiers ; bugs `recent` (jamais de page 2) et `frembed:base` (sans TTL) ; ~50 exports et 8 fichiers morts ; **monitor rouge depuis le 16/09 = secret Upstash vers une base supprimée** (reposé ; `UPSTASH_API_KEY` reste à refaire)
 - 2026-09-20 — **Un déploiement vide le cache d'edge, et personne ne le remplissait** : les en-têtes étaient bons (`s-maxage` 2-6 h + 1 j de `stale-while-revalidate`) mais SWR ne sert que s'il existe déjà une copie — 26 URL sur 27 froides une heure après un déploiement prod, `/en/anime/2706` à **11 959 ms → 85 ms** après chauffe ; nouveau `warm-pages` déclenché par `deployment_status`, priorisé sur `last_accessed_at` ; **le rendu froid ne supporte pas la concurrence** (0,4 s → 12 s à concurrence 3), donc une requête à la fois
 - 2026-09-18 — Grande passe de vitesse : préchauffage fiche + profil remis au routeur (squelette gardé sur la lecture seulement), requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
 - 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus

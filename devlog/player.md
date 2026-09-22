@@ -6,6 +6,117 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 — La video ne se rechargeait pas au reveil du PC
+
+Signale ainsi : « quand on recharge une page apres longtemps, par exemple apres
+redemarrage du PC, parfois les lecteurs ne se rechargent pas et donc on a une
+page d'erreur au lieu que la video se recharge ».
+
+### Le Service Worker servait une source morte
+
+`next.config.js` avait une regle `runtimeCaching` **NetworkFirst** sur
+`sameOrigin && pathname.startsWith("/api/")`, 24 h de retention et
+`networkTimeoutSeconds: 10`. Le commentaire juste au-dessus affirmait exclure
+`/api/v2/source` — mais cette exclusion ne portait que sur la regle `CacheFirst`
+`apis-static` qui precede. Le fourre-tout NetworkFirst, lui, l'attrapait, et
+depuis le passage de la route en **GET** il l'attrapait vraiment.
+
+Au reveil du PC, l'onglet est restaure AVANT que le reseau soit pret. Workbox
+attend ses 10 s, echoue, et sert une reponse `/api/v2/source` vieille de
+plusieurs heures. Or les tokens des URL upstream ne vivent que 60 a 240 min : le
+proxy repond **410**, que `UniversalPlayer` traite en tier 1 « stream mort »
+sans aucune tentative de recovery, la bascule s'enchaine d'un lecteur a l'autre
+jusqu'a les avoir tous brules, et on finit sur « serveur indisponible ».
+
+La route dit pourtant elle-meme ce qu'elle vaut : `Cache-Control: max-age=60`.
+Le cache du SW ne lit pas cet en-tete — il ne connait que son `maxAgeSeconds`.
+**C'est l'ecart 60 s / 24 h qui est le bug.**
+
+### Deux pieges rencontres en le corrigeant
+
+**1. Retirer l'URL de la seule regle `apis` ne corrige rien.** Le routeur
+workbox parcourt les routes dans l'ordre d'enregistrement, premiere qui matche
+gagne : la requete retombait simplement sur le fourre-tout `others`,
+NetworkFirst 10 s / 24 h lui aussi. Le bug aurait change de cache, rien de plus.
+La soustraction doit porter sur les DEUX regles. Quand plus AUCUNE route ne
+matche, `handleRequest` fait `if (!handler) return` et le SW n'intercepte pas du
+tout : le navigateur fait sa propre requete et applique enfin le `max-age=60`.
+
+**2. next-pwa serialise les `urlPattern` avec `.toString()`.** Une constante
+partagee du fichier de config est **perdue** a la generation : le `sw.js` produit
+appelait `API_VOLATILE.test(...)` sans que rien ne la definisse — ReferenceError
+dans le routeur, a chaque requete. Le litteral doit etre recopie dans chaque
+`urlPattern`. Comme deux copies derivent tot ou tard, un garde-fou en bas de
+`runtimeCaching` fait echouer le build si le litteral n'est pas present sur
+exactement `apis` ET `others`.
+
+Endpoints sortis du SW (`API_VOLATILE`) : `source`, `availability`, `track`,
+`watch2gether`, `account`, `admin`, `list-entry`, `proxy`, `download`, plus
+`/api/auth/` et `/api/user/`. Les user-scoped etaient un bug latent distinct,
+que le commentaire d'origine pretendait deja eviter.
+
+### Et rien ne reprenait au retour du reseau
+
+Deuxieme moitie du probleme, independante du SW : il n'y avait **aucun**
+listener `online` sur le chemin du lecteur, et **aucun** `pageshow` dans tout le
+projet. Les memoires d'echec (`triedFailedRef`, `failedServers`, `hlsData.error`)
+ne se vident qu'au changement d'episode. Une fois la page tombee en erreur, plus
+rien ne bougeait jusqu'a un rechargement manuel — c'est-a-dire un rendu SSR
+complet, l'operation la plus chere du lot.
+
+Pose : une reprise sur `online` + `pageshow(persisted)`, bornee a **3 relances
+automatiques par episode**, espacees de 5 s, et **seulement si la page est
+cassee** — une micro-coupure pendant une lecture qui tourne ne doit rien
+remonter, on perdrait la position. C'est un evenement, jamais un timer.
+
+**Le piege qui rendait la reprise inoperante** : `fetchStreamSource` lit d'abord
+le cache memoire des sources (TTL 5 min) et rendait donc la MEME charge utile,
+la meme URL au token mort, sans toucher au reseau — exactement dans la fenetre
+ou la reprise sert. Il a fallu appeler `clearPrefetchedSourcesFor` dans la
+reprise ; sa docstring invoquait deja « a possibly rotated token », c'est le
+meme motif.
+
+### Les culs-de-sac visuels
+
+- `CarteIndisponible` ne rendait son bouton que s'il existait un lecteur de
+  secours. Sans secours : ecran mort, aucune sortie. « Reessayer » y est
+  desormais **toujours**, et le texte devient « connexion perdue » quand
+  `navigator.onLine === false` — nommer un lecteur est trompeur quand c'est la
+  connexion qui manque.
+- L'iframe affichait `"Failed to load player"` **en dur, en anglais, hors i18n,
+  sans aucune action**. Traduit, avec un bouton.
+  Piege : desarmer le chrono de 30 s par `addEventListener` sur
+  `iframeRef.current` ne survit pas a une relance — l'effet rejoue pendant que
+  l'ecran d'erreur est encore monte, la ref vaut `null`, aucun ecouteur n'est
+  pose, et l'`<iframe>` qui apparait ensuite ne redeclenche pas l'effet. Un
+  lecteur parfaitement charge retombait en erreur 30 s plus tard. Passe au prop
+  `onLoad`, qui part avec l'element.
+- `hls.js` : garde `if (navigator.onLine === false) return;`. Hors ligne, la
+  rafale d'erreurs fatales consommait le budget de 4 recoveries en moins d'une
+  seconde, ce qui declenchait une bascule — **donc une requete `/api/v2/source`
+  par lecteur essaye** — pour une coupure de trois secondes.
+
+### Bilan quota
+
+Le correctif **consomme moins** qu'avant. La regle SW etait deja NetworkFirst,
+donc elle allait deja au reseau : l'exclure ne cree aucune requete. La garde
+`onLine` supprime la cascade de bascules. Et chaque reprise automatique remplace
+un rechargement manuel, c'est-a-dire un SSR complet. Ce qui est ajoute est borne
+a 3 relances par episode sur une page deja cassee.
+
+Gain annexe de vitesse : `/api/v2/source` est sur le chemin critique — c'est la
+requete que le script pre-bundle (`lib/watch/earlySource.ts`) tire avant meme
+React, en `priority:"high"`. On lui retire la traversee du routeur workbox et le
+`cache.put` de la reponse.
+
+### A verifier au prochain passage sur dev
+
+L'hypothese n'a pas ete confirmee a l'oeil : DevTools -> Application -> Cache
+Storage -> `apis`, chercher des entrees `/api/v2/source` et lire leur en-tete
+`date`. Plus de ~4 h prouve le 410. Le discriminant a l'oeil nu dans Network est
+la mention **(ServiceWorker)** en colonne Size : elle doit avoir disparu de la
+requete de source.
+
 ## 2026-09-20 (soir) — `verified` voulait dire deux choses
 
 Parti d'une demande de vitesse, arrive sur un defaut de conception. Le fil :
@@ -2887,3 +2998,62 @@ La règle était juste, la vignette arrivait trop tard. Trois attentes se cumula
    `localStorage` sous le chemin du fichier (la query est signée), un seul enregistrement JSON
    plafonné à 300 entrées. Revoir un épisode pose la vignette instantanément et ne tire plus un
    octet du proxy — ce qui règle aussi la concurrence sonde/lecture sur le même CDN.
+
+---
+
+## 2026-09-21 — Megaplay : rendre notre lecteur aussi sur les films
+
+Suite directe du 20/09. La veille, l'extraction megaplay avait été rétablie en lisant le répertoire
+du flux sur le chemin d'une piste de sous-titres (`<base>/subtitles/…` → `<base>/master.m3u8`). Ça
+couvrait les séries. Ça ne couvrait pas les films : `getSources` leur rend `"tracks":[]` — vérifié
+sur *Your Name* (id 41551) — donc aucun répertoire à dériver, donc repli sur l'encadrement de leur
+page. D'où le rapport : « sur certain il reste leur video player ».
+
+**Cinq chemins essayés avant d'ouvrir `enc`**, tous mesurés, tous sans issue :
+
+| piste | résultat |
+|---|---|
+| `stream/getSourcesNew` (leur client réécrit `getSources` vers lui) | même réponse |
+| `data-realid=57910` au lieu de `data-id=41551` | **autre fichier** |
+| cookies + `Referer` + `X-Requested-With` d'un vrai navigateur | même réponse |
+| md5 de l'id / de l'idMal pour reconstituer le répertoire | aucune correspondance |
+| toute URL de CDN présente dans leur page embed | aucune |
+
+Le `data-realid` est le piège à retenir : il **répond**, et c'est précisément ce qui le rend
+dangereux. Son `intro`/`outro` (0–60 / 1467–1532) décrivent un épisode de ~25 min là où le fichier
+demandé est un film de 1 h 46. S'en servir aurait servi la mauvaise vidéo sans aucun signal d'erreur.
+
+**Ce qui restait, `enc`** — et la phrase écrite la veille à son sujet était fausse. Il ne protège pas
+« que le `?token=` » : il porte l'URL entière et rien d'autre.
+
+```
+{"file":"https://<cdn>/anime/<hash série>/<hash fichier>/master.m3u8"}
+```
+
+Clef et IV sont **écrits en clair** dans leur `lib/newclient.min.js` servi publiquement : AES-256-CBC,
+clef `i?LMTAx0Q6,:}50U` complétée de zéros à 32 octets par leur propre `O(a, 32)`, IV
+`W0;27ToaUpl_P%'c`, base64url. De l'obfuscation, pas un contrôle d'accès — rien n'est authentifié,
+rien n'est payé, et le master répond 200 sans jeton.
+
+Leur bourrage n'est pas du PKCS#7 valide (octets `0x06` en queue d'un bloc plein) : `setAutoPadding(false)`
+et coupe sur la dernière accolade, sinon `final()` jette sur un déchiffrement pourtant correct.
+
+**Vérification, trois fichiers :**
+
+| fichier | `enc` | dérivation par `tracks` |
+|---|---|---|
+| Mushoku ep1 (177685) | nexabloom/611a…/b2da… | **identique** |
+| Mushoku ep7 (178630) | nexabloom/611a…/e9b1… | vyrnex/611a…/e9b1… (autre miroir) |
+| Your Name (41551) | nexabloom/d3d9…/4406… | *aucune piste* |
+
+**Trois crans, du plus précis au plus dégradé** : `enc`, puis la dérivation par `tracks`, puis
+l'encadrement. Les deux premiers sont vérifiés **tour à tour** contre le Worker, parce qu'ils ne
+rendent pas toujours le même miroir (ep7 ci-dessus) et qu'on a déjà vu un miroir rendre un 404
+transitoire (`tx-02.tyrionx.top`, 20/09). Le jour où la clef changera, le déchiffrement rendra du
+binaire, `JSON.parse` jettera, et on retombera sur la dérivation sans rien casser.
+
+**Piège de diagnostic, coûté une fausse piste ce jour-là** : après le déploiement du 20/09, les
+épisodes 1 et 7 répondaient encore `{"iframe": …}` alors qu'un épisode jamais demandé rendait bien
+`streams`. Ce n'était pas un bug d'extraction mais le cache Redis (`SOURCE_CACHE_TTL_S` = 20 min),
+qui survit aux déploiements. Il n'existe aucun paramètre de contournement sur cette route : pour
+juger une correction, interroger un épisode **froid** et lire `X-Vercel-Cache: MISS`.

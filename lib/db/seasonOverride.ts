@@ -1,4 +1,4 @@
-import { getTursoClient } from "./turso";
+import { getTursoClient, tableEnsurer } from "./turso";
 
 /**
  * season_override — manual last-word patches for franchises the automatic
@@ -26,18 +26,8 @@ CREATE TABLE IF NOT EXISTS season_override (
   updated_at   INTEGER NOT NULL
 )`;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getTursoClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non-fatal — lookups will just return null */
-  }
-}
+// non-fatal — lookups will just return null
+const ensureTable = tableEnsurer(CREATE_SQL);
 
 /** Override for one AniList id, or null if none / DB disabled. */
 export async function getSeasonOverride(

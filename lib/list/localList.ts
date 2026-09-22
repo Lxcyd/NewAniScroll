@@ -263,15 +263,6 @@ export type LocalListExport = {
   entries: LocalEntry[];
 };
 
-export function buildExport(): LocalListExport {
-  return {
-    version: 1,
-    app: "aniscroll",
-    exportedAt: new Date().toISOString(),
-    entries: Object.values(getLocalList()),
-  };
-}
-
 /** Wipe the entire local list. */
 export function clearLocalList(): void {
   writeLocalList({});

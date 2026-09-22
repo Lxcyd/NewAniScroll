@@ -19,11 +19,6 @@ import Ably from "ably";
 
 let restClient: Ably.Rest | null = null;
 
-/** Returns true when ABLY_API_KEY is configured (realtime transport active). */
-export function ablyEnabled(): boolean {
-  return !!process.env.ABLY_API_KEY;
-}
-
 /** Lazily-built singleton REST client. Used only to publish events and mint
  *  capability-scoped token requests — never to hold a realtime connection. */
 export function getAblyRest(): Ably.Rest | null {

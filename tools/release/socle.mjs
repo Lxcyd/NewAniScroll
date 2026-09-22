@@ -68,6 +68,11 @@ const DEHORS = [
   /^pages\/en\/auth\//,
   /^pages\/reset-password\./,
   /^tools\/badges\//,
+  /* Le client axios de l'ANCIEN profil : mort sur dev (supprime le 21/09), mais
+     la page de profil de main — que le socle garde telle quelle — l'importe
+     encore. Exclu, il reste dans sa version main. `axios` reste donc dans
+     package.json tant que le profil n'est pas livre. */
+  /^utils\/request\//,
 ];
 
 /* Les outils Python d'OP/ED et leurs donnees : hors sujet pour une release du
@@ -135,7 +140,9 @@ if (process.argv.includes("--appliquer")) {
     git("checkout", SOURCE, "--", ...aPorter.slice(i, i + 60));
   }
   for (let i = 0; i < aSupprimer.length; i += 60) {
-    git("rm", "-q", "--", ...aSupprimer.slice(i, i + 60));
+    /* --ignore-unmatch : un fichier deja absent de la branche de sortie (retire
+       lors d'une synchro precedente) faisait echouer tout le paquet. */
+    git("rm", "-q", "--ignore-unmatch", "--", ...aSupprimer.slice(i, i + 60));
   }
   console.log(`${aPorter.length} fichier(s) portes, ${aSupprimer.length} supprime(s).`);
   process.exit(0);

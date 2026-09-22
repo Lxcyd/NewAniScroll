@@ -1,4 +1,4 @@
-import { getTursoClient } from "./turso";
+import { getTursoClient, tableEnsurer } from "./turso";
 
 /**
  * season_cache — persistent cache for the season-resolution outputs
@@ -33,18 +33,8 @@ CREATE TABLE IF NOT EXISTS season_cache (
 // Mirrors the old Redis TTL: a season chain tolerates a week of staleness.
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 
-let ensured = false;
-async function ensureTable(): Promise<void> {
-  if (ensured) return;
-  const db = getTursoClient();
-  if (!db) return;
-  try {
-    await db.execute(CREATE_SQL);
-    ensured = true;
-  } catch {
-    /* non-fatal — lookups will just return null and callers recompute */
-  }
-}
+// non-fatal — lookups will just return null and callers recompute
+const ensureTable = tableEnsurer(CREATE_SQL);
 
 /** Read a cached value by key, or null on miss / expiry / DB disabled / error.
  *  A stale row (older than TTL) is treated as a miss so the caller recomputes;

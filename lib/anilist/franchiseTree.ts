@@ -2,6 +2,7 @@ import { fetchRelationsBatch } from "./relationsBatch";
 import { FRANCHISE_TREE_V } from "./franchiseTreeVersion";
 import type { RelationsPayload } from "./relationsPayload";
 import { redis } from "../redis";
+import { sleep } from "@/utils/sleep";
 
 /**
  * The franchise graph's walk, run on the server.
@@ -397,8 +398,6 @@ const LOCK_TTL_S = 20;
 /** How long a request that lost the lock waits for the winner's answer. */
 const WAIT_TRIES = 8;
 const WAIT_MS = 400;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Every read and write here is best-effort by construction.

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import React, { useState, useRef, useEffect, Fragment } from "react";
 import Image from "next/image";
-import { MdChevronRight } from "react-icons/md";
 import {
   ChevronRightIcon,
   ArrowRightCircleIcon,
@@ -13,7 +12,11 @@ import { useRouter } from "next/router";
 import { touchHistory } from "@/lib/profile/history";
 import { useSession } from "next-auth/react";
 import { profileHref } from "@/lib/profile/href";
-import HistoryOptions from "./historyOptions";
+import dynamic from "next/dynamic";
+/* Only rendered inside "Continue watching", whose list is built client-side
+   (localStorage / profile fetch in an effect) — never in the SSR HTML. Loading
+   it lazily keeps headlessui Menu + Transition out of the home's first load. */
+const HistoryOptions = dynamic(() => import("./historyOptions"), { ssr: false });
 import { useEdgeFade } from "@/lib/ui/edgeFade";
 import { notify } from "@/lib/notifications/noticeStore";
 import { truncateImgUrl } from "@/utils/imageUtils";
@@ -755,13 +758,26 @@ export default function Content({
             </div>
           )}
         </div>
-        <MdChevronRight
+        {/* MdChevronRight, inlined: importing it from react-icons/md pulled the
+            shared module holding every Material icon of the badges (~19 KB gz)
+            into the home page's first load for this single glyph. Same markup
+            as react-icons renders. */}
+        <svg
           onClick={slideRight}
-          size={30}
+          stroke="currentColor"
+          fill="currentColor"
+          strokeWidth="0"
+          viewBox="0 0 24 24"
+          height={30}
+          width={30}
+          xmlns="http://www.w3.org/2000/svg"
           className={`hidden md:block mb-5 cursor-pointer hover:text-action absolute right-0 bg-gradient-to-l from-[#0c0d10] z-40 h-full hover:opacity-100 hover:bg-gradient-to-l ${
             scrollRight ? "visible" : "hidden"
           }`}
-        />
+        >
+          <path fill="none" d="M0 0h24v24H0z" />
+          <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+        </svg>
       </div>
     </div>
   );

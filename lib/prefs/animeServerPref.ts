@@ -51,8 +51,8 @@ function write(store: Store): void {
   }
 }
 
-const isKnownServer = (id: string) =>
-  (SERVERS as { id: string }[]).some((s) => s.id === id);
+const trouve = (id: string) =>
+  (SERVERS as { id: string; lecteurExterne?: boolean }[]).find((s) => s.id === id);
 
 /** Le lecteur retenu pour cet anime, ou "" si aucun (ou s'il a ete retire). */
 export function getAnimeServer(aniId: string | number | null | undefined): string {
@@ -60,7 +60,16 @@ export function getAnimeServer(aniId: string | number | null | undefined): strin
   const store = read();
   const id = store[String(aniId)];
   if (!id) return "";
-  if (isKnownServer(id)) return id;
+  const def = trouve(id);
+  /* Un lecteur EXTERNE (megaplay) epingle est purge a la LECTURE, et pas
+     seulement empeche a l'ecriture. `handleServerChange` ne l'epingle plus,
+     mais les entrees deja posees survivraient dans le localStorage de chaque
+     visiteur : la serie continuerait de s'ouvrir sur une interface etrangere
+     alors que nos propres lecteurs la servent, et personne ne devinerait qu'il
+     faut aller cliquer ailleurs pour s'en defaire. Corriger a l'ecriture seule
+     aurait laisse le defaut en place chez ceux qui l'avaient deja rencontre —
+     c'est-a-dire exactement ceux qui s'en plaignaient. */
+  if (def && !def.lecteurExterne) return id;
   delete store[String(aniId)];
   write(store);
   return "";
@@ -85,11 +94,3 @@ export function setAnimeServer(
   write(store);
 }
 
-export function clearAnimeServers(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(KEY);
-  } catch {
-    /* best-effort */
-  }
-}

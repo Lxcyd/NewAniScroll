@@ -6,6 +6,56 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 (suite) — Jikan comble ce qu'AniList n'a pas (et seulement ça)
+
+**Comparaison faite avant de coder** (Frieren, One Piece, AoT) : les synopsis
+ne sont PAS les mêmes (AniList reprend le texte éditeur, MAL a sa propre
+réécriture), et épisodes/durée/source/genres/titres principaux/streaming font
+doublon. Les studios aussi : AniList les sépare déjà via `isMain`. Retenu
+uniquement ce qui n'a pas d'équivalent AniList :
+
+- **Par épisode** (liste d'épisodes de la fiche) : badge **Filler / Récap**
+  (tuile en pointillés dans la grille), **date de première diffusion**, et le
+  **titre MAL quand le fournisseur n'en a pas** (le sien reste prioritaire).
+  Zéro appel Jikan en plus : c'est la même page `/anime/{idMal}/episodes` que
+  la grille des scores, qui jetait ces champs. Clé Redis `jikan:eps:v2 → v3`.
+  Nouvelle route `/api/v2/episode-meta/{idMal}` (clés courtes, edge 7 j, SW
+  CacheFirst) ; `/api/v2/episode-scores` renvoie désormais `{number, score}`
+  seuls pour ne pas gonfler le payload de la grille.
+- **Par anime** (Détails, desktop + mobile) : **titre français** (lecteur FR
+  seulement — les `synonyms` AniList n'ont pas de langue) et **classification
+  d'âge** (G → Rx ; AniList n'a que `isAdult`). **Synopsis MAL en repli**
+  uniquement quand AniList n'en a pas, source affichée « MyAnimeList ».
+  `lib/jikan/animeMeta.ts`, lu au SSR en parallèle des walkers de saison,
+  mis en cache dans Turso (`season_cache`, `malMeta:v1:<idMal>`, 30 j ; un
+  vrai « rien » 3 j ; un 429/5xx/timeout 2,5 s n'est pas caché). Posé sur
+  `info` à la frontière des props, jamais dans le blob Redis partagé.
+
+Jikan relaie les pannes MAL en 504 (vu pendant l'étude) : tout se dégrade en
+« pas de ligne / pas de badge », jamais en erreur.
+
+## 2026-09-21 — Le profil n'attend plus AniList, et ne tombe plus pour un complément
+
+**Mesure (dev, `Lucyd-952364`, 682 titres)** : TTFB **2,0 s** au premier passage,
+**0,7 s** au second. L'écart était l'attente fixe `PATIENCE_MS` de 1,5 s :
+dès que la copie Upstash avait plus de 5 min, c'est-à-dire presque à chaque
+visite, on laissait à AniList 1,5 s pour répondre. Il n'y arrive jamais sur
+une grosse liste (4 à 12 s).
+
+- **Stale-while-revalidate franc** : une copie de moins de 24 h est servie
+  tout de suite, et la fraîche se range en arrière-plan (`waitUntil`) pour la
+  visite suivante. Sans copie, on attend comme avant.
+- **`getUser(name, false)` ignorait `false`** : la lecture de visibilité
+  chargeait tout l'historique `WatchListEpisode` Prisma à chaque rendu.
+- **Props allégées** : les entrées pesaient 343 Ko sur 352 Ko. On retire
+  `native`/`userPreferred` quand `english` ou `romaji` existe (ce ne sont que
+  des replis de `pickTitle`), ainsi que `favourite:false`, `repeat:0`,
+  `customLists:[]` et `trailer:null`.
+- **Robustesse** : la bannière automatique (fanart/Turso) et les
+  bandes-annonces du studio sont bornées (2,5 s / 1,5 s). Avant, un rejet de
+  `resolveFavoriteBanner` faisait tomber tout le `Promise.all`, donc la page
+  en 500.
+
 ## 2026-09-17 (suite 2) — Le rond coupé par le haut de l'écran, et un flou qui n'est pas une boîte
 
 **L'IMPACT SORTAIT DE LA PAGE.** L'onde se détend jusqu'à 2,7 fois le jeton,

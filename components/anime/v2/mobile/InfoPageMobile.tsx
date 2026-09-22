@@ -31,6 +31,7 @@ import {
   statusLabel as statusLabelI18n,
   countryLabel,
   listLabel,
+  malDetails,
 } from "../helpers";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -52,7 +53,11 @@ import {
 } from "../lazyTabs";
 import QueueButton from "../QueueButton";
 import Related from "../Related";
-import RelationsGraph from "../RelationsGraph";
+import dynamic from "next/dynamic";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+/* Rendered only as the full-screen overlay behind "View timeline": loaded on
+   the first open, then kept mounted (pan / zoom survive a close + reopen). */
+const RelationsGraph = dynamic(() => import("../RelationsGraph"), { ssr: false });
 import { coverUrl } from "@/lib/images/cover";
 import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
@@ -772,7 +777,11 @@ function MOverview({
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
-  const description = useTranslatedText(stripHtml(info.description || ""));
+  const graphEverOpened = useMountedOnce(graphOpen);
+  // MAL's synopsis stands in only when AniList has none (see withMalMeta).
+  const description = useTranslatedText(
+    stripHtml(info.description || "") || info.malMeta?.synopsis || "",
+  );
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
   const studios = (info.studios?.edges || [])
@@ -795,6 +804,7 @@ function MOverview({
     [t("anime.detailStudios"), studios || null],
     [t("anime.detailProducers"), producers || null],
     [t("anime.detailCountry"), countryLabel(t, (info as any).countryOfOrigin || null)],
+    ...malDetails(info, t, i18n.language),
   ].filter(([, v]) => !!v) as Array<[string, string]>;
 
   const tags = (info.tags || [])
@@ -922,11 +932,13 @@ function MOverview({
               currentId={info.id}
             />
           </div>
-          <RelationsGraph
-            open={graphOpen}
-            onClose={() => setGraphOpen(false)}
-            currentId={info.id}
-          />
+          {graphEverOpened && (
+            <RelationsGraph
+              open={graphOpen}
+              onClose={() => setGraphOpen(false)}
+              currentId={info.id}
+            />
+          )}
         </section>
       ) : null}
 
@@ -1302,6 +1314,8 @@ function MTrailer({
         <img
           src={thumb}
           alt=""
+          loading="lazy"
+          decoding="async"
           style={{
             position: "absolute",
             inset: 0,
@@ -1439,6 +1453,8 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
                   <img
                     src={cover}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       width: "100%",
                       height: "100%",

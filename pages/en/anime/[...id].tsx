@@ -37,6 +37,7 @@ import { chargeFrembedCatalog, sansFrembed } from "@/lib/watch/frembedCatalog";
 import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
+import { getMalMeta, type MalMeta } from "@/lib/jikan/animeMeta";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -966,6 +967,17 @@ function stripCharacters(info: any): any {
   return { ...rest, charactersCount: characters?.edges?.length ?? 0 };
 }
 
+/* MAL-only facts (French title, age rating) ride on `info` at the props
+   boundary, like the hero banner — never in the shared Redis blob. MAL's
+   synopsis only travels when AniList has none: it is the fallback, not a
+   second text. */
+function withMalMeta(info: any, meta: MalMeta | null): any {
+  if (!meta) return info;
+  const synopsis = info?.description ? null : meta.synopsis;
+  if (!meta.titleFr && !meta.rating && !synopsis) return info;
+  return { ...info, malMeta: { titleFr: meta.titleFr, rating: meta.rating, synopsis } };
+}
+
 export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
   const timer = makeTimer();
@@ -1090,6 +1102,7 @@ export async function getServerSideProps(ctx: any) {
     );
     const seasonListP = resolveSeasonList(animeIdNum).catch(() => [] as SeasonEntry[]);
     const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(() => [] as FilmVariant[]);
+    const malMetaP = getMalMeta(info?.idMal).catch(() => null);
 
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
@@ -1115,11 +1128,12 @@ export async function getServerSideProps(ctx: any) {
     // emit its preload header "early", but getServerSideProps does not flush
     // headers before the response — they all go out together either way, so
     // the split bought latency and no earlier bytes.
-    const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+    const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
       resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
       seasonInfoP,
       seasonListP,
       bonusFilmsP,
+      malMetaP,
     ]);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     timer.end(`cache-hit id=${id?.[0]}`);
@@ -1129,8 +1143,9 @@ export async function getServerSideProps(ctx: any) {
            Redis blob and the same object is handed back to other readers of
            that cache. Writing the TMDB URL onto it would leak a TMDB backdrop
            into the shared AniList payload for 30 days. */
-        info: stripCharacters(
-          heroBanner ? { ...info, bannerImage: heroBanner } : info,
+        info: withMalMeta(
+          stripCharacters(heroBanner ? { ...info, bannerImage: heroBanner } : info),
+          malMeta,
         ),
         color,
         api: API_URI,
@@ -1245,6 +1260,7 @@ export async function getServerSideProps(ctx: any) {
   const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
     () => [] as FilmVariant[]
   );
+  const malMetaP = getMalMeta(data?.idMal).catch(() => null);
   // Still awaited below (with the walkers) so the write can't be cut off when
   // the response returns — it just no longer delays anything else.
   const cacheWriteP = redis
@@ -1268,11 +1284,12 @@ export async function getServerSideProps(ctx: any) {
   // No clearart preload header — the <img> may swap to assets.fanart.tv on
   // proxy error, which would leave a proxy-URL preload unconsumed.
 
-  const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+  const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
     resolveHeroBanner(data?.bannerImage, tmdb.backdrop).catch(() => null),
     seasonInfoP,
     seasonListP,
     bonusFilmsP,
+    malMetaP,
     cacheWriteP,
   ]);
   if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
@@ -1282,8 +1299,9 @@ export async function getServerSideProps(ctx: any) {
     props: {
       /* Shallow copy — `data` is what redis.set just persisted as the shared
          AniList blob above, and it must stay free of TMDB URLs. */
-      info: stripCharacters(
-        heroBanner ? { ...data, bannerImage: heroBanner } : data,
+      info: withMalMeta(
+        stripCharacters(heroBanner ? { ...data, bannerImage: heroBanner } : data),
+        malMeta,
       ),
       color,
       api: API_URI,

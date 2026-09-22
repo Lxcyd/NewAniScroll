@@ -75,6 +75,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     query: QUERY,
     variables: { page, perPage: PER_PAGE, sort: [sort] },
     label: `catalog:${sortKey}:${page}`,
+    // `catalog:` below keeps the payload 1 h — see cacheSuccess.
+    cacheSuccess: false,
   });
   if (!json?.data?.Page) {
     /* 200, not 503 — and the status is the whole point.

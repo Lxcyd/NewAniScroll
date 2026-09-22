@@ -65,6 +65,9 @@ export async function aniAdvanceSearch({
     },
     // Search results change with every keystroke — short cache only.
     cacheSeconds: 30,
+    // The search route answers from the edge for 10 min; a 30 s Redis copy
+    // behind it only cost a SET per unique query. Failure marks still apply.
+    cacheSuccess: false,
     label: "advanceSearch",
   });
   return datas?.data?.Page ?? null;

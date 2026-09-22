@@ -169,13 +169,28 @@ export function warmMenuPage(path: string): void {
 /**
  * Le profil du compte connecte, des que le navigateur souffle apres
  * l'ouverture du site : le premier clic sur « Profil » ne fait plus attendre la
- * liste. Une fois par chargement de page ; le survol du lien prend le relais si
- * la copie a expire entre-temps.
+ * liste. Le survol du lien prend le relais si la copie a expire entre-temps.
+ *
+ * Une fois toutes les 5 min par ONGLET, plus une fois par chargement : le
+ * drapeau en memoire repartait a zero a chaque chargement complet, et le SSR du
+ * profil n'est pas cache au bord — chaque rechargement coutait une invocation
+ * (et, passe 5 min, un aller-retour AniList + un SET Upstash de plusieurs
+ * centaines de Ko). La memoire reste le garde principal ; sessionStorage peut
+ * manquer (navigation privee), on retombe alors sur l'ancien comportement.
  */
+const OWN_PROFILE_WARM_KEY = "as:warm:ownProfile";
+const OWN_PROFILE_WARM_MS = 5 * 60 * 1000;
 let ownProfileWarmed = false;
 export function warmOwnProfile(path: string): void {
   if (ownProfileWarmed) return;
   ownProfileWarmed = true;
+  try {
+    const last = Number(sessionStorage.getItem(OWN_PROFILE_WARM_KEY)) || 0;
+    if (Date.now() - last < OWN_PROFILE_WARM_MS) return;
+    sessionStorage.setItem(OWN_PROFILE_WARM_KEY, String(Date.now()));
+  } catch {
+    /* stockage indisponible : on prechauffe comme avant */
+  }
   const go = () => {
     const w = window as any;
     try {

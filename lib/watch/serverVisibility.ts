@@ -54,13 +54,6 @@ export function isProvenAbsent(failedServers: FailedLike, id: string): boolean {
   return raison === ABSENCE_PROUVEE;
 }
 
-/** L'hote a-t-il echoue d'une facon qui peut se terminer ?
- *  Ne gouverne PLUS l'affichage depuis le 30/08 — tout echec masque. Reste
- *  expose pour le diagnostic et pour distinguer les verdicts dans les traces. */
-export function isDegraded(failedServers: FailedLike, id: string): boolean {
-  return !!failedServers?.has?.(id) && !isProvenAbsent(failedServers, id);
-}
-
 export function shouldShowServer(
   server: ServerLike,
   activeServer: string,

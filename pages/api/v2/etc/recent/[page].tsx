@@ -23,6 +23,7 @@ const ANILIST_QUERY = `
         popularity
         coverImage { extraLarge color }
       }
+      pageInfo { hasNextPage }
     }
   }
 `;
@@ -60,22 +61,29 @@ export default async function handler(
     // on the homepage, so a visitor bouncing back to it re-requested it every
     // minute — each one a billed Edge Request for a payload that changes hourly.
 
+    // v3: one key PER PAGE, holding `hasNextPage` too. v2 stored every page
+    // under a single key without it, so page 2 answered page 1's list and
+    // /en/anime/recent never offered a second page.
+    const page = Number(req.query.page) || 1;
+    const cacheKey = `recent-episode-v3:${page}`;
+
     if (redis) {
       // A dead Redis must degrade to a live AniList fetch, not 500 the rail.
-      const cache = await redis.get(`recent-episode-v2`).catch(() => null);
+      const cache = await redis.get(cacheKey).catch(() => null);
       if (cache) {
         setEdgeCache(res, 3600);
-        return res.status(200).json({ results: JSON.parse(cache) });
+        return res.status(200).json(JSON.parse(cache));
       }
     }
 
     // ── Fetch from AniList ───────────────────────────────────
-    const page = Number(req.query.page) || 1;
 
     const json = await anilistFetch({
       query: ANILIST_QUERY,
       variables: { page, perPage: 50 },
       label: "recent",
+      // `recent-episode-v3:` below keeps the payload 1 h — see cacheSuccess.
+      cacheSuccess: false,
     });
     if (!json) {
       /* A KNOWN degraded state, answered as a cacheable 200 — not thrown into
@@ -114,16 +122,21 @@ export default async function handler(
         };
       });
 
+    const payload = {
+      results,
+      hasNextPage: !!json?.data?.Page?.pageInfo?.hasNextPage,
+    };
+
     // ── Cache for 1 hour ─────────────────────────────────────
     if (redis) {
       // Best-effort cache write — a failing Redis must not sink the response.
       await redis
-        .set(`recent-episode-v2`, JSON.stringify(results), "EX", 60 * 60)
+        .set(cacheKey, JSON.stringify(payload), "EX", 60 * 60)
         .catch(() => {});
     }
 
     setEdgeCache(res, 3600);
-    return res.status(200).json({ results });
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("[recent] error:", error);
     /* A genuine bug, and it keeps saying 500. The header is set anyway on the

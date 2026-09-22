@@ -287,11 +287,6 @@ export async function readRoomGate(
   };
 }
 
-export async function isInactive(roomId: string, userId: string): Promise<boolean> {
-  assertRedis();
-  return (await redis.sismember(inactiveKey(roomId), userId)) === 1;
-}
-
 export async function setHost(roomId: string, userId: string): Promise<void> {
   assertRedis();
   await redis.hset(roomKey(roomId), { hostId: userId, updatedAt: String(Date.now()) });

@@ -82,17 +82,21 @@ export const getUser = async (
     if (!name) {
       return null;
     } else {
+      // `list` était ignoré : le profil, qui ne lit que `setting.private`,
+      // recevait tout l'historique de visionnage à chaque rendu.
       const user = await prisma.userProfile.findFirst({
         where: {
           name: name,
         },
-        include: {
-          WatchListEpisode: {
-            orderBy: {
-              createdDate: "desc",
-            },
-          },
-        },
+        include: list
+          ? {
+              WatchListEpisode: {
+                orderBy: {
+                  createdDate: "desc",
+                },
+              },
+            }
+          : undefined,
       });
       return user;
     }

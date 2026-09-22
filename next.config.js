@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-// const nextSafe = require("next-safe");
 
 // Default next-pwa runtimeCaching minus the `.mp4` / audio entries that
 // route playback through workbox's CacheFirst+rangeRequests strategy. That
@@ -9,6 +8,47 @@
 // playback never starts. We let the <video> element handle media itself
 // with its native no-cors mode — the SW still caches everything else for
 // the PWA / offline story.
+/* Endpoints VOLATILS : le SW ne doit JAMAIS en servir une copie, ni meme les
+   intercepter.
+   21/09/2026 — « quand on recharge une page apres longtemps, par exemple apres
+   redemarrage du PC, parfois les lecteurs ne se rechargent pas et on a une page
+   d'erreur ». L'onglet est restaure AVANT que le reseau soit pret : la regle
+   NetworkFirst attend `networkTimeoutSeconds` (10 s), echoue, et sert une
+   reponse `/api/v2/source` vieille de 24 h. Or les tokens des URL upstream ne
+   vivent que 60 a 240 min : le proxy repond 410 (worker/src/index.js), que
+   hls.js traite en « stream mort » — tier 1, aucune recovery. La bascule
+   s'enchaine d'un lecteur a l'autre et on finit sur « serveur indisponible ».
+   Et rien ne refetch au retour du reseau.
+   La route dit pourtant elle-meme ce qu'elle vaut (`Cache-Control: max-age=60`,
+   cf. pages/api/v2/source/index.js) — mais le cache du SW ne lit pas cet
+   en-tete, il ne connait que son propre `maxAgeSeconds`. D'ou cette liste.
+
+   IMPORTANT — la soustraction se fait sur les DEUX regles NetworkFirst plus
+   bas. Retiree de la seule regle `apis`, la requete retombait sur le fourre-tout
+   `others`, NetworkFirst lui aussi : le bug aurait simplement change de cache.
+   Le routeur workbox parcourt les routes DANS L'ORDRE, premiere qui matche
+   gagne, et n'intercepte pas du tout quand aucune ne matche (`findMatchingRoute`
+   puis `if (!handler) return` dans public/workbox-*.js). Zero route qui matche
+   est donc exactement le but : le navigateur fait sa propre requete et applique
+   le `max-age=60` natif.
+
+   Gain annexe : `/api/v2/source` est sur le chemin critique du lecteur — c'est
+   la requete que le script pre-bundle (lib/watch/earlySource.ts) tire avant
+   meme React, en `priority:"high"`. On lui retire la traversee du routeur et le
+   `cache.put` de la reponse.
+
+   ⚠ LE LITTERAL EST RECOPIE DANS CHAQUE `urlPattern`, ET C'EST OBLIGATOIRE.
+   next-pwa serialise ces fonctions avec `.toString()` pour les ecrire dans
+   public/sw.js : toute variable de ce fichier referencee dans le corps est
+   PERDUE a la generation. Une constante partagee produit un sw.js qui appelle
+   `API_VOLATILE.test(...)` sans que rien ne la definisse — ReferenceError dans
+   le routeur, a chaque requete. Verifie sur le sw.js genere le 21/09/2026.
+   La constante ci-dessous n'est donc JAMAIS employee dans un `urlPattern` :
+   elle sert de reference au garde-fou pose en bas de `runtimeCaching`, qui
+   fait echouer le build si l'une des deux copies derive. */
+const API_VOLATILE =
+  /^\/api\/(auth|user)\/|^\/api\/v2\/(source|availability|track|watch2gether|account|admin|list-entry|proxy|download)/;
+
 const runtimeCaching = [
   {
     urlPattern: /^https:\/\/fonts\.(?:gstatic)\.com\/.*/i,
@@ -84,11 +124,13 @@ const runtimeCaching = [
   // was never free — not making the request is the only thing that is.
   //
   // Deliberately excluded: anything user-scoped (/api/user, /api/auth) and
-  // anything that must reflect a live change (/api/v2/source, /api/v2/track).
+  // anything that must reflect a live change (/api/v2/source, /api/v2/track)
+  // — voir `API_VOLATILE` ci-dessus, qui rend cette exclusion vraie pour les
+  // DEUX regles NetworkFirst qui suivent, et plus seulement pour celle-ci.
   {
     urlPattern: ({ url, sameOrigin }) =>
       sameOrigin &&
-      /^\/api\/v2\/(skip|themes|episode-scores|changelog-popup|changelog|banner-tone|fanarts)\b/.test(
+      /^\/api\/v2\/(skip|themes|episode-scores|episode-meta|changelog-popup|changelog|banner-tone|fanarts)\b/.test(
         url.pathname,
       ),
     handler: "CacheFirst",
@@ -103,8 +145,14 @@ const runtimeCaching = [
     },
   },
   {
+    // Copie 1/2 du littéral d'API_VOLATILE — cf. son commentaire : une variable
+    // ne survit pas au `.toString()` de next-pwa. Copie 2/2 sur `others`.
     urlPattern: ({ url, sameOrigin }) =>
-      sameOrigin && url.pathname.startsWith("/api/"),
+      sameOrigin &&
+      url.pathname.startsWith("/api/") &&
+      !/^\/api\/(auth|user)\/|^\/api\/v2\/(source|availability|track|watch2gether|account|admin|list-entry|proxy|download)/.test(
+        url.pathname,
+      ),
     handler: "NetworkFirst",
     method: "GET",
     options: {
@@ -130,9 +178,19 @@ const runtimeCaching = [
   // lecteur se montait sur une page dont la ressource n'etait jamais arrivee.
   // Laisser passer les navigations rend au navigateur son propre repli ; on ne
   // perd rien, le document n'etait de toute facon pas servi depuis le cache.
+  //
+  // `API_VOLATILE` est soustrait ICI AUSSI, et ce n'est pas une precaution :
+  // sans cette clause, tout ce qu'on retire de la regle `apis` ci-dessus
+  // retombe ici, sous la meme strategie NetworkFirst 10 s / 24 h. Le bug
+  // aurait juste change de cache (21/09/2026).
   {
-    urlPattern: ({ sameOrigin, request }) =>
-      sameOrigin && request.mode !== "navigate",
+    // Copie 2/2 du littéral d'API_VOLATILE — cf. son commentaire.
+    urlPattern: ({ url, sameOrigin, request }) =>
+      sameOrigin &&
+      request.mode !== "navigate" &&
+      !/^\/api\/(auth|user)\/|^\/api\/v2\/(source|availability|track|watch2gether|account|admin|list-entry|proxy|download)/.test(
+        url.pathname,
+      ),
     handler: "NetworkFirst",
     options: {
       cacheName: "others",
@@ -141,6 +199,30 @@ const runtimeCaching = [
     },
   },
 ];
+
+/* Les deux copies du littéral d'API_VOLATILE doivent rester identiques a la
+   constante. Elles ne peuvent pas etre factorisees (cf. le `.toString()` de
+   next-pwa), alors on verifie — au build, ou une erreur est bruyante et
+   gratuite, plutot qu'en production ou une derive serait muette. */
+{
+  const attendu = API_VOLATILE.source;
+  const porteuses = runtimeCaching
+    .filter(
+      (r) =>
+        typeof r.urlPattern === "function" &&
+        r.urlPattern.toString().includes(attendu),
+    )
+    .map((r) => r.options.cacheName)
+    .sort();
+  if (porteuses.join(",") !== "apis,others") {
+    throw new Error(
+      `next.config.js : le littéral d'API_VOLATILE est soustrait à [${porteuses}] ` +
+        `au lieu de [apis,others]. Toute règle NetworkFirst qui peut attraper ` +
+        `/api/ doit le porter, sinon les endpoints volatils y retombent. ` +
+        `Littéral attendu : ${attendu}`,
+    );
+  }
+}
 
 const withPWA = require("next-pwa")({
   dest: "public",
@@ -324,90 +406,4 @@ module.exports = withPWA({
       },
     ];
   },
-  // async headers() {
-  //   return [
-  //     {
-  //       // matching all API routes
-  //       source: "/api/:path*",
-  //       headers: [
-  //         { key: "Access-Control-Allow-Credentials", value: "true" },
-  //         {
-  //           key: "Access-Control-Allow-Origin",
-  //           value: "https://moopa.live",
-  //         }, // replace this your actual origin
-  //         {
-  //           key: "Access-Control-Allow-Methods",
-  //           value: "GET,DELETE,PATCH,POST,PUT",
-  //         },
-  //         {
-  //           key: "Access-Control-Allow-Headers",
-  //           value:
-  //             "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version",
-  //         },
-  //       ],
-  //     },
-  // {
-  //   source: "/:path*",
-  //   headers: nextSafe({
-  //     contentTypeOptions: "nosniff",
-  //     contentSecurityPolicy: {
-  //       "base-uri": "'none'",
-  //       "child-src": "'none'",
-  //       "connect-src": [
-  //         "'self'",
-  //         "webpack://*",
-  //         "https://graphql.anilist.co/",
-  //         "https://api.aniskip.com/",
-  //         "https://m3u8proxy.moopa.workers.dev/",
-  //       ],
-  //       "default-src": "'self'",
-  //       "font-src": [
-  //         "'self'",
-  //         "https://cdnjs.cloudflare.com/",
-  //         "https://fonts.gstatic.com/",
-  //       ],
-  //       "form-action": "'self'",
-  //       "frame-ancestors": "'none'",
-  //       "frame-src": "'none'",
-  //       "img-src": [
-  //         "'self'",
-  //         "https://s4.anilist.co",
-  //         "data:",
-  //         "https://media.kitsu.io",
-  //         "https://artworks.thetvdb.com",
-  //         "https://img.moopa.live",
-  //         "https://meo.comick.pictures",
-  //         "https://kitsu-production-media.s3.us-west-002.backblazeb2.com",
-  //       ],
-  //       "manifest-src": "'self'",
-  //       "media-src": ["'self'", "blob:"],
-  //       "object-src": "'none'",
-  //       "prefetch-src": false,
-  //       "script-src": [
-  //         "'self'",
-  //         "https://static.cloudflareinsights.com",
-  //         "'unsafe-inline'",
-  //         "'unsafe-eval'",
-  //       ],
-
-  //       "style-src": [
-  //         "'self'",
-  //         "'unsafe-inline'",
-  //         "https://cdnjs.cloudflare.com",
-  //         "https://fonts.googleapis.com",
-  //       ],
-  //       "worker-src": "'self'",
-  //       mergeDefaultDirectives: false,
-  //       reportOnly: false,
-  //     },
-  //     frameOptions: "DENY",
-  //     permissionsPolicy: false,
-  //     // permissionsPolicyDirectiveSupport: ["proposed", "standard"],
-  //     isDev: false,
-  //     referrerPolicy: "no-referrer",
-  //     xssProtection: "1; mode=block",
-  //   }),
-  // },
-  //   ];
-  // },
 });

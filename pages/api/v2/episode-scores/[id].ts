@@ -73,7 +73,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ? "public, s-maxage=86400, stale-while-revalidate=604800"
         : "public, s-maxage=604800, stale-while-revalidate=604800",
     );
-    return res.status(200).json({ enabled: true, seasons: results });
+    // The grid only needs number + score; titles & flags (the episode list's
+    // business, see /api/v2/episode-meta) would multiply the payload.
+    const slim = results.map((r) =>
+      r ? { ...r, episodes: r.episodes.map((e) => ({ number: e.number, score: e.score })) } : r,
+    );
+    return res.status(200).json({ enabled: true, seasons: slim });
   } catch (e: any) {
     console.error("[episode-scores] error:", e?.message);
     // Never fail the grid — return an empty (fallback) payload.

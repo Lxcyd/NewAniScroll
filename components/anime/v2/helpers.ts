@@ -122,15 +122,6 @@ export const STATUS_TO_LIST: Record<string, string> = {
   DROPPED: "Dropped",
 };
 
-export const LIST_TO_STATUS: Record<string, string> = {
-  Watching: "CURRENT",
-  Rewatching: "REPEATING",
-  Completed: "COMPLETED",
-  Planning: "PLANNING",
-  Paused: "PAUSED",
-  Dropped: "DROPPED",
-};
-
 const MONTHS = [
   "Jan",
   "Feb",
@@ -209,21 +200,6 @@ export function prettySource(src: string | null): string {
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-export function prettyCountry(c: string | null): string {
-  switch (c) {
-    case "JP":
-      return "Japan";
-    case "KR":
-      return "Korea";
-    case "CN":
-      return "China";
-    case "TW":
-      return "Taiwan";
-    default:
-      return c || "N/A";
-  }
 }
 
 export function capitalize(s: string): string {
@@ -309,11 +285,6 @@ export function slugifyTitle(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-export function pickRandom<T>(arr: T[]): T | null {
-  if (!arr || arr.length === 0) return null;
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 /* Language filter used for clearart / logo selection on the hero.
@@ -1125,4 +1096,34 @@ function computeFromAnchor(
     number: currentNumber,
     total: currentNumber + sequelSeasons,
   };
+}
+
+/** MAL-only rows, present only when MAL knows them: the French title (for a
+ *  French reader — AniList's synonyms carry no language) and the age rating
+ *  (AniList only has isAdult). Shared with the mobile page. */
+export function malDetails(
+  info: AniListInfoTypes,
+  t: TFunction,
+  lang: string,
+): Array<[string, string]> {
+  const m = info.malMeta;
+  if (!m) return [];
+  const rows: Array<[string, string]> = [];
+  if (m.titleFr && lang.startsWith("fr")) rows.push([t("anime.detailTitleFr"), m.titleFr]);
+  if (m.rating) rows.push([t("anime.detailRating"), t(`anime.malRating.${m.rating}`)]);
+  return rows;
+}
+
+/** Height floor of the Relations embed's header row — see the note on its use
+ *  in RelationsGraph. Lives here, not there, so Overview can align its
+ *  "Details" heading to it without statically importing the graph (and dagre)
+ *  that is now loaded with next/dynamic. */
+export const EMBED_HEADER_H = 28;
+
+/** Locale-aware info-page href for an anime (or film) id, landing on its
+ *  Episodes tab. The page canonicalises `/…/anime/<id>` to add the slug itself,
+ *  so the id alone is enough. Shared by the season dropdown and the Films panel. */
+export function infoHref(id: number, locale: string): string {
+  const lang = locale === "fr" ? "fr" : "en";
+  return `/${lang}/anime/${id}#episodes`;
 }

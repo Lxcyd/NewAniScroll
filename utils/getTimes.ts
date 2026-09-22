@@ -34,29 +34,6 @@ export function getCurrentSeason() {
   }
 }
 
-export function convertUnixToCountdown(time: number) {
-  let date = new Date(time * 1000);
-  let days = date.getDay();
-  let hours = date.getHours();
-  let minutes = date.getMinutes();
-
-  let countdown = "";
-
-  if (days > 0) {
-    countdown += `${days}d `;
-  }
-
-  if (hours > 0) {
-    countdown += `${hours}h `;
-  }
-
-  if (minutes > 0) {
-    countdown += `${minutes}m `;
-  }
-
-  return countdown.trim();
-}
-
 export function convertSecondsToTime(sec: number) {
   let days = Math.floor(sec / (3600 * 24));
   let hours = Math.floor((sec % (3600 * 24)) / 3600);
@@ -140,30 +117,6 @@ export function unixTimestampToRelativeTime(unixTimestamp: number) {
   }
 
   return "just now";
-}
-
-export function unixToSeconds(unixTimestamp: number) {
-  const now = Math.floor(Date.now() / 1000); // Current Unix timestamp in seconds
-  const secondsAgo = now - unixTimestamp;
-
-  return secondsAgo;
-}
-
-export function realTimeCountdown(secondsLeft: number): string {
-  let countdown = "";
-  const intervalId = setInterval(() => {
-    secondsLeft--;
-    const hours = Math.floor(secondsLeft / 3600);
-    const minutes = Math.floor((secondsLeft % 3600) / 60);
-    const seconds = secondsLeft % 60;
-    countdown = `${hours.toString().padStart(2, "0")}:${minutes
-      .toString()
-      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    if (secondsLeft <= 0) {
-      clearInterval(intervalId);
-    }
-  }, 1000);
-  return countdown;
 }
 
 /**

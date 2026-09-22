@@ -72,6 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     query: QUERY,
     variables: { page },
     label: `discover:${page}`,
+    // `discover:v2:` below keeps the payload 30 min — see cacheSuccess.
+    cacheSuccess: false,
   });
   const media = json?.data?.Page?.media || [];
   /* No TMDB enrichment here, deliberately: TMDB backdrops are scoped to the

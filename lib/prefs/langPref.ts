@@ -117,21 +117,6 @@ export function getEffectiveLangOrder(): Lang[] | null {
   return isLangPrefEnabled() ? getLangOrder() : null;
 }
 
-export function useLangOrder(): Lang[] | null {
-  const [order, setOrder] = useState<Lang[] | null>(null);
-  useEffect(() => {
-    const read = () => setOrder(getLangOrder());
-    read();
-    window.addEventListener(LANG_PREF_EVENT, read);
-    window.addEventListener("storage", read);
-    return () => {
-      window.removeEventListener(LANG_PREF_EVENT, read);
-      window.removeEventListener("storage", read);
-    };
-  }, []);
-  return order;
-}
-
 type ServerDef = { id: string; lang: Lang; speed?: number };
 
 type PickOpts = {
@@ -170,9 +155,6 @@ type PickOpts = {
    */
   deprioriser?: Lang[] | null;
 };
-
-/** Le rang d'origine, garde comme repli explicite et pour les tests. */
-export const staticRank = (s: ServerDef) => s.speed ?? 99;
 
 /**
  * Le meme ordre, les langues citees renvoyees a la fin. Aucune n'est perdue :
@@ -217,10 +199,3 @@ export function pickServerForLangs(
   return null;
 }
 
-/** Rang (0 = prioritaire) de la langue d'un serveur; +inf si inconnu. */
-export function langRank(order: Lang[] | null | undefined, serverId: string): number {
-  const langs = order && order.length ? order : DEFAULT_LANG_ORDER;
-  const lang = (SERVERS as ServerDef[]).find((s) => s.id === serverId)?.lang;
-  const i = lang ? langs.indexOf(lang) : -1;
-  return i === -1 ? Number.POSITIVE_INFINITY : i;
-}

@@ -443,36 +443,3 @@ export async function getStaleAnime(limit = 200): Promise<{ id: number; status: 
   }));
 }
 
-/**
- * All RELEASING anime — what the cron refreshes most aggressively.
- */
-export async function getReleasingAnime(): Promise<number[]> {
-  const db = getTursoClient();
-  if (!db) return [];
-  const r = await db.execute("SELECT id FROM anime WHERE status = 'RELEASING'");
-  return r.rows.map((row: any) => Number(row.id));
-}
-
-/** Save a key/value progress marker (used by the bootstrap script). */
-export async function setScrapeState(key: string, value: string): Promise<void> {
-  const db = getTursoClient();
-  if (!db) return;
-  const now = Math.floor(Date.now() / 1000);
-  await db.execute({
-    sql: `INSERT INTO scrape_state (key, value, updated_at)
-          VALUES (?, ?, ?)
-          ON CONFLICT(key) DO UPDATE SET value = excluded.value,
-                                          updated_at = excluded.updated_at`,
-    args: [key, value, now],
-  });
-}
-
-export async function getScrapeState(key: string): Promise<string | null> {
-  const db = getTursoClient();
-  if (!db) return null;
-  const r = await db.execute({
-    sql: "SELECT value FROM scrape_state WHERE key = ?",
-    args: [key],
-  });
-  return r.rows[0] ? String((r.rows[0] as any).value) : null;
-}

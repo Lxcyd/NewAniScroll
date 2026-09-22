@@ -228,17 +228,6 @@ export function getAnimeProgress(
   return out;
 }
 
-/** Drop the saved point for an episode (e.g. on an explicit "watch from start"). */
-export function clearProgress(
-  aniId: number | string,
-  episode: number | string,
-): void {
-  if (aniId == null || episode == null) return;
-  const map = readMap();
-  delete map[progressKey(aniId, episode)];
-  writeMap(map);
-}
-
 /** Wipe ALL local watch history. Used by the "Clear watch history" settings
  *  action. Clears both the resume-position map (`aniscroll:progress`) AND the
  *  watch-history store the "recently watched" page reads (`artplayer_settings`,

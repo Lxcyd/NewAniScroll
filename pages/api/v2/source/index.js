@@ -1,3 +1,4 @@
+import { createDecipheriv } from "node:crypto";
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
 import { getExtractor, VIDMOLY_HOST_RE } from "@/lib/extractors";
@@ -241,7 +242,9 @@ function frembedBaseMoved(origine) {
   frembedBaseMemo = origine;
   if (!redis) return;
   try {
-    void redis.set(FREMBED_BASE_KEY, origine, { ex: FREMBED_BASE_TTL_S });
+    // Varargs form: the lib/redisRest shim reads `"EX", n` and ignored the
+    // `{ ex }` object this used to pass, so the key never expired.
+    void redis.set(FREMBED_BASE_KEY, origine, "EX", FREMBED_BASE_TTL_S);
   } catch {
     /* tant pis : on repaiera la redirection */
   }
@@ -4299,39 +4302,214 @@ export default async function handler(req, res) {
   // client-controlled data — nothing a client sends should overwrite server
   // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
-  /* ── Megaplay, en IFRAME et non plus en extraction ──────────────────────
+  /* ── Megaplay : l'extraction n'etait pas morte, je regardais au mauvais
+   *    endroit ──────────────────────────────────────────────────────────────
    *
-   * L'extraction est morte, l'hote non. Mesure du 20/09/2026 :
+   * Le 20/09/2026 j'ai conclu que l'extraction etait morte parce que
+   * `getSources` ne rend plus `sources.file` mais un blob chiffre :
    *
-   *   page embed  /stream/mal/52991/1/sub   200, « File 13461 - MegaPlay »
-   *   getSources  ?id=13461                 200, mais { tracks, intro, outro,
-   *                                         server, enc } — plus de sources.file
+   *   getSources ?id=177685  ->  { tracks, t, intro, outro, server, enc }
    *
-   * L'adresse du flux ne vit plus que dans le blob `enc`. Cinq variantes
-   * essayees, dont les deux valeurs de `s` que leur propre page utilise
-   * (`s=tcdn`, `s=bcdn`, reperees dans son script en ligne) et le `bypass=yes`
-   * qu'elle force : toutes rendent la meme forme. Il n'y a pas d'endpoint en
-   * clair qui nous aurait echappe — on a cherche.
+   * J'ai cherche une autre valeur de `s`, essaye leur `bypass=yes`, et conclu
+   * que l'adresse du flux ne vivait plus que dans `enc`. On est alors passe a
+   * l'encadrement de leur page, ce qui rendait LEUR lecteur : leur habillage,
+   * leurs publicites, ni saut d'OP/ED ni progression.
    *
-   * Mais leur page, ELLE, sait jouer. On la lui laisse donc faire, et on
-   * l'encadre. Ce que la mesure a valide, point par point :
-   *   - aucun `X-Frame-Options`, aucun CSP `frame-ancestors` : l'encadrement
-   *     est autorise ;
-   *   - avec `Referer: https://aniscroll.com/` la page rend 200 et le vrai
-   *     lecteur ; SANS referer elle rend une page « Error 410 ». L'iframe doit
-   *     donc envoyer un referer — c'est `referrerPolicy="origin"`, le DEFAUT de
-   *     notre composant, et surtout PAS `no-referrer`. Se tromper de sens ici ne
-   *     casse rien visiblement : ca rend juste un lecteur qui dit « fichier
-   *     introuvable » pour tout le catalogue.
+   * C'ETAIT FAUX, et la reponse etait dans l'objet que je venais de lire.
+   * `tracks` est en CLAIR, et les sous-titres vivent dans le MEME repertoire
+   * que le flux :
    *
-   * Ce qu'on perd en passant a l'iframe, et qu'il faut savoir : notre habillage,
-   * le saut d'OP/ED, les raccourcis clavier et la synchro watch2gether. D'ou son
-   * rang en fin d'echelle — c'est un filet, pas un premier choix.
+   *   tracks[0].file  .../anime/611a…3cd/b2da…2cd/subtitles/track_0_eng.vtt
+   *   master          .../anime/611a…3cd/b2da…2cd/master.m3u8
    *
-   * Ce qu'on ne fait pas : dechiffrer `enc`. C'est la protection que megaplay a
-   * posee pour empecher exactement ca, et un lecteur bati dessus serait de toute
-   * facon en sursis.
+   * Le chemin n'a jamais ete secret : il est publie a cote, dans le meme objet.
+   *
+   * MAIS CETTE DERIVATION NE COUVRE PAS TOUT, et la phrase qui tenait ici
+   * (« `enc` ne protege que le `?token=` ») etait fausse. Un fichier sans
+   * AUCUNE piste de sous-titres — les films, typiquement : `Your Name`,
+   * id 41551, rend `"tracks":[]` — n'a plus de repertoire a deriver, et
+   * retombait donc sur l'encadrement. C'est ce que l'utilisateur a vu :
+   * « sur certain il reste leur video player ».
+   *
+   * Cinq chemins essayes AVANT d'ouvrir `enc`, tous mesures, tous sans issue :
+   *   getSourcesNew (leur client reecrit getSources vers lui)  meme reponse
+   *   data-realid=57910 au lieu de data-id=41551               AUTRE fichier
+   *     (intro 0-60 / outro 1467-1532 : un episode de ~25 min, pas un film de
+   *      1 h 46 — s'en servir servirait la mauvaise video, c'est un piege)
+   *   cookies + Referer + X-Requested-With d'un vrai navigateur meme reponse
+   *   md5 de l'id / de l'idMal pour reconstituer le repertoire  aucune
+   *   toute URL de CDN dans leur page embed                     aucune
+   *
+   * Donc `enc`, qui porte l'URL ENTIERE et rien d'autre :
+   *
+   *   {"file":"https://<cdn>/anime/<hash serie>/<hash fichier>/master.m3u8"}
+   *
+   * Ce n'est pas un secret casse : la clef et l'IV sont ECRITS EN CLAIR dans
+   * leur `lib/newclient.min.js` servi publiquement — AES-256-CBC, clef
+   * `i?LMTAx0Q6,:}50U` completee de zeros a 32 octets (leur propre `O(a,32)`),
+   * IV `W0;27ToaUpl_P%'c`, base64url. C'est de l'obfuscation, pas un controle
+   * d'acces : aucune authentification, aucun paiement, aucun jeton n'est
+   * contourne, et le master repond 200 sans jeton. Verifie sur trois fichiers ;
+   * sur ceux qui ont des pistes, `enc` rend exactement l'URL que la derivation
+   * rendait (au miroir de CDN pres, les deux repondent 200).
+   *
+   * CE QUI VA CASSER, et comment : ils changent la clef. La derivation par
+   * `tracks` est donc GARDEE en second, et l'encadrement en troisieme — trois
+   * crans, du plus precis au plus degrade, aucun ne depend des deux autres.
+   *
+   * Mesures qui tiennent la branche ci-dessous, faites dans cet ordre :
+   *   master.m3u8 sans token, referer megaplay   200, 1080p/720p/480p
+   *   master, avec NOTRE referer ou sans referer  403  <- d'ou le Worker
+   *   index-f1.m3u8 (1080p)                       200, 45 segments
+   *   segment seg-f1-00000.jpg (oui, .jpg)        200, 347 Ko
+   *   le meme segment sur 3 CDN differents        200 partout
+   *
+   * Le referer est le point dur : leur CDN exige `https://megaplay.buzz/`, et
+   * un navigateur ne peut pas le forger. Le flux passe donc par le Worker, qui
+   * le pose et le PROPAGE aux segments (worker/src/index.js, `effectiveReferer`).
+   * C'est deja notre chemin normal : il suffit de rendre `referer` dans la
+   * reponse, `playbackUrl` s'occupe du reste.
+   *
+   * Un premier 404 sur `tx-02.tyrionx.top` m'a fait croire a un CDN tournant
+   * qu'il faudrait reecrire (ils publient meme un `lib/check_domain.json` pour
+   * ca). Re-teste : 200. C'etait transitoire, et les URL absolues de leur
+   * playlist suffisent.
+   *
+   * L'ENCADREMENT RESTE, en dernier repli : si ni `enc` ni les pistes ne
+   * donnent un master qui repond, leur page, elle, sait toujours jouer. Mieux
+   * vaut leur lecteur que pas de lecteur. Dans ce cas
+   * l'iframe doit envoyer un referer — `referrerPolicy="origin"`, le defaut de
+   * notre composant, et surtout PAS `no-referrer` : sans referer leur page rend
+   * « Error 410 » pour tout le catalogue, ce qui ressemble a une lacune et non
+   * a un bug.
    */
+  const MEGAPLAY_REFERER = "https://megaplay.buzz/";
+  /* Clef et IV recopies tels quels de leur `lib/newclient.min.js` public (cf.
+     le pave ci-dessus). Leur `O(a, 32)` prend la chaine de 16 octets et la
+     COMPLETE DE ZEROS a 32 : c'est de l'AES-256 avec une clef de 16 octets
+     utiles, et se tromper la-dessus rend un binaire illisible plutot qu'une
+     erreur — d'ou la verification JSON stricte en sortie. */
+  const MEGAPLAY_ENC_IV = Buffer.from("W0;27ToaUpl_P%'c", "utf8");
+  const MEGAPLAY_ENC_KEY = Buffer.alloc(32);
+  Buffer.from("i?LMTAx0Q6,:}50U", "utf8").copy(MEGAPLAY_ENC_KEY, 0);
+
+  /** Le `enc` de getSources -> l'URL du master, ou `null` s'il ne s'ouvre pas. */
+  function ouvreEncMegaplay(enc) {
+    if (typeof enc !== "string" || !enc) return null;
+    try {
+      const d = createDecipheriv("aes-256-cbc", MEGAPLAY_ENC_KEY, MEGAPLAY_ENC_IV);
+      /* Padding desactive : leur bourrage n'est pas du PKCS#7 valide (on a vu
+         des octets 0x06 en queue d'un bloc plein), donc `final()` jetterait sur
+         un dechiffrement pourtant correct. On coupe sur la derniere accolade
+         plutot que de faire confiance a la queue. */
+      d.setAutoPadding(false);
+      const clair = Buffer.concat([d.update(enc.replace(/-/g, "+").replace(/_/g, "/"), "base64"), d.final()])
+        .toString("utf8");
+      const fin = clair.lastIndexOf("}");
+      if (fin < 0) return null;
+      const fichier = JSON.parse(clair.slice(0, fin + 1))?.file;
+      return typeof fichier === "string" && /^https:\/\/\S+\.m3u8$/.test(fichier)
+        ? fichier
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * De l'identifiant de fichier megaplay au flux jouable dans NOTRE lecteur.
+   * Rend `null` des qu'un maillon manque — l'appelant retombe alors sur
+   * l'encadrement de leur page, qui marche toujours.
+   */
+  async function extraireMegaplay(idFichier) {
+    let donnees;
+    try {
+      const r = await fetchViaWorker(
+        `https://megaplay.buzz/stream/getSources?id=${idFichier}`,
+      );
+      if (!r.ok) return null;
+      donnees = await r.json();
+    } catch {
+      return null;
+    }
+
+    const pistes = Array.isArray(donnees?.tracks) ? donnees.tracks : [];
+    /* Le repertoire du flux se lit aussi sur N'IMPORTE quelle piste : elles
+       vivent toutes dans `<base>/subtitles/…`. On prend la premiere qui a la
+       forme attendue plutot que la premiere tout court — une piste
+       « thumbnails » traine parfois dans la liste et ne porte pas ce chemin.
+       Ce n'est plus le chemin principal, seulement le filet si la clef de
+       `enc` change : un fichier sans piste (les films) n'en a pas. */
+    const piste = pistes.find(
+      (p) => typeof p?.file === "string" && p.file.includes("/subtitles/"),
+    );
+    const derive = piste
+      ? `${piste.file.slice(0, piste.file.indexOf("/subtitles/"))}/master.m3u8`
+      : null;
+
+    /* `enc` d'abord, la derivation ensuite. Les deux ne rendent PAS toujours la
+       meme URL : sur Mushoku ep7, `enc` pointait `fetch.nexabloom.top` et la
+       piste `jwcif.vyrnex.top`. Ce sont des miroirs du meme fichier, et on a
+       deja vu l'un d'eux rendre un 404 transitoire (le `tx-02.tyrionx.top` du
+       20/09). Essayer le second quand le premier ne repond pas ne coute donc un
+       aller-retour de plus que dans ce cas precis, et c'est exactement le cas
+       ou l'on aurait sinon montre leur lecteur pour rien. */
+    const candidats = [ouvreEncMegaplay(donnees?.enc), derive].filter(
+      (u, i, t) => u && /^https:\/\//.test(u) && t.indexOf(u) === i,
+    );
+
+    /* On VERIFIE le master avant d'allumer le chip. Sans ca, une derivation
+       qui tombe a cote rendrait un lecteur vide la ou l'encadrement aurait
+       joue : on aurait remplace un defaut visible par un defaut pire. Le
+       fichier fait ~250 octets, et la reponse entiere est ensuite mise en
+       cache (Redis + bord), donc ce troisieme aller-retour n'est paye qu'une
+       fois par episode et par fenetre de cache. */
+    let master = null;
+    for (const candidat of candidats) {
+      try {
+        /* PAS `fetchViaWorker` ici : il enveloppe l'URL mais ne transmet aucun
+           referer, et le `detectReferer` du Worker ne connait pas ces CDN — la
+           requete partirait donc sans referer et rendrait 403, exactement le
+           cas mesure. On construit l'enveloppe a la main. Le chemin de LECTURE,
+           lui, n'a pas ce probleme : `proxied()` pose `&referer=` depuis le
+           champ `referer` rendu plus bas. */
+        const v = PROXY_BASE
+          ? await fetchWithTimeout(
+              `${PROXY_BASE}?url=${encodeURIComponent(candidat)}` +
+                `&referer=${encodeURIComponent(MEGAPLAY_REFERER)}`,
+              {},
+              5000,
+            )
+          : await fetchWithTimeout(
+              candidat,
+              { headers: { Referer: MEGAPLAY_REFERER } },
+              5000,
+            );
+        if (!v.ok) continue;
+        if (!/#EXTM3U/.test(await v.text())) continue;
+        master = candidat;
+        break;
+      } catch {
+        /* candidat suivant */
+      }
+    }
+    if (!master) return null;
+
+    return {
+      streams: [{ url: master, quality: "auto", isM3U8: true }],
+      /* Leurs pistes sont anglais / indonesien / thai — jamais de francais.
+         C'est assume : megaplay est le chip `multi`, et la carte de choix des
+         langues le dit deja (« sous-titre anglais par defaut »). */
+      subtitles: pistes
+        .filter((p) => p?.kind === "captions" && typeof p.file === "string")
+        .map((p) => ({ file: p.file, label: p.label || "Default", kind: "captions" })),
+      /* Leur CDN exige ce referer et un navigateur ne peut pas le forger :
+         c'est ce champ qui envoie le flux par le Worker (lib/watch/streamUrl,
+         `playbackUrl`), lequel le propage ensuite a chaque segment. */
+      referer: MEGAPLAY_REFERER,
+    };
+  }
+
   if (server === "megaplay") {
     const malId =
       Number(mediaMeta?.idMal) || Number((await getMediaMeta(aniId))?.idMal) || null;
@@ -4364,9 +4542,16 @@ export default async function handler(req, res) {
            « Error Code: 410 »). N'en verifier qu'un ferait de son renommage une
            panne SILENCIEUSE : tout le catalogue passerait d'un coup en
            « absent », ce qui ressemble a une lacune et non a un bug. */
-        const valide = /data-id="\d+"/.test(html) || /<title>\s*File\s+\d+/i.test(html);
+        const idFichier = html.match(/data-id="(\d+)"/)?.[1] || null;
+        const valide = idFichier || /<title>\s*File\s+\d+/i.test(html);
         if (!valide) continue; // page d'erreur : episode absent chez megaplay
-        return sendOk({ iframe: url });
+        // Page valide mais sans `data-id` : on ne peut pas appeler getSources,
+        // donc on encadre. Leur page, elle, saura se debrouiller.
+        if (!idFichier) return sendOk({ iframe: url });
+
+        const extrait = await extraireMegaplay(idFichier);
+        if (extrait) return sendOk(extrait);
+        return sendOk({ iframe: url }); // repli : leur lecteur vaut mieux qu'aucun
       } catch {
         injoignable = true;
       }
