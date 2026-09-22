@@ -6,6 +6,41 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 (soir) — Synchro du socle : le conflit qui emporte un voisin
+
+Deuxième synchro de `release/socle` dans la journée (PR #20), arrêtée
+volontairement à `c1b2897a` — le dernier commit `perf` — pour laisser sur `dev`
+un correctif pas encore vu à l'œil. **`SOCLE_SOURCE` accepte un commit** : c'est
+la façon de borner une release dans le temps sans retomber sur la cueillette de
+commits que `socle.mjs` existe pour interdire.
+
+Déroulé conforme à la méthode : `--appliquer` (251 fichiers portés, 8
+supprimés), `--frontiere` rend les **10 franchissements connus sur les 6 points
+de divergence**, restaurés depuis `release/socle`, puis report à la main des
+commits `dev` qui ont touché ces 6 fichiers depuis la synchro précédente — un
+seul, `87ce134b`, sur `pages/_app.tsx`.
+
+**Le piège, nouveau et à retenir.** Le `git apply --3way` a conflité sur
+`CloudSyncBootstrap` (profil, donc tranché côté socle : on l'écarte). Mais la
+région de conflit ne contenait pas que lui : elle emportait la définition de
+`HoverPreviewGate`, ajoutée par le même commit juste au-dessus. Résoudre « côté
+nous » jetait donc la définition — pendant que l'**appel**, lui, arrivait par un
+hunk voisin appliqué proprement. La branche référençait un composant inexistant.
+
+`tsc` l'attrape, et c'est pourquoi la règle « toujours builder la branche de
+sortie » n'est pas une formalité. Mais la leçon est plus étroite : **la région
+d'un conflit n'est pas le périmètre de la décision.** Résoudre un conflit
+« profil vs socle » demande de relire ce qui a été jeté *avec* le bloc écarté,
+pas seulement de choisir un côté. Le cas se reproduira à chaque synchro touchant
+ces 6 fichiers.
+
+Vérifié avant push : `imports-nommes.mjs` (466 fichiers, aucun orphelin),
+`tsc --noEmit`, `next build`.
+
+**Signalé, non tranché** : `tools/vercel/comptes.json` entre dans le socle
+(commit `a7e7bad2`) et part donc en prod. C'est de l'outillage du compte dev, la
+soustraction ne l'exclut pas — candidat à `HORS_SUJET`.
+
 ## 2026-09-22 — Fluid CPU : `/api/v2/source` est la moitié du poste
 
 Enfin des chiffres, et ils viennent du dashboard (l'API `observability/query`

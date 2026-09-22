@@ -6,6 +6,66 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — L'instantané de disponibilité ÉLISAIT le lecteur au lieu d'écarter
+
+Signalé ainsi : « sur One Piece ep 1, on a choisi sibnet de base au lieu
+d'utiliser frembed ou même ansembed qui ont chargé après ». Sibnet est **rang
+4**, frembed **rang 1**, ansembed **rang 2**, et les trois servent la série.
+
+**Deux symptômes, une seule cause.** L'ordre d'ouverture et l'apparition tardive
+des chips venaient du même endroit — `/api/v2/availability`, l'instantané par
+épisode (18 h de TTL depuis le 22/09).
+
+La page info construit sa liste de candidats en filtrant par cet instantané
+(`resolveWatchCandidates`, `pages/en/anime/[...id].tsx`), puis `warmChain`
+prouve le n°1 jouable et `setVerifiedServer` le marque ; la page de lecture
+ouvre d'emblée un candidat `verifie`. Or elle lisait `ok` comme une **liste
+blanche** : le n°1 était le mieux classé *parmi ceux que l'instantané
+confirmait*. Comme `warmChain` s'arrête au premier succès, un hôte lent mais
+connu battait définitivement des hôtes mieux classés que **personne n'avait
+essayés**.
+
+Et côté page de lecture, un hôte hors instantané ne peut pas avoir de chip vert
+au premier rendu : il attend le fan-out de sondes, volontairement retardé
+jusqu'à la première image + `PROBE_START_DELAY_MS`. D'où « ils ont chargé
+après » — c'est le comportement voulu, pas un second bug.
+
+**Le correctif** : lire `absent`, pas `ok`. C'est l'autre moitié de l'instantané
+et elle porte, elle, un vrai verdict. Les hôtes prouvés sans source pour cet
+épisode sont écartés des candidats, le classement décide du reste. Les deux
+appels à `pickServerForLangs` deviennent un seul — le second n'était que le
+repli pour liste blanche épuisée.
+
+**Ce que `ok` est, et n'est pas.** « Ceux-ci marchent », jamais « les autres,
+non ». Un instantané ne contient que ce qu'un visiteur précédent a eu le temps
+de sonder ; le traiter comme exhaustif, c'est laisser une connaissance partielle
+gouverner un classement. La règle qui en sort : **un cache de verdicts positifs
+peut écarter, il ne peut pas élire.**
+
+**Le garde-fou qu'on croyait tenir par `confirmed` tenait déjà ailleurs.** Le
+commentaire d'origine justifiait la liste blanche par « un utilisateur qui
+classe la VF en n°1 ferait préchauffer un hôte VF sur une série qui n'en a
+pas ». C'est faux : ce cas est couvert par `deprioriser: sansVf` (MyDubList, via
+`vfPossible`), qui ne dépend pas de l'instantané. La liste blanche ne protégeait
+rien que le reste ne protégeait déjà.
+
+**Les deux autres `confirmed:` du code sont légitimes** — vérifié, pas supposé.
+Le filet de sécurité après échec du lecteur actif, et la bascule immédiate au
+choix d'un ordre de langues : ce sont des décisions **en direct**, prises avec
+les verdicts de sondes en main, où « connu bon » est le bon critère. Ce qui
+était fautif, c'est le **pari à froid**, pris avant que rien n'ait été sondé.
+
+**Fausse piste, à ne pas rejouer.** Le `sub=sub` en dur du GET de la page info
+ressemble à un bug de langue : il n'en est pas un. `sub` est le drapeau
+`?dub=true` du lien, pas la langue — VF et VO sont portés par des **ids de
+serveurs distincts** (`animesama-sibnet` / `animesama-sibnet-vo`), et les liens
+« Regarder » ne posent jamais `dub`.
+
+**Laissé en place, volontairement** : `getAnimeHost` reste candidat n°1, avant
+le classement. C'est la même forme (un souvenir lent devant un rapide jamais
+essayé), mais c'est un arbitrage assumé — éviter de rejouer la même bascule
+ratée à chaque visite — et il se périme seul en un mois.
+
 ## 2026-09-21 — La video ne se rechargeait pas au reveil du PC
 
 Signale ainsi : « quand on recharge une page apres longtemps, par exemple apres
