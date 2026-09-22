@@ -2,7 +2,7 @@ import { useSearch } from "@/lib/context/isOpenState";
 import { getCurrentSeason } from "@/utils/getTimes";
 import { ArrowUpCircleIcon } from "@heroicons/react/20/solid";
 import { UserIcon } from "@heroicons/react/24/solid";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
@@ -27,6 +27,11 @@ import { useTranslation } from "react-i18next";
    and the button actually appeared after ONE pixel of scroll, not 180. */
 const TOP_BUTTON_AT = 180;
 
+/* The sign-in modal is a whole form + its validation: loaded only when a
+   signed-out visitor actually asks for it, never on first paint. */
+const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), {
+  ssr: false,
+});
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -70,12 +75,12 @@ export function Navbar({
   const { t } = useTranslation();
   const [scrolled, setScrolled] = useState(false);
   const [pastTopButton, setPastTopButton] = useState(false);
-  /* Sur `dev`, ces deux entrees ouvrent le formulaire de compte AniScroll
-     (`components/auth/AuthModal`). Le socle n'emporte pas les comptes maison,
-     donc on se connecte par AniList — exactement ce que fait la prod
-     d'aujourd'hui. Point de divergence volontaire, cf. tools/release/socle.mjs. */
-  const openAuth = (_view: "signin" | "signup") => {
-    signIn("AniListProvider");
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authView, setAuthView] = useState<"signin" | "signup">("signin");
+
+  const openAuth = (view: "signin" | "signup") => {
+    setAuthView(view);
+    setAuthOpen(true);
   };
 
   /* An AniScroll-only account has no AniList avatar: the picture falls back to
@@ -417,9 +422,16 @@ export function Navbar({
                       >
                         {t("nav.signIn")}
                       </button>
-                      {/* Le bouton « Creer un compte » vit sur `dev` : sans les
-                          comptes maison il n'y a rien a creer, et il n'aurait
-                          mene qu'a la meme connexion AniList que ci-dessus. */}
+                      {/* Signing up is a different intention from signing in,
+                          and a visitor with no account should not have to
+                          guess that it hides behind "Connexion". */}
+                      <button
+                        type="button"
+                        onClick={() => openAuth("signup")}
+                        className="hover:text-action py-1"
+                      >
+                        {t("auth.createAccount")}
+                      </button>
                       <Link href="/en/my-list" className="hover:text-action py-1">
                         {t("nav.myList")}
                       </Link>
@@ -438,6 +450,11 @@ export function Navbar({
           </div>
         </div>
       </nav>
+      <AuthModal
+        open={authOpen}
+        initialView={authView}
+        onClose={() => setAuthOpen(false)}
+      />
       {toTop && (
         <button
           type="button"

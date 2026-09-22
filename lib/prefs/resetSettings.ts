@@ -16,6 +16,7 @@
 
 import { clearServerPerf } from "@/lib/watch/serverPerf";
 import { clearAllProgress } from "@/lib/watch/progress";
+import { pushKinds } from "@/lib/list/cloudSync";
 
 const KEEP = new Set(["aniscroll:localList"]);
 const EXTRA_KEYS = [
@@ -71,8 +72,8 @@ export async function restoreDefaultSettings(): Promise<void> {
      `{}` est une VALEUR : elle se pousse comme une autre, la copie du compte
      devient vide a son tour, et les lecteurs ne voient pas la difference. */
   clearAllProgress();
-  /* Sur `dev`, un `pushKinds(["progress", "recent"])` propage l'effacement a la
-     copie du compte AniScroll. Le socle n'a pas ce compte (cf.
-     tools/release/socle.mjs), donc l'effacement est purement local — ce qui
-     est exactement le comportement de la prod d'aujourd'hui. */
+  /* Sans compte, l'endpoint repond 401 et c'est un non-evenement. On ne
+     l'attend pas : la page recharge juste apres, et `pushKinds` est deja
+     parti. */
+  await pushKinds(["progress", "recent"]).catch(() => {});
 }

@@ -77,10 +77,10 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 46 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
-| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 16 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
 ## Index des entrees
@@ -123,6 +123,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-09-22 — **Un cache de verdicts positifs peut écarter, il ne peut pas élire** : la page info lisait le `ok` de l'instantané de disponibilité comme une liste blanche, donc élisait un hôte lent mais connu (sibnet, rang 4 sur One Piece ep 1) devant des mieux classés que personne n'avait essayés — `warmChain` s'arrêtant au premier succès, rien ne rattrapait ; on lit désormais `absent`. Les chips tardifs de frembed/ansembed sont le comportement voulu (sondes différées), pas un second bug. `sub=sub` est le drapeau `?dub=`, PAS la langue (fausse piste) ; les deux autres `confirmed:` restent légitimes — décision en direct, pas pari à froid
 - 2026-09-20 (soir, 3) — **`verified` voulait dire deux choses** : 2 246 lignes `player_map` étaient *semées* depuis un audit figé, 3 seulement *contrôlées*, et le chemin de lecture honore `verified` sans garde de version → une ligne fausse d'algo 0 masquait un résolveur qui avait raison ; le vérificateur n'écrivait jamais `algo_version` (prérequis) ; `slugTitleConfidence` divisait par `min(slugLen, titleLen)`, donc un synonyme d'un mot (« JOKER ») certifiait `joker-game` à 1,00 — 6 496 lignes sur 6 962 affichaient 1,00 ; MyDubList branché comme juge EXTERIEUR (97,8 % de concordance, 12 désaccords = 12 vraies erreurs) et comme filtre VF côté navigateur (rétrogradation, jamais exclusion) ; incohérence de saison = preuve, donc rétrogradation immédiate ; **segments par le Worker mesurés puis abandonnés (amont 403, jeton lié à l'IP)**, mais le CDN autorise 100 jours de cache navigateur → préchauffage au survol rouvert aux flux directs
 - 2026-09-20 (nuit) — ansembed passe devant voiranime : `speed` égal ne se départage PAS par l'ordre de déclaration (l'agrégat mesuré tranchait, 19,3 vs 19,6), rangs désormais sans ex aequo ; sonde de liveness (HEAD 3 s) réservée aux sondes de fond via `probe=1` ; le script du `<head>` ne s'abstient plus sous ordre de langues (cache de la SORTIE de la règle, `earlyPick`) ; relance de l'extraction ansembed ; **montage du lecteur mesuré à 1 ms → changement abandonné**
 - 2026-09-20 (soir, 2) — `ReferenceError: SERVERS is not defined` : variable libre qu'aucun garde ne pouvait voir (JS, donc pas `tsc` ; valide, donc pas le build) → `no-undef` activé sur le JS ; le préfixe `/fr` ne couvrait pas `/_next/data/`, donc 404 → `_error` sur toute page SSR en français ; `megaplay` encore écrit en dur dans 7 fichiers de liens
@@ -223,6 +224,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-22 (soir) — Synchro du socle bornée par `SOCLE_SOURCE=<commit>` (PR #20) : **la région d'un conflit n'est pas le périmètre de la décision** — résoudre « profil vs socle » sur `_app.tsx` a jeté la définition de `HoverPreviewGate` avec le bloc écarté, pendant que son appel passait par un hunk voisin ; `tsc`/build sont ce qui l'attrape
 - 2026-09-22 (suite 2) — **Fluid CPU mesuré** (dev, 12 h : 13 K invocations, 6 min CPU) : `/api/v2/source` = la moitié du CPU et ~5 appels par page de lecture ; `probe=1` dédoublait le cache d'edge pour des réponses devenues identiques ; instantané de disponibilité 6 h → 18 h
 
 - 2026-09-22 (suite) — Précache SW 249 → 131 fichiers (6,05 → 3,08 Mo) : polices, hls.js, Ably, pages admin et 404.svg en dehors ; piège de workbox 6.6 (la 1re fonction d'`exclude` court-circuite celle de next-pwa) ; **mesure impossible ailleurs** : logs Hobby = 1 h, `observability/query` = 402 (Pro), pas d'accès Upstash en local

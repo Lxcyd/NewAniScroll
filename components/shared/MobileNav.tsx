@@ -8,7 +8,7 @@ import { UserIcon } from "@heroicons/react/24/solid";
 import { pickAvatar } from "@/lib/auth/avatar";
 import { useSearch } from "@/lib/context/isOpenState";
 import { profileHref } from "@/lib/profile/href";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
@@ -19,14 +19,16 @@ type MobileNavProps = {
   hideProfile?: boolean;
 };
 
+/* Same as the desktop nav: the form only loads when someone asks to sign in. */
+const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), {
+  ssr: false,
+});
 
 export default function MobileNav({ hideProfile = false }: MobileNavProps) {
   const { data: sessions }: { data: any } = useSession();
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
-  /* Cf. NavBar : sans les comptes maison, la connexion passe par AniList,
-     comme en prod. Point de divergence volontaire du socle. */
-  const setAuthOpen = (_: boolean) => signIn("AniListProvider");
+  const [authOpen, setAuthOpen] = useState(false);
 
   /* La palette de recherche. Sur ordinateur elle s'ouvre au Ctrl+S ou par la
      barre du haut ; sur téléphone il n'y avait AUCUN moyen de l'atteindre —
@@ -255,6 +257,7 @@ export default function MobileNav({ hideProfile = false }: MobileNavProps) {
           </div>
         )}
       </div>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </>
   );
 }

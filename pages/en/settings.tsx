@@ -42,6 +42,7 @@ import {
   dumpServerPerf,
 } from "@/lib/watch/serverPerf";
 import { clearAllProgress } from "@/lib/watch/progress";
+import { pushKinds } from "@/lib/list/cloudSync";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
 import {
@@ -74,6 +75,7 @@ import {
   WrenchScrewdriverIcon,
   UserCircleIcon,
 } from "@heroicons/react/24/outline";
+import AccountSection from "@/components/auth/AccountSection";
 import ColorPicker from "@/components/shared/ColorPicker";
 import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import { useSession, signIn, signOut } from "next-auth/react";
@@ -501,9 +503,12 @@ export default function Settings() {
   const [confirmReset, setConfirmReset] = useState(false);
   const handleClearHistory = () => {
     clearAllProgress();
-    // Sur `dev`, un `pushKinds(["progress", "recent"])` propage l'effacement a
-    // la copie du compte AniScroll. Le socle n'emporte pas ce compte : ici
-    // l'effacement est purement local, comme en prod aujourd'hui.
+    // Push the erasure to the account NOW. cloudSync only listens for playback
+    // ticks, so nothing would have marked these two categories dirty, and the
+    // 5 s debounce is not something a destructive action should depend on
+    // anyway — the visitor may well close the tab on the confirmation toast.
+    // Signed out, the endpoint answers 401 and this is a no-op.
+    void pushKinds(["progress", "recent"]);
     setConfirmClearHistory(false);
     notify.success(t("settings.advanced.clearHistoryDone"));
   };
@@ -764,8 +769,8 @@ export default function Settings() {
           </p>
 
           <div className="divide-y divide-white/10">
-          {/* La section « Compte » (identite d'invite + compte AniScroll) vit
-              sur `dev`. Hors du socle, cf. tools/release/socle.mjs. */}
+          {/* ── Account (guest identity, or the AniScroll account) ─ */}
+          <AccountSection />
 
           {/* ── Language (anime titles + interface) ──────────────── */}
           <section id="language" className="pb-10 scroll-mt-24">

@@ -187,6 +187,18 @@ function SyncBootstrap() {
 }
 
 /**
+ * Cloud backup bootstrap, for an AniScroll account (session.user.uid).
+ *
+ * Kept apart from SyncBootstrap on purpose: that one negotiates with AniList,
+ * this one only mirrors the device's own stores to our database. A visitor can
+ * have either, both, or neither.
+ *
+ * On the first authenticated render it pulls, applies what is unambiguous, and
+ * only opens the merge modal for the categories that moved on both sides. Then
+ * it subscribes to the stores for the rest of the session.
+ */
+
+/**
  * Même idée pour l'aperçu au survol : le provider se désactive lui-même hors
  * d'un vrai pointeur (HoverPreviewProvider, `(hover: hover) and (pointer:
  * fine)`), mais son chunk (~40 Ko gz : carte, TrailerStage, icônes) partait
@@ -205,6 +217,95 @@ function HoverPreviewGate() {
     return () => mq.removeEventListener?.("change", apply);
   }, []);
   return pointer ? <HoverPreviewProvider /> : null;
+}
+
+function CloudSyncBootstrap() {
+  const { data: session, status } = useSession();
+  const { t } = useTranslation();
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const uid = (session as any)?.user?.uid as string | undefined;
+  /* An AniList-linked account already gets the direction chooser
+     (SyncDirectionModal) on connect, which asks the very same question with more
+     options. Showing this warning on top of it means two modals for one
+     decision, so the plain "replace this browser?" prompt is reserved for the
+     AniScroll-account-only case. */
+  const hasAniList = !!(session as any)?.user?.token;
+  /* Declining is remembered for the tab, otherwise the warning would come
+     back on every single navigation until the divergence is resolved. */
+  const DECLINED = "aniscroll:cloudReplaceDeclined";
+
+  useEffect(() => {
+    if (status === "loading") return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      // Loaded lazily: a signed-out visitor never pays for this chunk.
+      const cloud = await import("@/lib/list/cloudSync");
+      if (!uid) {
+        cloud.forget();
+        return;
+      }
+      try {
+        const result = await cloud.pullAll();
+        if (cancelled) return;
+        let declined = false;
+        try {
+          declined = sessionStorage.getItem(DECLINED) === "1";
+        } catch {
+          /* private mode — just ask again */
+        }
+        if (result.conflicts.length && !declined && !hasAniList)
+          setConflicts(result.conflicts);
+      } catch {
+        // A failed pull must not stop the pushes: the device stays the source
+        // of truth and will re-pull on the next load.
+      }
+      if (!cancelled) stop = cloud.start();
+    })();
+
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [uid, status, hasAniList]);
+
+  const replaceWithAccount = async () => {
+    setBusy(true);
+    try {
+      const cloud = await import("@/lib/list/cloudSync");
+      await cloud.pullAll({ force: true });
+      // Wholesale replacement: reload rather than try to refresh every screen
+      // in place. Same gesture as "restore defaults" in the settings.
+      window.location.reload();
+    } finally {
+      setBusy(false);
+      setConflicts([]);
+    }
+  };
+
+  const decline = () => {
+    try {
+      sessionStorage.setItem(DECLINED, "1");
+    } catch {
+      /* best-effort */
+    }
+    setConflicts([]);
+  };
+
+  return (
+    <DangerConfirmModal
+      open={conflicts.length > 0 && !hasAniList}
+      title={t("auth.cloudReplace.title")}
+      body={t("auth.cloudReplace.body")}
+      confirmLabel={t("auth.cloudReplace.confirm")}
+      onConfirm={replaceWithAccount}
+      onCancel={decline}
+      busy={busy}
+    />
+  );
 }
 
 /**
@@ -555,11 +656,11 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
-                {/* `CloudSyncBootstrap`, `BadgesBootstrap` et `AchievementGate`
-                    vivent ici sur `dev`. Ils sont retires du socle : ils sont
-                    l'amorce du compte AniScroll et du moteur de badges, qui
-                    n'en font pas partie. C'est l'un des six points de
-                    divergence volontaire — cf. tools/release/socle.mjs. */}
+                <CloudSyncBootstrap />
+                {/* `BadgesBootstrap` et `AchievementGate` vivent sur `dev` :
+                    le socle n'emporte pas le moteur de badges ni son
+                    catalogue d'icones. Point de divergence volontaire, cf.
+                    tools/release/socle.mjs. */}
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}
