@@ -443,9 +443,14 @@ export default function Info({
       // la serie -> serveur epingle -> ordre des langues -> megaplay), plus un
       // raffinement qu'elle ne peut pas s'offrir : l'instantane de disponibilite
       // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit ce qui a
-      // reellement repondu pour cet episode. Sans lui, un utilisateur qui classe
-      // la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en a pas
-      // — le pire des deux mondes.
+      // reellement repondu pour cet episode.
+      /* Ce commentaire creditait l'instantane d'une garantie qu'il ne rendait
+         pas : « sans lui, un utilisateur qui classe la VF en n°1 ferait
+         prechauffer un hote VF sur une serie qui n'en a pas ». Ce cas-la est
+         tenu par `deprioriser: sansVf` (MyDubList, via `vfPossible`), qui ne
+         depend pas de l'instantane — il tenait donc deja sans lui. Corrige le
+         22/09/2026 en meme temps que la liste blanche ci-dessous, pour ne pas
+         laisser une raison morte justifier le code qui la remplace. */
       /* On en lit `absent`, PAS `ok` (22/09/2026).
          L'instantane servait de liste blanche : le candidat n°1 etait le
          meilleur hote PARMI ceux qu'il confirmait. Or il ne contient que ce
