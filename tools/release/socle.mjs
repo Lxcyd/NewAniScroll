@@ -63,15 +63,21 @@ const git = (...a) => execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 *
 const DEHORS = [
   /^components\/profile\//,
   /^components\/shared\/AchievementToast\./,
-  /* lib/badges : le MOTEUR et le catalogue restent dehors. Les trois
-     enregistreurs FEUILLES entrent — `facts` est un magasin de compteurs
-     bornes en localStorage, sans interface et sans dependance hors de
-     `localtime` ; `gestures` pose des ecouteurs. Treize fichiers ordinaires du
-     site les appellent (la recherche, l'editeur de liste, la page 404, le
-     lecteur). Les exclure imposerait treize retouches de sites d'appel, donc
-     treize points de conflit a chaque synchro, pour retirer du code qui
-     n'affiche rien. */
-  /^lib\/badges\/(?!facts\.|gestures\.|localtime\.)/,
+  /* lib/badges : le MOTEUR et le catalogue restent dehors. Les enregistreurs
+     FEUILLES entrent — `facts` est un magasin de compteurs bornes en
+     localStorage, sans interface et sans dependance hors de `localtime` ;
+     `gestures` pose des ecouteurs. Treize fichiers ordinaires du site les
+     appellent (la recherche, l'editeur de liste, la page 404, le lecteur).
+     Les exclure imposerait treize retouches de sites d'appel, donc treize
+     points de conflit a chaque synchro, pour retirer du code qui n'affiche
+     rien.
+     `store.` s'y ajoute le 22/09 avec les comptes : `lib/list/cloudSync.ts`
+     en tire `mergeIntoLocal` — par un chemin RELATIF (`../badges/store`), que
+     `--frontiere` ne voit pas puisqu'il ne suit que les imports en `@/`. Seul
+     `tsc` l'a dit. C'est un magasin de 176 lignes qui n'importe que React, et
+     sans lui la connexion ECRASERAIT les badges locaux au lieu de les
+     fusionner. */
+  /^lib\/badges\/(?!facts\.|gestures\.|localtime\.|store\.)/,
   /* `lib/auth/` en entier est ENTRE avec les comptes (22/09) : sessions, mots
      de passe et magasin d'utilisateurs sont precisement ce qui fait marcher
      `AuthModal`. La regle d'avant ne gardait que `avatar` et `isAdmin`. */
