@@ -4145,13 +4145,17 @@ export default async function handler(req, res) {
      the edge never claims "absent" longer than the server itself would. */
   const CACHE_FOUND = "public, s-maxage=300, stale-while-revalidate=600";
   const CACHE_ABSENT = "public, s-maxage=300, stale-while-revalidate=300";
+  /* A PROVEN absence sits 6 h in Redis (SOURCE_HARD_NOTFOUND_TTL_S): the edge
+     can hold it 1 h without ever claiming more than the server does, instead of
+     re-invoking the function every 5 min for an upload that does not exist. */
+  const CACHE_ABSENT_HARD = "public, s-maxage=3600, stale-while-revalidate=600";
   const cacheFound = () => {
     res.setHeader("Cache-Control", "public, max-age=60");
     res.setHeader("CDN-Cache-Control", CACHE_FOUND);
   };
-  const cacheAbsent = () => {
+  const cacheAbsent = (hard = false) => {
     res.setHeader("Cache-Control", "public, max-age=30");
-    res.setHeader("CDN-Cache-Control", CACHE_ABSENT);
+    res.setHeader("CDN-Cache-Control", hard ? CACHE_ABSENT_HARD : CACHE_ABSENT);
   };
 
   // Redis lookup FIRST — short-circuit identical (server, aniId, episode, sub)
@@ -4176,7 +4180,7 @@ export default async function handler(req, res) {
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
-          cacheAbsent();
+          cacheAbsent(cached === HARD_NOT_FOUND_SENTINEL);
           return notFoundStatus("Source not found", {
             hard: cached === HARD_NOT_FOUND_SENTINEL,
           });
@@ -4231,7 +4235,7 @@ export default async function handler(req, res) {
       }
       if (leaderResult) {
         if (isNotFoundSentinel(leaderResult)) {
-          cacheAbsent();
+          cacheAbsent(leaderResult === HARD_NOT_FOUND_SENTINEL);
           return notFoundStatus("Source not found", {
             hard: leaderResult === HARD_NOT_FOUND_SENTINEL,
           });
@@ -4271,7 +4275,7 @@ export default async function handler(req, res) {
         .catch(() => null);
       if (isLeader) releaseIfUnwritten(write, cacheKey);
     }
-    cacheAbsent();
+    cacheAbsent(hard);
     return notFoundStatus(msg, { hard });
   };
 

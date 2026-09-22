@@ -6,6 +6,64 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — Passe globale vitesse / usage, un seul déploiement
+
+Trois audits (pages SSR, routes API et infra, bundle client), puis seulement ce
+qui ne change aucun comportement visible. Build de prod local OK, `tsc` et
+ESLint propres.
+
+**Usage Vercel / Upstash**
+- `/api/v2/source` : une absence PROUVÉE (sentinelle dure, 6 h dans Redis)
+  reste 1 h au bord au lieu de 5 min. L'absence simple garde 5 min (elle
+  bascule le jour de sortie).
+- Watch2gether : le battement de présence d'un membre déjà inscrit fait 2
+  commandes au lieu de 9 (`touchPresence({ light })`). Une fois sur douze
+  (~1/min), il refait le passage complet (TTL 6 h, profil). **Correction du
+  09/09** : Upstash facture chaque commande d'un pipeline, donc le pipeline ne
+  faisait gagner que la latence.
+- `cacheSuccess:false` pour le lot de l'accueil (~60 Ko de SET que la clé
+  `index_server_v3` rendait illisible) et pour les 5 à 7 pages du planning
+  (`new_schedule` garde la semaine jusqu'à minuit).
+- La page de lecture envoie `FULL_MEDIA_QUERY` tel quel : la même requête
+  écrite avec d'autres espaces avait sa propre clé de cache de réponses, que
+  `getMediaMeta` (preview, media) ne lisait jamais.
+- Accueil connecté : le POST « crée l'utilisateur » part une fois par appareil
+  et par semaine, plus à chaque chargement.
+- Recherche locale : requête normalisée côté client (la FTS `unicode61` ignore
+  déjà casse et accents), pas d'appel sous 3 caractères, 1 h au bord.
+- Service worker : précache 571 → 249 fichiers. Les `.woff` (jamais utilisés,
+  `.woff2` partout) et les sous-ensembles cyrillique/grec/vietnamien sortent
+  via `buildExcludes`, soit ~320 requêtes d'edge de moins par nouveau visiteur.
+
+**Vitesse**
+- Accueil : hero en `AnimatePresence initial={false}`. La bannière est dans le
+  HTML au lieu d'une boîte à opacité 0 qui attendait l'hydratation + 0,8 s (le
+  LCP). Les slides suivantes gardent leur fondu. La bannière passe en
+  `<picture>` avec source `min-width:1024px`, pour que les téléphones ne
+  préchargent plus une w1280 cachée.
+- Accueil, MISS : l'écriture Redis court en même temps que la résolution du
+  hero au lieu de la précéder.
+- Lecture : `getRemovedMedia()` (Prisma) part en parallèle des métadonnées au
+  lieu de passer devant.
+- Profil : la session est lue pendant `findByTag`.
+- hls.js sort du chunk du lecteur : `HoverPreview` l'importait statiquement,
+  ce qui rendait `loadHlsLibrary` inutile.
+- `HoverPreviewProvider` (~40 Ko gz) n'est monté que sous `(hover: hover) and
+  (pointer: fine)`, comme sa propre garde interne.
+- Badges évalués en `requestIdleCallback`. Code du lecteur non préchargé sur la
+  fiche en Save-Data / 2G. `loading="lazy"` sur recommandations, relations et
+  vignette de trailer.
+
+**Écarté, et pourquoi**
+- InfoPage / InfoPageMobile en `dynamic` : l'iPad est rendu mobile (UA) puis
+  bascule en desktop au montage, et le chunk manquant y ferait un blanc.
+- Suppression des routes « mortes » : download/download-stream sont encore
+  référencées par le lecteur, `AppendMeta` sert dans l'admin, et
+  `relations/batch` est gardée exprès.
+- `no-store` de la bannière de santé AniList : voulu, et le gain est incertain.
+- Déjà refusés au devlog, non rouverts : le cookie `has_session`, l'ISR de la
+  fiche, la fusion des `GetMedia` de l'accueil, le découpage des locales.
+
 ## 2026-09-21 (suite) — Deuxième passe : éditeurs chargés à l'ouverture, doublons fusionnés
 
 Mesuré avec un build à source maps (local, non commité) et l'attribution des

@@ -156,8 +156,13 @@ export default function SearchPalette() {
   // Query the local Turso FTS endpoint. Maps the cached Media payload onto the
   // subset of fields this palette renders. Never throws — a search outage on
   // our side must not break AniList results.
-  async function fetchLocalSearch(q: string): Promise<DataTypes[]> {
-    if (!q || q === " ") return [];
+  async function fetchLocalSearch(raw: string): Promise<DataTypes[]> {
+    /* The FTS table is case- and accent-insensitive (unicode61), so "Naruto",
+       "naruto " and "NARUTO" return the same rows: one spelling = one edge
+       cache entry. Under 3 characters the route answers [] (SEARCH_MIN_CHARS)
+       — skip the call. */
+    const q = (raw || "").trim().replace(/\s+/g, " ").toLowerCase();
+    if (q.length < 3) return [];
     try {
       const res = await fetch(`/api/v2/search?q=${encodeURIComponent(q)}&limit=8`);
       if (!res.ok) return [];

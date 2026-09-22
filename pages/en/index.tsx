@@ -272,9 +272,11 @@ export async function getServerSideProps(ctx: any) {
        bout duquel le retour d'AniList redevient visible — le souci du 29/08,
        reduit de deux heures a deux minutes au lieu d'etre paye par un balayage
        par visiteur. */
-    if (redis) {
-      // Best-effort cache write — a failing Redis must not crash SSR.
-      await redis
+    // Best-effort cache write — a failing Redis must not crash SSR. Awaited
+    // together with the hero lookups below instead of before them.
+    const cacheWrite = !redis
+      ? Promise.resolve()
+      : redis
         .set(
           batch.degraded ? HOME_KEY_DEGRADED : HOME_KEY,
           JSON.stringify({
@@ -290,14 +292,16 @@ export async function getServerSideProps(ctx: any) {
           batch.degraded ? HOME_TTL_DEGRADED : HOME_TTL,
         )
         .catch(() => {});
-    }
 
     // Meme piege du tableau vide truthy que dans la branche en cache ci-dessus.
-    const heroEntries = await resolveHeroEntries(
-      batch.heroPool?.props?.data?.length
-        ? batch.heroPool.props.data
-        : trendingDetail.props.data || [],
-    );
+    const [heroEntries] = await Promise.all([
+      resolveHeroEntries(
+        batch.heroPool?.props?.data?.length
+          ? batch.heroPool.props.data
+          : trendingDetail.props.data || [],
+      ),
+      cacheWrite,
+    ]);
 
     return {
       props: {
@@ -559,7 +563,11 @@ function HeroBanner({
       <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
-        <AnimatePresence mode="popLayout">
+        {/* initial={false}: the slide present at first render is drawn at
+            its final state, so the server HTML shows the banner instead of
+            an opacity-0 box that waited for hydration + a 0.8 s fade (it was
+            the page's LCP element). Later slides still cross-fade. */}
+        <AnimatePresence mode="popLayout" initial={false}>
           <m.div
             key={`bg-${active.id}`}
             // Opacity-only crossfade. The previous 8 s Ken-Burns `scale`
@@ -575,15 +583,36 @@ function HeroBanner({
             className="absolute inset-0"
           >
             {bg ? (
-              <Image
-                src={bg}
-                alt=""
-                fill
-                priority={idx === 0}
-                sizes="100vw"
-                quality={90}
-                className="object-cover object-center"
-              />
+              /* <picture> with a desktop-only <source>: this hero lives in a
+                 `hidden lg:block` box, and next/image's `priority` preloaded
+                 its w1280 banner on phones too, where it is never shown and
+                 competed with the real mobile LCP. Below lg the <img> keeps a
+                 1×1 transparent GIF, so nothing is fetched. The preload is
+                 re-declared with the same media query. */
+              <>
+                {idx === 0 && (
+                  <Head>
+                    <link
+                      rel="preload"
+                      as="image"
+                      href={bg}
+                      media="(min-width: 1024px)"
+                      // @ts-expect-error fetchPriority not in the link typings
+                      fetchpriority="high"
+                    />
+                  </Head>
+                )}
+                <picture>
+                  <source media="(min-width: 1024px)" srcSet={bg} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+                    alt=""
+                    decoding="async"
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                </picture>
+              </>
             ) : (
               <div
                 className="absolute inset-0"
@@ -645,7 +674,7 @@ function HeroBanner({
               tune is this one, and the reason it isn't a round number is the
               half-leading above. */}
           <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
-            <AnimatePresence mode="wait" custom={dir}>
+            <AnimatePresence mode="wait" custom={dir} initial={false}>
               <m.div
                 key={`stack-${active.id}`}
                 custom={dir}
@@ -1022,15 +1051,35 @@ export default function Home({
         // The POST is an idempotent "create if missing" and the GET below falls
         // back to the local history whether the user is missing (404) or empty,
         // so the two no longer wait on each other: one round-trip instead of two.
-        const ensureUser = fetch(`/api/user/profile`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: sessions.user.name,
-          }),
-        }).catch(() => {});
+        /* The row only has to be created once: remember per device that it
+           was, and re-send weekly so a row deleted server-side still comes
+           back. It was one function invocation + one Prisma write on every
+           home load of every signed-in visitor. */
+        const ensuredKey = `as:userEnsured:${sessions.user.name}`;
+        let ensuredRecently = false;
+        try {
+          const at = Number(localStorage.getItem(ensuredKey) || 0);
+          ensuredRecently = Date.now() - at < 7 * 24 * 3600 * 1000;
+        } catch {}
+        const ensureUser = ensuredRecently
+          ? Promise.resolve()
+          : fetch(`/api/user/profile`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                name: sessions.user.name,
+              }),
+            })
+              .then((r) => {
+                if (r.ok) {
+                  try {
+                    localStorage.setItem(ensuredKey, String(Date.now()));
+                  } catch {}
+                }
+              })
+              .catch(() => {});
         try {
           const res = await fetch(
             `/api/user/profile?name=${sessions.user.name}`

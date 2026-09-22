@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import { useMediaState, type MediaPlayerInstance } from "@vidstack/react";
-import Hls from "hls.js";
+import type Hls from "hls.js";
+import { loadHlsLibrary } from "@/lib/watch/playerCode";
 
 /**
  * Hover preview tooltip — when the user hovers the Vidstack scrubber, a hidden
@@ -203,10 +204,16 @@ export default function HoverPreview({
     paintedRef.current = false;
 
     const instances: Hls[] = [];
+    let cancelled = false;
+    /* hls.js arrives through the same lazy import as the player
+       (loadHlsLibrary): a static import here pulled it into the player chunk
+       for every source, iframe hosts included. Only an m3u8 source waits for
+       it — this walk is background work. */
+    const attach = (Hls: typeof import("hls.js").default | null) => {
     for (const video of videos) {
       video.crossOrigin = "anonymous";
 
-      if (isM3U8 && Hls.isSupported()) {
+      if (isM3U8 && Hls && Hls.isSupported()) {
         const hls = new Hls({
           // Small buffer — we only seek-and-grab single frames, never play.
           maxBufferLength: 6,
@@ -287,8 +294,22 @@ export default function HoverPreview({
       }
     }
     hlsListRef.current = instances;
+    };
+
+    if (isM3U8) {
+      loadHlsLibrary()
+        .then((m: any) => {
+          if (!cancelled) attach(m.default || m);
+        })
+        .catch(() => {
+          if (!cancelled) attach(null);
+        });
+    } else {
+      attach(null);
+    }
 
     return () => {
+      cancelled = true;
       for (const h of instances) h.destroy();
       hlsListRef.current = [];
     };

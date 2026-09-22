@@ -35,9 +35,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
        ingests, so a five-minute window costs nothing in freshness and absorbs
        the per-keystroke traffic that otherwise lands on Turso. */
     res.setHeader("Cache-Control", "public, max-age=60");
+    // 1 h at the edge (was 5 min): the rows come from Turso, which the daily
+    // ingest updates once a day, and SWR serves the old copy while refreshing.
     res.setHeader(
       "CDN-Cache-Control",
-      "public, s-maxage=300, stale-while-revalidate=3600",
+      "public, s-maxage=3600, stale-while-revalidate=86400",
     );
     return res.status(200).json({
       results,

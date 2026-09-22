@@ -763,6 +763,11 @@ export async function getServerSideProps(context: any) {
      segment with no tag (or an unknown one) is taken as an AniList username,
      which is what every link minted before accounts existed looks like. */
   const match = /^(.*)-([0-9A-Za-z]{6})$/.exec(segment);
+  // La session ne dépend de rien : lancée ici, elle court pendant findByTag au
+  // lieu de l'attendre, puis rejoint le Promise.all plus bas.
+  const sessionPromise = getServerSession(context.req, context.res, authOptions).catch(
+    () => null,
+  ) as Promise<any>;
   const account = match ? await findByTag(match[2]).catch(() => null) : null;
   const anilistName = account ? account.anilistName : segment;
 
@@ -812,7 +817,7 @@ export async function getServerSideProps(context: any) {
      partent avec elles. */
   const settingsKey = anilistName || account?.username || null;
   const [session, collection, viewed, stored] = await Promise.all([
-    getServerSession(context.req, context.res, authOptions).catch(() => null) as any,
+    sessionPromise,
     anilistName ? cachedAniList(anilistName) : null,
     settingsKey ? getUser(settingsKey, false).catch(() => null) : null,
     account && kinds.length

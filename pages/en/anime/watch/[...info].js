@@ -69,7 +69,7 @@ const LangPreferenceModal = dynamic(
 import { recordWatchToday } from "@/lib/stats/streak";
 import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
-import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
+import { FULL_MEDIA_QUERY } from "@/lib/anilist/fullMediaQuery";
 import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, isPlannedVerified, getPlannedFailures, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
 import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
 import { prechargeManifeste } from "@/lib/watch/hlsPreload";
@@ -238,11 +238,9 @@ export async function getServerSideProps(context) {
   const watchId =
     aniId && epiNumber ? `${aniId}-${epiNumber}` : query?.id || null;
 
-  const removed   = await getRemovedMedia();
-  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
-  if (isRemoved) {
-    return { redirect: { destination: "/en/removed", permanent: false } };
-  }
+  // Started now, awaited after the metadata: on a cold function it is a
+  // Postgres round trip that used to sit in front of the AniList fetch.
+  const removedPromise = getRemovedMedia().catch(() => null);
 
   // ── Non-blocking metadata resolution ──────────────────────────────────
   // Navigation here is SPA (router.push from the info page), but the Pages
@@ -273,11 +271,10 @@ export async function getServerSideProps(context) {
       // as such), so it must not carry anyone's list entry. The client backfills
       // `mediaListEntry` right after mount — see the effect below.
       const json = await anilistFetch({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            ${FULL_MEDIA_FIELDS}
-          }
-        }`,
+        // The exact string getMediaMeta sends: the response cache is keyed on
+        // the request body, so the same query spelled with other whitespace
+        // stored a second copy that the preview / media routes never read.
+        query: FULL_MEDIA_QUERY,
         variables: { id: Number(aniId) },
         timeoutMs: 2500,
         label: `watch-ssr:${aniId}`,
@@ -302,6 +299,12 @@ export async function getServerSideProps(context) {
     } catch (e) {
       console.warn(`[watch SSR] DB fallback failed for ${aniId}:`, e?.message);
     }
+  }
+
+  const removed   = await removedPromise;
+  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
+  if (isRemoved) {
+    return { redirect: { destination: "/en/removed", permanent: false } };
   }
 
   /* NOTE — three Prisma round-trips used to run here on every signed-in view

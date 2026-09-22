@@ -56,7 +56,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (snap?.locked && !gate.member) {
       return res.status(403).json({ error: "This room is locked" });
     }
-    await touchPresence(roomId, user);
+    /* An existing member gets the light beat (2 commands instead of 9); one
+       beat in twelve — about once a minute at one beat per 5 s — does the full
+       refresh, which is far inside the 6 h room TTL it re-arms. A non-member
+       (re-admitted after a lapse) always gets the full write. */
+    await touchPresence(roomId, user, {
+      light: gate.member && Math.random() >= 1 / 12,
+    });
 
     // Throttled prune + broadcast: once every ~6s (per room), recompute the
     // member list (which prunes anyone whose presence key lapsed — e.g. a tab

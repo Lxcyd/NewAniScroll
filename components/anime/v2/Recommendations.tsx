@@ -94,6 +94,8 @@ export default function Recommendations({ items, forTitle }: Props) {
                 <img
                   src={coverUrl(r.coverImage, "card")!}
                   alt={r.title?.romaji || ""}
+                  loading="lazy"
+                  decoding="async"
                   style={{
                     position: "absolute",
                     inset: 0,

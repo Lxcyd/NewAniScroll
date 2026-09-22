@@ -509,6 +509,8 @@ export default function Overview({ info }: Props) {
                   <img
                     src={info.trailer.thumbnail}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       position: "absolute",
                       inset: 0,

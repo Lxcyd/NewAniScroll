@@ -238,6 +238,16 @@ const withPWA = require("next-pwa")({
   // page). Excluding them here means they load lazily, on demand, only when the
   // emoji picker actually renders them in a room.
   publicExcludes: ["!emojis/**/*"],
+  /* Fontsource ships every subset in .woff2 AND legacy .woff: the precache
+     manifest listed all 434 font files (5.6 MB) and every new visitor fetched
+     them after `load`, each one a billed edge request. Browsers only ever pick
+     the .woff2, and the site is Latin-script (native titles are CJK, which none
+     of these fonts cover). Still served on demand by the browser, and cached by
+     the `static-font-assets` rule when actually used. */
+  buildExcludes: [
+    /\.woff$/,
+    /-(cyrillic|cyrillic-ext|greek|greek-ext|vietnamese)-[^/]*\.woff2$/,
+  ],
 });
 
 module.exports = withPWA({
