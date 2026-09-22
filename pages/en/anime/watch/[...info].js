@@ -517,7 +517,7 @@ export default function Watch({
   // where the route proved the upload is gone (404 from the host itself, see the
   // `hard` flag in lib/watch/sourceRequest). An ordinary absence still never
   // lands here: a cold anti-bot decoy and a genuine soft404 look identical, and
-  // guessing wrong hides a working host for the snapshot's 6h TTL. The
+  // guessing wrong hides a working host for the snapshot's TTL (18 h). The
   // background probe, which retries properly, owns those via confirmedAbsent.
   const activeVerdictRef = useRef({ ok: new Set(), hardAbsent: new Set() });
 
@@ -1972,7 +1972,7 @@ export default function Watch({
       //
       // One 800ms retry was not enough: seeding the player_map can outlast it,
       // so a second decoy still concluded "absent" and hid a WORKING chip for
-      // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
+      // the snapshot's TTL (18 h) — the user-visible bug is the chip vanishing at
       // the very moment you click it. Back off over a few attempts instead.
       //
       // A PROVEN absence (`hard`) skips the backoff entirely: the host answered
@@ -2024,7 +2024,7 @@ export default function Watch({
         if (data?.degraded) markDegraded(serverId);
       } else {
         // 5xx / transient — mark failed for the UI but do NOT publish as absent
-        // (would wrongly hide a working server in the 6h snapshot).
+        // (would wrongly hide a working server in the 18 h snapshot).
         setHlsData({ error: true });
         /* `hostDown` : l'hote refuse TOUT, pas seulement cet episode. La regle
            du 17/08 — un echec passager n'efface pas un chip confirme — vaut
@@ -2179,7 +2179,7 @@ export default function Watch({
     // (POST, non-edge-cachable → ≥1 Upstash command each) consumer, and it dwarfed
     // everything the July edge-cache pass optimized. We still re-probe absents to
     // catch a recovered host, but only on a FRACTION of visits: across ~1/p visitors
-    // a recovered host is rediscovered well within the snapshot's 6h TTL, while the
+    // a recovered host is rediscovered well within the snapshot's TTL (18 h), while the
     // per-visit Upstash cost drops ~p×. See DEVLOG 2026-07-30.
     const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
@@ -2232,13 +2232,13 @@ export default function Watch({
     // episode). Kept apart from cachedFailed, which also holds TRANSIENT
     // failures (anti-bot rejects that flip to OK next time). Only stable
     // absences are published to the availability snapshot — persisting a
-    // transient one would wrongly hide a working host for 6h (the snapshot TTL).
+    // transient one would wrongly hide a working host for 18 h (the snapshot TTL).
     const confirmedAbsent = new Set();
     // Servers the cross-visitor snapshot reported as absent. Unlike cachedFailed
     // these are NOT skipped by the probe fan-out — they get RE-PROBED in the
     // background this visit. Reason: an `absent` entry is otherwise self-
     // perpetuating — hidden at paint, skipped by the probe, then re-published as
-    // absent → frozen for the snapshot's whole 6h TTL even after the host is
+    // absent → frozen for the snapshot's whole TTL (18 h) even after the host is
     // healthy again (the megaplay / sibnet-vo "chip never comes back" bug). They
     // still stay HIDDEN at first paint (we don't markConfirmed them); the
     // background probe flips them to a green chip + re-publishes `ok` the moment
@@ -2449,7 +2449,7 @@ export default function Watch({
           // Snapshot-absent servers stay HIDDEN at first paint (we don't paint
           // them green), but we do NOT drop them into cachedFailed — that would
           // make the probe fan-out skip them and re-publish the same absence,
-          // freezing a since-recovered host for the whole 6h TTL. Instead they
+          // freezing a since-recovered host for the whole TTL (18 h). Instead they
           // go into snapshotAbsent so they get a background re-probe this visit:
           // a host that now resolves flips its chip green and re-publishes `ok`.
           for (const id of absent) snapshotAbsent.add(id);
@@ -2517,7 +2517,7 @@ export default function Watch({
         if (/^frembed/.test(s.id) && !frembedPossible(info?.id)) return false;
         // Snapshot-absent servers are re-probed only on a fraction of visits
         // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
-        // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
+        // within ~1/p visitors (well inside the 18 h snapshot TTL), but we stop
         // paying a per-visit /api/v2/source POST (= an Upstash command) to
         // rediscover an absence a previous visitor already confirmed. This is
         // the dominant steady-state Upstash saving. Servers with NO snapshot

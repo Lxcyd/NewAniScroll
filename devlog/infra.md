@@ -6,6 +6,50 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — Fluid CPU : `/api/v2/source` est la moitié du poste
+
+Enfin des chiffres, et ils viennent du dashboard (l'API `observability/query`
+reste en 402). **dev, 12 h** : 13 K invocations, 6 min d'Active CPU, P75 51 ms,
+1,1 % de démarrages à froid. Le classement par route :
+
+| route | invocations | Active CPU |
+| --- | --: | --: |
+| `/api/v2/source` | 6,6 K | **3 min** |
+| `/en/anime/watch/[...info]` | 1,3 K | 51 s |
+| `/api/v2/skip/[malId]/[episode]` | 1 K | 33 s |
+| `/api/v2/preview/[id]` | 717 | 18 s |
+| `/api/auth/[...nextauth]` | 730 | 15 s |
+| `/api/v2/availability` | 913 | 14 s |
+| `/api/v2/runtimes/[malId]` | 851 | 12 s |
+
+**6,6 K appels de `/source` pour 1,3 K pages de lecture, soit ~5 par page.** Le
+reste du classement est sain (une route par ouverture, en-têtes d'edge déjà
+posés). Deux corrections, toutes deux sur le nombre d'appels :
+
+**1. `probe=1` coupait le cache d'edge en deux.** L'URL portait un cinquième
+paramètre qui distinguait « peindre un chip » de « ouvrir un lecteur ». Cette
+séparation se défendait tant que la route répondait différemment aux deux —
+elle a cessé de lire `input.probe` **le matin même** (correctif de l'embed mort
+en iframe). Restaient deux entrées de cache pour des réponses identiques : un
+serveur sondé par un visiteur ne servait pas le clic du suivant, qui repayait
+une invocation. Côté Redis la clé était déjà commune ; c'est le bord qui ne
+l'était pas.
+
+**2. Instantané de disponibilité : 6 h → 18 h.** Le verdict expirait avant
+d'avoir resservi. Un épisode vu le soir et rouvert le lendemain matin repartait
+pour un fan-out complet, ~17 sondes. Un épisode populaire, lui, ne changeait
+rien : chaque POST repose le TTL, son instantané ne mourait déjà jamais. Ce
+qu'on accepte : un verdict faux vit plus longtemps — borné des deux côtés par
+des chemins qui existaient déjà (un `ok` mort est corrigé par le clic qui
+échoue, un `absent` ressuscité par le re-sondage d'un visiteur sur cinq). Un
+changement de RÉSOLVEUR, lui, ne se rattrape toujours que par un bump de
+`CACHE_VERSION`.
+
+À remesurer sur le même dashboard dans 24 h : le rapport appels de `/source` /
+pages de lecture. S'il ne descend pas sous ~4, c'est que le fan-out lui-même
+est à retailler (plafonner le nombre d'inconnus sondés par visite), et non plus
+son cache.
+
 ## 2026-09-22 — Précache du SW : 249 → 131 fichiers (ce qu'on a pu MESURER)
 
 Suite demandée de la passe ci-dessous. La mesure d'abord, et elle a surtout dit

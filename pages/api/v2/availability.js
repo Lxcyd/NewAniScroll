@@ -32,7 +32,21 @@ import { setEdgeErrorCache } from "@/lib/http/edgeCache";
  *   - Internal/warmer traffic (x-warmer) never writes.
  */
 
-const TTL_S = 6 * 60 * 60;        // 6h — host availability drifts slowly
+/* 18 h, et non plus 6 (22/09/2026). La disponibilite d'un hote derive
+   lentement, mais le verdict expirait AVANT d'avoir resservi : un episode vu
+   le soir puis reouvert le lendemain matin repartait pour un fan-out complet
+   (~17 sondes = autant d'invocations de `/api/v2/source`, le premier poste de
+   Fluid CPU du site). Un episode populaire, lui, ne changeait rien : chaque
+   POST reposait le TTL, son instantane ne mourait deja jamais.
+
+   Ce qu'on accepte : un verdict faux vit plus longtemps. Il reste borne des
+   deux cotes, et par des chemins qui existaient deja — un `ok` devenu mort est
+   corrige par le clic qui echoue (markFailed republie l'absence), et un
+   `absent` revenu a la vie est retrouve par le re-sondage d'un visiteur sur
+   cinq (SNAPSHOT_ABSENT_REPROBE_P). Un changement de RESOLVEUR, lui, ne se
+   rattrape pas tout seul : il se solde par un bump de CACHE_VERSION, cf.
+   ci-dessous. */
+const TTL_S = 18 * 60 * 60;
 const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
 
 /**
@@ -41,7 +55,7 @@ const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
  * A snapshot records which hosts answered, so it inherits every limitation the
  * resolver had at the time — including titles it could not resolve at all. When
  * a resolver fix makes new hosts reachable, the old snapshots keep saying
- * "absent" for six more hours and the chips stay missing on a build that can
+ * "absent" pour tout le reste du TTL (18 h) and the chips stay missing on a build that can
  * serve them. Bumped 2026-08-10 with the anime-sama slug fix (franchise-name
  * search + hors-série panels), which turned four hosts from absent to live on
  * every title indexed that way.
@@ -74,7 +88,7 @@ function key(aniId, episode, sub) {
 // Parse a stored snapshot into { ok, absent }. Two on-disk shapes coexist:
 //   - legacy: a bare array of confirmed ids  → { ok: [...], absent: [] }
 //   - current: { ok:[…], absent:[…] }
-// Legacy entries age out within TTL_S (6h) and get rewritten in the new shape
+// Legacy entries age out within TTL_S (18 h) and get rewritten in the new shape
 // on the next POST, so this compat path is self-retiring.
 function parseSnapshot(raw) {
   if (!raw) return { ok: [], absent: [] };
@@ -119,7 +133,7 @@ export default async function handler(req, res) {
       const raw = await redis.get(key(aniId, episode, sub));
       const { ok, absent } = parseSnapshot(raw);
       // Edge cache: this verdict is identical for everyone and drifts slowly
-      // (6h TTL), and the client also keeps re-probing live + POSTs corrections,
+      // (18 h de TTL), and the client also keeps re-probing live + POSTs corrections,
       // so ~10 min of edge staleness is harmless. A HIT never reaches the
       // function and never spends the Redis GET below. Browser stays at 60s.
       res.setHeader("Cache-Control", "public, max-age=60");
@@ -173,7 +187,7 @@ export default async function handler(req, res) {
       // A "new information" write must bypass the storm guard: otherwise the
       // first writer in the 10-min window (who may have missed a slow server
       // like megaplay) permanently locks that server out of the snapshot until
-      // the whole entry's 6h TTL expires — the "megaplay chip never appears" bug.
+      // the whole entry's TTL (18 h) expires — the "megaplay chip never appears" bug.
       const addsInfo =
         cleanOk.some((id) => !prevOk.has(id)) ||
         cleanAbsent.some((id) => !prevAbsent.has(id));
