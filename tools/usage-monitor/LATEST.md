@@ -1,43 +1,42 @@
-# Usage Monitor — 2026-08-16
+# Usage Monitor — 2026-09-21
 
-_Generated 2026-08-16T07:00:51.232Z_
-
-## ⚠️ Flags
-- Only **1 Upstash DB** on the account → dev & prod likely share it (see DEVLOG 2026-07-30).
+_Generated 2026-09-21T17:15:31.564Z_
 
 ## Upstash — daily commands
-> DBs on account: **1** — dev (Preview) & prod SHARE this DB; the number below mixes both.
-
-- DB: `aniscroll-cache`
-- Today: **1,465** (-921 -39%) vs yesterday
-- 7-day avg/day: **4,071**
-- Projected month: **122,130** / 500,000 cap — **24%**
+> _skipped: Upstash mgmt 401 on /v2/redis/databases: {"error":"Unauthorized"}_
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **12,153** | scanned: 12,088 keys
+- DBSIZE: **1,482** | scanned: 1,482 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 9,747 | 80.6% | (+70 +1%) |
-| `episode:` | 1,943 | 16.1% | (+2 +0%) |
-| `tr:` | 383 | 3.2% | (+2 +1%) |
-| `anilist:` | 12 | 0.1% | (+8 +200%) |
-| `avail:` | 1 | 0.0% | (-2 -67%) |
-| `jikan:` | 1 | 0.0% | (-1 -50%) |
-| `new_schedule:` | 1 | 0.0% | (=) |
+| `anime:` | 630 | 42.5% | (-1,018 -62%) |
+| `episode:` | 427 | 28.8% | (-2,452 -85%) |
+| `src:` | 227 | 15.3% | (-192 -46%) |
+| `tr:` | 86 | 5.8% | (+59 +219%) |
+| `avail:` | 51 | 3.4% | (-316 -86%) |
+| `anilist:` | 50 | 3.4% | (-857 -94%) |
+| `ftree:` | 6 | 0.4% | (-127 -95%) |
+| `asSlug:` | 3 | 0.2% | (-94 -97%) |
+| `index_server_v3:` | 1 | 0.1% | (=) |
+| `recent-episode-v2:` | 1 | 0.1% | (=) |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v5` | 9,747 |
-| `episode:v3` | 1,653 |
-| `tr:fr` | 383 |
-| `episode:v5` | 202 |
-| `episode:v6` | 88 |
-| `anilist:resp` | 12 |
-| `avail:v1` | 1 |
-| `jikan:eps` | 1 |
+| `anime:v5` | 472 |
+| `episode:v12` | 418 |
+| `src:v14` | 227 |
+| `anime:v6` | 158 |
+| `tr:fr` | 86 |
+| `avail:v5` | 51 |
+| `anilist:resp` | 48 |
+| `episode:v11` | 9 |
+| `ftree:v5` | 6 |
+| `asSlug:v1` | 3 |
+| `anilist:list` | 1 |
+| `anilist:rl` | 1 |
 
 </details>
 
