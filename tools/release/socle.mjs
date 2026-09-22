@@ -78,7 +78,13 @@ const DEHORS = [
 /* Les outils Python d'OP/ED et leurs donnees : hors sujet pour une release du
    site, et l'utilisateur a demande qu'on n'y touche pas. Leurs 50 fichiers de
    scratch/datasets n'ont rien a faire dans une PR de prod. */
-const HORS_SUJET = [/^tools\/opening-detector\//, /^tools\/usage-monitor\/snapshots\//];
+/* Les rapports du monitor (snapshots, LATEST, HISTORY) sont ecrits chaque jour
+   par le bot DIRECTEMENT sur main : les porter depuis dev ne fait que creer un
+   conflit a chaque synchro (vu le 22/09/2026). */
+const HORS_SUJET = [
+  /^tools\/opening-detector\//,
+  /^tools\/usage-monitor\/(snapshots\/|LATEST\.md$|HISTORY\.md$)/,
+];
 
 const exclu = (f) => DEHORS.some((r) => r.test(f)) || HORS_SUJET.some((r) => r.test(f));
 
