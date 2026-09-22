@@ -876,13 +876,22 @@ const ANIMESAMA_SERVERS = {
 
 /**
  * anime-sama stores some panels with MULTIPLE dub tracks under sibling language
- * dirs: a VF release can live at `vf`, `vf1` or `vf2` (e.g. One Piece keeps a
- * Netflix VF at `vf` and an older VF at `vf2`). A plain `vf` request must fall
- * back to those siblings instead of 404ing. Order: the requested dir first,
- * then its numbered variants. VOSTFR rarely splits, so we leave it as-is.
+ * dirs: a VF release can live at `vf`, `vf1` or `vf2`. A plain `vf` request must
+ * fall back to those siblings instead of 404ing. Order: the requested dir first,
+ * then its numbered variants — sauf quand VF_PISTE_PREFEREE designe une piste
+ * pour ce slug. VOSTFR rarely splits, so we leave it as-is.
  */
-function animeSamaLangDirs(langPath, exclude) {
-  const all = langPath === "vf" ? ["vf", "vf1", "vf2", "vf3"] : [langPath];
+/* La piste VF a servir EN PREMIER, par slug anime-sama. One Piece (mesure du
+   22/09/2026) : `saison1/vf2` est la VF Netflix de la saga East Blue, ansembed
+   vivant sur les 61 episodes ; `saison1/vf` porte un ansembed mort (404) et un
+   ancien doublage. `vf2` n'existe pas pour les sagas suivantes : sans panneau,
+   la resolution retombe d'elle-meme sur `vf`. */
+const VF_PISTE_PREFEREE = { "one-piece": "vf2" };
+
+function animeSamaLangDirs(langPath, exclude, slug) {
+  let all = langPath === "vf" ? ["vf", "vf1", "vf2", "vf3"] : [langPath];
+  const preferee = langPath === "vf" && VF_PISTE_PREFEREE[slug];
+  if (preferee) all = [preferee, ...all.filter((d) => d !== preferee)];
   return exclude?.size ? all.filter((d) => !exclude.has(d)) : all;
 }
 
@@ -1077,7 +1086,7 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, exc
     ? [langPath, langPath === "vf" ? "vostfr" : "vf"].filter(
         (d) => !excludeLangs?.has(d),
       ) // films are often single-language
-    : animeSamaLangDirs(langPath, excludeLangs);
+    : animeSamaLangDirs(langPath, excludeLangs, slug);
   // A la bonne position, chez le bon hote, ET dans le panneau qui le porte
   // vraiment — cf. pickLangDirForHost.
   const hit = await pickLangDirForHost(slug, seasonDir, tryLangs, serverDef, index);
@@ -1085,7 +1094,7 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, exc
   return { panelOk: true, iframeUrl: hit.url, langDir: hit.langDir };
 }
 
-async function getAnimeSamaIframe(serverKey, title, episode, aniId, probe) {
+async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
   try {
     const serverDef = ANIMESAMA_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -1203,7 +1212,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId, probe) {
       }
       if (!iframeUrl) return null;
 
-      const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl, probe);
+      const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
       if (finalized) return finalized;
 
       // Candidat mort. Sans repertoire identifie on ne saurait pas quoi
@@ -1364,7 +1373,7 @@ async function resolveAnimeSamaHeuristically(
       const targetLangs = (
         targetSeason.isFilm
           ? [targetSeason.path.split("/")[1] || langPath]
-          : animeSamaLangDirs(langPath, excludeLangs)
+          : animeSamaLangDirs(langPath, excludeLangs, slug)
       ).filter((d) => !excludeLangs?.has(d));
       // On choisit le repertoire qui porte l'hote, pas le premier qui repond :
       // un panneau `vf` peut exister avec un upload mort pendant que `vf2` a le
@@ -1470,7 +1479,7 @@ async function resolveAnimeSamaHeuristically(
         const hit = await pickLangDirForHost(
           slug,
           season.dir,
-          animeSamaLangDirs(langPath, excludeLangs),
+          animeSamaLangDirs(langPath, excludeLangs, slug),
           serverDef,
           episodeIndex - cumulativeEps,
         );
@@ -1538,7 +1547,7 @@ async function resolveAnimeSamaHeuristically(
  * Runs on the iframe URL whether it came from the player_map fast-path or the
  * heuristic pipeline.
  */
-async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl, probe) {
+async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
   try {
     // Per-host iframe rewriting before extraction.
     // - vidmoly.to currently 302s to a HTTP survey scam. extractVidmoly
@@ -1577,15 +1586,14 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl, probe) {
       /* Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
          after the file is deleted. Probe before serving the chip so a dead
          slug yields "server unavailable" instead of vidmoly's own 404 page.
-         POUR LES SONDES SEULEMENT, depuis le 20/09/2026. Ce HEAD a 3 s de
-         budget etait en serie devant la reponse que le visiteur attend, pour
-         n'attraper qu'un 404 franc — une erreur reseau rend « vivant » de toute
-         facon (voir isVidmolyEmbedAlive), et le navigateur decouvre le meme 404
-         tout seul, puis bascule par `markFailed`. On paie donc jusqu'a 3 s sur
-         le chemin le plus sensible du site pour une information que le chemin
-         de repli produit gratuitement. Les sondes de fond, elles, gardent la
-         verification : c'est leur travail, et leur latence ne se voit pas. */
-      if (probe && !(await isVidmolyEmbedAlive(iframeUrl))) {
+         Sur TOUS les chemins, sondes comme lecture. Du 20 au 22/09/2026 elle
+         ne tournait que pour les sondes, au motif que le navigateur
+         decouvrirait le 404 tout seul et basculerait. Faux : l'extraction
+         client echoue, et UniversalPlayer retombe sur l'IFRAME — la page 404
+         de l'hote, pub plein ecran comprise (One Piece VF ep 1, `saison1/vf`).
+         Et sans verdict « mort » ici, la reprise sur la piste suivante
+         (vf → vf2, cf. getAnimeSamaIframe) ne se declenchait jamais. */
+      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[anime-sama] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         return null;
       }
@@ -2655,7 +2663,7 @@ async function voiranimePrequelChain(aniId, isVF, episode, trace = null) {
   return null;
 }
 
-async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null, probe = false) {
+async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null) {
   try {
     const serverDef = VOIRANIME_SERVERS[serverKey];
     if (!serverDef) return null;
@@ -2948,8 +2956,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
           dlog(`[voiranime] ep ${episode} part page has no ${serverDef.name} embed: ${url}`);
           return null;
         }
-        // Sondes seulement — voir finalizeAnimeSamaIframe.
-        if (probe && !(await isVidmolyEmbedAlive(embed))) {
+        // Sur tous les chemins — voir finalizeAnimeSamaIframe.
+        if (!(await isVidmolyEmbedAlive(embed))) {
           dlog(`[voiranime] ep ${episode} part embed is dead — hiding chip: ${embed}`);
           return null;
         }
@@ -3019,8 +3027,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
     if (VIDMOLY_HOST_RE.test(lower)) {
-      // Sondes seulement — voir finalizeAnimeSamaIframe.
-      if (probe && !(await isVidmolyEmbedAlive(iframeUrl))) {
+      // Sur tous les chemins — voir finalizeAnimeSamaIframe.
+      if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         // PROVEN gone: the probe only answers false on an explicit 404 (a network
         // error returns true so we never punish a chip for our own hiccup). Say
@@ -3628,7 +3636,7 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     // language; a VF request also tries vf1/vf2 dub tracks.
     const targetLangs = directTarget.isFilm
       ? [directTarget.path.split("/")[1] || langPath]
-      : animeSamaLangDirs(langPath);
+      : animeSamaLangDirs(langPath, null, slug);
     let epRes = null;
     for (const lp of targetLangs) {
       const r = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${lp}/episodes.js`);
@@ -4005,10 +4013,11 @@ const LEADER_BUSY = Symbol("leader-busy");
  * d'episode repartirait d'une resolution froide. On echangerait une latence
  * contre une autre.
  *
- * Consequence acceptee : les deux chemins partagent le verdict du PREMIER
- * arrive, pendant les 5 min du cache. Un embed mort peut donc etre servi au
- * lecteur si l'ouverture a devance la sonde — cas que le repli client
- * (`markFailed`) traite deja, et qui dure au plus le temps du cache.
+ * Depuis le 22/09/2026 la question ne se pose plus : la verification de
+ * liveness tourne sur les deux chemins (cf. finalizeAnimeSamaIframe). Avant,
+ * une ouverture qui devancait la sonde mettait en cache un embed mort, et le
+ * « repli client » cense le rattraper affichait en fait la page 404 de l'hote
+ * en iframe, pub comprise.
  */
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
@@ -4040,7 +4049,10 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // absences — et les URL de la MAUVAISE saison — enregistrees par l'ancien
   // resolveur doivent etre orphelines, sans quoi elles seraient reservees
   // pendant 6 h et reecrites a chaque sonde.
-  return `src:v14:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v15: EVICT les embeds vidmoly/ansembed morts mis en cache sans
+  // verification par une ouverture de lecteur (One Piece VF ep 1 : la page 404
+  // d'ansembed et sa pub, servies en iframe).
+  return `src:v15:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -4083,14 +4095,10 @@ export default async function handler(req, res) {
   const aniId = input.aniId != null ? Number(input.aniId) : undefined;
   const episode = input.episode != null ? Number(input.episode) : undefined;
   const sub = input.sub === "dub" ? "dub" : "sub";
-  /* « Cette requete sert-elle a PEINDRE un chip, ou a OUVRIR un lecteur ? »
-     Les deux veulent la meme donnee, mais pas au meme prix. Une sonde de fond
-     peut payer une verification de plus pour qu'un chip soit juste — personne
-     ne l'attend. La requete du lecteur actif, elle, est exactement ce que
-     l'utilisateur regarde se charger.
-     Pose par le fan-out de sondage de la page de lecture ; absent partout
-     ailleurs, donc le defaut est « c'est pour tout de suite ». */
-  const probe = input.probe === "1" || input.probe === true;
+  /* `input.probe` (« peindre un chip » contre « ouvrir un lecteur ») n'est plus
+     lu depuis le 22/09/2026 : sauter la verification de liveness a l'ouverture
+     servait un embed mort en iframe, pub comprise. Le client peut continuer a
+     l'envoyer. */
   const title = input.title;
   const mediaMeta = isGet
     ? input.malId
@@ -4625,7 +4633,7 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const { data, retry, hostDown } = await resolveProvider(() =>
-      getAnimeSamaIframe(server, searchTitle, episode, aniId, probe),
+      getAnimeSamaIframe(server, searchTitle, episode, aniId),
     );
     if (retry) return sendRetryable(retry, { hostDown });
     if (!data) return sendNotFound("Source not found");
@@ -4637,7 +4645,7 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const { data, retry, hardAbsent, hostDown } = await resolveProvider(() =>
-      getVoiranimeIframe(server, searchTitle, episode, aniId, null, probe),
+      getVoiranimeIframe(server, searchTitle, episode, aniId, null),
     );
     if (retry) return sendRetryable(retry, { hostDown });
     if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });
