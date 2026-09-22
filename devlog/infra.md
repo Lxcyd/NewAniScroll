@@ -6,6 +6,46 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — Précache du SW : 249 → 131 fichiers (ce qu'on a pu MESURER)
+
+Suite demandée de la passe ci-dessous. La mesure d'abord, et elle a surtout dit
+où l'on est aveugle :
+
+- **Logs Vercel de prod** : l'offre Hobby n'en garde qu'**une heure**. Sur cette
+  heure : 14 invocations de fonction (3 `/en`, 4 fiches, 2 pages de lecture, le
+  reste en routes légères). Rien d'anormal ; le double appel à
+  `changelog-popup` est la paire `en` + `fr`, pas un doublon.
+- **CPU par route sur plusieurs jours** : `POST /v2/observability/query` existe
+  et répond **402 — Observability Plus requis (plan Pro)**. Inaccessible.
+- **Upstash** : `tools/usage-monitor` n'a pas de `UPSTASH_EMAIL` /
+  `UPSTASH_API_KEY` en local, il ne collecte rien. Les fichiers qu'il avait
+  écrits ont été annulés (`git checkout`).
+
+Ce qui restait mesurable localement : le manifeste de précache, lisible dans
+`public/sw.js`. **Chaque entrée est une Edge Request facturée par nouveau
+visiteur**, et de nouveau après un déploiement pour chaque hash qui change.
+Il pesait **249 fichiers / 6,05 Mo**, dont 112 polices (1,8 Mo) et hls.js
+(584 Ko). Résultat : **131 fichiers / 3,08 Mo**.
+
+Sortent du précache (`horsPrecache` dans `next.config.js`) : **toutes** les
+polices, **hls.js**, **Ably**, les **pages admin**, et `svg/404.svg` (384 Ko,
+via `publicExcludes`). Rien ne disparaît du site : le précache n'est qu'un
+téléchargement de fond après `load`, et tout cela reste servi à la demande par
+le cache HTTP `immutable` d'un an et par les règles runtime. hls.js est de
+toute façon préchargé par la fiche anime (`preloadPlayerCode`) juste avant le
+lecteur.
+
+**Le piège de workbox 6.6** : `checkConditions` **retourne** le verdict de la
+première fonction rencontrée dans `exclude`. La fonction de next-pwa (celle qui
+écarte `server/**` et les manifestes) est ajoutée APRÈS nos `buildExcludes`,
+donc elle ne serait plus jamais consultée — `horsPrecache` recopie ses
+exclusions. Un chunk ne sort que si **tous** ses modules viennent des paquets
+visés, pour qu'un morceau d'appli collé au même chunk le retienne.
+
+Vérifié après build : les entrées de `/_app`, `/_offline`, `/_error`, `/en`, la
+fiche et la page de lecture sont toutes présentes (les crochets y sont
+URL-encodés, `%5B...%5D` — de quoi croire à tort qu'elles manquent).
+
 ## 2026-09-22 — Passe globale vitesse / usage, un seul déploiement
 
 Trois audits (pages SSR, routes API et infra, bundle client), puis seulement ce

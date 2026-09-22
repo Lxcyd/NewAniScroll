@@ -223,6 +223,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-22 (suite) — Précache SW 249 → 131 fichiers (6,05 → 3,08 Mo) : polices, hls.js, Ably, pages admin et 404.svg en dehors ; piège de workbox 6.6 (la 1re fonction d'`exclude` court-circuite celle de next-pwa) ; **mesure impossible ailleurs** : logs Hobby = 1 h, `observability/query` = 402 (Pro), pas d'accès Upstash en local
+
 - 2026-09-22 — Passe globale en un déploiement : absence prouvée 1 h au bord sur `/source`, battement W2G 9 → 2 commandes (le pipeline n'économisait pas de commandes), doubles caches AniList coupés, précache SW 571 → 249, hero de l'accueil visible dès le HTML, hls.js hors du chunk du lecteur, aperçu au survol non chargé sur tactile
 
 - 2026-09-21 (suite) — 2e passe : BannerStudio et modale changelog chargés à l'ouverture (my-list 277 → 252 Ko, profil 282 → 256) ; doublons strictement identiques fusionnés (streamUrl, idCatalog, usersDb, tableEnsurer…)
