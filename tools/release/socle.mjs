@@ -135,7 +135,9 @@ if (process.argv.includes("--appliquer")) {
     git("checkout", SOURCE, "--", ...aPorter.slice(i, i + 60));
   }
   for (let i = 0; i < aSupprimer.length; i += 60) {
-    git("rm", "-q", "--", ...aSupprimer.slice(i, i + 60));
+    /* --ignore-unmatch : un fichier deja absent de la branche de sortie (retire
+       lors d'une synchro precedente) faisait echouer tout le paquet. */
+    git("rm", "-q", "--ignore-unmatch", "--", ...aSupprimer.slice(i, i + 60));
   }
   console.log(`${aPorter.length} fichier(s) portes, ${aSupprimer.length} supprime(s).`);
   process.exit(0);
