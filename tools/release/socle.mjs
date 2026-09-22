@@ -51,10 +51,19 @@ const git = (...a) => execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 *
  * `pages/reset-password.` (la cible du lien de reinitialisation) et
  * `lib/list/cloudSync.` (importe par `AuthModal`).
  *
- * PREREQUIS D'EXPLOITATION, sans quoi l'inscription tombe : `TURSO_USERS_URL`
- * et `TURSO_USERS_TOKEN` doivent exister sur le compte Vercel de PROD. Les
- * deux comptes sont distincts depuis le 12/09 — les poser sur dev ne les pose
- * pas en prod.
+ * COTE ENVIRONNEMENT, rien a faire — VERIFIE, pas suppose (22/09) :
+ * `TURSO_USERS_URL`, `TURSO_USERS_TOKEN`, `RESEND_API_KEY` et `MAIL_FROM`
+ * existent deja sur le compte Vercel de PROD, poses le 12/09 sur
+ * Production/Preview/Development. Le controle complet — toutes les
+ * `process.env.*` du resultat de fusion contre `vc.mjs prod env ls` — ne
+ * laisse que des variables a repli (`REDIS_URL` derriere `UPSTASH_*`,
+ * `W2G_GUEST_SECRET` derriere `NEXTAUTH_SECRET`, `ANIME_SKIP_CLIENT_ID`
+ * derriere un client public) et des drapeaux de debug, dont l'absence EST
+ * l'etat voulu en prod.
+ *
+ * A refaire avant chaque release plutot qu'a deduire : les deux comptes sont
+ * distincts depuis le 12/09, et poser une variable sur dev ne la pose pas en
+ * prod.
  *
  * Ce qui reste dehors et n'a PAS bouge : les pages de profil, le moteur de
  * badges, la mise en page des widgets. Un compte sans page de profil est
