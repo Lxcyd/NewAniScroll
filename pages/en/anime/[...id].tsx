@@ -442,11 +442,26 @@ export default function Info({
       // Meme resolution que la page de lecture, dans le meme ordre (exception de
       // la serie -> serveur epingle -> ordre des langues -> megaplay), plus un
       // raffinement qu'elle ne peut pas s'offrir : l'instantane de disponibilite
-      // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit quels hotes
-      // ont reellement repondu pour cet episode. Sans lui, un utilisateur qui
-      // classe la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en
-      // a pas — le pire des deux mondes. Avec, on choisit le meilleur hote de la
-      // langue n°1 PARMI ceux qui marchent.
+      // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit ce qui a
+      // reellement repondu pour cet episode. Sans lui, un utilisateur qui classe
+      // la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en a pas
+      // — le pire des deux mondes.
+      /* On en lit `absent`, PAS `ok` (22/09/2026).
+         L'instantane servait de liste blanche : le candidat n°1 etait le
+         meilleur hote PARMI ceux qu'il confirmait. Or il ne contient que ce
+         qu'un visiteur precedent a eu le temps de sonder — c'est un « ceux-ci
+         marchent », jamais un « les autres, non ». Sur un episode dont
+         l'instantane ne connaissait qu'un hote lent, on l'elisait donc n°1
+         devant des hotes mieux classes que PERSONNE n'avait essayes ; et comme
+         `warmChain` s'arrete au premier succes et que la page de lecture
+         ouvre d'emblee un candidat `verifie`, rien ne rattrapait ensuite.
+         Constate sur One Piece ep. 1 : ouverture sur Sibnet (rang 4) alors que
+         Frembed (rang 1) et Ansembed (rang 2) servent la serie — ils
+         n'apparaissaient qu'apres le fan-out de sondes de la page de lecture.
+         `absent` est l'autre moitie de l'instantane et porte, elle, un vrai
+         verdict d'absence : l'ecarter des candidats garde le benefice voulu
+         (ne pas prechauffer un hote qui n'a pas l'episode) sans laisser une
+         connaissance partielle gouverner le classement. */
       /* Non plus UN serveur, mais l'ORDRE dans lequel on les essaierait. Le
          prechauffage ne descendait pas cette liste : quand le premier ne
          repondait pas, plus personne ne prenait le relais et la page de
@@ -455,7 +470,11 @@ export default function Info({
       const resolveWatchCandidates = async (): Promise<string[]> => {
         const pinned = getAnimeServer(info.id) || getServerPref();
         const order = getEffectiveLangOrder();
-        let confirmed: Set<string> | null = null;
+        /* Les hotes que l'instantane a prouves SANS source pour cet episode.
+           Vide sur un instantane ancien (forme historique : un simple tableau
+           de confirmes, donc `absent` absent) — on retombe alors sur le choix
+           a l'aveugle, qui est correct, simplement moins econome. */
+        const morts = new Set<string>();
         if (order) {
           try {
             const r = await fetch(
@@ -463,8 +482,8 @@ export default function Info({
               { signal: ac.signal },
             );
             if (r.ok) {
-              const { servers } = await r.json();
-              if (Array.isArray(servers) && servers.length) confirmed = new Set(servers);
+              const { absent } = await r.json();
+              if (Array.isArray(absent)) for (const id of absent) morts.add(id);
             }
           } catch {
             /* hors ligne / annule — on retombe sur le choix a l'aveugle */
@@ -491,16 +510,13 @@ export default function Info({
         const sansVf = vfPossible(info.idMal) ? null : (["vf"] as const);
         if (order) {
           for (let i = 0; i < 3; i++) {
-            const pick =
-              pickServerForLangs(order, {
-                ...(confirmed ? { confirmed } : null),
-                failed: new Set(liste),
-                deprioriser: sansVf ? [...sansVf] : null,
-              }) ||
-              pickServerForLangs(order, {
-                failed: new Set(liste),
-                deprioriser: sansVf ? [...sansVf] : null,
-              });
+            /* Un seul appel, la ou il y en avait deux : le second n'etait qu'un
+               repli pour la liste blanche epuisee, et il n'y a plus de liste
+               blanche. Les morts rejoignent `failed`, comme les deja-choisis. */
+            const pick = pickServerForLangs(order, {
+              failed: new Set([...liste, ...morts]),
+              deprioriser: sansVf ? [...sansVf] : null,
+            });
             if (!pick) break;
             ajoute(pick);
           }
