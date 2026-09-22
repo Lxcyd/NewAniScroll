@@ -71,7 +71,13 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-font-assets",
-      expiration: { maxEntries: 4, maxAgeSeconds: 7 * 24 * 60 * 60 },
+      /* 40, pas 4 : quatre familles x leurs graisses, et depuis le 22/09
+         AUCUNE police n'est prechargee (cf. `horsPrecache`). A 4 entrees,
+         chaque page evinçait les polices de la precedente et le cache ne
+         servait jamais. Rien ne cassait — le cache HTTP `immutable` d'un an
+         reprend derriere — mais hors ligne on retombait sur la police
+         systeme. */
+      expiration: { maxEntries: 40, maxAgeSeconds: 7 * 24 * 60 * 60 },
     },
   },
   {
@@ -79,7 +85,10 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-image-assets",
-      expiration: { maxEntries: 64, maxAgeSeconds: 24 * 60 * 60 },
+      // 200 : les ~250 emojis d'un salon Watch2gether sont charges a la
+      // demande (hors precache), et une grille d'affiches remplit 64 entrees
+      // a elle seule.
+      expiration: { maxEntries: 200, maxAgeSeconds: 24 * 60 * 60 },
     },
   },
   {
@@ -96,7 +105,9 @@ const runtimeCaching = [
     handler: "StaleWhileRevalidate",
     options: {
       cacheName: "static-js-assets",
-      expiration: { maxEntries: 32, maxAgeSeconds: 24 * 60 * 60 },
+      // 96 : c'est ce cache qui rattrape ce qui est sorti du precache le
+      // 22/09 (hls.js, Ably, admin) en plus des chunks de route habituels.
+      expiration: { maxEntries: 96, maxAgeSeconds: 24 * 60 * 60 },
     },
   },
   {

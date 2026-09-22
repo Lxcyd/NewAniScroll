@@ -42,6 +42,13 @@ donc elle ne serait plus jamais consultée — `horsPrecache` recopie ses
 exclusions. Un chunk ne sort que si **tous** ses modules viennent des paquets
 visés, pour qu'un morceau d'appli collé au même chunk le retienne.
 
+**Contrepartie réglée dans le même souffle** : ce qui sort du précache retombe
+sur les caches runtime, dont les quotas dataient d'avant. `static-font-assets`
+tenait **4** fichiers — chaque page évinçait les polices de la précédente, donc
+le cache ne servait jamais. Passés à 40 (polices), 96 (JS : hls.js, Ably, admin
+en plus des chunks de route) et 200 (images : les ~250 emojis d'un salon sont
+maintenant chargés à la demande). Mêmes stratégies, mêmes durées de vie.
+
 Vérifié après build : les entrées de `/_app`, `/_offline`, `/_error`, `/en`, la
 fiche et la page de lecture sont toutes présentes (les crochets y sont
 URL-encodés, `%5B...%5D` — de quoi croire à tort qu'elles manquent).
