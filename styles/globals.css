@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Karla:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,200;1,300;1,400;1,500;1,600;1,700;1,800&family=Outfit:wght@100;200;300;400;500;600;700;800;900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap");
+/* Polices : auto-hebergees, voir lib/fonts.ts (importe par _app avant ce fichier). */
 @import "./listEditor.css";
 @tailwind base;
 @tailwind components;
@@ -56,6 +56,18 @@ html.tab-hidden *::after {
 }
 .as-fade-in {
   animation: as-fade-in 0.3s ease both;
+}
+/* Squelette de navigation (components/shared/RouteSkeleton) : il apparait des
+   le clic, mais en 120 ms — une navigation servie par le cache se termine
+   souvent avant, et un squelette plein cadre d'une frame se lirait comme un
+   clignotement. */
+.as-route-skeleton {
+  animation: as-fade-in 0.12s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-route-skeleton {
+    animation: none;
+  }
 }
 .as-pop-in {
   animation: as-pop-in 0.35s ease both;
@@ -284,27 +296,36 @@ body,
 
 /* Exception: the fullscreen score-grid pan canvas WANTS a visible scrollbar so
    it's obvious you can scroll/drag through a long franchise. Re-enable a slim,
-   themed track/thumb here, overriding the site-wide hide above. */
-.score-pan-scroller {
+   themed track/thumb here, overriding the site-wide hide above.
+
+   `.as-scroller` est le meme habillage, ouvert a qui en a besoin ailleurs (la
+   frise des annees du profil). Meme regle et pas une copie : deux barres qui se
+   ressemblent « presque » se remarquent plus qu'une barre partagee. */
+.score-pan-scroller,
+.as-scroller {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
 }
-.score-pan-scroller::-webkit-scrollbar {
+.score-pan-scroller::-webkit-scrollbar,
+.as-scroller::-webkit-scrollbar {
   display: block;
   width: 11px;
   height: 11px;
 }
-.score-pan-scroller::-webkit-scrollbar-thumb {
+.score-pan-scroller::-webkit-scrollbar-thumb,
+.as-scroller::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.22);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.score-pan-scroller::-webkit-scrollbar-thumb:hover {
+.score-pan-scroller::-webkit-scrollbar-thumb:hover,
+.as-scroller::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.38);
   background-clip: padding-box;
 }
-.score-pan-scroller::-webkit-scrollbar-corner {
+.score-pan-scroller::-webkit-scrollbar-corner,
+.as-scroller::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -2112,4 +2133,1411 @@ input[type="number"] {
 
 .discover-toast [data-button]:active {
   transform: scale(0.94);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Profile hero (components/profile/ProfileHero.tsx)
+
+   The plate behind a profile. Three states, one component:
+     - an artwork      → shown WHOLE. The band is sized on the 16:9 ratio of the
+                         art itself, and nothing zooms or drifts over it: a slow
+                         Ken-Burns drift was tried first and it crops, which is
+                         precisely what the banner is not supposed to do;
+     - nothing at all  → .as-hero-default, built from the site's accent colour
+                         (--brand-primary, so a custom theme repaints it);
+     - a portrait cover as last resort → .as-hero-cover blurs and over-scales
+                         it, because a poster stretched across a wide band is
+                         the ugliest case of all. This is the ONE place a blur
+                         is deliberate — the picker never blurs anything.
+   ───────────────────────────────────────────────────────────────── */
+:root {
+  /* How far down the identity sits. In wallpaper mode the picture is the whole
+     window, so this no longer has to match the art's ratio — it only has to
+     leave the name, the stats and the top of the list on the first screen,
+     which is what 58vh buys. Floored so a phone still gets a real header. */
+  --as-hero-h: max(300px, min(56.25vw, 58vh));
+  /* A banner-shaped plate, and the flat colour one: a strip, not a screen.
+     Sized on 4.75:1 — the shape AniList's own banners are authored in
+     (1900×400) — so `object-cover` has nothing left to crop and the strip is
+     shown at its natural framing. A height picked from vh instead would crop
+     the sides of the composition on any window that isn't the right shape. */
+  --as-hero-slim: clamp(170px, 21vw, 46vh);
+}
+.as-hero-band {
+  height: var(--as-hero-h);
+}
+.as-hero-band-slim {
+  height: var(--as-hero-slim);
+}
+.as-hero-scrim {
+  /* Weighted to the bottom so the name reads and the middle of the artwork
+     stays uncovered; the top stop only darkens enough for the transparent
+     navbar. Stops are the page background (#0c0d10 = `primary`). */
+  background: linear-gradient(
+    to top,
+    rgb(12, 13, 16) 0%,
+    rgba(12, 13, 16, 0.92) 14%,
+    rgba(12, 13, 16, 0.55) 34%,
+    rgba(12, 13, 16, 0.12) 60%,
+    rgba(12, 13, 16, 0.42) 100%
+  );
+}
+
+/* ── Illustration worn as the page's background ──────────────────
+   The picture is the page's WALLPAPER: fixed to the window, so it stays put
+   while the profile slides over it, and covering the whole viewport, so the
+   artwork is seen at the size it was drawn instead of squeezed into a strip.
+
+   `fixed` has one consequence that has to be paid for here: a scrim pinned to
+   the window cannot be a gradient tuned to where the name and the stats sit,
+   because those move. So this one is scroll-INDEPENDENT — an even veil, plus a
+   little extra at the very top (the transparent navbar) and bottom. Everything
+   that has to stay readable over an arbitrary picture carries its own contrast:
+   the name a shadow, the stat cards a dark backing (.as-stat-card), the chips a
+   blur. And it is the ONLY layer over the wallpaper: the seam that used to join
+   it to the content, and the flat veil under the content, both went — see the
+   note where .as-page-under stood.
+
+   z-index 0 and NOT -1: `html` carries its own background colour, so a negative
+   layer would be painted behind it and never seen — which is why the page's own
+   content is pushed to z-10 instead (see the profile routes).
+   ───────────────────────────────────────────────────────────────── */
+.as-page-plate {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+.as-page-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(12, 13, 16, 0.72) 0px,
+      rgba(12, 13, 16, 0.28) 130px,
+      rgba(12, 13, 16, 0.28) 65%,
+      rgba(12, 13, 16, 0.6) 100%
+    );
+}
+/* .as-page-under IS GONE, and here is why it must not come back.
+
+   It painted rgba(12,13,16,0.9) over everything the profile puts on the page.
+   Laid on top of .as-page-scrim — which is already 0.28 across the middle of
+   the wallpaper — that made ~0.93 of flat black between the picture and the
+   eye: below the hero the artwork was simply not there any more. The two
+   layers were doing the same job, and the second one won.
+
+   .as-page-scrim keeps it, and it is the one tuned for it: 0.72 under the
+   transparent navbar, 0.28 through the body, 0.6 at the foot. The rule that
+   makes a scrim that light enough is written above it — everything that has
+   to stay readable over an arbitrary picture carries its OWN contrast: the
+   name a shadow, the cards .as-stat-card, the chips a blur. A second flat
+   sheet over the whole page is what you add when that rule is not being
+   followed; adding it back would hide the wallpaper again, not fix a card. */
+/* Where a strip meets the page: enough to avoid a hard cut under the avatar,
+   not enough to eat the composition. */
+.as-strip-foot {
+  background: linear-gradient(
+    to top,
+    rgba(12, 13, 16, 0.85) 0%,
+    rgba(12, 13, 16, 0) 100%
+  );
+}
+.as-hero-cover {
+  filter: blur(28px) saturate(1.3);
+  transform: scale(1.35);
+}
+/* La même plaque, mais teintée de la couleur choisie dans le studio plutôt que
+   de l'accent du site. Une seule variable : le reste du dessin est identique,
+   pour qu'un fond de couleur ait la même matière que celui d'un profil vide. */
+/* Le fond « couleur unie » d'un profil : LA COULEUR CHOISIE, assombrie vers le
+   bas dans sa propre teinte.
+
+   Ce que ça remplace, et pourquoi : la version d'avant posait la teinte en deux
+   taches radiales sur un fond gris-bleu #191924, puis passait une trame par
+   dessus. Un vert vif rendait donc un coin vert sombre et du gris partout
+   ailleurs — on ne recevait pas ce qu'on avait cliqué, et le sélecteur de
+   couleur mentait sur son résultat.
+
+   ET LE DÉGRADÉ N'EST PAS ICI, c'est une correction. Il y a été, et la couleur
+   sortait fausse : au-dessus de cette plaque, la page pose déjà
+   `.as-page-scrim-tint` et le studio son propre voile. Assombrir une seconde
+   fois dans la plaque revenait à multiplier les deux — un violet #8B5CF6
+   arrivait à l'écran violet sale en haut et presque noir en bas, et le
+   sélecteur de couleur mentait donc sur son résultat. Une seule couche
+   assombrit, celle qui est au-dessus ; ici, c'est la couleur, franche. */
+.as-hero-tint {
+  background: var(--as-tint, #e94560);
+}
+/* Le voile d'une plaque de COULEUR, bien plus léger que celui d'une
+   illustration (`.as-page-scrim`, 0.72 / 0.28 / 0.6).
+
+   Pourquoi il peut l'être : un voile lourd sert à détacher du texte d'une
+   photo, qui a du détail, des zones claires et des contrastes qu'on ne choisit
+   pas. Un aplat n'a rien de tout cela — et ce qui doit rester lisible porte
+   déjà son propre contraste (le pseudo son ombre portée, les chiffres leur
+   carte). Il ne reste donc à faire que deux choses : creuser sous la barre de
+   navigation, et rejoindre le fond de page en bas. */
+.as-page-scrim-tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(12, 13, 16, 0.5) 0px,
+    rgba(12, 13, 16, 0.1) 140px,
+    rgba(12, 13, 16, 0.08) 62%,
+    rgba(12, 13, 16, 0.42) 100%
+  );
+}
+/* Le curseur de flou du dock a été rendu à `.as-range`, celui des réglages de
+   widget : deux curseurs maison pour la même app, c'était un de trop. */
+.as-hero-default {
+  background:
+    radial-gradient(
+      95% 130% at 12% -10%,
+      var(--brand-primary, #e94560) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      75% 110% at 88% 0%,
+      var(--brand-secondary, #ff7f57) 0%,
+      transparent 55%
+    ),
+    linear-gradient(165deg, #191924 0%, #0c0d10 75%);
+}
+/* Faint diagonal weave over the flat plate so it reads as a surface rather
+   than a gradient fill. Pure CSS, no image request. */
+.as-hero-weave::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.035) 0px,
+    rgba(255, 255, 255, 0.035) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+  pointer-events: none;
+}
+/* `.as-hero-glow` A ÉTÉ RETIRÉE (07/09/2026), et il ne faut pas la remettre
+   telle quelle. C'était la fuite de couleur sous l'avatar : l'accent, flouté,
+   pour que l'en-tête baigne dans sa propre lumière au lieu de s'arrêter net.
+   Sur une plaque sombre — le cas courant, et systématique quand le fond est une
+   bande-annonce — elle ne se lisait plus comme une lumière mais comme un voile
+   presque transparent sous le nom et derrière les chiffres, ses bords droits
+   compris. Le calque a été identifié au CDP comme le seul de cette taille peint
+   dans l'en-tête. Une lueur qui ne se voit que sur les fonds clairs doit être
+   conditionnée à la clarté du fond (lib/color/navContrast.ts sait la mesurer),
+   pas posée pour tout le monde. */
+/* The cards float over a picture that scrolls behind them and can be pale, so
+   they carry their own opacity rather than trusting the scrim underneath.
+
+   PAS DE `backdrop-filter` ICI, et c'est une correction, pas un oubli.
+
+   Il y en avait un — `blur(10px)` — et il ne se voyait pas : `.as-page-under`
+   posait alors 0,9 de noir plat sous tout le contenu, donc flouter ce qu'il y
+   avait derriere une carte ne changeait rien a l'ecran. Ce voile parti, le
+   papier peint est net partout SAUF a l'interieur des cartes : chacune
+   decoupait dans l'illustration un rectangle flou a bord franc. Ce n'etait pas
+   un effet de verre depoli, c'etait une dizaine de trous.
+
+   La ligne du dessus dit deja pourquoi il etait de trop : le contraste vient de
+   l'opacite propre de la carte (0,72 → 0,58), pas du flou. Et le retirer rend
+   le defilement : dix `backdrop-filter` au-dessus d'un fond `fixed`, ce sont
+   dix couches que le compositeur refiltre a chaque image. */
+/* Les cartes du profil — blocs de la grille et cartes de statistiques.
+   `--as-plate-blur` est posé par la page quand le propriétaire a réglé un flou
+   dans le studio (0 par défaut, donc aucun coût pour tous les autres profils).
+   L'opacité du fond baisse en même temps : sur une carte à 0.72 d'opaque, un
+   flou d'arrière-plan ne se verrait tout simplement pas. */
+.as-stat-card {
+  background: linear-gradient(
+    145deg,
+    rgba(20, 22, 28, var(--as-plate-a1, 0.72)),
+    rgba(12, 13, 16, var(--as-plate-a2, 0.58))
+  );
+  backdrop-filter: blur(var(--as-plate-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--as-plate-blur, 0px));
+}
+
+/* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
+
+   Le trait part de la plus vieille annee et court jusqu'a aujourd'hui, puis
+   l'aire et les chiffres se posent dessus. Ce n'est pas une decoration : la
+   frise s'ouvre cadree a DROITE, sur le present, et le trait qui arrive par la
+   gauche montre en une seconde qu'il y a trente ans a tirer derriere.
+
+   `pathLength: 1` est pose sur le trait en JSX : le chemin fait alors une unite
+   de long quelle que soit la liste, donc un seul jeu de keyframes sert a toutes
+   les frises, sans mesurer quoi que ce soit. */
+@keyframes as-year-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.as-year-draw {
+  stroke-dasharray: 1;
+  animation: as-year-draw 0.9s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.as-year-veil {
+  animation: as-fade-in 0.45s ease 0.5s both;
+}
+/* Moins de mouvement : la frise est simplement la, entiere. Un trace est un
+   deplacement du regard impose, et c'est exactement ce qu'on vient d'ecarter. */
+@media (prefers-reduced-motion: reduce) {
+  .as-year-draw {
+    stroke-dasharray: none;
+    animation: none;
+  }
+  .as-year-veil {
+    animation: as-fade-in 0.3s ease both;
+  }
+}
+
+/* ── Les widgets du profil : ce qu'ils portent grandit avec la carte ──────
+
+   La grille laisse poser un bloc de 1×2 a 2×4 (hauteur × largeur), soit du
+   simple au quadruple de surface. Tant que le contenu gardait ses tailles de
+   la plus petite, un bloc etale devenait une vignette et deux boutons flottant
+   au milieu d'un grand vide — exactement ce qu'on voyait en 2×4.
+
+   Une REQUETE DE CONTENEUR, pas un point de rupture d'ecran : ce qui decide
+   ici, c'est la taille de la CARTE, et deux cartes de tailles differentes
+   coexistent dans la meme fenetre. `container-type: size` demande une taille
+   definie sur les deux axes — WidgetGrid la pose en pixels, c'est le cas.
+
+   Les seuils : une carte d'une ligne fait 230 px de haut, deux lignes 476 ;
+   deux colonnes font environ 590 px de large sur une page de 1200, quatre
+   colonnes la page entiere. D'ou 300 px et 700 px, chacun bien au milieu de
+   son ecart. */
+.as-widget {
+  container: widget / size;
+}
+
+/* La barre de defilement de la vitrine des favoris, cachee -- le carrousel se
+   tire a la souris et se pousse aux fleches, la barre ne servait qu'a manger
+   huit pixels de hauteur d'affiche. Le defilement lui-meme reste intact. */
+.as-noscroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.as-noscroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* L'ECART ENTRE DEUX AFFICHES, PROPORTIONNEL A LEUR TAILLE.
+   Le carrousel de recommandations pose 14 px entre des cartes de 180, soit
+   ~7,8 %. Ici la carte n'a pas de largeur fixe : elle tient sa hauteur de la
+   case et sa largeur de son rapport 2:3, donc l'ecart suit par requete de
+   conteneur. Une case d'une ligne (230 px) laisse une affiche d'environ 85 px
+   de large -> 7 px ; deux lignes (476 px) en laissent ~245 -> 19 px. Le rapport
+   est tenu aux deux bouts, sans mesurer quoi que ce soit en JS. */
+/* LA BANDE MORD SUR LE REMBOURRAGE BAS DE LA CARTE.
+
+   Le piege, paye deux fois : la bande est en `height: 100%` et tout le site est
+   en `box-sizing: border-box`, donc un `padding` ne l'AGRANDIT pas — il se
+   retranche de sa hauteur utile. Poser `pb-3` pour « faire de la place » a donc
+   fait exactement l'inverse : douze pixels retires a l'affiche, et une marge
+   negative qui laissait sous la bande une zone que plus rien n'occupait. C'est
+   la bande vide qu'on voyait en bas du widget.
+
+   La hauteur est donc rendue explicitement avant d'etre depensee :
+     hauteur   100 % + 16   (12 de debordement voulu + 4 de rembourrage haut)
+     - padding          4   (le jeu qu'il faut a l'affiche pour grandir au survol)
+     = utile   100 % + 12   pour les affiches.
+   Les marges negatives (-4 en haut, -12 en bas) reprennent le tout sur la mise
+   en page : la bande deborde de 12 px dans les 16 px de rembourrage bas de la
+   carte, il en reste 4 sous elle, et rien n'a bouge autour. */
+.as-fav-row {
+  /* L'ECART EST UNE MARGE DE CARTE, PAS UN `gap` DE RANGEE. Un `gap` appartient
+     au conteneur : une carte qui s'en va ne peut pas emporter le sien, et il
+     restait donc un trou de la largeur de l'ecart la ou elle etait, jusqu'a ce
+     que le noeud disparaisse. Porte par la carte, il se referme avec elle. */
+  --as-fav-gap: 7px;
+  /* La bande mord de 4 px sur le rembourrage bas de la carte, plus les 12 qu'il
+     en reste sous elle. Elle en a mordu 12 pendant un temps, et l'affiche
+     touchait alors presque le bord du widget : le peu de vide sous une vitrine
+     n'est pas de la place perdue, c'est ce qui la pose. */
+  height: calc(100% + 8px);
+  padding-top: 4px;
+  margin-top: -4px;
+  margin-bottom: -4px;
+
+  /* Les bords estompes sont dans `.as-fade-x`, plus bas : la vitrine les a vus
+     naitre, mais ils appartiennent a tous les carrousels du site. */
+}
+
+/* LES BORDS ESTOMPENT CE QUI SORT, au lieu de le trancher.
+
+   Une bande qui defile s'arrete net sur le bord de sa boite : l'affiche a moitie
+   coupee se lit comme un defaut d'affichage, pas comme la suite de la liste. Un
+   masque en degrade la fait s'eteindre sur les derniers 36 px.
+
+   Le degrade est pose SUR LE COTE OU IL RESTE QUELQUE CHOSE seulement -- les
+   deux longueurs viennent de `useEdgeFade` (lib/ui/edgeFade.ts) : estomper le
+   premier titre alors qu'on est deja au debut de la liste ferait croire a tort
+   qu'on a rate quelque chose a gauche.
+
+   ZERO PAR DEFAUT, et c'est ce qui rend la classe sure a poser n'importe ou :
+   sans le hook, le masque est un rectangle plein et ne change rien. Une rangee
+   qui n'a pas encore de JS ne s'affiche donc jamais amputee. */
+.as-fade-x {
+  --as-fade-l: 0px;
+  --as-fade-r: 0px;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--as-fade-l),
+    #000 calc(100% - var(--as-fade-r)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--as-fade-l),
+    #000 calc(100% - var(--as-fade-r)),
+    transparent 100%
+  );
+}
+
+/* LA RANGEE DU TITRE FAIT EXACTEMENT DEUX LIGNES, ni plus ni moins.
+
+   Elle a d'abord ete fixee en rem — 1,9 puis 2,5 — et c'etait deux erreurs a la
+   fois : trop courte, la deuxieme ligne debordait sous la carte ; trop longue,
+   elle laissait une bande vide que le lecteur voit comme de la place perdue. Et
+   les deux arrivaient au meme endroit, puisque le corps du titre change avec la
+   taille de la case.
+   La hauteur est donc exprimee en `em`, donc RELATIVE au corps du titre :
+   2 x 1.15 = 2.3em vaut toujours deux lignes pleines, quel que soit ce corps.
+   La rangee, elle, passe en `auto` et se contente de suivre.
+   Toutes les cartes gardent la meme taille — c'est une hauteur imposee, pas un
+   maximum — et tout ce qui reste va a l'affiche. */
+.as-fav-card {
+  grid-template-rows: minmax(0, 1fr) auto;
+  margin-right: var(--as-fav-gap);
+}
+/* L'AFFICHE NE S'ETIRE PAS A LA LARGEUR DE SA COLONNE, et c'est ce qui empeche
+   la mesure de se mordre la queue. Par defaut un element de grille est etire :
+   l'affiche prendrait donc la largeur que la carte tient DE LA MESURE, la mesure
+   relirait cette meme valeur, et la bande resterait a jamais a la largeur qu'elle
+   avait au premier rendu — un widget redimensionne n'aurait plus jamais raison.
+   Alignee au debut, l'affiche garde sa largeur DE SA HAUTEUR par le rapport 2:3,
+   qui est la seule source honnete. */
+.as-fav-poster {
+  justify-self: start;
+}
+.as-fav-title {
+  font-size: 12px;
+  line-height: 1.15;
+  height: 2.3em;
+  overflow: hidden;
+}
+@container widget (min-height: 300px) {
+  .as-fav-row {
+    --as-fav-gap: 19px;
+  }
+  .as-fav-title {
+    font-size: 15px;
+  }
+}
+
+/* ENTREE ET SORTIE D'UNE AFFICHE quand un reglage change ce que la vitrine
+   montre. Les cartes qui restent ne bougent PAS d'elles-memes : seules celles
+   qui arrivent et celles qui partent sont animees — les autres glissent parce
+   que la place change devant elles, ce qui est exactement l'effet voulu.
+
+   UNE TRANSITION, ET SURTOUT PAS UNE `@keyframes` AU MONTAGE. La version
+   precedente jouait une keyframe a la naissance du noeud : la carte etait
+   posee a sa taille finale, poussait ses voisines d'un coup sec, et seule son
+   opacite montait — a l'oeil, elle apparaissait instantanement. Ici la carte
+   NAIT REPLIEE (`is-enter`, largeur nulle) et se deplie a la frame suivante,
+   quand React la passe a `is-in` : l'arrivee ecarte ses voisines comme le
+   depart les rapproche.
+
+   LA PLACE SE REFERME. Un fondu seul aurait laisse un trou de la largeur d'une
+   affiche jusqu'a ce que le noeud disparaisse, puis un saut sec quand il
+   disparait — l'oppose de fluide. La carte reduit donc AUSSI sa largeur et sa
+   marge. Cette largeur ne s'ecrit pas en CSS : elle vient de la hauteur de la
+   case par le rapport 2:3, donc `syncRow` (ListBlocks.tsx) la mesure et la pose
+   en `--as-fav-w` sur la bande. Le repli est un `max-width` et non un `width` :
+   la largeur reelle reste celle de l'affiche, le plafond ne fait que la
+   laisser passer. */
+.as-fav-card {
+  /* LA LARGEUR EST CELLE DE L'AFFICHE, imposee, et surtout pas deduite du
+     contenu. Sans elle, la carte prenait la largeur du PLUS LARGE de ses deux
+     elements — donc celle du titre des qu'il depassait l'affiche, et les cartes
+     se retrouvaient ecartees chacune a proportion de la longueur de son texte.
+
+     `var()` SANS REPLI, volontairement : tant que la mesure n'a pas eu lieu, la
+     declaration est invalide et `width` retombe sur `auto`, c'est-a-dire le
+     comportement d'avant. Un repli chiffre, lui, imposerait une largeur fausse
+     le temps du premier rendu. Le plafond garde le sien (40rem) : il ne sert
+     qu'a l'animation, ou une valeur trop grande ne fait que passer inapercue. */
+  width: var(--as-fav-w);
+  max-width: var(--as-fav-w, 40rem);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-right 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--as-fav-delay, 0ms);
+}
+.as-fav-card.is-enter,
+.as-fav-card.is-out {
+  opacity: 0;
+  max-width: 0;
+  margin-right: 0;
+}
+.as-fav-card.is-enter {
+  transform: translateY(8px) scale(0.94);
+}
+.as-fav-card.is-out {
+  /* Plus cliquable des l'instant ou elle part, et elle n'attend pas son tour :
+     ce qui s'en va s'en va tout de suite, le decalage par rang est pour ce qui
+     arrive. */
+  pointer-events: none;
+  transform: scale(0.9);
+  transition-delay: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-fav-card {
+    transition-duration: 0.01s;
+    transition-delay: 0s;
+  }
+}
+
+/* LE DOUBLE CURSEUR des reglages de widget (composant Range dans
+   components/profile/WidgetSettings.tsx).
+
+   Deux <input type="range"> occupent exactement la meme boite, l'un sur
+   l'autre, au-dessus d'un rail peint en HTML. La regle qui fait tout marcher est
+   `pointer-events: none` sur l'input et `auto` sur son seul pouce : sans elle,
+   l'input du dessus recevrait tous les clics sur toute la largeur et la borne
+   basse serait injoignable. Les pistes natives sont rendues transparentes — ce
+   qu'on voit est le rail HTML, qui sait peindre le segment retenu. */
+.as-range input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.as-range input[type="range"]:focus {
+  outline: none;
+}
+.as-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--brand-primary, #e94560);
+  cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.as-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--brand-primary, #e94560);
+  cursor: grab;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.as-range input[type="range"]::-moz-range-track {
+  background: transparent;
+}
+
+/* Le menu deroulant des listes, resserre. Memes classes que l'editeur de liste
+   (styles/listEditor.css) -- ce sont les memes listes, donc le meme menu -- mais
+   le panneau de reglages fait 260 px de large la ou la fenetre d'origine en fait
+   700, et ses espacements y sont a l'etroit. */
+.le-dd-compact .le-dd-trigger {
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  gap: 8px;
+}
+.le-dd-compact .le-dd-list {
+  border-radius: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.le-dd-compact .le-dd-option {
+  padding: 8px 10px;
+  font-size: 12px;
+  gap: 8px;
+}
+.le-dd-compact .le-dd-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* La colonne des reperes d'un menu de listes : meme largeur pour tous, quel que
+   soit ce qu'on y dessine. Une pastille (8 px) y est centree, un coeur (12 px)
+   la remplit. Sans cette colonne il fallait choisir entre un coeur reduit au
+   diametre d'une pastille — illisible — et un coeur qui deborde de la boite
+   d'une pastille, dont le bord gauche sortait alors de la colonne de gauche. */
+.as-dd-mark {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* Le panneau de reglages d'un widget (components/profile/WidgetSettings.tsx).
+   Il s'ouvre TOUJOURS au-dessus de sa carte, ancre par son coin bas-droit
+   (`origin-bottom-right` pose par WidgetGrid), c'est-a-dire du cote de la roue
+   dentee : l'animation part du bouton qu'on vient d'appuyer, et elle descend
+   d'autant, vers la carte.
+   Une keyframe et pas une bibliotheque, comme `as-pop-in` plus haut : ca tourne
+   sur le compositeur et ca ne coute pas un octet de JS. */
+@keyframes as-widget-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.as-widget-pop {
+  animation: as-widget-pop 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-widget-pop {
+    animation-duration: 0.01s;
+  }
+}
+
+@container widget (min-width: 700px) {
+  .as-widget-lead {
+    font-size: 1.375rem;
+  }
+}
+
+/* LES DEUX FORMES DU TITRE DE LA VITRINE (cf. `blockTitle`, ProfileOverview).
+
+   « Animes favoris · En cours » tient sur une carte large. Sur un telephone la
+   carte fait toute la largeur de l'ecran -- environ 340 px -- et le titre
+   rejoignait les fleches du carrousel. La carte etroite ne garde donc qu'une
+   moitie : le nom de la LISTE montree (« En cours », « Termines », ou celui
+   d'une liste personnalisee). Les coeurs, eux, gardent « Animes favoris » --
+   mais ils ne passent pas par ici, leur titre n'a jamais eu qu'une forme.
+
+   Un nom trop long s'arrete sur trois points : c'est le `truncate` de l'en-tete
+   (WidgetGrid.tsx), qui a de quoi couper au bon endroit parce que la place des
+   fleches lui est reservee (`endRoom`).
+
+   Le seuil est a 360 px, bien au-dessus d'une carte de telephone et bien
+   au-dessous d'une carte de deux colonnes. Et c'est une requete de CONTENEUR :
+   la meme fenetre porte des cartes de 1x1 et de 2x4, seule la largeur de la
+   carte peut decider.
+
+   IL ETAIT A 460, ET C'ETAIT UNE ERREUR DE MESURE — la meme dans tous les
+   seuils de largeur qui suivent, tous corriges avec celui-ci. Une requete de
+   conteneur mesure la BOITE DE CONTENU, pas la carte : les 40 px de `px-5` n'en
+   font pas partie. Une carte de deux colonnes fait 492 px sur le profil local
+   (`max-w-screen-lg`), donc 452 px de contenu — elle passait SOUS 460 et
+   recevait le titre court reserve aux cartes d'une colonne, alors qu'elle en
+   fait 616 (576 de contenu) sur l'autre page. Les seuils calcules sur la
+   largeur de la carte tombaient ainsi du mauvais cote sur une page des deux. */
+.as-head-short {
+  display: none;
+}
+@container widget (max-width: 360px) {
+  .as-head-full {
+    display: none;
+  }
+  .as-head-short {
+    display: inline;
+  }
+}
+
+@container widget (min-height: 300px) {
+  .as-widget-head {
+    font-size: 1.375rem;
+  }
+  .as-widget-lead {
+    font-size: 1.5rem;
+  }
+  .as-widget-sub {
+    font-size: 0.9375rem;
+  }
+  .as-widget-btn {
+    height: 2.75rem;
+    padding-inline: 1.375rem;
+    font-size: 0.875rem;
+  }
+  .as-widget-btn svg {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .as-widget-play {
+    width: 4.5rem;
+    height: 4.5rem;
+  }
+  .as-widget-play svg {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+
+@container widget (min-width: 700px) and (min-height: 300px) {
+  .as-widget-lead {
+    font-size: 1.875rem;
+  }
+}
+
+/* UNE LIGNE DE « Vu recemment » GRANDIT AVEC SON BLOC.
+   Elle etait ecrite en pixels fixes : dans un bloc de 2x4 les trois lignes
+   restaient tassees en haut d'une carte deux fois trop grande pour elles, et la
+   pastille de lecture — qui, elle, se mesure sur la vignette — paraissait
+   enorme sur une vignette restee petite.
+
+   TOUT DESCEND D'UNE SEULE VARIABLE, la hauteur de la vignette. Sa largeur en
+   vient par le 16/9 et la pastille par un pourcentage (cf. DeviceBlocks.tsx) :
+   un seul nombre a regler par palier, et les proportions ne peuvent pas se
+   desaccorder.
+
+   LES SEUILS SONT CALES SUR LES LARGEURS REELLES DE LA GRILLE, pas repris tels
+   quels des autres widgets. Quatre colonnes dans un `max-w-screen-xl` (1248 px
+   utiles, GAP 16) donnent 300 px par colonne, donc un bloc large de 2 fait
+   616 px, de 3 932 px, de 4 1248 px — et le profil local, dans un
+   `max-w-screen-lg`, 492 / 740 / 992. Un seuil unique a 700 px — celui des
+   autres widgets — met le 3 et le 4 dans le MEME palier sur la page large :
+   passer de 3 a 4 colonnes ne changeait rien. D'ou le troisieme seuil.
+
+   MOINS 40 PX SUR CHAQUE SEUIL : la requete mesure la boite de CONTENU, et
+   `px-5` en retire 40 (cf. le pave sur `as-head-short`). Les largeurs a
+   comparer sont donc 576/892/1208 et 452/700/952. D'ou 660, qui laisse le bloc
+   large de 2 dessous sur les deux pages, et 940, qui prend le bloc large de 4
+   sur les deux — y compris celui du profil local, a 952, que le seuil de 980
+   manquait. */
+.as-recent-row {
+  --as-recent-h: 66px;
+  gap: 0.875rem;
+}
+.as-recent-thumb {
+  height: var(--as-recent-h);
+  width: calc(var(--as-recent-h) * 16 / 9);
+}
+/* LA PILULE DE SERIE, dans le coin de l'en-tete, et pourquoi elle se centre
+   plutot que de se poser.
+
+   Un `top` en dur devrait etre recalcule a chaque changement de taille : la
+   pilule grandit avec le bloc, et un bord haut fixe la ferait deriver vers le
+   bas du titre. `top` + `translateY(-50%)` posent son CENTRE, pas son bord :
+   la valeur ne decrit plus que la ligne d'oeil de l'en-tete, et la pilule peut
+   grossir sans que rien d'autre ne bouge. Cette ligne est a -26 px du contenu
+   (celle des fleches de la vitrine, hautes de 24 px et posees a -38), et
+   descend a -29 quand le titre du widget passe a 1.375rem. */
+.as-recent-streak {
+  top: -26px;
+  transform: translateY(-50%);
+  font-size: 13px;
+}
+.as-streak-flame {
+  font-size: 15px;
+}
+.as-recent-title {
+  font-size: 0.875rem;
+}
+.as-recent-sub {
+  font-size: 0.75rem;
+}
+.as-recent-meta {
+  font-size: 0.6875rem;
+}
+
+@container widget (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 84px;
+    gap: 1rem;
+  }
+  .as-recent-title {
+    font-size: 1rem;
+  }
+  .as-recent-sub {
+    font-size: 0.8125rem;
+  }
+  .as-recent-meta {
+    font-size: 0.75rem;
+  }
+  /* Le titre du widget passe a 1.375rem a ce palier (`as-widget-head`) :
+     l'en-tete est plus haut, donc sa ligne d'oeil descend. */
+  .as-recent-streak {
+    top: -29px;
+    font-size: 15px;
+  }
+  .as-streak-flame {
+    font-size: 19px;
+  }
+}
+
+/* Bloc large de 3 colonnes. */
+@container widget (min-width: 660px) and (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 100px;
+    gap: 1.125rem;
+  }
+  .as-recent-title {
+    font-size: 1.125rem;
+  }
+}
+
+/* Bloc large de 4 — toute la largeur de la grille. */
+@container widget (min-width: 940px) and (min-height: 300px) {
+  .as-recent-row {
+    --as-recent-h: 116px;
+    gap: 1.25rem;
+  }
+  .as-recent-title {
+    font-size: 1.25rem;
+  }
+  .as-recent-sub {
+    font-size: 0.875rem;
+  }
+  .as-recent-meta {
+    font-size: 0.8125rem;
+  }
+  /* La ligne d'oeil ne bouge plus — `as-widget-head` ne grandit pas au-dela du
+     palier precedent. Seule la pilule grossit, et son centrage l'absorbe. */
+  .as-recent-streak {
+    font-size: 16px;
+  }
+  .as-streak-flame {
+    font-size: 22px;
+  }
+}
+
+/* ── « Notes attribuees » : vingt colonnes qui doivent TENIR, puis grandir ───
+
+   MEME EXIGENCE QUE LA REPARTITION PAR STATUT PLUS BAS, sur l'autre axe : en
+   1x1 les vingt colonnes — une par demi-point, cf. SCORE_STEP — doivent tenir
+   dans la LARGEUR, au-dela tout grandit avec la carte. Elles etaient dix, et
+   l'ecart a du se resserrer d'autant quand le pas est passe au demi-point.
+
+   ET C'EST L'ECART QUI DECIDE, pas la barre. Les colonnes se partagent ce qui
+   reste (`minmax(0, 1fr)`), donc leur largeur est ce que l'ecart et la colonne
+   des graduations leur laissent : dans 196 px de contenu — une colonne de
+   grille sur le profil local — les 6 px d'origine en mangeaient 54, soit un
+   quart, et chaque barre tombait a 14 px.
+   L'ecart descend donc a 3 px la ou la place manque et monte a 12 la ou elle
+   abonde, ce qui est le seul reglage de la mise en page.
+
+   TOUS LES CHIFFRES DU GRAPHE SONT REGLES PAR LE PARENT (`.as-score-plot span`)
+   d'un seul coup : les graduations de gauche, les notes du bas, et le compte
+   qui apparait au survol d'une colonne. Ils disent la meme chose au meme
+   moment, ils n'ont aucune raison d'avoir trois tailles a regler separement.
+
+   Les seuils sont ceux du reste du profil (cf. le pave sur `as-head-short`
+   pour le -40 px de la boite de contenu) : 360 px separe une colonne de deux,
+   300 px de haut une rangee de deux, et le palier 940 est celui du bloc large
+   de quatre. */
+.as-score-plot {
+  --as-sc-gap: 2px;
+  --as-sc-label: 9px;
+  /* LE DEGAGEMENT SOUS LE TITRE. La graduation la plus HAUTE est centree sur sa
+     ligne, donc la moitie de son chiffre depasse au-dessus du graphe : collee
+     au bord superieur du corps, elle venait toucher le titre du widget. Ce
+     retrait n'est pas non plus qu'une affaire de chiffre — la plus haute barre
+     s'arrete sur cette ligne, et un histogramme qui touche son titre parait
+     deborder de sa carte. */
+  --as-sc-head: 10px;
+  padding-top: var(--as-sc-head);
+  /* LE RAYON DU SOMMET, DEDUIT DE LA LARGEUR DE LA BARRE.
+
+     Il etait regle a la main par palier (2, 3, 4, 5 px), donc il ne suivait que
+     les quatre largeurs de carte prevues et se decalait pour toutes les autres :
+     entre deux paliers, la carte grandit mais le rayon, lui, attend le suivant.
+     Or ce qui le rend juste ou faux est la LARGEUR D'UNE BARRE — un rayon de
+     6 px sur une barre de 6 px de large est une gelule, le meme sur une barre de
+     56 px ne se voit plus.
+
+     Cette largeur se calcule en unites de conteneur : les vingt colonnes se
+     partagent la largeur de la carte moins la colonne des graduations et les dix-
+     neuf ecarts, soit ~(100cqw - 90px) / 20, c'est-a-dire 5cqw - 4,5px. Le rayon
+     en prend un gros tiers. Les bornes tiennent les deux extremes : 2 px pour que
+     la plus fine des barres garde un sommet net, 8 px pour que la plus large ne
+     se coiffe pas d'un dome.
+
+     `cqw` mesure la boite de CONTENU de la carte (`container-type: size` sur
+     `.as-widget`), donc les 40 px de `px-5` en sont deja retires. */
+  --as-sc-round: clamp(2px, calc(1.4cqw - 1px), 8px);
+  /* L'ECART EST CELUI DES COLONNES SEULEMENT. Une `gap` complete l'appliquerait
+     aussi entre les barres et la rangee des notes, alors que celle-ci porte
+     deja son propre retrait (`pt-2`, ListBlocks.tsx) — et surtout les lignes de
+     graduation s'arreteraient au-dessus du zero au lieu de reposer dessus. */
+  column-gap: var(--as-sc-gap);
+}
+/* LES DEMI-NOTES DE L'AXE N'APPARAISSENT QUE QUAND LA CARTE PEUT LES PORTER.
+
+   Le seuil etait a 660 px — le bloc large de trois — et c'etait une estimation
+   pessimiste : elle comptait la largeur du texte (vingt fois « 0,5 », ~440 px)
+   au lieu du PAS entre deux colonnes, qui est ce qui decide d'un chevauchement.
+   Une etiquette centree sur sa colonne ne touche sa voisine que si elle est plus
+   large que ce pas. Sur un bloc large de deux — le plus etroit des deux, 452 px
+   de contenu — le pas vaut 22 px et « 0,5 » en fait 18 : ca passe.
+
+   Le seuil descend donc a celui de deux colonnes, le meme que partout ailleurs
+   sur le profil (`as-head-short`). En dessous, en 1x1, le pas tombe a 9 px et
+   les etiquettes se chevaucheraient franchement : les entiers restent seuls, et
+   les colonnes, elles, sont toujours la. */
+.as-score-half {
+  display: none;
+}
+@container widget (min-width: 360px) {
+  .as-score-half {
+    display: block;
+  }
+}
+.as-score-bar {
+  border-radius: var(--as-sc-round) var(--as-sc-round) 0 0;
+}
+.as-score-plot span {
+  font-size: var(--as-sc-label);
+}
+/* LA MOYENNE, sur la ligne d'oeil de l'en-tete — exactement la pilule de serie
+   de « Vu recemment » (`as-recent-streak`), y compris ses deux `top` : le
+   titre du widget passe a 1.375rem au palier des 300 px de haut, donc la ligne
+   d'oeil descend de trois pixels. Deux chiffres poses au meme endroit de deux
+   cartes voisines ne peuvent pas flotter a deux hauteurs. */
+.as-score-avg {
+  top: -26px;
+  transform: translateY(-50%);
+  font-size: 13px;
+}
+
+@container widget (min-width: 360px) {
+  .as-score-plot {
+    --as-sc-gap: 4px;
+    --as-sc-label: 10px;
+    --as-sc-head: 12px;
+  }
+}
+
+@container widget (min-height: 300px) {
+  .as-score-plot {
+    --as-sc-gap: 6px;
+    --as-sc-label: 12px;
+    --as-sc-head: 16px;
+  }
+  .as-score-avg {
+    top: -29px;
+    font-size: 16px;
+  }
+}
+
+/* Bloc large de 3 colonnes. */
+@container widget (min-width: 660px) and (min-height: 300px) {
+  .as-score-plot {
+    --as-sc-gap: 7px;
+    --as-sc-label: 13px;
+    --as-sc-head: 18px;
+  }
+}
+
+/* Bloc large de 4 — toute la largeur de la grille. La ligne d'oeil ne bouge
+   plus (`as-widget-head` ne grandit pas au-dela du palier precedent) : seule la
+   pilule grossit, et son centrage l'absorbe. */
+@container widget (min-width: 940px) and (min-height: 300px) {
+  .as-score-plot {
+    --as-sc-gap: 8px;
+    --as-sc-label: 15px;
+    --as-sc-head: 20px;
+  }
+  .as-score-avg {
+    font-size: 18px;
+  }
+}
+
+/* ── « Repartition par statut » : six lignes qui doivent TENIR, puis grandir ──
+
+   DEUX EXIGENCES QUI SE CONTREDISENT, et l'ordre entre elles compte.
+
+   1. En 1x1 — la plus petite taille que ce bloc accepte desormais — les
+      statuts de base (six aujourd'hui, et le compte n'est pas grave dans le
+      marbre) doivent tenir SANS rien couper. La carte fait 230 px
+      (ROW, lib/profile/grid.ts), moins 32 px de rembourrage vertical et 40 px
+      d'en-tete (le titre est en `text-lg`, dont la hauteur de ligne est de
+      28 px, plus `mb-3`) : il reste 158 px pour six lignes.
+   2. Au-dela, tout grandit avec la carte.
+
+   LES LIGNES SE PARTAGENT LA HAUTEUR, ELLES NE SE POSENT PAS EN HAUT.
+
+   C'est une correction, et la premiere version avait le defaut qu'elle
+   corrige : les lignes etaient calees en haut (`align-content: start`) et
+   l'ecart entre elles etait la seule chose qui remplissait la carte. Regler cet
+   ecart ne peut pas marcher, parce qu'il ne connait pas le NOMBRE de lignes :
+   la meme valeur laissait un grand vide sous six statuts et aurait tasse douze
+   listes personnalisees. Le vide en bas etait le reste d'une division qui
+   n'etait faite nulle part.
+
+   `grid-auto-rows: minmax(<mini>, 1fr)` la fait, et fait les deux cas d'un coup :
+   tant que ca tient, les pistes se partagent la place libre — la carte est
+   pleine quel que soit le nombre de lignes ; des que ca deborde, il n'y a plus
+   de place a partager, chaque piste retombe sur son minimum et c'est le
+   defilement qui prend le relais. Le minimum est donc le seul nombre a regler
+   par palier, et c'est lui qui garantit le point 1.
+
+   L'ecart n'est plus qu'une SEPARATION minimale — d'ou sa valeur modeste, et
+   `cqh` pour qu'elle suive quand meme la carte.
+
+   3. MAIS LE PARTAGE A UN PLAFOND, ET IL NE S'APPLIQUE PAS PARTOUT.
+
+   Partager toute la hauteur sans plafond, c'est ce que faisait la version
+   precedente : etiree en 1x2, la liste montrait six lignes a 72 px d'ecart, ce
+   qui ne se lit pas comme une liste aeree mais comme du rembourrage. Grandir
+   vers le BAS ne doit donc pas ecarter les lignes indefiniment — sauf quand la
+   carte grandit AUSSI vers la droite, ou l'etalement va avec la surface et
+   redevient normal (d'ou le plafond leve au dernier palier).
+
+   Le plafond vaut tant de pixels PAR LIGNE (`--as-st-slot`, ecart compris),
+   donc il ne peut pas s'ecrire sans leur NOMBRE — le CSS ne sait pas compter
+   ses enfants, c'est le composant qui pose `--as-st-n`. D'ou les deux boites :
+   l'interieure se plafonne, l'exterieure defile.
+
+   ET CE QUI RESTE VA EN BAS, la liste tenant le haut. Elle a d'abord ete
+   centree — l'idee etant de partager le reste des deux cotes plutot que de le
+   laisser en un seul bloc — mais un widget se lit depuis son titre : centree,
+   la premiere ligne decrochait du titre d'une centaine de pixels et le vide se
+   voyait DEUX fois au lieu d'une.
+
+   `min-height: max-content` est le garde-fou du cas qui deborde : sans lui, la
+   boite interieure resterait haute de 100 % pendant que ses lignes depassent, et
+   l'exterieure n'aurait rien de plus a faire defiler.
+
+   ET LA BARRE DE DEFILEMENT REDEVIENT VISIBLE (`as-widget-scroll`). Une liste
+   personnalisee de plus, et le bloc deborde : cachee comme partout ailleurs sur
+   le site, rien ne dirait qu'il reste quelque chose a lire dessous. */
+.as-status-wrap {
+  align-content: start;
+}
+.as-status-list {
+  --as-st-text: 12px;
+  --as-st-count: 11px;
+  --as-st-dot: 7px;
+  --as-bar-h: 4px;
+  --as-st-cols: 0.625rem;
+  /* La hauteur PLANCHER d'une ligne : ce en quoi les pistes retombent quand la
+     liste deborde, et ce sur quoi se verifie le tenir-en-1x1. */
+  --as-st-row: 17px;
+  /* Le plafond d'une ligne, ecart compris. En 1x1 il ne mord pas — six lignes
+     a 31 px demandent 186 px pour 158 disponibles — donc la carte est pleine,
+     ce qui est le point 1. Il ne se met a mordre qu'en hauteur, ou c'est
+     precisement ce qu'on lui demande. */
+  --as-st-slot: 31px;
+  /* Pastille, nom, barre, nombre — et c'est la barre qui prend le reste
+     (cf. `.as-status-row` plus bas). */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  /* UN RETRAIT A GAUCHE, et pas un rembourrage de plus sur la carte : la
+     pastille est ronde et petite, donc posee au ras du bord de la carte elle a
+     l'air d'y etre tombee, la ou le titre — une capitale pleine hauteur —
+     tient ce bord tres bien. Le retrait vaut l'ecart entre deux colonnes,
+     donc il suit les paliers sans avoir sa propre valeur a regler. */
+  padding-left: var(--as-st-cols);
+  grid-auto-rows: minmax(var(--as-st-row), 1fr);
+  /* LES DEUX ECARTS SONT SEPARES, ET CELUI DES COLONNES APPARTIENT AU PARENT.
+     Une ligne est un `subgrid` : c'est la grille du DESSUS qui dimensionne les
+     colonnes, donc si les deux n'ecartaient pas pareil, les pistes seraient
+     calculees avec un ecart et dessinees avec un autre. */
+  row-gap: clamp(5px, 2cqh, 11px);
+  column-gap: var(--as-st-cols);
+  height: min(100%, calc(var(--as-st-slot) * var(--as-st-n, 6)));
+  min-height: max-content;
+}
+/* LES QUATRE COLONNES SONT DEFINIES UNE FOIS, POUR TOUTES LES LIGNES.
+
+   Chaque ligne etait une boite flex a elle : le nom y avait une PART de la
+   largeur (1,4 contre 1 pour la barre), donc « En cours » reservait autant de
+   place que « Re-visionnage » et la barre commencait au milieu de la carte.
+
+   Avec une grille et `subgrid`, la colonne du nom se cale sur le plus long des
+   noms AFFICHES, quels qu'ils soient — c'est le seul mecanisme qui aligne les
+   barres entre elles sans reserver de place d'avance. La troisieme colonne
+   prend tout ce qui reste : c'est la barre, et c'est elle qu'on lit.
+   (Les colonnes sont declarees plus haut, sur `.as-status-list`.) */
+.as-status-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  font-size: var(--as-st-text);
+  /* Une hauteur de ligne DONNEE, pas heritee : c'est elle qui rend le plancher
+     ci-dessus verifiable au lieu de dependre du `leading-normal` du
+     navigateur. */
+  line-height: 1.4;
+}
+/* UN ECART UN PEU PLUS LARGE ENTRE LE NOM ET SA BARRE, celui-la seulement.
+   Les trois ecarts de la ligne sont regles par la meme valeur (les colonnes
+   sont communes a toutes les lignes), donc celui-ci se rallonge par une marge
+   sur la barre — une demi-largeur d'ecart de plus — plutot qu'en desolidarisant
+   les colonnes. Il vaut une FRACTION de l'ecart commun : il suit les paliers
+   sans devenir une valeur de plus a regler. */
+.as-status-bar {
+  margin-inline-start: calc(var(--as-st-cols) * 0.5);
+}
+.as-status-dot {
+  width: var(--as-st-dot);
+  height: var(--as-st-dot);
+}
+.as-status-count {
+  font-size: var(--as-st-count);
+}
+
+/* Deux colonnes de large. Le seuil est celui de `as-head-short`, et il se
+   compare a la boite de CONTENU (cf. le pave qui l'accompagne) : une colonne
+   laisse 196 px de contenu sur le profil local et 260 px ailleurs, deux
+   colonnes 452 et 576 — 360 px passe entre les deux sur les DEUX pages. */
+@container widget (min-width: 360px) {
+  .as-status-list {
+    --as-st-text: 13px;
+    --as-st-count: 12px;
+    --as-st-dot: 8px;
+    --as-bar-h: 5px;
+    --as-st-cols: 0.75rem;
+    --as-st-row: 19px;
+    --as-st-slot: 33px;
+  }
+}
+
+/* Deux rangees de haut, UNE SEULE COLONNE : 476 px de carte, 404 px de contenu.
+   Les lignes grandissent — le texte, la barre, la pastille — mais leur ecart
+   est TENU (40 px par ligne, soit 240 px pour six) et la liste se centre dans
+   ce qui reste. C'est le cas que le plafond existe pour traiter. */
+@container widget (min-height: 300px) {
+  .as-status-list {
+    --as-st-text: 14px;
+    --as-st-count: 13px;
+    --as-st-dot: 9px;
+    --as-bar-h: 6px;
+    --as-st-row: 21px;
+    --as-st-slot: 40px;
+  }
+}
+
+/* 2x2 — le plus grand que ce bloc accepte, et LE PLAFOND SE LEVE.
+   Etaler six lignes sur toute la hauteur d'une carte etroite, c'etait du
+   rembourrage ; sur une carte deux fois plus large, l'etalement va avec la
+   surface. Le `slot` passe au-dessus de ce que la carte peut offrir, donc il ne
+   mord plus et les lignes se partagent de nouveau toute la hauteur. */
+@container widget (min-width: 360px) and (min-height: 300px) {
+  .as-status-list {
+    --as-st-text: 15px;
+    --as-st-count: 14px;
+    --as-st-dot: 10px;
+    --as-bar-h: 7px;
+    --as-st-cols: 0.875rem;
+    --as-st-row: 23px;
+    --as-st-slot: 999px;
+  }
+}
+
+/* LA BARRE DE DEFILEMENT D'UN WIDGET, reprise de la page d'info.
+
+   Les barres sont cachees partout sur le site (cf. plus haut) ; la grille des
+   notes en fait deja l'exception, parce qu'il faut y voir qu'on peut se
+   deplacer. Un widget qui deborde est exactement le meme cas, donc le meme
+   habillage — juste plus fin, 8 px au lieu de 11, la carte etant petite. */
+.as-widget-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+.as-widget-scroll::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+  height: 8px;
+}
+.as-widget-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.as-widget-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+  background-clip: padding-box;
+}
+.as-widget-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BADGES — jetons, constellations, et la notification d'achievement.
+
+   Tout est en CSS et rien en JavaScript : l'onglet Badges aligne jusqu'à cent
+   quatre-vingts jetons, et la notification peut surgir par-dessus un lecteur
+   vidéo dont les mouvements de souris re-rendent l'interface en continu. Une
+   animation pilotée par React s'y interromprait — c'est la leçon déjà tirée
+   pour la pile de toasts (.ip-toast-card plus haut dans ce fichier).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Le reflet qui balaie les jetons légendaires et mythiques. */
+@keyframes asSweep {
+  0% { transform: translateX(-100px); }
+  55%, 100% { transform: translateX(245px); }
+}
+
+/* Les étoiles. Cinq cycles au lieu d'un seul : deux étoiles qui clignotent
+   exactement au même rythme forment un motif que l'œil repère tout de suite et
+   qui fait mécanique. Chaque canal tire le sien (cf. starsFor dans
+   components/profile/badges/rarity.ts), et le résultat respire.
+   Le chiffre du nom est le pourcentage du cycle pendant lequel l'étoile est
+   allumée — le reste du temps elle est éteinte, ailleurs. */
+@keyframes asTw14 {
+  0% { opacity: 0; transform: scale(.4); }
+  2.5% { opacity: 1; transform: scale(.98); }
+  7% { opacity: 1; transform: scale(1.09); }
+  11.5% { opacity: 1; transform: scale(.98); }
+  14%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw17 {
+  0% { opacity: 0; transform: scale(.4); }
+  3.1% { opacity: 1; transform: scale(.98); }
+  8.5% { opacity: 1; transform: scale(1.09); }
+  13.9% { opacity: 1; transform: scale(.98); }
+  17%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw20 {
+  0% { opacity: 0; transform: scale(.4); }
+  3.6% { opacity: 1; transform: scale(.98); }
+  10% { opacity: 1; transform: scale(1.09); }
+  16.4% { opacity: 1; transform: scale(.98); }
+  20%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw23 {
+  0% { opacity: 0; transform: scale(.4); }
+  4.1% { opacity: 1; transform: scale(.98); }
+  11.5% { opacity: 1; transform: scale(1.09); }
+  18.9% { opacity: 1; transform: scale(.98); }
+  23%, 100% { opacity: 0; transform: scale(.4); }
+}
+@keyframes asTw26 {
+  0% { opacity: 0; transform: scale(.4); }
+  4.7% { opacity: 1; transform: scale(.98); }
+  13% { opacity: 1; transform: scale(1.09); }
+  21.3% { opacity: 1; transform: scale(.98); }
+  26%, 100% { opacity: 0; transform: scale(.4); }
+}
+
+/* Le grossissement au survol. La même courbe que la pile de toasts, pour que
+   les deux gestes du site aient la même sensation. */
+.as-badge-token {
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.as-badge-row:hover .as-badge-token,
+.as-badge-token:hover {
+  transform: scale(1.08);
+}
+
+/* La condition d'un secret non débloqué. Le flou est un effet, pas une
+   protection : le texte réel n'est JAMAIS rendu dans le DOM (cf.
+   ProfileBadges.tsx), on ne floute qu'une chaîne de remplissage. Sans quoi
+   l'inspecteur du navigateur donnerait la réponse en deux clics. */
+.as-badge-blur {
+  filter: blur(4px);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ── La notification d'achievement ─────────────────────────────────────────
+   Quatre temps, une seule ligne du temps. Les durées sont partagées avec le
+   composant, qui déclenche le suivant sur `animationend` du dernier élément.
+
+   1. le jeton surgit, seul, au centre        0 → 720 ms
+   2. il glisse à gauche, la carte s'ouvre  720 → 1240 ms
+   3. la pose, lisible                     1240 → 4840 ms
+   4. la carte se referme, le jeton part   4840 → 5460 ms
+
+   Tout est en `transform` et en `opacity` — les deux seules propriétés que le
+   navigateur anime sans repeindre — À UNE EXCEPTION PRÈS, assumée : la largeur
+   de la carte. C'est elle qui pousse le jeton vers la gauche, et c'est tout le
+   deuxième temps ; un `scaleX` déformerait le texte, un `clip-path` laisserait
+   le jeton là où il est. Une largeur, sur un seul élément de 300 px pendant
+   520 ms, est le prix de ce mouvement.                                     */
+
+/* Le surgissement : une chute, un impact qui écrase, deux rebonds qui
+   s'amortissent. La rotation est ce qui sépare « un objet qui arrive » de
+   « une div qui grandit » — elle reste faible (‑28° → 0) pour qu'on lise le
+   jeton pendant tout le trajet. */
+@keyframes asAchIn {
+  0% { transform: translateY(-150%) scale(0.2) rotate(-28deg); opacity: 0; }
+  30% { opacity: 1; }
+  46% { transform: translateY(7%) scale(1.3) rotate(7deg); opacity: 1; }
+  62% { transform: translateY(0) scale(0.88) rotate(-5deg); }
+  78% { transform: translateY(0) scale(1.09) rotate(3deg); }
+  90% { transform: translateY(0) scale(0.98) rotate(-1deg); }
+  100% { transform: translateY(0) scale(1) rotate(0deg); }
+}
+/* Le retrait : une petite reprise d'élan vers le bas avant de partir, pour que
+   le départ ait la même matière que l'arrivée. */
+@keyframes asAchOut {
+  0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
+  22% { transform: translateY(8%) scale(1.07) rotate(-4deg); opacity: 1; }
+  100% { transform: translateY(-140%) scale(0.3) rotate(20deg); opacity: 0; }
+}
+
+/* La respiration pendant la pose : très faible amplitude, longue période. Le
+   jeton reste vivant sous le texte sans attirer l'œil qui lit. */
+@keyframes asAchBreathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+/* L'onde de choc de l'impact : un anneau qui se détend et s'affine. */
+@keyframes asAchRing {
+  0% { transform: scale(0.2); opacity: 0; border-width: 12px; }
+  10% { opacity: 0.9; }
+  100% { transform: scale(2.7); opacity: 0; border-width: 1px; }
+}
+
+/* Les rayons : huit traits qui jaillissent du centre puis se rétractent. Ils
+   ne durent que le temps de l'impact — c'est un éclat, pas un décor. */
+@keyframes asAchRay {
+  0% { transform: rotate(var(--as-rot)) scaleY(0.15); opacity: 0; }
+  20% { opacity: 0.85; }
+  55% { transform: rotate(var(--as-rot)) scaleY(1.25); opacity: 0.5; }
+  100% { transform: rotate(var(--as-rot)) scaleY(0.5); opacity: 0; }
+}
+
+/* Les trois lignes de texte entrent décalées, derrière l'ouverture de la
+   carte : le nom du badge se lit avant sa condition. */
+@keyframes asAchLine {
+  0% { opacity: 0; transform: translateX(-14px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* LA SORTIE SE FAIT EN DEUX TEMPS, dans l'ordre inverse de l'entrée : le texte
+   s'efface d'abord, la carte se referme donc le jeton REVIENT AU CENTRE tout
+   seul (le bloc est centré, il rétrécit vers son milieu), et seulement ensuite
+   le jeton remonte en rétrécissant. Tout partir ensemble donnait une
+   disparition sans lecture — on ne voyait pas le badge une dernière fois. */
+@keyframes asAchLineOut {
+  0% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(-10px); }
+}
+
+/* La carte s'ouvre EN LARGEUR derrière le jeton : c'est ce qui donne
+   l'impression que le jeton se décale pour laisser la place au texte, plutôt
+   que deux éléments qui apparaissent côte à côte. */
+@keyframes asAchOpen {
+  0% { width: 0; opacity: 0; }
+  20% { opacity: 0; }
+  100% { width: var(--as-ach-w); opacity: 1; }
+}
+@keyframes asAchClose {
+  0% { width: var(--as-ach-w); opacity: 1; }
+  100% { width: 0; opacity: 0; }
+}
+
+/* Le halo qui s'ouvre sous le jeton au moment de l'impact. */
+@keyframes asAchHalo {
+  0% { transform: scale(0.2); opacity: 0; }
+  40% { opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Les particules : une gerbe d'éclats projetés en étoile. Chacun porte son
+   angle, sa distance, sa taille et sa CHUTE en variables CSS, posées par le
+   composant.
+
+   `--as-fall` est ce qui distingue une gerbe d'une roue de clipart : sans lui
+   les douze éclats partent en rayon parfait et reviennent nulle part. Avec, ils
+   montent, ralentissent et retombent — chacun d'une hauteur différente. */
+@keyframes asAchSpark {
+  0% { transform: translate(0, 0) scale(0) rotate(0deg); opacity: 0; }
+  12% {
+    opacity: 1;
+    transform: translate(calc(var(--as-dx) * 0.3), calc(var(--as-dy) * 0.3))
+      scale(var(--as-sc)) rotate(40deg);
+  }
+  65% { opacity: 1; }
+  100% {
+    transform: translate(var(--as-dx), calc(var(--as-dy) + var(--as-fall)))
+      scale(calc(var(--as-sc) * 0.25)) rotate(220deg);
+    opacity: 0;
+  }
+}
+
+/* (`asAchShine` — la lueur qui balayait le texte — a été retirée le 17/09 :
+   elle se disputait l'attention avec la seule chose à lire. Le flou
+   d'arrière-plan de la carte porte seul la lisibilité.) */
+
+/* ── LA NOTIFICATION DE BADGE NE SUIT PLUS LE RÉGLAGE SYSTÈME ────────────────
+ *
+ * Elle le suivait, et personne ne l'avait vue jouer : Windows livre « Effets
+ * d'animation » désactivé sur beaucoup de postes, ce qui met Chrome en
+ * `prefers-reduced-motion: reduce` sans que personne n'ait jamais demandé moins
+ * d'animations à un site. Chez l'auteur de ces lignes, le résultat était une
+ * carte qui s'ouvre toute seule : pas d'étincelles, pas de halo, pas de rebond.
+ * Le `display: none` était posé ici sur exactement ce qui FAIT la récompense.
+ *
+ * LE PRIX EST RÉEL ET ASSUMÉ : quelqu'un qui a vraiment demandé moins de
+ * mouvement reçoit maintenant la gerbe complète, pendant quatre secondes, en
+ * haut de l'écran. C'est une burst de 100 px, sans parallaxe ni défilement —
+ * la catégorie la moins agressive de ce que la règle vise — mais c'en est.
+ * Le vrai correctif est un réglage DU SITE, distinct de celui du système :
+ * tant qu'il n'existe pas, on choisit de montrer.
+ *
+ * Le reste de la feuille continue d'obéir au réglage système (cf. les autres
+ * blocs `prefers-reduced-motion`) : seule la fête d'un badge en sort. */
+/* (Le jeton de la liste scintille et se laisse balayer comme celui de la
+   notification : les deux sont le même composant, et le réglage système ne
+   peut plus éteindre l'un sans éteindre l'autre. Assumé avec le reste.) */
+
+/* ── Le panneau d'une échelle de paliers ───────────────────────────────────
+   Le fond s'assombrit et se floute, le panneau monte en s'agrandissant à peine,
+   et ses lignes arrivent l'une après l'autre de haut en bas — l'échelle se lit
+   dans l'ordre où elle se gravit. Le décalage est posé par le composant
+   (`animationDelay`), pas ici : il dépend du rang de la ligne. */
+.as-pop-back {
+  animation: asPopBack 220ms ease-out both;
+  background: rgba(6, 6, 10, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+@keyframes asPopBack {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.as-pop-card {
+  animation: asPopIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes asPopIn {
+  0% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.as-pop-row {
+  animation: asPopRow 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes asPopRow {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Même principe qu'au-dessus : on raccourcit, on ne supprime pas. Et les
+     lignes perdent leur décalage, qui n'est que du confort. */
+  .as-pop-card { animation-duration: 160ms; }
+  .as-pop-row {
+    animation-duration: 120ms;
+    animation-delay: 0ms !important;
+  }
 }

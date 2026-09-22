@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { resolveSeasonList } from "@/lib/anilist/seasonChain";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * GET /api/v2/seasons/[id]
@@ -32,7 +33,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch {
     // A failed walk is not "no seasons" — say nothing rather than caching a
     // lie that would hide the picker for a day.
-    res.setHeader("Cache-Control", "public, max-age=60");
+    setEdgeErrorCache(res);
+    return res.status(200).json([]);
+  }
+
+  /* An EMPTY list takes the short window too, and that is not the same case as
+     the catch above — which is why it was missed. `resolveSeasonList` does not
+     throw when the upstream is unreachable; it returns `[]`. So during the
+     02/09/2026 AniList outage the catch never fired, the success path ran, and
+     a "this anime has no seasons" answer went to the edge for a FULL DAY. An
+     empty list is legitimate for a film or an OVA, so this isn't an error — it
+     just isn't worth a day when it might be an artefact. */
+  if (!seasons?.length) {
+    setEdgeErrorCache(res, 300);
     return res.status(200).json([]);
   }
 

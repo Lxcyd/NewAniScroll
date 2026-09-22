@@ -9,8 +9,14 @@ import {
   statusLabel as statusLabelI18n,
   countryLabel,
   capitalize,
+  malDetails,
+  EMBED_HEADER_H,
 } from "./helpers";
-import RelationsGraph, { EMBED_HEADER_H } from "./RelationsGraph";
+import dynamic from "next/dynamic";
+/* The graph (and its dagre layout, ~25 KB gz) draws nothing before mount — the
+   server HTML is empty either way — so it comes in its own chunk instead of
+   the info page's first load. */
+const RelationsGraph = dynamic(() => import("./RelationsGraph"), { ssr: false });
 import styles from "./styles.module.css";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useTranslation } from "react-i18next";
@@ -31,7 +37,10 @@ export default function Overview({ info }: Props) {
   const [spoilers, setSpoilers] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
 
-  const details = useMemo(() => buildDetails(info, t), [info, t]);
+  const details = useMemo(
+    () => buildDetails(info, t, i18n.language),
+    [info, t, i18n.language],
+  );
   const allTags = info.tags || [];
   const visibleTags = useMemo(() => {
     const spoilerTags = allTags
@@ -46,10 +55,13 @@ export default function Overview({ info }: Props) {
   const sites = useMemo(() => buildSites(info), [info]);
   const popularity = useMemo(() => buildPopularity(info, t), [info, t]);
 
-  const { text: synopsisRaw, source: synopsisSource } = useMemo(
-    () => parseDescription(info.description),
-    [info.description]
-  );
+  // AniList's synopsis, or MAL's when AniList has none (only then does the
+  // SSR ship it — see withMalMeta).
+  const { text: synopsisRaw, source: synopsisSource } = useMemo(() => {
+    const parsed = parseDescription(info.description);
+    if (parsed.text || !info.malMeta?.synopsis) return parsed;
+    return { text: info.malMeta.synopsis, source: "MyAnimeList" };
+  }, [info.description, info.malMeta?.synopsis]);
   // Auto-translate the AniList synopsis into the active UI language (cached
   // server-side). Falls back to the English original while loading / on error.
   const synopsis = useTranslatedText(synopsisRaw);
@@ -497,6 +509,8 @@ export default function Overview({ info }: Props) {
                   <img
                     src={info.trailer.thumbnail}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       position: "absolute",
                       inset: 0,
@@ -566,7 +580,8 @@ export default function Overview({ info }: Props) {
 
 function buildDetails(
   info: AniListInfoTypes,
-  t: TFunction
+  t: TFunction,
+  lang: string,
 ): Array<[string, string]> {
   const studios = (info.studios?.edges || []).filter((e) => e.isMain).map((e) => e.node.name);
   const producers = (info.studios?.edges || [])
@@ -586,8 +601,10 @@ function buildDetails(
     [t("anime.detailStudios"), studios.length > 0 ? studios.join(", ") : na],
     [t("anime.detailProducers"), producers.length > 0 ? producers.slice(0, 2).join(", ") : na],
     [t("anime.detailCountry"), countryLabel(t, info.countryOfOrigin)],
+    ...malDetails(info, t, lang),
   ];
 }
+
 
 type SiteRow = {
   id: string;

@@ -5,7 +5,6 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 
 export default function SingleSelector({ data, label, selected, setSelected }) {
-  // const [selected, setSelected] = useState();
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
 

@@ -287,11 +287,6 @@ export async function readRoomGate(
   };
 }
 
-export async function isInactive(roomId: string, userId: string): Promise<boolean> {
-  assertRedis();
-  return (await redis.sismember(inactiveKey(roomId), userId)) === 1;
-}
-
 export async function setHost(roomId: string, userId: string): Promise<void> {
   assertRedis();
   await redis.hset(roomKey(roomId), { hostId: userId, updatedAt: String(Date.now()) });
@@ -392,10 +387,29 @@ export async function acquireThrottle(roomId: string, key: string, seconds: numb
 
 /** Refresh a member's presence (online flag), durable profile and last-seen
  *  timestamp (heartbeat). */
-export async function touchPresence(roomId: string, member: Member): Promise<void> {
+export async function touchPresence(
+  roomId: string,
+  member: Member,
+  opts: { light?: boolean } = {},
+): Promise<void> {
   assertRedis();
   const now = Date.now();
   const profile = JSON.stringify({ name: member.name, image: member.image || "" });
+  /* LIGHT beat — for a caller already in the member set (addMember wrote the
+     profile, the set, the join order and their TTLs at join time). Only the two
+     things a 5 s heartbeat actually has to move: the ONLINE flag (12 s TTL) and
+     the last-seen score the MEMBER_TTL reap reads. Upstash bills each command
+     of a pipeline, so 9 → 2 per beat per participant. The full refresh still
+     runs on some beats (see presence.ts), which keeps the 6 h TTLs alive and
+     picks up a changed name / avatar. */
+  if (opts.light) {
+    await redis
+      .pipeline()
+      .set(presenceKey(roomId, member.userId), profile, "EX", PRESENCE_TTL)
+      .zadd(seenKey(roomId), now, member.userId)
+      .exec();
+    return;
+  }
   /* NINE commands, one round-trip.
 
      These nine awaits were nine sequential HTTPS requests to Upstash, and nine

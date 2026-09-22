@@ -1,6 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getOpedSkips, type OpedSkipRow } from "@/lib/db/opedSkips";
-import { getHostSkip, type OpedHostSkipRow } from "@/lib/db/opedHostSkips";
+import {
+  getHostSkip,
+  getHostSkips,
+  type OpedHostSkipRow,
+} from "@/lib/db/opedHostSkips";
 import { serverToHost } from "@/lib/hostRegistry";
 // Les deux fournisseurs participatifs vivent à part pour que les outils de
 // mesure hors ligne appellent EXACTEMENT le même code que le lecteur — cf.
@@ -115,6 +119,45 @@ export default async function handler(
     return res.status(400).json({ error: "malId + episode required" });
   }
 
+  // ── Mode `hosts=1` : UNE reponse par (episode, langue), tous hotes compris ──
+  //
+  // Le client choisit lui-meme le minutage de l'hote actif dans `hosts`, et
+  // retombe sur `skips` sinon — exactement l'arbitrage que fait le mode
+  // `?server=` ci-dessous, mais sans que chaque serveur essaye pendant le
+  // chargement (preference devinee, lue, confirmee, filet de securite, repli)
+  // coute sa propre URL, donc son propre MISS au CDN et sa propre invocation.
+  // Mesure avant : ~4 appels par page de lecture.
+  if (req.query.hosts === "1") {
+    const [hostRows, base] = await Promise.all([
+      getHostSkipsSafe(malId, episode, lang),
+      baseSkips(malId, episode, lang, aniListId, episodeLength),
+    ]);
+    const hosts: Record<string, Skip[]> = {};
+    for (const row of hostRows) {
+      if (!row.serve) continue;
+      if (durationMismatch(row.duration, episodeLength, HOST_DURATION_TOLERANCE_S)) {
+        console.warn(
+          `[skip] ligne perimee ignoree: mal${malId} ep${episode} ${row.host} ` +
+            `mesuree sur ${row.duration}s, lecteur a ${episodeLength}s`,
+        );
+        continue;
+      }
+      const skips = hostRowToSkips(row, episodeLength);
+      if (skips.length) hosts[row.host] = skips;
+    }
+    const empty = base.source === "none" && Object.keys(hosts).length === 0;
+    res.setHeader(
+      "Cache-Control",
+      empty
+        ? "public, max-age=60, s-maxage=60"
+        : "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+    );
+    return res.status(200).json({ ...base, hosts });
+  }
+
+  // Mode historique `?server=` — garde pour les onglets encore ouverts sur
+  // l'ancien JS (le service worker le sert en stale-while-revalidate).
+
   // 0. PER-HOST: if we know which server the viewer is on, return that encode's
   //    own OP/ED (correct absolute OP; ED re-projected from its from_end anchor).
   if (mapped) {
@@ -142,6 +185,35 @@ export default async function handler(
     }
   }
 
+  const base = await baseSkips(malId, episode, effLang, aniListId, episodeLength);
+  // Cache hits only on success. A 24-hour cache on `source=none` would pin
+  // the empty response in the browser even after the upstream API is fixed
+  // or the data lands — bit us when AniSkip changed its episodeLength
+  // requirement and every visitor kept seeing "no skips" for a full day.
+  // Failures get a 60 s cushion so the SkipOverlay fetch fan-out (one per
+  // mount) doesn't re-hammer both upstreams for the same anime+episode.
+  if (base.source === "none") {
+    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+  } else {
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
+    );
+  }
+  return res.status(200).json(base);
+}
+
+type BaseSource = "oped" | "merged" | "anime_skip" | "aniskip" | "none";
+
+/** La reponse sans hote : notre detecteur (ligne reconciliee), sinon le
+ *  participatif. Commune aux deux modes de la route. */
+async function baseSkips(
+  malId: number,
+  episode: number,
+  effLang: string,
+  aniListId: number | null,
+  episodeLength: number,
+): Promise<{ source: BaseSource; skips: Skip[] }> {
   // 1. Our own detector first. Only servable rows; ED re-projected onto the
   //    caller's real duration from its from_end anchor.
   const oped = await getOpedSkipsSafe(malId, episode, effLang);
@@ -166,14 +238,7 @@ export default async function handler(
     .map((r) => opedRowToSkip(r, episodeLength))
     .filter((s): s is Skip => s !== null)
     .sort((a, b) => a.start - b.start);
-  if (opedSkips.length) {
-    // 24 h cache like the crowdsourced path — this data is quasi-static.
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
-    );
-    return res.status(200).json({ source: "oped", skips: opedSkips });
-  }
+  if (opedSkips.length) return { source: "oped", skips: opedSkips };
 
   // Fetch both in parallel — Anime-Skip tends to have very accurate
   // intros (manual curation) but spotty outro coverage; AniSkip has
@@ -201,26 +266,25 @@ export default async function handler(
     (a, b) => a.start - b.start,
   );
 
-  let source: "oped" | "merged" | "anime_skip" | "aniskip" | "none" = "none";
+  let source: BaseSource = "none";
   if (animeSkip.length && aniSkip.length) source = "merged";
   else if (animeSkip.length) source = "anime_skip";
   else if (aniSkip.length) source = "aniskip";
+  return { source, skips };
+}
 
-  // Cache hits only on success. A 24-hour cache on `source=none` would pin
-  // the empty response in the browser even after the upstream API is fixed
-  // or the data lands — bit us when AniSkip changed its episodeLength
-  // requirement and every visitor kept seeing "no skips" for a full day.
-  // Failures get a 60 s cushion so the SkipOverlay fetch fan-out (one per
-  // mount) doesn't re-hammer both upstreams for the same anime+episode.
-  if (source === "none") {
-    res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
-  } else {
-    res.setHeader(
-      "Cache-Control",
-      "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800",
-    );
+/** All per-host rows for one (episode, lang), never throwing. */
+async function getHostSkipsSafe(
+  malId: number,
+  episode: number,
+  lang: string,
+): Promise<OpedHostSkipRow[]> {
+  try {
+    return await getHostSkips(malId, episode, lang);
+  } catch (e: any) {
+    console.warn("[skip] host lookup failed:", e?.message);
+    return [];
   }
-  return res.status(200).json({ source, skips });
 }
 
 /** Read one host's row without ever throwing into the request path. */

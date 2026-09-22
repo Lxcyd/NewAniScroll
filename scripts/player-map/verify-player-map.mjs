@@ -5,16 +5,31 @@
  *
  *   node --env-file=.env.local scripts/player-map/verify-player-map.mjs \
  *        [--site=http://localhost:3000] [--limit=200] [--concurrency=6] \
- *        [--ids=123,456]  [--dry]
+ *        [--ids=123,456] [--from=due|seed|mydublist] [--dry]
  *
  * What gets picked up (oldest deadline first, capped by --limit so a run has a
  * BOUNDED worker budget):
- *   • status='heuristic'      — runtime write-backs awaiting their first check
- *   • expires_at < now        — verified RELEASING rows (weekly), broken rows
- *                               (retry), absent rows (catalogues grow)
- *   • --ids                   — explicit re-checks (e.g. after a user report)
+ *   • --from=due (defaut)     — status='heuristic' (ecritures d'execution en
+ *                               attente de leur premier controle) et
+ *                               expires_at < now (verified RELEASING, broken,
+ *                               absent : les catalogues grandissent)
+ *   • --from=seed             — les lignes `verified` d'un algorithme perime.
+ *                               Elles VIENNENT d'un semis, pas d'un controle,
+ *                               et le chemin de lecture les honore sans
+ *                               reserve : c'est la classe a drainer en premier.
+ *   • --from=mydublist        — les titres doubles en francais qu'on n'a jamais
+ *                               sondes en VF (aucune ligne `lang='vf'`)
+ *   • --ids                   — re-controles explicites (apres un signalement)
  *
- * Verdicts (same safety gates as the seed — KEEP IN SYNC):
+ * CE SCRIPT EST LE SEUL A POUVOIR ECRIRE `verified`. Un semis produit une
+ * hypothese, donc `heuristic` ; seul un controle avec le code du jour promeut.
+ * Jusqu'au 20/09/2026 les deux ecrivaient `verified`, et 2 246 lignes semees
+ * depuis un audit ancien portaient donc une autorite qu'elles n'avaient jamais
+ * gagnee — trois lignes seulement, sur 2 325, etaient passees par ici.
+ *
+ * Verdicts (same safety gates as the seed — KEEP IN SYNC, a une exception pres :
+ * la porte MyDubList est volontairement absente du resolveur d'execution, voir
+ * son commentaire plus bas) :
  *   verified — inspect found slug(+dir), episode count consistent with
  *              AniList (±1, behind-ok for RELEASING, or merged with offset),
  *              title confidence > 0, no S1-collapse shape, langs consistent.
@@ -22,6 +37,7 @@
  *   absent   — inspect found nothing. Trustworthy here (unlike the historic
  *              audit) because we run with the current, fixed resolver.
  */
+import fs from "node:fs";
 import { createClient } from "@libsql/client";
 
 const args = Object.fromEntries(
@@ -37,6 +53,10 @@ const DRY = !!args.dry;
 const ONLY_IDS = args.ids
   ? new Set(String(args.ids).split(",").map(Number).filter(Boolean))
   : null;
+/* Quelle liste de travail : les lignes echues (defaut), les lignes semees que
+   personne n'a jamais controlees (`seed`), ou les titres que MyDubList donne
+   doubles en francais et qu'on n'a jamais sondes en VF (`mydublist`). */
+const FROM = String(args.from || "due");
 
 const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
@@ -67,12 +87,132 @@ function slugTitleConfidence(slug, titles) {
     const titleSig = new Set(significantTokens(t));
     if (titleSig.size === 0) continue;
     const matched = slugSig.filter((tok) => titleSig.has(tok)).reduce((a, tok) => a + tok.length, 0);
-    const titleLen = significantTokens(t).reduce((a, tok) => a + tok.length, 0);
-    const cov = matched / Math.min(slugLen, titleLen);
+    /* On divise par la longueur du SLUG, pas par `Math.min(slugLen, titleLen)`.
+       Diviser par le plus court des deux faisait qu'un synonyme d'un seul mot
+       certifiait n'importe quel slug le contenant : Kaitou Joker porte le
+       synonyme « JOKER », donc `joker-game` sortait a 1,00 et « game » n'etait
+       demande a personne. Meme mecanique pour `isekai-ojisan` contre le
+       synonyme « Isekai no Yu ». Au 20/09/2026 la colonne affichait 1,00 sur
+       6 496 lignes de 6 962 : elle ne discriminait plus rien.
+       La porte `<= 0` des appelants ne bouge PAS : `matched` vaut zero dans les
+       deux formules ou dans aucune, donc ce changement n'accepte ni ne refuse
+       un slug de plus. Il rend seulement la valeur relisible, pour qu'un seuil
+       puisse un jour se choisir sur des mesures plutot qu'au jugé. */
+    const cov = matched / slugLen;
     if (cov > best) best = cov;
   }
   return best;
 }
+/**
+ * La version d'algorithme sous laquelle ce script estampille ce qu'il ecrit.
+ *
+ * Lue dans lib/db/playerMap.ts plutot que recopiee : une constante dupliquee
+ * derive, et celle-ci decide de ce que le chemin de lecture accepte encore.
+ * Jusqu'au 20/09/2026 ce script n'ecrivait PAS la colonne du tout — ni dans la
+ * liste, ni dans le DO UPDATE SET — si bien qu'une ligne qu'il venait de
+ * confirmer avec le code du jour restait a `algo_version = 0`, indiscernable
+ * d'une ligne semee depuis un audit ancien. Toute garde fondee sur la version
+ * aurait donc rejete aussi les lignes legitimement verifiees, pour toujours.
+ * On echoue bruyamment plutot que de retomber sur un defaut : se tromper ici ne
+ * se voit nulle part et se paie partout.
+ */
+const SEASON_ALGO_VERSION = (() => {
+  const src = fs.readFileSync(new URL("../../lib/db/playerMap.ts", import.meta.url), "utf8");
+  const m = src.match(/export const SEASON_ALGO_VERSION\s*=\s*(\d+)/);
+  if (!m) throw new Error("SEASON_ALGO_VERSION introuvable dans lib/db/playerMap.ts");
+  return Number(m[1]);
+})();
+
+/**
+ * Le juge EXTERIEUR : les titres que MyDubList donne doubles en francais.
+ *
+ * Nos propres scores ne peuvent pas voir qu'un slug pointe vers un autre anime
+ * quand il RESSEMBLE au titre : `joker-game` pour Kaitou Joker, `youjo-senki`
+ * pour le court Youjo Shenki — cinq des douze erreurs trouvees le 20/09/2026
+ * portaient `confidence: 1`. Croise avec les lignes VF reellement constatees,
+ * MyDubList concorde a 97,8 % (541 sur 553) ; les douze desaccords etaient
+ * douze vraies erreurs.
+ *
+ * Deliberement HORS LIGNE, contrairement aux autres portes de ce fichier : le
+ * resolveur d'execution ne doit jamais dependre d'une liste tierce pour servir
+ * une page. Et si le telechargement echoue, la porte est INERTE — une ignorance
+ * ne ferme pas une porte, c'est la meme regle que `frembedPossible`.
+ */
+const MYDUBLIST_FR =
+  "https://raw.githubusercontent.com/Joelis57/MyDubList/main/dubs/confidence/low/dubbed_french.json";
+const dubFr = await (async () => {
+  try {
+    const r = await fetch(MYDUBLIST_FR, { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    if (!Array.isArray(j?.dubbed) || j.dubbed.length < 500) {
+      throw new Error(`liste suspecte (${j?.dubbed?.length ?? 0} entrees)`);
+    }
+    return new Set(j.dubbed.map(Number));
+  } catch (e) {
+    console.warn(`[verify] MyDubList indisponible (${e.message}) — porte VF inerte`);
+    return null;
+  }
+})();
+
+/**
+ * Les fiches ETRANGERES a leur propre slug, jugees par CONTRASTE.
+ *
+ * Plusieurs fiches AniList partagent legitimement un slug et un panneau : les
+ * treize films Conan vivent tous dans `detective-conan/film`. Une collision
+ * n'est donc pas une faute en soi, et la compter comme telle retirerait des
+ * mappings parfaitement justes.
+ *
+ * Ce qui juge, c'est le contraste A L'INTERIEUR du groupe : quand certaines
+ * fiches partagent un token significatif avec le slug et qu'une autre n'en
+ * partage AUCUN, celle-la ne s'est pas rangee la par parente. Mesure du
+ * 20/09/2026 : 69 groupes au contraste net, 83 fiches etrangeres, et
+ * l'echantillon ne laisse aucun doute — « RED », « Quote », « FLAG », « Ys »,
+ * « Journey », des titres d'un seul mot que le scorer accroche par accident.
+ *
+ * Pourquoi ce juge-la marche quand la confiance seule echoue : un slug francais
+ * (`shirayuki-aux-cheveux-rouges`) partage peu avec son titre anglais, donc une
+ * confiance basse ne prouve rien. Mais si ses VOISINS de panneau, eux,
+ * correspondent et pas lui, ce n'est plus une question de traduction.
+ *
+ * Cout mesure avant d'ecrire : les 83 sont TOUTES `heuristic`, aucune
+ * `verified`. On n'en retrograde donc pas une ; on les empeche d'etre promues.
+ */
+const etrangeres = await (async () => {
+  const r = await db.execute(`
+    SELECT ani_id, source, lang, slug, COALESCE(season_dir,'-') dir, ep_offset
+      FROM player_map WHERE slug IS NOT NULL AND status IN ('verified','heuristic')`);
+  const parGroupe = new Map();
+  for (const x of r.rows) {
+    const k = `${x.source}|${x.lang}|${x.slug}|${x.dir}|${x.ep_offset}`;
+    if (!parGroupe.has(k)) parGroupe.set(k, []);
+    parGroupe.get(k).push({ aniId: Number(x.ani_id), slug: String(x.slug) });
+  }
+  return parGroupe;
+})();
+
+/** `true` si cette fiche est etrangere a son slug alors que ses voisines ne le
+ *  sont pas. `false` des qu'il n'y a pas de groupe, pas de contraste, ou pas de
+ *  titres pour juger — une ignorance ne ferme pas une porte. */
+function etrangereDansSonGroupe(aniId, source, lang, slug, dir, offset, titresPar) {
+  const membres = etrangeres.get(`${source}|${lang}|${slug}|${dir || "-"}|${offset || 0}`);
+  if (!membres || membres.length < 2) return false;
+  const jetons = new Set(significantTokens(String(slug).replace(/-vf$/i, "")));
+  if (!jetons.size) return false;
+  /* `null` quand on n'a pas les titres : ni « correspond » ni « ne correspond
+     pas ». La distinction compte des deux cotes — un sujet sans titres ne doit
+     pas etre accuse, et un VOISIN sans titres ne doit pas servir de preuve a
+     charge. Compter l'inconnu comme correspondant ferait tirer la porte sur une
+     ignorance, soit l'inverse exact de ce qu'on veut. */
+  const correspond = (id) => {
+    const t = titresPar(id);
+    if (!t.length) return null;
+    return t.some((x) => significantTokens(x).some((j) => jetons.has(j)));
+  };
+  if (correspond(aniId) !== false) return false; // inconnu ou correspondant : on n'accuse pas
+  return membres.some((m) => m.aniId !== aniId && correspond(m.aniId) === true);
+}
+
 const DAY = 86400;
 const ttl = (status, animeStatus) => {
   switch (status) {
@@ -93,6 +233,40 @@ if (ONLY_IDS) {
     sql: `SELECT * FROM player_map WHERE ani_id IN (${ph})`,
     args: ids,
   })).rows;
+} else if (FROM === "seed") {
+  /* Les lignes SEMEES : `verified` en apparence, mais estampillees par un audit
+     unique et ancien, jamais passees par ce script. Elles sont lues AVANT toute
+     heuristique, donc une ligne fausse d'algorithme 0 masque un resolveur qui a
+     raison — c'est la classe a drainer en premier. */
+  rows = (await db.execute({
+    sql: `SELECT * FROM player_map
+           WHERE status = 'verified' AND algo_version < ?
+           ORDER BY expires_at ASC LIMIT ?`,
+    args: [SEASON_ALGO_VERSION, LIMIT],
+  })).rows;
+} else if (FROM === "mydublist") {
+  /* Les titres que MyDubList donne doubles en francais et pour lesquels on n'a
+     AUCUNE ligne VF : des doublages que le site pourrait offrir et n'offre pas,
+     faute d'avoir jamais regarde. On fabrique les groupes de travail, puisqu'il
+     n'existe pas encore de ligne a relire. */
+  if (!dubFr) {
+    console.error("[verify] --from=mydublist exige la liste, qui n'a pas pu etre lue");
+    process.exit(1);
+  }
+  const cands = (await db.execute({
+    sql: `SELECT f.anilist_id AS ani_id, f.mal_id
+            FROM fribb_map f
+           WHERE f.mal_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM player_map p
+                              WHERE p.ani_id = f.anilist_id AND p.lang = 'vf')`,
+  })).rows.filter((r) => dubFr.has(Number(r.mal_id)));
+  rows = [];
+  for (const c of cands.slice(0, LIMIT)) {
+    for (const source of ["animesama", "voiranime"]) {
+      rows.push({ ani_id: c.ani_id, source, lang: "vf" });
+    }
+  }
+  console.log(`[verify] --from=mydublist : ${cands.length} titres candidats, ${Math.min(cands.length, LIMIT)} pris`);
 } else {
   rows = (await db.execute({
     sql: `SELECT * FROM player_map
@@ -108,6 +282,15 @@ for (const r of rows) {
   if (!groups.has(k)) groups.set(k, { aniId: Number(r.ani_id), source: String(r.source), langs: new Set() });
   groups.get(k).langs.add(String(r.lang));
 }
+/* L'etat AVANT, garde pour que `--dry` puisse montrer ce qui changerait. Lire
+   un verdict sans savoir ce qu'il remplace ne dit rien : c'est l'ECART qui se
+   relit. */
+const avant = new Map(
+  rows.map((r) => [
+    `${r.ani_id}:${r.source}:${r.lang}`,
+    { status: r.status ?? "(aucune)", slug: r.slug ?? null, dir: r.season_dir ?? null },
+  ]),
+);
 console.log(`[verify] ${rows.length} rows due → ${groups.size} (anime,source) groups  site=${SITE}`);
 if (groups.size === 0) process.exit(0);
 
@@ -118,7 +301,8 @@ for (let i = 0; i < aniIds.length; i += 500) {
   const chunk = aniIds.slice(i, i + 500);
   const ph = chunk.map(() => "?").join(",");
   const r = await db.execute({
-    sql: `SELECT id, status,
+    sql: `SELECT id, status, format,
+                 json_extract(data,'$.idMal')          AS mal,
                  json_extract(data,'$.episodes')       AS eps,
                  json_extract(data,'$.title.english')  AS en,
                  json_extract(data,'$.title.romaji')   AS ro,
@@ -131,6 +315,8 @@ for (let i = 0; i < aniIds.length; i += 500) {
     let syn = []; try { syn = JSON.parse(row.syn || "[]"); } catch {}
     metaById.set(Number(row.id), {
       status: row.status,
+      format: row.format ?? null,
+      idMal: row.mal == null ? null : Number(row.mal),
       episodes: row.eps == null ? null : Number(row.eps),
       titles: [row.en, row.ro, row.na, ...syn].filter(Boolean),
     });
@@ -152,8 +338,58 @@ function judge(aniId, source, lang, insp, sibling, meta) {
   if (!insp.found || !insp.slug) return { status: "absent", note: "verify:not-found" };
   if (source === "animesama" && !insp.chosenSeasonDir) return { status: "absent", note: "verify:no-panel" };
 
+  /* Un CLIP n'est pas un episode. Les fiches AniList de format MUSIC portent
+     des titres d'un seul mot — « Clover », « Universe », « Nexus », « RED » —
+     que le scorer accroche par sous-chaine sur le premier slug venu :
+     `black-clover-vf`, `steven-universe`, `scarlet-nexus`. Anime-sama
+     n'heberge pas de clips, donc aucun de ces mappings ne peut etre bon.
+     Mesure du 20/09/2026 : 111 lignes MUSIC, toutes `heuristic`, aucune
+     `verified` — les bloquer ne retire rien et ferme une classe entiere. */
+  if (meta?.format === "MUSIC") {
+    return { status: "absent", note: "verify:format-musique" };
+  }
+
   const conf = slugTitleConfidence(insp.slug.replace(/-vf$/i, ""), meta?.titles || []);
   if (conf <= 0) return { status: "broken", note: "verify:zero-title-confidence" };
+
+  /* Le juge exterieur. Une VF sur un titre que MyDubList ne donne pas double en
+     francais signale presque toujours un slug qui pointe ailleurs — verifie une
+     a une sur les douze cas du 20/09/2026, zero faux positif. On rétrograde
+     plutot que de laisser passer : une ligne `verified` fausse sert le MAUVAIS
+     CONTENU, ce qui est pire qu'un chip manquant.
+     La note est explicite pour que les ~2 % de desaccords legitimes (VF non
+     officielle sur anime-sama) se retrouvent d'une requete et se signalent en
+     amont. Inerte si la liste manque, ou si l'anime n'a pas d'id MAL. */
+  if (lang === "vf" && dubFr && meta?.idMal && !dubFr.has(meta.idMal)) {
+    return { status: "broken", note: "verify:vf-inconnue-de-mydublist" };
+  }
+
+  /* Le juge par CONTRASTE : cette fiche est-elle la seule de son panneau a
+     n'avoir aucun mot en commun avec le slug ? Voir le commentaire long de
+     `etrangereDansSonGroupe`. `heuristic` et non `broken` : la fiche est
+     douteuse, pas prouvee morte — elle reste servie, elle n'est simplement
+     jamais certifiee, et le prochain passage la re-derivera. */
+  if (
+    etrangereDansSonGroupe(
+      aniId, source, lang, insp.slug,
+      source === "animesama" ? insp.chosenSeasonDir : null,
+      insp.mergedOffset || 0,
+      (id) => metaById.get(id)?.titles || [],
+    )
+  ) {
+    /* On GARDE le slug et le panneau : la ligne reste servie, elle perd
+       seulement son droit a etre certifiee. Les effacer reviendrait a la
+       declarer absente, ce qu'on ne sait pas. */
+    return {
+      status: "heuristic",
+      note: "verify:etrangere-a-son-panneau",
+      slug: insp.slug,
+      seasonDir: source === "animesama" ? insp.chosenSeasonDir : null,
+      epOffset: insp.mergedOffset || 0,
+      episodeCount: insp.episodeCount ?? null,
+      confidence: Math.round(conf * 100) / 100,
+    };
+  }
 
   // S1-collapse shape: a later season on saison1 with no merged offset.
   if (
@@ -167,7 +403,21 @@ function judge(aniId, source, lang, insp, sibling, meta) {
 
   // Cross-lang: the sibling lang resolving the SAME slug to a broken shape
   // poisons this one too (count coincidences can't be trusted).
-  if (sibling && sibling.judged?.status === "broken" && sibling.insp?.slug === insp.slug) {
+  //
+  // Sauf quand la soeur n'est tombee que sur la porte MyDubList. Celle-ci dit
+  // « pas de doublage francais pour ce titre », ce qui a DEUX lectures : le slug
+  // pointe ailleurs, ou la VF existe sans etre officielle. Propager a la VOSTFR
+  // choisit la premiere sans preuve — et sur les ~2 % ou c'est la seconde, ca
+  // retirerait un VOSTFR parfaitement valable, dans la langue principale du
+  // site. On retrograde donc ce que MyDubList soutient reellement (la ligne VF)
+  // et rien de plus ; un slug faux cote VOSTFR se corrige par sa propre
+  // re-derivation, le resolveur actuel le resolvant deja correctement.
+  if (
+    sibling &&
+    sibling.judged?.status === "broken" &&
+    sibling.judged?.note !== "verify:vf-inconnue-de-mydublist" &&
+    sibling.insp?.slug === insp.slug
+  ) {
     return { status: "broken", note: "verify:sibling-broken" };
   }
 
@@ -177,9 +427,24 @@ function judge(aniId, source, lang, insp, sibling, meta) {
   if (ani && got) {
     const diff = got - ani;
     const releasing = meta?.status === "RELEASING";
+    /* Un panneau PLUS GROS que la fiche est legitime quand il couvre plusieurs
+       cours d'une serie — mais la clause acceptait n'importe quel depassement,
+       y compris celui qui trahit un mauvais mappage. Mesure du 20/09/2026 :
+       AniList 20779 (« Beyond the Boundary: Daybreak », UN episode) tombait sur
+       `beyond-the-boundary/saison1` et ses douze episodes, et cette clause
+       repondait « contenu correct ».
+       Une fiche minuscule — OVA, special, film, clip — posee sur un panneau bien
+       plus gros n'est pas un cours fusionne : c'est une confusion d'entree. Sauf
+       quand un `ep_offset` designe explicitement sa place dedans, ce qui est
+       precisement le cas du film range dans un panneau `/film`.
+       Cout du resserrement, mesure avant de l'ecrire : 490 lignes entrent dans
+       ce cas, et AUCUNE n'est `verified` aujourd'hui. On n'en retrograde donc
+       pas une ; on empeche seulement de les certifier a tort. */
+    const grosPanneauPlausible =
+      diff > 1 && !insp.merged && (ani >= 6 || (insp.mergedOffset || 0) > 0);
     const countOk =
       Math.abs(diff) <= 1 ||
-      (diff > 1 && !insp.merged) ||      // bigger panel (cours merged) — content right
+      grosPanneauPlausible ||
       (diff < 0 && releasing);           // source behind on an airing show
     if (!countOk) return { status: "broken", note: `verify:count ${got}/${ani}` };
   }
@@ -215,13 +480,25 @@ async function worker() {
       const v = inspections[lang].judged;
       if (!v) { tally["skipped:transient"] = (tally["skipped:transient"] || 0) + 1; continue; }
       tally[v.status] = (tally[v.status] || 0) + 1;
+      if (DRY) {
+        const a = avant.get(`${g.aniId}:${g.source}:${lang}`) || {};
+        const ou = (s, d) => (s ? `${s}${d ? "/" + d : ""}` : "—");
+        const de = ou(a.slug, a.dir);
+        const vers = ou(v.slug, v.seasonDir);
+        const bouge = a.status !== v.status || de !== vers;
+        console.log(
+          `${bouge ? "CHANGE" : "  =   "} ${String(g.aniId).padEnd(7)} ${g.source.padEnd(10)} ${String(lang).padEnd(7)}` +
+            ` ${String(a.status).padEnd(10)} -> ${String(v.status).padEnd(10)} ${de.padEnd(34)} -> ${vers.padEnd(34)} ${v.note}`,
+        );
+      }
       if (!DRY) {
         const meta = metaById.get(g.aniId);
         await db.execute({
           sql: `INSERT INTO player_map
                   (ani_id, source, lang, status, slug, season_dir, ep_offset,
-                   episode_count, confidence, fail_count, note, checked_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                   episode_count, confidence, fail_count, note, algo_version,
+                   checked_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                 ON CONFLICT(ani_id, source, lang) DO UPDATE SET
                   status        = excluded.status,
                   slug          = excluded.slug,
@@ -231,12 +508,14 @@ async function worker() {
                   confidence    = excluded.confidence,
                   fail_count    = 0,
                   note          = excluded.note,
+                  algo_version  = excluded.algo_version,
                   checked_at    = excluded.checked_at,
                   expires_at    = excluded.expires_at`,
           args: [
             g.aniId, g.source, lang, v.status,
             v.slug ?? null, v.seasonDir ?? null, v.epOffset ?? 0,
             v.episodeCount ?? null, v.confidence ?? null, v.note,
+            SEASON_ALGO_VERSION,
             now, now + ttl(v.status, meta?.status),
           ],
         });

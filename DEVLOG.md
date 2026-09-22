@@ -48,6 +48,10 @@ construit depuis `git log --since=<derniere release>`.
   dev.aniscroll.com. -> `devlog/site.md`
 - **Multi-parties OP/ED inerte sous v2** (ouvert depuis le 06/08) : les
   fenetres par partie sont jetees par `detect_per_host`. -> `devlog/oped.md`
+- **`frembed` declare mais jamais detecte** (ouvert depuis le 31/08) : il est
+  dans `DISPLAYED_HOSTS` et `host_versions.json`, mais absent de `MULTI_HOSTS`
+  et sans resolveur dans `bridge/resolve.mjs`. Ses spectateurs heritent donc des
+  minutages OP/ED d'un autre encodage. -> `devlog/player.md`
 - **ISR de la page anime a re-mesurer** (ouvert depuis le 03/08) : la mesure
   du hit CDN etait faussee par un cron supprime. -> `devlog/infra.md`
 - **Surveiller apres la v0.0.8** : le compteur Upstash sur 48 h — six caches
@@ -57,6 +61,12 @@ construit depuis `git log --since=<derniere release>`.
 - **Le cout qui montait etait celui du Worker Cloudflare, pas Upstash** : 310
   requetes par visionnage contre un palier gratuit de 100 000/jour. Ramene a
   55 le 29/08 (PR #9). A re-mesurer si la page de lecture change encore.
+- **Confirmer le cache SW perime** (21/09) : le correctif « video qui ne se
+  recharge pas au reveil du PC » est pose, mais l'hypothese n'a pas ete vue a
+  l'oeil. Sur dev : Cache Storage -> `apis`, chercher des entrees
+  `/api/v2/source` et lire leur en-tete `date` ; et verifier que la mention
+  **(ServiceWorker)** a disparu de la requete de source dans Network.
+  -> `devlog/player.md`
 - **Bandes noires 4:3** (Mobile Suit Gundam) : mesure faite, fichier 1440x1080
   sans bandes incrustees, donc la boite du lecteur reste en 16:9 alors que
   `videoRatio` sait la mesurer. Cause non tracee, correctif non ecrit.
@@ -67,15 +77,17 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 42 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 15 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
-| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 15 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
+| Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
 ## Index des entrees
 
 ### Apercu au survol & bandes-annonces — [`devlog/preview.md`](devlog/preview.md)
 
+- 2026-09-21 — Le son du trailer qui continuait en fond sans carte : un `pauseVideo` avalé par un chargement, puis `reveal()` (et son `unMute`) appelé par le listener sans carte ouverte
 - 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 - 2026-08-15 — Nettoyage de l'aperçu au survol
 - 2026-08-15 — Le fondu bas de la carte, et le rail du hero rendu survolable
@@ -111,6 +123,17 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-09-22 — **Un cache de verdicts positifs peut écarter, il ne peut pas élire** : la page info lisait le `ok` de l'instantané de disponibilité comme une liste blanche, donc élisait un hôte lent mais connu (sibnet, rang 4 sur One Piece ep 1) devant des mieux classés que personne n'avait essayés — `warmChain` s'arrêtant au premier succès, rien ne rattrapait ; on lit désormais `absent`. Les chips tardifs de frembed/ansembed sont le comportement voulu (sondes différées), pas un second bug. `sub=sub` est le drapeau `?dub=`, PAS la langue (fausse piste) ; les deux autres `confirmed:` restent légitimes — décision en direct, pas pari à froid
+- 2026-09-20 (soir, 3) — **`verified` voulait dire deux choses** : 2 246 lignes `player_map` étaient *semées* depuis un audit figé, 3 seulement *contrôlées*, et le chemin de lecture honore `verified` sans garde de version → une ligne fausse d'algo 0 masquait un résolveur qui avait raison ; le vérificateur n'écrivait jamais `algo_version` (prérequis) ; `slugTitleConfidence` divisait par `min(slugLen, titleLen)`, donc un synonyme d'un mot (« JOKER ») certifiait `joker-game` à 1,00 — 6 496 lignes sur 6 962 affichaient 1,00 ; MyDubList branché comme juge EXTERIEUR (97,8 % de concordance, 12 désaccords = 12 vraies erreurs) et comme filtre VF côté navigateur (rétrogradation, jamais exclusion) ; incohérence de saison = preuve, donc rétrogradation immédiate ; **segments par le Worker mesurés puis abandonnés (amont 403, jeton lié à l'IP)**, mais le CDN autorise 100 jours de cache navigateur → préchauffage au survol rouvert aux flux directs
+- 2026-09-20 (nuit) — ansembed passe devant voiranime : `speed` égal ne se départage PAS par l'ordre de déclaration (l'agrégat mesuré tranchait, 19,3 vs 19,6), rangs désormais sans ex aequo ; sonde de liveness (HEAD 3 s) réservée aux sondes de fond via `probe=1` ; le script du `<head>` ne s'abstient plus sous ordre de langues (cache de la SORTIE de la règle, `earlyPick`) ; relance de l'extraction ansembed ; **montage du lecteur mesuré à 1 ms → changement abandonné**
+- 2026-09-20 (soir, 2) — `ReferenceError: SERVERS is not defined` : variable libre qu'aucun garde ne pouvait voir (JS, donc pas `tsc` ; valide, donc pas le build) → `no-undef` activé sur le JS ; le préfixe `/fr` ne couvrait pas `/_next/data/`, donc 404 → `_error` sur toute page SSR en français ; `megaplay` encore écrit en dur dans 7 fichiers de liens
+- 2026-09-20 (soir) — frembed publie son catalogue (146 titres = 340 fiches AniList) : on l'essayait sur tout, 1,66 s par anime pour rien ; la page info publiait son pari et non son verdict ; `warmStream` avalait l'échec du segment ; chemin froid anime-sama parallélisé ; mémoire de l'hôte par anime ; épisode suivant préparé à l'apparition du bouton ; ~300 lignes d'hôtes morts retirées
+- 2026-09-20 — hls.js jetait son premier segment (test de débit) et était téléchargé deux fois ; le bouton play s'affichait avant la première image ; le doute prépare le lecteur suivant ; `PREFERRED_FALLBACK_ORDER` inexistant lu dans un effet ; le gestionnaire d'erreurs hls jamais posé sur le lecteur par défaut
+- 2026-09-19 — Frembed a déménagé (casa → surf, Referer de l'ancien domaine → 403) ; le lecteur démarre deux fois plus tôt (extraction dès /source, hls.js préchargé, test de débit remplacé par le débit mémorisé)
+- 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
+- 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
+- 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
+- 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
 - 2026-08-29 — Le vrai cout d'un visionnage : 310 requetes, dont 51 utiles
 - 2026-08-29 — AniSkip interroge sur une serie qu'il ignore
 - 2026-08-29 — Les vignettes de la barre faisaient refuser la lecture (429)
@@ -174,6 +197,15 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-21 (suite) — Jikan en complément d'AniList, seulement là où AniList n'a rien : filler/récap, date et titre par épisode (même page Jikan que les scores, 0 appel en plus), titre français, classification d'âge, synopsis MAL en repli
+- 2026-09-21 — Profil : TTFB 2,0 s → ~0,7 s visé (l'attente fixe de 1,5 s d'AniList devient un vrai SWR), `getUser` ne charge plus l'historique, props allégées, bannière et bandes-annonces bornées
+- 2026-09-17 (suite 2) — L'onde coupée par le haut de l'écran (notification descendue), et un flou derrière le texte qui n'est pas une boîte (masque qui s'éteint aussi en haut/bas, `brightness` au lieu d'un voile)
+- 2026-09-17 (suite) — `prefers-reduced-motion` coupait la fête du badge (le registre mentait, pas `matchMedia`) ; l'onglet lisait la copie serveur ; et les 66 épisodes qu'AniList ne sait pas justifier
+- 2026-09-17 — L'impact qui ne jouait qu'une fois (réconciliation React), la boîte en fond retirée, et les relectures ajoutées au compteur d'épisodes
+- 2026-09-16 — Les badges, ou comment ajouter 176 récompenses sans une requête
+- 2026-09-02 (suite) — « Le chargement est très long » : la page était rendue deux fois (une date formatée contre l'environnement) ; nouvel outil `hydration-check.mjs` ; liste AniList à deux étages + copie de secours (AniList 403 ce jour-là)
+- 2026-09-02 — Quatre défauts de la vitrine du profil, quatre causes distinctes (liste AniList en cache mémoire ; plafond à 60 ; le repli qui inventait des favoris ; la mesure forcée qui tuait l'animation)
+- 2026-08-30 — Le profil se pare de l'anime préféré, et cesse d'être réservé à AniList  _(voir aussi `devlog/comptes.md`)_
 - 2026-08-29 — Deux « Season 1 » a la file : le garde qui empechait de compter
 - 2026-08-29 — La vignette d'episode passe a TMDB, qui CHOISIT
 - 2026-08-15 — Le graphe des relations se dessinait deux fois
@@ -192,6 +224,20 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-09-22 (soir) — Synchro du socle bornée par `SOCLE_SOURCE=<commit>` (PR #20) : **la région d'un conflit n'est pas le périmètre de la décision** — résoudre « profil vs socle » sur `_app.tsx` a jeté la définition de `HoverPreviewGate` avec le bloc écarté, pendant que son appel passait par un hunk voisin ; `tsc`/build sont ce qui l'attrape
+- 2026-09-22 (suite 2) — **Fluid CPU mesuré** (dev, 12 h : 13 K invocations, 6 min CPU) : `/api/v2/source` = la moitié du CPU et ~5 appels par page de lecture ; `probe=1` dédoublait le cache d'edge pour des réponses devenues identiques ; instantané de disponibilité 6 h → 18 h
+
+- 2026-09-22 (suite) — Précache SW 249 → 131 fichiers (6,05 → 3,08 Mo) : polices, hls.js, Ably, pages admin et 404.svg en dehors ; piège de workbox 6.6 (la 1re fonction d'`exclude` court-circuite celle de next-pwa) ; **mesure impossible ailleurs** : logs Hobby = 1 h, `observability/query` = 402 (Pro), pas d'accès Upstash en local
+
+- 2026-09-22 — Passe globale en un déploiement : absence prouvée 1 h au bord sur `/source`, battement W2G 9 → 2 commandes (le pipeline n'économisait pas de commandes), doubles caches AniList coupés, précache SW 571 → 249, hero de l'accueil visible dès le HTML, hls.js hors du chunk du lecteur, aperçu au survol non chargé sur tactile
+
+- 2026-09-21 (suite) — 2e passe : BannerStudio et modale changelog chargés à l'ouverture (my-list 277 → 252 Ko, profil 282 → 256) ; doublons strictement identiques fusionnés (streamUrl, idCatalog, usersDb, tableEnsurer…)
+- 2026-09-21 — Passe vitesse/usage/nettoyage : accueil **293 → 250 Ko** de JS gz, page anime 283 → 259 ; santé AniList mémorisée à vide, `cacheSuccess:false`, timeouts tiers ; bugs `recent` (jamais de page 2) et `frembed:base` (sans TTL) ; ~50 exports et 8 fichiers morts ; **monitor rouge depuis le 16/09 = secret Upstash vers une base supprimée** (reposé ; `UPSTASH_API_KEY` reste à refaire)
+- 2026-09-20 — **Un déploiement vide le cache d'edge, et personne ne le remplissait** : les en-têtes étaient bons (`s-maxage` 2-6 h + 1 j de `stale-while-revalidate`) mais SWR ne sert que s'il existe déjà une copie — 26 URL sur 27 froides une heure après un déploiement prod, `/en/anime/2706` à **11 959 ms → 85 ms** après chauffe ; nouveau `warm-pages` déclenché par `deployment_status`, priorisé sur `last_accessed_at` ; **le rendu froid ne supporte pas la concurrence** (0,4 s → 12 s à concurrence 3), donc une requête à la fois
+- 2026-09-18 — Grande passe de vitesse : préchauffage fiche + profil remis au routeur (squelette gardé sur la lecture seulement), requêtes dédoublonnées (skip ×4 → ×1, traduction/recherche cachables), polices auto-hébergées, repli fanart par wsrv.nl
+- 2026-09-17 — Le Fluid CPU de dev à 3 h 25/4 h : la base Upstash de dev n'existe plus
+- 2026-09-12 (suite) — Une page qui pose enfin la question « de quoi suis-je le plus près ? »
+- 2026-09-09 — La panne AniList a coûté 87 % du quota Turso, parce qu'un échec ne se cachait nulle part
 - 2026-08-30 — Le prechauffage partait deux fois, et la premiere visait l'episode 1
 - 2026-08-26 — Le chunk que personne ne peut éviter : `_app` divisé par deux
 - 2026-08-22 (suite) — Page watch : −20 % de bundle, −19 % de HTML, sans toucher au comportement
@@ -208,3 +254,8 @@ construit depuis `git log --since=<derniere release>`.
 - 2026-07-30 (suite) — `tools/usage-monitor` : collecteur de diagnostic usage quotidien
 - 2026-07-30 — Upstash toujours ~31k cmd/j après le fix edge-cache : le vrai volume = re-probe des `absent` sur `/source`
 - 2026-07-29 — Explosion du Fluid Active CPU (Vercel) depuis le 18/07 : plafond Upstash gratuit
+
+### Comptes, identite & sauvegarde — [`devlog/comptes.md`](devlog/comptes.md)
+
+- 2026-09-02 — « AniList ne synchronise plus » : une réponse 200 vide était écrite par-dessus la liste locale (et le pull tourne à chaque chargement de page)
+- 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base

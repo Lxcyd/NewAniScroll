@@ -16,8 +16,6 @@
  * (runtime handler).
  */
 
-import { useEffect, useState } from "react";
-
 /** Stable identifiers for every bindable player action. */
 export type ShortcutAction =
   | "playPause"
@@ -244,21 +242,6 @@ export function resetKeybindings(): Keybindings {
   return { ...DEFAULT_KEYBINDINGS };
 }
 
-export function useKeybindings(): Keybindings {
-  const [binds, setBinds] = useState<Keybindings>(DEFAULT_KEYBINDINGS);
-  useEffect(() => {
-    const read = () => setBinds(getKeybindings());
-    read();
-    window.addEventListener(KEYBINDINGS_EVENT, read);
-    window.addEventListener("storage", read);
-    return () => {
-      window.removeEventListener(KEYBINDINGS_EVENT, read);
-      window.removeEventListener("storage", read);
-    };
-  }, []);
-  return binds;
-}
-
 // ── Key combo normalization / display ──────────────────────────────────────
 
 const MOD_ORDER = ["ctrl", "alt", "shift", "meta"] as const;
@@ -282,61 +265,6 @@ export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
   const np = code.match(/^numpad(\d)$/);
   if (np) return `digit${np[1]}`;
   return code;
-}
-
-/** Same normalization used to match a live event against a stored combo. */
-export function eventMatchesCombo(e: KeyboardEvent, combo: KeyCombo): boolean {
-  const c = comboFromEvent(e);
-  return c !== null && c === combo;
-}
-
-/** Map a base key token to a short glyph for the keyboard / chips. */
-const KEY_GLYPH: Record<string, string> = {
-  arrowleft: "←",
-  arrowright: "→",
-  arrowup: "↑",
-  arrowdown: "↓",
-  space: "␣",
-  comma: ",",
-  period: ".",
-  ",": ",",
-  ".": ".",
-  backspace: "⌫",
-  enter: "↵",
-  escape: "Esc",
-  home: "Home",
-  end: "End",
-  pageup: "PgUp",
-  pagedown: "PgDn",
-  tab: "⇥",
-  delete: "Suppr",
-  capslock: "⇪",
-  shiftleft: "⇧",
-  shiftright: "⇧",
-  controlleft: "Ctrl",
-  controlright: "Ctrl",
-  metaleft: "⊞",
-  metaright: "⊞",
-  altleft: "Alt",
-  altright: "AltGr",
-  contextmenu: "☰",
-};
-
-const MOD_GLYPH: Record<string, string> = {
-  ctrl: "Ctrl",
-  alt: "Alt",
-  shift: "⇧",
-  meta: "⌘",
-};
-
-/** Human-readable label for a combo, e.g. "shift+arrowright" -> "⇧ →". */
-export function comboLabel(combo: KeyCombo | null | undefined): string {
-  if (!combo) return "";
-  const parts = combo.split("+");
-  const base = parts.pop() as string;
-  const mods = parts.map((m) => MOD_GLYPH[m] ?? m);
-  const baseGlyph = KEY_GLYPH[base] ?? base.toUpperCase();
-  return [...mods, baseGlyph].join(" ");
 }
 
 /**

@@ -4,6 +4,7 @@ import { ArrowUturnLeftIcon, InformationCircleIcon, PlayIcon } from "@heroicons/
 import Link from "next/link";
 import type { Status } from "@/lib/list/types";
 import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { watchHref } from "@/lib/prefs/clickTarget";
 import styles from "./scroll.module.css";
 import {
   SwipeSettings,
@@ -243,7 +244,7 @@ function ScrollCard({
               {t("discover.info")}
             </Link>
             <Link
-              href={`/en/anime/watch/${anime.id}/megaplay?id=megaplay-${anime.id}-1&num=1&info=${anime.id}&info=megaplay`}
+              href={watchHref(anime.id)}
               className={styles.actionWatch}
               onClick={(e) => e.stopPropagation()}
             >

@@ -12,6 +12,12 @@ import v2Styles from "@/components/anime/v2/styles.module.css";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import dynamic from "next/dynamic";
+import { preloadPlayerCode } from "@/lib/watch/playerCode";
+/* Le chunk du lecteur et hls.js partent DES l'evaluation de ce module, pendant
+   l'hydratation. `dynamic()` ne les demandait qu'au premier rendu de
+   <UniversalPlayer>, c'est-a-dire apres la source ET la liste d'episodes : sur
+   une arrivee directe, tout le telechargement du lecteur s'ajoutait en serie. */
+preloadPlayerCode();
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
 const UniversalPlayer = dynamic(
   () => import("@/components/watch/primary/UniversalPlayer"),
@@ -26,7 +32,15 @@ import PlayerErrorBoundary from "@/components/watch/primary/PlayerErrorBoundary"
 import { setPlayerFullscreen } from "@/lib/player/playerFullscreen";
 import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { getRemovedMedia } from "@/prisma/removed";
-import { getServer } from "@/lib/servers";
+/* La liste des lecteurs est importee UNE fois, en tete.
+   Elle etait jusqu'ici `require`e a l'interieur de trois fonctions — et un
+   quatrieme appelant, ajoute le 20/09/2026, s'est contente d'ecrire `SERVERS`
+   sans le require qui allait avec. Ca ne pouvait pas se voir a la relecture (le
+   nom est defini trois fois dans le fichier) ni au build (c'est une variable
+   libre, pas une erreur de syntaxe) : ca ne se voyait qu'a l'execution, en
+   ReferenceError, donc en page d'erreur. Un import de module rend l'oubli
+   impossible. */
+import SERVERS, { DEFAULT_SERVER_ID, getServer } from "@/lib/servers";
 import { primeMediaCache, getCachedMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getCachedAnime } from "@/lib/db/anime";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -40,6 +54,10 @@ import {
   pickServerForLangs,
 } from "@/lib/prefs/langPref";
 import { getAnimeServer, setAnimeServer } from "@/lib/prefs/animeServerPref";
+import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { chargeFrembedCatalog, frembedPossible } from "@/lib/watch/frembedCatalog";
+import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
+import { memoriseChoix } from "@/lib/watch/earlyPick";
 // Two dialogs the page only ever shows on request. LangPreferenceModal already
 // returns null while closed and ReportModal renders an empty headless-ui
 // Transition, so neither contributes a node to the watch page's HTML until it
@@ -49,14 +67,18 @@ const LangPreferenceModal = dynamic(
   { ssr: false },
 );
 import { recordWatchToday } from "@/lib/stats/streak";
+import { serverToHost } from "@/lib/hostRegistry";
 import { useTranslation } from "react-i18next";
-import { FULL_MEDIA_FIELDS } from "@/lib/anilist/fullMediaQuery";
-import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer } from "@/lib/watch/sourcePrefetch";
+import { FULL_MEDIA_QUERY } from "@/lib/anilist/fullMediaQuery";
+import { getPrefetchedSource, sourceKey, setPrefetchedSource, clearPrefetchedSourcesFor, getPlannedServer, isPlannedVerified, getPlannedFailures, resolveSource, warmStream } from "@/lib/watch/sourcePrefetch";
+import { preconnectOrigin, playbackUrl } from "@/lib/watch/streamUrl";
+import { prechargeManifeste } from "@/lib/watch/hlsPreload";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
+import { hasFreshUserList, peekListEntry } from "@/lib/anilist/userListCache";
 import { markComplete, getProgress, isCompleted } from "@/lib/watch/progress";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
@@ -78,10 +100,11 @@ const ListEditor = dynamic(() => import("@/components/listEditor"), {
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { Spinner } from "@vidstack/react";
+import { touchHistory } from "@/lib/profile/history";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
+import { warmVidmolyClient } from "@/lib/clientVidmoly";
 // Watch-party UI: split out of the page bundle. It only ever renders behind
 // `party || partyUIOpen` (see `partyPanelBlock` below), and it drags the whole
 // chat stack — composer, member menu, and the ~24 kB unicode + anime emoji
@@ -99,12 +122,39 @@ const PROXY_BASE =
   process.env.NEXT_PUBLIC_PROXY_BASE ||
   "https://proxy.aniscroll.com";
 
+/* Lance l'extraction cote navigateur d'un embed vidmoly/ansembed des que
+   /api/v2/source l'annonce, sans attendre que le lecteur ait telecharge son
+   code et monte (cf. warmVidmolyClient). Appele AVANT setHlsData : les effets
+   d'un enfant passent avant ceux du parent, un useEffect ici arriverait apres
+   celui du lecteur lors d'un changement d'episode. */
+function warmClientExtract(data) {
+  const ce = data?.clientExtract;
+  if (ce?.type === "vidmoly" && ce.embedUrl) {
+    // La connexion vers l'embed AVANT de le demander : c'est le premier
+    // aller-retour hors de chez nous sur le chemin de la premiere image.
+    preconnectOrigin(ce.embedUrl);
+    warmVidmolyClient(ce.embedUrl);
+  }
+  // Et vers le CDN du flux quand il est deja connu (frembed sert son adresse
+  // directement) : les preconnect ecrits en dur ne peuvent pas suivre un CDN
+  // dont le nom change.
+  preconnectOrigin(
+    playbackUrl(data?.streams?.[0] || data?.sources?.[0], data?.referer),
+  );
+}
+
 // Anti-bot decoy retries on the on-click source fetch. Some scraper hosts
 // (sibnet) answer a cold hit with a decoy that extracts to nothing (204); the
 // route seeds its player_map and the next call resolves. Seeding can outlast a
-// single short retry, so back off across attempts — total ~5.6s worst case,
-// only ever paid on a 204 that would otherwise drop the chip.
-const DECOY_BACKOFF_MS = [800, 1600, 3200];
+// single short retry, so back off across attempts — only ever paid on a 204
+// that would otherwise drop the chip.
+/* Ramene de [800, 1600, 3200] a [500, 1200] le 20/09/2026. Trois tentatives
+   tenaient jusqu'a 5,6 s de roue qui tourne AVANT que quoi que ce soit d'autre
+   ne soit tente — et pendant ce temps un lecteur libre attendait a cote. Un
+   hote qui repond deux fois « reessaie » ne merite pas un troisieme tour devant
+   lui : la bascule prend le relais a 1,7 s, et le troisieme essai est de toute
+   facon celui qui aboutissait le moins souvent. */
+const DECOY_BACKOFF_MS = [500, 1200];
 const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
 
 /* Au-dela, une roue qui tourne n'informe plus : on nomme le lecteur en cause et
@@ -112,6 +162,13 @@ const DECOY_RETRIES = DECOY_BACKOFF_MS.length;
    674 Ko/s (mesure du 29/08/2026), et la resolution froide d'anime-sama coute
    plusieurs secondes. Ce delai coupe les pannes, pas la lenteur. */
 const SPINNER_MAX_MS = 15000;
+
+/* Bornes de la reprise sur retour de reseau (cf. l'effet `reprendre`). Chaque
+   relance automatique est une invocation de fonction Vercel : on en autorise
+   trois par episode, espacees de 5 s. Au-dela c'est le bouton « Reessayer » de
+   la carte d'erreur qui prend le relais — un clic humain, pas un compteur. */
+const MAX_REPRISES_AUTO = 3;
+const REPRISE_THROTTLE_MS = 5000;
 
 /* The SSR fetches FULL_MEDIA_FIELDS because the server-side caches this page
    primes (`primeMediaCache`) are shared with the info page, which needs the
@@ -181,11 +238,9 @@ export async function getServerSideProps(context) {
   const watchId =
     aniId && epiNumber ? `${aniId}-${epiNumber}` : query?.id || null;
 
-  const removed   = await getRemovedMedia();
-  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
-  if (isRemoved) {
-    return { redirect: { destination: "/en/removed", permanent: false } };
-  }
+  // Started now, awaited after the metadata: on a cold function it is a
+  // Postgres round trip that used to sit in front of the AniList fetch.
+  const removedPromise = getRemovedMedia().catch(() => null);
 
   // ── Non-blocking metadata resolution ──────────────────────────────────
   // Navigation here is SPA (router.push from the info page), but the Pages
@@ -216,11 +271,10 @@ export async function getServerSideProps(context) {
       // as such), so it must not carry anyone's list entry. The client backfills
       // `mediaListEntry` right after mount — see the effect below.
       const json = await anilistFetch({
-        query: `query ($id: Int) {
-          Media (id: $id) {
-            ${FULL_MEDIA_FIELDS}
-          }
-        }`,
+        // The exact string getMediaMeta sends: the response cache is keyed on
+        // the request body, so the same query spelled with other whitespace
+        // stored a second copy that the preview / media routes never read.
+        query: FULL_MEDIA_QUERY,
         variables: { id: Number(aniId) },
         timeoutMs: 2500,
         label: `watch-ssr:${aniId}`,
@@ -245,6 +299,12 @@ export async function getServerSideProps(context) {
     } catch (e) {
       console.warn(`[watch SSR] DB fallback failed for ${aniId}:`, e?.message);
     }
+  }
+
+  const removed   = await removedPromise;
+  const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
+  if (isRemoved) {
+    return { redirect: { destination: "/en/removed", permanent: false } };
   }
 
   /* NOTE — three Prisma round-trips used to run here on every signed-in view
@@ -358,6 +418,32 @@ export default function Watch({
     if (!sessions?.user?.name) return;
     if (!info?.id) return;
     if (info.mediaListEntry) return;
+    // The session already holds the whole list whenever the viewer came
+    // through an info page (userListCache, kept in step by syncEngine on every
+    // progress write): read it there, no request at all. The per-user endpoint
+    // below is `no-store` + a session decode + an AniList call from Vercel —
+    // one invocation per watch view and per episode change. It stays for a
+    // cold landing, where fetching the full list instead would be far heavier.
+    const userName = sessions.user.name;
+    if (hasFreshUserList(userName)) {
+      const e = peekListEntry(userName, info.id);
+      if (e) {
+        setInfo((prev) =>
+          prev
+            ? {
+                ...prev,
+                mediaListEntry: {
+                  progress: e.progress,
+                  status: e.status,
+                  repeat: e.repeat,
+                  customLists: e.customLists,
+                },
+              }
+            : prev,
+        );
+      }
+      return;
+    }
     let cancelled = false;
     fetch(`/api/v2/list-entry/${info.id}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -392,7 +478,7 @@ export default function Watch({
   // ── Server state ──
   // Stable initial value to avoid SSR/CSR hydration mismatch.
   // The user's saved preference is loaded after mount in a useEffect below.
-  const [activeServer, setActiveServer] = useState("megaplay");
+  const [activeServer, setActiveServer] = useState(DEFAULT_SERVER_ID);
   // Gates the first source fetch until we've read the user's saved server
   // preference from localStorage. Without this gate the page fetched + showed
   // megaplay (the SSR-safe default) first, then visibly SWITCHED to the user's
@@ -431,7 +517,7 @@ export default function Watch({
   // where the route proved the upload is gone (404 from the host itself, see the
   // `hard` flag in lib/watch/sourceRequest). An ordinary absence still never
   // lands here: a cold anti-bot decoy and a genuine soft404 look identical, and
-  // guessing wrong hides a working host for the snapshot's 6h TTL. The
+  // guessing wrong hides a working host for the snapshot's TTL (18 h). The
   // background probe, which retries properly, owns those via confirmedAbsent.
   const activeVerdictRef = useRef({ ok: new Set(), hardAbsent: new Set() });
 
@@ -464,6 +550,11 @@ export default function Watch({
   // comportement historique. Lu dans un ref pour rester accessible aux callbacks
   // stables (markFailed) sans les recreer.
   const langOrderRef = useRef(null);
+  /* `["vf"]` quand MyDubList ne connait pas de doublage francais pour cette
+     serie, `null` sinon — les langues a renvoyer en fin d'ordre sans les
+     retirer. Un ref, parce que la bascule et le filet de securite s'en servent
+     bien apres l'effet qui le calcule. */
+  const sansVfRef = useRef(null);
   const [langModalOpen, setLangModalOpen] = useState(false);
 
   const markConfirmed = useCallback((id) => {
@@ -475,20 +566,24 @@ export default function Watch({
     });
   }, []);
 
-  // Track server preference order — favorite working servers come first.
-  // Six of the nine ids this list used to carry (hianime-*, animesama-oneupload,
-  // voiranime-streamtape*) no longer exist in lib/servers.js. `isCandidate`
-  // filtered them out silently, so the list effectively read
-  // [megaplay, animesama-sibnet, animesama-sibnet-vo] — which is why a dead VF
-  // chip fell back to Megaplay (lang "multi", first in line) instead of another
-  // FRENCH DUB. Kept as a hint for the ids that still exist; anything not listed
-  // is picked up by the lib/servers.js sweep below (already ordered by speed).
-  const PREFERRED_FALLBACK_ORDER = [
-    "megaplay",
-    "animesama-sibnet",
-    "animesama-sibnet-vo",
-  ];
-
+  /* Il n'y a PLUS de liste de repli ecrite a la main.
+   *
+   * `PREFERRED_FALLBACK_ORDER` ([megaplay, animesama-sibnet,
+   * animesama-sibnet-vo], reste de neuf ids dont six n'existent plus) etait
+   * consultee AVANT tout classement : un lecteur qui tombait sautait sur sibnet
+   * meme quand un lecteur nettement plus rapide etait libre. Et le filet qui
+   * suivait balayait `lib/servers.js` dans son ordre de DECLARATION en le
+   * commentant « fastest first » — ce qu'il n'est pas : le fichier est groupe
+   * par langue, si bien qu'ansembed (speed 2) y est declare apres sendvid
+   * (speed 4).
+   *
+   * La bascule suit desormais le meme classement que les chips a l'ecran —
+   * `getServersByLang(serverPerfRankFrozen)`, donc les mesures reelles quand
+   * elles existent et `speed` sinon. C'est exactement ce que le raccourci de
+   * cycle (z) fait deja depuis le 29/08 ; seule la bascule automatique etait
+   * restee en arriere. « Le lecteur suivant » veut dire le suivant DANS LA
+   * LISTE QU'ON MONTRE, sans quoi la reprise contredit l'ordre affiche.
+   */
   /* Les lecteurs deja tentes ET rates pour CET episode, quelle qu'en soit la
      raison. C'est une memoire distincte de `failedServers`, et il faut les deux.
      `failedServers` gouverne l'AFFICHAGE des chips, et n'enregistre volontairement
@@ -504,11 +599,66 @@ export default function Watch({
      aucune raison d'etre condamne sur le 4. */
   const triedFailedRef = useRef(new Set());
 
+  /* Bornes de la reprise sur retour de reseau (l'effet `reprendre`, plus bas).
+     Posees ICI, aux cotes de `triedFailedRef`, parce que l'effet de remise a
+     zero au changement d'episode les touche bien avant que `reprendre` existe. */
+  const dernierEssaiRef = useRef(0);
+  const reprisesAutoRef = useRef(0);
+
   /* De quel lecteur on vient, et si on l'a quitte de son plein gre. Lus par
      l'effet d'annonce de la bascule (plus bas) ; poses ici parce que
      `handleServerChange` les touche avant d'y arriver. */
   const serveurPrecedentRef = useRef(null);
   const basculeVoulueRef = useRef(false);
+
+  /* « Le lecteur suivant », calcule a UN SEUL endroit.
+     Trois appelants en ont besoin et doivent tomber sur le MEME : la bascule
+     (markFailed), le filet de securite plus bas, et le prechauffage sur doute
+     — sans quoi on prepare un lecteur et on en ouvre un autre, ce qui rend le
+     prechauffage inutile. `apres` permet de demander « le suivant en comptant
+     celui-ci comme perdu » sans rien ecrire dans les memoires d'echec. */
+  const pickNextServer = useCallback((id, { apres = [] } = {}) => {
+    const { getServersByLang } = require("@/lib/servers");
+    const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
+    const failedDef = SERVERS.find((s) => s.id === id);
+    const failedLang = failedDef?.lang;
+
+    const failedSet = new Set([
+      ...failedServersRef.current.keys(),
+      ...triedFailedRef.current,
+      ...apres,
+      id,
+    ]);
+
+    // Le classement des chips, tel quel : chaque groupe est deja trie du plus
+    // rapide au plus lent par serverPerfRankFrozen (mesures reelles, `speed`
+    // a defaut). On ne reordonne rien ici — on lit.
+    const groups = getServersByLang(serverPerfRankFrozen);
+    const libre = (s) => s && s.id !== id && !failedSet.has(s.id);
+
+    // 1. MEME LANGUE, le plus rapide d'abord. Une personne qui a choisi un
+    //    doublage francais veut un autre doublage francais, pas les
+    //    sous-titres d'un lecteur VO — d'ou la priorite stricte, conservee.
+    let next = (groups[failedLang] || []).find(libre)?.id;
+
+    // 2. Langue epuisee : le classement de langues de l'utilisateur (2 puis
+    //    3) avant toute heuristique. Sans ca, perdre le dernier lecteur VF
+    //    renvoyait ailleurs meme quand la personne avait classe le VOSTFR
+    //    juste apres la VF.
+    if (!next && langOrderRef.current) {
+      next = pickServerForLangs(langOrderRef.current, {
+        failed: failedSet,
+        deprioriser: sansVfRef.current,
+      });
+    }
+
+    // 3. Filet : n'importe quel lecteur libre, toujours dans l'ordre affiche
+    //    (multi, puis vo, puis vf — l'ordre du selecteur).
+    if (!next) {
+      next = [...groups.multi, ...groups.vo, ...groups.vf].find(libre)?.id;
+    }
+    return next || null;
+  }, []);
 
   const markFailed = useCallback((id, reason, { hostDown = false } = {}) => {
     /* Un echec PASSAGER n'efface pas une confirmation deja acquise.
@@ -552,53 +702,107 @@ export default function Watch({
     // we want to remember the user's intentional choice.
     setActiveServer((current) => {
       if (current !== id) return current;
-      const SERVERS = require("@/lib/servers").default;
-      const failedDef = SERVERS.find((s) => s.id === id);
-      const failedLang = failedDef?.lang;
-
-      // Build candidate list from PREFERRED_FALLBACK_ORDER, filtered by:
-      //  - not the failed server
-      //  - not in the failedServers map
-      //  - matching language (or "multi") when possible
-      const failedSet = new Set([
-        ...failedServersRef.current.keys(),
-        ...triedFailedRef.current,
-        id,
-      ]);
-      const isCandidate = (sid) => {
-        if (sid === id || failedSet.has(sid)) return false;
-        return SERVERS.some((s) => s.id === sid);
-      };
-
-      // STRICT same language first — a viewer who picked a French dub wants
-      // another French dub, not Megaplay's subtitles. The old single pass
-      // accepted `lang === "multi"` at the same priority, and since megaplay
-      // heads the list it always won: losing the VF chip silently switched the
-      // episode to VOSTFR.
-      const langOf = (sid) => SERVERS.find((x) => x.id === sid)?.lang;
-      const sameLang = (sid) => failedLang && langOf(sid) === failedLang;
-
-      let next = PREFERRED_FALLBACK_ORDER.find((sid) => isCandidate(sid) && sameLang(sid));
-      // …then any other server of that language (lib order = fastest first).
-      if (!next) {
-        next = SERVERS.find((s) => !failedSet.has(s.id) && s.lang === failedLang)?.id;
-      }
-      // Langue epuisee : on suit le classement de l'utilisateur (2 puis 3) avant
-      // de retomber sur les heuristiques historiques. Sans ca, perdre le dernier
-      // lecteur VF renvoyait sur megaplay (tete de liste) meme quand la personne
-      // avait classe le VOSTFR juste apres la VF.
-      if (!next && langOrderRef.current) {
-        next = pickServerForLangs(langOrderRef.current, { failed: failedSet });
-      }
-      if (!next) {
-        next = PREFERRED_FALLBACK_ORDER.find(isCandidate);
-      }
-      if (!next) {
-        next = SERVERS.find((s) => !failedSet.has(s.id))?.id;
-      }
-      return next || current;
+      return pickNextServer(id) || current;
     });
-  }, []);
+  }, [pickNextServer]);
+
+  /* Le lecteur doute : on prepare le SUIVANT pendant qu'il finit ses essais.
+     Rien n'est interrompu — si le lecteur en cours repart, ce prechauffage est
+     perdu et ce n'est pas grave ; s'il meurt, la bascule est deja prete et ne
+     coute plus l'aller-retour de resolution ni l'extraction a froid.
+     Le suivant est choisi par `pickNextServer`, le MEME que la bascule : sans
+     ca, on chaufferait un lecteur et on en ouvrirait un autre.
+     Une seule fois par (lecteur, episode) : le doute peut etre emis plusieurs
+     fois, le travail ne doit l'etre qu'une. */
+  const dejaPrechauffeRef = useRef(new Set());
+  /* La premiere image est arrivee : c'est le signal qui libere la rafale de
+     sondes (cf. l'effet des sondes de fond). Un ref, pas un state : personne
+     n'a besoin d'un rendu pour ca. */
+  const premiereImageRef = useRef(false);
+  const prewarmNext = useCallback(
+    async (from) => {
+      if (!info?.id || !epiNumber) return;
+      const next = pickNextServer(from);
+      if (!next) return;
+      const marque = `${epiNumber}:${next}`;
+      if (dejaPrechauffeRef.current.has(marque)) return;
+      dejaPrechauffeRef.current.add(marque);
+      const sub = dub ? "dub" : "sub";
+      const episode = parseInt(epiNumber);
+      // Les sondes de fond ont peut-etre deja resolu ce lecteur : on lit leur
+      // resultat avant d'en redemander un.
+      let data = getPrefetchedSource(sourceKey(info.id, episode, next, sub));
+      if (!data) {
+        data = await resolveSource(
+          {
+            aniId: info.id,
+            episode,
+            server: next,
+            sub,
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: { idMal: info?.idMal ?? null },
+          },
+          { priority: "high" },
+        );
+      }
+      if (!data) return;
+      warmClientExtract(data);
+      preconnectOrigin(
+        playbackUrl(data?.streams?.[0] || data?.sources?.[0], data?.referer),
+      );
+      /* `viaProxy` : un flux proxifie ne se lit QUE par le Worker, donc le
+         chauffer ailleurs ne sert a rien. On tire 256 Ko par le Worker, ce
+         qu'on refuse sur la page info (visiteur qui ne regardera peut-etre
+         jamais) mais qui se justifie ici : la personne regarde deja, et c'est
+         le prix d'une bascule instantanee. */
+      void warmStream(data, undefined, { viaProxy: true });
+    },
+    [info?.id, info?.idMal, info?.title, epiNumber, dub, pickNextServer],
+  );
+
+  /* L'episode SUIVANT, prepare jusqu'au flux.
+     La source etait deja resolue cinq secondes apres le demarrage, mais c'est
+     le poste le moins cher : ce qui coute, c'est l'extraction de l'embed puis
+     le manifeste (2 a 4 s). On ne pouvait pas les faire plus tot pour autant —
+     le jeton du master est lie a l'IP et a l'instant. Le bon moment est celui
+     ou le « suivant » apparait (debut de l'ED, ou la fin de l'episode) : le
+     jeton est frais au moment du saut, et surtout ca marche aussi pour
+     l'ENCHAINEMENT AUTOMATIQUE, qui ne survole jamais rien. */
+  const prepareEpisode = useCallback(
+    async (numero) => {
+      if (!info?.id || !numero) return;
+      const episode = parseInt(numero);
+      if (!Number.isFinite(episode)) return;
+      const sub = dub ? "dub" : "sub";
+      const marque = `ep:${episode}:${activeServer}`;
+      if (dejaPrechauffeRef.current.has(marque)) return;
+      dejaPrechauffeRef.current.add(marque);
+      let data = getPrefetchedSource(sourceKey(info.id, episode, activeServer, sub));
+      if (!data) {
+        data = await resolveSource(
+          {
+            aniId: info.id,
+            episode,
+            server: activeServer,
+            sub,
+            title: info?.title?.romaji || info?.title?.english,
+            mediaMeta: { idMal: info?.idMal ?? null },
+          },
+          { priority: "low" },
+        );
+      }
+      if (!data) return;
+      // Extraction navigateur (gratuite pour nous) + manifeste : le gros du
+      // demarrage, fait pendant que l'episode courant se termine.
+      warmClientExtract(data);
+      const flux = data?.streams?.[0] || data?.sources?.[0];
+      if (flux?.directUrl && /\.m3u8(\?|$)/i.test(flux.url || "")) {
+        preconnectOrigin(flux.url);
+        prechargeManifeste(flux.url);
+      }
+    },
+    [info?.id, info?.idMal, info?.title, dub, activeServer],
+  );
 
   // Load the user's saved preferred server after hydration.
   // Done in useEffect (not lazy useState) to avoid SSR/CSR mismatch.
@@ -634,6 +838,45 @@ export default function Watch({
     const pref = getAnimeServer(aniId) || getServerPref() || null;
     preferredServerRef.current = pref;
 
+    /* Ce que la page info a PROUVE mort pendant que la personne lisait la
+       fiche. Sans ca on rouvrait l'hote qu'elle venait d'ecarter, on le
+       regardait echouer, et on basculait — le trajet exact signale le
+       20/09/2026 (frembed demarre, echoue, vidmoly prend le relais). Inscrit
+       dans les deux memoires : `triedFailedRef` gouverne la bascule,
+       `failedServers` l'affichage du chip. */
+    // La liste frembed, si on ne l'a pas encore (arrivee directe). Elle arrive
+    // trop tard pour CE choix-ci, jamais pour les suivants — et elle tient dans
+    // le stockage local une demi-journee.
+    chargeFrembedCatalog();
+    // Meme chose pour le verdict de doublage : sur une serie que MyDubList ne
+    // donne pas doublee en francais, ouvrir un lecteur VF coute une dizaine de
+    // secondes d'« absent » enchaines.
+    chargeDubCatalog();
+    /* RETROGRADER, pas exclure : les lecteurs VF restent dans l'ordre, ils
+       passent seulement derriere. Les sondes de fond les atteignent donc quand
+       meme, et le chip s'allume si une VF existe malgre tout — ~2 % des cas,
+       MyDubList recensant les doublages officiels quand anime-sama heberge
+       parfois autre chose. */
+    const sansVf = vfPossible(info?.idMal) ? null : ["vf"];
+    sansVfRef.current = sansVf;
+    const recales = getPlannedFailures(aniId);
+    // Hors catalogue frembed : on ne le propose pas, ni ici ni a la bascule.
+    if (!frembedPossible(aniId)) {
+      SERVERS.filter((s) => /^frembed/.test(s.id)).forEach((s) =>
+        triedFailedRef.current.add(s.id),
+      );
+    }
+    if (recales.length) {
+      recales.forEach((id) => triedFailedRef.current.add(id));
+      setFailedServers((prev) => {
+        const next = new Map(prev);
+        for (const id of recales) {
+          if (!next.has(id)) next.set(id, "Verifie sans succes avant lecture");
+        }
+        return next;
+      });
+    }
+
     // Classement des langues. Absent = l'utilisateur n'a jamais repondu : on
     // ouvre la popup (une seule fois, elle n'a pas de sortie « sans reponse »)
     // et on ne touche a rien pour CE chargement. Eteint dans les Reglages, on
@@ -645,14 +888,39 @@ export default function Watch({
     // prioritaire sur le classement de langues : c'est un choix plus precis.
     // Sinon on demarre sur le plus rapide de la langue n°1 — la sonde corrigera
     // si cet anime ne l'offre pas (effet « filet de securite » plus bas).
-    if (!pref && langOrder) {
+    /* Un lecteur que la page info a PROUVE jouable passe avant l'aveugle : elle
+       a fait, pendant que la personne lisait la fiche, exactement le test que
+       cette page ferait en ouvrant le lecteur. Il ne passe pas avant un choix
+       EXPLICITE (epinglage), qui reste la volonte de l'utilisateur. */
+    const verifie = isPlannedVerified(aniId) ? getPlannedServer(aniId) : "";
+    /* A defaut de preuve fraiche, le souvenir : le lecteur qui a REELLEMENT
+       rendu une image pour cette serie la derniere fois (animeHostMemory).
+       Sur les series ou le mieux classe n'existe pas — frembed absent, le cas
+       le plus courant — c'est ce qui evite de rejouer la meme bascule ratee a
+       chaque ouverture. Il ne passe ni devant un choix explicite, ni devant une
+       verification faite il y a dix secondes. */
+    const souvenir = recales.includes(getAnimeHost(aniId)) ? "" : getAnimeHost(aniId);
+    if (!pref && verifie) {
+      setActiveServer(verifie);
+    } else if (!pref && souvenir) {
+      setActiveServer(souvenir);
+    } else if (!pref && langOrder) {
       // La page info a peut-etre deja mise sur un hote pour cette serie — et
       // elle a pu affiner son choix avec l'instantane de disponibilite, ce
       // qu'on ne peut pas se permettre ici (ce serait un aller-retour reseau
       // DEVANT le premier chargement). Suivre son pari aligne les deux pages :
       // la source prechauffee est alors lue telle quelle, sans rien redemander.
       // Absent (arrivee directe, lien partage), on choisit a l'aveugle.
-      const guess = getPlannedServer(aniId) || pickServerForLangs(langOrder);
+      // `failed` porte ici les lecteurs qu'on sait hors jeu : ceux que la page
+      // info a prouves morts, et frembed quand son catalogue ne contient pas
+      // cette serie. Sans ca on ouvrait le plus rapide sur le papier pour le
+      // voir echouer aussitot.
+      const guess =
+        getPlannedServer(aniId) ||
+        pickServerForLangs(langOrder, {
+          failed: triedFailedRef.current,
+          deprioriser: sansVf,
+        });
       if (guess) setActiveServer(guess);
     }
     // Select the user's server UP FRONT so it's the one loaded in priority — not
@@ -660,9 +928,36 @@ export default function Watch({
     // fetch fails and the safety-net effect below falls back to a confirmed one,
     // which is exactly the "sauf s'il n'a pas l'anime" behaviour we want. With
     // no saved preference we keep the megaplay default.
-    if (pref) {
+    // …sauf s'il vient d'etre prouve mort pour cet episode : on laisse alors le
+    // filet de securite choisir, plutot que d'ouvrir un lecteur qu'on sait KO.
+    if (pref && !recales.includes(pref)) {
       appliedPrefRef.current = true;
       setActiveServer(pref);
+    }
+
+    /* Et on retient l'ordre que la regle vient de produire, pour que le
+       PROCHAIN chargement puisse tirer /api/v2/source avant le bundle (cf.
+       lib/watch/earlyPick.ts). On rappelle `pickServerForLangs` en lui
+       interdisant ce qu'il vient de rendre : c'est la regle elle-meme qui
+       enumere, on ne la reimplemente pas.
+       Sans `failed` : cette liste vaut pour TOUTES les series, alors que les
+       echecs sont propres a celle-ci et a cet episode. Le filtre qui depend de
+       la serie — frembed hors catalogue — est applique a la relecture. */
+    /* Rien a memoriser quand la VF vient d'etre retrogradee POUR CETTE SERIE :
+       `earlyPick` est une memoire globale, relue par le script du `<head>` sur
+       n'importe quel anime. Ce script connait l'id AniList de la page, jamais
+       son `idMal` — il ne peut donc pas rejuger le doublage, et un ordre calcule
+       ici pour une serie sans VF serait rejoue tel quel sur une serie qui en a
+       une. On prefere ne rien ecrire : le chargement suivant retombe sur le
+       comportement d'avant, qui est correct, simplement moins rapide. */
+    if (langOrder && !sansVf) {
+      const ordre = [];
+      for (let i = 0; i < 4; i++) {
+        const s = pickServerForLangs(langOrder, { failed: new Set(ordre) });
+        if (!s) break;
+        ordre.push(s);
+      }
+      memoriseChoix(ordre);
     }
     setServerResolved(true);
     // Cle sur l'anime : une navigation SPA vers une AUTRE serie doit relire son
@@ -708,10 +1003,14 @@ export default function Watch({
         pickServerForLangs(langOrderRef.current, {
           confirmed: confirmedServers,
           failed: dejaRates,
+          deprioriser: sansVfRef.current,
         })) ||
-      PREFERRED_FALLBACK_ORDER.find(
-        (id) => confirmedServers.has(id) && !dejaRates.has(id),
-      ) ||
+      /* `PREFERRED_FALLBACK_ORDER` etait lu ICI alors qu'il n'existe plus
+         (retire avec la liste ecrite a la main, cf. le commentaire de
+         `pickNextServer`) : sans classement de langues, cette ligne levait une
+         ReferenceError dans un effet, donc emportait la page de lecture. Le
+         meme choix que la bascule le remplace. */
+      pickNextServer(activeServer, { apres: [...dejaRates] }) ||
       [...confirmedServers].find((id) => !dejaRates.has(id));
     /* Rien de neuf a proposer : on RESTE. Repartir sur un lecteur deja rate
        etait precisement le tourniquet — mieux vaut un lecteur arrete, dont
@@ -1056,6 +1355,7 @@ export default function Watch({
         createdAt: new Date().toISOString(),
       };
       localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+      touchHistory();
     } catch {}
   }, [info?.id, epiNumber, dub, provider, watchId]);
 
@@ -1094,6 +1394,9 @@ export default function Watch({
     // La memoire de bascule vit le temps d'UN episode : un lecteur mort sur
     // l'episode 3 doit pouvoir etre retente sur le 4.
     triedFailedRef.current = new Set();
+    // Meme portee pour le budget de reprises automatiques (cf. `reprendre`) :
+    // il borne un episode, pas une session entiere.
+    reprisesAutoRef.current = 0;
   }, [info?.id, epiNumber, dub]);
 
   /* Filet : le lecteur ne doit pas dependre des METADONNEES pour exister.
@@ -1106,12 +1409,21 @@ export default function Watch({
      L'URL porte tout ce dont le lecteur a besoin pour demarrer. On pose donc le
      minimum, et l'effet suivant l'ecrase des que la vraie liste arrive. Jamais
      par-dessus une navigation deja construite : `prev ||`. */
+  /* Et ce filet vaut AUSSI quand les metadonnees sont la : le lecteur n'a
+     besoin que du NUMERO d'episode, que porte l'URL, alors qu'il attendait
+     `/api/v2/episode/{id}` — un effet qui ne part qu'apres l'hydratation, et
+     qui scrape quand le cache d'edge manque. Mesure du 20/09/2026 : la source
+     etait resolue a 0,47 s, la liste a 0,9 s, et le lecteur n'etait monte qu'a
+     1,1 s. Sur un manque de cache, c'est plusieurs secondes de roue devant une
+     source deja prete. On pose donc le minimum TOUT DE SUITE ; l'effet suivant
+     ecrase avec la vraie liste (titre, vignette, precedent/suivant) des
+     qu'elle arrive. */
   useEffect(() => {
-    if (info || !aniId || !epiNumber) return;
+    if (!aniId || !epiNumber) return;
     setEpisodeNavigation(
       (prev) => prev || { playing: { number: Number(epiNumber) } },
     );
-  }, [info, aniId, epiNumber]);
+  }, [aniId, epiNumber]);
 
   /* Le spinner n'est pas un etat d'arrivee. Passe ce delai, on montre l'erreur
      — qui nomme le lecteur et propose d'en changer — plutot qu'une roue qui
@@ -1124,6 +1436,77 @@ export default function Watch({
     return () => clearTimeout(id);
   }, [activeServer, info?.id, aniId, epiNumber, dub, episodeNavigation, hlsLoading]);
 
+  /* ── Reprise au retour du reseau ────────────────────────────────
+     21/09/2026 — « quand on recharge une page apres longtemps, par exemple
+     apres redemarrage du PC, parfois les lecteurs ne se rechargent pas ».
+     Le reseau revient quelques SECONDES apres l'onglet. A ce moment la page a
+     deja conclu — source en erreur, ou spinner epuise — et toutes ses memoires
+     d'echec sont TERMINALES : `triedFailedRef` et `failedServers` ne se vident
+     qu'au changement d'episode (cf. l'effet plus haut). Plus rien ne bouge
+     jusqu'a un rechargement manuel, qui coute un rendu SSR complet.
+
+     Trois bornes, parce que chaque relance est une invocation de fonction :
+       — on ne relance QUE si quelque chose est casse. Une micro-coupure
+         pendant une lecture qui tourne ne doit RIEN remonter : on perdrait la
+         position de lecture, ce qui serait pire que le mal ;
+       — 5 s entre deux relances : `online` part plusieurs fois sur un meme
+         reveil, le temps que le Wi-Fi s'accroche ;
+       — 3 relances automatiques par episode, point final. Au-dela, la carte
+         d'erreur porte « Reessayer » et c'est un humain qui decide.
+     C'est un EVENEMENT, pas un timer : ni sondage, ni boucle. */
+  const [tentative, setTentative] = useState(0);
+
+  /* `episodeNavigation` est volontairement HORS de ce test : le filet plus haut
+     pose deja une navigation minimale depuis l'URL, donc il n'est jamais
+     durablement nul et le lire ici rendrait la page « en panne » a chaque
+     montage. */
+  const enPanneRef = useRef(false);
+  useEffect(() => {
+    enPanneRef.current = !!(hlsData?.error || attenteEpuisee);
+  }, [hlsData, attenteEpuisee]);
+
+  const reprendre = useCallback((force = false) => {
+    if (!force) {
+      if (!enPanneRef.current) return;
+      if (reprisesAutoRef.current >= MAX_REPRISES_AUTO) return;
+    }
+    const now = Date.now();
+    if (now - dernierEssaiRef.current < REPRISE_THROTTLE_MS) return;
+    dernierEssaiRef.current = now;
+    if (!force) reprisesAutoRef.current += 1;
+
+    setFailedServers(new Map());
+    setDegradedServers(new Set());
+    triedFailedRef.current = new Set();
+    setHlsData(null);
+    setAttenteEpuisee(false);
+    /* SANS CECI, LA REPRISE EST UN LEURRE : `fetchStreamSource` lit d'abord le
+       cache memoire des sources (TTL 5 min) et rendrait exactement la meme
+       charge utile — donc la meme URL au token mort — sans jamais toucher au
+       reseau. C'est precisement la fenetre ou la reprise sert. La fonction
+       existe deja pour ce motif, son commentaire dit « a possibly rotated
+       token » ; on s'en sert ici pour la meme raison. */
+    if (aniId) clearPrefetchedSourcesFor(aniId);
+    /* Le nonce : l'effet de resolution ne depend que de [activeServer, …], donc
+       rejouer le MEME lecteur est invisible pour lui sans ca. */
+    setTentative((n) => n + 1);
+  }, [aniId]);
+
+  useEffect(() => {
+    const surOnline = () => reprendre();
+    /* bfcache : un onglet restaure depuis le cache arriere/avant ne re-execute
+       AUCUN effet — son etat d'echec est celui d'il y a des heures. */
+    const surPageshow = (e) => {
+      if (e.persisted) reprendre();
+    };
+    window.addEventListener("online", surOnline);
+    window.addEventListener("pageshow", surPageshow);
+    return () => {
+      window.removeEventListener("online", surOnline);
+      window.removeEventListener("pageshow", surPageshow);
+    };
+  }, [reprendre]);
+
   // ── Episode list + navigation ────────────────────────────────
   useEffect(() => {
     async function getInfo() {
@@ -1135,11 +1518,25 @@ export default function Watch({
       // can build `episodeNavigation` and render without waiting on the network.
       let raw = getPrefetchedEpisodes(info.id, !!dub);
       if (!raw) {
-        raw = await fetch(
-          `/api/v2/episode/${info.id}?releasing=${
-            info.status === "RELEASING" ? "true" : "false"
-          }${dub ? "&dub=true" : ""}`
-        ).then((res) => res.json());
+        /* Ce fetch n'avait AUCUN try/catch. Une panne reseau — typiquement au
+           reveil du PC, l'onglet restaure avant que la connexion soit prete —
+           rejetait la promesse de `getInfo()` sans que personne ne l'attrape :
+           rejet non gere en console, et surtout toute la suite de l'effet, celle
+           qui pose `episodeNavigation` complet, n'etait jamais atteinte. Or
+           l'effet ne rejoue que sur [session, epiNumber, dub, info.id] : un seul
+           hoquet condamnait le titre, la vignette et precedent/suivant pour
+           toute la duree de la page. On avale donc, et le nonce `tentative` le
+           rejoue au retour du reseau (21/09/2026). */
+        try {
+          const res = await fetch(
+            `/api/v2/episode/${info.id}?releasing=${
+              info.status === "RELEASING" ? "true" : "false"
+            }${dub ? "&dub=true" : ""}`
+          );
+          raw = res.ok ? await res.json() : null;
+        } catch {
+          raw = null;
+        }
         if (Array.isArray(raw)) setPrefetchedEpisodes(info.id, !!dub, raw);
       }
 
@@ -1166,7 +1563,7 @@ export default function Watch({
           setepisodesList(episodeList);
           const epNum = parseInt(epiNumber);
           const currentEpisode  = episodeList?.find((i) => i.number === epNum)
-            || { id: `megaplay-${info.id}-${epNum}`, number: epNum };
+            || { id: `${DEFAULT_SERVER_ID}-${info.id}-${epNum}`, number: epNum };
           /* Le fournisseur liste les episodes ANNONCES d'une saison en cours :
              sur une serie hebdomadaire, "l'episode suivant" existe dans la liste
              une semaine avant d'exister tout court. AniList dit lequel est le
@@ -1237,6 +1634,7 @@ export default function Watch({
               createdAt: new Date().toISOString(),
             };
             localStorage.setItem("artplayer_settings", JSON.stringify(existing));
+            touchHistory();
           } catch {}
         }
       }
@@ -1250,7 +1648,9 @@ export default function Watch({
     // cold SSR it arrives after mount, and without it here getInfo() would bail
     // early (if (!info) return) and never re-run, leaving the player stuck.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions?.user?.name, epiNumber, dub, info?.id]);
+    // `tentative` : idem, pour que la liste d'episodes soit retentee elle aussi
+    // au retour du reseau (son fetch avale desormais les pannes, cf. plus haut).
+  }, [sessions?.user?.name, epiNumber, dub, info?.id, tentative]);
 
   // ── List sync on episode finish ──────────────────────────────
   // Hands the sync engine the full media context (total episodes, title,
@@ -1289,8 +1689,55 @@ export default function Watch({
         .catch(() => {});
       // Count today toward the watch streak (idempotent within a day).
       recordWatchToday();
+
+      /* Les faits que les stores existants ne portent pas.
+         Charge differee, comme le moteur de synchro juste au-dessus : rien de
+         tout ceci n'est utile avant qu'un episode se termine, ce qui arrive des
+         minutes apres l'ouverture de la page -- si tant est que ca arrive. */
+      import("@/lib/badges/facts")
+        .then((facts) => {
+          const host = serverToHost(activeServerRef.current);
+          if (host) facts.recordHost(host);
+          /* « Deux voix » : le meme episode vu en VO puis en VF. La trace par
+             episode vit en sessionStorage, seule la conclusion est gardee. */
+          facts.noteLang(Number(aniListId), episodeNumber, !!dub);
+          /* Un OAV rattache a une serie. Le format est celui de l'oeuvre qu'on
+             regarde, donc la question se pose ici et nulle part ailleurs. */
+          if (info?.format === "OVA" || info?.format === "SPECIAL") {
+            facts.recordFlag("oav");
+          }
+          /* Termine en Watch2Gether. */
+          if (partyRoomId) facts.recordFlag("w2g");
+          /* « Jour de diffusion ».
+             CE BADGE REPOSE SUR UNE APPROXIMATION, ET ELLE EST ASSUMEE.
+             AniList ne publie QUE la prochaine diffusion (`nextAiringEpisode`),
+             jamais la date de chaque episode passe. On en deduit celle du
+             dernier sorti en retirant une semaine -- ce qui suppose une cadence
+             hebdomadaire, vraie pour l'ecrasante majorite des series en cours et
+             fausse pour une diffusion groupee. La fenetre de 24 h autour de
+             cette date bornee est ce qui rend l'erreur inoffensive.
+             Corollaire : le badge ne peut pas etre retroactif, il ne se mesure
+             qu'a l'instant ou l'episode se termine. */
+          const next = info?.nextAiringEpisode;
+          if (next?.episode && next?.airingAt && Number(episodeNumber) === next.episode - 1) {
+            const airedAt = (next.airingAt - 7 * 86400) * 1000;
+            if (Math.abs(Date.now() - airedAt) < 86400_000) {
+              facts.bumpCounter("onAirDay");
+            }
+          }
+          /* « Jour J » : terminer un anime le jour meme de sa sortie. Meme
+             mesure que ci-dessus, restreinte au DERNIER episode -- terminer
+             l'anime, et le faire le jour ou l'episode est tombe. Un anime
+             deja termine (`nextAiringEpisode` absent) ne peut plus donner ce
+             badge, ce qui est exact : sa derniere sortie est passee. */
+          if (total && Number(episodeNumber) === total && next?.airingAt) {
+            const airedAt = (next.airingAt - 7 * 86400) * 1000;
+            if (Math.abs(Date.now() - airedAt) < 86400_000) facts.recordFlag("dayOne");
+          }
+        })
+        .catch(() => {});
     },
-    [info],
+    [info, dub, partyRoomId],
   );
 
   // Total episodes for the current anime (same derivation as above), so we can
@@ -1482,6 +1929,7 @@ export default function Watch({
     );
     if (prefetched && !signal?.aborted) {
       markSourceMs();
+      warmClientExtract(prefetched);
       setHlsData(prefetched);
       setHlsLoading(false);
       markConfirmed(serverId);
@@ -1524,7 +1972,7 @@ export default function Watch({
       //
       // One 800ms retry was not enough: seeding the player_map can outlast it,
       // so a second decoy still concluded "absent" and hid a WORKING chip for
-      // the snapshot's 6h TTL — the user-visible bug is the chip vanishing at
+      // the snapshot's TTL (18 h) — the user-visible bug is the chip vanishing at
       // the very moment you click it. Back off over a few attempts instead.
       //
       // A PROVEN absence (`hard`) skips the backoff entirely: the host answered
@@ -1565,6 +2013,7 @@ export default function Watch({
       } else if (out.kind === "ok") {
         const data = out.data;
         markSourceMs();
+        warmClientExtract(data);
         setHlsData(data);
         setPrefetchedSource(
           sourceKey(mediaId, parseInt(epiNumber), serverId, sub),
@@ -1575,7 +2024,7 @@ export default function Watch({
         if (data?.degraded) markDegraded(serverId);
       } else {
         // 5xx / transient — mark failed for the UI but do NOT publish as absent
-        // (would wrongly hide a working server in the 6h snapshot).
+        // (would wrongly hide a working server in the 18 h snapshot).
         setHlsData({ error: true });
         /* `hostDown` : l'hote refuse TOUT, pas seulement cet episode. La regle
            du 17/08 — un echec passager n'efface pas un chip confirme — vaut
@@ -1619,7 +2068,9 @@ export default function Watch({
     activeSourceSettledRef.current = false; // gate the probe fan-out again
     fetchStreamSource(activeServer, ctrl.signal);
     return () => ctrl.abort();
-  }, [activeServer, fetchStreamSource, serverResolved]);
+    // `tentative` : le nonce de la reprise sur retour de reseau. Sans lui,
+    // rejouer le MEME lecteur ne change aucune dependance et l'effet dort.
+  }, [activeServer, fetchStreamSource, serverResolved, tentative]);
 
   // ── Prefetch the NEXT episode ──────────────────────────────
   // When the user hits "Next episode", nothing is warm: the source resolves from
@@ -1689,15 +2140,12 @@ export default function Watch({
   useEffect(() => {
     if (!info?.id || !epiNumber) return;
 
-    const SERVERS = require("@/lib/servers").default;
     // Probe every API/HLS server, including the currently active one.
     // (We previously skipped activeServer to save one request, but that
     // meant if the user changed away from the default before the probe
     // completed, the original default never got marked as confirmed and
     // disappeared from the selector.)
-    const toProbe = SERVERS.filter(
-      (s) => s.type === "hls" || s.type === "api"
-    );
+    const toProbe = SERVERS.filter((s) => s.type === "hls" || s.type === "api");
 
     const controller = new AbortController();
     // On phones / Save-Data mode the previous 8-way fan-out competes with the
@@ -1731,7 +2179,7 @@ export default function Watch({
     // (POST, non-edge-cachable → ≥1 Upstash command each) consumer, and it dwarfed
     // everything the July edge-cache pass optimized. We still re-probe absents to
     // catch a recovered host, but only on a FRACTION of visits: across ~1/p visitors
-    // a recovered host is rediscovered well within the snapshot's 6h TTL, while the
+    // a recovered host is rediscovered well within the snapshot's TTL (18 h), while the
     // per-visit Upstash cost drops ~p×. See DEVLOG 2026-07-30.
     const SNAPSHOT_ABSENT_REPROBE_P = 0.2;
     let cancelled = false;
@@ -1784,13 +2232,13 @@ export default function Watch({
     // episode). Kept apart from cachedFailed, which also holds TRANSIENT
     // failures (anti-bot rejects that flip to OK next time). Only stable
     // absences are published to the availability snapshot — persisting a
-    // transient one would wrongly hide a working host for 6h (the snapshot TTL).
+    // transient one would wrongly hide a working host for 18 h (the snapshot TTL).
     const confirmedAbsent = new Set();
     // Servers the cross-visitor snapshot reported as absent. Unlike cachedFailed
     // these are NOT skipped by the probe fan-out — they get RE-PROBED in the
     // background this visit. Reason: an `absent` entry is otherwise self-
     // perpetuating — hidden at paint, skipped by the probe, then re-published as
-    // absent → frozen for the snapshot's whole 6h TTL even after the host is
+    // absent → frozen for the snapshot's whole TTL (18 h) even after the host is
     // healthy again (the megaplay / sibnet-vo "chip never comes back" bug). They
     // still stay HIDDEN at first paint (we don't markConfirmed them); the
     // background probe flips them to a green chip + re-publishes `ok` the moment
@@ -1823,6 +2271,9 @@ export default function Watch({
             sub: dub ? "dub" : "sub",
             title: info?.title?.romaji || info?.title?.english,
             malId: info?.idMal ?? null,
+            // Ce fan-out peint les chips : il paie la verification de liveness
+            // que l'ouverture du lecteur ne paie plus.
+            probe: true,
           },
           {
             signal: controller.signal,
@@ -1998,7 +2449,7 @@ export default function Watch({
           // Snapshot-absent servers stay HIDDEN at first paint (we don't paint
           // them green), but we do NOT drop them into cachedFailed — that would
           // make the probe fan-out skip them and re-publish the same absence,
-          // freezing a since-recovered host for the whole 6h TTL. Instead they
+          // freezing a since-recovered host for the whole TTL (18 h). Instead they
           // go into snapshotAbsent so they get a background re-probe this visit:
           // a host that now resolves flips its chip green and re-publishes `ok`.
           for (const id of absent) snapshotAbsent.add(id);
@@ -2030,8 +2481,21 @@ export default function Watch({
         }
       };
       await waitForActive();
-      // A short extra beat so the first segment warm (warmStream) also gets a
-      // head-start before the probe burst hits the pool.
+      /* …puis la PREMIERE IMAGE, pas seulement la source resolue.
+         Les sondes partaient 250 ms apres que /api/v2/source ait repondu,
+         c'est-a-dire en plein pendant l'extraction de l'embed et le
+         chargement du manifeste : huit requetes vers notre API disputant le
+         pool de connexions au demarrage que l'utilisateur regarde. Elles ne
+         servent qu'a peindre les chips — personne ne les attend. Plafond a
+         6 s pour qu'un flux qui ne demarre jamais ne gele pas le selecteur.
+         Effet de bord utile : le catalogue frembed (charge au repos) a le
+         temps d'arriver, donc on cesse aussi de sonder un hote dont on sait
+         deja qu'il n'a pas la serie. */
+      const plafond = Date.now() + 6000;
+      while (!premiereImageRef.current && !cancelled && Date.now() < plafond) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      if (cancelled) return;
       await new Promise((r) => setTimeout(r, PROBE_START_DELAY_MS));
       if (cancelled) return;
 
@@ -2043,9 +2507,17 @@ export default function Watch({
 
       const remaining = toProbe.filter((s) => {
         if (cachedConfirmed.has(s.id) || cachedFailed.has(s.id)) return false;
+        /* Frembed est ecarte quand son catalogue — qu'il publie, et qu'on lit
+           une fois par jour — ne contient pas cet anime : c'etaient deux
+           sondes (VF et VO) par ouverture pour une reponse connue d'avance,
+           sur l'immense majorite des series. Le test est fait ICI et non a la
+           construction de la liste : le catalogue arrive au repos, donc apres:
+           filtrer trop tot le manquait d'une poignee de millisecondes (mesure
+           du 20/09). Catalogue inconnu = on sonde comme avant. */
+        if (/^frembed/.test(s.id) && !frembedPossible(info?.id)) return false;
         // Snapshot-absent servers are re-probed only on a fraction of visits
         // (SNAPSHOT_ABSENT_REPROBE_P): a recovered host is still rediscovered
-        // within ~1/p visitors (well inside the 6h snapshot TTL), but we stop
+        // within ~1/p visitors (well inside the 18 h snapshot TTL), but we stop
         // paying a per-visit /api/v2/source POST (= an Upstash command) to
         // rediscover an absence a previous visitor already confirmed. This is
         // the dominant steady-state Upstash saving. Servers with NO snapshot
@@ -2067,6 +2539,17 @@ export default function Watch({
       const liveActive = activeServerRef.current;
       const activeIdx = remaining.findIndex((s) => s.id === liveActive);
       if (activeIdx >= 0) remaining.splice(activeIdx, 1);
+
+      /* Quand MyDubList ne connait pas de doublage francais pour cette serie,
+         les sondes VF passent en DERNIER — elles ne sont pas supprimees. Elles
+         echoueront presque toujours, mais presque n'est pas toujours : ~2 % des
+         titres portent une VF non officielle qu'anime-sama heberge quand meme,
+         et c'est ce qui allume leur chip. Les repousser ne coute rien (personne
+         n'attend une sonde) et libere le pool pour celles qui ont une chance. */
+      if (sansVfRef.current) {
+        const vf = (s) => (s.lang === "vf" ? 1 : 0);
+        remaining.sort((a, b) => vf(a) - vf(b));
+      }
 
       await runPool(remaining, MAX_CONCURRENT);
 
@@ -2167,8 +2650,20 @@ export default function Watch({
       // le catalogue et rendu le classement inerte partout ailleurs. Le serveur
       // epingle des Reglages redevient donc ce qu'il pretend etre : un choix
       // explicite, que seule la page Reglages modifie.
-      setAnimeServer(aniId, serverId);
-      notify.success(t("player.rememberedForAnime"));
+      /* …sauf pour un lecteur EXTERNE (megaplay, cf. lib/servers.js). Il
+         remplace notre lecteur par le sien, avec son habillage et ses
+         publicites : c'est un repli, pas une preference. L'epingler faisait
+         qu'un SEUL essai — y compris un essai fait juste pour verifier que
+         l'hote repond — condamnait la serie a s'ouvrir sur une interface
+         etrangere a chaque visite, alors que nos propres lecteurs la
+         servaient. On le choisit donc pour la session, et la prochaine
+         ouverture repart du classement normal. */
+      if (getServer(serverId)?.lecteurExterne) {
+        notify.message(t("player.externalForSession"));
+      } else {
+        setAnimeServer(aniId, serverId);
+        notify.success(t("player.rememberedForAnime"));
+      }
       // The URL no longer encodes the server — preference lives entirely
       // in localStorage, so shares/bookmarks don't pin a stale server id
       // and switching players doesn't dirty the browser history.
@@ -2190,21 +2685,18 @@ export default function Watch({
     const onCycle = () => {
       const { getServersByLang } = require("@/lib/servers");
       const { serverPerfRankFrozen } = require("@/lib/watch/serverPerf");
-      const { shouldShowServer, isDegraded } = require("@/lib/watch/serverVisibility");
+      const { shouldShowServer } = require("@/lib/watch/serverVisibility");
       // Meme ordre ET meme regle de visibilite que le selecteur — les deux
       // etaient recopies ici et avaient deja diverge, ce qui faisait atterrir
       // le raccourci sur un lecteur qu'aucun chip n'affichait.
       const groups = getServersByLang(serverPerfRankFrozen);
-      const visibles = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
+      /* Plus de second filtre « saute les chips en panne » : depuis le
+         30/08/2026 un lecteur en echec n'est plus affiche du tout, donc la
+         liste visible est deja la liste des lecteurs sains. Le raccourci et la
+         barre parcourent litteralement le meme ensemble. */
+      const pool = [...groups.multi, ...groups.vo, ...groups.vf].filter((s) =>
         shouldShowServer(s, activeServer, confirmedServers, failedServers),
       );
-      /* Les chips en panne restent AFFICHEES (on peut vouloir y retourner) mais
-         le raccourci les saute : il sert a trouver un lecteur qui marche, pas a
-         parcourir la liste. On n'y revient que s'il n'y a rien d'autre. */
-      const sains = visibles.filter(
-        (s) => s.id === activeServer || !isDegraded(failedServers, s.id),
-      );
-      const pool = sains.length > 1 ? sains : visibles;
       if (pool.length < 2) return; // nothing to cycle to
       const idx = pool.findIndex((s) => s.id === activeServer);
       const next = pool[(idx + 1) % pool.length];
@@ -2240,7 +2732,6 @@ export default function Watch({
       return;
     }
     if (!triedFailedRef.current.has(avant)) return;
-    const SERVERS = require("@/lib/servers").default;
     const nom = (sid) => SERVERS.find((s) => s.id === sid)?.name || sid;
     notify(t("player.autoSwitched", { from: nom(avant), to: nom(activeServer) }));
   }, [activeServer, t]);
@@ -2327,10 +2818,28 @@ export default function Watch({
      variante PLEINE DEFINITION quand elle existe, la tuile de liste gardant sa
      version legere. Sans ca on affichait une screencap ani.zip de 640 px
      agrandie deux fois — d'ou le rendu pixelise signale le 26/08/2026. */
+  /* La jaquette ferme la chaine, et ce n'est pas du luxe : c'est ce qui
+     garantit qu'il y a TOUJOURS quelque chose a poser quand la premiere frame
+     est noire ou blanche.
+     Un film ou une OVA n'a le plus souvent aucune image d'episode (il n'y a
+     qu'un episode, ni ani.zip ni TMDB n'en fabriquent une vignette), et
+     `bannerImage` est frequemment nul chez AniList sur ces formats-la. La
+     chaine tombait donc a `undefined` : le `<img class="as-poster">` ne
+     chargeait jamais, la garde `!img?.complete || !img.naturalWidth` du
+     detecteur de premiere frame renoncait, et l'ouverture restait un
+     rectangle noir nu — precisement le cas que le detecteur existe pour
+     couvrir.
+     Elle est PORTRAIT alors que le cadre est en 16/9, et c'est sans
+     consequence : `.as-poster` est en `object-fit: cover`, elle remplit en
+     recadrant. Meme repli que les cartes « repris recemment », pour la meme
+     raison. Elle reste en DERNIER : une image d'episode dit l'episode, une
+     jaquette ne dit que l'oeuvre. */
   const posterUrl =
     episodeNavigation?.playing?.imgHd ||
     episodeNavigation?.playing?.img ||
-    info?.bannerImage;
+    info?.bannerImage ||
+    info?.coverImage?.extraLarge ||
+    info?.coverImage?.large;
   /* Ce qu'on PRECHARGE, qui n'est pas tout a fait ce qu'on affiche : la
      banniere en est exclue. Au premier rendu la liste d'episodes n'est pas
      encore la, `posterUrl` retombe donc sur `info.bannerImage` et on emettait
@@ -2363,6 +2872,7 @@ export default function Watch({
             nom={server.name}
             secours={lecteurDeSecours}
             onSwitch={handleServerChange}
+            onReessayer={() => reprendre(true)}
             t={t}
           />
         );
@@ -2403,6 +2913,7 @@ export default function Watch({
             nom={server.name}
             secours={lecteurDeSecours}
             onSwitch={handleServerChange}
+            onReessayer={() => reprendre(true)}
             t={t}
           />
         );
@@ -2432,6 +2943,11 @@ export default function Watch({
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
             party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
+            onDoubt={() => prewarmNext(server.id)}
+            onPrepareNextEpisode={() => prepareEpisode(nextEp?.number)}
+            onFirstFrame={() => {
+              premiereImageRef.current = true;
+            }}
             onError={(reason) =>
               markFailed(
                 server.id,
@@ -2475,7 +2991,7 @@ export default function Watch({
     // (which changes on every chat/presence update) — otherwise the player
     // rebuilds on each message, restarting playback and breaking sync.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, t]);
+  }, [activeServer, episodeNavigation, hlsLoading, hlsData, info, epiNumber, dub, markFailed, prewarmNext, prepareEpisode, handleServerChange, autoplay, handleEpisodeComplete, isFinalEpisode, isSingleEpisode, handleFinalEpisodeNearEnd, party?.onRemote, party?.broadcast, attenteEpuisee, lecteurDeSecours, reprendre, t]);
 
   // ── Render ───────────────────────────────────────────────────
   // The Watch-Party panel. Rendered in two places: on mobile it sits in the
@@ -2514,12 +3030,23 @@ export default function Watch({
       episode={episodesList}
       track={episodeNavigation}
       dub={dub}
+      onPrepareEpisode={prepareEpisode}
       /* La duree d'un episode depend de l'ENCODAGE, donc du lecteur : la liste
          a besoin de savoir lequel est actif pour afficher la bonne
          (cf. /api/v2/runtimes). */
       server={activeServer}
     />
   );
+
+  /* Film / OVA / one-shot : il n'y a rien a lister. La colonne de droite ne
+     portait qu'une liste d'un seul element, qui redisait ce que le titre au
+     dessus du lecteur dit deja, et coutait au lecteur les 26rem que le `min()`
+     de la grille lui reserve. On la retire, et le lecteur prend toute la
+     largeur que la hauteur d'ecran autorise.
+     Le chat, lui, garde sa colonne : c'est le seul autre occupant de cette
+     place, et une partie a deux sur un film reste une partie. D'ou le test sur
+     `partyPanelBlock` plutot que sur `isSingleEpisode` seul. */
+  const soloLayout = isSingleEpisode && !(party || partyUIOpen);
 
   const partyPanelBlock = (party || partyUIOpen) && (
     partyPanelHidden ? (
@@ -2567,9 +3094,11 @@ export default function Watch({
             ~100-300 ms handshake when the actual stream/iframe request
             fires. preconnect handles all three; dns-prefetch is a fallback
             for older browsers that ignore preconnect. */}
-        <link rel="preconnect" href="https://megaplay.buzz" crossOrigin="anonymous" />
+        {/* ansembed.net : l'embed du lecteur PAR DEFAUT, que le navigateur lit
+            lui-meme (clientVidmoly) — le premier aller-retour hors de chez nous
+            sur le chemin de la premiere image. sendvid est retire. */}
+        <link rel="preconnect" href="https://ansembed.net" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://video.sibnet.ru" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://sendvid.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://vidmoly.to" crossOrigin="anonymous" />
         {/* Warm the video proxy Worker unconditionally: the env var is only a
             build-time override, and when it's unset the player still hardcodes
@@ -2577,10 +3106,11 @@ export default function Watch({
             resolved base, not gate on the env var being present. */}
         <link rel="preconnect" href={PROXY_BASE} crossOrigin="anonymous" />
         <link rel="dns-prefetch" href={PROXY_BASE} />
-        <link rel="dns-prefetch" href="https://megaplay.buzz" />
+        <link rel="dns-prefetch" href="https://ansembed.net" />
         <link rel="dns-prefetch" href="https://video.sibnet.ru" />
-        <link rel="dns-prefetch" href="https://sendvid.com" />
         <link rel="dns-prefetch" href="https://vidmoly.to" />
+        {/* hls.js ne vient plus de jsDelivr mais du bundle, precharge avec le
+            chunk du lecteur (preloadPlayerCode, en tete de ce module). */}
         {/* La vignette de l'episode, demandee des qu'on connait son adresse et
             en haute priorite. Elle est bien consommee — c'est le <img
             class="as-poster"> du lecteur, meme URL — donc pas de « preloaded
@@ -2631,7 +3161,12 @@ export default function Watch({
               pickServerForLangs(order, {
                 confirmed: confirmedServers,
                 failed: failedServers,
-              }) || pickServerForLangs(order, { failed: failedServers });
+                deprioriser: sansVfRef.current,
+              }) ||
+              pickServerForLangs(order, {
+                failed: failedServers,
+                deprioriser: sansVfRef.current,
+              });
             if (best) setActiveServer(best);
           }}
         />
@@ -2741,9 +3276,20 @@ export default function Watch({
               s'elargit pas indefiniment pour courir apres le pli. */}
           <div
             id="default"
+            /* Une seule colonne quand il n'y a ni liste ni chat a mettre a
+               droite (cf. `soloLayout`). Le `min()` perd alors sa reserve de
+               26rem — c'etait la place de la liste — et ne garde que la borne
+               qui compte vraiment : la hauteur disponible reconvertie en
+               largeur, pour que le pli tombe toujours sous la barre de
+               serveurs. Les 143px et les 1.125rem sont les memes mesures,
+               elles ne dependent pas du nombre de colonnes. */
             className={`${
               theaterMode
-                ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                ? soloLayout
+                  ? "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)]"
+                  : "lg:max-w-[95%] xl:max-w-[80%] lg:grid-cols-[minmax(0,1fr)_25rem] xl:grid-cols-[minmax(0,1fr)_33rem]"
+                : soloLayout
+                ? "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)] lg:justify-center"
                 : "lg:max-w-[calc(100%_-_2.25rem)] [--player-col:min(100%_-_26rem,(100dvh_-_143px_-_1.125rem)_*_16_/_9)] lg:grid-cols-[var(--player-col)_minmax(0,1fr)]"
             } mx-auto flex w-full flex-col lg:grid`}
           >
@@ -2803,8 +3349,12 @@ export default function Watch({
                 fiche se replie sur celle du lecteur. */}
             <div
               id="details"
+              /* `lg:col-span-2` sur une grille A UNE COLONNE (soloLayout) ne
+                 s'etendrait pas : il en CREERAIT une seconde, implicite, et la
+                 fiche irait se ranger a cote du lecteur. Une colonne, pas de
+                 span. */
               className={`mt-4 flex w-full flex-col gap-5 px-3 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:block lg:px-0 ${
-                partyOpen ? "" : "lg:col-span-2"
+                partyOpen || soloLayout ? "" : "lg:col-span-2"
               }`}
             >
               <Details
@@ -2814,7 +3364,10 @@ export default function Watch({
                 listStatus={listStatus.status}
                 listResolved={listStatus.resolved}
                 onOpenListEditor={() => handleOpen()}
-                partyOpen={partyOpen}
+                /* Confinee a la colonne du lecteur dans les DEUX cas : le chat
+                   occupe la droite, ou il n'y a pas de colonne de droite du
+                   tout (film / OVA). */
+                confined={partyOpen || soloLayout}
                 title={
                   <div className="min-w-0">
                     {/* Pas de line-clamp : le titre s'affiche EN ENTIER,
@@ -2920,6 +3473,11 @@ export default function Watch({
                 En mode cinema le lecteur est AU-DESSUS de la grille, donc la
                 rangee ne mesure plus que la barre de serveurs : sans plancher
                 la liste s'ecraserait a quelques dizaines de pixels. */}
+            {/* Rien a mettre a droite sur un film / une OVA : la colonne n'est
+                pas seulement videe, elle n'est pas MONTEE. La laisser vide
+                aurait garde son `pt-4` sur mobile et sa piste de grille au
+                dessus de lg. */}
+            {!soloLayout && (
             <div
               id="secondary"
               className={`relative lg:col-start-2 lg:row-start-1 ${
@@ -2954,6 +3512,7 @@ export default function Watch({
                 )}
               </div>
             </div>
+            )}
 
             {/* Rangee 2, colonne de droite — la liste d'episodes quand le chat
                 lui a pris sa place au-dessus. Meme montage hors-flux que la
@@ -3021,7 +3580,7 @@ export default function Watch({
 // the address but not the page ("redirigé mais la page ne se met pas à jour").
 // Mirrors the form used everywhere else in the app, with ?party preserved.
 function buildWatchUrl(aniId, ep, dub, server, roomId) {
-  const provider = server || "megaplay";
+  const provider = server || DEFAULT_SERVER_ID;
   const params = new URLSearchParams({
     id: `${provider}-${ep}`,
     num: String(ep),
@@ -3048,19 +3607,41 @@ const WATCH_BTN =
    rendaient tous deux un spinner, avant elle. Un seul exemplaire, employe aux
    deux endroits, pour qu'ils ne divergent pas.
    Sans lecteur de secours a proposer, on n'affiche pas de bouton mort. */
-function CarteIndisponible({ nom, secours, onSwitch, t }) {
+function CarteIndisponible({ nom, secours, onSwitch, onReessayer, t }) {
+  /* Hors ligne, nommer le lecteur est trompeur : ce n'est pas lui qui est
+     indisponible, c'est la connexion. `onLine === false` est le seul sens
+     fiable de ce drapeau (il peut mentir dans l'autre). */
+  const horsLigne =
+    typeof navigator !== "undefined" && navigator.onLine === false;
   return (
     <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2 rounded-card ring-1 ring-white/5">
-      <p>{t("player.serverUnavailable", { name: nom })}</p>
-      {secours && (
+      <p>
+        {horsLigne
+          ? t("player.offline")
+          : t("player.serverUnavailable", { name: nom })}
+      </p>
+      <div className="flex items-center gap-4">
+        {/* TOUJOURS la, meme sans lecteur de secours. C'etait le seul cas ou
+            cette carte devenait un cul-de-sac total : plus aucune sortie hors
+            rechargement manuel — qui coute un rendu SSR complet de la page,
+            l'operation la plus chere du lot (21/09/2026). */}
         <button
           type="button"
-          onClick={() => onSwitch(secours.id)}
+          onClick={onReessayer}
           className="text-as-accent underline text-sm"
         >
-          {t("player.switchTo", { name: secours.name })}
+          {t("common.retry")}
         </button>
-      )}
+        {secours && (
+          <button
+            type="button"
+            onClick={() => onSwitch(secours.id)}
+            className="text-as-accent underline text-sm"
+          >
+            {t("player.switchTo", { name: secours.name })}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -3068,10 +3649,41 @@ function CarteIndisponible({ nom, secours, onSwitch, t }) {
 function SpinLoader() {
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex h-full w-full items-center justify-center">
-      <Spinner.Root className="text-white animate-spin opacity-100" size={84}>
-        <Spinner.Track className="opacity-25" width={8} />
-        <Spinner.TrackFill className="opacity-75" width={8} />
-      </Spinner.Root>
+      {/* Le SVG exact de <Spinner> de vidstack (Root/Track/TrackFill, defaut
+          fillPercent 50), recopie ici : l'importer statiquement tirait tout le
+          chunk vidstack (~134 Ko) dans le chargement initial de la page, alors
+          que le lecteur qui en a besoin est un import dynamique. */}
+      <svg
+        width={84}
+        height={84}
+        fill="none"
+        viewBox="0 0 120 120"
+        aria-hidden="true"
+        data-part="root"
+        className="text-white animate-spin opacity-100"
+      >
+        <circle
+          cx="60"
+          cy="60"
+          r="54"
+          stroke="currentColor"
+          strokeWidth={8}
+          data-part="track"
+          className="opacity-25"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r="54"
+          stroke="currentColor"
+          pathLength="100"
+          strokeWidth={8}
+          strokeDasharray={100}
+          strokeDashoffset={50}
+          data-part="track-fill"
+          className="opacity-75"
+        />
+      </svg>
     </div>
   );
 }

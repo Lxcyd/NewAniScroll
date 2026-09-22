@@ -41,10 +41,6 @@ function write(items: QueueItem[]): void {
   window.dispatchEvent(new CustomEvent(QUEUE_EVENT));
 }
 
-export function getQueue(): QueueItem[] {
-  return read();
-}
-
 export function isQueued(mediaId: number): boolean {
   return read().some((e) => e.mediaId === mediaId);
 }

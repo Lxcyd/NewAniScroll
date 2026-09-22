@@ -215,6 +215,8 @@ export default function Related({ relations, currentId, seasonList }: Props) {
                   <img
                     src={coverUrl(n.coverImage, "card")!}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       position: "absolute",
                       inset: 0,

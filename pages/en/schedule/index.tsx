@@ -1,7 +1,9 @@
 // @ts-nocheck
 
 import Image from "next/image";
-import { cubicBezier, motion } from "framer-motion";
+// `m` + LazyMotion(domAnimation): only initial/whileInView are used here — see
+// the home page for why this beats `motion`.
+import { cubicBezier, m, LazyMotion, domAnimation } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarIcon } from "@heroicons/react/24/solid";
@@ -122,11 +124,19 @@ export async function getServerSideProps(ctx: any) {
     let page = 1;
     const airingSchedules = [];
 
-    while (true) {
+    // A week is 5-7 pages. The cap is a safety net, never reached in normal
+    // operation: an AniList that kept answering with non-empty pages (a bug on
+    // their side, or a paging change) would otherwise hold this SSR — and the
+    // function's CPU — in an unbounded serial loop.
+    const MAX_PAGES = 20;
+    while (page <= MAX_PAGES) {
       const json = await anilistFetch({
         query: scheduleQuery,
         variables: { weekStart, weekEnd, page },
         label: `schedule:${page}`,
+        // `new_schedule` keeps the assembled week until midnight (JST): a
+        // per-page copy behind it was 5-7 SETs per miss that nothing read.
+        cacheSuccess: false,
       });
       const schedules = json?.data?.Page?.airingSchedules;
 
@@ -164,6 +174,18 @@ export async function getServerSideProps(ctx: any) {
     // every later visit read the empty cache and rendered nothing. By skipping
     // the write when empty we let the next request retry AniList instead.
     const hasData = Object.keys(scheduleByDay).length > 0;
+    /* An empty schedule must not sit at the EDGE for an hour either. Skipping
+       the Redis write (below) protected the Redis blob but not the CDN copy,
+       and the CDN is what actually answers visitors: during the 02/09/2026
+       AniList outage an empty page was served for a full hour per edge region,
+       then re-rendered empty, indefinitely. Shortening the edge TTL is the same
+       decision as skipping the write, applied to the layer that serves. */
+    if (!hasData) {
+      ctx?.res?.setHeader?.(
+        "CDN-Cache-Control",
+        "public, s-maxage=120, stale-while-revalidate=300",
+      );
+    }
     if (redis && hasData) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
@@ -259,7 +281,7 @@ export default function Schedule({ schedule }: any) {
   }, [filterDay]);
 
   return (
-    <>
+    <LazyMotion features={domAnimation}>
       <Head>
         <title>AniScroll • Beta</title>
         <meta
@@ -301,9 +323,6 @@ export default function Schedule({ schedule }: any) {
       <MobileNav hideProfile={true} />
       <Navbar scrollP={10} toTop={true} />
       <div className="w-screen">
-        {/* <span className="absolute w-screen h-[190px] lg:h-[250px] bg-white overflow-hidden">
-          <div className="w-full h-full bg-white rounded" />
-        </span> */}
         <div className="flex flex-col mx-auto my-10 w-full mt-16 lg:mt-24 max-w-screen-2xl gap-10">
           <div className="flex flex-col lg:flex-row gap-2 justify-between px-5">
             <ul
@@ -367,7 +386,7 @@ export default function Schedule({ schedule }: any) {
                     {dayLabel(day as string)}
                   </h2>
                   {Object.entries(timeSlots).map(([time, animeList]) => (
-                    <motion.div
+                    <m.div
                       initial={{
                         y: 30,
                         opacity: 0
@@ -445,7 +464,7 @@ export default function Schedule({ schedule }: any) {
                           );
                         })}
                       </div>
-                    </motion.div>
+                    </m.div>
                   ))}
                 </div>
               ))
@@ -468,7 +487,7 @@ export default function Schedule({ schedule }: any) {
                   >
                     {dayLabel(day)}
                   </h2>
-                  <motion.div
+                  <m.div
                     initial={{
                       y: 30,
                       opacity: 0
@@ -513,7 +532,6 @@ export default function Schedule({ schedule }: any) {
                               : "" // Add a class for currently airing anime
                           }`}
                         >
-                          {/* <p className={``}> */}
                           <p className="absolute flex top-0 right-0 -mt-1 -mr-1 justify-center items-center">
                             <span
                               className={`relative flex justify-center h-3 w-3 tooltip-container ${
@@ -554,7 +572,7 @@ export default function Schedule({ schedule }: any) {
                         </Link>
                       );
                     })}
-                  </motion.div>
+                  </m.div>
                 </div>
               )
             )
@@ -565,6 +583,6 @@ export default function Schedule({ schedule }: any) {
           )}
         </div>
       </div>
-    </>
+    </LazyMotion>
   );
 }

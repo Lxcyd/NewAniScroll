@@ -28,7 +28,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const results = await searchAnime(q, limit);
-    res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+    /* Search queries repeat heavily BETWEEN visitors — people look up the same
+       few hundred titles — and nothing in this response is personal, so it
+       belongs at the edge. `s-maxage` raised 60s → 5 min with an hour of
+       stale-while-revalidate: the catalogue only changes when the daily cron
+       ingests, so a five-minute window costs nothing in freshness and absorbs
+       the per-keystroke traffic that otherwise lands on Turso. */
+    res.setHeader("Cache-Control", "public, max-age=60");
+    // 1 h at the edge (was 5 min): the rows come from Turso, which the daily
+    // ingest updates once a day, and SWR serves the old copy while refreshing.
+    res.setHeader(
+      "CDN-Cache-Control",
+      "public, s-maxage=3600, stale-while-revalidate=86400",
+    );
     return res.status(200).json({
       results,
       total: results.length,
@@ -36,6 +48,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (e: any) {
     console.error("[/api/v2/search] error:", e?.message);
+    // Short edge TTL even on failure: without a CDN header this 500 re-invokes
+    // the function for every keystroke of every visitor while the DB is unwell.
+    res.setHeader("CDN-Cache-Control", "public, s-maxage=30");
     return res.status(500).json({ error: "Search failed", details: e?.message });
   }
 }

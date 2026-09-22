@@ -33,8 +33,9 @@ import {
    l'ascenseur `.customScroll` de cette meme feuille. */
 import v2Styles from "@/components/anime/v2/styles.module.css";
 import { seasonSubtitle } from "@/components/anime/v2/helpers";
-import { animeHref } from "@/lib/prefs/clickTarget";
+import { animeHref, watchHref } from "@/lib/prefs/clickTarget";
 import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
+import ViewModeIcon from "@/components/shared/ViewModeIcon";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -48,6 +49,10 @@ type EpisodeListsProps = {
    *  meme episode ne dure pas la meme chose chez deux hotes. Absent = on
    *  retombe sur les sources qui ignorent le lecteur (AniSkip, AniList). */
   server?: string | null;
+  /** Survol d'une ligne : la page prepare le flux de cet episode (extraction +
+   *  manifeste) pour que le clic soit immediat. Optionnel — la liste sert aussi
+   *  ailleurs que sur la page de lecture. */
+  onPrepareEpisode?: (episode: number) => void;
 };
 
 type SeasonRow = {
@@ -296,43 +301,6 @@ export function nextView(current: View): View {
   return VIEWS[(VIEWS.indexOf(current) + 1) % VIEWS.length];
 }
 
-function ViewIcon({ view }: { view: View }) {
-  const common = {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-  } as const;
-  if (view === "detailed") {
-    // Picture glyph — this is the mode that shows the thumbnails.
-    return (
-      <svg {...common}>
-        <rect x="3" y="4" width="18" height="16" rx="2" />
-        <circle cx="8.5" cy="9.5" r="1.5" fill="currentColor" stroke="none" />
-        <path d="m4 18 5-5 4 4 3-3 4 4" />
-      </svg>
-    );
-  }
-  if (view === "compact") {
-    return (
-      <svg {...common}>
-        <line x1="4" y1="6" x2="20" y2="6" />
-        <line x1="4" y1="12" x2="20" y2="12" />
-        <line x1="4" y1="18" x2="20" y2="18" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
 
 /**
  * "23:40" — la lecture minutes:secondes du lecteur. Elle se passe d'unite
@@ -655,7 +623,18 @@ export default function EpisodeLists({
   track,
   dub,
   server,
+  onPrepareEpisode,
 }: EpisodeListsProps) {
+  const onEpisodeHover = useCallback(
+    (e: React.MouseEvent) => {
+      if (!onPrepareEpisode) return;
+      const lien = (e.target as HTMLElement)?.closest?.("a[href*='num=']");
+      const href = lien?.getAttribute("href");
+      const n = href ? Number(new URLSearchParams(href.split("?")[1] || "").get("num")) : NaN;
+      if (Number.isFinite(n) && n > 0) onPrepareEpisode(n);
+    },
+    [onPrepareEpisode],
+  );
   // Watched-episode count for the "seen" bar. Source of truth must match the
   // rest of the app: the LOCAL list when sync is off / guest (the editor and
   // Hero read it there), and only fall back to AniList's mediaListEntry when
@@ -1294,9 +1273,7 @@ export default function EpisodeLists({
                              partout ailleurs sur le site (Hero, accueil,
                              decouverte). */
                           router.push(
-                            `/en/anime/watch/${s.id}/megaplay?id=megaplay-${s.id}-1&num=1${
-                              dub ? `&dub=${dub}` : ""
-                            }`,
+                            watchHref(s.id) + (dub ? `&dub=${dub}` : ""),
                           );
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-white/[0.05]"
@@ -1444,7 +1421,7 @@ export default function EpisodeLists({
             aria-label={`${t(VIEW_LABELS[view])} · ${t("anime.changeView")}`}
             className="bg-white/[0.04] text-[#f4f5f8] transition-colors hover:bg-white/[0.08] grid h-[26px] w-[28px] shrink-0 place-items-center rounded-lg"
           >
-            <ViewIcon view={view} />
+            <ViewModeIcon view={view} />
           </button>
         </div>
 
@@ -1457,6 +1434,12 @@ export default function EpisodeLists({
           ref={listRef}
           onScroll={onListScroll}
           onPointerDown={onListPointerDown}
+          /* Survol d'un episode = intention d'y aller. On prepare son flux
+             (extraction + manifeste) sans attendre le clic. Un seul
+             gestionnaire, par delegation, plutot qu'un par ligne dans chacune
+             des trois vues — et la page se charge de ne rien refaire deux
+             fois. */
+          onMouseOver={onEpisodeHover}
           /* Repere pour les lignes : c'est ce cadre, et non la fenetre, qui
              sert de reference aux observateurs qui prennent de l'avance. */
           data-eplist=""

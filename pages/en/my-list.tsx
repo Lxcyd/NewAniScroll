@@ -2,6 +2,7 @@ import Head from "next/head";
 import Link from "next/link";
 import Image from "next/image";
 import { useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import { useTranslation } from "react-i18next";
@@ -13,11 +14,16 @@ import { useStreak } from "@/lib/stats/streak";
 import QueueSection from "@/components/list/QueueSection";
 
 /**
- * Local "My List" — the full list experience for users who aren't signed in to
- * AniList. Reads the localStorage-backed list (lib/list/localList.ts) live and
- * groups it by status, mirroring the AniList profile page's grouped table. All
- * client-side; the list is built by the sync engine on episode finish and by
- * the import/export tools in Settings.
+ * Local "My List" — the localStorage-backed list (lib/list/localList.ts), read
+ * live and grouped by status. All client-side; the list is built by the sync
+ * engine on episode finish and by the import/export tools in Settings.
+ *
+ * Signed OUT, this is also the visitor's own page, and it wears the full
+ * profile shell (components/profile/LocalProfile.tsx): the same hero, the same
+ * favourite-anime plate, the same stats as someone with an account. Not being
+ * signed in changes where the list comes from, not what the page is worth.
+ * Signed in, the account already has a real profile at its own URL, so this
+ * stays the plain list it has always been.
  */
 
 const STATUS_ORDER = [
@@ -29,7 +35,8 @@ const STATUS_ORDER = [
   "DROPPED",
 ] as const;
 
-export default function MyListLocal() {
+export default function MyList() {
+  const { data: session }: { data: any } = useSession();
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const entries = useLocalList();
@@ -55,12 +62,19 @@ export default function MyListLocal() {
   return (
     <>
       <Head>
-        <title>{t("nav.myList")} • AniScroll</title>
+        {/* Une seule expression : deux enfants texte se retrouvent séparés par
+            un `<!-- -->` visible dans l'onglet (cf. pages/en/profile/[user]). */}
+        <title>{`${t("nav.myList")} • AniScroll`}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
 
+      {/* Sur `dev`, un visiteur deconnecte voit ici la coquille de profil
+          (`components/profile/LocalProfile`). Le socle n'emporte pas le profil :
+          tout le monde voit la liste, comme en prod aujourd'hui. */}
+      {(
+      <>
       <div className="as-fade-in min-h-screen w-full max-w-screen-lg mx-auto px-4 pt-28 pb-16">
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
@@ -187,6 +201,8 @@ export default function MyListLocal() {
         )}
       </div>
       <Footer />
+      </>
+      )}
     </>
   );
 }

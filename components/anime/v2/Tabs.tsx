@@ -1,10 +1,7 @@
 import { CSSProperties, useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import Overview from "./Overview";
-import Episodes from "./Episodes";
-import CharactersTab from "./CharactersTab";
-import Artworks from "./Artworks";
-import ScoresTab from "./ScoresTab";
+import { Episodes, CharactersTab, Artworks, ScoresTab, preloadTabBodies } from "./lazyTabs";
 import type { FanartsMeta } from "./helpers";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
@@ -44,6 +41,10 @@ export default function Tabs({ info, fanartsMeta, progress, seasonList, bonusFil
   const [episodeCount, setEpisodeCount] = useState<number | null>(null);
   // Reset when navigating to another anime (client-side nav keeps this mounted).
   useEffect(() => setEpisodeCount(null), [info.id]);
+
+  // Les corps d'onglets sont dans leurs propres chunks (lazyTabs) : les tirer au
+  // repos pour qu'ils soient deja la au clic.
+  useEffect(() => preloadTabBodies(), []);
 
   // Restore tab from hash on mount + on hashchange AND popstate (back/forward).
   // hashchange fires when the hash itself changes, but a back/forward that lands

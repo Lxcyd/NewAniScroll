@@ -50,6 +50,15 @@ export type SourceParams = {
   title?: string | null;
   /** The only field the route ever read out of the old `mediaMeta` blob. */
   malId?: number | string | null;
+  /**
+   * « Cette requete sert a peindre un chip, pas a ouvrir un lecteur. »
+   *
+   * N'A PLUS AUCUN EFFET SUR LE RESEAU depuis le 22/09/2026 : ni la route (qui
+   * a cesse de lire `input.probe`) ni l'URL (cf. `sourceRequestUrl`) ne le
+   * distinguent. Garde parce qu'il dit l'intention du site d'appel, et parce
+   * que le retirer ne changerait pas une requete.
+   */
+  probe?: boolean;
 };
 
 export function sourceRequestUrl(params: SourceParams): string {
@@ -69,6 +78,19 @@ export function sourceRequestUrl(params: SourceParams): string {
     episode: String(params.episode),
     sub: params.sub,
   });
+  /* `probe` n'entre PLUS dans l'URL (22/09/2026, deuxieme passe). Il separait
+     deux entrees de cache d'edge — les sondes d'un cote, les ouvertures de
+     lecteur de l'autre — et cette separation se defendait tant que la route
+     repondait differemment aux deux. Elle ne le fait plus : le handler a cesse
+     de lire `input.probe` le matin meme (la verification de liveness a
+     l'ouverture servait un embed mort en iframe, pub comprise). Restait donc
+     une cle de cache dedoublee pour des reponses IDENTIQUES : un chip sonde
+     par un visiteur ne servait pas le clic du suivant, qui repayait une
+     invocation de fonction. Or `/api/v2/source` est le premier poste de Fluid
+     CPU du site (mesure du 22/09 : la moitie du CPU a lui seul). Cote Redis la
+     cle etait deja commune (cf. `sourceCacheKey`) — c'est le bord qui ne
+     l'etait pas. Le champ reste accepte par le type : il dit encore a l'appelant
+     ce qu'il fait, et le supprimer partout ne change rien au reseau. */
   return `/api/v2/source?${q.toString()}`;
 }
 

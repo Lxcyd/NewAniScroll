@@ -2,6 +2,8 @@ import { CSSProperties, useEffect, useState } from "react";
 import { collectArtworks } from "./helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
+import { useWallhaven } from "@/lib/hooks/useWallhaven";
+import { byQuality } from "@/lib/images/artQuality";
 import styles from "./styles.module.css";
 import { useTranslation } from "react-i18next";
 import { useFanartProxyDown, resolveFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
@@ -27,6 +29,7 @@ const TYPE_LABEL: Record<string, string> = {
   clearart: "Clear Art",
   character: "Character Art",
   disc: "Disc",
+  wallpaper: "Wallpaper",
 };
 
 /* Merge the two providers into one gallery, keeping a single copy of anything
@@ -69,9 +72,39 @@ export default function Artworks({
      cost an upstream call, so the gallery paints the first without waiting on
      the second. See lib/hooks/useTmdbArtworks.ts. */
   const { tmdbArts } = useTmdbArtworks(animeId);
+  /* Wallhaven en DERNIER, et c'est délibéré. Ses images sont trouvées par
+     recherche texte, pas par identifiant : elles sont donc les seules des trois
+     qui puissent appartenir à un autre anime. Elles viennent après les visuels
+     officiels, sous un type à elles — que le filtre par type de la barre
+     transforme gratuitement en « ne me montre que les fonds d'écran », ou en
+     l'inverse. */
+  const {
+    wallpapers,
+    hasMore: wallHasMore,
+    loading: wallLoading,
+    loadMore: loadMoreWall,
+    facettes,
+    facette,
+    setFacette,
+  } = useWallhaven(animeId);
   const typeLabel = (type: string) =>
     TYPE_LABEL[type] ? t(`anime.artType.${type}`) : type;
-  const arts = mergeArtworks<any>(collectArtworks(fanarts), tmdbArts);
+  /* PUIS CLASSÉES PAR RÉSOLUTION. L'ordre de fusion ci-dessus ne décide plus
+     que du dédoublonnage — qui garde quelle copie d'une image présente deux
+     fois — et non plus de ce qu'on voit en premier.
+
+     C'est un renversement assumé : la galerie menait avec fanart.tv classé par
+     votes, ce qui revenait à classer par PROVENANCE, puisque les trois sources
+     ne comptent pas la même chose sous le nom de « likes ». Le nombre de
+     pixels, lui, veut dire la même chose partout. Les votes restent, en
+     départage. Voir lib/images/artQuality.ts.
+
+     La barre de filtres par type reste le moyen de revenir aux visuels
+     officiels d'un clic. */
+  const arts = mergeArtworks<any>(
+    mergeArtworks<any>(collectArtworks(fanarts), tmdbArts),
+    wallpapers,
+  ).sort(byQuality);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>("all");
   // false on SSR + first client render (markup matches), true after mount
@@ -223,6 +256,39 @@ export default function Artworks({
         </div>
       )}
 
+      {/* Sous-filtre des fonds d'écran, par NATURE de l'image.
+
+          Il n'apparaît que quand l'utilisateur a déjà restreint aux fonds
+          d'écran : ce sont les seules images qui portent des facettes — elles
+          viennent des tags Wallhaven, et ni fanart.tv ni TMDB n'ont de
+          vocabulaire. L'afficher sur « toutes » laisserait croire qu'il filtre
+          aussi les visuels officiels.
+
+          Un bouton n'est proposé que s'il mène quelque part : un « Captures »
+          vide est un bouton qui ment. Les décomptes portent sur le titre
+          entier, pas sur la page affichée. */}
+      {selectedType === "wallpaper" && facettes.tout > 0 && (
+        <div style={aStyles.filterBar}>
+          {(["tout", "illustration", "capture", "personnage", "paysage"] as const)
+            .filter((f) => f === "tout" || facettes[f] > 0)
+            .map((f) => (
+              <button
+                key={f}
+                onClick={() => setFacette(f)}
+                style={{
+                  ...aStyles.filterChip,
+                  ...(facette === f ? aStyles.filterChipActive : null),
+                }}
+              >
+                {t(`anime.artFacet.${f}`)}
+                <span style={{ opacity: 0.55, marginLeft: 6, fontSize: 11 }}>
+                  {facettes[f]}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
+
       {/* CSS column masonry: each image keeps its natural aspect ratio
           (width:100%; height:auto), and the browser packs them into
           balanced columns top-to-bottom, then left-to-right.
@@ -274,6 +340,24 @@ export default function Artworks({
           </button>
         ))}
       </div>
+
+      {/* DÉROULER WALLHAVEN. Seule des trois sources à ne pas tenir en une
+          réponse — 1 445 images pour One Piece — donc seule à avoir un bouton.
+          Il n'apparaît que quand ses images sont à l'écran : sous « Tout » (où
+          elles sont mêlées aux autres) et sous son propre filtre, jamais sous
+          « Affiche » ou « Logo », où charger des fonds d'écran ne montrerait
+          rien de nouveau. */}
+      {wallHasMore && (selectedType === "all" || selectedType === "wallpaper") && (
+        <div style={aStyles.moreRow}>
+          <button
+            onClick={loadMoreWall}
+            disabled={wallLoading}
+            style={{ ...aStyles.moreBtn, opacity: wallLoading ? 0.5 : 1 }}
+          >
+            {wallLoading ? t("anime.artLoading") : t("anime.artMore")}
+          </button>
+        </div>
+      )}
 
       {lightbox && (
         <div
@@ -329,6 +413,21 @@ const aStyles: Record<string, CSSProperties> = {
     background: "var(--accent-soft)",
     color: "var(--accent)",
     borderColor: "color-mix(in srgb, var(--accent) 30%, transparent)",
+  },
+  moreRow: {
+    display: "flex",
+    justifyContent: "center",
+    marginTop: 16,
+  },
+  moreBtn: {
+    padding: "10px 20px",
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--txt-1)",
+    background: "var(--bg-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 8,
+    cursor: "pointer",
   },
   card: {
     /* `break-inside: avoid` keeps a card from being split across

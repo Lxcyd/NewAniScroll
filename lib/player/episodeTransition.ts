@@ -61,10 +61,6 @@ export function registerTransitionHost(el: HTMLElement | null): void {
   hostEl = el;
 }
 
-export function isEpisodeTransitionPending(): boolean {
-  return pending;
-}
-
 /**
  * Raise the loading host over the fullscreen player. No-op when we're not in
  * the player's fullscreen mode — a windowed navigation already shows the site's

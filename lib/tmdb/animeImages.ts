@@ -231,20 +231,3 @@ export async function getTmdbAnimeImages(
   return { backdrop, logo };
 }
 
-/**
- * Batch helper for list pages (the homepage hero resolves eight at once).
- *
- * Plain `Promise.all` on purpose, no concurrency limiter: TMDB's soft ceiling
- * is ~50 req/s per IP and warm rows don't reach the network at all, so eight
- * parallel calls are never the constraint. Individual failures are already
- * absorbed inside `getTmdbAnimeImages`, so this cannot reject.
- */
-export async function getTmdbAnimeImagesMany(
-  anilistIds: number[],
-): Promise<Map<number, TmdbAnimeImages>> {
-  const unique = Array.from(new Set(anilistIds.filter((id) => Number.isFinite(id))));
-  const out = new Map<number, TmdbAnimeImages>();
-  const results = await Promise.all(unique.map((id) => getTmdbAnimeImages(id)));
-  unique.forEach((id, i) => out.set(id, results[i] ?? EMPTY));
-  return out;
-}

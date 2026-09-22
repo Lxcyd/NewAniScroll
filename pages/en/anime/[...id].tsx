@@ -1,7 +1,15 @@
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
-import { resolveSource, warmStream, clearPrefetchedSourcesFor, setPlannedServer } from "@/lib/watch/sourcePrefetch";
+import {
+  warmChain,
+  clearPrefetchedSourcesFor,
+  setPlannedServer,
+  setVerifiedServer,
+  markPlannedFailed,
+} from "@/lib/watch/sourcePrefetch";
+import { preloadPlayerCode } from "@/lib/watch/playerCode";
+import { warmVidmolyClient } from "@/lib/clientVidmoly";
 import { prefetchSkips } from "@/lib/skip/prefetchSkips";
 import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
@@ -24,8 +32,12 @@ import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
 import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
 import { getAnimeServer } from "@/lib/prefs/animeServerPref";
+import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { chargeFrembedCatalog, sansFrembed } from "@/lib/watch/frembedCatalog";
+import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
 import { getCachedAnime } from "@/lib/db/anime";
 import { loadFanarts } from "@/lib/db/fanarts";
+import { getMalMeta, type MalMeta } from "@/lib/jikan/animeMeta";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
 import { notify } from "@/lib/notifications/noticeStore";
@@ -41,6 +53,8 @@ import { resolveHeroBanner } from "@/lib/images/heroBanner";
 
 import type { FanartsMeta } from "@/components/anime/v2/helpers";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
+import { DEFAULT_SERVER_ID, getServersByLang } from "@/lib/servers";
+import { serverPerfRank } from "@/lib/watch/serverPerf";
 
 // Behind `open`, which starts false — the editor is a dialog the visitor has to
 // ask for. Deferring it keeps its AniList mutations and its whole form out of
@@ -97,7 +111,21 @@ type InfoTypes = {
 //      required for the switcher to work.
 // v5: flush any partial/legacy SSR blobs (missing coverImage/title) that
 // crashed Hero with FUNCTION_INVOCATION_FAILED on the back-button path.
-const CACHE_VERSION = "v5";
+// v6: evicts the blobs written from the Turso fallback during the 02/09/2026
+// AniList outage. They were stored with the FULL 30-day TTL (see cacheTime
+// below), so ~5 300 pages would otherwise have served outage-era metadata for
+// up to a month after the service came back — long past anything a counter
+// would have shown.
+const CACHE_VERSION = "v6";
+
+/**
+ * L'anime le plus ancien qu'AniList connaisse : Katsudou Shashin, 1907.
+ *
+ * Verifie contre l'API le 16/09/2026 (`sort: START_DATE`, dates nulles
+ * ecartees). C'est le plus vieux film d'animation japonais connu : la liste
+ * n'aura pas de nouveau premier, sauf decouverte d'archive.
+ */
+const OLDEST_ANIME_ID = 101429;
 
 export default function Info({
   info,
@@ -138,6 +166,28 @@ export default function Info({
   const [statusResolved, setStatusResolved] = useState<boolean>(!session);
 
   const [open, setOpen] = useState(false);
+
+  /* Deux badges se jouent a l'ouverture d'une fiche.
+
+     « Curieux » compte des fiches DISTINCTES : recharger dix fois la meme page
+     ne doit rien donner, d'ou `bumpDistinct` et non `bumpCounter`.
+
+     « Le tout premier » demande l'anime le plus ancien du catalogue. Notre
+     table `anime` ne pouvait pas repondre : c'est un cache a TTL, son plus
+     ancien change au fil des fetches et des expirations. Le catalogue du site,
+     c'est AniList — et la, la reponse est stable et definitive : Katsudou
+     Shashin (1907), le plus vieux film d'animation japonais connu. Une
+     constante, donc, et pas une requete. */
+  useEffect(() => {
+    const id = Number(info?.id);
+    if (!Number.isFinite(id)) return;
+    import("@/lib/badges/facts")
+      .then((f) => {
+        f.bumpDistinct("animeOpened", id);
+        if (id === OLDEST_ANIME_ID) f.recordFlag("oldest");
+      })
+      .catch(() => {});
+  }, [info?.id]);
 
   useEffect(() => {
     if (chapterNotFound) {
@@ -325,7 +375,11 @@ export default function Info({
     if (!info?.id) return;
     if (!resumeKnown) return;
     const resumeEp = Math.max(1, (progress || 0) + 1);
-    const server = "megaplay";
+    /* Le lecteur qu'on PRECHAUFFE doit etre celui que la page de lecture va
+       reellement ouvrir : « megaplay » etait ecrit ici, et depuis son retrait
+       (lib/servers.js) c'etait un scrape jete a chaque visite de la page la
+       plus vue du site, sur un hote qui ne rend plus de source. */
+    const server = DEFAULT_SERVER_ID;
     const watchHref = `/en/anime/watch/${info.id}/${server}?id=${server}-${info.id}-${resumeEp}&num=${resumeEp}`;
 
     const releasing = info.status === "RELEASING";
@@ -354,7 +408,13 @@ export default function Info({
       try {
         router.prefetch(watchHref);
       } catch {}
-      void import("@/components/watch/primary/UniversalPlayer").catch(() => {});
+      // Le chunk du lecteur ET hls.js, qui ne vient plus de jsDelivr. Pas sur
+      // une connexion économe ou en 2G : ~280 Ko gz que la page de lecture
+      // chargera de toute façon si l'on clique « Regarder ».
+      const conn = (navigator as any).connection;
+      if (!conn?.saveData && !/2g/.test(conn?.effectiveType || "")) {
+        preloadPlayerCode();
+      }
 
       // Episode list — the request the player waits on. Writes to the shared
       // cache the watch page reads first, and primes the browser HTTP cache.
@@ -368,13 +428,6 @@ export default function Info({
         relations: info.relations,
       };
       const titleStr = info?.title?.romaji || info?.title?.english || undefined;
-      const warmServer = (srv: string, priority: "high" | "low") =>
-        resolveSource(
-          { aniId: info.id, episode: resumeEp, server: srv, sub: "sub", title: titleStr, mediaMeta },
-          { priority: priority as any, signal: ac.signal },
-        ).then((data) => {
-          if (!cancelled && data) warmStream(data, ac.signal);
-        });
 
       // On prechauffe LE serveur que la page de lecture va reellement ouvrir,
       // et lui seul.
@@ -389,41 +442,136 @@ export default function Info({
       // Meme resolution que la page de lecture, dans le meme ordre (exception de
       // la serie -> serveur epingle -> ordre des langues -> megaplay), plus un
       // raffinement qu'elle ne peut pas s'offrir : l'instantane de disponibilite
-      // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit quels hotes
-      // ont reellement repondu pour cet episode. Sans lui, un utilisateur qui
-      // classe la VF en n°1 ferait prechauffer un hote VF sur une serie qui n'en
-      // a pas — le pire des deux mondes. Avec, on choisit le meilleur hote de la
-      // langue n°1 PARMI ceux qui marchent.
-      const resolveWatchServer = async (): Promise<string> => {
+      // (`/api/v2/availability`, un GET mis en cache CDN 10 min) dit ce qui a
+      // reellement repondu pour cet episode.
+      /* Ce commentaire creditait l'instantane d'une garantie qu'il ne rendait
+         pas : « sans lui, un utilisateur qui classe la VF en n°1 ferait
+         prechauffer un hote VF sur une serie qui n'en a pas ». Ce cas-la est
+         tenu par `deprioriser: sansVf` (MyDubList, via `vfPossible`), qui ne
+         depend pas de l'instantane — il tenait donc deja sans lui. Corrige le
+         22/09/2026 en meme temps que la liste blanche ci-dessous, pour ne pas
+         laisser une raison morte justifier le code qui la remplace. */
+      /* On en lit `absent`, PAS `ok` (22/09/2026).
+         L'instantane servait de liste blanche : le candidat n°1 etait le
+         meilleur hote PARMI ceux qu'il confirmait. Or il ne contient que ce
+         qu'un visiteur precedent a eu le temps de sonder — c'est un « ceux-ci
+         marchent », jamais un « les autres, non ». Sur un episode dont
+         l'instantane ne connaissait qu'un hote lent, on l'elisait donc n°1
+         devant des hotes mieux classes que PERSONNE n'avait essayes ; et comme
+         `warmChain` s'arrete au premier succes et que la page de lecture
+         ouvre d'emblee un candidat `verifie`, rien ne rattrapait ensuite.
+         Constate sur One Piece ep. 1 : ouverture sur Sibnet (rang 4) alors que
+         Frembed (rang 1) et Ansembed (rang 2) servent la serie — ils
+         n'apparaissaient qu'apres le fan-out de sondes de la page de lecture.
+         `absent` est l'autre moitie de l'instantane et porte, elle, un vrai
+         verdict d'absence : l'ecarter des candidats garde le benefice voulu
+         (ne pas prechauffer un hote qui n'a pas l'episode) sans laisser une
+         connaissance partielle gouverner le classement. */
+      /* Non plus UN serveur, mais l'ORDRE dans lequel on les essaierait. Le
+         prechauffage ne descendait pas cette liste : quand le premier ne
+         repondait pas, plus personne ne prenait le relais et la page de
+         lecture repartait a froid. `warmChain` ne lance le suivant que sur une
+         mort ou un doute, donc le cas normal coute toujours UNE resolution. */
+      const resolveWatchCandidates = async (): Promise<string[]> => {
         const pinned = getAnimeServer(info.id) || getServerPref();
-        if (pinned) return pinned;
         const order = getEffectiveLangOrder();
-        if (!order) return server;
-        try {
-          const r = await fetch(
-            `/api/v2/availability?aniId=${info.id}&episode=${resumeEp}&sub=sub`,
-            { signal: ac.signal },
-          );
-          if (r.ok) {
-            const { servers } = await r.json();
-            if (Array.isArray(servers) && servers.length) {
-              const best = pickServerForLangs(order, { confirmed: new Set(servers) });
-              if (best) return best;
+        /* Les hotes que l'instantane a prouves SANS source pour cet episode.
+           Vide sur un instantane ancien (forme historique : un simple tableau
+           de confirmes, donc `absent` absent) — on retombe alors sur le choix
+           a l'aveugle, qui est correct, simplement moins econome. */
+        const morts = new Set<string>();
+        if (order) {
+          try {
+            const r = await fetch(
+              `/api/v2/availability?aniId=${info.id}&episode=${resumeEp}&sub=sub`,
+              { signal: ac.signal },
+            );
+            if (r.ok) {
+              const { absent } = await r.json();
+              if (Array.isArray(absent)) for (const id of absent) morts.add(id);
             }
+          } catch {
+            /* hors ligne / annule — on retombe sur le choix a l'aveugle */
           }
-        } catch {
-          /* hors ligne / annule — on retombe sur le choix a l'aveugle */
         }
-        return pickServerForLangs(order) || server;
+        const liste: string[] = [];
+        const ajoute = (id?: string | null) => {
+          if (id && !liste.includes(id)) liste.push(id);
+        };
+        // 1. L'exception memorisee pour cette serie, ou le lecteur epingle…
+        ajoute(pinned);
+        // …puis celui qui a REELLEMENT joue cette serie la derniere fois. Le
+        // prechauffer d'abord, c'est commencer par la reponse qu'on connait
+        // deja au lieu de reparcourir un classement theorique.
+        ajoute(getAnimeHost(info.id));
+        // 2. Le classement de langues, epuise par appels successifs : chaque
+        //    choix rejoint `failed` pour que le suivant en sorte un autre.
+        /* Meme verdict que la page de lecture : sur une serie que MyDubList ne
+           donne pas doublee en francais, prechauffer un lecteur VF c'est payer
+           une resolution pour s'entendre dire non. On les renvoie en fin
+           d'ordre sans les retirer — la liste est tronquee a 3, donc ils n'y
+           figureront pas, mais ils restent atteignables par les sondes de la
+           page de lecture. */
+        const sansVf = vfPossible(info.idMal) ? null : (["vf"] as const);
+        if (order) {
+          for (let i = 0; i < 3; i++) {
+            /* Un seul appel, la ou il y en avait deux : le second n'etait qu'un
+               repli pour la liste blanche epuisee, et il n'y a plus de liste
+               blanche. Les morts rejoignent `failed`, comme les deja-choisis. */
+            const pick = pickServerForLangs(order, {
+              failed: new Set([...liste, ...morts]),
+              deprioriser: sansVf ? [...sansVf] : null,
+            });
+            if (!pick) break;
+            ajoute(pick);
+          }
+        }
+        // 3. Sans classement : le defaut, puis les plus rapides mesures.
+        ajoute(server);
+        const groups = getServersByLang(serverPerfRank);
+        for (const s of [...groups.multi, ...groups.vo, ...groups.vf]) ajoute(s.id);
+        /* Frembed est classe premier (CDN direct, ~100 ms) mais son catalogue
+           ne compte que quelques centaines de fiches : hors de cette liste, le
+           prechauffer c'est payer une resolution pour s'entendre dire non.
+           Liste inconnue = on ne filtre pas. */
+        return sansFrembed(liste, info.id).slice(0, 3);
       };
 
-      warmTargetP = resolveWatchServer();
-      void warmTargetP.then((srv) => {
+      const candidatsP = resolveWatchCandidates();
+      warmTargetP = candidatsP.then((c) => c[0] || server);
+      void candidatsP.then((candidats) => {
         if (cancelled) return;
-        // Dire a la page de lecture SUR QUOI on a mise, pour qu'elle ouvre le
-        // meme hote et lise la source deja resolue au lieu d'en redemander une.
-        setPlannedServer(info.id, srv);
-        void warmServer(srv, "high");
+        /* Le premier candidat n'est qu'un PARI tant que rien ne l'a prouve —
+           il sert au clic tres rapide, pas de certitude. Le verdict vient de
+           `onPlanned` (flux prouve jouable) et de `onFailed` (prouve mort), et
+           c'est lui que la page de lecture suit. Publier le pari comme un
+           verdict etait le defaut signale : dix secondes sur la page info,
+           clic, frembed demarre et echoue alors qu'on avait de quoi savoir. */
+        setPlannedServer(info.id, candidats[0] || server);
+        void warmChain(
+          candidats,
+          { aniId: info.id, episode: resumeEp, sub: "sub", title: titleStr, mediaMeta },
+          {
+            signal: ac.signal,
+            onPlanned: (srv) => {
+              if (cancelled) return;
+              setVerifiedServer(info.id, srv);
+              warmTargetP = Promise.resolve(srv);
+            },
+            onFailed: (srv) => {
+              if (!cancelled) markPlannedFailed(info.id, srv);
+            },
+            /* L'extraction de l'embed (ansembed/vidmoly) est faite par le
+               NAVIGATEUR : elle ne coute rien au quota, et c'est le poste le
+               plus lent du demarrage (2,2 s mesurees le 20/09). Son jeton est
+               lie a l'IP et a l'instant, d'ou la reprise a usage unique et les
+               60 s de validite cote clientVidmoly. */
+            onStream: (_srv, data) => {
+              const ce = data?.clientExtract;
+              if (ce?.type === "vidmoly" && ce.embedUrl) warmVidmolyClient(ce.embedUrl);
+            },
+          },
+        );
       });
 
       // We deliberately DON'T warm every other server here anymore. Doing so
@@ -442,6 +590,11 @@ export default function Info({
     // matters once the video reports its duration, so it can wait for idle.
     const runIdle = () => {
       if (cancelled) return;
+      // La liste des animes que frembed possede, pour ne plus le proposer en
+      // vain (cf. lib/watch/frembedCatalog). Une fois par jour et par visiteur,
+      // servie par le cache d'edge.
+      chargeFrembedCatalog();
+      chargeDubCatalog();
       // Warm the per-host entry for the server the watch page starts on, so the
       // overlay reads a hit on arrival. Sur le serveur reellement prechauffe, et
       // non plus megaplay en dur : les skips sont stockes PAR HOTE, une entree
@@ -561,7 +714,7 @@ export default function Info({
   // when the title hasn't resolved yet so the URL is never empty.
   const watchSlug = slugifyTitle(info?.title) || "watch";
   const watchUrl = info
-    ? `/en/anime/watch/${info.id}/${watchSlug}?id=megaplay-${info.id}-${
+    ? `/en/anime/watch/${info.id}/${watchSlug}?id=${DEFAULT_SERVER_ID}-${info.id}-${
         Math.max(1, progress + 1)
       }&num=${Math.max(1, progress + 1)}`
     : undefined;
@@ -831,7 +984,7 @@ function toFanartsMeta(fanarts: any): FanartsMeta | null {
    CharactersTab pulls the rows from /api/v2/characters/[id]. The count is kept
    inline so the tab badge is correct on first paint.
 
-   Applied at the props boundary only: the Redis blob under `anime:v5:<id>` and
+   Applied at the props boundary only: the Redis blob under `anime:v6:<id>` and
    the media cache primed by primeMediaCache both keep the full object, so
    nothing downstream (the watch page, /api/v2/media) loses a field. */
 function stripCharacters(info: any): any {
@@ -840,9 +993,28 @@ function stripCharacters(info: any): any {
   return { ...rest, charactersCount: characters?.edges?.length ?? 0 };
 }
 
+/* MAL-only facts (French title, age rating) ride on `info` at the props
+   boundary, like the hero banner — never in the shared Redis blob. MAL's
+   synopsis only travels when AniList has none: it is the fallback, not a
+   second text. */
+function withMalMeta(info: any, meta: MalMeta | null): any {
+  if (!meta) return info;
+  const synopsis = info?.description ? null : meta.synopsis;
+  if (!meta.titleFr && !meta.rating && !synopsis) return info;
+  return { ...info, malMeta: { titleFr: meta.titleFr, rating: meta.rating, synopsis } };
+}
+
 export async function getServerSideProps(ctx: any) {
   const { id, notfound } = ctx.query;
   const timer = makeTimer();
+
+  // Mobile or desktop layout, decided by the URL and NEVER by this request's
+  // User-Agent: the response is edge-cached per URL, so reading the UA here let
+  // the first visitor of each 6 h window pick the layout for everyone. The
+  // `__m=1` flag is added by a UA-conditioned rewrite (next.config.js), on the
+  // server and in the client router alike. The value only feeds
+  // useIsMobile's UA test, so any string it classifies as mobile will do.
+  const initialUA = ctx.query.__m === "1" ? "iPhone" : null;
 
   // Absolute origin for OG meta. Crawlers read the SSR HTML (no client JS), so
   // a relative og:image won't unfurl — we need the scheme+host here. Prefer the
@@ -948,6 +1120,16 @@ export async function getServerSideProps(ctx: any) {
     const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
     if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
+    // The season walkers are the slowest part and need nothing but the id:
+    // start them now, so they run under the fanarts/TMDB reads instead of
+    // after them.
+    const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
+      () => ({ number: null, total: null }),
+    );
+    const seasonListP = resolveSeasonList(animeIdNum).catch(() => [] as SeasonEntry[]);
+    const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(() => [] as FilmVariant[]);
+    const malMetaP = getMalMeta(info?.idMal).catch(() => null);
+
     // Resolve fanarts first so we can ALSO emit a preload header for
     // the clearart before we await the (slower) season-chain walk.
     // Single-row Turso read, typically <50ms. TMDB rides along: warm it is
@@ -972,11 +1154,12 @@ export async function getServerSideProps(ctx: any) {
     // emit its preload header "early", but getServerSideProps does not flush
     // headers before the response — they all go out together either way, so
     // the split bought latency and no earlier bytes.
-    const [heroBanner, seasonInfo, seasonList, bonusFilms] = await Promise.all([
+    const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
       resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
-      resolveSeasonChain(animeIdNum).catch(() => ({ number: null, total: null })),
-      resolveSeasonList(animeIdNum).catch(() => []),
-      resolveBonusFilms(animeIdNum).catch(() => []),
+      seasonInfoP,
+      seasonListP,
+      bonusFilmsP,
+      malMetaP,
     ]);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
     timer.end(`cache-hit id=${id?.[0]}`);
@@ -986,8 +1169,9 @@ export async function getServerSideProps(ctx: any) {
            Redis blob and the same object is handed back to other readers of
            that cache. Writing the TMDB URL onto it would leak a TMDB backdrop
            into the shared AniList payload for 30 days. */
-        info: stripCharacters(
-          heroBanner ? { ...info, bannerImage: heroBanner } : info,
+        info: withMalMeta(
+          stripCharacters(heroBanner ? { ...info, bannerImage: heroBanner } : info),
+          malMeta,
         ),
         color,
         api: API_URI,
@@ -1002,7 +1186,7 @@ export async function getServerSideProps(ctx: any) {
         initialFav: false,
         initialStatusLabel: null,
         initialProgress: 0,
-        initialUA: ctx.req?.headers?.["user-agent"] || null,
+        initialUA,
         baseUrl,
       },
     };
@@ -1035,19 +1219,43 @@ export async function getServerSideProps(ctx: any) {
   }
   timer.mark("anilist");
 
+  /* Whether `data` came from AniList or from the Turso fallback. It decides the
+     cache lifetime below, so it has to be tracked here — this is the only place
+     that still knows. */
+  let fromFallback = false;
+
   if (data) {
     primeMediaCache(animeIdNum, data);
   } else {
     try {
       const cached = await getCachedAnime(animeIdNum);
-      if (cached?.data) data = cached.data;
+      if (cached?.data) {
+        data = cached.data;
+        fromFallback = true;
+      }
     } catch (e: any) {
       console.warn(`[anime SSR] DB fallback failed:`, e?.message);
     }
   }
   timer.mark("dbFallback");
 
-  const cacheTime = data?.nextAiringEpisode?.episode ? 60 * 10 : 60 * 60 * 24 * 30;
+  /* The provenance decides the TTL, not the shape of the payload.
+
+     This used to read the payload alone: airing → 10 min, otherwise 30 days.
+     That is right for a live answer and wrong for a fallback one, and the two
+     were indistinguishable at this line. A Turso row that has been stale for a
+     week often has no `nextAiringEpisode` left — so a series that IS airing,
+     served from that row during the 02/09/2026 outage, took the 30-DAY branch.
+     Roughly 5 300 keys were written that way in four days.
+
+     A fallback payload gets five minutes: long enough to spare the next visitor
+     the same three-layer lookup, short enough that the page is correct within
+     minutes of AniList returning rather than within a month. */
+  const cacheTime = fromFallback
+    ? 5 * 60
+    : data?.nextAiringEpisode?.episode
+      ? 60 * 10
+      : 60 * 60 * 24 * 30;
 
   if (!data) {
     return { notFound: true };
@@ -1064,6 +1272,31 @@ export async function getServerSideProps(ctx: any) {
   const coverUrl = data?.coverImage?.extraLarge || data?.coverImage?.large;
   if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
+  // Everything below is independent of everything else once `data` is known,
+  // and it used to run as four serial waits (fanarts → hero banner → redis.set
+  // → season walkers) on every edge MISS of the busiest page. Now: the walkers
+  // (slowest, id-only — `data` is already primed into the media cache) and the
+  // Redis write start immediately; fanarts → hero banner run alongside.
+  const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
+    () => ({ number: null, total: null })
+  );
+  const seasonListP = resolveSeasonList(animeIdNum).catch(
+    () => [] as SeasonEntry[]
+  );
+  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
+    () => [] as FilmVariant[]
+  );
+  const malMetaP = getMalMeta(data?.idMal).catch(() => null);
+  // Still awaited below (with the walkers) so the write can't be cut off when
+  // the response returns — it just no longer delays anything else.
+  const cacheWriteP = redis
+    ? redis
+        .set(cacheKey, JSON.stringify({ info: data, color }), "EX", cacheTime)
+        .catch((e: any) => {
+          console.warn(`[anime SSR] redis.set failed:`, e?.message);
+        })
+    : Promise.resolve();
+
   // Resolve fanarts ahead of the slower walker work so we can emit the
   // clearart preload header before the response body is sent. TMDB rides
   // along — see the cache-hit path above for why the banner preload waits.
@@ -1074,47 +1307,27 @@ export async function getServerSideProps(ctx: any) {
   timer.mark("fanarts");
   const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
   const fanartsMeta = toFanartsMeta(fanarts);
-  const heroBanner = await resolveHeroBanner(data?.bannerImage, tmdb.backdrop);
-  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
   // No clearart preload header — the <img> may swap to assets.fanart.tv on
   // proxy error, which would leave a proxy-URL preload unconsumed.
 
-  const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
-    () => ({ number: null, total: null })
-  );
-  const seasonListP = resolveSeasonList(animeIdNum).catch(
-    () => [] as SeasonEntry[]
-  );
-  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
-    () => [] as FilmVariant[]
-  );
-
-  if (redis) {
-    try {
-      await redis.set(
-        cacheKey,
-        JSON.stringify({ info: data, color }),
-        "EX",
-        cacheTime
-      );
-    } catch (e: any) {
-      console.warn(`[anime SSR] redis.set failed:`, e?.message);
-    }
-  }
-
-  const [seasonInfo, seasonList, bonusFilms] = await Promise.all([
+  const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
+    resolveHeroBanner(data?.bannerImage, tmdb.backdrop).catch(() => null),
     seasonInfoP,
     seasonListP,
     bonusFilmsP,
+    malMetaP,
+    cacheWriteP,
   ]);
+  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
   timer.end(`cache-miss id=${id?.[0]}`);
 
   return {
     props: {
       /* Shallow copy — `data` is what redis.set just persisted as the shared
          AniList blob above, and it must stay free of TMDB URLs. */
-      info: stripCharacters(
-        heroBanner ? { ...data, bannerImage: heroBanner } : data,
+      info: withMalMeta(
+        stripCharacters(heroBanner ? { ...data, bannerImage: heroBanner } : data),
+        malMeta,
       ),
       color,
       api: API_URI,
@@ -1128,7 +1341,7 @@ export async function getServerSideProps(ctx: any) {
       initialFav: false,
       initialStatusLabel: null,
       initialProgress: 0,
-      initialUA: ctx.req?.headers?.["user-agent"] || null,
+      initialUA,
       baseUrl,
     },
   };

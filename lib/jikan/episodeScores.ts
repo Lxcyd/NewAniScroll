@@ -1,4 +1,5 @@
 import { redis } from "@/lib/redis";
+import { sleep } from "@/utils/sleep";
 
 /**
  * Per-episode anime ratings via Jikan (the unofficial MyAnimeList API).
@@ -33,6 +34,15 @@ export type EpisodeScore = {
   number: number;
   /** Score on a /10 scale, or null when unrated. */
   score: number | null;
+  /* What AniList has no per-episode equivalent of, from the SAME Jikan page
+     (no extra call). Omitted when empty to keep the cached blob small. */
+  /** English episode title. */
+  title?: string;
+  /** First air date, YYYY-MM-DD. */
+  aired?: string;
+  /** MAL flags the episode as filler / recap. */
+  filler?: true;
+  recap?: true;
 };
 
 export type SeasonScores = {
@@ -67,7 +77,8 @@ async function getJson<T>(key: string): Promise<T | null> {
 
 /** Cache key for a season's scores (by MAL id). */
 function cacheKeyFor(idMal: number): string {
-  return `jikan:eps:v2:${idMal}`;
+  // v3: rows gained title / aired / filler / recap (the episode list uses them).
+  return `jikan:eps:v3:${idMal}`;
 }
 
 /**
@@ -188,7 +199,13 @@ export async function getSeasonEpisodeScores(
     for (const e of list) {
       const num = Number(e.mal_id);
       if (!Number.isFinite(num)) continue;
-      episodes.push({ number: num, score: toScore(e.score) });
+      const row: EpisodeScore = { number: num, score: toScore(e.score) };
+      const title = typeof e.title === "string" ? e.title.trim() : "";
+      if (title) row.title = title;
+      if (typeof e.aired === "string") row.aired = e.aired.slice(0, 10);
+      if (e.filler) row.filler = true;
+      if (e.recap) row.recap = true;
+      episodes.push(row);
     }
     hasNext = !!r.data?.pagination?.has_next_page;
     page += 1;
@@ -208,8 +225,4 @@ export async function getSeasonEpisodeScores(
   const result: SeasonScores = { aniId: input.aniId, episodes, source: "jikan" };
   await setJson(cacheKey, result, TTL_OK_S);
   return result;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }

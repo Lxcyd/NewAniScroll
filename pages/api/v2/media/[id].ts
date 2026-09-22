@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
+import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 /**
  * GET /api/v2/media/[id]
@@ -42,7 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!media) {
     // Cache the miss briefly too — a bad id in a shared link would otherwise
     // re-invoke the function (and the whole three-layer lookup) on every hit.
-    res.setHeader("Cache-Control", "public, max-age=60");
+    // A bare `Cache-Control` never did that: it only reaches the browser, so
+    // the edge kept waking the function anyway. The watch page re-requests this
+    // route whenever `info` is null, which during an AniList outage is always.
+    setEdgeErrorCache(res);
     return res.status(404).json({ error: "Anime not found" });
   }
 

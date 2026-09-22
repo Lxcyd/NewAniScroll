@@ -1,5 +1,6 @@
 import { redis } from "@/lib/redis";
 import { RateLimiterMemory } from "rate-limiter-flexible";
+import { isAnilistLikelyUp } from "./health";
 
 /**
  * Central choke point for every server-side AniList GraphQL request.
@@ -12,12 +13,7 @@ import { RateLimiterMemory } from "rate-limiter-flexible";
  * cascade into stale data, broken pages, and outage banners.
  *
  * Strategy:
- *  1. **Limiteur a deux etages** — un seau en memoire par lambda (instantane,
- *     gratuit) ET un compteur partage dans Redis, une fenetre fixe d'une
- *     minute. Le seau memoire seul ne tenait qu'UNE instance : avec N lambdas
- *     chaudes la flotte s'autorisait N x 28 req/min contre les 30 qu'AniList
- *     accorde reellement (`X-RateLimit-Limit: 30`, mesure le 12/09/2026).
- *     28 req/min across the whole fleet,
+ *  1. **Shared Redis limiter** — 28 req/min across the whole fleet,
  *     leaving 2 req/min of headroom for callers that bypass this
  *     module (client-side mutations from useAnilist) and for AniList's
  *     own jitter on the limit. When out of points we queue up to a
@@ -30,6 +26,12 @@ import { RateLimiterMemory } from "rate-limiter-flexible";
  *     season walker, dashboard widgets, etc., that don't have their
  *     own cache layer.
  *  4. **AbortController + timeout** — never hang SSR on AniList.
+ *  5. **Failure is a result too** — a refusal (403/5xx) is written to the same
+ *     response cache as a success, with a 60s TTL, and the health signal
+ *     short-circuits before the network. Without these, an outage made every
+ *     layer above pure overhead: a Redis GET that could never hit, a token
+ *     spent on a call that never landed, and a fresh upstream attempt per
+ *     visitor. See `writeFailureCache` and `refund`.
  *
  * Client-side fetches (useAnilist hook) intentionally don't go through
  * here — they carry user-specific Authorization headers and the rate
@@ -87,6 +89,12 @@ type FetchOpts = {
   cacheSeconds?: number;
   /** Short label used in logs to identify the caller. */
   label?: string;
+  /** False = do not store a SUCCESSFUL body (the failure mark is still read
+   *  and written). For callers that already cache the result under their own
+   *  key for at least as long: the response cache behind it can never hit —
+   *  the caller's key answers first — so its SET was a pure Upstash cost on
+   *  every miss. Unlike `cacheSeconds: 0`, this keeps the outage protection. */
+  cacheSuccess?: boolean;
   /** Skip ALL Redis touches for this call: no response-cache read/write and an
    *  in-process limiter instead of the Redis one. Used by the player audit so
    *  its big fan-out doesn't spend Redis requests (Upstash free quota). The call
@@ -108,11 +116,27 @@ function hashKey(body: string): string {
   return h.toString(36);
 }
 
-async function readResponseCache(key: string): Promise<Json | null> {
+/* Marker stored IN PLACE of a response when AniList refused the call. See
+   `writeFailureCache` for why it exists. Shaped as an object with a reserved
+   key so it can never collide with a real GraphQL body (which always has
+   `data` and/or `errors` at the top level, never this). */
+const FAILURE_MARK = "__anilistUnavailable";
+type FailureMark = { [FAILURE_MARK]: true; status: number; at: number };
+
+function isFailureMark(v: any): v is FailureMark {
+  return !!v && typeof v === "object" && v[FAILURE_MARK] === true;
+}
+
+/** Reads the response cache. Returns the body on a hit, the string "failed"
+ *  when the hit is a stored failure, and null on a genuine miss — the three
+ *  cases the caller has to tell apart. */
+async function readResponseCache(key: string): Promise<Json | "failed" | null> {
   if (!redis) return null;
   try {
     const raw = await redis.get(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isFailureMark(parsed) ? "failed" : parsed;
   } catch {
     return null;
   }
@@ -127,100 +151,24 @@ async function writeResponseCache(key: string, ttl: number, value: Json): Promis
   }
 }
 
-/* ------------------------------------------------------------------ *
- * COMPTEUR DE FLOTTE
- *
- * Le limiteur en memoire ci-dessus est PAR LAMBDA. Avec N instances chaudes,
- * la flotte s'autorise N x 28 requetes/minute, alors qu'AniList en accorde 30
- * — mesure le 12/09/2026 sur l'en-tete de reponse :
- *
- *     X-RateLimit-Limit: 30
- *
- * Autrement dit, le garde-fou tenait une instance seule et rien d'autre. Tant
- * qu'AniList repondait 403 a tout le monde la question ne se posait pas ; elle
- * se pose de nouveau depuis son retour.
- *
- * Le compteur est une fenetre FIXE d'une minute, portee par une seule cle
- * `anilist:rl:<minute>` incrementee par toute la flotte. Fixe et non glissante
- * parce qu'une fenetre glissante demande un tri par score a chaque appel, la
- * ou celle-ci coute UN `INCR` — et le quota Upstash est lui-meme une ressource
- * rare (500 k commandes/mois).
- *
- * CE QUE CA COUTE, calcule et non estime. Un `INCR` par appel sortant, plus un
- * `EXPIRE` par minute. Sature en permanence a 28 appels/minute, cela ferait
- * 1,3 M de commandes par mois — DEUX FOIS ET DEMIE le plafond gratuit. Ce n'est
- * pas un scenario realiste, et la raison est structurelle : `acquire()` n'est
- * appele qu'APRES le cache de reponse et la deduplication en vol, donc le
- * compteur ne bouge que pour un appel qui part vraiment chez AniList. Il suit
- * le trafic SORTANT, pas le trafic entrant.
- *
- * La borne merite quand meme d'etre ecrite, parce qu'elle designe le bon levier
- * le jour ou le chiffre deviendrait genant : ce serait la duree du cache de
- * reponse (30 min aujourd'hui) qu'il faudrait allonger, PAS ce compteur qu'il
- * faudrait retirer. Le retirer rendrait les appels invisibles sans les rendre
- * moins nombreux.
- *
- * Le defaut connu d'une fenetre fixe est la rafale de bordure : 28 requetes a
- * la fin d'une minute et 28 au debut de la suivante font 56 en deux secondes.
- * On l'accepte ici, pour deux raisons : le budget est deja sous la limite
- * reelle (28 sur 30), et c'est AniList qui arbitre en dernier ressort — un 429
- * est traite plus bas. Une fenetre glissante couterait plus cher a proteger
- * qu'elle ne rapporte.
- *
- * PANNE REDIS : on rend `null`, c'est-a-dire « pas d'avis », et l'appelant
- * s'en remet au limiteur memoire. Refuser l'appel parce que le cache est
- * indisponible transformerait une panne de cache en panne de site.
- * ------------------------------------------------------------------ */
-const FLEET_TIMEOUT_MS = 1_200;
+/* How long a recorded failure suppresses the next attempt. Deliberately SHORT:
+   long enough that a multi-day outage costs one upstream call per minute per
+   distinct query instead of one per visitor, short enough that a recovery is
+   visible within a minute.
 
-function fleetKey(at = Date.now()): string {
-  return `anilist:rl:${Math.floor(at / 60_000)}`;
-}
+   Why this exists at all. Until now `!res.ok` returned null WITHOUT writing
+   anything, so the `redis.get` above was spent on a miss that would miss again
+   on the very next request — for every AniList query, on every page, for as
+   long as the outage lasted. During the 02/09/2026 outage (a hard 403, answered
+   in ~110 ms, so nothing throttled the retry rate) that turned the response
+   cache into a pure tax: ~150k Upstash commands a day with a 0% hit rate, and
+   the quota died mid-month. Recording the failure turns that same GET into a
+   HIT, which is the difference between a cache and a toll booth. */
+const FAILURE_CACHE_TTL_S = 60;
 
-/** Delai avant la prochaine fenetre, en ms. */
-function msToNextBucket(at = Date.now()): number {
-  return 60_000 - (at % 60_000);
-}
-
-async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
-  ]);
-}
-
-/** true = la flotte a de la marge, false = budget epuise, null = pas d'avis. */
-async function fleetAllows(): Promise<boolean | null> {
-  if (!redis) return null;
-  const key = fleetKey();
-  try {
-    const n = await withTimeout(redis.incr(key), FLEET_TIMEOUT_MS);
-    if (n === 1) {
-      // Sans expiration la cle d'une minute passee resterait a vie. On ne
-      // l'attend pas : la valeur est deja comptee, et un echec d'expiration
-      // ne fausse rien dans la minute en cours.
-      Promise.resolve(redis.expire(key, 120)).catch(() => {});
-    }
-    return n <= POINTS_PER_MINUTE;
-  } catch {
-    return null;
-  }
-}
-
-/** Sur 429, saturer la fenetre courante pour toute la flotte : sans ca, les
- *  autres instances continuent d'appeler pendant qu'une seule recule. */
-async function fleetBlock(): Promise<void> {
-  if (!redis) return;
-  try {
-    await withTimeout(
-      Promise.resolve(
-        redis.set(fleetKey(), String(POINTS_PER_MINUTE + 100), "EX", 120),
-      ),
-      FLEET_TIMEOUT_MS,
-    );
-  } catch {
-    /* non-fatal */
-  }
+async function writeFailureCache(key: string, status: number): Promise<void> {
+  const mark: FailureMark = { [FAILURE_MARK]: true, status, at: Date.now() };
+  await writeResponseCache(key, FAILURE_CACHE_TTL_S, mark);
 }
 
 /* Wait for the limiter to grant a point, with a hard wait cap so we don't
@@ -232,32 +180,7 @@ async function acquire(label: string, useMemory = false): Promise<boolean> {
   while (Date.now() - start < QUEUE_WAIT_MS) {
     try {
       await lim.consume("global", 1);
-
-      /* Le jeton local est accorde ; reste a savoir si la FLOTTE a de la
-         marge. Les appels `skipCache` (l'audit du lecteur) restent
-         volontairement hors du compteur partage : leur fan-out depenserait
-         une commande Upstash par requete, ce que ce mode existe justement
-         pour eviter. */
-      if (useMemory) return true;
-
-      const flotte = await fleetAllows();
-      if (flotte !== false) return true; // true ou « pas d'avis »
-
-      /* Budget de flotte epuise. On n'insiste pas par de nouveaux INCR — ils
-         gonfleraient le compteur sans rien accorder. On attend la fenetre
-         suivante si elle tient dans le budget d'attente, sinon on echoue vite
-         et l'appelant retombe sur son cache. */
-      const reste = QUEUE_WAIT_MS - (Date.now() - start);
-      const prochaine = msToNextBucket();
-      if (prochaine > reste) {
-        console.warn(`[anilist-fetch] budget de flotte epuise (${label})`);
-        return false;
-      }
-      await new Promise((r) => setTimeout(r, prochaine + 50));
-      const seconde = await fleetAllows();
-      if (seconde !== false) return true;
-      console.warn(`[anilist-fetch] budget de flotte toujours epuise (${label})`);
-      return false;
+      return true;
     } catch (rej: any) {
       // RateLimiterRes when blocked — wait the suggested ms, capped.
       const wait = Math.min(rej?.msBeforeNext ?? 500, 1000);
@@ -266,6 +189,20 @@ async function acquire(label: string, useMemory = false): Promise<boolean> {
   }
   console.warn(`[anilist-fetch] gave up waiting for token (${label})`);
   return false;
+}
+
+/* Give the point back when the call never reached a healthy AniList.
+   The budget exists to stay under AniList's ~30 req/min, and a request they
+   refused in 110 ms consumed none of that. Without this refund an outage
+   emptied the bucket in 28 calls, after which EVERY subsequent call sat out the
+   full QUEUE_WAIT_MS (5 s) in `acquire` before returning null — 5 s of billed
+   Vercel active time, per call, buying nothing. A 429 is the one failure that
+   must NOT be refunded: there, the request really did land. */
+function refund(useMemory: boolean): void {
+  const lim = useMemory ? memLimiter : limiter;
+  lim.reward("global", 1).catch(() => {
+    /* non-fatal — the bucket refills on its own within the minute */
+  });
 }
 
 export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
@@ -277,6 +214,7 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
     cacheSeconds = RESPONSE_CACHE_TTL_S,
     label = "anilist",
     skipCache = false,
+    cacheSuccess = true,
   } = opts;
 
   const body = JSON.stringify({ query, variables });
@@ -284,10 +222,22 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
   // skipCache (audit) → no Redis response cache at all.
   const cacheKey = authToken || skipCache ? null : `anilist:resp:v1:${hashKey(body)}`;
 
-  // 1. Response cache (skipped for authenticated user-specific calls + audit)
+  // 1. Response cache (skipped for authenticated user-specific calls + audit).
+  //    A stored failure answers null here, WITHOUT touching the network.
   if (cacheKey && cacheSeconds > 0) {
     const cached = await readResponseCache(cacheKey);
+    if (cached === "failed") return null;
     if (cached) return cached;
+  }
+
+  // 1b. Known-down short-circuit. The health probe already writes {up:false}
+  //     to `anilist:health` every minute, and that signal is memoised 30 s per
+  //     process — so this is free almost always, and it covers the queries that
+  //     have no failure mark of their own yet (a first visit to any page during
+  //     an outage). The probe itself must be exempt or it can never observe a
+  //     recovery: it would be short-circuited by its own verdict.
+  if (label !== "health" && !skipCache && !authToken) {
+    if (!(await isAnilistLikelyUp())) return null;
   }
 
   // 2. In-flight dedup
@@ -323,23 +273,41 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
         } catch {
           /* non-fatal */
         }
-        // Bloquer la seule instance qui a pris le 429 ne sert a rien : les
-        // autres continuent d'appeler. On sature la fenetre partagee.
-        if (!skipCache) await fleetBlock();
         console.warn(`[anilist-fetch] 429 from upstream (${label}), pausing ${retryAfter}s`);
         return null;
       }
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Refused, not throttled. Record it so the next caller pays a cache
+        // HIT instead of another round-trip, and give the token back.
+        //
+        // `cacheSeconds > 0` matters, and not only for tidiness: the health
+        // probe passes 0 precisely because it must observe reality every time.
+        // Letting it record a failure would have let it read its OWN mark on the
+        // next run and re-report "down" without testing anything — the one
+        // caller whose job is to notice the recovery, suppressed by the
+        // mechanism meant to make outages cheap.
+        refund(skipCache);
+        if (cacheKey && cacheSeconds > 0) await writeFailureCache(cacheKey, res.status);
+        console.warn(`[anilist-fetch] HTTP ${res.status} (${label})`);
+        return null;
+      }
       const json = await res.json();
-      if (cacheKey && cacheSeconds > 0) await writeResponseCache(cacheKey, cacheSeconds, json);
+      if (cacheKey && cacheSeconds > 0 && cacheSuccess) {
+        await writeResponseCache(cacheKey, cacheSeconds, json);
+      }
       return json;
     } catch (e: any) {
+      refund(skipCache);
       if (e?.name === "AbortError") {
         console.warn(`[anilist-fetch] timeout (${label})`);
       } else {
         console.warn(`[anilist-fetch] error (${label}):`, e?.message);
       }
+      // A timeout / socket error is NOT recorded: unlike a 403 it says nothing
+      // about AniList's availability (it can be our own egress, or one slow
+      // query), and pinning it for a minute would suppress calls that would
+      // have worked.
       return null;
     } finally {
       clearTimeout(timer);

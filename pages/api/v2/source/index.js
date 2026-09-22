@@ -1,8 +1,11 @@
+import { createDecipheriv } from "node:crypto";
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, extractMegaplay, VIDMOLY_HOST_RE } from "@/lib/extractors";
+import { getExtractor, VIDMOLY_HOST_RE } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
-import { getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
+import { getFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
@@ -142,45 +145,12 @@ async function isVidmolyEmbedAlive(embedUrl) {
   }
 }
 
-// Quick reachability probe for iframe-fallback URLs. Returns true if the URL
-// (after following redirects) responds with 2xx/3xx that the browser would
-// actually render — false if the embed slug 404s or the host is otherwise
-// dead. We use this so a "degraded" chip never points at a black 404 page.
-// For Vidmoly specifically we also try .biz/.net/.to in turn since anime-sama
-// sometimes lists a slug under whichever variant they scraped from.
-async function isIframeReachable(iframeUrl) {
-  const candidates = /vidmoly\.(to|net|biz)/i.test(iframeUrl)
-    ? ["vidmoly.biz", "vidmoly.net", "vidmoly.to"].map((d) =>
-        iframeUrl.replace(/vidmoly\.(to|net|biz)/i, d),
-      )
-    : [iframeUrl];
-  for (const url of candidates) {
-    try {
-      const res = await fetchWithTimeout(
-        url,
-        {
-          method: "GET",
-          headers: {
-            "User-Agent": SCRAPER_UA,
-            Accept: "text/html,application/xhtml+xml",
-          },
-          redirect: "follow",
-        },
-        4000,
-      );
-      // 4xx (excl 405) means the embed slug is gone from this host. 5xx is
-      // transient — accept it. Off-host HTTP redirect (vidmoly.to → scam) is
-      // also a reject.
-      const finalUrl = new URL(res.url);
-      if (finalUrl.protocol !== "https:") continue;
-      if (res.status >= 400 && res.status < 500 && res.status !== 405) continue;
-      return true;
-    } catch {
-      // network error — try next candidate
-    }
-  }
-  return false;
-}
+/* `isIframeReachable` vivait ici : une sonde GET de 4 s, essayant jusqu'a trois
+   domaines vidmoly a la suite, pour ne pas peindre un chip « degrade » pointant
+   sur une page 404. Elle n'etait appelee de NULLE PART (verifie sur tout le
+   depot le 20/09/2026) : un repli iframe ne passe plus par elle. Supprimee
+   plutot que gardee « au cas ou » — un mort qui ressemble a un vivant se fait
+   relire a chaque lecture de ce fichier, et on finit par croire qu'il coute. */
 
 // Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
@@ -196,40 +166,570 @@ async function isIframeReachable(iframeUrl) {
 // Dingtezuni / callistanise share the same packed-JS embed format. They're
 // included optimistically â€” extractor will return { error: ... } if they're
 // not actually playable, and the caller falls back to the raw iframe.
+/* Les hotes dont on extrait REELLEMENT un flux cote serveur.
+   Il y en avait quinze, dont onze morts : sendvid (hote HS), embed4me, lpayer,
+   smoothpre, movearnpre, dingtezuni, callistanise (aucun chip ne peut les
+   choisir depuis leur retrait de lib/servers.js), et voe (chips retires le
+   04/07/2026). La famille vidmoly y figurait aussi « en dernier recours »,
+   alors que la branche VIDMOLY_HOST_RE rend un `clientExtract` bien avant —
+   et qu'extraire ici donnerait un jeton lie a NOTRE IP, injouable chez le
+   spectateur. Restent les deux qui servent. */
 const EXTRACTABLE_HOSTS = [
   "sibnet.ru",
-  "sendvid.com",
-  // vidmoly: extraction + playback both route through the CF Worker. As
-  // long as the extracted-from IP and the segment-fetched-from IP match
-  // (both = Worker), the IP-bound master token stays valid end-to-end and
-  // the user plays in the Universal Player without an iframe.
-  "vidmoly",
-  // ansembed.net — same white-label vidmoly backend, so it is listed for the
-  // same reason "vidmoly" is: as a last-resort net. In practice neither is
-  // reached from the anime-sama / voir-anime routes, because the VIDMOLY_HOST_RE
-  // branch above returns a `clientExtract` first. That is deliberate — this
-  // family's master token binds to whoever fetched the embed, so extracting it
-  // HERE yields a stream only our own IP can play.
-  "ansembed",
-  // voembed.net — voir-anime's white-label of the same backend; same reason.
-  "voembed",
-  "embed4me",
-  "lpayer",        // lpayer.embed4me.com
-  "smoothpre",     // hls2 CDN bypass (was TikTok-trapped via /stream/ path)
-  "movearnpre",
-  "dingtezuni",
-  "callistanise",
-  // VOE serves voe.sx → JS-redirect → mirror domain → obfuscated JSON payload.
-  // The extractor follows the redirect chain and decodes the payload to a
-  // signed master.m3u8. See lib/extractors.js → extractVoe.
-  "voe.sx",
-  "voe.",          // catches voe-network.net, voe-unblock.com, etc.
   // uqload gates the embed on the EMBEDDING site's Referer (anime-sama), so a
   // raw iframe fallback would just render its "embed restricted" page — treat
-  // it like sibnet/sendvid below and hide the chip on extraction failure
-  // rather than degrade to a dead iframe. See lib/extractors.js → extractUqload.
+  // it like sibnet below and hide the chip on extraction failure rather than
+  // degrade to a dead iframe. See lib/extractors.js → extractUqload.
   "uqload.",
 ];
+
+// ── Frembed (VF + VOSTFR in ONE stream) ──────────────────────────────────
+//
+// Two asymmetric gates, both measured 2026-08-30 — get them backwards and
+// everything 403s:
+//   • the JSON api REQUIRES a Referer on its OWN current domain;
+//   • its CDN REFUSES that same Referer, and serves anyone else.
+// So the api call below sends it, and playback strips it — the streams are
+// flagged `directUrl`, which makes UniversalPlayer set referrerPolicy
+// "no-referrer" on the <video> and skip the proxy entirely. That skip is the
+// whole point of this source: the CDN answers `Access-Control-Allow-Origin: *`,
+// so segments never touch the Worker or the Fluid budget.
+//
+// One master.m3u8 carries both audio renditions and the French subtitle
+// tracks, so the two chips resolve the SAME url and differ only by the
+// `audioLang` the player pins.
+//
+// Deux index, pas un : les series vivent sous `type=serie` (id TMDB *tv* +
+// saison + episode), les FILMS sous `type=movie` (id TMDB *movie*, sans
+// coordonnees). Un film n'a donc ni saison a detecter ni concatenation a
+// parcourir — et son master n'est pas toujours bilingue, cf. frembedCarriesAudio.
+/* Le domaine TOURNE : frembed.casa redirige vers frembed.surf depuis le
+   19/09/2026, et la redirection garde l'ancien Referer -> 403 sur tout, le
+   serveur paraissait mort. D'ou la reprise dans fetchFrembedPayload : si une
+   redirection finit en refus, un second essai avec le Referer du NOUVEAU
+   domaine, qui survit au prochain demenagement sans deploiement. */
+const FREMBED_BASE = "https://frembed.surf";
+
+/* …et on RETIENT le domaine d'arrivee, au lieu de repayer la redirection.
+   Le demenagement etait absorbe a chaque appel : une requete pour se faire
+   rediriger, une seconde pour la vraie reponse, sur un lambda qui repart froid
+   — et tant que personne n'editait la constante, tout le monde payait les deux.
+   La valeur vit dans Redis (une ecriture par demenagement, soit rien) et dans
+   une variable de module qui evite la lecture sur un lambda deja chaud. Effet
+   de bord voulu : le prochain demenagement se repare tout seul, sans deploy. */
+const FREMBED_BASE_KEY = "frembed:base";
+const FREMBED_BASE_TTL_S = 7 * 24 * 3600;
+let frembedBaseMemo = null;
+
+async function frembedBase() {
+  if (frembedBaseMemo) return frembedBaseMemo;
+  if (redis) {
+    try {
+      const vu = await redis.get(FREMBED_BASE_KEY);
+      if (typeof vu === "string" && /^https:\/\/[\w.-]+$/.test(vu)) {
+        frembedBaseMemo = vu;
+        return vu;
+      }
+    } catch {
+      /* Redis indisponible : la constante fait le travail */
+    }
+  }
+  frembedBaseMemo = FREMBED_BASE;
+  return frembedBaseMemo;
+}
+
+function frembedBaseMoved(origine) {
+  frembedBaseMemo = origine;
+  if (!redis) return;
+  try {
+    // Varargs form: the lib/redisRest shim reads `"EX", n` and ignored the
+    // `{ ex }` object this used to pass, so the key never expired.
+    void redis.set(FREMBED_BASE_KEY, origine, "EX", FREMBED_BASE_TTL_S);
+  } catch {
+    /* tant pis : on repaiera la redirection */
+  }
+}
+// The master ships TWO French subtitle tracks — "FR Forced" (on-screen signs
+// only, and flagged DEFAULT) and "FR Full". Which one a chip wants follows its
+// audio: a French dub needs signs only, the Japanese original needs the full
+// dialogue. Without this the VO chip inherited the DEFAULT forced track and
+// looked like it had no subtitles at all.
+// Le chip VF est en `none` : un doublage francais se regarde SANS sous-titres.
+// Les deux pistes restent servies — on peut les activer dans le menu, et un
+// choix explicite du spectateur continue de primer — elles ne sont simplement
+// pas allumees d'office.
+const FREMBED_SERVERS = {
+  frembed: { audioLang: "fr", subtitlePref: "none" },
+  "frembed-vo": { audioLang: "ja", subtitlePref: "full" },
+};
+
+/* Frembed indexes on TMDB's season numbering, which splits a long-running show
+   into arc-"seasons" (One Piece: 22, Naruto Shippuden: 20) while AniList keeps
+   it as ONE absolutely-numbered entry. Below this many seasons we never walk
+   the concatenation for a season that EXISTS — a 12-episode show frembed only
+   half-hosts would otherwise be "rescued" straight into the next season's
+   episode 1. No ordinary anime is cut into six TMDB seasons; every long-runner
+   is. */
+const FREMBED_LONG_RUNNER_SEASONS = 6;
+
+/** `sa`/`ep` null = a FILM: frembed indexes those on the TMDB *movie* id, with
+ *  no season/episode coordinates at all (`?tmdb=<movieId>&type=movie`). */
+async function fetchFrembedPayload(tmdbId, sa, ep) {
+  const query =
+    sa == null
+      ? `?tmdb=${tmdbId}&type=movie`
+      : `?tmdb=${tmdbId}&type=serie&sa=${sa}&ep=${ep}`;
+  const call = (base) =>
+    fetchWithTimeout(`${base}/api/streaming/player${query}`, {
+      headers: {
+        Referer: `${base}/streaming/player`,
+        Accept: "application/json",
+      },
+    });
+  const base = await frembedBase();
+  let res = await call(base);
+  if (!res.ok && res.redirected) {
+    const moved = new URL(res.url).origin;
+    if (moved !== base) {
+      res = await call(moved);
+      // Retenu SEULEMENT si le nouveau domaine repond vraiment : une
+      // redirection vers une page d'erreur ne doit pas devenir notre base.
+      if (res.ok || res.status === 404) frembedBaseMoved(moved);
+    }
+  }
+  // 404 = frembed has never heard of this tmdb id. A real, deterministic
+  // absence — not worth a retry.
+  if (res.status === 404) return null;
+  if (!res.ok) throw new TransientSourceError(`frembed api ${res.status}`);
+  try {
+    return await res.json();
+  } catch {
+    throw new TransientSourceError("frembed api returned non-JSON");
+  }
+}
+
+/** The playable source in a frembed payload, or null when it holds none.
+ *  An episode frembed doesn't host answers 200 with `sources: []`.
+ *  The `label` matters on films — see frembedCarriesAudio. */
+function frembedSource(payload) {
+  const src = payload?.sources?.[0];
+  const url = src?.url;
+  if (typeof url !== "string" || !/\.m3u8/i.test(url)) return null;
+  return { url, label: typeof src.label === "string" ? src.label : "" };
+}
+
+/**
+ * Does this master actually carry the audio the chip stands for?
+ *
+ * Series are uniform — every one of the 12 sampled on 2026-08-31 answers with a
+ * single `Premium` source whose master declares both `fr` and `ja` renditions,
+ * which is why both chips could be painted unconditionally. FILMS are not: they
+ * come as `Premium` (same dual-audio shape) OR as `Free VF`, a single muxed
+ * French track with no rendition list and no subtitles at all (Your Name,
+ * measured). Painting the VO chip on one of those hands a viewer who asked for
+ * the Japanese original a French dub, silently — the player pins the `ja`
+ * rendition, finds none, and plays what's there.
+ *
+ * So: trust the rendition list when the master publishes one, and fall back to
+ * the source label when it doesn't (that label is then the ONLY language signal
+ * in the payload). An unreadable label reads as French — frembed is a French
+ * host and its single-track uploads are dubs.
+ */
+function frembedCarriesAudio(manifest, label, audioLang) {
+  const langs = [];
+  for (const line of manifest.split(/\r?\n/)) {
+    if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=AUDIO/.test(line)) continue;
+    const m = line.match(/LANGUAGE="([^"]*)"/);
+    // Les pistes audio observees portent "fr"/"ja", les sous-titres "fra"/"eng" :
+    // le manifeste melange les deux normes, donc on passe par les memes alias
+    // que les sous-titres avant de comparer. Un `slice(0,2)` seul ferait de
+    // "jpn" un "jp" qui ne vaut aucun `audioLang`, et effacerait le chip VO.
+    if (m) {
+      const raw = m[1].toLowerCase();
+      langs.push(FREMBED_LANG_ALIASES[raw] || raw.slice(0, 2));
+    }
+  }
+  if (langs.length) return langs.includes(audioLang);
+  return (/vostfr|\bvo\b|sub/i.test(label) ? "ja" : "fr") === audioLang;
+}
+
+/**
+ * The master's subtitle renditions, resolved to plain .vtt urls.
+ *
+ * WHY SIDECAR AND NOT IN-MANIFEST. hls.js renders text tracks natively by
+ * default, so it never emits the non-native-tracks event Vidstack listens for:
+ * the tracks played but `player.textTracks` stayed EMPTY, which meant no track
+ * menu, no style editor, no CC button. Handing the same cues over as ordinary
+ * sidecar tracks puts them through the path megaplay already uses, where all of
+ * that works — and costs nothing extra at playback since the player then tells
+ * hls.js nothing about them.
+ *
+ * Each rendition is a one-line playlist pointing at a single `subtitle.vtt`
+ * (measured 2026-08-30), so resolving one is a single cheap fetch; they run in
+ * parallel and the whole payload is cached for 5 min like any other resolve.
+ *
+ * Fail-soft: a rendition we can't resolve is dropped, never thrown — losing a
+ * subtitle track must not cost the viewer the video.
+ */
+async function frembedSubtitles(manifest, masterUrl, subtitlePref) {
+  const renditions = [];
+  for (const line of manifest.split(/\r?\n/)) {
+    if (!/^#EXT-X-MEDIA:/.test(line) || !/TYPE=SUBTITLES/.test(line)) continue;
+    const attr = (name) =>
+      (line.match(new RegExp(`${name}="([^"]*)"`)) || [])[1] || "";
+    const uri = attr("URI");
+    if (!uri) continue;
+    renditions.push({
+      uri,
+      language: attr("LANGUAGE"),
+      name: attr("NAME"),
+      forced: /FORCED=YES/.test(line),
+    });
+  }
+  if (renditions.length === 0) return [];
+
+  const wantForcedDefault = subtitlePref === "forced";
+  const resolved = await Promise.all(
+    renditions.map(async (r) => {
+      try {
+        const playlistUrl = new URL(r.uri, masterUrl).toString();
+        const res = await fetchWithTimeout(playlistUrl, {}, 4000);
+        if (!res.ok) return null;
+        const segment = (await res.text())
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .find((l) => l && !l.startsWith("#"));
+        if (!segment) return null;
+        return {
+          file: new URL(segment, playlistUrl).toString(),
+          // The host names them "FR Forced : SRT" / "FR Full : SRT"; the format
+          // suffix means nothing to a viewer.
+          label: (r.name || r.language || "Subtitle").replace(/\s*:\s*SRT$/i, ""),
+          // Two-letter code: what the player stores as the viewer's remembered
+          // subtitle language. The host writes ISO 639-2 ("fra").
+          language: FREMBED_LANG_ALIASES[r.language.toLowerCase()] || r.language,
+          kind: "subtitles",
+          // A dub wants signs only; a subtitled original wants the dialogue.
+          // `none` (le chip VF) n'en marque aucune.
+          default: subtitlePref !== "none" && r.forced === wantForcedDefault,
+          // Lu par le tri juste apres, puis inutile au client.
+          forced: r.forced,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const tracks = resolved.filter(Boolean);
+
+  /* L'ORDRE EST LE CONTRAT. Le selecteur du lecteur prend « la PREMIERE piste
+     qui correspond a la langue », et nos deux pistes portent la meme (`fr`) :
+     c'est donc l'ordre qui decide laquelle est retenue, et rien d'autre.
+     On met en tete celle que le chip veut, et tout s'aligne — y compris la
+     coche du menu, qui numerote les memes pistes dans le meme ordre. Le
+     30/08/2026, en laissant l'ordre du manifeste (forcee d'abord), la piste
+     JOUEE et la piste COCHEE n'etaient pas la meme : des sous-titres
+     s'affichaient sans qu'aucune ligne du menu ne soit surlignee.
+     `subtitlePref: "none"` (le doublage VF) ne change pas l'ordre — il n'y a
+     rien a preferer quand on n'allume rien ; c'est `defaultOff` plus bas qui
+     porte ce cas. */
+  if (subtitlePref === "forced" || subtitlePref === "full") {
+    const wantForced = subtitlePref === "forced";
+    tracks.sort((a, b) => (b.forced === wantForced) - (a.forced === wantForced));
+  }
+  return tracks;
+}
+
+/** ISO 639-2 → 639-1 for the codes frembed actually emits. */
+const FREMBED_LANG_ALIASES = { fra: "fr", fre: "fr", eng: "en", jpn: "ja" };
+
+/**
+ * LIVENESS PROBE — does the CDN actually serve this master?
+ *
+ * Every other host in this file proves its candidate before we paint a chip
+ * (isVidmolyEmbedAlive, isIframeReachable); frembed was handing over whatever
+ * url its JSON api announced, unverified. Those are two different claims: the
+ * api says "this episode is in my catalogue", the CDN says "and here are the
+ * bytes". When only the first held, the chip lit up and then died at playback —
+ * the player errored, markFailed pulled it, and it came back on the next load
+ * from the availability snapshot. That is the "frembed appears then disappears"
+ * loop.
+ *
+ * Fetching the master is also the ONLY thing we needed it for anyway (the
+ * subtitle renditions are parsed out of it), so proving the source costs no
+ * extra round trip.
+ *
+ * The verdict is three-way on purpose, because collapsing it is what poisons
+ * the 6h availability snapshot:
+ *   alive              → serve it;
+ *   absent (404/410)   → a real, deterministic miss, safe to negative-cache;
+ *   transient (429, 5xx, a Cloudflare 403 for rate, timeout, network) → 503, so
+ *                        the chip is left alone instead of being buried. The
+ *                        CDN DOES rate-limit a busy client — measured while
+ *                        probing it — and one of those must never read as "this
+ *                        episode does not exist".
+ */
+async function frembedProbeMaster(masterUrl) {
+  let res;
+  try {
+    // No Referer, deliberately: this is the CDN, which 403s frembed's own.
+    res = await fetchWithTimeout(masterUrl, {}, 5000);
+  } catch (e) {
+    return { transient: true, reason: `frembed cdn unreachable: ${e.message}` };
+  }
+  if (res.status === 404 || res.status === 410) {
+    return { absent: true, reason: `frembed cdn ${res.status}` };
+  }
+  if (!res.ok) {
+    return { transient: true, reason: `frembed cdn ${res.status}` };
+  }
+  const manifest = await res.text();
+  // A master that isn't a playlist is an error page wearing a 200 — the CDN's
+  // Cloudflare block page is exactly that. Never hand it to the player.
+  if (!/^\s*#EXTM3U/.test(manifest)) {
+    return { transient: true, reason: "frembed cdn returned a non-playlist body" };
+  }
+  return { manifest };
+}
+
+/**
+ * Le meme controle, un cran plus bas : la premiere variante du master repond-
+ * elle ? Le master et les segments ne sortent pas du meme chemin, et c'est la
+ * variante que le lecteur demande juste apres. Verdict a trois etats comme
+ * frembedProbeMaster, `null` quand il n'y a rien a verifier (playlist de media
+ * directe, ou aucune variante annoncee : on ne condamne pas sur une absence de
+ * preuve).
+ */
+async function frembedProbeVariant(manifest, masterUrl) {
+  const lignes = manifest.split("\n").map((l) => l.trim());
+  const i = lignes.findIndex((l) => l.startsWith("#EXT-X-STREAM-INF:"));
+  if (i < 0) return null;
+  const uri = lignes.slice(i + 1).find((l) => l && !l.startsWith("#"));
+  if (!uri) return null;
+  let url;
+  try {
+    url = new URL(uri, masterUrl).toString();
+  } catch {
+    return null;
+  }
+  let res;
+  try {
+    // Sans Referer, comme le master : c'est le meme CDN.
+    res = await fetchWithTimeout(url, {}, 3000);
+  } catch (e) {
+    return { transient: true, reason: `frembed variant unreachable: ${e.message}` };
+  }
+  if (res.status === 404 || res.status === 410) {
+    return { absent: true, reason: `frembed variant ${res.status}` };
+  }
+  if (!res.ok) return { transient: true, reason: `frembed variant ${res.status}` };
+  const corps = await res.text();
+  if (!/^\s*#EXTM3U/.test(corps)) {
+    return { transient: true, reason: "frembed variant returned a non-playlist body" };
+  }
+  return { ok: true };
+}
+
+/**
+ * Second-chance coordinates when (detected season, episode) came back empty.
+ *
+ * Every payload — even one for a season that doesn't exist — carries the full
+ * `seasonData.seasons` layout, which is why one api call is enough to both
+ * attempt and learn. Two shapes need remapping, and they are the same two the
+ * anime-sama resolver already fights, so they reuse its offset primitive:
+ *
+ *   • FUSION. TMDB folds several AniList seasons into one (Jujutsu Kaisen:
+ *     no season 2 at all, its 41 hosted episodes are S1's). The season we
+ *     asked for is ABSENT, so we index into the concatenation instead.
+ *   • ARC-SPLIT. A long-runner's AniList episode number is absolute and runs
+ *     past TMDB season 1 (One Piece ep 500). The season EXISTS but is short,
+ *     which is why this branch is gated on FREMBED_LONG_RUNNER_SEASONS.
+ *
+ * Returns null rather than a guess whenever the offset can't be anchored — see
+ * the season-≥2-at-offset-0 refusal, which is the difference between "no
+ * source" and silently playing season 1's episode 1.
+ */
+async function remapFrembedTarget(aniId, episode, seasonNum, payload) {
+  const seasons = payload?.seasonData?.seasons || {};
+  const keys = (payload?.seasonData?.sortedSeasonKeys || Object.keys(seasons))
+    .map(Number)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (keys.length === 0) return null;
+
+  const seasonExists = Array.isArray(seasons[String(seasonNum)]);
+  if (seasonExists && keys.length < FREMBED_LONG_RUNNER_SEASONS) return null;
+
+  // Index by the episode LABEL, never by position. On the shows this branch
+  // exists for, the two disagree: frembed's arrays carry the real episode
+  // numbers and its catalogue has holes, so One Piece's 1021 hosted slots span
+  // labels 1-1155 (134 missing, measured 2026-08-30). Counting to the 500th
+  // slot lands on episode 577 — the wrong arc, silently. Looking the label up
+  // is exact, and a label frembed doesn't host is simply absent.
+  const seasonOfLabel = new Map();
+  for (const k of keys) {
+    for (const ep of seasons[String(k)] || []) {
+      const n = Number(ep);
+      if (Number.isFinite(n) && !seasonOfLabel.has(n)) seasonOfLabel.set(n, k);
+    }
+  }
+  if (seasonOfLabel.size === 0) return null;
+
+  const index = Number(episode) - 1;
+  if (index < 0) return null;
+
+  let offset = 0;
+  if (seasonNum > 1) {
+    const meta = await getMediaMeta(aniId);
+    offset = await resolveMergedOffset(
+      aniId,
+      index,
+      seasonOfLabel.size,
+      Number(meta?.episodes) || 0,
+    );
+    // A season ≥2 that lands at offset 0 is season 1's episode by definition.
+    // resolveMergedOffset returns 0 for every offset it can't anchor (unknown
+    // prequel counts, a chain that doesn't fit), and frembed hosting FEWER
+    // episodes than AniList counts is enough to make it decline — Jujutsu
+    // Kaisen's 41 hosted against a 24+23 chain. Refusing here costs a chip;
+    // trusting it would play the wrong episode with no way for the viewer to
+    // tell.
+    if (offset === 0) return null;
+  }
+
+  // The absolute episode number this request lands on once the prequel seasons
+  // are accounted for — which IS frembed's label on both shapes this branch
+  // handles (a fused season numbers straight through; a long-runner's arcs
+  // continue each other: One Piece S1 = 1-61, S2 = 62-77, …).
+  const label = Number(episode) + offset;
+  const sa = seasonOfLabel.get(label);
+  return sa != null ? { sa, ep: label } : null;
+}
+
+/**
+ * Resolve one frembed chip to a direct, proxy-free stream.
+ *
+ * Returns null for a genuine miss (no TMDB mapping, episode not hosted) and
+ * throws TransientSourceError for an upstream hiccup, per this file's contract.
+ */
+async function getFrembedStream(serverKey, aniId, episode) {
+  const def = FREMBED_SERVERS[serverKey];
+  if (!def) return null;
+
+  // Fribb's `themoviedb_id` is a static cross-map we already ingest, so the
+  // AniList → TMDB hop costs no network call and no TMDB api key. Its weak
+  // field is `season` (it collides and fuses) — which is exactly the field we
+  // don't read: the season comes from our own resolver below.
+  //
+  // `getFribbEntry` swallows its own errors and answers null for BOTH "this
+  // anime has no mapping" (stable) and "the database didn't answer"
+  // (transient). Collapsing the two let a Turso hiccup be negative-cached for
+  // 10 min and published into the 6h availability snapshot — the chip vanishing
+  // for everyone over a blip. A second look separates them: a missing mapping
+  // is a static fact that answers null twice, a hiccup usually doesn't.
+  let fribb = await getFribbEntry(Number(aniId));
+  if (!fribb) fribb = await getFribbEntry(Number(aniId));
+
+  // FILMS. Frembed catalogues them under the TMDB *movie* id, on a `type=movie`
+  // route with no season/episode coordinates — a different index entirely, and
+  // one Fribb already gives us (`tmdb_movie_id`, ingested since day one). Until
+  // 2026-08-31 we only ever read `tmdbTvId`, so every anime film fell out at the
+  // "no tmdb.tv mapping" line below and lost its chips while frembed hosted the
+  // file. AniList's own format decides, not Fribb: a film that ALSO carries a tv
+  // id (it belongs to a franchise TMDB files as a show) must still be looked up
+  // as a movie. Sans tv id, le film est le seul choix possible.
+  const movieId = fribb?.tmdbMovieId || null;
+  const tvId = fribb?.tmdbTvId || null;
+  // AniList n'est interroge que dans le cas ambigu (les deux ids existent) —
+  // une serie ordinaire n'a pas d'id film et ne paie donc rien de plus.
+  // `episode <= 1` : un id TMDB *movie* designe UN fichier. Une fiche film qui
+  // compte plusieurs episodes (compilations, films en parties) n'a rien a quoi
+  // rattacher les suivants — les servir renverrait le meme fichier a chaque
+  // fois, sans que le spectateur puisse s'en apercevoir.
+  const asMovie =
+    !!movieId &&
+    Number(episode) <= 1 &&
+    (!tvId || (await getMediaMeta(aniId).catch(() => null))?.format === "MOVIE");
+  const tmdbId = asMovie ? movieId : tvId;
+  if (!tmdbId) {
+    dlog(`[frembed] no tmdb mapping for AniList ${aniId}`);
+    return null;
+  }
+
+  // A film has no coordinates to detect, to walk, or to remap: one id, one file.
+  const seasonNum = asMovie ? null : await detectSeasonNumber(aniId);
+  let payload = await fetchFrembedPayload(tmdbId, seasonNum, episode);
+  if (!payload) return null;
+
+  let source = frembedSource(payload);
+  if (!source && !asMovie) {
+    const target = await remapFrembedTarget(aniId, episode, seasonNum, payload);
+    if (!target) return null;
+    dlog(
+      `[frembed] tmdb ${tmdbId}: S${seasonNum}E${episode} empty → remapped to S${target.sa}E${target.ep}`,
+    );
+    payload = await fetchFrembedPayload(tmdbId, target.sa, target.ep);
+    if (!payload) return null;
+    source = frembedSource(payload);
+  }
+  if (!source) return null;
+  const master = source.url;
+
+  // Prove the CDN before painting a chip — see frembedProbeMaster.
+  const probe = await frembedProbeMaster(master);
+  if (probe.transient) throw new TransientSourceError(probe.reason);
+  if (probe.absent) {
+    dlog(`[frembed] ${probe.reason} for ${master}`);
+    return null;
+  }
+
+  // …and prove the LANGUAGE too: a `Free VF` film carries French audio only, so
+  // the VO chip has nothing to pin and would play the dub. See frembedCarriesAudio.
+  if (!frembedCarriesAudio(probe.manifest, source.label, def.audioLang)) {
+    dlog(
+      `[frembed] ${serverKey}: "${source.label}" ne porte pas d'audio ${def.audioLang} — chip absent`,
+    );
+    return null;
+  }
+
+  /* Un master lisible ne dit pas qu'une VARIANTE l'est : le master vient d'un
+     chemin, les segments d'un autre, et c'est le second que la lecture demande.
+     On verifie donc la premiere variante annoncee — en MEME TEMPS que les
+     sous-titres, qui lisent deja ce manifeste, donc sans allonger la reponse.
+     Un 404/410 sur la variante est une absence (le fichier n'est plus la) ; le
+     reste est passager et laisse le chip en place, comme pour le master. */
+  const [variante, subtitles] = await Promise.all([
+    frembedProbeVariant(probe.manifest, master),
+    frembedSubtitles(probe.manifest, master, def.subtitlePref),
+  ]);
+  if (variante?.transient) throw new TransientSourceError(variante.reason);
+  if (variante?.absent) {
+    dlog(`[frembed] ${variante.reason} for ${master}`);
+    return null;
+  }
+
+  return {
+    streams: [
+      {
+        url: master,
+        // Uniform across every title sampled (10/10 on 2026-08-30); the master
+        // advertises the real ladder anyway, this is only the chip's label.
+        quality: "1080p",
+        isM3U8: true,
+        // No proxy: the CDN is CORS-open and 403s a frembed Referer.
+        directUrl: true,
+        // Which of the master's two audio renditions this chip is, and which
+        // of its two French subtitle tracks goes with it.
+        audioLang: def.audioLang,
+        subtitlePref: def.subtitlePref,
+      },
+    ],
+    // Lifted out of the master and handed over as ordinary sidecar tracks —
+    // see frembedSubtitles for why in-manifest renditions were invisible to
+    // the player's own subtitle UI.
+    subtitles,
+  };
+}
 
 /**
  * POST /api/v2/source
@@ -243,7 +743,6 @@ const EXTRACTABLE_HOSTS = [
  * Returns: { streams, subtitles } OR { iframe } for embed-based servers
  */
 
-const COOREN_BASE = process.env.COOREN_API_URL || "";
 
 // â”€â”€ HiAnime (direct AJAX) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const HIANIME_BASE = "https://aniwatchtv.to";
@@ -338,250 +837,12 @@ async function getHiAnimeIframe(serverKey, title, episode, sub) {
   }
 }
 
-// â”€â”€ CoorenLabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const COOREN_PROVIDERS = {
-  "cooren-animepahe":  "animepahe",
-  "cooren-animekai":   "animekai",
-  "cooren-toonstream": "toonstream",
-  "cooren-animesalt":  "animesalt",
-};
-
-async function getCoorenStream(providerKey, title, episode, sub) {
-  if (!COOREN_BASE) return null;
-
-  try {
-    const provider = COOREN_PROVIDERS[providerKey];
-    if (!provider) return null;
-
-    if (provider === "animepahe")  return await getCoorenAnimePahe(title, episode, sub);
-    if (provider === "animekai")   return await getCoorenAnimekai(title, episode, sub);
-    if (provider === "toonstream") return await getCoorenToonstream(title, episode);
-    if (provider === "animesalt")  return await getCoorenAnimesalt(title, episode);
-
-    return null;
-  } catch (e) {
-    console.error(`Cooren ${providerKey} error:`, e.message);
-    return null;
-  }
-}
-
-// â”€â”€ Toonstream â€” series + episode â†’ m3u8 sources â”€â”€
-async function getCoorenToonstream(title, episode) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-  const series = searchData?.results?.[0] || searchData?.[0] || null;
-  if (!series?.slug && !series?.id) return null;
-
-  const slug = series.slug || series.id;
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/series/info/${encodeURIComponent(slug)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-  const episodes = infoData?.episodes || infoData?.results || [];
-  const ep = episodes.find(
-    (e) => Number(e.number ?? e.episode) === Number(episode)
-  ) || episodes[Number(episode) - 1];
-  if (!ep?.slug && !ep?.id) return null;
-
-  const epSlug = ep.slug || ep.id;
-  const srcRes = await fetch(
-    `${COOREN_BASE}/anime/toonstream/episode/sources/${encodeURIComponent(epSlug)}`
-  );
-  if (!srcRes.ok) return null;
-  const srcData = await srcRes.json();
-  const sources = srcData?.sources || srcData?.results || [];
-  if (!sources.length) return null;
-
-  return {
-    streams: sources
-      .filter((s) => s.url || s.file)
-      .map((s) => ({
-        url: s.url || s.file,
-        quality: s.quality || s.label || "default",
-        isM3U8: (s.url || s.file || "").includes(".m3u8"),
-      })),
-    subtitles: (srcData?.subtitles || []).map((s) => ({
-      file: s.url || s.file,
-      label: s.lang || s.label || "Subtitle",
-      kind: s.kind || "captions",
-    })),
-    referer: srcData?.headers?.Referer || null,
-  };
-}
-
-// â”€â”€ Animesalt â€” same shape as Toonstream â”€â”€
-async function getCoorenAnimesalt(title, episode) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-  const series = searchData?.results?.[0] || searchData?.[0] || null;
-  if (!series?.slug && !series?.id) return null;
-
-  const slug = series.slug || series.id;
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/series/info/${encodeURIComponent(slug)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-  const episodes = infoData?.episodes || infoData?.results || [];
-  const ep = episodes.find(
-    (e) => Number(e.number ?? e.episode) === Number(episode)
-  ) || episodes[Number(episode) - 1];
-  if (!ep?.slug && !ep?.id) return null;
-
-  const epSlug = ep.slug || ep.id;
-  const srcRes = await fetch(
-    `${COOREN_BASE}/anime/animesalt/episode/sources/${encodeURIComponent(epSlug)}`
-  );
-  if (!srcRes.ok) return null;
-  const srcData = await srcRes.json();
-  const sources = srcData?.sources || srcData?.results || [];
-  if (!sources.length) return null;
-
-  return {
-    streams: sources
-      .filter((s) => s.url || s.file)
-      .map((s) => ({
-        url: s.url || s.file,
-        quality: s.quality || s.label || "default",
-        isM3U8: (s.url || s.file || "").includes(".m3u8"),
-      })),
-    subtitles: (srcData?.subtitles || []).map((s) => ({
-      file: s.url || s.file,
-      label: s.lang || s.label || "Subtitle",
-      kind: s.kind || "captions",
-    })),
-    referer: srcData?.headers?.Referer || null,
-  };
-}
-
-async function getCoorenAnimePahe(title, episode, sub) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-
-  const anime =
-    searchData?.results?.[0] || searchData?.data?.results?.[0] || null;
-  if (!anime?.session && !anime?.id) return null;
-
-  const animeId = anime.session || anime.id;
-
-  // Get episodes
-  const epRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/episodes/${animeId}`
-  );
-  if (!epRes.ok) return null;
-  const epData = await epRes.json();
-
-  const episodes = epData?.data || epData?.results || epData || [];
-  const ep = Array.isArray(episodes)
-    ? episodes.find((e) => e.episode === Number(episode) || e.number === Number(episode))
-    : null;
-  if (!ep?.session) return null;
-
-  // Get stream - returns NDJSON
-  const streamRes = await fetch(
-    `${COOREN_BASE}/anime/animepahe/episode/${animeId}/${ep.session}`
-  );
-  if (!streamRes.ok) return null;
-  const text = await streamRes.text();
-
-  // Parse NDJSON lines
-  const sources = text
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      try { return JSON.parse(line); } catch { return null; }
-    })
-    .filter(Boolean);
-
-  // Filter by sub/dub preference
-  const filtered = sources.filter((s) =>
-    sub === "dub" ? s.isDub === true : s.isDub !== true
-  );
-  const best = filtered.length > 0 ? filtered : sources;
-
-  return {
-    streams: best.map((s) => ({
-      url: s.directUrl || s.url,
-      quality: s.quality || s.resolution || "default",
-    })),
-    // Pass corsHeaders so the client proxy can use them
-    referer: best[0]?.corsHeaders?.Referer || null,
-  };
-}
-
-async function getCoorenAnimekai(title, episode, sub) {
-  const searchRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/search/${encodeURIComponent(title)}`
-  );
-  if (!searchRes.ok) return null;
-  const searchData = await searchRes.json();
-
-  const anime = searchData?.results?.[0] || null;
-  if (!anime?.id) return null;
-
-  // Get info + episodes (path param, not query string)
-  const infoRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/info/${encodeURIComponent(anime.id)}`
-  );
-  if (!infoRes.ok) return null;
-  const infoData = await infoRes.json();
-
-  const episodes = infoData?.episodes || [];
-  const ep = episodes.find(
-    (e) => e.number === Number(episode)
-  );
-  if (!ep?.id) return null;
-
-  dlog(`[animekai] Episode ID: ${ep.id}`);
-
-  // Get stream sources â€” returns { results: [{ sources, subtitles, name }] }
-  const watchRes = await fetch(
-    `${COOREN_BASE}/anime/animekai/watch/${encodeURIComponent(ep.id)}${
-      sub === "dub" ? "?dub=true" : ""
-    }`
-  );
-  if (!watchRes.ok) return null;
-  const watchData = await watchRes.json();
-
-  // Each result has its own sources/subtitles â€” merge all
-  const results = watchData?.results || [];
-  if (results.length === 0) return null;
-
-  const allStreams = [];
-  const allSubtitles = [];
-  for (const r of results) {
-    const sources = r.sources || [];
-    const subs = r.subtitles || [];
-    for (const s of sources) {
-      allStreams.push({ url: s.url, quality: r.name || "default" });
-    }
-    for (const s of subs) {
-      if (!allSubtitles.find((x) => x.label === (s.lang || s.label))) {
-        allSubtitles.push({
-          file: s.url || s.file,
-          label: s.lang || s.label,
-          kind: s.kind || "captions",
-        });
-      }
-    }
-  }
-
-  return {
-    streams: allStreams,
-    subtitles: allSubtitles,
-    referer: "https://megaup.cc/",
-  };
-}
+/* CoorenLabs (animepahe, animekai, toonstream, animesalt) retire le
+   20/09/2026 : ~220 lignes et quatre resolveurs qu'AUCUNE route ne pouvait
+   atteindre — il n'y a jamais eu de branche `COOREN_PROVIDERS[server]` dans le
+   dispatch, aucun chip ne portait ces ids, et `COOREN_API_URL` n'est pas
+   renseignee. Le code mort qui ressemble a du code vivant se fait relire a
+   chaque passage dans ce fichier. */
 
 // â”€â”€ Anime-Sama (VF + VOSTFR) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ANIMESAMA_BASE = "https://anime-sama.to";
@@ -591,7 +852,9 @@ const slugCache = new Map();
 const ANIMESAMA_SERVERS = {
   // VF (French dub)
   "animesama-sibnet":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vf" },
-  "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
+  // "animesama-sendvid" retire le 31/08/2026 : sendvid.com est HS (502 sur tout
+  // le site) — voir lib/servers.js. L'extracteur reste en place dans
+  // lib/extractors.js, prêt si l'hôte revient.
   // Ansembed REPLACES anime-sama's old Vidmoly entry: the site migrated its
   // vidmoly uploads to this white-label domain and no longer lists vidmoly.*
   // on ANY panel (measured over 17 panels, 0 hits — while ansembed appears on
@@ -600,30 +863,35 @@ const ANIMESAMA_SERVERS = {
   // resolution attempt per episode. Voir-Anime's vidmoly is a DIFFERENT site
   // with its own uploads and stays.
   "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
-  "animesama-embed4me":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vf" },
-  "animesama-callistanise": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vf" },
   // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
   // pull 403s), so it's the least reliable host; kept last so it's offered only
   // when the more robust players above are unavailable.
   "animesama-uqload":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vf" },
   // VOSTFR (Japanese + French subs)
   "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
-  "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
+  // "animesama-sendvid-vo" retire avec son jumeau VF (31/08/2026).
   "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
-  "animesama-embed4me-vo":     { name: "Embed4Me",    preferred: ["embed4me.com", "lpayer"],                 lang: "vostfr" },
-  "animesama-callistanise-vo": { name: "Player",      preferred: ["callistanise.com", "dingtezuni.com", "movearnpre.com"], lang: "vostfr" },
   "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
 };
 
 /**
  * anime-sama stores some panels with MULTIPLE dub tracks under sibling language
- * dirs: a VF release can live at `vf`, `vf1` or `vf2` (e.g. One Piece keeps a
- * Netflix VF at `vf` and an older VF at `vf2`). A plain `vf` request must fall
- * back to those siblings instead of 404ing. Order: the requested dir first,
- * then its numbered variants. VOSTFR rarely splits, so we leave it as-is.
+ * dirs: a VF release can live at `vf`, `vf1` or `vf2`. A plain `vf` request must
+ * fall back to those siblings instead of 404ing. Order: the requested dir first,
+ * then its numbered variants — sauf quand VF_PISTE_PREFEREE designe une piste
+ * pour ce slug. VOSTFR rarely splits, so we leave it as-is.
  */
-function animeSamaLangDirs(langPath, exclude) {
-  const all = langPath === "vf" ? ["vf", "vf1", "vf2", "vf3"] : [langPath];
+/* La piste VF a servir EN PREMIER, par slug anime-sama. One Piece (mesure du
+   22/09/2026) : `saison1/vf2` est la VF Netflix de la saga East Blue, ansembed
+   vivant sur les 61 episodes ; `saison1/vf` porte un ansembed mort (404) et un
+   ancien doublage. `vf2` n'existe pas pour les sagas suivantes : sans panneau,
+   la resolution retombe d'elle-meme sur `vf`. */
+const VF_PISTE_PREFEREE = { "one-piece": "vf2" };
+
+function animeSamaLangDirs(langPath, exclude, slug) {
+  let all = langPath === "vf" ? ["vf", "vf1", "vf2", "vf3"] : [langPath];
+  const preferee = langPath === "vf" && VF_PISTE_PREFEREE[slug];
+  if (preferee) all = [preferee, ...all.filter((d) => d !== preferee)];
   return exclude?.size ? all.filter((d) => !exclude.has(d)) : all;
 }
 
@@ -651,20 +919,147 @@ function animeSamaLangDirs(langPath, exclude) {
  * « panneau sain, hote absent » (absence honnete), ce que fetchPanelIframe doit
  * rendre a son appelant.
  */
+/* ── episodes.js, telecharge UNE fois pour tous les serveurs d'un meme panneau ──
+ *
+ * L'URL ne depend que de (slug, seasonDir, langDir). Le seul morceau specifique
+ * au serveur est `pickPreferredEpisodeUrl`, qui choisit l'hote DANS le contenu
+ * deja telecharge. Or six des dix serveurs du catalogue vivent sur anime-sama
+ * (sibnet, ansembed, uqload x sub/vo) : chacun telechargeait donc le meme
+ * fichier, de son cote, dans sa propre invocation.
+ *
+ * Le releve de production du 10/09 le montre a nu — quatre lignes
+ * « no episodes.js for <le meme titre>/saison1 », quatre invocations, quatre
+ * allers-retours vers le Worker Cloudflare pour decouvrir la meme absence. Et
+ * /api/v2/source pesait 40 invocations sur 60 dans l'echantillon.
+ *
+ * Le cache memoire ne pouvait pas aider : les dix sondes partent en parallele et
+ * atterrissent sur dix lambdas differentes. Il faut donc un cache PARTAGE, et
+ * c'est ce que Redis est. Le memo de processus reste devant, pour les appels
+ * repetes d'une meme invocation (les boucles de langue en font).
+ *
+ * On cache la RESSOURCE, pas un verdict. Cacher « anime-sama n'a rien pour cet
+ * anime » confondrait deux choses distinctes : « le panneau n'existe pas » et
+ * « le panneau existe mais cet hote n'y est pas ». La seconde est une absence
+ * honnete, propre a un serveur, et elle continue d'etre decidee par appelant. */
+const EPISODES_KEY = (slug, seasonDir, langDir) =>
+  `asEps:v1:${slug}:${seasonDir}:${langDir}`;
+/* Assez long pour couvrir le fan-out d'un visiteur et de ses voisins immediats,
+   assez court pour qu'un panneau repare se voie dans la minute qui suit. */
+const EPISODES_TTL_S = 300;
+/* Une absence tient moins longtemps qu'une presence : un episode qui vient
+   d'etre poste ne doit pas rester invisible cinq minutes. */
+const EPISODES_MISS_TTL_S = 60;
+/* One Piece & consorts ont des panneaux enormes. Au-dela, on garde le memo de
+   processus mais on n'ecrit pas dans Redis : le plan gratuit plafonne a 256 Mo
+   et 50 Go de bande passante, et un panneau geant les mangerait pour un gain
+   qui ne concerne qu'un titre. */
+const EPISODES_MAX_BYTES = 256 * 1024;
+
+const episodesMemo = new Map(); // key → { t, arrays }
+const EPISODES_MEMO_MAX = 300;
+
+function rememberEpisodes(key, arrays) {
+  if (episodesMemo.size > EPISODES_MEMO_MAX) episodesMemo.clear();
+  episodesMemo.set(key, { t: Date.now(), arrays });
+}
+
+/**
+ * Les tableaux d'episodes d'un panneau, ou `null` quand on n'a PAS PU savoir.
+ *
+ * Les trois retours sont distincts et l'appelant doit les traiter pareil (passer
+ * a la langue suivante), mais le cache, lui, ne doit surtout pas les confondre :
+ *   - tableaux non vides → panneau sain, cache EPISODES_TTL_S ;
+ *   - tableau vide       → 404 ou fichier vide, une vraie absence, cache court ;
+ *   - `null`             → le fetch a leve (Worker injoignable, timeout). Ce
+ *                          n'est pas une information sur anime-sama, c'est une
+ *                          information sur NOUS, et la cacher figerait un
+ *                          panneau sain sur un hoquet de reseau.
+ */
+async function loadEpisodeArrays(slug, seasonDir, langDir) {
+  const key = EPISODES_KEY(slug, seasonDir, langDir);
+
+  const memo = episodesMemo.get(key);
+  if (memo && Date.now() - memo.t < EPISODES_TTL_S * 1000) return memo.arrays;
+
+  if (redis) {
+    try {
+      const raw = await redis.get(key);
+      if (raw) {
+        const arrays = JSON.parse(raw);
+        rememberEpisodes(key, arrays);
+        return arrays;
+      }
+    } catch {
+      /* cache indisponible — on retombe sur le telechargement */
+    }
+  }
+
+  let arrays;
+  try {
+    const res = await fetchViaWorker(
+      `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${langDir}/episodes.js`,
+    );
+    arrays = res.ok ? parseEpisodesJs(await res.text()) : [];
+  } catch {
+    return null; // indetermine : ni memo, ni cache
+  }
+
+  rememberEpisodes(key, arrays);
+  if (redis) {
+    try {
+      const payload = JSON.stringify(arrays);
+      if (payload.length <= EPISODES_MAX_BYTES) {
+        await redis.set(
+          key,
+          payload,
+          "EX",
+          arrays.length ? EPISODES_TTL_S : EPISODES_MISS_TTL_S,
+        );
+      }
+    } catch {
+      /* non fatal */
+    }
+  }
+  return arrays;
+}
+
+/* Depart HEDGE, pas fan-out sec.
+   Ces `episodes.js` etaient charges l'un apres l'autre : pour une demande VF,
+   `animeSamaLangDirs` renvoie ["vf","vf1","vf2","vf3"], donc jusqu'a quatre
+   allers-retours en serie a 5 s de plafond chacun. Or « vf » repond dans
+   l'immense majorite des cas, et vf1/vf2/vf3 n'existent presque jamais : les
+   lancer tous d'emblee ajouterait trois requetes Worker inutiles a CHAQUE
+   resolution. On lance donc le premier seul, et on n'ouvre les autres que s'il
+   tarde (250 ms) ou s'il ne donne rien. La priorite d'origine continue de
+   decider du gagnant — on ne prend pas « le premier arrive » mais « le premier
+   de la liste qui convient ». */
+const HEDGE_MS = 250;
+
 async function pickLangDirForHost(slug, seasonDir, langDirs, serverDef, index) {
+  if (!langDirs.length) return null;
+  const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+  const vols = new Map();
+  const lance = (lp) => {
+    if (!vols.has(lp)) vols.set(lp, loadEpisodeArrays(slug, seasonDir, lp).catch(() => null));
+    return vols.get(lp);
+  };
+
+  const premier = lance(langDirs[0]);
+  const gagneVite = await Promise.race([premier, attendre(HEDGE_MS).then(() => "lent")]);
+  // Le premier a repondu a temps ET porte cet hote : rien d'autre a demander.
+  if (gagneVite !== "lent" && gagneVite?.length) {
+    const url = pickPreferredEpisodeUrl(gagneVite, serverDef.preferred, index);
+    if (url) return { langDir: langDirs[0], episodeArrays: gagneVite, url };
+  }
+  // Sinon on ouvre le reste en parallele et on depouille DANS L'ORDRE.
+  langDirs.slice(1).forEach(lance);
   let fallback = null;
   for (const lp of langDirs) {
-    let res;
-    try {
-      res = await fetchViaWorker(
-        `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${lp}/episodes.js`,
-      );
-    } catch {
-      continue;
-    }
-    if (!res.ok) continue;
-    const episodeArrays = parseEpisodesJs(await res.text());
-    if (episodeArrays.length === 0) continue;
+    /* Les trois issues de loadEpisodeArrays (panneau sain / absent / indetermine)
+       se traitent ici de la meme facon — passer a la langue suivante — comme
+       le faisaient les trois `continue` d'origine. */
+    const episodeArrays = await vols.get(lp);
+    if (!episodeArrays || episodeArrays.length === 0) continue;
     if (!fallback) fallback = { langDir: lp, episodeArrays };
     const url = pickPreferredEpisodeUrl(episodeArrays, serverDef.preferred, index);
     if (url) return { langDir: lp, episodeArrays, url };
@@ -691,7 +1086,7 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, exc
     ? [langPath, langPath === "vf" ? "vostfr" : "vf"].filter(
         (d) => !excludeLangs?.has(d),
       ) // films are often single-language
-    : animeSamaLangDirs(langPath, excludeLangs);
+    : animeSamaLangDirs(langPath, excludeLangs, slug);
   // A la bonne position, chez le bon hote, ET dans le panneau qui le porte
   // vraiment — cf. pickLangDirForHost.
   const hit = await pickLangDirForHost(slug, seasonDir, tryLangs, serverDef, index);
@@ -753,7 +1148,10 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       const expectedSeason = await detectSeasonNumber(aniId);
       if (dirSeason !== expectedSeason) {
         dlog(`[anime-sama] player_map ${mapRow.seasonDir} implies S${dirSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
-        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`).catch(() => {});
+        // `proven` : on ne soupconne pas, on vient de calculer que le panneau
+        // designe une autre saison. La ligne est retrogradee tout de suite, au
+        // lieu d'attendre trois visites qui n'arriveront pas.
+        flagPlayerMap(aniId, "animesama", langPath, `season mismatch: ${mapRow.seasonDir} vs resolver S${expectedSeason}`, true).catch(() => {});
         mapPanelCoherent = false;
       }
     }
@@ -975,7 +1373,7 @@ async function resolveAnimeSamaHeuristically(
       const targetLangs = (
         targetSeason.isFilm
           ? [targetSeason.path.split("/")[1] || langPath]
-          : animeSamaLangDirs(langPath, excludeLangs)
+          : animeSamaLangDirs(langPath, excludeLangs, slug)
       ).filter((d) => !excludeLangs?.has(d));
       // On choisit le repertoire qui porte l'hote, pas le premier qui repond :
       // un panneau `vf` peut exister avec un upload mort pendant que `vf2` a le
@@ -1081,7 +1479,7 @@ async function resolveAnimeSamaHeuristically(
         const hit = await pickLangDirForHost(
           slug,
           season.dir,
-          animeSamaLangDirs(langPath, excludeLangs),
+          animeSamaLangDirs(langPath, excludeLangs, slug),
           serverDef,
           episodeIndex - cumulativeEps,
         );
@@ -1185,9 +1583,16 @@ async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
     // server-side extractor instead, which either failed (→ raw JW iframe) or
     // "succeeded" with a token bound to our IP that 410s on every segment.
     if (VIDMOLY_HOST_RE.test(lower)) {
-      // Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
-      // after the file is deleted. Probe before serving the chip so a dead
-      // slug yields "server unavailable" instead of vidmoly's own 404 page.
+      /* Aniwsama tends to keep dead vidmoly slugs in its catalogue for weeks
+         after the file is deleted. Probe before serving the chip so a dead
+         slug yields "server unavailable" instead of vidmoly's own 404 page.
+         Sur TOUS les chemins, sondes comme lecture. Du 20 au 22/09/2026 elle
+         ne tournait que pour les sondes, au motif que le navigateur
+         decouvrirait le 404 tout seul et basculerait. Faux : l'extraction
+         client echoue, et UniversalPlayer retombe sur l'IFRAME — la page 404
+         de l'hote, pub plein ecran comprise (One Piece VF ep 1, `saison1/vf`).
+         Et sans verdict « mort » ici, la reprise sur la piste suivante
+         (vf → vf2, cf. getAnimeSamaIframe) ne se declenchait jamais. */
       if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[anime-sama] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         return null;
@@ -1602,6 +2007,29 @@ function normalizeForMatch(s) {
 // title? Measured as token overlap weighted by token length.
 //   "baki" vs target "baki hanma"  â†’ 1 token match (baki, len 4) â†’ score 4
 //   "baccano" vs target "baki hanma" â†’ 0 token match â†’ score 0
+//
+// LIMITE CONNUE, mesuree le 20/09/2026 — a lire avant de « durcir » ce scorer.
+// Il n'additionne que les correspondances : ce que le slug porte EN TROP ne lui
+// coute rien. Un seul token partage suffit donc a faire gagner un candidat quand
+// le bon n'est pas au catalogue — `joker-game` l'emporte pour *Kaitou Joker*
+// (synonyme « JOKER »), `black-cat` pour *Kurokami*, `lets-play` pour *Asobi ni
+// Iku yo!*.
+//
+// Les deux filets censes rattraper ca sont incapables de le faire, et c'est
+// MESURE, pas suppose :
+//   - la confiance titre<->slug : un plancher a 0,60 rejetterait 534 lignes, et
+//     les quatorze echantillonnees sont TOUTES correctes — ce sont des titres
+//     francais et des variantes d'orthographe (`shirayuki-aux-cheveux-rouges`
+//     0,41, `craque-pour-moi-medaka` 0,32, `amagi-brillant-park` 0,53). Le score
+//     ne sait pas distinguer « traduction francaise du bon anime » de « titre
+//     anglais du mauvais » : les deux ne partagent qu'un token.
+//   - le nombre d'episodes : les sept mauvais slugs tombent tous a ±1 de la
+//     fiche AniList, et la porte accepte ±1. Sur un parc ou presque tout fait 12
+//     ou 13 episodes, elle ne discrimine rien.
+//
+// Ce qui marche, c'est un juge EXTERIEUR : MyDubList couvre la moitie VF (cf.
+// verify-player-map.mjs). La moitie VOSTFR reste ouverte — l'annee de diffusion
+// serait le bon signal, encore faut-il qu'anime-sama l'expose.
 function scoreSlugAgainstTitle(slug, target) {
   const a = new Set(normalizeForMatch(slug.replace(/-/g, " ")).split(" ").filter(Boolean));
   const b = normalizeForMatch(target).split(" ").filter(Boolean);
@@ -1656,16 +2084,57 @@ function slugTitleConfidence(slug, titles) {
     const titleSig = new Set(significantTokens(t));
     if (titleSig.size === 0) continue;
     const matched = slugSig.filter((tok) => titleSig.has(tok)).reduce((a, tok) => a + tok.length, 0);
-    const titleLen = significantTokens(t).reduce((a, tok) => a + tok.length, 0);
-    const cov = matched / Math.min(slugLen, titleLen);
+    /* On divise par la longueur du SLUG, pas par `Math.min(slugLen, titleLen)`.
+       Diviser par le plus court des deux faisait qu'un synonyme d'un seul mot
+       certifiait n'importe quel slug le contenant : Kaitou Joker porte le
+       synonyme « JOKER », donc `joker-game` sortait a 1,00 et « game » n'etait
+       demande a personne. Meme mecanique pour `isekai-ojisan` contre le
+       synonyme « Isekai no Yu ». Au 20/09/2026 la colonne affichait 1,00 sur
+       6 496 lignes de 6 962 : elle ne discriminait plus rien.
+       La porte `<= 0` des appelants ne bouge PAS : `matched` vaut zero dans les
+       deux formules ou dans aucune, donc ce changement n'accepte ni ne refuse
+       un slug de plus. Il rend seulement la valeur relisible, pour qu'un seuil
+       puisse un jour se choisir sur des mesures plutot qu'au jugé. */
+    const cov = matched / slugLen;
     if (cov > best) best = cov;
   }
   return best;
 }
 
+/* Le slug est le MEME pour les six serveurs anime-sama d'un titre, mais
+   `slugCache` est une Map de processus : les sondes partent en parallele sur des
+   lambdas differentes, donc pendant le fan-out — le seul moment ou ce cache
+   servirait — il est toujours vide. Un miroir Redis le rend enfin partage.
+
+   Les titres deja resolus une fois n'y passent pas : player_map porte le slug
+   verifie, de facon durable et deja partagee. Ce miroir ne couvre que le chemin
+   heuristique, c'est-a-dire exactement les titres qui coutent cher.
+
+   Le chemin d'audit (`skipCache`) reste a l'ecart de Redis, comme partout. */
+const SLUG_KEY = (aniId, title) => `asSlug:v1:${aniId}:${title}`;
+const SLUG_TTL_S = 60 * 60;
+/* Une absence tient moins longtemps : un titre ajoute au catalogue doit pouvoir
+   apparaitre sans attendre une heure. */
+const SLUG_MISS_TTL_S = 5 * 60;
+
 async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const cacheKey = `${aniId}-${title}`;
   if (slugCache.has(cacheKey)) return slugCache.get(cacheKey);
+
+  const shareKey = SLUG_KEY(aniId, title);
+  const shareable = redis && !mediaOpts.skipCache;
+  if (shareable) {
+    try {
+      const raw = await redis.get(shareKey);
+      if (raw) {
+        const { s: cached } = JSON.parse(raw);
+        slugCache.set(cacheKey, cached);
+        return cached;
+      }
+    } catch {
+      /* cache indisponible — on resout normalement */
+    }
+  }
 
   // Strip season suffixes to find the base anime on anime-sama
   const stripSeason = (t) =>
@@ -1740,22 +2209,35 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
   const candidates = new Map(); // slug â†’ best score
   let anySearchOk = false; // did at least one query reach anime-sama and parse?
-  for (const q of queries) {
-    let searchRes;
-    try {
-      searchRes = await fetchViaWorker(
-        `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
-      );
-    } catch (e) {
-      console.error(`[anime-sama] search "${q}" failed:`, e.message);
-      continue;
-    }
-    if (!searchRes.ok) {
-      console.error(`[anime-sama] search "${q}" HTTP ${searchRes.status}`);
-      continue;
-    }
+  /* EN PARALLELE. Ces recherches etaient faites l'une apres l'autre, cinq a
+     douze fois, chacune sous un plafond de 5 s et sans sortie anticipee
+     (le score se calcule sur l'ENSEMBLE des reponses, il n'y a donc rien a
+     interrompre). C'etait le premier poste du chemin froid : 2 a 8 s, alors
+     que les requetes ne dependent pas les unes des autres et que la fusion
+     ci-dessous — un maximum par slug — se moque de l'ordre d'arrivee.
+     Plafonnees a huit : au-dela, ce sont des synonymes qui n'ont jamais
+     departage personne, et chacun coute une requete au Worker. */
+  const MAX_RECHERCHES = 8;
+  const reponses = await Promise.all(
+    queries.slice(0, MAX_RECHERCHES).map(async (q) => {
+      try {
+        const res = await fetchViaWorker(
+          `${ANIMESAMA_BASE}/catalogue/?search=${encodeURIComponent(q)}`,
+        );
+        if (!res.ok) {
+          console.error(`[anime-sama] search "${q}" HTTP ${res.status}`);
+          return null;
+        }
+        return await res.text();
+      } catch (e) {
+        console.error(`[anime-sama] search "${q}" failed:`, e.message);
+        return null;
+      }
+    }),
+  );
+  for (const html of reponses) {
+    if (html == null) continue;
     anySearchOk = true;
-    const html = await searchRes.text();
     const $ = cheerio.load(html);
 
     $("a[href*='/catalogue/']").each((_, el) => {
@@ -1792,6 +2274,7 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
 
   let chosen = null;
   let chosenScore = -Infinity;
+  let chosenCouverture = -1;
   for (const [slug, score] of candidates) {
     if (score === 0) continue;
     // CONFIDENCE FLOOR: reject a slug whose only overlap with every known title
@@ -1809,13 +2292,25 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
     let composite = score;
     if (yearStr && slugYear === aniYear) composite += 100;
     else if (yearStr && slugYear && slugYear !== aniYear) composite -= 100;
-    // Tie-break on slug length when composites are equal.
-    if (
+    /* A egalite, on departage d'abord sur la COUVERTURE : lequel des deux slugs
+       le titre explique-t-il le mieux ? `hokuto-no-ken` est entierement explique
+       par « Hokuto no Ken », `ken-le-survivant` ne l'est qu'au quart — et les
+       deux partagent exactement le meme token, donc le meme score de base. La
+       longueur ne departageait ca que par accident.
+       Ce n'est qu'un departage : quand un seul candidat revient de la recherche,
+       il gagne quel que soit son score, et c'est la limite connue de ce
+       chooser — cf. le commentaire de `scoreSlugAgainstTitle`. */
+    const couverture = slugTitleConfidence(slug, targets);
+    const meilleur =
       composite > chosenScore ||
-      (composite === chosenScore && chosen && slug.length < chosen.length)
-    ) {
+      (composite === chosenScore &&
+        chosen &&
+        (couverture > chosenCouverture ||
+          (couverture === chosenCouverture && slug.length < chosen.length)));
+    if (meilleur) {
       chosen = slug;
       chosenScore = composite;
+      chosenCouverture = couverture;
     }
   }
 
@@ -1828,6 +2323,21 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   }
 
   slugCache.set(cacheKey, chosen);
+  /* On n'arrive ici que sur un verdict FERME : le `throw` ci-dessus a deja
+     ecarte le cas « recherche injoignable », qui ne dit rien sur anime-sama et
+     ne doit donc jamais etre partage. */
+  if (shareable) {
+    try {
+      await redis.set(
+        shareKey,
+        JSON.stringify({ s: chosen }),
+        "EX",
+        chosen ? SLUG_TTL_S : SLUG_MISS_TTL_S,
+      );
+    } catch {
+      /* non fatal */
+    }
+  }
   return chosen;
 }
 
@@ -2188,7 +2698,23 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // re-resolved). Here we cross-check the mapped slug's suffix-season against
     // detectSeasonNumber; on mismatch we drop the row and re-resolve, which
     // breaks the loop for SNK and any other anime poisoned the same way.
-    if (mappedSlug) {
+    /* Le garde ne s'applique PAS a une ligne `verified`.
+     *
+     * Il compare le numero de saison encode dans le slug a celui que notre
+     * resolveur calcule, et suppose donc que voir-anime numerote comme AniList.
+     * C'est faux des qu'un fournisseur FUSIONNE deux entrees sur une page :
+     * Kimetsu no Yaiba 2 chez eux, c'est Mugen Ressha-hen (7 ep) suivi de
+     * Yuukaku-hen (11), soit nos saisons 2 ET 3 sur une seule page numerotee 2.
+     * Toute correspondance juste pour cette franchise est donc, pour ce garde,
+     * une contradiction — il jetait la bonne ligne et la reresolvait a chaque
+     * requete, vers la page de la saison 1.
+     *
+     * `verified` est precisement le niveau qui sait ce genre de chose : une
+     * ligne verifiee a ete controlee (compte d'episodes + titre) avant sa
+     * promotion, et lib/db/playerMap.ts dit deja qu'elle est honoree quelle que
+     * soit la version de l'algorithme. Le garde reste entier sur `heuristic`,
+     * qui est ce que l'empoisonnement SNK ecrivait. */
+    if (mappedSlug && mapRow.status !== "verified") {
       const expectedSeason = await detectSeasonNumber(aniId);
       const base = mappedSlug.replace(/-vf$/i, "");
       const suffix = base.match(/-(?:s|saison-|season-)?(\d+)$/);
@@ -2196,7 +2722,8 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       if (trace) trace.guard = { slugSeason, expectedSeason, mismatch: slugSeason !== expectedSeason };
       if (slugSeason !== expectedSeason) {
         dlog(`[voiranime] player_map slug ${mappedSlug} implies S${slugSeason} but resolver says S${expectedSeason} — ignoring poisoned row`);
-        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`).catch(() => {});
+        // `proven` : cf. le meme appel cote anime-sama.
+        flagPlayerMap(aniId, "voiranime", lang, `season mismatch: slug S${slugSeason} vs resolver S${expectedSeason}`, true).catch(() => {});
         mappedSlug = null;
       }
     }
@@ -2233,7 +2760,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
      * season the site keeps on one page. Zero for everything else, so the
      * ordinary case is untouched. See voiranimeChainOffset.
      */
-    const chainOffset = viaPrequelOffset || (await voiranimeChainOffset(aniId));
+    /* Le decalage porte par la CORRESPONDANCE l'emporte sur celui qu'on
+     * calcule. `voiranimeChainOffset` ne sait recoller que des PARTIES d'une
+     * meme saison (meme titre a "Part N" pres) ; il rend 0 devant une page qui
+     * fusionne deux saisons de noms differents — Mugen Ressha-hen puis
+     * Yuukaku-hen sur `kimetsu-no-yaiba-2-vf`, ou l'episode 1 de Yuukaku-hen
+     * est l'episode 8 de la page. Ce cas-la ne se devine pas depuis AniList :
+     * il se constate sur la page, donc il s'ecrit dans player_map.
+     * Le champ existait deja et n'etait lu que par le chemin anime-sama. */
+    const mappedOffset = mappedSlug ? Number(mapRow?.epOffset) || 0 : 0;
+    const chainOffset =
+      mappedOffset || viaPrequelOffset || (await voiranimeChainOffset(aniId));
     const wantedEpisode = Number(episode) + chainOffset;
     if (chainOffset > 0) {
       dlog(`[voiranime] ${aniId} is a later part: ep ${episode} → ${wantedEpisode}`);
@@ -2419,6 +2956,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
           dlog(`[voiranime] ep ${episode} part page has no ${serverDef.name} embed: ${url}`);
           return null;
         }
+        // Sur tous les chemins — voir finalizeAnimeSamaIframe.
         if (!(await isVidmolyEmbedAlive(embed))) {
           dlog(`[voiranime] ep ${episode} part embed is dead — hiding chip: ${embed}`);
           return null;
@@ -2489,6 +3027,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
     // commentary in getAnimeSamaIframe for the full rationale.
     if (VIDMOLY_HOST_RE.test(lower)) {
+      // Sur tous les chemins — voir finalizeAnimeSamaIframe.
       if (!(await isVidmolyEmbedAlive(iframeUrl))) {
         dlog(`[voiranime] vidmoly slug 404 — hiding chip: ${iframeUrl}`);
         // PROVEN gone: the probe only answers false on an explicit 404 (a network
@@ -3097,7 +3636,7 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     // language; a VF request also tries vf1/vf2 dub tracks.
     const targetLangs = directTarget.isFilm
       ? [directTarget.path.split("/")[1] || langPath]
-      : animeSamaLangDirs(langPath);
+      : animeSamaLangDirs(langPath, null, slug);
     let epRes = null;
     for (const lp of targetLangs) {
       const r = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${lp}/episodes.js`);
@@ -3431,8 +3970,14 @@ async function releaseScrapeLock(cacheKey) {
 async function waitForLeaderResult(cacheKey) {
   const deadline = Date.now() + LOCK_WAIT_MS;
   let errors = 0;
+  // On REGARDE avant de dormir : le leader a souvent deja publie quand on
+  // arrive (le verrou est pris pour 20 s, la resolution dure moins), et ce
+  // sommeil en tete de boucle faisait payer LOCK_POLL_MS a tout le monde pour
+  // une reponse qui etait deja la.
+  let premierTour = true;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    if (!premierTour) await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
+    premierTour = false;
     try {
       const [cached, lock] = await redis.mget(cacheKey, lockKey(cacheKey));
       if (cached) return cached;
@@ -3446,9 +3991,34 @@ async function waitForLeaderResult(cacheKey) {
       if (++errors >= 2) return null;
     }
   }
-  return null;
+  /* Budget epuise ET le leader tient toujours son verrou : il travaille encore.
+     Se mettre a scraper a notre tour, c'est ajouter 8 a 13 s de resolution aux
+     6 s deja brulees, contre un `maxDuration` de 15 — donc deux timeouts au
+     lieu d'un, et deux fois la charge en amont au pire moment. On le dit, le
+     client reessaie (DECOY_BACKOFF_MS), et il tombera sur le cache du leader. */
+  return LEADER_BUSY;
 }
 
+/** Le leader n'a pas fini dans les temps — a distinguer de « il a fini sans
+ *  rien », qui autorise l'appelant a scraper lui-meme. */
+const LEADER_BUSY = Symbol("leader-busy");
+
+/* `probe` n'entre VOLONTAIREMENT pas dans cette cle.
+ *
+ * Une sonde et une ouverture de lecteur demandent la meme chose et ne different
+ * que par une verification de liveness. Les separer donnerait deux entrees par
+ * (anime, episode, lecteur, langue) la ou il y en a une — donc plus de commandes
+ * Upstash, dont le budget est la contrainte dure de ce projet — et surtout, la
+ * sonde ne rechaufferait plus le cache du lecteur : changer de lecteur en cours
+ * d'episode repartirait d'une resolution froide. On echangerait une latence
+ * contre une autre.
+ *
+ * Depuis le 22/09/2026 la question ne se pose plus : la verification de
+ * liveness tourne sur les deux chemins (cf. finalizeAnimeSamaIframe). Avant,
+ * une ouverture qui devancait la sonde mettait en cache un embed mort, et le
+ * « repli client » cense le rattraper affichait en fait la page 404 de l'hote
+ * en iframe, pub comprise.
+ */
 function sourceCacheKey({ server, aniId, episode, sub }) {
   // v10: Vidmoly now has a Fly-proxy tier 2 fallback. Worker-blocked
   // embeds (vidmoly.biz 410 from CF IPs) get extracted via Fly and the
@@ -3472,7 +4042,17 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v13: same again for the voir-anime slug forms ({base}-{N}-{subtitle}).
   // A resolver that reaches pages it could not reach before must not be read
   // through absences recorded by the one that could not.
-  return `src:v13:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // v14: meme raison, pour voir-anime. Une ligne player_map `verified` n'est
+  // plus jetee par le garde de coherence de saison et porte enfin son
+  // `ep_offset` : le resolveur atteint des pages qu'il ne pouvait pas atteindre
+  // (les saisons 2+ de Demon Slayer, ou il servait la saison 1 ou rien). Les
+  // absences — et les URL de la MAUVAISE saison — enregistrees par l'ancien
+  // resolveur doivent etre orphelines, sans quoi elles seraient reservees
+  // pendant 6 h et reecrites a chaque sonde.
+  // v15: EVICT les embeds vidmoly/ansembed morts mis en cache sans
+  // verification par une ouverture de lecteur (One Piece VF ep 1 : la page 404
+  // d'ansembed et sa pub, servies en iframe).
+  return `src:v15:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -3515,6 +4095,10 @@ export default async function handler(req, res) {
   const aniId = input.aniId != null ? Number(input.aniId) : undefined;
   const episode = input.episode != null ? Number(input.episode) : undefined;
   const sub = input.sub === "dub" ? "dub" : "sub";
+  /* `input.probe` (« peindre un chip » contre « ouvrir un lecteur ») n'est plus
+     lu depuis le 22/09/2026 : sauter la verification de liveness a l'ouverture
+     servait un embed mort en iframe, pub comprise. Le client peut continuer a
+     l'envoyer. */
   const title = input.title;
   const mediaMeta = isGet
     ? input.malId
@@ -3561,13 +4145,17 @@ export default async function handler(req, res) {
      the edge never claims "absent" longer than the server itself would. */
   const CACHE_FOUND = "public, s-maxage=300, stale-while-revalidate=600";
   const CACHE_ABSENT = "public, s-maxage=300, stale-while-revalidate=300";
+  /* A PROVEN absence sits 6 h in Redis (SOURCE_HARD_NOTFOUND_TTL_S): the edge
+     can hold it 1 h without ever claiming more than the server does, instead of
+     re-invoking the function every 5 min for an upload that does not exist. */
+  const CACHE_ABSENT_HARD = "public, s-maxage=3600, stale-while-revalidate=600";
   const cacheFound = () => {
     res.setHeader("Cache-Control", "public, max-age=60");
     res.setHeader("CDN-Cache-Control", CACHE_FOUND);
   };
-  const cacheAbsent = () => {
+  const cacheAbsent = (hard = false) => {
     res.setHeader("Cache-Control", "public, max-age=30");
-    res.setHeader("CDN-Cache-Control", CACHE_ABSENT);
+    res.setHeader("CDN-Cache-Control", hard ? CACHE_ABSENT_HARD : CACHE_ABSENT);
   };
 
   // Redis lookup FIRST — short-circuit identical (server, aniId, episode, sub)
@@ -3592,7 +4180,7 @@ export default async function handler(req, res) {
           // the main CPU win: ~half of probe fan-outs naturally 404, and a
           // popular episode would re-extract the same dead servers for every
           // visitor without this.
-          cacheAbsent();
+          cacheAbsent(cached === HARD_NOT_FOUND_SENTINEL);
           return notFoundStatus("Source not found", {
             hard: cached === HARD_NOT_FOUND_SENTINEL,
           });
@@ -3637,9 +4225,17 @@ export default async function handler(req, res) {
     isLeader = await acquireScrapeLock(cacheKey);
     if (!isLeader) {
       const leaderResult = await waitForLeaderResult(cacheKey);
+      if (leaderResult === LEADER_BUSY) {
+        /* Le leader travaille encore : on rend la main plutot que de doubler le
+           scrape (cf. waitForLeaderResult). Reponse ecrite ici plutot qu'avec
+           `sendRetryable`, qui n'est declare que plus bas — et qui relacherait
+           un verrou que, suiveur, nous ne tenons pas. */
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(503).json({ error: "Source temporarily unavailable" });
+      }
       if (leaderResult) {
         if (isNotFoundSentinel(leaderResult)) {
-          cacheAbsent();
+          cacheAbsent(leaderResult === HARD_NOT_FOUND_SENTINEL);
           return notFoundStatus("Source not found", {
             hard: leaderResult === HARD_NOT_FOUND_SENTINEL,
           });
@@ -3679,7 +4275,7 @@ export default async function handler(req, res) {
         .catch(() => null);
       if (isLeader) releaseIfUnwritten(write, cacheKey);
     }
-    cacheAbsent();
+    cacheAbsent(hard);
     return notFoundStatus(msg, { hard });
   };
 
@@ -3718,97 +4314,266 @@ export default async function handler(req, res) {
   // client-controlled data — nothing a client sends should overwrite server
   // caches. mediaMeta is still read inline below for megaplay's idMal + title.
 
-  // Megaplay â€” extract m3u8 + subtitles directly (no iframe).
-  // Megaplay exposes two equivalent stream routes (both verified live):
-  //   /stream/mal/<malId>/<episode>/<sub|dub>
-  //   /stream/ani/<aniListId>/<episode>/<sub|dub>
-  // They resolve to the SAME MegaCloud source when both ids map. We try the MAL
-  // route first (historically the better-mapped of the two) and fall back to the
-  // AniList route â€” which crucially also covers titles that have NO MAL id, or
-  // whose MAL mapping Megaplay hasn't synced yet (their own docs warn the
-  // AniList/MAL mapping is incomplete). Either route succeeding is a hit.
-  if (server === "megaplay") {
-    let malId = mediaMeta?.idMal || null;
-    if (!malId) {
-      const meta = await getMediaMeta(aniId);
-      malId = meta?.idMal || null;
-    }
-    const lang = sub === "dub" ? "dub" : "sub";
-    // Candidate routes in priority order; skip the MAL one when there's no id.
-    const routes = [];
-    if (malId) routes.push(`https://megaplay.buzz/stream/mal/${malId}/${episode}/${lang}`);
-    if (aniId) routes.push(`https://megaplay.buzz/stream/ani/${aniId}/${episode}/${lang}`);
-    if (routes.length === 0) {
-      return sendNotFound("megaplay: no MAL or AniList id for this anime");
-    }
-    // Try every route once; return the first hit. Reports whether the run was
-    // ALL genuine "file not found" (safe to negative-cache) vs any transient
-    // failure (must 503-retry).
-    const tryRoutes = async () => {
-      let lastError = "Source not found";
-      let allAbsent = true;
-      for (const url of routes) {
-        const result = await extractMegaplay(url);
-        if (!result.error && result.streams?.length) return { hit: result };
-        lastError = result.error || lastError;
-        // A route that failed for any reason OTHER than a confirmed absence
-        // marks the run as transient — don't negative-cache a timeout just
-        // because the other route legitimately 404s.
-        if (!result.absent) allAbsent = false;
-      }
-      return { hit: null, allAbsent, lastError };
-    };
+  /* ── Megaplay : l'extraction n'etait pas morte, je regardais au mauvais
+   *    endroit ──────────────────────────────────────────────────────────────
+   *
+   * Le 20/09/2026 j'ai conclu que l'extraction etait morte parce que
+   * `getSources` ne rend plus `sources.file` mais un blob chiffre :
+   *
+   *   getSources ?id=177685  ->  { tracks, t, intro, outro, server, enc }
+   *
+   * J'ai cherche une autre valeur de `s`, essaye leur `bypass=yes`, et conclu
+   * que l'adresse du flux ne vivait plus que dans `enc`. On est alors passe a
+   * l'encadrement de leur page, ce qui rendait LEUR lecteur : leur habillage,
+   * leurs publicites, ni saut d'OP/ED ni progression.
+   *
+   * C'ETAIT FAUX, et la reponse etait dans l'objet que je venais de lire.
+   * `tracks` est en CLAIR, et les sous-titres vivent dans le MEME repertoire
+   * que le flux :
+   *
+   *   tracks[0].file  .../anime/611a…3cd/b2da…2cd/subtitles/track_0_eng.vtt
+   *   master          .../anime/611a…3cd/b2da…2cd/master.m3u8
+   *
+   * Le chemin n'a jamais ete secret : il est publie a cote, dans le meme objet.
+   *
+   * MAIS CETTE DERIVATION NE COUVRE PAS TOUT, et la phrase qui tenait ici
+   * (« `enc` ne protege que le `?token=` ») etait fausse. Un fichier sans
+   * AUCUNE piste de sous-titres — les films, typiquement : `Your Name`,
+   * id 41551, rend `"tracks":[]` — n'a plus de repertoire a deriver, et
+   * retombait donc sur l'encadrement. C'est ce que l'utilisateur a vu :
+   * « sur certain il reste leur video player ».
+   *
+   * Cinq chemins essayes AVANT d'ouvrir `enc`, tous mesures, tous sans issue :
+   *   getSourcesNew (leur client reecrit getSources vers lui)  meme reponse
+   *   data-realid=57910 au lieu de data-id=41551               AUTRE fichier
+   *     (intro 0-60 / outro 1467-1532 : un episode de ~25 min, pas un film de
+   *      1 h 46 — s'en servir servirait la mauvaise video, c'est un piege)
+   *   cookies + Referer + X-Requested-With d'un vrai navigateur meme reponse
+   *   md5 de l'id / de l'idMal pour reconstituer le repertoire  aucune
+   *   toute URL de CDN dans leur page embed                     aucune
+   *
+   * Donc `enc`, qui porte l'URL ENTIERE et rien d'autre :
+   *
+   *   {"file":"https://<cdn>/anime/<hash serie>/<hash fichier>/master.m3u8"}
+   *
+   * Ce n'est pas un secret casse : la clef et l'IV sont ECRITS EN CLAIR dans
+   * leur `lib/newclient.min.js` servi publiquement — AES-256-CBC, clef
+   * `i?LMTAx0Q6,:}50U` completee de zeros a 32 octets (leur propre `O(a,32)`),
+   * IV `W0;27ToaUpl_P%'c`, base64url. C'est de l'obfuscation, pas un controle
+   * d'acces : aucune authentification, aucun paiement, aucun jeton n'est
+   * contourne, et le master repond 200 sans jeton. Verifie sur trois fichiers ;
+   * sur ceux qui ont des pistes, `enc` rend exactement l'URL que la derivation
+   * rendait (au miroir de CDN pres, les deux repondent 200).
+   *
+   * CE QUI VA CASSER, et comment : ils changent la clef. La derivation par
+   * `tracks` est donc GARDEE en second, et l'encadrement en troisieme — trois
+   * crans, du plus precis au plus degrade, aucun ne depend des deux autres.
+   *
+   * Mesures qui tiennent la branche ci-dessous, faites dans cet ordre :
+   *   master.m3u8 sans token, referer megaplay   200, 1080p/720p/480p
+   *   master, avec NOTRE referer ou sans referer  403  <- d'ou le Worker
+   *   index-f1.m3u8 (1080p)                       200, 45 segments
+   *   segment seg-f1-00000.jpg (oui, .jpg)        200, 347 Ko
+   *   le meme segment sur 3 CDN differents        200 partout
+   *
+   * Le referer est le point dur : leur CDN exige `https://megaplay.buzz/`, et
+   * un navigateur ne peut pas le forger. Le flux passe donc par le Worker, qui
+   * le pose et le PROPAGE aux segments (worker/src/index.js, `effectiveReferer`).
+   * C'est deja notre chemin normal : il suffit de rendre `referer` dans la
+   * reponse, `playbackUrl` s'occupe du reste.
+   *
+   * Un premier 404 sur `tx-02.tyrionx.top` m'a fait croire a un CDN tournant
+   * qu'il faudrait reecrire (ils publient meme un `lib/check_domain.json` pour
+   * ca). Re-teste : 200. C'etait transitoire, et les URL absolues de leur
+   * playlist suffisent.
+   *
+   * L'ENCADREMENT RESTE, en dernier repli : si ni `enc` ni les pistes ne
+   * donnent un master qui repond, leur page, elle, sait toujours jouer. Mieux
+   * vaut leur lecteur que pas de lecteur. Dans ce cas
+   * l'iframe doit envoyer un referer — `referrerPolicy="origin"`, le defaut de
+   * notre composant, et surtout PAS `no-referrer` : sans referer leur page rend
+   * « Error 410 » pour tout le catalogue, ce qui ressemble a une lacune et non
+   * a un bug.
+   */
+  const MEGAPLAY_REFERER = "https://megaplay.buzz/";
+  /* Clef et IV recopies tels quels de leur `lib/newclient.min.js` public (cf.
+     le pave ci-dessus). Leur `O(a, 32)` prend la chaine de 16 octets et la
+     COMPLETE DE ZEROS a 32 : c'est de l'AES-256 avec une clef de 16 octets
+     utiles, et se tromper la-dessus rend un binaire illisible plutot qu'une
+     erreur — d'ou la verification JSON stricte en sortie. */
+  const MEGAPLAY_ENC_IV = Buffer.from("W0;27ToaUpl_P%'c", "utf8");
+  const MEGAPLAY_ENC_KEY = Buffer.alloc(32);
+  Buffer.from("i?LMTAx0Q6,:}50U", "utf8").copy(MEGAPLAY_ENC_KEY, 0);
 
-    const warmMegaplay = (result) => {
-      // Pre-warm the edge cache NOW, at resolve time — before the player even
-      // loads the manifest. Megaplay is proxy-only (the CDN 403s any Referer but
-      // megaplay.buzz, which a browser can't forge), so its cold start pays a
-      // double hop. Firing the master through the Worker here (with the megaplay
-      // Referer) triggers the Worker's warm chain (variant + sampled segments),
-      // so by the time the user hits Play the opening is a cache HIT.
-      // Fire-and-forget: never delays the resolve response.
-      const m3u8 = result.streams[0]?.url;
-      if (m3u8 && /\.m3u8/i.test(m3u8)) {
-        const warmUrl =
-          `${PROXY_BASE}?url=${encodeURIComponent(m3u8)}` +
-          `&referer=${encodeURIComponent("https://megaplay.buzz/")}`;
-        fetchWithTimeout(warmUrl, { headers: { "x-warmer": "1" } }, 4000).catch(
-          () => {},
-        );
-      }
-    };
-
-    let run = await tryRoutes();
-    if (run.hit) {
-      warmMegaplay(run.hit);
-      return sendOk(run.hit);
+  /** Le `enc` de getSources -> l'URL du master, ou `null` s'il ne s'ouvre pas. */
+  function ouvreEncMegaplay(enc) {
+    if (typeof enc !== "string" || !enc) return null;
+    try {
+      const d = createDecipheriv("aes-256-cbc", MEGAPLAY_ENC_KEY, MEGAPLAY_ENC_IV);
+      /* Padding desactive : leur bourrage n'est pas du PKCS#7 valide (on a vu
+         des octets 0x06 en queue d'un bloc plein), donc `final()` jetterait sur
+         un dechiffrement pourtant correct. On coupe sur la derniere accolade
+         plutot que de faire confiance a la queue. */
+      d.setAutoPadding(false);
+      const clair = Buffer.concat([d.update(enc.replace(/-/g, "+").replace(/_/g, "/"), "base64"), d.final()])
+        .toString("utf8");
+      const fin = clair.lastIndexOf("}");
+      if (fin < 0) return null;
+      const fichier = JSON.parse(clair.slice(0, fin + 1))?.file;
+      return typeof fichier === "string" && /^https:\/\/\S+\.m3u8$/.test(fichier)
+        ? fichier
+        : null;
+    } catch {
+      return null;
     }
-    // A verdict of "genuinely absent on every route" that came from a SINGLE
-    // pass is not trustworthy enough to broadcast: megaplay serves its
-    // "Error - MegaPlay / We can't find the file" page (a 200) during transient
-    // outages too, and the active-source path — unlike the probe fan-out — has
-    // no retry of its own. A one-shot false absence gets negative-cached (10 min)
-    // AND published into the 6h availability snapshot, so the Megaplay chip
-    // vanishes for everyone until the TTL expires (the "megaplay disappeared
-    // after a reload" bug). Confirm a genuine absence with ONE retry: a real
-    // "file not found" is deterministic and stays absent; a transient error page
-    // clears to a hit or a non-200 (→ transient) on the second look.
-    if (run.allAbsent) {
-      await new Promise((r) => setTimeout(r, 500));
-      run = await tryRoutes();
-      if (run.hit) {
-        warmMegaplay(run.hit);
-        return sendOk(run.hit);
-      }
-    }
-    // Only negative-cache + hide the chip when the absence survived the retry.
-    // Anything else stays transient → 503 so the client retries and never buries
-    // the chip in the snapshot.
-    return run.allAbsent
-      ? sendNotFound(run.lastError)
-      : sendRetryable(run.lastError);
   }
 
+  /**
+   * De l'identifiant de fichier megaplay au flux jouable dans NOTRE lecteur.
+   * Rend `null` des qu'un maillon manque — l'appelant retombe alors sur
+   * l'encadrement de leur page, qui marche toujours.
+   */
+  async function extraireMegaplay(idFichier) {
+    let donnees;
+    try {
+      const r = await fetchViaWorker(
+        `https://megaplay.buzz/stream/getSources?id=${idFichier}`,
+      );
+      if (!r.ok) return null;
+      donnees = await r.json();
+    } catch {
+      return null;
+    }
+
+    const pistes = Array.isArray(donnees?.tracks) ? donnees.tracks : [];
+    /* Le repertoire du flux se lit aussi sur N'IMPORTE quelle piste : elles
+       vivent toutes dans `<base>/subtitles/…`. On prend la premiere qui a la
+       forme attendue plutot que la premiere tout court — une piste
+       « thumbnails » traine parfois dans la liste et ne porte pas ce chemin.
+       Ce n'est plus le chemin principal, seulement le filet si la clef de
+       `enc` change : un fichier sans piste (les films) n'en a pas. */
+    const piste = pistes.find(
+      (p) => typeof p?.file === "string" && p.file.includes("/subtitles/"),
+    );
+    const derive = piste
+      ? `${piste.file.slice(0, piste.file.indexOf("/subtitles/"))}/master.m3u8`
+      : null;
+
+    /* `enc` d'abord, la derivation ensuite. Les deux ne rendent PAS toujours la
+       meme URL : sur Mushoku ep7, `enc` pointait `fetch.nexabloom.top` et la
+       piste `jwcif.vyrnex.top`. Ce sont des miroirs du meme fichier, et on a
+       deja vu l'un d'eux rendre un 404 transitoire (le `tx-02.tyrionx.top` du
+       20/09). Essayer le second quand le premier ne repond pas ne coute donc un
+       aller-retour de plus que dans ce cas precis, et c'est exactement le cas
+       ou l'on aurait sinon montre leur lecteur pour rien. */
+    const candidats = [ouvreEncMegaplay(donnees?.enc), derive].filter(
+      (u, i, t) => u && /^https:\/\//.test(u) && t.indexOf(u) === i,
+    );
+
+    /* On VERIFIE le master avant d'allumer le chip. Sans ca, une derivation
+       qui tombe a cote rendrait un lecteur vide la ou l'encadrement aurait
+       joue : on aurait remplace un defaut visible par un defaut pire. Le
+       fichier fait ~250 octets, et la reponse entiere est ensuite mise en
+       cache (Redis + bord), donc ce troisieme aller-retour n'est paye qu'une
+       fois par episode et par fenetre de cache. */
+    let master = null;
+    for (const candidat of candidats) {
+      try {
+        /* PAS `fetchViaWorker` ici : il enveloppe l'URL mais ne transmet aucun
+           referer, et le `detectReferer` du Worker ne connait pas ces CDN — la
+           requete partirait donc sans referer et rendrait 403, exactement le
+           cas mesure. On construit l'enveloppe a la main. Le chemin de LECTURE,
+           lui, n'a pas ce probleme : `proxied()` pose `&referer=` depuis le
+           champ `referer` rendu plus bas. */
+        const v = PROXY_BASE
+          ? await fetchWithTimeout(
+              `${PROXY_BASE}?url=${encodeURIComponent(candidat)}` +
+                `&referer=${encodeURIComponent(MEGAPLAY_REFERER)}`,
+              {},
+              5000,
+            )
+          : await fetchWithTimeout(
+              candidat,
+              { headers: { Referer: MEGAPLAY_REFERER } },
+              5000,
+            );
+        if (!v.ok) continue;
+        if (!/#EXTM3U/.test(await v.text())) continue;
+        master = candidat;
+        break;
+      } catch {
+        /* candidat suivant */
+      }
+    }
+    if (!master) return null;
+
+    return {
+      streams: [{ url: master, quality: "auto", isM3U8: true }],
+      /* Leurs pistes sont anglais / indonesien / thai — jamais de francais.
+         C'est assume : megaplay est le chip `multi`, et la carte de choix des
+         langues le dit deja (« sous-titre anglais par defaut »). */
+      subtitles: pistes
+        .filter((p) => p?.kind === "captions" && typeof p.file === "string")
+        .map((p) => ({ file: p.file, label: p.label || "Default", kind: "captions" })),
+      /* Leur CDN exige ce referer et un navigateur ne peut pas le forger :
+         c'est ce champ qui envoie le flux par le Worker (lib/watch/streamUrl,
+         `playbackUrl`), lequel le propage ensuite a chaque segment. */
+      referer: MEGAPLAY_REFERER,
+    };
+  }
+
+  if (server === "megaplay") {
+    const malId =
+      Number(mediaMeta?.idMal) || Number((await getMediaMeta(aniId))?.idMal) || null;
+    /* La route MAL d'abord, la route AniList en secours : les deux resolvent le
+       meme fichier (verifie — `mal/52991/1/sub` et `ani/154587/1/sub` rendent
+       tous deux « File 13461 »), mais megaplay n'indexe pas tout sous les deux. */
+    const routes = [];
+    if (malId) routes.push(`https://megaplay.buzz/stream/mal/${malId}/${episode}/${sub}`);
+    if (aniId) routes.push(`https://megaplay.buzz/stream/ani/${aniId}/${episode}/${sub}`);
+    if (!routes.length) return sendNotFound("megaplay: aucun identifiant utilisable");
+
+    /* On valide la page AVANT d'allumer le chip. Une page d'erreur repond 200
+       elle aussi — c'est le `data-id` du lecteur qui distingue un fichier reel
+       d'un « Error 410 », et lui seul. Par le Worker, parce que megaplay est
+       derriere Cloudflare, qui repond 403 aux IP de centre de donnees de
+       Vercel : c'est de la que venait le chip qui « disparaissait souvent alors
+       que la video existe ». */
+    let injoignable = false;
+    for (const url of routes) {
+      try {
+        const r = await fetchViaWorker(url);
+        if (!r.ok) {
+          injoignable = true;
+          continue;
+        }
+        const html = await r.text();
+        /* DEUX marqueurs independants, et non un seul. Une page valide porte le
+           `data-id` du lecteur ET un titre « File <n> - MegaPlay » ; la page
+           d'erreur n'a ni l'un ni l'autre (elle dit « Error - MegaPlay »,
+           « Error Code: 410 »). N'en verifier qu'un ferait de son renommage une
+           panne SILENCIEUSE : tout le catalogue passerait d'un coup en
+           « absent », ce qui ressemble a une lacune et non a un bug. */
+        const idFichier = html.match(/data-id="(\d+)"/)?.[1] || null;
+        const valide = idFichier || /<title>\s*File\s+\d+/i.test(html);
+        if (!valide) continue; // page d'erreur : episode absent chez megaplay
+        // Page valide mais sans `data-id` : on ne peut pas appeler getSources,
+        // donc on encadre. Leur page, elle, saura se debrouiller.
+        if (!idFichier) return sendOk({ iframe: url });
+
+        const extrait = await extraireMegaplay(idFichier);
+        if (extrait) return sendOk(extrait);
+        return sendOk({ iframe: url }); // repli : leur lecteur vaut mieux qu'aucun
+      } catch {
+        injoignable = true;
+      }
+    }
+    /* Injoignable n'est pas absent. Un Worker qui tombe ne dit rien sur
+       megaplay, et le consigner en « absent » masquerait le chip six heures
+       pour tout le monde (cf. le commentaire de `sendRetryable`). */
+    if (injoignable) return sendRetryable("megaplay injoignable");
+    return sendNotFound("megaplay: pas de fichier pour cet episode");
+  }
 
   // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
@@ -3816,6 +4581,15 @@ export default async function handler(req, res) {
     const m = await getMediaMeta(aniId);
     return m?.title?.english || m?.title?.romaji || null;
   }
+
+  /* La table de correspondance des lecteurs, demandee MAINTENANT.
+     Les resolveurs anime-sama et voir-anime commencent tous les deux par la
+     lire, mais seulement apres `resolveTitle()` — soit un aller-retour AniList
+     devant un aller-retour Turso, alors que les deux sont independants. On
+     amorce donc la lecture ici, sans l'attendre : le memo (et, depuis peu, le
+     registre des vols en cours de lib/db/playerMap) fait que le resolveur
+     retrouvera la reponse au lieu d'en redemander une. */
+  if (aniId) void getPlayerMap(Number(aniId)).catch(() => {});
 
   // A provider resolver returning null = genuine "no source for this episode"
   // (→ 204 absent). A TransientSourceError = an upstream hiccup (worker/host
@@ -3831,6 +4605,32 @@ export default async function handler(req, res) {
       throw error; // a genuinely unexpected error keeps the outer 500 handling
     }
   };
+
+  // Frembed (VF + VOSTFR) — direct, proxy-free m3u8. Placed before the scraping
+  // providers because it needs neither a title nor a slug: the AniList id maps
+  // straight to TMDB through Fribb's static cross-map.
+  if (FREMBED_SERVERS[server]) {
+    /* Frembed PUBLIE son catalogue, alors on le lit au lieu de le deviner.
+       146 entrees au 20/09/2026, soit 340 fiches AniList — donc pour presque
+       tout le site la reponse est « absent », et on la payait a chaque fois :
+       lecture Fribb, appel a l'API frembed, sonde du CDN (1,66 s mesurees),
+       plus un chip qui s'allumait avant de s'eteindre. Une lecture de table
+       memoisee remplace tout ca.
+       `hard: true` parce que c'est le catalogue de l'hote lui-meme qui le dit,
+       pas une resolution qui a echoue : le client peut le cacher sans risque.
+       Table vide (jamais synchronisee) = on ne sait pas, et on repasse par le
+       chemin complet — une panne de synchro ne doit pas eteindre frembed. */
+    if (!(await frembedPeutAvoir(aniId))) {
+      dlog(`[frembed] ${aniId} hors catalogue — absent sans resolution`);
+      return sendNotFound("Source not found", { hard: true });
+    }
+    const { data, retry, hostDown } = await resolveProvider(() =>
+      getFrembedStream(server, aniId, episode),
+    );
+    if (retry) return sendRetryable(retry, { hostDown });
+    if (!data) return sendNotFound("Source not found");
+    return sendOk(data);
+  }
 
   // Anime-Sama (VF + VOSTFR) â€” returns iframe embed URL
   if (ANIMESAMA_SERVERS[server]) {
@@ -3849,7 +4649,7 @@ export default async function handler(req, res) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");
     const { data, retry, hardAbsent, hostDown } = await resolveProvider(() =>
-      getVoiranimeIframe(server, searchTitle, episode, aniId),
+      getVoiranimeIframe(server, searchTitle, episode, aniId, null),
     );
     if (retry) return sendRetryable(retry, { hostDown });
     if (hardAbsent) return sendNotFound(hardAbsent, { hard: true });

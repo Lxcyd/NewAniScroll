@@ -23,14 +23,6 @@ export const DEFAULT_LANG: Lang = "en";
 const STORAGE_KEY = "aniscroll:lang";
 const EVENT = "aniscroll:lang:change";
 
-/** True when the user has explicitly chosen a language (vs auto-detected). */
-export function hasExplicitLang(): boolean {
-  if (typeof window === "undefined") return false;
-  return SUPPORTED_LANGS.includes(
-    window.localStorage.getItem(STORAGE_KEY) as Lang,
-  );
-}
-
 /** Best-guess language from the browser settings. */
 function detectBrowserLang(): Lang {
   if (typeof navigator === "undefined") return DEFAULT_LANG;

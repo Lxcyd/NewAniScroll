@@ -1,0 +1,70 @@
+# Recopie la liste des animes doubles de MyDubList dans la table `dub_catalog`.
+#
+# MyDubList (https://mydublist.com, CC BY 4.0) publie par langue la liste des
+# titres doubles, indexee par id MAL — celui que le site porte deja. Au
+# 20/09/2026 : 2 572 titres en francais.
+#
+# Sans cette table, ouvrir un anime avec l'ordre de langues « VF d'abord »
+# faisait essayer les lecteurs VF l'un apres l'autre sur des series qui n'ont
+# jamais ete doublees : une dizaine de secondes pour apprendre ce que MyDubList
+# sait. Elle sert aussi de juge EXTERIEUR a `player_map` — nos propres scores de
+# confiance titre<->slug ne voient pas qu'un slug pointe ailleurs quand il
+# RESSEMBLE au titre (`joker-game` pour Kaitou Joker).
+#
+# Tourne sur GitHub Actions : aucune invocation Vercel, le script parle
+# directement a Turso et a GitHub. La liste bouge de quelques titres par
+# semaine, une passe par nuit suffit largement.
+#
+# Le script REFUSE d'ecraser la table dans deux cas : une liste minuscule
+# (< 200 entrees : fichier en panne) et une chute de plus de 60 % par rapport a
+# ce qui est deja en base (champ renomme, palier reorganise). Mieux vaut servir
+# la liste d'hier que de declarer d'un coup que 1 600 series n'ont plus de VF.
+# Un echec ici est donc une ALERTE a lire, pas un incident a ignorer. Si la
+# coupe est reelle, relancer a la main avec `force`.
+#
+# Secrets requis (Repository -> Settings -> Secrets and variables -> Actions) :
+#   TURSO_DATABASE_URL   -> la base aniscroll-cache
+#   TURSO_AUTH_TOKEN
+
+name: sync-dub-catalog
+
+on:
+  schedule:
+    - cron: "55 3 * * *" # 03:55 UTC, apres la synchro du catalogue frembed
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Ne rien ecrire, seulement rapporter"
+        required: false
+        type: boolean
+        default: false
+      force:
+        description: "Ecrire malgre une chute d'effectif (coupe reelle en amont)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Sync dub catalogue
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node scripts/mydublist/sync-dubs.mjs \
+            ${{ inputs.dry == true && '--dry' || '' }} \
+            ${{ inputs.force == true && '--force' || '' }}

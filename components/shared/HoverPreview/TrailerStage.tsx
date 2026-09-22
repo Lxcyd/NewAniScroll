@@ -19,7 +19,7 @@ import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { onFirstTrailer } from "@/lib/preview/previewStore";
 import { detectBars, peekBars, type TrailerBars } from "@/lib/preview/trailerBars";
 import { isFatalTrailerError, markTrailerBlocked } from "@/lib/preview/trailerBlocked";
-import { getStage, subscribeStage } from "./stageStore";
+import { getStage, subscribeStage, type StageScene } from "./stageStore";
 
 /**
  * ONE trailer player for the whole session, drawn over whichever card is open.
@@ -159,6 +159,7 @@ const OPEN_GRACE_MS = 350;
 const PLAYING = 1;
 const PAUSED = 2;
 const ENDED = 0;
+const BUFFERING = 3;
 
 /**
  * THE AMBIENT LIGHT IS A SECOND PLAYER, and the idea is Hayase's (see
@@ -295,8 +296,25 @@ const PROGRESS_TICK_MS = 200;
  */
 const GLOW_SWEEP_S = 9;
 
-export default function TrailerStage() {
-  const attachment = useSyncExternalStore(subscribeStage, getStage, () => null);
+/**
+ * `scene` names the player this instance IS. Each scene keeps its own iframe and
+ * its own attachment, so the hover preview and the profile music never take the
+ * stage from one another — see stageStore for why that had to stop being one
+ * shared player.
+ */
+export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }) {
+  /* Nommé `…Scene` et pas `subscribe` : ce fichier a déjà un `subscribe`, celui
+     de l'abonnement postMessage du lecteur (voir plus bas). */
+  const subscribeToScene = useCallback(
+    (l: () => void) => subscribeStage(scene, l),
+    [scene],
+  );
+  const sceneSnapshot = useCallback(() => getStage(scene), [scene]);
+  const attachment = useSyncExternalStore(
+    subscribeToScene,
+    sceneSnapshot,
+    () => null,
+  );
   /**
    * No second decoder on a device whose owner asked us to spare it.
    *
@@ -408,6 +426,10 @@ export default function TrailerStage() {
   /** Handlers of the live attachment, read from inside the message listener. */
   const handlersRef = useRef(attachment?.handlers ?? null);
   handlersRef.current = attachment?.handlers ?? null;
+  /** Une carte tient-elle la scène — lu par le listener, cf. PARQUÉ plus bas. */
+  const attachedRef = useRef(false);
+  attachedRef.current = attachment !== null;
+  const parkTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const forceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Has THIS card already been given a second load. See the backstop. */
@@ -614,11 +636,32 @@ export default function TrailerStage() {
     setCursorOn(false);
     originRef.current = null;
     lastPointRef.current = null;
+    parkTimersRef.current.forEach(clearTimeout);
+    parkTimersRef.current = [];
 
     if (!attachment) {
       // Parked: paused rather than left running behind a card nobody is looking
       // at. The next card replaces the video outright, so nothing is lost.
-      post("pauseVideo");
+      /*
+       * MUET D'ABORD, ET REDIT — le son fantôme qu'on ne pouvait plus arrêter.
+       *
+       * Un `pauseVideo` visant un lecteur qui finit un `loadVideoById` est
+       * ignoré (même règle que la charge perdue du backstop). Quitter une
+       * jaquette pendant le chargement laissait donc le trailer tourner caché,
+       * et le listener finissait par le « révéler » — `unMute` compris — sans
+       * aucune carte pour porter les contrôles : du son en fond jusqu'au
+       * rechargement. Le profil, lourd, rend ce chargement lent et la fenêtre
+       * large. On ne joue plus rien au réveil (`wantPlayRef`), on coupe le son,
+       * et on redit la pause après le chargement probable ; le listener fait le
+       * reste (cf. PARQUÉ).
+       */
+      wantPlayRef.current = false;
+      const park = () => {
+        post("mute");
+        post("pauseVideo");
+      };
+      park();
+      parkTimersRef.current = [400, 1200, 3000].map((ms) => setTimeout(park, ms));
       return;
     }
 
@@ -637,7 +680,7 @@ export default function TrailerStage() {
     const wanted = attachment.id;
     void detectBars(wanted).then((b) => {
       // The pointer may have moved on to another card while those loaded.
-      if (getStage()?.id !== wanted) return;
+      if (getStage(scene)?.id !== wanted) return;
       /*
        * Too late to crop THIS showing, and that is deliberate. Changing the
        * player's size resizes a ×200 iframe and makes it lay itself out again;
@@ -785,7 +828,7 @@ export default function TrailerStage() {
       handlersRef.current?.onHide(true);
     };
     revealTimerRef.current = setTimeout(backstop, REVEAL_ANYWAY_MS);
-  }, [attachment, bootId, post, reveal]);
+  }, [attachment, bootId, post, reveal, scene]);
 
   /**
    * Draw over the card's video slot, and keep doing so.
@@ -906,6 +949,25 @@ export default function TrailerStage() {
         | undefined;
       const state = data?.event === "onStateChange" ? data.info : info?.playerState;
       const at = info?.currentTime;
+
+      /*
+       * PARQUÉ : aucune carte ne tient la scène, donc rien ne doit jouer — et
+       * surtout rien ne doit être révélé, puisque `reveal` rend le son. Un
+       * lecteur qui annonce qu'il joue malgré la pause (pause avalée par un
+       * chargement) est remis au silence et à l'arrêt, sur-le-champ.
+       */
+      if (!attachedRef.current) {
+        wantPlayRef.current = false;
+        if (state === PLAYING || state === BUFFERING) {
+          post("mute");
+          post("pauseVideo");
+        }
+        if (state === PAUSED) {
+          setPaused(true);
+          runningRef.current = false;
+        }
+        return;
+      }
 
       // The boot video is cued, not playing — `autoplay` is deliberately absent
       // from the URL, since a muted player told to play by script is allowed by
@@ -1096,6 +1158,7 @@ export default function TrailerStage() {
       if (volCloseRef.current) clearTimeout(volCloseRef.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
       if (forceTimerRef.current) clearTimeout(forceTimerRef.current);
+      parkTimersRef.current.forEach(clearTimeout);
     },
     [],
   );
@@ -1514,6 +1577,8 @@ export default function TrailerStage() {
           if (!pending) return;
           pendingIdRef.current = null;
           post("mute");
+          // La carte est déjà partie : ne rien lancer derrière elle.
+          if (!attachedRef.current) return;
           if (pending === loadedIdRef.current) {
             // It wants the video we were born with: start it, don't reload it.
             wantPlayRef.current = true;

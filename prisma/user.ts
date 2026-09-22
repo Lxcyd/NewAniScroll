@@ -76,25 +76,27 @@ export const getUser = async (
   list = true
 ): Promise<any | null> => {
   try {
+    // A missing name used to dump EVERY profile with its watch history. No
+    // caller wants that, and the one route reaching here is authenticated but
+    // not authorised per-user — so an absent name is now simply "no user".
     if (!name) {
-      const user = await prisma.userProfile.findMany({
-        include: {
-          WatchListEpisode: list,
-        },
-      });
-      return user;
+      return null;
     } else {
+      // `list` était ignoré : le profil, qui ne lit que `setting.private`,
+      // recevait tout l'historique de visionnage à chaque rendu.
       const user = await prisma.userProfile.findFirst({
         where: {
           name: name,
         },
-        include: {
-          WatchListEpisode: {
-            orderBy: {
-              createdDate: "desc",
-            },
-          },
-        },
+        include: list
+          ? {
+              WatchListEpisode: {
+                orderBy: {
+                  createdDate: "desc",
+                },
+              },
+            }
+          : undefined,
       });
       return user;
     }

@@ -47,6 +47,18 @@ export type Theme = {
   /** Best CREDITED rip (nc=false, overlap=None preferred), or null when
    *  AnimeThemes has no credited version. Powers the "with credits" toggle. */
   videoCredited: ThemeVideo | null;
+  /**
+   * The FULL-LENGTH song on YouTube, when it has been resolved.
+   *
+   * Not from AnimeThemes — it does not know it. Everything above is the anime's
+   * own rip of the sequence, which is 90 s (ffprobe: ChainsawMan-OP1 = 90.1 s):
+   * the TV size, not the track. This id is attached by /api/v2/themes/{id} from
+   * the oped_youtube table, and only for rows the offline resolver marked `ok`.
+   *
+   * `undefined` = the field was never populated (a direct call to this module);
+   * `null` = looked up and nothing servable. Both mean "play the 90 s rip".
+   */
+  youtubeId?: string | null;
 };
 
 const _SITE = { mal: "MyAnimeList", anilist: "AniList" } as const;
@@ -56,6 +68,8 @@ async function get(path: string, params: Record<string, string | number>) {
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   const res = await fetch(`${API}${path}?${qs.toString()}`, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    // Cuts a hung upstream only; /api/v2/themes does not cache a failure.
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`animethemes ${res.status}`);
   return res.json();

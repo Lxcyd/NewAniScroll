@@ -1,7 +1,7 @@
 import "@vidstack/react/player/styles/default/theme.css";
 import "@vidstack/react/player/styles/default/layouts/video.css";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // @ts-ignore — react-dom types not installed but createPortal is exported
 import { createPortal } from "react-dom";
 import {
@@ -66,7 +66,12 @@ import {
   markComplete,
   publishDuration,
 } from "@/lib/watch/progress";
+import { avecReprise, estMegaplay, ouvrePont } from "@/lib/watch/megaplayBridge";
 import { recordWatchToday } from "@/lib/stats/streak";
+import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
+import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
+import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
+import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
 import { useDataSaver } from "@/lib/prefs/dataSaver";
 import { usePlayerPrefs, setPlayerPrefs, getPlayerPrefs } from "@/lib/prefs/playerPrefs";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
@@ -79,6 +84,12 @@ import {
   togglePlayerFullscreen,
   usePlayerFullscreen,
 } from "@/lib/player/usePlayerFullscreen";
+// Proxy base + URL builder: ONE definition in lib/watch/streamUrl, shared with
+// the watch page and the prefetch — they must produce the very same string or
+// the warmed cache is not the one playback reads. Defaults to the Cloudflare
+// Worker (unmetered + edge cache): an empty NEXT_PUBLIC_PROXY_BASE once fell
+// back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
+import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -111,6 +122,19 @@ type Stream = {
    *  split episode). It must never be handed to the proxy or the download
    *  Worker — they can't resolve a blob from another origin's memory. */
   localFile?: boolean;
+  /** HLS audio rendition to pin, as the manifest's LANGUAGE code ("fr", "ja").
+   *  Set by sources whose master carries SEVERAL audio tracks, where the chip
+   *  the viewer picked — not hls.js's default — decides which one plays
+   *  (frembed's VF/VO chips are one file with both). Absent everywhere else,
+   *  which leaves hls.js on its own selection. */
+  audioLang?: string;
+  /** Which of several same-language subtitle tracks this chip wants when the
+   *  master ships both a FORCED (on-screen signs only) and a full one:
+   *  "forced" suits a dub, "full" a subtitled original, and "none" leaves them
+   *  all OFF by default (a French dub) while keeping them in the menu. Absent =
+   *  the historical behaviour, which is the safe default for a track list we
+   *  know nothing about. */
+  subtitlePref?: "forced" | "full" | "none";
 };
 
 type Subtitle = {
@@ -154,6 +178,20 @@ type Props = {
    *  lecture des preferences — en ms. Meme usage que `sourceMs`. */
   pageMs?: number;
   onError?: (reason?: string) => void;
+  /** Le « suivant » devient imminent (debut de l'ED, ou fin de l'episode) :
+   *  la page prepare le FLUX du prochain episode. Declenche a l'APPARITION du
+   *  bouton et non a son survol, sans quoi l'enchainement automatique — qui ne
+   *  survole rien — repartirait a froid. */
+  onPrepareNextEpisode?: () => void;
+  /** La video a decode sa premiere image. La page s'en sert pour lancer ce
+   *  qu'elle avait mis en attente derriere le demarrage (les sondes de chips). */
+  onFirstFrame?: () => void;
+  /** Le lecteur repond encore mais rien n'arrive (extraction qui traine, aucune
+   *  premiere image, erreurs de chargement a repetition). La page s'en sert
+   *  pour preparer le lecteur SUIVANT pendant que celui-ci finit ses essais —
+   *  cf. le bloc « Doute, puis constat de mort ». Jamais plus d'une fois par
+   *  source, et sans interrompre la lecture en cours. */
+  onDoubt?: (reason: string) => void;
   ambient?: boolean;
   serverId?: string;
   /** Used as the download filename when the user hits the download button. */
@@ -194,16 +232,6 @@ type Props = {
   party?: import("@/lib/watch2gether/useWatchParty").PartyContext | null;
 };
 
-// Proxy base — defaults to the Cloudflare Worker (unmetered + edge cache).
-// We hardcode the Worker as the DEFAULT (not the in-tree Vercel proxy)
-// because the NEXT_PUBLIC_PROXY_BASE env var proved unreliable: an empty
-// value silently fell back to /api/v2/proxy/m3u8, which Vercel throttles
-// once Fast Origin Transfer is over budget — that took every proxy-routed
-// server down in prod. The env var still overrides this if ever set.
-const PROXY_BASE =
-  (typeof process !== "undefined" &&
-    (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
-  "https://proxy.aniscroll.com";
 
 // hls.js tuning for snappy seeking. The defaults buffer only ~30s ahead and
 // keep almost no back-buffer, so every seek forces a fresh network round-trip —
@@ -297,6 +325,8 @@ const HLS_CONFIG_DIRECT = {
   nudgeMaxRetry: 10,
 };
 
+/* Debit memorise et depart du lecteur : cf. lib/watch/hlsBandwidth.ts. */
+
 // Never auto-resume into the last few seconds of an episode — at that point
 // the episode is effectively done, so we'd rather start it (or the next one)
 // clean than drop the user onto the end card.
@@ -324,17 +354,6 @@ function getOutroStart(
     if (best == null || s.start < best) best = s.start;
   }
   return best;
-}
-
-function proxied(
-  url: string,
-  referer?: string | null,
-  voeCookie?: string | null,
-): string {
-  if (!url) return url;
-  const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
-  const ck = voeCookie ? `&vcookie=${encodeURIComponent(voeCookie)}` : "";
-  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}${ck}`;
 }
 
 /**
@@ -993,7 +1012,12 @@ function SubtitleMenu({
         position: "fixed",
         right: pos.right,
         bottom: pos.bottom,
-        zIndex: 50,
+        /* Au-dessus du gros bouton de lecture, qui se peignait PAR-DESSUS le
+           menu et barrait deux ou trois lignes de la liste (signale le
+           30/08/2026). 50 ne suffisait pas : le bouton central de Vidstack est
+           dans son propre contexte d'empilement, peint apres. On reste sous la
+           pile de notices (10001), qui doit rester au-dessus de tout. */
+        zIndex: 10000,
         minWidth: 200,
         // Match Vidstack: max-height is 60% of player height (already
         // baked into pos.maxHeight via the geometry calc above).
@@ -1516,6 +1540,62 @@ function CenterPlayButton({
   const { t } = useTranslation();
   const paused = useMediaState("paused", playerRef);
   const canPlay = useMediaState("canPlay", playerRef);
+  /* `canPlay` de Vidstack ne dit PAS que la video peut jouer.
+     Sur un flux HLS, il est emis des que la playlist de niveau est lue — un
+     `canplay` de synthese, avant qu'un seul segment soit telecharge, donc avec
+     un `readyState` qui peut valoir 0. Le bouton s'affichait la : on cliquait,
+     il disparaissait (la video n'est plus en pause), et l'ecran restait noir le
+     temps que le premier segment arrive. Mesure du 20/09/2026 sur dev, profil
+     neuf : bouton a 4,4 s, premiere image a 17,4 s.
+     On lit donc l'etat de l'element : HAVE_FUTURE_DATA, et une image decodee. */
+  const [pretALire, setPretALire] = useState(false);
+  useEffect(() => {
+    let mort = false;
+    let video: HTMLVideoElement | null = null;
+    /* HAVE_FUTURE_DATA, ou une image decodee qui dure : un flux lent peut
+       rester longtemps a HAVE_CURRENT_DATA sans que rien soit casse, et cacher
+       le bouton pour ca serait remplacer une attente par une autre. Passe deux
+       secondes dans cet etat, la video a bel et bien de quoi demarrer. */
+    let imageDepuis = 0;
+    const relire = () => {
+      if (mort) return;
+      const rs = video?.readyState ?? 0;
+      const image = !!video && rs >= 2 && video.videoWidth > 0;
+      if (!image) imageDepuis = 0;
+      else if (!imageDepuis) imageDepuis = Date.now();
+      setPretALire(image && (rs >= 3 || Date.now() - imageDepuis > 2000));
+    };
+    const EVENEMENTS = [
+      "loadeddata",
+      "canplay",
+      "canplaythrough",
+      "playing",
+      "progress",
+      "emptied",
+      "loadstart",
+      "error",
+    ];
+    /* L'element <video> appartient a Vidstack, qui le REMPLACE a chaque
+       changement de source : on le retrouve au lieu de le capturer. */
+    const brancher = () => {
+      if (mort) return;
+      const racine = playerRef.current?.el as HTMLElement | undefined;
+      const v = racine?.querySelector("video") || null;
+      if (v !== video) {
+        for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+        video = v;
+        for (const e of EVENEMENTS) video?.addEventListener(e, relire);
+      }
+      relire();
+    };
+    brancher();
+    const id = setInterval(brancher, 250);
+    return () => {
+      mort = true;
+      clearInterval(id);
+      for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+    };
+  }, [playerRef]);
   // One-shot: this is purely the INITIAL "start the anime" affordance. Once
   // playback has begun even once, it's gone for good — later manual pauses use
   // the small play/pause control in the bottom-left bar, not this big overlay.
@@ -1533,11 +1613,34 @@ function CenterPlayButton({
   // loading (Vidstack draws its buffering spinner then).
   if (everStarted) return null;
   if (!paused || !canPlay) return null;
-  // A Vidstack menu (chapters / settings / subtitles) is open: it must sit ON
-  // TOP, not be covered by this big center button — hide the button while any
-  // menu is open (it reappears when the menu closes, playback still not begun).
+  // Un menu Vidstack ouvert doit rester AU-DESSUS : ni bouton ni roue dessous.
   if (menuOpen) return null;
-
+  /* Pas encore jouable : une roue a la place du bouton. Elle ne double pas
+     celle de Vidstack, qui ne s'affiche que TANT QUE `canPlay` est faux —
+     c'est-a-dire avant cette fenetre-ci, pas pendant. Sans elle, l'attente du
+     premier segment ne montrait rien du tout. Le chien de garde de la page
+     (« pas de premiere image ») borne cette roue : elle ne peut pas tourner
+     indefiniment sur un flux mort. */
+  if (!pretALire) {
+    return (
+      <div
+        className="pointer-events-none absolute inset-0 grid place-items-center"
+        style={{ zIndex: 15 }}
+        aria-label={t("player.loading", { defaultValue: "Loading" })}
+        role="status"
+      >
+        <div
+          className="animate-spin rounded-full"
+          style={{
+            width: 44,
+            height: 44,
+            border: "3px solid rgba(255,255,255,0.18)",
+            borderTopColor: "#E94560",
+          }}
+        />
+      </div>
+    );
+  }
   const start = () => {
     const player = playerRef.current;
     const video = (player?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video");
@@ -1619,6 +1722,9 @@ export default function UniversalPlayer({
   sourceMs,
   pageMs,
   onError,
+  onDoubt,
+  onPrepareNextEpisode,
+  onFirstFrame,
   ambient = true,
   serverId,
   downloadName = "anime.mp4",
@@ -1662,6 +1768,32 @@ export default function UniversalPlayer({
   // Read inside onProviderSetup (which can't see `bestStream` in scope) to set
   // the <video> referrerPolicy for direct streams.
   const directPlaybackRef = useRef<boolean>(false);
+  // Sous quelle cle le debit de la source courante est mesure et relu (le CDN
+  // reel pour un flux direct, le Worker sinon). Meme passage de main par ref :
+  // onProviderChange ne voit pas `bestStream`.
+  const bwKeyRef = useRef<string>("proxied");
+  // La source courante est-elle un HLS ? Lu par le chien de garde de la
+  // premiere image, qui laisse plus de temps a un MP4 progressif.
+  const m3u8Ref = useRef<boolean>(true);
+  /* L'alerte « ca sent mauvais », au plus une par source. Le raisonnement est
+     avec les deux effets qui l'emettent (« Doute, puis constat de mort »). */
+  const douteEmisRef = useRef(false);
+  const emettreDoute = useCallback(
+    (raison: string) => {
+      if (douteEmisRef.current) return;
+      douteEmisRef.current = true;
+      dwarn("[UniversalPlayer] doute :", raison);
+      onDoubt?.(raison);
+    },
+    [onDoubt],
+  );
+  // Audio rendition the CURRENT source asked for ("fr", "ja"), when its master
+  // holds more than one. Same render-time hand-off as directPlaybackRef, for
+  // the same reason: onProviderSetup can't see `bestStream`.
+  const audioLangRef = useRef<string | null>(null);
+  // Forced-vs-full subtitle preference of the CURRENT source, read by the
+  // track-selection pass below. Same render-time hand-off as audioLangRef.
+  const subtitlePrefRef = useRef<"forced" | "full" | "none" | null>(null);
 
   // Keep the latest onEpisodeComplete in a ref so the (episode-scoped) ended
   // listener always calls the current handler without re-binding on every
@@ -1694,7 +1826,42 @@ export default function UniversalPlayer({
       // proxied edge-cached sources (megaplay) get the aggressive one. The ref
       // is set in render from bestStream just before the provider is built.
       const cfg = directPlaybackRef.current ? HLS_CONFIG_DIRECT : HLS_CONFIG;
-      provider.config = { ...provider.config, ...cfg };
+      /* `renderTextTracksNatively: false` est pose ICI, hors des deux profils,
+         parce que ce n'est pas un reglage de resilience mais une REGLE de
+         l'application : les sous-titres sont toujours des pistes sidecar, la
+         seule liste que le menu et l'editeur de style savent voir.
+         Laisse a `true` (le defaut d'hls.js), hls.js cree ses PROPRES TextTrack
+         natives pour chaque `EXT-X-MEDIA:TYPE=SUBTITLES` du manifeste. Le
+         master de frembed en declare deux — dont « FR Forced » en
+         `DEFAULT=YES,FORCED=YES` — donc la liste de Vidstack en contenait
+         QUATRE la ou le menu n'en montrait que deux. De la, les deux bugs
+         signales le 30/08, qui n'en faisaient qu'un :
+           - l'index actif pouvait tomber sur une piste fantome (2 ou 3), hors
+             de portee du menu : aucune ligne surlignee en rose, alors que des
+             sous-titres s'affichaient bien ;
+           - et cette piste-la s'affichait quoi qu'on ait decide, y compris sur
+             le chip VF qui annonce `subtitlePref: "none"`.
+         `hls.subtitleDisplay = false` ne pouvait pas y suffire : il empeche
+         l'AFFICHAGE, pas la CREATION des pistes — donc pas le decalage
+         d'index. C'est bien la creation qu'il fallait couper. */
+      // hls.js du bundle, pas de jsDelivr — cf. lib/watch/playerCode.ts.
+      provider.library = loadHlsLibrary;
+      /* Le manifeste a peut-etre deja ete telecharge pendant l'extraction (cf.
+         lib/watch/hlsPreload) : ce chargeur le sert depuis la memoire au lieu
+         de refaire l'aller-retour, et delegue tout le reste. Absent — hls.js
+         pas encore la — on s'en passe, le lecteur fait simplement ses requetes
+         comme avant. */
+      const loaderMemoire = getLoaderMemoire();
+      // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
+      const depart = startEstimate(bwKeyRef.current);
+      provider.config = {
+        ...provider.config,
+        ...cfg,
+        renderTextTracksNatively: false,
+        testBandwidth: false,
+        ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
+        ...(loaderMemoire ? { loader: loaderMemoire } : null),
+      };
     }
   };
 
@@ -1750,6 +1917,19 @@ export default function UniversalPlayer({
     if (isHLSProvider(provider)) {
       const hls = provider.instance || null;
       hlsRef.current = hls;
+      // Ceinture ET bretelles, la vraie coupure etant `renderTextTracksNatively:
+      // false` dans onProviderChange (voir le commentaire la-bas, qui porte le
+      // raisonnement). `subtitleDisplay = false` n'empeche que l'affichage de la
+      // piste selectionnee ; `subtitleTrack = -1` va plus loin et n'en
+      // selectionne aucune, donc hls.js ne telecharge meme pas les segments
+      // WebVTT d'un rendition dont nous servons deja la version sidecar.
+      // (Proprietes d'INSTANCE, pas des cles de config, en hls.js 1.4.)
+      if (hls) {
+        try {
+          hls.subtitleDisplay = false;
+          (hls as any).subtitleTrack = -1;
+        } catch {}
+      }
       /* Jalons du demarrage — cf. les refs a cote de `ttffMsRef`. Poses ici
          parce que c'est le seul endroit qui tient l'instance hls.js, et seul
          le PREMIER passage compte : les gardes `if (!ref.current)` laissent
@@ -1764,12 +1944,57 @@ export default function UniversalPlayer({
               manifestMsRef.current =
                 manifestAtRef.current - srcCommitAtRef.current;
           });
+          // Le debit mesure, pour la prochaine ouverture (cf. hlsBandwidth).
+          // Au plus une ecriture toutes les 30 s.
+          const bwProfile = bwKeyRef.current;
+          let bwSavedAt = 0;
+          (hls as any).on("hlsFragLoaded", () => {
+            const now = Date.now();
+            if (now - bwSavedAt > 30_000) {
+              bwSavedAt = now;
+              saveBandwidth(bwProfile, (hls as any).bandwidthEstimate);
+            }
+          });
           (hls as any).on("hlsFragLoaded", () => {
             if (frag1AtRef.current || !manifestAtRef.current) return;
             frag1AtRef.current = performance.now();
             frag1MsRef.current = frag1AtRef.current - manifestAtRef.current;
           });
         } catch {}
+      }
+      // Pin the audio rendition the CHIP stands for. Frembed serves VF and
+      // VOSTFR as two renditions of ONE master, so the chip the viewer picked
+      // — not hls.js's default, which is simply the manifest's first track —
+      // is what decides the language. Both of frembed's tracks are DEFAULT=NO,
+      // so without this a VOSTFR pick would play the French dub.
+      //
+      // Re-applied on `hlsAudioTracksUpdated` as well as at manifest time: the
+      // track list isn't populated until the manifest parses, and a level
+      // switch can rebuild it. Matching is on the LANGUAGE attribute, falling
+      // back to `name` for a manifest that only labels ("fra"/"jpn").
+      if (hls && audioLangRef.current) {
+        const wanted = audioLangRef.current.toLowerCase();
+        const pinAudio = () => {
+          try {
+            const tracks: any[] = (hls as any).audioTracks || [];
+            const i = tracks.findIndex((t) =>
+              [t?.lang, t?.language, t?.name]
+                .filter(Boolean)
+                .some((v: string) => String(v).toLowerCase().startsWith(wanted)),
+            );
+            // Only ever narrow a real choice: a single-track master (or a
+            // language this title doesn't carry) must keep playing rather than
+            // be pinned to nothing.
+            if (i >= 0 && tracks.length > 1 && (hls as any).audioTrack !== i) {
+              (hls as any).audioTrack = i;
+            }
+          } catch {}
+        };
+        try {
+          (hls as any).on("hlsManifestParsed", pinAudio);
+          (hls as any).on("hlsAudioTracksUpdated", pinAudio);
+        } catch {}
+        pinAudio();
       }
       // Force Maximum Quality: pin hls.js to the top level (setting
       // currentLevel to a fixed index disables ABR auto-switching) once the
@@ -1931,6 +2156,14 @@ export default function UniversalPlayer({
   // Last track index that was actually showing, so the subtitle shortcut can
   // toggle off → on WITHOUT changing the language (restores the same track).
   const lastShownTrackIdx = useRef(-1);
+  /* La piste que NOUS voulons allumee, y compris quand plus rien ne l'est.
+     `TextTrackList` de Vidstack n'autorise qu'une seule piste `showing` parmi
+     les sous-titres : allumer la piste fantome du manifeste eteint la notre au
+     passage (cf. muteGhostTracks). Sans cette memoire, on ne saurait pas quoi
+     rallumer une fois la fantome ecartee. Distincte de `lastShownTrackIdx`, qui
+     ne retient JAMAIS l'extinction (-1) puisqu'elle sert a restaurer la langue
+     apres un aller-retour off/on. */
+  const intendedTrackIdx = useRef(-1);
   // ── Client-side extraction state ──
   // When streamData.clientExtract is set, the server is asking the browser to
   // do the embed-page fetch itself so the resulting CDN token IP-binds to the
@@ -2561,6 +2794,12 @@ export default function UniversalPlayer({
     // Pas de vignette a poser, pas de raison de tirer des octets : le verdict
     // ne servirait a rien.
     if (!poster) return;
+    /* En lecture automatique non plus : le voile tombe sur `data-started`, donc
+       ce verdict n'est jamais lu — et cette sonde tire une COPIE du debut du
+       fichier par le Worker en meme temps que le vrai flux telecharge son
+       premier segment. Deux lectures de la meme video sur le meme lien, au
+       moment precis ou la premiere image se joue. */
+    if (autoplay) return;
     /* Sous le CHEMIN du fichier, pas son URL : la query est signee et change a
        chaque resolution. Deja mesure = verdict immediat, zero octet. */
     const path = blindStream!.url.split("?")[0];
@@ -2612,7 +2851,7 @@ export default function UniversalPlayer({
     };
     // `blindStream` ne bouge pas sans `blindProbeSrc`, qui en derive.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blindProbeSrc, poster]);
+  }, [blindProbeSrc, poster, autoplay]);
 
   /* Chemin 2 — le flux est lisible : on lit sa premiere image directement.
      Rien a decider avant qu'une image existe, d'ou l'attente ; et un canvas
@@ -3288,7 +3527,16 @@ export default function UniversalPlayer({
   // new stream's track list we fall back to English, then to the first
   // available track. "Off" is also remembered (user explicitly disabled subs).
   const SUB_PREF_LANG_KEY = "moopa.subs.lang";
-  const SUB_PREF_ENABLED_KEY = "moopa.subs.enabled";
+  /* Renommee, et c'est le point : l'ancienne cle (`moopa.subs.enabled`) porte,
+     dans le navigateur de tous ceux qui ont deja regarde un episode, un « 1 »
+     que PERSONNE n'a choisi — la passe automatique l'ecrivait elle-meme (voir
+     `selectSubtitleTrack`). La lire encore, ce serait faire primer un bug sur
+     le defaut de la source. On repart donc d'une ardoise vierge : tant que le
+     spectateur n'a pas touche au menu, c'est la source qui decide.
+     La cle de LANGUE n'a pas besoin du meme traitement : elle n'enregistrait
+     rien de faux, et une valeur devenue introuvable retombe proprement sur les
+     replis (`fr`, puis `en`, puis la premiere piste). */
+  const SUB_PREF_ENABLED_KEY = "aniscroll:subs.enabled";
 
   const readPrefLang = (): string | null => {
     try { return localStorage.getItem(SUB_PREF_LANG_KEY); } catch { return null; }
@@ -3296,33 +3544,117 @@ export default function UniversalPlayer({
   const readPrefEnabled = (): boolean => {
     try {
       const v = localStorage.getItem(SUB_PREF_ENABLED_KEY);
-      // Default: subs on (matches the legacy "first track wins" behavior).
-      return v === null ? true : v === "1";
+      // Sans choix explicite du spectateur, c'est la SOURCE qui donne le
+      // defaut. Un doublage francais se regarde sans sous-titres : le chip VF
+      // de frembed annonce `none` et arrive donc eteint, ses deux pistes
+      // restant dans le menu pour qui veut les allumer. Des que quelqu'un
+      // tranche — dans un sens ou dans l'autre — sa decision est enregistree
+      // ici et prime sur ce defaut.
+      if (v === null) return subtitlePrefRef.current !== "none";
+      return v === "1";
     } catch { return true; }
   };
 
-  const selectSubtitleTrack = (idx: number) => {
+  /* `persist` distingue un CHOIX du spectateur d'une simple application de nos
+     regles. Sans lui, la passe automatique ci-dessous ecrivait
+     `moopa.subs.enabled = "1"` des le tout premier episode jamais regarde — et
+     ce faux « choix » primait ensuite pour toujours sur le defaut annonce par
+     la source. C'est pour ca que le chip VF de frembed continuait d'arriver
+     sous-titre malgre son `subtitlePref: "none"` : la preference etait deja
+     gravee, par nous, au nom d'un utilisateur qui n'avait rien demande.
+     On n'enregistre donc plus que ce qui vient d'un geste : le menu, la
+     bascule, le raccourci clavier. */
+  /* Les pistes que le menu connait, et elles seules.
+     `renderTextTracksNatively: false` (cf. onProviderChange) empeche hls.js de
+     creer ses TextTrack NATIVES, mais pas Vidstack de les recreer : il ecoute
+     `NON_NATIVE_TEXT_TRACKS_FOUND` et ajoute chaque rendition du manifeste a
+     `player.textTracks` sous l'id `hls-subtitles<n>` — en allumant d'office
+     celle qui porte `DEFAULT=YES` (le « FR Forced » de frembed). La liste en
+     contenait donc toujours QUATRE la ou le menu n'en montre deux, et l'index
+     actif retombait sur une piste fantome, hors de portee du menu : des
+     sous-titres a l'ecran, aucune ligne surlignee (signale le 30/08/2026).
+     La regle de l'application n'a pas change — les sous-titres sont des pistes
+     sidecar, la seule liste que le menu et l'editeur de style savent voir — donc
+     ce qui vient du manifeste ne compte pas, et ne s'affiche pas. */
+  const isMenuTrack = (t: any) =>
+    (t.kind === "subtitles" || t.kind === "captions") &&
+    !String(t.id || "").startsWith("hls-");
+
+  // Eteint les pistes issues du manifeste HLS. Rejouee a chaque passe de sync
+  // parce qu'elles arrivent APRES le montage (au parse du master) et qu'une
+  // piste `DEFAULT=YES` s'ajoute deja en mode "showing".
+  const muteGhostTracks = (tracks: any) => {
+    if (!tracks) return;
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || isMenuTrack(t)) continue;
+      if (t.kind !== "subtitles" && t.kind !== "captions") continue;
+      if (t.mode !== "disabled") t.mode = "disabled";
+    }
+  };
+
+  /* La liste du MENU : seule reference d'ordre et d'identite.
+     Ce qu'un index de menu designe se lit ICI, et se retrouve dans
+     `player.textTracks` par SRC — jamais par position. Les deux listes ne sont
+     pas dans le meme ordre, et ne peuvent pas l'etre :
+
+       const track = React.useMemo(() => new TextTrack(init), Object.values(init));
+       useEffect(() => { textTracks.add(track); return () => textTracks.remove(track); }, [track]);
+
+     C'est le <Track> de Vidstack. Changer une seule prop RECREE la piste :
+     retiree, puis rajoutee EN FIN de liste. Les chips VF et VOSTFR de frembed
+     servent les deux memes .vtt et ne different que par l'ordre et le `default`,
+     donc au retour sur la VOSTFR seule « FR Subs » est recreee et repasse
+     derriere « FR Forced » : le menu affichait [Subs, Forced] pendant que le
+     lecteur tenait [Forced, Subs]. Compter les positions allumait la piste
+     forcee — quelques panneaux, aucun dialogue : des sous-titres « manquants »
+     (signale le 31/08/2026). */
+  const menuTracks = (): Array<{ src: string; language?: string }> =>
+    subsMemoRef.current?.value || [];
+
+  // Index MENU de la piste actuellement allumee, -1 si aucune.
+  const showingMenuIdx = (tracks: any): number => {
+    const list = menuTracks();
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (!t || !isMenuTrack(t) || t.mode !== "showing") continue;
+      const idx = list.findIndex((s) => s.src === t.src);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+
+  // La piste du lecteur que la ligne `idx` du menu designe, si elle est deja
+  // enregistree (elles arrivent une par une lors d'un changement de source).
+  const trackAt = (tracks: any, idx: number): any => {
+    const want = menuTracks()[idx]?.src;
+    if (!want) return null;
+    for (let i = 0; i < tracks.length; i++) {
+      if (tracks[i]?.src === want) return tracks[i];
+    }
+    return null;
+  };
+
+  const selectSubtitleTrack = (idx: number, { persist = true } = {}) => {
     setActiveTrackIdx(idx);
+    intendedTrackIdx.current = idx;
     // Remember the last real track so the on/off shortcut restores this exact
     // language instead of advancing to the next one.
     if (idx >= 0) lastShownTrackIdx.current = idx;
     const tracks = playerRef.current?.textTracks;
     if (!tracks) return;
-    // Walk the textTracks list, only touching captions/subtitles tracks (skip
-    // chapters/metadata). Index aligns with the <Track> children we render.
-    let captionIndex = 0;
+    muteGhostTracks(tracks);
+    const want = menuTracks()[idx]?.src || null;
     let selectedLang: string | null = null;
     for (let i = 0; i < tracks.length; i++) {
       const t = tracks[i];
-      if (!t) continue;
-      const isCaption = t.kind === "subtitles" || t.kind === "captions";
-      if (!isCaption) continue;
-      const showing = captionIndex === idx;
+      if (!t || !isMenuTrack(t)) continue;
+      const showing = !!want && t.src === want;
       t.mode = showing ? "showing" : "disabled";
       if (showing) selectedLang = t.language || (t as any).label || null;
-      captionIndex++;
     }
     // Persist the choice so the next episode / anime restores it.
+    if (!persist) return;
     try {
       localStorage.setItem(SUB_PREF_ENABLED_KEY, idx >= 0 ? "1" : "0");
       if (selectedLang) localStorage.setItem(SUB_PREF_LANG_KEY, selectedLang);
@@ -3350,20 +3682,24 @@ export default function UniversalPlayer({
 
     // Returns the (caption-only) index of the track whose language best
     // matches `pref`, or -1 if none. Exact match wins; case-insensitive.
+    //
+    // Volontairement laissee TELLE QUELLE. Elle avait ete reecrite le
+    // 30/08/2026 (repli des codes ISO 639-2, preference pour la piste non
+    // forcee) et le dropdown a ete signale casse dans la foulee : la reecriture
+    // est revenue. Ce que frembed avait besoin de corriger se fait desormais en
+    // AMONT, cote API — les pistes arrivent deja dans le bon ordre et avec le
+    // bon code a deux lettres (cf. frembedSubtitles), donc « la premiere qui
+    // correspond a la langue » redevient la bonne reponse sans toucher a ce
+    // selecteur.
     const findByLang = (pref: string | null): number => {
       if (!pref) return -1;
       const want = pref.toLowerCase();
-      let captionIndex = 0;
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        if (!t) continue;
-        const isCaption = t.kind === "subtitles" || t.kind === "captions";
-        if (!isCaption) continue;
-        const lang = (t.language || "").toLowerCase();
-        if (lang === want) return captionIndex;
-        captionIndex++;
-      }
-      return -1;
+      // Cherchee dans la liste du MENU, qui porte le contrat d'ordre etabli par
+      // l'API (cf. frembedSubtitles) — la liste du lecteur, elle, se reordonne
+      // toute seule au gre des recreations de <Track> (cf. menuTracks).
+      return menuTracks().findIndex(
+        (s) => (s.language || "").toLowerCase() === want,
+      );
     };
 
     // Apply our language preference exactly once per source. Crucially we do
@@ -3374,22 +3710,14 @@ export default function UniversalPlayer({
     let prefApplied = false;
 
     const sync = () => {
-      let captionIndex = 0;
-      let activeIdx = -1;
-      let hasAnyShowing = false;
-      let firstAvailable = -1;
-      for (let i = 0; i < tracks.length; i++) {
-        const t = tracks[i];
-        if (!t) continue;
-        const isCaption = t.kind === "subtitles" || t.kind === "captions";
-        if (!isCaption) continue;
-        if (firstAvailable < 0) firstAvailable = captionIndex;
-        if (t.mode === "showing") {
-          activeIdx = captionIndex;
-          hasAnyShowing = true;
-        }
-        captionIndex++;
-      }
+      muteGhostTracks(tracks);
+      const activeIdx = showingMenuIdx(tracks);
+      const hasAnyShowing = activeIdx >= 0;
+      // « Il y a de quoi choisir » = au moins une piste du menu deja
+      // enregistree chez le lecteur. Sans cette condition la passe de
+      // preference tournerait a vide au montage, avant l'arrivee des <Track>,
+      // et se croirait faite.
+      const firstAvailable = trackAt(tracks, 0) ? 0 : -1;
 
       // First authoritative pass for this source: pick the track that matches
       // the user's saved language, else the SITE language default:
@@ -3413,19 +3741,43 @@ export default function UniversalPlayer({
           // Only re-select if it isn't already the showing track — avoids a
           // redundant mode-change event loop.
           if (target !== activeIdx) {
-            selectSubtitleTrack(target);
+            selectSubtitleTrack(target, { persist: false });
             return;
           }
           setActiveTrackIdx(target);
+          intendedTrackIdx.current = target;
           return;
         }
         // Subtitles disabled by preference → turn everything off once.
+        // L'intention est remise a « rien » AVANT tout : la source precedente
+        // en avait laisse une, et la reaffirmation plus bas la rallumerait
+        // contre la preference qu'on vient justement de lire.
+        intendedTrackIdx.current = -1;
         if (hasAnyShowing) {
           prefApplied = true;
-          selectSubtitleTrack(-1);
+          selectSubtitleTrack(-1, { persist: false });
           return;
         }
         prefApplied = true;
+      }
+
+      /* On rallume ce que la piste fantome a eteint.
+         `TextTrackList` n'autorise qu'un seul `showing` parmi les sous-titres :
+         quand la rendition `DEFAULT=YES` du manifeste s'ajoute (au parse du
+         master, donc APRES notre passe de preference), elle eteint la notre au
+         passage — et `muteGhostTracks` vient d'eteindre la fantome a son tour.
+         Plus rien ne s'affichait : le menu cochait bien « FR Subs » mais
+         l'ecran restait nu (signale le 31/08/2026).
+         Une seule reaffirmation suffit et la boucle se ferme : la selection
+         reveille `sync`, qui trouve cette fois `activeIdx` sur la bonne piste et
+         ne repasse plus par ici. */
+      if (
+        activeIdx < 0 &&
+        intendedTrackIdx.current >= 0 &&
+        trackAt(tracks, intendedTrackIdx.current)
+      ) {
+        selectSubtitleTrack(intendedTrackIdx.current, { persist: false });
+        return;
       }
       setActiveTrackIdx(activeIdx);
     };
@@ -3458,17 +3810,46 @@ export default function UniversalPlayer({
   //      errors. A short cap on consecutive recoveries prevents an infinite
   //      recover loop on a genuinely dead CDN → then we bubble to onError.
   //   3. Non-fatal: ignore, hls.js handles it.
+  /* Accroche sur `playerElState` et NON sur `playerRef.current?.el` : un ref lu
+     dans un effet ne redeclenche rien quand il se remplit. Sur le chemin
+     d'extraction navigateur (ansembed, vidmoly — le lecteur PAR DEFAUT), le
+     premier rendu avec ce `streamData` est le « Loading… », donc il n'y a
+     aucun <MediaPlayer> a ce moment-la ; quand l'extraction aboutit et que le
+     lecteur monte, `streamData` n'a pas bouge et cet effet ne repassait pas.
+     Resultat : sur l'hote le plus utilise du site, ni la detection « flux
+     disparu » (401/403/404/410) ni la reprise (`startLoad` /
+     `recoverMediaError`) n'etaient jamais posees — les pannes n'arrivaient
+     qu'au bout des retries d'hls.js, en ecran noir. */
   useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    const playerEl = playerElState;
     if (!playerEl) return;
 
     let recoveries = 0;
     let recoverWindowResetTimer = 0;
     const MAX_RECOVERIES = 4; // within the rolling window before giving up
 
+    let nonFatales = 0;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (!detail || !detail.fatal) return;
+      if (!detail) return;
+      /* Hors ligne, hls.js emet une RAFALE d'erreurs fatales : le budget de
+         MAX_RECOVERIES ci-dessus se consomme en moins d'une seconde, on conclut
+         « Playback stalled », et la page bascule de lecteur — donc UNE REQUETE
+         /api/v2/source PAR LECTEUR ESSAYE, jusqu'a les avoir tous brules, pour
+         une coupure de trois secondes. C'est une des causes du « au reveil du
+         PC, une page d'erreur au lieu de la video » (21/09/2026).
+         `onLine === false` est le seul sens fiable de ce drapeau : il peut se
+         croire en ligne a tort, jamais hors ligne a tort. On ne conclut donc
+         rien et on ne depense rien ; la reprise sur `online` de la page de
+         visionnage relance proprement une fois la connexion revenue. */
+      if (navigator.onLine === false) return;
+      /* Non fatal : hls.js s'en occupe, on ne touche a rien. Mais deux de ces
+         hoquets sur le chemin de la premiere image disent deja que ce CDN ne
+         suit pas — on prepare le suivant sans rien interrompre. */
+      if (!detail.fatal) {
+        if (++nonFatales >= 2) emettreDoute("erreurs de chargement repetees");
+        return;
+      }
       const status = detail.response?.code || detail.response?.status;
 
       // Tier 1 — genuine "stream gone": don't try to recover, fall back.
@@ -3518,7 +3899,7 @@ export default function UniversalPlayer({
       window.clearTimeout(recoverWindowResetTimer);
       playerEl.removeEventListener("hls-error", handler as EventListener);
     };
-  }, [onError, streamData]);
+  }, [onError, streamData, playerElState, emettreDoute]);
 
   // NOTE: the earlier "end-reset guard" (watching for seek/reload to 0 near the
   // end) was removed. A full event trace proved the real cause was NOT the
@@ -3543,8 +3924,11 @@ export default function UniversalPlayer({
   // fetched, instead of every spot you flew over. We never touch the isolated
   // single-seek path, so normal seeking keeps hls.js's native (no-extra-latency)
   // behaviour.
+  // Meme accroche que le gestionnaire d'erreurs ci-dessus, et pour la meme
+  // raison : sur le chemin d'extraction navigateur, le lecteur n'existe pas
+  // encore au rendu ou `streamData` change.
   useEffect(() => {
-    const playerEl = playerRef.current?.el as HTMLElement | undefined;
+    const playerEl = playerElState;
     if (!playerEl) return;
 
     let video: HTMLVideoElement | null = null;
@@ -3605,7 +3989,7 @@ export default function UniversalPlayer({
       window.clearInterval(pollId);
       video?.removeEventListener("seeking", onSeeking);
     };
-  }, [streamData]);
+  }, [streamData, playerElState]);
 
   // ── Hover pre-warm ──
   // The server pre-warms only a SPARSE sample of segments, so a first-time seek
@@ -3627,6 +4011,14 @@ export default function UniversalPlayer({
     let hoverTimer = 0;
     const warmed = new Set<string>(); // dedupe by fragment URL this session
     let lastFireAt = 0;
+    /* Plafond par episode sur les sources DIRECTES seulement. Un segment pese
+       ~6 Mo : quatre chauffes non suivies d'un clic coutent ~26 Mo, ce qui est
+       le prix qu'on accepte de payer pour des sauts instantanes. Les sources
+       proxifiees n'ont pas ce plafond — le cache edge est partage entre
+       visiteurs, donc une chauffe y sert a quelqu'un meme si celui qui l'a
+       declenchee ne clique pas. */
+    const MAX_CHAUFFES_DIRECTES = 4;
+    let chauffesDirectes = 0;
 
     // Map a timestamp to the fragment covering it, using the level hls.js is
     // actually playing (its details hold the fragment list once parsed).
@@ -3647,11 +4039,27 @@ export default function UniversalPlayer({
     };
 
     const warmAt = (timeSec: number) => {
-      // NEVER hover-prefetch a direct/fragile CDN (vidmoly): the warm fetch hits
-      // the CDN itself (not our cache), and hammering it is exactly what triggers
-      // the ERR_EMPTY_RESPONSE cutoff. Warming only helps PROXIED sources, where
-      // the fetch populates the edge cache. Direct streams get nothing here.
-      if (directPlaybackRef.current) return;
+      /* Les flux DIRECTS (vidmoly / ansembed) chauffent aussi, mais avec
+         parcimonie — et il a fallu mesurer pour le savoir.
+         Ce garde-fou refusait tout flux direct, au motif que « chauffer n'aide
+         que les sources proxifiees, ou la requete peuple le cache edge ». La
+         moitie etait vraie, l'autre non : mesure du 20/09/2026, un segment
+         vidmoly repond `cache-control: max-age=8640000, public` avec un `etag`
+         — cent jours. Le CDN autorise donc le cache du NAVIGATEUR, et une
+         chauffe y atterrit sans que le Worker ait rien a faire. (Le Worker, lui,
+         est definitivement hors jeu : le meme segment rend 200 en direct et 403
+         a travers Cloudflare, le jeton etant lie a l'IP.)
+         Ce qui reste vrai, c'est le reste du commentaire : marteler ce CDN
+         declenche l'ERR_EMPTY_RESPONSE. D'ou trois freins qui ne s'appliquent
+         qu'a ce chemin — un repos plus long, un plafond par episode, et rien du
+         tout sur une connexion menagee. Un segment pese ~6 Mo : on chauffe
+         l'endroit ou le curseur s'arrete, jamais ceux qu'il survole. */
+      if (directPlaybackRef.current) {
+        if (chauffesDirectes >= MAX_CHAUFFES_DIRECTES) return;
+        const co = (navigator as any)?.connection;
+        if (co?.saveData) return;
+        if (/(^|-)2g$/.test(String(co?.effectiveType || ""))) return;
+      }
       const url = fragmentAt(timeSec);
       if (!url || warmed.has(url)) return;
       // If it's already buffered we don't need to warm it.
@@ -3665,9 +4073,14 @@ export default function UniversalPlayer({
         }
       } catch {}
       warmed.add(url);
-      // Low-priority, credentials-free, body-discarded warm. The Worker stores
-      // it under the same cache key the player's real fetch will look up.
-      // `priority` isn't in the RequestInit type yet — cast to pass it through.
+      if (directPlaybackRef.current) chauffesDirectes++;
+      /* Chauffe a basse priorite, sans identifiants, corps jete. Source
+         proxifiee : le Worker la range sous la cle que la vraie requete ira
+         chercher. Source directe : c'est le cache HTTP du navigateur qui la
+         garde, le CDN l'y autorisant pour cent jours.
+         Le corps DOIT etre lu ou annule, sinon la connexion reste ouverte —
+         `cancel()` suffit, l'entree de cache est deja posee.
+         `priority` n'est pas encore dans le type RequestInit, d'ou le cast. */
       try {
         fetch(url, { credentials: "omit", priority: "low" } as RequestInit)
           .then((r) => r.body?.cancel?.())
@@ -3684,13 +4097,17 @@ export default function UniversalPlayer({
       const t = ratio * dur;
       // Debounce: only warm after the cursor rests ~120ms on a spot, and never
       // more than ~5 warms/sec, so dragging across the bar doesn't fire hundreds.
+      // Sur une source DIRECTE on attend nettement plus : un repos de 400 ms
+      // distingue « ou est-ce que je saute ? » d'un simple balayage, et c'est
+      // ce qui evite de reclamer 6 Mo au CDN pour chaque endroit survole.
+      const direct = directPlaybackRef.current;
       window.clearTimeout(hoverTimer);
       hoverTimer = window.setTimeout(() => {
         const now = performance.now();
-        if (now - lastFireAt < 180) return;
+        if (now - lastFireAt < (direct ? 600 : 180)) return;
         lastFireAt = now;
         warmAt(t);
-      }, 120);
+      }, direct ? 400 : 120);
     };
 
     let pollId = 0;
@@ -3756,13 +4173,25 @@ export default function UniversalPlayer({
     (async () => {
       try {
         const mod = await import("@/lib/clientVidmoly");
+        // Deja lancee par la page de lecture des la reponse de /source (cf.
+        // warmVidmolyClient) : on la reprend, sous le meme delai de 6 s.
+        const warm = multipart ? null : mod.takeWarmVidmoly(ce.embedUrl);
         const res = multipart
           ? await mod.extractVidmolyMultipartClient(ce.embedUrls, {
               signal: ac.signal,
             })
-          : await mod.extractVidmolyClient(ce.embedUrl, {
-              signal: ac.signal,
-            });
+          : warm
+            ? await Promise.race([
+                warm,
+                new Promise<{ error: string }>((resolve) =>
+                  ac.signal.addEventListener("abort", () => resolve({ error: "aborted" }), {
+                    once: true,
+                  }),
+                ),
+              ])
+            : await mod.extractVidmolyClient(ce.embedUrl, {
+                signal: ac.signal,
+              });
         // Timeout fired: the extractor resolves with {error:"aborted"} (it
         // swallows the AbortError internally), so we must flip to "failed"
         // HERE — before the generic aborted-guard below — or we'd stay stuck
@@ -3819,6 +4248,72 @@ export default function UniversalPlayer({
       revokeMerged?.();
     };
   }, [streamData]);
+
+  /* ── Doute, puis constat de mort ─────────────────────────────────────────
+     Entre « tout va bien » et « erreur », il y a un etat qu'on ne nommait pas :
+     le lecteur repond encore, mais rien n'arrive. Il n'existait AUCUN chien de
+     garde sur la premiere image — un flux dont les segments ne viennent jamais
+     restait noir le temps des retries d'hls.js (jusqu'a 30 s par segment) puis
+     des 5 s de Vidstack avant de tomber en erreur.
+     On emet donc deux choses :
+       `onDoubt` — la page prepare le lecteur suivant EN PARALLELE, sans rien
+                   interrompre ici : si ca repart, le prechauffage est perdu et
+                   ce n'est pas grave ; sinon la bascule est instantanee ;
+       `onError` — passe le delai, le lecteur est declare mort et la page
+                   bascule. C'est la seule chose qui sorte de l'ecran noir.
+     Une seule alerte par source : la reprise d'hls.js a le droit de reussir.
+     (`emettreDoute` est declare plus haut, avec les refs : le gestionnaire
+     d'erreurs hls.js s'en sert avant ce point du fichier.) */
+  useEffect(() => {
+    douteEmisRef.current = false;
+  }, [streamData, clientStream]);
+
+  // L'extraction navigateur traine : l'embed vidmoly met parfois plus de 2 s a
+  // repondre, et l'abandon n'est prononce qu'a 6 s. Autant chauffer le suivant
+  // pendant qu'on finit d'attendre celui-ci.
+  useEffect(() => {
+    if (clientStatus !== "pending") return;
+    const id = window.setTimeout(
+      () => emettreDoute("extraction > 2,5 s"),
+      2500,
+    );
+    return () => window.clearTimeout(id);
+  }, [clientStatus, emettreDoute]);
+
+  /* Une image est arrivee : on retient QUEL lecteur l'a rendue, pour cette
+     serie. C'est la seule preuve qui vaille — pas « le chip est vert », pas
+     « la source a resolu » — et c'est ce qui evite de rejouer la meme panne a
+     chaque ouverture sur les series ou le lecteur le mieux classe n'existe
+     pas. Lecture au chargement suivant : lib/prefs/animeHostMemory. */
+  useEffect(() => {
+    if (!videoAUneImage) return;
+    if (serverId && aniListId != null) rememberAnimeHost(aniListId, serverId);
+    // …et on le DIT a la page : elle retient sa rafale de sondes jusque-la,
+    // pour ne pas disputer la bande passante au demarrage qu'on mesure.
+    onFirstFrame?.();
+  }, [videoAUneImage, serverId, aniListId, onFirstFrame]);
+
+  useEffect(() => {
+    if (!playerElState) return;
+    if (videoAUneImage) return; // une image est la : plus rien a surveiller
+    /* Un MP4 progressif (sibnet sert a ~670 Ko/s) met legitimement plus
+       longtemps qu'un HLS a livrer de quoi decoder : le constat de mort lui
+       laisse donc plus de temps. Le doute, lui, est le meme pour tous — il ne
+       coute qu'un prechauffage. */
+    const progressif = !m3u8Ref.current;
+    const doute = window.setTimeout(
+      () => emettreDoute("aucune image apres 3,5 s"),
+      3500,
+    );
+    const mort = window.setTimeout(
+      () => onError?.("No first frame"),
+      progressif ? 15000 : 10000,
+    );
+    return () => {
+      window.clearTimeout(doute);
+      window.clearTimeout(mort);
+    };
+  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError]);
 
   // ── Persistent volume (app-wide, shared across every player) ──
   // One value in localStorage, restored onto every player instance and every
@@ -3961,6 +4456,14 @@ export default function UniversalPlayer({
         try {
           video.currentTime = at;
         } catch {}
+        /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
+           est pose ICI et pas a l'arrivee sur la page, parce que c'est la seule
+           ligne qui prouve qu'il y avait REELLEMENT un point de reprise, et
+           qu'on y est alle. Un lien horodate partage (`?t=`) compte aussi :
+           dans les deux cas la lecture ne commence pas au debut. */
+        import("@/lib/badges/facts")
+          .then((f) => f.recordFlag("resume"))
+          .catch(() => {});
       }
       // Mark applied even when there's nothing to resume — we only want to
       // honour the saved point ONCE per mount, never fight a later user seek.
@@ -3992,9 +4495,30 @@ export default function UniversalPlayer({
       }
     };
 
+    /* « Sans une pause » : un episode entier sans jamais mettre pause.
+       Observe ICI plutot que par un etat React : le lecteur fenetre re-rend en
+       continu sur les mouvements de souris, et un drapeau pose dans un state
+       traverserait ces re-rendus sans qu'on sache pourquoi il a bouge.
+
+       La pause de DEPART ne compte pas -- une video demarre pausee, et l'evenement
+       `pause` part aussi a la fin naturelle du fichier. On ne retient donc que
+       les pauses survenues EN COURS de lecture. */
+    let paused = false;
+    const onPause = () => {
+      if (!video) return;
+      if (video.ended) return;                    // fin naturelle, pas une pause
+      if (video.currentTime < 1) return;          // l'arret initial
+      paused = true;
+    };
+
     const onEnded = () => {
       if (!video) return;
       markComplete(aniListId, episodeNumber, video.duration || 0);
+      if (!paused) {
+        import("@/lib/badges/facts")
+          .then((f) => f.recordNoPause(aniListId, episodeNumber))
+          .catch(() => {});
+      }
       // Notify the list sync engine (local list + optional AniList push). The
       // watch page owns the actual sync logic since it has `info` + session.
       fireComplete();
@@ -4020,6 +4544,7 @@ export default function UniversalPlayer({
       video.addEventListener("durationchange", onMeta);
       video.addEventListener("timeupdate", onTimeUpdate);
       video.addEventListener("ended", onEnded);
+      video.addEventListener("pause", onPause);
       onMeta();
       // Last-chance save when the user navigates away / closes the tab.
       window.addEventListener("pagehide", onTimeUpdate);
@@ -4041,6 +4566,7 @@ export default function UniversalPlayer({
       video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);
       video?.removeEventListener("ended", onEnded);
+      video?.removeEventListener("pause", onPause);
       window.removeEventListener("pagehide", onTimeUpdate);
     };
     // Re-bind per episode/anime and whenever the stream (server) changes so the
@@ -4747,6 +5273,19 @@ export default function UniversalPlayer({
     let inFlight = false; // a play() attempt is awaiting — don't overlap
     let boundVideo: HTMLVideoElement | null = null; // element our events sit on
 
+    // ── Never start an episode behind the user's back ──
+    // Autoplay means "start when I get here", not "start while I'm reading
+    // something else". Opening episodes in background tabs (middle-click from a
+    // season list) or alt-tabbing away during the ~10s a source takes to resolve
+    // both used to end with an episode playing — and burning progress — in a tab
+    // the user wasn't looking at. Chrome mutes background media instead of
+    // blocking it, so the browser will NOT stop this for us.
+    //
+    // Both conditions, not just `hidden`: a visible tab in an unfocused window
+    // is still not somewhere the user is watching, and that's the case a
+    // second-monitor layout hits constantly.
+    const pageActive = () => !document.hidden && document.hasFocus();
+
     const getPlayerEl = () =>
       (playerRef.current?.el as HTMLElement | undefined) || undefined;
     const getVideo = () =>
@@ -4772,6 +5311,9 @@ export default function UniversalPlayer({
       // `play`/`snapshot` sync instead. So skip local autoplay entirely while in
       // a party — the sync engine (applyRemote) owns play/pause here.
       if (partyRef.current) return;
+      // Nothing is latched here: `started` stays false, so coming back to the
+      // tab resumes the normal path instead of needing its own start logic.
+      if (!pageActive()) return;
       const video = getVideo();
       if (!video) return;
       // Consider playback truly started ONLY if the element is unpaused AND
@@ -4926,6 +5468,7 @@ export default function UniversalPlayer({
     };
 
     let ticks = 0;
+    let pollId = 0;
     const tick = () => {
       if (cancelled || started) {
         window.clearInterval(pollId);
@@ -4938,12 +5481,31 @@ export default function UniversalPlayer({
       // source genuinely can't autoplay, or the user has taken over.
       if (++ticks > 100) window.clearInterval(pollId);
     };
-    const pollId = window.setInterval(tick, 100);
-    tick(); // run once immediately, don't wait 100ms
+    const startPoll = () => {
+      window.clearInterval(pollId);
+      ticks = 0;
+      pollId = window.setInterval(tick, 100);
+      tick(); // run once immediately, don't wait 100ms
+    };
+    startPoll();
+
+    // Coming back to the tab restarts the poll from zero rather than just
+    // calling tryPlay() once: the 10s ceiling has almost certainly expired
+    // while we were away, and the <video> may have been swapped since (a
+    // source fallback keeps running in a hidden tab). One shot would land on
+    // a detached node and stay paused for good.
+    const onPageActive = () => {
+      if (cancelled || started || !pageActive()) return;
+      startPoll();
+    };
+    document.addEventListener("visibilitychange", onPageActive);
+    window.addEventListener("focus", onPageActive);
 
     return () => {
       cancelled = true;
       window.clearInterval(pollId);
+      document.removeEventListener("visibilitychange", onPageActive);
+      window.removeEventListener("focus", onPageActive);
       teardownGestures();
       if (boundVideo) {
         boundVideo.removeEventListener("canplay", onReady);
@@ -5102,7 +5664,9 @@ export default function UniversalPlayer({
     // …including the white-label domains of the same backend (ansembed for
     // anime-sama, voembed for voir-anime's myTV panel) — they embed-gate the
     // same way, so they need the same no-referrer treatment.
-    const isVidmoly = /(vidmoly\.(to|biz|net)|ansembed\.net|voembed\.net)/i.test(iframeSrc);
+    // Cinquieme copie de cette regex avant le 20/09/2026 : elle vit desormais
+    // dans lib/players/vidmolyDomains.js, derivee de la liste des domaines.
+    const isVidmoly = VIDMOLY_HOST_RE.test(iframeSrc);
     return (
       <div
         className={`relative h-full w-full${
@@ -5117,6 +5681,19 @@ export default function UniversalPlayer({
           serverId={serverId}
           onError={onError}
           referrerPolicy={isVidmoly ? "no-referrer" : "origin"}
+          /* Megaplay seul s'en sert (les autres iframes n'ont pas de pont) :
+             reprise de lecture, progression enregistree, saut d'OP/ED. Passe
+             inconditionnellement — c'est `estMegaplay` qui decide, pour qu'un
+             futur hote dote du meme pont n'ait rien a rebrancher ici. */
+          aniListId={aniListId}
+          episodeNumber={episodeNumber}
+          segments={skipTimes}
+          autoSaut={playerPrefs.autoSkipIntro || playerPrefs.autoSkipOutro}
+          surFin={() =>
+            aniListId != null && episodeNumber != null
+              ? onEpisodeCompleteRef.current?.({ aniListId, episodeNumber })
+              : undefined
+          }
         />
         {/* No explicit exit-fullscreen cross: re-tapping the fullscreen
             button toggles pseudo-fullscreen off. */}
@@ -5138,9 +5715,13 @@ export default function UniversalPlayer({
   // scope) knows to strip the Referer on the underlying <video>. Only direct
   // streams need it — proxied ones carry their Referer via the Worker query.
   directPlaybackRef.current = bestStream!.directUrl === true;
+  bwKeyRef.current = bandwidthKey(bestStream!.url, directPlaybackRef.current);
+  audioLangRef.current = bestStream!.audioLang || null;
+  subtitlePrefRef.current = bestStream!.subtitlePref || null;
   const isM3U8 =
     bestStream!.isM3U8 === true ||
     (bestStream!.isM3U8 !== false && bestStream!.url.includes(".m3u8"));
+  m3u8Ref.current = isM3U8;
 
   // CRITICAL: memoize the src object handed to <MediaPlayer>. Passing an inline
   // object literal `src={{ src, type }}` minted a NEW identity on EVERY render,
@@ -5222,7 +5803,13 @@ export default function UniversalPlayer({
           const url = s.file || s.url;
           if (!url) return null;
           return {
-            src: proxied(url, bestStream!.referer || streamData?.referer),
+            // A direct source's subtitles go straight to the CDN too. Routing
+            // them through the Worker isn't merely a wasted hop: it refuses
+            // hosts outside its allowlist (410), so proxying frembed's
+            // CORS-open .vtt would turn a working track into a dead one.
+            src: bestStream!.directUrl
+              ? url
+              : proxied(url, bestStream!.referer || streamData?.referer),
             label: s.label || s.language || "Subtitle",
             language: s.language || "en",
             kind: (s.kind as any) || "subtitles",
@@ -5247,9 +5834,21 @@ export default function UniversalPlayer({
   //     cannot be turned off.
   // Used to (a) still show the Subs button on hard/none servers and (b) explain,
   // via a fullscreen-safe notice, why toggling subs does nothing there.
+  //
+  // The `lang` shorthand held only while VO meant "anime-sama-style burned-in
+  // subs". Frembed broke that: it is a `vo` server whose subtitles are real,
+  // selectable tracks, and the shorthand declared them hard-burned — so the
+  // button explained there was nothing to toggle while two perfectly good
+  // tracks sat unused. Actual tracks now decide; `lang` only answers for a
+  // source that shipped none, exactly as before.
   const serverLang = serverId ? getServer(serverId)?.lang : "multi";
-  const subMode: "soft" | "hard" | "none" =
-    serverLang === "vf" ? "none" : serverLang === "vo" ? "hard" : "soft";
+  const subMode: "soft" | "hard" | "none" = subtitleTracks.length
+    ? "soft"
+    : serverLang === "vf"
+    ? "none"
+    : serverLang === "vo"
+    ? "hard"
+    : "soft";
 
   // The subtitles button/shortcut: on a soft-sub server open the track menu;
   // on a hard-sub or dub server there's nothing to toggle, so explain why with a
@@ -5480,6 +6079,11 @@ export default function UniversalPlayer({
       const url = new URL(window.location.href);
       url.searchParams.set("t", String(seconds));
       await navigator.clipboard.writeText(url.toString());
+      /* Le meme badge que le bouton « partager » de la fiche : copier le lien
+         d'un anime. L'horodatage en plus ne change pas le geste. */
+      import("@/lib/badges/facts")
+        .then((f) => f.recordFlag("copyLink"))
+        .catch(() => {});
       const mm = Math.floor(seconds / 60);
       const ss = String(seconds % 60).padStart(2, "0");
       showPlayerNotice(t("stats.timestampCopied", { time: `${mm}:${ss}` }), 5000, "success");
@@ -5580,6 +6184,13 @@ export default function UniversalPlayer({
         onProviderSetup={onProviderSetup}
         poster={poster}
         load="eager"
+        /* `preload` n'etait pas pose, donc « metadata » : sur un MP4 progressif
+           (sibnet), le navigateur s'arretait apres l'entete et n'allait pas
+           chercher d'image. Un flux HLS ne s'en apercevait pas (hls.js remplit
+           son tampon tout seul), mais le bouton de lecture attend desormais une
+           image DECODEE — et le chien de garde la surveille. On demande donc
+           les donnees tout de suite, comme pour l'HLS. */
+        preload="auto"
         playsinline
         // Playback speed is restored app-wide via the remote (see the rate
         // correction effect). We only listen for changes here; we don't pass it
@@ -5674,7 +6285,14 @@ export default function UniversalPlayer({
               kind={t.kind}
               label={t.label}
               language={t.language}
-              default={t.default || i === 0}
+              /* Le repli « a defaut, la premiere piste » ne vaut que pour une
+                 source qui ne s'est pas prononcee. Quand elle dit `none` — le
+                 chip VF de frembed : on regarde un doublage francais, pas
+                 besoin de le sous-titrer — ce repli rallumait la piste 0 au
+                 niveau de Vidstack, avant meme que notre preference ait son
+                 mot a dire. Les pistes restent dans le menu, simplement
+                 aucune n'arrive allumee. */
+              default={t.default || (i === 0 && subtitlePrefRef.current !== "none")}
             />
           ))}
           {/* Chapters track: a synthesised WebVTT from AniSkip's
@@ -5972,6 +6590,7 @@ export default function UniversalPlayer({
         episode={episodeNumber}
         server={serverId}
         nextEpisodeHref={nextEpisodeHref}
+        onPrepareNext={onPrepareNextEpisode}
         externalMenuOpen={subMenuOpen || subStyleOpen}
         isFinalEpisode={isFinalEpisode}
         isSingleEpisode={isSingleEpisode}
@@ -6044,20 +6663,76 @@ function IframeEmbed({
   serverId,
   onError,
   referrerPolicy = "origin",
+  aniListId = null,
+  episodeNumber = null,
+  segments,
+  autoSaut = false,
+  surFin,
 }: {
   src: string;
   serverId?: string;
   onError?: (reason?: string) => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
+  aniListId?: number | null;
+  episodeNumber?: number | null;
+  segments?: Array<{ start: number; end: number; type: string }>;
+  autoSaut?: boolean;
+  surFin?: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
+  const { t } = useTranslation();
+  /* Nonce de relance manuelle. Il sert DEUX fois : en `key` de l'<iframe>, pour
+     forcer un element neuf (changer le `src` ne suffirait pas, il est fige), et
+     en dependance de l'effet du chrono, sans quoi celui-ci ne se rearmerait
+     pas et le nouvel essai n'aurait plus de garde-fou. */
+  const [cleRecharge, setCleRecharge] = useState(0);
+  const chronoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ── Megaplay : reprise de lecture ──
+     Fige a l'ouverture, et surtout PAS recalcule a chaque rendu : ce `src`
+     est celui de l'iframe, donc le recalculer au fil de la progression
+     rechargerait le lecteur en boucle. Les dependances sont exactement ce qui
+     doit provoquer un rechargement (l'episode change, la source change). */
+  const srcFige = useMemo(
+    () => avecReprise(src, aniListId, episodeNumber),
+    [src, aniListId, episodeNumber],
+  );
+
+  /* La signature des segments plutot que le tableau : son identite change a
+     chaque rendu du parent, et le pont serait alors rebati sans arret. */
+  const signatureSegments = useMemo(
+    () => (segments || []).map((s) => `${s.type}:${s.start}-${s.end}`).join("|"),
+    [segments],
+  );
+  const segmentsRef = useRef(segments);
+  const surFinRef = useRef(surFin);
+  useEffect(() => {
+    segmentsRef.current = segments;
+    surFinRef.current = surFin;
+  });
 
   // The embed is on screen — drop the episode-transition loading host. No-op
   // unless a transition is pending.
   useEffect(() => {
     claimEpisodeTransition();
   }, []);
+
+  /* ── Megaplay : progression, duree, « vu », saut d'OP/ED ──
+     Tout ce que l'encadrement nous avait coute et que leur propre pont rend.
+     Voir lib/watch/megaplayBridge.ts, qui documente le protocole ET ce qui a
+     ete essaye sans succes (le `sandbox`, qu'ils detectent et refusent). */
+  useEffect(() => {
+    const el = iframeRef.current;
+    if (!el || !estMegaplay(srcFige)) return;
+    return ouvrePont(el, srcFige, {
+      aniListId,
+      episodeNumber,
+      segments: segmentsRef.current || [],
+      autoSaut,
+      surFin: () => surFinRef.current?.(),
+    });
+  }, [srcFige, aniListId, episodeNumber, autoSaut, signatureSegments]);
 
   useEffect(() => {
     setFailed(false);
@@ -6070,27 +6745,55 @@ function IframeEmbed({
       setFailed(true);
       onError?.("Iframe didn't load within 30s");
     }, 30000);
-    const iframe = iframeRef.current;
-    const handleLoad = () => clearTimeout(timeout);
-    iframe?.addEventListener("load", handleLoad);
+    /* Le chrono est desarme par le prop `onLoad` de l'<iframe>, et non plus par
+       un `addEventListener` sur `iframeRef.current`. Raison : quand on relance
+       depuis l'ecran d'echec, cet effet rejoue ALORS QUE l'ecran d'erreur est
+       encore monte — `iframeRef.current` vaut donc null, aucun ecouteur n'est
+       pose, et l'<iframe> qui apparait au rendu suivant ne re-declenche pas
+       l'effet (ses dependances n'ont pas bouge). Le chrono repartait alors sans
+       jamais pouvoir etre desarme : un lecteur parfaitement charge retombait en
+       erreur trente secondes plus tard. Le prop, lui, part avec l'element.
+       21/09/2026. */
+    chronoRef.current = timeout;
     return () => {
       clearTimeout(timeout);
-      iframe?.removeEventListener("load", handleLoad);
+      chronoRef.current = null;
     };
-  }, [src, serverId]);
+  }, [src, serverId, cleRecharge]);
 
   if (failed) {
+    /* Etait un « Failed to load player » en dur, en anglais, hors i18n et SANS
+       AUCUNE ACTION : la personne lisait une phrase qu'elle ne comprenait
+       peut-etre pas, et n'avait que F5. Cet ecran n'est atteint que pour le
+       DERNIER lecteur disponible — sinon la bascule a deja eu lieu au `onError`
+       du chrono — c'est-a-dire exactement le cas desespere (21/09/2026). */
+    const horsLigne =
+      typeof navigator !== "undefined" && navigator.onLine === false;
     return (
-      <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla">
-        Failed to load player
+      <div className="flex-center aspect-video w-full h-full bg-black text-white/50 font-karla flex-col gap-2">
+        <p>{horsLigne ? t("player.offline") : t("player.loadFailed")}</p>
+        <button
+          type="button"
+          onClick={() => setCleRecharge((n) => n + 1)}
+          className="text-as-accent underline text-sm"
+        >
+          {t("common.retry")}
+        </button>
       </div>
     );
   }
 
   return (
     <iframe
+      // Element NEUF a chaque relance manuelle : le `src` est fige, le changer
+      // n'est pas une option, et sans nouvelle cle le navigateur ne retenterait
+      // rien du tout.
+      key={cleRecharge}
       ref={iframeRef}
-      src={src}
+      onLoad={() => {
+        if (chronoRef.current) clearTimeout(chronoRef.current);
+      }}
+      src={srcFige}
       className="relative z-10 aspect-video h-full w-full bg-black"
       frameBorder="0"
       scrolling="no"

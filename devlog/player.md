@@ -6,6 +6,1113 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-22 — L'instantané de disponibilité ÉLISAIT le lecteur au lieu d'écarter
+
+Signalé ainsi : « sur One Piece ep 1, on a choisi sibnet de base au lieu
+d'utiliser frembed ou même ansembed qui ont chargé après ». Sibnet est **rang
+4**, frembed **rang 1**, ansembed **rang 2**, et les trois servent la série.
+
+**Deux symptômes, une seule cause.** L'ordre d'ouverture et l'apparition tardive
+des chips venaient du même endroit — `/api/v2/availability`, l'instantané par
+épisode (18 h de TTL depuis le 22/09).
+
+La page info construit sa liste de candidats en filtrant par cet instantané
+(`resolveWatchCandidates`, `pages/en/anime/[...id].tsx`), puis `warmChain`
+prouve le n°1 jouable et `setVerifiedServer` le marque ; la page de lecture
+ouvre d'emblée un candidat `verifie`. Or elle lisait `ok` comme une **liste
+blanche** : le n°1 était le mieux classé *parmi ceux que l'instantané
+confirmait*. Comme `warmChain` s'arrête au premier succès, un hôte lent mais
+connu battait définitivement des hôtes mieux classés que **personne n'avait
+essayés**.
+
+Et côté page de lecture, un hôte hors instantané ne peut pas avoir de chip vert
+au premier rendu : il attend le fan-out de sondes, volontairement retardé
+jusqu'à la première image + `PROBE_START_DELAY_MS`. D'où « ils ont chargé
+après » — c'est le comportement voulu, pas un second bug.
+
+**Le correctif** : lire `absent`, pas `ok`. C'est l'autre moitié de l'instantané
+et elle porte, elle, un vrai verdict. Les hôtes prouvés sans source pour cet
+épisode sont écartés des candidats, le classement décide du reste. Les deux
+appels à `pickServerForLangs` deviennent un seul — le second n'était que le
+repli pour liste blanche épuisée.
+
+**Ce que `ok` est, et n'est pas.** « Ceux-ci marchent », jamais « les autres,
+non ». Un instantané ne contient que ce qu'un visiteur précédent a eu le temps
+de sonder ; le traiter comme exhaustif, c'est laisser une connaissance partielle
+gouverner un classement. La règle qui en sort : **un cache de verdicts positifs
+peut écarter, il ne peut pas élire.**
+
+**Le garde-fou qu'on croyait tenir par `confirmed` tenait déjà ailleurs.** Le
+commentaire d'origine justifiait la liste blanche par « un utilisateur qui
+classe la VF en n°1 ferait préchauffer un hôte VF sur une série qui n'en a
+pas ». C'est faux : ce cas est couvert par `deprioriser: sansVf` (MyDubList, via
+`vfPossible`), qui ne dépend pas de l'instantané. La liste blanche ne protégeait
+rien que le reste ne protégeait déjà.
+
+**Les deux autres `confirmed:` du code sont légitimes** — vérifié, pas supposé.
+Le filet de sécurité après échec du lecteur actif, et la bascule immédiate au
+choix d'un ordre de langues : ce sont des décisions **en direct**, prises avec
+les verdicts de sondes en main, où « connu bon » est le bon critère. Ce qui
+était fautif, c'est le **pari à froid**, pris avant que rien n'ait été sondé.
+
+**Fausse piste, à ne pas rejouer.** Le `sub=sub` en dur du GET de la page info
+ressemble à un bug de langue : il n'en est pas un. `sub` est le drapeau
+`?dub=true` du lien, pas la langue — VF et VO sont portés par des **ids de
+serveurs distincts** (`animesama-sibnet` / `animesama-sibnet-vo`), et les liens
+« Regarder » ne posent jamais `dub`.
+
+**Laissé en place, volontairement** : `getAnimeHost` reste candidat n°1, avant
+le classement. C'est la même forme (un souvenir lent devant un rapide jamais
+essayé), mais c'est un arbitrage assumé — éviter de rejouer la même bascule
+ratée à chaque visite — et il se périme seul en un mois.
+
+## 2026-09-21 — La video ne se rechargeait pas au reveil du PC
+
+Signale ainsi : « quand on recharge une page apres longtemps, par exemple apres
+redemarrage du PC, parfois les lecteurs ne se rechargent pas et donc on a une
+page d'erreur au lieu que la video se recharge ».
+
+### Le Service Worker servait une source morte
+
+`next.config.js` avait une regle `runtimeCaching` **NetworkFirst** sur
+`sameOrigin && pathname.startsWith("/api/")`, 24 h de retention et
+`networkTimeoutSeconds: 10`. Le commentaire juste au-dessus affirmait exclure
+`/api/v2/source` — mais cette exclusion ne portait que sur la regle `CacheFirst`
+`apis-static` qui precede. Le fourre-tout NetworkFirst, lui, l'attrapait, et
+depuis le passage de la route en **GET** il l'attrapait vraiment.
+
+Au reveil du PC, l'onglet est restaure AVANT que le reseau soit pret. Workbox
+attend ses 10 s, echoue, et sert une reponse `/api/v2/source` vieille de
+plusieurs heures. Or les tokens des URL upstream ne vivent que 60 a 240 min : le
+proxy repond **410**, que `UniversalPlayer` traite en tier 1 « stream mort »
+sans aucune tentative de recovery, la bascule s'enchaine d'un lecteur a l'autre
+jusqu'a les avoir tous brules, et on finit sur « serveur indisponible ».
+
+La route dit pourtant elle-meme ce qu'elle vaut : `Cache-Control: max-age=60`.
+Le cache du SW ne lit pas cet en-tete — il ne connait que son `maxAgeSeconds`.
+**C'est l'ecart 60 s / 24 h qui est le bug.**
+
+### Deux pieges rencontres en le corrigeant
+
+**1. Retirer l'URL de la seule regle `apis` ne corrige rien.** Le routeur
+workbox parcourt les routes dans l'ordre d'enregistrement, premiere qui matche
+gagne : la requete retombait simplement sur le fourre-tout `others`,
+NetworkFirst 10 s / 24 h lui aussi. Le bug aurait change de cache, rien de plus.
+La soustraction doit porter sur les DEUX regles. Quand plus AUCUNE route ne
+matche, `handleRequest` fait `if (!handler) return` et le SW n'intercepte pas du
+tout : le navigateur fait sa propre requete et applique enfin le `max-age=60`.
+
+**2. next-pwa serialise les `urlPattern` avec `.toString()`.** Une constante
+partagee du fichier de config est **perdue** a la generation : le `sw.js` produit
+appelait `API_VOLATILE.test(...)` sans que rien ne la definisse — ReferenceError
+dans le routeur, a chaque requete. Le litteral doit etre recopie dans chaque
+`urlPattern`. Comme deux copies derivent tot ou tard, un garde-fou en bas de
+`runtimeCaching` fait echouer le build si le litteral n'est pas present sur
+exactement `apis` ET `others`.
+
+Endpoints sortis du SW (`API_VOLATILE`) : `source`, `availability`, `track`,
+`watch2gether`, `account`, `admin`, `list-entry`, `proxy`, `download`, plus
+`/api/auth/` et `/api/user/`. Les user-scoped etaient un bug latent distinct,
+que le commentaire d'origine pretendait deja eviter.
+
+### Et rien ne reprenait au retour du reseau
+
+Deuxieme moitie du probleme, independante du SW : il n'y avait **aucun**
+listener `online` sur le chemin du lecteur, et **aucun** `pageshow` dans tout le
+projet. Les memoires d'echec (`triedFailedRef`, `failedServers`, `hlsData.error`)
+ne se vident qu'au changement d'episode. Une fois la page tombee en erreur, plus
+rien ne bougeait jusqu'a un rechargement manuel — c'est-a-dire un rendu SSR
+complet, l'operation la plus chere du lot.
+
+Pose : une reprise sur `online` + `pageshow(persisted)`, bornee a **3 relances
+automatiques par episode**, espacees de 5 s, et **seulement si la page est
+cassee** — une micro-coupure pendant une lecture qui tourne ne doit rien
+remonter, on perdrait la position. C'est un evenement, jamais un timer.
+
+**Le piege qui rendait la reprise inoperante** : `fetchStreamSource` lit d'abord
+le cache memoire des sources (TTL 5 min) et rendait donc la MEME charge utile,
+la meme URL au token mort, sans toucher au reseau — exactement dans la fenetre
+ou la reprise sert. Il a fallu appeler `clearPrefetchedSourcesFor` dans la
+reprise ; sa docstring invoquait deja « a possibly rotated token », c'est le
+meme motif.
+
+### Les culs-de-sac visuels
+
+- `CarteIndisponible` ne rendait son bouton que s'il existait un lecteur de
+  secours. Sans secours : ecran mort, aucune sortie. « Reessayer » y est
+  desormais **toujours**, et le texte devient « connexion perdue » quand
+  `navigator.onLine === false` — nommer un lecteur est trompeur quand c'est la
+  connexion qui manque.
+- L'iframe affichait `"Failed to load player"` **en dur, en anglais, hors i18n,
+  sans aucune action**. Traduit, avec un bouton.
+  Piege : desarmer le chrono de 30 s par `addEventListener` sur
+  `iframeRef.current` ne survit pas a une relance — l'effet rejoue pendant que
+  l'ecran d'erreur est encore monte, la ref vaut `null`, aucun ecouteur n'est
+  pose, et l'`<iframe>` qui apparait ensuite ne redeclenche pas l'effet. Un
+  lecteur parfaitement charge retombait en erreur 30 s plus tard. Passe au prop
+  `onLoad`, qui part avec l'element.
+- `hls.js` : garde `if (navigator.onLine === false) return;`. Hors ligne, la
+  rafale d'erreurs fatales consommait le budget de 4 recoveries en moins d'une
+  seconde, ce qui declenchait une bascule — **donc une requete `/api/v2/source`
+  par lecteur essaye** — pour une coupure de trois secondes.
+
+### Bilan quota
+
+Le correctif **consomme moins** qu'avant. La regle SW etait deja NetworkFirst,
+donc elle allait deja au reseau : l'exclure ne cree aucune requete. La garde
+`onLine` supprime la cascade de bascules. Et chaque reprise automatique remplace
+un rechargement manuel, c'est-a-dire un SSR complet. Ce qui est ajoute est borne
+a 3 relances par episode sur une page deja cassee.
+
+Gain annexe de vitesse : `/api/v2/source` est sur le chemin critique — c'est la
+requete que le script pre-bundle (`lib/watch/earlySource.ts`) tire avant meme
+React, en `priority:"high"`. On lui retire la traversee du routeur workbox et le
+`cache.put` de la reponse.
+
+### A verifier au prochain passage sur dev
+
+L'hypothese n'a pas ete confirmee a l'oeil : DevTools -> Application -> Cache
+Storage -> `apis`, chercher des entrees `/api/v2/source` et lire leur en-tete
+`date`. Plus de ~4 h prouve le 410. Le discriminant a l'oeil nu dans Network est
+la mention **(ServiceWorker)** en colonne Size : elle doit avoir disparu de la
+requete de source.
+
+## 2026-09-20 (soir) — `verified` voulait dire deux choses
+
+Parti d'une demande de vitesse, arrive sur un defaut de conception. Le fil :
+brancher [MyDubList](https://github.com/Joelis57/MyDubList) pour cesser
+d'essayer les lecteurs VF sur des series jamais doublees.
+
+### Un juge exterieur, et ce qu'il a trouve
+
+MyDubList publie par langue la liste des titres doubles, indexee par id MAL.
+Croisee avec nos lignes `player_map` en VF **reellement constatees**
+(`status='verified'`), la concordance est de **541 sur 553, soit 97,8 %**.
+
+Les douze desaccords, inspectes un par un : **zero faux positif**. Douze vraies
+erreurs — `joker-game` servi pour *Kaitou Joker*, `youjo-senki` pour le court
+*Youjo Shenki*, `black-cat` pour *Kurokami*, `lets-play` pour *Asobi ni Iku
+yo!*. Et **cinq des douze portaient `confidence: 1,00`**.
+
+C'est tout l'interet d'un juge EXTERIEUR : un score calcule sur nos propres
+donnees ne peut pas voir une erreur que nos propres donnees produisent.
+
+### Pourquoi la confiance ne les voyait pas
+
+`slugTitleConfidence` divisait par `Math.min(slugLen, titleLen)`. Diviser par le
+plus **court** des deux fait qu'un synonyme d'un seul mot certifie n'importe
+quel slug qui le contient : *Kaitou Joker* porte le synonyme **« JOKER »**, donc
+`joker-game` sortait a 5/5 = 1,00 et « game » n'etait demande a personne. Meme
+mecanique pour `isekai-ojisan` contre « Isekai no Yu ».
+
+Symptome mesurable : **6 496 lignes sur 6 962 affichaient 1,00**. La colonne ne
+discriminait plus rien. On divise desormais par la longueur du slug. La porte
+`<= 0` des appelants ne bouge pas d'un iota — `matched` vaut zero dans les deux
+formules ou dans aucune — donc le changement n'accepte ni ne refuse un slug de
+plus : il rend seulement la valeur relisible, pour qu'un seuil puisse un jour se
+choisir sur des mesures. 216 lignes perdent leur 1,00 : une liste a examiner.
+
+### La racine : un mot gagne par deux chemins
+
+| lignes `verified` | nombre |
+| --- | --: |
+| total | 2 325 |
+| `algo_version = 0` | **2 315** |
+| passees par le verificateur (`note='verify:ok'`) | **3** |
+
+Les 2 246 lignes `seed:ok` viennent de `seed-player-map.mjs`, qui rejoue un
+audit **fige** produit par le resolveur d'un autre jour et les estampille
+`verified`. Verifiees au sens de *semees*, pas de *controlees*.
+
+Or `lib/db/playerMap.ts` n'applique la garde de peremption d'algorithme qu'aux
+lignes `heuristic` — « verified/broken/absent are human/verifier-owned states —
+always honoured » — en s'appuyant sur une premisse ecrite plus haut dans le meme
+fichier : « `verified` rows — checked by verify-player-map.mjs ». **Fausse pour
+2 315 lignes sur 2 318.**
+
+Et comme `player_map` est lu AVANT toute heuristique, une ligne semee fausse
+masque un resolveur qui a raison. La preuve etait dans la table, a deux lignes
+d'ecart :
+
+| AniList | ligne `seed` (algo 0, `verified`) | ligne `runtime` (algo 2, `heuristic`) |
+| --: | --- | --- |
+| 5079 | `black-cat` | **`kurokami-the-animation`** |
+| 6166 | `lets-play` | **`asobi-ni-iku-yo`** |
+| 112818 | `super-crooks` | **`dokyuu-hentai-hxeros`** |
+| 21451 | `full-metal-panic/saison3` | **`full-metal-panic/saison4`** |
+
+**Nuance mesuree, contre ma propre conclusion initiale** : le resolveur
+*voiranime* corrige ces titres, le resolveur *anime-sama* non. Passer les lignes
+anime-sama a la re-derivation les reconfirme a l'identique. Flipper la garde de
+version ne suffira donc pas pour cette source-la.
+
+Rien ne corrigeait tout ca parce que **personne ne lançait le verificateur** :
+`warm-player-map.yml` a ete ecrit la veille et ne vivait que sur `dev`, or
+GitHub ne planifie que les workflows de la branche par defaut. Les 2 315 lignes
+etaient **toutes** echues, l'arriere total montait a 4 217, et le job nocturne
+en traitait 150.
+
+Trois correctifs, dans cet ordre, l'ordre etant le fond du sujet :
+
+1. **Le prerequis.** Le verificateur n'ecrivait JAMAIS `algo_version` — ni dans
+   la liste de colonnes, ni dans le `DO UPDATE SET`. Une ligne qu'il venait de
+   confirmer restait indiscernable d'une ligne semee, donc toute garde fondee
+   sur la version aurait rejete les deux, pour toujours.
+2. **Le semis ecrit `heuristic`**, avec l'echeance qui va avec (14 jours, pas
+   90). Seul le verificateur promeut, parce que lui seul re-interroge la source.
+3. **Drainer avant de changer la lecture.** Mesure : 150 lignes en **1 min 29**
+   a concurrence 4, dont **135 re-confirmees, 6 cassees, 9 absentes**. Le semis
+   etait donc juste a ~90 % : flipper la garde d'abord aurait envoye neuf titres
+   sur dix sur le chemin long pour rien. Le job passe a 500 par nuit et gagne un
+   `--from=due|seed|mydublist`.
+
+### Retrograder sur preuve, pas sur comptage
+
+Une incoherence de saison n'est pas un soupcon : le resolveur vient de
+**calculer** que le panneau designe une autre saison. Elle passait pourtant par
+`fail_count >= 3`, incremente une fois par visite reelle — onze lignes
+stagnaient a 1 ou 2 sur des titres que personne n'ouvre, chacune re-payant
+`detectSeasonNumber` et le chemin long a chaque passage sans jamais converger.
+Ce n'etait pas une faute de contenu (le resolveur contourne bien la ligne) mais
+une fuite de performance qui ne se refermait jamais.
+
+`flagPlayerMap` prend un `proven` : sur preuve, retrogradation immediate en
+`heuristic` et `algo_version` remis a 0. Le seuil a trois coups **reste** pour
+les echecs d'execution — un CDN qui coupe ne prouve rien.
+
+### Un effet de cascade rattrape de justesse
+
+La porte MyDubList cassait la ligne VF, et la garde inter-langues propageait au
+VOSTFR du meme slug. Sur les douze c'etait le bon resultat. Mais « pas de
+doublage francais » a **deux** lectures — le slug pointe ailleurs, ou la VF
+n'est pas officielle — et propager choisit la premiere sans preuve. Sur les ~2 %
+ou c'est la seconde, ca retirerait un VOSTFR parfaitement valable, dans la
+langue principale du site. La cascade est donc desarmee pour cette porte-la, et
+pour elle seule.
+
+### Cote navigateur : retrograder, pas exclure
+
+`vfPossible(idMal)` renvoie les lecteurs VF en **fin** d'ordre au lieu de les
+retirer. Les sondes de fond les atteignent toujours, en dernier, donc le chip
+s'allume si une VF existe malgre tout. L'exclusion franche ne gagnerait que des
+invocations de sonde, pas une seconde pour la personne qui regarde, et rendrait
+les ~2 % invisibles ET irrecuperables.
+
+**Ce que ça ne couvre pas, et pourquoi.** Le script du `<head>` connait l'id
+AniList de la page, jamais son `idMal`. Lui donner une liste indexee AniList
+supposerait de passer par `fribb_map`, qui a des trous — on echangerait un
+signal exact contre un signal approximatif. On ne memorise donc simplement pas
+l'ordre calcule sur une serie sans VF : le chargement suivant retombe sur le
+comportement d'avant, correct, seulement moins rapide.
+
+### Le seek : une piste fermee, une piste rouverte
+
+Le constat de depart etait juste. En mettant ansembed en tete la veille, on
+avait desactive les **deux** accelerateurs de saut : ansembed joue en
+`directUrl: true`, donc sans le Worker qui pre-chauffe tous les segments d'une
+playlist media dans le cache edge, et le pre-chauffage au survol de la barre
+etait explicitement coupe pour les flux directs.
+
+**Faire repasser les segments par le Worker : mesure, puis abandon.** Le meme
+segment, a la meme seconde :
+
+```
+direct        : 200  video/MP2T  6 437 496 octets
+par le Worker : 410  {"error":"Upstream error","upstream":403}
+```
+
+Le jeton est lie a l'IP : Cloudflare n'est pas le navigateur, le CDN refuse.
+Abandonne, comme le montage recouvrant la veille.
+
+**Mais la meme mesure en a ouvert une autre.** Le garde-fou du survol disait que
+« chauffer n'aide que les sources proxifiees, ou la requete peuple le cache
+edge ». Faux pour moitie : la reponse directe porte
+
+```
+cache-control: max-age=8640000, public, no-transform
+etag: "5f693e80-623a78"
+accept-ranges: bytes
+```
+
+Cent jours. Le CDN autorise le cache du **navigateur** — le Worker n'a jamais
+ete necessaire pour ca. Le survol chauffe donc aussi les sources directes, avec
+trois freins qui n'existent que sur ce chemin, parce que l'autre moitie du
+commentaire restait vraie (marteler ce CDN declenche `ERR_EMPTY_RESPONSE`) :
+repos de 400 ms au lieu de 120 — « ou est-ce que je saute ? » et non un
+balayage —, plafond de 4 chauffes par episode, et rien du tout sous `saveData`
+ou en 2G. Un segment pese ~6 Mo : on chauffe l'endroit ou le curseur s'arrete,
+jamais ceux qu'il survole.
+
+### Pourquoi un mauvais slug est choisi — et pourquoi on ne peut pas le durcir
+
+`scoreSlugAgainstTitle` n'additionne que les correspondances : ce que le slug
+porte **en trop** ne lui coute rien. Un seul token partage suffit donc a faire
+gagner un candidat quand le bon n'est pas au catalogue.
+
+Les deux filets censes rattraper ca en sont incapables, et c'est **mesure** :
+
+**La confiance titre↔slug.** Un plancher a 0,60 rejetterait 534 lignes. Les
+quatorze echantillonnees sont **toutes correctes** — titres francais et
+variantes d'orthographe : `shirayuki-aux-cheveux-rouges` (0,41),
+`craque-pour-moi-medaka` (0,32), `le-healer-rejete-est-invincible` (0,19),
+`amagi-brillant-park` (0,53, « brillant » a la francaise). Le score ne sait pas
+distinguer une traduction francaise du bon anime d'un titre anglais du mauvais :
+les deux ne partagent qu'un token. **Piste fermee, et il faut le dire, sans quoi
+quelqu'un la rouvrira en croyant bien faire.**
+
+**Le nombre d'episodes.** Les sept mauvais slugs tombent tous a ±1 :
+
+| AniList | vrai titre | eps | slug choisi | eps | ecart |
+| --: | --- | --: | --- | --: | --: |
+| 20818 | Mysterious Joker | 13 | `joker-game` | 12 | −1 |
+| 98186 | Youjo Shenki | 13 | `youjo-senki` | 12 | −1 |
+| 171019 | Isekai Onsen Paradise | 12 | `isekai-ojisan` | 13 | +1 |
+| 112818 | SUPER HXEROS | 12 | `super-crooks` | 13 | +1 |
+| 6166 | Cat Planet Cuties | 12 | `lets-play` | 12 | 0 |
+| 5079 | Black God | 23 | `black-cat` | 24 | +1 |
+| **20779** | **Beyond the Boundary: Daybreak** | **1** | `beyond-the-boundary` | **12** | **+11** |
+
+La porte accepte ±1. Sur un parc ou presque tout fait 12 ou 13 episodes, elle ne
+discrimine rien.
+
+La derniere ligne est d'une autre nature : une OVA d'**un** episode posee sur un
+panneau de douze, acceptee par la clause « panneau plus gros = cours fusionnes ».
+Cette clause acceptait n'importe quel depassement. Resserree pour les fiches
+minuscules (< 6 episodes sans `ep_offset`), et le cout a ete mesure avant :
+490 lignes entrent dans ce cas, **aucune n'est `verified`** — on n'en retrograde
+donc pas une, on empeche seulement de les certifier a tort quand le
+verificateur passera.
+
+A egalite de score, le departage se fait desormais sur la couverture avant la
+longueur : `hokuto-no-ken` est entierement explique par son titre,
+`ken-le-survivant` au quart, et les deux partagent le meme token.
+
+**Ce qui reste ouvert, honnetement** : la moitie VOSTFR. MyDubList couvre la
+moitie VF. L'annee de diffusion serait le bon signal — `joker-game` est de 2016,
+*Mysterious Joker* de 2014 — mais il faudrait qu'anime-sama l'expose sur sa page
+catalogue, et je n'ai pas pu le verifier (le Worker n'a pas joint le site).
+
+### A retenir
+
+- Un statut qui porte une autorite doit etre gagne par **un seul** chemin.
+  `verified` en avait deux, dont un qui ne verifiait rien.
+- Un score calcule sur ses propres donnees ne voit pas les erreurs que ces
+  donnees produisent. Cinq des douze etaient notees 1,00.
+- `hlsDirect` etait un bon pari pour la premiere image et un mauvais pour le
+  seek. Les deux ne se mesurent pas au meme endroit.
+- Mesurer AVANT de conclure a coute trois conclusions ce jour-la : le Worker
+  (ferme), le cache navigateur (ouvert), et le resolveur anime-sama qui, lui,
+  ne se corrige pas tout seul.
+
+## 2026-09-20 (nuit) — ansembed devant, et trois fausses pistes instructives
+
+**L'ordre ne se change pas en deplaçant une ligne.** Demande : « priorise
+ansembed qui est plus rapide a se lancer ». `voiranime-vidmoly` et
+`animesama-ansembed` avaient tous deux `speed: 2` et l'egalite semblait
+tranchee par l'ordre de declaration. Elle ne l'etait pas : l'ordre effectif
+melange trois etages (`speed` ecrit a la main → agregat mesure des visiteurs,
+plafond 0,6 → mesures locales de l'appareil, plafond 0,75), et l'agregat placait
+deja voiranime devant — **19,3 contre 19,6** au calcul. Les permuter dans le
+fichier n'aurait rien change. Il a fallu les separer d'un rang.
+
+Releve dans `server_perf` ce jour-la, qui donne raison a la demande cote VO :
+
+| lecteur | demarrage `t` |
+| --- | --: |
+| `voiranime-vidmoly-vo` | 3 103 ms (n10) |
+| `animesama-ansembed-vo` | **1 312 ms** (n4) |
+
+Cote VF l'agregat ne dit rien d'ansembed. Le rang y est pose sur la foi du
+report — c'est l'usage meme de `speed` : un prior, que la mesure corrigera si
+elle le contredit. Les rangs sont desormais tenus **sans ex aequo** (1 frembed,
+2 ansembed, 3 voiranime, 4 sibnet, 5 uqload) pour que l'ordre ne depende plus
+jamais de l'ordre de declaration. Ce qu'on echange est ecrit dans le fichier :
+voir-anime gardait des uploads frais plus longtemps, et c'est le verdict de la
+page info, le souvenir par anime et la bascule qui rendent l'echange tenable.
+
+**Le montage du lecteur ne coutait rien — mesure avant de corriger.** Le plan
+prevoyait de monter Vidstack PENDANT l'extraction, au motif que
+`UniversalPlayer` renvoie une div « chargement » tant que l'URL du master est
+inconnue : le montage semblait donc suivre les ~2 s au lieu de courir pendant.
+Chronometre sur dev avant d'y toucher :
+
+```
+  1404  requete embed part
+  1528  requete embed FINIE
+  1529  1er manifeste demande      <- 1 ms plus tard
+  1863  1er segment demande
+  2929  PREMIERE IMAGE
+```
+
+**1 ms.** `prechargeManifeste` part a la reussite de l'extraction, dans
+`essayeDomaine`, donc avant tout rendu React : le montage ne s'intercale nulle
+part. Le changement a ete abandonne. La lecon n'est pas « le plan avait tort »
+mais « la lecture du code disait ou etait le retour anticipe, pas ce qu'il
+coutait » — et un refactor de rendu sur 400 lignes se justifie par une mesure,
+pas par une lecture.
+
+**Ce qui a ete retire du chemin critique**, lui :
+
+- la **sonde de liveness** (`isVidmolyEmbedAlive`, HEAD, 3 s de budget) courait
+  en serie devant la reponse que l'utilisateur attend, pour n'attraper qu'un
+  404 franc — une erreur reseau rend « vivant » de toute facon. Elle ne sert
+  plus qu'aux **sondes de fond** (`probe=1`), celles qui peignent les chips et
+  que personne n'attend ; le lecteur actif decouvre le meme 404 seul et bascule.
+  `probe` n'entre **pas** dans la cle Redis : separer les deux doublerait les
+  entrees (budget Upstash) et surtout la sonde ne rechaufferait plus le cache du
+  lecteur, donc changer de lecteur repartirait a froid — on echangerait une
+  latence contre une autre. Au bord, en revanche, les deux URL sont distinctes,
+  ce qui est assume : la separation suit l'USAGE, et chaque population alimente
+  son entree (le cas pathologique de 2026-08, `title` present/absent, coupait en
+  deux LA MEME population) ;
+- le **script du `<head>`** ne s'abstient plus des qu'un ordre de langues
+  existe — c'est-a-dire presque toujours. Il lit maintenant le lecteur qui a
+  reellement joue la serie (`aniscroll:animeHost`), puis l'ordre que la regle a
+  produit au chargement precedent (`aniscroll:earlyPick`). **On ne copie pas la
+  regle, on met en cache sa sortie, ecrite par elle** : une copie derive, un
+  cache non. Invalide des que la signature de `lang_pref_order` change ;
+- l'**extraction ansembed** n'avait qu'un seul candidat de domaine, donc
+  `RELANCE_MS` ne relançait rien : une requete qui pend coutait les 6 s de
+  l'abandon. Une relance de la meme adresse part passe le delai — et c'est
+  desormais la premiere qui ABOUTIT qui gagne, non la derniere qui finit (un
+  `Promise.all` annulait le benefice de sa propre relance) ;
+- `warmStream` relisait master et variante **par le reseau** alors que
+  `prechargeManifeste` les tenait en memoire.
+
+Plus deux constantes mal reglees : `PEREMPTION_MS` valait 30 s, soit la MOITIE
+de la duree de vie de l'extraction qu'elle sert (60 s) — une chauffe consommee
+entre les deux rendait une URL valable et un manifeste deja jete ; et
+`DECOY_BACKOFF_MS` tenait jusqu'a 5,6 s de roue qui tourne avant qu'un autre
+lecteur soit tente, ramene a 1,7 s.
+
+**Le script du `<head>` ne passe ni par `tsc` ni par le bundler.** Il part en
+clair dans le HTML, ecrit en ES5, et rien ne le verifie. Il est desormais
+eprouve hors navigateur sur dix etats de stockage — dont « serie hors catalogue
+frembed » et « signature de langues perimee », les deux qui se traduiraient par
+une abstention silencieuse, donc par une lenteur que personne ne relierait a ce
+fichier.
+
+## 2026-09-20 (soir, 2) — deux pannes que la mesure reseau ne pouvait pas voir
+
+Deux bugs signales a quelques minutes d'intervalle, tous deux rendant la page de
+lecture inutilisable, tous deux invisibles aux outils que j'utilisais.
+
+**`ReferenceError: SERVERS is not defined`.** Regression du jour meme :
+`SERVERS` etait `require` a l'interieur de trois fonctions de
+`pages/en/anime/watch/[...info].js`, et le filtre frembed ajoute a l'effet de
+preference l'a ecrit dans une **quatrieme** portee sans le require qui va avec.
+
+Ce qui rend le cas instructif, c'est que **rien de la chaine de verification ne
+pouvait l'attraper** : pas la relecture (le nom est defini trois fois dans le
+fichier), pas `tsc --noEmit` (le fichier est en JS), pas `next build` (une
+variable libre est du JavaScript parfaitement valide). J'ai annonce « build ✓ »
+sur du code casse, puis cherche la panne du cote du reseau — en mesurant des
+routes au lieu de charger la page. **La console du navigateur avait la reponse
+depuis le debut.**
+
+Deux corrections, l'une pour le bug, l'autre pour sa classe : un import de
+module unique en tete (la forme qui a permis l'oubli n'existe plus), et
+`no-undef` active **sur le JS seulement**. Il rendait 93 faux positifs faute
+d'`env` declare ; avec `browser/node/es2022`, zero sur `pages+lib+components+
+tools`. Cantonne au JS parce qu'en TypeScript `tsc` fait deja ce controle et que
+la regle y bute sur les noms de TYPES (`React.ReactNode` sans import de React).
+`next build` fait tourner ESLint : ce bug ne peut plus passer un build.
+
+**Le prefixe `/fr` ne couvrait pas les routes de donnees.** Une page a
+`getServerSideProps` voit son URL de donnees construite par Next a partir de
+`asPath` — donc du chemin cosmetique `/fr/...` que pose `I18nProvider`. Le
+rewrite `/fr/:path*` → `/en/:path*` ne couvrant que les documents, toute
+navigation client redemandant les props tombait sur
+`/_next/data/<build>/fr/....json` → 404 → `_error`.
+
+Mesure qui isole le fait : `/en/.../frieren.json` rend **200**, `/fr/.../frieren.json`
+rend **404** — pour Frieren comme pour l'anime signale, donc ni megaplay ni
+frembed n'y etaient pour rien, et **toute** page SSR ouverte en francais etait
+touchee. Le document, lui, repondait parfaitement : le bug ne se voyait qu'en
+navigation interne, jamais au rechargement ni au partage de lien. Le rewrite
+couvre desormais `/_next/data/:build/fr/:path*`, en `beforeFiles` — seul rang
+qui passe devant le gestionnaire `_next/data` de Next.
+
+**Au passage, le lecteur fantome qui a mis sur la piste.** `megaplay`, retire de
+`lib/servers.js` le 08/09/2026, etait encore ecrit en dur dans les liens
+« ouvrir dans le lecteur » de **sept** fichiers. Cosmetique — la page de lecture
+choisit son hote d'apres les preferences, jamais d'apres l'URL — mais trompeur
+jusque dans la barre d'adresse, au point de designer un coupable innocent. Une
+seule fabrique desormais, `watchHref()`, dont le nom vient de
+`DEFAULT_SERVER_ID` : il ne peut plus designer un hote disparu.
+
+## 2026-09-20 (soir) — frembed publie son catalogue : 146 titres, et on l'ignorait
+
+**Le fait qui change tout.** frembed a une API publique, `/api/public/v1/anime`,
+qui rend chaque titre avec son **id TMDB** — la cle meme sur laquelle notre
+resolveur l'interroge. Relevé du 20/09/2026 : **146 entrees** (104 series,
+42 films), soit **340 fiches AniList** apres passage par `fribb_map`.
+
+Or on essayait frembed sur TOUT le catalogue, parce qu'il est classe premier
+(CDN direct, ~100 ms). Pour l'immense majorite des animes, cela voulait dire :
+une lecture Fribb, un appel a l'API frembed, une sonde du CDN — **1,66 s
+mesurees** — pour apprendre « absent ». Plus deux sondes de chip par ouverture.
+Plus un chip qui s'allume avant de s'eteindre. Tout cela pour une reponse que
+frembed publie.
+
+Une table `frembed_catalog`, synchronisee chaque nuit par une GitHub Action
+(donc **zero invocation Vercel** : le script parle directement a frembed et a
+Turso), rend la reponse gratuite. La route repond « absent » sans rien resoudre,
+et le navigateur ne propose meme plus frembed pour un anime qu'il n'a pas.
+Garde-fou : **table vide = liste inconnue = ancien comportement**. Une panne de
+synchronisation ne doit pas eteindre le lecteur le plus rapide du site, et le
+script refuse d'ecraser la table avec une liste vide ou minuscule.
+
+**La page info publiait son PARI, pas son verdict.** Signale le meme jour : dix
+secondes passees sur la fiche, clic sur « Regarder », frembed demarre, echoue,
+vidmoly prend le relais. `setPlannedServer` etait appele **avant** le moindre
+test, et la page de lecture ouvrait ce serveur sur parole. Le relais porte
+desormais un verdict — `verifie` / `recales` — et la page de lecture n'ouvre
+plus un hote que la fiche vient de prouver mort.
+
+**Et le test mentait aussi.** `warmStream` telechargeait bien 256 Ko du premier
+segment, mais le `fetch` etait suivi d'un `.catch(() => {})` et la fonction
+renvoyait `true` quand meme : un hote dont le manifeste repond et dont les
+**segments** sont refuses (403 du CDN) passait pour sain. Il juge maintenant le
+segment, et teste dans les memes conditions que la lecture (`no-referrer` sur un
+flux direct, comme le lecteur le pose sur le `<video>`).
+
+**Chemin froid anime-sama : ce qui etait en serie sans raison.**
+- `findAnimeSamaSlug` lancait **5 a 12 recherches catalogue l'une apres
+  l'autre** (5 s de plafond chacune) **sans sortie anticipee** — alors que le
+  score se calcule sur l'ensemble des reponses et que la fusion se moque de
+  l'ordre. 2 a 8 s, le premier poste du chemin froid. En parallele, plafonnees
+  a huit.
+- `pickLangDirForHost` enchainait jusqu'a 4 `episodes.js` (`vf`, `vf1`, `vf2`,
+  `vf3`). Depart **hedge** : le premier seul, les autres seulement s'il tarde
+  (250 ms) ou ne donne rien — un `Promise.all` sec aurait ajoute trois requetes
+  Worker inutiles a chaque resolution, `vf1/vf2/vf3` n'existant presque jamais.
+- Les membres Fribb d'une franchise sont charges en parallele (leurs ids sont
+  tous connus d'avance, contrairement a la marche PREQUEL/SEQUEL).
+- Le suiveur du verrou **dormait 350 ms avant de regarder le cache**, et si le
+  leader depassait 6 s il refaisait **tout le scrape lui-meme** — 6 s brulees
+  plus 8 a 13 s de resolution contre un `maxDuration` de 15, donc deux timeouts
+  au lieu d'un. Il regarde d'abord, et rend la main (503, le client reessaie)
+  si le leader travaille encore. La cadence de 350 ms est CONSERVEE : elle
+  protege le budget de commandes Upstash, ce que son commentaire explique.
+- La lecture de `player_map` part en meme temps que la resolution du titre, et
+  `getPlayerMap` deduplique enfin ses vols en cours.
+- `isIframeReachable` (sonde de 4 s) supprimee : appelee nulle part.
+
+**Le lecteur retient qui a marche.** Rien ne reliait un anime a un hote :
+`serverPerf` mesure les hotes globalement, `animeServerPref` attend un clic, et
+l'instantane de disponibilite est lu APRES le premier rendu. La meme bascule
+ratee se rejouait donc a chaque ouverture. `animeHostMemory` retient l'hote qui
+a **reellement rendu une image** pour cette serie — la seule preuve qui vaille.
+
+**Episode suivant, prepare a l'APPARITION du bouton** (debut de l'ED, ou fin de
+l'episode) et non a son survol : l'enchainement automatique ne survole rien et
+repartait a froid. On y prepare le FLUX (extraction + manifeste), pas seulement
+la source — le jeton etant lie a l'IP et a l'instant, plus tot ne servirait a
+rien. Survol d'une ligne de la liste aussi, par delegation.
+
+**Manifeste precharge.** Des que l'extraction rend l'adresse du master, on ouvre
+la connexion vers le CDN (son nom change a chaque resolution : aucun preconnect
+ecrit dans la page ne peut le couvrir) et on telecharge le manifeste — plus la
+variante de depart. hls.js les lit ensuite **en memoire** via un `loader`
+dedie, au lieu de deux allers-retours sur un CDN lent.
+
+**Consolidation.** La famille de domaines vidmoly existait en **cinq copies**
+litterales dans deux ordres, avec la regex reecrite a la main a chaque fois :
+elle vit dans `lib/players/vidmolyDomains.js`, regex DERIVEE de la liste. Et
+~300 lignes nettes de code mort sont parties : CoorenLabs (4 resolveurs qu'aucun
+dispatch n'atteignait), la branche megaplay, `EXTRACTABLE_HOSTS` (15 entrees →
+2), les aiguillages de `getExtractor` vers des hotes retires, quatre ids
+fantomes d'`ANIMESAMA_SERVERS`. `hostRegistry` surveille desormais le sens
+inverse (mapping sans serveur) — c'est ce trou qui avait laisse `megaplay` dans
+trois des quatre listes d'hotes du depot.
+
+**Reste ouvert** : les outils OP/ED en Python gardent `megaplay` et il leur
+manque toujours `frembed` dans `MULTI_HOSTS` — la derive que leur propre
+commentaire signale. Y toucher engage les skips deja stockes, d'ou le garde qui
+avertit plutot que de lever.
+
+## 2026-09-20 — hls.js jetait son premier segment, et le bouton play mentait
+
+Chronologie CDP, profil Chrome neuf, One Piece 1100 sur ansembed (le lecteur
+par defaut), `tools/browser-check` + un script de chronologie maison :
+
+| | avant |
+| --- | --: |
+| document (HIT) | 0,33 s |
+| `/api/v2/source` (HIT) | 0,46 s |
+| `/api/v2/episode` (HIT) | 0,76 s |
+| element `<video>` | 1,5 s |
+| **bouton play affiche** | **4,4 s** |
+| premiere image | **17,4 s** |
+
+**Le bouton play mentait.** Il etait garde par `canPlay` de Vidstack — qui,
+sur un flux HLS, emet un `canplay` de SYNTHESE des que la playlist de niveau
+est lue (`_onLevelLoaded`), avant tout segment, `readyState` a 0. D'ou le
+signalement : on clique, le bouton disparait (la video n'est plus en pause),
+et l'ecran reste noir plusieurs secondes. Il attend maintenant une image
+DECODEE sur l'element lui-meme, et une roue occupe l'attente — Vidstack ne
+dessine la sienne que tant que `canPlay` est faux, c'est-a-dire pas pendant
+cette fenetre-la. `preload` n'etait pas pose non plus (« metadata ») : sans
+correctif, un MP4 progressif s'arretait apres l'entete et le bouton n'arrivait
+jamais.
+
+**hls.js jetait son premier segment.** En qualite auto sans debit memorise, il
+charge `_l/seg-1` pour TESTER la connexion — un fragment `bitrateTest` n'est
+jamais ajoute au tampon —, puis bascule sur `_n` et redemande le meme segment,
+que vmpx.online a mis **10 s** a livrer. Un segment jouable etait arrive a
+5,8 s ; la premiere image est tombee a 17,4 s. Et le correctif du 19/09 avait
+le travers inverse : avec un debit memorise, on partait d'emblee au plus haut
+niveau, dont le premier segment pese 8x celui du plus bas.
+Regle posee : **partir bas, monter tout de suite**. `testBandwidth: false`
+toujours, estimation de depart = debit memorise x 0,25, l'ABR remonte des le
+2e segment avec la vraie mesure. Le debit est desormais range PAR CDN
+(domaine enregistrable) et non par profil direct/proxifie : frembed (~100 ms)
+et vidmoly (plusieurs secondes) etaient melanges, l'un reglait le depart de
+l'autre.
+
+**hls.js etait telecharge DEUX fois.** Vidstack le charge depuis
+`cdn.jsdelivr.net/npm/hls.js@^1.0.0` (autre origine, DNS+TLS a froid, version
+flottante, dependance externe) — alors que `HoverPreview` l'importe
+statiquement, donc le bundle en servait deja un exemplaire de 572 Ko. Il vient
+maintenant du bundle seul (`provider.library = () => import("hls.js")`,
+version epinglee a celle que servait jsDelivr), precharge avec le chunk du
+lecteur.
+
+**Ce que le lecteur attendait pour rien.**
+- Le chunk du lecteur ne partait qu'au PREMIER RENDU de `<UniversalPlayer>`,
+  donc apres la source et la liste d'episodes. Il part a l'evaluation du module
+  de la page (`preloadPlayerCode`).
+- `playerNode` rendait une roue tant que `episodeNavigation` etait nul, et
+  celui-ci attendait `/api/v2/episode`. Or l'URL porte le numero d'episode :
+  on pose la navigation minimale tout de suite, la vraie liste l'enrichit.
+- L'extraction vidmoly essayait ses domaines strictement l'un apres l'autre
+  (2,2 s pour ansembed) : course decalee de 700 ms, le premier master gagne.
+- La sonde de vignette (`blindProbeSrc`) tirait une COPIE du debut du fichier
+  par le Worker pendant que le vrai flux chargeait son premier segment, pour un
+  verdict que l'autoplay ne lit jamais — le voile tombe sur `data-started`.
+  Coupee dans ce cas.
+
+**Deux bugs trouves en lisant.**
+- `PREFERRED_FALLBACK_ORDER` etait encore lu dans le filet de securite de la
+  page de lecture alors que la constante n'existe plus (retiree avec la liste
+  ecrite a la main) : ReferenceError dans un `useEffect`, donc page emportee,
+  des qu'aucun ordre de langues n'etait regle.
+- Le gestionnaire `hls-error` lisait `playerRef.current?.el` avec `streamData`
+  en dependance. Sur le chemin d'extraction navigateur — ansembed et vidmoly,
+  donc le lecteur PAR DEFAUT — le rendu qui change `streamData` affiche
+  « Loading… », il n'y a pas encore de `<MediaPlayer>` ; quand l'extraction
+  aboutit, `streamData` n'a pas bouge et l'effet ne repassait pas. Ni la
+  detection « flux disparu » (401/403/404/410) ni la reprise (`startLoad` /
+  `recoverMediaError`) n'etaient donc JAMAIS posees sur l'hote le plus
+  utilise. Meme defaut sur l'effet anti-spam de seek. Les deux s'accrochent
+  desormais a `playerElState`.
+
+**Le doute, un etat qu'on ne nommait pas.** Entre « tout va bien » et
+« erreur », il n'y avait rien : un flux dont les segments n'arrivent jamais
+restait noir le temps des retries d'hls.js (jusqu'a 30 s par segment) puis des
+5 s de Vidstack. Le lecteur emet maintenant `onDoubt` (extraction qui depasse
+2,5 s, aucune image a 3,5 s, deux erreurs de chargement non fatales) et la page
+prechauffe le lecteur SUIVANT en parallele, sans rien interrompre : si ca
+repart, le prechauffage est perdu et tant mieux. Passe 10 s sans image (15 s en
+MP4 progressif), le lecteur est declare mort et la page bascule sur celui qui
+est deja chaud. Le suivant est choisi par `pickNextServer`, extrait de
+`markFailed` et partage avec le filet de securite — sans quoi on prechaufferait
+un lecteur pour en ouvrir un autre.
+
+**Page info : une chaine, pas un seul lecteur.** `runCritical` n'en prechauffait
+qu'UN ; s'il ne repondait pas, personne ne prenait le relais. `warmChain`
+descend jusqu'a 3 candidats, mais ne lance le suivant que sur une mort
+(absence, hote a terre, manifeste injouable) ou un silence de 2,5 s — le cas
+normal coute donc toujours UNE resolution, ce qui etait tout l'enjeu : huit
+scrapes par visite d'une page que la plupart des gens quittent sans rien
+regarder, c'etait le poste le plus cher du site.
+Au passage, `warmStream` ne chauffait rien : il prenait la premiere URI d'un
+MASTER, qui est une playlist de VARIANTE et non un segment. Il descend
+maintenant jusqu'au vrai segment, par la variante qu'hls.js demandera.
+
+**Frembed.** Le domaine d'arrivee apres redirection n'etait retenu nulle part :
+chaque appel payait la redirection PLUS la vraie requete, jusqu'a ce que
+quelqu'un edite la constante. Il est desormais memorise (Redis `frembed:base`,
+7 j, une ecriture par demenagement) — le prochain demenagement se repare seul.
+Et un master lisible ne dit pas qu'une VARIANTE l'est (deux chemins
+differents) : la premiere variante est verifiee en parallele des sous-titres,
+donc sans allonger la reponse.
+
+## 2026-09-19 — Frembed a demenage ; le lecteur demarre deux fois plus tot
+
+**Frembed mort** (`bc5ac24`) : `frembed.casa` redirige (302) vers
+`frembed.surf`. `fetch` suit la redirection mais garde le Referer de l'ancien
+domaine, que l'API refuse : 403 sur tout, `/source` en 503, les chips VF et VO
+morts. Base passee a `frembed.surf`, et si une redirection finit en refus, un
+second essai part avec le Referer du domaine d'arrivee — le prochain
+demenagement se rattrape sans deploiement. Verifie dans Chrome : master, VTT et
+video en 200 depuis `free.finepulfe.xyz`, `readyState` 4. (Ce CDN repond un
+challenge Cloudflare a un UA curl : tester avec un UA navigateur.)
+
+**Demarrage du lecteur** (`60caa2c`), chronologie CDP sur ansembed/One Piece 1 :
+tout etait en cascade, premiere image a 3,4-5,2 s.
+- l'embed ansembed partait a 1,29 s pour un `/source` repondu a 0,4 s : il
+  attendait le code du lecteur, son montage, puis l'import de `clientVidmoly`.
+  La page lance maintenant l'extraction des la reponse (`warmVidmolyClient`,
+  appele AVANT `setHlsData` — un effet parent passerait apres celui du
+  lecteur) et le lecteur reprend la promesse (`takeWarmVidmoly`, usage
+  unique, 60 s, sous son delai de 6 s) ;
+- hls.js vient de jsDelivr, charge par vidstack : `preload` dans le HTML (sans
+  `crossorigin`, comme le `<script>` que vidstack injecte) ;
+- le TEST DE DEBIT d'hls.js (1er segment en 480p, jete, recharge en 1080p :
+  ~0,5 s) est coupe quand un debit mesure existe : `aniscroll:hlsBandwidth`,
+  par profil proxifie/direct, 7 jours, redonne en `abrEwmaDefaultEstimate`.
+  Premiere visite inchangee.
+Second passage mesure : premiere image a 0,96 s, directement en 1080p.
+
+## 2026-08-31 — Frembed connait les films, et sendvid n'existe plus
+
+Deux hotes, deux verdicts opposes tires de la meme question : « ce que notre
+mapping declare, l'hote le sert-il vraiment ? »
+
+### Frembed avait un second index qu'on n'interrogeait jamais
+
+Frembed range les series sous `type=serie` (id TMDB **tv** + saison + episode)
+et les films sous `type=movie` (id TMDB **movie**, sans coordonnees). On ne
+lisait que `tmdbTvId` : tout film sortait sur « no tmdb.tv mapping » alors que
+le fichier etait la. Fribb nous donnait l'autre id depuis le premier jour
+(`tmdb_movie_id`, deja ingere et stocke) — il ne manquait que de le lire.
+
+Verifie apres coup sur dev : Suzume, Les Enfants du temps, Silent Voice et Your
+Name repondent tous, la ou les quatre etaient absents le matin.
+
+**Ce qui n'etait PAS transposable des series.** Les 12 series sondees renvoient
+toutes une source unique `Premium`, dont le master declare les deux pistes audio
+`fr` et `ja` — c'est ce qui autorisait a peindre les deux chips sans rien
+verifier. Les films, non : Your Name arrive en `Free VF`, **une seule** piste
+muxee, sans liste de rendus et sans le moindre sous-titre. Le chip VO y aurait
+epingle un `ja` introuvable et joue le doublage francais en silence — la panne
+qu'un spectateur ne peut pas diagnostiquer.
+
+D'ou `frembedCarriesAudio`, qui repond dans cet ordre : la liste des rendus
+quand le master en publie une, le label de la source sinon (c'est alors le SEUL
+signal de langue du payload), et le francais par defaut — frembed est un hote
+francais et ses uploads mono-piste sont des doublages. La comparaison passe par
+les memes alias que les sous-titres : le manifeste melange les normes (`fr`/`ja`
+cote audio, `fra`/`eng` cote sous-titres), et un `slice(0,2)` seul aurait fait
+de `jpn` un `jp` qui n'egale aucun `audioLang`.
+
+Deux garde-fous en plus, tous deux pour la meme raison — un id film designe UN
+fichier : la route film n'est ouverte que sur l'episode 1 (une fiche film a
+plusieurs episodes n'a rien a quoi rattacher les suivants), et AniList n'est
+interroge que dans le cas ambigu ou les deux ids existent, pour ne rien couter
+aux series.
+
+**Piege de mesure, note pour la prochaine fois** : mes deux premiers essais sur
+dev ont repondu « absent » apres le deploiement, alors que le code etait bon.
+C'etait le cache negatif de 600 s pose par MA sonde d'avant-deploiement. On ne
+peut pas l'invalider — la cle est `(server, aniId, episode, sub)` — mais on peut
+la contourner : `&sub=dub` change la cle et force le recalcul. Deuxieme piege du
+meme genre : j'avais teste « Silent Voice » sur un id TMDB errone (378148 au
+lieu de 378064) et conclu que frembed ne l'hebergeait pas.
+
+### Sendvid : ce n'est pas l'extraction qui casse, c'est le site
+
+`sendvid.com` repond **502 sur toutes ses urls, page d'accueil comprise**, avec
+une page « We are experiencing technical difficulties » de 1 146 octets. Verifie
+depuis deux reseaux (la ligne d'ici et le Worker Cloudflare) : ce n'est ni un
+blocage d'egress ni un anti-bot.
+
+Avant de le retirer, un bug reel a corriger dans l'extracteur, parce qu'il aurait
+survecu au retour de l'hote : **chaque 502 etait publie comme une absence
+prouvee**, mise en cache negatif 6 h. Sendvid serait revenu que les chips
+seraient restes eteints. C'est exactement le partage que sibnet avait deja pose
+le 08/08 — seul un 404 prouve qu'un episode n'existe pas, un echec de transport
+ne prouve rien — et sendvid ne l'avait jamais recu. Il l'a maintenant : 404 =
+absence, tout le reste = transitoire, et les 5xx/429 portent `hostDown` (que
+`serverVisibility` traite deja comme un verdict de masquage, sans cache
+negatif). La page de maintenance servie en 200 est detectee a part, sinon elle
+ressortait en « no source found », c'est-a-dire en absence prouvee — le meme
+piege par une autre porte.
+
+Puis retrait, sur demande. **Cinq ancrages partent ensemble**, et c'est la seule
+chose a retenir de l'operation : les deux chips (`lib/servers.js`), les deux
+correspondances (`lib/hostRegistry.js`), la cle de `host_versions.json`,
+`MULTI_HOSTS` du detecteur, et les deux entrees d'`ANIMESAMA_SERVERS`. Les trois
+listes d'hotes affiches restent en phase (6 de part et d'autre), ce que le garde
+de `hostRegistry.js` verifie au chargement. Aucune donnee OP/ED perdue a la
+purge : `oped_host_skips` ne portait aucune ligne sendvid (table vide, comptee
+avant de toucher au code). L'extracteur, lui, reste en place.
+
+A savoir si la question revient : anime-sama continue de lister les embeds
+sendvid (25 sur la S1 VF de SnK), donc **aucun signal en amont n'annoncera son
+retour** — il faudra reposer la question a la main.
+
+### Reste ouvert
+
+`frembed` figure dans `DISPLAYED_HOSTS` et dans `host_versions.json`, mais le
+detecteur ne le resout pas : ni `MULTI_HOSTS`, ni resolveur dans
+`bridge/resolve.mjs`. `oped_host_skips` ne portera donc jamais de ligne frembed,
+et ses spectateurs retombent sur l'agregat reconcilie — les minutages d'un AUTRE
+encodage.
+
+## 2026-08-30 (soir) — Les sous-titres fantomes de frembed, et la position qui revenait
+
+Trois symptomes signales plusieurs fois, que j'ai tente de corriger a l'aveugle
+sans les mesurer. Deux d'entre eux n'etaient qu'un seul bug, et le troisieme
+etait dans un fichier que je n'avais pas regarde.
+
+### La quatrieme piste que personne ne voyait
+
+Le master de frembed ne sert pas que la video :
+
+```
+#EXT-X-MEDIA:TYPE=SUBTITLES,...,NAME="FR Forced : SRT",DEFAULT=YES,AUTOSELECT=YES,FORCED=YES
+#EXT-X-MEDIA:TYPE=SUBTITLES,...,NAME="FR Full : SRT",DEFAULT=NO,AUTOSELECT=NO,FORCED=NO
+```
+
+Avec `renderTextTracksNatively` a `true` — le defaut d'hls.js, jamais touche —
+hls.js cree une TextTrack NATIVE par rendition. La liste de Vidstack en
+contenait donc **quatre** (nos deux sidecar + les deux siennes) la ou le menu
+n'en affichait que deux. Tout le reste en decoule :
+
+- **Aucune ligne surlignee en rose.** `activeTrackIdx` est compte sur la liste
+  de Vidstack, `activeIndex` du menu sur la notre. Des que l'index actif tombait
+  sur une fantome (2 ou 3), il sortait de la plage du menu : la bascule affichait
+  « active », des sous-titres s'affichaient, et aucune ligne n'etait cochee. Le
+  chemin le plus court pour y arriver : `moopa.subs.lang` avait ete enregistre a
+  `fra` (le code a trois lettres du manifeste, que portent les fantomes), et
+  `findByLang("fra")` ne matchait donc QUE des fantomes.
+- **Des sous-titres en VF malgre `subtitlePref: "none"`.** La piste `DEFAULT=YES`
+  est la forcee ; c'est elle que notre propre boucle passait a `showing`.
+
+`hls.subtitleDisplay = false`, pose le matin meme, ne pouvait pas suffire : il
+empeche l'AFFICHAGE, pas la CREATION — donc pas le decalage d'index. La coupure
+juste est `renderTextTracksNatively: false`, posee dans `onProviderChange` hors
+des deux profils HLS : ce n'est pas un reglage de resilience mais une regle de
+l'application (les sous-titres sont toujours sidecar, seule liste que le menu et
+l'editeur de style savent voir). `subtitleTrack = -1` complete, pour ne meme pas
+telecharger les WebVTT d'une piste qu'on sert deja.
+
+**Lecon** : j'ai corrige trois fois notre liste de pistes et notre logique de
+preference alors qu'une SECONDE liste, invisible depuis le code que je lisais,
+etait geree en dessous. Trente secondes de `curl` sur le manifeste — ce qui a
+finalement tranche — auraient economise les trois tentatives.
+
+### Deux fautes de plus sur le meme defaut
+
+- `default={t.default || i === 0}` rallumait la premiere piste au niveau de
+  Vidstack meme quand la source annonce `none`. Le repli « a defaut, la
+  premiere » ne vaut que pour une source qui ne s'est pas prononcee.
+- **`selectSubtitleTrack` enregistrait la preference meme appelee par la passe
+  AUTOMATIQUE.** Des le premier episode jamais regarde, `moopa.subs.enabled`
+  valait « 1 » — un choix que personne n'avait fait, et qui primait ensuite pour
+  toujours sur le defaut de la source. D'ou un `subtitlePref: "none"` qui ne
+  pouvait structurellement jamais s'appliquer. Le parametre `persist` distingue
+  desormais un geste d'une application de nos regles, et la cle est renommee
+  (`aniscroll:subs.enabled`) : la valeur ecrite par le bug ne doit pas survivre
+  a sa correction.
+
+### La position de lecture qui revenait apres « restaurer les reglages »
+
+`clearAllProgress` avait ete corrige le matin (vider, ne pas supprimer) et
+etait juste. Mais **`restoreDefaultSettings` porte encore le meme defaut**, et
+c'est LUI qu'on presse en croyant tout remettre a zero : son balayage des cles
+`aniscroll:*` emportait `aniscroll:progress` par `removeItem`. `readKind` rend
+`null` sur une categorie entierement absente, `pullAll` lit ce null comme « cet
+appareil n'a rien » — et reecrit la copie du compte. 12:42 revenait au
+rechargement.
+
+Il delegue maintenant a `clearAllProgress` et pousse l'effacement, et il est
+devenu `async` : le `window.location.reload()` a 600 ms coupait la requete en
+vol, ce qui aurait suffi a reproduire le bug par un autre chemin.
+
+**Lecon** : j'avais REPERE ce defaut sur `restoreDefaultSettings` et choisi de
+ne pas y toucher « en attendant une decision ». Un defaut deja demontre ailleurs
+dans la meme session n'a pas besoin d'arbitrage ; le laisser en place, c'est
+signer le meme bug une deuxieme fois.
+
+## 2026-08-30 (soir) — Un lecteur qui ne marche pas ne s'affiche plus
+
+Retour en arriere assume sur la regle du 29/08 (« l'absence prouvee masque,
+l'echec grise »). Elle etait defendable en principe — une panne se termine, un
+hote retabli doit rester atteignable — mais elle ne se lit pas : cote
+spectateur, un « Sibnet » gris qui ne joue rien est un lecteur casse, pas une
+invitation a reessayer. Signale sur *Jaadugar: A Witch in Mongolia*, ou sibnet
+n'a tout simplement rien.
+
+Desormais **tout echec retire le chip**, dans `shouldShowServer` — donc d'un
+seul endroit, et la barre, le raccourci `z` et le lecteur de secours de la carte
+d'erreur suivent ensemble.
+
+**Pourquoi ca ne rejoue pas le bug du 17/08** (« sibnet s'affiche puis
+disparait »). Le filtre qui manquait alors existe maintenant en amont :
+`markFailed` n'inscrit dans `failedServers` que l'absence prouvee, le
+`hostDown`, et l'echec d'un hote **jamais confirme**. Un 503 sur un hote deja
+vu marcher n'y entre pas — il dit « je n'ai pas pu savoir », pas « ce lecteur
+n'existe pas ». On ne masque donc que des VERDICTS, jamais une
+non-connaissance. C'est cette asymetrie, et elle seule, qui rend la regle
+simple tenable ; la retirer ferait revenir le clignotement.
+
+Deux filets restent : le lecteur ACTIF est toujours peint, meme apres son echec
+(sinon on regarde un flux qu'aucun chip ne designe — et son infobulle devient le
+seul endroit ou lire la raison, d'ou le `title` desormais inconditionnel), et
+l'etat est remis a zero au changement d'episode.
+
+Le gris ne veut donc plus dire « en panne » : il ne reste qu'a `degradedServers`
+— resolu et jouable, par une voie amoindrie. `aria-disabled` saute avec, il
+mentait sur une chip parfaitement utilisable. Et le raccourci `z` perd son
+second filtre (`sains` vs `visibles`) : les deux ensembles sont maintenant le
+meme, le garder aurait fait croire a une distinction disparue.
+
+Ce qu'on perd, en toute honnetete : un hote qui tombe puis se releve pendant
+qu'on est sur la page ne revient qu'au prochain episode ou au rechargement. Le
+prix parait juste — cet hote-la ne se releve, precisement, que s'il avait deja
+ete confirme, cas que `markFailed` n'inscrit pas.
+
+## 2026-08-30 — Frembed : le premier lecteur qui ne passe par aucun proxy
+
+Nouvelle source, indexee sur TMDB. Deux requetes, aucun jeton :
+`GET frembed.casa/api/streaming/player?tmdb=&type=serie&sa=&ep=` rend un
+`master.m3u8` direct sur `free.finepulfe.xyz`.
+
+**Les deux portes sont inversees, et c'est le piege du dossier.** L'API EXIGE
+un `Referer: frembed.casa` (403 sans). Son CDN REFUSE ce meme referer (403) et
+sert tout le monde d'autre. D'ou : l'appel serveur l'envoie, la lecture le
+retire (`directUrl` -> `referrerPolicy="no-referrer"`). Se tromper de sens ne
+donne pas un flux degrade, il donne 403 des deux cotes.
+
+**Ce que ca vaut** (10 titres sondes, 9 identiques) : 1080p, fMP4/CMAF, DEUX
+pistes audio `fr` + `ja` dans le MEME manifest, sous-titres FR forced + full en
+piste HLS, `Access-Control-Allow-Origin: *`, `max-age=3600` derriere Cloudflare.
+Le CORS ouvert est l'interet principal : **c'est notre seule source qui ne
+touche ni le Worker, ni le Fast Origin Transfer, ni le budget Fluid** — le
+navigateur tape le CDN en direct. D'ou `speed: 1`.
+
+Deux chips (VF/VO) plutot qu'un chip `multi` a la megaplay, pour qu'ils tombent
+dans les groupes que la preference de langue pilote deja. Ils resolvent la meme
+URL et ne different que par la piste audio epinglee (`audioLang` ->
+`hls.audioTrack` dans UniversalPlayer). Les deux pistes sont `DEFAULT=NO` : sans
+l'epinglage, un choix VOSTFR jouerait le doublage francais. Corollaire pour le
+detecteur OP/ED : les lignes `(frembed, vf)` et `(frembed, vostfr)` decrivent le
+MEME encode, leurs minutages sont identiques par construction.
+
+### Le vrai travail : la numerotation
+
+Frembed herite des saisons TMDB, pas d'AniList. Trois formes, et la troisieme
+n'etait pas prevue :
+
+1. **Direct** — la saison detectee existe : `(S, ep)` tel quel. Le cas courant.
+2. **Fusion** — TMDB replie plusieurs saisons AniList en une (Jujutsu Kaisen :
+   pas de saison 2 du tout). La saison demandee est ABSENTE -> on repasse par la
+   ligne absolue avec l'offset de `resolveMergedOffset`, deja ecrit pour les
+   panneaux fusionnes d'anime-sama.
+3. **Decoupage en arcs** — One Piece : 22 « saisons » TMDB pour une entree
+   AniList numerotee en absolu.
+
+**La lecon, mesuree** : j'indexais d'abord par POSITION dans la concatenation
+des saisons. Faux. Les tableaux de frembed portent les numeros d'episode REELS
+et leur catalogue a des trous — One Piece expose 1021 episodes etales sur les
+labels 1 a 1155, soit **134 manquants**. Compter jusqu'au 500e creneau tombait
+sur l'episode **577**, le mauvais arc, en silence. La recherche se fait donc par
+LABEL : exact, et un label non heberge est une absence honnete (les episodes
+998-1001 de One Piece ne sont vraiment pas la, 1050 et 1100 oui).
+
+Deux garde-fous plutot qu'une devinette :
+- une saison >=2 qui retombe a l'offset 0 est, par definition, l'episode de la
+  saison 1 -> on REFUSE. `resolveMergedOffset` rend 0 des qu'il ne peut pas
+  ancrer, et frembed hebergeant MOINS d'episodes qu'AniList n'en compte suffit a
+  le faire decliner. Un chip perdu vaut mieux qu'un episode faux que le
+  spectateur n'a aucun moyen de detecter ;
+- la ligne absolue n'est prise pour une saison qui EXISTE que sur un feuilleton
+  d'au moins 6 saisons TMDB. Sinon une serie de 12 episodes a moitie hebergee se
+  ferait « sauver » vers l'episode 1 de la saison suivante.
+
+Le mapping AniList -> TMDB ne coute aucun appel : `themoviedb_id` de Fribb est
+un cross-map statique deja ingere. Son champ faible est `season` — precisement
+celui qu'on ne lit pas.
+
+### Correctif du meme jour : « il manque les sous-titres en VO »
+
+Deux defauts qui se cumulaient, tous deux dans la selection de piste du lecteur
+et tous deux plus larges que frembed :
+
+1. **Les codes de langue.** `findByLang` comparait `t.language === "fr"` en
+   egalite stricte. Frembed declare ses pistes en ISO 639-2 (`LANGUAGE="fra"`),
+   donc ni la preference enregistree ni la langue du site ne trouvaient quoi que
+   ce soit, et la selection retombait sur `firstAvailable`. Un `norm()` replie
+   desormais les codes a trois lettres (et le doublet fra/fre) sur ceux a deux.
+2. **Les pistes forcees.** Une piste FORCED ne porte que les panneaux a l'ecran,
+   pas les dialogues : ce n'est pas un substitut. Frembed en expose deux sous la
+   MEME langue, la forcee en premier et marquee `DEFAULT=YES` — donc le repli du
+   point 1 tombait pile sur la quasi-vide. A langue egale on prefere maintenant
+   la piste complete, sauf si la source demande explicitement la forcee.
+
+D'ou `subtitlePref` sur le flux : `forced` pour le chip VF (un doublage ne veut
+que les panneaux), `full` pour le chip VO. Meme mecanique de passage que
+`audioLang`.
+
+**Ce correctif etait insuffisant** — il operait sur une liste vide. Voir la
+suite.
+
+### Deuxieme passe : le bouton sous-titres n'apparaissait meme pas
+
+Le rapport « il manque toujours les sous-titres, et pas de bouton » a invalide
+le diagnostic ci-dessus. Trois barrages empiles, dont le dernier est le vrai :
+
+1. **hls.js rend les pistes en NATIF par defaut** (`renderTextTracksNatively`
+   n'est pose nulle part), donc il n'emet jamais l'evenement non-natif que
+   Vidstack ecoute : `player.textTracks` restait VIDE. Le tri par langue de la
+   passe precedente travaillait donc sur rien.
+2. **La liste du menu vient de `streamData.subtitles`**, pas des pistes du
+   manifeste. Rendre `subtitles: []` garantissait un menu vide.
+3. **`subMode` se deduisait du `lang` du serveur** : `vo` -> `"hard"`,
+   c'est-a-dire « incrustes, rien a basculer ». Le raccourci ne tenait que tant
+   que VO signifiait anime-sama. Frembed est un serveur `vo` a sous-titres
+   SOUPLES — categorie qui n'existait pas — et le bouton expliquait qu'il n'y
+   avait rien a regler pendant que deux pistes valides dormaient.
+
+**La sortie est le sidecar.** Chaque rendition de frembed est une playlist d'une
+ligne pointant un unique `subtitle.vtt` (`text/vtt`, `ACAO: *`). L'API les
+resout donc en pistes sidecar ordinaires — le chemin que megaplay emprunte
+deja, ou le bouton CC, l'editeur de style et le menu de langue marchent tous.
+Cout : le master plus les renditions, en parallele, mis en cache 5 min comme
+n'importe quelle resolution.
+
+Mesure qui confirme le symptome d'origine (Chainsaw Man ep1) :
+
+| piste | taille | cues |
+|---|---|---|
+| FR Forced (etait choisie par defaut) | 3 035 o | **38** |
+| FR Full | 13 634 o | **228** |
+
+38 cues, c'est la chanson du generique et les panneaux : sur de l'audio japonais
+ca se lit comme une absence totale de sous-titres.
+
+Deux pieges refermes au passage :
+- **ne pas proxifier les sous-titres d'un flux direct**. Le Worker refuse les
+  hotes hors liste (410) : proxifier un `.vtt` deja CORS-ouvert transformait une
+  piste vivante en piste morte ;
+- **`hls.subtitleDisplay = false`** sur l'instance (propriete d'instance, pas
+  cle de config en hls.js 1.4). Sans ca hls.js peignait sa piste `DEFAULT=YES`
+  — la forcee — PAR-DESSUS le sidecar qui porte les memes dialogues.
+
+`subMode` se decide desormais sur les pistes reellement presentes ; le `lang` ne
+repond plus que pour une source qui n'en fournit aucune.
+
+### Pourquoi `speed: 1` (mesure, pas intuition)
+
+Depuis une connexion francaise, sur le meme master AoT S1E1 :
+
+| | TTFB | debit |
+|---|---|---|
+| CDN frembed, direct | **88-105 ms** | 6,2-9,6 Mo/s (segment de 10 s = 7,8 Mo en 0,8-1,3 s) |
+| le MEME fichier via `proxy.aniscroll.com` | 430-720 ms | — (410, le Worker refuse cet hote) |
+| resolution (1 appel API frembed) | 147-174 ms | une requete, aucun scraping |
+
+Le saut par le Worker coute donc ~350-600 ms sur le manifeste **et sur chaque
+segment**. A cela s'ajoute la resolution : un appel ici, contre 4 a 8 fetches
+amont pour anime-sama. Reserve honnete : mesure depuis UNE localisation, et la
+ligne « via proxy » est lue sur un refus 410 — elle date le saut reseau, pas un
+transfert complet. De toute facon `speed` n'est qu'un a priori : `serverPerf`
+le remplace des que les mesures reelles des visiteurs arrivent.
+
 ## 2026-08-30 — L'ordre des lecteurs : fige a l'ecran, partage entre visiteurs
 
 Trois defauts d'un seul mecanisme — le classement des lecteurs — signales le
@@ -1951,3 +3058,62 @@ La règle était juste, la vignette arrivait trop tard. Trois attentes se cumula
    `localStorage` sous le chemin du fichier (la query est signée), un seul enregistrement JSON
    plafonné à 300 entrées. Revoir un épisode pose la vignette instantanément et ne tire plus un
    octet du proxy — ce qui règle aussi la concurrence sonde/lecture sur le même CDN.
+
+---
+
+## 2026-09-21 — Megaplay : rendre notre lecteur aussi sur les films
+
+Suite directe du 20/09. La veille, l'extraction megaplay avait été rétablie en lisant le répertoire
+du flux sur le chemin d'une piste de sous-titres (`<base>/subtitles/…` → `<base>/master.m3u8`). Ça
+couvrait les séries. Ça ne couvrait pas les films : `getSources` leur rend `"tracks":[]` — vérifié
+sur *Your Name* (id 41551) — donc aucun répertoire à dériver, donc repli sur l'encadrement de leur
+page. D'où le rapport : « sur certain il reste leur video player ».
+
+**Cinq chemins essayés avant d'ouvrir `enc`**, tous mesurés, tous sans issue :
+
+| piste | résultat |
+|---|---|
+| `stream/getSourcesNew` (leur client réécrit `getSources` vers lui) | même réponse |
+| `data-realid=57910` au lieu de `data-id=41551` | **autre fichier** |
+| cookies + `Referer` + `X-Requested-With` d'un vrai navigateur | même réponse |
+| md5 de l'id / de l'idMal pour reconstituer le répertoire | aucune correspondance |
+| toute URL de CDN présente dans leur page embed | aucune |
+
+Le `data-realid` est le piège à retenir : il **répond**, et c'est précisément ce qui le rend
+dangereux. Son `intro`/`outro` (0–60 / 1467–1532) décrivent un épisode de ~25 min là où le fichier
+demandé est un film de 1 h 46. S'en servir aurait servi la mauvaise vidéo sans aucun signal d'erreur.
+
+**Ce qui restait, `enc`** — et la phrase écrite la veille à son sujet était fausse. Il ne protège pas
+« que le `?token=` » : il porte l'URL entière et rien d'autre.
+
+```
+{"file":"https://<cdn>/anime/<hash série>/<hash fichier>/master.m3u8"}
+```
+
+Clef et IV sont **écrits en clair** dans leur `lib/newclient.min.js` servi publiquement : AES-256-CBC,
+clef `i?LMTAx0Q6,:}50U` complétée de zéros à 32 octets par leur propre `O(a, 32)`, IV
+`W0;27ToaUpl_P%'c`, base64url. De l'obfuscation, pas un contrôle d'accès — rien n'est authentifié,
+rien n'est payé, et le master répond 200 sans jeton.
+
+Leur bourrage n'est pas du PKCS#7 valide (octets `0x06` en queue d'un bloc plein) : `setAutoPadding(false)`
+et coupe sur la dernière accolade, sinon `final()` jette sur un déchiffrement pourtant correct.
+
+**Vérification, trois fichiers :**
+
+| fichier | `enc` | dérivation par `tracks` |
+|---|---|---|
+| Mushoku ep1 (177685) | nexabloom/611a…/b2da… | **identique** |
+| Mushoku ep7 (178630) | nexabloom/611a…/e9b1… | vyrnex/611a…/e9b1… (autre miroir) |
+| Your Name (41551) | nexabloom/d3d9…/4406… | *aucune piste* |
+
+**Trois crans, du plus précis au plus dégradé** : `enc`, puis la dérivation par `tracks`, puis
+l'encadrement. Les deux premiers sont vérifiés **tour à tour** contre le Worker, parce qu'ils ne
+rendent pas toujours le même miroir (ep7 ci-dessus) et qu'on a déjà vu un miroir rendre un 404
+transitoire (`tx-02.tyrionx.top`, 20/09). Le jour où la clef changera, le déchiffrement rendra du
+binaire, `JSON.parse` jettera, et on retombera sur la dérivation sans rien casser.
+
+**Piège de diagnostic, coûté une fausse piste ce jour-là** : après le déploiement du 20/09, les
+épisodes 1 et 7 répondaient encore `{"iframe": …}` alors qu'un épisode jamais demandé rendait bien
+`streams`. Ce n'était pas un bug d'extraction mais le cache Redis (`SOURCE_CACHE_TTL_S` = 20 min),
+qui survit aux déploiements. Il n'existe aucun paramètre de contournement sur cette route : pour
+juger une correction, interroger un épisode **froid** et lire `X-Vercel-Cache: MISS`.

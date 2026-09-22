@@ -2,13 +2,8 @@ import { CSSProperties } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
+import { infoHref } from "./helpers";
 
-/** Locale-aware info-page href for a film id (lands on its Episodes tab, where
- *  the existing MOVIE resolution plays it). Mirrors Episodes.tsx's infoHref. */
-function infoHref(id: number, locale: string): string {
-  const lang = locale === "fr" ? "fr" : "en";
-  return `/${lang}/anime/${id}#episodes`;
-}
 
 /**
  * Films panel — the inline content shown when the "Films" tab button is active

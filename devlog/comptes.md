@@ -1,0 +1,277 @@
+# DEVLOG — Comptes, identite & sauvegarde des donnees
+
+Les comptes AniScroll : identite invitee, compte propre, lien AniList, et la
+sauvegarde serveur des donnees du visiteur. Couvre `lib/auth/*`,
+`lib/db/turso-users.ts`, `lib/prefs/guestIdentity.ts`, `lib/list/cloudSync.ts`,
+`pages/api/v2/account/*`, `components/auth/*` et l'onglet Users de l'admin.
+
+Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
+
+## 2026-09-02 — « AniList ne synchronise plus » : le vide etait ecrit par-dessus la liste
+
+**Le signalement**, une capture des Parametres : toast VERT « 0 entrees
+synchronisees depuis AniList », et juste au-dessus « Votre liste locale est sur
+cet appareil (**0 entrees**) ». Le meme jour, `graphql.anilist.co` repondait
+**403 a tout** — « The AniList API has been temporarily disabled due to severe
+stability issues » — et `/api/v2/anilist-health` disait bien `{"up":false}`.
+
+**La panne n'etait pas la nouveaute ; le toast vert l'etait.** `runPull` teste
+`r.ok` et affiche une erreur quand il vaut faux. Un succes annonce veut donc dire
+que la requete a REUSSI et rapporte zero entree — pas qu'elle a echoue.
+
+**Ce que faisait ce zero.** `fullSyncFromAniList` finit, dans ses deux branches,
+par `importEntries(…, "replace")`. Ce mode part d'un objet **vide** et reecrit
+tout (`lib/list/localList.ts`) : avec zero entree en main, il **efface la liste
+locale**. Le garde-fou en place — « si le fetch echoue, on ne touche pas au
+local » — ne couvrait que l'echec FRANC : refus HTTP, `json.errors`, reseau
+coupe. Une API qui vacille ne tombe pas toujours ainsi. Elle repond 200 avec une
+collection vide, et ce chemin-la ecrivait ce vide par-dessus la liste.
+
+**Et sans le moindre geste de l'utilisateur.** Ce pull ne vit pas seulement
+derriere le bouton « Resynchroniser maintenant » : `pages/_app.tsx` le lance a
+CHAQUE chargement de page, en tache de fond, des que le sens de synchro a ete
+choisi une fois. Le commentaire qui l'accompagne promet « leaves local untouched
+on failure, so the list survives an outage » — vrai pour la panne franche, faux
+pour celle-ci, qui est la forme que prend une panne reelle une fois sur deux.
+
+**Le correctif tient en une ligne, et c'est son emplacement qui compte** :
+le garde est pose la ou la destruction a lieu — dans `fullSyncFromAniList`, juste
+avant les deux `replace` — et pas dans `fetchAniListListMap`, que le PUSH
+(`fullSyncToAniList`) utilise aussi et pour qui une liste distante vide est une
+reponse legitime (c'est meme le cas normal d'un premier envoi).
+
+**On ne peut PAS distinguer les deux cas.** « AniList est en panne » et « cette
+liste est reellement vide » produisent la meme reponse, au bit pres. Le doute
+profite donc aux donnees : un compte sincerement vide lira « echec de la
+synchronisation » au lieu de ne rien faire — et n'avait, par definition, rien a
+synchroniser. En echange, une liste de plusieurs centaines de titres ne disparait
+plus pour une seconde de faiblesse chez un tiers.
+
+**La lecon, la meme qu'en aout et qu'a la page profil le meme jour** : une source
+externe en panne ne repond pas toujours une erreur. Elle repond du HTML la ou on
+attend du JSON (30/08, la connexion), un 403 (02/09, la page profil), ou **200
+avec rien dedans** (ici). Un code qui ne se protege que du premier cas se croit
+protege. La question a se poser n'est pas « et si l'appel echoue ? » mais « et
+s'il REUSSIT en ne rapportant rien ? ».
+
+## 2026-08-30 — Une panne AniList ne casse plus la connexion en silence
+
+**Le signalement** : « j'ai un compte sur le PC (pas lie a AniList), je me suis
+deconnecte puis j'ai essaye de me connecter avec AniList » — resultat, la page
+Parametres reaffiche le compte AniScroll precedent, AniList « Non lie », et
+aucun message.
+
+**La cause, lue dans les logs Vercel** (`vercel logs <deployment> --json`) :
+
+```
+[next-auth][error][OAUTH_CALLBACK_ERROR]
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+providerId: 'AniListProvider'
+```
+
+AniList etait en panne — `/api/v2/anilist-health` repondait `{"up":false}` a la
+meme minute — et repondait une page HTML d'erreur la ou le code attendait du
+JSON. Le `userinfo.request` du provider faisait `fetch(...).then(r => r.json())`
+sans rien verifier : la connexion cassait net, NextAuth renvoyait le visiteur
+d'ou il venait, sa session precedente toujours en place. Rien dans l'interface
+ne distinguait ca d'un bouton qui n'aurait rien fait.
+
+**Ce n'etait donc pas une histoire de comptes**, malgre les apparences : ni
+double compte, ni lien refuse. La lecon est sur le diagnostic — un ecran qui
+montre l'ancien etat apres une action ressemble a une regression de la logique
+metier, alors que c'est une dependance tierce qui est tombee. Les logs runtime
+ont donne la reponse en une ligne la ou la lecture du code aurait tourne
+longtemps autour du bon endroit.
+
+### Corrige
+- `viewerOf()` verifie le statut HTTP **et** le corps (une page HTML n'est pas
+  du JSON), reessaie une fois — ces coupures durent quelques secondes — puis
+  leve `anilist-unavailable`.
+- La creation de la custom list AniList passe en `try/catch` : c'est une
+  courtoisie, pas une condition pour se connecter. Elle s'executait sans garde
+  et pouvait emporter tout le login alors que l'identite etait deja etablie.
+- `pages.signIn` **et** `pages.error` pointent vers `/en/auth/anilist`. Les deux
+  pages hebergees par NextAuth sont ecartees pour la meme raison : elles
+  proposent la mauvaise chose. Celle d'erreur renvoyait le visiteur avec un
+  `?error=` dans une URL que personne ne lit ; celle de connexion liste **tous**
+  les fournisseurs — formulaire mot de passe et champ de jeton e-mail compris —
+  et surgit des qu'un `signIn()` echoue, si bien que cliquer « lier mon compte
+  AniList » pouvait aboutir a un formulaire de mot de passe. Le site a sa propre
+  interface de connexion (`components/auth/AuthModal.tsx`) ; cette route-la,
+  c'est AniList et rien d'autre, plus la raison quand il y en a une.
+
+Verifie sur dev : `/fr/auth/anilist?error=anilist-unavailable` rend « La
+connexion n'a pas abouti » suivi de la raison, avec pour seule action « Se
+connecter avec AniList ».
+
+## 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base
+
+**Le point de depart** : AniScroll n'avait aucun compte propre. La seule
+identite etait la session NextAuth AniList (JWT, sans adaptateur), et *toutes*
+les donnees du visiteur vivaient en `localStorage` — liste, progression, file
+d'attente, une vingtaine de cles de reglages, plus les cles heritees du lecteur.
+Vider le cache = tout perdre. Un `UserProfile` Postgres/Prisma survivait de
+Moopa, utilise par trois fichiers, avec deux trous de securite dedans.
+
+**Ce qui est en place** — trois etats, une hierarchie explicite :
+
+| Etat | Identite | Donnees |
+| --- | --- | --- |
+| Invite | UUID local, **aucune ligne en base** | localStorage seul |
+| Compte AniScroll | `users.id` + `tag`, pseudo, e-mail, mot de passe scrypt | sauvegardees |
+| AniList seul | `users.id` + `tag` + `anilist_id`, **sans e-mail** | sauvegardees |
+| AniScroll + AniList | le compte AniScroll prime ; AniList = synchro de liste | idem |
+
+### Les trois decisions qui portent le reste
+
+**1. L'invite n'a pas de ligne en base.** La question posee etait « comment
+savoir qu'un compte invite ne sert plus, sans supprimer le compte de
+quelqu'un ». La reponse n'est pas une politique de purge plus fine : c'est de
+ne rien ecrire du tout. Un invite est un UUID dans son propre navigateur
+(`lib/prefs/guestIdentity.ts`), et le probleme de la purge disparait au lieu
+d'etre resolu. Corollaire pose en commentaire dans le fichier : l'unicite de cet
+id n'a aucune importance, puisqu'il n'atteint jamais la base — a l'inscription
+il est jete et le serveur frappe le sien (ULID + tag, `lib/auth/ids.ts`),
+l'unicite venant de `PRIMARY KEY` / `UNIQUE` et **jamais** du client.
+
+**2. Le `tag` est l'identite, le pseudo n'est qu'un affichage.** Six hex
+publics par compte. C'est ce qui rend le cas « AniList seul » sur : quelqu'un
+qui se connecte uniquement par AniList ne peut pas entrer en collision avec un
+compte AniScroll qui aurait deja pris ce pseudo, parce que ce n'est pas le
+pseudo qui l'identifie.
+
+**3. Contrainte decouverte : l'API AniList n'expose pas d'e-mail.**
+Introspection du type `User` : `id, name, about, avatar, bannerImage, options,
+mediaListOptions, favourites, statistics, siteUrl, donatorTier, moderatorRoles,
+createdAt, updatedAt, previousNames`. Le plan initial disait « on recupere
+l'adresse mail d'AniList » — elle n'existe pas. Un compte AniList seul reste
+donc sans e-mail jusqu'au jour ou son proprietaire cree un compte AniScroll
+par-dessus, ce qui tombe exactement sur la hierarchie voulue.
+
+### Ce qui a ete refuse
+
+- **bcrypt / argon2** : binaire natif a compiler pour la lambda. `scrypt` de
+  `node:crypto` (N=16384, r=8, p=1), parametres stockes dans le hash pour
+  pouvoir les monter plus tard sans invalider l'existant. Zero dependance.
+- **Upstash pour la limitation de debit** : le plafond gratuit (~500 k
+  commandes/mois) est deja le budget le plus tendu du site, et les tentatives
+  de connexion sont precisement le trafic non borne qui le ferait sauter. La
+  table `auth_throttle` vit en Turso, et elle echoue **ouverte** : une
+  fonctionnalite de compte qui n'atteint plus sa base est deja cassee, enfermer
+  tout le monde dehors par-dessus n'aide personne.
+- **Une route POST de liaison AniList** : elle prendrait un `anilist_id` dans
+  le corps, donc n'importe qui reclamerait le compte AniList d'un autre. La
+  liaison se fait dans le callback OAuth, la ou l'identite est prouvee ; la
+  route ne garde que le `DELETE`.
+- **Sauvegarder les favoris** : ils vivent sur AniList, qui les persiste deja.
+  La categorie `favourites` est declaree mais sans cle locale a lire — la
+  sauvegarder serait dupliquer une donnee qui n'est pas perdue au nettoyage du
+  cache.
+
+### Le conflit est arbitre PAR CATEGORIE
+
+`user_data` porte une ligne par (utilisateur, categorie) avec une revision.
+Un appareil qui n'a touche que les reglages du lecteur pousse `player` sans
+rien dire de la liste qu'il n'a pas vue. `cloudSync.pullAll()` applique tout ce
+qui est sans ambiguite (rien en local, ou revision serveur qui a avance pendant
+que le local ne bougeait pas) et ne demande d'arbitrage que sur les categories
+qui ont bouge **des deux cotes** — c'est le seul cas ou `CloudMergeModal`
+s'ouvre. La fonction n'ecrase jamais silencieusement.
+
+`cloudSync` est un **abonne**, pas une reecriture : chaque store emettait deja
+son CustomEvent, donc aucun store existant n'a ete modifie. Et il est
+independant de `lib/list/syncEngine.ts` : AniList possede la liste, nous
+possedons la sauvegarde de l'appareil, les deux tournent sans se connaitre.
+
+### Les deux trous de securite fermes au passage
+
+`pages/api/user/profile.js` et `pages/api/user/update/episode.js` (heritage
+Moopa) lisaient `name` depuis le corps ou la requete **sans le comparer a
+`session.user.name`** sur les branches GET et PUT : tout utilisateur connecte
+pouvait lire ou ecraser le profil et la progression d'un autre. Pire, un
+`GET /api/user/profile` **sans** `name` tombait sur un `findMany` et renvoyait
+*tous* les profils avec leur historique. Les deux routes prennent desormais
+leur identite de la session et de nulle part ailleurs, et `getUser(null)`
+renvoie `null` au lieu de tout deballer.
+
+### Notes d'exploitation
+
+- Nouvelle base Turso `aniscroll-users`, troisieme du site. `ensureUsersSchema()`
+  cree les tables au premier appel : pas d'etape de migration.
+- Tout degrade proprement quand `TURSO_USERS_URL` manque : les comptes sont
+  simplement inactifs, le site continue en local seul. Idem pour
+  `RESEND_API_KEY` : les liens partent dans les logs au lieu de la boite mail,
+  ce qui permet de derouler l'inscription complete sur un deploiement preview.
+- `isAdminSession` accepte maintenant `role === 'admin'` en base **en plus** de
+  `NEXT_PUBLIC_ADMIN_USERNAMES` : rien de ce qui marchait ne s'arrete.
+
+## 01/09/2026 — Lier AniList a un compte n'est plus un cul-de-sac
+
+### Le symptome ment sur la cause
+
+« Je n'arrive plus a me connecter a AniList », et anilist.co affiche en meme
+temps une panne sur downforeveryoneorjustme. Mesure faite avant de toucher au
+code : `anilist.co` repond en 150-330 ms, `graphql.anilist.co` repond, et
+`/api/v2/oauth/token` aussi. **AniList allait bien.** Le detecteur de panne
+tiers n'est pas une mesure, c'est une rumeur.
+
+Les logs runtime de `dev.aniscroll.com` (`vercel logs dev.aniscroll.com --json`)
+donnent la vraie ligne, deux fois de suite sur
+`/api/auth/callback/AniListProvider` :
+
+    [next-auth][error][OAUTH_CALLBACK_HANDLER_ERROR] anilist-already-linked
+      at jwt (...)
+
+Le code `Callback` que NextAuth pose dans l'URL ecrase le notre : c'est
+pourquoi la page d'erreur nommait deux causes possibles. La bonne etait la
+seconde.
+
+### Pourquoi ce refus se declenchait sur la meme personne
+
+Le site n'a connu QUE la connexion AniList pendant longtemps. Beaucoup de gens
+ont donc deja une ligne `users` creee par `createAnilistAccount` — sans e-mail
+et sans mot de passe, joignable par cette seule identite AniList. Quand la meme
+personne se cree ensuite un compte AniScroll et clique « lier AniList »,
+`attachAniList` trouve l'ancienne ligne, voit `owner.id !== userId`, et jette
+`anilist-already-linked`. La seule issue proposee etait « deconnectez-vous et
+passez par AniList » : autrement dit, abandonnez le compte ou vous venez
+d'entrer, et les donnees qu'il porte.
+
+### Ce qui a change : `attachOrAbsorbAniList`
+
+Le refus avait raison sur un point et tort sur l'autre.
+
+- **Raison** : une ligne qu'on peut encore ouvrir seule — mot de passe ou
+  e-mail — est un deuxieme vrai compte. On ne la supprime pas. Elle jette
+  toujours `anilist-already-linked`. Une ligne `disabled` est refusee aussi,
+  plutot que blanchie en compte actif.
+- **Tort** : une ligne dont la SEULE porte d'entree est cette identite AniList
+  ne protege plus personne des lors que l'identite bouge — elle emprisonne ses
+  donnees. Elle est absorbee, puis supprimee.
+
+L'absorption reutilise l'arbitrage deja en place : par categorie, le
+`updated_at` le plus recent gagne — la meme regle que `userData.ts` applique
+entre deux appareils, appliquee ici entre deux lignes de la meme personne. Ce
+que la cible n'a pas et que la source a (pseudo, avatar, banniere) est repris,
+`admin` survit des deux cotes (une fusion ne doit retrograder personne), et
+`created_at` garde le plus ancien des deux.
+
+Un seul `batch(..., "write")` : `anilist_id` est UNIQUE, la source doit avoir
+disparu avant que la cible le reclame, et la moitie de cet etat ne vaut pas la
+peine d'exister.
+
+### Verification
+
+15 assertions passees contre un libSQL `:memory:` (script jetable) : cible qui
+garde son id, admin conserve, banniere reprise, `created_at` le plus ancien,
+ligne source disparue, categorie propre a la source reprise, categorie plus
+recente cote cible preservee, zero ligne orpheline dans `user_data`, deuxieme
+vrai compte refuse, relink idempotent, ligne desactivee refusee.
+
+### Le message d'erreur, lui aussi
+
+`auth.errors.callbackBody` disait « ce compte AniList est deja lie a un autre
+compte AniScroll — deconnectez-vous d'abord ». Ce conseil ne s'applique plus
+qu'au cas residuel, celui du vrai deuxieme compte : le texte le dit maintenant
+(« celui-la protege par son propre mot de passe ») au lieu d'envoyer tout le
+monde se deconnecter.

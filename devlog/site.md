@@ -6,6 +6,745 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-21 (suite) — Jikan comble ce qu'AniList n'a pas (et seulement ça)
+
+**Comparaison faite avant de coder** (Frieren, One Piece, AoT) : les synopsis
+ne sont PAS les mêmes (AniList reprend le texte éditeur, MAL a sa propre
+réécriture), et épisodes/durée/source/genres/titres principaux/streaming font
+doublon. Les studios aussi : AniList les sépare déjà via `isMain`. Retenu
+uniquement ce qui n'a pas d'équivalent AniList :
+
+- **Par épisode** (liste d'épisodes de la fiche) : badge **Filler / Récap**
+  (tuile en pointillés dans la grille), **date de première diffusion**, et le
+  **titre MAL quand le fournisseur n'en a pas** (le sien reste prioritaire).
+  Zéro appel Jikan en plus : c'est la même page `/anime/{idMal}/episodes` que
+  la grille des scores, qui jetait ces champs. Clé Redis `jikan:eps:v2 → v3`.
+  Nouvelle route `/api/v2/episode-meta/{idMal}` (clés courtes, edge 7 j, SW
+  CacheFirst) ; `/api/v2/episode-scores` renvoie désormais `{number, score}`
+  seuls pour ne pas gonfler le payload de la grille.
+- **Par anime** (Détails, desktop + mobile) : **titre français** (lecteur FR
+  seulement — les `synonyms` AniList n'ont pas de langue) et **classification
+  d'âge** (G → Rx ; AniList n'a que `isAdult`). **Synopsis MAL en repli**
+  uniquement quand AniList n'en a pas, source affichée « MyAnimeList ».
+  `lib/jikan/animeMeta.ts`, lu au SSR en parallèle des walkers de saison,
+  mis en cache dans Turso (`season_cache`, `malMeta:v1:<idMal>`, 30 j ; un
+  vrai « rien » 3 j ; un 429/5xx/timeout 2,5 s n'est pas caché). Posé sur
+  `info` à la frontière des props, jamais dans le blob Redis partagé.
+
+Jikan relaie les pannes MAL en 504 (vu pendant l'étude) : tout se dégrade en
+« pas de ligne / pas de badge », jamais en erreur.
+
+## 2026-09-21 — Le profil n'attend plus AniList, et ne tombe plus pour un complément
+
+**Mesure (dev, `Lucyd-952364`, 682 titres)** : TTFB **2,0 s** au premier passage,
+**0,7 s** au second. L'écart était l'attente fixe `PATIENCE_MS` de 1,5 s :
+dès que la copie Upstash avait plus de 5 min, c'est-à-dire presque à chaque
+visite, on laissait à AniList 1,5 s pour répondre. Il n'y arrive jamais sur
+une grosse liste (4 à 12 s).
+
+- **Stale-while-revalidate franc** : une copie de moins de 24 h est servie
+  tout de suite, et la fraîche se range en arrière-plan (`waitUntil`) pour la
+  visite suivante. Sans copie, on attend comme avant.
+- **`getUser(name, false)` ignorait `false`** : la lecture de visibilité
+  chargeait tout l'historique `WatchListEpisode` Prisma à chaque rendu.
+- **Props allégées** : les entrées pesaient 343 Ko sur 352 Ko. On retire
+  `native`/`userPreferred` quand `english` ou `romaji` existe (ce ne sont que
+  des replis de `pickTitle`), ainsi que `favourite:false`, `repeat:0`,
+  `customLists:[]` et `trailer:null`.
+- **Robustesse** : la bannière automatique (fanart/Turso) et les
+  bandes-annonces du studio sont bornées (2,5 s / 1,5 s). Avant, un rejet de
+  `resolveFavoriteBanner` faisait tomber tout le `Promise.all`, donc la page
+  en 500.
+
+## 2026-09-17 (suite 2) — Le rond coupé par le haut de l'écran, et un flou qui n'est pas une boîte
+
+**L'IMPACT SORTAIT DE LA PAGE.** L'onde se détend jusqu'à 2,7 fois le jeton,
+soit un rayon de 140 px autour d'un centre posé à 70 px du haut de l'écran : la
+moitié du cercle était hors cadre, et les étincelles montantes avec. La
+notification descend à `top: 54` (44 dans le lecteur) — une demi-onde, ce qui
+laisse le rond entier visible tant qu'il se voit encore.
+
+**LE FLOU EST REVENU DERRIÈRE LE TEXTE, LA BOÎTE NON.** Ce qui faisait la boîte
+était le voile sombre et ses angles arrondis, pas le flou : un rectangle
+assombri se voit, une zone floutée ne se voit que par ce qu'elle adoucit.
+Deux choses ont demandé un banc de mesure (capture d'écran sur des bandes
+blanches et jaunes, le pire cas) :
+
+- **le masque doit s'éteindre en haut et en bas aussi.** À un rayon vertical de
+  130 %, il ne s'éteignait que sur les côtés : le flou se terminait sur deux
+  bords horizontaux nets et redevenait une barre. À 60 %, la chute tombe à
+  l'intérieur de la carte. Ça ne se voyait pas en lisant le CSS ; ça saute aux
+  yeux sur la capture.
+- **un flou ne fonce pas.** Du blanc sur une scène de jour floutée reste du
+  blanc sur blanc. `brightness(.5)` dans le `backdrop-filter` rend la lisibilité
+  du voile sans rien peindre — et il s'éteint avec le masque, donc sans bord.
+
+Le liseré qui balayait le texte est retiré (`asAchShine` avec) : il se disputait
+l'attention avec la seule chose à lire.
+
+## 2026-09-17 (suite) — Trois causes pour deux symptômes, et une mesure qui contredit le registre
+
+**LE REGISTRE WINDOWS M'A MENTI, LE NAVIGATEUR NON.** L'entrée précédente écarte
+`prefers-reduced-motion` sur la foi d'une lecture de `UserPreferencesMask` —
+mauvais bit. En posant la question à Chrome lui-même (fenêtre RÉELLE : en
+headless, Chrome ignore les réglages système et répond toujours
+« no-preference »), la réponse est `reduce: true`. Le bloc CSS faisait alors
+exactement ce qu'il annonçait : `display: none` sur les étincelles, le halo,
+l'onde, les rayons et la lueur, et le jeton rétrogradé à un fondu de 260 ms.
+« Il manque les particules et le smooth », mot pour mot.
+
+**LA RÈGLE À EN TIRER** : pour un réglage système qui se lit côté navigateur, la
+mesure est `matchMedia`, dans une vraie fenêtre. Le registre demande de connaître
+le bon bit ; le navigateur, lui, répond ce qu'il applique.
+
+**CE QUI A ÉTÉ DÉCIDÉ, ET CE QUE ÇA COÛTE.** La notification de badge ne suit
+plus le réglage système. Windows livre « Effets d'animation » désactivé sur
+beaucoup de postes, ce qui met Chrome en `reduce` sans que personne n'ait demandé
+moins d'animations à un site — et le `display:none` portait sur exactement ce qui
+FAIT la récompense. Le prix est réel : qui a vraiment demandé moins de mouvement
+reçoit la gerbe complète. Le vrai correctif est un réglage DU SITE, distinct de
+celui du système ; il n'existe pas encore. Le reste de la feuille continue
+d'obéir.
+
+Vérifié après coup sur le banc (CSS extrait du fichier, vrai Chrome, `reduce`
+actif) : jeton y −156 → 0 avec son rebond (scale 1,28 → 0,88 → 1), halo 0,2 →
+1,59, rayons opacité 0 → 0,85 → 0,14, étincelles x 0 → 52. Les cinq couches
+tournent.
+
+**LE BADGE ÉTAIT DÉBLOQUÉ, L'ONGLET NE LE SAVAIT PAS.** Deuxième symptôme :
+« 5208 / 5000 » sur un palier déjà franchi, et l'échelle qui ne montait pas.
+`ProfileBadges` recevait `state` en prop, lu AU RENDU SERVEUR depuis la
+sauvegarde cloud. Or l'évaluation tourne dans le navigateur et écrit dans
+`localStorage` — le `flush()` de l'onglet est même le premier à voir le compteur
+franchir son palier. Le badge était donc accordé et invisible jusqu'au
+chargement suivant. L'onglet s'abonne désormais au magasin local
+(`useBadgeState`) et fusionne : union des ids, date la plus ancienne.
+
+**LES 66 ÉPISODES QU'ANILIST NE SAIT PAS JUSTIFIER.** Le compteur restait faux
+(5208 contre 5261). Mesuré contre l'API AniList, sur le compte réel : somme des
+`progress` = 4904, relectures (`repeat × épisodes`) = 291, total reconstructible
+= **5195**. AniList en affiche **5261**. Soixante-six épisodes que sa propre
+liste ne contient pas — un agrégat calculé chez eux, qu'aucune formule appliquée
+aux entrées ne retrouve (aucune entrée n'a `progress > episodes`, et les sept
+sans `media.episodes` sont à `progress 0`, sauf ONE PIECE qui n'a pas de
+relecture).
+
+Conclusion : **on a arrêté de le recalculer**. La page recopie le chiffre qu'elle
+affiche déjà dans les faits (`noteListCounter`), et l'évaluateur le prend comme
+PLANCHER — le calcul local reste dessous et gagne quand il est plus haut (un
+épisode lu ici il y a trois secondes n'est pas encore chez eux). Deux chiffres à
+dix lignes d'écart sur la même page ne se réconcilient pas par une meilleure
+formule : ils se réconcilient par une seule source. Les comptes sans AniList
+suivent, `statsFromEntries` comptant désormais les relectures elle aussi.
+1053 assertions.
+
+## 2026-09-17 — L'impact qui ne jouait qu'une fois, et les relectures qui manquaient au compteur
+
+> ⚠ **Ce paragraphe s'est trompé de coupable — voir l'entrée du 17/09 (suite).**
+> `prefers-reduced-motion` ÉTAIT actif, et c'était la cause dominante : la
+> vérification par le registre Windows visait le mauvais bit. Le défaut de
+> réconciliation décrit ci-dessous est réel, mais il était masqué par un
+> `display: none`.
+
+**LE DEUXIÈME BADGE N'AVAIT PLUS D'IMPACT.** Le bouton d'essai le montrait à
+chaque clic : le premier badge sortait avec son halo, son onde, ses huit rayons ;
+tous les suivants n'avaient qu'une carte qui s'ouvre. **C'est la réconciliation
+React** : ces éléments
+portent une `animation` dont la valeur ne change jamais (`asAchHalo 950ms … both`)
+et React réutilise les mêmes nœuds d'une annonce à l'autre. Même propriété, même
+élément : le navigateur ne rejoue rien, et l'animation reste figée sur sa
+dernière image — laquelle est, pour toutes, une opacité nulle. Les étincelles
+échappaient seules à la panne, par accident : leur `delay` est tiré au sort,
+donc leur valeur d'animation change à chaque badge.
+
+Correctif d'une ligne : une `key` sur le sous-arbre porté (`ach.key`), qui
+démonte et reconstruit. C'est la seule façon fiable de rejouer un LOT
+d'animations CSS — annuler à la main (`getAnimations().forEach(a => a.cancel())`)
+demanderait une ref par élément et un effet de plus pour le même résultat.
+
+**LA BOÎTE EN FOND EST PARTIE.** Le voile flouté avec son masque de bord était
+déjà une boîte, simplement discrète : un rectangle assombri, arrondi, posé quatre
+secondes en haut de l'écran. Ne restent que les lettres. La lisibilité passe à
+une ombre portée en deux couches (halo large + liseré serré) : une ombre suit la
+forme des lettres, un rectangle non.
+
+**ET LE LISERÉ PASSAIT DEVANT LE TEXTE.** Un élément positionné peint au-dessus
+de ses frères restés dans le flux — la bande barrait les mots au lieu de les
+éclairer. `z-index: -1` la remet derrière, et elle devient une LUEUR (dégradé
+radial, pas de bord) : sans carte, un bandeau rectangulaire n'a plus rien sur
+quoi glisser et se lit comme un défaut d'affichage. Sa course s'arrête au bord
+droit du texte au lieu de filer à 560 %, où elle passait le plus clair de son
+temps hors cadre — deux passages ne s'en voyaient qu'un.
+
+**LE COMPTEUR D'ÉPISODES, DEUXIÈME CORRECTION EN DEUX JOURS.** Le 16/09 les
+badges ne comptaient que les épisodes lus SUR LE SITE ; la liste est devenue la
+source. Il restait un écart, visible sur la même page : **5261 épisodes en tête
+de profil, « 4917 / 5000 » sur le badge juste dessous.** Le compteur du haut est
+`statistics.anime.episodesWatched` d'AniList, qui ajoute chaque relecture
+(`progress + repeat × épisodes`) ; le nôtre sommait les épisodes DISTINCTS.
+Défendable en soi, mais pas à côté de l'autre — et le badge se présente comme
+« le compteur le plus visible du profil ». Les relectures comptent donc, et les
+minutes suivent (`minutesWatched` les compte aussi ; les inclure d'un côté
+seulement aurait remis en désaccord les deux chiffres qu'on venait d'accorder).
+Quand `total` est inconnu — série en cours, liste importée sans métadonnées —
+une relecture vaut ce qui a été vu, jamais davantage : c'est la borne
+qu'AniList prend aussi. Banc de test : 1051 assertions.
+
+## 2026-09-16 — Les badges, ou comment ajouter 176 recompenses sans une requete
+
+**La demande** : un onglet Badges sur le profil, des paliers evolutifs avec
+barre de progression, des secrets a la condition masquee, une notification
+d'achievement qui survit au plein ecran — et, en tete de tout, « ne pas exploser
+les quotas ».
+
+### La decision qui a rendu le reste facile
+
+Le premier reflexe serait une table `badges`, une route qui la lit, un cron qui
+recalcule. Sur ce projet, chacune de ces trois choses est une facture.
+
+Elles etaient toutes les trois inutiles : **le substrat etait deja en
+localStorage**. `aniscroll:progress` porte la duree ET l'horodatage de chaque
+episode termine, `aniscroll:localList` le statut, la note et les dates de chaque
+titre, `artplayer_settings` le lecteur et la langue, `aniscroll:streak` les
+jours consecutifs. De quoi juger la grande majorite des 176 badges sans sortir
+du navigateur.
+
+L'evaluation est donc une fonction pure sur quatre objets deja en memoire :
+**zero requete API, zero commande Upstash, zero lecture Turso, zero invocation
+de fonction**. Ajouter un badge coute du CPU navigateur, pas du quota. Les deux
+seuls points qui sortent : la sauvegarde, qui rejoint une requete que
+`cloudSync` emettait deja, et le rattrapage de metadonnees, qui tape AniList —
+un tiers, pas nous.
+
+**Corollaire sur la page de profil** : elle lisait deja `user_data` en une seule
+requete avec une liste de categories choisie. Ajouter `"badges"` a cette liste,
+c'est zero requete de plus pour un onglet complet.
+
+### Recalcul complet, et pas incremental
+
+Tenir des compteurs a jour geste par geste serait plus « efficace » et
+impossible a garder juste : un import de huit cents titres, une synchro AniList,
+un historique efface, deux onglets ouverts — chacun est une occasion de
+desynchroniser un compteur, **et un compteur faux ne se voit pas**. Un balayage
+de dix mille episodes prend quelques millisecondes. On refait tout, et il n'y a
+rien a desynchroniser.
+
+C'est aussi ce qui rend l'import gratuit : `importEntries` n'emet qu'un seul
+evenement pour N titres, donc un import de huit cents titres est naturellement
+une evaluation en lot.
+
+### L'heure locale, et ses huit exceptions
+
+Tout passe par le calendrier de l'APPAREIL. Les pieges, chacun avec son
+assertion dans le banc de test :
+
+- **minuit** se juge a la MINUTE : la sauvegarde du lecteur est throttlee a 3 s,
+  la seconde exacte est hors de portee. Un badge inatteignable n'est pas un
+  badge difficile, c'est un badge casse ;
+- une **fenetre horaire traverse minuit** (« 23 h - 2 h ») : on compare des
+  heures, pas des instants, donc la question « quel jour ? » ne se pose jamais ;
+- le **changement d'heure** fait des journees de 23 h et de 25 h. Les series
+  comptent des jours CALENDAIRES reprojetes sur UTC, jamais des tranches de
+  86 400 s ;
+- la **nuit** est une grappe d'activite, pas une date : commencer a 23 h et
+  finir a 3 h est UNE nuit et deux dates ;
+- les **fenetres glissantes** (« 20 en 24 h ») ne sont pas des cases du
+  calendrier : dix episodes lundi soir et dix mardi matin font bien vingt en
+  vingt-quatre heures ;
+- une **horloge en avance** est ignoree, pas ramenee a maintenant — la ramener
+  inventerait un visionnage a cette seconde-la ;
+- une **liste importee sans horodatage** n'alimente aucun badge horaire : un
+  `completedAt` est une date, pas une heure ;
+- un **re-visionnage** ecrase l'horodatage au lieu d'ajouter un episode, donc
+  les compteurs comptent des episodes DISTINCTS — ce que les libelles disent.
+
+### Les deux invariants de l'etat persiste
+
+**Un badge obtenu ne se reperd jamais**, et ce n'est pas de la gentillesse : les
+compteurs peuvent DESCENDRE. « Effacer l'historique de visionnage » remet
+`aniscroll:progress` a zero, retirer un titre baisse le nombre d'anime termines.
+Un systeme qui reprendrait ses badges punirait le menage.
+
+**La date la plus ancienne gagne** a la fusion. C'est ce qui la rend commutative
+et idempotente : l'ordre dans lequel deux appareils se synchronisent n'a aucune
+influence. Sans cela, le dernier connecte reecrirait toute la collection a
+aujourd'hui.
+
+Corollaire sur `cloudSync` : `badges` est la premiere categorie qui se FUSIONNE
+au lieu de s'ecraser, et donc la seule qui n'a jamais de conflit a faire
+arbitrer. Le dernier-ecrivain-gagne convient a une couleur d'accent, pas a une
+collection — le telephone debloque un badge, l'ordinateur un autre, et le
+premier arrive perdrait le sien.
+
+### Le contrat du `null`
+
+Un badge dont la donnee manque rend `null`, jamais `0`. L'interface affiche
+« pas encore mesurable » au lieu d'une barre vide, parce qu'une barre a 0 % dit
+« tu n'en as aucun » la ou la verite est « je ne sais pas ». Meme regle qu'en
+tete de `lib/profile/insights.ts` et de `lib/profile/blocks.ts`.
+
+La couverture PARTIELLE, elle, se mesure quand meme, et c'est sans risque : tous
+ces badges demandent « au moins N », donc une metadonnee incomplete ne peut que
+SOUS-estimer. Elle retarde un badge, elle n'en accorde jamais un a tort.
+
+### Le plein ecran etait deja resolu
+
+Crainte initiale : une notification invisible pendant un episode. Verification
+faite, l'element plein ecran est **`<html>`** (`enterRootFullscreen()`), et « le
+lecteur remplit l'ecran » n'est que du CSS. Un portal sur `document.body` avec
+un z-index au-dessus du 9999 de `.aniscroll-player-fs` suffit — ce que
+`NoticeStack` faisait deja. Le portal dans la surface du lecteur ne reste utile
+que pour le pseudo-plein-ecran iOS, ou la video elle-meme prend l'ecran.
+
+### Trois pieges de cout evites en route
+
+1. **La webfont d'icones.** La maquette pose ses glyphes avec « Material Symbols
+   Rounded » de Google. Le site dessine ses Material Symbols en SVG inline
+   partout ailleurs, pour ne pas payer une webfont sur une vue que la plupart
+   n'ouvrent pas. `react-icons` etait deja une dependance et porte les 4341
+   Material Icons : 148 cles, 137 composants, zero requete. Trois glyphes de la
+   maquette n'existent pas dans ce jeu (`skull`, `neurology`, `event_upcoming`)
+   et sont remplaces, ce que le generateur documente.
+2. **Le chunk partage.** `dynamic()` seul n'aurait rien resolu : le composant
+   est rendu sur toutes les pages, donc son chunk — catalogue + 137 icones —
+   serait parti a chaque chargement. Il est derriere une garde qui ne depend que
+   du store d'achievements, quelques lignes sans dependance.
+3. **Le rattrapage de metadonnees**, 800 titres : `upsertLocalEntry` par titre
+   aurait relu et reecrit la liste entiere 800 fois, avec 800 evenements dont
+   chacun reveille la synchro et l'evaluateur. D'ou `patchLocalEntries`.
+
+### La notification ne se declenche pas sur une synchro
+
+Arriver depuis son telephone ne doit pas annoncer en rafale la semaine passee
+devant l'ordinateur. Le critere n'est PAS un delai apres le chargement —
+quelqu'un qui reprend un episode huit secondes apres etre arrive merite sa
+notification — mais la CAUSE du changement : `pullAll` leve un drapeau,
+l'utilisateur non.
+
+### Ce qui a ete mesure, et ce qui ne peut pas l'etre
+
+`node tools/badges/check-catalog.mjs` : 1017 assertions, sans reseau. Les cas
+d'heure locale y sont prouves sur des instantanes fabriques, parce qu'aucun
+d'eux n'est atteignable sur un profil de test.
+
+`node tools/badges/check-works.mjs` : les 74 ids AniList des badges par titre
+confrontes a leur titre attendu. **Il a trouve deux erreurs** — Yowamushi Pedal
+portait l'id de JoJo partie 1, et Stone Ocean un id qui n'existe pas. Un id faux
+est le pire defaut possible de ce systeme : le badge ne se debloque jamais, et
+rien dans l'interface ne le distingue d'un badge difficile.
+
+**Trois badges restent inertes faute de fonctionnalite** : « A l'aveugle » (pas
+de bouton aleatoire sur le site), « Vitrine » (on ne peut pas epingler un badge)
+et « Le tout premier » (il faut connaitre l'anime le plus ancien du catalogue).
+Et deux reposent sur une approximation assumee, commentee sur place : « Jour de
+diffusion » et « Jour J » deduisent la date du dernier episode sorti en retirant
+une semaine a `nextAiringEpisode`, AniList ne publiant jamais la date des
+episodes passes — ils ne sont donc pas retroactifs, et ne peuvent pas l'etre.
+
+## 2026-09-02 (suite) — « Le chargement est tres long » : la page etait rendue deux fois
+
+**Le rapport.** « Le chargement est tres long entre les pages, beaucoup plus
+qu'avant, et pareil ou pire au reload », sur toutes les pages, avec une capture
+de console : trois erreurs React minifiees (#425, #418, #423), une `FetchEvent …
+resulted in a network error response` sur `/fr/profile/…`, un `400` sur
+`/api/v2/banner-tone`.
+
+**Le curl disait l'inverse du ressenti, et c'est ce qui a oriente la suite.**
+
+| | a froid | au chaud |
+| --- | --: | --: |
+| `/en` (`s-maxage=7200`) | 5,45 s | 0,07 s |
+| `/en/anime/21` (`s-maxage=21600`) | 4,19 s | 0,08 s |
+| `_next/data/…/profile….json` | **9,11 s** | 0,78 s |
+| `_next/data/…/anime/21.json` | 0,66 s | 0,09 s |
+
+Au chaud, le serveur repond en 70 ms. Une page qui « met des plombes » alors que
+sa reponse arrive en 70 ms ne peut etre lente que **cote client** — et les trois
+numeros React disaient lequel : ce sont des erreurs d'HYDRATATION, dont le remede
+de React est de **jeter tout le HTML du serveur et de re-rendre la page
+entiere**. Une page rendue deux fois.
+
+**L'instrument avant le diagnostic.** `tools/browser-check/hydration-check.mjs` :
+vrai Chrome par CDP, **en `fr-FR`** (les deux drapeaux, `--lang` ne suffit pas —
+c'est `--accept-lang` qui fixe `navigator.language`, celui que lit la detection
+du site), profil neuf a chaque run. Il nomme les erreurs React par page et
+mesure le temps de taches longues, installe par
+`Page.addScriptToEvaluateOnNewDocument` — un `longtask` ne se mesure pas apres
+coup. Premiere sortie :
+
+```
+/fr                hydratation propre    DOM pret   5 869 ms
+/fr/anime/21       hydratation propre    DOM pret     647 ms
+/fr/profile/<tag>  #425 + #418 + #423    DOM pret  14 982 ms   (ttfb 19 ms)
+```
+
+Quinze secondes pour une reponse serveur de 19 ms, et **une seule page touchee**.
+La bascule FR de `I18nProvider` — le suspect designe, atenue le 26/08 par un
+pari sur deux `requestAnimationFrame` — tient donc : les deux autres pages sont
+propres. Ce qui evite un chantier (rendre le francais cote serveur) pour une
+correction de trois lignes.
+
+**La cause.** `ProfileHero` ecrivait « Membre depuis <mois annee> » avec
+`toLocaleDateString(undefined, …)`. `undefined` demande a l'environnement, et
+les deux environnements ne repondent pas la meme chose : Node sur Vercel resout
+`en-US` (« September 2024 »), un navigateur francais ecrit « septembre 2024 ».
+
+**Le meme defaut avait deja ete corrige DEUX FOIS** — `Hero.tsx` et
+`details.tsx` portent chacun une longue note qui decrit ce symptome mot pour
+mot, et le remede maison : `i18n.language`, qui vaut « en » sur le serveur ET au
+premier rendu du client, donc l'hydratation correspond et le francais arrive
+avec la bascule, apres. La lecon n'est pas la regle, elle est deja ecrite deux
+fois : c'est qu'**une regle ecrite dans un commentaire ne protege que le fichier
+qui la porte**. Trois occurrences, trois decouvertes independantes. Avec
+`timeZone: "UTC"` en prime, sinon une inscription du 1er du mois se lit sur deux
+mois selon le fuseau.
+
+**Verification, meme instrument :** `/fr/profile/…` hydratation **propre**, DOM
+pret **2 518 ms**. Le `400` de `banner-tone` a disparu avec lui — la liste
+d'hotes ignorait `fanart-proxy.aniscroll.com`, d'ou sort la plaque d'un profil
+(meme oubli que pour TMDB en aout ; elle est desormais alignee sur celle de
+`lib/profile/banner.ts`). *Reserve honnete* : ce 2 518 ms est mesure alors
+qu'AniList est en panne, donc sur un profil vide — le double rendu, lui, a bien
+disparu, et il ne dependait pas de la taille de la liste.
+
+**Le cache de la liste passe a deux etages** (voir aussi `devlog/infra.md`). La
+`Map` de module posee le matin meme tient 60 s mais meurt avec la lambda —
+c'est-a-dire a chaque deploiement, et c'est exactement la qu'on mesurait 9,1 s.
+Upstash prend le relais : comprimee en gzip (~1/10, sinon le transfert mangerait
+le gain), 24 h, la fraicheur decidee par l'horodatage range avec elle et non par
+le TTL. Le TTL long ne sert qu'a une chose, la **copie de secours**.
+
+**Et elle a servi le jour meme.** `graphql.anilist.co` a repondu **403 a tout**
+pendant la session — « The AniList API has been temporarily disabled due to
+severe stability issues ». Sans copie de secours un profil affiche « 0 anime » :
+un chiffre FAUX, pas une absence de chiffre — precisement le defaut que le delai
+de 14 s de cette page avait ete monte pour eviter. Une liste de la veille est
+infiniment plus vraie qu'un zero. La sonde `/api/v2/anilist-health` a bien vu la
+panne (`up:false`), mais `/api/v2/etc/recent/1` **500** des que son heure de
+cache expire : le meme trou, ailleurs, et il reste ouvert.
+
+Au passage, cette page etait le SEUL appelant serveur d'AniList a ouvrir son
+propre `fetch`. Elle passe par `lib/anilist/anilistFetch` comme les autres :
+limiteur partage (~30 req/min par IP, que la requete la plus lourde du site
+consommait hors budget), fusion des appels en vol, gestion du 429. Avec
+`cacheSeconds: 0` — le cache de reponses de ce module ecrirait la liste NON
+comprimee dans Upstash a chaque requete.
+
+**Ce qui n'etait pas un bug.** `vercel ls` montrait **18 deploiements de preview
+en deux heures**. Chaque deploiement remet tout a froid (edge, lambdas, service
+worker, buildId), donc en session de developpement chaque premiere visite de
+chaque page est un « a froid » a 4-5 s. Pour juger d'une regression, comparer au
+CHAUD, ou sur la prod.
+
+## 2026-09-02 — Quatre defauts de la vitrine du profil, quatre causes distinctes
+
+Rapport en quatre points : « le site est tres long pour recharger une page »,
+« il manque des animes », « les cartes apparaissent sans animation », « j'ai des
+animes qui ne sont pas dans mes favoris ». Rien de commun entre eux, sinon la
+page ou ils se voient.
+
+**La page mettait des secondes a revenir : c'est la requete AniList, repayee a
+chaque visite.** `/en/profile/[user]` est en `getServerSideProps`, et tout son
+cout tient dans un appel a `graphql.anilist.co` — 3,8 s / 11,7 s / 4,5 s
+mesurees en aout sur une liste de 824 entrees, chiffres deja notes dans le code
+a cote du timeout de 14 s. Chaque rechargement, chaque retour arriere depuis une
+fiche, chaque visiteur du meme profil la repayait *en entier*, alors que rien
+n'avait bouge chez AniList entre-temps.
+
+Le cache est une `Map` de module, TTL 60 s, plafonnee a douze listes. **Pas
+Upstash**, et c'est un choix, pas un raccourci : le quota gratuit est deja juste
+(cf. `devlog/infra.md`), une liste pese quelques centaines de kilo-octets, et le
+cas a reparer — recharger la page qu'on regarde — retombe presque toujours sur
+la meme lambda chaude. La cle est le nom AniList, donc aucun risque de servir la
+liste d'un profil sous un autre. Un echec n'est jamais mis en cache : il serait
+servi une minute a la place d'une liste qui existe, et le profil s'afficherait
+vide — le meme « 0 anime » faux que le timeout de 14 s avait ete choisi pour
+eviter. La session, qui ne depend pas de la liste, est lue en parallele plutot
+qu'en file devant elle.
+
+**« Il manque des animes » : la vitrine s'arretait au vingtieme mieux note.** Le
+bloc allait chercher 20 entrees, classees par note. Sur les favoris declares
+c'est indolore ; sur une liste de statut — « Termines », des centaines de titres
+— la bande se terminait sur un 8,5 avec le curseur des notes ouvert de 0 a 10.
+Le reglage avait donc l'air de ne rien filtrer, et le plafond, lui, ne se voyait
+nulle part. Il passe a 60 : assez pour que la coupure cesse d'etre visible, pas
+au point de faire de la bande un catalogue qu'on fait defiler pour rien. Les
+affiches hors ecran ne sont pas chargees (`next/image`), le cout reste celui de
+ce qu'on regarde.
+
+**Les favoris n'etaient pas que des favoris.** `favoriteShowcase` completait la
+vitrine avec les mieux notes des qu'il y avait MOINS de `max` favoris. Ecrit
+quand `max` valait 8, le repli etait rare ; avec un plafond a plusieurs
+dizaines il est devenu la regle, et un profil de douze favoris en voyait
+quarante-huit autres passer pour tels sous un titre qui dit « favoris ». Le
+repli garde son seul cas honnete, celui pour lequel il avait ete ecrit : AUCUN
+favori declare, ou montrer les mieux notes est le meme propos plutot qu'un
+ajout. **La lecon** : un repli dimensionne pour un plafond change de nature
+quand le plafond bouge, et personne ne relit le repli en changeant le chiffre.
+
+**L'arrivee restait instantanee malgre l'animation ecrite pour elle.** Le
+commit precedent (`6ee1bbe`) avait deja remplace la keyframe au montage par une
+vraie transition : la carte nait repliee (`is-enter`, `max-width: 0`) et se
+deplie une frame plus tard en `is-in`. A l'oeil, rien n'avait change.
+
+La coupable etait **la mesure de largeur elle-meme**. La largeur d'une carte
+n'existe pas en CSS — elle vient de la hauteur de la case par le rapport 2:3 —
+donc un effet leve le plafond d'une carte, lit son `offsetWidth`, et pose la
+valeur en `--as-fav-w` sur la bande. Il choisissait la premiere carte non
+sortante, donc souvent **une carte qui venait de naitre**. Lire `offsetWidth`
+force le calcul de mise en page : `max-width: none` devenait la valeur de
+reference de cette carte. La remise a `""` juste apres la ramenait a 0 — et
+lancait donc aussitot une transition de *repli* de 300 ms. Deux frames plus
+tard, quand la classe passait a `is-in`, la carte etait encore quasi depliee :
+il ne restait rien a animer, seule l'opacite se voyait. C'est exactement
+« apparaissent instantanement ».
+
+Le correctif tient en trois lignes : mesurer **une carte deja en place**
+(`.is-in`) quand il y en a une, couper la transition le temps de la mesure, et
+figer la valeur revenue par un second calcul force avant de la rendre.
+
+**La lecon, elle, se garde** : une mesure forcee n'est jamais neutre sur un
+element qui transitionne. Elle lui donne un style de depart qu'il n'avait pas,
+et l'animation qu'on croit ecrire commence alors depuis le mauvais endroit —
+ou, comme ici, depuis la fin.
+
+## 2026-08-30 — Le profil se pare de l'anime prefere, et cesse d'etre reserve a AniList
+
+**Le point de depart** : `/en/profile/[user]` etait une page AniList et rien
+d'autre. Son `getServerSideProps` interrogeait `graphql.anilist.co` et rendait
+`notFound` si la reponse etait vide, si bien qu'un compte AniScroll n'avait
+aucun profil — la barre de navigation l'envoyait vers `/en/settings#account`
+pour ne pas le poser sur un 404 — et un visiteur non connecte encore moins. La
+banniere, elle, etait celle du profil AniList, ou un aplat gris quand il n'y en
+avait pas.
+
+**La regle demandee**, mot pour mot dans l'ordre : l'anime *prefere* du
+proprietaire habille son profil, et « prefere » se decide par **sa note
+d'abord ; a egalite, favori ou pas ; a egalite, le nombre de revisionnages ; a
+egalite, la note moyenne de l'anime ». Sans liste, la couleur du site. Un compte
+AniList sans liste garde sa propre banniere.
+
+### Ce qu'il faut retenir
+
+**1. Une chaine de comparateurs, pas un score pondere.** C'est la lecture
+litterale de la demande et c'est aussi la seule honnete : un 9/10 ne doit
+jamais perdre contre un 8/10 qui se trouve etre un favori. Chaque critere ne
+parle que si le precedent est a egalite (`lib/profile/favorite.ts`).
+
+**2. Le quatrieme critere est le seul qui coute une requete, donc il n'est
+cherche que la ou il peut encore changer la reponse.** `tiedHead()` rend le
+groupe encore ex aequo apres les trois premiers criteres — presque toujours un
+seul titre — et la note moyenne n'est resolue que pour lui, plafonnee a 8. Un
+profil AniList n'y passe jamais : `meanScore` arrive deja dans la requete de
+liste. Une liste locale de 300 titres non notes, elle, serait 300 appels sans ce
+plafond.
+
+**3. Les trois sources sont normalisees vers une seule forme
+(`lib/profile/types.ts`).** AniList, la sauvegarde cloud d'un compte AniScroll,
+et le `localStorage` de l'appareil disent la meme chose avec des noms
+differents — et surtout des **echelles de note differentes**. La requete AniList
+demande donc `score(format: POINT_10_DECIMAL)`, qui est deja le format de la
+liste locale : sans ca les deux moities du classement ne sont pas comparables et
+le tri du premier critere est du bruit.
+
+**4. L'invite a sa page a lui, et elle ne peut pas en etre une autre.** Sa liste
+ne vit que dans son navigateur : lui donner une URL publique serait promettre un
+lien qui ne montre rien a personne d'autre. D'ou `/en/profile/me`, sans SSR, en
+`noindex`, ou toute la chaine (classement, banniere) tourne cote client contre
+`/api/v2/profile-banner` — le meme endpoint partage et cache a l'edge que le
+selecteur de banniere interroge.
+
+**5. Le choix manuel vit sur la ligne du compte (`users.profile_banner`), pas
+dans `user_data`.** C'est une page publique : tous les visiteurs doivent voir la
+banniere choisie, alors que `user_data` est la sauvegarde privee par appareil.
+Corollaire : l'URL stockee est ecrite par l'utilisateur puis servie a tout le
+monde, donc elle passe par une liste blanche d'hotes (`isAllowedBannerUrl`) —
+sans quoi c'est un champ d'image arbitraire sur une page publique. Un invite,
+lui, garde son choix en `localStorage`.
+
+**6. Par defaut, rien n'est fige.** Tant que le proprietaire ne choisit pas, le
+profil se re-habille tout seul quand ses gouts bougent. Le bouton « revenir a
+l'automatique » est toujours a un clic.
+
+**Verifie sur dev.aniscroll.com** (CDP, `tools/browser-check`) : profil AniList
+`Sora` -> Shaman King (note 10, favori, 3 revisionnages — la chaine complete
+jusqu'au troisieme critere, confirmee par une requete AniList independante) ;
+invite sans liste -> plaque `--brand-primary` ; invite avec liste semee ->
+Fullmetal Alchemist (10 contre 10 avec One Piece, departage aux revisionnages).
+**Non exerce sur un vrai compte AniScroll sans AniList** : le chemin est ecrit
+et compile, mais aucun tag reel n'etait sous la main.
+
+### Ce que le premier jet avait rate (corrige le jour meme)
+
+**Le classement etait juste ; c'est la liste des candidats qui ne l'etait
+pas.** Sur une vraie liste de 683 entrees, **297 sont "Prevu" sans un seul
+episode vu**, et onze d'entre elles — toutes notees 10 — occupaient tout le haut
+du classement devant des series reellement regardees (`Orb`, `Takopi`, `PLUTO`…
+que le proprietaire n'a jamais lances). Sur AniList, **une note posee sur un
+titre prevu est une attente, pas un verdict** : c'est une donnee d'un autre
+genre que les autres, et la moyenner avec elles n'a pas de sens. Ces entrees
+sortent donc des candidats. Ce qui a ete commence au moins une fois reste
+eligible — abandonne et en pause compris, parce que ce sont des verdicts. Le
+premier du classement, lui, n'a pas bouge : le bug ne se voyait qu'a partir du
+2e rang, donc **la banniere elle-meme etait bonne et seule la liste du selecteur
+trahissait le probleme**. Sans le retour de l'utilisateur sur « Orb, je ne l'ai
+pas vu », rien ne l'aurait signale.
+
+**Un clic qui enregistre est un clic qui piege.** Le selecteur figeait la
+banniere des la premiere tuile touchee : parcourir la galerie gelait le profil
+sur la derniere image regardee, et le symptome remonte a ete « la banniere
+change toute seule » — l'utilisateur ne pouvait pas relier son propre clic
+d'exploration a un enregistrement. Le clic ne fait plus que selectionner, un
+bouton confirme, et la tuile en place est marquee.
+
+**Le flou "inexplique" etait delibere — au mauvais endroit.** Le hero floute
+une affiche verticale faute de mieux, ce qui est defendable. Le selecteur
+heritait du meme traitement : affiches floutees et agrandies, bannieres fines de
+1000x185 etirees en 16:9. **Un selecteur doit montrer ce qu'il propose** : tout
+ce qui n'est pas au format large s'affiche entier sur un fond sombre, avec son
+format ecrit dessus.
+
+**Le zoom lent recadrait.** La plaque respirait avec un Ken-Burns de 1.06 a
+1.16 — donc elle coupait, ce qui est exactement ce qu'une banniere choisie dans
+les illustrations de l'anime ne doit pas faire. Supprime, et la bande se
+dimensionne desormais sur le 16:9 de l'illustration (`min(56.25vw, 80vh)`) :
+sur un ecran large, l'image est visible en entier.
+
+### Deuxieme passe : ce qui compte comme verdict, et image vs banniere
+
+**"Terminé" est le vrai filtre, pas "commence".** La passe precedente excluait
+les titres jamais lances ; il restait le fond du probleme. Une note posee avant
+la fin n'est pas un verdict sur l'oeuvre — c'est une attente ("Prevu") ou une
+impression a mi-parcours ("En cours"), et c'est regulierement un 10 qui ne
+survit pas au denouement. Seuls `COMPLETED` et `REPEATING` restent candidats
+(683 entrees -> 187). `REPEATING` est la raison pour laquelle le test n'est pas
+litteralement "completed" : un re-visionnage veut dire que l'oeuvre a ete finie
+au moins une fois, le verdict le plus fort qui soit. En pause et abandonne sont
+dehors : l'histoire n'a jamais ete vue jusqu'au bout, la note ne porte pas sur
+le meme objet.
+
+**Une illustration et une banniere ne se portent pas pareil.** Un fond 16:9 est
+une IMAGE : elle passe derriere toute la zone d'en-tete et le profil se lit
+dessus. Une banniere AniList 1900x400, ou un fanart 1000x185, est composee comme
+un bandeau — il n'y a rien au-dessus ni en dessous du cadrage a reveler, donc
+l'agrandir ne fait que la grossir : elle reste un bandeau (`plateMode`). Le
+format voyage avec le choix jusque dans la banniere epinglee, parce que rien ne
+permet de le deduire de l'URL. La decision pure vit dans `types.ts` et non dans
+`banner.ts` : ce dernier atteint la base des fanarts, et le hero — qui pose la
+question — ne doit pas trainer un client libSQL dans le bundle navigateur.
+
+**Le voile doit defiler avec l'image qu'il attenue.** Le fond a d'abord ete pose
+en `position: fixed`, pour le parallaxe. Un voile fixe est cale sur la FENETRE :
+des que la page defilait, le haut du viewport — la partie volontairement claire
+du degrade — se glissait sous la rangee de statistiques et la rendait
+illisible. En `absolute`, couvrant bande + statistiques et se terminant dans le
+noir plein, le raccord avec le contenu est invisible. *(Cette conclusion a ete
+reprise le jour meme : voir la troisieme passe. Le `fixed` etait le bon choix,
+c'est le degrade qui etait le mauvais outil.)*
+
+**Piege d'outillage, a noter pour la prochaine fois** : `Page.captureScreenshot`
+apres un `scrollTo` en headless a rendu deux etats superposes (les memes pastilles
+de filtre dessinees a deux hauteurs), ce qui donnait l'illusion d'un bug de mise
+en page deja corrige. Mesurer la geometrie via `Runtime.evaluate`, et capturer
+avec `clip` + `captureBeyondViewport` plutot que de faire defiler la page.
+
+### Troisieme passe — le fond tient, et plus rien n'est recadre
+
+Deux reproches : « j'ai une image en plein ecran mais quand je scroll elle n'est
+plus la », et « image et banniere sont zoomees ».
+
+**Un fond qui disparait au defilement n'est pas un fond.** La deuxieme passe
+avait tire la mauvaise lecon de l'echec du `fixed` : ce n'etait pas la fixite
+qui posait probleme, c'etait d'avoir voulu qu'un voile fixe joue le role d'un
+degrade calcule sur la position du nom et des cartes, qui, eux, bougent. Le fond
+redevient donc `fixed` et couvre tout le viewport, et **le voile devient
+independant du defilement** : un voile uni. Chaque element qui doit rester
+lisible par-dessus une image quelconque porte desormais son propre contraste
+(ombre portee sur le nom, fond sombre + flou sur les cartes de statistiques). Le
+raccord avec la liste, lui, est dessine **dans le flux** (`.as-page-seam`), donc
+il reste colle au contenu quoi qu'il arrive.
+
+**Un aplat opaque annule un fond fixe.** Le contenu etait peint sur `bg-primary`
+plein : au bout d'un ecran de defilement, l'illustration etait definitivement
+recouverte — exactement le reproche. Il devient un **voile a 90 %**
+(`.as-page-under`), et l'image transparait sous la liste et le pied de page.
+Applique sans condition, sans avoir a savoir s'il y a une illustration : 90 % de
+`#0c0d10` pose sur le `#0c0d10` de la page redonne `#0c0d10`.
+
+**Le zoom venait d'une etiquette perimee, pas d'une mise a l'echelle.** La
+banniere epinglee du compte de test etait une bande fanart **1000x185**
+enregistree avec la source `background` (l'epinglage precede le stockage du type
+d'illustration, et l'API retombe sur `background` par defaut). Elle etait donc
+portee en papier peint plein ecran, ou elle perdait **62 % d'elle-meme**. Lecon :
+*la source declaree est une etiquette, et une etiquette vieillit ; les
+proportions de l'image, non.* Elle ne sert plus que de premiere hypothese le
+temps du premier rendu, puis la mesure decide — au-dela de 3:1 c'est une bande,
+en deca un fond. La mesure ne coute aucun telechargement (`new Image()` sur une
+URL que `next/image` a deja chargee).
+
+Dans la meme veine, les hauteurs de bande etaient choisies en `vh`, ce qui
+garantit un recadrage des que la fenetre n'a pas la bonne forme. Premiere
+correction : caler la bande sur le **4.75:1** dans lequel AniList dessine ses
+propres bannieres (1900x400). Insuffisant, et pour la meme raison que l'erreur
+precedente — **une banniere fanart fait 5.4:1** (1000x185), donc `object-cover`
+lui rognait toujours les bords (le `D` de DARLING et le second `XX`
+disparaissaient). Deviner la forme d'une image qu'on vient de mesurer n'a aucun
+sens : la bande prend la proportion **exacte** de l'illustration, plafonnee, et
+`object-contain` garantit qu'un cas plafonne est borde plutot que coupe.
+Recadrage mesure : 64 % → 12 % → **0 %**.
+
+**Bug trouve par le releve, sans rapport avec la demande** : le profil affichait
+« 0 anime » a un visiteur anonyme. La requete AniList etait abandonnee a 6 s ;
+mesure sur la liste reelle (824 entrees) : **3,8 s / 11,7 s / 4,5 s**. Environ un
+chargement sur trois rendait donc un profil vide — et `0`, ce n'est pas
+« inconnu », c'est un chiffre faux. Delai porte a 14 s. Le vrai defaut de fond
+reste entier : une requete tierce lente et bloquante sur le chemin critique du
+SSR.
+
+Le papier peint plein ecran avait le meme defaut, en plus discret : `cover` en
+rognait 10 %. La couche nette passe en `object-contain` — l'illustration est vue
+entiere — et **une seconde copie de la meme image**, agrandie et floutee, comble
+les bandes que cela laisse. Aucune requete de plus (meme URL, deja en cache) :
+un letterbox vide annoncerait que l'image ne rentre pas ; la, le cadre est fait
+de l'image elle-meme.
+
+**Preserver une image puis ecrire dessus n'a pas de sens.** L'avatar et le pseudo
+se posaient au milieu de la bande, pile sur le logo. Sous une bande, l'identite
+descend donc dessous, l'avatar mordant sur le bord pour relier les deux ;
+au-dessus d'un papier peint elle ne bouge pas, car y etre lue sur l'image EST le
+parti pris et la place ne manque pas. Dans la foulee le voile lourd de la bande
+disparait : il servait a rendre un nom lisible, il ne restait qu'a noircir le
+tiers bas d'une illustration pour rien.
+
+**Verifie sur dev** (fenetre 1600x900) : illustration 1920x1080 → `fixed`, boite
+inchangee a `@y0` apres 500 px de defilement, **0 % rogne** (bordee a 10 % par sa
+propre copie floutee) ; bande 1000x185 → mode bande, 1584x293 (soit 5.41:1, la
+proportion exacte de l'image), 0 % rogne et 0 % borde ; visiteur anonyme →
+383 animes, 683 lignes.
+
+### Quatrieme passe — le fond revient au plein cadre, et l'invite a la meme page
+
+**Retour en arriere assume sur le papier peint.** L'illustration entiere, cadree
+par sa propre copie floutee, a ete essayee puis retiree a la demande : les
+bandes floutees coutent plus que les ~10 % que `cover` fait perdre. La bande,
+elle, garde `object-contain` — la, le recadrage detruit une composition et il
+n'existe aucune autre facon de la montrer entiere. Deux besoins differents, deux
+reponses differentes : ce n'est pas une incoherence.
+
+**Le design du profil ne dependait pas des donnees mais du fait d'avoir un
+compte.** Un invite tombait sur une page a part. Il retrouve la meme coquille —
+hero, plaque de l'anime prefere, statistiques, liste groupee — sur
+`/en/my-list` (`components/profile/LocalProfile.tsx`). Ne pas etre connecte
+change **d'ou vient la liste, pas ce que vaut la page**. Ce n'est pas appele un
+profil et ca n'a pas d'URL partageable : une liste qui ne vit que dans un
+navigateur n'est pas un profil que quelqu'un pourrait visiter. `/en/profile/me`
+reste en redirection, l'URL ayant pu etre mise en lien ou en historique.
+
+Voir aussi `devlog/comptes.md` pour les trois etats d'identite dont cette page
+est desormais la vitrine — et, meme date, la panne AniList qui cassait la
+connexion en silence.
+
+
 ## 2026-08-29 — Deux "Season 1" a la file : le garde qui empechait de compter
 
 **Le symptome**, vu sur la fiche Jujutsu Kaisen : le selecteur de saisons
@@ -604,3 +1343,525 @@ Refonte de la numérotation des saisons pour corriger l'ordre faux (Gundam : le 
 - **Fribb pas actif sans Turso** : en local sans DB, le moteur retombe sur le garde-fou d'année du walker — ce qui suffit déjà à corriger Gundam. Pour activer Fribb en prod : lancer `node scripts/refresh-fribb.mjs` avec les variables Turso, puis le planifier.
 
 ---
+
+## 01/09/2026 — Le profil : un voile de trop, et une grille qui bougeait par bonds
+
+### `.as-page-under` supprimee
+
+Deux couches faisaient le meme travail au-dessus du papier peint. La plaque
+porte deja `.as-page-scrim`, degrade calibre pour ca : 0,72 sous la navbar
+transparente, **0,28 dans tout le corps**, 0,6 au pied. Par-dessus,
+`.as-page-under` posait un aplat de `rgba(12,13,16,0.9)` sur tout le contenu du
+profil. 0,28 puis 0,9, cela fait ~0,93 de noir plat entre l'illustration et
+l'oeil : sous le hero, le papier peint n'existait plus.
+
+La regle qui autorise un scrim aussi leger est ecrite juste au-dessus de lui —
+tout ce qui doit rester lisible sur une image quelconque porte SON PROPRE
+contraste : le pseudo une ombre, les cartes `.as-stat-card`, les puces un flou.
+Un second drap sur toute la page est ce qu'on ajoute quand cette regle n'est pas
+suivie ; il ne repare aucune carte, il cache l'illustration. Le commentaire qui
+remplace la regle dans `globals.css` dit pourquoi elle ne doit pas revenir.
+
+Quatre emplois retires (`profile/[user].tsx` et `LocalProfile.tsx`, contenu et
+pied de page). Le `relative z-10` reste : il repond a une autre question, celle
+de l'empilement au-dessus de la plaque fixe en z-0.
+
+### La grille de widgets suit enfin le curseur
+
+Le deplacement suivait deja la main au pixel (`offset`), mais le
+**redimensionnement, non** : `onMove` n'ecrivait que la taille arrondie. Le bloc
+avancait donc d'une colonne d'un coup, et comme il portait la transition de
+200 ms des blocs au repos, chaque bond arrivait avec 200 ms de retard. C'est ce
+que « il manque une animation » designait : il y en avait une, elle etait
+posee sur le mauvais bloc.
+
+Le partage est desormais celui de react-grid-layout :
+
+- le bloc tenu ne porte **aucune** transition et affiche sa taille libre, non
+  arrondie (`livePixels`, calculee depuis le rectangle de DEPART — partir de la
+  disposition courante le ferait rebondir a chaque franchissement de case) ;
+- les autres gardent les 200 ms `ease-in-out` et se referment autour de lui ;
+- le fantome existe maintenant aussi pour le redimensionnement, et glisse
+  (`transition-[left,top,width,height] duration-100`) au lieu d'apparaitre ;
+- au relachement, `drag` repasse a null : le bloc recupere sa transition dans le
+  meme rendu et se pose sur la case en 200 ms, sans une ligne de plus.
+
+`dragId` devient `drag = {id, mode, x, y, w, h}` : le rendu a besoin du
+rectangle de depart, et un ref lu pendant le rendu ne redeclenche rien.
+
+### Suite : la couture, et la Roulette du soir
+
+`.as-page-seam` part avec le voile. Elle fondait sur 140 px vers
+`rgba(12,13,16,0.9)` pour rejoindre `.as-page-under` ; celui-ci n'existant plus,
+elle fondait vers une couleur que plus rien ne peignait et ne faisait que
+tracer une bande sombre en travers du papier peint — a l'endroit precis ou le
+papier peint est cense continuer. `.as-page-scrim` est desormais la SEULE couche
+au-dessus de l'illustration.
+
+Le bloc `roulette` (« Roulette du soir ») est retire du catalogue : l'entree
+dans `BLOCKS`, `RouletteBlock`, `plannedPool` — qui n'avait qu'elle pour
+appelant — le cas dans `ProfileOverview`, et les deux traductions. Les
+dispositions deja enregistrees qui le contiennent ne cassent pas :
+`sanitizeLayout(stored, isKnownBlock)` jette les identifiants inconnus et
+`compact` referme le trou.
+
+### Les widgets du profil : trois gestes au lieu de sept boutons
+
+En mode reorganisation, chaque bloc portait dans son en-tete deux fleches
+monter/descendre, un selecteur de quatre tailles types (S M L XL) et une croix.
+Sept commandes serrees dans une barre, sur une carte qui fait parfois une seule
+colonne de large — et **toutes en double d'un geste qui existait deja** : les
+fleches refaisaient le glisser-deposer, les tailles refaisaient la poignee du
+coin bas-droit.
+
+Il ne reste que les gestes. Le moins qui les remplace est repris des cartes du
+graphe des relations (`gStyles.nodeClose`) : pas de cadre, pas de fond, glisse
+dans le coin haut-droit, `M200-440v-80h560v80H200Z`. Le raisonnement y est deja
+ecrit — une croix cerclee poserait une seconde pastille sur une carte qui en
+porte deja une (ici la couleur du bloc) et se lirait comme un element du bloc
+plutot que comme une commande.
+
+Il est place **a cote** de l'en-tete et non dedans : l'en-tete EST la poignee de
+deplacement, un bouton pose dessus devrait arreter la propagation du
+`pointerdown` pour ne pas demarrer un glissement. L'en-tete gagne un `pr-6` en
+edition, sinon un titre long passe sous le moins.
+
+Retires avec eux, faute d'appelant : `IconButton`, `move()`, et dans
+`lib/profile/grid.ts` les exports `SIZES`, `reflow` et `readingOrder` — ces deux
+dernieres n'existaient que pour les fleches, qui raisonnaient en ordre de
+lecture et pas en coordonnees. Cote traductions, `moveUp`, `moveDown` et le
+groupe `size`, et le `hint` ne promet plus « ou choisis une taille type ».
+
+### La carte entiere devient la poignee
+
+`react-grid-layout` sans `draggableHandle` : on attrape un bloc la ou on le
+voit. Le `pointerdown` passe de l'`<header>` a la `<section>`, et ce qui doit y
+echapper arrete la propagation — le coin de redimensionnement (deja, dans
+`startDrag`) et le moins — soit exactement le role du `draggableCancel` de la
+bibliotheque.
+
+Une chose que le depot n'a pas a resoudre et nous si : **les blocs sont pleins
+de liens**. Une jaquette, un titre, un bouton « reprendre ». Des lors que la
+carte entiere se glisse, chaque glissement part de l'un d'eux et finit en
+navigation. En edition le corps devient donc inerte
+(`[&_*]:pointer-events-none` + `select-none`) : reorganiser, c'est ranger, pas
+parcourir. Le contenu reste visible, il ne repond plus ; le moins et le coin
+sont ailleurs dans la carte et gardent le leur.
+
+`touchAction: none` passe sur la section, sinon un glissement au doigt fait
+defiler la page.
+
+## 01/09/2026 — La disposition du profil appartient au profil, pas au lecteur
+
+« En n'etant pas proprietaire je dois voir la meme chose que lui. » On ne le
+voyait pas, et pour une raison qui n'etait pas un bug mais un mauvais
+emplacement.
+
+`aniscroll:profileLayout` etait une cle **locale**, sauvegardee avec la
+categorie `prefs` — c'est-a-dire sur le compte de **celui qui regarde**. Un
+visiteur n'avait donc, au mieux, que sa propre disposition sous la main, et
+`ProfileOverview` s'en protegeait en lui servant la grille par defaut
+(`isOwner && stored.layout ? … : defaultLayout(…)`). Consequence : ce qu'un
+proprietaire rangeait, personne d'autre ne le voyait jamais — et deux
+proprietaires partageant un navigateur se marchaient dessus.
+
+Elle devient une colonne `profile_layout` de `users`, a cote de
+`profile_banner`, publique pour exactement la meme raison : c'est ainsi que le
+profil se presente aux autres. Lue au rendu serveur dans `[user].tsx`, nettoyee
+la (`sanitizeLayout`) pour que la premiere peinture soit deja la bonne, et
+passee a `ProfileOverview` en `accountLayout` — la meme valeur pour tout le
+monde.
+
+**Ce qui n'est PAS aligne, et pourquoi.** Les blocs `source: "device"` —
+reprendre la lecture, vu recemment — lisent la progression de l'appareil qui
+affiche la page. Servis a un visiteur, ils montreraient **sa** lecture a lui
+sous le nom d'un autre. Rien ne peut les remplacer par la donnee du profil : elle
+n'existe pas cote serveur. `visibleTo` les retire donc toujours pour un
+visiteur. Tout le reste — favoris, statuts, notes, genres, formats, studios,
+saison, personnages — est desormais identique des deux cotes, a la case pres.
+
+Details qui comptent :
+
+- **Ecriture differee de 500 ms.** `commit` est appele a chaque mouvement du
+  pointeur ; une requete par pixel n'a aucun sens. Le dernier etat gagne, ce qui
+  est la semantique voulue.
+- **Reprise des dispositions existantes.** Celles rangees avant ce changement
+  sont dans le localStorage de leur auteur et nulle part sur son compte. Au
+  premier chargement en proprietaire, si le compte n'a rien, la disposition de
+  l'appareil est adoptee et poussee — une fois. Sans ca, tout le monde
+  retrouvait la grille par defaut le jour du deploiement.
+- **`PUT /api/v2/account/profile-layout`** nettoie ce qui entre au lieu de se
+  contenter de le valider : la charge vient d'un navigateur, donc elle n'est
+  jamais de confiance, et celle-ci sera **relue par d'autres que son auteur**.
+- `lib/prefs/profileLayout.ts` reste pour le seul cas sans compte : le profil
+  local d'un invite.
+
+### Rattrapage : la grille etait deja sur le serveur
+
+Premier constat apres deploiement : un visiteur voyait toujours quatre blocs.
+Normal — `users.profile_layout` etait vide pour tout le monde, et la reprise
+depuis le localStorage ne se declenche que quand le PROPRIETAIRE ouvre son
+propre profil. Un profil restait donc sur la grille par defaut pour tous ses
+visiteurs jusqu'a ce que son proprietaire repasse.
+
+Sauf que la disposition etait deja lisible cote serveur : `aniscroll:profileLayout`
+est une cle locale, donc deja poussee dans la categorie `prefs` du compte par
+cloudSync. Le rendu serveur de `[user].tsx` la lit maintenant quand la colonne
+est vide (`getAllData(account.id)` → `prefs` → cette cle), et **l'ecrit dans la
+colonne au passage** pour que la lecture supplementaire ne se reproduise pas.
+
+Une ecriture declenchee par un GET, ce qui se justifie ici et seulement ici :
+elle est idempotente, elle ne fait que deplacer la donnee du proprietaire d'un
+endroit a l'autre, et elle s'eteint d'elle-meme des qu'elle a servi.
+
+## 01/09/2026 — Voir l'activite de lecture d'un AUTRE profil
+
+Les blocs « Reprendre la lecture » et « Vu recemment » n'apparaissaient pas sur
+le profil de quelqu'un d'autre. Ce n'etait pas de la pudeur : ils lisaient le
+localStorage du navigateur qui AFFICHE la page, donc servis a un visiteur ils
+auraient montre **sa** lecture a lui sous le nom du proprietaire. `visibleTo`
+les masquait pour cette seule raison, et c'etait la bonne reponse tant que la
+source etait celle-la.
+
+Elle ne l'est plus. Rien n'a eu besoin d'etre collecte : les deux stores dont
+ils dependent sont **deja sauvegardes sur le compte** par cloudSync —
+`artplayer_settings` sous la categorie `recent`, `aniscroll:progress` sous
+`progress`. Il n'y avait qu'a les deballer, exactement comme
+`localListFromCloudPayload` le fait pour la liste.
+
+### Le decoupage
+
+- `lib/profile/history.ts` : la mise en forme sort de `readHistory` dans
+  `rowsFromRaw(raw, limit)`. La garde `typeof window` restait la seule chose qui
+  empechait ce code de tourner cote serveur ; le reste etait deja isomorphe. Une
+  seule mise en forme pour les deux vues du meme historique.
+- `lib/profile/activity.ts` (nouveau) : `historyFromCloud`, `progressFromCloud`,
+  `decorateRows`, `activityFromCloud`. Le `decorate()` de DeviceBlocks prend
+  desormais la table de progression **en parametre** au lieu d'appeler
+  `getProgress` — celui-ci lit le localStorage et renvoie donc toujours `null`
+  hors navigateur : l'avancement de tout le monde serait reste a zero sans que
+  rien n'echoue.
+- `lib/watch/progress.ts` : `readProgressMap()` exporte, pour que le chemin
+  navigateur passe par le meme `decorateRows` (un `getProgress` par ligne
+  reparserait le localStorage a chaque appel).
+- `DeviceBlocks` : les deux blocs prennent `rows?: ActivityRow[]`. Fourni → ce
+  que le serveur a reconstruit. Absent → le hook local, inchange.
+
+**Le proprietaire chez lui garde sa source locale**, deliberement : elle est
+plus fraiche que la derniere synchronisation et elle se met a jour PENDANT qu'il
+regarde (`PROGRESS_EVENT`). Lui servir sa propre sauvegarde lui montrerait un
+episode de retard sur ce qu'il vient de lancer.
+
+### Le cout, parce que c'est la vraie contrainte
+
+Cette page est en `getServerSideProps` : chaque vue est un MISS, et tout ce
+qu'on demande est paye a chaque visite. Deux regles, donc.
+
+**Zero ecriture ajoutee.** `progress` et `recent` sont deja pousses par
+cloudSync (`DEBOUNCE_MS = 5000`). On ne recopie surtout PAS l'activite dans une
+colonne de `users` comme on l'a fait pour la disposition : ca imposerait une
+ecriture a chaque tick de progression.
+
+**Une lecture, jamais deux, et souvent zero.** Les categories sont choisies
+AVANT de lire, pas filtrees apres : `list` (jusqu'a 1 Mo) seulement pour un
+compte sans AniList, `prefs` seulement tant que `profile_layout` est vide,
+`progress`/`recent` seulement si la grille les affiche. La ligne `users` etant
+deja en main (`findByTag`), une colonne renseignee donne la disposition sans
+rien demander — un profil qui a retire ces deux blocs ne coute pas un octet de
+plus qu'avant. Et `getData(userId, kinds)` remplace `getAllData` sur ce chemin.
+
+Au passage, les deux `getAllData` que la page faisait (branche « compte sans
+AniList », rattrapage de disposition) fusionnent avec celle-ci : sur ces
+chemins-la, le nombre d'appels **baisse**.
+
+### Le garde-fou est aussi le seul moyen de ne rien publier
+
+L'activite n'est calculee que si la disposition contient `resume` ou `recents`.
+Ce n'est pas qu'une economie : la disposition etant publique, « je retire le
+bloc » doit vraiment retirer la donnee. Sans ce test, elle resterait lisible
+dans `__NEXT_DATA__` alors que plus rien ne l'afficherait — il n'y a pas de
+reglage de visibilite, retirer le bloc EST le reglage.
+
+### Les textes tutoyaient le lecteur
+
+« Rien en cours sur cet appareil », « il te reste 12 min », « Reprendre » : rien
+de tout cela ne vaut sur le profil d'un autre. Cinq cles `*Other` ajoutees, et
+`resume.title` devient « Regarde en ce moment » pour un visiteur.
+
+### Verifie
+
+21 assertions sur le decodage (`npx tsx`, script jetable) : tri par date,
+renommages, `createdAt` ISO → epoch, pourcentage et minutes restantes, `done`
+vrai quand `time === duration` (ce qu'ecrit `markComplete`), duree inconnue,
+ligne sans `aniId` numerique jetee, lien de lecture avec et sans provider, et
+tous les cas degeneres — payload absent, mauvaise cle, JSON illisible, `"{}"`
+qu'ecrit `clearAllProgress`, `"null"`. Plus `tsc --noEmit` et `next lint`.
+
+Le chemin « zero requete » est verifie par lecture et non mesure : le garde-fou
+est un `kinds.length ?` sur un tableau construit juste au-dessus.
+
+### La categorie qui ne se synchronisait jamais
+
+Deux profils, deux symptomes, une seule cause. Sur celui de Winou, un visiteur
+voyait « Regarde en ce moment : Frieren ep 8, il y a 6 j » pendant que
+l'interesse avait Wistoria ep 12 sous les yeux. Sur celui de Lxcyd, le visiteur
+voyait « Rien en cours. » et le proprietaire un episode 4 en cours.
+
+`cloudSync` marque une categorie sale sur un evenement, et **il n'en existait
+aucun pour `recent`**. La liste des ecouteurs le disait a qui la lisait :
+`onList`, `onQueue`, `onProgress`, `onPlayer`, `onPrefs` — pas de `onHistory`.
+`recent` n'etait donc pousse que par un `pushAll()` complet : a l'inscription,
+ou en repondant « garder cet appareil » a la fenetre de conflit. Entre deux, la
+copie du compte etait gelee, pendant que `progress` (qui a son
+`aniscroll:progress-tick`) restait a jour — d'ou l'episode vieux de six jours
+avec une progression fraiche appliquee dessus.
+
+Le defaut est **anterieur** a ce chantier. Il etait simplement invisible tant
+que `artplayer_settings` ne servait qu'a l'appareil qui l'ecrit ; il devient
+voyant des lors qu'il nourrit le profil public.
+
+Deux pieces :
+
+- `HISTORY_EVENT` + `touchHistory()` dans `lib/profile/history.ts`, appele apres
+  **chaque** ecriture du store : les deux du lecteur, les quatre de
+  `recently-watched.js`, les quatre de `content.tsx`, celle de
+  `clearAllProgress`. Cette derniere est redondante — son appelant pousse deja
+  tout de suite — mais la regle ne souffre pas d'exception, sinon c'est le
+  prochain appelant qui oubliera. `cloudSync` ecoute et marque `recent`.
+- Un rattrapage pour les comptes deja figes : `mark("recent")` au demarrage
+  **si et seulement si** `readRevs().recent === undefined`, c'est-a-dire « cet
+  appareil n'a jamais vu de revision pour cette categorie ». La condition
+  s'eteint des la premiere poussee reussie (`writeRevs` enregistre la revision
+  renvoyee par le POST), donc pas de requete par session ensuite. Et si
+  l'historique local est vide, `pushKinds` ne fait aucune requete du tout.
+
+Cout : nul. `mark()` est debounce a 5 s et `pushKinds` envoie toutes les
+categories sales dans **une seule** requete — `recent` voyage donc avec
+`progress`, qui part de toute facon quand on regarde un episode.
+
+### Les widgets, un par un : bornes de taille, et « reprendre la lecture »
+
+Premiere passe de finition sur la grille du profil, widget par widget.
+
+**Le chrome de la carte.** Le moins qui retire un bloc et le coin qui le
+redimensionne etaient dessines chacun a sa maniere : `right-3 top-3` et
+`opacity-60` par-dessus `text-white/60` pour l'un (soit un gris deux fois plus
+pale), `bottom-0 right-0` + `p-[7px]` pour l'autre. Les deux commandes de la
+carte se repondent maintenant en diagonale : meme boite de 28 px, meme retrait
+de 7 px, meme `text-white/60`. L'en-tete passe de `pr-6` a `pr-7` pour la
+largeur reelle du bouton.
+
+**Les bornes de taille.** Un bloc peut desormais declarer `min` / `max` en
+unites de grille (`[w, h]` dans `BLOCKS`, comme `size`). La contrainte vit dans
+`lib/profile/grid.ts` — `Bounds`, `clampSize` — et s'applique aux **trois**
+endroits ou une taille est decidee : le coin (`resizeItem`), l'apercu qui suit
+le curseur (`livePixels`, sinon la carte se laisse tirer puis revient en arriere
+au relachement) et `sanitizeLayout`, pour les dispositions ecrites avant
+qu'un bloc n'ait un minimum. `WidgetGrid` ne consulte aucun catalogue : il
+recoit une fonction `limits`.
+
+La notation retenue est **hauteur × largeur** — « 1×2 » = une ligne, deux
+colonnes. `BLOCKS` garde l'ordre `[w, h]` de ses autres champs ; c'est
+`blockBounds()` qui traduit.
+
+**`resume`.** Borne a 1×2 minimum, 2×4 maximum : sous deux colonnes la vignette
+et le titre ne cohabitent plus, au-dela de deux lignes la carte est un grand
+vide autour d'une seule ligne d'historique. Plus rien n'y est en pixels fixes —
+la vignette tire sa largeur de la hauteur offerte (16/9, plafonnee a 46 % de la
+carte), le titre passe sur **deux** lignes (`line-clamp-2`) au lieu d'etre
+tronque, ce qui est le cas courant a la plus petite taille. Un bouton « fiche »
+rejoint « reprendre » : il pointe vers `/en/anime/<id>` en dur, pas vers
+`animeHref`, qui avec la preference « clic = lecture » renverrait la ou mene
+deja tout le reste du bloc. Le triangle de lecture est celui du lecteur
+(vidstack, `PlayButton.Play`) — coins arrondis, meme glyphe que celui sur lequel
+on retombe en arrivant. Et sa pastille orange disparait de l'en-tete : elle sert
+a distinguer des blocs qui se ressemblent, or celui-ci porte deja son
+illustration. D'ou `dot: false` dans `BLOCKS` et `color` devenu optionnel dans
+`BlockChrome`.
+
+Retouche apres coup, sur retour visuel :
+
+- Le triangle de lecture n'est plus celui de vidstack mais **celui du bouton de
+  demarrage d'`UniversalPlayer`** — le meme trace heroicons a coins arrondis,
+  `translate(1.8 0)` compris, qui le centre par son centre de gravite et non par
+  sa boite. Un seul dessin de lecture dans l'application.
+- Les deux boutons sont ceux du **hero d'accueil** (`pages/en/index.tsx`) :
+  pilule pleine a gauche, pilule translucide bordee a droite, glyphe « info »
+  plein de Material, et le libelle `anime.moreInfoCta` — la cle dediee que
+  j'avais ajoutee disparait. Le `outline-none focus-visible:outline-none` en
+  vient aussi, et il n'est pas decoratif : c'etait lui, la « bordure bleue
+  bizarre » — le contour de focus du navigateur autour de la pilule.
+- Les libelles passent en `font-outfit` (la police des titres) au lieu de
+  `font-karla`.
+
+Puis, au reglage fin :
+
+- `h-9` sur les **deux** pilules. L'icone du bouton info (16 px) depassait la
+  hauteur de ligne du `text-xs` (16 px de line-height, mais des metriques
+  differentes en `font-outfit`), donc la seule pilule qui en porte une etait
+  plus haute que l'autre. Une hauteur commune + `leading-none` regle la
+  question quelle que soit la police, et l'icone descend a 14 px.
+- Le libelle ne vient plus de `anime.moreInfoCta` : le hero ecrit ses deux
+  boutons en **capitales** (« REGARDER » / « PLUS D'INFOS »), ce qui detonne a
+  cote de « Reprendre ». `profile.blocks.resume.info` revient, en casse de
+  phrase. Le bouton, lui, reste celui du hero.
+- Le titre de l'anime va jusqu'a **trois** lignes (`line-clamp-3`), et le titre
+  du widget passe de `text-base` a `text-lg` — pour toute la grille, c'est du
+  chrome de carte.
+
+### Un widget etale doit GRANDIR, pas s'etaler autour de son contenu
+
+Constat en 2×4 : une vignette de 160 px et deux petits boutons flottant au
+milieu d'une carte large comme la page. « Responsive » ne voulait pas dire
+« tient dans toutes les tailles » mais « occupe la taille qu'on lui donne ».
+
+Deux causes, deux corrections :
+
+- Le `max-h-[10rem]` de la vignette. Il la plafonnait a la hauteur d'un bloc
+  d'UNE ligne, donc doubler la hauteur du bloc ne changeait rien. Elle prend
+  maintenant toute la hauteur offerte (`h-full`, 16/9), bornee en largeur
+  seulement (48 %) — en deux lignes, l'image est rognee sur les cotes plutot
+  que reduite au centre.
+- Les tailles de texte, figees. Elles passent par une **requete de conteneur**
+  (`.as-widget { container: widget / size }` dans `styles/globals.css`) : ce
+  qui decide est la taille de la CARTE, pas celle de l'ecran — deux cartes de
+  tailles differentes coexistent dans la meme fenetre, un `sm:` n'y peut rien.
+  Seuils a 300 px de haut (une ligne = 230, deux = 476) et 700 px de large
+  (deux colonnes ≈ 590 sur une page de 1200, quatre = la page), chacun bien au
+  milieu de son ecart.
+
+Les classes (`as-widget-head`, `-lead`, `-sub`, `-btn`, `-play`) sont posees
+dans le chrome et dans le bloc ; les valeurs de base restent en Tailwind, la
+requete ne fait que les relever. `container-type: size` exige une taille
+definie sur les deux axes : `WidgetGrid` la pose deja en pixels.
+
+**La legende de la reprise : la saison, plus les minutes restantes.**
+« Episode 4 · il te reste 23 min » devient « Saison 2 · Episode 4 » quand il y
+a une saison, « Episode 4 » sinon. Les cles `line` / `lineOther` /
+`lineNoTime` laissent la place a `ep` / `seasonEp`.
+
+La saison se lit **dans le titre**, via `extractSeasonFromTitle`
+(`components/anime/v2/helpers.ts`) — une fonction pure, deja ecrite pour ce
+besoin. Le numero « officiel » du site vient de `seasonChain`, qui marche par
+relations AniList, cache Turso et arbitrage Fribb : un aller-retour serveur par
+ligne d'historique, pour une ligne de legende. Et elle rend `null` quand le
+titre ne dit rien, donc aucune « Saison 1 » n'est inventee sur un titre qui n'en
+parle pas. Le store d'historique ne gardant qu'un titre a plat, on le lui
+presente en `romaji` — la cle sous laquelle le lecteur l'ecrit.
+
+### Demon Slayer : la VF voir-anime manquait, et la VOSTFR servait le mauvais arc
+
+Signale : « sur les demon slayer, il manque la vf vidmoly ». En regardant, c'est
+pire que manquant.
+
+Mesure sur `/api/v2/source/inspect` (dev), les cinq entrees AniList :
+
+| entree | VF resolue | verdict |
+|---|---|---|
+| 101922 S1 | `kimetsu-no-yaiba-vf` (26 ep) | juste |
+| 129874 Mugen Ressha TV | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 142329 Yuukaku-hen | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 145139 Katanakaji | `kimetsu-no-yaiba-vf` (26 ep) | **saison 1** |
+| 166240 Hashira Geiko | rien (recherche non concluante) | absent |
+
+La VOSTFR n'allait pas mieux : 142329 pointait sur `kimetsu-no-yaiba-yuukaku-hen`
+sans decalage, or cette page est FUSIONNEE (18 ep = Mugen Ressha 7 + Yuukaku 11) —
+demander l'episode 1 de Yuukaku-hen servait l'episode 1 de Mugen Ressha. Et 145139
+avait herite du meme slug, c'est-a-dire d'un autre arc.
+
+**La cause.** voir-anime ne numerote pas comme AniList. Leur « Kimetsu no Yaiba 2 »
+= nos saisons 2 ET 3 sur une page ; leur 3 = notre 4 ; leur 4 = notre 5. Aucun
+schema de slug ne peut rattraper ca, et deux garde-fous aggravaient le tableau :
+
+- le **garde de coherence de saison** compare le numero encode dans le slug a
+  celui du resolveur. Pour cette franchise, toute correspondance JUSTE est une
+  contradiction : il jetait la bonne ligne et reresolvait a chaque requete ;
+- le **repli sur le slug nu** : faute de forme numerotee atteignable (le titre
+  AniList porte « Entertainment District Arc » et non un numero), le dernier
+  candidat probe est la base nue — `kimetsu-no-yaiba-vf`, la saison 1. Elle
+  existe, donc elle gagne. Le commentaire du code prevoyait le risque
+  (« accepting it would serve S1 ») sans le fermer.
+
+**La reparation.** Trois pieces, toutes du cote « une ligne verifiee est la
+verite » :
+
+1. Le garde de coherence ne s'applique plus a une ligne `verified`.
+   `lib/db/playerMap.ts` dit deja qu'une telle ligne est honoree quelle que soit
+   la version de l'algorithme, et c'est le seul niveau qui puisse savoir qu'un
+   fournisseur fusionne des saisons. Le garde reste entier sur `heuristic`,
+   qui est ce que l'empoisonnement SNK ecrivait.
+2. Le chemin voir-anime lit enfin `ep_offset`. Le champ existait et n'etait
+   consomme que par anime-sama ; `voiranimeChainOffset` ne recolle que des
+   PARTIES d'une meme saison (meme titre a « Part N » pres) et rend 0 devant
+   une page qui fusionne deux saisons de noms differents.
+3. `scripts/player-map/set-voiranime-map.mjs` — poser une correspondance a la
+   main, avec son decalage. Il **controle avant d'ecrire** : la page existe et
+   porte bien les `episodes` de l'entree AniList a partir de `offset + 1`,
+   sinon il refuse. Une ligne `verified` court-circuite desormais le garde :
+   elle doit etre meritee, pas ecrite de confiance.
+
+Dix lignes posees (5 entrees x 2 langues), toutes controlees.
+
+**Reste ouvert** — le repli sur le slug nu peut servir la saison 1 sous
+n'importe quelle saison ulterieure, pour toute franchise dont le titre porte un
+sous-titre plutot qu'un numero. Demon Slayer est repare par la table ; la
+famille ne l'est pas. Un controle du nombre d'episodes avant d'accepter une base
+nue en saison >= 2 fermerait la classe, mais touche la resolution de tout le
+catalogue et demande sa propre campagne de mesure.
+
+Cle de cache `src:` v13 → v14 dans la foulee, pour la raison deja invoquee en
+v12 et v13 : un resolveur qui atteint des pages qu'il ne pouvait pas atteindre
+ne doit pas etre lu a travers les absences — ni les URL de la mauvaise saison —
+enregistrees par celui qui ne le pouvait pas. Sans le bump, les six heures
+d'absence se reecrivent a chaque sonde.
+
+**Verification apres deploiement** (`/api/v2/source`, parametre de cassage de
+cache — `inspect` ne lit PAS `player_map`, il reresout de zero, donc il ne
+prouve rien ici). Les cinq saisons rendent maintenant cinq embeds DISTINCTS en
+VF, la ou trois partageaient la page de la saison 1. Le decalage est verifie a
+la source : l'episode 1 de Yuukaku-hen rend `8zna9ciy9u8b`, qui est bien
+l'embed de `kimetsu-no-yaiba-2-08-vf`, et l'episode 1 de Mugen Ressha-hen rend
+`o2xzifluthxw`, celui de `…-01-vf`.
+
+**La saison ne se lit pas dans le titre — correction du jour meme.** La
+premiere version tirait le numero de `extractSeasonFromTitle` seul, en
+argumentant qu'un aller-retour serveur par ligne d'historique etait cher pour
+une ligne de legende. Le contre-exemple etait sous le nez : « Kimetsu no Yaiba:
+Yuukaku-hen » ne porte aucun numero, et la fiche affichait « Season 3 » a deux
+centimetres du widget qui n'affichait rien. Beaucoup de franchises nomment leurs
+saisons par leur arc — le titre est le cas facile, pas le cas general.
+
+Le repli est `/api/v2/seasons/[id]`, deja en place pour le selecteur de saison
+du lecteur : cache d'edge d'une journee, aucune commande Upstash, et surtout
+**la meme source que le « · S3 » de la fiche**. C'est ce dernier point qui
+decide : deux comptages differents du meme anime sur deux ecrans du site
+seraient pires que pas de numero du tout. Le titre reste essaye en premier
+(pur et gratuit), le reseau ne sert que quand il ne dit rien.
+
+Et comme la fiche (`Hero.tsx`), le numero ne s'affiche que si la franchise
+compte PLUSIEURS saisons : « Saison 1 » sur une oeuvre unique n'apprend rien.
+
+**Le chip restait masque : `src:` ne suffisait pas.** Apres le correctif
+voir-anime, `/api/v2/source` rendait bien un embed pour les saisons 2+ de Demon
+Slayer, et le selecteur n'affichait toujours pas Voir-Anime Vidmoly. Ce n'est
+pas le resolveur qui parlait mais l'INSTANTANE : `/api/v2/availability` garde
+six heures le verdict de chaque serveur pour un couple (anime, episode), et le
+selecteur le lit avant de sonder — donc le fan-out ne repart meme pas. Un
+instantane ecrit par un resolveur qui n'atteignait pas ces pages continue de
+dire « absent » sur un build qui les sert.
+
+Le fichier le documente lui-meme (« Bump this whenever source RESOLUTION
+changes, not just when this file does », precedents d'aout 2026), et je l'avais
+manque en ne bumpant que `sourceCacheKey`. Ces deux caches se bumpent
+ENSEMBLE : `src:` v14, `avail:` v5. Le cout est borne — seuls les episodes
+reellement ouverts repaient un fan-out, une fois.
+
+## 2026-09-22 — Recherche plus rapide (e585cd7f)
+- Page `/en/search` : une recherche TAPEE va d'AniList au navigateur directement
+  (`advanceSearchVars` extrait, sans import serveur). Avant, elle passait par
+  `/api/v2/anilist-search` -> `anilistFetch`, limiteur partage de tout le site
+  (28 req/min) : jusqu'a 5 s de file + 5 s d'appel, et une invocation par frappe.
+  Sans texte : toujours la route API (cachee au bord), qui sert aussi de repli.
+- Palette Ctrl+S : AniList et FTS Turso affiches chacun des qu'ils repondent
+  (avant : `Promise.all`, donc le plus lent), debounce 300 ms.
+- Garde de sequence : une reponse perimee n'ecrase plus la recherche courante.

@@ -31,6 +31,7 @@ import {
   statusLabel as statusLabelI18n,
   countryLabel,
   listLabel,
+  malDetails,
 } from "../helpers";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -43,13 +44,20 @@ import { useNavBackdrop } from "@/lib/color/navContrast";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import type { SeasonEntry } from "@/lib/anilist/seasonChain";
 import type { FilmVariant } from "@/lib/anilist/resolveSeason";
-import CharactersTab from "../CharactersTab";
-import Episodes from "../Episodes";
-import Artworks from "../Artworks";
+import {
+  CharactersTab,
+  Episodes,
+  Artworks,
+  ScoresTab,
+  preloadTabBodies,
+} from "../lazyTabs";
 import QueueButton from "../QueueButton";
-import ScoresTab from "../ScoresTab";
 import Related from "../Related";
-import RelationsGraph from "../RelationsGraph";
+import dynamic from "next/dynamic";
+import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
+/* Rendered only as the full-screen overlay behind "View timeline": loaded on
+   the first open, then kept mounted (pan / zoom survive a close + reopen). */
+const RelationsGraph = dynamic(() => import("../RelationsGraph"), { ssr: false });
 import { coverUrl } from "@/lib/images/cover";
 import { youtubeTrailerId } from "@/lib/preview/trailerId";
 
@@ -103,6 +111,8 @@ export default function InfoPageMobile({
   // aired-so-far before the tab has loaded.
   const [loadedEpCount, setLoadedEpCount] = useState<number | null>(null);
   useEffect(() => setLoadedEpCount(null), [info.id]);
+  // Corps d'onglets en chunks separes (../lazyTabs) : precharges au repos.
+  useEffect(() => preloadTabBodies(), []);
   const epCount =
     loadedEpCount ??
     info.episodes ??
@@ -634,6 +644,12 @@ function MActions({
         <QueueButton mediaId={mediaId} title={mediaTitle} coverImage={mediaCover} size={44} />
         <button
           onClick={() => {
+            /* « Episode partage » : partager, ou copier le lien -- les deux
+               chemins comptent, c'est le meme geste selon ce que le navigateur
+               sait faire. */
+            import("@/lib/badges/facts")
+              .then((f) => f.recordFlag("copyLink"))
+              .catch(() => {});
             if (typeof navigator !== "undefined" && (navigator as any).share) {
               (navigator as any)
                 .share({ title: document.title, url: location.href })
@@ -761,7 +777,11 @@ function MOverview({
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
-  const description = useTranslatedText(stripHtml(info.description || ""));
+  const graphEverOpened = useMountedOnce(graphOpen);
+  // MAL's synopsis stands in only when AniList has none (see withMalMeta).
+  const description = useTranslatedText(
+    stripHtml(info.description || "") || info.malMeta?.synopsis || "",
+  );
   const aired = formatAiredRange(info);
   const premiered = prettySeason(info);
   const studios = (info.studios?.edges || [])
@@ -784,6 +804,7 @@ function MOverview({
     [t("anime.detailStudios"), studios || null],
     [t("anime.detailProducers"), producers || null],
     [t("anime.detailCountry"), countryLabel(t, (info as any).countryOfOrigin || null)],
+    ...malDetails(info, t, i18n.language),
   ].filter(([, v]) => !!v) as Array<[string, string]>;
 
   const tags = (info.tags || [])
@@ -911,11 +932,13 @@ function MOverview({
               currentId={info.id}
             />
           </div>
-          <RelationsGraph
-            open={graphOpen}
-            onClose={() => setGraphOpen(false)}
-            currentId={info.id}
-          />
+          {graphEverOpened && (
+            <RelationsGraph
+              open={graphOpen}
+              onClose={() => setGraphOpen(false)}
+              currentId={info.id}
+            />
+          )}
         </section>
       ) : null}
 
@@ -1291,6 +1314,8 @@ function MTrailer({
         <img
           src={thumb}
           alt=""
+          loading="lazy"
+          decoding="async"
           style={{
             position: "absolute",
             inset: 0,
@@ -1428,6 +1453,8 @@ function MRecs({ info }: { info: AniListInfoTypes }) {
                   <img
                     src={cover}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       width: "100%",
                       height: "100%",

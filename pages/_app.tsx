@@ -1,6 +1,6 @@
+import "@/lib/fonts";
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
-import Script from "next/script";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
@@ -19,7 +19,6 @@ import { notify } from "@/lib/notifications/noticeStore";
 import { Analytics } from "@vercel/analytics/react";
 import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
-import { chargerPriorPartage } from "@/lib/watch/serverPerf";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
@@ -53,6 +52,16 @@ const HoverPreviewProvider = dynamic(
 );
 const SyncDirectionModal = dynamic(
   () => import("@/components/shared/SyncDirectionModal"),
+  { ssr: false },
+);
+const DangerConfirmModal = dynamic(
+  () => import("@/components/shared/DangerConfirmModal"),
+  { ssr: false },
+);
+/* Squelette de navigation vers une page de lecture, et les prechauffages de
+   donnees (fiche, profil, pages du menu). Rien a rendre avant une navigation. */
+const RouteSkeleton = dynamic(
+  () => import("@/components/shared/RouteSkeleton"),
   { ssr: false },
 );
 
@@ -178,6 +187,128 @@ function SyncBootstrap() {
 }
 
 /**
+ * Cloud backup bootstrap, for an AniScroll account (session.user.uid).
+ *
+ * Kept apart from SyncBootstrap on purpose: that one negotiates with AniList,
+ * this one only mirrors the device's own stores to our database. A visitor can
+ * have either, both, or neither.
+ *
+ * On the first authenticated render it pulls, applies what is unambiguous, and
+ * only opens the merge modal for the categories that moved on both sides. Then
+ * it subscribes to the stores for the rest of the session.
+ */
+
+/**
+ * Même idée pour l'aperçu au survol : le provider se désactive lui-même hors
+ * d'un vrai pointeur (HoverPreviewProvider, `(hover: hover) and (pointer:
+ * fine)`), mais son chunk (~40 Ko gz : carte, TrailerStage, icônes) partait
+ * quand même sur chaque téléphone. On ne le monte que là où il peut servir, et
+ * on suit le changement si l'appareil bascule (souris branchée sur une tablette).
+ */
+function HoverPreviewGate() {
+  const [pointer, setPointer] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const apply = () => {
+      if (mq.matches) setPointer(true);
+    };
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
+  return pointer ? <HoverPreviewProvider /> : null;
+}
+
+function CloudSyncBootstrap() {
+  const { data: session, status } = useSession();
+  const { t } = useTranslation();
+  const [conflicts, setConflicts] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const uid = (session as any)?.user?.uid as string | undefined;
+  /* An AniList-linked account already gets the direction chooser
+     (SyncDirectionModal) on connect, which asks the very same question with more
+     options. Showing this warning on top of it means two modals for one
+     decision, so the plain "replace this browser?" prompt is reserved for the
+     AniScroll-account-only case. */
+  const hasAniList = !!(session as any)?.user?.token;
+  /* Declining is remembered for the tab, otherwise the warning would come
+     back on every single navigation until the divergence is resolved. */
+  const DECLINED = "aniscroll:cloudReplaceDeclined";
+
+  useEffect(() => {
+    if (status === "loading") return;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      // Loaded lazily: a signed-out visitor never pays for this chunk.
+      const cloud = await import("@/lib/list/cloudSync");
+      if (!uid) {
+        cloud.forget();
+        return;
+      }
+      try {
+        const result = await cloud.pullAll();
+        if (cancelled) return;
+        let declined = false;
+        try {
+          declined = sessionStorage.getItem(DECLINED) === "1";
+        } catch {
+          /* private mode — just ask again */
+        }
+        if (result.conflicts.length && !declined && !hasAniList)
+          setConflicts(result.conflicts);
+      } catch {
+        // A failed pull must not stop the pushes: the device stays the source
+        // of truth and will re-pull on the next load.
+      }
+      if (!cancelled) stop = cloud.start();
+    })();
+
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [uid, status, hasAniList]);
+
+  const replaceWithAccount = async () => {
+    setBusy(true);
+    try {
+      const cloud = await import("@/lib/list/cloudSync");
+      await cloud.pullAll({ force: true });
+      // Wholesale replacement: reload rather than try to refresh every screen
+      // in place. Same gesture as "restore defaults" in the settings.
+      window.location.reload();
+    } finally {
+      setBusy(false);
+      setConflicts([]);
+    }
+  };
+
+  const decline = () => {
+    try {
+      sessionStorage.setItem(DECLINED, "1");
+    } catch {
+      /* best-effort */
+    }
+    setConflicts([]);
+  };
+
+  return (
+    <DangerConfirmModal
+      open={conflicts.length > 0 && !hasAniList}
+      title={t("auth.cloudReplace.title")}
+      body={t("auth.cloudReplace.body")}
+      confirmLabel={t("auth.cloudReplace.confirm")}
+      onConfirm={replaceWithAccount}
+      onCancel={decline}
+      busy={busy}
+    />
+  );
+}
+
+/**
  * Replaces every {{date:VALUE}} placeholder in `text` with a date string
  * formatted in the visitor's local timezone. VALUE can be either:
  *   - a Unix timestamp in seconds  ({{date:1736000000}})
@@ -250,7 +381,11 @@ export default function App({
      Sans effet sur la page en cours — l'ordre y est fige au chargement — il
      prepare la suivante. Voir lib/watch/serverPerf. */
   useEffect(() => {
-    chargerPriorPartage();
+    // Import differe : serverPerf tire lib/servers, inutile au premier rendu
+    // de chaque page — ce travail part deja sur temps mort.
+    import("@/lib/watch/serverPerf")
+      .then((m) => m.chargerPriorPartage())
+      .catch(() => {});
   }, []);
 
   // Lightweight pageview analytics — fires on every route change. The
@@ -456,13 +591,45 @@ export default function App({
     return () => clearTimeout(tid);
   }, []);
 
+  /* Purge UNIQUE du cache SW `apis` d'avant le 21/09/2026. Il peut contenir des
+     reponses `/api/v2/source` dont les URL sont mortes depuis des heures — c'est
+     ce qui donnait « une page d'erreur au lieu que la video se recharge » au
+     reveil du PC (voir le commentaire d'API_VOLATILE dans next.config.js).
+     Depuis ce correctif ces entrees ne sont plus jamais LUES, puisque plus
+     aucune route du SW ne matche ces URL : cette purge est de l'hygiene de
+     stockage, pas le correctif. D'ou le temps mort — elle ne doit rien couter
+     au chargement — et le drapeau, qui la rend definitivement non rejouable.
+     Zero requete reseau. */
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("aniscroll:purgeApis") === "1") return;
+    } catch {
+      return; // stockage refuse (navigation privee) : on ne tente rien
+    }
+    const run = () => {
+      const marquer = () => {
+        try {
+          localStorage.setItem("aniscroll:purgeApis", "1");
+        } catch {}
+      };
+      if (typeof caches === "undefined") return marquer();
+      caches.delete("apis").then(marquer, marquer);
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === "function") {
+      const id = ric(run, { timeout: 4000 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const tid = setTimeout(run, 2000);
+    return () => clearTimeout(tid);
+  }, []);
+
   return (
     <>
-      {/* Google Cast SDK — enables the Chromecast button in the video player */}
-      <Script
-        src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
-        strategy="afterInteractive"
-      />
+      {/* Le SDK Google Cast n'est plus charge ici, sur TOUTES les pages : le
+          lecteur (UniversalPlayer) l'injecte lui-meme a son montage, seul
+          endroit ou le bouton Chromecast existe. Deux scripts tiers de moins
+          sur l'accueil, la fiche, la recherche… (18/09/2026). */}
       {/* SessionProvider polls /api/auth/session every minute by default
           AND on every window focus. Each poll = 1 Vercel function
           invocation. With users keeping tabs open for hours that adds up
@@ -489,10 +656,15 @@ export default function App({
                 <ChangeLogs />
                 <AnilistHealthBanner />
                 <SyncBootstrap />
+                <CloudSyncBootstrap />
+                {/* `BadgesBootstrap` et `AchievementGate` vivent sur `dev` :
+                    le socle n'emporte pas le moteur de badges ni son
+                    catalogue d'icones. Point de divergence volontaire, cf.
+                    tools/release/socle.mjs. */}
                 {/* Site-wide anime hover preview. One delegated listener +
                     one portal for every card on the page — see
                     lib/preview/anchor.ts for how a card opts in. */}
-                <HoverPreviewProvider />
+                <HoverPreviewGate />
                 {/* App-shell fade-in only (CSS keyframe, see globals.css). We
                     deliberately do NOT use an enter/exit transition here: on
                     browser back/forward (popstate) the exit animation could
@@ -510,6 +682,11 @@ export default function App({
                   />
 
                   <SearchPaletteMount />
+                  {/* Dans CE conteneur, pas a cote : son animation d'opacite en
+                      fill cree un contexte d'empilement, et le squelette doit
+                      partager celui de la navbar de la page (z-[9999]) pour
+                      passer dessous au lieu de la recouvrir. */}
+                  <RouteSkeleton />
                   <Component {...pageProps} />
                   {/* Vercel Web Analytics — free, beacon-based, doesn't count
                       against the Hobby function quota and gives us per-page

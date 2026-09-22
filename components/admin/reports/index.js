@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { notify } from "@/lib/notifications/noticeStore";
+import openImageInNewTab from "../openImageInNewTab";
 
 /**
  * Dedicated Reports admin page. Same data as the dashboard's report card,
@@ -335,19 +336,4 @@ function SeverityBadge({ severity }) {
       {severity || "—"}
     </span>
   );
-}
-
-function openImageInNewTab(dataUrl) {
-  try {
-    const [meta, b64] = dataUrl.split(",");
-    if (!b64) return;
-    const mime = (meta.match(/data:([^;]+);base64/) || [])[1] || "image/png";
-    const bin = atob(b64);
-    const buf = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-    const blob = new Blob([buf], { type: mime });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch {}
 }

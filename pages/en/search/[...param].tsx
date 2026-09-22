@@ -34,6 +34,11 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useTranslation } from "react-i18next";
 import { useInfiniteScroll } from "@/lib/hooks/useInfiniteScroll";
+import { advanceSearchQuery } from "@/lib/graphql/query";
+import {
+  advanceSearchVars,
+  type AniAdvanceSearch,
+} from "@/lib/anilist/advanceSearchVars";
 
 export async function getServerSideProps(context: any) {
   // Search results are public and keyed entirely by the query string, so the
@@ -117,6 +122,25 @@ export async function getServerSideProps(context: any) {
   };
 }
 
+/** AniList's `Page`, or `undefined` when the browser could not get an answer
+ *  (network, CORS, 429, 5xx) so the caller falls back to the API route. */
+async function fetchAniListDirect(args: AniAdvanceSearch): Promise<any> {
+  try {
+    const res = await fetch("https://graphql.anilist.co/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: advanceSearchQuery,
+        variables: advanceSearchVars(args),
+      }),
+    });
+    if (!res.ok) return undefined;
+    return (await res.json())?.data?.Page ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 type CardProps = {
   index: number;
   query: string;
@@ -194,28 +218,42 @@ export default function Card({
   const [page, setPage] = useState(1);
   const [nextPage, setNextPage] = useState(true);
 
+  // Only the latest request may write: a slow answer to "nar" must not land
+  // over the answer to "naruto".
+  const requestSeq = useRef(0);
+
   async function advance() {
+    const seq = ++requestSeq.current;
     setLoading(true);
-    /* Server-side wrapper around aniAdvanceSearch. Done this way (vs.
-       importing the function directly) so the browser bundle doesn't
-       try to pull in ioredis (used by the AniList rate-limiter inside
-       aniAdvanceSearch's transitive deps), which would fail with
-       "Module not found: Can't resolve 'dns'". */
-    const res = await fetch("/api/v2/anilist-search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        search: debounceSearch,
-        type: type?.value,
-        genres: genre,
-        page: page,
-        sort: sort?.value,
-        format: format?.value,
-        season: season?.value,
-        seasonYear: year?.value,
-      }),
-    });
-    const data = res.ok ? await res.json() : null;
+    const args = {
+      search: debounceSearch as string | undefined,
+      type: type?.value,
+      genres: genre,
+      page: page,
+      sort: sort?.value,
+      format: format?.value,
+      season: season?.value,
+      seasonYear: year?.value,
+    };
+    /* A typed search goes straight from the browser to AniList, like the
+       Ctrl+S palette. Through /api/v2/anilist-search it queued in the
+       server's limiter, shared by the whole site (28 req/min, up to 5 s of
+       waiting, then up to 5 s for AniList), and each keystroke cost a function
+       invocation. From the browser it spends the visitor's own AniList
+       budget instead. Browsing without text still goes through the API: those
+       URLs are few and shared, so the edge answers them. */
+    let data = debounceSearch ? await fetchAniListDirect(args) : undefined;
+    if (data === undefined) {
+      // GET with the arguments as one JSON param: the URL is a cache key, so
+      // the edge can answer a repeated search (and every "next page" another
+      // visitor already loaded). Also the fallback if AniList is unreachable
+      // from the browser.
+      const res = await fetch(
+        `/api/v2/anilist-search?p=${encodeURIComponent(JSON.stringify(args))}`,
+      ).catch(() => null);
+      data = res?.ok ? await res.json() : null;
+    }
+    if (seq !== requestSeq.current) return;
     if (data?.media?.length === 0) {
       setNextPage(false);
       setLoading(false);

@@ -32,3 +32,27 @@ export function getTursoClient(): Client | null {
   client = createClient({ url, authToken });
   return client;
 }
+
+/**
+ * `CREATE TABLE IF NOT EXISTS` once per server instance, lazily. Only a
+ * SUCCESS latches: a failed attempt (DB blip) is retried by the next caller.
+ * Never throws — a missing table makes the caller's own read fail soft, which
+ * every caller already handles. `client` picks the database (default: main).
+ */
+export function tableEnsurer(
+  sql: string,
+  client: () => Client | null = getTursoClient,
+): () => Promise<void> {
+  let ensured = false;
+  return async () => {
+    if (ensured) return;
+    const db = client();
+    if (!db) return;
+    try {
+      await db.execute(sql);
+      ensured = true;
+    } catch {
+      /* non-fatal — see above */
+    }
+  };
+}

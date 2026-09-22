@@ -1,5 +1,5 @@
 import { aniListData, aniListHomepageBatch } from "@/lib/anilist/AniList";
-import { useState, useEffect, useCallback, useRef, Fragment } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Footer from "@/components/shared/footer";
@@ -9,12 +9,17 @@ import CarouselSkeleton from "@/components/home/CarouselSkeleton";
 import { useTranslation } from "react-i18next";
 import { useTranslatedText, prefetchTranslations } from "@/lib/i18n/useTranslatedText";
 
-import { motion, AnimatePresence } from "framer-motion";
+// `m` + LazyMotion(domAnimation) instead of `motion`: every animation here is
+// initial/animate/exit/variants/whileInView — no layout or drag — so the
+// layout/drag features `motion` bundles are dead weight on the home page.
+// Features load synchronously (not the async form), so SSR'd `initial` states
+// never wait on a chunk to become visible.
+import { m, AnimatePresence, LazyMotion, domAnimation } from "framer-motion";
 
 import { signOut, useSession } from "next-auth/react";
 import Genres from "@/components/home/genres";
 import Schedule from "@/components/home/schedule";
-import getUpcomingAnime from "@/lib/anilist/getUpcomingAnime";
+import getUpcomingAnime, { UPCOMING_CACHE_KEY } from "@/lib/anilist/getUpcomingAnime";
 
 import GetMedia from "@/lib/anilist/getMedia";
 import MobileNav from "@/components/shared/MobileNav";
@@ -31,6 +36,7 @@ import {
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
 import { useFanartSrc, onFanartError } from "@/lib/images/fanartFallback";
 import { previewAnchor } from "@/lib/preview/anchor";
+import { watchHref } from "@/lib/prefs/clickTarget";
 
 /* Which titles get the hero, and in what order — Hayase's algorithm
    (hayase-app/interface, src/lib/components/ui/banner/full-banner.svelte,
@@ -67,6 +73,20 @@ import { previewAnchor } from "@/lib/preview/anchor";
    Upcoming section is where those belong. */
 const HERO_SLOTS = 8;
 
+/* Key bumped whenever the payload gains a field the page reads.
+   v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such key, so the
+   hero would silently keep falling back to trending for up to 2 h — the same
+   "cache outlives the change" trap already hit three times that day (TMDB
+   artwork, episode lists, discover). */
+const HOME_KEY = "index_server_v3";
+const HOME_TTL = 60 * 60 * 2;
+
+/* The same payload built WITHOUT AniList (Turso fallback: no heroPool, no
+   season, no movies). Separate key so it can never overwrite a healthy blob,
+   short TTL so it can never outlive the outage by more than two minutes. */
+const HOME_KEY_DEGRADED = "index_server_v3:degraded";
+const HOME_TTL_DEGRADED = 120;
+
 function heroHash(id: number): number {
   return (id * 2654435761) >>> 0;
 }
@@ -79,6 +99,24 @@ export function pickHeroRotation(items: any[]): any[] {
     .slice()
     .sort((a, b) => heroHash(Number(a?.id)) - heroHash(Number(b?.id)))
     .slice(0, HERO_SLOTS);
+}
+
+/* Props boundary only — the Redis blob keeps every field. The carousels read
+   id / title / cover / status / episode fields; `description`, `bannerImage`
+   and `idMal` of these rows were serialised into __NEXT_DATA__ (~50 KB raw
+   with the unused `genre` block) and never read: the hero has its own props
+   (`heroEntries`, `firstTrend`, picked BEFORE this trim) and the hover card
+   fetches by id. */
+function slimRow<T extends { data?: any[] } | null | undefined>(row: T): T {
+  if (!row || !Array.isArray(row.data)) return row;
+  return {
+    ...row,
+    data: row.data.map((it: any) => {
+      if (!it || typeof it !== "object") return it;
+      const { description, bannerImage, idMal, ...rest } = it;
+      return rest;
+    }),
+  };
 }
 
 export async function getServerSideProps(ctx: any) {
@@ -99,8 +137,20 @@ export async function getServerSideProps(ctx: any) {
   // A dead/unreachable Redis (e.g. a rotated REDIS_URL an older deployment
   // never picked up) must NOT take the whole homepage down — swallow the error
   // and treat it as a cache miss so we fall through to a live AniList fetch.
+  //
+  // Two keys, read in ONE command: the healthy blob, then the degraded one.
+  // The degraded blob (see the write below) is a strictly worse page, so it is
+  // only ever consulted when the good one has expired or was never written.
+  // The upcoming carousel's key rides in the same MGET: getUpcomingAnime would
+  // otherwise spend its own GET on every render, on both branches below.
+  // `undefined` (Redis failed / absent) lets it do its own read as before.
+  let upcomingRaw: string | null | undefined = undefined;
   if (redis) {
-    cachedData = await redis.get("index_server_v3").catch(() => null);
+    const [fresh, degraded, upcoming] = await redis
+      .mget(HOME_KEY, HOME_KEY_DEGRADED, UPCOMING_CACHE_KEY)
+      .catch(() => [null, null, undefined]);
+    cachedData = fresh || degraded;
+    upcomingRaw = upcoming;
   }
 
   // Resolve the hero entries (HD logo for the top trending titles) outside
@@ -158,11 +208,11 @@ export async function getServerSideProps(ctx: any) {
     null;
 
   if (cachedData) {
-    const { genre, detail, populars, thisSeason, movies, heroPool } =
+    const { detail, populars, thisSeason, movies, heroPool } =
       JSON.parse(cachedData);
     const firstTrend = pickFirstTrend(detail?.data || []);
     const [upComing, heroEntries] = await Promise.all([
-      getUpcomingAnime(),
+      getUpcomingAnime(upcomingRaw),
       /* `?? detail` is a safety net, not a design: a blob written by an older
          deploy has no `heroPool`, and a hero of trending titles beats no hero
          at all for the few minutes before the key bump takes effect.
@@ -180,14 +230,13 @@ export async function getServerSideProps(ctx: any) {
     ]);
     return {
       props: {
-        genre,
-        detail,
-        populars,
+        detail: slimRow(detail),
+        populars: slimRow(populars),
         upComing,
         firstTrend,
         heroEntries,
-        thisSeason: thisSeason || null,
-        movies: movies || null,
+        thisSeason: slimRow(thisSeason) || null,
+        movies: slimRow(movies) || null,
       },
     };
   } else {
@@ -196,7 +245,7 @@ export async function getServerSideProps(ctx: any) {
     const [batch, upComing] = await Promise.all([
       aniListHomepageBatch(),
       Promise.race([
-        getUpcomingAnime().catch(() => null),
+        getUpcomingAnime(upcomingRaw).catch(() => null),
         new Promise((resolve) => setTimeout(() => resolve(null), 4000)),
       ]),
     ]);
@@ -206,22 +255,30 @@ export async function getServerSideProps(ctx: any) {
     const seasonDetail = batch.thisSeason;
     const moviesDetail = batch.movies;
 
-    /* Un lot DEGRADE ne s'ecrit pas. `aniListHomepageBatch` pose ce drapeau
-       quand AniList n'a pas repondu et qu'il a servi Turso : la moitie saison
-       (heroPool / thisSeason / movies) est alors vide. L'ecrire, c'est geler
-       une page d'accueil amputee pour deux heures — bien apres le retour
-       d'AniList. Sans cache, la requete suivante retente et sert la vraie
-       page. */
-    if (redis && !batch.degraded) {
-      // Best-effort cache write — a failing Redis must not crash SSR.
-      await redis
+    /* Un lot DEGRADE s'ecrit AUSSI, mais brievement et a part.
+
+       L'entree du 29/08 refusait de l'ecrire, et elle avait raison sur son cas :
+       une panne AniList de trente secondes gelait une page amputee (heroPool /
+       thisSeason / movies vides) pour deux heures, longtemps apres le retour du
+       service. Mais «ne pas ecrire» n'est pas le seul remede a «ecrire trop
+       longtemps», et sur une panne LONGUE il se retourne : le repli Turso de
+       `aniListHomepageBatch` balaie la table `anime` en entier, et le refus
+       d'ecrire le faisait recommencer a CHAQUE rendu. Mesure pendant la panne du
+       02/09/2026 : ~45 000 lignes lues par vue d'accueil, 60 M par jour, 87 % du
+       quota mensuel Turso mange en huit jours.
+
+       Deux cles plutot qu'une seule a TTL court : sinon un lot amputé ecraserait
+       un lot sain encore valide. Et 120 s plutot que 2 h : c'est le delai au
+       bout duquel le retour d'AniList redevient visible — le souci du 29/08,
+       reduit de deux heures a deux minutes au lieu d'etre paye par un balayage
+       par visiteur. */
+    // Best-effort cache write — a failing Redis must not crash SSR. Awaited
+    // together with the hero lookups below instead of before them.
+    const cacheWrite = !redis
+      ? Promise.resolve()
+      : redis
         .set(
-          /* Key bumped whenever the payload gains a field the page reads.
-             v2 → v3 (2026-08-08): `heroPool` joined it. A v2 blob has no such
-             key, so the hero would silently keep falling back to trending for
-             up to 2 h — the same "cache outlives the change" trap already hit
-             three times today (TMDB artwork, episode lists, discover). */
-          "index_server_v3",
+          batch.degraded ? HOME_KEY_DEGRADED : HOME_KEY,
           JSON.stringify({
             genre: genreDetail.props,
             detail: trendingDetail.props,
@@ -230,30 +287,31 @@ export async function getServerSideProps(ctx: any) {
             thisSeason: seasonDetail.props,
             movies: moviesDetail.props,
             heroPool: batch.heroPool?.props ?? null,
-          }), // set cache for 2 hours
+          }),
           "EX",
-          60 * 60 * 2
+          batch.degraded ? HOME_TTL_DEGRADED : HOME_TTL,
         )
         .catch(() => {});
-    }
 
     // Meme piege du tableau vide truthy que dans la branche en cache ci-dessus.
-    const heroEntries = await resolveHeroEntries(
-      batch.heroPool?.props?.data?.length
-        ? batch.heroPool.props.data
-        : trendingDetail.props.data || [],
-    );
+    const [heroEntries] = await Promise.all([
+      resolveHeroEntries(
+        batch.heroPool?.props?.data?.length
+          ? batch.heroPool.props.data
+          : trendingDetail.props.data || [],
+      ),
+      cacheWrite,
+    ]);
 
     return {
       props: {
-        genre: genreDetail.props,
-        detail: trendingDetail.props,
-        populars: popularDetail.props,
+        detail: slimRow(trendingDetail.props),
+        populars: slimRow(popularDetail.props),
         upComing,
         firstTrend: pickFirstTrend(trendingDetail.props.data || []),
         heroEntries,
-        thisSeason: seasonDetail.props,
-        movies: moviesDetail.props,
+        thisSeason: slimRow(seasonDetail.props),
+        movies: slimRow(moviesDetail.props),
       },
     };
   }
@@ -270,7 +328,6 @@ type HeroEntry = {
 };
 
 type HomeProps = {
-  genre: any;
   detail: any;
   populars: any;
   upComing: any;
@@ -506,8 +563,12 @@ function HeroBanner({
       <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
-        <AnimatePresence mode="popLayout">
-          <motion.div
+        {/* initial={false}: the slide present at first render is drawn at
+            its final state, so the server HTML shows the banner instead of
+            an opacity-0 box that waited for hydration + a 0.8 s fade (it was
+            the page's LCP element). Later slides still cross-fade. */}
+        <AnimatePresence mode="popLayout" initial={false}>
+          <m.div
             key={`bg-${active.id}`}
             // Opacity-only crossfade. The previous 8 s Ken-Burns `scale`
             // animation ran continuously behind ~6 backdrop-blur layers
@@ -522,22 +583,43 @@ function HeroBanner({
             className="absolute inset-0"
           >
             {bg ? (
-              <Image
-                src={bg}
-                alt=""
-                fill
-                priority={idx === 0}
-                sizes="100vw"
-                quality={90}
-                className="object-cover object-center"
-              />
+              /* <picture> with a desktop-only <source>: this hero lives in a
+                 `hidden lg:block` box, and next/image's `priority` preloaded
+                 its w1280 banner on phones too, where it is never shown and
+                 competed with the real mobile LCP. Below lg the <img> keeps a
+                 1×1 transparent GIF, so nothing is fetched. The preload is
+                 re-declared with the same media query. */
+              <>
+                {idx === 0 && (
+                  <Head>
+                    <link
+                      rel="preload"
+                      as="image"
+                      href={bg}
+                      media="(min-width: 1024px)"
+                      // @ts-expect-error fetchPriority not in the link typings
+                      fetchpriority="high"
+                    />
+                  </Head>
+                )}
+                <picture>
+                  <source media="(min-width: 1024px)" srcSet={bg} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+                    alt=""
+                    decoding="async"
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                </picture>
+              </>
             ) : (
               <div
                 className="absolute inset-0"
                 style={{ backgroundColor: accent }}
               />
             )}
-          </motion.div>
+          </m.div>
         </AnimatePresence>
 
         {/* Cinematic gradients. Left fade boosts text contrast on the
@@ -592,8 +674,8 @@ function HeroBanner({
               tune is this one, and the reason it isn't a round number is the
               half-leading above. */}
           <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
-            <AnimatePresence mode="wait" custom={dir}>
-              <motion.div
+            <AnimatePresence mode="wait" custom={dir} initial={false}>
+              <m.div
                 key={`stack-${active.id}`}
                 custom={dir}
                 variants={{
@@ -694,7 +776,7 @@ function HeroBanner({
                   </div>
 
                 </div>
-              </motion.div>
+              </m.div>
             </AnimatePresence>
 
             {/* Segmented progress bar — outside AnimatePresence so it
@@ -882,6 +964,8 @@ export default function Home({
     loading: boolean;
   } = GetMedia(sessions, {
     stats: "CURRENT",
+    // Only this call feeds a carousel from the recommendations page.
+    withRecs: true,
   });
   const { anime: plan, loading: planLoading }: { anime: CurrentMediaTypes[]; loading: boolean } =
     GetMedia(sessions, {
@@ -962,50 +1046,49 @@ export default function Home({
 
   useEffect(() => {
     async function userData() {
-      try {
-        if (userSession?.name) {
-          await fetch(`/api/user/profile`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              name: sessions.user.name,
-            }),
-          });
-        }
-      } catch (error) {
-        console.log(error);
-      }
       let data: UserDataType | null = null;
-      try {
-        if (userSession?.name) {
+      if (userSession?.name) {
+        // The POST is an idempotent "create if missing" and the GET below falls
+        // back to the local history whether the user is missing (404) or empty,
+        // so the two no longer wait on each other: one round-trip instead of two.
+        /* The row only has to be created once: remember per device that it
+           was, and re-send weekly so a row deleted server-side still comes
+           back. It was one function invocation + one Prisma write on every
+           home load of every signed-in visitor. */
+        const ensuredKey = `as:userEnsured:${sessions.user.name}`;
+        let ensuredRecently = false;
+        try {
+          const at = Number(localStorage.getItem(ensuredKey) || 0);
+          ensuredRecently = Date.now() - at < 7 * 24 * 3600 * 1000;
+        } catch {}
+        const ensureUser = ensuredRecently
+          ? Promise.resolve()
+          : fetch(`/api/user/profile`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                name: sessions.user.name,
+              }),
+            })
+              .then((r) => {
+                if (r.ok) {
+                  try {
+                    localStorage.setItem(ensuredKey, String(Date.now()));
+                  } catch {}
+                }
+              })
+              .catch(() => {});
+        try {
           const res = await fetch(
             `/api/user/profile?name=${sessions.user.name}`
           );
-          if (!res.ok) {
-            switch (res.status) {
-              case 404: {
-                console.log("user not found");
-                break;
-              }
-              case 500: {
-                console.log("server error");
-                break;
-              }
-              default: {
-                console.log("unknown error");
-                break;
-              }
-            }
-          } else {
-            data = await res.json();
-            // Do something with the data
-          }
+          if (res.ok) data = await res.json();
+        } catch (error) {
+          console.error(error);
         }
-      } catch (error) {
-        console.error(error);
-        // Handle the error here
+        await ensureUser;
       }
       // Read the device-local watch history (artplayer_settings) — works for
       // everyone, signed in or not. Most-recent-first, deduped by aniId.
@@ -1074,7 +1157,7 @@ export default function Home({
         // their device-local history rather than an empty section.
         setUser(filteredData.length ? filteredData : readLocalHistory());
       }
-      // const data = await res.json();
+
     }
     userData();
   }, [userSession?.name, removed]);
@@ -1110,7 +1193,7 @@ export default function Home({
   }
 
   return (
-    <Fragment>
+    <LazyMotion features={domAnimation}>
       <Head>
         <title>AniScroll • Beta</title>
         <meta charSet="UTF-8"></meta>
@@ -1156,11 +1239,16 @@ export default function Home({
         <HeroBanner
           entries={heroEntries}
           firstTrend={firstTrend}
-          onPlay={(id) =>
-            router.push(
-              `/en/anime/watch/${id}/megaplay?id=megaplay-${id}-1&num=1`,
-            )
-          }
+          onPlay={(id) => {
+            /* « Coup de projecteur » : lancer un episode depuis le carrousel de
+               l'accueil. Pose au CLIC et non a la fin de l'episode -- c'est ici,
+               et seulement ici, qu'on sait d'ou vient la lecture ; la page de
+               lecture, elle, ne saura jamais par quelle porte on est entre. */
+            import("@/lib/badges/facts")
+              .then((f) => f.recordFlag("spotlight"))
+              .catch(() => {});
+            router.push(watchHref(id));
+          }}
           stripDescription={removeHtmlTags}
         />
 
@@ -1192,14 +1280,14 @@ export default function Home({
             The hero's own bottom padding (pb-2) is already at its floor, so
             this is the only remaining lever on that gap. */}
         <div className="lg:mt-6 mt-5 flex flex-col items-center">
-          <motion.div
+          <m.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5, staggerChildren: 0.2 }} // Add staggerChildren prop
           >
             {user && user?.length > 0 && user?.some((i) => i?.watchId || i?.aniId) && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="recentlyWatched"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1213,11 +1301,11 @@ export default function Home({
                   userName={userSession?.name}
                   setRemoved={setRemoved}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {sessions && releaseData?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="onGoing"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1231,7 +1319,7 @@ export default function Home({
                   og={prog}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {/* Reserve the row's height while the signed-in user's lists are
                 still loading, so the carousel doesn't pop in and shove the
@@ -1241,7 +1329,7 @@ export default function Home({
             )}
 
             {sessions && listAnime && listAnime?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="listAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1255,14 +1343,14 @@ export default function Home({
                   og={prog}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && currentLoading && !listAnime?.length && (
               <CarouselSkeleton />
             )}
 
             {recommendations.length > 0 && (
-              <motion.section
+              <m.section
                 key="recommendationAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1274,7 +1362,7 @@ export default function Home({
                   section="Recommendations"
                   data={recommendations}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && currentLoading && recommendations.length === 0 && (
               <CarouselSkeleton />
@@ -1282,7 +1370,7 @@ export default function Home({
 
             {/* SECTION 2 */}
             {sessions && planned && planned?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="plannedAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1295,14 +1383,14 @@ export default function Home({
                   data={planned}
                   userName={userSession?.name}
                 />
-              </motion.section>
+              </m.section>
             )}
             {sessions && planLoading && !planned?.length && (
               <CarouselSkeleton />
             )}
-          </motion.div>
+          </m.div>
 
-          <motion.div
+          <m.div
             className="w-screen flex-none lg:w-[95%] xl:w-[87%]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1310,7 +1398,7 @@ export default function Home({
           >
             {/* SECTION 3 */}
             {recentAdded?.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="recentAdded"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1322,12 +1410,12 @@ export default function Home({
                   section="Freshly Added"
                   data={recentAdded}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* SECTION 4 */}
             {detail && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="trendingAnime"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1339,12 +1427,12 @@ export default function Home({
                   section="Trending Now"
                   data={detail.data}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* This Season — current-quarter anime by popularity */}
             {thisSeason?.data?.length > 0 && (
-              <motion.section
+              <m.section
                 key="thisSeason"
                 initial={{ y: 20, opacity: 0 }}
                 transition={{ duration: 0.5 }}
@@ -1356,7 +1444,7 @@ export default function Home({
                   section="This Season"
                   data={thisSeason.data}
                 />
-              </motion.section>
+              </m.section>
             )}
             {/* <div className="w-full h-[150px] bg-white flex-center my-5 text-black">
               ad banner
@@ -1364,7 +1452,7 @@ export default function Home({
 
             {/* Schedule */}
             {anime.length > 0 && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="schedule"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1377,12 +1465,12 @@ export default function Home({
                   update={update}
                   scheduleData={schedules}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* SECTION 5 */}
             {popular && (
-              <motion.section // Add motion.div to each child component
+              <m.section // Add motion.div to each child component
                 key="popularAnime"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1394,12 +1482,12 @@ export default function Home({
                   section="Popular Anime"
                   data={popular}
                 />
-              </motion.section>
+              </m.section>
             )}
 
             {/* Popular Movies — MOVIE-format anime by popularity */}
             {movies?.data?.length > 0 && (
-              <motion.section
+              <m.section
                 key="popularMovies"
                 initial={{ y: 20, opacity: 0 }}
                 whileInView={{ y: 0, opacity: 1 }}
@@ -1411,10 +1499,10 @@ export default function Home({
                   section="Popular Movies"
                   data={movies.data}
                 />
-              </motion.section>
+              </m.section>
             )}
 
-            <motion.section // Add motion.div to each child component
+            <m.section // Add motion.div to each child component
               key="Genres"
               initial={{ y: 20, opacity: 0 }}
               whileInView={{ y: 0, opacity: 1 }}
@@ -1422,12 +1510,12 @@ export default function Home({
               viewport={{ once: true }}
             >
               <Genres />
-            </motion.section>
-          </motion.div>
+            </m.section>
+          </m.div>
         </div>
       </div>
       <Footer />
-    </Fragment>
+    </LazyMotion>
   );
 }
 

@@ -95,14 +95,36 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+  // GET `?q=&target=` est la voie normale : la reponse ne depend que de l'URL,
+  // donc le CDN la garde 30 jours et un synopsis deja traduit ne reveille plus
+  // jamais la fonction, quel que soit le visiteur. Le POST (corps JSON) reste
+  // pour les textes trop longs pour une URL — le client choisit.
+  const isGet = req.method === "GET";
+  if (!isGet && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { text, target } = (req.body || {}) as {
+  const { text, target } = (
+    isGet
+      ? {
+          text: typeof req.query.q === "string" ? req.query.q : undefined,
+          target: typeof req.query.target === "string" ? req.query.target : undefined,
+        }
+      : req.body || {}
+  ) as {
     text?: string;
     target?: string;
+  };
+  // Une traduction reussie est immuable (le texte source est dans l'URL).
+  const cacheOk = () => {
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    if (isGet) {
+      res.setHeader(
+        "CDN-Cache-Control",
+        "public, s-maxage=2592000, stale-while-revalidate=86400",
+      );
+    }
   };
 
   const lang = (target || "fr").toLowerCase();
@@ -122,7 +144,7 @@ export default async function handler(
   // 0. In-process memo → skip Redis entirely for hot, immutable translations.
   const memHit = memGet(key);
   if (memHit !== undefined) {
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    cacheOk();
     return res.status(200).json({ text: memHit, translated: true, cached: true });
   }
 
@@ -132,7 +154,7 @@ export default async function handler(
       const cached = await redis.get(key);
       if (cached != null) {
         memSet(key, cached);
-        res.setHeader("Cache-Control", "public, max-age=86400");
+        cacheOk();
         return res.status(200).json({ text: cached, translated: true, cached: true });
       }
     }
@@ -143,7 +165,9 @@ export default async function handler(
   // 2. Live translate.
   const translated = await translateUpstream(trimmed, lang);
   if (!translated) {
-    // Upstream failed — return the original so the client shows English.
+    // Upstream failed — return the original so the client shows English. Never
+    // cached at the edge: the next visitor must get a fresh attempt.
+    res.setHeader("Cache-Control", "no-store");
     return res.status(200).json({ text, translated: false });
   }
 
@@ -155,6 +179,6 @@ export default async function handler(
     /* ignore cache write failures */
   }
 
-  res.setHeader("Cache-Control", "public, max-age=86400");
+  cacheOk();
   return res.status(200).json({ text: translated, translated: true });
 }

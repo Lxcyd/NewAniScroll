@@ -1,0 +1,19 @@
+AniScroll
+=========
+
+Ce fichier recense les jeux de donnees tiers dont la licence exige une
+attribution. Le code du projet est couvert par LICENSE.md.
+
+
+MyDubList
+---------
+Quels animes sont doubles, et dans quelles langues.
+
+  Donnees : MyDubList — https://mydublist.com — CC BY 4.0
+  Source  : https://github.com/Joelis57/MyDubList
+  Licence : Creative Commons Attribution 4.0 International
+            https://creativecommons.org/licenses/by/4.0/
+
+Utilise par scripts/mydublist/sync-dubs.mjs (recopie nocturne dans la table
+`dub_catalog`), lib/db/dubCatalog.ts, lib/watch/dubCatalog.ts et
+scripts/player-map/verify-player-map.mjs.

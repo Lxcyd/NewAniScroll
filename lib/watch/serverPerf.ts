@@ -657,43 +657,6 @@ export function tierOf({ C, final }: ServerScore): Tier | null {
   return final >= 80 ? "fast" : final >= 40 ? "medium" : "slow";
 }
 
-export function serverPerfTier(serverId: string): Tier | null {
-  return tierOf(getServerScore(serverId));
-}
-
-/**
- * Les scores de TOUS les lecteurs, lus APRES le montage.
- *
- * `getServerScore` touche localStorage : appele pendant le rendu, il rendrait
- * le score statique au SSR et le score appris au client, donc une erreur
- * d'hydratation. Meme parade que les autres prefs du projet (cf.
- * `useServerPref`) — le premier rendu client est identique au serveur, l'effet
- * reveille ensuite.
- *
- * Un seul balayage sert a la fois le chiffre affiche et le palier du poincon :
- * les deux doivent de toute facon parler du meme score.
- */
-export function useServerPerfScores(): Record<string, ServerScore> {
-  const [scores, setScores] = useState<Record<string, ServerScore>>({});
-  useEffect(() => {
-    const sync = () => {
-      const next: Record<string, ServerScore> = {};
-      for (const s of SERVERS as { id: string; speed?: number }[]) {
-        next[s.id] = getServerScore(s.id, s.speed);
-      }
-      setScores(next);
-    };
-    sync();
-    window.addEventListener(SERVER_PERF_EVENT, sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener(SERVER_PERF_EVENT, sync);
-      window.removeEventListener("storage", sync);
-    };
-  }, []);
-  return scores;
-}
-
 /**
  * Le rang mesure, mais seulement APRES le montage.
  *
