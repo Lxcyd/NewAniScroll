@@ -126,6 +126,30 @@ export default function PreviewCard({
   const [bannerReady, setBannerReady] = useState(false);
   /** Live transport state from the trailer. Artwork shows whenever it's false. */
   const [playing, setPlaying] = useState(false);
+  /**
+   * A-T-ON DÉJÀ VU L'IMAGE — et c'est une porte à sens unique, comme
+   * `everDrewFrameRef` dans TrailerAmbient, pour exactement la même raison mais
+   * sur l'autre chemin.
+   *
+   * EN PAUSE, LA LUMIÈRE REPARTAIT SUR L'AFFICHE. Quand la lueur vient du
+   * lecteur lui-même (`liveGlow` : une seconde iframe floutée, cf.
+   * TrailerStage), la couche ci-dessous s'efface pendant la lecture et la copie
+   * du lecteur fait tout le travail. `playing` retombe à faux à chaque pause —
+   * la couche revenait donc à pleine opacité, et comme elle ne reçoit AUCUNE
+   * `frames` dans ce mode, elle n'avait jamais rien dessiné d'autre que la
+   * bannière : mettre en pause rallumait la carte avec les couleurs de
+   * l'affiche par-dessus une image de trailer restée à l'écran. D'où les deux
+   * lumières qui n'ont rien à voir l'une avec l'autre.
+   *
+   * L'iframe de lueur, elle, reçoit le même `pauseVideo` que le lecteur
+   * principal (cf. MIRRORED) : elle reste donc affichée sur sa dernière image.
+   * Il suffit de ne plus lui repasser devant. Une pause fige la lumière, elle
+   * ne la rembobine pas.
+   */
+  const [everPlayed, setEverPlayed] = useState(false);
+  /* Remis à zéro au changement d'anime : la carte est réutilisée d'un titre à
+     l'autre, et la porte doit se refermer avec le trailer qu'elle gardait. */
+  useEffect(() => setEverPlayed(false), [id]);
   /*
    * The glow mounts WITH the player, not after it.
    *
@@ -231,7 +255,10 @@ export default function PreviewCard({
   }, [subscribeRect]);
 
   const onHide = useCallback((hidden: boolean) => setHideFrame(hidden), []);
-  const onPlayingChange = useCallback((next: boolean) => setPlaying(next), []);
+  const onPlayingChange = useCallback((next: boolean) => {
+    setPlaying(next);
+    if (next) setEverPlayed(true);
+  }, []);
   /**
    * How far through the trailer the shared player says it is.
    *
@@ -453,7 +480,11 @@ export default function PreviewCard({
            * 240 ms. Under Data Saver there is no second player, so this stays
            * and keeps doing the job.
            */
-          opacity: playing && liveGlow ? 0 : 1,
+          /* `everPlayed` ET PAS `playing` : une pause ne doit pas rendre la
+             main à l'affiche (cf. la note sur `everPlayed` plus haut). Sans
+             `liveGlow` — Data Saver, pas de second lecteur — cette couche est
+             la seule lumière et ne s'efface jamais. */
+          opacity: everPlayed && liveGlow ? 0 : 1,
           transition: "opacity 240ms",
         }}
       >
