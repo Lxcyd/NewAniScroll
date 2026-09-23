@@ -56,7 +56,7 @@ const HOLD_MS = 4200;   // la pose
    est venu. */
 const TEXT_OUT_MS = 420;
 const OUT_MS = 620;     // le retrait du jeton
-/* 336 px tant que le nom faisait 20 px ; il en fait 23 (et la condition 14),
+/* 336 px tant que le nom faisait 20 px ; il en fait 25 (et la condition 14),
    donc la même phrase demande une ligne plus longue avant de se faire couper
    par l'ellipse. Le total reste sous le `maxWidth` du conteneur : 104 (jeton)
    + 360 − 10 (chevauchement) = 454, pour 470 disponibles. */
@@ -517,6 +517,27 @@ export default function AchievementToast() {
           maxWidth: "min(94vw, 470px)",
         }}
       >
+        {/* LE FLOU DU FOND, ET IL EST ICI POUR UNE RAISON PRÉCISE.
+
+            Il a d'abord été posé DANS la carte, autour des deux lignes — et il
+            ne floutait rien du tout, en production comme en local. Ce n'est pas
+            un réglage : un `backdrop-filter` ne voit que ce qui est peint
+            derrière lui À L'INTÉRIEUR DE SON « backdrop root », et un ancêtre
+            qui anime son OPACITÉ en crée un. La carte fait exactement ça
+            (`asAchOpen`, opacité 0 → 1, en `both`), donc le voile était enfermé
+            dans un groupe où il n'y a, derrière lui, rien d'autre que la carte
+            elle-même. Le `filter` de `.as-ach-text` a le même effet, ce qui
+            interdit aussi d'en faire un `::before` de ce bloc.
+
+            Il est donc SORTI des deux, au premier niveau de la notification —
+            qui ne porte, lui, ni filtre ni opacité animée (son `transform` est
+            sans effet là-dessus). Il couvre du coup toute la notification,
+            jeton compris : ça ne se voit pas (le jeton est opaque) et ça évite
+            de recalculer une région. `z-index: 0` sur un élément positionné le
+            met sous la carte (positionnée, z-index auto, plus loin dans le
+            DOM) et sous le jeton (z-index 2). */}
+        <div className="as-ach-blur" aria-hidden="true" />
+
         {/* Le jeton, et ce qui l'accompagne à l'impact.
 
             DEUX NIVEAUX, et il en faut deux : l'extérieur joue l'arrivée puis
@@ -714,14 +735,6 @@ export default function AchievementToast() {
               Elles entrent DÉCALÉES une fois la carte ouverte — le nom, puis la
               condition, dans l'ordre où on veut qu'ils soient lus. Apparaître
               d'un bloc ferait de la carte un panneau au lieu d'une annonce. */}
-          {/* LE FLOU DERRIÈRE LE TEXTE, ET SURTOUT PAS UNE BOÎTE. Il est un
-              élément à part et non un `::before` de `.as-ach-text` : ce bloc
-              porte un `filter`, et un `backdrop-filter` posé à l'intérieur d'un
-              élément filtré ne voit plus que le contenu de ce groupe — il ne
-              flouterait donc rien du tout. Voir `.as-ach-blur` dans globals.css
-              pour le masque qui lui retire ses bords. */}
-          <div className="as-ach-blur" aria-hidden="true" />
-
           {/* Le bloc de texte porte le filtre : les halos doivent suivre les
               deux lignes ENSEMBLE, pas chacune la sienne — sinon la condition
               projette son ombre sur le nom. */}
@@ -729,7 +742,7 @@ export default function AchievementToast() {
           <div
             className="as-ach-line as-ach-name"
             style={{
-              font: "700 23px/1.2 Outfit, sans-serif",
+              font: "700 25px/1.2 Outfit, sans-serif",
               letterSpacing: "-.015em",
               color: "#fff",
               overflow: "hidden",

@@ -3606,12 +3606,6 @@ input[type="number"] {
   filter:
     drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.9))
     drop-shadow(0 0 5px rgba(0, 0, 0, 0.55));
-  /* AU-DESSUS DU FLOU, ET IL FAUT LE DIRE. Le voile flouté est positionné, le
-     texte ne l'est pas : sans ces deux lignes il se peindrait AVANT lui dans
-     l'ordre de peinture, et le `backdrop-filter` flouterait les lettres
-     elles-mêmes au lieu de ce qu'il y a derrière. */
-  position: relative;
-  z-index: 1;
 }
 
 /* ── LE FLOU EST REVENU, MAIS SANS BORD ────────────────────────────────────
@@ -3622,29 +3616,37 @@ input[type="number"] {
  * c'était le bord qui trahissait la zone, pas le flou.
  *
  * Ici le voile n'a donc pas de bord du tout : un masque en dégradé le fait
- * mourir à zéro bien avant les limites de la carte, dans toutes les
- * directions. Il n'y a ni contour, ni coin, ni changement de luminosité —
- * seulement l'image du fond qui perd sa netteté sous les lettres et la
- * retrouve progressivement autour. Rien n'est peint : `background` reste
- * transparent, et c'est ce qui distingue ce voile d'une plaque.
+ * mourir à zéro bien avant ses propres limites, dans toutes les directions. Il
+ * n'y a ni contour, ni coin, ni changement de luminosité — seulement l'image
+ * du fond qui perd sa netteté sous les lettres et la retrouve progressivement
+ * autour. Rien n'est peint : `background` reste transparent, et c'est ce qui
+ * distingue ce voile d'une plaque.
  *
- * `inset: 0` porte sur la boîte de padding de la carte, donc sur une région
- * un peu plus large que les deux lignes — c'est voulu, le dégradé a besoin de
- * cette marge pour s'éteindre. */
+ * ── IL DOIT VIVRE HORS DE LA CARTE, ET CE N'EST PAS NÉGOCIABLE ─────────────
+ * Première version : le voile était dans la carte, autour des deux lignes. Il
+ * ne floutait RIEN — pas « trop peu », rien. Un `backdrop-filter` ne floute
+ * que ce qui est peint derrière lui À L'INTÉRIEUR DE SON GROUPE, et tout
+ * ancêtre qui anime son opacité (ou qui porte un `filter`) ferme ce groupe.
+ * La carte anime la sienne à l'ouverture, `.as-ach-text` porte les halos : le
+ * voile était donc enfermé avec, pour tout arrière-plan, du vide.
+ *
+ * Il est monté au premier niveau de la notification, qui n'a ni l'un ni
+ * l'autre. Le débordement négatif donne au dégradé de quoi s'éteindre en
+ * dehors du texte. Voir AchievementToast.tsx pour l'empilement. */
 .as-ach-blur {
   position: absolute;
-  inset: 0;
+  inset: -12px -10px;
   z-index: 0;
   pointer-events: none;
-  -webkit-backdrop-filter: blur(7px);
-  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   -webkit-mask-image: radial-gradient(
-    ellipse 72% 62% at 50% 50%,
-    #000 0%, #000 42%, transparent 100%
+    ellipse 66% 56% at 50% 50%,
+    #000 0%, #000 38%, transparent 100%
   );
   mask-image: radial-gradient(
-    ellipse 72% 62% at 50% 50%,
-    #000 0%, #000 42%, transparent 100%
+    ellipse 66% 56% at 50% 50%,
+    #000 0%, #000 38%, transparent 100%
   );
 }
 .as-ach-name,
