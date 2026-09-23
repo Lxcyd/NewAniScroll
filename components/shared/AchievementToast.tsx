@@ -253,21 +253,37 @@ export default function AchievementToast() {
     };
   }, [phase, held]);
 
-  /* La sortie, une fois lancée, ne se suspend plus : on ne rattrape pas une
-     notification déjà partie. C'est ici que le badge passe dans les « non
-     vus » : à l'instant où il quitte l'écran, et pas à son arrivée — un badge
-     qu'on est en train de regarder n'est pas en attente d'être vu. */
+  /* ── LA SORTIE, EN DEUX EFFETS, ET IL EN FAUT DEUX ─────────────────────────
+     Ces deux transitions ont tenu dans UN SEUL effet, et c'était un bug : il
+     posait deux minuteurs (passer à « out », puis appeler `next()`) et dépendait
+     de `phase`. Le premier minuteur changeait justement `phase` — donc React
+     nettoyait l'effet, donc il ANNULAIT LE SECOND. `next()` n'était jamais
+     appelé, `current` restait occupé à vie, et tous les badges suivants
+     s'empilaient dans une file qui n'avançait plus.
+
+     Ça ne se voyait pas sur un vrai badge (on n'en gagne pas deux dans la
+     minute) mais le bouton de test le montrait au deuxième clic : le premier
+     s'affichait, plus jamais rien.
+
+     La règle qui en sort : **un effet ne pose pas un minuteur qui survivra au
+     changement d'état qu'un autre de ses minuteurs provoque.** Un effet par
+     transition, chacun déclenché par la phase qu'il quitte. */
   useEffect(() => {
-    if (phase !== "textOut" || !def) return;
-    const a = setTimeout(() => setPhase("out"), TEXT_OUT_MS);
-    const b = setTimeout(() => {
+    if (phase !== "textOut") return;
+    const t = setTimeout(() => setPhase("out"), TEXT_OUT_MS);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  /* Le badge passe dans les « non vus » à l'instant où il quitte l'écran, et
+     pas à son arrivée : un badge qu'on est en train de regarder n'est pas en
+     attente d'être vu. */
+  useEffect(() => {
+    if (phase !== "out" || !def) return;
+    const t = setTimeout(() => {
       markUnseen(def.id);
       next();
-    }, TEXT_OUT_MS + outMs);
-    return () => {
-      clearTimeout(a);
-      clearTimeout(b);
-    };
+    }, outMs);
+    return () => clearTimeout(t);
   }, [phase, def, outMs]);
 
   /* ── LE VOL VERS L'AVATAR A ÉTÉ RETIRÉ (23/09) ─────────────────────────────
@@ -397,7 +413,14 @@ export default function AchievementToast() {
       <div
         role="status"
         aria-live="polite"
-        onMouseEnter={() => setHeld(true)}
+        /* `onMouseMove` ET PAS `onMouseEnter`, et la nuance a des dents : la
+           carte APPARAÎT sous le curseur (elle surgit en haut au centre, là où
+           on vient souvent de cliquer). Avec `mouseenter`, le navigateur la
+           considère survolée dès qu'elle se peint sous un pointeur immobile,
+           `held` passe à vrai, et comme la souris ne bouge pas il n'y aura
+           jamais de `mouseleave` : la pose ne se termine plus. Un mouvement
+           réel, lui, ne peut pas se produire par accident. */
+        onMouseMove={() => setHeld(true)}
         onMouseLeave={() => setHeld(false)}
         onFocusCapture={() => setHeld(true)}
         onBlurCapture={() => setHeld(false)}

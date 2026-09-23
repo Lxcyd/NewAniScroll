@@ -60,8 +60,39 @@
 import type { Rarity } from "@/lib/badges/catalog";
 import { getBadgeSound } from "@/lib/prefs/badgePrefs";
 
+/**
+ * ── LA TEXTURE : L'AMÉTHYSTE DE MINECRAFT ────────────────────────────────────
+ * La fanfare était juste dans sa FORME (montante, brève, résolue) et fausse
+ * dans sa MATIÈRE : attaque de 4 ms, partiel à la douzième bien présent, et un
+ * éclat de bruit blanc sur la résolution. Ça donne un métal frappé — net, dur,
+ * qui perce. Ce qu'on veut est le geyser d'améthyste : du VERRE. Quatre
+ * réglages, et c'est tout ce qui sépare les deux :
+ *
+ *   - L'ATTAQUE passe de 4 à 30 ms. C'est le réglage principal. Une attaque
+ *     courte s'entend comme un coup ; une attaque qui met trente millisecondes
+ *     à s'établir s'entend comme un objet qui RÉSONNE. En dessous de ~20 ms
+ *     l'oreille entend un transitoire, au-dessus elle entend un timbre.
+ *   - LE BATTEMENT. Chaque note est doublée à ±6 centièmes de demi-ton. Deux
+ *     sinus si proches se battent lentement (moins d'un hertz), et ce battement
+ *     est exactement le miroitement du cristal. C'est ce qui remplace le grain
+ *     que le bruit blanc apportait, sans sa dureté.
+ *   - LE PARTIEL descend de la douzième (×3, brillante et tendue) à l'octave
+ *     (×2, qui se fond dans la fondamentale) et son niveau tombe de 20 % à 9 %.
+ *   - UN PASSE-BAS À 3,2 kHz sur tout, qui coupe ce qui pique.
+ *
+ * L'éclat de bruit blanc est SUPPRIMÉ : c'était le seul élément vraiment dur de
+ * la chaîne, et il tombait sur la note qu'on veut laisser respirer.
+ */
+
 /** La5. Le grave de la figure — et déjà dans l'octave « brillante ». */
 const BASE = 880;
+
+/** L'attaque. Trente millisecondes : au-dessus du seuil où l'oreille entend un
+ *  transitoire, donc on entend un timbre qui s'installe et pas un coup. */
+const ATTAQUE = 0.03;
+/** Le désaccord du doublage, en rapport de fréquence (±6 centièmes). Il produit
+ *  un battement sous le hertz — le miroitement, pas un chorus. */
+const BATTEMENT = 1.0035;
 
 /**
  * Les degrés de l'ascension, en rapports de fréquence sur la fondamentale.
@@ -87,15 +118,19 @@ const TENUE: Record<Rarity, number> = {
   c: 0.9, u: 1.1, r: 1.35, e: 1.6, l: 1.9, m: 2.3,
 };
 
-/** L'écart entre deux notes de l'élan. Sous ~60 ms, l'oreille entend UN geste
- *  et non une mélodie — c'est tout le réglage de ce fichier. */
-const PAS = 0.052;
-/** La durée des notes de l'élan : courtes et sèches, elles ne doivent pas
- *  masquer la tenue finale. */
-const BREF = 0.34;
-/** Le niveau général. Volontairement bas : on reçoit ce son sans l'avoir
- *  demandé, et il doit passer au-dessus d'un épisode sans le couvrir. */
-const NIVEAU = 0.15;
+/** L'écart entre deux notes de l'élan.
+ *
+ *  Remonté de 52 à 72 ms EN MÊME TEMPS que l'attaque s'allongeait, et les deux
+ *  vont ensemble : une attaque de 30 ms mange la moitié d'un pas de 52, donc
+ *  les notes se chevauchaient en bouillie au lieu de monter. On reste sous le
+ *  seuil où l'oreille entendrait une mélodie plutôt qu'un geste. */
+const PAS = 0.072;
+/** La durée des notes de l'élan. Rallongée aussi : des notes sèches sous une
+ *  attaque douce ne sonnent pas, elles cliquent. */
+const BREF = 0.55;
+/** Le niveau général. Baissé avec le reste : le son doit se remarquer sans
+ *  jamais couvrir ce qu'on écoutait, et on le reçoit sans l'avoir demandé. */
+const NIVEAU = 0.115;
 
 let ctx: AudioContext | null = null;
 
@@ -113,74 +148,53 @@ function audio(): AudioContext | null {
 }
 
 /**
- * Une note : une sinusoïde et son partiel à la douzième, dans une enveloppe
- * percussive.
+ * Une voix : une sinusoïde et son octave, dans une enveloppe douce.
  *
- * L'attaque de 4 ms sépare une cloche d'un clic. La descente est EXPONENTIELLE
- * parce que l'oreille entend le volume en log — une descente linéaire s'entend
- * comme une coupure nette à la fin.
- *
- * La FLORAISON (un huitième de demi-ton au-dessus, qui retombe en 90 ms) est le
- * détail qui empêche le son d'être « un sinus » : c'est ce que fait un métal
- * frappé, et sans elle la figure sonne comme une tonalité de test.
+ * La descente reste EXPONENTIELLE parce que l'oreille entend le volume en log —
+ * une descente linéaire s'entend comme une coupure nette à la fin. C'est la
+ * MONTÉE qui a changé : linéaire sur 30 ms au lieu de 4.
  */
-function note(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number, len: number) {
+function voix(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number, len: number) {
   const env = ac.createGain();
   env.gain.setValueAtTime(0.0001, t);
-  env.gain.linearRampToValueAtTime(g, t + 0.004);
+  env.gain.linearRampToValueAtTime(g, t + ATTAQUE);
   env.gain.exponentialRampToValueAtTime(0.0001, t + len);
   env.connect(dst);
 
   const o = ac.createOscillator();
   o.type = "sine";
-  o.frequency.setValueAtTime(f * 1.008, t);
-  o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
+  o.frequency.setValueAtTime(f, t);
   o.connect(env);
   o.start(t);
   o.stop(t + len + 0.05);
 
+  /* L'octave, très en retrait : elle donne du corps sans ajouter de brillance.
+     C'est elle qui a remplacé la douzième — trois fois la fondamentale est un
+     intervalle tendu, deux fois se confond avec elle. */
   const h = ac.createGain();
   h.gain.setValueAtTime(0.0001, t);
-  h.gain.linearRampToValueAtTime(g * 0.2, t + 0.003);
-  h.gain.exponentialRampToValueAtTime(0.0001, t + len * 0.4);
+  h.gain.linearRampToValueAtTime(g * 0.09, t + ATTAQUE * 1.4);
+  h.gain.exponentialRampToValueAtTime(0.0001, t + len * 0.6);
   h.connect(dst);
   const o2 = ac.createOscillator();
-  o2.type = "triangle";
-  o2.frequency.setValueAtTime(f * 3, t);
+  o2.type = "sine";
+  o2.frequency.setValueAtTime(f * 2, t);
   o2.connect(h);
   o2.start(t);
-  o2.stop(t + len * 0.4 + 0.05);
+  o2.stop(t + len * 0.6 + 0.05);
 }
 
 /**
- * L'éclat, sur la note tenue seulement : 90 ms de bruit très aigu et très
- * discret.
+ * Une note = deux voix désaccordées de part et d'autre de la hauteur juste.
  *
- * Il ne porte aucune hauteur et on ne l'entend pas comme un son séparé — il
- * ajoute du grain là où la figure se pose, exactement comme les étincelles
- * ajoutent du grain autour du jeton. C'est le peu qui empêche la fanfare de
- * sonner « synthétisée ».
+ * C'est TOUT le miroitement. Deux sinus à 6 centièmes d'écart se battent à
+ * moins d'un hertz : le son ondule au lieu de rester plat, sans qu'on puisse
+ * désigner ce qui bouge. Une seule voix sonne comme un générateur de test ; un
+ * désaccord plus large sonnerait comme un chorus des années 80.
  */
-function eclat(ac: AudioContext, dst: AudioNode, t: number) {
-  const n = Math.max(1, Math.floor(ac.sampleRate * 0.14));
-  const buf = ac.createBuffer(1, n, ac.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
-  const src = ac.createBufferSource();
-  src.buffer = buf;
-
-  const hp = ac.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 5200;
-
-  const env = ac.createGain();
-  env.gain.setValueAtTime(0.0001, t);
-  env.gain.linearRampToValueAtTime(NIVEAU * 0.3, t + 0.012);
-  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-
-  src.connect(hp).connect(env).connect(dst);
-  src.start(t);
-  src.stop(t + 0.18);
+function note(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number, len: number) {
+  voix(ac, dst, f * BATTEMENT, t, g * 0.5, len);
+  voix(ac, dst, f / BATTEMENT, t, g * 0.5, len);
 }
 
 /**
@@ -198,10 +212,19 @@ export function playBadgeChime(rarity: Rarity): void {
 
   try {
     /* Un gain maître : les traînes des notes de l'élan se superposent à la
-       tenue, et six sinus en phase dépasseraient 0 dB. */
+       tenue, et douze sinus (six notes × deux voix) dépasseraient 0 dB. */
     const maitre = ac.createGain();
     maitre.gain.value = 0.72;
-    maitre.connect(ac.destination);
+
+    /* LE PASSE-BAS, ET IL EST SUR TOUT. Il coupe ce qui pique au-dessus de
+       3,2 kHz — c'est-à-dire la zone où un synthé sonne « numérique » et où le
+       verre, lui, n'a rien. La pente douce (Q bas) évite la résonance à la
+       coupure, qui s'entendrait comme un sifflement. */
+    const doux = ac.createBiquadFilter();
+    doux.type = "lowpass";
+    doux.frequency.value = 3200;
+    doux.Q.value = 0.6;
+    maitre.connect(doux).connect(ac.destination);
 
     const fin = degres.length - 1;
     degres.forEach((mult, i) => {
@@ -212,7 +235,6 @@ export function playBadgeChime(rarity: Rarity): void {
          toutes. Un élan à volume constant s'entend comme une gamme. */
       const g = NIVEAU * (0.5 + (0.5 * i) / Math.max(1, fin)) * (dernier ? 1.15 : 1);
       note(ac, maitre, BASE * mult, t, g, dernier ? tenue : BREF);
-      if (dernier) eclat(ac, maitre, t);
     });
   } catch {
     /* Contexte fermé entre-temps, quota d'oscillateurs : tant pis, pas de son. */

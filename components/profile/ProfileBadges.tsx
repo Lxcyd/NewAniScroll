@@ -327,7 +327,15 @@ function PreviewButton() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  /* DEUX refs, parce qu'il y a maintenant deux morceaux dans deux arbres : le
+     bouton reste en place, le panneau est portalé sur le corps du document. Un
+     clic « dehors » doit épargner les deux, sinon cliquer le bouton fermerait
+     puis rouvrirait le panneau dans le même geste. */
   const boite = useRef<HTMLDivElement | null>(null);
+  const panneau = useRef<HTMLDivElement | null>(null);
+  const btn = useRef<HTMLButtonElement | null>(null);
+  /** Où poser le panneau à l'écran. Mesuré à l'ouverture. */
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
   /* Fermer au clic dehors et à Échap. Un `mousedown` et pas un `click` : le
      second se déclenche APRÈS que le bouton du panneau a fait son travail, donc
@@ -335,7 +343,9 @@ function PreviewButton() {
   useEffect(() => {
     if (!open) return;
     const dehors = (e: MouseEvent) => {
-      if (!boite.current?.contains(e.target as Node)) setOpen(false);
+      const n = e.target as Node;
+      if (boite.current?.contains(n) || panneau.current?.contains(n)) return;
+      setOpen(false);
     };
     const echap = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -361,11 +371,20 @@ function PreviewButton() {
     })).filter((g) => g.rows.length);
   }, [q, t]);
 
+  const basculer = () => {
+    /* La position est prise AU MOMENT du clic : le panneau est fixé à l'écran,
+       donc il lui faut des coordonnées d'écran, pas la promesse d'un parent. */
+    const r = btn.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+    setOpen((v) => !v);
+  };
+
   return (
     <div className="relative" ref={boite}>
       <button
+        ref={btn}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={basculer}
         aria-expanded={open}
         title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
         className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
@@ -373,8 +392,25 @@ function PreviewButton() {
         Test
       </button>
 
-      {open ? (
-        <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12121a] shadow-2xl">
+      {/* ── LE PANNEAU EST PORTALÉ SUR `document.body` ─────────────────────────
+          Il passait DERRIÈRE la liste des badges. Ce n'est pas le `z-50` qui
+          était faux : un z-index ne vaut que dans son contexte d'empilement, et
+          les cartes de la liste en créent chacune un (elles portent un
+          `backdrop-filter`). Monter le nombre n'aurait servi à rien — il aurait
+          fallu remonter tout l'ancêtre, c'est-à-dire empiler la barre de
+          filtres au-dessus du contenu pour un panneau qu'on ouvre trois fois
+          par mois.
+
+          Un portal sur le corps du document sort de la question : il n'y a plus
+          d'ancêtre à battre. Le prix est de porter soi-même les coordonnées,
+          d'où `position: fixed` et la mesure au clic. */}
+      {open && pos
+        ? createPortal(
+            <div
+              ref={panneau}
+              style={{ top: pos.top, right: pos.right }}
+              className="fixed z-[1000] flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12121a] shadow-2xl"
+            >
           <div className="border-b border-white/10 p-2">
             <input
               autoFocus
@@ -447,8 +483,10 @@ function PreviewButton() {
               ))
             )}
           </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
