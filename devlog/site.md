@@ -6,6 +6,88 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-23 (suite) — Un flou qui n'en était pas un, et la récompense qui mène enfin quelque part
+
+**LE BUG LE PLUS INSTRUCTIF DE LA JOURNÉE : on avait écrit « un flou, pas une
+boîte », et on affichait une boîte.** L'en-tête du composant expliquait
+longuement que le voile sombre avait été remplacé par `brightness(.5)` sur le
+`backdrop-filter`, et que du coup on ne peignait plus rien. C'est vrai au sens
+strict — aucune couleur n'est peinte — et complètement faux à l'écran :
+`brightness` sur un backdrop-filter **assombrit**, et ce que l'œil voit est une
+tache sombre à bords adoucis, c'est-à-dire exactement la boîte qu'on croyait
+avoir supprimée. Le flou, lui, ne comptait pour presque rien dedans. Trois
+états successifs, donc, dont les deux premiers étaient la même chose :
+voile opaque → filtre qui assombrit → **`blur(30px) saturate(118%)` et rien
+d'autre**.
+
+**Le prix de la version honnête est réel : un flou seul NE FONCE PAS.** Sur une
+bannière claire, du blanc flouté reste du blanc, et rien n'est lisible. La
+lisibilité est donc entièrement reportée sur le texte — un **contour sombre
+autour des lettres** (`-webkit-text-stroke` + `paint-order: stroke fill`), comme
+un sous-titre d'anime. C'est la seule technique qui tienne sur n'importe quelle
+image sans rien peindre derrière, et c'est pour ça que le sous-titrage l'utilise
+depuis quarante ans. **`paint-order: stroke fill` est LA ligne qui compte** :
+sans elle le trait se peint par-dessus le remplissage, mange la moitié de
+l'épaisseur des lettres par l'intérieur, et un texte de 20 px devient illisible
+bien avant d'être contrasté.
+
+Le rayon monte de 18 à 30 px, parce que sans l'assombrissement un flou discret
+ne se voit tout simplement plus. Le kicker « BADGE DÉBLOQUÉ » part (il ne disait
+rien que le reste ne disait déjà, et l'essai en dix traitements a tranché) ; le
+nom récupère la place et passe à 20 px.
+
+**Le carillon, deuxième chose jetée.** L'arpège montant de cinq cloches durait
+presque une seconde, **annonçait au lieu de conclure**, et sonnait comme une
+notification bancaire. La règle qui en sort : *un son de récompense se referme,
+il ne s'ouvre pas*. Le remplaçant est un motif en deux gestes — 150 ms de bruit
+dans un passe-bande qui monte de 600 Hz à 4 kHz (il ne porte **aucune note** :
+il prépare l'oreille comme la gerbe prépare l'œil, et c'est lui qui rend le son
+reconnaissable), puis **une quinte juste frappée d'un coup**, l'intervalle le
+plus stable qui existe, donc celui qui conclut. Les deux se chevauchent de
+20 ms : c'est ce recouvrement qui en fait un seul geste et non deux événements
+qui se suivent. **La rareté n'ajoute pas de notes** — ce serait retomber dans
+l'arpège : elle ouvre l'accord vers le haut sur des rapports simples (1,5 puis
+2 puis 3, des harmoniques déjà présentes dans le spectre de la fondamentale) et
+allonge la queue. Un mythique est le même son, plus large.
+
+**Et quatre features, un seul sujet : une récompense qui ne menait nulle part.**
+
+- **Le clic** ouvre l'onglet Badges sur ce badge, défile dessus et le surligne
+  deux fois. Passe par `#badge-<id>` et non par un magasin en mémoire : le
+  fragment **survit au changement de page**, au rechargement, au lien partagé,
+  et ne demande rien aux deux pages de profil que `location.hash` ne donne déjà.
+  L'adresse est toujours `/en/profile/me`, jamais l'URL finale — c'est la
+  redirection qui sait si le visiteur a un compte, et elle **fait suivre le
+  fragment**, sans quoi le lien déposerait sur l'onglet Aperçu. L'onglet est
+  choisi dans un EFFET et pas dans l'état initial : `location` n'existe pas au
+  rendu serveur.
+- **Le vol vers l'avatar.** Le jeton file vers la navbar et y laisse une
+  pastille cliquable. **Piège mesuré** : le vecteur doit se calculer en
+  `useLayoutEffect` au tout début de la sortie, pas avant — la carte se referme
+  pendant `textOut` et, le bloc étant centré, le jeton dérive de presque la
+  moitié de la largeur de la carte en se recentrant ; un vecteur calculé plus
+  tôt vise 160 px à côté. Pas de quai en vue (page de visionnage, navbar
+  rétractée) → départ par le haut comme avant. Les non-vus sont **une liste
+  d'ids et pas un compteur** : un entier qu'on incrémente dérive avec deux
+  onglets ouverts, et ne dit pas lesquels surligner.
+- **Le mythique** ralentit toute la ligne du temps de 30 % (le ralenti le moins
+  cher qui existe : aucune image de plus, les mêmes courbes lues plus lentement),
+  double la gerbe et la projette trois fois plus loin, et fait tomber 46
+  confettis sur toute la largeur derrière la carte. Jusqu'ici, seul le nombre
+  d'étoiles le distinguait d'un commun.
+- **Deux interrupteurs** (son, animation) dans une section Badges des
+  préférences. C'est le **vrai correctif au `prefers-reduced-motion`** qu'on
+  avait délibérément cessé de suivre le 17/09 en écrivant, en toutes lettres,
+  que le remède serait un réglage du site. Le système n'est pas relu comme
+  défaut : c'est précisément parce qu'il mentait sur ce poste qu'on l'a
+  abandonné.
+
+**Deux choses essayées et retirées le même jour**, notées pour qu'on ne les
+repropose pas : une **carte à fond franc** avec liseré de rareté (parfaitement
+lisible, et refusée — c'est une boîte), et une **jauge de temps restant** sous
+le texte (elle rendait la pause au survol lisible, mais mettre un compte à
+rebours sous une récompense est exactement ce qu'on ne veut pas faire lire).
+
 ## 2026-09-23 — La notification de badge se tait pendant l'épisode, et se laisse retenir
 
 **Ce qui a été retiré, et c'était une fonctionnalité assumée.** La notification
@@ -26,19 +108,9 @@ portaler » — il répond à « faut-il se taire ». À la sortie du plein écr
 pendant l'épisode défilent l'un après l'autre. Rien de nouveau à écrire côté
 store, la file faisait déjà ce travail.
 
-**La carte est redevenue une carte.** Elle avait été dissoute le 17/09 en un
-`backdrop-filter` masqué en radial, pour ne pas poser de boîte sur l'image : le
-raisonnement (« un rectangle assombri se voit, une zone floutée ne se voit
-pas ») tenait sur un fond sombre et s'effondrait sur une bannière claire. Le
-résultat en vrai était une tache grise sans début ni fin, du texte flottant dans
-une auréole, et le masque radial qui mangeait la fin des lignes longues (il est
-réglé pour couper à 82 % de la largeur). Retour à un fond franc, un rayon de
-16 px, un liseré à la couleur de la rareté. **Le flou reste, mais derrière le
-fond** : il fait le lien avec l'image, il ne porte plus la lisibilité tout seul,
-et les trois ombres portées empilées sur le texte ont pu redescendre à une.
-Le jeton mord maintenant de 26 px sur la carte (médaille sur plaque, pas deux
-blocs voisins), et le kicker dit la rareté en plus de « badge débloqué » — il ne
-portait aucune information que la carte ne donnait déjà.
+**(La carte « redevenue une carte » decrite ici a ete DEFAITE le jour meme :
+voir l'entree du 23/09 (suite) juste au-dessus. Le fond franc etait lisible et
+c'etait une boite ; la jauge de la pose est partie avec.)**
 
 **La pose se suspend au survol, et la jauge existe POUR ça.** Le temps restant
 est mémorisé et décrémenté dans le nettoyage de l'effet (qui tourne aussi bien
