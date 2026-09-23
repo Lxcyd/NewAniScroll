@@ -1,38 +1,50 @@
 /**
- * LA SIGNATURE — le son d'un badge débloqué.
+ * LA FANFARE — le son d'un badge débloqué.
  *
- * ── CE QU'ON CHERCHE, ET CE QU'ON A JETÉ ─────────────────────────────────────
- * Un arpège de cloches montant (la première version) : cinq notes, presque une
- * seconde, qui ANNONCENT au lieu de conclure. Ça sonnait comme une notification
- * bancaire, et surtout ça occupait tout le premier temps de l'animation en
- * racontant sa propre petite histoire pendant que le jeton racontait la sienne.
+ * ── J'AVAIS RAISONNÉ À L'ENVERS, ET C'EST LA LEÇON DE CE FICHIER ─────────────
+ * Version 1 : un arpège montant de cinq cloches, jugé trop long et trop
+ * bavard. Version 2 : un souffle qui se résout en une quinte frappée d'un
+ * coup, sur la règle « un son de récompense se REFERME, il ne s'ouvre pas ».
+ * Cette règle était inventée, et fausse.
  *
- * La règle qui en sort : **un son de récompense se referme, il ne s'ouvre pas.**
- * Une attaque, puis une queue qui s'éteint. Pas une phrase.
+ * La convention du genre — Zelda (item get), Xbox, PlayStation, Mario 1-UP,
+ * Celeste — est exactement l'inverse : **une figure MONTANTE, consonante et
+ * brève**. Un contour de hauteur qui monte est ce que l'oreille lit comme
+ * « quelque chose s'est amélioré » ; un accord qui se pose est ce qu'elle lit
+ * comme « quelque chose s'est terminé ». La v2 sonnait donc comme une notification
+ * ambiante, pas comme une récompense — ce qui est très exactement le reproche
+ * qu'on lui a fait.
  *
- * ── LE MOTIF, EN DEUX GESTES ─────────────────────────────────────────────────
- *   1. UN SOUFFLE. Du bruit passé dans un passe-bande qui monte de 600 Hz à
- *      4 kHz en 150 ms. Il ne porte aucune note : il prépare l'oreille, comme
- *      la gerbe d'étincelles prépare l'œil, et il est ce qui rend le son
- *      reconnaissable sans être bruyant — personne d'autre ne commence comme ça.
- *   2. UNE QUINTE JUSTE, les deux notes FRAPPÉES ENSEMBLE. C'est l'intervalle le
- *      plus stable qui existe : il ne pose pas de question, donc il conclut. Un
- *      seul événement, pas une mélodie — c'est ce qui le garde discret.
+ * Les trois paramètres qui séparent une fanfare d'une notification bancaire ne
+ * sont PAS « monte ou descend ». Ce sont :
  *
- * La queue est longue (1,6 s) et très basse : on l'entend s'éteindre sous le
- * texte au lieu de couper net. C'est là que passe l'essentiel du caractère.
+ *   1. LA VITESSE. 52 ms entre les notes, pas 78. À cette cadence, l'oreille
+ *      entend UN geste ; à 78 ms elle entend une petite mélodie, et une mélodie
+ *      raconte quelque chose, donc elle prend du temps. C'est ici que la v1
+ *      péchait, pas dans sa direction.
+ *   2. LE REGISTRE. On part du la5 (880 Hz), pas du do4. Le haut du spectre est
+ *      ce que l'oreille associe au positif, et c'est aussi la seule bande qui
+ *      passe au-dessus d'une bande-son d'épisode sans avoir à monter le volume.
+ *   3. LA RÉSOLUTION TENUE. Les trois premières notes sont courtes et sèches,
+ *      la QUATRIÈME sonne trois fois plus longtemps. C'est elle la récompense —
+ *      les trois autres ne sont que l'élan qui y mène. La v1 finissait sur une
+ *      basse qui « posait » l'arpège : elle éteignait justement ce qu'il fallait
+ *      laisser sonner.
+ *
+ * Le motif est donc un accord parfait majeur monté en trois temps, résolu sur
+ * l'octave tenue. Trois notes qui montent et une qui reste : ~170 ms d'élan,
+ * puis la traîne.
  *
  * ── CE QUE LA RARETÉ CHANGE ──────────────────────────────────────────────────
- * Elle n'ajoute PAS de notes — ce serait retomber dans l'arpège. Elle ouvre
- * l'accord vers le haut (l'octave, puis la neuvième) et allonge la queue. Un
- * mythique est le même son, plus large et plus long : on le reconnaît avant de
- * savoir ce qu'on a gagné.
+ * Elle prolonge l'ascension d'un ou deux degrés (la neuvième, puis la onzième —
+ * toujours dans l'accord, donc jamais faux) et allonge la tenue finale. Un
+ * mythique monte plus haut et sonne plus longtemps : c'est la même phrase, plus
+ * ample. Un commun s'arrête à la tierce.
  *
  * ── POURQUOI PAS UN .mp3 ─────────────────────────────────────────────────────
  * Un fichier, c'est un asset dans `public/`, une requête, du quota de
  * déploiement (cf. CLAUDE.md), et un son figé qu'il faudrait décliner en six
- * versions. Trente lignes de WebAudio font la même chose, pèsent zéro octet
- * réseau, et la déclinaison par rareté n'est qu'un tableau.
+ * versions. La déclinaison par rareté n'est ici qu'un tableau de degrés.
  *
  * ── LES DEUX PIÈGES DU NAVIGATEUR ────────────────────────────────────────────
  *   - L'AUTOPLAY. Un `AudioContext` créé hors d'un geste utilisateur naît
@@ -48,29 +60,42 @@
 import type { Rarity } from "@/lib/badges/catalog";
 import { getBadgeSound } from "@/lib/prefs/badgePrefs";
 
-/** La fondamentale : un la4. Assez haut pour passer au-dessus d'une bande-son
- *  d'épisode, assez bas pour ne pas percer. */
-const BASE = 440;
+/** La5. Le grave de la figure — et déjà dans l'octave « brillante ». */
+const BASE = 880;
 
-/** Les partiels de l'accord, en rapports de fréquence, et la longueur de la
- *  queue — les deux seules choses que la rareté fait bouger.
+/**
+ * Les degrés de l'ascension, en rapports de fréquence sur la fondamentale.
  *
- *  1,5 est la quinte juste. 2 est l'octave, 3 la douzième : QUE des rapports
- *  entiers ou simples, c'est-à-dire des notes qui sont déjà dans le spectre de
- *  la fondamentale. C'est pour ça que le mythique ne sonne pas « en plus » mais
- *  « en plus large » — on n'ajoute pas une note, on éclaire une harmonique. */
-const ACCORD: Record<Rarity, { r: number[]; queue: number }> = {
-  c: { r: [1, 1.5], queue: 1.25 },
-  u: { r: [1, 1.5], queue: 1.5 },
-  r: { r: [1, 1.5, 2], queue: 1.8 },
-  e: { r: [1, 1.5, 2], queue: 2.1 },
-  l: { r: [0.5, 1, 1.5, 2], queue: 2.5 },
-  m: { r: [0.5, 1, 1.5, 2, 3], queue: 3 },
+ * QUE des intervalles de l'accord parfait majeur : tierce majeure (5/4),
+ * quinte juste (3/2), octave (2), neuvième (9/4), onzième (8/3). Aucune note ne
+ * peut sonner faux contre une autre, ce qui compte quand deux badges tombent à
+ * une seconde d'écart et que leurs traînes se superposent.
+ *
+ * La DERNIÈRE de chaque liste est la note tenue. Les autres sont l'élan.
+ */
+const MONTEE: Record<Rarity, number[]> = {
+  c: [1, 1.25, 1.5],                  // la · do♯ · mi
+  u: [1, 1.25, 1.5, 2],               // + la (octave)
+  r: [1, 1.25, 1.5, 2],
+  e: [1, 1.25, 1.5, 2, 2.25],         // + si
+  l: [1, 1.25, 1.5, 2, 2.25],
+  m: [1, 1.25, 1.5, 2, 2.25, 2.667],  // + ré
 };
 
-/** Le niveau général. Volontairement bas : le son doit s'entendre par-dessus un
- *  épisode sans jamais le couvrir, et on le reçoit sans l'avoir demandé. */
-const NIVEAU = 0.13;
+/** Combien de temps la note finale sonne, par rareté. */
+const TENUE: Record<Rarity, number> = {
+  c: 0.9, u: 1.1, r: 1.35, e: 1.6, l: 1.9, m: 2.3,
+};
+
+/** L'écart entre deux notes de l'élan. Sous ~60 ms, l'oreille entend UN geste
+ *  et non une mélodie — c'est tout le réglage de ce fichier. */
+const PAS = 0.052;
+/** La durée des notes de l'élan : courtes et sèches, elles ne doivent pas
+ *  masquer la tenue finale. */
+const BREF = 0.34;
+/** Le niveau général. Volontairement bas : on reçoit ce son sans l'avoir
+ *  demandé, et il doit passer au-dessus d'un épisode sans le couvrir. */
+const NIVEAU = 0.15;
 
 let ctx: AudioContext | null = null;
 
@@ -88,72 +113,78 @@ function audio(): AudioContext | null {
 }
 
 /**
- * Une voix de l'accord : la note, plus son partiel à la douzième, très en
- * retrait — c'est lui qui donne le « verre » plutôt que le « sinus ».
+ * Une note : une sinusoïde et son partiel à la douzième, dans une enveloppe
+ * percussive.
  *
- * L'attaque de 6 ms sépare une cloche d'un clic ; la descente est EXPONENTIELLE
- * parce que l'oreille entend le volume en log, et qu'une descente linéaire
- * s'entend comme une coupure nette à la fin.
+ * L'attaque de 4 ms sépare une cloche d'un clic. La descente est EXPONENTIELLE
+ * parce que l'oreille entend le volume en log — une descente linéaire s'entend
+ * comme une coupure nette à la fin.
+ *
+ * La FLORAISON (un huitième de demi-ton au-dessus, qui retombe en 90 ms) est le
+ * détail qui empêche le son d'être « un sinus » : c'est ce que fait un métal
+ * frappé, et sans elle la figure sonne comme une tonalité de test.
  */
-function voix(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number, len: number) {
+function note(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number, len: number) {
   const env = ac.createGain();
   env.gain.setValueAtTime(0.0001, t);
-  env.gain.linearRampToValueAtTime(g, t + 0.006);
+  env.gain.linearRampToValueAtTime(g, t + 0.004);
   env.gain.exponentialRampToValueAtTime(0.0001, t + len);
   env.connect(dst);
 
   const o = ac.createOscillator();
   o.type = "sine";
-  o.frequency.setValueAtTime(f, t);
-  /* LA FLORAISON : un huitième de demi-ton au-dessus, qui retombe en 120 ms.
-     C'est ce que fait un métal frappé, et c'est le détail qui empêche le son
-     d'être « un sinus » — sans lui, il sonne comme une tonalité de test. */
   o.frequency.setValueAtTime(f * 1.008, t);
-  o.frequency.exponentialRampToValueAtTime(f, t + 0.12);
+  o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
   o.connect(env);
   o.start(t);
   o.stop(t + len + 0.05);
 
   const h = ac.createGain();
   h.gain.setValueAtTime(0.0001, t);
-  h.gain.linearRampToValueAtTime(g * 0.16, t + 0.004);
-  h.gain.exponentialRampToValueAtTime(0.0001, t + len * 0.45);
+  h.gain.linearRampToValueAtTime(g * 0.2, t + 0.003);
+  h.gain.exponentialRampToValueAtTime(0.0001, t + len * 0.4);
   h.connect(dst);
   const o2 = ac.createOscillator();
   o2.type = "triangle";
   o2.frequency.setValueAtTime(f * 3, t);
   o2.connect(h);
   o2.start(t);
-  o2.stop(t + len * 0.45 + 0.05);
+  o2.stop(t + len * 0.4 + 0.05);
 }
 
-/** Le souffle : 150 ms de bruit dans un passe-bande qui monte. Aucune note. */
-function souffle(ac: AudioContext, dst: AudioNode, t: number) {
-  const n = Math.max(1, Math.floor(ac.sampleRate * 0.2));
+/**
+ * L'éclat, sur la note tenue seulement : 90 ms de bruit très aigu et très
+ * discret.
+ *
+ * Il ne porte aucune hauteur et on ne l'entend pas comme un son séparé — il
+ * ajoute du grain là où la figure se pose, exactement comme les étincelles
+ * ajoutent du grain autour du jeton. C'est le peu qui empêche la fanfare de
+ * sonner « synthétisée ».
+ */
+function eclat(ac: AudioContext, dst: AudioNode, t: number) {
+  const n = Math.max(1, Math.floor(ac.sampleRate * 0.14));
   const buf = ac.createBuffer(1, n, ac.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   const src = ac.createBufferSource();
   src.buffer = buf;
 
-  const bp = ac.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.Q.value = 1.3;
-  bp.frequency.setValueAtTime(600, t);
-  bp.frequency.exponentialRampToValueAtTime(4200, t + 0.15);
+  const hp = ac.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 5200;
 
   const env = ac.createGain();
   env.gain.setValueAtTime(0.0001, t);
-  env.gain.linearRampToValueAtTime(NIVEAU * 0.5, t + 0.1);
-  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  env.gain.linearRampToValueAtTime(NIVEAU * 0.3, t + 0.012);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
 
-  src.connect(bp).connect(env).connect(dst);
+  src.connect(hp).connect(env).connect(dst);
   src.start(t);
-  src.stop(t + 0.24);
+  src.stop(t + 0.18);
 }
 
 /**
- * Joue la signature. Ne jette jamais : appelé depuis un effet de rendu.
+ * Joue la fanfare. Ne jette jamais : appelé depuis un effet de rendu.
  */
 export function playBadgeChime(rarity: Rarity): void {
   if (!getBadgeSound()) return;
@@ -161,25 +192,27 @@ export function playBadgeChime(rarity: Rarity): void {
   if (!ac) return;
   if (ac.state === "suspended") void ac.resume().catch(() => {});
 
-  const { r, queue } = ACCORD[rarity] || ACCORD.c;
+  const degres = MONTEE[rarity] || MONTEE.c;
+  const tenue = TENUE[rarity] ?? TENUE.c;
   const t0 = ac.currentTime + 0.02;
 
   try {
-    /* Un gain maître, pour que l'accord ne se somme pas en saturation quand il
-       compte cinq voix : cinq sinus en phase à 0,13 dépasseraient 0 dB. */
+    /* Un gain maître : les traînes des notes de l'élan se superposent à la
+       tenue, et six sinus en phase dépasseraient 0 dB. */
     const maitre = ac.createGain();
-    maitre.gain.value = 1 / Math.sqrt(r.length);
+    maitre.gain.value = 0.72;
     maitre.connect(ac.destination);
 
-    souffle(ac, maitre, t0);
-    /* La quinte tombe À LA FIN du souffle, pas après : les deux se chevauchent
-       de 20 ms, et c'est ce recouvrement qui en fait un seul geste au lieu de
-       deux événements qui se suivent. */
-    const frappe = t0 + 0.13;
-    r.forEach((mult, i) => {
-      /* Les voix aiguës sont plus discrètes ET s'éteignent plus vite : c'est ce
-         que fait un vrai métal, et ça évite que le haut du spectre s'empile. */
-      voix(ac, maitre, BASE * mult, frappe, NIVEAU / (1 + i * 0.55), queue / (1 + i * 0.3));
+    const fin = degres.length - 1;
+    degres.forEach((mult, i) => {
+      const t = t0 + i * PAS;
+      const dernier = i === fin;
+      /* L'élan MONTE aussi en volume vers sa résolution : chaque note est un
+         peu plus forte que la précédente, et la tenue est la plus forte de
+         toutes. Un élan à volume constant s'entend comme une gamme. */
+      const g = NIVEAU * (0.5 + (0.5 * i) / Math.max(1, fin)) * (dernier ? 1.15 : 1);
+      note(ac, maitre, BASE * mult, t, g, dernier ? tenue : BREF);
+      if (dernier) eclat(ac, maitre, t);
     });
   } catch {
     /* Contexte fermé entre-temps, quota d'oscillateurs : tant pis, pas de son. */

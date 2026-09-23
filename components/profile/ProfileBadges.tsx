@@ -324,27 +324,132 @@ export default function ProfileBadges({
  * derrière lui. « Test » se lit dans les deux langues.
  */
 function PreviewButton() {
-  const step = useRef(0);
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const boite = useRef<HTMLDivElement | null>(null);
 
-  const fire = () => {
-    const rarity = RARITY_ORDER[step.current % RARITY_ORDER.length];
-    step.current += 1;
-    const pool = BADGES.filter((b) => b.rarity === rarity && !b.secret);
-    const pick = (pool.length ? pool : BADGES)[
-      Math.floor(Math.random() * (pool.length || BADGES.length))
-    ];
-    announce([pick.id]);
-  };
+  /* Fermer au clic dehors et à Échap. Un `mousedown` et pas un `click` : le
+     second se déclenche APRÈS que le bouton du panneau a fait son travail, donc
+     un clic sur un badge fermerait le panneau deux fois. */
+  useEffect(() => {
+    if (!open) return;
+    const dehors = (e: MouseEvent) => {
+      if (!boite.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const echap = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", dehors);
+    window.addEventListener("keydown", echap);
+    return () => {
+      document.removeEventListener("mousedown", dehors);
+      window.removeEventListener("keydown", echap);
+    };
+  }, [open]);
+
+  /* Cent soixante-seize badges : sans recherche, la liste est un mur. On filtre
+     sur le NOM TRADUIT et pas sur l'id — c'est le nom qui est affiché, et
+     personne ne connaît les ids par cœur. */
+  const listes = useMemo(() => {
+    const terme = q.trim().toLowerCase();
+    const garde = (b: BadgeDef) =>
+      !terme || t(`badges.${b.id}.name`).toLowerCase().includes(terme);
+    return RARITY_ORDER.map((r) => ({
+      rarity: r,
+      rows: BADGES.filter((b) => b.rarity === r && garde(b)),
+    })).filter((g) => g.rows.length);
+  }, [q, t]);
 
   return (
-    <button
-      type="button"
-      onClick={fire}
-      title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
-      className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
-    >
-      Test
-    </button>
+    <div className="relative" ref={boite}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title="Temporaire : rejoue l'animation de déblocage, sans rien accorder."
+        className="font-outfit rounded-md border border-dashed border-[#FF7F57]/60 bg-[#FF7F57]/10 px-3 py-1.5 text-[12px] font-semibold text-[#FF7F57] transition-colors hocus:bg-[#FF7F57]/20"
+      >
+        Test
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[70vh] w-[300px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12121a] shadow-2xl">
+          <div className="border-b border-white/10 p-2">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Chercher un badge…"
+              className="font-karla w-full rounded-lg bg-white/5 px-3 py-2 text-[13px] text-white outline-none ring-1 ring-white/10 placeholder:text-white/30 focus:ring-white/25"
+            />
+          </div>
+
+          {/* Une entrée PAR RARETÉ en tête : c'est ce que le bouton faisait
+              avant (il tournait sur les six), et c'est le geste le plus
+              fréquent — on vient presque toujours regarder un mythique. */}
+          <div className="flex flex-wrap gap-1 border-b border-white/10 p-2">
+            {RARITY_ORDER.map((r) => {
+              const pool = BADGES.filter((b) => b.rarity === r && !b.secret);
+              if (!pool.length) return null;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => {
+                    announce([pool[Math.floor(Math.random() * pool.length)].id]);
+                    setOpen(false);
+                  }}
+                  className="font-karla rounded-md px-2 py-1 text-[11px] font-semibold transition-colors hocus:bg-white/10"
+                  style={{ color: RARITY[r].ic }}
+                >
+                  {t(`badges.ui.rarity.${r}`, r)}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            {listes.length === 0 ? (
+              <div className="font-karla px-3 py-6 text-center text-[12px] text-white/35">
+                Aucun badge
+              </div>
+            ) : (
+              listes.map((g) => (
+                <div key={g.rarity}>
+                  <div
+                    className="font-karla px-3 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[.18em]"
+                    style={{ color: RARITY[g.rarity].ic }}
+                  >
+                    {t(`badges.ui.rarity.${g.rarity}`, g.rarity)}
+                  </div>
+                  {g.rows.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => {
+                        announce([b.id]);
+                        setOpen(false);
+                      }}
+                      className="font-karla flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] text-white/80 transition-colors hocus:bg-white/10 hocus:text-white"
+                    >
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: RARITY[b.rarity].ic }}
+                      />
+                      <span className="truncate">{t(`badges.${b.id}.name`)}</span>
+                      {b.secret ? (
+                        <span className="ml-auto shrink-0 text-[10px] text-white/30">secret</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

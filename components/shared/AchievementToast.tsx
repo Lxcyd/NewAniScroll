@@ -30,7 +30,7 @@
  */
 
 import {
-  Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+  Fragment, useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/router";
@@ -38,7 +38,7 @@ import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
 import { next, useAchievement } from "@/lib/badges/achievementStore";
 import { playBadgeChime } from "@/lib/badges/chime";
-import { dockRect, markUnseen } from "@/lib/badges/dock";
+import { markUnseen } from "@/lib/badges/dock";
 import { revealHref } from "@/lib/badges/reveal";
 import { useBadgePrefs } from "@/lib/prefs/badgePrefs";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
@@ -184,12 +184,6 @@ export default function AchievementToast() {
   /** Ce qui reste de la pose. Décrémenté à chaque suspension — c'est ce qui
    *  distingue une VRAIE pause d'un compte à rebours relancé à zéro. */
   const left = useRef(HOLD_MS);
-  /** Le jeton, pour mesurer d'où il part quand il file vers l'avatar. */
-  const tokenRef = useRef<HTMLDivElement | null>(null);
-  /** Le vecteur du vol, calculé au tout début de la sortie. `null` = pas encore
-   *  mesuré, `false` = pas de quai en vue, on repart par le haut. */
-  const [flight, setFlight] = useState<{ dx: number; dy: number; s: number } | null | false>(null);
-
   const def = ach ? BY_ID[ach.id] : null;
 
   /* Le lecteur possède l'écran : on ne montre rien et on ne démarre rien. Le
@@ -218,7 +212,6 @@ export default function AchievementToast() {
     if (!ach || muted) return;
     setPhase("in");
     setHeld(false);
-    setFlight(null);
     left.current = HOLD_MS;
     const at = (ms: number, fn: () => void) => timers.current.push(setTimeout(fn, ms));
     at(inMs, () => setPhase("open"));
@@ -277,41 +270,15 @@ export default function AchievementToast() {
     };
   }, [phase, def, outMs]);
 
-  /**
-   * ── LE VOL VERS L'AVATAR ───────────────────────────────────────────────────
-   *
-   * Mesuré ICI et pas plus tôt, dans un effet de MISE EN PAGE. Les deux
-   * précisions comptent :
-   *
-   *   - PAS PLUS TÔT : la carte se referme pendant `textOut`, et comme le bloc
-   *     entier est centré, le jeton DÉRIVE de presque la moitié de la largeur
-   *     de la carte en se recentrant. Un vecteur calculé avant la fermeture
-   *     viserait 160 px à côté.
-   *   - `useLayoutEffect` : la mesure se fait avant la peinture, donc le jeton
-   *     ne reste jamais une image sans animation. Avec un `useEffect`, on verrait
-   *     un clignotement d'une frame entre « rien » et « il part ».
-   *
-   * `dockRect()` rend `null` quand la navbar est absente (page de visionnage)
-   * ou hors de l'écran (barre rétractée) : on repart alors par le haut comme
-   * avant. On ne vise pas une cible qu'on ne voit pas.
-   */
-  useLayoutEffect(() => {
-    if (phase !== "out" || flight !== null) return;
-    const quai = fx ? dockRect() : null;
-    const el = tokenRef.current;
-    if (!quai || !el) {
-      setFlight(false);
-      return;
-    }
-    const d = el.getBoundingClientRect();
-    setFlight({
-      dx: quai.left + quai.width / 2 - (d.left + d.width / 2),
-      dy: quai.top + quai.height / 2 - (d.top + d.height / 2),
-      /* On vise la taille de l'avatar, pas zéro : le jeton doit avoir l'air de
-         se RANGER, pas de s'évaporer en chemin. */
-      s: Math.max(0.12, quai.width / Math.max(1, d.width)),
-    });
-  }, [phase, flight, fx]);
+  /* ── LE VOL VERS L'AVATAR A ÉTÉ RETIRÉ (23/09) ─────────────────────────────
+     Le jeton filait vers l'avatar de la navbar en fin de sortie, pour que la
+     récompense ait une destination. Retiré à la demande : voir passer le badge
+     à travers la page tire l'œil vers un coin au moment précis où il n'y a plus
+     rien à y voir, et le geste raconte « ça s'en va » alors qu'on voulait « ça
+     se range ». Le jeton repart donc par le haut, comme il est venu.
+
+     Ce qui RESTE de la fonctionnalité : la pastille des non-vus sur l'avatar
+     (lib/badges/dock.ts), qui n'a jamais eu besoin du vol pour exister. */
 
   /** Abréger : on saute à la sortie, animation comprise. Depuis l'arrivée comme
    *  depuis la pose — on peut congédier un badge avant même de l'avoir lu. */
@@ -360,16 +327,10 @@ export default function AchievementToast() {
   const closing = phase === "out";
   const opened = phase === "open" || phase === "hold";
 
-  /** L'animation du jeton. Trois cas : l'arrivée, le vol vers l'avatar, et le
-   *  retrait par le haut quand il n'y a pas de quai. `"none"` le temps d'UNE
-   *  image, entre l'entrée dans la sortie et la mesure du vecteur — invisible,
-   *  et c'est le prix d'une mesure juste (cf. le `useLayoutEffect` plus haut). */
+  /** L'animation du jeton : il arrive, puis il repart par le haut. Avec les
+   *  effets coupés, il se pose et se retire au lieu de tomber et bondir. */
   const tokenAnim = closing
-    ? flight === null
-      ? "none"
-      : flight === false
-        ? `asAchOut ${outMs}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
-        : `asAchFly ${outMs}ms cubic-bezier(.55,0,.35,1) forwards`
+    ? `asAchOut ${outMs}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
     : fx
       ? `asAchIn ${inMs}ms cubic-bezier(.3,.8,.3,1) both`
       : `asAchPlain ${Math.round(inMs * 0.4)}ms ease-out both`;
@@ -474,20 +435,12 @@ export default function AchievementToast() {
             animations sur le même élément ferait que la seconde écrase la
             transformation finale de la première — le jeton sauterait. */}
         <div
-          ref={tokenRef}
           className="as-ach-token"
           style={{
             position: "relative",
             flexShrink: 0,
             /* Devant la carte : c'est lui la médaille, elle est la plaque. */
             zIndex: 2,
-            ...(flight
-              ? {
-                  ["--as-fx" as string]: `${flight.dx}px`,
-                  ["--as-fy" as string]: `${flight.dy}px`,
-                  ["--as-fs" as string]: String(flight.s),
-                }
-              : null),
             animation: tokenAnim,
           }}
         >
@@ -600,30 +553,34 @@ export default function AchievementToast() {
         {/* La carte : elle s'ouvre en largeur derrière le jeton, ce qui donne
             l'impression que celui-ci se décale pour lui laisser la place.
 
-            ── UN VRAI FLOU, ET RIEN D'AUTRE ───────────────────────────────────
-            Il y a eu trois états, et les deux premiers étaient faux :
+            ── IL N'Y A PLUS DE FOND DU TOUT, ET C'ÉTAIT LA SEULE SORTIE ───────
+            Quatre états, dont trois étaient la même erreur sous trois formes :
 
-              1. un VOILE SOMBRE opaque à coins arrondis. C'était une boîte.
+              1. un VOILE SOMBRE opaque à coins arrondis. Une boîte.
               2. le voile remplacé par `brightness(.5)` sur le backdrop-filter.
-                 On croyait avoir gardé « un flou, pas une boîte » — en vrai
-                 c'était toujours une boîte, simplement peinte par un filtre au
-                 lieu d'un dégradé : ce qu'on voyait à l'écran était une tache
-                 sombre, et le flou ne comptait pour presque rien dedans.
-              3. celui-ci : `blur` et `saturate`, AUCUN assombrissement.
+                 On écrivait « un flou, pas une boîte » — en vrai c'était
+                 toujours une boîte, simplement peinte par un filtre au lieu
+                 d'un dégradé.
+              3. le flou SEUL, à 30 px, sans assombrissement. Honnête, et
+                 toujours moche : une zone translucide à bords doux posée sur
+                 une image chargée fait une TACHE. Pas parce qu'elle est mal
+                 réglée — parce que c'est une zone. Un bord flou sur un fond
+                 net n'a aucune façon de ne pas ressembler à une salissure.
+              4. celui-ci : AUCUN fond. Ni voile, ni flou, ni masque.
 
-            Le prix est réel et c'est tout le sujet : un flou seul NE FONCE PAS,
-            donc il ne rend rien lisible. Sur une bannière claire, du blanc
-            floutée reste du blanc. La lisibilité est donc entièrement reportée
-            SUR LE TEXTE — un contour sombre autour des lettres, comme un
-            sous-titre d'anime (cf. `.as-ach-line` dans globals.css). C'est la
-            seule technique qui tient sur n'importe quelle image sans rien
-            peindre derrière, et c'est pour ça que les sous-titres font ça
-            depuis quarante ans.
+            LE FOND NE SE RÈGLE PAS, IL SE SUPPRIME. Ce qu'on voulait, c'est que
+            le texte se détache sans qu'on peigne un objet derrière lui ; tant
+            qu'on peint une RÉGION, on peint un objet. La seule façon d'assombrir
+            uniquement là où il faut, c'est que l'assombrissement ait la FORME DES
+            LETTRES — et c'est exactement ce que fait un `drop-shadow` en filtre,
+            qui suit le canal alpha de ce qu'il traverse au lieu de remplir un
+            rectangle. Trois halos de rayons croissants sur le bloc de texte, plus
+            le contour de sous-titre sur chaque lettre (cf. `.as-ach-text` dans
+            globals.css), et il n'y a plus rien à border ni à masquer.
 
-            Le rayon monte de 18 à 30 px : sans l'assombrissement, un flou
-            discret ne se voit tout simplement plus. Le masque radial reste — il
-            est ce qui empêche le flou de redevenir un cadre à quatre bords
-            nets, en haut et en bas comme sur les côtés. */}
+            La carte reste un élément, et sa LARGEUR reste animée : c'est elle
+            qui fait l'ouverture (le jeton a l'air de se décaler pour laisser la
+            place). Simplement, elle ne peint plus rien. */}
         <div
           className="as-ach-card"
           /* Un `div` et pas un `button` : il contient DÉJÀ un bouton (la croix),
@@ -646,13 +603,7 @@ export default function AchievementToast() {
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
             marginLeft: -10,
-            backdropFilter: "blur(30px) saturate(118%)",
-            WebkitBackdropFilter: "blur(30px) saturate(118%)",
-            maskImage:
-              "radial-gradient(82% 62% at 32% 50%, #000 24%, rgba(0,0,0,.55) 64%, transparent 100%)",
-            WebkitMaskImage:
-              "radial-gradient(82% 62% at 32% 50%, #000 24%, rgba(0,0,0,.55) 64%, transparent 100%)",
-            padding: opened ? "14px 26px 14px 26px" : "14px 0",
+            padding: opened ? "14px 26px 14px 22px" : "14px 0",
             position: "relative",
             /* La carte est la seule zone cliquable : survol, clic, croix, et
                rien de plus. Fermée (largeur nulle) elle n'attrape rien. */
@@ -674,6 +625,10 @@ export default function AchievementToast() {
               Elles entrent DÉCALÉES une fois la carte ouverte — le nom, puis la
               condition, dans l'ordre où on veut qu'ils soient lus. Apparaître
               d'un bloc ferait de la carte un panneau au lieu d'une annonce. */}
+          {/* Le bloc de texte porte le filtre : les halos doivent suivre les
+              deux lignes ENSEMBLE, pas chacune la sienne — sinon la condition
+              projette son ombre sur le nom. */}
+          <div className="as-ach-text">
           <div
             className="as-ach-line as-ach-name"
             style={{
@@ -699,6 +654,7 @@ export default function AchievementToast() {
             }}
           >
             {t(`badges.${def.id}.cond`)}
+          </div>
           </div>
 
           {/* La croix. Discrète au repos, franche au survol de la carte — elle

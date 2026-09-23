@@ -3427,30 +3427,11 @@ input[type="number"] {
   100% { transform: translateY(-140%) scale(0.3) rotate(20deg); opacity: 0; }
 }
 
-/* ── LE VOL VERS L'AVATAR ──────────────────────────────────────────────────
-   La récompense trouve une destination au lieu de s'évaporer : au lieu de
-   remonter par le haut de l'écran, le jeton FILE vers l'avatar de la navbar, y
-   rétrécit à sa taille, et y laisse une pastille.
-
-   Le vecteur est posé par le composant en variables CSS, parce qu'il dépend de
-   deux rectangles mesurés au dernier moment (le jeton dérive pendant que la
-   carte se referme, et la navbar se rétracte au défilement). Le CSS ne sait
-   rien de tout ça, il ne connaît qu'un déplacement.
-
-   LE CREUX AU DÉPART (le petit recul de 22 %) est ce qui empêche le vol d'être
-   une translation : un objet qui part vers une cible prend son élan dans
-   l'autre sens d'abord. Sans lui, le jeton glisse comme une souris de démo.
-   L'opacité ne tombe qu'à la toute fin — on doit VOIR où il atterrit, sinon la
-   pastille qui s'allume sort de nulle part. */
-@keyframes asAchFly {
-  0% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
-  22% { transform: translate(calc(var(--as-fx) * -0.06), calc(var(--as-fy) * -0.06)) scale(1.1) rotate(-8deg); opacity: 1; }
-  85% { opacity: 1; }
-  100% {
-    transform: translate(var(--as-fx), var(--as-fy)) scale(var(--as-fs)) rotate(28deg);
-    opacity: 0;
-  }
-}
+/* (`asAchFly` — le jeton qui filait vers l'avatar de la navbar en fin de
+   sortie — a ete retire le 23/09 : voir le badge traverser la page tire l'oeil
+   vers un coin au moment ou il n'y a plus rien a y voir, et le geste raconte
+   « ca s'en va » au lieu de « ca se range ». La pastille des non-vus reste :
+   elle n'a jamais eu besoin du vol pour exister.) */
 
 /* L'arrivée quand l'interrupteur « animation » est éteint : le badge est
    toujours annoncé, avec son nom et sa condition, mais il se pose au lieu de
@@ -3562,35 +3543,51 @@ input[type="number"] {
   }
 }
 
-/* ── LE TEXTE PORTE SA PROPRE LISIBILITÉ ───────────────────────────────────
+/* ── LE TEXTE PORTE SEUL SA LISIBILITÉ — IL N'Y A PLUS DE FOND ─────────────
  *
- * Le fond de la notification est un FLOU ET RIEN D'AUTRE : ni voile, ni
- * `brightness`, ni boîte. Un flou n'assombrit pas — sur une bannière claire,
- * du blanc flouté reste du blanc. Il ne peut donc pas rendre le texte lisible,
- * et ce n'est pas son rôle.
+ * La notification n'a AUCUN fond : ni voile, ni `brightness`, ni flou, ni
+ * masque. Quatre tentatives ont convergé vers ça, et la troisième est celle
+ * qui a tranché : le flou seul, honnête et bien réglé, faisait toujours une
+ * tache. Pas parce qu'il était mal réglé — parce que c'était une RÉGION. Une
+ * zone translucide à bords doux posée sur une image chargée n'a aucune façon
+ * de ne pas ressembler à une salissure.
  *
- * C'est le CONTOUR qui le fait, exactement comme un sous-titre d'anime : un
- * trait sombre autour de chaque lettre. C'est la seule technique qui tienne sur
- * n'importe quelle image sans rien peindre derrière — c'est pour ça que le
- * sous-titrage l'utilise depuis quarante ans.
+ * On ne règle donc pas le fond : on le supprime, et on assombrit uniquement là
+ * où il faut — c'est-à-dire À LA FORME DES LETTRES. Deux techniques s'y
+ * empilent, et elles ne font pas double emploi :
  *
- * `paint-order: stroke fill` EST LA LIGNE QUI COMPTE. Sans elle, le trait se
- * peint PAR-DESSUS le remplissage : il mange la moitié de l'épaisseur des
- * lettres par l'intérieur, et un texte de 20 px devient illisible bien avant
- * d'être contrasté. Avec elle, le trait passe dessous et ne déborde que vers
- * l'extérieur.
+ *   - LE CONTOUR (`-webkit-text-stroke`), qui détache chaque glyphe de l'image
+ *     par un trait net. C'est le sous-titrage d'anime, et c'est ce qui tient
+ *     sur un bord franc (une ligne blanche qui coupe une lettre blanche).
+ *   - LES HALOS (`filter: drop-shadow`, trois rayons croissants sur le BLOC),
+ *     qui assombrissent une auréole autour du texte. Un `drop-shadow` en filtre
+ *     suit le canal alpha de ce qu'il traverse : son ombre a la forme des
+ *     lettres, jamais celle d'un rectangle. C'est toute la différence avec le
+ *     `backdrop-filter` qu'on a retiré.
  *
- * L'ombre portée reste en plus du contour, et les deux ne font pas double
- * emploi : le contour détache la lettre de l'image, l'ombre détache le bloc de
- * texte de la zone floutée. */
+ * `paint-order: stroke fill` EST LA LIGNE QUI COMPTE dans le contour. Sans
+ * elle, le trait se peint PAR-DESSUS le remplissage : il mange la moitié de
+ * l'épaisseur des lettres par l'intérieur, et un texte de 20 px devient
+ * illisible bien avant d'être contrasté.
+ *
+ * `text-shadow` n'aurait pas suffi à la place des halos : il se peint par
+ * lettre et ne s'additionne pas d'une ligne à l'autre, donc le texte reste
+ * posé sur du vide entre les mots. Le filtre, lui, porte sur le bloc entier —
+ * c'est pour ça qu'il est sur `.as-ach-text` et pas sur chaque ligne (sinon la
+ * condition projetterait son ombre sur le nom). */
+.as-ach-text {
+  filter:
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.95))
+    drop-shadow(0 0 4px rgba(0, 0, 0, 0.85))
+    drop-shadow(0 0 16px rgba(0, 0, 0, 0.75));
+}
 .as-ach-name,
 .as-ach-cond {
-  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.82);
+  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.8);
   paint-order: stroke fill;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
 }
 .as-ach-cond {
-  -webkit-text-stroke-width: 2.4px;
+  -webkit-text-stroke-width: 2.2px;
 }
 
 /* (`asAchGauge` — une jauge de temps restant sous le texte — a été essayée puis
