@@ -3659,6 +3659,25 @@ input[type="number"] {
  * quand sa largeur change), et plus rien ne la fait recalculer. Elle est
  * dimensionnée pour la notification ouverte (104 + 360 − 10 = 454 de large,
  * 104 de haut) avec la marge dont le dégradé a besoin pour s'éteindre. */
+/* ── TROIS VOILES, PARCE QU'UN SEUL NE PEUT PAS NE PAS FAIRE DE BORD ───────
+ *
+ * Le masque était juste — vérifié en filmant la notification à ~95 images par
+ * seconde, aucune image ne montre de marche, le dégradé s'éteint bien à zéro.
+ * La démarcation venait d'ailleurs, et d'un fait qu'aucun réglage de masque ne
+ * corrige : un `backdrop-filter` masqué MÉLANGE une copie floutée par-dessus
+ * l'image nette. Là où l'alpha baisse, les contours nets du fond
+ * RÉAPPARAISSENT à travers. L'œil ne lit pas « un peu moins flou », il lit une
+ * limite — surtout sur la bannière du profil, où passent des cartes de stats à
+ * liseré clair : le voile en dissolvait une et laissait l'autre nette.
+ *
+ * Trois voiles de rayon croissant, chacun masqué PLUS TÔT que le précédent,
+ * répartissent la transition : aucune couche ne porte seule le passage du flou
+ * au net, donc aucune n'a de frontière à montrer. Les flous se composent (2, 3
+ * et 4 px au centre valent ~5,4 px), ce qui fait moins de flou qu'avant au plus
+ * fort — le fond reste reconnaissable au lieu de fondre en taches.
+ *
+ * L'ORDRE DES COUCHES COMPTE : chacune floute ce que la précédente a déjà
+ * peint, donc la plus large en premier, la plus resserrée en dernier. */
 .as-ach-blur {
   position: absolute;
   left: 50%;
@@ -3668,16 +3687,58 @@ input[type="number"] {
   transform: translate(-50%, -50%);
   z-index: 0;
   pointer-events: none;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  -webkit-mask-image: radial-gradient(
-    ellipse closest-side at 50% 50%,
-    #000 0%, #000 34%, transparent 100%
-  );
-  mask-image: radial-gradient(
-    ellipse closest-side at 50% 50%,
-    #000 0%, #000 34%, transparent 100%
-  );
+}
+.as-ach-blur > span {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.as-ach-blur .b1 {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 60%, transparent 100%);
+}
+.as-ach-blur .b2 {
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 34%, transparent 72%);
+  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 34%, transparent 72%);
+}
+.as-ach-blur .b3 {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 12%, transparent 46%);
+  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
+    #000 0%, #000 12%, transparent 46%);
+}
+
+/* ── LE TÉLÉPHONE N'EN A QU'UN, ET C'EST UNE DETTE PAYÉE D'AVANCE ──────────
+ * Ce projet a déjà tranché ce point ailleurs (cf. `.as-stat-card` plus haut) :
+ * empiler des `backdrop-filter` au-dessus d'un fond `fixed`, ce sont autant de
+ * couches que le compositeur refiltre à chaque image. Trois couches de
+ * 520 × 160 pendant sept secondes, c'est le même piège en plus petit — et
+ * Safari iOS rate régulièrement un `backdrop-filter` masqué, auquel cas il
+ * affiche le RECTANGLE PLEIN, c'est-à-dire précisément le défaut qu'on essaie
+ * de supprimer.
+ *
+ * Sur mobile, donc : une seule couche, légère, et les deux autres éteintes.
+ * Le texte ne dépend de toute façon pas du flou pour se lire — il porte son
+ * contour et ses halos, qui ne coûtent rien. */
+@media (max-width: 640px), (hover: none) {
+  .as-ach-blur .b1 {
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+  .as-ach-blur .b2,
+  .as-ach-blur .b3 {
+    display: none;
+  }
 }
 
 /* La sortie du voile. Fondre son OPACITÉ, c'est ramener le fond net

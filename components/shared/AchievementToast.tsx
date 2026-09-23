@@ -567,33 +567,45 @@ export default function AchievementToast() {
             jeton compris : ça ne se voit pas (le jeton est opaque) et ça évite
             de recalculer une région. `z-index: 0` sur un élément positionné le
             met sous la carte (positionnée, z-index auto, plus loin dans le
-            DOM) et sous le jeton (z-index 2). */}
-        <div
-          className="as-ach-blur"
-          aria-hidden="true"
-          /* IL S'ÉTEINT AVEC LE TEXTE, SINON IL DISPARAÎT NET. Le voile n'avait
-             aucune sortie : il vivait à pleine force jusqu'au démontage, et le
-             fond retrouvait sa netteté d'une image à l'autre — une coupure
-             franche au milieu d'une sortie entièrement faite de fondus.
+            DOM) et sous le jeton (z-index 2).
 
-             Le fondu couvre TOUTE la fin (l'effacement du texte PUIS le retrait
-             du jeton), pas seulement le premier temps : il doit se terminer au
-             démontage, pas avant, sinon on aurait juste déplacé la coupure.
-             Fondre l'opacité revient à ramener progressivement le fond net
-             par-dessus sa version floutée — c'est exactement le dé-floutage
-             qu'on veut, sans animer `backdrop-filter` (qui, lui, repasse par le
-             filtre à chaque image).
+            Ce n'est plus UN voile mais TROIS, de rayon croissant et masqués de
+            plus en plus tôt : un voile unique ne peut pas ne pas faire de bord,
+            parce qu'il mélange une copie floutée par-dessus l'image nette et
+            que les contours nets réapparaissent là où son alpha baisse. Le
+            détail est dans `.as-ach-blur` (globals.css), avec le repli à une
+            seule couche sur mobile. */}
+        <div className="as-ach-blur" aria-hidden="true">
+          {/* TROIS COUCHES, ET LE FONDU EST SUR CHACUNE, PAS SUR LE PARENT.
 
-             La valeur est la MÊME chaîne pendant `textOut` et pendant `out` :
-             le changement de phase ne doit pas relancer l'animation depuis le
-             début, ce qui rallumerait le voile à mi-sortie. */
-          style={{
-            animation:
-              phase === "textOut" || closing
-                ? `asAchBlurOut ${TEXT_OUT_MS + outMs}ms ease-out forwards`
-                : undefined,
-          }}
-        />
+              Un parent à opacité < 1 crée un « backdrop root » : ses enfants ne
+              flouteraient plus que ce qui est peint À L'INTÉRIEUR du groupe,
+              c'est-à-dire rien. C'est la panne qui a déjà coûté une version de
+              ce voile (cf. le commentaire du conteneur) ; la poser sur le
+              parent la referait, mais seulement pendant la sortie — donc le
+              flou s'éteindrait d'un coup dès la première image du fondu.
+
+              IL S'ÉTEINT AVEC LE TEXTE, SINON IL DISPARAÎT NET, et le fondu
+              couvre TOUTE la fin (l'effacement du texte PUIS le retrait du
+              jeton) : il doit se terminer au démontage, pas avant, sinon on
+              aurait juste déplacé la coupure.
+
+              La valeur est la MÊME chaîne pendant `textOut` et pendant `out` :
+              le changement de phase ne doit pas relancer l'animation depuis le
+              début, ce qui rallumerait les voiles à mi-sortie. */}
+          {["b1", "b2", "b3"].map((c) => (
+            <span
+              key={c}
+              className={c}
+              style={{
+                animation:
+                  phase === "textOut" || closing
+                    ? `asAchBlurOut ${TEXT_OUT_MS + outMs}ms ease-out forwards`
+                    : undefined,
+              }}
+            />
+          ))}
+        </div>
 
         {/* Le jeton, et ce qui l'accompagne à l'impact.
 
