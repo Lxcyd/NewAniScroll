@@ -56,7 +56,11 @@ const HOLD_MS = 4200;   // la pose
    est venu. */
 const TEXT_OUT_MS = 420;
 const OUT_MS = 620;     // le retrait du jeton
-const CARD_W = 336;
+/* 336 px tant que le nom faisait 20 px ; il en fait 23 (et la condition 14),
+   donc la même phrase demande une ligne plus longue avant de se faire couper
+   par l'ellipse. Le total reste sous le `maxWidth` du conteneur : 104 (jeton)
+   + 360 − 10 (chevauchement) = 454, pour 470 disponibles. */
+const CARD_W = 360;
 /** Le côté du jeton dans la notification. Plus gros que dans la liste : il est
  *  seul à l'écran pendant tout le premier temps, c'est lui le spectacle. */
 const TOKEN = 104;
@@ -710,6 +714,14 @@ export default function AchievementToast() {
               Elles entrent DÉCALÉES une fois la carte ouverte — le nom, puis la
               condition, dans l'ordre où on veut qu'ils soient lus. Apparaître
               d'un bloc ferait de la carte un panneau au lieu d'une annonce. */}
+          {/* LE FLOU DERRIÈRE LE TEXTE, ET SURTOUT PAS UNE BOÎTE. Il est un
+              élément à part et non un `::before` de `.as-ach-text` : ce bloc
+              porte un `filter`, et un `backdrop-filter` posé à l'intérieur d'un
+              élément filtré ne voit plus que le contenu de ce groupe — il ne
+              flouterait donc rien du tout. Voir `.as-ach-blur` dans globals.css
+              pour le masque qui lui retire ses bords. */}
+          <div className="as-ach-blur" aria-hidden="true" />
+
           {/* Le bloc de texte porte le filtre : les halos doivent suivre les
               deux lignes ENSEMBLE, pas chacune la sienne — sinon la condition
               projette son ombre sur le nom. */}
@@ -717,7 +729,7 @@ export default function AchievementToast() {
           <div
             className="as-ach-line as-ach-name"
             style={{
-              font: "700 20px/1.2 Outfit, sans-serif",
+              font: "700 23px/1.2 Outfit, sans-serif",
               letterSpacing: "-.015em",
               color: "#fff",
               overflow: "hidden",
@@ -730,7 +742,7 @@ export default function AchievementToast() {
           <div
             className="as-ach-line as-ach-cond"
             style={{
-              font: "500 12.5px/1.35 Karla, sans-serif",
+              font: "500 14px/1.35 Karla, sans-serif",
               color: "rgba(255,255,255,.82)",
               marginTop: 5,
               overflow: "hidden",
