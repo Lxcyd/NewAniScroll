@@ -173,8 +173,22 @@ function confetti(seed: number, total: number): Confetto[] {
   };
   const cols = ["#ffc7b0", "#FF7F57", "#ffffff", "#E94560", "#ffd9a0"];
   for (let i = 0; i < 46; i++) {
-    const delay = rnd() * 900;
     const brut = 2100 + rnd() * 1600;
+    /* ── LE DÉPART EST ÉTALÉ SUR UNE CHUTE ENTIÈRE, ET C'EST CE QUI FAIT UNE
+       PLUIE PLUTÔT QUE DES SALVES ──────────────────────────────────────────
+       Il l'était sur 900 ms, pour une chute de 2 à 3,7 s. Conséquence : les
+       quarante-six confettis partaient tous dans le premier tiers de la
+       première chute, donc ils RECOMMENÇAIENT tous ensemble aussi — et on
+       voyait deux vagues nettement séparées, chacune suivie d'un trou.
+
+       Le défaut n'est pas dans le nombre de confettis, il est dans leur
+       PHASE : une pluie continue demande que les phases soient réparties sur
+       tout le cycle, pas groupées dans un coin. Le départ est donc tiré sur
+       la durée d'une chute complète, ce qui répartit les départs ET tous les
+       recommencements qui en découlent. Le prix est un début plus progressif
+       qu'un rideau simultané — et c'est mieux : la gerbe d'étincelles occupe
+       déjà l'instant de l'impact. */
+    const delay = rnd() * brut;
     /* Le `max` n'est pas décoratif : une pose abrégée (la croix, Échap) peut
        rendre `total` plus court qu'une seule chute, et une durée négative
        ferait disparaître la pluie au lieu de l'accélérer. */
@@ -464,12 +478,16 @@ export default function AchievementToast() {
                    Le nombre de cycles est calculé (cf. `confetti`) pour que la
                    dernière chute sorte de l'écran quand le jeton repart. */
                 animation: `asAchConfetti ${c.dur}ms linear ${c.delay}ms ${c.cycles} both`,
-                /* La pluie se fige avec la pose. Sans ça, le survol allongerait
-                   la notification sans allonger la pluie, et le calage
-                   ci-dessus ne tiendrait plus dès qu'on garde le badge à
-                   l'écran — les confettis auraient fini plusieurs secondes
-                   avant lui. */
-                animationPlayState: phase === "hold" && held ? "paused" : "running",
+                /* ── LA PLUIE NE SE FIGE PLUS AU SURVOL ────────────────────
+                   Elle le faisait, pour garder le calage : le survol allonge
+                   la pose, donc sans pause les confettis auraient fini avant
+                   le jeton. Sauf qu'une pluie arrêtée en plein vol, avec des
+                   confettis suspendus au milieu de l'écran, est un BUG à
+                   l'œil — on ne met pas la gravité en pause parce qu'on
+                   approche la souris.
+                   Le calage reste ce qu'il vaut pour une pose normale ; sur
+                   une pose prolongée, la pluie s'achève avant le badge, ce
+                   qui est simplement ce que fait une pluie. */
               }}
             />
           ))}
@@ -584,11 +602,23 @@ export default function AchievementToast() {
             transformation finale de la première — le jeton sauterait. */}
         <div
           className="as-ach-token"
+          /* LE JETON MÈNE OÙ MÈNE LE TEXTE. Seule la carte était cliquable, et
+             c'était la moitié de la cible la moins évidente : ce qui ressemble
+             à un bouton dans cette notification, c'est la médaille. Elle prend
+             donc le clic ET le survol (qui remonte au conteneur, lequel tient
+             `held`), sans rôle ni tabindex : la carte porte déjà le `role` et
+             le clavier, et deux liens pour une destination feraient deux
+             arrêts de tabulation pour rien. */
+          onClick={opened ? open : undefined}
           style={{
             position: "relative",
             flexShrink: 0,
             /* Devant la carte : c'est lui la médaille, elle est la plaque. */
             zIndex: 2,
+            /* Le conteneur ne prend rien (`pointerEvents: none`) ; le jeton se
+               réactive, comme la carte, une fois la notification ouverte. */
+            pointerEvents: opened ? "auto" : "none",
+            cursor: "pointer",
             animation: tokenAnim,
           }}
         >
@@ -687,14 +717,34 @@ export default function AchievementToast() {
                 fx && phase === "hold" ? "asAchBreathe 2.6s ease-in-out infinite" : "none",
             }}
           >
-            <BadgeToken
-              id={def.id}
-              rarity={def.rarity}
-              icon={def.icon}
-              tag={def.tag}
-              unlocked
-              size={TOKEN}
-            />
+            {/* LE SURVOL GROSSIT, ET C'EST TOUT CE QU'IL FAUT DIRE. Rien
+                n'indiquait que la notification MÈNE quelque part : pas de
+                soulignement, pas de changement de couleur — le curseur seul,
+                qu'on ne regarde pas. Un léger agrandissement suffit, et il
+                porte sur les DEUX (jeton et texte) parce que la destination
+                est la même : survoler l'un doit répondre pour l'ensemble.
+
+                `held` est déjà exactement « la souris est sur la
+                notification » — le conteneur ne reçoit rien, seuls le jeton et
+                la carte font remonter `onMouseMove`. Une troisième couche
+                porte l'échelle : l'extérieur joue l'arrivée, le milieu
+                respire, et empiler un `transform` de plus sur l'un des deux
+                écraserait le sien. */}
+            <div
+              style={{
+                transform: held ? "scale(1.07)" : "scale(1)",
+                transition: "transform .2s cubic-bezier(.22,1,.36,1)",
+              }}
+            >
+              <BadgeToken
+                id={def.id}
+                rarity={def.rarity}
+                icon={def.icon}
+                tag={def.tag}
+                unlocked
+                size={TOKEN}
+              />
+            </div>
           </div>
         </div>
 
@@ -776,7 +826,17 @@ export default function AchievementToast() {
           {/* Le bloc de texte porte le filtre : les halos doivent suivre les
               deux lignes ENSEMBLE, pas chacune la sienne — sinon la condition
               projette son ombre sur le nom. */}
-          <div className="as-ach-text">
+          <div
+            className="as-ach-text"
+            /* Même réponse que le jeton, même raison (cf. plus haut). L'origine
+               est à GAUCHE : le texte grandit vers la droite, dans le vide de
+               la carte, au lieu de repousser son propre début vers le jeton. */
+            style={{
+              transform: held ? "scale(1.04)" : "scale(1)",
+              transformOrigin: "left center",
+              transition: "transform .2s cubic-bezier(.22,1,.36,1)",
+            }}
+          >
           <div
             className="as-ach-line as-ach-name"
             style={{
