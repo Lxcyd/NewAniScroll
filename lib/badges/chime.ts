@@ -15,31 +15,29 @@
  * ambiante, pas comme une récompense — ce qui est très exactement le reproche
  * qu'on lui a fait.
  *
- * Les trois paramètres qui séparent une fanfare d'une notification bancaire ne
- * sont PAS « monte ou descend ». Ce sont :
+ * Ce qui sépare une fanfare d'une notification bancaire n'est donc PAS « monte
+ * ou descend ». Ce sont deux choses :
  *
- *   1. LA VITESSE. 52 ms entre les notes, pas 78. À cette cadence, l'oreille
- *      entend UN geste ; à 78 ms elle entend une petite mélodie, et une mélodie
- *      raconte quelque chose, donc elle prend du temps. C'est ici que la v1
- *      péchait, pas dans sa direction.
- *   2. LE REGISTRE. On part du la5 (880 Hz), pas du do4. Le haut du spectre est
- *      ce que l'oreille associe au positif, et c'est aussi la seule bande qui
- *      passe au-dessus d'une bande-son d'épisode sans avoir à monter le volume.
- *   3. LA RÉSOLUTION TENUE. Les trois premières notes sont courtes et sèches,
- *      la QUATRIÈME sonne trois fois plus longtemps. C'est elle la récompense —
- *      les trois autres ne sont que l'élan qui y mène. La v1 finissait sur une
- *      basse qui « posait » l'arpège : elle éteignait justement ce qu'il fallait
- *      laisser sonner.
+ *   1. LA VITESSE. Le pas entre les notes doit rester juste au-dessus du temps
+ *      qu'une note met à s'établir, et juste en dessous du seuil où l'oreille
+ *      entend une mélodie plutôt qu'un geste. Il a donc été remonté deux fois
+ *      en suivant les autres réglages (52 → 72 → 88 ms), et jamais par goût :
+ *      chaque fois qu'on a allongé l'attaque ou descendu le registre, les notes
+ *      se sont mises à se chevaucher.
+ *   2. LA RÉSOLUTION TENUE. Les premières notes sont brèves, la DERNIÈRE sonne
+ *      plusieurs secondes. C'est elle la récompense — les autres ne sont que
+ *      l'élan qui y mène. La v1 finissait sur une basse qui « posait » l'arpège :
+ *      elle éteignait justement ce qu'il fallait laisser sonner.
  *
- * Le motif est donc un accord parfait majeur monté en trois temps, résolu sur
- * l'octave tenue. Trois notes qui montent et une qui reste : ~170 ms d'élan,
- * puis la traîne.
+ * Le motif est un accord parfait majeur monté en trois temps, résolu sur
+ * l'octave tenue, sous laquelle entre un socle de graves.
  *
  * ── CE QUE LA RARETÉ CHANGE ──────────────────────────────────────────────────
- * Elle prolonge l'ascension d'un ou deux degrés (la neuvième, puis la onzième —
- * toujours dans l'accord, donc jamais faux) et allonge la tenue finale. Un
- * mythique monte plus haut et sonne plus longtemps : c'est la même phrase, plus
- * ample. Un commun s'arrête à la tierce.
+ * Trois choses, toutes dans le même sens : elle prolonge l'ascension d'un ou
+ * deux degrés (la neuvième, puis la onzième — toujours dans l'accord, donc
+ * jamais faux), allonge la tenue finale, et ouvre le socle. Un commun s'arrête
+ * à la tierce et n'a AUCUN grave ; un mythique monte plus haut, sonne plus
+ * longtemps et pèse. C'est la même phrase, plus ample — pas une autre phrase.
  *
  * ── POURQUOI PAS UN .mp3 ─────────────────────────────────────────────────────
  * Un fichier, c'est un asset dans `public/`, une requête, du quota de
@@ -84,8 +82,27 @@ import { getBadgeSound } from "@/lib/prefs/badgePrefs";
  * la chaîne, et il tombait sur la note qu'on veut laisser respirer.
  */
 
-/** La5. Le grave de la figure — et déjà dans l'octave « brillante ». */
-const BASE = 880;
+/**
+ * ── « PLUS ÉPIQUE ET MOINS AIGU » — ET LES DEUX SE RÈGLENT ENSEMBLE ──────────
+ * La5 (880 Hz) piquait. On descend d'une octave à LA4, et ce seul changement
+ * règle la moitié du reproche : la figure entière se pose dans le registre où
+ * une cloche a du corps, au lieu du registre où elle siffle.
+ *
+ * L'autre moitié — l'ampleur — ne s'obtient PAS en montant le volume. Une
+ * fanfare paraît grande parce qu'elle occupe le spectre, pas parce qu'elle est
+ * forte. On ajoute donc un SOCLE : deux notes très graves (l'octave et la
+ * double octave en dessous de la fondamentale) qui entrent sous la résolution,
+ * avec une attaque lente et une traîne longue. On ne les entend pas comme des
+ * notes — on les sent comme du poids. C'est ce que fait un orchestre quand les
+ * contrebasses entrent sous un accord de cuivres.
+ *
+ * Le socle entre SOUS LA RÉSOLUTION et pas au début, et c'est délibéré : posé
+ * dès la première note, il transformerait l'élan en tapis et écraserait la
+ * montée. Il arrive quand la montée a fini son travail.
+ */
+
+/** La4. Une octave sous la version précédente. */
+const BASE = 440;
 
 /** L'attaque. Trente millisecondes : au-dessus du seuil où l'oreille entend un
  *  transitoire, donc on entend un timbre qui s'installe et pas un coup. */
@@ -113,18 +130,29 @@ const MONTEE: Record<Rarity, number[]> = {
   m: [1, 1.25, 1.5, 2, 2.25, 2.667],  // + ré
 };
 
-/** Combien de temps la note finale sonne, par rareté. */
+/** Combien de temps la note finale sonne, par rareté. Allongé avec la descente
+ *  d'octave : une note grave a besoin de plus de temps pour s'établir, et c'est
+ *  la traîne qui fait l'ampleur. */
 const TENUE: Record<Rarity, number> = {
-  c: 0.9, u: 1.1, r: 1.35, e: 1.6, l: 1.9, m: 2.3,
+  c: 1.2, u: 1.5, r: 1.9, e: 2.3, l: 2.8, m: 3.4,
+};
+
+/** Le poids du socle, par rareté. Zéro sur le commun : un badge courant n'a pas
+ *  à faire trembler les murs, et c'est ce qui rend l'entrée des graves
+ *  significative quand elle arrive. */
+const SOCLE: Record<Rarity, number> = {
+  c: 0, u: 0.35, r: 0.6, e: 0.8, l: 1, m: 1.3,
 };
 
 /** L'écart entre deux notes de l'élan.
  *
- *  Remonté de 52 à 72 ms EN MÊME TEMPS que l'attaque s'allongeait, et les deux
- *  vont ensemble : une attaque de 30 ms mange la moitié d'un pas de 52, donc
- *  les notes se chevauchaient en bouillie au lieu de monter. On reste sous le
- *  seuil où l'oreille entendrait une mélodie plutôt qu'un geste. */
-const PAS = 0.072;
+ *  Remonté deux fois, et chaque fois pour la même raison : le pas doit rester
+ *  plus long que le temps qu'une note met à s'établir, sinon elles se
+ *  chevauchent en bouillie au lieu de monter. 52 → 72 quand l'attaque est
+ *  passée à 30 ms ; 72 → 88 quand la figure est descendue d'une octave, parce
+ *  qu'une note grave prend plus de temps à se poser qu'une aiguë (il lui faut
+ *  plus de cycles pour que l'oreille en lise la hauteur). */
+const PAS = 0.088;
 /** La durée des notes de l'élan. Rallongée aussi : des notes sèches sous une
  *  attaque douce ne sonnent pas, elles cliquent. */
 const BREF = 0.55;
@@ -198,6 +226,38 @@ function note(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number,
 }
 
 /**
+ * LE SOCLE : l'octave et la double octave sous la fondamentale, très douces et
+ * très longues, qui entrent sous la résolution.
+ *
+ * Attaque de 180 ms — six fois celle des notes. À cette lenteur, le grave ne
+ * s'entend pas comme une note qui commence mais comme une masse qui était déjà
+ * là : c'est précisément ce qui donne l'ampleur sans donner l'impression qu'on
+ * a ajouté quelque chose.
+ *
+ * Il ne passe PAS par le passe-bas global — il n'a rien au-dessus de 200 Hz à
+ * couper — mais il passe par le maître, donc il reste dans l'équilibre.
+ */
+function socle(ac: AudioContext, dst: AudioNode, t: number, g: number, len: number) {
+  if (g <= 0) return;
+  for (const [mult, part] of [
+    [0.5, 1],
+    [0.25, 0.55],
+  ] as const) {
+    const env = ac.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(g * part, t + 0.18);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    env.connect(dst);
+    const o = ac.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(BASE * mult, t);
+    o.connect(env);
+    o.start(t);
+    o.stop(t + len + 0.05);
+  }
+}
+
+/**
  * Joue la fanfare. Ne jette jamais : appelé depuis un effet de rendu.
  */
 export function playBadgeChime(rarity: Rarity): void {
@@ -217,12 +277,13 @@ export function playBadgeChime(rarity: Rarity): void {
     maitre.gain.value = 0.72;
 
     /* LE PASSE-BAS, ET IL EST SUR TOUT. Il coupe ce qui pique au-dessus de
-       3,2 kHz — c'est-à-dire la zone où un synthé sonne « numérique » et où le
-       verre, lui, n'a rien. La pente douce (Q bas) évite la résonance à la
+       2,6 kHz — c'est-à-dire la zone où un synthé sonne « numérique » et où le
+       verre, lui, n'a rien. Descendu de 3,2 avec la figure : la brillance utile
+       se mesure en rapport à la fondamentale, pas en hertz absolus. La pente douce (Q bas) évite la résonance à la
        coupure, qui s'entendrait comme un sifflement. */
     const doux = ac.createBiquadFilter();
     doux.type = "lowpass";
-    doux.frequency.value = 3200;
+    doux.frequency.value = 2600;
     doux.Q.value = 0.6;
     maitre.connect(doux).connect(ac.destination);
 
@@ -235,6 +296,12 @@ export function playBadgeChime(rarity: Rarity): void {
          toutes. Un élan à volume constant s'entend comme une gamme. */
       const g = NIVEAU * (0.5 + (0.5 * i) / Math.max(1, fin)) * (dernier ? 1.15 : 1);
       note(ac, maitre, BASE * mult, t, g, dernier ? tenue : BREF);
+      /* Les graves entrent un cheveu AVANT la résolution (30 ms), pas avec
+         elle : leur attaque dure 180 ms, donc partir en même temps les ferait
+         arriver bien après, et on entendrait deux événements au lieu d'un. */
+      if (dernier) {
+        socle(ac, maitre, t - 0.03, NIVEAU * (SOCLE[rarity] ?? 0), tenue * 1.3);
+      }
     });
   } catch {
     /* Contexte fermé entre-temps, quota d'oscillateurs : tant pis, pas de son. */

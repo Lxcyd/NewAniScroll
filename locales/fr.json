@@ -1621,9 +1621,7 @@
       },
       "seeTiers": "Voir tous les paliers",
       "close": "Fermer",
-      "openInProfile": "Voir ce badge dans le profil",
-      "unseen_one": "{{count}} badge a voir",
-      "unseen_other": "{{count}} badges a voir"
+      "openInProfile": "Voir ce badge dans le profil"
     },
     "ep-1": {
       "name": "Premier épisode",

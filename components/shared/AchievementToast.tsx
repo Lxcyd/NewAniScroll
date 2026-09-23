@@ -38,7 +38,6 @@ import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
 import { next, useAchievement } from "@/lib/badges/achievementStore";
 import { playBadgeChime } from "@/lib/badges/chime";
-import { markUnseen } from "@/lib/badges/dock";
 import { revealHref } from "@/lib/badges/reveal";
 import { useBadgePrefs } from "@/lib/prefs/badgePrefs";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
@@ -274,17 +273,12 @@ export default function AchievementToast() {
     return () => clearTimeout(t);
   }, [phase]);
 
-  /* Le badge passe dans les « non vus » à l'instant où il quitte l'écran, et
-     pas à son arrivée : un badge qu'on est en train de regarder n'est pas en
-     attente d'être vu. */
+  /* Le jeton est parti : on passe au badge suivant de la file. */
   useEffect(() => {
-    if (phase !== "out" || !def) return;
-    const t = setTimeout(() => {
-      markUnseen(def.id);
-      next();
-    }, outMs);
+    if (phase !== "out") return;
+    const t = setTimeout(next, outMs);
     return () => clearTimeout(t);
-  }, [phase, def, outMs]);
+  }, [phase, outMs]);
 
   /* ── LE VOL VERS L'AVATAR A ÉTÉ RETIRÉ (23/09) ─────────────────────────────
      Le jeton filait vers l'avatar de la navbar en fin de sortie, pour que la
@@ -293,8 +287,8 @@ export default function AchievementToast() {
      rien à y voir, et le geste raconte « ça s'en va » alors qu'on voulait « ça
      se range ». Le jeton repart donc par le haut, comme il est venu.
 
-     Ce qui RESTE de la fonctionnalité : la pastille des non-vus sur l'avatar
-     (lib/badges/dock.ts), qui n'a jamais eu besoin du vol pour exister. */
+     La pastille des non-vus qui devait lui survivre sur l'avatar a ete retiree
+     dans la foulee, et son registre avec. */
 
   /** Abréger : on saute à la sortie, animation comprise. Depuis l'arrivée comme
    *  depuis la pose — on peut congédier un badge avant même de l'avoir lu. */
@@ -403,7 +397,14 @@ export default function AchievementToast() {
                 borderRadius: 1,
                 ["--as-cx" as string]: `${c.sway}px`,
                 ["--as-cr" as string]: `${c.spin}deg`,
-                animation: `asAchConfetti ${c.dur}ms cubic-bezier(.25,.5,.5,1) ${c.delay}ms both`,
+                /* `infinite` : la pluie ne s'arrête pas tant que la
+                   notification est là. Une seule salve laissait un écran vide
+                   pendant les trois dernières secondes — et c'est justement la
+                   pose, le moment où on regarde. Chaque confetti a sa propre
+                   période (2,1 à 3,7 s) et son propre départ, donc les cycles
+                   se désynchronisent tout seuls : il n'y a jamais de rideau
+                   qui repart d'un bloc, ce qui trahirait la boucle. */
+                animation: `asAchConfetti ${c.dur}ms cubic-bezier(.25,.5,.5,1) ${c.delay}ms infinite both`,
               }}
             />
           ))}

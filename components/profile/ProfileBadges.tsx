@@ -31,7 +31,6 @@ import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
-import { clearUnseen } from "@/lib/badges/dock";
 import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
 import { mergeBadgeState, useBadgeState, type BadgeState } from "@/lib/badges/store";
 import { Bar } from "./widgets/common";
@@ -121,14 +120,6 @@ export default function ProfileBadges({
       endQuiet();
       setProgress(progressAll().progress);
     });
-  }, [live]);
-
-  /* Chez soi, ouvrir l'onglet SUFFIT à tout marquer comme vu : la pastille de
-     l'avatar existe pour ramener ici, elle n'a plus de raison d'être une fois
-     qu'on y est. Chez quelqu'un d'autre, on ne touche à rien — ses badges ne
-     sont pas les nôtres. */
-  useEffect(() => {
-    if (live) clearUnseen();
   }, [live]);
 
   /**

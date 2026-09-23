@@ -3364,17 +3364,10 @@ input[type="number"] {
   50% { box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.55), 0 0 26px rgba(233, 69, 96, 0.3); }
 }
 
-/* La pastille des badges non vus, sur l'avatar de la navbar. Elle arrive en
-   rebondissant UNE fois : c'est ce qui la fait remarquer sur une barre qu'on ne
-   regarde pas, sans la transformer en clignotant permanent. */
-.as-badge-pip {
-  animation: asBadgePip 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes asBadgePip {
-  0% { transform: scale(0); opacity: 0; }
-  60% { transform: scale(1.25); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
+/* (Une pastille comptant les badges non vus a vecu sur l'avatar de la navbar le
+   23/09, le temps d'un aller-retour : un chiffre de plus a porter pour une
+   chose qu'on decouvre tres bien en ouvrant l'onglet. Le registre qui la
+   nourrissait, lib/badges/dock.ts, est supprime avec elle.) */
 
 /* La condition d'un secret non débloqué. Le flou est un effet, pas une
    protection : le texte réel n'est JAMAIS rendu dans le DOM (cf.
@@ -3575,19 +3568,42 @@ input[type="number"] {
  * posé sur du vide entre les mots. Le filtre, lui, porte sur le bloc entier —
  * c'est pour ça qu'il est sur `.as-ach-text` et pas sur chaque ligne (sinon la
  * condition projetterait son ombre sur le nom). */
+/* ── LE RAYON FAIT LA BOÎTE, PAS L'OPACITÉ ─────────────────────────────────
+ *
+ * Premier essai : trois halos, dont un à 16 px. Verdict — « le texte a
+ * toujours un fond noir ». Il avait raison, et la raison est géométrique : à
+ * 16 px de rayon, les auréoles des lettres voisines SE REJOIGNENT. Trois
+ * lettres espacées de 10 px partagent alors une seule tache continue, et cette
+ * tache a la forme du bloc — c'est-à-dire un rectangle. On avait remplacé le
+ * `backdrop-filter` par un filtre censé épouser les glyphes, et on avait
+ * refabriqué la même boîte, plus floue.
+ *
+ * Le seuil est là : tant que le rayon reste SOUS l'espacement des lettres,
+ * chaque glyphe garde son ombre et on voit le fond entre les mots. Au-dessus,
+ * les ombres fusionnent et redeviennent une zone. Donc 5 px maximum, et une
+ * ombre portée de 1 px pour asseoir.
+ *
+ * Même correction sur le CONTOUR, qui était lu comme « des bordures noires » :
+ * à 3 px sur un texte de 20 px, le trait fait un sixième de la hauteur des
+ * lettres et se voit COMME un trait. À 1,4 px il ne se voit plus, il se sent —
+ * les lettres ont juste l'air nettes. `paint-order: stroke fill` reste
+ * indispensable : sans lui le trait mange le remplissage par l'intérieur.
+ *
+ * LE PRIX EST ASSUMÉ ET IL EST RÉEL : sur une bannière très claire, le texte
+ * est maintenant moins contrasté qu'avec les halos larges. C'est le choix
+ * demandé — pas de plaque, pas de tache, donc pas de garantie de contraste. */
 .as-ach-text {
   filter:
-    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.95))
-    drop-shadow(0 0 4px rgba(0, 0, 0, 0.85))
-    drop-shadow(0 0 16px rgba(0, 0, 0, 0.75));
+    drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.9))
+    drop-shadow(0 0 5px rgba(0, 0, 0, 0.55));
 }
 .as-ach-name,
 .as-ach-cond {
-  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.8);
+  -webkit-text-stroke: 1.4px rgba(0, 0, 0, 0.5);
   paint-order: stroke fill;
 }
 .as-ach-cond {
-  -webkit-text-stroke-width: 2.2px;
+  -webkit-text-stroke-width: 1.1px;
 }
 
 /* (`asAchGauge` — une jauge de temps restant sous le texte — a été essayée puis
