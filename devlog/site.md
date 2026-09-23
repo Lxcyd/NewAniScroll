@@ -6,6 +6,60 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-23 (fin) — Le carillon est abandonné, et la pluie finit avec le jeton
+
+**LE SON DU BADGE EST RETIRÉ. `lib/badges/chime.ts` n'existe plus**, ni son
+interrupteur dans les préférences, ni ses traductions. Ce n'est pas un
+renoncement technique : le module marchait, ne coûtait rien et se déclinait par
+rareté sans un octet d'asset. C'est le résultat qui n'a jamais convaincu, après
+**cinq versions** (arpège de cinq cloches → souffle résolu en quinte → fanfare
+montante → descente d'une octave → retrait de la basse) et **deux bancs d'essai
+de vingt et vingt-quatre variantes**.
+
+Ce qu'il faut en retenir, parce que ça vaut au-delà du son :
+
+- **Le raisonnement inventé coûte trois itérations.** La v2 suivait une règle
+  écrite par moi — « un son de récompense se REFERME, il ne s'ouvre pas » — qui
+  n'existe nulle part. La convention du genre (Zelda, Xbox, Mario 1-UP, Celeste)
+  est l'inverse exact : montante, consonante, brève. Une recherche de cinq
+  minutes avant la v1 aurait économisé les v2 et v3.
+- **Quand chaque version est juste et que le reproche revient quand même, le
+  problème n'est pas dans les réglages.** Les cinq versions étaient correctes
+  dans leur forme ; ce qui était en cause est l'existence même d'un son
+  qu'on reçoit sans l'avoir demandé, sur un site où l'on est le plus souvent
+  déjà en train d'écouter un épisode.
+- Il reste **un** interrupteur dans les préférences, celui de l'animation, et
+  c'est lui le vrai correctif à `prefers-reduced-motion`. La clé
+  `aniscroll:badges:sound` n'est plus lue ; elle n'est pas nettoyée chez ceux
+  qui l'ont écrite — une clé orpheline dans `localStorage` ne coûte rien, le
+  code qui irait la supprimer coûterait plus.
+
+**Les confettis du mythique tombent maintenant sur une durée calculée.** Ils
+sont passés par trois états, et les deux premiers étaient les deux bouts du même
+défaut : une salve unique vidait l'écran pendant les trois dernières secondes —
+c'est-à-dire pendant la POSE, le moment où on regarde — et `infinite` réglait ça
+mais faisait disparaître d'un coup, en plein vol, tous ceux qui n'avaient pas
+fini quand la notification se démonte.
+
+Le nombre de cycles est donc calculé pour que la dernière chute sorte par le bas
+au moment où le jeton repart. Un nombre entier de cycles ne tombe évidemment pas
+juste tout seul : **c'est la durée qui est recalée dessus** (`dur = fin /
+cycles`, `cycles` = l'entier le plus proche du tirage). L'écart ne dépasse
+jamais quelques pourcents, et reste différent d'un confetti à l'autre, donc rien
+ne se resynchronise. **Le détail qui fait tout** : `fin` retranche un retard
+propre à chacun, jusqu'à 700 ms — sans lui, les 46 derniers cycles finiraient
+sur la même image, c'est-à-dire un rideau, exactement ce que le semis passe son
+temps à éviter ailleurs. Avec lui, la pluie se tarit. Et elle se **fige avec la
+pose au survol**, sans quoi garder le badge à l'écran allongerait la
+notification sans allonger la pluie.
+
+**Le piège CSS de la veille, pour mémoire** : les confettis semblaient marquer
+une pause à mi-chute. Une fonction d'interpolation s'applique **entre chaque
+paire de keyframes**, pas sur toute la durée — la courbe décélérait jusqu'au
+keyframe à 50 %, puis repartait. `linear`, et c'est réglé (c'est aussi le plus
+juste : un rectangle de papier atteint sa vitesse limite en quelques
+centimètres).
+
 ## 2026-09-23 (suite) — Un flou qui n'en était pas un, et la récompense qui mène enfin quelque part
 
 **LE BUG LE PLUS INSTRUCTIF DE LA JOURNÉE : on avait écrit « un flou, pas une
@@ -124,6 +178,11 @@ survol. C'est `animation-play-state: paused` qui fait le travail, et le minuteur
 JS comme l'animation CSS comptent le même temps réel : ils ne peuvent pas
 diverger. Une croix (et Échap) déclenche la vraie sortie animée — on abrège, on
 ne coupe pas.
+
+**(Tout le paragraphe qui suit décrit un module SUPPRIMÉ : le carillon a été
+abandonné le 23/09 au soir, voir l'entrée « fin » en tête de fichier. Il reste
+ici parce que les deux garde-fous WebAudio qu'il décrit valent pour n'importe
+quel son qu'on rebrancherait un jour.)**
 
 **Le carillon est synthétisé, pas téléchargé** (`lib/badges/chime.ts`). Un .mp3
 serait un asset dans `public/`, une requête, du quota de déploiement, et un son

@@ -247,11 +247,9 @@
     "badges": {
       "title": "Badges",
       "desc": "Ce qui se passe quand un badge tombe.",
-      "sound": "Carillon",
-      "soundDesc": "Un court son a l'apparition du badge. Il s'ouvre avec la rarete.",
       "fx": "Animation",
-      "fxDesc": "La gerbe d'etincelles, l'onde de choc et le vol du jeton vers l'avatar. Eteint, le badge s'annonce sans la fete.",
-      "note": "Ces deux reglages sont propres a cet appareil, et independants du reglage d'animations du systeme."
+      "fxDesc": "La gerbe d'étincelles, l'onde de choc et la pluie de confettis. Éteint, le badge s'annonce sans la fête.",
+      "note": "Ce réglage est propre à cet appareil, et indépendant du réglage d'animations du système."
     },
     "theme": {
       "title": "Thème",

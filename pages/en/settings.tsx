@@ -22,7 +22,7 @@ import {
 } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
-import { useBadgePrefs, setBadgeSound, setBadgeFx } from "@/lib/prefs/badgePrefs";
+import { useBadgePrefs, setBadgeFx } from "@/lib/prefs/badgePrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import {
@@ -1089,19 +1089,14 @@ export default function Settings() {
               jamais demandé moins d'animations à un site — et le `display:none`
               tombait sur exactement ce qui FAIT la récompense. On avait écrit
               alors que le correctif était un réglage DU SITE, distinct de celui
-              du système. Le voici, et les deux interrupteurs sont séparés :
-              quelqu'un peut vouloir la fête en silence, ou le son sans la
-              gerbe. */}
+              du système. Le voici.
+
+              Un second interrupteur coupait le carillon du badge ; le carillon
+              a été abandonné le 23/09 et il est parti avec. */}
           <section id="badges" className="py-10 scroll-mt-24">
             <h2 className="text-xl font-semibold mb-1">{t("settings.badges.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.badges.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
-              <Toggle
-                label={t("settings.badges.sound")}
-                desc={t("settings.badges.soundDesc")}
-                checked={badgePrefs.sound}
-                onChange={setBadgeSound}
-              />
               <Toggle
                 label={t("settings.badges.fx")}
                 desc={t("settings.badges.fxDesc")}

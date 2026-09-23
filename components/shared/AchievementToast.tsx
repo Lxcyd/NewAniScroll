@@ -37,7 +37,6 @@ import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
 import { next, useAchievement } from "@/lib/badges/achievementStore";
-import { playBadgeChime } from "@/lib/badges/chime";
 import { revealHref } from "@/lib/badges/reveal";
 import { useBadgePrefs } from "@/lib/prefs/badgePrefs";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
@@ -208,7 +207,7 @@ function line(phase: Phase, delay: number): string {
 export default function AchievementToast() {
   const ach = useAchievement();
   const surface = usePlayerSurface();
-  const { sound, fx } = useBadgePrefs();
+  const { fx } = useBadgePrefs();
   const router = useRouter();
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("in");
@@ -256,18 +255,22 @@ export default function AchievementToast() {
     };
   }, [ach?.key, ach, muted, inMs, openMs]);
 
-  /* Le carillon part avec l'impact, pas avec le montage : le jeton met 720 ms à
-     tomber, et un son qui précède son objet s'entend comme un son de trop.
+  /* ── IL N'Y A PLUS DE SON, ET C'EST UN ABANDON, PAS UN OUBLI ───────────────
+     Un carillon partait ici, 260 ms après le montage, pour tomber sur l'impact
+     du jeton. Il a été refait cinq fois — arpège de cloches, souffle résolu en
+     quinte, fanfare montante, descente d'octave, retrait de la basse — puis
+     deux bancs d'essai de vingt et vingt-quatre variantes. Aucune n'a convaincu.
 
-     `sound` n'est pas testé ici mais dans `playBadgeChime` : la valeur du hook
-     est `true` au premier rendu (pas de `localStorage` côté serveur), et
-     couper sur elle laisserait passer un son pendant la fraction de seconde où
-     elle n'est pas encore lue. La lecture synchrone, elle, est juste. */
-  useEffect(() => {
-    if (!ach || muted || !def) return;
-    const t = setTimeout(() => playBadgeChime(def.rarity), inMs * 0.36);
-    return () => clearTimeout(t);
-  }, [ach?.key, ach, muted, def, inMs, sound]);
+     Le son est donc RETIRÉ, avec son module (`lib/badges/chime.ts`), son
+     interrupteur et ses traductions. Ce qu'on retient : un son de récompense
+     n'est pas un problème de réglages — toutes ces versions étaient justes dans
+     leur forme (montante, consonante, brève, comme le genre le fait) et le
+     reproche portait à chaque fois ailleurs. Une notification qu'on reçoit sans
+     l'avoir demandée n'a peut-être simplement pas sa place dans le son d'un site
+     où l'on est déjà en train d'écouter un épisode.
+
+     Le badge garde toute sa fête visuelle, et l'interrupteur « animation »
+     reste le vrai correctif à `prefers-reduced-motion`. */
 
   /**
    * LA POSE, ET ELLE SEULE EST SUSPENDABLE.

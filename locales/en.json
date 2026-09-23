@@ -247,11 +247,9 @@
     "badges": {
       "title": "Badges",
       "desc": "What happens when a badge drops.",
-      "sound": "Chime",
-      "soundDesc": "A short sound as the badge appears. It opens up with rarity.",
       "fx": "Animation",
-      "fxDesc": "The spark burst, the shockwave and the token's flight to your avatar. Off, the badge announces itself without the party.",
-      "note": "Both settings are per-device, and independent of your system's animation setting."
+      "fxDesc": "The spark burst, the shockwave and the confetti. Off, the badge announces itself without the party.",
+      "note": "This setting is per-device, and independent of your system's animation setting."
     },
     "theme": {
       "title": "Theme",
