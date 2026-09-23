@@ -503,8 +503,15 @@ export default function AchievementToast() {
              étincelles montantes avec. On descend donc le tout d'une demi-onde,
              ce qui laisse le cercle entier dans le cadre au moment où il se
              voit encore (il s'efface avant sa taille maximale). */
+             ── ET ELLE DESCEND SOUS LA BARRE DE NAVIGATION ──────────────────
+             54 px laissaient le jeton chevaucher la barre : celle-ci fait
+             48 px de contenu plus 12 px de marge haute et basse (`min-h-[48px]`
+             et `py-3` dans NavBar.tsx), soit 72 px. Le voile flouté débordant
+             de 12 px vers le haut (`.as-ach-blur`), la notification commence
+             donc à 88 px — le premier pixel qu'elle peint tombe 4 px SOUS la
+             barre, et pas un de plus : on descend le strict nécessaire. */
           position: "fixed",
-          top: 54,
+          top: 88,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 999999999,
