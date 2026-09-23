@@ -528,8 +528,9 @@ export default function AchievementToast() {
              et `py-3` dans NavBar.tsx), soit 72 px. La notification commence
              donc à 88 px : 16 px de marge, le strict nécessaire.
 
-             Le voile flouté déborde plus haut que ça (26 px, cf.
-             `.as-ach-blur`), et ce n'est pas une contradiction : son masque
+             Le voile flouté déborde plus haut que ça (il fait 160 px de haut
+             pour 104 de jeton, cf. `.as-ach-blur`), et ce n'est pas une
+             contradiction : son masque
              vaut ZÉRO sur ses propres bords et ne devient franc qu'au tiers du
              chemin vers le centre. Ce qui dépasse sur la barre ne peint rien —
              c'est précisément la marge dont le dégradé a besoin pour

@@ -3631,7 +3631,7 @@ input[type="number"] {
  * voile était donc enfermé avec, pour tout arrière-plan, du vide.
  *
  * Il est monté au premier niveau de la notification, qui n'a ni l'un ni
- * l'autre. Le débordement négatif donne au dégradé de quoi s'éteindre en
+ * l'autre. Il déborde d'elle, pour donner au dégradé de quoi s'éteindre en
  * dehors du texte. Voir AchievementToast.tsx pour l'empilement. */
 /* ── `closest-side`, ET C'EST LA SEULE VALEUR QUI GARANTIT LE ZÉRO ──────────
  * Le masque valait `ellipse 66% 56%`, et il laissait une ARÊTE DROITE sur les
@@ -3644,14 +3644,28 @@ input[type="number"] {
  *
  * `closest-side` fait toucher l'ellipse au milieu de chaque côté : l'alpha vaut
  * zéro sur les quatre bords, et les coins sont hors de l'ellipse donc déjà à
- * zéro. Plus aucune valeur à accorder à la main quand la carte change de
- * largeur — c'est elle qui a le dernier mot, pas une constante.
+ * zéro. C'est la boîte qui a le dernier mot, pas une constante à réaccorder. */
+/* ── SA TAILLE EST FIXE, ET C'EST CE QUI L'EMPÊCHE DE CLIGNOTER ────────────
+ * Il a d'abord été dimensionné par `inset`, donc par la notification — dont la
+ * LARGEUR EST ANIMÉE (la carte s'ouvre de 0 à 360 px, puis se referme). La
+ * couche était ainsi redimensionnée à chaque image pendant ~680 ms, et un
+ * masque doit être re-rastérisé à chaque changement de taille : il arrivait
+ * qu'une image passe avec le `backdrop-filter` déjà appliqué et le masque en
+ * retard d'un cran. On voyait alors, un court instant, le RECTANGLE BRUT —
+ * celui-là même que le dégradé existe pour supprimer.
  *
- * Le débordement est en conséquence plus généreux : le dégradé a besoin de
- * cette marge pour s'éteindre AUTOUR du texte et non dessus. */
+ * Des dimensions fixes retirent la cause : la couche est posée une fois, au
+ * centre de l'écran (la notification est centrée, donc son centre ne bouge pas
+ * quand sa largeur change), et plus rien ne la fait recalculer. Elle est
+ * dimensionnée pour la notification ouverte (104 + 360 − 10 = 454 de large,
+ * 104 de haut) avec la marge dont le dégradé a besoin pour s'éteindre. */
 .as-ach-blur {
   position: absolute;
-  inset: -26px -20px;
+  left: 50%;
+  top: 50%;
+  width: 520px;
+  height: 160px;
+  transform: translate(-50%, -50%);
   z-index: 0;
   pointer-events: none;
   -webkit-backdrop-filter: blur(8px);
