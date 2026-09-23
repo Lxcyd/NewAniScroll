@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import Footer from "@/components/shared/footer";
@@ -12,7 +12,7 @@ import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { useBadgeState } from "@/lib/badges/store";
-import { wantsBadgesTab } from "@/lib/badges/reveal";
+import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import dynamic from "next/dynamic";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import type { StudioAnime } from "@/components/profile/BannerStudio";
@@ -51,16 +51,32 @@ export default function LocalProfile() {
   const [picker, setPicker] = useState(false);
   const studioEverOpened = useMountedOnce(picker);
   const [pinned, setPinned] = useState<Dressing | null>(null);
+  /* L'onglet ouvert, miroite dans le fragment de l'adresse (`#stats`,
+     `#badges`) pour qu'un rechargement retombe au bon endroit. Meme module que
+     le profil d'un compte : lib/profile/tabHash.ts. */
   const [tab, setTab] = useState("overview");
-  /* LA NOTIFICATION DE BADGE ENVOIE ICI, avec un `#badge-<id>`. L'onglet
-     s'ouvre donc tout seul, et ProfileBadges fait defiler + surligne.
+  /* Restauration, et elle N'ECRIT RIEN : la notification de badge arrive avec
+     un `#badge-<id>` que ProfileBadges doit encore lire pour surligner le bon
+     jeton — le remplacer par `#badges` lui ferait perdre sa cible.
 
      Dans un EFFET et pas dans l'etat initial : `location` n'existe pas au rendu
-     serveur, et choisir « badges » des le premier rendu client ferait diverger
+     serveur, et choisir l'onglet des le premier rendu client ferait diverger
      l'hydratation. Le prix est un eclair de l'onglet Apercu, invisible en
      pratique — l'effet part avant la peinture suivante. */
   useEffect(() => {
-    if (wantsBadgesTab()) setTab("badges");
+    const sync = () => setTab(lireOnglet());
+    sync();
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, []);
+  /* Le seul chemin qui ECRIT dans l'adresse : un onglet choisi a la main. */
+  const changeTab = useCallback((key: string) => {
+    setTab(key);
+    ecrireOnglet(key);
   }, []);
   /* Lu en direct : un badge debloque pendant qu'on est sur la page doit
      apparaitre dans l'onglet sans rechargement. */
@@ -182,7 +198,7 @@ export default function LocalProfile() {
                 { key: "badges", label: t("profile.tabs.badges") },
               ]}
               active={tab}
-              onChange={setTab}
+              onChange={changeTab}
             />
           </div>
 
@@ -198,7 +214,7 @@ export default function LocalProfile() {
               isOwner
               onPickScore={(score, completedOnly) => {
                 setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
-                setTab("list");
+                changeTab("list");
               }}
             />
           ) : null}

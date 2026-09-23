@@ -3659,25 +3659,39 @@ input[type="number"] {
  * quand sa largeur change), et plus rien ne la fait recalculer. Elle est
  * dimensionnée pour la notification ouverte (104 + 360 − 10 = 454 de large,
  * 104 de haut) avec la marge dont le dégradé a besoin pour s'éteindre. */
-/* ── TROIS VOILES, PARCE QU'UN SEUL NE PEUT PAS NE PAS FAIRE DE BORD ───────
+/* ── IL N'Y A PLUS DE MASQUE DU TOUT, ET C'EST TOUT LE SUJET ───────────────
  *
- * Le masque était juste — vérifié en filmant la notification à ~95 images par
- * seconde, aucune image ne montre de marche, le dégradé s'éteint bien à zéro.
- * La démarcation venait d'ailleurs, et d'un fait qu'aucun réglage de masque ne
- * corrige : un `backdrop-filter` masqué MÉLANGE une copie floutée par-dessus
- * l'image nette. Là où l'alpha baisse, les contours nets du fond
- * RÉAPPARAISSENT à travers. L'œil ne lit pas « un peu moins flou », il lit une
- * limite — surtout sur la bannière du profil, où passent des cartes de stats à
- * liseré clair : le voile en dissolvait une et laissait l'autre nette.
+ * Sept versions de ce voile ont buté sur le même bord, et la dernière explique
+ * les six autres : LE DÉFAUT EST DANS LE PROCÉDÉ, pas dans son réglage.
  *
- * Trois voiles de rayon croissant, chacun masqué PLUS TÔT que le précédent,
- * répartissent la transition : aucune couche ne porte seule le passage du flou
- * au net, donc aucune n'a de frontière à montrer. Les flous se composent (2, 3
- * et 4 px au centre valent ~5,4 px), ce qui fait moins de flou qu'avant au plus
- * fort — le fond reste reconnaissable au lieu de fondre en taches.
+ * Un `backdrop-filter` masqué ne floute pas « à moitié » là où son alpha vaut
+ * 0,5 : il MÉLANGE une copie floutée par-dessus l'image nette. Les contours
+ * nets du fond réapparaissent donc à travers, et ce qu'on obtient est un
+ * DÉDOUBLEMENT — sur la bannière du profil, le « 5261 » d'une carte de stats se
+ * lisait deux fois, net sous le flou. L'œil ne lit pas « moins flou », il lit
+ * une limite. Aucun dégradé, si doux soit-il, ne corrige ça : plus la zone de
+ * mélange est large, plus la zone de dédoublement l'est aussi.
  *
- * L'ORDRE DES COUCHES COMPTE : chacune floute ce que la précédente a déjà
- * peint, donc la plus large en premier, la plus resserrée en dernier. */
+ * Et un masque est une TEXTURE que le compositeur doit re-rastériser, là où un
+ * découpage est une géométrie. C'est ce qui explique le second symptôme, les
+ * éclairs : ils arrivaient quand la souris survolait la liste des badges,
+ * c'est-à-dire quand le fond BOUGEAIT sous le voile. Le filtre est alors
+ * recalculé, et le masque pouvait arriver avec une image de retard — le
+ * rectangle brut, le temps d'une image.
+ *
+ * ── DES ANNEAUX DÉCOUPÉS, CHACUN FLOUTANT LE PRÉCÉDENT ────────────────────
+ * Six couches concentriques, sans masque. Chacune floute ce que celle du
+ * dessous a déjà flouté, donc le flou CROÎT vers le centre sans qu'aucune
+ * région ne soit un mélange de net et de flou : c'est un vrai flou variable.
+ * Mesuré sur le même fond (netteté colonne par colonne, 1 = toute la
+ * transition dans une seule colonne) : 0,098 contre 0,145 pour le masque.
+ *
+ * LE RAYON DE FLOU CROÎT VERS LE CENTRE, et c'est ce qui rend les marches
+ * invisibles : la couche extérieure est la SEULE dont le bord touche du fond
+ * non flouté, elle doit donc flouter le moins (1,2 px). Toutes les autres
+ * séparent deux régions déjà floues, où une marche ne se voit pas.
+ *
+ * Les flous se composent en quadrature : ~6,5 px au centre, le rendu d'avant. */
 .as-ach-blur {
   position: absolute;
   left: 50%;
@@ -3693,50 +3707,51 @@ input[type="number"] {
   inset: 0;
   display: block;
 }
-.as-ach-blur .b1 {
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
-  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 60%, transparent 100%);
-  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 60%, transparent 100%);
+.as-ach-blur .c1 {
+  -webkit-backdrop-filter: blur(1.2px);
+  backdrop-filter: blur(1.2px);
+  clip-path: ellipse(50% 50% at 50% 50%);
 }
-.as-ach-blur .b2 {
+.as-ach-blur .c2 {
+  -webkit-backdrop-filter: blur(1.8px);
+  backdrop-filter: blur(1.8px);
+  clip-path: ellipse(42% 42% at 50% 50%);
+}
+.as-ach-blur .c3 {
+  -webkit-backdrop-filter: blur(2.4px);
+  backdrop-filter: blur(2.4px);
+  clip-path: ellipse(34% 34% at 50% 50%);
+}
+.as-ach-blur .c4 {
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
-  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 34%, transparent 72%);
-  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 34%, transparent 72%);
+  clip-path: ellipse(26% 26% at 50% 50%);
 }
-.as-ach-blur .b3 {
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  -webkit-mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 12%, transparent 46%);
-  mask-image: radial-gradient(ellipse closest-side at 50% 50%,
-    #000 0%, #000 12%, transparent 46%);
+.as-ach-blur .c5 {
+  -webkit-backdrop-filter: blur(3.4px);
+  backdrop-filter: blur(3.4px);
+  clip-path: ellipse(18% 18% at 50% 50%);
+}
+.as-ach-blur .c6 {
+  -webkit-backdrop-filter: blur(3.8px);
+  backdrop-filter: blur(3.8px);
+  clip-path: ellipse(11% 11% at 50% 50%);
 }
 
-/* ── LE TÉLÉPHONE N'EN A QU'UN, ET C'EST UNE DETTE PAYÉE D'AVANCE ──────────
+/* ── LE TÉLÉPHONE N'EN GARDE QUE DEUX, ET C'EST UNE DETTE PAYÉE D'AVANCE ───
  * Ce projet a déjà tranché ce point ailleurs (cf. `.as-stat-card` plus haut) :
  * empiler des `backdrop-filter` au-dessus d'un fond `fixed`, ce sont autant de
- * couches que le compositeur refiltre à chaque image. Trois couches de
- * 520 × 160 pendant sept secondes, c'est le même piège en plus petit — et
- * Safari iOS rate régulièrement un `backdrop-filter` masqué, auquel cas il
- * affiche le RECTANGLE PLEIN, c'est-à-dire précisément le défaut qu'on essaie
- * de supprimer.
+ * couches que le compositeur refiltre à chaque image. Six couches de 520 × 160
+ * pendant sept secondes, c'est le même piège en plus petit.
  *
- * Sur mobile, donc : une seule couche, légère, et les deux autres éteintes.
- * Le texte ne dépend de toute façon pas du flou pour se lire — il porte son
- * contour et ses halos, qui ne coûtent rien. */
+ * Deux couches suffisent là-bas : l'écran est plus petit, la notification y
+ * occupe une plus grande part, et le texte ne dépend de toute façon pas du flou
+ * pour se lire — il porte son contour et ses halos, qui ne coûtent rien. */
 @media (max-width: 640px), (hover: none) {
-  .as-ach-blur .b1 {
-    -webkit-backdrop-filter: blur(3px);
-    backdrop-filter: blur(3px);
-  }
-  .as-ach-blur .b2,
-  .as-ach-blur .b3 {
+  .as-ach-blur .c3,
+  .as-ach-blur .c4,
+  .as-ach-blur .c5,
+  .as-ach-blur .c6 {
     display: none;
   }
 }

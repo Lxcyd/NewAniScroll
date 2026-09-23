@@ -569,14 +569,15 @@ export default function AchievementToast() {
             met sous la carte (positionnée, z-index auto, plus loin dans le
             DOM) et sous le jeton (z-index 2).
 
-            Ce n'est plus UN voile mais TROIS, de rayon croissant et masqués de
-            plus en plus tôt : un voile unique ne peut pas ne pas faire de bord,
-            parce qu'il mélange une copie floutée par-dessus l'image nette et
-            que les contours nets réapparaissent là où son alpha baisse. Le
-            détail est dans `.as-ach-blur` (globals.css), avec le repli à une
-            seule couche sur mobile. */}
+            Ce n'est plus UN voile masqué mais SIX ANNEAUX DÉCOUPÉS, chacun
+            floutant ce que le précédent a déjà flouté. Un masque ne floute pas
+            « à moitié » : il mélange une copie floutée par-dessus l'image
+            nette, donc les contours nets réapparaissent là où son alpha baisse
+            — un dédoublement, qui se lit comme une limite. Le détail est dans
+            `.as-ach-blur` (globals.css), avec le repli à deux anneaux sur
+            mobile. */}
         <div className="as-ach-blur" aria-hidden="true">
-          {/* TROIS COUCHES, ET LE FONDU EST SUR CHACUNE, PAS SUR LE PARENT.
+          {/* SIX ANNEAUX, ET LE FONDU EST SUR CHACUN, PAS SUR LE PARENT.
 
               Un parent à opacité < 1 crée un « backdrop root » : ses enfants ne
               flouteraient plus que ce qui est peint À L'INTÉRIEUR du groupe,
@@ -593,7 +594,7 @@ export default function AchievementToast() {
               La valeur est la MÊME chaîne pendant `textOut` et pendant `out` :
               le changement de phase ne doit pas relancer l'animation depuis le
               début, ce qui rallumerait les voiles à mi-sortie. */}
-          {["b1", "b2", "b3"].map((c) => (
+          {["c1", "c2", "c3", "c4", "c5", "c6"].map((c) => (
             <span
               key={c}
               className={c}

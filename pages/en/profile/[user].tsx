@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import Head from "next/head";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SparklesIcon } from "@heroicons/react/24/solid";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
@@ -45,7 +45,7 @@ import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileBadges from "@/components/profile/ProfileBadges";
-import { wantsBadgesTab } from "@/lib/badges/reveal";
+import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
 import { noteListCounter } from "@/lib/badges/facts";
 import { silenceNextEvaluation } from "@/lib/badges/evaluate";
@@ -192,19 +192,35 @@ export default function Profile({
   const studioEverOpened = useMountedOnce(picker);
   const [showForYou, setShowForYou] = useState(false);
   /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
-     est à un clic. L'état est volontairement local — une URL par onglet ferait
-     re-tourner getServerSideProps (donc la requête AniList) pour un changement
-     qui ne coûte rien côté client. */
+     est à un clic. L'état reste local, mais il est MIROITÉ DANS LE FRAGMENT
+     (`#stats`, `#badges`) — pas dans le chemin : une URL par onglet ferait
+     re-tourner getServerSideProps, donc la requête AniList, pour un changement
+     qui ne coûte rien côté client. Le fragment, lui, ne voyage pas jusqu'au
+     serveur. Voir lib/profile/tabHash.ts. */
   const [tab, setTab] = useState("overview");
-  /* LA NOTIFICATION DE BADGE ENVOIE ICI, avec un `#badge-<id>` (cf.
-     lib/badges/reveal.ts). L'onglet s'ouvre donc tout seul, et ProfileBadges
-     fait défiler dessus et le surligne.
+  /* Restauration, et elle N'ÉCRIT RIEN : la notification de badge arrive avec
+     un `#badge-<id>` (lib/badges/reveal.ts) que ProfileBadges doit encore lire
+     pour surligner le bon jeton. Réécrire l'adresse ici le remplacerait par
+     `#badges` et ferait perdre la cible.
 
      Dans un EFFET et pas dans l'état initial : `location` n'existe pas au rendu
-     serveur, et choisir « badges » dès le premier rendu client ferait diverger
-     l'hydratation. */
+     serveur, et choisir l'onglet dès le premier rendu client ferait diverger
+     l'hydratation. On écoute `hashchange` ET `popstate` — un retour arrière qui
+     retombe sur le même fragment n'émet que le second. */
   useEffect(() => {
-    if (wantsBadgesTab()) setTab("badges");
+    const sync = () => setTab(lireOnglet());
+    sync();
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, []);
+  /* Le seul chemin qui ÉCRIT dans l'adresse : un onglet choisi à la main. */
+  const changeTab = useCallback((key: string) => {
+    setTab(key);
+    ecrireOnglet(key);
   }, []);
   /* Sur quoi l'onglet « Ma liste » s'ouvre quand on n'y arrive pas en cliquant
      dessus mais en cliquant une colonne de l'histogramme des notes. Un objet
@@ -219,7 +235,8 @@ export default function Profile({
 
   function openScore(score: number, completedOnly: boolean) {
     setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
-    setTab("list");
+    /* Un geste de l'utilisateur comme un autre : l'adresse suit. */
+    changeTab("list");
     requestAnimationFrame(() => {
       const el = tabsRef.current;
       if (!el) return;
@@ -370,7 +387,7 @@ export default function Profile({
               { key: "badges", label: t("profile.tabs.badges") },
             ]}
             active={tab}
-            onChange={setTab}
+            onChange={changeTab}
           />
           {isOwner && (
             <button
