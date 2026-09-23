@@ -3478,17 +3478,41 @@ input[type="number"] {
   }
 }
 
-/* LA JAUGE DE LA POSE. Un `scaleX` et rien d'autre — c'est une des deux
-   propriétés que le navigateur anime sans repeindre, et surtout c'est la seule
-   forme qui se met en pause proprement : le composant pose
-   `animation-play-state: paused` au survol, et le trait s'arrête pile où il en
-   est. Une largeur animée en JS demanderait une boucle de rendu pour le même
-   résultat, et un compte à rebours affiché en chiffres transformerait une
-   récompense en minuteur. */
-@keyframes asAchGauge {
-  0% { transform: scaleX(1); }
-  100% { transform: scaleX(0); }
+/* ── LE TEXTE PORTE SA PROPRE LISIBILITÉ ───────────────────────────────────
+ *
+ * Le fond de la notification est un FLOU ET RIEN D'AUTRE : ni voile, ni
+ * `brightness`, ni boîte. Un flou n'assombrit pas — sur une bannière claire,
+ * du blanc flouté reste du blanc. Il ne peut donc pas rendre le texte lisible,
+ * et ce n'est pas son rôle.
+ *
+ * C'est le CONTOUR qui le fait, exactement comme un sous-titre d'anime : un
+ * trait sombre autour de chaque lettre. C'est la seule technique qui tienne sur
+ * n'importe quelle image sans rien peindre derrière — c'est pour ça que le
+ * sous-titrage l'utilise depuis quarante ans.
+ *
+ * `paint-order: stroke fill` EST LA LIGNE QUI COMPTE. Sans elle, le trait se
+ * peint PAR-DESSUS le remplissage : il mange la moitié de l'épaisseur des
+ * lettres par l'intérieur, et un texte de 20 px devient illisible bien avant
+ * d'être contrasté. Avec elle, le trait passe dessous et ne déborde que vers
+ * l'extérieur.
+ *
+ * L'ombre portée reste en plus du contour, et les deux ne font pas double
+ * emploi : le contour détache la lettre de l'image, l'ombre détache le bloc de
+ * texte de la zone floutée. */
+.as-ach-name,
+.as-ach-cond {
+  -webkit-text-stroke: 3px rgba(0, 0, 0, 0.82);
+  paint-order: stroke fill;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
 }
+.as-ach-cond {
+  -webkit-text-stroke-width: 2.4px;
+}
+
+/* (`asAchGauge` — une jauge de temps restant sous le texte — a été essayée puis
+   retirée le 23/09 : elle rendait la pause lisible, mais mettre un compte à
+   rebours sous une récompense est exactement ce qu'on ne veut pas faire lire.
+   La pause au survol reste, sans rien pour l'annoncer.) */
 
 /* La croix de fermeture : présente mais tue, jusqu'à ce que la souris arrive
    sur la carte. On ne la cache PAS complètement (opacity 0) — quelqu'un qui

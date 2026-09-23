@@ -52,15 +52,11 @@ const HOLD_MS = 4200;   // la pose
    est venu. */
 const TEXT_OUT_MS = 420;
 const OUT_MS = 620;     // le retrait du jeton
-const CARD_W = 330;
+const CARD_W = 336;
 /** Le côté du jeton dans la notification. Plus gros que dans la liste : il est
  *  seul à l'écran pendant tout le premier temps, c'est lui le spectacle. */
 const TOKEN = 104;
 const SPARKS = 18;
-/** De combien le jeton mord sur la carte. Il ne se pose plus À CÔTÉ du texte,
- *  il se pose DESSUS : c'est ce qui fait une médaille sur une plaque plutôt que
- *  deux blocs voisins. La marge interne du texte compense d'autant. */
-const OVERLAP = 26;
 
 type Phase = "in" | "open" | "hold" | "textOut" | "out";
 
@@ -406,15 +402,30 @@ export default function AchievementToast() {
         {/* La carte : elle s'ouvre en largeur derrière le jeton, ce qui donne
             l'impression que celui-ci se décale pour lui laisser la place.
 
-            ── ELLE EST REDEVENUE UNE CARTE ────────────────────────────────────
-            Elle avait été dissoute en un simple `backdrop-filter` masqué en
-            radial, pour ne pas poser de boîte sur l'image. Le résultat était
-            une tache : sur une bannière claire, le flou assombri n'a ni début
-            ni fin, le texte flotte sur une auréole grise, et le masque radial
-            mange la fin des lignes longues. Un fond franc, un rayon, un liseré
-            de la couleur de la rareté — le texte se lit, et l'objet a une
-            forme. Le flou reste DERRIÈRE le fond : il fait le lien avec
-            l'image, il ne porte plus la lisibilité tout seul. */}
+            ── UN VRAI FLOU, ET RIEN D'AUTRE ───────────────────────────────────
+            Il y a eu trois états, et les deux premiers étaient faux :
+
+              1. un VOILE SOMBRE opaque à coins arrondis. C'était une boîte.
+              2. le voile remplacé par `brightness(.5)` sur le backdrop-filter.
+                 On croyait avoir gardé « un flou, pas une boîte » — en vrai
+                 c'était toujours une boîte, simplement peinte par un filtre au
+                 lieu d'un dégradé : ce qu'on voyait à l'écran était une tache
+                 sombre, et le flou ne comptait pour presque rien dedans.
+              3. celui-ci : `blur` et `saturate`, AUCUN assombrissement.
+
+            Le prix est réel et c'est tout le sujet : un flou seul NE FONCE PAS,
+            donc il ne rend rien lisible. Sur une bannière claire, du blanc
+            floutée reste du blanc. La lisibilité est donc entièrement reportée
+            SUR LE TEXTE — un contour sombre autour des lettres, comme un
+            sous-titre d'anime (cf. `.as-ach-line` dans globals.css). C'est la
+            seule technique qui tient sur n'importe quelle image sans rien
+            peindre derrière, et c'est pour ça que les sous-titres font ça
+            depuis quarante ans.
+
+            Le rayon monte de 18 à 30 px : sans l'assombrissement, un flou
+            discret ne se voit tout simplement plus. Le masque radial reste — il
+            est ce qui empêche le flou de redevenir un cadre à quatre bords
+            nets, en haut et en bas comme sur les côtés. */}
         <div
           className="as-ach-card"
           style={{
@@ -422,22 +433,14 @@ export default function AchievementToast() {
             overflow: "hidden",
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
-            marginLeft: -OVERLAP,
-            borderRadius: 16,
-            background:
-              "linear-gradient(135deg, rgba(18,18,26,.93) 0%, rgba(10,10,16,.9) 100%)",
-            border: `1px solid ${R.ic}38`,
-            /* Trois ombres, trois rôles : détacher la carte de la page, souffler
-               la couleur de la rareté autour d'elle, et poser un liseré interne
-               clair qui empêche le haut de la carte de se fondre dans un fond
-               sombre. */
-            boxShadow: `0 20px 48px rgba(0,0,0,.6), 0 0 26px ${R.ic}1f, inset 0 1px 0 rgba(255,255,255,.06)`,
-            backdropFilter: "blur(16px) saturate(125%)",
-            WebkitBackdropFilter: "blur(16px) saturate(125%)",
-            /* L'ombre du texte est maintenant une finition, plus un cache-misère :
-               le fond est franc, il n'y a plus d'image à traverser. */
-            textShadow: "0 1px 2px rgba(0,0,0,.6)",
-            padding: opened ? `13px 40px 15px ${OVERLAP + 22}px` : "13px 0",
+            marginLeft: -10,
+            backdropFilter: "blur(30px) saturate(118%)",
+            WebkitBackdropFilter: "blur(30px) saturate(118%)",
+            maskImage:
+              "radial-gradient(82% 62% at 32% 50%, #000 24%, rgba(0,0,0,.55) 64%, transparent 100%)",
+            WebkitMaskImage:
+              "radial-gradient(82% 62% at 32% 50%, #000 24%, rgba(0,0,0,.55) 64%, transparent 100%)",
+            padding: opened ? "14px 26px 14px 26px" : "14px 0",
             position: "relative",
             /* La carte est la seule zone cliquable : survol, croix, et rien de
                plus. Fermée (largeur nulle) elle n'attrape rien. */
@@ -450,53 +453,36 @@ export default function AchievementToast() {
                   : `asAchOpen ${OPEN_MS}ms cubic-bezier(.22,1,.36,1) both`,
           }}
         >
-          {/* Les trois lignes entrent DÉCALÉES, une fois la carte ouverte : on
-              lit « badge débloqué », puis son nom, puis sa condition — dans
-              l'ordre où on veut qu'ils soient lus. Apparaître d'un bloc ferait
-              de la carte un panneau au lieu d'une annonce. */}
+          {/* DEUX LIGNES, PLUS TROIS. Le kicker « BADGE DÉBLOQUÉ » est parti :
+              il ne portait aucune information que le reste ne donnait déjà, et
+              un jeton qui vient d'exploser à l'écran n'a pas besoin de
+              s'annoncer par écrit. Le nom récupère la place et la taille.
+
+              Elles entrent DÉCALÉES une fois la carte ouverte — le nom, puis la
+              condition, dans l'ordre où on veut qu'ils soient lus. Apparaître
+              d'un bloc ferait de la carte un panneau au lieu d'une annonce. */}
           <div
-            className="as-ach-line"
+            className="as-ach-line as-ach-name"
             style={{
-              font: "600 8.5px Karla, sans-serif",
-              letterSpacing: ".2em",
-              textTransform: "uppercase",
-              color: R.ic,
-              /* La rareté se dit aussi en toutes lettres : le kicker était un
-                 « BADGE DÉBLOQUÉ » nu qui ne portait aucune information que le
-                 reste de la carte ne donnait déjà. */
-              marginBottom: 5,
-              opacity: 0.95,
-              animation: line(phase, 0),
-            }}
-          >
-            {t("badges.ui.unlocked", "Badge débloqué")}
-            <span style={{ opacity: 0.4, margin: "0 6px" }}>·</span>
-            <span style={{ opacity: 0.8 }}>
-              {t(`badges.ui.rarity.${def.rarity}`, "")}
-            </span>
-          </div>
-          <div
-            className="as-ach-line"
-            style={{
-              font: "700 16.5px/1.2 Outfit, sans-serif",
-              letterSpacing: "-.01em",
+              font: "700 20px/1.2 Outfit, sans-serif",
+              letterSpacing: "-.015em",
               color: "#fff",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              animation: line(phase, 90),
+              animation: line(phase, 0),
             }}
           >
             {t(`badges.${def.id}.name`)}
           </div>
           <div
-            className="as-ach-line"
+            className="as-ach-line as-ach-cond"
             style={{
-              font: "400 12px/1.35 Karla, sans-serif",
-              color: "rgba(255,255,255,.62)",
-              marginTop: 4,
+              font: "500 12.5px/1.35 Karla, sans-serif",
+              color: "rgba(255,255,255,.82)",
+              marginTop: 5,
               overflow: "hidden",
               textOverflow: "ellipsis",
-              animation: line(phase, 175),
+              animation: line(phase, 110),
             }}
           >
             {t(`badges.${def.id}.cond`)}
@@ -537,44 +523,10 @@ export default function AchievementToast() {
             </svg>
           </button>
 
-          {/* LA JAUGE, ET ELLE EXISTE POUR LA PAUSE. Sans elle, une carte qui
-              s'arrête sous la souris ressemble à une carte bloquée ; avec elle,
-              le trait qui se fige dit exactement ce qui se passe. Elle n'est
-              peinte que pendant la pose — sa durée EST la pose, et son état de
-              lecture suit le survol, donc les deux ne peuvent pas se
-              désynchroniser (c'est le même minuteur, vu deux fois). */}
-          {phase === "hold" && (
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                left: OVERLAP + 22,
-                right: 14,
-                bottom: 7,
-                height: 2,
-                borderRadius: 2,
-                overflow: "hidden",
-                background: "rgba(255,255,255,.08)",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  background: `linear-gradient(90deg, ${R.ic}, ${R.ic}55)`,
-                  transformOrigin: "left center",
-                  /* HOLD_MS EN DUR, PAS `left.current` : changer la valeur du
-                     raccourci `animation` d'un rendu à l'autre relance
-                     l'animation depuis zéro, et la jauge sauterait à plein à
-                     chaque survol. La durée reste donc figée et c'est la mise en
-                     pause qui fait le travail — le minuteur JS et l'animation
-                     CSS comptent le même temps réel, ils ne peuvent pas
-                     diverger. */
-                  animation: `asAchGauge ${HOLD_MS}ms linear forwards`,
-                  animationPlayState: held ? "paused" : "running",
-                }}
-              />
-            </div>
-          )}
+          {/* (Une jauge de temps restant a été essayée le 23/09 sous le texte,
+              puis retirée : elle rendait la pause lisible, mais elle mettait un
+              compte à rebours sous une récompense — la seule chose qu'on ne veut
+              pas faire lire ici. La pause reste, silencieuse.) */}
         </div>
       </div>
     </Fragment>,
