@@ -79,7 +79,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 17 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 18 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -197,6 +197,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-23 — La notification de badge se tait tant que le lecteur possède l'écran (le badge attend dans la file, il repart à la sortie du plein écran) ; la carte redevient une carte (le flou masqué faisait une tache sur fond clair) ; survol qui suspend la pose + jauge + croix ; carillon WebAudio synthétisé, un seul `AudioContext`, échec silencieux
 - 2026-09-21 (suite) — Jikan en complément d'AniList, seulement là où AniList n'a rien : filler/récap, date et titre par épisode (même page Jikan que les scores, 0 appel en plus), titre français, classification d'âge, synopsis MAL en repli
 - 2026-09-21 — Profil : TTFB 2,0 s → ~0,7 s visé (l'attente fixe de 1,5 s d'AniList devient un vrai SWR), `getUser` ne charge plus l'historique, props allégées, bannière et bandes-annonces bornées
 - 2026-09-17 (suite 2) — L'onde coupée par le haut de l'écran (notification descendue), et un flou derrière le texte qui n'est pas une boîte (masque qui s'éteint aussi en haut/bas, `brightness` au lieu d'un voile)

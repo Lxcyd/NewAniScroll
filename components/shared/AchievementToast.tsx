@@ -1,25 +1,27 @@
 /**
  * La notification d'un badge débloqué — en haut, au centre, par-dessus tout.
  *
- * ── LE PLEIN ÉCRAN, QUI EST LA VRAIE CONTRAINTE ──────────────────────────────
- * Un badge tombe presque toujours pendant un épisode, donc souvent pendant que
- * le lecteur occupe l'écran. Deux mécaniques coexistent sur ce site :
+ * ── ELLE NE S'AFFICHE PLUS PAR-DESSUS UN ÉPISODE ─────────────────────────────
+ * Elle le faisait, et c'était le comportement demandé au départ : un badge
+ * tombe presque toujours pendant un épisode, donc on allait le chercher jusque
+ * dans le lecteur en plein écran (portal dans la surface du lecteur pour le
+ * plein écran iOS, où la VIDÉO prend l'écran et où plus rien du document n'est
+ * visible ; simple z-index au-dessus du 9999 de `.aniscroll-player-fs` sinon).
  *
- *   - le plein écran NORMAL : `enterRootFullscreen()` met `<html>` en plein
- *     écran (lib/player/playerFullscreen.ts) et « le lecteur remplit l'écran »
- *     n'est que du CSS (`.aniscroll-player-fs { position:fixed; inset:0;
- *     z-index:9999 }`). Le document reste donc visible, et un portal sur
- *     `document.body` avec un z-index supérieur à 9999 s'affiche par-dessus.
- *     C'est exactement ce que fait déjà la pile de toasts.
+ * C'est retiré le 23/09/2026 : une gerbe d'étincelles en haut de l'écran
+ * pendant qu'on regarde est une interruption, pas une récompense. LE BADGE
+ * N'EST PAS PERDU POUR AUTANT — il attend dans la file (lib/badges/
+ * achievementStore.ts), la ligne du temps ne démarre pas tant que le lecteur
+ * possède l'écran, et elle part toute seule à la sortie du plein écran. C'est
+ * pour cela qu'on lit toujours `usePlayerSurface()` : il ne sert plus à choisir
+ * OÙ portaler, mais à savoir QUAND se taire.
  *
- *   - le plein écran iOS, où c'est la VIDÉO elle-même qui prend l'écran. Là,
- *     rien du document n'est visible, et le seul endroit atteignable est
- *     l'intérieur du lecteur : c'est à quoi sert le registre de surface
- *     (lib/notifications/playerSurface.ts), et pourquoi on portale dedans dès
- *     qu'il se déclare actif.
- *
- * On suit donc la même règle que <NoticeStack/> : dans le lecteur quand il
- * possède l'écran, sur `document.body` sinon.
+ * ── LA POSE EST SUSPENDUE AU SURVOL ──────────────────────────────────────────
+ * Quatre secondes, c'est assez pour lire trois lignes et trop peu pour regarder
+ * le jeton. Le survol met la pose en pause (le temps restant est mémorisé, on
+ * ne repart pas de zéro), et la jauge sous le texte s'arrête avec elle — sans
+ * quoi l'arrêt ressemblerait à un bug. La croix, elle, déclenche la vraie
+ * sortie animée : on ne coupe pas, on abrège.
  *
  * ── POURQUOI UN COMPOSANT À PART ─────────────────────────────────────────────
  * Position, durée, animation et mise en file diffèrent de tout le reste, et une
@@ -27,11 +29,12 @@
  * l'en-tête de lib/badges/achievementStore.ts.
  */
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
 import { next, useAchievement } from "@/lib/badges/achievementStore";
+import { playBadgeChime } from "@/lib/badges/chime";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
@@ -42,18 +45,22 @@ import { RARITY } from "@/components/profile/badges/rarity";
    et l'autre enchaîne, et elles doivent rester d'accord. */
 const IN_MS = 720;      // le jeton surgit
 const OPEN_MS = 520;    // la carte s'ouvre
-const HOLD_MS = 3600;   // la pose
+const HOLD_MS = 4200;   // la pose
 /* LA SORTIE EN DEUX TEMPS. Le texte s'efface et la carte se referme (le jeton
    revient donc au centre tout seul, puisque le bloc est centré et rétrécit vers
    son milieu) ; ensuite seulement le jeton remonte en rétrécissant, comme il
    est venu. */
 const TEXT_OUT_MS = 420;
 const OUT_MS = 620;     // le retrait du jeton
-const CARD_W = 316;
+const CARD_W = 330;
 /** Le côté du jeton dans la notification. Plus gros que dans la liste : il est
  *  seul à l'écran pendant tout le premier temps, c'est lui le spectacle. */
 const TOKEN = 104;
 const SPARKS = 18;
+/** De combien le jeton mord sur la carte. Il ne se pose plus À CÔTÉ du texte,
+ *  il se pose DESSUS : c'est ce qui fait une médaille sur une plaque plutôt que
+ *  deux blocs voisins. La marge interne du texte compense d'autant. */
+const OVERLAP = 26;
 
 type Phase = "in" | "open" | "hold" | "textOut" | "out";
 
@@ -126,7 +133,16 @@ export default function AchievementToast() {
   const surface = usePlayerSurface();
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("in");
+  /** Vrai tant que la souris (ou le clavier) tient la notification. */
+  const [held, setHeld] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** Ce qui reste de la pose. Décrémenté à chaque suspension — c'est ce qui
+   *  distingue une VRAIE pause d'un compte à rebours relancé à zéro. */
+  const left = useRef(HOLD_MS);
+
+  /* Le lecteur possède l'écran : on ne montre rien et on ne démarre rien. Le
+     badge reste en tête de file et partira à la sortie du plein écran. */
+  const muted = surface.active;
 
   /* La ligne du temps est relancée à chaque badge (`ach.key` change même si
      c'est le même id), et TOUS les minuteurs sont annulés au démontage :
@@ -135,30 +151,83 @@ export default function AchievementToast() {
   useEffect(() => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
-    if (!ach) return;
+    if (!ach || muted) return;
     setPhase("in");
+    setHeld(false);
+    left.current = HOLD_MS;
     const at = (ms: number, fn: () => void) => timers.current.push(setTimeout(fn, ms));
     at(IN_MS, () => setPhase("open"));
     at(IN_MS + OPEN_MS, () => setPhase("hold"));
-    at(IN_MS + OPEN_MS + HOLD_MS, () => setPhase("textOut"));
-    at(IN_MS + OPEN_MS + HOLD_MS + TEXT_OUT_MS, () => setPhase("out"));
-    at(IN_MS + OPEN_MS + HOLD_MS + TEXT_OUT_MS + OUT_MS, () => next());
     return () => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
     };
-  }, [ach?.key, ach]);
+  }, [ach?.key, ach, muted]);
+
+  /* Le carillon part avec l'impact, pas avec le montage : le jeton met 720 ms à
+     tomber, et un son qui précède son objet s'entend comme un son de trop. */
+  useEffect(() => {
+    if (!ach || muted) return;
+    const def = BY_ID[ach.id];
+    if (!def) return;
+    const t = setTimeout(() => playBadgeChime(def.rarity), IN_MS * 0.36);
+    return () => clearTimeout(t);
+  }, [ach?.key, ach, muted]);
+
+  /**
+   * LA POSE, ET ELLE SEULE EST SUSPENDABLE.
+   *
+   * Le nettoyage de cet effet fait double emploi, et c'est voulu : il annule le
+   * minuteur ET retranche le temps déjà écoulé. Il tourne aussi bien quand la
+   * souris arrive (suspension) que quand la pose s'achève (`left` n'est alors
+   * plus lu) — une seule branche à écrire, aucune date à tenir ailleurs.
+   */
+  useEffect(() => {
+    if (phase !== "hold" || held) return;
+    const from = Date.now();
+    const t = setTimeout(() => setPhase("textOut"), left.current);
+    return () => {
+      clearTimeout(t);
+      left.current = Math.max(0, left.current - (Date.now() - from));
+    };
+  }, [phase, held]);
+
+  /* La sortie, une fois lancée, ne se suspend plus : on ne rattrape pas une
+     notification déjà partie. */
+  useEffect(() => {
+    if (phase !== "textOut") return;
+    const a = setTimeout(() => setPhase("out"), TEXT_OUT_MS);
+    const b = setTimeout(() => next(), TEXT_OUT_MS + OUT_MS);
+    return () => {
+      clearTimeout(a);
+      clearTimeout(b);
+    };
+  }, [phase]);
+
+  /** Abréger : on saute à la sortie, animation comprise. Depuis l'arrivée comme
+   *  depuis la pose — on peut congédier un badge avant même de l'avoir lu. */
+  const dismiss = useCallback(() => {
+    setPhase((p) => (p === "textOut" || p === "out" ? p : "textOut"));
+  }, []);
+
+  /* Échap ferme, comme partout ailleurs sur le site. */
+  useEffect(() => {
+    if (!ach || muted) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ach?.key, ach, muted, dismiss]);
 
   const def = ach ? BY_ID[ach.id] : null;
   const seed = useMemo(() => (ach ? ach.key * 2654435761 : 0), [ach?.key, ach]);
   const bits = useMemo(() => sparks(seed), [seed]);
 
-  if (!ach || !def) return null;
+  if (!ach || !def || muted) return null;
   if (typeof document === "undefined") return null;
 
   const R = RARITY[def.rarity];
-  const insidePlayer = surface.active && !!surface.el;
-  const target = insidePlayer ? surface.el! : document.body;
   const closing = phase === "out";
   const opened = phase === "open" || phase === "hold";
 
@@ -186,9 +255,15 @@ export default function AchievementToast() {
       <div
         role="status"
         aria-live="polite"
+        onMouseEnter={() => setHeld(true)}
+        onMouseLeave={() => setHeld(false)}
+        onFocusCapture={() => setHeld(true)}
+        onBlurCapture={() => setHeld(false)}
         style={{
-          /* Dans le lecteur : absolu, sous la barre de titre. Sinon : fixé à
-             l'écran, au-dessus du 9999 de `.aniscroll-player-fs`.
+          /* Fixé à l'écran. Le z-index reste au-dessus du 9999 de
+             `.aniscroll-player-fs` : le lecteur en plein écran n'affiche plus
+             de badge du tout, mais il existe d'autres façons d'empiler des
+             couches sur ce site, et cette notification passe devant.
 
              LA HAUTEUR EST DICTÉE PAR L'IMPACT, PAS PAR LE JETON. À 18 px du
              bord, l'onde se faisait couper : elle se détend jusqu'à 2,7 fois le
@@ -197,13 +272,16 @@ export default function AchievementToast() {
              étincelles montantes avec. On descend donc le tout d'une demi-onde,
              ce qui laisse le cercle entier dans le cadre au moment où il se
              voit encore (il s'efface avant sa taille maximale). */
-          position: insidePlayer ? "absolute" : "fixed",
-          top: insidePlayer ? 44 : 54,
+          position: "fixed",
+          top: 54,
           left: "50%",
           transform: "translateX(-50%)",
-          zIndex: insidePlayer ? 60 : 999999999,
+          zIndex: 999999999,
           display: "flex",
           alignItems: "center",
+          /* Le conteneur laisse passer les clics ; seule la carte les prend
+             (plus bas). Sans quoi ce bloc invisible de 470 px masquerait le haut
+             de la page pendant cinq secondes. */
           pointerEvents: "none",
           maxWidth: "min(94vw, 470px)",
         }}
@@ -219,6 +297,8 @@ export default function AchievementToast() {
           style={{
             position: "relative",
             flexShrink: 0,
+            /* Devant la carte : c'est lui la médaille, elle est la plaque. */
+            zIndex: 2,
             animation: closing
               ? `asAchOut ${OUT_MS}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
               : `asAchIn ${IN_MS}ms cubic-bezier(.3,.8,.3,1) both`,
@@ -306,7 +386,8 @@ export default function AchievementToast() {
             className="as-ach-breathe"
             style={{
               /* La respiration ne démarre qu'à la pose : pendant l'arrivée elle
-                 se battrait avec les rebonds. */
+                 se battrait avec les rebonds. Elle continue sous le survol —
+                 c'est ce qui dit que la notification attend et n'a pas planté. */
               animation:
                 phase === "hold" ? "asAchBreathe 2.6s ease-in-out infinite" : "none",
             }}
@@ -323,7 +404,17 @@ export default function AchievementToast() {
         </div>
 
         {/* La carte : elle s'ouvre en largeur derrière le jeton, ce qui donne
-            l'impression que celui-ci se décale pour lui laisser la place. */}
+            l'impression que celui-ci se décale pour lui laisser la place.
+
+            ── ELLE EST REDEVENUE UNE CARTE ────────────────────────────────────
+            Elle avait été dissoute en un simple `backdrop-filter` masqué en
+            radial, pour ne pas poser de boîte sur l'image. Le résultat était
+            une tache : sur une bannière claire, le flou assombri n'a ni début
+            ni fin, le texte flotte sur une auréole grise, et le masque radial
+            mange la fin des lignes longues. Un fond franc, un rayon, un liseré
+            de la couleur de la rareté — le texte se lit, et l'objet a une
+            forme. Le flou reste DERRIÈRE le fond : il fait le lien avec
+            l'image, il ne porte plus la lisibilité tout seul. */}
         <div
           className="as-ach-card"
           style={{
@@ -331,37 +422,26 @@ export default function AchievementToast() {
             overflow: "hidden",
             whiteSpace: "nowrap",
             width: opened ? CARD_W : 0,
-            marginLeft: -10,
-            /* UN FLOU, PAS UNE BOÎTE — et toute la différence tient au masque.
-               Ce qui faisait la boîte était le VOILE SOMBRE (un dégradé opaque)
-               et ses angles arrondis, pas le flou : un rectangle assombri se
-               voit, une zone floutée ne se voit que par ce qu'elle adoucit. On
-               garde donc le `backdrop-filter` et on jette le fond.
-               Le masque radial est ce qui l'empêche de redevenir un cadre : sans
-               lui, le flou s'arrête net sur quatre bords droits. Il porte aussi
-               sur le texte, et c'est le compromis assumé — il est réglé pour que
-               la coupure tombe après la fin des lignes (82 % de 316 px). */
-            /* `brightness` fait le travail que faisait le voile sombre, SANS
-               peindre quoi que ce soit : un flou seul ne fonce pas, et du blanc
-               sur une scène de jour floutée reste du blanc sur blanc. Assombrir
-               le fond plutôt que poser un rectangle par-dessus, c'est la même
-               lisibilité et aucune boîte — vérifié sur banc, sur des bandes
-               blanches et jaunes, le pire cas.
-               Le masque s'éteint AUSSI en haut et en bas (rayon vertical 60 %,
-               donc la chute tombe dans la carte) : à 130 %, il ne s'éteignait
-               que sur les côtés et le flou redevenait une barre à bords nets. */
-            backdropFilter: "blur(18px) saturate(112%) brightness(.5)",
-            WebkitBackdropFilter: "blur(18px) saturate(112%) brightness(.5)",
-            maskImage:
-              "radial-gradient(80% 60% at 30% 50%, #000 26%, rgba(0,0,0,.6) 66%, transparent 100%)",
-            WebkitMaskImage:
-              "radial-gradient(80% 60% at 30% 50%, #000 26%, rgba(0,0,0,.6) 66%, transparent 100%)",
-            /* L'ombre reste : le flou adoucit ce qu'il y a derrière, il ne le
-               fonce pas. Sur une image claire, seule l'ombre tient les lettres. */
-            textShadow:
-              "0 2px 16px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.9), 0 1px 2px rgba(0,0,0,.8)",
-            padding: opened ? "12px 26px 12px 26px" : "12px 0",
+            marginLeft: -OVERLAP,
+            borderRadius: 16,
+            background:
+              "linear-gradient(135deg, rgba(18,18,26,.93) 0%, rgba(10,10,16,.9) 100%)",
+            border: `1px solid ${R.ic}38`,
+            /* Trois ombres, trois rôles : détacher la carte de la page, souffler
+               la couleur de la rareté autour d'elle, et poser un liseré interne
+               clair qui empêche le haut de la carte de se fondre dans un fond
+               sombre. */
+            boxShadow: `0 20px 48px rgba(0,0,0,.6), 0 0 26px ${R.ic}1f, inset 0 1px 0 rgba(255,255,255,.06)`,
+            backdropFilter: "blur(16px) saturate(125%)",
+            WebkitBackdropFilter: "blur(16px) saturate(125%)",
+            /* L'ombre du texte est maintenant une finition, plus un cache-misère :
+               le fond est franc, il n'y a plus d'image à traverser. */
+            textShadow: "0 1px 2px rgba(0,0,0,.6)",
+            padding: opened ? `13px 40px 15px ${OVERLAP + 22}px` : "13px 0",
             position: "relative",
+            /* La carte est la seule zone cliquable : survol, croix, et rien de
+               plus. Fermée (largeur nulle) elle n'attrape rien. */
+            pointerEvents: opened ? "auto" : "none",
             animation:
               phase === "textOut" || closing
                 ? `asAchClose ${TEXT_OUT_MS}ms cubic-bezier(.4,0,.6,1) forwards`
@@ -377,20 +457,29 @@ export default function AchievementToast() {
           <div
             className="as-ach-line"
             style={{
-              font: "500 9px Karla, sans-serif",
-              letterSpacing: ".18em",
+              font: "600 8.5px Karla, sans-serif",
+              letterSpacing: ".2em",
               textTransform: "uppercase",
               color: R.ic,
-              marginBottom: 4,
+              /* La rareté se dit aussi en toutes lettres : le kicker était un
+                 « BADGE DÉBLOQUÉ » nu qui ne portait aucune information que le
+                 reste de la carte ne donnait déjà. */
+              marginBottom: 5,
+              opacity: 0.95,
               animation: line(phase, 0),
             }}
           >
             {t("badges.ui.unlocked", "Badge débloqué")}
+            <span style={{ opacity: 0.4, margin: "0 6px" }}>·</span>
+            <span style={{ opacity: 0.8 }}>
+              {t(`badges.ui.rarity.${def.rarity}`, "")}
+            </span>
           </div>
           <div
             className="as-ach-line"
             style={{
-              font: "600 15.5px/1.2 Outfit, sans-serif",
+              font: "700 16.5px/1.2 Outfit, sans-serif",
+              letterSpacing: "-.01em",
               color: "#fff",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -402,11 +491,9 @@ export default function AchievementToast() {
           <div
             className="as-ach-line"
             style={{
-              font: "400 11.5px/1.35 Karla, sans-serif",
-              /* Remontée de .55 : la condition se lisait sur un voile opaque,
-                 elle se lit maintenant sur un fond seulement assombri. */
-              color: "rgba(255,255,255,.74)",
-              marginTop: 3,
+              font: "400 12px/1.35 Karla, sans-serif",
+              color: "rgba(255,255,255,.62)",
+              marginTop: 4,
               overflow: "hidden",
               textOverflow: "ellipsis",
               animation: line(phase, 175),
@@ -414,12 +501,85 @@ export default function AchievementToast() {
           >
             {t(`badges.${def.id}.cond`)}
           </div>
-          {/* (La lueur qui balayait le texte pendant la pose a été retirée : elle
-              se disputait l'attention avec la seule chose à lire, et le flou
-              d'arrière-plan fait maintenant tout le travail de lisibilité.) */}
+
+          {/* La croix. Discrète au repos, franche au survol de la carte — elle
+              n'a pas à disputer l'attention au nom du badge, mais elle doit être
+              là AVANT qu'on la cherche. Elle reste atteignable au clavier. */}
+          <button
+            type="button"
+            className="as-ach-close"
+            onClick={dismiss}
+            aria-label={t("common.close", "Fermer")}
+            style={{
+              position: "absolute",
+              top: 7,
+              right: 7,
+              width: 22,
+              height: 22,
+              display: "grid",
+              placeItems: "center",
+              borderRadius: 8,
+              border: "none",
+              background: "transparent",
+              color: "rgba(255,255,255,.55)",
+              cursor: "pointer",
+              padding: 0,
+              lineHeight: 0,
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+              <path
+                d="M1.5 1.5l9 9M10.5 1.5l-9 9"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+
+          {/* LA JAUGE, ET ELLE EXISTE POUR LA PAUSE. Sans elle, une carte qui
+              s'arrête sous la souris ressemble à une carte bloquée ; avec elle,
+              le trait qui se fige dit exactement ce qui se passe. Elle n'est
+              peinte que pendant la pose — sa durée EST la pose, et son état de
+              lecture suit le survol, donc les deux ne peuvent pas se
+              désynchroniser (c'est le même minuteur, vu deux fois). */}
+          {phase === "hold" && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: OVERLAP + 22,
+                right: 14,
+                bottom: 7,
+                height: 2,
+                borderRadius: 2,
+                overflow: "hidden",
+                background: "rgba(255,255,255,.08)",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  background: `linear-gradient(90deg, ${R.ic}, ${R.ic}55)`,
+                  transformOrigin: "left center",
+                  /* HOLD_MS EN DUR, PAS `left.current` : changer la valeur du
+                     raccourci `animation` d'un rendu à l'autre relance
+                     l'animation depuis zéro, et la jauge sauterait à plein à
+                     chaque survol. La durée reste donc figée et c'est la mise en
+                     pause qui fait le travail — le minuteur JS et l'animation
+                     CSS comptent le même temps réel, ils ne peuvent pas
+                     diverger. */
+                  animation: `asAchGauge ${HOLD_MS}ms linear forwards`,
+                  animationPlayState: held ? "paused" : "running",
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </Fragment>,
-    target,
+    /* Toujours le document : le lecteur en plein écran n'affiche plus de badge,
+       il n'y a donc plus de surface alternative à choisir. */
+    document.body,
   );
 }

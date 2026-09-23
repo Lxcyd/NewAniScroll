@@ -3361,8 +3361,12 @@ input[type="number"] {
 
    1. le jeton surgit, seul, au centre        0 → 720 ms
    2. il glisse à gauche, la carte s'ouvre  720 → 1240 ms
-   3. la pose, lisible                     1240 → 4840 ms
-   4. la carte se referme, le jeton part   4840 → 5460 ms
+   3. la pose, lisible                     1240 → 5440 ms
+   4. la carte se referme, le jeton part   5440 → 6060 ms
+
+   Le troisième temps est le SEUL qui se suspend : la souris sur la carte l'ar-
+   rête, et il reprend là où il en était (cf. AchievementToast.tsx). Les trois
+   autres ne s'interrompent pas — on ne met pas une chute en pause.
 
    Tout est en `transform` et en `opacity` — les deux seules propriétés que le
    navigateur anime sans repeindre — À UNE EXCEPTION PRÈS, assumée : la largeur
@@ -3472,6 +3476,35 @@ input[type="number"] {
       scale(calc(var(--as-sc) * 0.25)) rotate(220deg);
     opacity: 0;
   }
+}
+
+/* LA JAUGE DE LA POSE. Un `scaleX` et rien d'autre — c'est une des deux
+   propriétés que le navigateur anime sans repeindre, et surtout c'est la seule
+   forme qui se met en pause proprement : le composant pose
+   `animation-play-state: paused` au survol, et le trait s'arrête pile où il en
+   est. Une largeur animée en JS demanderait une boucle de rendu pour le même
+   résultat, et un compte à rebours affiché en chiffres transformerait une
+   récompense en minuteur. */
+@keyframes asAchGauge {
+  0% { transform: scaleX(1); }
+  100% { transform: scaleX(0); }
+}
+
+/* La croix de fermeture : présente mais tue, jusqu'à ce que la souris arrive
+   sur la carte. On ne la cache PAS complètement (opacity 0) — quelqu'un qui
+   tabule dessus doit la voir, et sur tactile il n'y a pas de survol du tout. */
+.as-ach-close {
+  opacity: 0.35;
+  transition: opacity 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+.as-ach-card:hover .as-ach-close {
+  opacity: 0.8;
+}
+.as-ach-close:hover,
+.as-ach-close:focus-visible {
+  opacity: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* (`asAchShine` — la lueur qui balayait le texte — a été retirée le 17/09 :

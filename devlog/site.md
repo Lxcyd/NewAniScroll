@@ -6,6 +6,65 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-23 — La notification de badge se tait pendant l'épisode, et se laisse retenir
+
+**Ce qui a été retiré, et c'était une fonctionnalité assumée.** La notification
+allait chercher le spectateur jusque dans le lecteur en plein écran : portal
+dans la surface du lecteur pour le plein écran iOS (où la vidéo prend l'écran et
+où plus rien du document n'est visible), z-index au-dessus du 9999 de
+`.aniscroll-player-fs` sinon. Toute cette mécanique est morte : **plus aucun
+badge ne s'affiche tant que le lecteur possède l'écran.** Une gerbe
+d'étincelles en haut de l'image pendant qu'on regarde est une interruption, pas
+une récompense.
+
+**Le badge n'est pas perdu, et c'est le point à retenir.** `evaluate.ts`
+l'accorde et le persiste indépendamment de l'affichage ; `announce()` le met
+dans la file ; la ligne du temps ne démarre simplement pas. `usePlayerSurface()`
+est donc toujours lu par `AchievementToast`, mais il ne répond plus à « où
+portaler » — il répond à « faut-il se taire ». À la sortie du plein écran,
+`muted` passe à faux, l'effet se relance et le badge part ; trois badges tombés
+pendant l'épisode défilent l'un après l'autre. Rien de nouveau à écrire côté
+store, la file faisait déjà ce travail.
+
+**La carte est redevenue une carte.** Elle avait été dissoute le 17/09 en un
+`backdrop-filter` masqué en radial, pour ne pas poser de boîte sur l'image : le
+raisonnement (« un rectangle assombri se voit, une zone floutée ne se voit
+pas ») tenait sur un fond sombre et s'effondrait sur une bannière claire. Le
+résultat en vrai était une tache grise sans début ni fin, du texte flottant dans
+une auréole, et le masque radial qui mangeait la fin des lignes longues (il est
+réglé pour couper à 82 % de la largeur). Retour à un fond franc, un rayon de
+16 px, un liseré à la couleur de la rareté. **Le flou reste, mais derrière le
+fond** : il fait le lien avec l'image, il ne porte plus la lisibilité tout seul,
+et les trois ombres portées empilées sur le texte ont pu redescendre à une.
+Le jeton mord maintenant de 26 px sur la carte (médaille sur plaque, pas deux
+blocs voisins), et le kicker dit la rareté en plus de « badge débloqué » — il ne
+portait aucune information que la carte ne donnait déjà.
+
+**La pose se suspend au survol, et la jauge existe POUR ça.** Le temps restant
+est mémorisé et décrémenté dans le nettoyage de l'effet (qui tourne aussi bien
+à l'arrivée de la souris qu'à la fin de la pose : une seule branche, aucune date
+à tenir ailleurs), donc on reprend où on en était — on ne repart pas de zéro.
+Sans le trait sous le texte, une carte qui s'arrête sous la souris ressemble à
+une carte bloquée. **Piège** : la durée de la jauge est `HOLD_MS` EN DUR et pas
+le temps restant — changer la valeur du raccourci `animation` d'un rendu à
+l'autre relance l'animation depuis zéro, et la jauge sauterait à plein à chaque
+survol. C'est `animation-play-state: paused` qui fait le travail, et le minuteur
+JS comme l'animation CSS comptent le même temps réel : ils ne peuvent pas
+diverger. Une croix (et Échap) déclenche la vraie sortie animée — on abrège, on
+ne coupe pas.
+
+**Le carillon est synthétisé, pas téléchargé** (`lib/badges/chime.ts`). Un .mp3
+serait un asset dans `public/`, une requête, du quota de déploiement, et un son
+figé qu'il faudrait décliner six fois pour que le mythique ne sonne pas comme le
+commun ; quarante lignes de WebAudio font la même chose et la rareté ne change
+qu'un tableau de fréquences (pentatonique de Do — deux badges à une seconde
+d'écart ne peuvent pas sonner faux ensemble). Deux garde-fous : **un seul
+`AudioContext`**, partagé et créé à la première demande et jamais à l'import
+(les navigateurs en plafonnent le nombre et n'en libèrent pas toujours), et
+**échec silencieux** si l'autoplay le laisse `suspended` — un badge muet est un
+défaut mineur, une exception qui remonte dans le rendu ne l'est pas. Coupure par
+`localStorage["aniscroll:badge-sound"] = "off"`, en attendant un vrai réglage.
+
 ## 2026-09-21 (suite) — Jikan comble ce qu'AniList n'a pas (et seulement ça)
 
 **Comparaison faite avant de coder** (Frieren, One Piece, AoT) : les synopsis
