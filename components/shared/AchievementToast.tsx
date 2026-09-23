@@ -111,7 +111,10 @@ function sparks(seed: number, wide = false): Spark[] {
 /** Les huit rayons de l'impact, à angles réguliers — eux ont le droit. */
 const RAYS = Array.from({ length: 8 }, (_, i) => i * 45);
 
-type Confetto = { x: number; delay: number; dur: number; sway: number; spin: number; w: number; h: number; col: string };
+type Confetto = {
+  x: number; delay: number; dur: number; cycles: number;
+  sway: number; spin: number; w: number; h: number; col: string;
+};
 
 /**
  * LA PLUIE DE CONFETTIS — mythique seulement.
@@ -127,8 +130,32 @@ type Confetto = { x: number; delay: number; dur: number; sway: number; spin: num
  * atterrissent en même temps, ce qu'aucun objet ne fait), et un BALANCEMENT
  * latéral — c'est lui qui distingue un confetti d'une goutte de pluie, parce
  * qu'un rectangle léger ne tombe jamais droit.
+ *
+ * ── LA PLUIE FINIT AVEC LE BADGE, ET C'EST CALCULÉ, PAS APPROCHÉ ─────────────
+ * Elle a d'abord été une salve unique : l'écran se vidait pendant les trois
+ * dernières secondes, c'est-à-dire pendant la POSE, le moment où l'on regarde.
+ * Puis `infinite`, qui règle ça mais ouvre l'autre bout du défaut : au démontage
+ * de la notification, des confettis en pleine chute disparaissent D'UN COUP au
+ * milieu de l'écran.
+ *
+ * On ne veut ni l'un ni l'autre : la pluie doit couvrir toute la ligne du temps
+ * ET s'être entièrement écoulée par le bas au moment où le jeton repart. Un
+ * nombre entier de cycles ne tombe évidemment pas juste tout seul ; c'est donc
+ * la DURÉE qui est recalée sur lui.
+ *
+ *   fin     = `total` moins un petit retard propre à chacun (jusqu'à 700 ms) —
+ *             c'est ce qui fait que la pluie SE TARIT au lieu de s'arrêter net.
+ *             Sans lui, tous les derniers cycles finiraient à la même image :
+ *             un rideau, exactement ce que les trois désordres évitent.
+ *   cycles  = le nombre entier de chutes le plus proche de la durée tirée.
+ *   dur     = (fin − départ) / cycles, donc à quelques pourcents de la durée
+ *             tirée, et toujours différente d'un confetti à l'autre.
+ *
+ * L'arrondi ne change donc la vitesse que de ce qu'il faut pour que la dernière
+ * chute se termine à l'heure. Avec `both`, un confetti qui a fini tient sa
+ * dernière image : sous l'écran, opacité nulle.
  */
-function confetti(seed: number): Confetto[] {
+function confetti(seed: number, total: number): Confetto[] {
   const out: Confetto[] = [];
   let s = (seed ^ 0x9e3779b9) >>> 0;
   const rnd = () => {
@@ -137,10 +164,18 @@ function confetti(seed: number): Confetto[] {
   };
   const cols = ["#ffc7b0", "#FF7F57", "#ffffff", "#E94560", "#ffd9a0"];
   for (let i = 0; i < 46; i++) {
+    const delay = rnd() * 900;
+    const brut = 2100 + rnd() * 1600;
+    /* Le `max` n'est pas décoratif : une pose abrégée (la croix, Échap) peut
+       rendre `total` plus court qu'une seule chute, et une durée négative
+       ferait disparaître la pluie au lieu de l'accélérer. */
+    const fin = Math.max(brut * 0.6, total - rnd() * 700 - delay);
+    const cycles = Math.max(1, Math.round(fin / brut));
     out.push({
       x: rnd() * 100,
-      delay: rnd() * 900,
-      dur: 2100 + rnd() * 1600,
+      delay,
+      dur: fin / cycles,
+      cycles,
       sway: (rnd() - 0.5) * 120,
       spin: 360 + rnd() * 900,
       w: 5 + Math.round(rnd() * 5),
@@ -328,7 +363,14 @@ export default function AchievementToast() {
      éclats sortent bel et bien du cadre de la notification. */
   const mythic = def?.rarity === "m" && fx;
   const bits = useMemo(() => sparks(seed, mythic), [seed, mythic]);
-  const confettis = useMemo(() => (mythic ? confetti(seed) : []), [seed, mythic]);
+  /* Toute la ligne du temps, du surgissement du jeton à son retrait — c'est
+     l'horizon sur lequel la pluie est calée. Il suit `slow` sans qu'on y pense,
+     puisque les trois durées animées le portent déjà. */
+  const total = inMs + openMs + HOLD_MS + TEXT_OUT_MS + outMs;
+  const confettis = useMemo(
+    () => (mythic ? confetti(seed, total) : []),
+    [seed, mythic, total],
+  );
 
   if (!ach || !def || muted) return null;
   if (typeof document === "undefined") return null;
@@ -397,14 +439,24 @@ export default function AchievementToast() {
                 borderRadius: 1,
                 ["--as-cx" as string]: `${c.sway}px`,
                 ["--as-cr" as string]: `${c.spin}deg`,
-                /* `infinite` : la pluie ne s'arrête pas tant que la
-                   notification est là. Une seule salve laissait un écran vide
-                   pendant les trois dernières secondes — et c'est justement la
-                   pose, le moment où on regarde. Chaque confetti a sa propre
-                   période (2,1 à 3,7 s) et son propre départ, donc les cycles
-                   se désynchronisent tout seuls : il n'y a jamais de rideau
-                   qui repart d'un bloc, ce qui trahirait la boucle. */
-                animation: `asAchConfetti ${c.dur}ms linear ${c.delay}ms infinite both`,
+                /* LE TEMPS EST LINÉAIRE, ET C'EST UN CORRECTIF. Avec une
+                   courbe (`cubic-bezier(.25,.5,.5,1)`), les confettis
+                   semblaient s'arrêter à mi-chute puis repartir : une fonction
+                   d'interpolation CSS s'applique ENTRE CHAQUE PAIRE DE
+                   KEYFRAMES, pas sur toute la durée — la courbe décélérait
+                   jusqu'au keyframe à 50 %, puis recommençait. Linéaire est en
+                   plus le plus juste : un rectangle de papier atteint sa
+                   vitesse limite en quelques centimètres.
+
+                   Le nombre de cycles est calculé (cf. `confetti`) pour que la
+                   dernière chute sorte de l'écran quand le jeton repart. */
+                animation: `asAchConfetti ${c.dur}ms linear ${c.delay}ms ${c.cycles} both`,
+                /* La pluie se fige avec la pose. Sans ça, le survol allongerait
+                   la notification sans allonger la pluie, et le calage
+                   ci-dessus ne tiendrait plus dès qu'on garde le badge à
+                   l'écran — les confettis auraient fini plusieurs secondes
+                   avant lui. */
+                animationPlayState: phase === "hold" && held ? "paused" : "running",
               }}
             />
           ))}
