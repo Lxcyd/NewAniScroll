@@ -502,7 +502,8 @@ export default function AchievementToast() {
              du haut de l'écran — la moitié du rond sortait de la page, et les
              étincelles montantes avec. On descend donc le tout d'une demi-onde,
              ce qui laisse le cercle entier dans le cadre au moment où il se
-             voit encore (il s'efface avant sa taille maximale). */
+             voit encore (il s'efface avant sa taille maximale).
+
              ── ET ELLE DESCEND SOUS LA BARRE DE NAVIGATION ──────────────────
              54 px laissaient le jeton chevaucher la barre : celle-ci fait
              48 px de contenu plus 12 px de marge haute et basse (`min-h-[48px]`
