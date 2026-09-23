@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { getUserList, peekListEntry, hasUserList } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
-import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 
 export type ListStatus = {
   /** AniList status code ("CURRENT", "PLANNING", …) or null when off-list. */
@@ -31,7 +30,6 @@ export type ListStatus = {
  */
 export function useListStatus(aniId: number | string | undefined): ListStatus {
   const { data: session, status: sessionStatus }: any = useSession();
-  const syncEnabled = useSyncPrefs().enabled;
 
   const [status, setStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -39,51 +37,82 @@ export function useListStatus(aniId: number | string | undefined): ListStatus {
 
   const id = Number(aniId);
 
-  // ── Compte AniList, synchro active ───────────────────────────
+  /* ── `enabled` NE GOUVERNE PAS LA LECTURE ──────────────────────────────────
+   *
+   * Cet effet était gardé par `if (!syncEnabled) return;` et c'était un bug de
+   * sens. Le réglage dit, dans sa propre documentation (lib/prefs/syncPrefs.ts),
+   * qu'il « gate whether anything is PUSHED to AniList » — il parle d'écriture.
+   * Le code s'en servait AUSSI pour ne plus lire, et comme il est éteint par
+   * défaut, un compte AniList lié tombait dans un site à deux mémoires : le
+   * profil montrait la liste AniList (lue au rendu serveur), pendant que la
+   * page d'anime, les cartes et les badges lisaient une liste locale vide.
+   *
+   * Symptôme exact, et il a fallu le voir pour le croire : « 381 animés, 5 261
+   * épisodes » en tête du profil, et la fiche d'Overlord qui propose l'épisode 1
+   * d'une série terminée depuis des mois.
+   *
+   * On lit donc AniList dès qu'un compte est lié. Ce qui reste derrière
+   * `enabled` : tout ce qui ÉCRIT chez AniList, et le miroir AniList → local de
+   * `fullSyncFromAniList` — qui, lui, supprime les entrées purement locales et
+   * n'a rien à faire sans l'accord explicite de l'utilisateur.
+   */
   useEffect(() => {
     const token = session?.user?.token;
     const userName = session?.user?.name;
-    if (!syncEnabled) return;
     if (!token || !userName || !Number.isFinite(id)) return;
     let cancelled = false;
 
+    /* LE LOCAL PRIME, ET IL FAUT LE REDIRE ICI. La lecture AniList est
+       asynchrone : sans ce garde-fou, elle arriverait APRÈS l'effet local et
+       écraserait une entrée que l'utilisateur vient d'éditer sur ce poste. */
+    const applique = (e: { status: string | null; progress: number } | undefined) => {
+      if (peekLocalEntry(id)) return;
+      setStatus(e?.status ?? null);
+      setProgress(e?.progress || 0);
+      setResolved(true);
+    };
+
     // Amorcage synchrone sur ce qui est deja en cache → statut instantane.
     const cached = peekListEntry(userName, id);
-    if (cached) {
-      setStatus(cached.status ?? null);
-      setProgress(cached.progress || 0);
-      setResolved(true);
-    } else if (hasUserList(userName)) {
-      // Liste en cache et cet anime n'y est pas → absence CONFIRMEE.
-      setStatus(null);
-      setProgress(0);
-      setResolved(true);
-    }
+    if (cached) applique(cached);
+    // Liste en cache et cet anime n'y est pas → absence CONFIRMEE.
+    else if (hasUserList(userName)) applique(undefined);
 
     (async () => {
       const map = await getUserList(userName, token);
       if (cancelled) return;
-      const e = map.get(id);
-      setStatus(e?.status ?? null);
-      setProgress(e?.progress || 0);
-      setResolved(true);
+      applique(map.get(id));
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.token, session?.user?.name, id, syncEnabled]);
+  }, [session?.user?.token, session?.user?.name, id]);
 
-  // ── Liste locale (invites, et connectes synchro coupee) ──────
-  // On ne traite l'absence de session comme « invite » qu'une fois next-auth
-  // FIXE dessus : pendant la phase « loading » un utilisateur connecte n'a pas
-  // encore de session, et agir la ferait clignoter « Ajouter a la liste » par
-  // dessus son vrai statut.
+  /* ── Liste locale ──────────────────────────────────────────────────────────
+   *
+   * Seule source pour un invité, et elle PRIME sur AniList pour un compte lié :
+   * l'éditeur de liste écrit localement dans les deux cas (que la synchro soit
+   * allumée ou non), donc une entrée locale est forcément plus récente que ce
+   * qu'AniList renvoie. Sans cette priorité, éditer sa liste synchro coupée
+   * verrait sa modification écrasée à la lecture suivante.
+   *
+   * L'ABSENCE d'entrée locale ne dit plus rien, en revanche, et c'est ce qui
+   * change : elle ne signifie plus « pas dans la liste » mais « rien à dire
+   * ici ». On ne touche donc à l'état que si l'entrée existe — sauf pour un
+   * invité, chez qui l'absence reste une réponse.
+   *
+   * On ne traite l'absence de session comme « invité » qu'une fois next-auth
+   * FIXÉ dessus : pendant la phase « loading », un utilisateur connecté n'a pas
+   * encore de session, et agir là ferait clignoter « Ajouter à la liste »
+   * par-dessus son vrai statut.
+   */
   useEffect(() => {
-    const useLocal = !syncEnabled || sessionStatus === "unauthenticated";
-    if (!useLocal || !Number.isFinite(id)) return;
+    if (!Number.isFinite(id)) return;
+    const invite = sessionStatus === "unauthenticated";
     const read = () => {
       const e = peekLocalEntry(id);
+      if (!e && !invite) return;
       setStatus(e?.status ?? null);
       setProgress(e?.progress || 0);
       setResolved(true);
@@ -91,7 +120,7 @@ export function useListStatus(aniId: number | string | undefined): ListStatus {
     read();
     window.addEventListener(LOCAL_LIST_EVENT, read);
     return () => window.removeEventListener(LOCAL_LIST_EVENT, read);
-  }, [sessionStatus, syncEnabled, id]);
+  }, [sessionStatus, id]);
 
   return {
     status,

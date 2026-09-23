@@ -30,14 +30,14 @@
  *      elle éteignait justement ce qu'il fallait laisser sonner.
  *
  * Le motif est un accord parfait majeur monté en trois temps, résolu sur
- * l'octave tenue, sous laquelle entre un socle de graves.
+ * l'octave tenue.
  *
  * ── CE QUE LA RARETÉ CHANGE ──────────────────────────────────────────────────
- * Trois choses, toutes dans le même sens : elle prolonge l'ascension d'un ou
+ * Deux choses, dans le même sens : elle prolonge l'ascension d'un ou
  * deux degrés (la neuvième, puis la onzième — toujours dans l'accord, donc
- * jamais faux), allonge la tenue finale, et ouvre le socle. Un commun s'arrête
- * à la tierce et n'a AUCUN grave ; un mythique monte plus haut, sonne plus
- * longtemps et pèse. C'est la même phrase, plus ample — pas une autre phrase.
+ * jamais faux) et allonge la tenue finale. Un commun s'arrête à la tierce ; un
+ * mythique monte plus haut et sonne plus longtemps : la même phrase, plus
+ * ample — pas une autre phrase.
  *
  * ── POURQUOI PAS UN .mp3 ─────────────────────────────────────────────────────
  * Un fichier, c'est un asset dans `public/`, une requête, du quota de
@@ -76,7 +76,7 @@ import { getBadgeSound } from "@/lib/prefs/badgePrefs";
  *     que le bruit blanc apportait, sans sa dureté.
  *   - LE PARTIEL descend de la douzième (×3, brillante et tendue) à l'octave
  *     (×2, qui se fond dans la fondamentale) et son niveau tombe de 20 % à 9 %.
- *   - UN PASSE-BAS À 3,2 kHz sur tout, qui coupe ce qui pique.
+ *   - UN PASSE-BAS (2,6 kHz) sur tout, qui coupe ce qui pique.
  *
  * L'éclat de bruit blanc est SUPPRIMÉ : c'était le seul élément vraiment dur de
  * la chaîne, et il tombait sur la note qu'on veut laisser respirer.
@@ -88,17 +88,13 @@ import { getBadgeSound } from "@/lib/prefs/badgePrefs";
  * règle la moitié du reproche : la figure entière se pose dans le registre où
  * une cloche a du corps, au lieu du registre où elle siffle.
  *
- * L'autre moitié — l'ampleur — ne s'obtient PAS en montant le volume. Une
- * fanfare paraît grande parce qu'elle occupe le spectre, pas parce qu'elle est
- * forte. On ajoute donc un SOCLE : deux notes très graves (l'octave et la
- * double octave en dessous de la fondamentale) qui entrent sous la résolution,
- * avec une attaque lente et une traîne longue. On ne les entend pas comme des
- * notes — on les sent comme du poids. C'est ce que fait un orchestre quand les
- * contrebasses entrent sous un accord de cuivres.
- *
- * Le socle entre SOUS LA RÉSOLUTION et pas au début, et c'est délibéré : posé
- * dès la première note, il transformerait l'élan en tapis et écraserait la
- * montée. Il arrive quand la montée a fini son travail.
+ * L'AMPLEUR A ÉTÉ ESSAYÉE ET RETIRÉE. On avait ajouté un « socle » : deux notes
+ * très graves (l'octave et la double octave sous la fondamentale) entrant sous
+ * la résolution avec une attaque lente, pour occuper le spectre plutôt que
+ * monter le volume. Techniquement ça marchait — et ça s'entendait comme une
+ * note de plus, pas comme du poids. Retiré le 23/09 : la descente d'octave
+ * suffisait, le grave ajouté ne faisait que troubler une figure qui était
+ * claire.
  */
 
 /** La4. Une octave sous la version précédente. */
@@ -135,13 +131,6 @@ const MONTEE: Record<Rarity, number[]> = {
  *  la traîne qui fait l'ampleur. */
 const TENUE: Record<Rarity, number> = {
   c: 1.2, u: 1.5, r: 1.9, e: 2.3, l: 2.8, m: 3.4,
-};
-
-/** Le poids du socle, par rareté. Zéro sur le commun : un badge courant n'a pas
- *  à faire trembler les murs, et c'est ce qui rend l'entrée des graves
- *  significative quand elle arrive. */
-const SOCLE: Record<Rarity, number> = {
-  c: 0, u: 0.35, r: 0.6, e: 0.8, l: 1, m: 1.3,
 };
 
 /** L'écart entre deux notes de l'élan.
@@ -226,38 +215,6 @@ function note(ac: AudioContext, dst: AudioNode, f: number, t: number, g: number,
 }
 
 /**
- * LE SOCLE : l'octave et la double octave sous la fondamentale, très douces et
- * très longues, qui entrent sous la résolution.
- *
- * Attaque de 180 ms — six fois celle des notes. À cette lenteur, le grave ne
- * s'entend pas comme une note qui commence mais comme une masse qui était déjà
- * là : c'est précisément ce qui donne l'ampleur sans donner l'impression qu'on
- * a ajouté quelque chose.
- *
- * Il ne passe PAS par le passe-bas global — il n'a rien au-dessus de 200 Hz à
- * couper — mais il passe par le maître, donc il reste dans l'équilibre.
- */
-function socle(ac: AudioContext, dst: AudioNode, t: number, g: number, len: number) {
-  if (g <= 0) return;
-  for (const [mult, part] of [
-    [0.5, 1],
-    [0.25, 0.55],
-  ] as const) {
-    const env = ac.createGain();
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.linearRampToValueAtTime(g * part, t + 0.18);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + len);
-    env.connect(dst);
-    const o = ac.createOscillator();
-    o.type = "sine";
-    o.frequency.setValueAtTime(BASE * mult, t);
-    o.connect(env);
-    o.start(t);
-    o.stop(t + len + 0.05);
-  }
-}
-
-/**
  * Joue la fanfare. Ne jette jamais : appelé depuis un effet de rendu.
  */
 export function playBadgeChime(rarity: Rarity): void {
@@ -296,12 +253,6 @@ export function playBadgeChime(rarity: Rarity): void {
          toutes. Un élan à volume constant s'entend comme une gamme. */
       const g = NIVEAU * (0.5 + (0.5 * i) / Math.max(1, fin)) * (dernier ? 1.15 : 1);
       note(ac, maitre, BASE * mult, t, g, dernier ? tenue : BREF);
-      /* Les graves entrent un cheveu AVANT la résolution (30 ms), pas avec
-         elle : leur attaque dure 180 ms, donc partir en même temps les ferait
-         arriver bien après, et on entendrait deux événements au lieu d'un. */
-      if (dernier) {
-        socle(ac, maitre, t - 0.03, NIVEAU * (SOCLE[rarity] ?? 0), tenue * 1.3);
-      }
     });
   } catch {
     /* Contexte fermé entre-temps, quota d'oscillateurs : tant pis, pas de son. */

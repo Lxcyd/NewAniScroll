@@ -404,7 +404,7 @@ export default function AchievementToast() {
                    période (2,1 à 3,7 s) et son propre départ, donc les cycles
                    se désynchronisent tout seuls : il n'y a jamais de rideau
                    qui repart d'un bloc, ce qui trahirait la boucle. */
-                animation: `asAchConfetti ${c.dur}ms cubic-bezier(.25,.5,.5,1) ${c.delay}ms infinite both`,
+                animation: `asAchConfetti ${c.dur}ms linear ${c.delay}ms infinite both`,
               }}
             />
           ))}

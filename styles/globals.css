@@ -3443,6 +3443,16 @@ input[type="number"] {
    Le BALANCEMENT latéral est ce qui distingue un confetti d'une goutte de
    pluie : un rectangle léger ne tombe jamais droit. Il va dans un sens puis
    dans l'autre — un seul aller donnerait une chute en diagonale. */
+/* LE TEMPS EST LINÉAIRE, ET C'EST OBLIGATOIRE ICI. La fonction d'interpolation
+   d'une animation CSS s'applique ENTRE CHAQUE PAIRE de keyframes, pas sur toute
+   la durée : avec une courbe qui décélère, le confetti ralentissait jusqu'à
+   presque s'arrêter à 50 %, puis repartait pour le second segment. On lisait ça
+   comme une pause au milieu de la chute, et ce n'en était pas une — c'était
+   deux courbes bout à bout.
+
+   Une chute à vitesse constante est de toute façon plus juste qu'une chute qui
+   accélère : un rectangle de papier atteint sa vitesse limite en quelques
+   centimètres. */
 @keyframes asAchConfetti {
   0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
   6% { opacity: 1; }

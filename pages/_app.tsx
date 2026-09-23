@@ -666,10 +666,31 @@ export default function App({
   // "push my list up to AniList instead".
   useEffect(() => {
     const run = async () => {
-      if (!getSyncPrefs().directionChosen) return;
       const { fullSyncFromAniList, runAutoPauseSweep } = await import(
         "@/lib/list/syncEngine"
       );
+      /* ── LE COMPTE LIÉ SANS SYNCHRO A DROIT À SA LISTE ──────────────────
+       *
+       * Sans ça, un compte AniList lié dont la synchro est éteinte — le
+       * DÉFAUT du site — vivait avec une liste locale vide, donc sans un
+       * seul badge accordé et avec des fiches qui proposaient l'épisode 1
+       * de séries terminées. Le profil, lui, lisait AniList au rendu serveur
+       * et affichait les 381 animés : deux mémoires pour un même compte.
+       *
+       * `merge` est ce qui rend ce pull acceptable AVANT le choix de
+       * direction, là où la réconciliation stricte ne l'était pas : il
+       * ajoute ce qui manque, garde toute entrée locale plus récente, et ne
+       * supprime jamais rien. La crainte notée ici — « un utilisateur avec
+       * une liste locale la perdrait avant d'avoir pu choisir de la pousser
+       * vers AniList » — ne s'applique donc pas.
+       *
+       * Une fois la direction choisie, c'est le miroir strict qui reprend :
+       * l'utilisateur a désigné AniList comme source de vérité, et une entrée
+       * qui n'existe que localement doit alors disparaître. */
+      if (!getSyncPrefs().directionChosen) {
+        await fullSyncFromAniList({ merge: true }).catch(() => {});
+        return;
+      }
       await fullSyncFromAniList().catch(() => {});
       await runAutoPauseSweep().catch(() => {});
     };

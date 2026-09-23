@@ -28,7 +28,6 @@ import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
-import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { getServerPref } from "@/lib/prefs/serverPref";
 import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
 import { getAnimeServer } from "@/lib/prefs/animeServerPref";
@@ -146,7 +145,6 @@ export default function Info({
   // When AniList sync is off, a connected user's status comes from the local
   // list too (the editor writes there), so the info page must read from the
   // same place to stay consistent.
-  const syncEnabled = useSyncPrefs().enabled;
   const { toggleFavourite } = useAniList(session);
   const { t } = useTranslation();
   const router = useRouter();
@@ -260,32 +258,34 @@ export default function Info({
     const token = session?.user?.token;
     const userName = session?.user?.name;
     const aniId = Number(info?.id);
-    // Sync off → the local-list effect below owns the status instead.
-    if (!syncEnabled) return;
+    /* PAS DE GARDE SUR `syncEnabled` — voir la note longue dans
+       lib/list/useListStatus.ts. Ce réglage gouverne ce qu'on ÉCRIT chez
+       AniList, jamais ce qu'on en lit ; s'en servir pour couper la lecture
+       donnait un site à deux mémoires, avec un profil qui affiche 381 animés
+       et une fiche qui propose l'épisode 1 d'une série terminée. */
     if (!token || !userName || !Number.isFinite(aniId)) return;
     let cancelled = false;
 
+    /* Le local prime : il peut porter une édition faite sur ce poste, et cette
+       lecture-ci est asynchrone donc elle arriverait après. */
+    const applique = (e: { status: string | null; progress: number } | undefined) => {
+      if (peekLocalEntry(aniId)) return;
+      setStatusLabel(e?.status ?? null);
+      setProgress(e?.progress || 0);
+      setStatusResolved(true);
+    };
+
     // 1. Synchronous seed from whatever list is already cached → instant status.
     const cached = peekListEntry(userName, aniId);
-    if (cached) {
-      setStatusLabel(cached.status ?? null);
-      setProgress(cached.progress || 0);
-      setStatusResolved(true);
-    } else if (hasUserList(userName)) {
-      // List is cached and this anime isn't on it → confirmed "not in list".
-      setStatusLabel(null);
-      setProgress(0);
-      setStatusResolved(true);
-    }
+    if (cached) applique(cached);
+    // List is cached and this anime isn't on it → confirmed "not in list".
+    else if (hasUserList(userName)) applique(undefined);
 
     // 2. Refresh the whole list (cache-aware) and re-read this anime from it.
     (async () => {
       const map = await getUserList(userName, token);
       if (cancelled) return;
-      const e = map.get(aniId);
-      setStatusLabel(e?.status ?? null);
-      setProgress(e?.progress || 0);
-      setStatusResolved(true);
+      applique(map.get(aniId));
     })();
 
     // 3. Favourite is per-media, not in the collection — fetch it separately.
@@ -314,7 +314,7 @@ export default function Info({
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.token, session?.user?.name, info?.id, syncEnabled]);
+  }, [session?.user?.token, session?.user?.name, info?.id]);
 
   // ── Local-list status (guests, and connected users with sync off) ─────
   // Status/progress come from the local list (lib/list/localList.ts) when the
@@ -327,14 +327,15 @@ export default function Info({
   // brief post-hydration "loading" phase `session` is undefined for a signed-in
   // user too — acting then would flash "Add to list" over their real status.
   useEffect(() => {
-    const useLocal =
-      !syncEnabled /* connected-but-off or guest-with-off */ ||
-      sessionStatus === "unauthenticated";
-    if (!useLocal) return;
     const aniId = Number(info?.id);
     if (!Number.isFinite(aniId)) return;
+    /* L'ABSENCE d'entrée locale ne veut plus dire « pas dans la liste » : elle
+       veut dire « rien à dire ici », et c'est AniList qui répond. Sauf chez un
+       invité, où l'absence reste une réponse. */
+    const invite = sessionStatus === "unauthenticated";
     const read = () => {
       const e = peekLocalEntry(aniId);
+      if (!e && !invite) return;
       setStatusLabel(e?.status ?? null);
       setProgress(e?.progress || 0);
       setStatusResolved(true);
@@ -342,7 +343,7 @@ export default function Info({
     read();
     window.addEventListener(LOCAL_LIST_EVENT, read);
     return () => window.removeEventListener(LOCAL_LIST_EVENT, read);
-  }, [sessionStatus, syncEnabled, info?.id]);
+  }, [sessionStatus, info?.id]);
 
   // ── Prefetch the player for the "Watch" target ───────────────────────
   // Visitors who open an anime page usually go on to watch it, so we warm

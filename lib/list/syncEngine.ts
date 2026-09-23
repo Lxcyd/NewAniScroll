@@ -37,8 +37,21 @@ type AniSession = { user?: { token?: string; name?: string } } | null;
 
 /** Resolve the AniList session only when sync is enabled (avoids a needless
  *  /api/auth/session round-trip on every episode finish for local-only users). */
-async function getAniListSession(prefs: SyncPrefs): Promise<AniSession> {
-  if (!prefs.enabled) return null;
+/**
+ * La session AniList, si elle sert à quelque chose ici.
+ *
+ * `allowDisabled` EST LE MÊME BUG DE SENS, un étage plus bas. Ce garde-fou
+ * refusait la session dès que `enabled` était faux — c'est juste pour tout ce
+ * qui ÉCRIT chez AniList (et c'est l'immense majorité des appelants), et c'est
+ * faux pour le miroir de LECTURE : un compte lié dont la synchro est éteinte a
+ * quand même une liste, et le site doit pouvoir la lire. Le drapeau est donc
+ * explicite et rare, plutôt que le garde-fou retiré pour tout le monde.
+ */
+async function getAniListSession(
+  prefs: SyncPrefs,
+  allowDisabled = false,
+): Promise<AniSession> {
+  if (!prefs.enabled && !allowDisabled) return null;
   try {
     const s = (await getSession()) as AniSession;
     return s?.user?.token ? s : null;
@@ -137,10 +150,10 @@ async function fetchAniListListMap(
 }
 
 export async function fullSyncFromAniList(
-  { replace = false }: { replace?: boolean } = {},
+  { replace = false, merge = false }: { replace?: boolean; merge?: boolean } = {},
 ): Promise<{ ok: boolean; count: number }> {
   const prefs = getSyncPrefs();
-  const session = await getAniListSession(prefs);
+  const session = await getAniListSession(prefs, merge);
   const token = session?.user?.token;
   const userName = session?.user?.name;
   if (!token || !userName) return { ok: false, count: 0 };
@@ -180,6 +193,30 @@ export async function fullSyncFromAniList(
     // AniList account: drop everything local and write AniList verbatim.
     if (replace) {
       const count = importEntries(Array.from(byId.values()), "replace");
+      return { ok: true, count };
+    }
+
+    /* ── LE MIROIR DE LECTURE, QUI NE DÉTRUIT RIEN ──────────────────────────
+     *
+     * Pour un compte AniList lié dont la synchro est ÉTEINTE. Le site avait
+     * alors deux mémoires : le profil lisait AniList au rendu serveur et
+     * annonçait 381 animés terminés, pendant que les badges et les pages
+     * d'anime lisaient une liste locale vide — d'où une fiche qui proposait
+     * l'épisode 1 d'une série finie, et pas un seul badge accordé.
+     *
+     * Les pages ont été corrigées en lisant AniList directement
+     * (lib/list/useListStatus.ts), mais l'évaluateur de badges, lui, lit la
+     * liste locale de façon SYNCHRONE (lib/badges/evaluate.ts) et ne peut pas
+     * attendre un aller-retour réseau. Il lui faut donc les entrées sur place.
+     *
+     * `merge` ET SURTOUT PAS le miroir strict d'en dessous : celui-ci laisse
+     * tomber les entrées qui n'existent QUE localement, ce qui est juste quand
+     * l'utilisateur a désigné AniList comme source de vérité, et une perte de
+     * données quand il ne l'a pas fait. Le mode « merge » ajoute ce qui manque,
+     * garde toute entrée locale plus récente (règle `updatedAt` dans
+     * `importEntries`), et ne supprime jamais rien. */
+    if (merge) {
+      const count = importEntries(Array.from(byId.values()), "merge");
       return { ok: true, count };
     }
 
