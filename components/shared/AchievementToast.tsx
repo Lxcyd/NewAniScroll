@@ -507,10 +507,15 @@ export default function AchievementToast() {
              ── ET ELLE DESCEND SOUS LA BARRE DE NAVIGATION ──────────────────
              54 px laissaient le jeton chevaucher la barre : celle-ci fait
              48 px de contenu plus 12 px de marge haute et basse (`min-h-[48px]`
-             et `py-3` dans NavBar.tsx), soit 72 px. Le voile flouté débordant
-             de 12 px vers le haut (`.as-ach-blur`), la notification commence
-             donc à 88 px — le premier pixel qu'elle peint tombe 4 px SOUS la
-             barre, et pas un de plus : on descend le strict nécessaire. */
+             et `py-3` dans NavBar.tsx), soit 72 px. La notification commence
+             donc à 88 px : 16 px de marge, le strict nécessaire.
+
+             Le voile flouté déborde plus haut que ça (26 px, cf.
+             `.as-ach-blur`), et ce n'est pas une contradiction : son masque
+             vaut ZÉRO sur ses propres bords et ne devient franc qu'au tiers du
+             chemin vers le centre. Ce qui dépasse sur la barre ne peint rien —
+             c'est précisément la marge dont le dégradé a besoin pour
+             s'éteindre. */
           position: "fixed",
           top: 88,
           left: "50%",

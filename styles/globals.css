@@ -3633,20 +3633,36 @@ input[type="number"] {
  * Il est monté au premier niveau de la notification, qui n'a ni l'un ni
  * l'autre. Le débordement négatif donne au dégradé de quoi s'éteindre en
  * dehors du texte. Voir AchievementToast.tsx pour l'empilement. */
+/* ── `closest-side`, ET C'EST LA SEULE VALEUR QUI GARANTIT LE ZÉRO ──────────
+ * Le masque valait `ellipse 66% 56%`, et il laissait une ARÊTE DROITE sur les
+ * quatre côtés. Le piège est dans l'unité : ces pourcentages donnent des rayons
+ * mesurés sur la LARGEUR et la HAUTEUR de la boîte, pas sur ses demi-dimensions.
+ * 66 % de la largeur, c'est 1,32 demi-largeur — l'ellipse n'atteignait donc sa
+ * transparence qu'un tiers de boîte PLUS LOIN que le bord, et le bord coupait
+ * un masque encore à ~40 % d'opacité. Une frontière nette, exactement ce que le
+ * dégradé était censé supprimer.
+ *
+ * `closest-side` fait toucher l'ellipse au milieu de chaque côté : l'alpha vaut
+ * zéro sur les quatre bords, et les coins sont hors de l'ellipse donc déjà à
+ * zéro. Plus aucune valeur à accorder à la main quand la carte change de
+ * largeur — c'est elle qui a le dernier mot, pas une constante.
+ *
+ * Le débordement est en conséquence plus généreux : le dégradé a besoin de
+ * cette marge pour s'éteindre AUTOUR du texte et non dessus. */
 .as-ach-blur {
   position: absolute;
-  inset: -12px -10px;
+  inset: -26px -20px;
   z-index: 0;
   pointer-events: none;
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   -webkit-mask-image: radial-gradient(
-    ellipse 66% 56% at 50% 50%,
-    #000 0%, #000 38%, transparent 100%
+    ellipse closest-side at 50% 50%,
+    #000 0%, #000 34%, transparent 100%
   );
   mask-image: radial-gradient(
-    ellipse 66% 56% at 50% 50%,
-    #000 0%, #000 38%, transparent 100%
+    ellipse closest-side at 50% 50%,
+    #000 0%, #000 34%, transparent 100%
   );
 }
 
