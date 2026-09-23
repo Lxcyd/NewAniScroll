@@ -142,10 +142,16 @@ type Confetto = {
  * nombre entier de cycles ne tombe évidemment pas juste tout seul ; c'est donc
  * la DURÉE qui est recalée sur lui.
  *
- *   fin     = `total` moins un petit retard propre à chacun (jusqu'à 700 ms) —
- *             c'est ce qui fait que la pluie SE TARIT au lieu de s'arrêter net.
- *             Sans lui, tous les derniers cycles finiraient à la même image :
- *             un rideau, exactement ce que les trois désordres évitent.
+ *   fin     = `total` moins un retard propre à chacun, TIRÉ SUR UNE CHUTE
+ *             ENTIÈRE (jusqu'à 0,9 × `brut`) — c'est ce qui fait que la pluie
+ *             SE TARIT au lieu de s'arrêter net. Il a d'abord valu 700 ms fixes,
+ *             et 700 ms sur une chute de 2 à 3 secondes ne sépare rien : les
+ *             quarante-six confettis sortaient par le bas dans la même
+ *             demi-seconde, ce qui se lit comme une disparition d'un coup — le
+ *             rideau qu'on croyait avoir évité, déplacé à l'autre bout. Avec un
+ *             retard à l'échelle de la chute, le dernier confetti qui apparaît
+ *             en haut touche le bas de l'écran au moment où le jeton repart, et
+ *             ceux d'avant s'écoulent échelonnés derrière lui.
  *   cycles  = le nombre entier de chutes le plus proche de la durée tirée.
  *   dur     = (fin − départ) / cycles, donc à quelques pourcents de la durée
  *             tirée, et toujours différente d'un confetti à l'autre.
@@ -168,7 +174,7 @@ function confetti(seed: number, total: number): Confetto[] {
     /* Le `max` n'est pas décoratif : une pose abrégée (la croix, Échap) peut
        rendre `total` plus court qu'une seule chute, et une durée négative
        ferait disparaître la pluie au lieu de l'accélérer. */
-    const fin = Math.max(brut * 0.6, total - rnd() * 700 - delay);
+    const fin = Math.max(brut * 0.6, total - rnd() * brut * 0.9 - delay);
     const cycles = Math.max(1, Math.round(fin / brut));
     out.push({
       x: rnd() * 100,
