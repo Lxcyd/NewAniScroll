@@ -3675,6 +3675,19 @@ input[type="number"] {
   from { opacity: 1; }
   to { opacity: 0; }
 }
+
+/* ── LE JETON GROSSISSAIT DEUX FOIS ────────────────────────────────────────
+   `.as-badge-token:hover` vient du CATALOGUE, où chaque jeton d'une liste
+   répond pour lui-même. Dans la notification, l'agrandissement est déjà porté
+   par la couche d'échelle du toast, et pour les DEUX à la fois (jeton et
+   texte) : survoler le texte grossissait donc le jeton, et passer ensuite sur
+   le jeton le grossissait une seconde fois, lui seul. Deux réponses pour un
+   seul geste, dont une qui contredit l'autre.
+   La règle du catalogue est donc éteinte ICI, et seulement ici — elle reste
+   juste dans une liste, où il n'y a pas de couche commune au-dessus. */
+.as-ach-token .as-badge-token:hover {
+  transform: none;
+}
 .as-ach-name,
 .as-ach-cond {
   -webkit-text-stroke: 1.4px rgba(0, 0, 0, 0.5);
