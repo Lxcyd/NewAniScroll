@@ -3649,6 +3649,16 @@ input[type="number"] {
     #000 0%, #000 38%, transparent 100%
   );
 }
+
+/* La sortie du voile. Fondre son OPACITÉ, c'est ramener le fond net
+   par-dessus sa copie floutée : on obtient un dé-floutage progressif sans
+   animer `backdrop-filter`, qui referait passer tout le fond dans le filtre à
+   chaque image. Sans ça, le flou tenait jusqu'au démontage et se coupait
+   net — la seule rupture d'une sortie faite de fondus. */
+@keyframes asAchBlurOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 .as-ach-name,
 .as-ach-cond {
   -webkit-text-stroke: 1.4px rgba(0, 0, 0, 0.5);

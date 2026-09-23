@@ -544,7 +544,32 @@ export default function AchievementToast() {
             de recalculer une région. `z-index: 0` sur un élément positionné le
             met sous la carte (positionnée, z-index auto, plus loin dans le
             DOM) et sous le jeton (z-index 2). */}
-        <div className="as-ach-blur" aria-hidden="true" />
+        <div
+          className="as-ach-blur"
+          aria-hidden="true"
+          /* IL S'ÉTEINT AVEC LE TEXTE, SINON IL DISPARAÎT NET. Le voile n'avait
+             aucune sortie : il vivait à pleine force jusqu'au démontage, et le
+             fond retrouvait sa netteté d'une image à l'autre — une coupure
+             franche au milieu d'une sortie entièrement faite de fondus.
+
+             Le fondu couvre TOUTE la fin (l'effacement du texte PUIS le retrait
+             du jeton), pas seulement le premier temps : il doit se terminer au
+             démontage, pas avant, sinon on aurait juste déplacé la coupure.
+             Fondre l'opacité revient à ramener progressivement le fond net
+             par-dessus sa version floutée — c'est exactement le dé-floutage
+             qu'on veut, sans animer `backdrop-filter` (qui, lui, repasse par le
+             filtre à chaque image).
+
+             La valeur est la MÊME chaîne pendant `textOut` et pendant `out` :
+             le changement de phase ne doit pas relancer l'animation depuis le
+             début, ce qui rallumerait le voile à mi-sortie. */
+          style={{
+            animation:
+              phase === "textOut" || closing
+                ? `asAchBlurOut ${TEXT_OUT_MS + outMs}ms ease-out forwards`
+                : undefined,
+          }}
+        />
 
         {/* Le jeton, et ce qui l'accompagne à l'impact.
 
