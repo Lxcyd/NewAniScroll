@@ -31,6 +31,8 @@ import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
+import { clearUnseen } from "@/lib/badges/dock";
+import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
 import { mergeBadgeState, useBadgeState, type BadgeState } from "@/lib/badges/store";
 import { Bar } from "./widgets/common";
 import BadgeDefs from "./badges/BadgeDefs";
@@ -120,6 +122,50 @@ export default function ProfileBadges({
       setProgress(progressAll().progress);
     });
   }, [live]);
+
+  /* Chez soi, ouvrir l'onglet SUFFIT à tout marquer comme vu : la pastille de
+     l'avatar existe pour ramener ici, elle n'a plus de raison d'être une fois
+     qu'on y est. Chez quelqu'un d'autre, on ne touche à rien — ses badges ne
+     sont pas les nôtres. */
+  useEffect(() => {
+    if (live) clearUnseen();
+  }, [live]);
+
+  /**
+   * LA RÉVÉLATION — la notification a envoyé ici avec un `#badge-<id>`.
+   *
+   * Un `requestAnimationFrame` avant de chercher l'élément : l'onglet vient
+   * d'être monté par le parent, et l'ancre n'existe dans le DOM qu'après la
+   * peinture. Chercher tout de suite ne trouve rien une fois sur deux.
+   *
+   * LE FRAGMENT EST EFFACÉ APRÈS COUP, par `replaceState` et non par une
+   * navigation : laisser `#badge-x` dans la barre d'adresse ferait rejouer le
+   * surlignage à chaque retour arrière, et `router.replace()` refroidirait la
+   * page entière pour une histoire de fragment.
+   */
+  useEffect(() => {
+    const cible = revealTarget();
+    if (!cible) return;
+    let sorti = false;
+    const t = requestAnimationFrame(() => {
+      const el = document.getElementById(revealAnchor(cible));
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("as-badge-flash");
+      window.setTimeout(() => {
+        if (!sorti) el.classList.remove("as-badge-flash");
+      }, 2600);
+      try {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      } catch {
+        /* au mieux */
+      }
+    });
+    return () => {
+      sorti = true;
+      cancelAnimationFrame(t);
+    };
+  }, []);
 
   const got = state.got;
   const gotCount = MAIN.filter((b) => got[b.id] != null).length;
@@ -321,7 +367,13 @@ function BadgeRow({
   const R = RARITY[def.rarity];
 
   return (
-    <div className="as-badge-row as-stat-card flex flex-col rounded-xl px-3.5 py-3 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]">
+    <div
+      /* L'ancre de la notification. `scroll-mt-28` dégage la hauteur de la
+         navbar collante : sans elle, `scrollIntoView` pose la ligne visée
+         PILE dessous, donc invisible. */
+      id={revealAnchor(def.id)}
+      className="as-badge-row as-stat-card scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]"
+    >
       <div className="flex items-center gap-4">
         <div className="shrink-0">
           <BadgeToken

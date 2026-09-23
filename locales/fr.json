@@ -244,6 +244,15 @@
       "resumeDesc": "Un petit rappel occasionnel pour reprendre un anime laissé de côté.",
       "note": "Enregistré sur cet appareil. Les notifications s'affichent dans la cloche pendant que l'app est ouverte."
     },
+    "badges": {
+      "title": "Badges",
+      "desc": "Ce qui se passe quand un badge tombe.",
+      "sound": "Carillon",
+      "soundDesc": "Un court son a l'apparition du badge. Il s'ouvre avec la rarete.",
+      "fx": "Animation",
+      "fxDesc": "La gerbe d'etincelles, l'onde de choc et le vol du jeton vers l'avatar. Eteint, le badge s'annonce sans la fete.",
+      "note": "Ces deux reglages sont propres a cet appareil, et independants du reglage d'animations du systeme."
+    },
     "theme": {
       "title": "Thème",
       "desc": "Choisissez la couleur d'accent utilisée sur tout le site.",
@@ -1611,7 +1620,10 @@
         "secret": "Hors progression et hors total : liaison de compte, statut et quelques trouvailles."
       },
       "seeTiers": "Voir tous les paliers",
-      "close": "Fermer"
+      "close": "Fermer",
+      "openInProfile": "Voir ce badge dans le profil",
+      "unseen_one": "{{count}} badge a voir",
+      "unseen_other": "{{count}} badges a voir"
     },
     "ep-1": {
       "name": "Premier épisode",

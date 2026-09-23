@@ -22,6 +22,7 @@ import {
 } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
+import { useBadgePrefs, setBadgeSound, setBadgeFx } from "@/lib/prefs/badgePrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
 import {
@@ -71,6 +72,7 @@ import {
   LockClosedIcon,
   ListBulletIcon,
   BellIcon,
+  TrophyIcon,
   CursorArrowRaysIcon,
   WrenchScrewdriverIcon,
   UserCircleIcon,
@@ -256,6 +258,7 @@ const SECTIONS: SectionDef[] = [
   { id: "browsing", labelKey: "settings.browsing.title", Icon: CursorArrowRaysIcon },
   { id: "player", labelKey: "settings.player.title", Icon: PlayCircleIcon },
   { id: "notifications", labelKey: "settings.notif.title", Icon: BellIcon },
+  { id: "badges", labelKey: "settings.badges.title", Icon: TrophyIcon },
   { id: "theme", labelKey: "settings.theme.title", Icon: SwatchIcon },
   { id: "sync", labelKey: "settings.sync.title", Icon: ArrowPathIcon },
   { id: "profile", labelKey: "settings.profile.title", Icon: LockClosedIcon, loggedInOnly: true },
@@ -369,6 +372,7 @@ export default function Settings() {
   const playerPrefs = usePlayerPrefs();
   const dataSaver = useDataSaver();
   const notifPrefs = useNotifPrefs();
+  const badgePrefs = useBadgePrefs();
   const clickTarget = useClickTarget();
   const hideSpoilers = useHideSpoilers();
   const previewPrefs = usePreviewPrefs();
@@ -1074,6 +1078,38 @@ export default function Settings() {
               />
             </div>
             <p className="text-white/40 text-xs mt-3">{t("settings.notif.note")}</p>
+          </section>
+
+          {/* ── Badges ───────────────────────────────────────────────
+              LE VRAI CORRECTIF À `prefers-reduced-motion`, ET C'EST POUR ÇA
+              QUE CETTE SECTION EXISTE. La notification de badge a cessé de
+              suivre le réglage système (cf. le bloc dédié de globals.css) :
+              Windows livre « Effets d'animation » désactivé sur beaucoup de
+              postes, ce qui met Chrome en `reduce` sans que personne n'ait
+              jamais demandé moins d'animations à un site — et le `display:none`
+              tombait sur exactement ce qui FAIT la récompense. On avait écrit
+              alors que le correctif était un réglage DU SITE, distinct de celui
+              du système. Le voici, et les deux interrupteurs sont séparés :
+              quelqu'un peut vouloir la fête en silence, ou le son sans la
+              gerbe. */}
+          <section id="badges" className="py-10 scroll-mt-24">
+            <h2 className="text-xl font-semibold mb-1">{t("settings.badges.title")}</h2>
+            <p className="text-white/60 text-sm mb-4">{t("settings.badges.desc")}</p>
+            <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
+              <Toggle
+                label={t("settings.badges.sound")}
+                desc={t("settings.badges.soundDesc")}
+                checked={badgePrefs.sound}
+                onChange={setBadgeSound}
+              />
+              <Toggle
+                label={t("settings.badges.fx")}
+                desc={t("settings.badges.fxDesc")}
+                checked={badgePrefs.fx}
+                onChange={setBadgeFx}
+              />
+            </div>
+            <p className="text-white/40 text-xs mt-3">{t("settings.badges.note")}</p>
           </section>
 
           {/* ── Theme (accent colour) ────────────────────────────── */}

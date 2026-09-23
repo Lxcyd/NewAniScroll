@@ -12,6 +12,7 @@ import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { useBadgeState } from "@/lib/badges/store";
+import { wantsBadgesTab } from "@/lib/badges/reveal";
 import dynamic from "next/dynamic";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import type { StudioAnime } from "@/components/profile/BannerStudio";
@@ -51,6 +52,16 @@ export default function LocalProfile() {
   const studioEverOpened = useMountedOnce(picker);
   const [pinned, setPinned] = useState<Dressing | null>(null);
   const [tab, setTab] = useState("overview");
+  /* LA NOTIFICATION DE BADGE ENVOIE ICI, avec un `#badge-<id>`. L'onglet
+     s'ouvre donc tout seul, et ProfileBadges fait defiler + surligne.
+
+     Dans un EFFET et pas dans l'etat initial : `location` n'existe pas au rendu
+     serveur, et choisir « badges » des le premier rendu client ferait diverger
+     l'hydratation. Le prix est un eclair de l'onglet Apercu, invisible en
+     pratique — l'effet part avant la peinture suivante. */
+  useEffect(() => {
+    if (wantsBadgesTab()) setTab("badges");
+  }, []);
   /* Lu en direct : un badge debloque pendant qu'on est sur la page doit
      apparaitre dans l'onglet sans rechargement. */
   const badgeState = useBadgeState();

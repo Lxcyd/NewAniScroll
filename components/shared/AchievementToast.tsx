@@ -29,12 +29,18 @@
  * l'en-tête de lib/badges/achievementStore.ts.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/router";
 import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
 import { next, useAchievement } from "@/lib/badges/achievementStore";
 import { playBadgeChime } from "@/lib/badges/chime";
+import { dockRect, markUnseen } from "@/lib/badges/dock";
+import { revealHref } from "@/lib/badges/reveal";
+import { useBadgePrefs } from "@/lib/prefs/badgePrefs";
 import { usePlayerSurface } from "@/lib/notifications/playerSurface";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
@@ -75,16 +81,17 @@ type Spark = {
  * éclat RETOMBE d'une hauteur qui lui est propre — c'est ce qui donne une
  * gerbe plutôt qu'une explosion symétrique.
  */
-function sparks(seed: number): Spark[] {
+function sparks(seed: number, wide = false): Spark[] {
   const out: Spark[] = [];
   let s = seed || 1;
   const rnd = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
-  for (let i = 0; i < SPARKS; i++) {
-    const a = (i / SPARKS) * Math.PI * 2 + (rnd() - 0.5) * 0.7;
-    const dist = 46 + rnd() * 52;
+  const n = wide ? SPARKS * 2 : SPARKS;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.7;
+    const dist = (46 + rnd() * 52) * (wide ? 3.2 : 1);
     out.push({
       dx: Math.cos(a) * dist,
       dy: Math.sin(a) * dist,
@@ -104,6 +111,46 @@ function sparks(seed: number): Spark[] {
 
 /** Les huit rayons de l'impact, à angles réguliers — eux ont le droit. */
 const RAYS = Array.from({ length: 8 }, (_, i) => i * 45);
+
+type Confetto = { x: number; delay: number; dur: number; sway: number; spin: number; w: number; h: number; col: string };
+
+/**
+ * LA PLUIE DE CONFETTIS — mythique seulement.
+ *
+ * Elle tombe SUR TOUTE LA LARGEUR DE L'ÉCRAN et derrière la carte, pas autour
+ * du jeton : la gerbe d'étincelles occupe déjà le centre, et y ajouter des
+ * confettis ne ferait qu'un tas plus dense au même endroit. Ce qu'on veut dire
+ * est « ça déborde de la notification », et pour ça il faut qu'ils tombent là
+ * où il n'y a rien.
+ *
+ * Trois désordres, comme pour la gerbe, et pour la même raison : un départ
+ * échelonné (sinon tout tombe en rideau), une durée propre à chacun (sinon ils
+ * atterrissent en même temps, ce qu'aucun objet ne fait), et un BALANCEMENT
+ * latéral — c'est lui qui distingue un confetti d'une goutte de pluie, parce
+ * qu'un rectangle léger ne tombe jamais droit.
+ */
+function confetti(seed: number): Confetto[] {
+  const out: Confetto[] = [];
+  let s = (seed ^ 0x9e3779b9) >>> 0;
+  const rnd = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  const cols = ["#ffc7b0", "#FF7F57", "#ffffff", "#E94560", "#ffd9a0"];
+  for (let i = 0; i < 46; i++) {
+    out.push({
+      x: rnd() * 100,
+      delay: rnd() * 900,
+      dur: 2100 + rnd() * 1600,
+      sway: (rnd() - 0.5) * 120,
+      spin: 360 + rnd() * 900,
+      w: 5 + Math.round(rnd() * 5),
+      h: 8 + Math.round(rnd() * 8),
+      col: cols[Math.floor(rnd() * cols.length)],
+    });
+  }
+  return out;
+}
 
 /**
  * L'entrée d'une ligne de texte, décalée de `delay`.
@@ -127,6 +174,8 @@ function line(phase: Phase, delay: number): string {
 export default function AchievementToast() {
   const ach = useAchievement();
   const surface = usePlayerSurface();
+  const { sound, fx } = useBadgePrefs();
+  const router = useRouter();
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("in");
   /** Vrai tant que la souris (ou le clavier) tient la notification. */
@@ -135,10 +184,29 @@ export default function AchievementToast() {
   /** Ce qui reste de la pose. Décrémenté à chaque suspension — c'est ce qui
    *  distingue une VRAIE pause d'un compte à rebours relancé à zéro. */
   const left = useRef(HOLD_MS);
+  /** Le jeton, pour mesurer d'où il part quand il file vers l'avatar. */
+  const tokenRef = useRef<HTMLDivElement | null>(null);
+  /** Le vecteur du vol, calculé au tout début de la sortie. `null` = pas encore
+   *  mesuré, `false` = pas de quai en vue, on repart par le haut. */
+  const [flight, setFlight] = useState<{ dx: number; dy: number; s: number } | null | false>(null);
+
+  const def = ach ? BY_ID[ach.id] : null;
 
   /* Le lecteur possède l'écran : on ne montre rien et on ne démarre rien. Le
      badge reste en tête de file et partira à la sortie du plein écran. */
   const muted = surface.active;
+
+  /** ── LE MYTHIQUE A DROIT À PLUS, ET LE PLUS EST DU TEMPS ───────────────────
+   *  Six raretés, et jusqu'ici seul le NOMBRE D'ÉTOILES du jeton les
+   *  distinguait côté animation : un mythique arrivait exactement comme un
+   *  commun, à la même vitesse, avec la même gerbe. Le facteur ci-dessous
+   *  étire toute la ligne du temps — l'arrivée, l'ouverture, la sortie. C'est
+   *  le ralenti le moins cher qui existe : aucune image de plus à peindre,
+   *  juste les mêmes courbes lues plus lentement. */
+  const slow = fx && def?.rarity === "m" ? 1.3 : 1;
+  const inMs = Math.round(IN_MS * slow);
+  const openMs = Math.round(OPEN_MS * slow);
+  const outMs = Math.round(OUT_MS * slow);
 
   /* La ligne du temps est relancée à chaque badge (`ach.key` change même si
      c'est le même id), et TOUS les minuteurs sont annulés au démontage :
@@ -150,25 +218,29 @@ export default function AchievementToast() {
     if (!ach || muted) return;
     setPhase("in");
     setHeld(false);
+    setFlight(null);
     left.current = HOLD_MS;
     const at = (ms: number, fn: () => void) => timers.current.push(setTimeout(fn, ms));
-    at(IN_MS, () => setPhase("open"));
-    at(IN_MS + OPEN_MS, () => setPhase("hold"));
+    at(inMs, () => setPhase("open"));
+    at(inMs + openMs, () => setPhase("hold"));
     return () => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
     };
-  }, [ach?.key, ach, muted]);
+  }, [ach?.key, ach, muted, inMs, openMs]);
 
   /* Le carillon part avec l'impact, pas avec le montage : le jeton met 720 ms à
-     tomber, et un son qui précède son objet s'entend comme un son de trop. */
+     tomber, et un son qui précède son objet s'entend comme un son de trop.
+
+     `sound` n'est pas testé ici mais dans `playBadgeChime` : la valeur du hook
+     est `true` au premier rendu (pas de `localStorage` côté serveur), et
+     couper sur elle laisserait passer un son pendant la fraction de seconde où
+     elle n'est pas encore lue. La lecture synchrone, elle, est juste. */
   useEffect(() => {
-    if (!ach || muted) return;
-    const def = BY_ID[ach.id];
-    if (!def) return;
-    const t = setTimeout(() => playBadgeChime(def.rarity), IN_MS * 0.36);
+    if (!ach || muted || !def) return;
+    const t = setTimeout(() => playBadgeChime(def.rarity), inMs * 0.36);
     return () => clearTimeout(t);
-  }, [ach?.key, ach, muted]);
+  }, [ach?.key, ach, muted, def, inMs, sound]);
 
   /**
    * LA POSE, ET ELLE SEULE EST SUSPENDABLE.
@@ -189,22 +261,79 @@ export default function AchievementToast() {
   }, [phase, held]);
 
   /* La sortie, une fois lancée, ne se suspend plus : on ne rattrape pas une
-     notification déjà partie. */
+     notification déjà partie. C'est ici que le badge passe dans les « non
+     vus » : à l'instant où il quitte l'écran, et pas à son arrivée — un badge
+     qu'on est en train de regarder n'est pas en attente d'être vu. */
   useEffect(() => {
-    if (phase !== "textOut") return;
+    if (phase !== "textOut" || !def) return;
     const a = setTimeout(() => setPhase("out"), TEXT_OUT_MS);
-    const b = setTimeout(() => next(), TEXT_OUT_MS + OUT_MS);
+    const b = setTimeout(() => {
+      markUnseen(def.id);
+      next();
+    }, TEXT_OUT_MS + outMs);
     return () => {
       clearTimeout(a);
       clearTimeout(b);
     };
-  }, [phase]);
+  }, [phase, def, outMs]);
+
+  /**
+   * ── LE VOL VERS L'AVATAR ───────────────────────────────────────────────────
+   *
+   * Mesuré ICI et pas plus tôt, dans un effet de MISE EN PAGE. Les deux
+   * précisions comptent :
+   *
+   *   - PAS PLUS TÔT : la carte se referme pendant `textOut`, et comme le bloc
+   *     entier est centré, le jeton DÉRIVE de presque la moitié de la largeur
+   *     de la carte en se recentrant. Un vecteur calculé avant la fermeture
+   *     viserait 160 px à côté.
+   *   - `useLayoutEffect` : la mesure se fait avant la peinture, donc le jeton
+   *     ne reste jamais une image sans animation. Avec un `useEffect`, on verrait
+   *     un clignotement d'une frame entre « rien » et « il part ».
+   *
+   * `dockRect()` rend `null` quand la navbar est absente (page de visionnage)
+   * ou hors de l'écran (barre rétractée) : on repart alors par le haut comme
+   * avant. On ne vise pas une cible qu'on ne voit pas.
+   */
+  useLayoutEffect(() => {
+    if (phase !== "out" || flight !== null) return;
+    const quai = fx ? dockRect() : null;
+    const el = tokenRef.current;
+    if (!quai || !el) {
+      setFlight(false);
+      return;
+    }
+    const d = el.getBoundingClientRect();
+    setFlight({
+      dx: quai.left + quai.width / 2 - (d.left + d.width / 2),
+      dy: quai.top + quai.height / 2 - (d.top + d.height / 2),
+      /* On vise la taille de l'avatar, pas zéro : le jeton doit avoir l'air de
+         se RANGER, pas de s'évaporer en chemin. */
+      s: Math.max(0.12, quai.width / Math.max(1, d.width)),
+    });
+  }, [phase, flight, fx]);
 
   /** Abréger : on saute à la sortie, animation comprise. Depuis l'arrivée comme
    *  depuis la pose — on peut congédier un badge avant même de l'avoir lu. */
   const dismiss = useCallback(() => {
     setPhase((p) => (p === "textOut" || p === "out" ? p : "textOut"));
   }, []);
+
+  /**
+   * LE CLIC MÈNE QUELQUE PART. L'animation appelait déjà le geste — un jeton
+   * qui surgit au centre de l'écran avec son nom se clique — et il ne menait
+   * nulle part.
+   *
+   * On abrège AVANT de naviguer plutôt qu'après : la notification vit sur
+   * `document.body` et survit donc au changement de page, ce qui la laisserait
+   * finir sa pose par-dessus la destination pendant qu'on la lit. `dismiss()`
+   * joue la sortie, `next()` suivra tout seul, et la file continue.
+   */
+  const open = useCallback(() => {
+    if (!def) return;
+    dismiss();
+    void router.push(revealHref(def.id));
+  }, [def, dismiss, router]);
 
   /* Échap ferme, comme partout ailleurs sur le site. */
   useEffect(() => {
@@ -216,9 +345,13 @@ export default function AchievementToast() {
     return () => window.removeEventListener("keydown", onKey);
   }, [ach?.key, ach, muted, dismiss]);
 
-  const def = ach ? BY_ID[ach.id] : null;
   const seed = useMemo(() => (ach ? ach.key * 2654435761 : 0), [ach?.key, ach]);
-  const bits = useMemo(() => sparks(seed), [seed]);
+  /* Le mythique reçoit une gerbe PLEIN ÉCRAN : deux fois plus d'éclats, projetés
+     trois fois plus loin. Rien n'a d'`overflow: hidden` sur ce chemin, donc les
+     éclats sortent bel et bien du cadre de la notification. */
+  const mythic = def?.rarity === "m" && fx;
+  const bits = useMemo(() => sparks(seed, mythic), [seed, mythic]);
+  const confettis = useMemo(() => (mythic ? confetti(seed) : []), [seed, mythic]);
 
   if (!ach || !def || muted) return null;
   if (typeof document === "undefined") return null;
@@ -226,6 +359,20 @@ export default function AchievementToast() {
   const R = RARITY[def.rarity];
   const closing = phase === "out";
   const opened = phase === "open" || phase === "hold";
+
+  /** L'animation du jeton. Trois cas : l'arrivée, le vol vers l'avatar, et le
+   *  retrait par le haut quand il n'y a pas de quai. `"none"` le temps d'UNE
+   *  image, entre l'entrée dans la sortie et la mesure du vecteur — invisible,
+   *  et c'est le prix d'une mesure juste (cf. le `useLayoutEffect` plus haut). */
+  const tokenAnim = closing
+    ? flight === null
+      ? "none"
+      : flight === false
+        ? `asAchOut ${outMs}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
+        : `asAchFly ${outMs}ms cubic-bezier(.55,0,.35,1) forwards`
+    : fx
+      ? `asAchIn ${inMs}ms cubic-bezier(.3,.8,.3,1) both`
+      : `asAchPlain ${Math.round(inMs * 0.4)}ms ease-out both`;
 
   /* ── POURQUOI CE `key`, ET IL EST TOUT LE SUJET ─────────────────────────────
      Au deuxième badge, l'impact ne jouait plus : ni halo, ni onde, ni rayons.
@@ -248,6 +395,44 @@ export default function AchievementToast() {
   return createPortal(
     <Fragment key={ach.key}>
       <BadgeDefs />
+
+      {/* LA PLUIE DE CONFETTIS — mythique seulement, et sur TOUTE la largeur.
+          Une couche à part, sous la notification (z-index d'un cran en dessous)
+          et surtout `pointer-events: none` sur tout : elle couvre l'écran entier
+          pendant trois secondes, et un seul pixel cliquable ici bloquerait la
+          page. Elle sort du `Fragment` clé, donc elle se reconstruit à chaque
+          badge comme le reste — même raison, même remède. */}
+      {confettis.length ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 999999998,
+            pointerEvents: "none",
+            overflow: "hidden",
+          }}
+        >
+          {confettis.map((c, i) => (
+            <span
+              key={i}
+              style={{
+                position: "absolute",
+                top: -24,
+                left: `${c.x}%`,
+                width: c.w,
+                height: c.h,
+                background: c.col,
+                borderRadius: 1,
+                ["--as-cx" as string]: `${c.sway}px`,
+                ["--as-cr" as string]: `${c.spin}deg`,
+                animation: `asAchConfetti ${c.dur}ms cubic-bezier(.25,.5,.5,1) ${c.delay}ms both`,
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+
       <div
         role="status"
         aria-live="polite"
@@ -289,95 +474,108 @@ export default function AchievementToast() {
             animations sur le même élément ferait que la seconde écrase la
             transformation finale de la première — le jeton sauterait. */}
         <div
+          ref={tokenRef}
           className="as-ach-token"
           style={{
             position: "relative",
             flexShrink: 0,
             /* Devant la carte : c'est lui la médaille, elle est la plaque. */
             zIndex: 2,
-            animation: closing
-              ? `asAchOut ${OUT_MS}ms cubic-bezier(.5,-0.2,.75,.2) forwards`
-              : `asAchIn ${IN_MS}ms cubic-bezier(.3,.8,.3,1) both`,
+            ...(flight
+              ? {
+                  ["--as-fx" as string]: `${flight.dx}px`,
+                  ["--as-fy" as string]: `${flight.dy}px`,
+                  ["--as-fs" as string]: String(flight.s),
+                }
+              : null),
+            animation: tokenAnim,
           }}
         >
           {/* L'impact : le halo, l'onde, les rayons, la gerbe. Tout est
-              `aria-hidden` et `pointer-events:none` — c'est de la peinture. */}
-          <div
-            className="as-ach-halo"
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              inset: 0,
-              margin: "auto",
-              width: TOKEN + 20,
-              height: TOKEN + 20,
-              borderRadius: "50%",
-              background: `radial-gradient(circle, ${R.ic}66 0%, transparent 70%)`,
-              animation: `asAchHalo 950ms ease-out ${IN_MS * 0.38}ms both`,
-              pointerEvents: "none",
-            }}
-          />
-          <div
-            className="as-ach-ring"
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              inset: 0,
-              margin: "auto",
-              width: TOKEN,
-              height: TOKEN,
-              borderRadius: "50%",
-              border: `10px solid ${R.ic}`,
-              animation: `asAchRing 760ms cubic-bezier(.16,.8,.3,1) ${IN_MS * 0.4}ms both`,
-              pointerEvents: "none",
-            }}
-          />
-          {RAYS.map((deg) => (
-            <span
-              key={deg}
-              className="as-ach-ray"
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                width: 3,
-                height: TOKEN * 1.5,
-                marginTop: -TOKEN * 0.75,
-                marginLeft: -1.5,
-                borderRadius: 2,
-                background: `linear-gradient(to bottom, transparent, ${R.ic}, transparent)`,
-                ["--as-rot" as string]: `${deg}deg`,
-                animation: `asAchRay 620ms cubic-bezier(.2,.9,.3,1) ${IN_MS * 0.42}ms both`,
-                pointerEvents: "none",
-              }}
-            />
-          ))}
-          {bits.map((b, i) => (
-            <span
-              key={i}
-              className="as-ach-spark"
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                width: b.size,
-                height: b.size,
-                marginTop: -b.size / 2,
-                marginLeft: -b.size / 2,
-                borderRadius: b.square ? 1 : "50%",
-                background: R.starColors[i % (R.starColors.length || 1)] || R.ic,
-                boxShadow: `0 0 6px ${R.ic}aa`,
-                ["--as-dx" as string]: `${b.dx}px`,
-                ["--as-dy" as string]: `${b.dy}px`,
-                ["--as-fall" as string]: `${b.fall}px`,
-                ["--as-sc" as string]: String(b.sc),
-                animation: `asAchSpark 1100ms cubic-bezier(.12,.7,.3,1) ${IN_MS * 0.34 + b.delay}ms both`,
-                pointerEvents: "none",
-              }}
-            />
-          ))}
+              `aria-hidden` et `pointer-events:none` — c'est de la peinture, et
+              c'est exactement ce que l'interrupteur « animation » éteint
+              (lib/prefs/badgePrefs.ts). Le badge reste annoncé, avec son nom et
+              sa condition : ce qui part est la fête, pas l'information. */}
+          {fx ? (
+            <>
+              <div
+                className="as-ach-halo"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  margin: "auto",
+                  width: TOKEN + 20,
+                  height: TOKEN + 20,
+                  borderRadius: "50%",
+                  background: `radial-gradient(circle, ${R.ic}66 0%, transparent 70%)`,
+                  animation: `asAchHalo ${950 * slow}ms ease-out ${inMs * 0.38}ms both`,
+                  pointerEvents: "none",
+                }}
+              />
+              <div
+                className="as-ach-ring"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  margin: "auto",
+                  width: TOKEN,
+                  height: TOKEN,
+                  borderRadius: "50%",
+                  border: `10px solid ${R.ic}`,
+                  animation: `asAchRing ${760 * slow}ms cubic-bezier(.16,.8,.3,1) ${inMs * 0.4}ms both`,
+                  pointerEvents: "none",
+                }}
+              />
+              {RAYS.map((deg) => (
+                <span
+                  key={deg}
+                  className="as-ach-ray"
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    width: 3,
+                    height: TOKEN * 1.5,
+                    marginTop: -TOKEN * 0.75,
+                    marginLeft: -1.5,
+                    borderRadius: 2,
+                    background: `linear-gradient(to bottom, transparent, ${R.ic}, transparent)`,
+                    ["--as-rot" as string]: `${deg}deg`,
+                    animation: `asAchRay ${620 * slow}ms cubic-bezier(.2,.9,.3,1) ${inMs * 0.42}ms both`,
+                    pointerEvents: "none",
+                  }}
+                />
+              ))}
+              {bits.map((b, i) => (
+                <span
+                  key={i}
+                  className="as-ach-spark"
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    width: b.size,
+                    height: b.size,
+                    marginTop: -b.size / 2,
+                    marginLeft: -b.size / 2,
+                    borderRadius: b.square ? 1 : "50%",
+                    background: R.starColors[i % (R.starColors.length || 1)] || R.ic,
+                    boxShadow: `0 0 6px ${R.ic}aa`,
+                    ["--as-dx" as string]: `${b.dx}px`,
+                    ["--as-dy" as string]: `${b.dy}px`,
+                    ["--as-fall" as string]: `${b.fall}px`,
+                    ["--as-sc" as string]: String(b.sc),
+                    animation: `asAchSpark ${(mythic ? 1700 : 1100) * slow}ms cubic-bezier(.12,.7,.3,1) ${inMs * 0.34 + b.delay}ms both`,
+                    pointerEvents: "none",
+                  }}
+                />
+              ))}
+            </>
+          ) : null}
           <div
             className="as-ach-breathe"
             style={{
@@ -385,7 +583,7 @@ export default function AchievementToast() {
                  se battrait avec les rebonds. Elle continue sous le survol —
                  c'est ce qui dit que la notification attend et n'a pas planté. */
               animation:
-                phase === "hold" ? "asAchBreathe 2.6s ease-in-out infinite" : "none",
+                fx && phase === "hold" ? "asAchBreathe 2.6s ease-in-out infinite" : "none",
             }}
           >
             <BadgeToken
@@ -428,6 +626,20 @@ export default function AchievementToast() {
             nets, en haut et en bas comme sur les côtés. */}
         <div
           className="as-ach-card"
+          /* Un `div` et pas un `button` : il contient DÉJÀ un bouton (la croix),
+             et un bouton dans un bouton n'est pas du HTML valide — le navigateur
+             défait l'imbrication et la croix se retrouve hors de la carte. Le
+             rôle et la gestion du clavier sont donc posés à la main. */
+          role="link"
+          tabIndex={opened ? 0 : -1}
+          aria-label={t("badges.ui.openInProfile", "Voir ce badge dans le profil")}
+          onClick={open}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              open();
+            }
+          }}
           style={{
             ["--as-ach-w" as string]: `${CARD_W}px`,
             overflow: "hidden",
@@ -442,9 +654,10 @@ export default function AchievementToast() {
               "radial-gradient(82% 62% at 32% 50%, #000 24%, rgba(0,0,0,.55) 64%, transparent 100%)",
             padding: opened ? "14px 26px 14px 26px" : "14px 0",
             position: "relative",
-            /* La carte est la seule zone cliquable : survol, croix, et rien de
-               plus. Fermée (largeur nulle) elle n'attrape rien. */
+            /* La carte est la seule zone cliquable : survol, clic, croix, et
+               rien de plus. Fermée (largeur nulle) elle n'attrape rien. */
             pointerEvents: opened ? "auto" : "none",
+            cursor: "pointer",
             animation:
               phase === "textOut" || closing
                 ? `asAchClose ${TEXT_OUT_MS}ms cubic-bezier(.4,0,.6,1) forwards`
@@ -494,7 +707,13 @@ export default function AchievementToast() {
           <button
             type="button"
             className="as-ach-close"
-            onClick={dismiss}
+            /* `stopPropagation` OBLIGATOIRE : la carte entière navigue vers le
+               profil, et sans ça fermer enverrait aussi sur la page du badge —
+               c'est-à-dire le contraire exact de ce qu'on demande à une croix. */
+            onClick={(e) => {
+              e.stopPropagation();
+              dismiss();
+            }}
             aria-label={t("common.close", "Fermer")}
             style={{
               position: "absolute",

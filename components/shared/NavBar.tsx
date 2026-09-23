@@ -7,7 +7,7 @@ import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickAvatar } from "@/lib/auth/avatar";
 import { profileHref } from "@/lib/profile/href";
@@ -19,6 +19,8 @@ import LanguageToggle from "./LanguageToggle";
 import { isAdminName } from "@/lib/auth/isAdmin";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useNavOnLight } from "@/lib/color/navContrast";
+import { setDock, useUnseenCount } from "@/lib/badges/dock";
+import { revealHref } from "@/lib/badges/reveal";
 import { useTranslation } from "react-i18next";
 
 /* How far down the page the "back to top" button appears. This used to be
@@ -92,6 +94,19 @@ export function Navbar({
   const avatarUrl = pickAvatar(session?.user);
   const profileTarget = profileHref(session?.user);
   const { setIsOpen } = useSearch();
+
+  /* ── LE QUAI DES BADGES ────────────────────────────────────────────────────
+     L'avatar est la destination du jeton quand la notification s'en va, et le
+     porteur de la pastille des non-vus (lib/badges/dock.ts).
+
+     Une CALLBACK REF plutôt qu'un `useRef` + `useEffect` : le registre doit
+     être vidé au démontage de la navbar, et une callback ref reçoit `null`
+     exactement à ce moment-là. Avec un effet, il faudrait le dire deux fois et
+     se souvenir de le dire. */
+  const dockRef = useCallback((el: HTMLDivElement | null) => {
+    setDock(el);
+  }, []);
+  const unseen = useUnseenCount();
 
   const year = new Date().getFullYear();
   const season = getCurrentSeason();
@@ -351,7 +366,29 @@ export function Navbar({
                 lets them tweak preferences (title language, etc.) before
                 signing in. The signed-in variant keeps the avatar image
                 + click-to-profile behaviour. */}
-            <div className="w-10 h-10 relative flex flex-col items-center group shrink-0">
+            <div
+              ref={dockRef}
+              className="w-10 h-10 relative flex flex-col items-center group shrink-0"
+            >
+              {/* La pastille des badges non vus. Elle ne se contente pas de
+                  compter : elle est CLIQUABLE et mène à l'onglet, sinon elle
+                  serait un reproche sans issue. `revealHref("")` sans id donne
+                  l'onglet Badges sans rien surligner — il n'y a plus un badge à
+                  montrer mais plusieurs.
+
+                  Au-dessus de l'avatar en z-index, décalée en haut à droite, et
+                  `pointer-events` rendus pour qu'elle reste cliquable alors que
+                  le bouton en dessous prend tout le carré. */}
+              {unseen > 0 && (
+                <Link
+                  href={revealHref("")}
+                  aria-label={t("badges.ui.unseen", { count: unseen })}
+                  title={t("badges.ui.unseen", { count: unseen })}
+                  className="as-badge-pip absolute -right-1 -top-1 z-20 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-action px-1 font-karla text-[10px] font-bold leading-none text-white ring-2 ring-primary"
+                >
+                  {unseen > 9 ? "9+" : unseen}
+                </Link>
+              )}
               {session ? (
                 <button
                   type="button"

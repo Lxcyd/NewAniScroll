@@ -244,6 +244,15 @@
       "resumeDesc": "An occasional nudge to pick back up something you stalled on.",
       "note": "Saved on this device. Notifications appear in the bell while the app is open."
     },
+    "badges": {
+      "title": "Badges",
+      "desc": "What happens when a badge drops.",
+      "sound": "Chime",
+      "soundDesc": "A short sound as the badge appears. It opens up with rarity.",
+      "fx": "Animation",
+      "fxDesc": "The spark burst, the shockwave and the token's flight to your avatar. Off, the badge announces itself without the party.",
+      "note": "Both settings are per-device, and independent of your system's animation setting."
+    },
     "theme": {
       "title": "Theme",
       "desc": "Pick the accent colour used across the site.",
@@ -1611,7 +1620,10 @@
         "secret": "Off the progression and out of the total: account linking, status, and a few finds."
       },
       "seeTiers": "See all tiers",
-      "close": "Close"
+      "close": "Close",
+      "openInProfile": "View this badge in your profile",
+      "unseen_one": "{{count}} badge to see",
+      "unseen_other": "{{count}} badges to see"
     },
     "ep-1": {
       "name": "First episode",

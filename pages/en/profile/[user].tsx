@@ -45,6 +45,7 @@ import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileBadges from "@/components/profile/ProfileBadges";
+import { wantsBadgesTab } from "@/lib/badges/reveal";
 import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
 import { noteListCounter } from "@/lib/badges/facts";
 import { silenceNextEvaluation } from "@/lib/badges/evaluate";
@@ -195,6 +196,16 @@ export default function Profile({
      re-tourner getServerSideProps (donc la requête AniList) pour un changement
      qui ne coûte rien côté client. */
   const [tab, setTab] = useState("overview");
+  /* LA NOTIFICATION DE BADGE ENVOIE ICI, avec un `#badge-<id>` (cf.
+     lib/badges/reveal.ts). L'onglet s'ouvre donc tout seul, et ProfileBadges
+     fait défiler dessus et le surligne.
+
+     Dans un EFFET et pas dans l'état initial : `location` n'existe pas au rendu
+     serveur, et choisir « badges » dès le premier rendu client ferait diverger
+     l'hydratation. */
+  useEffect(() => {
+    if (wantsBadgesTab()) setTab("badges");
+  }, []);
   /* Sur quoi l'onglet « Ma liste » s'ouvre quand on n'y arrive pas en cliquant
      dessus mais en cliquant une colonne de l'histogramme des notes. Un objet
      neuf à chaque clic : c'est son identité qui rejoue le filtre, donc cliquer

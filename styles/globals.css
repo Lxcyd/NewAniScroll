@@ -3345,6 +3345,37 @@ input[type="number"] {
   transform: scale(1.08);
 }
 
+/* ── LE SURLIGNAGE D'ARRIVÉE ───────────────────────────────────────────────
+   On vient de cliquer la notification, la page a ouvert l'onglet Badges et fait
+   défiler sur la bonne ligne. Encore faut-il la RECONNAÎTRE : cent soixante-
+   seize lignes se ressemblent, et « centré à l'écran » ne se remarque pas.
+
+   Deux pulsations lentes plutôt qu'une couleur figée : une ligne surlignée en
+   permanence deviendrait un état (« ce badge a quelque chose »), alors qu'on
+   veut un geste qui se termine. Le composant retire la classe au bout de 2,6 s.
+
+   `box-shadow` et pas `background` : la ligne a déjà un `ring` Tailwind, et
+   deux fonds superposés donneraient une couleur qu'on n'a pas choisie. */
+.as-badge-flash {
+  animation: asBadgeFlash 1.3s ease-in-out 2;
+}
+@keyframes asBadgeFlash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(233, 69, 96, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.55), 0 0 26px rgba(233, 69, 96, 0.3); }
+}
+
+/* La pastille des badges non vus, sur l'avatar de la navbar. Elle arrive en
+   rebondissant UNE fois : c'est ce qui la fait remarquer sur une barre qu'on ne
+   regarde pas, sans la transformer en clignotant permanent. */
+.as-badge-pip {
+  animation: asBadgePip 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes asBadgePip {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* La condition d'un secret non débloqué. Le flou est un effet, pas une
    protection : le texte réel n'est JAMAIS rendu dans le DOM (cf.
    ProfileBadges.tsx), on ne floute qu'une chaîne de remplissage. Sans quoi
@@ -3394,6 +3425,59 @@ input[type="number"] {
   0% { transform: translateY(0) scale(1) rotate(0deg); opacity: 1; }
   22% { transform: translateY(8%) scale(1.07) rotate(-4deg); opacity: 1; }
   100% { transform: translateY(-140%) scale(0.3) rotate(20deg); opacity: 0; }
+}
+
+/* ── LE VOL VERS L'AVATAR ──────────────────────────────────────────────────
+   La récompense trouve une destination au lieu de s'évaporer : au lieu de
+   remonter par le haut de l'écran, le jeton FILE vers l'avatar de la navbar, y
+   rétrécit à sa taille, et y laisse une pastille.
+
+   Le vecteur est posé par le composant en variables CSS, parce qu'il dépend de
+   deux rectangles mesurés au dernier moment (le jeton dérive pendant que la
+   carte se referme, et la navbar se rétracte au défilement). Le CSS ne sait
+   rien de tout ça, il ne connaît qu'un déplacement.
+
+   LE CREUX AU DÉPART (le petit recul de 22 %) est ce qui empêche le vol d'être
+   une translation : un objet qui part vers une cible prend son élan dans
+   l'autre sens d'abord. Sans lui, le jeton glisse comme une souris de démo.
+   L'opacité ne tombe qu'à la toute fin — on doit VOIR où il atterrit, sinon la
+   pastille qui s'allume sort de nulle part. */
+@keyframes asAchFly {
+  0% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  22% { transform: translate(calc(var(--as-fx) * -0.06), calc(var(--as-fy) * -0.06)) scale(1.1) rotate(-8deg); opacity: 1; }
+  85% { opacity: 1; }
+  100% {
+    transform: translate(var(--as-fx), var(--as-fy)) scale(var(--as-fs)) rotate(28deg);
+    opacity: 0;
+  }
+}
+
+/* L'arrivée quand l'interrupteur « animation » est éteint : le badge est
+   toujours annoncé, avec son nom et sa condition, mais il se pose au lieu de
+   tomber. Un fondu et six pixels — assez pour qu'on remarque l'apparition,
+   trop peu pour qu'on parle d'une fête. */
+@keyframes asAchPlain {
+  0% { transform: translateY(-6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* ── LA PLUIE DE CONFETTIS — mythique seulement ────────────────────────────
+   `translate3d` plutôt que `translate` : la couche compte quarante-six éléments
+   qui traversent l'écran pendant trois secondes, et la version 3D est la seule
+   qui garantisse une couche de composition par confetti (donc zéro repeinture).
+
+   Le BALANCEMENT latéral est ce qui distingue un confetti d'une goutte de
+   pluie : un rectangle léger ne tombe jamais droit. Il va dans un sens puis
+   dans l'autre — un seul aller donnerait une chute en diagonale. */
+@keyframes asAchConfetti {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  6% { opacity: 1; }
+  50% { transform: translate3d(var(--as-cx), 52vh, 0) rotate(calc(var(--as-cr) * 0.5)); }
+  85% { opacity: 1; }
+  100% {
+    transform: translate3d(calc(var(--as-cx) * -0.6), 104vh, 0) rotate(var(--as-cr));
+    opacity: 0;
+  }
 }
 
 /* La respiration pendant la pose : très faible amplitude, longue période. Le
