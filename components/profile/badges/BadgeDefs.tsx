@@ -15,40 +15,32 @@
  * ceux d'un autre SVG de la page.
  */
 
-import { CLIP_SCALE, HEX } from "./rarity";
+import { CLIP_SCALE, HEX, RING_STOPS } from "./rarity";
 import type { Rarity } from "@/lib/badges/catalog";
 
 const RARITIES: Rarity[] = ["c", "u", "r", "e", "l", "m"];
+/** Les ids que `RARITY[*].ring` référence (`url(#asRgMythic)`…). */
+const RING_IDS: [Exclude<Rarity, "c">, string][] = [
+  ["u", "asRgUncommon"],
+  ["r", "asRgRare"],
+  ["e", "asRgEpic"],
+  ["l", "asRgLegendary"],
+  ["m", "asRgMythic"],
+];
 
 export default function BadgeDefs() {
   return (
     <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
       <defs>
-        <linearGradient id="asRgUncommon" x1="0" y1="0" x2=".5" y2="1">
-          <stop offset="0" stopColor="#6ee7b7" />
-          <stop offset="1" stopColor="#0d9668" />
-        </linearGradient>
-        <linearGradient id="asRgRare" x1="0" y1="0" x2=".5" y2="1">
-          <stop offset="0" stopColor="#bfdbfe" />
-          <stop offset=".5" stopColor="#3B82F6" />
-          <stop offset="1" stopColor="#1d4ed8" />
-        </linearGradient>
-        <linearGradient id="asRgEpic" x1="0" y1="0" x2=".5" y2="1">
-          <stop offset="0" stopColor="#f3e8ff" />
-          <stop offset=".45" stopColor="#c084fc" />
-          <stop offset="1" stopColor="#6d28d9" />
-        </linearGradient>
-        <linearGradient id="asRgLegendary" x1="0" y1="0" x2=".5" y2="1">
-          <stop offset="0" stopColor="#fff6cf" />
-          <stop offset=".4" stopColor="#FFD700" />
-          <stop offset="1" stopColor="#a9780b" />
-        </linearGradient>
-        <linearGradient id="asRgMythic" x1="0" y1="0" x2=".5" y2="1">
-          <stop offset="0" stopColor="#ffc7b0" />
-          <stop offset=".3" stopColor="#FF7F57" />
-          <stop offset=".65" stopColor="#E94560" />
-          <stop offset="1" stopColor="#8f2338" />
-        </linearGradient>
+        {/* Les anneaux. Leurs couleurs vivent dans rarity.ts (RING_STOPS),
+            que le menu de rareté lit aussi. */}
+        {RING_IDS.map(([k, id]) => (
+          <linearGradient key={id} id={id} x1="0" y1="0" x2=".5" y2="1">
+            {RING_STOPS[k].map(([o, c]) => (
+              <stop key={o} offset={o} stopColor={c} />
+            ))}
+          </linearGradient>
+        ))}
 
         {/* Le fond du jeton : la même plaque sombre pour toutes les raretés,
             pour que seul l'anneau porte la hiérarchie. */}

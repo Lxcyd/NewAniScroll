@@ -69,6 +69,50 @@ export const RARITY: Record<Rarity, RarityStyle> = {
   },
 };
 
+/**
+ * Les dégradés des anneaux — UNE source pour deux rendus : BadgeDefs en fait
+ * les `<linearGradient>` SVG du jeton, `ringSwatch` leur version CSS.
+ *
+ * Le menu de rareté colorait ses pastilles avec `ic`, la couleur de l'ICÔNE :
+ * une teinte pâle (pêche pour Mythique, lavande pour Épique) qui n'est pas
+ * celle qu'on retient d'un jeton — c'est l'anneau qu'on voit. Recopier ses
+ * couleurs à côté les aurait laissées dériver au premier retouche ; elles vivent
+ * donc ici, et le jeton comme le menu les lisent.
+ *
+ * Common n'y est pas : son anneau est une couleur pleine (`RARITY.c.ring`).
+ */
+export const RING_STOPS: Record<Exclude<Rarity, "c">, [number, string][]> = {
+  u: [[0, "#6ee7b7"], [1, "#0d9668"]],
+  r: [[0, "#bfdbfe"], [0.5, "#3B82F6"], [1, "#1d4ed8"]],
+  e: [[0, "#f3e8ff"], [0.45, "#c084fc"], [1, "#6d28d9"]],
+  l: [[0, "#fff6cf"], [0.4, "#FFD700"], [1, "#a9780b"]],
+  m: [[0, "#ffc7b0"], [0.3, "#FF7F57"], [0.65, "#E94560"], [1, "#8f2338"]],
+};
+
+/**
+ * La couleur qu'on retient d'un anneau : celle de son MILIEU. Sert quand il
+ * faut une teinte pleine (lueur d'une pastille, bordure d'un bouton teinté),
+ * là où un dégradé ne se mélange pas.
+ */
+export const RING_HUE: Record<Rarity, string> = {
+  c: "#9aa0ab",
+  u: "#3dbe8f", // milieu exact de #6ee7b7 → #0d9668
+  r: "#3B82F6",
+  e: "#c084fc",
+  l: "#FFD700",
+  m: "#f25e5c", // milieu exact de #FF7F57 (.3) → #E94560 (.65)
+};
+
+/**
+ * L'anneau en CSS, pour une pastille. 153° : la direction du dégradé SVG
+ * (x2 = .5, y2 = 1), qui descend vers la droite.
+ */
+export function ringSwatch(r: Rarity): string {
+  if (r === "c") return RING_HUE.c;
+  const stops = RING_STOPS[r].map(([o, c]) => `${c} ${Math.round(o * 100)}%`).join(", ");
+  return `linear-gradient(153deg, ${stops})`;
+}
+
 /** L'hexagone. Une seule définition, partagée par le jeton et ses liserés. */
 export const HEX =
   "M52 6.04A14 14 0 0 1 66 6.04L101.4 26.46A14 14 0 0 1 108.4 38.58L108.4 79.42A14 14 0 0 1 101.4 91.54L66 111.96A14 14 0 0 1 52 111.96L16.6 91.54A14 14 0 0 1 9.6 79.42L9.6 38.58A14 14 0 0 1 16.6 26.46Z";

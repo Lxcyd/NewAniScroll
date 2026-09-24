@@ -6,6 +6,21 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 6) — Les pastilles du menu de rareté sont les anneaux ; les cases du panneau ont un bord
+
+- **Pastilles** : elles prenaient `RARITY[r].ic`, la couleur de l'ICÔNE, pâle
+  (pêche pour Mythique, lavande pour Épique), alors qu'on retient d'un jeton la
+  couleur de son ANNEAU. Les dégradés des anneaux sortent de BadgeDefs pour
+  vivre dans `rarity.ts` (`RING_STOPS`) : le SVG du jeton et la pastille CSS
+  (`ringSwatch`, 153° comme le vecteur x2=.5/y2=1) lisent la même source et ne
+  peuvent plus dériver. `RING_HUE` donne le milieu exact de chaque anneau pour
+  la lueur et la teinte du bouton, là où un dégradé ne se mélange pas.
+  « Toutes les raretés » : une roue des six. Le `Dropdown` accepte un `swatch`.
+- **Bord des cases du panneau** : une case obtenue reprend la carte de
+  l'onglet — anneau `inset` teinté (une ombre : pas de bordure sous laquelle le
+  fond se répéterait, cf. suite 5) et une plaque sur toute la largeur. Le
+  dégradé seul s'éteignait à 70 % et la case n'avait plus de bord droit.
+
 ## 2026-09-24 (suite 5) — Le panneau des paliers : un vrai flou, et plus de trait à droite
 
 Mesuré au CDP sur dev, panneau ouvert :

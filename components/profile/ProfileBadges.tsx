@@ -38,7 +38,7 @@ import { Bar } from "./widgets/common";
 import { Dropdown } from "./WidgetSettings";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
-import { RARITY } from "./badges/rarity";
+import { RARITY, RING_HUE, ringSwatch } from "./badges/rarity";
 
 type Filter = "all" | "got" | "todo";
 type Progress = [number, number] | null;
@@ -229,12 +229,19 @@ export default function ProfileBadges({
     return out;
   };
 
-  const rarityChoices: { value: RarityPick; label: string; color?: string }[] = [
-    { value: "all", label: t("badges.ui.rarityFilter.all", "Toutes les raretés") },
+  /* Les pastilles sont les ANNEAUX, pas les icônes : c'est la couleur qu'on
+     retient d'un jeton (cf. RING_STOPS). « Toutes » les réunit en une roue. */
+  const rarityChoices: { value: RarityPick; label: string; color?: string; swatch?: string }[] = [
+    {
+      value: "all",
+      label: t("badges.ui.rarityFilter.all", "Toutes les raretés"),
+      swatch: `conic-gradient(${RARITY_ORDER.map((r) => RING_HUE[r]).join(", ")}, ${RING_HUE.c})`,
+    },
     ...RARITY_ORDER.map((r) => ({
       value: r,
       label: t(`badges.ui.rarity.${r}`, r),
-      color: RARITY[r].ic,
+      color: RING_HUE[r],
+      swatch: ringSwatch(r),
     })),
   ];
 
@@ -1044,20 +1051,27 @@ function LadderPopup({
                    au bord droit de chaque case. Un fond se cale sur la boîte
                    INTÉRIEURE et se répète sous la bordure — la colonne de 1 px
                    de droite reprenait donc le début du dégradé, sa partie
-                   teintée. Le cadre de sélection a sa propre bordure. */
+                   teintée. Le cadre de sélection a sa propre bordure.
+
+                   Obtenu : la carte de l'onglet, bord compris — un anneau
+                   `inset` de la couleur de rareté (une ombre, donc pas de
+                   bordure sous laquelle le fond se répéterait) et une plaque
+                   sur toute la largeur. Sans elle le dégradé s'éteignait à
+                   70 % et la case n'avait plus de bord droit. */
                 className={
                   "as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 focus-visible:ring-1 focus-visible:ring-white/30 " +
-                  (at == null && !isSel
-                    ? "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hover:outline-white/30"
-                    : "outline-none")
+                  (at != null
+                    ? "outline-none ring-1 ring-inset"
+                    : !isSel
+                      ? "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hover:outline-white/30"
+                      : "outline-none")
                 }
                 style={{
-                  /* Les paliers gagnés portent la teinte de la ligne obtenue de
-                     l'onglet. Le liseré de la sélection, lui, est le cadre. */
                   background:
                     at != null
-                      ? `linear-gradient(90deg, ${R.ic}1c, transparent 70%)`
+                      ? `linear-gradient(90deg, ${R.ic}24, transparent 65%), rgba(255,255,255,.035)`
                       : "transparent",
+                  ...(at != null ? { "--tw-ring-color": `${R.ic}52` } : null),
                   /* Les lignes arrivent l'une après l'autre, de haut en bas :
                      l'échelle se lit dans l'ordre où elle se gravit. */
                   animationDelay: `${40 + i * 45}ms`,
