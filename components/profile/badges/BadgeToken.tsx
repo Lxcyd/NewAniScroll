@@ -19,6 +19,7 @@
  */
 
 import { memo } from "react";
+import { MdCheck } from "react-icons/md";
 import { iconFor, SECRET_ICON } from "@/lib/badges/icons";
 import { HEX, RARITY, starsFor } from "./rarity";
 import type { Rarity } from "@/lib/badges/catalog";
@@ -38,6 +39,9 @@ export type BadgeTokenProps = {
   size?: number;
   /** Anime les étoiles et le balayage. Coupé dans les longues listes. */
   animate?: boolean;
+  /** Pose la coche d'obtention en haut à droite (onglet Badges, panneau
+      d'échelle). Pas dans la notification : elle annonce déjà l'obtention. */
+  check?: boolean;
 };
 
 /** La taille de référence du dessin : tout le reste est une mise à l'échelle. */
@@ -45,7 +49,7 @@ const BASE = 118;
 
 function BadgeTokenInner({
   id, rarity, icon, tag = "", unlocked = false, hidden = false,
-  size = BASE, animate = true,
+  size = BASE, animate = true, check = false,
 }: BadgeTokenProps) {
   const R = RARITY[rarity];
   const Icon = hidden ? SECRET_ICON : iconFor(icon);
@@ -64,7 +68,9 @@ function BadgeTokenInner({
      l'objectif, elle n'est pas la récompense.
 
      Ce qui distingue l'obtenu, alors : l'opacité, les étoiles, le balayage, les
-     liserés internes — et, dans la ligne, la date au lieu d'une barre. */
+     liserés internes, la coche (`check`) — et, dans la ligne, le fond teinté et
+     la pastille de date au lieu d'une barre. Réglages choisis sur un banc
+     d'essai le 24/09/2026 : l'opacité seule (0,72) était jugée trop floue. */
   const ink = R.ic;
   const ring = R.ring;
 
@@ -79,7 +85,7 @@ function BadgeTokenInner({
         placeItems: "center",
         /* Assez d'ecart pour lire l'etat d'un coup d'oeil, pas assez pour
            eteindre la couleur. */
-        opacity: unlocked ? 1 : 0.72,
+        opacity: unlocked ? 1 : 0.8,
         /* Le grossissement au survol. `will-change` évite que le navigateur
            redessine le SVG à chaque image de la transition. */
         willChange: "transform",
@@ -183,6 +189,30 @@ function BadgeTokenInner({
           }}
         >
           {tag}
+        </div>
+      ) : null}
+
+      {/* LA COCHE, et non plus seulement l'opacité : dans le panneau d'échelle,
+          où rien n'est animé, un palier gagné et un palier à venir ne
+          différaient que de quelques points de transparence. Un plancher à
+          16 px pour qu'elle reste une coche sur les jetons de 54. */}
+      {check && unlocked ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            right: -2 * scale,
+            top: 4 * scale,
+            width: Math.max(16, 26 * scale),
+            height: Math.max(16, 26 * scale),
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            background: ink,
+            boxShadow: "0 0 0 2px #12131a, 0 2px 8px rgba(0,0,0,.5)",
+          }}
+        >
+          <MdCheck size={Math.max(16, 26 * scale) * 0.72} color="#12131a" />
         </div>
       ) : null}
     </div>

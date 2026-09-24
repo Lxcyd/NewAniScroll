@@ -1582,6 +1582,7 @@
       "got": "Obtenus",
       "todo": "À obtenir",
       "notMeasurable": "Pas encore mesurable",
+      "obtained": "Obtenu",
       "secretHidden": "Condition masquée",
       "tiersDone": "{{done}} obtenus",
       "tiersTodo": "{{todo}} à venir",

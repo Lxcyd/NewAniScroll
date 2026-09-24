@@ -20,8 +20,9 @@
  * avancement qu'on n'a pas mesuré serait un chiffre faux.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { MdCheck } from "react-icons/md";
 import { useTranslation } from "react-i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
@@ -507,6 +508,17 @@ function BadgeRow({
          PILE dessous, donc invisible. */
       id={revealAnchor(def.id)}
       className="as-badge-row as-stat-card scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]"
+      /* Obtenu : la ligne se teinte à la couleur de rareté, liseré compris.
+         Le dégradé de plaque est repris tel quel (mêmes variables que
+         .as-stat-card) : un `background` en ligne écrase celui de la classe. */
+      style={
+        unlocked
+          ? ({
+              background: `linear-gradient(90deg, ${R.ic}26, transparent 60%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
+              "--tw-ring-color": `${R.ic}61`,
+            } as CSSProperties)
+          : undefined
+      }
     >
       <div className="flex items-center gap-4">
         <div className="shrink-0">
@@ -518,12 +530,16 @@ function BadgeRow({
             unlocked={unlocked}
             hidden={hidden && !unlocked}
             size={ROW_TOKEN}
+            check
           />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="font-outfit text-[15.5px] font-semibold text-white">
+            <span
+              className="font-outfit text-[15.5px] font-semibold"
+              style={{ color: unlocked ? "#fff" : "rgba(255,255,255,.58)" }}
+            >
               {t(`badges.${def.id}.name`)}
             </span>
             <span
@@ -533,13 +549,11 @@ function BadgeRow({
               {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
             </span>
             {unlocked && (
-              <span className="ml-auto font-karla text-[11px] tabular-nums text-white/35">
-                <ObtainedOn at={at} />
-              </span>
+              <DatePill at={at} color={R.ic} label={t("badges.ui.obtained", "Obtenu")} />
             )}
           </div>
 
-          <Condition def={def} hidden={hidden && !unlocked} />
+          <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
 
           <ProgressLine
             progress={progress}
@@ -597,6 +611,28 @@ function ObtainedOn({ at }: { at: number }) {
 }
 
 /**
+ * La pastille d'obtention : coche, « Obtenu · » et la date, dans la couleur de
+ * la rareté. Sans `label` (panneau d'échelle, où la place manque), la coche et
+ * la date seules.
+ */
+function DatePill({ at, color, label }: { at: number; color: string; label?: string }) {
+  return (
+    <span
+      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full py-[3px] pl-1.5 pr-2 font-outfit text-[10.5px] font-bold leading-none tabular-nums"
+      style={{
+        color,
+        background: `${color}29`,
+        boxShadow: `inset 0 0 0 1px ${color}66`,
+      }}
+    >
+      <MdCheck size={12} aria-hidden="true" />
+      {label ? <>{label} · </> : null}
+      <ObtainedOn at={at} />
+    </span>
+  );
+}
+
+/**
  * La condition. Pour un secret verrouillé, le VRAI TEXTE N'EST PAS RENDU.
  *
  * Un `filter: blur()` n'est qu'un effet de peinture : le texte reste dans le
@@ -604,7 +640,13 @@ function ObtainedOn({ at }: { at: number }) {
  * en clair. On rend donc une chaîne de remplissage de longueur comparable, et
  * on la floute pour l'allure.
  */
-function Condition({ def, hidden }: { def: BadgeDef; hidden: boolean }) {
+function Condition({
+  def, hidden, unlocked,
+}: {
+  def: BadgeDef;
+  hidden: boolean;
+  unlocked: boolean;
+}) {
   const { t } = useTranslation();
   if (hidden) {
     return (
@@ -617,7 +659,10 @@ function Condition({ def, hidden }: { def: BadgeDef; hidden: boolean }) {
     );
   }
   return (
-    <p className="m-0 mt-1 font-karla text-[12.5px] leading-snug text-white/45">
+    <p
+      className="m-0 mt-1 font-karla text-[12.5px] leading-snug"
+      style={{ color: unlocked ? "rgba(255,255,255,.45)" : "rgba(255,255,255,.32)" }}
+    >
       {t(`badges.${def.id}.cond`)}
     </p>
   );
@@ -810,9 +855,14 @@ function LadderPopup({
                 key={id}
                 className="as-pop-row flex items-center gap-3 rounded-xl px-2.5 py-2"
                 style={{
-                  /* Le palier du moment est le seul à porter un fond et un
-                     liseré : c'est lui qu'on est venu regarder. */
-                  background: isCurrent ? `${R.ic}14` : "transparent",
+                  /* Le palier du moment est le seul à porter un liseré : c'est
+                     lui qu'on est venu regarder. Les paliers gagnés portent la
+                     teinte de la ligne obtenue de l'onglet. */
+                  background: isCurrent
+                    ? `${R.ic}14`
+                    : at != null
+                      ? `linear-gradient(90deg, ${R.ic}1c, transparent 70%)`
+                      : "transparent",
                   border: `1px solid ${isCurrent ? `${R.ic}59` : "transparent"}`,
                   /* Les lignes arrivent l'une après l'autre, de haut en bas :
                      l'échelle se lit dans l'ordre où elle se gravit. */
@@ -827,18 +877,17 @@ function LadderPopup({
                   unlocked={at != null}
                   size={isCurrent ? TIER_TOKEN + 12 : TIER_TOKEN}
                   animate={false}
+                  check
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-center gap-2">
                     <span
                       className="font-outfit truncate text-[13px]"
-                      style={{ color: at != null ? "#fff" : "rgba(255,255,255,.72)" }}
+                      style={{ color: at != null ? "#fff" : "rgba(255,255,255,.5)" }}
                     >
                       {t(`badges.${id}.name`)}
                     </span>
-                    <span className="ml-auto shrink-0 font-karla text-[10.5px] tabular-nums text-white/35">
-                      {at != null ? <ObtainedOn at={at} /> : null}
-                    </span>
+                    {at != null ? <DatePill at={at} color={R.ic} /> : null}
                   </div>
                   {at == null && live && p && p[1] > 1 ? (
                     <div className="mt-1.5 flex items-center gap-2">
