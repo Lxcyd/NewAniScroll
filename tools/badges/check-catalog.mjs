@@ -615,6 +615,10 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     mk(5, "Zankyou", 2014),
     mk(6, "12 Days", 2020), // une initiale qui n'est pas une lettre ne compte pas
     mk(7, "Planned", 2001, { status: "PLANNING" }), // non terminé : ne compte nulle part
+    // Les faits tirés de la liste : titre long, fini le jour même, revu, noté, pas sorti.
+    mk(8, "T".repeat(120), 2010, { score: 80, repeat: 2,
+      startedAt: { year: 2026, month: 3, day: 4 }, completedAt: { year: 2026, month: 3, day: 4 } }),
+    mk(9, "Upcoming", 2027, { status: "PLANNING", mediaStatus: "NOT_YET_RELEASED" }),
   ].forEach((e) => (list[e.mediaId] = e));
   const d = derive(snap({
     list,
@@ -629,7 +633,14 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
     check(`${def.id} : forme du détail`, det?.kind, kind);
     const p = measure(def, d, state());
     if (!p || !det) continue;
-    if (det.kind === "list") {
+    if (det.kind === "list" && def.metric.k === "repeatSame") {
+      // Le premier de la liste est le plus revu : c'est lui que le badge compte.
+      check(`${def.id} : le plus revu = courant`,
+        Math.min((det.items[0]?.repeat ?? 0) + 1, p[1]), p[0]);
+    } else if (det.kind === "list" && p[1] === 1) {
+      // Un fait (oui / non) : au moins un anime listé dès qu'il est acquis.
+      check(`${def.id} : liste non vide = acquis`, det.items.length > 0, p[0] >= 1);
+    } else if (det.kind === "list") {
       check(`${def.id} : anime listés = courant`, det.items.length, p[0]);
     } else if (def.metric.k === "studio") {
       check(`${def.id} : premier studio = courant`, det.cells[0].items.length, p[0]);
@@ -643,6 +654,12 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   ok("2001 reste vide : un anime en projet ne remplit rien", !years.cells.find((c) => c.key === "2001").done);
   const az = detailOf(all.find((b) => b.metric.k === "alphabet"), d);
   check("A : Akira et Another Show", az.cells.find((c) => c.key === "A").items.map((e) => e.mediaId), [1, 4]);
+  for (const [k, ids] of [
+    ["titleLength", [8]], ["sameDayFinish", [8]], ["planningUnaired", [9]], ["repeatSame", [8]],
+  ]) {
+    const det = detailOf(all.find((b) => b.metric.k === k), d);
+    check(`${k} : l'anime qui l'a fait tomber`, det.items.map((e) => e.mediaId), ids);
+  }
   ok("pas de vocabulaire, pas de détail des genres",
     !detailKind(all.find((b) => b.metric.k === "allGenres"), derive(snap())));
 }

@@ -79,6 +79,8 @@ export type Derived = {
   animeOnDate: (month: number, day: number) => number[];
 
   /* ── Liste ──────────────────────────────────────────────────────────────── */
+  /** Toute la liste, tous statuts confondus (le détail en tire ses anime). */
+  entries: LocalEntry[];
   /** Anime terminés (COMPLETED ou REPEATING). */
   completed: LocalEntry[];
   /** Les mêmes, indexés : les 60 badges par titre posent 74 questions
@@ -160,8 +162,9 @@ export type Derived = {
  *  lib/profile/insights.ts : on ne re-regarde que ce qu'on a terminé une fois. */
 const FINISHED = new Set(["COMPLETED", "REPEATING"]);
 
-/** Une date floue AniList réduite à son jour, ou `null` si elle est incomplète. */
-function fuzzyDay(d: { year: number | null; month: number | null; day: number | null } | null): string | null {
+/** Une date floue AniList réduite à son jour, ou `null` si elle est incomplète.
+ *  Exportée pour le détail de « D'un coup ». */
+export function fuzzyDay(d: { year: number | null; month: number | null; day: number | null } | null): string | null {
   if (!d?.year || !d?.month || !d?.day) return null;
   return `${d.year}-${d.month}-${d.day}`;
 }
@@ -389,6 +392,7 @@ export function derive(s: Snapshot): Derived {
       return [...ids];
     },
 
+    entries,
     completed,
     completedIds: new Set(completed.map((e) => e.mediaId)),
     completedCount: completed.length,

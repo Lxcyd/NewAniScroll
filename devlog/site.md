@@ -6,6 +6,20 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 14) — Détail pour les faits de liste, date en haut à droite
+
+- **Plus de badges avec détail**, en liste d'anime, avec les règles de
+  `derive.ts` : « Titre à rallonge » (titres > 100 caractères), « D'un coup »
+  (commencé et fini le même jour, plus d'un épisode), « Par la fin », « Impatient »
+  (titres pas encore sortis), « Jamais deux sans trois » (les plus revus d'abord),
+  la taille de la liste, et les compteurs d'anime terminés, notés et revus.
+  `Derived` expose `entries` (toute la liste) et `fuzzyDay` est exporté. Les
+  épisodes, les minutes et les séries de jours n'ont pas de liste à montrer : pas
+  de détail. Les faits oui/non sont vérifiés comme « liste non vide = acquis »
+  dans check-catalog (1160 assertions).
+- **La date d'obtention** remonte sur la ligne du titre, à droite : le milieu de
+  la ligne est laissé aux boutons Détail et paliers.
+
 ## 2026-09-24 (suite 13) — Pas de détail sur un badge à un seul anime non obtenu
 
 Le bouton **Détail** est retiré d'un badge dont la cible vaut 1 (« Pépite

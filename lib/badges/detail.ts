@@ -19,7 +19,7 @@
  */
 
 import type { BadgeDef } from "./catalog";
-import { titleOf, type Derived } from "./derive";
+import { fuzzyDay, titleOf, type Derived } from "./derive";
 import type { LocalEntry } from "../list/localList";
 
 export type DetailCell = {
@@ -42,7 +42,13 @@ export type Detail =
   | { kind: "list"; items: LocalEntry[] };
 
 const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio"]);
-const LIST = new Set(["genre", "tag", "format", "yearBefore", "popularityUnder", "studioNamed"]);
+const LIST = new Set([
+  "genre", "tag", "format", "yearBefore", "popularityUnder", "studioNamed",
+  "titleLength", "sameDayFinish", "onlyLastEpisode", "planningUnaired", "repeatSame", "listSize",
+]);
+/** Les compteurs `count` qui se ramènent à des anime de la liste. Les épisodes,
+ *  les minutes ou la série de jours n'en sont pas : pas de liste à montrer. */
+const COUNT_OF = new Set(["completed", "rated", "rewatched"]);
 
 /**
  * La forme du détail d'un badge, SANS le calculer — de quoi décider d'afficher
@@ -53,6 +59,7 @@ const LIST = new Set(["genre", "tag", "format", "yearBefore", "popularityUnder",
 export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   const k = def.metric.k;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
+  if (k === "count") return COUNT_OF.has(String(def.metric.of)) ? "list" : null;
   return GRID.has(k) ? "grid" : LIST.has(k) ? "list" : null;
 }
 
@@ -148,6 +155,57 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       };
     case "studioNamed":
       return { kind: "list", items: done.filter((e) => e.studio === String(m.name)).sort(byTitle) };
+
+    /* ── Les faits tirés de la liste : l'anime qui a fait tomber le badge ──── */
+    case "titleLength":
+      return {
+        kind: "list",
+        items: done.filter((e) => titleOf(e).length > Number(m.min)).sort(byTitle),
+      };
+    case "sameDayFinish":
+      return {
+        kind: "list",
+        items: done
+          .filter((e) => {
+            const a = fuzzyDay(e.startedAt);
+            return !!a && a === fuzzyDay(e.completedAt) && (e.total ?? 0) > 1;
+          })
+          .sort(byTitle),
+      };
+    case "onlyLastEpisode":
+      return {
+        kind: "list",
+        items: d.entries
+          .filter((e) => {
+            const eps = d.perAnime.get(e.mediaId);
+            return !!eps && eps.size === 1 && !!e.total && e.total >= 2 && eps.has(String(e.total));
+          })
+          .sort(byTitle),
+      };
+    case "planningUnaired":
+      return {
+        kind: "list",
+        items: d.entries.filter((e) => e.mediaStatus === "NOT_YET_RELEASED").sort(byTitle),
+      };
+    /* Les plus revus d'abord : c'est le premier qui porte « trois fois ». */
+    case "repeatSame":
+      return {
+        kind: "list",
+        items: d.entries
+          .filter((e) => (e.repeat ?? 0) >= 1)
+          .sort((a, b) => (b.repeat ?? 0) - (a.repeat ?? 0) || byTitle(a, b)),
+      };
+    case "listSize":
+      return { kind: "list", items: [...d.entries].sort(byTitle) };
+    case "count":
+      switch (String(m.of)) {
+        case "completed": return { kind: "list", items: [...done].sort(byTitle) };
+        case "rated":
+          return { kind: "list", items: d.entries.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };
+        case "rewatched":
+          return { kind: "list", items: d.entries.filter((e) => (e.repeat ?? 0) >= 1).sort(byTitle) };
+        default: return null;
+      }
     default:
       return null;
   }

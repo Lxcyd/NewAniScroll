@@ -645,6 +645,9 @@ function BadgeRow({
             >
               {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
             </span>
+            {/* La date, en haut à droite, sur la ligne du titre : le milieu de
+                la ligne est laissé aux boutons Détail et paliers. */}
+            {unlocked && <DatePill at={at} color={R.ic} />}
           </div>
 
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
@@ -657,13 +660,6 @@ function BadgeRow({
             color={R.ic}
           />
         </div>
-
-        {/* La date, CENTRÉE sur la hauteur de la ligne comme le chevron des
-            paliers : posée sur la ligne du titre, elle restait collée en haut
-            à droite d'une case de 120 px, loin de tout ce qu'elle date. */}
-        {unlocked && (
-          <DatePill at={at} color={R.ic} />
-        )}
 
         {/* Le détail : QUOI remplit le badge, case par case. Jamais sur un
             secret verrouillé — sa condition est cachée, ses cases la
