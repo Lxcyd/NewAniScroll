@@ -1,0 +1,43 @@
+{
+  "date": "2026-09-24",
+  "generatedAt": "2026-09-24T11:50:55.026Z",
+  "census": {
+    "dbsize": 1822,
+    "scanned": 1822,
+    "complete": true,
+    "iters": 2,
+    "buckets": {
+      "anime": 983,
+      "episode": 607,
+      "tr": 108,
+      "src": 68,
+      "avail": 18,
+      "anilist": 17,
+      "ftree": 6,
+      "lock": 6,
+      "jikan": 4,
+      "asSlug": 3,
+      "index_server_v3": 1,
+      "new_schedule": 1
+    },
+    "topTwoSeg": {
+      "anime:v5": 619,
+      "episode:v12": 592,
+      "anime:v6": 364,
+      "tr:fr": 108,
+      "src:v15": 68,
+      "avail:v5": 18,
+      "anilist:resp": 15,
+      "episode:v11": 15,
+      "ftree:v5": 6,
+      "lock:src": 6,
+      "jikan:eps": 4,
+      "asSlug:v1": 3,
+      "anilist:list": 2
+    }
+  },
+  "upstashStats": {
+    "error": "Upstash mgmt 401 on /v2/redis/databases: {\"error\":\"Unauthorized\"}"
+  },
+  "vercel": null
+}
