@@ -665,10 +665,9 @@ function BadgeRow({
           <DatePill at={at} color={R.ic} />
         )}
 
-        {/* Le détail : QUOI remplit le badge, case par case. Jamais sur un
-            secret verrouillé — sa condition est cachée, ses cases la
-            donneraient. */}
-        {derived && !(hidden && !unlocked) ? (
+        {/* Le détail : QUOI remplit le badge, case par case — seulement une
+            fois le badge débloqué (choix de l'utilisateur, 24/09). */}
+        {derived && unlocked ? (
           <DetailButton def={def} derived={derived} progress={progress} />
         ) : null}
 
