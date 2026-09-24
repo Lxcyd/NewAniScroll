@@ -21,7 +21,10 @@ export default function ProfileTabs({
   onChange: (key: string) => void;
 }) {
   return (
-    <div className="flex w-max items-center gap-1 rounded-full bg-white/[0.03] p-[5px] ring-1 ring-white/[0.07]">
+    /* `as-stat-card` comme toutes les surfaces du profil : elle porte le fond
+       sombre ET le flou que règle le studio de bannière. Sans elle, la barre
+       était la seule à laisser l'illustration nette derrière son texte. */
+    <div className="as-stat-card flex w-max items-center gap-1 rounded-full p-[5px] ring-1 ring-white/[0.07]">
       {tabs.map((tab) => {
         const on = tab.key === active;
         return (
