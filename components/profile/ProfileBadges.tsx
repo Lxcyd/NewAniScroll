@@ -645,9 +645,6 @@ function BadgeRow({
             >
               {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
             </span>
-            {/* La date, en haut à droite, sur la ligne du titre : le milieu de
-                la ligne est laissé aux boutons Détail et paliers. */}
-            {unlocked && <DatePill at={at} color={R.ic} />}
           </div>
 
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
@@ -665,9 +662,20 @@ function BadgeRow({
             secret verrouillé — sa condition est cachée, ses cases la
             donneraient — ni sur un badge à UN SEUL anime pas encore obtenu
             (« Pépite méconnue ») : sa liste serait vide. */}
-        {derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1)) ? (
-          <DetailButton def={def} derived={derived} progress={progress} />
-        ) : null}
+        {/* La date AU-DESSUS du bouton Détail, en une colonne à droite. */}
+        {(() => {
+          const detail =
+            derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
+          if (!unlocked && !detail) return null;
+          return (
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {unlocked && <DatePill at={at} color={R.ic} />}
+              {detail && derived ? (
+                <DetailButton def={def} derived={derived} progress={progress} />
+              ) : null}
+            </div>
+          );
+        })()}
 
         {/* L'ÉCHELLE COMPLÈTE S'OUVRE, ELLE NE SE DÉPLIE PLUS.
             Le dépli montrait les AUTRES paliers : la suite avait donc un trou à
@@ -1267,7 +1275,7 @@ function DetailButton({
         onClick={() => setOpen(true)}
         title={t("badges.ui.detail.open", "Voir le détail")}
         aria-label={t("badges.ui.detail.open", "Voir le détail")}
-        className="ml-1 flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
+        className="flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
       >
         <Icon size={15} className="text-white/45" aria-hidden="true" />
         <span className="font-karla text-[9px] leading-none text-white/30">

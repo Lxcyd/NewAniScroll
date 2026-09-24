@@ -6,6 +6,13 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 16) — La date d'obtention au-dessus du bouton Détail
+
+Posée sur la ligne du titre (suite 14), la date flottait au milieu de la ligne,
+à gauche du bouton Détail. Elle forme maintenant une colonne à droite avec lui :
+la date en haut, le bouton dessous (`flex-col items-end`). Sans bouton Détail,
+elle est seule dans la colonne. `components/profile/ProfileBadges.tsx`.
+
 ## 2026-09-24 (suite 15) — La condition du badge débloqué passe à la ligne
 
 Dans l'animation d'obtention (`components/shared/AchievementToast.tsx`), une
