@@ -1620,6 +1620,10 @@
       "seeTiers": "Voir tous les paliers",
       "close": "Fermer",
       "openInProfile": "Voir ce badge dans le profil",
+      "unit": {
+        "h": "h",
+        "d": "j"
+      },
       "rarityFilter": {
         "all": "Toutes les raretés",
         "label": "Filtrer par rareté"

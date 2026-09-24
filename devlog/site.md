@@ -6,6 +6,16 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 11) — L'avancement des badges de temps dans l'unité de leur plaque
+
+Les compteurs de temps sont en minutes (`metric.of: "minutes"`) : « Cent jours
+d'anime » lisait « 126 982 / 144 000 » sous une plaque « 100 J ».
+`progressText` lit l'unité sur le seuil — multiple de 1 440 minutes → jours
+(1 J … 365 J), sinon heures (10 H) — et arrondit vers le BAS (143 999 minutes
+ne font pas cent jours) : « 88 / 100 j ». La barre reste calculée sur les
+minutes brutes. Liste et panneau des paliers passent par la même fonction ;
+clés `badges.ui.unit.{h,d}` (j / d).
+
 ## 2026-09-24 (suite 10) — Une barre à zéro est vide
 
 `Bar` (widgets/common) pose un plancher — 2 % de la piste, et au moins sa

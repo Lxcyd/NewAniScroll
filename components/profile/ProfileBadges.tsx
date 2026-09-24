@@ -631,6 +631,7 @@ function BadgeRow({
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
 
           <ProgressLine
+            def={def}
             progress={progress}
             unlocked={unlocked}
             live={live}
@@ -759,9 +760,35 @@ function Condition({
  *                         pas encore ». Cf. le contrat du `null` dans
  *                         lib/badges/measure.ts.
  */
+/**
+ * « 88 / 100 j » — l'avancement dans l'unité QUE LE BADGE AFFICHE.
+ *
+ * Les compteurs de temps sont en minutes (`of: "minutes"`), et la barre des
+ * « Cent jours d'anime » lisait donc « 126 982 / 144 000 » sous une plaque qui
+ * dit « 100 J ». L'unité se lit sur le seuil : un multiple de 1 440 minutes se
+ * compte en jours (1 J, 7 J… 365 J), le reste en heures (10 H). Arrondi vers
+ * le BAS : 143 999 minutes ne sont pas encore cent jours.
+ */
+function progressText(
+  def: BadgeDef,
+  cur: number,
+  target: number,
+  lang: string | undefined,
+  t: (k: string, d: string) => string,
+): string {
+  const fmt = (n: number) => n.toLocaleString(lang || undefined);
+  const m = def.metric;
+  if (m.k !== "count" || m.of !== "minutes") return `${fmt(cur)} / ${fmt(target)}`;
+  const days = target % 1440 === 0;
+  const div = days ? 1440 : 60;
+  const unit = days ? t("badges.ui.unit.d", "j") : t("badges.ui.unit.h", "h");
+  return `${fmt(Math.floor(cur / div))} / ${fmt(target / div)} ${unit}`;
+}
+
 function ProgressLine({
-  progress, unlocked, live, color,
+  def, progress, unlocked, live, color,
 }: {
+  def: BadgeDef;
   progress: Progress;
   unlocked: boolean;
   live: boolean;
@@ -787,8 +814,7 @@ function ProgressLine({
       <span className="font-karla text-[10.5px] tabular-nums text-white/40">
         {/* Le séparateur de milliers suit la langue choisie : « 10 000 » en
             français, « 10,000 » en anglais. Il était figé en fr-FR. */}
-        {cur.toLocaleString(i18n.language || undefined)} /{" "}
-        {target.toLocaleString(i18n.language || undefined)}
+        {progressText(def, cur, target, i18n.language, t)}
       </span>
     </div>
   );
@@ -1042,7 +1068,6 @@ function LadderPopup({
             /* Un palier obtenu montre une barre PLEINE : c'est ce qu'il a
                accompli, pas l'avancement du compteur vers un palier plus haut. */
             const reach = p && p[1] > 1 ? (at != null ? p[1] : Math.min(p[0], p[1])) : null;
-            const fmt = (n: number) => n.toLocaleString(i18n.language || undefined);
             return (
               <div
                 key={id}
@@ -1140,7 +1165,7 @@ function LadderPopup({
                             <Bar pct={Math.min(100, (reach / p[1]) * 100)} color={R.ic} />
                           </div>
                           <span className="font-karla shrink-0 text-[10px] tabular-nums text-white/40">
-                            {fmt(reach)} / {fmt(p[1])}
+                            {progressText(def, reach, p[1], i18n.language, t)}
                           </span>
                         </div>
                       ) : null}

@@ -1620,6 +1620,10 @@
       "seeTiers": "See all tiers",
       "close": "Close",
       "openInProfile": "View this badge in your profile",
+      "unit": {
+        "h": "h",
+        "d": "d"
+      },
       "rarityFilter": {
         "all": "All rarities",
         "label": "Filter by rarity"
