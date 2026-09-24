@@ -79,7 +79,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 32 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 33 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -198,6 +198,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-24 (suite 3) — Le flou du studio remplit de nouveau toute la carte : le masque de fondu (20,5 px à 11 px de flou) laissait une bande d'illustration nette autour de chaque carte ; retiré, le liseré dessine le bord
 - 2026-09-24 (suite 2) — Noms des badges relus un par un (172 validés), plus aucun doublon fr/en
 - 2026-09-24 (suite) — Les 176 badges renommés (fr + en, ids intacts) ; `big-three` disait « commencer » là où la métrique compte les anime terminés
 - 2026-09-24 — Le « bord du flou » de la notification de badge était celui de la carte de stats d'à côté (flou du studio, 11 px), pas du voile : trois versions du voile pour rien ; le flou des cartes s'éteint maintenant avant leur bord (`::before` masqué, dégradés croisés), et plus aucune couche `blur(0)` sur les profils sans flou

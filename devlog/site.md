@@ -6,6 +6,26 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 3) — Le flou du studio remplit de nouveau toute la carte
+
+**Le symptôme** : sur l'onglet Badges, « le blur ne fait pas la taille de la
+box entière », et sur toutes les cartes.
+
+**Mesuré au CDP** (profil Lucyd-952364, flou réglé à 11 px, ligne de badge
+1248 × 124) : le `::before` couvre bien toute la carte, mais son masque (deux
+dégradés croisés, fondu `min(1,5 × flou + 4 px, 30 %)`) le faisait s'éteindre
+sur 20,5 px à chaque bord. L'illustration restait donc NETTE sur une bande tout
+autour de chaque carte, et se lisait comme un flou plus petit que la boîte.
+Capture sans le masque : flou d'un liseré à l'autre, rien d'autre ne bouge.
+
+**Le correctif** : le masque est retiré, le calque garde son `backdrop-filter`
+jusqu'au bord. Ce masque datait du matin même (entrée « Le bord du flou
+n'était pas celui du badge ») : il répondait au « rectangle flou à bord
+franc ». Or chaque carte a son liseré (anneau, ou pointillés pour un badge non
+obtenu) : c'est lui qui dessine le bord, et le flou s'y arrête comme un verre
+dépoli s'arrête à son cadre. L'aperçu du studio (`.as-frost`) partage la règle
+et suit sans modification.
+
 ## 2026-09-24 (suite 2) — Les noms des badges, relus un par un par l'utilisateur
 
 La première réécriture (plus bas) misait sur l'humour et les répliques de

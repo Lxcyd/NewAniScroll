@@ -1421,9 +1421,8 @@ export default function BannerStudio({
               le seul réglage dont l'effet ne se voit pas sur le fond.
 
               Elles le montrent donc TEL QUE LE PROFIL LE REND : `.as-frost`
-              est le même calque que celui des cartes du profil, qui s'éteint
-              avant le bord (globals.css). Un `backdrop-filter` en ligne
-              montrait ici un rectangle à bord franc que la page n'a plus. */}
+              est le même calque que celui des cartes du profil (globals.css),
+              si bien qu'une règle changée là-bas se voit ici sans y toucher. */}
           <div
             className="grid w-full grid-cols-3 gap-3"
             style={{ ["--as-plate-blur" as string]: `${draft.blur}px` }}

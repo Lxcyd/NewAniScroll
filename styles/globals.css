@@ -2359,25 +2359,21 @@ input[type="number"] {
   );
 }
 
-/* ── LE FLOU DU STUDIO AVAIT RAMENÉ LES TROUS, IL S'ÉTEINT MAINTENANT AU BORD ─
-   Le curseur « Flou » du studio a remis sur chaque carte le `backdrop-filter`
-   que la note du dessus avait retiré, et avec lui exactement le même défaut :
-   un rectangle flou découpé à bord franc dans une illustration nette. C'est ce
-   bord que les captures des 23-24/09 montraient à côté de la notification de
-   badge — la carte à gauche de « 5261 », sur un profil réglé à 11 px — et que
-   trois versions du voile de la notification ont cherché à corriger chez lui.
+/* ── LE FLOU DU STUDIO REMPLIT LA CARTE JUSQU'À SON LISERÉ ──────────────────
+   Le curseur « Flou » du studio remet sur chaque carte le `backdrop-filter`
+   que la note du dessus avait retiré. Il vit sur un calque à part, le
+   `::before`.
 
-   Le flou vit donc sur un calque à part, le `::before`, masqué pour s'éteindre
-   jusqu'à ZÉRO avant le bord : le fond est net des deux côtés du cadre, et il
-   ne reste de la carte que ce qui la dessine vraiment — son liseré et sa
-   teinte. Le masque est sur le calque et pas sur la carte, sinon il effacerait
-   aussi le texte.
-
-   Deux dégradés CROISÉS (`intersect`) et pas un radial : un ovale inscrit dans
-   une ligne de badge de 900 × 60 ne floute qu'une amande au centre. Là, le
-   fondu a la même largeur sur les quatre côtés, quelle que soit la forme — une
-   fois et demie le rayon du flou (il lui faut la place de mourir), jamais plus
-   de 30 % du côté (une étiquette de famille fait 40 px de haut).
+   CE CALQUE A ÉTÉ MASQUÉ, et il ne faut pas le refaire. Pour éviter un
+   rectangle flou « à bord franc » (captures des 23-24/09, la carte à gauche de
+   la notification de badge), il s'éteignait jusqu'à zéro avant le bord : deux
+   dégradés croisés, fondu d'une fois et demie le rayon du flou, plafonné à
+   30 % du côté. Résultat, mesuré au CDP le 24/09 sur l'onglet Badges (11 px) :
+   une bande d'illustration NETTE de 20 px tout autour de chaque carte, et un
+   flou qui ne couvrait plus la boîte — ce qui a été signalé tel quel. Le bord
+   franc n'en est pas un défaut : chaque carte a son liseré (anneau ou
+   pointillés), c'est lui qui dessine le cadre, et un verre dépoli s'arrête à
+   son cadre.
 
    ── LA CARTE GARDE LES DEUX RÔLES QUE LUI DONNAIT SON FILTRE ─────────────
    Un `backdrop-filter`, même à `blur(0)`, fait de la carte un contexte
@@ -2402,7 +2398,6 @@ input[type="number"] {
 }
 .as-plate-frosted .as-stat-card:not(.as-preview-root)::before,
 .as-frost::before {
-  --as-feather: min(calc(var(--as-plate-blur) * 1.5 + 4px), 30%);
   content: "";
   position: absolute;
   inset: 0;
@@ -2411,38 +2406,6 @@ input[type="number"] {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--as-plate-blur));
   backdrop-filter: blur(var(--as-plate-blur));
-  -webkit-mask-image:
-    linear-gradient(
-      to right,
-      transparent,
-      #000 var(--as-feather),
-      #000 calc(100% - var(--as-feather)),
-      transparent
-    ),
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--as-feather),
-      #000 calc(100% - var(--as-feather)),
-      transparent
-    );
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(
-      to right,
-      transparent,
-      #000 var(--as-feather),
-      #000 calc(100% - var(--as-feather)),
-      transparent
-    ),
-    linear-gradient(
-      to bottom,
-      transparent,
-      #000 var(--as-feather),
-      #000 calc(100% - var(--as-feather)),
-      transparent
-    );
-  mask-composite: intersect;
 }
 
 /* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
