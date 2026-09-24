@@ -60,21 +60,19 @@ function BadgeTokenInner({
   const lit = unlocked && animate;
   const stars = lit && !hidden ? starsFor(id + rarity, R.stars, R.starColors) : [];
 
-  /* UN BADGE NON OBTENU EST TAILLÉ DANS LA PIERRE (24/09/2026).
-     Deux essais avant celui-ci gardaient la couleur de rareté sur les jetons
-     verrouillés, en jouant sur l'opacité (0,72 puis 0,8) : illisible. Un
-     Commun est gris dans les deux états, et sur un profil à illustration le
-     fond traversait tout pareil — un Peu commun verrouillé paraissait même
-     plus vif qu'un badge obtenu.
+  /* LA COULEUR DE RARETÉ EST PORTÉE PAR TOUS LES JETONS, OBTENUS OU NON.
+     Une première version grisait les badges verrouillés : sur un compte neuf,
+     où tout l'est, la page entière devenait grise et plus rien ne disait ce
+     qu'on visait. La maquette du catalogue, elle, montre chaque jeton dans sa
+     couleur — c'est elle qui a raison : la couleur annonce la rareté de
+     l'objectif, elle n'est pas la récompense.
 
-     La pierre : anneau et plaque gris sombre, icône gravée (sombre, liseré
-     clair dessous), plus de liserés internes. La rareté reste lisible à
-     l'ÉPAISSEUR de l'anneau, et au libellé de la ligne. Idée tirée des succès
-     de Clash of Clans, pour la compréhension seulement : rien d'autre de son
-     style. Un compte neuf est donc tout en pierre, et c'est assumé. */
-  const stone = !unlocked;
-  const ink = stone ? "#16171c" : R.ic;
-  const ring = stone ? "url(#asStoneRing)" : R.ring;
+     Ce qui distingue l'obtenu, alors : l'opacité, les étoiles, le balayage, les
+     liserés internes, la coche (`check`) — et, dans la ligne, le fond teinté et
+     la pastille de date au lieu d'une barre. Réglages choisis sur un banc
+     d'essai le 24/09/2026 : l'opacité seule (0,72) était jugée trop floue. */
+  const ink = R.ic;
+  const ring = R.ring;
 
   return (
     <div
@@ -85,6 +83,9 @@ function BadgeTokenInner({
         height: size,
         display: "grid",
         placeItems: "center",
+        /* Assez d'ecart pour lire l'etat d'un coup d'oeil, pas assez pour
+           eteindre la couleur. */
+        opacity: unlocked ? 1 : 0.8,
         /* Le grossissement au survol. `will-change` évite que le navigateur
            redessine le SVG à chaque image de la transition. */
         willChange: "transform",
@@ -99,39 +100,25 @@ function BadgeTokenInner({
       >
         {/* Le halo extérieur : la même forme, très transparente, qui détache le
             jeton du fond sans ajouter de trait net. */}
-        <path
-          d={HEX}
-          fill="none"
-          stroke={stone ? "#000" : ink}
-          strokeOpacity={stone ? 0.35 : 0.2}
-          strokeWidth={R.sw + 3}
-        />
-        <path d={HEX} fill={stone ? "url(#asStone)" : "url(#asPlate)"} stroke={ring} strokeWidth={R.sw} />
-        {/* L'ombre intérieure, décalée vers le bas : la plaque paraît creusée. */}
-        {stone && (
-          <path
-            transform="translate(59 61) scale(.9) translate(-59 -59)"
-            d={HEX}
-            fill="none"
-            stroke="rgba(0,0,0,.55)"
-            strokeWidth={3}
-          />
-        )}
-        {!stone && R.inner && (
+        <path d={HEX} fill="none" stroke={ink} strokeOpacity={0.2} strokeWidth={R.sw + 3} />
+        <path d={HEX} fill="url(#asPlate)" stroke={ring} strokeWidth={R.sw} />
+        {R.inner && (
           <path
             transform="translate(59 59) scale(.89) translate(-59 -59)"
             d={HEX}
             fill="none"
             stroke={R.inner}
+            strokeOpacity={unlocked ? 1 : 0.5}
             strokeWidth={1.2}
           />
         )}
-        {!stone && R.deep && (
+        {R.deep && (
           <path
             transform="translate(59 59) scale(.76) translate(-59 -59)"
             d={HEX}
             fill="none"
             stroke={R.deep}
+            strokeOpacity={unlocked ? 1 : 0.5}
             strokeWidth={1}
           />
         )}
@@ -174,14 +161,7 @@ function BadgeTokenInner({
       <Icon
         size={42 * scale}
         color={ink}
-        style={{
-          position: "relative",
-          marginBottom: (tag ? 13 : 0) * scale,
-          /* La gravure : un liseré clair juste sous l'icône sombre. */
-          filter: stone
-            ? `drop-shadow(0 ${Math.max(1, 1.5 * scale)}px 0 rgba(255,255,255,.14))`
-            : undefined,
-        }}
+        style={{ position: "relative", marginBottom: (tag ? 13 : 0) * scale }}
         aria-hidden="true"
       />
 
@@ -200,12 +180,12 @@ function BadgeTokenInner({
             justifyContent: "center",
             height: 21 * scale,
             padding: `0 ${10 * scale}px`,
-            background: stone ? "linear-gradient(90deg,#4a4c55,#2c2d33)" : R.plaque[0],
+            background: R.plaque[0],
             fontFamily: "Outfit, sans-serif",
             fontWeight: 700,
             fontSize: 11 * scale,
             lineHeight: 1,
-            color: stone ? "#9a9ca6" : R.plaque[1],
+            color: R.plaque[1],
           }}
         >
           {tag}
