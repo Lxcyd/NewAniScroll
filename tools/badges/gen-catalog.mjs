@@ -58,16 +58,23 @@ if (iconKeys) {
 
 /* Une échelle doit monter, et ne mesurer qu'une seule chose : c'est ce qui rend
    « le premier palier non atteint » bien défini. */
+/* « Tous les autres badges » (`allBadges`) compte la même chose que
+   `count/badges`, avec une cible calculée à l'exécution : le total principal
+   moins lui-même (measure.ts). Il peut donc fermer l'échelle des badges. */
+const mainCount = [...byId.values()].filter((b) => b.family !== "secret").length;
+const ladderMetric = (m) =>
+  m.k === "allBadges" ? { k: "count", of: "badges", n: mainCount - 1 } : m;
 for (const [name, ids] of Object.entries(LADDERS)) {
   let prev = -Infinity;
   let kind = null;
   for (const id of ids) {
     const b = byId.get(id);
     if (!b) { errors.push(`échelle ${name} : id inconnu ${id}`); continue; }
-    const key = JSON.stringify({ ...b.metric, n: undefined });
+    const m = ladderMetric(b.metric);
+    const key = JSON.stringify({ ...m, n: undefined });
     if (kind === null) kind = key;
     else if (kind !== key) errors.push(`échelle ${name} : ${id} ne mesure pas la même chose`);
-    const n = b.metric.n;
+    const n = m.n;
     if (!(n > prev)) errors.push(`échelle ${name} : ${id} (${n}) ne dépasse pas le palier précédent (${prev})`);
     prev = n;
   }

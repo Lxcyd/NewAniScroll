@@ -85,7 +85,7 @@ export const LADDERS = {
      douze heures un samedi sans jamais avoir fait six heures d'un trait en
      semaine, et l'inverse aussi. Les mettre en échelle cacherait l'un derrière
      l'autre dans le dépli alors qu'aucun des deux n'est le palier suivant. */
-  collection: ["badges-50", "badges-75"],
+  collection: ["badges-50", "badges-75", "complete"],
   favourite: ["fav-1", "fav-10"],
 };
 

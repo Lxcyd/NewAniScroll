@@ -123,14 +123,19 @@ const iconKeys = new Set(
 );
 for (const b of all) ok(`icône ${b.icon} (${b.id})`, iconKeys.has(b.icon));
 
+/* « Tous les autres badges » est le dernier palier de l'échelle des badges
+   obtenus : sa cible, calculée à l'exécution, vaut le total principal moins
+   lui-même (measure.ts). */
+const mainCount = all.filter((b) => b.family !== "secret").length;
+const ladderN = (b) => (b.metric.k === "allBadges" ? mainCount - 1 : b.metric.n);
 for (const [name, ids] of Object.entries(LADDERS)) {
   let prev = -Infinity;
   for (const id of ids) {
     const b = all.find((x) => x.id === id);
     ok(`échelle ${name} contient ${id}`, !!b);
     if (b) {
-      ok(`échelle ${name} : ${id} > ${prev}`, b.metric.n > prev);
-      prev = b.metric.n;
+      ok(`échelle ${name} : ${id} > ${prev}`, ladderN(b) > prev);
+      prev = ladderN(b);
     }
   }
 }

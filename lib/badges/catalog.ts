@@ -148,7 +148,7 @@ export const BADGES: BadgeDef[] = [
   { id: "legendary-5", family: "profile", rarity: "l", icon: "trophy", tag: "5", metric: {"k":"rarityCount","rarity":"l","n":5} },
   { id: "showcase-open", family: "profile", rarity: "c", icon: "gridFull", tag: "", metric: {"k":"flag","name":"badgesTab","n":1} },
   { id: "secret-50", family: "profile", rarity: "l", icon: "question", tag: "50", metric: {"k":"secretCount","n":50} },
-  { id: "complete", family: "profile", rarity: "m", icon: "hexCluster", tag: "100 %", metric: {"k":"allBadges","n":0} },
+  { id: "complete", family: "profile", rarity: "m", icon: "hexCluster", tag: "100 %", metric: {"k":"allBadges","n":0}, ladder: "collection" },
   { id: "anilist-linked", family: "secret", rarity: "u", icon: "link", tag: "", metric: {"k":"flag","name":"anilistLinked","n":1}, secret: true },
   { id: "staff", family: "secret", rarity: "m", icon: "shieldCheck", tag: "STAFF", metric: {"k":"granted","n":1}, secret: true },
   { id: "beta", family: "secret", rarity: "l", icon: "bookmark", tag: "BETA", metric: {"k":"granted","n":1}, secret: true },
@@ -276,7 +276,8 @@ export const LADDERS: Record<string, string[]> = {
   ],
   "collection": [
     "badges-50",
-    "badges-75"
+    "badges-75",
+    "complete"
   ],
   "favourite": [
     "fav-1",
