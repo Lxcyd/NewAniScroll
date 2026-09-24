@@ -6,12 +6,13 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
-## 2026-09-24 (suite 13) — Le détail d'un badge seulement une fois débloqué
+## 2026-09-24 (suite 13) — Pas de détail sur un badge à un seul anime non obtenu
 
-À la demande de l'utilisateur, le bouton **Détail** n'apparaît plus que sur un
-badge obtenu (`state.got[def.id]`). Couvre aussi les secrets verrouillés, déjà
-exclus. Pour une échelle, la ligne montre le palier en cours : pas de détail tant
-qu'il n'est pas atteint. `components/profile/ProfileBadges.tsx`.
+Le bouton **Détail** est retiré d'un badge dont la cible vaut 1 (« Pépite
+méconnue ») tant qu'il n'est pas obtenu : sa liste ne pourrait être que vide. Les
+badges à seuil ou à cases (années, A-Z…) le gardent, même non obtenus. Une
+première version (9eaf6632) le retirait de TOUS les badges non obtenus, un
+malentendu corrigé dans la foulée. `components/profile/ProfileBadges.tsx`.
 
 ## 2026-09-24 (suite 12) — Le détail d'un badge : quelles cases manquent, et quels anime remplissent les autres
 

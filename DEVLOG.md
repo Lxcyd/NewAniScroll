@@ -199,7 +199,7 @@ construit depuis `git log --since=<derniere release>`.
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
 - 2026-09-24 (suite 12) — Détail d'un badge : grille des cases (années, A-Z, genres, tags, lecteurs, studios) avec les manquantes et les anime de chaque case, liste des anime pour les seuils ; vérifié égal à `measure` dans check-catalog
-- 2026-09-24 (suite 13) — Le bouton Détail n'apparaît que sur un badge débloqué
+- 2026-09-24 (suite 13) — Pas de bouton Détail sur un badge à un seul anime non obtenu (Pépite méconnue)
 - 2026-09-24 (suite 11) — Badges de temps : l'avancement s'affiche en heures ou en jours selon la plaque (« 88 / 100 j »), plus en minutes
 - 2026-09-24 (suite 10) — `Bar` : à zéro, piste vide (le plancher de visibilité dessinait un faux progrès sous « 0 / 20 »)
 - 2026-09-24 (suite 9) — Date d'obtention centrée dans la ligne de badge, sans coche ni « Obtenu »
