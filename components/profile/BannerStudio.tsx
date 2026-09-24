@@ -1418,8 +1418,16 @@ export default function BannerStudio({
             {identity.name}
           </p>
           {/* Les trois cartes existent pour UNE raison : montrer le flou. C'est
-              le seul réglage dont l'effet ne se voit pas sur le fond. */}
-          <div className="grid w-full grid-cols-3 gap-3">
+              le seul réglage dont l'effet ne se voit pas sur le fond.
+
+              Elles le montrent donc TEL QUE LE PROFIL LE REND : `.as-frost`
+              est le même calque que celui des cartes du profil, qui s'éteint
+              avant le bord (globals.css). Un `backdrop-filter` en ligne
+              montrait ici un rectangle à bord franc que la page n'a plus. */}
+          <div
+            className="grid w-full grid-cols-3 gap-3"
+            style={{ ["--as-plate-blur" as string]: `${draft.blur}px` }}
+          >
             {(stats && stats.length
               ? stats
               : [
@@ -1432,11 +1440,11 @@ export default function BannerStudio({
               .map((s) => (
                 <div
                   key={s.key}
-                  className="rounded-[20px] px-4 py-3.5 text-left ring-1 ring-white/15"
+                  className={`rounded-[20px] px-4 py-3.5 text-left ring-1 ring-white/15 ${
+                    draft.blur > 0 ? "as-frost" : ""
+                  }`}
                   style={{
                     background: `linear-gradient(145deg, rgba(20,22,28,${cardAlpha}), rgba(12,13,16,${cardAlpha - 0.14}))`,
-                    backdropFilter: `blur(${draft.blur}px)`,
-                    WebkitBackdropFilter: `blur(${draft.blur}px)`,
                   }}
                 >
                   <p className="text-[10px] uppercase tracking-[.12em] text-white/45">

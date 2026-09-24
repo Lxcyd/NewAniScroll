@@ -530,11 +530,10 @@ export default function AchievementToast() {
 
              Le voile flouté déborde plus haut que ça (il fait 160 px de haut
              pour 104 de jeton, cf. `.as-ach-blur`), et ce n'est pas une
-             contradiction : son masque
-             vaut ZÉRO sur ses propres bords et ne devient franc qu'au tiers du
-             chemin vers le centre. Ce qui dépasse sur la barre ne peint rien —
-             c'est précisément la marge dont le dégradé a besoin pour
-             s'éteindre. */
+             contradiction : ses anneaux sont des ellipses inscrites dans sa
+             boîte, la plus large ne touche le haut qu'en son milieu et floute
+             à peine (1,2 px). Ce qui dépasse sur la barre ne peint presque
+             rien — c'est la marge dont le flou a besoin pour s'éteindre. */
           position: "fixed",
           top: 88,
           left: "50%",

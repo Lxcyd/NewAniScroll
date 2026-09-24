@@ -79,7 +79,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 19 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 32 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -197,6 +197,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-24 — Le « bord du flou » de la notification de badge était celui de la carte de stats d'à côté (flou du studio, 11 px), pas du voile : trois versions du voile pour rien ; le flou des cartes s'éteint maintenant avant leur bord (`::before` masqué, dégradés croisés), et plus aucune couche `blur(0)` sur les profils sans flou
 - 2026-09-23 (suite) — « Un flou, pas une boîte » : on écrivait ça en affichant une boîte (`brightness` sur un backdrop-filter ASSOMBRIT) ; flou seul + contour de sous-titre sur le texte (`paint-order: stroke fill`) ; carillon refait (souffle → quinte juste, la rareté ouvre l'accord sans ajouter de notes) ; clic → onglet Badges via `#badge-<id>`, vol du jeton vers l'avatar + pastille, mythique ralenti/confettis, deux interrupteurs dans les préférences
 - 2026-09-23 — La notification de badge se tait tant que le lecteur possède l'écran (le badge attend dans la file, il repart à la sortie du plein écran) ; la carte redevient une carte (le flou masqué faisait une tache sur fond clair) ; survol qui suspend la pose + jauge + croix ; carillon WebAudio synthétisé, un seul `AudioContext`, échec silencieux
 - 2026-09-21 (suite) — Jikan en complément d'AniList, seulement là où AniList n'a rien : filler/récap, date et titre par épisode (même page Jikan que les scores, 0 appel en plus), titre français, classification d'âge, synopsis MAL en repli

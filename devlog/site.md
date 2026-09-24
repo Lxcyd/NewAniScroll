@@ -6,6 +6,51 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 — Le bord du flou n'était pas celui du badge : c'était la carte d'à côté
+
+**Trois versions du voile de la notification ont corrigé un bord qui n'était pas
+le sien.** Les captures des 23 et 24/09 (« on voit la bordure de la box »,
+« démarcation nette ») montraient toutes la même zone : le bord de la **carte de
+stats à gauche de « 5261 »**, dans le héros du profil — intérieur flou,
+extérieur net. Ce flou était celui de la carte elle-même : le curseur « Flou »
+du studio de bannière (11 px sur ce profil) pose un `backdrop-filter` sur toutes
+les `.as-stat-card`, coupé net à leur bord. Le voile, lui, s'étend à 260 px du
+centre ; cette carte finit à 257 px à gauche du centre. Taille fixe, trois
+voiles, six anneaux `clip-path` : chaque version se défendait, aucune ne pouvait
+toucher ce bord.
+
+Mesuré sur dev, à défilement identique (énergie de Laplacien, la netteté
+locale) : **10,6 juste au-dessus du bord haut de la carte, 1,6 juste en
+dessous.** Une marche, exactement ce que montraient les captures.
+
+**Le correctif est sur la carte, et il n'ajoute aucune couche.** Le flou passe
+sur un `::before` masqué par deux dégradés CROISÉS (`mask-composite:
+intersect`) qui l'éteignent jusqu'à zéro avant le bord, sur les quatre côtés —
+fondu de 1,5 × le rayon + 4 px, plafonné à 30 % du côté. Un radial n'aurait
+flouté qu'une amande au centre d'une ligne de badge de 900 × 60. La carte garde
+son liseré et sa teinte ; `isolation` et `position` (sous `:where()`, donc à
+spécificité nulle, `sticky` et `absolute` gardent la main) lui rendent les deux
+rôles que lui donnait son filtre, contexte d'empilement et bloc conteneur.
+
+**Au passage, un gain pour tous les autres profils** : `blur(var(--as-plate-blur,
+0px))` n'était pas gratuit. Un filtre nul reste une couche que le compositeur
+relit à chaque image, et il y en avait une par carte sur TOUS les profils — 176
+sur l'onglet Badges. Le calque n'existe plus que sous `.as-plate-frosted`,
+posée sur `<html>` par ProfileHero avec la variable. L'aperçu du studio prend le
+même calque (`.as-frost`) : il montrait encore le rectangle à bord franc.
+
+Ce qu'il faut en retenir :
+
+- **Avant de corriger un « bord », situer l'élément** — par des coordonnées,
+  pas par une impression. Centre − 260 contre centre − 257 : trente secondes de
+  calcul auraient évité trois versions.
+- **Quand le reproche revient intact après un correctif mesuré juste, c'est que
+  le correctif vise le mauvais objet.** Les mesures de la veille étaient
+  exactes — sur le voile.
+- Les « éclairs » au survol de la liste des badges, mis sur le compte du masque
+  du voile, sont peut-être de la même famille : chaque ligne portait ce flou.
+  Non vérifié.
+
 ## 2026-09-23 (fin) — Le carillon est abandonné, et la pluie finit avec le jeton
 
 **LE SON DU BADGE EST RETIRÉ. `lib/badges/chime.ts` n'existe plus**, ni son

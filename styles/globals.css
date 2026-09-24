@@ -2349,17 +2349,100 @@ input[type="number"] {
    dix couches que le compositeur refiltre a chaque image. */
 /* Les cartes du profil — blocs de la grille et cartes de statistiques.
    `--as-plate-blur` est posé par la page quand le propriétaire a réglé un flou
-   dans le studio (0 par défaut, donc aucun coût pour tous les autres profils).
-   L'opacité du fond baisse en même temps : sur une carte à 0.72 d'opaque, un
-   flou d'arrière-plan ne se verrait tout simplement pas. */
+   dans le studio. L'opacité du fond baisse en même temps : sur une carte à 0.72
+   d'opaque, un flou d'arrière-plan ne se verrait tout simplement pas. */
 .as-stat-card {
   background: linear-gradient(
     145deg,
     rgba(20, 22, 28, var(--as-plate-a1, 0.72)),
     rgba(12, 13, 16, var(--as-plate-a2, 0.58))
   );
-  backdrop-filter: blur(var(--as-plate-blur, 0px));
-  -webkit-backdrop-filter: blur(var(--as-plate-blur, 0px));
+}
+
+/* ── LE FLOU DU STUDIO AVAIT RAMENÉ LES TROUS, IL S'ÉTEINT MAINTENANT AU BORD ─
+   Le curseur « Flou » du studio a remis sur chaque carte le `backdrop-filter`
+   que la note du dessus avait retiré, et avec lui exactement le même défaut :
+   un rectangle flou découpé à bord franc dans une illustration nette. C'est ce
+   bord que les captures des 23-24/09 montraient à côté de la notification de
+   badge — la carte à gauche de « 5261 », sur un profil réglé à 11 px — et que
+   trois versions du voile de la notification ont cherché à corriger chez lui.
+
+   Le flou vit donc sur un calque à part, le `::before`, masqué pour s'éteindre
+   jusqu'à ZÉRO avant le bord : le fond est net des deux côtés du cadre, et il
+   ne reste de la carte que ce qui la dessine vraiment — son liseré et sa
+   teinte. Le masque est sur le calque et pas sur la carte, sinon il effacerait
+   aussi le texte.
+
+   Deux dégradés CROISÉS (`intersect`) et pas un radial : un ovale inscrit dans
+   une ligne de badge de 900 × 60 ne floute qu'une amande au centre. Là, le
+   fondu a la même largeur sur les quatre côtés, quelle que soit la forme — une
+   fois et demie le rayon du flou (il lui faut la place de mourir), jamais plus
+   de 30 % du côté (une étiquette de famille fait 40 px de haut).
+
+   ── LA CARTE GARDE LES DEUX RÔLES QUE LUI DONNAIT SON FILTRE ─────────────
+   Un `backdrop-filter`, même à `blur(0)`, fait de la carte un contexte
+   d'empilement et le bloc conteneur de ses descendants positionnés. On les lui
+   rend (`isolation`, `position`) pour que rien ne bouge dedans, et c'est aussi
+   ce qui place le calque (`z-index: -1`) SOUS le texte et au-dessus de la
+   teinte. Sous `:where()`, donc à spécificité nulle : `sticky` (l'aside) et
+   `absolute` (les widgets) gardent la main.
+
+   ── ET AUCUNE COUCHE QUAND LE FLOU VAUT 0 ─────────────────────────────────
+   `blur(var(--as-plate-blur, 0px))` n'était pas gratuit : un filtre nul reste
+   une couche que le compositeur relit à chaque image — 176 sur l'onglet Badges,
+   et pour TOUS les profils. Le calque n'existe plus que sous
+   `.as-plate-frosted`, que ProfileHero pose sur la racine avec la variable.
+   `.as-frost` sert l'aperçu du studio, qui règle son propre flou.
+
+   La bulle de la frise des années (`.as-preview-root`) garde son propre
+   `backdrop-blur-sm` : c'est un objet qui flotte, un bord net y est à sa place. */
+:where(.as-stat-card, .as-frost) {
+  position: relative;
+  isolation: isolate;
+}
+.as-plate-frosted .as-stat-card:not(.as-preview-root)::before,
+.as-frost::before {
+  --as-feather: min(calc(var(--as-plate-blur) * 1.5 + 4px), 30%);
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--as-plate-blur));
+  backdrop-filter: blur(var(--as-plate-blur));
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 var(--as-feather),
+      #000 calc(100% - var(--as-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--as-feather),
+      #000 calc(100% - var(--as-feather)),
+      transparent
+    );
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 var(--as-feather),
+      #000 calc(100% - var(--as-feather)),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--as-feather),
+      #000 calc(100% - var(--as-feather)),
+      transparent
+    );
+  mask-composite: intersect;
 }
 
 /* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
@@ -3692,6 +3775,18 @@ input[type="number"] {
  * séparent deux régions déjà floues, où une marche ne se voit pas.
  *
  * Les flous se composent en quadrature : ~6,5 px au centre, le rendu d'avant. */
+/* ── LE BORD QU'ON CHERCHAIT ICI N'ÉTAIT PAS CELUI DU VOILE (24/09) ─────────
+ * Les captures qui ont motivé les trois dernières versions (taille fixe, trois
+ * voiles, six anneaux) montraient toutes la même zone : la carte de stats à
+ * gauche de « 5261 », givrée par le flou du studio de bannière (11 px sur ce
+ * profil) et coupée net à SON PROPRE bord. Le voile s'étend à 260 px du
+ * centre, en ellipse ; cette carte finit à 257 px à gauche du centre : il n'en
+ * touche qu'une pointe. Le correctif est sur `.as-stat-card`.
+ *
+ * Les anneaux restent, ils tiennent par eux-mêmes. Mais avant de retoucher ce
+ * voile pour « un bord », SITUER le bord : les cartes du profil floutent
+ * aussi, et elles sont juste à côté. Même piste pour les « éclairs » relevés au
+ * survol de la liste des badges — chaque ligne portait ce même flou. */
 .as-ach-blur {
   position: absolute;
   left: 50%;

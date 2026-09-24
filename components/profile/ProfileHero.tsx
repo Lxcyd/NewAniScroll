@@ -193,23 +193,31 @@ export default function ProfileHero({
      Les blocs de la grille ne sont pas dans cet arbre — ils sont plus bas dans
      la page — donc la valeur voyage par une variable posée sur la racine plutôt
      que par une prop traversant quatre composants. Retirée au démontage : la
-     variable survivrait à la navigation vers un autre profil. */
+     variable survivrait à la navigation vers un autre profil.
+
+     La CLASSE voyage avec elle, et c'est elle qui fait exister le flou : sans
+     `.as-plate-frosted`, les cartes n'ont plus aucun calque de flou, pas même
+     un flou nul que le compositeur relirait à chaque image (cf. globals.css). */
   const blur = Math.max(0, Math.min(32, banner.blur || 0));
   useEffect(() => {
-    const root = document.documentElement.style;
+    const html = document.documentElement;
+    const root = html.style;
     if (!blur) {
       root.removeProperty("--as-plate-blur");
       root.removeProperty("--as-plate-a1");
       root.removeProperty("--as-plate-a2");
+      html.classList.remove("as-plate-frosted");
       return;
     }
     root.setProperty("--as-plate-blur", `${blur}px`);
     root.setProperty("--as-plate-a1", "0.34");
     root.setProperty("--as-plate-a2", "0.2");
+    html.classList.add("as-plate-frosted");
     return () => {
       root.removeProperty("--as-plate-blur");
       root.removeProperty("--as-plate-a1");
       root.removeProperty("--as-plate-a2");
+      html.classList.remove("as-plate-frosted");
     };
   }, [blur]);
 
