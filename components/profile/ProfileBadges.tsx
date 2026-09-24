@@ -22,7 +22,6 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { MdCheck } from "react-icons/md";
 import { useTranslation } from "react-i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
@@ -627,9 +626,6 @@ function BadgeRow({
             >
               {t(`badges.ui.rarity.${def.rarity}`, def.rarity)}
             </span>
-            {unlocked && (
-              <DatePill at={at} color={R.ic} label={t("badges.ui.obtained", "Obtenu")} />
-            )}
           </div>
 
           <Condition def={def} hidden={hidden && !unlocked} unlocked={unlocked} />
@@ -641,6 +637,13 @@ function BadgeRow({
             color={R.ic}
           />
         </div>
+
+        {/* La date, CENTRÉE sur la hauteur de la ligne comme le chevron des
+            paliers : posée sur la ligne du titre, elle restait collée en haut
+            à droite d'une case de 120 px, loin de tout ce qu'elle date. */}
+        {unlocked && (
+          <DatePill at={at} color={R.ic} />
+        )}
 
         {/* L'ÉCHELLE COMPLÈTE S'OUVRE, ELLE NE SE DÉPLIE PLUS.
             Le dépli montrait les AUTRES paliers : la suite avait donc un trou à
@@ -690,22 +693,22 @@ function ObtainedOn({ at }: { at: number }) {
 }
 
 /**
- * La pastille d'obtention : coche, « Obtenu · » et la date, dans la couleur de
- * la rareté. Sans `label` (panneau d'échelle, où la place manque), la coche et
- * la date seules.
+ * La pastille d'obtention : la DATE seule, dans la couleur de la rareté.
+ *
+ * Elle a porté une coche et « Obtenu · » : deux redites. Le jeton a déjà sa
+ * coche (`check`), la case obtenue sa teinte et son liseré, et une date ne se
+ * lit pas autrement que comme celle où on l'a eu.
  */
-function DatePill({ at, color, label }: { at: number; color: string; label?: string }) {
+function DatePill({ at, color }: { at: number; color: string }) {
   return (
     <span
-      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full py-[3px] pl-1.5 pr-2 font-outfit text-[10.5px] font-bold leading-none tabular-nums"
+      className="ml-auto inline-flex shrink-0 items-center rounded-full px-2 py-[3px] font-outfit text-[10.5px] font-bold leading-none tabular-nums"
       style={{
         color,
         background: `${color}29`,
         boxShadow: `inset 0 0 0 1px ${color}66`,
       }}
     >
-      <MdCheck size={12} aria-hidden="true" />
-      {label ? <>{label} · </> : null}
       <ObtainedOn at={at} />
     </span>
   );

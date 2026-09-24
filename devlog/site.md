@@ -6,6 +6,14 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 9) — La date d'obtention : centrée, et rien qu'elle
+
+La pastille était posée sur la ligne du titre, donc collée en haut à droite
+d'une case de ~120 px. Elle passe dans la rangée principale (`items-center`),
+centrée comme le chevron des paliers. Elle perd sa coche et « Obtenu · » :
+redites du jeton coché et de la case teintée. Même composant dans le panneau
+des paliers, qui suit. Clé `badges.ui.obtained` retirée (plus aucun usage).
+
 ## 2026-09-24 (suite 8) — La liste du profil : le flou, et un clic qui ne gèle plus la page
 
 **Mesuré au CDP sur dev** (profil de 682 titres, visiteur) : page en 1,3 s
