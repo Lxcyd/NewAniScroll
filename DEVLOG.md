@@ -76,7 +76,7 @@ construit depuis `git log --since=<derniere release>`.
 
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
-| Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 32 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
+| Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 32 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
@@ -87,6 +87,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Apercu au survol & bandes-annonces — [`devlog/preview.md`](devlog/preview.md)
 
+- 2026-09-24 — En pause, la lumière gardait les couleurs d'autres scènes : le lecteur visible se met en pause TOUT SEUL quand le son est refusé (visiteur sans clic), la copie floutée muette continuait ; elle suit désormais l'état rapporté, pas seulement nos ordres
 - 2026-09-21 — Le son du trailer qui continuait en fond sans carte : un `pauseVideo` avalé par un chargement, puis `reveal()` (et son `unMute`) appelé par le listener sans carte ouverte
 - 2026-08-16 — Le trailer de la carte, parfois noir, et qui marchait « au bout de plusieurs essais »
 - 2026-08-15 — Nettoyage de l'aperçu au survol

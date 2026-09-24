@@ -6,6 +6,44 @@ embed nu, geo-blocage).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 — En pause, la lumière gardait les couleurs d'autres scènes
+
+**Le symptôme** (carte Hell Mode) : trailer en pause sur un plan gris et
+enneigé, halo jaune-vert autour. Le correctif de la veille (`everPlayed`, la
+couche d'affiche ne repasse plus devant) était déjà en ligne : ce n'était plus
+l'affiche.
+
+**Mesuré sur dev** (sonde CDP, journal `postMessage` des deux lecteurs) :
+
+- pause **au bouton** : les deux lecteurs s'arrêtent à 10-40 ms l'un de
+  l'autre, même vidéo, halo fidèle. Le relais MIRRORED fonctionne ;
+- Chrome **sans** `--autoplay-policy=no-user-gesture-required`, donc un
+  visiteur qui n'a pas encore cliqué : le lecteur visible passe PLAYING →
+  BUFFERING (le `seekTo(0)` de `reveal`) → **PAUSED à 0,00 s, tout seul**.
+  `reveal` envoie `unMute` (son actif par défaut) et la lecture sonore est
+  refusée. La copie floutée, muette, n'est pas concernée : elle continue, à
+  10,66 s au bout de dix secondes, et le halo prend les couleurs des scènes
+  suivantes autour d'une image figée.
+
+**La cause** : MIRRORED ne relaie que nos commandes. Une pause que le lecteur
+se donne lui-même (refus du son, et tout autre cas) n'atteignait jamais la
+copie.
+
+**Le correctif** : la copie suit l'ÉTAT rapporté par le lecteur visible. Le
+ticker de 200 ms, qui recalait déjà la position, regarde aussi l'état : si le
+lecteur visible est en pause depuis plus de 400 ms et que la copie dit PLAYING,
+ou qu'elle est figée à plus de 0,1 s de lui, elle reçoit `pauseVideo` puis
+`seekTo(position du visible)`. Vérifié par la sonde : un `seekTo` sur un lecteur
+en pause le laisse en pause, la copie rapporte PAUSED à la bonne position en
+4 ms, et le halo reprend les couleurs de l'image (vert de la chemise à gauche,
+jaune du pantalon à droite, là où il était bleu-vert). Si la lecture reprend et
+que la copie est restée à l'arrêt, elle reçoit `playVideo`. Les deux ordres sont
+répétés toutes les secondes tant que la copie rapporte un autre état.
+
+**Reste ouvert** : le trailer qui se fige sur sa première image quand le son
+est refusé est un défaut à part. La lumière est maintenant juste, mais la
+vidéo, elle, ne joue pas.
+
 ## 2026-09-21 — Le son du trailer qui continuait en fond, sans carte pour l'arrêter
 
 **Le symptôme** (profil, widget Favoris) : survoler une jaquette puis partir

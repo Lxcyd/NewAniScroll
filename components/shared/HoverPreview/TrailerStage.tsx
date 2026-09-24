@@ -219,6 +219,34 @@ const SYNC_TOLERANCE_S = 0.3;
 const SYNC_COOLDOWN_MS = 2500;
 
 /**
+ * LA COPIE SUIT L'ÉTAT DE L'IMAGE, PAS SEULEMENT NOS ORDRES.
+ *
+ * MIRRORED ne relaie que les commandes que NOUS envoyons. Or le lecteur visible
+ * se met aussi en pause tout seul, et le cas mesuré sur dev est banal : le son
+ * est actif par défaut, `reveal` envoie `unMute`, et un Chrome sans geste sur la
+ * page refuse la lecture sonore — le lecteur rapporte PAUSED à 0,00 s. La copie,
+ * muette, n'a aucune raison de s'arrêter : elle est à 10 s de trailer au bout de
+ * dix secondes, et le halo défile en couleurs d'autres scènes autour d'une image
+ * figée. C'est la lumière « fausse en pause ».
+ *
+ * Donc une pause qui DURE (plus de PAUSE_SETTLE_MS : un recalage peut en
+ * rapporter une passagère) fige la copie sur la position exacte du lecteur
+ * visible — `seekTo` sur un lecteur en pause le laisse en pause, vérifié —, et
+ * une lecture qui reprend relance une copie restée à l'arrêt. Répété toutes les
+ * GLOW_STATE_RETRY_MS tant que la copie dit autre chose : un ordre visant un
+ * lecteur occupé à charger est perdu, on l'a assez appris.
+ */
+const PAUSE_SETTLE_MS = 400;
+const GLOW_STATE_RETRY_MS = 1000;
+/**
+ * Écart toléré entre les deux images figées. Une pause au bouton les arrête à
+ * ~10-40 ms l'une de l'autre (mesuré) : rien à corriger. Au-delà d'une poignée
+ * d'images, une coupe peut tomber entre les deux et le halo prend la couleur
+ * d'un autre plan.
+ */
+const PAUSED_FRAME_TOLERANCE_S = 0.1;
+
+/**
  * The head start the copy is given, in seconds.
  *
  * MEASURED, and only measurable once the capture method was fixed: a screenshot
@@ -336,6 +364,12 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
   const glowSeenRef = useRef(0);
   /** When the copy was last pulled back into line. See SYNC_COOLDOWN_MS. */
   const lastSyncRef = useRef(0);
+  /** Le dernier état rapporté par la copie. Cf. PAUSE_SETTLE_MS. */
+  const glowStateRef = useRef<unknown>(undefined);
+  /** Depuis quand le lecteur VISIBLE est en pause, 0 s'il ne l'est pas. */
+  const pausedSinceRef = useRef(0);
+  /** Dernier ordre d'état envoyé à la copie. Cf. GLOW_STATE_RETRY_MS. */
+  const lastGlowStateFixRef = useRef(0);
   const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const volCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -545,6 +579,7 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
     atRef.current = 0;
     atSeenRef.current = performance.now();
     runningRef.current = true;
+    pausedSinceRef.current = 0;
     setVisible(true);
     setPaused(false);
     handlersRef.current?.onPlaying(true);
@@ -628,6 +663,8 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
     glowAtRef.current = 0;
     glowSeenRef.current = 0;
     lastSyncRef.current = 0;
+    pausedSinceRef.current = 0;
+    lastGlowStateFixRef.current = 0;
     setVisible(false);
     // The button must not open on the pause icon because the LAST card was left
     // paused — the state belongs to the showing, not to the player.
@@ -911,11 +948,18 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
        * driving the reveal of the picture.
        */
       if (e.source === glowFrameRef.current?.contentWindow) {
-        const t = (data?.info as { currentTime?: unknown } | null | undefined)?.currentTime;
+        const gi = data?.info as
+          | { currentTime?: unknown; playerState?: unknown }
+          | null
+          | undefined;
+        const t = gi?.currentTime;
         if (typeof t === "number") {
           glowAtRef.current = t;
           glowSeenRef.current = performance.now();
         }
+        // Son état aussi : c'est lui qui dit si une pause relayée a été obéie.
+        const gs = data?.event === "onStateChange" ? data.info : gi?.playerState;
+        if (gs !== undefined) glowStateRef.current = gs;
         return;
       }
       // Anything at all from the player means it is past its boot and will obey
@@ -1029,13 +1073,17 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
         if (shownRef.current) handlersRef.current?.onPlaying(true);
         // The picture is moving, so the local clock may run between messages.
         runningRef.current = true;
+        pausedSinceRef.current = 0;
       } else if (state === PAUSED) {
         setPaused(true);
         if (shownRef.current) handlersRef.current?.onPlaying(false);
         runningRef.current = false;
+        // Qu'elle vienne de nous ou pas : cf. PAUSE_SETTLE_MS.
+        if (!pausedSinceRef.current) pausedSinceRef.current = performance.now();
       } else if (state === ENDED) {
         // The position stops here rather than being extrapolated past the end.
         runningRef.current = false;
+        pausedSinceRef.current = 0;
       }
     };
 
@@ -1123,6 +1171,32 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
         }
       }
       /*
+       * Et son ÉTAT sur celui de l'image — cf. PAUSE_SETTLE_MS pour la pause
+       * que le lecteur visible se donne tout seul.
+       */
+      if (now - lastGlowStateFixRef.current > GLOW_STATE_RETRY_MS) {
+        const pausedFor = pausedSinceRef.current ? now - pausedSinceRef.current : 0;
+        if (pausedFor > PAUSE_SETTLE_MS) {
+          if (
+            glowStateRef.current === PLAYING ||
+            Math.abs(glowAtRef.current - atRef.current) > PAUSED_FRAME_TOLERANCE_S
+          ) {
+            lastGlowStateFixRef.current = now;
+            // Sans l'avance : une image figée n'a aucun retard de rendu à
+            // rattraper, elle doit être la même que celle de la carte.
+            postGlow("pauseVideo");
+            postGlow("seekTo", [atRef.current, true]);
+            // Tenu pour fait jusqu'à preuve du contraire : si la pause est
+            // perdue, la copie continue de rapporter PLAYING et sa position,
+            // et le prochain passage recommence.
+            glowAtRef.current = atRef.current;
+          }
+        } else if (runningRef.current && glowStateRef.current === PAUSED) {
+          lastGlowStateFixRef.current = now;
+          postGlow("playVideo");
+        }
+      }
+      /*
        * A TRIANGLE, NOT THE PLAYHEAD — measured, and the correction is the whole
        * point of this file's last three attempts.
        *
@@ -1205,10 +1279,12 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
       setPaused(false);
       atSeenRef.current = performance.now();
       runningRef.current = true;
+      pausedSinceRef.current = 0;
     } else {
       post("pauseVideo");
       setPaused(true);
       runningRef.current = false;
+      pausedSinceRef.current = performance.now();
     }
   };
 
