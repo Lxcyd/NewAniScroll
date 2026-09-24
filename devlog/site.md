@@ -6,6 +6,12 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 17) — La date toujours en haut de la ligne
+
+Sans bouton Détail, la colonne de la date suivait l'`items-center` de la ligne
+et se retrouvait au milieu. Avec `self-start`, la colonne est toujours collée en
+haut, avec ou sans bouton.
+
 ## 2026-09-24 (suite 16) — La date d'obtention au-dessus du bouton Détail
 
 Posée sur la ligne du titre (suite 14), la date flottait au milieu de la ligne,

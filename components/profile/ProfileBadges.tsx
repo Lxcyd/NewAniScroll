@@ -662,13 +662,14 @@ function BadgeRow({
             secret verrouillé — sa condition est cachée, ses cases la
             donneraient — ni sur un badge à UN SEUL anime pas encore obtenu
             (« Pépite méconnue ») : sa liste serait vide. */}
-        {/* La date AU-DESSUS du bouton Détail, en une colonne à droite. */}
+        {/* La date AU-DESSUS du bouton Détail, en une colonne à droite, collée
+            en HAUT de la ligne même seule (`self-start`). */}
         {(() => {
           const detail =
             derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
           if (!unlocked && !detail) return null;
           return (
-            <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="flex shrink-0 flex-col items-end gap-2 self-start">
               {unlocked && <DatePill at={at} color={R.ic} />}
               {detail && derived ? (
                 <DetailButton def={def} derived={derived} progress={progress} />

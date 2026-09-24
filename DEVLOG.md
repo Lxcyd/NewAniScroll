@@ -79,7 +79,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 46 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 47 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -203,6 +203,7 @@ construit depuis `git log --since=<derniere release>`.
 - 2026-09-24 (suite 14) — Détail pour Titre à rallonge, D'un coup, Par la fin, Impatient, revus, notés, terminés ; date d'obtention en haut à droite
 - 2026-09-24 (suite 15) — Animation d'obtention : la condition trop longue passe à la ligne au lieu de l'ellipse
 - 2026-09-24 (suite 16) — Date d'obtention empilée au-dessus du bouton Détail
+- 2026-09-24 (suite 17) — Date d'obtention toujours en haut de la ligne, même sans bouton Détail
 - 2026-09-24 (suite 11) — Badges de temps : l'avancement s'affiche en heures ou en jours selon la plaque (« 88 / 100 j »), plus en minutes
 - 2026-09-24 (suite 10) — `Bar` : à zéro, piste vide (le plancher de visibilité dessinait un faux progrès sous « 0 / 20 »)
 - 2026-09-24 (suite 9) — Date d'obtention centrée dans la ligne de badge, sans coche ni « Obtenu »
