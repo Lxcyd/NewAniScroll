@@ -57,6 +57,17 @@ export default function BadgeDefs() {
           <stop offset="1" stopColor="#15151f" />
         </linearGradient>
 
+        {/* La pierre des badges non obtenus : plaque plus sombre que le socle,
+            anneau gris qui s'éclaire en haut (cf. BadgeToken). */}
+        <linearGradient id="asStone" x1="0" y1="0" x2=".4" y2="1">
+          <stop offset="0" stopColor="#1c1d23" />
+          <stop offset="1" stopColor="#0e0f13" />
+        </linearGradient>
+        <linearGradient id="asStoneRing" x1="0" y1="0" x2=".5" y2="1">
+          <stop offset="0" stopColor="#5a5c66" />
+          <stop offset="1" stopColor="#2a2b31" />
+        </linearGradient>
+
         {/* Le reflet qui balaie les jetons légendaires et mythiques. */}
         <linearGradient id="asSweep" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#fff" stopOpacity="0" />
