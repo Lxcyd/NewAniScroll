@@ -103,7 +103,7 @@ export const BADGES: BadgeDef[] = [
   { id: "alphabet", family: "discovery", rarity: "l", icon: "alphabet", tag: "A-Z", metric: {"k":"alphabet","n":26} },
   { id: "long-title", family: "discovery", rarity: "r", icon: "longTitle", tag: "100+", metric: {"k":"titleLength","min":100,"n":1} },
   { id: "all-players", family: "discovery", rarity: "r", icon: "players", tag: "", metric: {"k":"hosts","n":0} },
-  { id: "halloween", family: "discovery", rarity: "u", icon: "skullNight", tag: "31/10", metric: {"k":"onDate","month":10,"day":31,"genre":"Horror","n":1} },
+  { id: "halloween", family: "discovery", rarity: "u", icon: "phantom", tag: "31/10", metric: {"k":"onDate","month":10,"day":31,"genre":"Horror","n":1} },
   { id: "valentine", family: "discovery", rarity: "u", icon: "heart", tag: "14/02", metric: {"k":"onDate","month":2,"day":14,"genre":"Romance","n":1} },
   { id: "april-fool", family: "discovery", rarity: "u", icon: "fishHook", tag: "01/04", metric: {"k":"onDate","month":4,"day":1,"genre":"Comedy","n":1} },
   { id: "g-action", family: "genres", rarity: "r", icon: "fist", tag: "30", metric: {"k":"genre","name":"Action","n":30} },

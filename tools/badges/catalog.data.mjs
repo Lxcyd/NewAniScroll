@@ -305,7 +305,7 @@ export const CATALOG = {
     ["all-players", "r", "players", "", { k: "hosts", n: 0 },
       "Tous les lecteurs", "Regarde un épisode sur chacun des lecteurs proposés.",
       "Every player", "Watch an episode on every player on offer."],
-    ["halloween", "u", "skullNight", "31/10", onDate(10, 31, "Horror"),
+    ["halloween", "u", "phantom", "31/10", onDate(10, 31, "Horror"),
       "Nuit d'Halloween", "Regarde un anime d'horreur le 31 octobre.",
       "Halloween night", "Watch a horror anime on 31 October."],
     ["valentine", "u", "heart", "14/02", onDate(2, 14, "Romance"),

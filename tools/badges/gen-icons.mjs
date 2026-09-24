@@ -57,6 +57,14 @@ const MI = {
   alphabet: "sort_by_alpha",
 };
 
+/* Les glyphes que Material n'a pas, pris dans un autre jeu de react-icons en
+   contour. Tabler : trait de 2 px, le plus proche des MdOutline.
+     phantom -> un fantôme pour Halloween (24/09/2026 ; Material n'en a aucun,
+                `ghost` ci-dessus n'est qu'un visage)                          */
+const OTHER = {
+  phantom: ["tb", "TbGhost"],
+};
+
 const comp = (glyph) =>
   "MdOutline" + glyph.split("_").map((p) => p[0].toUpperCase() + p.slice(1)).join("");
 
@@ -64,15 +72,23 @@ const bad = [];
 for (const [key, glyph] of Object.entries(MI)) {
   if (typeof Md[comp(glyph)] !== "function") bad.push(`${key} (${glyph} -> ${comp(glyph)})`);
 }
+for (const [key, [set, name]] of Object.entries(OTHER)) {
+  if (MI[key]) bad.push(`${key} : clé présente dans MI et dans OTHER`);
+  else if (typeof req("react-icons/" + set)[name] !== "function") bad.push(`${key} (${set}/${name})`);
+}
 if (bad.length) {
   console.error("Composants introuvables dans react-icons/md :\n  " + bad.join("\n  "));
   process.exit(1);
 }
 
 const used = [...new Set(Object.values(MI).map(comp))].sort();
-const rows = Object.entries(MI)
-  .map(([key, glyph]) => `  ${key}: ${comp(glyph)},`)
-  .join("\n");
+const rows = [
+  ...Object.entries(MI).map(([key, glyph]) => `  ${key}: ${comp(glyph)},`),
+  ...Object.entries(OTHER).map(([key, [, name]]) => `  ${key}: ${name},`),
+].join("\n");
+const otherImports = Object.entries(
+  Object.values(OTHER).reduce((acc, [set, name]) => ((acc[set] ??= new Set()).add(name), acc), {}),
+).map(([set, names]) => `import { ${[...names].sort().join(", ")} } from "react-icons/${set}";`).join("\n");
 
 const out = `/**
  * Les icônes des badges — Material Icons, en contour, dessinées par
@@ -102,6 +118,7 @@ import type { IconType } from "react-icons";
 import {
 ${used.map((n) => `  ${n},`).join("\n")}
 } from "react-icons/md";
+${otherImports}
 
 export const BADGE_ICONS: Record<string, IconType> = {
 ${rows}

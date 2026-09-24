@@ -162,6 +162,7 @@ import {
   MdOutlineWeekend,
   MdOutlineWorkspacePremium,
 } from "react-icons/md";
+import { TbGhost } from "react-icons/tb";
 
 export const BADGE_ICONS: Record<string, IconType> = {
   screen1: MdOutlinePlayCircle,
@@ -312,6 +313,7 @@ export const BADGE_ICONS: Record<string, IconType> = {
   swap: MdOutlineSwapVert,
   longSeries: MdOutlineFormatListNumbered,
   alphabet: MdOutlineSortByAlpha,
+  phantom: TbGhost,
 };
 
 /** L'icône d'un badge, ou le trophée par défaut si la clé est inconnue. */
