@@ -6,6 +6,42 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite) — Les 176 badges renommés, et une condition qui mentait
+
+**Tous les noms et toutes les conditions sont réécrits, en français et en
+anglais**, dans `tools/badges/catalog.data.mjs` puis régénérés par
+`gen-catalog.mjs`. Ids, icônes, pastilles et métriques n'ont pas bougé : rien
+ne change dans les données des utilisateurs, un badge obtenu le reste.
+
+La direction : des noms qu'un fan donnerait, pas un catalogue. Les paliers
+écrivaient leur chiffre en toutes lettres (« Deux cent cinquante épisodes »)
+alors qu'il est déjà sur la plaque du jeton ; ils racontent maintenant une
+progression (« Le pilote → Tu dors quand ? »). Les secrets d'œuvres passent par
+les répliques que le fandom reconnaît (Tatakae, Plus de 9 000 !, Mille moins
+sept). Les conditions sont à l'impératif et au tutoiement, comme le reste de
+l'onglet (« Ce que tu as débloqué »). Plus aucun tiret cadratin dans les
+libellés.
+
+**`big-three` promettait autre chose que ce qu'il mesure.** La condition disait
+« Commencer un anime du big 3 », mais la métrique `works` compte les anime
+TERMINÉS, en mode `any` (`lib/badges/measure.ts`). Elle dit maintenant
+« Termine One Piece, Naruto ou Bleach. » La rareté (peu commun) reste à
+revoir : terminer Naruto, c'est 220 épisodes.
+
+Trois conditions resserrées au passage, lues dans le code et non dans
+l'ancien libellé :
+
+- `night-12` : une grappe d'épisodes d'un seul tenant, pas une nuit du
+  calendrier → « dans la même séance ».
+- `oav` : le drapeau tombe aussi sur le format `SPECIAL` → « un OAV ou un
+  épisode spécial ».
+- `two-voices` : `noteLang` accepte les deux ordres → « en VO et en VF », plus
+  « VO puis VF ».
+
+Piège noté : `gen-catalog.mjs` réécrit « Vérifié le <aujourd'hui> » dans
+`lib/badges/works.ts` à chaque lancement, même sans `check-works.mjs`. Le
+tampon a été annulé, les ids n'ayant pas été revérifiés.
+
 ## 2026-09-24 — Le bord du flou n'était pas celui du badge : c'était la carte d'à côté
 
 **Trois versions du voile de la notification ont corrigé un bord qui n'était pas

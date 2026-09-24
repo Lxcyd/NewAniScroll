@@ -1622,707 +1622,707 @@
       "openInProfile": "View this badge in your profile"
     },
     "ep-1": {
-      "name": "First episode",
-      "cond": "Watch 1 episode."
+      "name": "The pilot",
+      "cond": "Watch your first episode."
     },
     "ep-25": {
-      "name": "Twenty-five episodes",
+      "name": "A season under your belt",
       "cond": "Watch 25 episodes."
     },
     "ep-250": {
-      "name": "Two hundred and fifty episodes",
+      "name": "Couch regular",
       "cond": "Watch 250 episodes."
     },
     "ep-1000": {
-      "name": "A thousand episodes",
+      "name": "The thousand mark",
       "cond": "Watch 1,000 episodes."
     },
     "ep-5000": {
-      "name": "Five thousand episodes",
+      "name": "Certified otaku",
       "cond": "Watch 5,000 episodes."
     },
     "ep-10000": {
-      "name": "Ten thousand episodes",
+      "name": "When do you sleep?",
       "cond": "Watch 10,000 episodes."
     },
     "resume": {
-      "name": "Picked up again",
-      "cond": "Resume an episode where you left off."
+      "name": "Where was I?",
+      "cond": "Pick an episode back up where you left off."
     },
     "spotlight": {
-      "name": "Spotlight",
-      "cond": "Watch an episode suggested in the home page carousel."
+      "name": "Sold!",
+      "cond": "Start an episode from the home page carousel."
     },
     "no-pause": {
-      "name": "No pause",
+      "name": "Not even a snack break",
       "cond": "Watch a whole episode without pausing once."
     },
     "burst-20": {
-      "name": "Twenty in a day",
+      "name": "Pyjama day",
       "cond": "Watch 20 episodes within 24 hours."
     },
     "burst-50": {
-      "name": "Fifty in a week",
+      "name": "Holiday well spent",
       "cond": "Watch 50 episodes within 7 days."
     },
     "night-12": {
-      "name": "Twelve in one go",
-      "cond": "Watch 12 episodes in a single night."
+      "name": "Just one more",
+      "cond": "Watch 12 episodes in a single sitting."
     },
     "late-night": {
-      "name": "Two in the morning",
+      "name": "Can't sleep",
       "cond": "Start an episode between 2 and 5 a.m."
     },
     "midnight": {
-      "name": "On the stroke of midnight",
+      "name": "Midnight on the dot",
       "cond": "Start an episode at exactly 00:00."
     },
     "by-the-end": {
-      "name": "Straight to the end",
-      "cond": "Watch an anime's final episode without having seen any other."
+      "name": "Self-spoiler",
+      "cond": "Watch the last episode of an anime without having seen any of the others."
     },
     "lunch": {
-      "name": "Lunch break",
-      "cond": "Watch an episode between noon and 2 p.m."
+      "name": "Working lunch",
+      "cond": "Start an episode between noon and 2 p.m."
     },
     "airday-50": {
-      "name": "Release day",
-      "cond": "Watch 50 episodes on the day they aired."
+      "name": "Simulcast addict",
+      "cond": "Watch 50 episodes on the day they air."
     },
     "w2g": {
-      "name": "Side by side",
-      "cond": "Finish an episode in a Watch2Gether party."
+      "name": "Shared popcorn",
+      "cond": "Finish an episode in a Watch2Gether room."
     },
     "oav": {
-      "name": "Episode extra",
-      "cond": "Watch an OVA attached to a series."
+      "name": "Extras too",
+      "cond": "Watch an OVA or a special."
     },
     "never-op": {
-      "name": "Never the opening",
-      "cond": "Finish a whole anime without ever skipping the opening."
+      "name": "Never skip the opening",
+      "cond": "Finish an anime without ever skipping the opening."
     },
     "time-10h": {
-      "name": "Ten hours",
-      "cond": "Ten hours watched in total."
+      "name": "Warming up",
+      "cond": "Watch 10 hours in total."
     },
     "time-1d": {
-      "name": "A full day",
-      "cond": "One full day watched — 24 hours."
+      "name": "Around the clock",
+      "cond": "Watch 24 hours in total."
     },
     "time-7d": {
-      "name": "Seven days on the clock",
-      "cond": "Seven days watched in total."
+      "name": "A week of your life",
+      "cond": "Watch 7 days' worth in total, or 168 hours."
     },
     "time-30d": {
-      "name": "A month elsewhere",
-      "cond": "Thirty days watched in total."
+      "name": "A month of screen time",
+      "cond": "Watch 30 days' worth in total, or 720 hours."
     },
     "time-100d": {
-      "name": "A hundred days on the clock",
-      "cond": "A hundred days watched — 2,400 hours."
+      "name": "Lost count",
+      "cond": "Watch 100 days' worth in total, or 2,400 hours."
     },
     "time-365d": {
-      "name": "A whole year",
-      "cond": "365 days spent in front of the player."
+      "name": "A year of your life",
+      "cond": "Watch 365 days' worth in total. Yes, a whole year."
     },
     "session-6h": {
-      "name": "Six hours straight",
-      "cond": "Six hours in a single sitting."
+      "name": "Glued to the screen",
+      "cond": "Watch for 6 hours in a single sitting."
     },
     "session-12h": {
-      "name": "Weekend marathon",
-      "cond": "Twelve hours over one weekend."
+      "name": "Duvet weekend",
+      "cond": "Watch for 12 hours in one sitting over the weekend."
     },
     "fin-1": {
-      "name": "First anime",
+      "name": "Roll credits",
       "cond": "Finish your first anime."
     },
     "fin-5": {
-      "name": "Five finished",
+      "name": "Becoming a habit",
       "cond": "Finish 5 anime."
     },
     "fin-25": {
-      "name": "Twenty-five finished",
+      "name": "Never halfway",
       "cond": "Finish 25 anime."
     },
     "fin-75": {
-      "name": "Seventy-five finished",
+      "name": "Connoisseur",
       "cond": "Finish 75 anime."
     },
     "fin-200": {
-      "name": "Two hundred finished",
+      "name": "Veteran",
       "cond": "Finish 200 anime."
     },
     "fin-500": {
-      "name": "Five hundred finished",
+      "name": "Walking encyclopedia",
       "cond": "Finish 500 anime."
     },
     "first-add": {
-      "name": "First step",
+      "name": "Noted",
       "cond": "Add your first anime to your list."
     },
     "curious-10": {
-      "name": "Curious",
-      "cond": "Open ten different anime pages."
+      "name": "Window shopping",
+      "cond": "Open 10 different anime pages."
     },
     "hidden-gem": {
-      "name": "Forgotten gem",
-      "cond": "Finish an anime with fewer than 5,000 viewers."
+      "name": "Before it was cool",
+      "cond": "Finish an anime followed by fewer than 5,000 people."
     },
     "archive-1990": {
-      "name": "From the archives",
+      "name": "VHS era",
       "cond": "Finish an anime released before 1990."
     },
     "pioneer-1975": {
-      "name": "Pioneer",
+      "name": "Archaeologist",
       "cond": "Finish an anime released before 1975."
     },
     "decades": {
-      "name": "Across the decades",
-      "cond": "Finish an anime from every decade since 1970."
+      "name": "Every era",
+      "cond": "Finish an anime from every decade since the 1970s."
     },
     "big-three": {
-      "name": "The big three",
-      "cond": "Start one of the big three."
+      "name": "One of the Big Three",
+      "cond": "Finish One Piece, Naruto or Bleach."
     },
     "planning": {
-      "name": "Waiting list",
-      "cond": "Add an anime that hasn't aired yet."
+      "name": "Can't wait",
+      "cond": "Add an anime that hasn't aired yet to your list."
     },
     "two-voices": {
-      "name": "Two voices",
-      "cond": "Watch the same episode subbed, then dubbed."
+      "name": "Sub or dub?",
+      "cond": "Watch the same episode both subbed and dubbed."
     },
     "blind-pick": {
-      "name": "Blind pick",
-      "cond": "Start an anime chosen at random."
+      "name": "Lucky dip",
+      "cond": "Start an anime picked at random."
     },
     "studio-10": {
-      "name": "Studio signature",
+      "name": "Favourite studio",
       "cond": "Finish 10 anime from the same studio."
     },
     "rewatch-1": {
-      "name": "Second time around",
-      "cond": "Rewatch a series you had already finished."
+      "name": "Once more",
+      "cond": "Rewatch an anime you'd already finished."
     },
     "rewatch-10": {
-      "name": "Eternal return",
-      "cond": "Rewatch ten series you had already finished."
+      "name": "Never gets old",
+      "cond": "Rewatch 10 anime you'd already finished."
     },
     "thrice": {
-      "name": "Third time lucky",
+      "name": "Third time's the charm",
       "cond": "Finish the same anime three times."
     },
     "comeback": {
-      "name": "Rekindled",
-      "cond": "Pick a series back up after 30 days away."
+      "name": "Back at it",
+      "cond": "Pick an anime back up after more than 30 days away."
     },
     "day-one": {
-      "name": "Day one",
-      "cond": "Finish an anime on its release day."
+      "name": "Right on time",
+      "cond": "Watch an anime's final episode on the day it airs."
     },
     "one-sitting": {
-      "name": "In one sitting",
+      "name": "Done in a day",
       "cond": "Start and finish an anime on the same day."
     },
     "movies-30": {
-      "name": "Films only",
+      "name": "Film buff",
       "cond": "Finish 30 films."
     },
     "alphabet": {
-      "name": "Alphabet completionist",
+      "name": "A to Z",
       "cond": "Finish an anime for every letter of the alphabet."
     },
     "long-title": {
-      "name": "Mouthful of a title",
+      "name": "Light novel title",
       "cond": "Finish an anime whose title runs past 100 characters."
     },
     "all-players": {
-      "name": "Every player",
-      "cond": "Watch an episode on each available player."
+      "name": "Tried them all",
+      "cond": "Watch an episode on every player on offer."
     },
     "halloween": {
-      "name": "Halloween night",
+      "name": "Trick or treat",
       "cond": "Watch a horror anime on 31 October."
     },
     "valentine": {
-      "name": "Valentine's Day",
+      "name": "Valentine's date",
       "cond": "Watch a romance on 14 February."
     },
     "april-fool": {
-      "name": "April Fools'",
+      "name": "No joke",
       "cond": "Watch a comedy on 1 April."
     },
     "g-action": {
-      "name": "Shōnen blood",
+      "name": "Throwing hands",
       "cond": "Finish 30 action anime."
     },
     "g-romance": {
-      "name": "Hopeless romantic",
+      "name": "Big softie",
       "cond": "Finish 20 romances."
     },
     "g-horror": {
-      "name": "Guaranteed chills",
+      "name": "Not even scared",
       "cond": "Finish 15 horror anime."
     },
     "g-mecha": {
-      "name": "Mecha pilot",
+      "name": "In the cockpit",
       "cond": "Finish 10 mecha anime."
     },
     "g-slice": {
-      "name": "Slice of life",
+      "name": "The quiet life",
       "cond": "Finish 20 slice-of-life anime."
     },
     "g-isekai": {
-      "name": "Reincarnated",
-      "cond": "Finish 15 isekai. The truck had nothing to do with it."
+      "name": "Thanks, Truck-kun",
+      "cond": "Finish 15 isekai."
     },
     "g-fantasy": {
-      "name": "Dragon hunter",
+      "name": "Swords and spells",
       "cond": "Finish 20 fantasy anime."
     },
     "g-scifi": {
-      "name": "Star traveller",
+      "name": "Head in the stars",
       "cond": "Finish 15 sci-fi anime."
     },
     "g-mystery": {
-      "name": "Detective",
+      "name": "Whodunit",
       "cond": "Finish 15 mystery anime."
     },
     "g-drama": {
-      "name": "Teary-eyed",
+      "name": "Something in my eye",
       "cond": "Finish 20 dramas."
     },
     "g-comedy": {
-      "name": "Fits of laughter",
+      "name": "Dying of laughter",
       "cond": "Finish 25 comedies."
     },
     "g-sports": {
-      "name": "Team spirit",
+      "name": "Armchair athlete",
       "cond": "Finish 10 sports anime."
     },
     "g-music": {
-      "name": "On stage",
+      "name": "On the beat",
       "cond": "Finish 10 music anime."
     },
     "g-psycho": {
-      "name": "Mind game",
+      "name": "Mind games",
       "cond": "Finish 10 psychological anime."
     },
     "g-thriller": {
-      "name": "Cold sweat",
+      "name": "Edge of your seat",
       "cond": "Finish 10 thrillers."
     },
     "g-school": {
-      "name": "After-school club",
+      "name": "Class rep",
       "cond": "Finish 20 school anime."
     },
     "g-food": {
-      "name": "Golden toque",
+      "name": "Now I'm hungry",
       "cond": "Finish 5 cooking anime."
     },
     "all-genres": {
-      "name": "Every genre",
-      "cond": "Finish an anime in every genre of the catalogue."
+      "name": "Jack of all genres",
+      "cond": "Finish at least one anime in every genre in the catalogue."
     },
     "all-tags": {
-      "name": "Every tag",
-      "cond": "Finish an anime carrying every tag of the catalogue."
+      "name": "Nothing gets past you",
+      "cond": "Cover every tag in the catalogue with at least one finished anime."
     },
     "saga-2": {
-      "name": "Saga complete",
-      "cond": "Every season of a franchise (two seasons minimum)."
+      "name": "Every last season",
+      "cond": "Finish every season of a franchise (at least 2)."
     },
     "saga-4": {
-      "name": "Great saga",
-      "cond": "Every season of a franchise of at least four seasons."
+      "name": "The whole saga",
+      "cond": "Finish every season of a franchise that has at least 4."
     },
     "streak-7": {
-      "name": "One week",
-      "cond": "Seven consecutive days."
+      "name": "Perfect week",
+      "cond": "Watch at least one episode 7 days in a row."
     },
     "streak-30": {
-      "name": "One month",
-      "cond": "Thirty consecutive days."
+      "name": "Daily ritual",
+      "cond": "Watch at least one episode 30 days in a row."
     },
     "streak-90": {
-      "name": "One quarter",
-      "cond": "Ninety consecutive days."
+      "name": "Set in your ways",
+      "cond": "Watch at least one episode 90 days in a row."
     },
     "streak-180": {
-      "name": "Six months",
-      "cond": "A hundred and eighty consecutive days."
+      "name": "Six months, no gaps",
+      "cond": "Watch at least one episode 180 days in a row."
     },
     "streak-270": {
-      "name": "Nine months",
-      "cond": "Two hundred and seventy consecutive days."
+      "name": "Unstoppable",
+      "cond": "Watch at least one episode 270 days in a row."
     },
     "streak-365": {
-      "name": "One year",
-      "cond": "Three hundred and sixty-five consecutive days."
+      "name": "365 out of 365",
+      "cond": "Watch at least one episode every day for a year."
     },
     "rated-50": {
-      "name": "Critic",
-      "cond": "Rate 50 titles."
+      "name": "Opinionated",
+      "cond": "Rate 50 anime."
     },
     "rated-200": {
-      "name": "Seasoned critic",
-      "cond": "Rate 200 titles."
+      "name": "The jury has spoken",
+      "cond": "Rate 200 anime."
     },
     "fav-1": {
-      "name": "Favourite",
-      "cond": "Mark an anime as a favourite."
+      "name": "First crush",
+      "cond": "Add an anime to your favourites."
     },
     "fav-10": {
-      "name": "Ten favourites",
-      "cond": "Mark ten anime as favourites."
+      "name": "Falls in love easily",
+      "cond": "Add 10 anime to your favourites."
     },
     "first-rating": {
-      "name": "First rating",
+      "name": "First verdict",
       "cond": "Rate your first anime."
     },
     "avatar": {
-      "name": "Avatar",
-      "cond": "Set a profile picture of your own."
+      "name": "New face",
+      "cond": "Set your own profile picture."
     },
     "share-link": {
-      "name": "Shared",
-      "cond": "Copy an anime's link."
+      "name": "Pass it on",
+      "cond": "Share or copy an anime's link."
     },
     "settings": {
-      "name": "Settings",
+      "name": "Tinkerer",
       "cond": "Open the settings."
     },
     "custom-list": {
-      "name": "Tidy",
+      "name": "Neat freak",
       "cond": "Create a custom list."
     },
     "one-year-here": {
-      "name": "A year here",
-      "cond": "One year on AniScroll."
+      "name": "A year already",
+      "cond": "Your AniScroll account turns one."
     },
     "badges-50": {
-      "name": "Fifty badges",
+      "name": "Collector",
       "cond": "Earn 50 badges."
     },
     "badges-75": {
-      "name": "Seventy-five badges",
+      "name": "Hoarder",
       "cond": "Earn 75 badges."
     },
     "legendary-5": {
-      "name": "Five legendaries",
-      "cond": "Earn five legendary badges."
+      "name": "Heavy hitter",
+      "cond": "Earn 5 legendary badges."
     },
     "showcase-open": {
-      "name": "Showcase open",
+      "name": "Trophy room",
       "cond": "Open your badges page."
     },
     "secret-50": {
-      "name": "Secret hunter",
+      "name": "Snoop",
       "cond": "Earn 50 secret badges."
     },
     "complete": {
-      "name": "Full collection",
+      "name": "Full set",
       "cond": "Earn every other badge."
     },
     "anilist-linked": {
-      "name": "Account linked",
+      "name": "Plugged in",
       "cond": "Link your AniList account."
     },
     "staff": {
-      "name": "Staff",
-      "cond": "Reserved for the administration."
+      "name": "Part of the crew",
+      "cond": "Only for the AniScroll team."
     },
     "beta": {
-      "name": "Beta",
-      "cond": "Account created during the beta."
+      "name": "Here from the start",
+      "cond": "Your account dates back to the beta."
     },
     "changelog": {
-      "name": "Release-note reader",
-      "cond": "Read the changelog page all the way down."
+      "name": "Read to the end",
+      "cond": "Scroll the changelog all the way to the bottom."
     },
     "dead-end": {
-      "name": "Dead end",
-      "cond": "Land on the not-found page three times."
+      "name": "Lost?",
+      "cond": "Land on the 404 page three times."
     },
     "konami": {
-      "name": "Secret sequence",
-      "cond": "Enter the key sequence hidden in the code."
+      "name": "Old gamer reflex",
+      "cond": "Enter the Konami code."
     },
     "devtools": {
-      "name": "Inspector",
+      "name": "Under the hood",
       "cond": "Open the developer console."
     },
     "dmca": {
-      "name": "Close reading",
-      "cond": "Spend three minutes on the DMCA page."
+      "name": "Budding lawyer",
+      "cond": "Stay on the DMCA page for three minutes."
     },
     "recursive": {
-      "name": "Recursive",
-      "cond": "Search for “AniScroll” in AniScroll's search."
+      "name": "Meta",
+      "cond": "Search for \"AniScroll\" on AniScroll."
     },
     "not-here": {
-      "name": "Not on this site",
-      "cond": "Search for “hentai”. Not here."
+      "name": "Wrong address",
+      "cond": "Search for \"hentai\". Wrong site."
     },
     "polyglot": {
-      "name": "Translator",
-      "cond": "Switch the interface language ten times in a minute."
+      "name": "Undecided polyglot",
+      "cond": "Switch the site language 10 times in one minute."
     },
     "oldest": {
-      "name": "The very first",
-      "cond": "Open the page of the catalogue's oldest anime."
+      "name": "The oldest one",
+      "cond": "Open the page of the oldest anime in the catalogue."
     },
     "self-search": {
-      "name": "Self-portrait",
+      "name": "Ego surfing",
       "cond": "Search for your own username."
     },
     "pin-mythic": {
-      "name": "Showcase",
+      "name": "Show-off",
       "cond": "Pin a mythic badge to your profile."
     },
     "one-piece": {
-      "name": "Find the One Piece",
+      "name": "The One Piece is real",
       "cond": "Finish One Piece."
     },
     "hokage": {
-      "name": "Become Hokage",
+      "name": "Believe it!",
       "cond": "Finish Naruto and Naruto Shippuden."
     },
     "boruto": {
-      "name": "The next generation",
+      "name": "The Hokage's son",
       "cond": "Finish Boruto."
     },
     "super-saiyan": {
-      "name": "Beyond Super Saiyan",
+      "name": "Over 9,000!",
       "cond": "Finish Dragon Ball, Dragon Ball Z and Dragon Ball Super."
     },
     "hashira": {
-      "name": "Last of the Hashira",
+      "name": "Total Concentration",
       "cond": "Finish Demon Slayer, films included."
     },
     "walls": {
-      "name": "Freedom behind the walls",
+      "name": "Tatakae",
       "cond": "Finish Attack on Titan."
     },
     "hunter-licence": {
-      "name": "Licensed hunter",
+      "name": "Passed the Hunter Exam",
       "cond": "Finish Hunter x Hunter."
     },
     "bankai": {
-      "name": "Bankai",
+      "name": "Substitute Soul Reaper",
       "cond": "Finish Bleach, Thousand-Year Blood War included."
     },
     "equivalent-exchange": {
-      "name": "The price of equivalence",
+      "name": "State Alchemist",
       "cond": "Finish Fullmetal Alchemist: Brotherhood."
     },
     "conan-1000": {
-      "name": "A thousand cases",
-      "cond": "Pass 1,000 episodes of Detective Conan."
+      "name": "One truth prevails",
+      "cond": "Get past 1,000 episodes of Detective Conan."
     },
     "pokemon-500": {
-      "name": "Catch them all",
-      "cond": "Pass 500 episodes of Pokémon."
+      "name": "Pokémon Master",
+      "cond": "Get past 500 episodes of Pokémon."
     },
     "plus-ultra": {
-      "name": "Plus Ultra",
+      "name": "Number one hero",
       "cond": "Finish My Hero Academia."
     },
     "death-note": {
-      "name": "The notebook",
+      "name": "Just as planned",
       "cond": "Finish Death Note."
     },
     "jujutsu": {
-      "name": "Qualified exorcist",
+      "name": "Domain Expansion",
       "cond": "Finish Jujutsu Kaisen."
     },
     "chainsaw": {
-      "name": "Contract signed with a devil",
+      "name": "Pochita's deal",
       "cond": "Finish Chainsaw Man."
     },
     "rank-s": {
-      "name": "S-Class",
+      "name": "One punch is enough",
       "cond": "Finish One Punch Man."
     },
     "black-clover": {
-      "name": "Self-taught wizard",
+      "name": "Never give up",
       "cond": "Finish Black Clover."
     },
     "steins-gate": {
-      "name": "The ringing of the alarm",
+      "name": "El Psy Kongroo",
       "cond": "Finish Steins;Gate."
     },
     "re-zero": {
-      "name": "Return by death",
+      "name": "Rem or Emilia?",
       "cond": "Finish Re:Zero."
     },
     "sao": {
-      "name": "Guild master",
+      "name": "No logout button",
       "cond": "Finish Sword Art Online."
     },
     "slime": {
-      "name": "King of the slimes",
+      "name": "Just a slime",
       "cond": "Finish That Time I Got Reincarnated as a Slime."
     },
     "shield-hero": {
-      "name": "Shield raised",
+      "name": "Falsely accused",
       "cond": "Finish The Rising of the Shield Hero."
     },
     "mushoku": {
-      "name": "A studious second life",
+      "name": "Serious this time",
       "cond": "Finish Mushoku Tensei."
     },
     "overlord": {
-      "name": "Lord of the tomb",
+      "name": "Lord of Nazarick",
       "cond": "Finish Overlord."
     },
     "konosuba": {
-      "name": "Full party",
+      "name": "Explosion!",
       "cond": "Finish Konosuba."
     },
     "frieren": {
-      "name": "Two worlds",
+      "name": "What Himmel would do",
       "cond": "Finish Frieren."
     },
     "solo-leveling": {
-      "name": "E-rank hunter",
+      "name": "Arise",
       "cond": "Finish Solo Leveling."
     },
     "code-geass": {
-      "name": "Zero's mask",
+      "name": "I command you",
       "cond": "Finish Code Geass."
     },
     "evangelion": {
-      "name": "Empty shell",
+      "name": "Get in the robot",
       "cond": "Finish Neon Genesis Evangelion."
     },
     "bebop": {
-      "name": "Bounty collected",
+      "name": "See you, space cowboy",
       "cond": "Finish Cowboy Bebop."
     },
     "champloo": {
-      "name": "Three drifters",
+      "name": "The sunflower samurai",
       "cond": "Finish Samurai Champloo."
     },
     "ghost-shell": {
-      "name": "Ghost in the shell",
+      "name": "The net is vast",
       "cond": "Finish Ghost in the Shell: Stand Alone Complex."
     },
     "trigun": {
-      "name": "The humanoid typhoon",
+      "name": "Love and peace",
       "cond": "Finish Trigun."
     },
     "berserk": {
-      "name": "The black armour",
+      "name": "Keep struggling",
       "cond": "Finish Berserk."
     },
     "monster": {
-      "name": "Nameless",
+      "name": "The nameless monster",
       "cond": "Finish Monster."
     },
     "vinland": {
-      "name": "Promised land",
+      "name": "I have no enemies",
       "cond": "Finish Vinland Saga."
     },
     "kingdom": {
-      "name": "Under one sky",
+      "name": "Great General",
       "cond": "Finish Kingdom."
     },
     "ngnl": {
-      "name": "The real game",
+      "name": "Blank never loses",
       "cond": "Finish No Game No Life."
     },
     "yugioh": {
-      "name": "Duel of kings",
+      "name": "It's time to duel",
       "cond": "Finish Yu-Gi-Oh! Duel Monsters."
     },
     "haikyu": {
-      "name": "The team spike",
+      "name": "Fly high",
       "cond": "Finish Haikyu!!."
     },
     "kuroko": {
-      "name": "Winning basket",
+      "name": "Phantom sixth man",
       "cond": "Finish Kuroko's Basketball."
     },
     "blue-lock": {
-      "name": "Free kick",
+      "name": "Egoist",
       "cond": "Finish Blue Lock."
     },
     "yowamushi": {
-      "name": "Final lap",
+      "name": "Out of the saddle",
       "cond": "Finish Yowamushi Pedal."
     },
     "slam-dunk": {
-      "name": "In the stands",
+      "name": "Rebound king",
       "cond": "Finish Slam Dunk."
     },
     "food-wars": {
-      "name": "The perfect plate",
+      "name": "Shokugeki!",
       "cond": "Finish Food Wars."
     },
     "assassination": {
-      "name": "Final scan",
+      "name": "Target: Koro-sensei",
       "cond": "Finish Assassination Classroom."
     },
     "fruits-basket": {
-      "name": "The twelve signs",
+      "name": "No hugging",
       "cond": "Finish Fruits Basket."
     },
     "toradora": {
-      "name": "Tiger and dragon",
+      "name": "Palmtop Tiger",
       "cond": "Finish Toradora!."
     },
     "clannad": {
-      "name": "The town that remembers",
+      "name": "Big Dango Family",
       "cond": "Finish Clannad and After Story."
     },
     "your-lie": {
-      "name": "April's lie",
+      "name": "Piano and violin",
       "cond": "Finish Your Lie in April."
     },
     "ghibli-1": {
-      "name": "Neighbour Totoro",
+      "name": "First Ghibli",
       "cond": "Finish a Studio Ghibli film."
     },
     "ghibli-10": {
-      "name": "Ghibli anthology",
-      "cond": "Finish ten Studio Ghibli films."
+      "name": "Ghibli by heart",
+      "cond": "Finish 10 Studio Ghibli films."
     },
     "shinkai": {
-      "name": "Complete Shinkai",
+      "name": "Every Shinkai sky",
       "cond": "Finish every Makoto Shinkai film."
     },
     "gintama": {
-      "name": "The Gintama tape",
+      "name": "Gin-san approves",
       "cond": "Finish Gintama."
     },
     "mirai-nikki": {
-      "name": "Future diary",
+      "name": "Yandere alert",
       "cond": "Finish Mirai Nikki."
     },
     "jojo": {
-      "name": "JoJo to the end",
+      "name": "Ora ora ora",
       "cond": "Finish every part of JoJo's Bizarre Adventure."
     },
     "spy-family": {
-      "name": "The world of Spy",
+      "name": "Waku waku",
       "cond": "Finish Spy x Family."
     },
     "dr-stone": {
-      "name": "Ten billion percent",
+      "name": "Kingdom of Science",
       "cond": "Finish Dr. Stone."
     },
     "tokyo-ghoul": {
-      "name": "A thousand masks",
+      "name": "1000 minus 7",
       "cond": "Finish Tokyo Ghoul."
     },
     "parasyte": {
-      "name": "The right hand",
+      "name": "Hi, Migi",
       "cond": "Finish Parasyte."
     },
     "neverland": {
-      "name": "Over the wall",
+      "name": "The great escape",
       "cond": "Finish The Promised Neverland."
     }
   }
