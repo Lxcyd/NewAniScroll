@@ -197,6 +197,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-24 (suite 2) — Noms des badges relus un par un (172 validés), plus aucun doublon fr/en
 - 2026-09-24 (suite) — Les 176 badges renommés (fr + en, ids intacts) ; `big-three` disait « commencer » là où la métrique compte les anime terminés
 - 2026-09-24 — Le « bord du flou » de la notification de badge était celui de la carte de stats d'à côté (flou du studio, 11 px), pas du voile : trois versions du voile pour rien ; le flou des cartes s'éteint maintenant avant leur bord (`::before` masqué, dégradés croisés), et plus aucune couche `blur(0)` sur les profils sans flou
 - 2026-09-23 (suite) — « Un flou, pas une boîte » : on écrivait ça en affichant une boîte (`brightness` sur un backdrop-filter ASSOMBRIT) ; flou seul + contour de sous-titre sur le texte (`paint-order: stroke fill`) ; carillon refait (souffle → quinte juste, la rareté ouvre l'accord sans ajouter de notes) ; clic → onglet Badges via `#badge-<id>`, vol du jeton vers l'avatar + pastille, mythique ralenti/confettis, deux interrupteurs dans les préférences

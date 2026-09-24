@@ -6,6 +6,19 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 2) — Les noms des badges, relus un par un par l'utilisateur
+
+La première réécriture (plus bas) misait sur l'humour et les répliques de
+fandom ; à l'écran, l'échelle des épisodes (« Le pilote → Tu dors quand ? »)
+ne se lisait pas comme une progression. Règle retenue : **le nom dit ce que le
+badge récompense, et une échelle se lit comme une progression**.
+
+Les 176 noms ont été proposés dans une page de relecture (artifact claude.ai)
+où l'utilisateur validait, modifiait ou redemandait chaque nom : 172 validés,
+les autres gardent leur nom actuel (règle « pas touché = nom actuel »), sauf
+`fin-200`, dont le nom actuel « Vétéran » aurait doublonné `ep-5000`. Aucun
+doublon fr ni en, vérifié sur les locales générées. Conditions inchangées.
+
 ## 2026-09-24 (suite) — Les 176 badges renommés, et une condition qui mentait
 
 **Tous les noms et toutes les conditions sont réécrits, en français et en
