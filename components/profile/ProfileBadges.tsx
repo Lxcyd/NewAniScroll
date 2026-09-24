@@ -663,13 +663,14 @@ function BadgeRow({
             donneraient — ni sur un badge à UN SEUL anime pas encore obtenu
             (« Pépite méconnue ») : sa liste serait vide. */}
         {/* La date AU-DESSUS du bouton Détail, en une colonne à droite, collée
-            en HAUT de la ligne même seule (`self-start`). */}
+            en HAUT de la ligne même seule (`self-start`). `mt-0.5` : 12 px de
+            `py-3` + 2 = les 14 px de `px-3.5`, même marge en haut qu'à droite. */}
         {(() => {
           const detail =
             derived && !(hidden && !unlocked) && (unlocked || (progress && progress[1] > 1));
           if (!unlocked && !detail) return null;
           return (
-            <div className="flex shrink-0 flex-col items-end gap-2 self-start">
+            <div className="mt-0.5 flex shrink-0 flex-col items-end gap-2 self-start">
               {unlocked && <DatePill at={at} color={R.ic} />}
               {detail && derived ? (
                 <DetailButton def={def} derived={derived} progress={progress} />

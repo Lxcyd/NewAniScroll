@@ -6,6 +6,11 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 18) — La date à égale distance du haut et de la droite
+
+La ligne a `py-3` (12 px) et `px-3.5` (14 px). La colonne de la date prend
+`mt-0.5` : 14 px des deux côtés.
+
 ## 2026-09-24 (suite 17) — La date toujours en haut de la ligne
 
 Sans bouton Détail, la colonne de la date suivait l'`items-center` de la ligne
