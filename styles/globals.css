@@ -3382,13 +3382,15 @@ input[type="number"] {
 }
 
 /* Le grossissement au survol. La même courbe que la pile de toasts, pour que
-   les deux gestes du site aient la même sensation. */
+   les deux gestes du site aient la même sensation. 4 % et pas 8 % : un jeton de
+   100 px qui en prend 8 à chaque ligne survolée, dans une liste qu'on parcourt
+   de haut en bas, sautait plus qu'il ne répondait. */
 .as-badge-token {
   transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .as-badge-row:hover .as-badge-token,
 .as-badge-token:hover {
-  transform: scale(1.08);
+  transform: scale(1.04);
 }
 
 /* ── LE SURLIGNAGE D'ARRIVÉE ───────────────────────────────────────────────

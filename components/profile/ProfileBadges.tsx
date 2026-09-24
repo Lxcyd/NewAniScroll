@@ -55,7 +55,7 @@ const FAMILY_ORDER = [
  * dans la liste, et on garde le palier du panneau à une taille de vignette — il
  * est là pour situer, pas pour se regarder.
  *
- * Le jeton grossit encore de 8 % au survol (.as-badge-token), donc la ligne
+ * Le jeton grossit encore de 4 % au survol (.as-badge-token), donc la ligne
  * réserve un peu plus que `ROW_TOKEN`.
  */
 const ROW_TOKEN = 100;
