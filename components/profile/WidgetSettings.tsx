@@ -71,7 +71,8 @@ const SECTION = "rounded-xl px-2.5 py-2 transition-colors hover:bg-white/[0.05]"
  * `.le-dd-compact` (globals.css) resserre seulement les espacements : le
  * panneau fait 260 px de large, contre les 700 de la fenêtre d'origine.
  *
- * Exporté : le tri de l'onglet Badges est le même geste, il prend le même menu.
+ * Exporté : le filtre de rareté de l'onglet Badges est le même geste, il
+ * prend le même menu.
  */
 export function Dropdown({
   value,

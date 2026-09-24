@@ -1621,11 +1621,9 @@
       "seeTiers": "Voir tous les paliers",
       "close": "Fermer",
       "openInProfile": "Voir ce badge dans le profil",
-      "sort": {
-        "default": "Tri par défaut",
-        "rare": "Plus rares d'abord",
-        "common": "Plus communs d'abord",
-        "label": "Trier les badges"
+      "rarityFilter": {
+        "all": "Toutes les raretés",
+        "label": "Filtrer par rareté"
       }
     },
     "ep-1": {

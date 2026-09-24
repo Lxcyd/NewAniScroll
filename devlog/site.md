@@ -6,19 +6,23 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
-## 2026-09-24 (suite 4) — Le panneau des paliers se sélectionne ; tri par rareté ; onglets floutés
+## 2026-09-24 (suite 4) — Le panneau des paliers se sélectionne ; filtre par rareté ; onglets floutés
 
 **Barre d'onglets du profil** : seule surface sans `as-stat-card`, donc sans le
 flou du studio — l'illustration restait nette derrière « Aperçu / Ma liste /
 Statistiques / Badges ». Elle prend la classe comme les autres.
 
-**Tri par rareté** : menu à côté des filtres (tri par défaut, plus rares
-d'abord, plus communs d'abord). Il trie les lignes DANS chaque famille ; les
-familles gardent leur ordre, et une échelle se trie sur la rareté du palier
-montré, comme le filtre. C'est le menu des réglages de widget (`Dropdown`,
-désormais exporté de WidgetSettings) : il a appris à se fermer au clic à côté
-et à Échap, ce qui profite aussi aux réglages. L'en-tête passe en `z-20`, sinon
-les cartes suivantes (chacune son contexte d'empilement) recouvraient le menu.
+**Filtre par rareté** (d'abord livré comme un tri, remplacé à la demande dans
+l'heure) : menu à côté des filtres, « Toutes les raretés » puis chacune des six,
+avec sa pastille. Une échelle montre le palier DE la rareté choisie, même quand
+ce n'est pas le palier du moment (sous « Mythique », « Légende » plutôt que
+rien) ; « streak » a deux paliers peu communs, d'où la même règle que le palier
+du moment : le premier non atteint, sinon le dernier. Un secret verrouillé ne
+répond à aucune rareté (son jeton la cache, le ranger sous l'une la donnerait).
+C'est le menu des réglages de widget (`Dropdown`, désormais exporté de
+WidgetSettings) : il a appris à se fermer au clic à côté et à Échap, ce qui
+profite aussi aux réglages. L'en-tête passe en `z-20`, sinon les cartes
+suivantes (chacune son contexte d'empilement) recouvraient le menu.
 
 **Panneau des paliers** :
 - fond en verre (translucide, `blur(24px) saturate(1.4)`). Le voile est
@@ -33,8 +37,12 @@ les cartes suivantes (chacune son contexte d'empilement) recouvraient le menu.
   (`grid-template-rows` 0fr → 1fr) et la barre se remplit. Le trajet du cadre
   est en JS parce que sa cible bouge pendant qu'il voyage : chaque image vise la
   position COURANTE de la ligne. Un palier obtenu montre une barre pleine ;
-- survoler un autre palier fait grossir son jeton de 14 % avec un léger
-  dépassement.
+- survoler un autre palier fait grossir TOUTE SA CASE (2,5 %, léger
+  dépassement). Par la propriété `scale` et pas `transform` : l'arrivée des
+  lignes anime `transform` en `fill-mode: both`, et une animation l'emporte sur
+  un `transform` de survol, qui aurait été ignoré ;
+- les paliers non obtenus portent les pointillés de l'onglet, sauf sélectionnés
+  (le cadre dessine déjà le bord).
 
 Aucune de ces animations n'est coupée sous `prefers-reduced-motion` : le Chrome
 de l'utilisateur répond `reduce` sans qu'il l'ait demandé (cf. mémoire).

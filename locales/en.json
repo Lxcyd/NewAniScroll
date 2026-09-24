@@ -1621,11 +1621,9 @@
       "seeTiers": "See all tiers",
       "close": "Close",
       "openInProfile": "View this badge in your profile",
-      "sort": {
-        "default": "Default order",
-        "rare": "Rarest first",
-        "common": "Most common first",
-        "label": "Sort badges"
+      "rarityFilter": {
+        "all": "All rarities",
+        "label": "Filter by rarity"
       }
     },
     "ep-1": {

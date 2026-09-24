@@ -3955,14 +3955,24 @@ input[type="number"] {
   transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Survoler un AUTRE palier le fait grossir, avec un léger dépassement : un
-   signe qu'il se choisit d'un clic. Plus marqué que dans la liste de l'onglet
-   (4 %), où l'on parcourt cent lignes ; ici on en compare six. */
-.as-pop-row .as-badge-token {
-  transition: transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+/* Survoler un AUTRE palier fait grossir TOUTE SA CASE, avec un léger
+   dépassement : un signe qu'elle se choisit d'un clic.
+
+   `scale` et PAS `transform` : l'arrivée des lignes (`asPopRow`) anime
+   `transform` en `fill-mode: both`, et une animation l'emporte sur toute
+   déclaration normale — un `transform` au survol aurait été ignoré pour de
+   bon. La propriété `scale` est indépendante et se compose avec lui.
+
+   Le jeton ne grossit plus seul par-dessus (`.as-badge-token:hover`, la règle
+   de l'onglet) : ce serait deux agrandissements pour un seul geste. */
+.as-pop-row {
+  transition: scale 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.as-pop-row:not([aria-current="true"]):hover .as-badge-token {
-  transform: scale(1.14);
+.as-pop-row:not([aria-current="true"]):hover {
+  scale: 1.025;
+}
+.as-pop-row .as-badge-token:hover {
+  transform: none;
 }
 
 /* La condition et la barre du palier sélectionné se déplient ; celles du

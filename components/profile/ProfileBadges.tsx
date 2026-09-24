@@ -42,21 +42,8 @@ import { RARITY } from "./badges/rarity";
 
 type Filter = "all" | "got" | "todo";
 type Progress = [number, number] | null;
-/** L'ordre des lignes DANS chaque famille : les familles, elles, ne bougent pas. */
-type Sort = "default" | "rare" | "common";
-
-/**
- * Trie par rareté, sans toucher à l'ordre du catalogue entre badges de même
- * rareté (`sort` est stable) : « plus rares d'abord » garde donc la progression
- * habituelle à l'intérieur de chaque rareté.
- */
-function sortRows(rows: BadgeDef[], sort: Sort): BadgeDef[] {
-  if (sort === "default") return rows;
-  const dir = sort === "rare" ? -1 : 1;
-  return [...rows].sort(
-    (a, b) => dir * (RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity)),
-  );
-}
+/** Le menu de rareté : toutes, ou une seule. */
+type RarityPick = "all" | Rarity;
 
 const FAMILY_ORDER = [
   "episodes", "time", "sessions", "finished",
@@ -112,7 +99,7 @@ export default function ProfileBadges({
     [live, saved, localState],
   );
   const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<Sort>("default");
+  const [rarity, setRarity] = useState<RarityPick>("all");
   const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
 
   /* Chez soi : on mesure, et on lance le rattrapage des métadonnées.
@@ -199,6 +186,12 @@ export default function ProfileBadges({
   }, [got]);
 
   const keep = (b: BadgeDef) => {
+    /* Un secret VERROUILLÉ ne répond à aucune rareté : son jeton la cache, et
+       le ranger sous « Mythique » la donnerait quand même. Il ne reste visible
+       que sous « Toutes ». */
+    if (rarity !== "all" && (b.rarity !== rarity || (b.secret && got[b.id] == null))) {
+      return false;
+    }
     if (filter === "got") return got[b.id] != null;
     if (filter === "todo") return got[b.id] == null;
     return true;
@@ -213,23 +206,36 @@ export default function ProfileBadges({
       if (b.ladder) {
         if (seen.has(b.ladder)) continue;
         seen.add(b.ladder);
-        const head = BY_ID[ladderHead.get(b.ladder) ?? b.id];
+        let shown = BY_ID[ladderHead.get(b.ladder) ?? b.id];
+        /* Une rareté choisie montre le palier DE CETTE RARETÉ, même quand ce
+           n'est pas le palier du moment : sous « Mythique » on veut voir
+           « Légende », pas perdre l'échelle parce qu'on en est à « Habitué ».
+           Même règle que le palier du moment, restreinte à la rareté : le
+           premier non atteint, sinon le dernier (« streak » en a deux peu
+           communs). */
+        if (rarity !== "all" && shown.rarity !== rarity) {
+          const tiers = (LADDERS[b.ladder] ?? []).filter((id) => BY_ID[id].rarity === rarity);
+          if (!tiers.length) continue;
+          shown = BY_ID[tiers.find((id) => got[id] == null) ?? tiers[tiers.length - 1]];
+        }
         /* Le filtre s'applique au palier MONTRÉ : « à obtenir » sur une échelle
            entièrement faite doit la faire disparaître, pas afficher son dernier
            barreau. */
-        if (keep(head)) out.push(head);
+        if (keep(shown)) out.push(shown);
         continue;
       }
       if (keep(b)) out.push(b);
     }
-    // Une échelle se trie sur la rareté du palier MONTRÉ, comme le filtre.
-    return sortRows(out, sort);
+    return out;
   };
 
-  const sortChoices: { value: Sort; label: string; color?: string }[] = [
-    { value: "default", label: t("badges.ui.sort.default", "Tri par défaut") },
-    { value: "rare", label: t("badges.ui.sort.rare", "Plus rares d'abord"), color: RARITY.m.ic },
-    { value: "common", label: t("badges.ui.sort.common", "Plus communs d'abord"), color: RARITY.c.ic },
+  const rarityChoices: { value: RarityPick; label: string; color?: string }[] = [
+    { value: "all", label: t("badges.ui.rarityFilter.all", "Toutes les raretés") },
+    ...RARITY_ORDER.map((r) => ({
+      value: r,
+      label: t(`badges.ui.rarity.${r}`, r),
+      color: RARITY[r].ic,
+    })),
   ];
 
   const chips: { k: Filter; label: string; n: number }[] = [
@@ -249,7 +255,7 @@ export default function ProfileBadges({
           d'arrière-plan que le studio de bannière règle (`--as-plate-blur`,
           nul par défaut, donc gratuit pour tous les autres profils).
 
-          `z-20` : le menu de tri déborde de cette carte vers le bas, et chaque
+          `z-20` : le menu de rareté déborde de cette carte vers le bas, et chaque
           carte de la liste est son propre contexte d'empilement (`isolation`)
           peint APRÈS celle-ci — sans lui, la liste recouvrait le menu. */}
       <div className="as-stat-card z-20 flex flex-wrap items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-white/[.08]">
@@ -271,10 +277,10 @@ export default function ProfileBadges({
           {live && <PreviewButton />}
           <Dropdown
             className="w-[190px]"
-            label={t("badges.ui.sort.label", "Trier les badges")}
-            value={sort}
-            choices={sortChoices}
-            onPick={(v) => setSort(v as Sort)}
+            label={t("badges.ui.rarityFilter.label", "Filtrer par rareté")}
+            value={rarity}
+            choices={rarityChoices}
+            onPick={(v) => setRarity(v as RarityPick)}
           />
           {chips.map((c) => (
             <button
@@ -333,7 +339,6 @@ export default function ProfileBadges({
         live={live}
         filter={filter}
         keep={keep}
-        sort={sort}
       />
     </div>
   );
@@ -1031,7 +1036,15 @@ function LadderPopup({
                     setSel(id);
                   }
                 }}
-                className="as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+                /* À obtenir : les pointillés de l'onglet, la même case vide.
+                   Retirés sur la ligne sélectionnée, où le cadre dessine déjà
+                   le bord — deux liserés l'un sur l'autre se brouillaient. */
+                className={
+                  "as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 focus-visible:ring-1 focus-visible:ring-white/30 " +
+                  (at == null && !isSel
+                    ? "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hover:outline-white/30"
+                    : "outline-none")
+                }
                 style={{
                   /* Les paliers gagnés portent la teinte de la ligne obtenue de
                      l'onglet. Le liseré de la sélection, lui, est le cadre. */
@@ -1118,17 +1131,16 @@ function LadderPopup({
 /* ── Les secrets ────────────────────────────────────────────────────────────── */
 
 function SecretSection({
-  state, progress, live, filter, keep, sort,
+  state, progress, live, filter, keep,
 }: {
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
   filter: Filter;
   keep: (b: BadgeDef) => boolean;
-  sort: Sort;
 }) {
   const { t } = useTranslation();
-  const rows = sortRows(SECRETS.filter(keep), sort);
+  const rows = SECRETS.filter(keep);
   if (!rows.length) return null;
   const done = SECRETS.filter((b) => state.got[b.id] != null).length;
 

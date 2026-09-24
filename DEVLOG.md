@@ -198,7 +198,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
-- 2026-09-24 (suite 4) — Panneau des paliers en verre, sélection au clic (cadre unique qui glisse, jeton qui grandit, barre qui se déplie), défilement enfin gelé (`html`, pas `body`) ; tri par rareté dans l'onglet Badges ; la barre d'onglets prend le flou du studio
+- 2026-09-24 (suite 4) — Panneau des paliers en verre, sélection au clic (cadre unique qui glisse, jeton qui grandit, barre qui se déplie), défilement enfin gelé (`html`, pas `body`) ; filtre par rareté (toutes, puis chacune) dans l'onglet Badges ; la barre d'onglets prend le flou du studio
 - 2026-09-24 (suite 3) — Le flou du studio remplit de nouveau toute la carte : le masque de fondu (20,5 px à 11 px de flou) laissait une bande d'illustration nette autour de chaque carte ; retiré, le liseré dessine le bord
 - 2026-09-24 (suite 2) — Noms des badges relus un par un (172 validés), plus aucun doublon fr/en
 - 2026-09-24 (suite) — Les 176 badges renommés (fr + en, ids intacts) ; `big-three` disait « commencer » là où la métrique compte les anime terminés
