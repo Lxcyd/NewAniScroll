@@ -20,7 +20,7 @@
  * avancement qu'on n'a pas mesuré serait un chiffre faux.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { MdCheck } from "react-icons/md";
 import { useTranslation } from "react-i18next";
@@ -35,12 +35,28 @@ import { recordFlag } from "@/lib/badges/facts";
 import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
 import { mergeBadgeState, useBadgeState, type BadgeState } from "@/lib/badges/store";
 import { Bar } from "./widgets/common";
+import { Dropdown } from "./WidgetSettings";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
 import { RARITY } from "./badges/rarity";
 
 type Filter = "all" | "got" | "todo";
 type Progress = [number, number] | null;
+/** L'ordre des lignes DANS chaque famille : les familles, elles, ne bougent pas. */
+type Sort = "default" | "rare" | "common";
+
+/**
+ * Trie par rareté, sans toucher à l'ordre du catalogue entre badges de même
+ * rareté (`sort` est stable) : « plus rares d'abord » garde donc la progression
+ * habituelle à l'intérieur de chaque rareté.
+ */
+function sortRows(rows: BadgeDef[], sort: Sort): BadgeDef[] {
+  if (sort === "default") return rows;
+  const dir = sort === "rare" ? -1 : 1;
+  return [...rows].sort(
+    (a, b) => dir * (RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity)),
+  );
+}
 
 const FAMILY_ORDER = [
   "episodes", "time", "sessions", "finished",
@@ -60,6 +76,13 @@ const FAMILY_ORDER = [
  */
 const ROW_TOKEN = 100;
 const TIER_TOKEN = 54;
+/** Le palier sélectionné dans le panneau : un cran au-dessus des autres. */
+const TIER_TOKEN_SEL = TIER_TOKEN + 12;
+/**
+ * Le trajet du cadre de sélection, en ms. Un peu plus long que le dépli des
+ * lignes (`.as-pop-more`, 320 ms) : il arrive sur une ligne qui a fini de bouger.
+ */
+const FRAME_MOVE_MS = 420;
 
 export default function ProfileBadges({
   state: saved,
@@ -89,6 +112,7 @@ export default function ProfileBadges({
     [live, saved, localState],
   );
   const [filter, setFilter] = useState<Filter>("all");
+  const [sort, setSort] = useState<Sort>("default");
   const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
 
   /* Chez soi : on mesure, et on lance le rattrapage des métadonnées.
@@ -198,8 +222,15 @@ export default function ProfileBadges({
       }
       if (keep(b)) out.push(b);
     }
-    return out;
+    // Une échelle se trie sur la rareté du palier MONTRÉ, comme le filtre.
+    return sortRows(out, sort);
   };
+
+  const sortChoices: { value: Sort; label: string; color?: string }[] = [
+    { value: "default", label: t("badges.ui.sort.default", "Tri par défaut") },
+    { value: "rare", label: t("badges.ui.sort.rare", "Plus rares d'abord"), color: RARITY.m.ic },
+    { value: "common", label: t("badges.ui.sort.common", "Plus communs d'abord"), color: RARITY.c.ic },
+  ];
 
   const chips: { k: Filter; label: string; n: number }[] = [
     { k: "all", label: t("badges.ui.all", "Tous"), n: BADGES.length },
@@ -216,8 +247,12 @@ export default function ProfileBadges({
           propriétaire a posé une illustration en fond de page, un texte nu
           par-dessus ne se lit pas. La classe porte le fond sombre ET le flou
           d'arrière-plan que le studio de bannière règle (`--as-plate-blur`,
-          nul par défaut, donc gratuit pour tous les autres profils). */}
-      <div className="as-stat-card flex flex-wrap items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-white/[.08]">
+          nul par défaut, donc gratuit pour tous les autres profils).
+
+          `z-20` : le menu de tri déborde de cette carte vers le bas, et chaque
+          carte de la liste est son propre contexte d'empilement (`isolation`)
+          peint APRÈS celle-ci — sans lui, la liste recouvrait le menu. */}
+      <div className="as-stat-card z-20 flex flex-wrap items-center justify-between gap-4 rounded-xl px-4 py-3 ring-1 ring-white/[.08]">
         <div className="flex items-baseline gap-3">
           <span className="font-outfit text-2xl font-semibold text-white">
             {gotCount}
@@ -232,8 +267,15 @@ export default function ProfileBadges({
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {live && <PreviewButton />}
+          <Dropdown
+            className="w-[190px]"
+            label={t("badges.ui.sort.label", "Trier les badges")}
+            value={sort}
+            choices={sortChoices}
+            onPick={(v) => setSort(v as Sort)}
+          />
           {chips.map((c) => (
             <button
               key={c.k}
@@ -291,6 +333,7 @@ export default function ProfileBadges({
         live={live}
         filter={filter}
         keep={keep}
+        sort={sort}
       />
     </div>
   );
@@ -769,11 +812,23 @@ function LadderButton({
 }
 
 /**
- * Le panneau d'une échelle : TOUS les paliers, avec leur barre.
+ * Le panneau d'une échelle : TOUS les paliers, et UN palier sélectionné.
  *
  * Porté sur `document.body` : la ligne d'où il part vit dans une carte qui a son
  * propre contexte d'empilement et un fond flouté — un panneau rendu là-dedans
  * se retrouverait coincé derrière la ligne suivante.
+ *
+ * ── LA SÉLECTION ─────────────────────────────────────────────────────────────
+ * Le panneau s'ouvre sur le palier du moment, et un clic sur n'importe quel
+ * autre le sélectionne à son tour : son jeton grandit, sa condition et sa barre
+ * se déplient, et LE CADRE Y GLISSE en prenant la couleur de sa rareté.
+ *
+ * Le cadre est UN seul élément, pas une bordure par ligne : c'est ce qui lui
+ * permet de voyager d'une case à l'autre au lieu de s'éteindre ici et de
+ * s'allumer là. Il est déplacé en JS et non par une transition CSS, parce que
+ * sa cible BOUGE pendant le trajet — la ligne quittée se replie, la ligne
+ * visée se déplie, et une transition partie vers la position de départ
+ * arriverait à côté. Chaque image vise donc la position COURANTE de la ligne.
  */
 function LadderPopup({
   ids, state, progress, live, color, onClose,
@@ -786,29 +841,98 @@ function LadderPopup({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const done = ids.filter((id) => state.got[id] != null).length;
+  const current = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
+  const [sel, setSel] = useState(current);
+
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  /** Où le cadre est posé, pour partir de là au prochain clic. */
+  const framePos = useRef<{ top: number; h: number } | null>(null);
 
   /* Échap ferme, et le défilement de la page est gelé tant que le panneau est
-     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui. */
+     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui.
+
+     SUR `html`, PAS SEULEMENT SUR `body`, et c'est ce qui manquait. `html`
+     porte `overflow-x: clip` (globals.css) : dès que sa propre valeur n'est plus
+     `visible`, celle de `body` ne remonte plus jusqu'à la fenêtre et ne gèle
+     que `body` lui-même, qui n'a rien à faire défiler. La page continuait donc
+     de glisser sous le panneau. Même remède que la visionneuse d'Artworks. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const html = document.documentElement.style;
+    const body = document.body.style;
+    const prev = [html.overflow, body.overflow];
+    html.overflow = "hidden";
+    body.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      [html.overflow, body.overflow] = prev;
     };
   }, [onClose]);
 
+  /* Le trajet du cadre. Au premier passage il est POSÉ, sans trajet : il
+     arrive avec les lignes. Ensuite il part de là où il est et vise, à chaque
+     image, la position COURANTE de la ligne sélectionnée (cf. l'en-tête). La
+     durée couvre le dépli des lignes (`.as-pop-more`, 320 ms), si bien qu'il
+     finit exactement sur une ligne qui a fini de bouger. */
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const place = (top: number, h: number) => {
+      frame.style.transform = `translateY(${top}px)`;
+      frame.style.height = `${h}px`;
+      framePos.current = { top, h };
+    };
+    const target = () => rowRefs.current.get(sel) ?? null;
+    const snap = () => {
+      const el = target();
+      if (el) place(el.offsetTop, el.offsetHeight);
+    };
+
+    let raf = 0;
+    let moving = false;
+    const from = framePos.current;
+    if (!from) snap();
+    else {
+      moving = true;
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const el = target();
+        if (!el) return;
+        const k = Math.min(1, (now - t0) / FRAME_MOVE_MS);
+        const e = 1 - Math.pow(1 - k, 4);
+        place(
+          from.top + (el.offsetTop - from.top) * e,
+          from.h + (el.offsetHeight - from.h) * e,
+        );
+        if (k < 1) raf = requestAnimationFrame(tick);
+        else moving = false;
+      };
+      raf = requestAnimationFrame(tick);
+    }
+
+    /* Et il reste collé une fois arrivé : une largeur de fenêtre qui change
+       replie autrement le texte, et la ligne change de hauteur sous lui. */
+    const list = frame.parentElement;
+    const ro = new ResizeObserver(() => {
+      if (!moving) snap();
+    });
+    if (list) ro.observe(list);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [sel]);
+
   if (typeof document === "undefined") return null;
-  const done = ids.filter((id) => state.got[id] != null).length;
-  const current = ids.find((id) => state.got[id] == null) ?? ids[ids.length - 1];
+  const S = RARITY[BY_ID[sel].rarity];
 
   return createPortal(
     <div
-      className="as-pop-back"
       role="dialog"
       aria-modal="true"
       onClick={onClose}
@@ -822,18 +946,32 @@ function LadderPopup({
         padding: 16,
       }}
     >
+      {/* Le voile est un calque FRÈRE du panneau, et non son parent. Un
+          élément qui porte un `backdrop-filter` devient la racine de fond de ses
+          descendants : le flou du panneau n'aurait vu que la teinte unie du
+          voile, pas la page. Frères, le panneau floute ce que le voile montre. */}
+      <div className="as-pop-back" aria-hidden style={{ position: "absolute", inset: 0 }} />
       <div
         className="as-pop-card"
         /* Le clic sur le panneau ne doit pas traverser jusqu'au fond, qui ferme. */
         onClick={(e) => e.stopPropagation()}
         style={{
+          position: "relative",
           width: "min(560px, 100%)",
           maxHeight: "min(82vh, 760px)",
           overflowY: "auto",
+          overscrollBehavior: "contain",
           borderRadius: 18,
           border: "1px solid rgba(255,255,255,.1)",
-          background: `linear-gradient(180deg, ${color}14, rgba(18,18,26,.98) 22%, rgba(14,14,20,.98))`,
-          boxShadow: `0 24px 70px rgba(0,0,0,.6), 0 0 40px ${color}1f`,
+          /* Du verre, pas une plaque : la page se devine au travers, floutée.
+             Assez de teinte pour que le texte se lise sur une illustration
+             claire, pas assez pour la cacher. */
+          background: `linear-gradient(180deg, ${color}1a, rgba(18,18,26,.5) 24%, rgba(14,14,20,.44))`,
+          backdropFilter: "blur(24px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+          // La lueur suit la sélection, comme le cadre.
+          boxShadow: `0 24px 70px rgba(0,0,0,.55), 0 0 40px ${S.ic}24`,
+          transition: "box-shadow 380ms ease",
           padding: 18,
         }}
       >
@@ -853,42 +991,83 @@ function LadderPopup({
           </span>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="relative flex flex-col gap-2">
+          {/* LE cadre. Premier dans le DOM : les lignes, positionnées, se
+              peignent par-dessus lui — il est derrière leur texte, pas dessus. */}
+          <div
+            ref={frameRef}
+            aria-hidden
+            className="as-pop-frame pointer-events-none absolute left-0 right-0 top-0 rounded-xl"
+            style={{
+              border: `1px solid ${S.ic}66`,
+              background: `${S.ic}17`,
+              boxShadow: `0 0 22px ${S.ic}26`,
+            }}
+          />
           {ids.map((id, i) => {
             const def = BY_ID[id];
             const at = state.got[id];
             const p = live ? progress.get(id) ?? null : null;
-            const isCurrent = id === current;
+            const isSel = id === sel;
             const R = RARITY[def.rarity];
+            /* Un palier obtenu montre une barre PLEINE : c'est ce qu'il a
+               accompli, pas l'avancement du compteur vers un palier plus haut. */
+            const reach = p && p[1] > 1 ? (at != null ? p[1] : Math.min(p[0], p[1])) : null;
+            const fmt = (n: number) => n.toLocaleString(i18n.language || undefined);
             return (
               <div
                 key={id}
-                className="as-pop-row flex items-center gap-3 rounded-xl px-2.5 py-2"
+                ref={(el) => {
+                  if (el) rowRefs.current.set(id, el);
+                  else rowRefs.current.delete(id);
+                }}
+                role="button"
+                tabIndex={0}
+                aria-current={isSel ? "true" : undefined}
+                onClick={() => setSel(id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSel(id);
+                  }
+                }}
+                className="as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 outline-none focus-visible:ring-1 focus-visible:ring-white/30"
                 style={{
-                  /* Le palier du moment est le seul à porter un liseré : c'est
-                     lui qu'on est venu regarder. Les paliers gagnés portent la
-                     teinte de la ligne obtenue de l'onglet. */
-                  background: isCurrent
-                    ? `${R.ic}14`
-                    : at != null
+                  /* Les paliers gagnés portent la teinte de la ligne obtenue de
+                     l'onglet. Le liseré de la sélection, lui, est le cadre. */
+                  background:
+                    at != null
                       ? `linear-gradient(90deg, ${R.ic}1c, transparent 70%)`
                       : "transparent",
-                  border: `1px solid ${isCurrent ? `${R.ic}59` : "transparent"}`,
                   /* Les lignes arrivent l'une après l'autre, de haut en bas :
                      l'échelle se lit dans l'ordre où elle se gravit. */
                   animationDelay: `${40 + i * 45}ms`,
                 }}
               >
-                <BadgeToken
-                  id={def.id}
-                  rarity={def.rarity}
-                  icon={def.icon}
-                  tag={def.tag}
-                  unlocked={at != null}
-                  size={isCurrent ? TIER_TOKEN + 12 : TIER_TOKEN}
-                  animate={false}
-                  check
-                />
+                {/* Le jeton est dessiné une fois à la grande taille et réduit
+                    par `transform` : la taille d'un SVG ne se transitionne pas,
+                    une échelle si. La boîte autour suit la même courbe, pour
+                    que la ligne grandisse avec lui au lieu de sauter. */}
+                <div
+                  className="as-pop-tokenbox shrink-0"
+                  style={{ width: isSel ? TIER_TOKEN_SEL : TIER_TOKEN, height: isSel ? TIER_TOKEN_SEL : TIER_TOKEN }}
+                >
+                  <div
+                    className="as-pop-tokenscale"
+                    style={{ transform: `scale(${isSel ? 1 : TIER_TOKEN / TIER_TOKEN_SEL})` }}
+                  >
+                    <BadgeToken
+                      id={def.id}
+                      rarity={def.rarity}
+                      icon={def.icon}
+                      tag={def.tag}
+                      unlocked={at != null}
+                      size={TIER_TOKEN_SEL}
+                      animate={false}
+                      check
+                    />
+                  </div>
+                </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
@@ -899,17 +1078,24 @@ function LadderPopup({
                     </span>
                     {at != null ? <DatePill at={at} color={R.ic} /> : null}
                   </div>
-                  {at == null && live && p && p[1] > 1 ? (
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <Bar pct={Math.min(100, (p[0] / p[1]) * 100)} color={R.ic} />
-                      </div>
-                      <span className="font-karla shrink-0 text-[10px] tabular-nums text-white/40">
-                        {p[0].toLocaleString(i18n.language || undefined)} /{" "}
-                        {p[1].toLocaleString(i18n.language || undefined)}
-                      </span>
+                  {/* Rendu pour toutes les lignes et replié hors sélection : un
+                      dépli qui n'existerait que sélectionné ne pourrait pas se
+                      replier, il disparaîtrait d'un coup. */}
+                  <div className="as-pop-more">
+                    <div className="min-h-0 overflow-hidden">
+                      <Condition def={def} hidden={false} unlocked={at != null} />
+                      {reach != null && p ? (
+                        <div className="as-pop-bar mt-1.5 flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <Bar pct={Math.min(100, (reach / p[1]) * 100)} color={R.ic} />
+                          </div>
+                          <span className="font-karla shrink-0 text-[10px] tabular-nums text-white/40">
+                            {fmt(reach)} / {fmt(p[1])}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+                  </div>
                 </div>
               </div>
             );
@@ -932,16 +1118,17 @@ function LadderPopup({
 /* ── Les secrets ────────────────────────────────────────────────────────────── */
 
 function SecretSection({
-  state, progress, live, filter, keep,
+  state, progress, live, filter, keep, sort,
 }: {
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
   filter: Filter;
   keep: (b: BadgeDef) => boolean;
+  sort: Sort;
 }) {
   const { t } = useTranslation();
-  const rows = SECRETS.filter(keep);
+  const rows = sortRows(SECRETS.filter(keep), sort);
   if (!rows.length) return null;
   const done = SECRETS.filter((b) => state.got[b.id] != null).length;
 

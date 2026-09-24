@@ -1620,7 +1620,13 @@
       },
       "seeTiers": "See all tiers",
       "close": "Close",
-      "openInProfile": "View this badge in your profile"
+      "openInProfile": "View this badge in your profile",
+      "sort": {
+        "default": "Default order",
+        "rare": "Rarest first",
+        "common": "Most common first",
+        "label": "Sort badges"
+      }
     },
     "ep-1": {
       "name": "First step",

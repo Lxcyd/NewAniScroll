@@ -3927,6 +3927,72 @@ input[type="number"] {
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* La sélection d'un palier (cf. LadderPopup). Le TRAJET du cadre est en JS ; sa
+   COULEUR, elle, change ici, en même temps qu'il voyage. Il apparaît avec les
+   lignes plutôt qu'avant elles. */
+.as-pop-frame {
+  animation: asPopFade 260ms ease-out 120ms both;
+  transition:
+    border-color 380ms ease,
+    background-color 380ms ease,
+    box-shadow 380ms ease;
+  will-change: transform, height;
+}
+@keyframes asPopFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Le jeton sélectionné grandit, la boîte qui le porte aussi, sur la même
+   courbe : la ligne s'agrandit avec lui au lieu de sauter d'un coup. */
+.as-pop-tokenbox {
+  transition:
+    width 380ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.as-pop-tokenscale {
+  transform-origin: 0 0;
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Survoler un AUTRE palier le fait grossir, avec un léger dépassement : un
+   signe qu'il se choisit d'un clic. Plus marqué que dans la liste de l'onglet
+   (4 %), où l'on parcourt cent lignes ; ici on en compare six. */
+.as-pop-row .as-badge-token {
+  transition: transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.as-pop-row:not([aria-current="true"]):hover .as-badge-token {
+  transform: scale(1.14);
+}
+
+/* La condition et la barre du palier sélectionné se déplient ; celles du
+   palier quitté se replient. `grid-template-rows` 0fr → 1fr anime une hauteur
+   qu'on ne connaît pas d'avance, ce que `height: auto` ne sait pas faire. */
+.as-pop-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease;
+}
+.as-pop-row[aria-current="true"] .as-pop-more {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 260ms ease 80ms;
+}
+/* La barre se remplit à chaque sélection : l'animation repart dès que le
+   sélecteur se remet à correspondre. */
+.as-pop-row[aria-current="true"] .as-pop-bar > div > span > span {
+  transform-origin: left center;
+  animation: asPopBar 700ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+@keyframes asPopBar {
+  from { transform: scaleX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Même principe qu'au-dessus : on raccourcit, on ne supprime pas. Et les
      lignes perdent leur décalage, qui n'est que du confort. */

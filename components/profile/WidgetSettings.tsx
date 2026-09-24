@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WidgetOption } from "./WidgetGrid";
@@ -70,18 +70,46 @@ const SECTION = "rounded-xl px-2.5 py-2 transition-colors hover:bg-white/[0.05]"
  *
  * `.le-dd-compact` (globals.css) resserre seulement les espacements : le
  * panneau fait 260 px de large, contre les 700 de la fenêtre d'origine.
+ *
+ * Exporté : le tri de l'onglet Badges est le même geste, il prend le même menu.
  */
-function Dropdown({
+export function Dropdown({
   value,
   choices,
   onPick,
+  className = "mt-1.5",
+  label,
 }: {
   value: string;
   choices: { value: string; label: string; color?: string; heart?: boolean }[];
   onPick: (value: string) => void;
+  className?: string;
+  /** Nom accessible du bouton, quand rien autour ne dit à quoi il sert. */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const current = choices.find((c) => c.value === value) ?? choices[0];
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  /* Se referme au clic à côté et à Échap. Dans le panneau des réglages, fermer
+     le panneau suffisait à le faire disparaître ; posé seul sur une page, il
+     restait ouvert jusqu'à ce qu'on rechoisisse. `mousedown` et pas `click` :
+     le second arrive après que l'option a fait son travail. */
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", outside);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
 
   /* Le repere d'un choix : la pastille de sa liste, ou un COEUR pour les
      favoris. Les favoris ne sont pas une liste de plus — on n'y range pas, on y
@@ -145,11 +173,13 @@ function Dropdown({
     : undefined;
 
   return (
-    <div className="le-dd-field le-dd-compact mt-1.5">
+    <div ref={boxRef} className={`le-dd-field le-dd-compact ${className}`}>
       <button
         type="button"
         className="le-dd-trigger"
         style={tint}
+        aria-label={label}
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       >
         {mark(current)}

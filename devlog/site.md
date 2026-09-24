@@ -6,6 +6,39 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 4) — Le panneau des paliers se sélectionne ; tri par rareté ; onglets floutés
+
+**Barre d'onglets du profil** : seule surface sans `as-stat-card`, donc sans le
+flou du studio — l'illustration restait nette derrière « Aperçu / Ma liste /
+Statistiques / Badges ». Elle prend la classe comme les autres.
+
+**Tri par rareté** : menu à côté des filtres (tri par défaut, plus rares
+d'abord, plus communs d'abord). Il trie les lignes DANS chaque famille ; les
+familles gardent leur ordre, et une échelle se trie sur la rareté du palier
+montré, comme le filtre. C'est le menu des réglages de widget (`Dropdown`,
+désormais exporté de WidgetSettings) : il a appris à se fermer au clic à côté
+et à Échap, ce qui profite aussi aux réglages. L'en-tête passe en `z-20`, sinon
+les cartes suivantes (chacune son contexte d'empilement) recouvraient le menu.
+
+**Panneau des paliers** :
+- fond en verre (translucide, `blur(24px) saturate(1.4)`). Le voile est
+  devenu un calque FRÈRE du panneau : parent, il était la racine de fond du
+  panneau, dont le flou n'aurait vu que sa teinte unie ;
+- le défilement de la page ne gelait pas : `overflow: hidden` était posé sur
+  `body`, mais `html` porte `overflow-x: clip`, donc la valeur de `body` ne
+  remonte plus à la fenêtre. Posé sur `html` aussi (même remède qu'Artworks) ;
+- un clic sélectionne un palier : UN cadre unique glisse vers lui en prenant la
+  couleur de sa rareté, son jeton grandit (dessiné à 66 px, réduit par
+  `transform` pour que la taille s'anime), sa condition et sa barre se déplient
+  (`grid-template-rows` 0fr → 1fr) et la barre se remplit. Le trajet du cadre
+  est en JS parce que sa cible bouge pendant qu'il voyage : chaque image vise la
+  position COURANTE de la ligne. Un palier obtenu montre une barre pleine ;
+- survoler un autre palier fait grossir son jeton de 14 % avec un léger
+  dépassement.
+
+Aucune de ces animations n'est coupée sous `prefers-reduced-motion` : le Chrome
+de l'utilisateur répond `reduce` sans qu'il l'ait demandé (cf. mémoire).
+
 ## 2026-09-24 (suite 3) — Le flou du studio remplit de nouveau toute la carte
 
 **Le symptôme** : sur l'onglet Badges, « le blur ne fait pas la taille de la
