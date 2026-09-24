@@ -6,6 +6,21 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 7) — Le menu de rareté sans défilement ; la pilule des onglets glisse
+
+- **Menu de rareté** : `.le-dd-compact` plafonne la liste à 240 px (fait pour
+  les listes de l'utilisateur, en nombre libre) — les sept choix fixes en
+  débordaient d'un. `.as-dd-full` lève le plafond pour ce menu seul.
+  « Toutes les raretés » reçoit une lueur des six couleurs : une ombre par
+  rareté, décalée vers l'angle où la roue conique porte sa couleur (le
+  `Dropdown` accepte un `glow`).
+- **Onglets du profil** : la pilule rouge est UN élément qui glisse vers
+  l'onglet actif (`transform` + `width`, 420 ms), au lieu d'un fond par bouton.
+  Au premier rendu (serveur compris) le bouton actif porte encore son propre
+  fond ; la pilule le relaie au même endroit après mesure, sans transition,
+  puis seulement ensuite glisse. Un `ResizeObserver` la recale quand un libellé
+  change de largeur (le compteur de « Ma liste », la police).
+
 ## 2026-09-24 (suite 6) — Les pastilles du menu de rareté sont les anneaux ; les cases du panneau ont un bord
 
 - **Pastilles** : elles prenaient `RARITY[r].ic`, la couleur de l'ICÔNE, pâle

@@ -230,12 +230,22 @@ export default function ProfileBadges({
   };
 
   /* Les pastilles sont les ANNEAUX, pas les icônes : c'est la couleur qu'on
-     retient d'un jeton (cf. RING_STOPS). « Toutes » les réunit en une roue. */
-  const rarityChoices: { value: RarityPick; label: string; color?: string; swatch?: string }[] = [
+     retient d'un jeton (cf. RING_STOPS). « Toutes » les réunit en une roue, et
+     sa lueur aussi : une ombre par rareté, décalée vers l'angle où la roue
+     porte sa couleur (0° en haut, 60° par rareté, dans le sens horaire). */
+  const rarityChoices: {
+    value: RarityPick; label: string; color?: string; swatch?: string; glow?: string;
+  }[] = [
     {
       value: "all",
       label: t("badges.ui.rarityFilter.all", "Toutes les raretés"),
       swatch: `conic-gradient(${RARITY_ORDER.map((r) => RING_HUE[r]).join(", ")}, ${RING_HUE.c})`,
+      glow: RARITY_ORDER.map((r, i) => {
+        const a = (i / RARITY_ORDER.length) * 2 * Math.PI;
+        const x = (Math.sin(a) * 2).toFixed(1);
+        const y = (-Math.cos(a) * 2).toFixed(1);
+        return `${x}px ${y}px 5px ${RING_HUE[r]}`;
+      }).join(", "),
     },
     ...RARITY_ORDER.map((r) => ({
       value: r,
@@ -283,7 +293,7 @@ export default function ProfileBadges({
         <div className="flex flex-wrap items-center gap-2">
           {live && <PreviewButton />}
           <Dropdown
-            className="w-[190px]"
+            className="as-dd-full w-[190px]"
             label={t("badges.ui.rarityFilter.label", "Filtrer par rareté")}
             value={rarity}
             choices={rarityChoices}

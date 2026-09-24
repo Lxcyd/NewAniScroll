@@ -82,7 +82,7 @@ export function Dropdown({
   label,
 }: {
   value: string;
-  choices: { value: string; label: string; color?: string; swatch?: string; heart?: boolean }[];
+  choices: { value: string; label: string; color?: string; swatch?: string; glow?: string; heart?: boolean }[];
   onPick: (value: string) => void;
   className?: string;
   /** Nom accessible du bouton, quand rien autour ne dit à quoi il sert. */
@@ -117,7 +117,7 @@ export function Dropdown({
      epingle — et une septieme pastille ronde les aurait rangés avec les six
      autres. Il brille de la meme facon qu'elles (`box-shadow` / `drop-shadow`),
      donc il reste de la meme famille. */
-  const mark = (c?: { color?: string; swatch?: string; heart?: boolean }) =>
+  const mark = (c?: { color?: string; swatch?: string; glow?: string; heart?: boolean }) =>
     c?.heart ? (
       <svg
         /* LA BOÎTE COLLE AU DESSIN, ET LA LUEUR EN SORT.
@@ -152,12 +152,13 @@ export function Dropdown({
           className="le-dd-dot"
           /* `swatch` peint la pastille quand une teinte pleine ne dit pas tout
              (l'anneau dégradé d'une rareté) ; `color` garde la lueur, qu'un
-             dégradé ne sait pas porter. */
+             dégradé ne sait pas porter — sauf à la donner toute faite dans
+             `glow` (plusieurs ombres, une par couleur). */
           style={
             c?.swatch || c?.color
               ? {
                   background: c.swatch ?? c.color,
-                  boxShadow: c.color ? `0 0 6px ${c.color}` : undefined,
+                  boxShadow: c.glow ?? (c.color ? `0 0 6px ${c.color}` : undefined),
                 }
               : { background: "rgba(255,255,255,0.25)" }
           }

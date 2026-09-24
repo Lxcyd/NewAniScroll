@@ -2721,6 +2721,12 @@ input[type="number"] {
   max-height: 240px;
   overflow-y: auto;
 }
+/* Un menu COURT se montre en entier. Le plafond ci-dessus sert les listes de
+   l'utilisateur, dont le nombre est libre ; le menu de rareté en a sept, fixes,
+   et 240 px en coupaient la dernière derrière une barre de défilement. */
+.le-dd-compact.as-dd-full .le-dd-list {
+  max-height: none;
+}
 .le-dd-compact .le-dd-option {
   padding: 8px 10px;
   font-size: 12px;
