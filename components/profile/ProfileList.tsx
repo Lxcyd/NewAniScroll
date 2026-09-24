@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,17 @@ import type { ProfileEntry } from "@/lib/profile/types";
  * profile and the local /me profile all render through this one component and
  * cannot drift apart.
  */
+
+/**
+ * Les lignes rendues TOUT DE SUITE ; le reste suit dans une transition.
+ *
+ * Mesuré au CDP sur dev (682 titres) : ouvrir l'onglet rendait les 682 lignes
+ * d'un bloc, une tâche longue de ~140 ms. Le clic ne répondait donc à rien
+ * pendant ce temps — la pilule des onglets ne partait qu'après — puis tout
+ * arrivait d'un coup. Quarante lignes remplissent l'écran ; les autres sont
+ * rendues par React en tranches qu'il interrompt pour laisser passer le reste.
+ */
+const FIRST_ROWS = 40;
 
 const STATUS_ORDER = [
   "CURRENT",
@@ -83,6 +94,18 @@ export default function ProfileList({
   }, [shown]);
 
   const visible = filter === "all" ? groups : groups.filter((g) => g.status === filter);
+
+  /* Tout est-il rendu pour CE filtre ? La clé change avec le filtre et la note :
+     une nouvelle sélection repart de quarante lignes, sans rendu de remise à
+     zéro. */
+  const viewKey = `${filter}|${score ?? ""}`;
+  const [fullKey, setFullKey] = useState<string | null>(null);
+  const full = fullKey === viewKey;
+  useEffect(() => {
+    if (full) return;
+    startTransition(() => setFullKey(viewKey));
+  }, [full, viewKey]);
+  let budget = full ? Infinity : FIRST_ROWS;
 
   if (entries.length === 0) {
     return (
@@ -154,6 +177,9 @@ export default function ProfileList({
         {visible.map((g) => {
           const label = STATUS_TO_LIST[g.status] || g.status;
           const color = LIST_COLORS[label] || "#6b7280";
+          if (budget <= 0) return null;
+          const rows = g.entries.slice(0, budget);
+          budget -= rows.length;
           return (
             <section key={g.status} id={g.status.toLowerCase()}>
               <h2 className="mb-3 flex items-center gap-2.5">
@@ -166,8 +192,11 @@ export default function ProfileList({
                 </span>
                 <span className="text-xs text-white/35">{g.entries.length}</span>
               </h2>
-              <div className="overflow-hidden rounded-xl bg-white/[0.03] ring-1 ring-white/[0.07]">
-                {g.entries.map((e) => (
+              {/* `as-stat-card` comme toutes les surfaces du profil : le fond
+                  sombre et le flou du studio. La liste était la seule à laisser
+                  l'illustration nette derrière ses titres. */}
+              <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
+                {rows.map((e) => (
                   <Row key={e.mediaId} entry={e} color={color} href={animeHref(e.mediaId, clickTarget)} title={pickTitle(e.title, titlePref)} />
                 ))}
               </div>
@@ -196,7 +225,7 @@ function Chip({
       className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
         active
           ? "bg-action text-white shadow-glow"
-          : "bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10 hover:text-white"
+          : "as-stat-card text-white/60 ring-1 ring-white/10 hover:bg-white/10 hover:text-white"
       }`}
     >
       {color && !active ? (
@@ -227,7 +256,9 @@ function Row({
   return (
     <Link
       href={href}
-      className="group relative flex items-center gap-3 border-b border-white/[0.04] px-3 py-2.5 transition-colors last:border-0 hover:bg-white/[0.06]"
+      /* `as-list-row` : une ligne hors de l'écran n'est ni mise en page ni
+         peinte (cf. globals.css). */
+      className="as-list-row group relative flex items-center gap-3 border-b border-white/[0.04] px-3 py-2.5 transition-colors last:border-0 hover:bg-white/[0.06]"
     >
       {entry.cover ? (
         <Image

@@ -79,7 +79,7 @@ construit depuis `git log --since=<derniere release>`.
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
-| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 37 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
+| Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 38 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
 
@@ -198,6 +198,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-09-24 (suite 8) — Liste du profil : le clic rendait 682 lignes d'un bloc (tâche longue ~140 ms) → 40 d'abord, le reste en `startTransition`, `content-visibility` sur les lignes ; flou `as-stat-card` sur la liste, les pastilles et la file ; lueur « Toutes » ramenée à une seule
 - 2026-09-24 (suite 7) — Menu de rareté affiché en entier (plafond de 240 px levé pour lui seul) et lueur arc-en-ciel sur « Toutes » ; la pilule des onglets du profil glisse d'un onglet à l'autre
 - 2026-09-24 (suite 6) — Pastilles du menu de rareté = les anneaux (dégradés sortis dans `rarity.ts`, une seule source pour le SVG et le CSS) ; les cases obtenues du panneau reprennent le bord de l'onglet
 - 2026-09-24 (suite 5) — Panneau des paliers : le trait à droite des cases était le dégradé répété sous une bordure transparente ; le voile floutait et noircissait déjà, si bien que le flou du panneau ne se voyait pas — voile allégé et sans flou

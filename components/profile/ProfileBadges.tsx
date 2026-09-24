@@ -240,11 +240,15 @@ export default function ProfileBadges({
       value: "all",
       label: t("badges.ui.rarityFilter.all", "Toutes les raretés"),
       swatch: `conic-gradient(${RARITY_ORDER.map((r) => RING_HUE[r]).join(", ")}, ${RING_HUE.c})`,
+      /* Six ombres à 22 % et pas six pleines : elles se cumulent, et à pleine
+         teinte la roue brillait six fois plus que ses voisines. À 22 % leur
+         somme (1 − 0,78⁶ ≈ 0,77) retombe sur la lueur d'UNE pastille — même
+         flou de 6 px que les autres, seules les couleurs changent de côté. */
       glow: RARITY_ORDER.map((r, i) => {
         const a = (i / RARITY_ORDER.length) * 2 * Math.PI;
-        const x = (Math.sin(a) * 2).toFixed(1);
-        const y = (-Math.cos(a) * 2).toFixed(1);
-        return `${x}px ${y}px 5px ${RING_HUE[r]}`;
+        const x = (Math.sin(a) * 1.5).toFixed(1);
+        const y = (-Math.cos(a) * 1.5).toFixed(1);
+        return `${x}px ${y}px 6px ${RING_HUE[r]}38`;
       }).join(", "),
     },
     ...RARITY_ORDER.map((r) => ({

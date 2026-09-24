@@ -6,6 +6,29 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 8) — La liste du profil : le flou, et un clic qui ne gèle plus la page
+
+**Mesuré au CDP sur dev** (profil de 682 titres, visiteur) : page en 1,3 s
+(TTFB 237 ms, `__NEXT_DATA__` 272 Ko), vignettes paresseuses (17 requêtes à
+l'ouverture, la pire à 386 ms). Ce qui est lent, c'est le CLIC : l'onglet
+rendait les 682 lignes d'un bloc, une tâche longue de ~140 ms pendant laquelle
+rien ne répond — la pilule des onglets ne part qu'après, puis tout arrive
+d'un coup.
+
+- 40 lignes rendues tout de suite, le reste dans une `startTransition` (React
+  la découpe et l'interrompt) ; la clé filtre|note fait repartir de 40 à
+  chaque nouvelle sélection sans rendu de remise à zéro.
+- `.as-list-row` : `content-visibility: auto` + `contain-intrinsic-size: auto
+  77px` (hauteur réelle d'une ligne), les lignes hors écran ne sont ni mises en
+  page ni peintes.
+- Le flou : les blocs de la liste, les pastilles de statut inactives et la file
+  « À suivre » prennent `as-stat-card` (la file aussi sur /my-list, où la
+  classe ne pose que son fond sombre, faute de papier peint).
+- Lueur de « Toutes les raretés » ramenée à celle d'une pastille : six ombres à
+  22 % (1 − 0,78⁶ ≈ 0,77) au lieu de six pleines.
+
+À re-mesurer une fois déployé : la tâche longue au clic doit disparaître.
+
 ## 2026-09-24 (suite 7) — Le menu de rareté sans défilement ; la pilule des onglets glisse
 
 - **Menu de rareté** : `.le-dd-compact` plafonne la liste à 240 px (fait pour

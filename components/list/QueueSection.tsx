@@ -25,7 +25,7 @@ export default function QueueSection() {
         </svg>
         {t("queue.title")}
       </h2>
-      <div className="overflow-hidden rounded-lg bg-white/[0.03] ring-1 ring-white/5">
+      <div className="as-stat-card overflow-hidden rounded-lg ring-1 ring-white/5">
         {queue.map((q, i) => (
           <div
             key={q.mediaId}
