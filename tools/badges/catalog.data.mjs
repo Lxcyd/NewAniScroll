@@ -223,7 +223,7 @@ export const CATALOG = {
       "Maître", "Termine 200 anime.",
       "Master", "Finish 200 anime."],
     ["fin-500", "m", "bookmarkCheck", "500", count("completed", 500),
-      "Hotaku", "Termine 500 anime.",
+      "Otaku", "Termine 500 anime.",
       "Otaku", "Finish 500 anime."],
   ],
 
