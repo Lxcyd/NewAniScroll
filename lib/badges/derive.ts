@@ -132,6 +132,11 @@ export type Derived = {
   /** Franchises entièrement terminées, par nombre de saisons. */
   franchiseOf: (minSeasons: number) => number | null;
 
+  /** Le vocabulaire lui-même, et les lecteurs proposés : le DÉTAIL d'un badge
+   *  (lib/badges/detail.ts) montre chaque case, pas seulement leur nombre. */
+  vocab: { genres: string[]; tags: string[] } | null;
+  displayedHosts: string[];
+
   /* ── Faits ──────────────────────────────────────────────────────────────── */
   facts: Facts;
   /** Lecteurs distincts utilisés, sur ceux que le site propose. */
@@ -161,8 +166,9 @@ function fuzzyDay(d: { year: number | null; month: number | null; day: number | 
   return `${d.year}-${d.month}-${d.day}`;
 }
 
-/** Le titre d'une entrée, dans l'ordre de préférence habituel. */
-function titleOf(e: LocalEntry): string {
+/** Le titre d'une entrée, dans l'ordre de préférence habituel. Exporté : le
+ *  détail de « A à Z » doit classer par la MÊME initiale que le compte. */
+export function titleOf(e: LocalEntry): string {
   const t = e.title;
   return t?.english || t?.romaji || t?.userPreferred || t?.native || "";
 }
@@ -460,6 +466,8 @@ export function derive(s: Snapshot): Derived {
     vocabTags: s.vocab ? s.vocab.tags.length : null,
     franchiseOf: (minSeasons) =>
       franchiseSizes == null ? null : franchiseSizes.filter((n) => n >= minSeasons).length,
+    vocab: s.vocab,
+    displayedHosts: s.displayedHosts,
 
     facts: s.facts,
     hostsUsed: hostSet.size,

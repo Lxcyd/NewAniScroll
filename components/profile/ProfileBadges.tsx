@@ -22,6 +22,9 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import Image from "next/image";
+import Link from "next/link";
+import { MdFormatListBulleted, MdGridView } from "react-icons/md";
 import { useTranslation } from "react-i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
@@ -29,6 +32,12 @@ import {
 } from "@/lib/badges/catalog";
 import { announce } from "@/lib/badges/achievementStore";
 import { beginQuiet, endQuiet, flush, progressAll } from "@/lib/badges/evaluate";
+import type { Derived } from "@/lib/badges/derive";
+import { detailKind, detailOf, type Detail, type DetailCell } from "@/lib/badges/detail";
+import { genreLabel } from "@/lib/i18n/genreLabel";
+import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
+import type { LocalEntry } from "@/lib/list/localList";
 import { backfillMetadata } from "@/lib/badges/metaBackfill";
 import { recordFlag } from "@/lib/badges/facts";
 import { revealAnchor, revealTarget } from "@/lib/badges/reveal";
@@ -100,6 +109,8 @@ export default function ProfileBadges({
   const [filter, setFilter] = useState<Filter>("all");
   const [rarity, setRarity] = useState<RarityPick>("all");
   const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
+  /** Les mesures elles-mêmes, pour le DÉTAIL d'un badge (lib/badges/detail.ts). */
+  const [derived, setDerived] = useState<Derived | null>(null);
 
   /* Chez soi : on mesure, et on lance le rattrapage des métadonnées.
      Les DEUX sont ici et pas au chargement du site — personne ne doit payer,
@@ -112,7 +123,9 @@ export default function ProfileBadges({
        immédiat, l'évaluation débouncée du drapeau tomberait deux secondes plus
        tard, c'est-à-dire pendant le rattrapage — et serait tue avec lui. */
     flush();
-    setProgress(progressAll().progress);
+    const first = progressAll();
+    setProgress(first.progress);
+    setDerived(first.d);
 
     /* LE RATTRAPAGE EST SILENCIEUX, ET C'EST ICI QU'ON LE DÉCIDE.
        Il rend mesurables d'un coup les familles Genres et Découverte pour toute
@@ -129,7 +142,9 @@ export default function ProfileBadges({
     void backfillMetadata().finally(() => {
       flush();
       endQuiet();
-      setProgress(progressAll().progress);
+      const next = progressAll();
+      setProgress(next.progress);
+      setDerived(next.d);
     });
   }, [live]);
 
@@ -345,6 +360,7 @@ export default function ProfileBadges({
                   live={live}
                   filter={filter}
                   ladderProgress={progress}
+                  derived={live ? derived : null}
                 />
               ))}
             </div>
@@ -359,6 +375,7 @@ export default function ProfileBadges({
         live={live}
         filter={filter}
         keep={keep}
+        derived={derived}
       />
     </div>
   );
@@ -554,7 +571,7 @@ function PreviewButton() {
 /* ── Une ligne ──────────────────────────────────────────────────────────────── */
 
 function BadgeRow({
-  def, state, progress, live, filter, ladderProgress, hidden = false,
+  def, state, progress, live, filter, ladderProgress, derived, hidden = false,
 }: {
   def: BadgeDef;
   state: BadgeState;
@@ -562,6 +579,8 @@ function BadgeRow({
   live: boolean;
   filter: Filter;
   ladderProgress: Map<string, Progress>;
+  /** Chez soi seulement : les mesures d'où sort le détail. `null` ailleurs. */
+  derived: Derived | null;
   hidden?: boolean;
 }) {
   const { t } = useTranslation();
@@ -645,6 +664,13 @@ function BadgeRow({
         {unlocked && (
           <DatePill at={at} color={R.ic} />
         )}
+
+        {/* Le détail : QUOI remplit le badge, case par case. Jamais sur un
+            secret verrouillé — sa condition est cachée, ses cases la
+            donneraient. */}
+        {derived && !(hidden && !unlocked) ? (
+          <DetailButton def={def} derived={derived} progress={progress} />
+        ) : null}
 
         {/* L'ÉCHELLE COMPLÈTE S'OUVRE, ELLE NE SE DÉPLIE PLUS.
             Le dépli montrait les AUTRES paliers : la suite avait donc un trou à
@@ -867,11 +893,110 @@ function LadderButton({
 }
 
 /**
- * Le panneau d'une échelle : TOUS les paliers, et UN palier sélectionné.
+ * La coque des panneaux de l'onglet (paliers, détail) : portée sur le corps du
+ * document, un voile, une carte de verre, Échap et le bouton Fermer.
  *
- * Porté sur `document.body` : la ligne d'où il part vit dans une carte qui a son
- * propre contexte d'empilement et un fond flouté — un panneau rendu là-dedans
- * se retrouverait coincé derrière la ligne suivante.
+ * Portée sur `document.body` : la ligne d'où part un panneau vit dans une carte
+ * qui a son propre contexte d'empilement et un fond flouté — rendu là-dedans,
+ * il se retrouverait coincé derrière la ligne suivante.
+ */
+function PopShell({
+  tint, glow, onClose, children,
+}: {
+  /** La teinte du haut de la carte. */
+  tint: string;
+  /** La lueur autour d'elle. */
+  glow: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+
+  /* Échap ferme, et le défilement de la page est gelé tant que le panneau est
+     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui.
+
+     SUR `html`, PAS SEULEMENT SUR `body`, et c'est ce qui manquait. `html`
+     porte `overflow-x: clip` (globals.css) : dès que sa propre valeur n'est plus
+     `visible`, celle de `body` ne remonte plus jusqu'à la fenêtre et ne gèle
+     que `body` lui-même, qui n'a rien à faire défiler. La page continuait donc
+     de glisser sous le panneau. Même remède que la visionneuse d'Artworks. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const html = document.documentElement.style;
+    const body = document.body.style;
+    const prev = [html.overflow, body.overflow];
+    html.overflow = "hidden";
+    body.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      [html.overflow, body.overflow] = prev;
+    };
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 999999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      {/* Le voile est un calque FRÈRE du panneau, et non son parent. Un
+          élément qui porte un `backdrop-filter` devient la racine de fond de ses
+          descendants : le flou du panneau n'aurait vu que la teinte unie du
+          voile, pas la page. Frères, le panneau floute ce que le voile montre. */}
+      <div className="as-pop-back" aria-hidden style={{ position: "absolute", inset: 0 }} />
+      <div
+        className="as-pop-card"
+        /* Le clic sur le panneau ne doit pas traverser jusqu'au fond, qui ferme. */
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "relative",
+          width: "min(560px, 100%)",
+          maxHeight: "min(82vh, 760px)",
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          borderRadius: 18,
+          border: "1px solid rgba(255,255,255,.1)",
+          /* Du verre, pas une plaque : la page se devine au travers, floutée.
+             Assez de teinte pour que le texte se lise sur une illustration
+             claire, pas assez pour la cacher. */
+          background: `linear-gradient(180deg, ${tint}1a, rgba(18,18,26,.4) 24%, rgba(14,14,20,.34))`,
+          backdropFilter: "blur(24px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+          boxShadow: `0 24px 70px rgba(0,0,0,.55), 0 0 40px ${glow}24`,
+          transition: "box-shadow 380ms ease",
+          padding: 18,
+        }}
+      >
+        {children}
+        <button
+          type="button"
+          onClick={onClose}
+          className="font-outfit mt-4 w-full rounded-lg border border-white/10 bg-white/[.04] py-2 text-[12px] font-semibold text-white/60 transition-colors hocus:bg-white/[.08] hocus:text-white/90"
+        >
+          {t("badges.ui.close", "Fermer")}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Le panneau d'une échelle : TOUS les paliers, et UN palier sélectionné.
  *
  * ── LA SÉLECTION ─────────────────────────────────────────────────────────────
  * Le panneau s'ouvre sur le palier du moment, et un clic sur n'importe quel
@@ -904,30 +1029,6 @@ function LadderPopup({
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   /** Où le cadre est posé, pour partir de là au prochain clic. */
   const framePos = useRef<{ top: number; h: number } | null>(null);
-
-  /* Échap ferme, et le défilement de la page est gelé tant que le panneau est
-     ouvert — sinon la molette fait glisser la liste DERRIÈRE lui.
-
-     SUR `html`, PAS SEULEMENT SUR `body`, et c'est ce qui manquait. `html`
-     porte `overflow-x: clip` (globals.css) : dès que sa propre valeur n'est plus
-     `visible`, celle de `body` ne remonte plus jusqu'à la fenêtre et ne gèle
-     que `body` lui-même, qui n'a rien à faire défiler. La page continuait donc
-     de glisser sous le panneau. Même remède que la visionneuse d'Artworks. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    const html = document.documentElement.style;
-    const body = document.body.style;
-    const prev = [html.overflow, body.overflow];
-    html.overflow = "hidden";
-    body.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      [html.overflow, body.overflow] = prev;
-    };
-  }, [onClose]);
 
   /* Le trajet du cadre. Au premier passage il est POSÉ, sans trajet : il
      arrive avec les lignes. Ensuite il part de là où il est et vise, à chaque
@@ -983,53 +1084,11 @@ function LadderPopup({
     };
   }, [sel]);
 
-  if (typeof document === "undefined") return null;
   const S = RARITY[BY_ID[sel].rarity];
 
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 999999,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 16,
-      }}
-    >
-      {/* Le voile est un calque FRÈRE du panneau, et non son parent. Un
-          élément qui porte un `backdrop-filter` devient la racine de fond de ses
-          descendants : le flou du panneau n'aurait vu que la teinte unie du
-          voile, pas la page. Frères, le panneau floute ce que le voile montre. */}
-      <div className="as-pop-back" aria-hidden style={{ position: "absolute", inset: 0 }} />
-      <div
-        className="as-pop-card"
-        /* Le clic sur le panneau ne doit pas traverser jusqu'au fond, qui ferme. */
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "relative",
-          width: "min(560px, 100%)",
-          maxHeight: "min(82vh, 760px)",
-          overflowY: "auto",
-          overscrollBehavior: "contain",
-          borderRadius: 18,
-          border: "1px solid rgba(255,255,255,.1)",
-          /* Du verre, pas une plaque : la page se devine au travers, floutée.
-             Assez de teinte pour que le texte se lise sur une illustration
-             claire, pas assez pour la cacher. */
-          background: `linear-gradient(180deg, ${color}1a, rgba(18,18,26,.4) 24%, rgba(14,14,20,.34))`,
-          backdropFilter: "blur(24px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-          // La lueur suit la sélection, comme le cadre.
-          boxShadow: `0 24px 70px rgba(0,0,0,.55), 0 0 40px ${S.ic}24`,
-          transition: "box-shadow 380ms ease",
-          padding: 18,
-        }}
-      >
+  // La lueur suit la sélection, comme le cadre.
+  return (
+    <PopShell tint={color} glow={S.ic} onClose={onClose}>
         <div className="mb-4 flex items-baseline gap-3">
           <h3 className="font-outfit m-0 text-[16px] font-semibold text-white">
             {t(`badges.${ids[0]}.name`)}
@@ -1177,29 +1236,259 @@ function LadderPopup({
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="font-outfit mt-4 w-full rounded-lg border border-white/10 bg-white/[.04] py-2 text-[12px] font-semibold text-white/60 transition-colors hocus:bg-white/[.08] hocus:text-white/90"
-        >
-          {t("badges.ui.close", "Fermer")}
-        </button>
+    </PopShell>
+  );
+}
+
+/* ── Le détail d'un badge ───────────────────────────────────────────────────── */
+
+/**
+ * Le bouton « Détail » d'une ligne, et le panneau qu'il ouvre.
+ *
+ * Le détail n'est calculé qu'à l'ouverture (`detailOf`) : la ligne ne demande
+ * que sa FORME (`detailKind`), pour l'icône — une grille de cases ou une liste
+ * d'anime.
+ */
+function DetailButton({
+  def, derived, progress,
+}: {
+  def: BadgeDef;
+  derived: Derived;
+  progress: Progress;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const kind = detailKind(def, derived);
+  const detail = useMemo(() => (open ? detailOf(def, derived) : null), [open, def, derived]);
+  if (!kind) return null;
+  const Icon = kind === "grid" ? MdGridView : MdFormatListBulleted;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={t("badges.ui.detail.open", "Voir le détail")}
+        aria-label={t("badges.ui.detail.open", "Voir le détail")}
+        className="ml-1 flex shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-2 transition-colors hocus:border-white/25 hocus:bg-white/[.08]"
+      >
+        <Icon size={15} className="text-white/45" aria-hidden="true" />
+        <span className="font-karla text-[9px] leading-none text-white/30">
+          {t("badges.ui.detail.short", "Détail")}
+        </span>
+      </button>
+      {open && detail ? (
+        <DetailPopup def={def} detail={detail} progress={progress} onClose={() => setOpen(false)} />
+      ) : null}
+    </>
+  );
+}
+
+function DetailPopup({
+  def, detail, progress, onClose,
+}: {
+  def: BadgeDef;
+  detail: Detail;
+  progress: Progress;
+  onClose: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const R = RARITY[def.rarity];
+
+  return (
+    <PopShell tint={R.ic} glow={R.ic} onClose={onClose}>
+      <div className="mb-1 flex items-baseline gap-3">
+        <h3 className="font-outfit m-0 text-[16px] font-semibold text-white">
+          {t(`badges.${def.id}.name`)}
+        </h3>
+        {progress && progress[1] > 1 ? (
+          <span
+            className="font-karla ml-auto shrink-0 text-[11px] tabular-nums"
+            style={{ color: R.ic }}
+          >
+            {progressText(def, progress[0], progress[1], i18n.language, t)}
+          </span>
+        ) : null}
       </div>
-    </div>,
-    document.body,
+      <p className="m-0 mb-4 font-karla text-[12px] leading-snug text-white/40">
+        {t(`badges.${def.id}.cond`)}
+      </p>
+      {detail.kind === "grid" ? (
+        <DetailGrid detail={detail} color={R.ic} />
+      ) : (
+        <AnimeList items={detail.items} />
+      )}
+    </PopShell>
+  );
+}
+
+/**
+ * La grille : une case par élément à couvrir, les manquantes en pointillés
+ * (la case vide de l'onglet), et un clic sur une case remplie pour voir les
+ * anime qui la remplissent.
+ */
+function DetailGrid({
+  detail, color,
+}: {
+  detail: Extract<Detail, { kind: "grid" }>;
+  color: string;
+}) {
+  const { t } = useTranslation();
+  const [pick, setPick] = useState<string | null>(null);
+  const [show, setShow] = useState<"all" | "missing" | "done">("all");
+  const missing = detail.cells.filter((c) => !c.done).length;
+  const covered = detail.cells.length - missing;
+  const cells = detail.cells.filter((c) =>
+    show === "missing" ? !c.done : show === "done" ? c.done : true,
+  );
+  const picked = detail.cells.find((c) => c.key === pick) ?? null;
+  const label = (c: DetailCell) => (detail.labels === "genre" ? genreLabel(t, c.label) : c.label);
+
+  const filters: { k: typeof show; label: string; n: number }[] = [
+    { k: "all", label: t("badges.ui.detail.all", "Tous"), n: detail.cells.length },
+    { k: "missing", label: t("badges.ui.detail.missing", "Manquants"), n: missing },
+    { k: "done", label: t("badges.ui.detail.covered", "Couverts"), n: covered },
+  ];
+
+  return (
+    <>
+      {/* Les filtres ne servent que s'il y a les deux sortes de cases : le
+          classement des studios, par exemple, n'a pas de case vide. */}
+      {missing > 0 && covered > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {filters.map((f) => (
+            <button
+              key={f.k}
+              type="button"
+              onClick={() => setShow(f.k)}
+              className={
+                "font-outfit rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors " +
+                (show === f.k
+                  ? "border-white/30 bg-white/10 text-white"
+                  : "border-white/10 bg-white/[.03] text-white/50 hocus:text-white/80")
+              }
+            >
+              {f.label}
+              <span className="ml-1.5 text-[10px] opacity-60">{f.n}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-1.5">
+        {cells.map((c) => {
+          const on = c.key === pick;
+          const clickable = detail.browsable && c.done;
+          return (
+            <button
+              key={c.key}
+              type="button"
+              disabled={!clickable}
+              aria-pressed={clickable ? on : undefined}
+              onClick={() => setPick(on ? null : c.key)}
+              className={
+                "font-karla inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] tabular-nums transition-colors " +
+                (c.done
+                  ? "text-white ring-1 ring-inset " + (clickable ? "cursor-pointer" : "cursor-default")
+                  : "cursor-default text-white/35 outline-dashed outline-1 -outline-offset-1 outline-white/[.16]")
+              }
+              style={
+                c.done
+                  ? ({
+                      background: on ? `${color}47` : `${color}1f`,
+                      "--tw-ring-color": on ? color : `${color}4d`,
+                    } as CSSProperties)
+                  : undefined
+              }
+            >
+              {label(c)}
+              {detail.browsable && c.done ? (
+                <span className="text-[10px] opacity-60">{c.items.length}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      {detail.browsable ? (
+        picked ? (
+          <div className="mt-4">
+            <p className="m-0 mb-2 font-outfit text-[12px] font-semibold" style={{ color }}>
+              {label(picked)} ·{" "}
+              {t("badges.ui.detail.animeCount", {
+                count: picked.items.length,
+                defaultValue: "{{count}} anime",
+              })}
+            </p>
+            <AnimeList items={picked.items} />
+          </div>
+        ) : covered > 0 ? (
+          <p className="m-0 mt-4 font-karla text-[11.5px] italic text-white/30">
+            {t("badges.ui.detail.pick", "Choisis une case remplie pour voir ses anime.")}
+          </p>
+        ) : null
+      ) : null}
+    </>
+  );
+}
+
+/** Les anime d'une case ou d'un seuil : vignette, titre, année — et un lien. */
+function AnimeList({ items }: { items: LocalEntry[] }) {
+  const { t } = useTranslation();
+  const titlePref = useTitlePref();
+  const clickTarget = useClickTarget();
+  if (!items.length) {
+    return (
+      <p className="m-0 font-karla text-[12px] italic text-white/30">
+        {t("badges.ui.detail.empty", "Aucun anime terminé ne compte encore.")}
+      </p>
+    );
+  }
+  return (
+    <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+      {items.map((e) => (
+        <li key={e.mediaId}>
+          <Link
+            href={animeHref(e.mediaId, clickTarget)}
+            className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[.06]"
+          >
+            {e.coverImage ? (
+              <Image
+                src={e.coverImage}
+                alt=""
+                width={30}
+                height={42}
+                className="h-[42px] w-[30px] shrink-0 rounded object-cover"
+              />
+            ) : (
+              <span className="h-[42px] w-[30px] shrink-0 rounded bg-white/10" />
+            )}
+            <span className="min-w-0 flex-1 truncate font-karla text-[13px] text-white/85">
+              {pickTitle(e.title, titlePref)}
+            </span>
+            {e.year ? (
+              <span className="shrink-0 font-karla text-[11px] tabular-nums text-white/35">
+                {e.year}
+              </span>
+            ) : null}
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /* ── Les secrets ────────────────────────────────────────────────────────────── */
 
 function SecretSection({
-  state, progress, live, filter, keep,
+  state, progress, live, filter, keep, derived,
 }: {
   state: BadgeState;
   progress: Map<string, Progress>;
   live: boolean;
   filter: Filter;
   keep: (b: BadgeDef) => boolean;
+  derived: Derived | null;
 }) {
   const { t } = useTranslation();
   const rows = SECRETS.filter(keep);
@@ -1229,6 +1518,7 @@ function SecretSection({
             live={live}
             filter={filter}
             ladderProgress={progress}
+            derived={live ? derived : null}
             hidden
           />
         ))}

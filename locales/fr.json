@@ -1620,6 +1620,17 @@
       "seeTiers": "Voir tous les paliers",
       "close": "Fermer",
       "openInProfile": "Voir ce badge dans le profil",
+      "detail": {
+        "open": "Voir le détail",
+        "short": "Détail",
+        "all": "Tous",
+        "missing": "Manquants",
+        "covered": "Couverts",
+        "pick": "Choisis une case remplie pour voir ses anime.",
+        "empty": "Aucun anime terminé ne compte encore.",
+        "animeCount_one": "{{count}} anime",
+        "animeCount_other": "{{count}} anime"
+      },
       "unit": {
         "h": "h",
         "d": "j"

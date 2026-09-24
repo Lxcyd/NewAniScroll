@@ -594,6 +594,59 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("« Collection complète » s'exclut elle-même", m("complete", snap(), state(got))[1], 100);
 }
 
+/* ── Le détail dit ce que le compte dit ─────────────────────────────────────
+   lib/badges/detail.ts rejoue la mesure case par case (années, lettres,
+   genres…). Une case remplie là-bas doit être une case comptée ici : sinon le
+   panneau montrerait 23 années pour une barre à 22. On compare donc, pour
+   CHAQUE badge qui a un détail, les cases remplies au courant de `measure`. */
+{
+  const { detailOf, detailKind } = await load("lib/badges/detail.ts");
+  const mk = (id, title, year, extra = {}) => ({
+    mediaId: id, status: "COMPLETED", progress: 12, total: 12, title: { english: title },
+    year, genres: ["Action"], tags: ["School"], format: "TV", studio: "MAPPA",
+    popularity: 100000, ...extra,
+  });
+  const list = {};
+  [
+    mk(1, "Akira", 1988, { format: "MOVIE", studio: "TMS", popularity: 3000 }),
+    mk(2, "Berserk", 1997),
+    mk(3, "Cowboy Bebop", 1998, { genres: ["Sci-Fi"] }),
+    mk(4, "Another Show", 1998),
+    mk(5, "Zankyou", 2014),
+    mk(6, "12 Days", 2020), // une initiale qui n'est pas une lettre ne compte pas
+    mk(7, "Planned", 2001, { status: "PLANNING" }), // non terminé : ne compte nulle part
+  ].forEach((e) => (list[e.mediaId] = e));
+  const d = derive(snap({
+    list,
+    facts: { ...EMPTY_FACTS, hosts: ["a"] },
+    vocab: { genres: ["Action", "Sci-Fi", "Horror"], tags: ["School", "Isekai"] },
+  }));
+
+  for (const def of all) {
+    const kind = detailKind(def, d);
+    if (!kind) continue;
+    const det = detailOf(def, d);
+    check(`${def.id} : forme du détail`, det?.kind, kind);
+    const p = measure(def, d, state());
+    if (!p || !det) continue;
+    if (det.kind === "list") {
+      check(`${def.id} : anime listés = courant`, det.items.length, p[0]);
+    } else if (def.metric.k === "studio") {
+      check(`${def.id} : premier studio = courant`, det.cells[0].items.length, p[0]);
+    } else {
+      check(`${def.id} : cases remplies = courant`, det.cells.filter((c) => c.done).length, p[0]);
+      check(`${def.id} : cases = cible`, det.cells.length, p[1]);
+    }
+  }
+  const years = detailOf(all.find((b) => b.metric.k === "years"), d);
+  check("1998 porte ses deux anime", years.cells.find((c) => c.key === "1998").items.length, 2);
+  ok("2001 reste vide : un anime en projet ne remplit rien", !years.cells.find((c) => c.key === "2001").done);
+  const az = detailOf(all.find((b) => b.metric.k === "alphabet"), d);
+  check("A : Akira et Another Show", az.cells.find((c) => c.key === "A").items.map((e) => e.mediaId), [1, 4]);
+  ok("pas de vocabulaire, pas de détail des genres",
+    !detailKind(all.find((b) => b.metric.k === "allGenres"), derive(snap())));
+}
+
 /* ── Verdict ──────────────────────────────────────────────────────────────── */
 
 if (failures.length) {

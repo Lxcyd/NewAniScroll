@@ -6,6 +6,27 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 12) — Le détail d'un badge : quelles cases manquent, et quels anime remplissent les autres
+
+« Toutes les années » à 22 / 57 pose aussitôt « lesquelles ? ». Un bouton
+**Détail** sur les lignes concernées ouvre un panneau (même coque que celui des
+paliers, sortie en `PopShell`) :
+
+- **grille** pour les ensembles à couvrir — années (1970 → année en cours),
+  lettres A-Z, tous les genres, tous les tags, tous les lecteurs — et le
+  classement des studios. Case manquante en pointillés, case remplie teintée
+  avec son nombre d'anime ; un clic la déplie en liste (vignette, titre, année,
+  lien). Filtres Tous / Manquants / Couverts quand il y a des deux ;
+- **liste** des anime qui comptent pour un seuil — genre, tag, films, avant une
+  année, pépites peu vues, studio nommé.
+
+`lib/badges/detail.ts` rejoue la mesure avec les MÊMES règles que `derive.ts`
+(`titleOf` exporté pour l'initiale ; `vocab` et `displayedHosts` ajoutés à
+`Derived`). Calculé à l'ouverture seulement. Chez soi seulement (les données
+sont celles de l'appareil) et jamais sur un secret verrouillé.
+`check-catalog.mjs` vérifie pour chaque badge à détail que les cases remplies
+égalent le courant de `measure` : 1 122 assertions.
+
 ## 2026-09-24 (suite 11) — L'avancement des badges de temps dans l'unité de leur plaque
 
 Les compteurs de temps sont en minutes (`metric.of: "minutes"`) : « Cent jours

@@ -1620,6 +1620,17 @@
       "seeTiers": "See all tiers",
       "close": "Close",
       "openInProfile": "View this badge in your profile",
+      "detail": {
+        "open": "See details",
+        "short": "Details",
+        "all": "All",
+        "missing": "Missing",
+        "covered": "Covered",
+        "pick": "Pick a filled cell to see its anime.",
+        "empty": "No finished anime counts yet.",
+        "animeCount_one": "{{count}} anime",
+        "animeCount_other": "{{count}} anime"
+      },
       "unit": {
         "h": "h",
         "d": "d"
