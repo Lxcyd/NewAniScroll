@@ -507,7 +507,15 @@ function BadgeRow({
          navbar collante : sans elle, `scrollIntoView` pose la ligne visée
          PILE dessous, donc invisible. */
       id={revealAnchor(def.id)}
-      className="as-badge-row as-stat-card scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 ring-1 ring-white/[.08] transition-colors hocus:ring-white/[.16]"
+      /* À obtenir : une case vide, sans fond, bordée de pointillés. Obtenu : la
+         carte pleine. C'est la ligne qui dit la possession — le jeton, lui,
+         garde sa couleur de rareté, trop forte pour porter les deux. */
+      className={
+        "as-badge-row scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 transition-colors " +
+        (unlocked
+          ? "as-stat-card ring-1 ring-white/[.08] hocus:ring-white/[.16]"
+          : "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
+      }
       /* Obtenu : la ligne se teinte à la couleur de rareté, liseré compris.
          Le dégradé de plaque est repris tel quel (mêmes variables que
          .as-stat-card) : un `background` en ligne écrase celui de la classe. */
