@@ -1778,12 +1778,12 @@
       "cond": "Termine un anime sorti avant 1975."
     },
     "decades": {
-      "name": "Toutes les décennies",
-      "cond": "Termine un anime de chaque décennie depuis les années 70."
+      "name": "Toutes les années",
+      "cond": "Termine un anime sorti chaque année, de 1970 à aujourd'hui."
     },
     "big-three": {
       "name": "Big Three",
-      "cond": "Termine One Piece, Naruto ou Bleach."
+      "cond": "Regarde un épisode de One Piece, Naruto ou Bleach."
     },
     "planning": {
       "name": "Impatient",

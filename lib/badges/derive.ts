@@ -111,6 +111,8 @@ export type Derived = {
   before: (year: number) => number | null;
   /** Décennies distinctes couvertes depuis `from`. */
   decades: (from: number) => number | null;
+  /** Années distinctes couvertes de `from` à `to` inclus. */
+  years: (from: number, to: number) => number | null;
   /** Le studio le mieux représenté, en nombre d'anime terminés. */
   topStudio: number | null;
   /** Anime terminés de ce studio précis. */
@@ -433,6 +435,14 @@ export function derive(s: Snapshot): Derived {
               .map((e) => e.year)
               .filter((y): y is number => !!y && y >= from)
               .map((y) => Math.floor(y / 10)),
+          ).size,
+    years: (from, to) =>
+      !hasYear
+        ? null
+        : new Set(
+            completed
+              .map((e) => e.year)
+              .filter((y): y is number => !!y && y >= from && y <= to),
           ).size,
     topStudio: !hasStudio ? null : Math.max(0, ...studioCounts.values()),
     studioNamed: (name) => (!hasStudio ? null : studioCounts.get(name) ?? 0),

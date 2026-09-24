@@ -1778,12 +1778,12 @@
       "cond": "Finish an anime released before 1975."
     },
     "decades": {
-      "name": "Every decade",
-      "cond": "Finish an anime from every decade since the 1970s."
+      "name": "Every year",
+      "cond": "Finish an anime from every year, from 1970 to today."
     },
     "big-three": {
       "name": "Big three",
-      "cond": "Finish One Piece, Naruto or Bleach."
+      "cond": "Watch an episode of One Piece, Naruto or Bleach."
     },
     "planning": {
       "name": "Hyped",

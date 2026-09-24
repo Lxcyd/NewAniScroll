@@ -248,12 +248,17 @@ export const CATALOG = {
     ["pioneer-1975", "e", "history", "", { k: "yearBefore", year: 1975, n: 1 },
       "Pionnier", "Termine un anime sorti avant 1975.",
       "Pioneer", "Finish an anime released before 1975."],
-    ["decades", "l", "timeline", "", { k: "decades", from: 1970, n: 6 },
-      "Toutes les décennies", "Termine un anime de chaque décennie depuis les années 70.",
-      "Every decade", "Finish an anime from every decade since the 1970s."],
-    ["big-three", "u", "three", "", works("bigThree", "any"),
-      "Big Three", "Termine One Piece, Naruto ou Bleach.",
-      "Big three", "Finish One Piece, Naruto or Bleach."],
+    /* L'id reste « decades » (identité du badge) ; depuis le 24/09/2026 il
+       compte les ANNÉES, de 1970 à l'année en cours, cible calculée à
+       l'exécution (n: 0). */
+    ["decades", "l", "timeline", "", { k: "years", from: 1970, n: 0 },
+      "Toutes les années", "Termine un anime sorti chaque année, de 1970 à aujourd'hui.",
+      "Every year", "Finish an anime from every year, from 1970 to today."],
+    /* Un épisode suffit (demande du 24/09/2026) : `worksEpisodes` somme les
+       épisodes vus sur les trois œuvres. */
+    ["big-three", "u", "three", "", worksEpisodes("bigThree", 1),
+      "Big Three", "Regarde un épisode de One Piece, Naruto ou Bleach.",
+      "Big three", "Watch an episode of One Piece, Naruto or Bleach."],
     /* Derive du statut de diffusion mis en cache, pas observe a l'ajout : ainsi
        le badge vaut aussi pour ce qui est deja dans la liste. */
     ["planning", "c", "calendarPlus", "", { k: "planningUnaired", n: 1 },

@@ -99,6 +99,13 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
     case "format": return maybe(d.format(String(m.name)), n);
     case "yearBefore": return maybe(d.before(Number(m.year)), n);
     case "decades": return maybe(d.decades(Number(m.from)), n);
+    /* La cible grandit d'un chaque 1er janvier : l'année en cours compte,
+       comme le dit la condition (« jusqu'à aujourd'hui »). Un badge déjà
+       obtenu le reste (invariant 1 de store.ts). */
+    case "years": {
+      const to = new Date().getFullYear();
+      return maybe(d.years(Number(m.from), to), to - Number(m.from) + 1);
+    }
     case "studio": return maybe(d.topStudio, n);
     case "studioNamed": return maybe(d.studioNamed(String(m.name)), n);
     case "popularityUnder": return maybe(d.underPopularity(Number(m.max)), n);
