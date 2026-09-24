@@ -509,11 +509,13 @@ function BadgeRow({
       id={revealAnchor(def.id)}
       /* À obtenir : une case vide, sans fond, bordée de pointillés. Obtenu : la
          carte pleine. C'est la ligne qui dit la possession — le jeton, lui,
-         garde sa couleur de rareté, trop forte pour porter les deux. */
+         garde sa couleur de rareté, trop forte pour porter les deux.
+         `as-stat-card` reste sur les deux : c'est elle qui porte le flou du
+         studio (son `::before`). Seul son fond est retiré, en ligne plus bas. */
       className={
-        "as-badge-row scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 transition-colors " +
+        "as-badge-row as-stat-card scroll-mt-28 flex flex-col rounded-xl px-3.5 py-3 transition-colors " +
         (unlocked
-          ? "as-stat-card ring-1 ring-white/[.08] hocus:ring-white/[.16]"
+          ? "ring-1 ring-white/[.08] hocus:ring-white/[.16]"
           : "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hocus:outline-white/30")
       }
       /* Obtenu : la ligne se teinte à la couleur de rareté, liseré compris.
@@ -525,7 +527,7 @@ function BadgeRow({
               background: `linear-gradient(90deg, ${R.ic}26, transparent 60%), linear-gradient(145deg, rgba(20,22,28,var(--as-plate-a1,.72)), rgba(12,13,16,var(--as-plate-a2,.58)))`,
               "--tw-ring-color": `${R.ic}61`,
             } as CSSProperties)
-          : undefined
+          : { background: "transparent" }
       }
     >
       <div className="flex items-center gap-4">
