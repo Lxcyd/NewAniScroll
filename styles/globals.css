@@ -3896,15 +3896,21 @@ input[type="number"] {
    peut plus éteindre l'un sans éteindre l'autre. Assumé avec le reste.) */
 
 /* ── Le panneau d'une échelle de paliers ───────────────────────────────────
-   Le fond s'assombrit et se floute, le panneau monte en s'agrandissant à peine,
-   et ses lignes arrivent l'une après l'autre de haut en bas — l'échelle se lit
-   dans l'ordre où elle se gravit. Le décalage est posé par le composant
-   (`animationDelay`), pas ici : il dépend du rang de la ligne. */
+   Le fond s'assombrit, le panneau monte en s'agrandissant à peine, et ses
+   lignes arrivent l'une après l'autre de haut en bas — l'échelle se lit dans
+   l'ordre où elle se gravit. Le décalage est posé par le composant
+   (`animationDelay`), pas ici : il dépend du rang de la ligne.
+
+   LE VOILE NE FLOUTE PLUS, ET N'ASSOMBRIT PLUS QU'À 0,42. Il faisait les deux
+   (flou 10 px, noir à 0,62), et le flou du panneau n'avait alors plus rien à
+   montrer : il floutait une surface déjà floue et presque noire, ce qui se
+   lisait comme un aplat — mesuré au CDP le 24/09, le panneau rendait la même
+   image avec ou sans son propre `backdrop-filter`. C'est maintenant la règle du
+   reste du profil : la page reste nette autour, et c'est LA CARTE qui floute ce
+   qu'elle couvre. */
 .as-pop-back {
   animation: asPopBack 220ms ease-out both;
-  background: rgba(6, 6, 10, 0.62);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: rgba(6, 6, 10, 0.42);
 }
 @keyframes asPopBack {
   0% { opacity: 0; }

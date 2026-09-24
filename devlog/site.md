@@ -6,6 +6,24 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 5) — Le panneau des paliers : un vrai flou, et plus de trait à droite
+
+Mesuré au CDP sur dev, panneau ouvert :
+
+- **Le trait vertical au bord droit de chaque case** venait de la bordure
+  transparente de 1 px des lignes. Un fond se cale sur la boîte intérieure
+  (`background-origin: padding-box`) et se RÉPÈTE sous la bordure : la colonne
+  de droite reprenait le début du dégradé `90deg`, sa partie teintée, d'où un
+  trait de la couleur de la rareté. Présent avant la refonte de l'après-midi.
+  Bordure retirée : le cadre de sélection porte la sienne.
+- **Le flou du panneau ne se voyait pas** : même image avec ou sans son
+  `backdrop-filter`. Le voile derrière floutait déjà (10 px) et assombrissait à
+  0,62 : le panneau floutait une surface déjà floue et presque noire. Le voile
+  ne floute plus et n'assombrit qu'à 0,42, le panneau passe à 0,40 → 0,34 de
+  teinte : la page se devine floutée au travers, comme sur les cartes du profil
+  (page nette autour, flou dans la carte). Prévisualisé en injectant le CSS sur
+  dev avant d'écrire le correctif.
+
 ## 2026-09-24 (suite 4) — Le panneau des paliers se sélectionne ; filtre par rareté ; onglets floutés
 
 **Barre d'onglets du profil** : seule surface sans `as-stat-card`, donc sans le

@@ -971,7 +971,7 @@ function LadderPopup({
           /* Du verre, pas une plaque : la page se devine au travers, floutée.
              Assez de teinte pour que le texte se lise sur une illustration
              claire, pas assez pour la cacher. */
-          background: `linear-gradient(180deg, ${color}1a, rgba(18,18,26,.5) 24%, rgba(14,14,20,.44))`,
+          background: `linear-gradient(180deg, ${color}1a, rgba(18,18,26,.4) 24%, rgba(14,14,20,.34))`,
           backdropFilter: "blur(24px) saturate(1.4)",
           WebkitBackdropFilter: "blur(24px) saturate(1.4)",
           // La lueur suit la sélection, comme le cadre.
@@ -1038,9 +1038,15 @@ function LadderPopup({
                 }}
                 /* À obtenir : les pointillés de l'onglet, la même case vide.
                    Retirés sur la ligne sélectionnée, où le cadre dessine déjà
-                   le bord — deux liserés l'un sur l'autre se brouillaient. */
+                   le bord — deux liserés l'un sur l'autre se brouillaient.
+
+                   AUCUNE BORDURE, même transparente : c'était le trait coloré
+                   au bord droit de chaque case. Un fond se cale sur la boîte
+                   INTÉRIEURE et se répète sous la bordure — la colonne de 1 px
+                   de droite reprenait donc le début du dégradé, sa partie
+                   teintée. Le cadre de sélection a sa propre bordure. */
                 className={
-                  "as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 focus-visible:ring-1 focus-visible:ring-white/30 " +
+                  "as-pop-row relative flex cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 focus-visible:ring-1 focus-visible:ring-white/30 " +
                   (at == null && !isSel
                     ? "outline-dashed outline-1 -outline-offset-1 outline-white/[.16] hover:outline-white/30"
                     : "outline-none")
