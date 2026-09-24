@@ -6,6 +6,14 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 10) — Une barre à zéro est vide
+
+`Bar` (widgets/common) pose un plancher — 2 % de la piste, et au moins sa
+hauteur — pour qu'un PETIT avancement se voie. Appliqué à zéro, il dessinait un
+bout de barre sous « 0 / 20 ». À zéro, plus de remplissage du tout ; le
+plancher reste pour tout ce qui est au-dessus. Vaut pour tous les usages
+(badges, blocs de liste, blocs d'appareil).
+
 ## 2026-09-24 (suite 9) — La date d'obtention : centrée, et rien qu'elle
 
 La pastille était posée sur la ligne du titre, donc collée en haut à droite

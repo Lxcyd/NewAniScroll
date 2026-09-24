@@ -44,21 +44,26 @@ export function Bar({ pct, color }: { pct: number; color?: string }) {
       className="block w-full overflow-hidden rounded-full bg-white/[0.07]"
       style={{ height: "var(--as-bar-h, 5px)" }}
     >
-      <span
-        className="block h-full rounded-full"
-        style={{
-          /* Le plancher est en `%` — 2 % de la piste — mais une piste epaisse le
-             rend ridicule : a 11 px de haut, ces 2 % dessinent une pastille
-             ECRASEE, plus haute que large, et le petit statut a l'air casse
-             plutot que petit. Le plancher est donc aussi de la hauteur de la
-             barre, ce qui en fait un disque propre. */
-          minWidth: "var(--as-bar-h, 5px)",
-          width: `${Math.max(2, Math.min(100, pct))}%`,
-          background:
-            color ||
-            "linear-gradient(90deg, var(--brand-primary, #E94560), var(--brand-secondary, #FF7F57))",
-        }}
-      />
+      {/* ZÉRO, C'EST UNE PISTE VIDE. Le plancher ci-dessous existe pour qu'un
+          PETIT avancement se voie ; appliqué à rien, il dessinait un bout de
+          barre sous « 0 / 20 », c'est-à-dire un progrès qui n'existe pas. */}
+      {pct > 0 ? (
+        <span
+          className="block h-full rounded-full"
+          style={{
+            /* Le plancher est en `%` — 2 % de la piste — mais une piste epaisse le
+               rend ridicule : a 11 px de haut, ces 2 % dessinent une pastille
+               ECRASEE, plus haute que large, et le petit statut a l'air casse
+               plutot que petit. Le plancher est donc aussi de la hauteur de la
+               barre, ce qui en fait un disque propre. */
+            minWidth: "var(--as-bar-h, 5px)",
+            width: `${Math.max(2, Math.min(100, pct))}%`,
+            background:
+              color ||
+              "linear-gradient(90deg, var(--brand-primary, #E94560), var(--brand-secondary, #FF7F57))",
+          }}
+        />
+      ) : null}
     </span>
   );
 }
