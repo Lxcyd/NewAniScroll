@@ -6,6 +6,15 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-24 (suite 15) — La condition du badge débloqué passe à la ligne
+
+Dans l'animation d'obtention (`components/shared/AchievementToast.tsx`), une
+condition trop longue finissait en ellipse. Elle passe maintenant à la ligne
+(`whiteSpace: normal`). Sa largeur est fixée à celle de la carte ouverte moins
+ses marges (`CARD_W - 48`, soit 312 px) : sinon le texte se replierait à chaque
+pixel de l'ouverture en largeur. La carte grandit en hauteur et reste centrée
+sur le jeton (`alignItems: center`). Le nom garde son ellipse.
+
 ## 2026-09-24 (suite 14) — Détail pour les faits de liste, date en haut à droite
 
 - **Plus de badges avec détail**, en liste d'anime, avec les règles de

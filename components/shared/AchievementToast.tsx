@@ -869,8 +869,12 @@ export default function AchievementToast() {
               font: "500 14px/1.35 Karla, sans-serif",
               color: "rgba(255,255,255,.82)",
               marginTop: 5,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              /* Une condition longue passe à la ligne au lieu de finir en
+                 ellipse. La largeur est FIXE (celle de la carte ouverte, moins
+                 ses marges) : sans elle, le texte se replierait à chaque pixel
+                 de l'ouverture en largeur de la carte. */
+              whiteSpace: "normal",
+              width: CARD_W - 48,
               animation: line(phase, 110),
             }}
           >
