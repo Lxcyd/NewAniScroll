@@ -257,7 +257,7 @@ async function handle(request, env, ctx) {
       // Rebuild so headers are mutable (cache.match responses are immutable).
       // Les segments mis en cache AVANT `corrigeTypeVideo` gardent 24 h leur
       // faux type image : on le corrige aussi a la lecture.
-      const c = await corrigeTypeVideo(cached.body, cached.headers.get("content-type"));
+      const c = await corrigeTypeVideo(cached.body, cached.headers.get("content-type"), url);
       const hit = new Response(c.body, cached);
       if (c.type) hit.headers.set("Content-Type", c.type);
       if (c.retaille) hit.headers.delete("Content-Length");
@@ -581,7 +581,7 @@ async function handle(request, env, ctx) {
   //     it expired upstream.
   // Le type CORRIGE decide : un segment deguise en .html est un segment, et
   // merite les 24 h d'un binaire, pas les 60 s d'une page.
-  const corrige = await corrigeTypeVideo(response.body, contentType);
+  const corrige = await corrigeTypeVideo(response.body, contentType, targetUrl);
   const typeReel = corrige.type || "";
   const isTextContent =
     typeReel.includes("text/html") ||
@@ -689,16 +689,18 @@ async function lireEnAvance(cibles, referer, base) {
           }
         }
         if (!r.ok) return;
-        const c = await corrigeTypeVideo(r.body, r.headers.get("content-type") || "");
+        const c = await corrigeTypeVideo(r.body, r.headers.get("content-type") || "", cible);
         const h = corsHeaders({
           "Content-Type": c.type || "application/octet-stream",
           "Accept-Ranges": "bytes",
           "Cache-Control": "public, s-maxage=86400, max-age=3600, immutable",
           "X-Aniscroll-Cache": "WARM",
         });
-        const octets = await new Response(c.body).arrayBuffer();
-        h["Content-Length"] = String(octets.byteLength);
-        await cache.put(cle, new Response(octets, { status: 200, headers: h }));
+        // Flux NATIF vers le cache : aucun octet ne passe par du JavaScript
+        // (le CPU d'un Worker gratuit est de 10 ms par requete).
+        const longueur = r.headers.get("content-length");
+        if (longueur && !c.retaille) h["Content-Length"] = longueur;
+        await cache.put(cle, new Response(c.body, { status: 200, headers: h }));
       } catch {
         /* une anticipation ratee ne coute rien : le lecteur la demandera */
       }
@@ -751,12 +753,25 @@ function remplaceCdnMort(abs, miroir) {
    qu'aux reponses annoncees « image/* » : on lit le premier morceau, et s'il
    commence comme du TS (octet de synchro 0x47) ou du fMP4 (`ftyp`/`styp`/
    `moof` a l'octet 4), on corrige le type. Une vraie image passe intacte. */
-async function corrigeTypeVideo(body, type) {
-  /* Deguises en .jpg, .html, .js, .png, .txt : on regarde tout ce qui
-     s'annonce image, texte ou script. Une vraie page commence par `<`, un
-     script par du texte — jamais par 0x47 ni par une boite MP4. */
-  const suspect = /^(image\/|text\/|application\/(javascript|x-javascript|json|octet-stream))/i;
-  if (!body || !suspect.test(type || "application/octet-stream")) return { body, type };
+async function corrigeTypeVideo(body, type, url = "") {
+  /* LE CPU D'ABORD (29/09/2026). La premiere version lisait le debut de CHAQUE
+     reponse suspecte et faisait passer tout le flux par du JavaScript : sur
+     les segments megaplay, plus le decoupage des Range et la lecture
+     anticipee, le Worker depassait ses 10 ms de CPU (« exceededCpu », 503 sans
+     CORS) — pour tous les sites qui passent par ce proxy, prod comprise.
+     Desormais le type se decide sur le NOM : un segment HLS s'appelle
+     `seg-…` (megaplay, vidmoly…) ou `….ts`. On le sert en video/mp2t sans
+     toucher au flux. Seul un leurre PNG annonce comme tel (`image/png`) est
+     lu, pour etre deballe. */
+  if (!body) return { body, type };
+  if (/^(video|audio)\//i.test(type || "")) return { body, type };
+  let chemin = "";
+  try {
+    chemin = new URL(url).pathname;
+  } catch {}
+  const estSegment = /\/seg-[^/]+$/i.test(chemin) || /\.ts$/i.test(chemin);
+  if (!estSegment) return { body, type };
+  if (!/^image\/png/i.test(type || "")) return { body, type: "video/mp2t" };
   const lecteur = body.getReader();
   const premier = await lecteur.read();
   let octets = premier.value || new Uint8Array(0);
@@ -860,11 +875,19 @@ async function honoreRange(request, res) {
   if (!m || res.status !== 200 || (m[1] === "0" && m[2] === "")) return res;
   const type = res.headers.get("content-type") || "";
   if (/mpegurl|json|html/i.test(type) && !/video|octet/i.test(type)) return res;
-  const annonce = Number(res.headers.get("content-length"));
+  const annonce = Number(res.headers.get("content-length")) || 0;
   if (annonce > DECOUPE_MAX || !res.body) return res;
-  /* Taille souvent NON annoncee (reponse du cache, CDN en chunked) : on lit
-     jusqu'a la borne. Depassee, on rend le flux intact — ce qui est deja lu
-     d'abord, le reste ensuite. */
+  /* Sobre en CPU (29/09/2026 : 10 ms par requete, depasses par la premiere
+     version qui recopiait tout le segment). Aucune recopie : on garde les
+     morceaux tels qu'ils arrivent et la reponse est un Blob de VUES sur eux.
+     Taille annoncee : on s'arrete des que la fin demandee est atteinte (un
+     `bytes=0-1` ne lit qu'un morceau). Sinon on lit jusqu'au bout, seul moyen
+     de connaitre la taille totale que le lecteur d'iOS attend dans
+     Content-Range. */
+  const suffixe = m[1] === "";
+  if (suffixe && !annonce) return res;
+  const debutVoulu = suffixe ? Math.max(0, annonce - Number(m[2])) : Number(m[1]);
+  const finVoulue = m[2] === "" || suffixe ? Infinity : Number(m[2]);
   const lecteur = res.body.getReader();
   const morceaux = [];
   let lu = 0;
@@ -874,6 +897,7 @@ async function honoreRange(request, res) {
     morceaux.push(value);
     lu += value.length;
     if (lu > DECOUPE_MAX) {
+      // trop gros pour ce filet : on rend le flux intact
       const flux = new ReadableStream({
         start(c) {
           for (const x of morceaux) c.enqueue(x);
@@ -889,22 +913,14 @@ async function honoreRange(request, res) {
       });
       return new Response(flux, { status: 200, headers: res.headers });
     }
+    if (annonce && finVoulue !== Infinity && lu > finVoulue) {
+      lecteur.cancel().catch(() => {});
+      break;
+    }
   }
-  const buf = new Uint8Array(lu);
-  let o = 0;
-  for (const x of morceaux) {
-    buf.set(x, o);
-    o += x.length;
-  }
-  const taille = buf.length;
-  let debut, fin;
-  if (m[1] === "") {
-    debut = Math.max(0, taille - Number(m[2]));
-    fin = taille - 1;
-  } else {
-    debut = Number(m[1]);
-    fin = m[2] === "" ? taille - 1 : Math.min(Number(m[2]), taille - 1);
-  }
+  const taille = annonce || lu;
+  const debut = debutVoulu;
+  const fin = Math.min(finVoulue, taille - 1);
   const headers = new Headers(res.headers);
   headers.set("Accept-Ranges", "bytes");
   if (debut >= taille || debut > fin) {
@@ -912,9 +928,18 @@ async function honoreRange(request, res) {
     headers.delete("Content-Length");
     return new Response(null, { status: 416, headers });
   }
+  const vues = [];
+  let pos = 0;
+  for (const x of morceaux) {
+    const a = Math.max(debut, pos);
+    const b = Math.min(fin + 1, pos + x.length);
+    if (a < b) vues.push(x.subarray(a - pos, b - pos));
+    pos += x.length;
+    if (pos > fin) break;
+  }
   headers.set("Content-Range", `bytes ${debut}-${fin}/${taille}`);
   headers.set("Content-Length", String(fin - debut + 1));
-  return new Response(buf.subarray(debut, fin + 1), { status: 206, headers });
+  return new Response(new Blob(vues), { status: 206, headers });
 }
 
 export default {
