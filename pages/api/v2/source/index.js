@@ -4270,7 +4270,22 @@ export default async function handler(req, res) {
     }
   }
 
-  const sendOk = (payload) => {
+  /* `repli: true` = une reponse DEGRADEE (la page megaplay encadree faute
+     d'avoir pu extraire le flux). Gardee 1 min au lieu de 20 : un echec
+     passager de l'extraction ne doit pas figer leur lecteur pour tout le monde
+     — et un correctif doit se voir tout de suite (Railgun S ep 1, 28/09). */
+  const sendOk = (payload, { repli = false } = {}) => {
+    if (repli) {
+      if (canCache) {
+        const write = redis
+          .set(cacheKey, JSON.stringify(payload), "EX", 60)
+          .catch(() => null);
+        if (isLeader) releaseIfUnwritten(write, cacheKey);
+      }
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("CDN-Cache-Control", "public, s-maxage=60");
+      return res.status(200).json(payload);
+    }
     if (canCache) {
       // Fire-and-forget — never let cache writes block the response. Release
       // the lock only AFTER the cache write lands, so a follower never finds
@@ -4584,11 +4599,12 @@ export default async function handler(req, res) {
         if (!valide) continue; // page d'erreur : episode absent chez megaplay
         // Page valide mais sans `data-id` : on ne peut pas appeler getSources,
         // donc on encadre. Leur page, elle, saura se debrouiller.
-        if (!idFichier) return sendOk({ iframe: url });
+        if (!idFichier) return sendOk({ iframe: url }, { repli: true });
 
         const extrait = await extraireMegaplay(idFichier);
         if (extrait) return sendOk(extrait);
-        return sendOk({ iframe: url }); // repli : leur lecteur vaut mieux qu'aucun
+        // repli : leur lecteur vaut mieux qu'aucun
+        return sendOk({ iframe: url }, { repli: true });
       } catch {
         injoignable = true;
       }
