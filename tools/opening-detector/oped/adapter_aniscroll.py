@@ -237,6 +237,10 @@ _PERMANENT_MARKERS = (
     "not in voir-anime page",        # l'épisode n'y est pas
     "file not found",
     "404",                           # page/fichier absent, pas une indisponibilité
+    "pas de source",                 # frembed n'heberge pas cet episode (28/09 :
+                                     # compte comme panne, il fermait le
+                                     # coupe-circuit frembed pour tout le lot)
+    "pas de coordonnees TMDB",
 )
 
 

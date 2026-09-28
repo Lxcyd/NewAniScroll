@@ -37,7 +37,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from oped.adapter_aniscroll import resolve_episodes  # noqa: E402
-from oped.audio import _hls_flags, _input_headers  # noqa: E402
+from oped.audio import _container_start, _hls_flags, _input_headers  # noqa: E402
+from oped.hls_cache import local_mp4, local_window  # noqa: E402
 from oped.megaplay import is_megaplay, materialize_window  # noqa: E402
 
 W, H = 240, 135          # une vignette
@@ -58,12 +59,17 @@ def decode(src: str, referer: str | None, t0: float, t1: float,
            fps: float | None = None) -> list[tuple[float, Image.Image]]:
     """Toutes les images de [t0, t1] (ou `fps` par seconde), avec leur pts absolu."""
     t0 = max(0.0, t0)
-    if is_megaplay(src, referer):
-        src = materialize_window(src, t0, t1 - t0, referer=referer)
-        referer = None
+    seek = t0
+    # Meme fenetre locale que le detecteur (segments deja en cache apres le lot).
+    local = local_window(src, t0, t1 - t0, referer=referer, want="video") or local_mp4(src, referer=referer)
+    if local is None and is_megaplay(src, referer):
+        local = materialize_window(src, t0, t1 - t0, referer=referer)
+    if local is not None:
+        src, referer = local, None
+        seek = max(0.0, t0 - _container_start(src))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     cmd += _input_headers(src, referer) + _hls_flags(src)
-    cmd += ["-copyts", "-ss", f"{t0:.3f}", "-to", f"{t1:.3f}", "-i", src]
+    cmd += ["-copyts", "-ss", f"{seek:.3f}", "-to", f"{seek + (t1 - t0):.3f}", "-i", src]
     chain = f"scale={W}:{H},showinfo"
     cmd += ["-vf", chain if fps is None else f"fps={fps},{chain}",
             "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]

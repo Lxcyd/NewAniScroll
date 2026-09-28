@@ -18,7 +18,7 @@ import numpy as np
 from . import SAMPLE_RATE
 from .errors import ProcessKilled, killed_by_os
 from .megaplay import is_megaplay, materialize_window, playlist_duration
-from .hls_cache import local_window, playlist_duration as hls_playlist_duration
+from .hls_cache import local_mp4, local_window, playlist_duration as hls_playlist_duration
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
@@ -230,7 +230,7 @@ def decode_audio_abs(
     # Tout HLS se lit desormais depuis une fenetre LOCALE (segments paralleles,
     # rendu le plus leger, cache par segment — cf. oped/hls_cache.py) ; megaplay
     # y passe aussi (deballage PNG inclus). Son ancien chemin reste en repli.
-    local = local_window(src, start_abs, dur, referer=referer)
+    local = local_window(src, start_abs, dur, referer=referer, want="audio") or local_mp4(src, referer=referer)
     if local is None and is_megaplay(src, referer):
         local = materialize_window(src, start_abs, dur, referer=referer)
     if local is not None:
@@ -344,9 +344,20 @@ def _input_headers(src: str, referer: str | None) -> list[str]:
     Those entries are then fetched by the demuxer's own http contexts, and
     measured against Vidmoly they need no Referer: the token is IP-bound.
     """
-    if not referer or not _is_http(src):
+    if not _is_http(src):
         return []
-    return ["-headers", f"Referer: {referer}\r\n"]
+    # User-Agent de navigateur sur TOUT flux distant : le CDN de frembed
+    # (free.finepulfe.xyz) repond 403 au `Lavf/…` de ffmpeg et 200 a un
+    # navigateur — mesure le 28/09, c'est ce qui faisait echouer chaque
+    # ffprobe frembed.
+    flags = ["-user_agent", _BROWSER_UA]
+    if referer:
+        flags += ["-headers", f"Referer: {referer}\r\n"]
+    return flags
+
+
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 
 def _is_ffconcat(src: str) -> bool:

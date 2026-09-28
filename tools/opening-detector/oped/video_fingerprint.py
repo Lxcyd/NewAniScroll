@@ -116,12 +116,31 @@ class VideoFingerprint:
     n_frames: int        # keyframes actually decoded (coverage/debug stat)
 
     def save(self, path) -> None:
-        np.savez_compressed(path, hashes=self.hashes, times=self.times, n_frames=self.n_frames)
+        # Ecriture atomique : un processus tue pendant l'ecriture laissait un
+        # .npz vide (60 octets) ou tronque, que chaque run suivant rechargeait
+        # — 18 trouves le 28/09, autant de calages image en echec permanent.
+        path = Path(path)
+        tmp = path.with_name(path.name + ".part.npz")
+        np.savez_compressed(tmp, hashes=self.hashes, times=self.times, n_frames=self.n_frames)
+        tmp.replace(path)
 
     @classmethod
     def load(cls, path) -> "VideoFingerprint":
         d = np.load(path)
         return cls(d["hashes"], d["times"], int(d["n_frames"]))
+
+    @classmethod
+    def load_or_none(cls, path) -> "VideoFingerprint | None":
+        """Un cache illisible est un cache ABSENT : on le supprime et on
+        redecode, au lieu d'echouer a chaque run."""
+        try:
+            return cls.load(path)
+        except Exception:
+            try:
+                Path(path).unlink()
+            except OSError:
+                pass
+            return None
 
 
 @dataclass
@@ -283,7 +302,7 @@ def keyframe_hashes_abs(
     Rounded to 0.1s so trivial float jitter doesn't miss the cache.
     """
     from .audio import _container_start, _hls_flags, _input_headers
-    from .hls_cache import local_window
+    from .hls_cache import local_mp4, local_window
     from .megaplay import is_megaplay, materialize_window
 
     cache_file = None
@@ -296,7 +315,9 @@ def keyframe_hashes_abs(
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{safe}.abs{s_tag}_{d_tag}.fps{f_tag}.vfp.npz"
         if cache_file.exists():
-            return VideoFingerprint.load(cache_file)
+            cached = VideoFingerprint.load_or_none(cache_file)
+            if cached is not None:
+                return cached
 
     # Megaplay's HLS segments are PNG-decoy-wrapped (ffmpeg sees a lone
     # `Video: png`, no real video/audio). Materialise the window as a local,
@@ -308,7 +329,7 @@ def keyframe_hashes_abs(
     # une fenetre megaplay tardive (l'ED) cherchait a ~2x le temps demande, au
     # dela de la fin, et ne decodait rien — l'image ne pouvait jamais confirmer.
     seek = start_abs
-    local = local_window(src, start_abs, dur, referer=referer)
+    local = local_window(src, start_abs, dur, referer=referer, want="video") or local_mp4(src, referer=referer)
     if local is None and is_megaplay(src, referer):
         local = materialize_window(src, start_abs, dur, referer=referer)
     if local is not None:
@@ -415,7 +436,9 @@ def extract_keyframe_hashes(
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{safe}{win_tag}{fps_tag}.vfp.npz"
         if cache_file.exists():
-            return VideoFingerprint.load(cache_file)
+            cached = VideoFingerprint.load_or_none(cache_file)
+            if cached is not None:
+                return cached
 
     hashes, times = _ffmpeg_keyframe_hashes(src, referer=referer, window=window, fps=fps)
     fp = VideoFingerprint(hashes, times, n_frames=len(hashes))
