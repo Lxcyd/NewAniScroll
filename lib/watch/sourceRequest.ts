@@ -31,6 +31,7 @@
  * and to publish the absence, which an ambiguous one must never do.
  */
 import { EARLY_SOURCE_KEY } from "./earlySource";
+import { noteSourceResolved } from "./airedAhead";
 
 export type SourceOutcome =
   | { kind: "ok"; data: any }
@@ -158,5 +159,6 @@ export async function requestSource(
   // verdict on the server (publishing it as "absent" would hide a working host
   // from every visitor for the 6 h of the availability snapshot).
   if (body?.error) return { kind: "retry", status: res.status };
+  noteSourceResolved(params.aniId, params.episode, body);
   return { kind: "ok", data: body };
 }

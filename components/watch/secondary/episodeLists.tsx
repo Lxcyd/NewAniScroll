@@ -36,6 +36,8 @@ import { seasonSubtitle } from "@/components/anime/v2/helpers";
 import { animeHref, watchHref } from "@/lib/prefs/clickTarget";
 import { useEpisodeAlert } from "@/lib/prefs/episodeAlerts";
 import ViewModeIcon from "@/components/shared/ViewModeIcon";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
+import { airedAhead, subscribeAiredAhead } from "@/lib/watch/airedAhead";
 
 type EpisodeListsProps = {
   info: AniListInfoTypes;
@@ -891,12 +893,36 @@ export default function EpisodeLists({
      Le selecteur de saison NAVIGUE (il ne change pas la liste sur place), donc
      `info` decrit toujours la saison affichee : pas de risque d'appliquer ici la
      date d'une autre saison. */
-  const prochainNumero = Number(info?.nextAiringEpisode?.episode);
+  /* Sauf ceux qu'un lecteur a DEJA : une plateforme publie parfois avant la date
+     AniList (Steel Ball Run ep 2, 28/09/2026). Une source resolue pour
+     l'episode N, ou un panneau qui porte deja N+1, le prouvent — sans requete
+     en plus (cf. lib/watch/airedAhead.ts). Borne a +2 au-dela du calendrier :
+     un panneau mal rattache ne doit pas faire apparaitre une saison fantome. */
+  const [dejaEnLigne, setDejaEnLigne] = useState(() => airedAhead(info?.id));
+  useEffect(() => {
+    setDejaEnLigne(airedAhead(info?.id));
+    return subscribeAiredAhead(() => setDejaEnLigne(airedAhead(info?.id)));
+  }, [info?.id]);
+  const prochainCalendrier = Number(info?.nextAiringEpisode?.episode);
+  const prochainNumero = Number.isFinite(prochainCalendrier)
+    ? Math.max(prochainCalendrier, Math.min(dejaEnLigne, prochainCalendrier + 1) + 1)
+    : prochainCalendrier;
   const sortis = useMemo(() => {
-    const rows = episode ?? [];
+    let rows = episode ?? [];
     if (!Number.isFinite(prochainNumero)) return rows;
-    return rows.filter((item) => Number(item.number) < prochainNumero);
-  }, [episode, prochainNumero]);
+    rows = rows.filter((item) => Number(item.number) < prochainNumero);
+    /* La route des episodes ne liste que ce qu'AniList dit sorti : les numeros
+       deja en ligne en avance n'y ont pas de ligne, on les ajoute nus (meme
+       forme que le repli de la page de lecture). */
+    const dernier = rows.length ? Number(rows[rows.length - 1].number) : 0;
+    if (info?.id && dernier > 0 && dernier < prochainNumero - 1) {
+      const ajout: any[] = [];
+      for (let n = dernier + 1; n < prochainNumero; n++)
+        ajout.push({ id: `${DEFAULT_SERVER_ID}-${info.id}-${n}`, number: n });
+      rows = [...rows, ...ajout];
+    }
+    return rows;
+  }, [episode, prochainNumero, info?.id]);
 
   const first = sortis[0]?.number;
   const last = sortis[sortis.length - 1]?.number;
@@ -1707,8 +1733,10 @@ export default function EpisodeLists({
           )}
         </div>
 
+        {/* Pas de compte a rebours pour un episode deja en ligne. */}
         {info?.nextAiringEpisode?.airingAt != null &&
-          info?.nextAiringEpisode?.episode != null && (
+          info?.nextAiringEpisode?.episode != null &&
+          dejaEnLigne < Number(info.nextAiringEpisode.episode) && (
             <ProchainEpisode
               airingAt={Number(info.nextAiringEpisode.airingAt)}
               number={Number(info.nextAiringEpisode.episode)}

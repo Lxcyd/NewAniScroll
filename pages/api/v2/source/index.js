@@ -1090,7 +1090,10 @@ async function fetchPanelIframe(slug, seasonDir, langPath, serverDef, index, exc
   // vraiment — cf. pickLangDirForHost.
   const hit = await pickLangDirForHost(slug, seasonDir, tryLangs, serverDef, index);
   if (!hit) return { panelOk: false, iframeUrl: null };
-  return { panelOk: true, iframeUrl: hit.url, langDir: hit.langDir };
+  return {
+    panelOk: true, iframeUrl: hit.url, langDir: hit.langDir,
+    nextAired: panelHasEntry(hit.episodeArrays, index + 1),
+  };
 }
 
 async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
@@ -1118,6 +1121,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
 
     let iframeUrl = null;
     let resolvedViaMap = false;
+    let nextAired = false;
 
     // COHERENCE GUARD — drop a mapped panel whose season contradicts the
     // resolver. anime-sama encodes the season in the panel dir (saison2 = S2,
@@ -1191,6 +1195,7 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
           resolvedViaMap = true;
           iframeUrl = fast.iframeUrl;
           langDir = fast.langDir;
+          nextAired = fast.nextAired === true;
           dlog(`[anime-sama] player_map hit: ${mapRow.slug}/${mapRow.seasonDir} (+${mapRow.epOffset || 0}) → ${iframeUrl ? "found" : "host/ep absent"}`);
           if (!iframeUrl) return null; // authoritative miss — heuristics would agree
         } else if (attempt === 0) {
@@ -1208,11 +1213,12 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
         );
         iframeUrl = found?.url || null;
         langDir = found?.langDir || null;
+        nextAired = found?.nextAired === true;
       }
       if (!iframeUrl) return null;
 
       const finalized = await finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl);
-      if (finalized) return finalized;
+      if (finalized) return nextAired ? { ...finalized, nextAired: true } : finalized;
 
       // Candidat mort. Sans repertoire identifie on ne saurait pas quoi
       // exclure et on rejouerait le meme a l'infini : on s'arrete.
@@ -1246,6 +1252,7 @@ async function resolveAnimeSamaHeuristically(
     // Repertoire de langue d'ou vient l'URL retenue. Remonte a l'appelant pour
     // qu'un upload mort puisse le faire exclure a la tentative suivante.
     let usedLangDir = null;
+    let nextAired = false;
     // Seed the slug when the map knows it but lacks a usable season dir —
     // still skips the expensive catalogue search.
     const knownSlug =
@@ -1421,6 +1428,7 @@ async function resolveAnimeSamaHeuristically(
           );
           if (pickedUrl) {
             iframeUrl = pickedUrl;
+            nextAired = panelHasEntry(episodeArrays, useIndex + 1);
             dlog(`[anime-sama] Found ep ${episode} in ${targetSeason.dir}: ${iframeUrl}`);
             // WRITE-BACK: persist what we just derived (slug + panel + offset)
             // so the next request takes the fast-path and the verifier can
@@ -1506,6 +1514,7 @@ async function resolveAnimeSamaHeuristically(
           if (localUrl) {
             iframeUrl = localUrl;
             usedLangDir = hit.langDir;
+            nextAired = panelHasEntry(episodeArrays, localIndex + 1);
             dlog(`[anime-sama] Found ep ${episode} in ${season.dir}/${hit.langDir}: ${iframeUrl}`);
             // SLUG-ONLY write-back: cumulative numbering spans multiple panels,
             // so a single season_dir+offset row can't represent it — but the
@@ -1537,7 +1546,7 @@ async function resolveAnimeSamaHeuristically(
       console.error(`[anime-sama] ${serverKey} no iframe for ep=${episode} slug=${slug} (seasons=${seasons.length})`);
       return null;
     }
-    return { url: iframeUrl, langDir: usedLangDir };
+    return { url: iframeUrl, langDir: usedLangDir, nextAired };
   }
 }
 
@@ -2488,6 +2497,15 @@ function pickAnimeSamaSeason(seasons, aniTitles, seasonNum) {
  * qui appartient vraiment a l'hote. Aucune correspondance = l'hote n'a pas cet
  * episode, ce qui est une absence honnete.
  */
+/* Le panneau porte-t-il deja une entree, sur n'importe quel hote, a cette
+   position ? Sert a `nextAired` : un episode poste avant la date AniList
+   (sortie plateforme en avance) doit apparaitre dans la liste — cf.
+   lib/watch/airedAhead.ts. */
+function panelHasEntry(episodeArrays, index) {
+  if (!(index >= 0) || !Array.isArray(episodeArrays)) return false;
+  return episodeArrays.some((arr) => typeof arr?.[index] === "string" && arr[index].trim() !== "");
+}
+
 function pickPreferredEpisodeUrl(episodeArrays, preferred, index) {
   if (!(index >= 0)) return null;
   const prefs = (Array.isArray(preferred) ? preferred : [preferred]).map((p) =>
