@@ -430,9 +430,17 @@ async function handle(request, env, ctx) {
     // flight to the player, means the player's request lands on a HIT instead of
     // paying that spike on the user's first Play / seek.
     const resourceUrls = [];
-    const miroir = /megaplay\.buzz/i.test(effectiveReferer || "")
-      ? await cdnMegaplay()
-      : null;
+    const estMegaplay = /megaplay\.buzz/i.test(effectiveReferer || "");
+    const miroir = estMegaplay ? await cdnMegaplay() : null;
+    /* Qualite la plus BASSE en tete, pour megaplay. Leur CDN bride chaque
+       connexion a ~1 Mb/s (100-200 Ko/s mesures le 29/09/2026, en direct
+       comme par ce Worker) et leur master liste la 1080p (1,5 Mb/s) en
+       premier. Le lecteur natif de Safari demarre sur la PREMIERE variante :
+       un segment de 1-3 Mo, 10-25 s d'attente, et le lecteur abandonnait.
+       En tete, la 480p (0,65 Mb/s) tient sous le bridage ; l'ABR remonte
+       ensuite si le debit le permet. hls.js trie les niveaux lui-meme, il
+       n'est pas affecte. */
+    if (estMegaplay && /#EXT-X-STREAM-INF/.test(body)) body = variantesCroissantes(body);
     const absolu = (u) => remplaceCdnMort(toAbsolute(u), miroir);
     body = body.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${rewrite(absolu(uri))}"`);
     body = body.replace(/^(?!#)(.+)$/gm, (line) => {
@@ -619,6 +627,32 @@ async function cdnMegaplay(frais = false) {
     /* derniere liste connue */
   }
   return cdnMemo;
+}
+
+/** Un master avec ses variantes triees par BANDWIDTH croissante (les
+ *  `EXT-X-STREAM-INF` gardent chacune leur URI ; le reste de l'en-tete reste
+ *  en tete, dans l'ordre). */
+function variantesCroissantes(texte) {
+  const lignes = texte.split(/\r?\n/);
+  const tete = [];
+  const variantes = [];
+  let i = 0;
+  while (i < lignes.length) {
+    const l = lignes[i];
+    if (/^#EXT-X-STREAM-INF/i.test(l)) {
+      let j = i + 1;
+      while (j < lignes.length && (!lignes[j].trim() || lignes[j].startsWith("#"))) j++;
+      const bw = Number(/BANDWIDTH=(\d+)/i.exec(l)?.[1] || 0);
+      variantes.push({ bw, bloc: lignes.slice(i, j + 1) });
+      i = j + 1;
+    } else {
+      if (l.trim()) tete.push(l);
+      i++;
+    }
+  }
+  if (variantes.length < 2) return texte;
+  variantes.sort((a, b) => a.bw - b.bw);
+  return [...tete, ...variantes.flatMap((v) => v.bloc)].join("\n") + "\n";
 }
 
 function remplaceCdnMort(abs, miroir) {

@@ -333,6 +333,37 @@ const HLS_CONFIG_DIRECT = {
 // clean than drop the user onto the end card.
 const END_GUARD = 15;
 
+/**
+ * Ou la lecture doit commencer : le `?t=` d'un lien (s'il vise CE lecteur), ou
+ * le point de reprise sauvegarde. UN seul calcul, lu par la reprise (qui pose
+ * `currentTime`) ET par hls.js (`startPosition`) — sans ce dernier, hls.js
+ * telechargeait d'abord le debut de l'episode, puis sautait. Sur megaplay, dont
+ * le CDN livre ~100 Ko/s, ce segment inutile coutait 5 a 15 s et le lecteur
+ * abandonnait (journal diag du 29/09/2026 : 4 s en tampon a 0:00, saut a 146,
+ * « No first frame » a 12 s).
+ */
+function cibleDepart(
+  serverId: string | undefined,
+  aniListId: number | string | null | undefined,
+  episodeNumber: number | string | null | undefined,
+): { at: number; depuisUrl: boolean } {
+  let urlAt = 0;
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const p = q.get("t");
+    /* Un `t` vaut pour UN fichier. Quand le lien nomme son lecteur (`server=`)
+       et que la page a du basculer sur un autre, la meme seconde tombe
+       ailleurs : frembed ouvre Railgun S avec 16 s de plus que megaplay
+       (28/09/2026). On ne l'applique alors pas. */
+    const pourServeur = q.get("server");
+    const autreFichier = !!pourServeur && !!serverId && pourServeur !== serverId;
+    if (p != null && !autreFichier) urlAt = Math.max(0, parseInt(p, 10) || 0);
+  } catch {}
+  if (urlAt > 0) return { at: urlAt, depuisUrl: true };
+  if (aniListId == null || episodeNumber == null) return { at: 0, depuisUrl: false };
+  return { at: getResumeTime(aniListId, episodeNumber), depuisUrl: false };
+}
+
 // An "ed" segment sitting in the first half of an episode is a mis-tagged
 // marker (recap, swapped op/ed), not the real ending — trusting it would
 // declare the episode watched a few minutes in.
@@ -1861,6 +1892,8 @@ export default function UniversalPlayer({
       const loaderMemoire = getLoaderMemoire();
       // Partir bas, monter tout de suite — cf. lib/watch/hlsBandwidth.ts.
       const depart = startEstimate(bwKeyRef.current);
+      /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
+      const position = cibleDepart(serverId, aniListId, episodeNumber).at;
       provider.config = {
         ...provider.config,
         ...cfg,
@@ -1868,7 +1901,15 @@ export default function UniversalPlayer({
         testBandwidth: false,
         ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
         ...(loaderMemoire ? { loader: loaderMemoire } : null),
+        ...(position > 0 ? { startPosition: position } : null),
+        /* Megaplay : leur CDN bride chaque connexion a ~1 Mb/s. Le debit
+           memorise pour « proxied » vient des AUTRES hotes du Worker, bien plus
+           rapides : il faisait partir hls.js en 1080p, segment de 1-3 Mo, 10 a
+           25 s d'attente. On part du plus bas niveau ; l'ABR remonte des que
+           la mesure le permet. */
+        ...(serverId === "megaplay" ? { startLevel: 0 } : null),
       };
+      diag("hls-config", { startPosition: position, startLevel: serverId === "megaplay" ? 0 : -1 });
     }
   };
 
@@ -4366,15 +4407,99 @@ export default function UniversalPlayer({
       diag("sans-image-3s", etatVideo());
       emettreDoute("aucune image apres 3,5 s");
     }, 3500);
-    const mort = window.setTimeout(() => {
-      diag("sans-image-fin", etatVideo());
+
+    /* Le constat de mort regarde l'ACTIVITE, pas seulement l'horloge (29/09/2026).
+       Il coupait a 10 s sans image, meme quand un segment etait EN TRAIN
+       d'arriver : megaplay livre ~100 Ko/s, un premier segment prend 5-25 s,
+       et la page basculait sur un lecteur qui marchait (journal diag : 4 s en
+       tampon, saut a 146, bascule a 12 s — « au reload c'est bon »).
+       Trois cas :
+         - des octets arrivent (fragment en chargement, tampon qui grandit) :
+           on attend, jusqu'a PLAFOND ;
+         - la video est prete mais en pause, sans que la lecture ait jamais ete
+           demandee (autoplay refuse par iOS) : ce n'est pas une panne, on
+           attend le toucher ;
+         - rien ne bouge depuis CALME : la, et seulement la, on abandonne. */
+    const DELAI = progressif ? 15000 : 10000;
+    const CALME = 8000;
+    const PLAFOND = 40000;
+    const debut = Date.now();
+    let activite = debut;
+    let lectureDemandee = false;
+    let autoplayRefuse = false;
+    let tamponVu = -1;
+    const refus = () => {
+      autoplayRefuse = true;
+      diag("autoplay-refuse", {});
+    };
+    playerElState.addEventListener("autoplay-fail", refus);
+    let video: HTMLVideoElement | null = null;
+    let hlsSuivi: any = null;
+    const bouge = () => {
+      activite = Date.now();
+    };
+    const demande = () => {
+      lectureDemandee = true;
+      activite = Date.now();
+    };
+    const EVTS_ACTIVITE = ["progress", "loadedmetadata", "loadeddata", "seeked", "timeupdate", "canplay"];
+    const brancherVideo = () => {
+      const v = playerElState.querySelector("video") as HTMLVideoElement | null;
+      if (v === video) return;
+      for (const e of EVTS_ACTIVITE) video?.removeEventListener(e, bouge);
+      video?.removeEventListener("play", demande);
+      video = v;
+      for (const e of EVTS_ACTIVITE) video?.addEventListener(e, bouge);
+      video?.addEventListener("play", demande);
+    };
+    const brancherHls = () => {
+      const h = hlsRef.current;
+      if (!h || h === hlsSuivi) return;
+      try {
+        hlsSuivi?.off?.("hlsFragLoading", bouge);
+        hlsSuivi?.off?.("hlsFragLoaded", bouge);
+        h.on("hlsFragLoading", bouge);
+        h.on("hlsFragLoaded", bouge);
+        hlsSuivi = h;
+      } catch {
+        /* sans ces evenements, le tampon et la video suffisent */
+      }
+    };
+    const veille = window.setInterval(() => {
+      brancherVideo();
+      brancherHls();
+      const v = video;
+      const fin = v && v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0;
+      if (fin !== tamponVu) {
+        tamponVu = fin;
+        bouge();
+      }
+      const maintenant = Date.now();
+      const ecoule = maintenant - debut;
+      if (ecoule < DELAI) return;
+      // Attendre un toucher n'a de sens que si personne ne lancera la lecture
+      // a sa place : autoplay coupe, ou refuse par le navigateur (iOS).
+      const attendToucher =
+        !!v && v.paused && !lectureDemandee && v.readyState >= 1 && (!autoplay || autoplayRefuse);
+      if (attendToucher) return;
+      const calme = maintenant - activite >= CALME;
+      if (!calme && ecoule < PLAFOND) return;
+      window.clearInterval(veille);
+      diag("sans-image-fin", { ...etatVideo(), calmeMs: maintenant - activite, ecouleMs: ecoule, lectureDemandee });
       onError?.("No first frame");
-    }, progressif ? 15000 : 10000);
+    }, 1000);
     return () => {
       window.clearTimeout(doute);
-      window.clearTimeout(mort);
+      window.clearInterval(veille);
+      playerElState.removeEventListener("autoplay-fail", refus);
+      for (const e of EVTS_ACTIVITE) video?.removeEventListener(e, bouge);
+      video?.removeEventListener("play", demande);
+      try {
+        hlsSuivi?.off?.("hlsFragLoading", bouge);
+        hlsSuivi?.off?.("hlsFragLoaded", bouge);
+      } catch {}
     };
-  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError]);
+  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError, autoplay]);
 
   // ── Persistent volume (app-wide, shared across every player) ──
   // One value in localStorage, restored onto every player instance and every
@@ -4500,20 +4625,9 @@ export default function UniversalPlayer({
       // shortcut) wins over the saved resume point — the sharer picked that
       // exact moment on purpose. Consumed once, then removed from the URL so a
       // later manual seek + reload doesn't snap back.
-      let urlAt = 0;
-      try {
-        const q = new URLSearchParams(window.location.search);
-        const p = q.get("t");
-        /* Un `t` vaut pour UN fichier. Quand le lien nomme son lecteur
-           (`server=`) et que la page a du basculer sur un autre, la meme
-           seconde tombe ailleurs : frembed ouvre Railgun S avec 16 s de plus
-           que megaplay, donc « l'OP a 22:01 » devenait 22:01 chez frembed, en
-           pleine scene (28/09/2026). On ne l'applique alors pas. */
-        const pourServeur = q.get("server");
-        const autreFichier = !!pourServeur && !!serverId && pourServeur !== serverId;
-        if (p != null && !autreFichier) urlAt = Math.max(0, parseInt(p, 10) || 0);
-      } catch {}
-      const at = urlAt > 0 ? urlAt : getResumeTime(aniListId, episodeNumber);
+      const cible = cibleDepart(serverId, aniListId, episodeNumber);
+      const urlAt = cible.depuisUrl ? cible.at : 0;
+      const at = cible.at;
       if (urlAt > 0) {
         try {
           const u = new URL(window.location.href);

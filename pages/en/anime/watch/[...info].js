@@ -876,7 +876,11 @@ export default function Watch({
        parfois autre chose. */
     const sansVf = vfPossible(info?.idMal) ? null : ["vf"];
     sansVfRef.current = sansVf;
-    const recales = getPlannedFailures(aniId);
+    /* Le lecteur IMPOSE par l'URL n'herite pas d'un echec de la page info :
+       ce verdict le remettait dans les deux memoires juste apres qu'on l'en
+       avait retire, et le filet de securite basculait avant meme la lecture.
+       S'il est vraiment mort, il echouera ICI, et la bascule normale jouera. */
+    const recales = getPlannedFailures(aniId).filter((id) => id !== impose);
     // Hors catalogue frembed : on ne le propose pas, ni ici ni a la bascule.
     if (!frembedPossible(aniId)) {
       SERVERS.filter((s) => /^frembed/.test(s.id)).forEach((s) =>
