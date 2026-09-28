@@ -4435,16 +4435,40 @@ export default async function handler(req, res) {
    * l'encadrement de leur page, qui marche toujours.
    */
   async function extraireMegaplay(idFichier) {
-    let donnees;
-    try {
-      const r = await fetchViaWorker(
-        `https://megaplay.buzz/stream/getSources?id=${idFichier}`,
-      );
-      if (!r.ok) return null;
-      donnees = await r.json();
-    } catch {
-      return null;
+    /* Deux sorties, dans cet ordre. Mesure du 28/09/2026 : pour les fichiers
+       RECENTS (ids au-dela de ~117 000 — Railgun S : 139257), megaplay repond
+       `{"error":"Upstream error","upstream":403}` a TOUTE requete venue d'une
+       IP Cloudflare, donc du Worker, alors que la meme requete depuis une IP
+       ordinaire rend les pistes et `enc`. Les fichiers anciens passent encore
+       par le Worker (14/14 echantillonnes). D'ou le second essai en direct
+       depuis le lambda, avec l'en-tete que leur « AJAX only » exige
+       (`X-Requested-With`, seul accepte — l'Accept de jQuery, les Sec-Fetch ou
+       un parametre d'URL rendent 403). Le navigateur, lui, ne peut pas faire
+       cet appel : leur pre-verification CORS ne liste pas cet en-tete. */
+    const url = `https://megaplay.buzz/stream/getSources?id=${idFichier}`;
+    const lire = async (r) => {
+      if (!r?.ok) return null;
+      const j = await r.json().catch(() => null);
+      return j && !j.error && (j.enc || Array.isArray(j.tracks)) ? j : null;
+    };
+    let donnees = await fetchViaWorker(url).then(lire).catch(() => null);
+    if (!donnees) {
+      donnees = await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            "User-Agent": SCRAPER_UA,
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json, text/javascript, */*; q=0.01",
+          },
+        },
+        5000,
+      )
+        .then(lire)
+        .catch(() => null);
+      dlog(`[megaplay] ${idFichier} : Worker refuse, direct ${donnees ? "OK" : "refuse aussi"}`);
     }
+    if (!donnees) return null;
 
     const pistes = Array.isArray(donnees?.tracks) ? donnees.tracks : [];
     /* Le repertoire du flux se lit aussi sur N'IMPORTE quelle piste : elles
