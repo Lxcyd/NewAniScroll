@@ -43,6 +43,34 @@ SERVER_ID = {
 }
 
 
+def encode_groups(row: dict, kind: str) -> tuple[list[dict], list[str]]:
+    """(groupes d'encodage ayant trouve `kind`, lecteurs n'ayant rien trouve)."""
+    per = row.get("per_host") or {}
+    groups: list[dict] = []
+    nothing: list[str] = []
+    for host in sorted(per):
+        ph = per[host]
+        hit = ph.get(kind)
+        if (host, row["lang"]) not in SERVER_ID:
+            continue
+        if not hit or hit.get("start") is None:
+            nothing.append(host)
+            continue
+        dur = float(ph.get("duration") or 0)
+        for g in groups:
+            if (abs(g["duration"] - dur) <= SAME_DUR_S
+                    and abs(g["start"] - hit["start"]) <= SAME_EDGE_S
+                    and abs(g["end"] - hit["end"]) <= SAME_EDGE_S):
+                g["hosts"].append(host)
+                break
+        else:
+            groups.append({"duration": dur, "start": float(hit["start"]),
+                           "end": float(hit["end"]), "hosts": [host],
+                           "source": hit.get("source"),
+                           "serve": bool((row.get(kind) or {}).get("serve"))})
+    return groups, nothing
+
+
 def main() -> None:
     jsonl, alist, sheets_dir, verdicts_f, out = sys.argv[1:6]
     animes = {a["mal_id"]: a for a in json.loads(Path(alist).read_text("utf-8"))}
@@ -62,28 +90,7 @@ def main() -> None:
             continue
         per = row.get("per_host") or {}
         for kind in ("op", "ed"):
-            groups: list[dict] = []
-            nothing: list[str] = []
-            for host in sorted(per):
-                ph = per[host]
-                hit = ph.get(kind)
-                if (host, row["lang"]) not in SERVER_ID:
-                    continue
-                if not hit or hit.get("start") is None:
-                    nothing.append(host)
-                    continue
-                dur = float(ph.get("duration") or 0)
-                for g in groups:
-                    if (abs(g["duration"] - dur) <= SAME_DUR_S
-                            and abs(g["start"] - hit["start"]) <= SAME_EDGE_S
-                            and abs(g["end"] - hit["end"]) <= SAME_EDGE_S):
-                        g["hosts"].append(host)
-                        break
-                else:
-                    groups.append({"duration": dur, "start": float(hit["start"]),
-                                   "end": float(hit["end"]), "hosts": [host],
-                                   "source": hit.get("source"),
-                                   "serve": bool((row.get(kind) or {}).get("serve"))})
+            groups, nothing = encode_groups(row, kind)
             for g in groups:
                 key = f"{a['mal_id']}-{row['episode']}-{row['lang']}-{kind}-{g['hosts'][0]}"
                 sheet = sheets.get(f"{a['mal_id']}_{row['episode']}_{row['lang']}_{g['hosts'][0]}_{kind}")

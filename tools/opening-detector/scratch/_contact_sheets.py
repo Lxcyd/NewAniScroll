@@ -41,6 +41,9 @@ from oped.audio import _container_start, _hls_flags, _input_headers  # noqa: E40
 from oped.hls_cache import local_mp4, local_window  # noqa: E402
 from oped.megaplay import is_megaplay, materialize_window  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _build_gt_cells import encode_groups  # noqa: E402
+
 W, H = 240, 135          # une vignette
 LABEL = 18               # bandeau d'horodatage sous chaque vignette
 COLS = 9
@@ -51,7 +54,7 @@ _PTS = re.compile(r"\[Parsed_showinfo[^\]]*\].*?pts_time:\s*([-\d.]+)")
 
 def mmss(t: float) -> str:
     sign = "-" if t < 0 else ""
-    t = abs(t)
+    t = round(abs(t), 1)
     return f"{sign}{int(t // 60)}:{t % 60:04.1f}"
 
 
@@ -61,16 +64,32 @@ def decode(src: str, referer: str | None, t0: float, t1: float,
     t0 = max(0.0, t0)
     seek = t0
     # Meme fenetre locale que le detecteur (segments deja en cache apres le lot).
-    local = local_window(src, t0, t1 - t0, referer=referer, want="video") or local_mp4(src, referer=referer)
+    # 12 s de marge AVANT : sur vmpx/megaplay un segment ne commence pas
+    # toujours sur une image-cle, et sans elle les images d'avant le bord —
+    # celles qui disent si la coupe est juste — sortaient toutes manquantes.
+    lead = min(12.0, t0)
+    local = (local_window(src, t0 - lead, t1 - t0 + lead, referer=referer, want="video")
+             or local_mp4(src, referer=referer))
     if local is None and is_megaplay(src, referer):
-        local = materialize_window(src, t0, t1 - t0, referer=referer)
-    if local is not None:
+        local = materialize_window(src, t0 - lead, t1 - t0 + lead, referer=referer)
+    select = ""
+    if local is not None and not local.endswith("full.mp4"):
+        # Fenetre HLS concatenee (MPEG-TS sans index) : `-ss` en entree y
+        # atterrit jusqu'a ~4,5 s APRES la cible (mesure 28/09, Frieren ep28
+        # vmpx) et les images d'avant le bord disparaissent. La fenetre est
+        # courte : on la decode entiere et on filtre sur l'horodatage absolu.
         src, referer = local, None
-        seek = max(0.0, t0 - _container_start(src))
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
-    cmd += _input_headers(src, referer) + _hls_flags(src)
-    cmd += ["-copyts", "-ss", f"{seek:.3f}", "-to", f"{seek + (t1 - t0):.3f}", "-i", src]
-    chain = f"scale={W}:{H},showinfo"
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", "-copyts", "-i", src]
+        select = f"select='between(t\\,{t0:.3f}\\,{t1:.3f})',"
+    else:
+        if local is not None:
+            src, referer = local, None
+            seek = max(0.0, t0 - _container_start(src))
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
+        cmd += _input_headers(src, referer) + _hls_flags(src)
+        cmd += ["-copyts", "-ss", f"{seek:.3f}", "-to", f"{seek + (t1 - t0):.3f}", "-i", src]
+    cmd += ["-fps_mode", "passthrough"]
+    chain = f"{select}scale={W}:{H},showinfo"
     cmd += ["-vf", chain if fps is None else f"fps={fps},{chain}",
             "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
     p = subprocess.run(cmd, capture_output=True, timeout=600)
@@ -165,11 +184,12 @@ def main() -> None:
         season = next((s for s in anime["seasons"] if s["lang"] == lang), None)
         if not season:
             continue
-        for host, ph in (row.get("per_host") or {}).items():
-            for kind in ("op", "ed"):
-                hit = ph.get(kind)
-                if hit and hit.get("start") is not None:
-                    jobs.append((anime, season, ep, lang, host, kind, hit))
+        # Une planche par GROUPE d'encodage (son premier lecteur) : c'est
+        # l'unite de verdict de la page.
+        for kind in ("op", "ed"):
+            for g in encode_groups(row, kind)[0]:
+                host = g["hosts"][0]
+                jobs.append((anime, season, ep, lang, host, kind, row["per_host"][host][kind]))
 
     index = {}
     idx_file = out / "index.json"
