@@ -4069,7 +4069,11 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v15: EVICT les embeds vidmoly/ansembed morts mis en cache sans
   // verification par une ouverture de lecteur (One Piece VF ep 1 : la page 404
   // d'ansembed et sa pub, servies en iframe).
-  return `src:v15:${server}:${aniId}:${episode}:${sub || "sub"}`;
+  // f2 (frembed seul, 28/09/2026) : orpheline les absences « hors catalogue »
+  // gardees 6 h avant que le catalogue s'etende aux titres sondes — et separe
+  // ces cles de celles qu'ecrirait un code qui ne connait pas encore la sonde.
+  const v = FREMBED_SERVERS[server] ? "v15f2" : "v15";
+  return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────
@@ -4280,7 +4284,16 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   };
 
-  const sendNotFound = (msg, { hard = false } = {}) => {
+  /* `memo: false` : une absence qui se recalcule pour rien (lecture de table
+     memoisee) et qui peut CHANGER du jour au lendemain — le catalogue frembed.
+     La garder 6 h en Redis, c'etait masquer un titre ajoute au catalogue
+     pendant 6 h encore (Railgun S, 28/09/2026). Ni Redis, ni heure de bord. */
+  const sendNotFound = (msg, { hard = false, memo = true } = {}) => {
+    if (!memo) {
+      if (canCache && isLeader) releaseScrapeLock(cacheKey).catch(() => {});
+      cacheAbsent(false);
+      return notFoundStatus(msg, { hard });
+    }
     if (canCache) {
       const write = redis
         .set(
@@ -4610,7 +4623,7 @@ export default async function handler(req, res) {
        chemin complet — une panne de synchro ne doit pas eteindre frembed. */
     if (!(await frembedPeutAvoir(aniId))) {
       dlog(`[frembed] ${aniId} hors catalogue — absent sans resolution`);
-      return sendNotFound("Source not found", { hard: true });
+      return sendNotFound("Source not found", { hard: true, memo: false });
     }
     const { data, retry, hostDown } = await resolveProvider(() =>
       getFrembedStream(server, aniId, episode),

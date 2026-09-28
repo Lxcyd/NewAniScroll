@@ -55,6 +55,7 @@
 
 /** Ou la promesse attend. Un seul objet, remplace a chaque chargement. */
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
+import { FREMBED_CATALOG_KEY } from "./frembedCatalog";
 
 export const EARLY_SOURCE_KEY = "__asEarlySource";
 
@@ -84,7 +85,7 @@ ordreBrut=localStorage.getItem("lang_pref_order")||"null";
 order=JSON.parse(ordreBrut);}catch(e){}
 if(!on||!order||!order.length){s="${DEFAULT_SERVER_ID}";}
 else{var fr=null;
-try{var fc=JSON.parse(localStorage.getItem("aniscroll:frembedCatalog")||"null");
+try{var fc=JSON.parse(localStorage.getItem("${FREMBED_CATALOG_KEY}")||"null");
 if(fc&&fc.ids&&Date.now()-(fc.at||0)<43200000)fr=fc.ids;}catch(e){}
 var horsFrembed=fr&&fr.indexOf(+aniId)<0;
 try{var p=JSON.parse(localStorage.getItem("aniscroll:earlyPick")||"null");

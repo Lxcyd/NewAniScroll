@@ -15,7 +15,11 @@
 
 import { idCatalog } from "./idCatalog";
 
-const catalogue = idCatalog("aniscroll:frembedCatalog", "/api/v2/frembed-catalog");
+/* Cle ET adresse versionnees : la liste gardee 12 h ici (et 1 h par le cache du
+   navigateur) survivrait sinon a un changement de catalogue. v2 le 28/09/2026,
+   quand la sonde a triple la liste. A bumper avec `earlySource.ts`. */
+export const FREMBED_CATALOG_KEY = "aniscroll:frembedCatalog:v2";
+const catalogue = idCatalog(FREMBED_CATALOG_KEY, "/api/v2/frembed-catalog?v=2");
 
 /** Charge la liste si besoin. A appeler au repos, jamais dans un chemin bloquant. */
 export const chargeFrembedCatalog: () => void = catalogue.charge;
