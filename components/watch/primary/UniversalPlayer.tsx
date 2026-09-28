@@ -4452,7 +4452,12 @@ export default function UniversalPlayer({
           window.history.replaceState(null, "", u.toString());
         } catch {}
       }
-      if (at > 0 && video.duration && at < video.duration - END_GUARD) {
+      /* La garde de fin vaut pour une REPRISE automatique, pas pour un lien
+         horodate : celui-la vise un instant precis, souvent la fin d'un ED a
+         quelques secondes du carton final (Railgun S ep 1 : t=1411 sur 1422 s
+         repartait de 0). On le suit jusqu'a la derniere seconde. */
+      const garde = urlAt > 0 ? 1 : END_GUARD;
+      if (at > 0 && video.duration && at < video.duration - garde) {
         try {
           video.currentTime = at;
         } catch {}

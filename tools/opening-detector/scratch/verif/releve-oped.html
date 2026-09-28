@@ -308,6 +308,20 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
     renderSent();
   };
 
+  /* Liens vers le lecteur : le cadre de l'artefact peut bloquer la navigation
+     d'un <a target=_blank>. On ouvre l'onglet nous-memes ; s'il est refuse, le
+     lien part dans le presse-papiers — le clic mene toujours quelque part. */
+  document.addEventListener("click", async (e) => {
+    const a = e.target.closest && e.target.closest("a[href^='https://dev.aniscroll.com']");
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    let w = null;
+    try { w = window.open(a.href, "_blank"); } catch {}
+    if (w) { try { w.opener = null; } catch {} return; }
+    try { await navigator.clipboard.writeText(a.href); toast("Lien copié : colle-le dans un onglet"); }
+    catch { window.prompt("Copie ce lien :", a.href); }
+  });
+
   $("f-todo").onclick = () => { filter="todo"; $("f-todo").setAttribute("aria-pressed","true"); $("f-all").setAttribute("aria-pressed","false"); render(); };
   $("f-all").onclick = () => { filter="all"; $("f-all").setAttribute("aria-pressed","true"); $("f-todo").setAttribute("aria-pressed","false"); render(); };
   $("f-anime").onchange = (e) => { animeSel = e.target.value; render(); };
