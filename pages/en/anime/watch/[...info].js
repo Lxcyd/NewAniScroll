@@ -222,9 +222,15 @@ export async function getServerSideProps(context) {
      copy is cached, hence 30 min (vs 6 h there) + a day of
      stale-while-revalidate. */
   context.res.setHeader("Cache-Control", "public, max-age=60");
+  /* Sur DEV, le « stale » se compte en secondes. Une copie perimee survit aux
+     deploiements et embarque l'ANCIEN code du lecteur : une adresse peu visitee
+     (les liens `/watch/<id>/<serveur>` de la page de releve OP/ED) servait la
+     version d'avant le correctif qu'on venait de pousser (28/09/2026). La prod
+     garde sa journee de stale, qui epargne son quota CPU. */
+  const perime = process.env.VERCEL_GIT_COMMIT_REF === "dev" ? 60 : 86400;
   context.res.setHeader(
     "CDN-Cache-Control",
-    "public, s-maxage=1800, stale-while-revalidate=86400",
+    `public, s-maxage=1800, stale-while-revalidate=${perime}`,
   );
 
   const [aniId, provider] = query?.info;
