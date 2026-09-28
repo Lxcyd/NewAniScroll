@@ -1,7 +1,6 @@
-import { createDecipheriv } from "node:crypto";
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
-import { getExtractor, VIDMOLY_HOST_RE } from "@/lib/extractors";
+import { getExtractor, VIDMOLY_HOST_RE, ouvreEncMegaplay } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
@@ -4396,37 +4395,8 @@ export default async function handler(req, res) {
    * a un bug.
    */
   const MEGAPLAY_REFERER = "https://megaplay.buzz/";
-  /* Clef et IV recopies tels quels de leur `lib/newclient.min.js` public (cf.
-     le pave ci-dessus). Leur `O(a, 32)` prend la chaine de 16 octets et la
-     COMPLETE DE ZEROS a 32 : c'est de l'AES-256 avec une clef de 16 octets
-     utiles, et se tromper la-dessus rend un binaire illisible plutot qu'une
-     erreur — d'ou la verification JSON stricte en sortie. */
-  const MEGAPLAY_ENC_IV = Buffer.from("W0;27ToaUpl_P%'c", "utf8");
-  const MEGAPLAY_ENC_KEY = Buffer.alloc(32);
-  Buffer.from("i?LMTAx0Q6,:}50U", "utf8").copy(MEGAPLAY_ENC_KEY, 0);
-
-  /** Le `enc` de getSources -> l'URL du master, ou `null` s'il ne s'ouvre pas. */
-  function ouvreEncMegaplay(enc) {
-    if (typeof enc !== "string" || !enc) return null;
-    try {
-      const d = createDecipheriv("aes-256-cbc", MEGAPLAY_ENC_KEY, MEGAPLAY_ENC_IV);
-      /* Padding desactive : leur bourrage n'est pas du PKCS#7 valide (on a vu
-         des octets 0x06 en queue d'un bloc plein), donc `final()` jetterait sur
-         un dechiffrement pourtant correct. On coupe sur la derniere accolade
-         plutot que de faire confiance a la queue. */
-      d.setAutoPadding(false);
-      const clair = Buffer.concat([d.update(enc.replace(/-/g, "+").replace(/_/g, "/"), "base64"), d.final()])
-        .toString("utf8");
-      const fin = clair.lastIndexOf("}");
-      if (fin < 0) return null;
-      const fichier = JSON.parse(clair.slice(0, fin + 1))?.file;
-      return typeof fichier === "string" && /^https:\/\/\S+\.m3u8$/.test(fichier)
-        ? fichier
-        : null;
-    } catch {
-      return null;
-    }
-  }
+  /* Le dechiffrement de `enc` (clef, IV) vit dans lib/extractors.js
+     (`ouvreEncMegaplay`), partage avec le detecteur OP/ED. */
 
   /**
    * De l'identifiant de fichier megaplay au flux jouable dans NOTRE lecteur.
