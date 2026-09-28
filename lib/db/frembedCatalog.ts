@@ -67,6 +67,23 @@ export async function getFrembedAnilistIds(): Promise<Set<number>> {
       await ensureTable();
       const r = await db.execute("SELECT anilist_id FROM frembed_catalog");
       const ids = new Set(r.rows.map((row: any) => Number(row.anilist_id)));
+      /* Plus les titres que la liste publique oublie mais que l'API du lecteur
+         sert (~1/3 des animes hors liste, mesure du 28/09/2026), sondes chaque
+         nuit par le meme script — cf. `frembed_probe`. Table absente (sonde
+         jamais lancee) = on s'en tient a la liste. */
+      try {
+        const s = await db.execute(`
+          SELECT f.anilist_id FROM frembed_probe p
+          JOIN fribb_map f ON f.tmdb_tv_id = p.tmdb_id
+          WHERE p.hosted = 1 AND p.kind = 'tv'
+          UNION
+          SELECT f.anilist_id FROM frembed_probe p
+          JOIN fribb_map f ON f.tmdb_movie_id = p.tmdb_id
+          WHERE p.hosted = 1 AND p.kind = 'movie'`);
+        if (ids.size) for (const row of s.rows as any[]) ids.add(Number(row.anilist_id));
+      } catch {
+        /* pas de sonde : la liste seule */
+      }
       memo = { ids, at: Date.now() };
       return ids;
     } catch (e: any) {

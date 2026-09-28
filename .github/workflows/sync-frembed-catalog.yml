@@ -43,7 +43,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # La sonde des titres hors liste (1500 ids max par nuit, 3 en parallele)
+    # prend quelques minutes de plus que la seule liste.
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v5

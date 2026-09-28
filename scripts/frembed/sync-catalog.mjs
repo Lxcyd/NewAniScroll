@@ -113,6 +113,117 @@ for (const r of await anilistPour("tmdb_movie_id", films)) {
 console.log(
   `[frembed] ${tv.length} series + ${films.length} films → ${rows.size} fiches AniList`,
 );
+
+/* ── Ce que la liste publique OUBLIE ───────────────────────────────────────────
+   Mesure du 28/09/2026 : la liste ne dit pas tout. Railgun S (tmdb 30977) ou
+   Hajime no Ippo (42705) n'y figurent pas — `/api/public/v1/tv/<id>` repond
+   meme « 0 episode » — et pourtant l'API du lecteur rend leur master.m3u8. Sur
+   40 animes verifies tires hors liste, 13 etaient heberges : ~1/3, soit de
+   l'ordre de 500 fiches AniList que le site cachait a frembed.
+   On interroge donc l'API du LECTEUR (la meme que la route /api/v2/source) pour
+   chaque id TMDB de Fribb : S1E1 pour une serie, le film sinon. Heberge = une
+   vraie source m3u8 ; 404 = inconnu de frembed ; tout le reste (5xx, reseau)
+   ne tranche rien et laisse l'etat precedent en place.
+   Par lots (PROBE_MAX par nuit) : une premiere passe complete prend quelques
+   nuits, ensuite on ne revoit que ce qui a vieilli — un heberge chaque semaine
+   (il peut disparaitre), un absent chaque mois (il peut arriver). */
+const PROBE_MAX = Number(
+  process.argv.find((a) => a.startsWith("--probe-max="))?.split("=")[1] ?? 1500,
+);
+const PROBE_PAR = 3; // requetes simultanees : on reste un visiteur poli
+const REVOIR_HEBERGE_S = 7 * 86400;
+const REVOIR_ABSENT_S = 30 * 86400;
+
+await db.execute(`
+CREATE TABLE IF NOT EXISTS frembed_probe (
+  tmdb_id     INTEGER NOT NULL,
+  kind        TEXT    NOT NULL,
+  hosted      INTEGER NOT NULL,
+  checked_at  INTEGER NOT NULL,
+  PRIMARY KEY (tmdb_id, kind)
+);`);
+
+async function sonde(tmdbId, kind) {
+  const q =
+    kind === "movie"
+      ? `?tmdb=${tmdbId}&type=movie`
+      : `?tmdb=${tmdbId}&type=serie&sa=1&ep=1`;
+  try {
+    const res = await fetch(`${BASE}/api/streaming/player${q}`, {
+      headers: { "User-Agent": UA, Accept: "application/json", Referer: `${BASE}/streaming/player` },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) return null;
+    const j = await res.json();
+    const url = j?.sources?.[0]?.url;
+    return typeof url === "string" && /\.m3u8/i.test(url);
+  } catch {
+    return null;
+  }
+}
+
+{
+  const now = Math.floor(Date.now() / 1000);
+  const listes = new Set([...tv.map((t) => `tv:${t}`), ...films.map((t) => `movie:${t}`)]);
+  const a = await db.execute({
+    sql: `SELECT c.tmdb_id, c.kind FROM (
+            SELECT DISTINCT tmdb_tv_id AS tmdb_id, 'tv' AS kind FROM fribb_map WHERE tmdb_tv_id IS NOT NULL
+            UNION
+            SELECT DISTINCT tmdb_movie_id, 'movie' FROM fribb_map WHERE tmdb_movie_id IS NOT NULL
+          ) c
+          LEFT JOIN frembed_probe p ON p.tmdb_id = c.tmdb_id AND p.kind = c.kind
+          WHERE p.tmdb_id IS NULL
+             OR (p.hosted = 1 AND p.checked_at < ?)
+             OR (p.hosted = 0 AND p.checked_at < ?)
+          ORDER BY COALESCE(p.checked_at, 0)`,
+    args: [now - REVOIR_HEBERGE_S, now - REVOIR_ABSENT_S],
+  });
+  const aVoir = a.rows
+    .map((r) => ({ tmdbId: Number(r.tmdb_id), kind: String(r.kind) }))
+    .filter((c) => c.tmdbId && !listes.has(`${c.kind}:${c.tmdbId}`))
+    .slice(0, DRY ? 0 : PROBE_MAX);
+
+  let oui = 0, non = 0, flou = 0;
+  const resultats = [];
+  for (let i = 0; i < aVoir.length; i += PROBE_PAR) {
+    const lot = aVoir.slice(i, i + PROBE_PAR);
+    const r = await Promise.all(lot.map((c) => sonde(c.tmdbId, c.kind)));
+    lot.forEach((c, k) => {
+      if (r[k] === null) return flou++;
+      r[k] ? oui++ : non++;
+      resultats.push([c.tmdbId, c.kind, r[k] ? 1 : 0, now]);
+    });
+  }
+  for (let i = 0; i < resultats.length; i += 100) {
+    await db.batch(
+      resultats.slice(i, i + 100).map((args) => ({
+        sql: `INSERT OR REPLACE INTO frembed_probe (tmdb_id, kind, hosted, checked_at) VALUES (?, ?, ?, ?)`,
+        args,
+      })),
+      "write",
+    );
+  }
+  console.log(
+    `[frembed] sonde : ${aVoir.length} ids (${a.rows.length} en attente) → ${oui} heberges, ${non} absents, ${flou} sans reponse`,
+  );
+
+  /* Rapport seulement : les heberges restent dans `frembed_probe`, que
+     lib/db/frembedCatalog.ts reunit a la liste. `frembed_catalog` ne contient
+     que la liste publique — la base est partagee entre dev et prod, et c'est le
+     code du lecteur, pas cette table, qui decide qui voit les titres sondes. */
+  const h = await db.execute(`
+    SELECT f.anilist_id, p.tmdb_id, p.kind FROM frembed_probe p
+    JOIN fribb_map f ON f.tmdb_tv_id = p.tmdb_id
+    WHERE p.hosted = 1 AND p.kind = 'tv'
+    UNION ALL
+    SELECT f.anilist_id, p.tmdb_id, p.kind FROM frembed_probe p
+    JOIN fribb_map f ON f.tmdb_movie_id = p.tmdb_id
+    WHERE p.hosted = 1 AND p.kind = 'movie'`);
+  const hors = new Set(h.rows.map((r) => Number(r.anilist_id)).filter((id) => !rows.has(id)));
+  console.log(`[frembed] sonde : +${hors.size} fiches AniList hors liste (union ${rows.size + hors.size})`);
+}
 if (rows.size === 0) {
   console.error("[frembed] aucune correspondance Fribb — on n'ecrase rien");
   process.exit(1);

@@ -47,6 +47,7 @@
 
 import { useEffect, useState } from "react";
 import SERVERS from "@/lib/servers";
+import { bestSavedBandwidth } from "./hlsBandwidth";
 
 const KEY = "aniscroll:serverPerf";
 const ENABLED_KEY = "aniscroll:serverPerf:enabled";
@@ -601,7 +602,25 @@ export function getServerScore(
  * strictement monotone en `speed` : meme ordre qu'aujourd'hui.
  */
 export function serverPerfRank(server: { id: string; speed?: number }): number {
-  return 100 - getServerScore(server.id, server.speed).final;
+  return 100 - getServerScore(server.id, server.speed).final + reculFrembed(server.id);
+}
+
+/* ── Frembed ne descend jamais en definition ─────────────────────────────────
+   Mesure du 28/09/2026 (Railgun S) : UNE seule variante, 1080p, pic 8,6 Mb/s,
+   segments de ~7 Mo. Le CDN repond en 0,1 s, mais sans variante basse hls.js
+   n'a rien ou se replier : sous ~9 Mb/s reels la lecture coupe, et la premiere
+   image attend 7 Mo. Classe premier d'office, il etait donc le plus rapide
+   sur la fibre et le plus lent partout ailleurs.
+   Quand un debit memorise dit « connexion trop juste », il recule derriere
+   ansembed (speed 2 → rang 20 ; frembed passe a 25) et reste devant les
+   suivants. Sans mesure, rien ne change : on ne recule pas sur une ignorance. */
+const FREMBED_DEBIT_MIN = 12_000_000; // b/s : 8,6 de pic + marge
+const FREMBED_RECUL = 25;
+
+function reculFrembed(id: string): number {
+  if (!id.startsWith("frembed") || typeof window === "undefined") return 0;
+  const bw = bestSavedBandwidth();
+  return bw != null && bw < FREMBED_DEBIT_MIN ? FREMBED_RECUL : 0;
 }
 
 /* ── Le rang FIGE ──────────────────────────────────────────────────────────
