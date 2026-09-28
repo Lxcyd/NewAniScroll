@@ -253,6 +253,7 @@ async function handle(request, env, ctx) {
       const c = await corrigeTypeVideo(cached.body, cached.headers.get("content-type"));
       const hit = new Response(c.body, cached);
       if (c.type) hit.headers.set("Content-Type", c.type);
+      if (c.retaille) hit.headers.delete("Content-Length");
       hit.headers.set("X-Aniscroll-Cache", "HIT");
       return hit;
     }
@@ -314,6 +315,35 @@ async function handle(request, env, ctx) {
       };
     }
     currentUrl = next;
+  }
+
+  /* Reprise megaplay, segment par segment. Leurs CDN meurent EN PLEINE
+     LECTURE : la playlist a ete reecrite avec l'hote vivant d'il y a une
+     minute, qui rend maintenant 403. Leur lecteur change d'hote a la volee ;
+     hls.js reessaie, le lecteur natif d'iOS abandonne — d'ou megaplay
+     « aleatoire » sur iPhone. On relit donc la liste des CDN (fraiche) et on
+     redemande le MEME chemin au miroir du moment. Playlists exclues : c'est
+     leur hote d'origine qui fait foi. */
+  if (
+    !response.ok &&
+    response.status !== 206 &&
+    /megaplay\.buzz/i.test(finalReferer || "") &&
+    !/\.m3u8(\?|$)/i.test(targetUrl)
+  ) {
+    const miroir = await cdnMegaplay(true);
+    try {
+      const u = new URL(currentUrl);
+      if (miroir && u.hostname !== miroir.fallback) {
+        u.hostname = miroir.fallback;
+        const r2 = await serializedFetch(u.toString(), {
+          headers: currentHeaders,
+          redirect: "follow",
+        });
+        if (r2.ok) response = r2;
+      }
+    } catch {
+      /* on garde la premiere reponse */
+    }
   }
 
   // Helper that stores the final response under the normalised cache key
@@ -538,7 +568,7 @@ async function handle(request, env, ctx) {
   const upstreamRange = response.headers.get("content-range");
   const upstreamLength = response.headers.get("content-length");
   if (upstreamRange) passthroughHeaders["Content-Range"] = upstreamRange;
-  if (upstreamLength) passthroughHeaders["Content-Length"] = upstreamLength;
+  if (upstreamLength && !corrige.retaille) passthroughHeaders["Content-Length"] = upstreamLength;
 
   // Download mode for direct binary files (MP4 sources, single .ts blobs):
   // add Content-Disposition so the browser saves instead of inlining.
@@ -568,8 +598,11 @@ async function handle(request, env, ctx) {
    pareil en reecrivant la playlist. Liste gardee 5 min par isolat ; si elle ne
    repond pas, on garde la derniere connue, a defaut on ne touche a rien. */
 let cdnMemo = null;
-async function cdnMegaplay() {
-  if (cdnMemo && Date.now() - cdnMemo.at < 5 * 60 * 1000) return cdnMemo;
+async function cdnMegaplay(frais = false) {
+  // `frais` : un segment vient d'echouer, la liste a peut-etre bouge — mais pas
+  // plus d'une relecture par 20 s et par isolat, pour ne pas la marteler.
+  const age = cdnMemo ? Date.now() - cdnMemo.at : Infinity;
+  if (age < (frais ? 20 * 1000 : 5 * 60 * 1000)) return cdnMemo;
   try {
     const r = await fetch("https://megaplay.buzz/lib/check_domain.json", {
       headers: {
@@ -615,7 +648,69 @@ async function corrigeTypeVideo(body, type) {
   if (!body || !suspect.test(type || "application/octet-stream")) return { body, type };
   const lecteur = body.getReader();
   const premier = await lecteur.read();
-  const octets = premier.value || new Uint8Array(0);
+  let octets = premier.value || new Uint8Array(0);
+  /* LEURRE PNG (cf. tools/opening-detector/oped/megaplay.py, `depng`) : un PNG
+     1x1 d'une soixantaine d'octets, puis le vrai MPEG-TS. hls.js retrouve la
+     synchro plus loin ; un lecteur natif voit une image et abandonne. On
+     saute le PNG et on se cale sur une vraie suite de synchros TS (0x47 tous
+     les 188 octets), comme le detecteur. */
+  if (octets[0] === 0x89 && octets[1] === 0x50 && octets[2] === 0x4e && octets[3] === 0x47) {
+    let acc = octets;
+    let fini = premier.done;
+    while (acc.length < 16384 && !fini) {
+      const r = await lecteur.read();
+      if (r.done) fini = true;
+      else {
+        const n = new Uint8Array(acc.length + r.value.length);
+        n.set(acc);
+        n.set(r.value, acc.length);
+        acc = n;
+      }
+    }
+    let iend = -1;
+    for (let i = 8; i < acc.length - 3; i++) {
+      if (acc[i] === 0x49 && acc[i + 1] === 0x45 && acc[i + 2] === 0x4e && acc[i + 3] === 0x44) { iend = i; break; }
+    }
+    const depart = iend >= 0 ? iend + 8 : 0;
+    let cale = -1;
+    for (let o = depart; o + 564 < acc.length && o < depart + 8192; o++) {
+      if (acc[o] === 0x47 && acc[o + 188] === 0x47 && acc[o + 376] === 0x47 && acc[o + 564] === 0x47) { cale = o; break; }
+    }
+    if (cale >= 0) {
+      const tete = acc.subarray(cale);
+      const flux = new ReadableStream({
+        start(c) {
+          c.enqueue(tete);
+          if (fini) c.close();
+        },
+        async pull(c) {
+          const { done, value } = await lecteur.read();
+          if (done) c.close();
+          else c.enqueue(value);
+        },
+        cancel(r) {
+          return lecteur.cancel(r);
+        },
+      });
+      return { body: flux, type: "video/mp2t", retaille: true };
+    }
+    octets = acc; // pas de TS derriere : on rend tel quel
+    const flux = new ReadableStream({
+      start(c) {
+        c.enqueue(acc);
+        if (fini) c.close();
+      },
+      async pull(c) {
+        const { done, value } = await lecteur.read();
+        if (done) c.close();
+        else c.enqueue(value);
+      },
+      cancel(r) {
+        return lecteur.cancel(r);
+      },
+    });
+    return { body: flux, type };
+  }
   const boite = octets.length >= 8
     ? String.fromCharCode(octets[4], octets[5], octets[6], octets[7])
     : "";
