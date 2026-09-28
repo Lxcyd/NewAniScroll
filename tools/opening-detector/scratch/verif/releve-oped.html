@@ -149,6 +149,8 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
       server: host.server, t: String(Math.max(0, Math.round(t))),
     });
     if (c.lang === "vf") p.set("dub","true");
+    // Journal de lecture (lib/diag.ts) : si le lecteur abandonne, on saura pourquoi.
+    p.set("diag","1");
     return DEV + c.aniId + "/" + host.server + "?" + p.toString();
   };
   const needsLuc = (c) => c.check === true;

@@ -90,6 +90,7 @@ import {
 // Worker (unmetered + edge cache): an empty NEXT_PUBLIC_PROXY_BASE once fell
 // back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
+import { diag } from "@/lib/diag";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -1821,6 +1822,12 @@ export default function UniversalPlayer({
     provider: any,
     _event: MediaProviderChangeEvent,
   ) => {
+    diag("moteur", {
+      hlsjs: isHLSProvider(provider),
+      type: provider?.type ?? null,
+      mse: typeof window !== "undefined" && "MediaSource" in window,
+      mms: typeof window !== "undefined" && "ManagedMediaSource" in window,
+    });
     if (isHLSProvider(provider)) {
       // Direct/fragile CDNs (vidmoly) get the gentler, resilience-tuned config;
       // proxied edge-cached sources (megaplay) get the aggressive one. The ref
@@ -2747,6 +2754,40 @@ export default function UniversalPlayer({
       mort = true;
       clearInterval(id);
       for (const e of EVENEMENTS) video?.removeEventListener(e, relire);
+    };
+  }, [playerElState]);
+
+  /* Journal `?diag=1` (lib/diag.ts) : la chronologie de l'element <video>,
+     pour voir sur un VRAI iPhone ce que fait le lecteur natif de Safari —
+     charge-t-il, attend-il un toucher, refuse-t-il un segment. Inerte sans
+     `?diag=1` : `diag()` ne fait alors rien. */
+  useEffect(() => {
+    const racine = playerElState;
+    if (!racine) return;
+    let video: HTMLVideoElement | null = null;
+    const EVTS = ["loadstart", "loadedmetadata", "loadeddata", "canplay", "play", "playing", "pause", "waiting", "stalled", "suspend", "seeking", "seeked", "error", "emptied", "abort"];
+    const note = (e: Event) => {
+      const v = e.target as HTMLVideoElement;
+      diag("video:" + e.type, {
+        rs: v.readyState,
+        ns: v.networkState,
+        ct: Math.round(v.currentTime),
+        err: v.error?.code,
+        src: String(v.currentSrc || "").slice(0, 60),
+      });
+    };
+    const brancher = () => {
+      const v = racine.querySelector("video") as HTMLVideoElement | null;
+      if (v === video) return;
+      for (const e of EVTS) video?.removeEventListener(e, note);
+      video = v;
+      for (const e of EVTS) video?.addEventListener(e, note);
+    };
+    brancher();
+    const id = window.setInterval(brancher, 500);
+    return () => {
+      window.clearInterval(id);
+      for (const e of EVTS) video?.removeEventListener(e, note);
     };
   }, [playerElState]);
 
@@ -3843,6 +3884,13 @@ export default function UniversalPlayer({
          rien et on ne depense rien ; la reprise sur `online` de la page de
          visionnage relance proprement une fois la connexion revenue. */
       if (navigator.onLine === false) return;
+      diag("hls-erreur", {
+        fatal: !!detail.fatal,
+        type: detail.type,
+        details: detail.details,
+        code: detail.response?.code || detail.response?.status,
+        url: String(detail.frag?.url || detail.url || "").slice(0, 120),
+      });
       /* Non fatal : hls.js s'en occupe, on ne touche a rien. Mais deux de ces
          hoquets sur le chemin de la premiere image disent deja que ce CDN ne
          suit pas — on prepare le suivant sans rien interrompre. */
@@ -4301,14 +4349,27 @@ export default function UniversalPlayer({
        laisse donc plus de temps. Le doute, lui, est le meme pour tous — il ne
        coute qu'un prechauffage. */
     const progressif = !m3u8Ref.current;
-    const doute = window.setTimeout(
-      () => emettreDoute("aucune image apres 3,5 s"),
-      3500,
-    );
-    const mort = window.setTimeout(
-      () => onError?.("No first frame"),
-      progressif ? 15000 : 10000,
-    );
+    const etatVideo = () => {
+      const v = playerElState.querySelector("video") as HTMLVideoElement | null;
+      return {
+        readyState: v?.readyState,
+        networkState: v?.networkState,
+        paused: v?.paused,
+        currentTime: v ? Math.round(v.currentTime) : null,
+        duration: v ? Math.round(v.duration || 0) : null,
+        buffered: v && v.buffered.length ? Math.round(v.buffered.end(v.buffered.length - 1)) : 0,
+        moteur: hlsRef.current ? "hls.js" : "natif",
+        erreur: v?.error?.code,
+      };
+    };
+    const doute = window.setTimeout(() => {
+      diag("sans-image-3s", etatVideo());
+      emettreDoute("aucune image apres 3,5 s");
+    }, 3500);
+    const mort = window.setTimeout(() => {
+      diag("sans-image-fin", etatVideo());
+      onError?.("No first frame");
+    }, progressif ? 15000 : 10000);
     return () => {
       window.clearTimeout(doute);
       window.clearTimeout(mort);
@@ -6243,7 +6304,16 @@ export default function UniversalPlayer({
         // key without preventing Vidstack's default). It also double-fired bound
         // keys. Always off — playback-block is enforced by the <video> guard.
         keyDisabled
-        onError={() => onError?.("Playback error")}
+        onError={() => {
+          const v = playerElState?.querySelector("video") as HTMLVideoElement | null;
+          diag("erreur-lecteur", {
+            code: v?.error?.code,
+            message: v?.error?.message,
+            readyState: v?.readyState,
+            networkState: v?.networkState,
+          });
+          onError?.("Playback error");
+        }}
       >
         <MediaProvider>
           {/* L'image de l'episode, tant que rien n'est lance. Le `poster` passe

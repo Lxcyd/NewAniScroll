@@ -105,6 +105,7 @@ import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
 import { warmVidmolyClient } from "@/lib/clientVidmoly";
+import { diag, flushDiag } from "@/lib/diag";
 // Watch-party UI: split out of the page bundle. It only ever renders behind
 // `party || partyUIOpen` (see `partyPanelBlock` below), and it drags the whole
 // chat stack — composer, member menu, and the ~24 kB unicode + anime emoji
@@ -708,8 +709,12 @@ export default function Watch({
     // we want to remember the user's intentional choice.
     setActiveServer((current) => {
       if (current !== id) return current;
-      return pickNextServer(id) || current;
+      const suivant = pickNextServer(id) || current;
+      diag("bascule", { server: id, reason, hostDown, vers: suivant });
+      flushDiag("bascule");
+      return suivant;
     });
+    diag("echec", { server: id, reason, hostDown });
   }, [pickNextServer]);
 
   /* Le lecteur doute : on prepare le SUIVANT pendant qu'il finit ses essais.
@@ -878,6 +883,13 @@ export default function Watch({
         triedFailedRef.current.add(s.id),
       );
     }
+    diag("choix", {
+      impose,
+      pref,
+      recales,
+      frembedPossible: frembedPossible(aniId),
+      ep: epiNumber,
+    });
     if (recales.length) {
       recales.forEach((id) => triedFailedRef.current.add(id));
       setFailedServers((prev) => {
@@ -1028,6 +1040,12 @@ export default function Watch({
        etait precisement le tourniquet — mieux vaut un lecteur arrete, dont
        l'erreur est lisible, qu'une ronde qui donne l'illusion d'essayer. */
     if (firstConfirmed && firstConfirmed !== activeServer) {
+      diag("bascule-filet", {
+        server: activeServer,
+        raison: failedServers.get(activeServer),
+        vers: firstConfirmed,
+      });
+      flushDiag("bascule-filet");
       setActiveServer(firstConfirmed);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2011,6 +2029,15 @@ export default function Watch({
         if (signal?.aborted) return;
       }
 
+      diag("source", {
+        server: serverId,
+        kind: out.kind,
+        status: out.status,
+        hard: out.hard,
+        iframe: out.kind === "ok" ? !!out.data?.iframe : undefined,
+        flux: out.kind === "ok" ? String(out.data?.streams?.[0]?.url || "").slice(0, 90) : undefined,
+      });
+
       if (out.kind === "absent") {
         setHlsData({ error: true });
         markFailed(serverId, ABSENCE_PROUVEE);
@@ -2955,7 +2982,10 @@ export default function Watch({
             onFinalEpisodeNearEnd={handleFinalEpisodeNearEnd}
             party={party}
             downloadName={`${(info?.title?.romaji || info?.title?.english || "anime").replace(/\s+/g, "_")}_E${epiNumber}${dub ? "_DUB" : ""}`}
-            onDoubt={() => prewarmNext(server.id)}
+            onDoubt={(raison) => {
+              diag("doute", { server: server.id, raison });
+              prewarmNext(server.id);
+            }}
             onPrepareNextEpisode={() => prepareEpisode(nextEp?.number)}
             onFirstFrame={() => {
               premiereImageRef.current = true;

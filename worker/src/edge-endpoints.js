@@ -171,6 +171,51 @@ async function handleTrack(request, env, ctx) {
   return json({ ok: true, stored: true });
 }
 
+// --- /w/diag ----------------------------------------------------------------
+//
+// Journal de lecture d'une session `?diag=1` (lib/diag.ts). Ne sert qu'a voir,
+// depuis un VRAI appareil (l'iPhone), pourquoi le lecteur abandonne une source
+// — Chrome pilote ne reproduit ni le HLS natif de Safari ni ses regles
+// d'autoplay (28/09/2026). Aucun cout Vercel : KV, 3 jours.
+// Quota KV gratuit : 1 000 ecritures/jour. Seules les sessions `?diag=1`
+// ecrivent, une fois par envoi (a chaque abandon, a la sortie, toutes les
+// 25 s au plus).
+const DIAG_MAX = 16 * 1024;
+
+async function handleDiagPost(request, env, ctx) {
+  const ua = request.headers.get("user-agent") || "";
+  if (!BROWSER_UA.test(ua) || BOT_UA.test(ua)) return json({ ok: true, bot: true });
+  const texte = (await request.text()).slice(0, DIAG_MAX);
+  const corps = safeParse(texte);
+  const sid = String(corps?.sid || "").replace(/[^a-z0-9]/gi, "").slice(0, 32);
+  if (!sid) return json({ ok: false }, 400);
+  console.log("[diag]", sid, texte.slice(0, 2000));
+  if (env.W2G_CACHE) {
+    const cle = `diag:${sid}:${Date.now()}`;
+    ctx?.waitUntil?.(
+      env.W2G_CACHE.put(cle, JSON.stringify({ ...corps, ua, ip: clientIp(request) }), {
+        expirationTtl: 3 * 86400,
+      }).catch(() => {}),
+    );
+  }
+  return json({ ok: true });
+}
+
+async function handleDiagGet(request, env) {
+  const u = new URL(request.url);
+  if (!env.DIAG_TOKEN || u.searchParams.get("k") !== env.DIAG_TOKEN) {
+    return json({ error: "Not found" }, 404);
+  }
+  const kv = env.W2G_CACHE;
+  if (!kv) return json({ error: "no kv" }, 500);
+  const sid = (u.searchParams.get("sid") || "").replace(/[^a-z0-9]/gi, "");
+  const liste = await kv.list({ prefix: `diag:${sid}`, limit: 1000 });
+  const cles = liste.keys.map((k) => k.name).sort().slice(-Number(u.searchParams.get("n") || 30));
+  const entrees = [];
+  for (const cle of cles) entrees.push({ cle, ...(safeParse(await kv.get(cle)) || {}) });
+  return json({ total: liste.keys.length, entrees }, 200, { "Cache-Control": "no-store" });
+}
+
 function nullableText(v) {
   return v == null || v === "" ? { type: "null" } : { type: "text", value: v };
 }
@@ -192,6 +237,12 @@ export async function handleEdgeEndpoint(request, env, ctx) {
   }
   if (pathname === "/w/track" && request.method === "POST") {
     return handleTrack(request, env, ctx);
+  }
+  if (pathname === "/w/diag" && request.method === "POST") {
+    return handleDiagPost(request, env, ctx);
+  }
+  if (pathname === "/w/diag" && request.method === "GET") {
+    return handleDiagGet(request, env);
   }
   if (pathname === "/w/status" && request.method === "GET") {
     // Read-only self-check. Pageview logging silently stopped on 2026-07-11 and
