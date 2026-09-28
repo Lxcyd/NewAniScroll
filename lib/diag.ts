@@ -44,20 +44,9 @@ function lireEtat(): { on: boolean; sid: string } {
   }
   if (etat.on) {
     t0 = Date.now();
-    // Un badge discret : la personne SAIT que le journal tourne, et lit l'id
-    // de session a donner (le meme que dans les cles du Worker).
-    try {
-      const b = document.createElement("div");
-      b.textContent = `diag ${etat.sid}`;
-      b.style.cssText =
-        "position:fixed;left:6px;bottom:6px;z-index:2147483647;font:11px monospace;" +
-        "padding:2px 6px;border-radius:4px;background:#b91c1c;color:#fff;opacity:.85;pointer-events:none";
-      const poser = () => document.body?.appendChild(b);
-      if (document.body) poser();
-      else window.addEventListener("DOMContentLoaded", poser, { once: true });
-    } catch {
-      /* sans badge, le journal marche quand meme */
-    }
+    // Plus de badge a l'ecran (retire le 29/09) : l'id de session, le meme que
+    // dans les cles du Worker, se lit dans la console.
+    console.info(`[diag] session ${etat.sid}`);
     window.addEventListener("pagehide", () => flushDiag("pagehide"));
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flushDiag("hidden");
