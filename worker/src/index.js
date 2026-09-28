@@ -639,6 +639,78 @@ async function corrigeTypeVideo(body, type) {
   return { body: flux, type: nouveau };
 }
 
+/* Un morceau demande = un morceau rendu. Le lecteur HLS natif d'iOS demande
+   souvent `Range: bytes=0-1` sur un segment et exige un 206 ; le CDN de
+   megaplay ignore `Range` et renvoie le fichier entier en 200 — Safari
+   abandonne, Chrome s'en moque. D'ou « megaplay marche aleatoirement sur
+   iPhone » (28/09/2026). Filet unique en sortie : un 200 complet a une demande
+   de morceau est decoupe ici. Borne a 32 Mo (un segment pese 1-8 Mo) : un MP4
+   entier ne tient pas en memoire d'isolat, il passe tel quel. `bytes=0-` reste
+   servi en 200, reponse valide et que le cache sait garder. */
+const DECOUPE_MAX = 32 * 1024 * 1024;
+async function honoreRange(request, res) {
+  const range = request.headers.get("range");
+  const m = range && /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+  if (!m || res.status !== 200 || (m[1] === "0" && m[2] === "")) return res;
+  const type = res.headers.get("content-type") || "";
+  if (/mpegurl|json|html/i.test(type) && !/video|octet/i.test(type)) return res;
+  const annonce = Number(res.headers.get("content-length"));
+  if (annonce > DECOUPE_MAX || !res.body) return res;
+  /* Taille souvent NON annoncee (reponse du cache, CDN en chunked) : on lit
+     jusqu'a la borne. Depassee, on rend le flux intact — ce qui est deja lu
+     d'abord, le reste ensuite. */
+  const lecteur = res.body.getReader();
+  const morceaux = [];
+  let lu = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    morceaux.push(value);
+    lu += value.length;
+    if (lu > DECOUPE_MAX) {
+      const flux = new ReadableStream({
+        start(c) {
+          for (const x of morceaux) c.enqueue(x);
+        },
+        async pull(c) {
+          const r = await lecteur.read();
+          if (r.done) c.close();
+          else c.enqueue(r.value);
+        },
+        cancel(r) {
+          return lecteur.cancel(r);
+        },
+      });
+      return new Response(flux, { status: 200, headers: res.headers });
+    }
+  }
+  const buf = new Uint8Array(lu);
+  let o = 0;
+  for (const x of morceaux) {
+    buf.set(x, o);
+    o += x.length;
+  }
+  const taille = buf.length;
+  let debut, fin;
+  if (m[1] === "") {
+    debut = Math.max(0, taille - Number(m[2]));
+    fin = taille - 1;
+  } else {
+    debut = Number(m[1]);
+    fin = m[2] === "" ? taille - 1 : Math.min(Number(m[2]), taille - 1);
+  }
+  const headers = new Headers(res.headers);
+  headers.set("Accept-Ranges", "bytes");
+  if (debut >= taille || debut > fin) {
+    headers.set("Content-Range", `bytes */${taille}`);
+    headers.delete("Content-Length");
+    return new Response(null, { status: 416, headers });
+  }
+  headers.set("Content-Range", `bytes ${debut}-${fin}/${taille}`);
+  headers.set("Content-Length", String(fin - debut + 1));
+  return new Response(buf.subarray(debut, fin + 1), { status: 206, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -646,7 +718,7 @@ export default {
       // routed first; everything else is the HLS/scrape proxy.
       const edge = await handleEdgeEndpoint(request, env, ctx);
       if (edge) return edge;
-      return await handle(request, env, ctx);
+      return await honoreRange(request, await handle(request, env, ctx));
     } catch (err) {
       return new Response(
         JSON.stringify({ error: "Proxy failed", detail: String(err) }),
