@@ -233,6 +233,13 @@ async function handle(request, env, ctx) {
   cacheKeyUrl.searchParams.delete("dl");
   cacheKeyUrl.searchParams.delete("filename");
   cacheKeyUrl.searchParams.delete("warm");
+  cacheKeyUrl.searchParams.delete("nx");
+  // Lecture anticipee (cf. la reecriture des playlists megaplay) : lancee des
+  // l'arrivee de la requete, en parallele de sa propre reponse.
+  const aAnticiper = reqUrl.searchParams.getAll("nx");
+  if (aAnticiper.length && ctx && request.method === "GET" && !isDownload) {
+    ctx.waitUntil(lireEnAvance(aAnticiper, referer, `${reqUrl.origin}${reqUrl.pathname}`));
+  }
   const cacheKey = new Request(cacheKeyUrl.toString(), { method: "GET" });
   // The LOOKUP carries the client's Range header: cache.match slices a stored
   // full 200 into the requested 206 directly at the edge (documented Cache API
@@ -443,12 +450,27 @@ async function handle(request, env, ctx) {
     if (estMegaplay && /#EXT-X-STREAM-INF/.test(body)) body = variantesCroissantes(body);
     const absolu = (u) => remplaceCdnMort(toAbsolute(u), miroir);
     body = body.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${rewrite(absolu(uri))}"`);
+    /* LECTURE ANTICIPEE (megaplay, playlist de segments seulement). Leur CDN
+       bride chaque CONNEXION a ~100 Ko/s et hls.js demande les segments un par
+       un : 3-4 s pour 4 s de video, premiere image vers 12 s (chrono du
+       29/09/2026). Chaque segment porte donc l'adresse des suivants (`nx`) ;
+       quand on le sert, on va chercher ceux-la EN PARALLELE vers le cache
+       (cf. `lireEnAvance`), et le lecteur les trouve prets. */
+    const lignesRessources = body
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"))
+      .map((l) => absolu(l));
+    const anticipe = estMegaplay && !/#EXT-X-STREAM-INF/.test(body);
+    let rang = 0;
     body = body.replace(/^(?!#)(.+)$/gm, (line) => {
       const t = line.trim();
       if (!t || t.startsWith("#")) return line;
       const abs = absolu(t);
       resourceUrls.push(abs);
-      return rewrite(abs);
+      const suivants = anticipe ? lignesRessources.slice(rang + 1, rang + 1 + LECTURE_AVANCE) : [];
+      rang++;
+      return rewrite(abs) + suivants.map((n) => `&nx=${encodeURIComponent(n)}`).join("");
     });
 
     // Pre-warm resources through this same Worker URL so they land under the
@@ -467,7 +489,10 @@ async function handle(request, env, ctx) {
       // ones. (If ABR is on and picks a lower rung, only the sparse segment warm
       // is "wasted"; the manifest warm still helps.)
       const allPlaylists = resourceUrls.filter((u) => /\.m3u8(\?|$)/i.test(u));
-      const playlists = allPlaylists.length > 0 ? [allPlaylists[allPlaylists.length - 1]] : [];
+      // Megaplay : son master est trie par debit croissant et le lecteur part
+      // du plus bas — c'est donc la PREMIERE variante qui sera jouee.
+      const choisie = estMegaplay ? allPlaylists[0] : allPlaylists[allPlaylists.length - 1];
+      const playlists = allPlaylists.length > 0 ? [choisie] : [];
       // MEDIA playlist → children are the actual .ts/.m4s segments. THIS is what
       // makes a far seek instant: without it, clicking anywhere past the opening
       // hls.js buffer hits a cold segment (~3 s origin fetch). We warm a SPARSE
@@ -627,6 +652,58 @@ async function cdnMegaplay(frais = false) {
     /* derniere liste connue */
   }
   return cdnMemo;
+}
+
+const LECTURE_AVANCE = 3;
+
+/** Met en cache, en parallele, les segments qui suivent — en les tirant
+ *  NOUS-MEMES de l'amont. (Un `fetch` vers notre propre domaine ne repasse pas
+ *  par le Worker : Cloudflare coupe l'auto-appel, la premiere version ne
+ *  mettait donc rien en cache.) La cle est celle que le lecteur demandera :
+ *  `?url=…&referer=…`, sans `nx`. Deja en cache : rien a faire. */
+async function lireEnAvance(cibles, referer, base) {
+  const cache = caches.default;
+  const ref = referer ? decodeURIComponent(referer) : "https://megaplay.buzz/";
+  const entetes = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    Referer: ref,
+    Accept: "*/*",
+  };
+  await Promise.all(
+    cibles.slice(0, LECTURE_AVANCE).map(async (cible) => {
+      if (/\.m3u8(\?|$)/i.test(cible)) return;
+      const q = new URLSearchParams({ url: cible });
+      if (referer) q.set("referer", referer);
+      const cle = new Request(`${base}?${q.toString()}`, { method: "GET" });
+      if (await cache.match(cle)) return;
+      try {
+        let r = await fetch(cible, { headers: entetes });
+        if (!r.ok) {
+          // meme reprise que le chemin principal : CDN mort → miroir du moment
+          const miroir = await cdnMegaplay(true);
+          const u = new URL(cible);
+          if (miroir && u.hostname !== miroir.fallback) {
+            u.hostname = miroir.fallback;
+            r = await fetch(u.toString(), { headers: entetes });
+          }
+        }
+        if (!r.ok) return;
+        const c = await corrigeTypeVideo(r.body, r.headers.get("content-type") || "");
+        const h = corsHeaders({
+          "Content-Type": c.type || "application/octet-stream",
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "public, s-maxage=86400, max-age=3600, immutable",
+          "X-Aniscroll-Cache": "WARM",
+        });
+        const octets = await new Response(c.body).arrayBuffer();
+        h["Content-Length"] = String(octets.byteLength);
+        await cache.put(cle, new Response(octets, { status: 200, headers: h }));
+      } catch {
+        /* une anticipation ratee ne coute rien : le lecteur la demandera */
+      }
+    }),
+  );
 }
 
 /** Un master avec ses variantes triees par BANDWIDTH croissante (les
