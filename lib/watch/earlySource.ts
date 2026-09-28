@@ -71,8 +71,9 @@ var m=location.pathname.match(/\\/anime\\/watch\\/(\\d+)/);if(!m)return;
 var aniId=m[1];var q=new URLSearchParams(location.search);
 var ep=q.get("num");if(!ep||!/^\\d+$/.test(ep))return;
 var sub=q.get("dub")==="true"?"dub":"sub";var s="";
-try{var a=JSON.parse(localStorage.getItem("aniscroll:animeServer")||"{}");
-if(a&&typeof a==="object")s=a[aniId]||"";}catch(e){}
+var f=q.get("server");if(f&&/^[a-z0-9-]+$/.test(f))s=f;
+if(!s){try{var a=JSON.parse(localStorage.getItem("aniscroll:animeServer")||"{}");
+if(a&&typeof a==="object")s=a[aniId]||"";}catch(e){}}
 if(!s){try{s=localStorage.getItem("preferred_server")||"";}catch(e){}}
 if(!s){try{var h=JSON.parse(localStorage.getItem("aniscroll:animeHost")||"{}");
 var he=h&&h[aniId];

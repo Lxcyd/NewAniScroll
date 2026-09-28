@@ -835,7 +835,13 @@ export default function Watch({
     // Via getServerPref/getAnimeServer (et non localStorage brut) : ils ecartent
     // — et purgent — une preference qui designe un serveur retire, cf.
     // lib/prefs/serverPref.ts.
-    const pref = getAnimeServer(aniId) || getServerPref() || null;
+    //   0. un `?server=<id>` dans l'URL — lien de verification (page de
+    //      controle des timings OP/ED) : il impose le lecteur pour CE
+    //      chargement seulement, sans rien epingler, comme un essai de megaplay.
+    const serveurUrl = new URLSearchParams(window.location.search).get("server");
+    const impose = serveurUrl && getServer(serveurUrl) ? serveurUrl : null;
+    if (impose) triedFailedRef.current.delete(impose);
+    const pref = impose || getAnimeServer(aniId) || getServerPref() || null;
     preferredServerRef.current = pref;
 
     /* Ce que la page info a PROUVE mort pendant que la personne lisait la
@@ -930,7 +936,7 @@ export default function Watch({
     // no saved preference we keep the megaplay default.
     // …sauf s'il vient d'etre prouve mort pour cet episode : on laisse alors le
     // filet de securite choisir, plutot que d'ouvrir un lecteur qu'on sait KO.
-    if (pref && !recales.includes(pref)) {
+    if (pref && (pref === impose || !recales.includes(pref))) {
       appliedPrefRef.current = true;
       setActiveServer(pref);
     }
