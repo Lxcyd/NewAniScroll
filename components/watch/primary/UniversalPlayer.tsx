@@ -4441,8 +4441,16 @@ export default function UniversalPlayer({
       // later manual seek + reload doesn't snap back.
       let urlAt = 0;
       try {
-        const p = new URLSearchParams(window.location.search).get("t");
-        if (p != null) urlAt = Math.max(0, parseInt(p, 10) || 0);
+        const q = new URLSearchParams(window.location.search);
+        const p = q.get("t");
+        /* Un `t` vaut pour UN fichier. Quand le lien nomme son lecteur
+           (`server=`) et que la page a du basculer sur un autre, la meme
+           seconde tombe ailleurs : frembed ouvre Railgun S avec 16 s de plus
+           que megaplay, donc « l'OP a 22:01 » devenait 22:01 chez frembed, en
+           pleine scene (28/09/2026). On ne l'applique alors pas. */
+        const pourServeur = q.get("server");
+        const autreFichier = !!pourServeur && !!serverId && pourServeur !== serverId;
+        if (p != null && !autreFichier) urlAt = Math.max(0, parseInt(p, 10) || 0);
       } catch {}
       const at = urlAt > 0 ? urlAt : getResumeTime(aniListId, episodeNumber);
       if (urlAt > 0) {
@@ -4577,7 +4585,7 @@ export default function UniversalPlayer({
     // Re-bind per episode/anime and whenever the stream (server) changes so the
     // resume seek runs on the freshly-loaded source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aniListId, episodeNumber, streamData]);
+  }, [aniListId, episodeNumber, streamData, serverId]);
 
   // ── TEMP DEBUG: trace who resets currentTime to ~0 (add ?w2gdebug to URL) ──
   useEffect(() => {
