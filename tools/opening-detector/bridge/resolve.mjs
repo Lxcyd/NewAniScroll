@@ -337,6 +337,59 @@ async function extractMegaplayRange(malId, lang, start, end) {
   return { episodes, errors };
 }
 
+// ── frembed — VF + VO dans UN fichier ────────────────────────────────────────
+// Indexe sur TMDB (id serie + saison + episode), pas sur anime-sama. La
+// correspondance AniList -> TMDB et la saison sont calculees UNE fois par
+// l'appelant (Fribb + resolveur de saison du site) et arrivent ici par la
+// variable d'environnement OPED_FREMBED="<tmdbTvId>:<saison>[:<decalage>]" :
+// le pont reste sans Turso ni Redis, comme pour les autres hotes.
+//
+// Deux portes asymetriques, mesurees cote site le 30/08 (cf. pages/api/v2/
+// source, `fetchFrembedPayload`) : l'API EXIGE un Referer sur son propre
+// domaine, le CDN REFUSE ce meme Referer. D'ou `referer: null` en sortie. Le
+// domaine tourne (casa -> surf le 19/09) : on suit la redirection et on
+// rejoue avec le Referer du domaine d'arrivee.
+const FREMBED_BASE = "https://frembed.surf";
+
+async function frembedPayload(tmdb, sa, ep) {
+  const query = `?tmdb=${tmdb}&type=serie&sa=${sa}&ep=${ep}`;
+  const call = (base) =>
+    fetch(`${base}/api/streaming/player${query}`, {
+      headers: { Referer: `${base}/streaming/player`, Accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+  let res = await call(FREMBED_BASE);
+  if (!res.ok && res.redirected) {
+    const moved = new URL(res.url).origin;
+    if (moved !== FREMBED_BASE) res = await call(moved);
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`frembed api ${res.status}`);
+  return res.json();
+}
+
+async function resolveFrembed(spec, start, end) {
+  const episodes = [];
+  const errors = [];
+  const [tmdb, sa, offS] = String(spec).split(":");
+  const off = Number(offS || 0);
+  if (!tmdb || !sa) return { episodes, errors: [`spec invalide ${JSON.stringify(spec)}`] };
+  for (let ep = start; ep <= end; ep++) {
+    try {
+      const payload = await frembedPayload(tmdb, sa, ep + off);
+      const url = payload?.sources?.[0]?.url;
+      if (typeof url === "string" && /\.m3u8/i.test(url)) {
+        episodes.push({ ep, url, isM3U8: true, host: "frembed", referer: null });
+      } else {
+        errors.push(`ep ${ep}: pas de source (tmdb ${tmdb} S${sa}E${ep + off})`);
+      }
+    } catch (e) {
+      errors.push(`ep ${ep}: ${e.message}`);
+    }
+  }
+  return { episodes, errors };
+}
+
 // ── voir-anime (WordPress/Madara) — vidmoly-va source ────────────────────────
 // voir-anime is a SEPARATE site from anime-sama with its own per-season slugs
 // (shingeki-no-kyojin-vostfr, shingeki-no-kyojin-2-vostfr, …), so its episode
@@ -537,7 +590,9 @@ async function main() {
   let arrays = [];
   // Only the anime-sama-sourced hosts need episodes.js. megaplay (MAL-built
   // URLs) and vidmoly-va (voir-anime-sourced) don't.
-  const needsEpisodesJs = priority.some((h) => h !== "megaplay" && h !== "vidmoly-va");
+  const needsEpisodesJs = priority.some(
+    (h) => h !== "megaplay" && h !== "vidmoly-va" && h !== "frembed",
+  );
   if (needsEpisodesJs) {
     try {
       const js = await fetchPage(`${BASE}/catalogue/${slug}/${seasonDir}/${lang}/episodes.js`);
@@ -546,7 +601,7 @@ async function main() {
       out.errors.push(`episodes.js: ${e.message}`);
       // Only bail out here if nothing in the priority list can proceed
       // without episodes.js (i.e. no megaplay AND no vidmoly-va).
-      if (!priority.includes("megaplay") && !priority.includes("vidmoly-va")) {
+      if (!priority.some((h) => ["megaplay", "vidmoly-va", "frembed"].includes(h))) {
         console.log(JSON.stringify(out));
         return;
       }
@@ -570,6 +625,25 @@ async function main() {
         continue;
       }
       const { episodes, errors } = await extractMegaplayRange(malId, lang, start, end);
+      out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
+      if (episodes.length === end - start + 1) {
+        out.ok = true; out.host = hostKey; out.episodes = episodes;
+        console.log(JSON.stringify(out));
+        return;
+      }
+      if (episodes.length > out.episodes.length) {
+        out.host = hostKey; out.episodes = episodes;
+      }
+      continue;
+    }
+
+    if (hostKey === "frembed") {
+      const spec = process.env.OPED_FREMBED;
+      if (!spec) {
+        out.errors.push("frembed: pas de coordonnees TMDB (OPED_FREMBED)");
+        continue;
+      }
+      const { episodes, errors } = await resolveFrembed(spec, start, end);
       out.errors.push(...errors.map((e) => `${hostKey}: ${e}`));
       if (episodes.length === end - start + 1) {
         out.ok = true; out.host = hostKey; out.episodes = episodes;

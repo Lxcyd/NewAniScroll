@@ -709,6 +709,7 @@ def process_anime(
                         lo, hi,
                         hosts=hosts_to_run,
                         mal_id=mal_id, va_slug=va_slug,
+                        frembed=season.get("frembed"),
                     ))
             # Rows are buffered for the whole season instead of written per
             # episode: the self-reference pass (F1) below can only decide once it

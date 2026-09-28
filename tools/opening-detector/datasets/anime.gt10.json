@@ -1,0 +1,292 @@
+[
+ {
+  "mal_id": 16498,
+  "anilist_id": 16498,
+  "slug": "shingeki-no-kyojin",
+  "title": "Shingeki no Kyojin",
+  "popularity": 1058830,
+  "last_episode": 25,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     25
+    ],
+    "frembed": "1429:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     25
+    ],
+    "frembed": "1429:1"
+   }
+  ],
+  "group": "connu"
+ },
+ {
+  "mal_id": 38000,
+  "anilist_id": 101922,
+  "slug": "demon-slayer",
+  "title": "Kimetsu no Yaiba",
+  "popularity": 998322,
+  "last_episode": 26,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     26
+    ],
+    "va_slug": "kimetsu-no-yaiba-vf",
+    "frembed": "85937:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     26
+    ],
+    "va_slug": "kimetsu-no-yaiba",
+    "frembed": "85937:1"
+   }
+  ],
+  "group": "connu"
+ },
+ {
+  "mal_id": 40748,
+  "anilist_id": 113415,
+  "slug": "jujutsu-kaisen",
+  "title": "Jujutsu Kaisen",
+  "popularity": 977199,
+  "last_episode": 24,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "95479:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "95479:1"
+   }
+  ],
+  "group": "connu"
+ },
+ {
+  "mal_id": 52991,
+  "anilist_id": 154587,
+  "slug": "frieren",
+  "title": "Sousou no Frieren",
+  "popularity": null,
+  "last_episode": 28,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     28
+    ],
+    "va_slug": "sousou-no-frieren",
+    "frembed": "209867:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     28
+    ],
+    "va_slug": "sousou-no-frieren-vf",
+    "frembed": "209867:1"
+   }
+  ],
+  "group": "connu"
+ },
+ {
+  "mal_id": 42310,
+  "anilist_id": 120377,
+  "slug": "cyberpunk-edgerunners",
+  "title": "Cyberpunk: Edgerunners",
+  "popularity": 389755,
+  "last_episode": 10,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     10
+    ],
+    "frembed": "105248:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     10
+    ],
+    "frembed": "105248:1"
+   }
+  ],
+  "group": "connu"
+ },
+ {
+  "mal_id": 60395,
+  "anilist_id": 185039,
+  "slug": "toumei-otoko-to-ningen-onna",
+  "title": "Toumei Otoko to Ningen Onna: Sonouchi Fuufu ni Naru Futari",
+  "popularity": 26520,
+  "last_episode": 12,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "frembed": "278271:1"
+   }
+  ],
+  "group": "peu connu"
+ },
+ {
+  "mal_id": 60334,
+  "anilist_id": 184639,
+  "slug": "anne-shirley",
+  "title": "Anne Shirley",
+  "popularity": 22649,
+  "last_episode": 24,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "277665:1"
+   }
+  ],
+  "group": "peu connu"
+ },
+ {
+  "mal_id": 58822,
+  "anilist_id": 177506,
+  "slug": "izure-saikyou-no-renkinjutsushi",
+  "title": "Izure Saikyou no Renkinjutsushi?",
+  "popularity": 59456,
+  "last_episode": 12,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "frembed": "261298:1"
+   }
+  ],
+  "group": "aleatoire"
+ },
+ {
+  "mal_id": 16049,
+  "anilist_id": 16049,
+  "slug": "a-certain-scientific-railgun",
+  "title": "Toaru Kagaku no Railgun S",
+  "popularity": 96369,
+  "last_episode": 24,
+  "seasons": [
+   {
+    "season_dir": "saison2",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "30977:2"
+   }
+  ],
+  "group": "aleatoire"
+ },
+ {
+  "mal_id": 47194,
+  "anilist_id": 129201,
+  "slug": "time-shadows",
+  "title": "Summer Time Render",
+  "popularity": 226919,
+  "last_episode": 25,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     25
+    ],
+    "frembed": "117933:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     25
+    ],
+    "frembed": "117933:1"
+   }
+  ],
+  "group": "aleatoire"
+ }
+]

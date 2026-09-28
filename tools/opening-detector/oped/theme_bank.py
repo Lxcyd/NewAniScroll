@@ -667,6 +667,13 @@ def build_references(
                             native_file.parent.mkdir(parents=True, exist_ok=True)
                             decoded.save(native_file)
                             nref = decoded
+                        else:
+                            # Jamais silencieux : sans ce decodage, la reference
+                            # n'a aucun repere et l'image ne confirme plus RIEN
+                            # pour ce theme (JJK ED1, 28/09 : tous les ED en
+                            # audio seul, sans une ligne de log).
+                            print(f"  [theme] REPERES IMAGE PERDUS {video_key} — "
+                                  f"decodage natif en echec ({video_ref_url})")
                     if nref is not None:
                         landmarks = pick_landmarks(nref)
                         ref_native_dur = float(nref.times.max())
@@ -1554,14 +1561,22 @@ def detect_op_ed_v2(
         fall back to the audio t0). Measured on SnK: the ED reported "absent"
         while the image had in fact run and failed to anchor.
         """
-        if resolve_video_abs is None or not ref.landmarks:
+        if resolve_video_abs is None:
+            return None, False
+        if not ref.landmarks:
+            # Dit tout haut : sinon « absent » ne distingue pas une reference
+            # sans repere d'un decodage qui a plante (28/09 : tous les ED de JJK
+            # etaient « absent » sans qu'aucun log dise lequel des deux).
+            print(f"  [align] {ref.kind} {ref.slug} v{ref.version}: reference sans repere image")
             return None, False
         span = ref.ref_native_dur if ref.ref_native_dur > 0 else ref.duration
         start_abs = max(0.0, theme_t0_coarse - ALIGN_PAD_S)
         dur = span + 2 * ALIGN_PAD_S
         try:
             ep_vfp = resolve_video_abs(start_abs, dur, None)
-        except Exception:
+        except Exception as exc:
+            print(f"  [align] {ref.kind} {ref.slug}: decodage image en echec a "
+                  f"{start_abs:.1f}+{dur:.0f}s — {type(exc).__name__}: {str(exc)[-160:]}")
             return None, False
         if ep_vfp is None or ep_vfp.hashes.size == 0:
             return None, False

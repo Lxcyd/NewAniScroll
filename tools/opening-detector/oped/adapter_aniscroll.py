@@ -80,6 +80,7 @@ def resolve_episodes(
     host_pref: str | None = None,
     mal_id: int | str | None = None,
     va_slug: str | None = None,
+    frembed: str | None = None,
 ) -> list[dict]:
     """Return [{ep, url, isM3U8, host}, ...] for the requested range.
 
@@ -102,13 +103,20 @@ def resolve_episodes(
     a separate site with its own per-season slugs (e.g.
     "shingeki-no-kyojin-vostfr"), so its embeds can't be derived from the
     anime-sama slug. Without it, the bridge skips vidmoly-va (logged, not raised).
+
+    `frembed` ("<tmdbTvId>:<saison>[:<decalage>]") est requis pour l'hote
+    frembed, indexe sur TMDB et non sur anime-sama. Il part au pont par
+    l'environnement du SOUS-PROCESSUS (OPED_FREMBED), jamais par
+    `os.environ` : les resolutions tournent en parallele.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     pref_tag = f"__{host_pref.replace(',', '-')}" if host_pref else ""
     mal_tag = f"__mal{mal_id}" if mal_id else ""
     va_tag = f"__va{va_slug}" if va_slug else ""
-    key = f"{slug}__{season_dir}__{lang}__{ep_start}-{ep_end}{pref_tag}{mal_tag}{va_tag}.json"
+    fr_tag = f"__fr{frembed.replace(':', '-')}" if frembed else ""
+    key = (f"{slug}__{season_dir}__{lang}__{ep_start}-{ep_end}"
+           f"{pref_tag}{mal_tag}{va_tag}{fr_tag}.json")
     cache_file = cache_dir / key
 
     if cache_file.exists() and (time.time() - cache_file.stat().st_mtime) < URL_CACHE_TTL:
@@ -138,6 +146,7 @@ def resolve_episodes(
             text=True,
             encoding="utf-8",
             timeout=float(os.environ.get("OPED_BRIDGE_TIMEOUT", "300")),
+            env={**os.environ, "OPED_FREMBED": frembed} if frembed else None,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("bridge timeout — upstream stalled, host skipped") from None
@@ -193,8 +202,12 @@ def resolve_episodes(
 # (cf. lib/servers.js). Le resoudre ne pouvait plus qu'echouer — un sous-processus
 # de resolution perdu par episode-langue, la meme raison qui a sorti `uqload` de
 # cette liste en juillet puis `vidmoly`.
+# frembed (ajoute le 28/09/2026) : VF + VO dans UN fichier, indexe sur TMDB —
+# il ne se resout qu'avec les coordonnees `frembed` de la saison (cf.
+# scratch/_frembed_coords.mjs), sinon il est ecarte proprement comme
+# vidmoly-va sans va_slug.
 MULTI_HOSTS = ["sibnet", "megaplay", "ansembed", "vidmoly-va",
-               "uqload"]
+               "uqload", "frembed"]
 
 # --- Réessai de résolution (07/08) -------------------------------------------
 # MESURÉ AVANT D'ÊTRE ÉCRIT. Sur 8 lots successifs, parmi les couples
@@ -274,6 +287,7 @@ def resolve_episodes_multi(
     cache_dir: str | Path = "cache/urls",
     mal_id: int | str | None = None,
     va_slug: str | None = None,
+    frembed: str | None = None,
 ) -> dict[int, list[dict]]:
     """Resolve the range from SEVERAL hosts and group the streams by episode.
 
@@ -318,6 +332,7 @@ def resolve_episodes_multi(
         h for h in hosts
         if not (h == "megaplay" and not mal_id)
         and not (h == "vidmoly-va" and not va_slug)
+        and not (h == "frembed" and not frembed)
     ]
 
     def _resolve_one(host: str) -> tuple[str, list[dict]]:
@@ -327,7 +342,7 @@ def resolve_episodes_multi(
                 eps = resolve_episodes(
                     slug, season_dir, lang, ep_start, ep_end,
                     host_pref=host, cache_dir=cache_dir, mal_id=mal_id,
-                    va_slug=va_slug,
+                    va_slug=va_slug, frembed=frembed,
                 )
             except ProcessKilled:
                 # Ni réessai, ni coupe-circuit, ni `[no-host]` : on remonte.

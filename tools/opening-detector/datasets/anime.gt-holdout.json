@@ -1,0 +1,139 @@
+[
+ {
+  "mal_id": 60560,
+  "anilist_id": 185857,
+  "slug": "the-daily-life-of-the-immortal-king",
+  "title": "Xian Wang de Richang Shenghuo 5",
+  "popularity": 14884,
+  "last_episode": 12,
+  "seasons": [
+   {
+    "season_dir": "saison5",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "the-daily-life-of-the-immortal-king-5",
+    "frembed": "98123:5"
+   }
+  ],
+  "group": "peu connu"
+ },
+ {
+  "mal_id": 61159,
+  "anilist_id": 187464,
+  "slug": "tojima-wants-to-be-a-kamen-rider",
+  "title": "Toujima Tanzaburou wa Kamen Rider ni Naritai",
+  "popularity": 26537,
+  "last_episode": 24,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "285788:1"
+   }
+  ],
+  "group": "peu connu"
+ },
+ {
+  "mal_id": 36039,
+  "anilist_id": 99725,
+  "slug": "a-i-c-o-incarnation",
+  "title": "A.I.C.O. -Incarnation-",
+  "popularity": 33998,
+  "last_episode": 12,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "a-i-c-o-incarnation",
+    "frembed": "77778:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "a-i-c-o-incarnation-vf",
+    "frembed": "77778:1"
+   }
+  ],
+  "group": "aleatoire"
+ },
+ {
+  "mal_id": 10719,
+  "anilist_id": 10719,
+  "slug": "boku-wa-tomodachi-ga-sukunai",
+  "title": "Boku wa Tomodachi ga Sukunai",
+  "popularity": 166295,
+  "last_episode": 12,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     12
+    ],
+    "va_slug": "boku-wa-tomodachi-ga-sukunai",
+    "frembed": "60730:1"
+   }
+  ],
+  "group": "aleatoire"
+ },
+ {
+  "mal_id": 51794,
+  "anilist_id": 148862,
+  "slug": "four-knights-of-the-apocalypse",
+  "title": "Nanatsu no Taizai: Mokushiroku no Yonkishi",
+  "popularity": 33473,
+  "last_episode": 24,
+  "seasons": [
+   {
+    "season_dir": "saison1",
+    "lang": "vostfr",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "va_slug": "nanatsu-no-taizai-mokushiroku-no-yonkishi",
+    "frembed": "218843:1"
+   },
+   {
+    "season_dir": "saison1",
+    "lang": "vf",
+    "episodes": [
+     1,
+     2,
+     3,
+     24
+    ],
+    "frembed": "218843:1"
+   }
+  ],
+  "group": "aleatoire"
+ }
+]

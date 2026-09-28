@@ -282,7 +282,8 @@ def keyframe_hashes_abs(
     window is stable across re-runs and the native decode is skipped on a hit.
     Rounded to 0.1s so trivial float jitter doesn't miss the cache.
     """
-    from .audio import _hls_flags, _input_headers
+    from .audio import _container_start, _hls_flags, _input_headers
+    from .hls_cache import local_window
     from .megaplay import is_megaplay, materialize_window
 
     cache_file = None
@@ -301,18 +302,28 @@ def keyframe_hashes_abs(
     # `Video: png`, no real video/audio). Materialise the window as a local,
     # de-PNG'd .ts that keeps the same absolute PTS, so the `-copyts -ss/-to`
     # decode below works on it unchanged. See oped/megaplay.py + audio.py.
-    if is_megaplay(src, referer):
-        src = materialize_window(src, start_abs, dur, referer=referer)
+    # Meme fenetre locale que l'audio (oped/hls_cache.py). Et la MEME correction
+    # de recherche : sur un .ts local qui ne commence pas a 0, `-ss` est relatif
+    # au debut du conteneur (cf. audio.decode_audio_abs). Elle manquait ici :
+    # une fenetre megaplay tardive (l'ED) cherchait a ~2x le temps demande, au
+    # dela de la fin, et ne decodait rien — l'image ne pouvait jamais confirmer.
+    seek = start_abs
+    local = local_window(src, start_abs, dur, referer=referer)
+    if local is None and is_megaplay(src, referer):
+        local = materialize_window(src, start_abs, dur, referer=referer)
+    if local is not None:
+        src = local
         referer = None
+        seek = max(0.0, start_abs - _container_start(src))
 
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info"]
     cmd += _input_headers(src, referer)
     cmd += _hls_flags(src)
     # -to (ABSOLUTE end, before -i) not -t: with -copyts the timeline is absolute
     # so -t truncates to ~nothing on HLS (megaplay: 2 frames). See audio.py.
-    cmd += ["-copyts", "-ss", str(start_abs)]
+    cmd += ["-copyts", "-ss", str(seek)]
     if dur is not None:
-        cmd += ["-to", str(start_abs + dur)]
+        cmd += ["-to", str(seek + dur)]
     cmd += ["-i", src]
     # fps=None → NO fps filter: decode every native frame with its real pts. Used
     # for edge refinement, where sampling to a grid would cap precision at the

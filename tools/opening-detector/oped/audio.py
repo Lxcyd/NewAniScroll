@@ -18,6 +18,7 @@ import numpy as np
 from . import SAMPLE_RATE
 from .errors import ProcessKilled, killed_by_os
 from .megaplay import is_megaplay, materialize_window, playlist_duration
+from .hls_cache import local_window, playlist_duration as hls_playlist_duration
 
 # ashowinfo prints one `pts_time:<abs seconds>` per audio frame to stderr; with
 # -copyts these are ABSOLUTE episode timestamps. We only need the first (the pts
@@ -99,11 +100,25 @@ _DECODE_ERROR_RE = re.compile(
 )
 
 
-def _reject_degraded(stderr: bytes, src: str, what: str) -> None:
-    """Raise when ffmpeg logged a transport/decode failure despite exiting 0."""
-    hit = _DECODE_ERROR_RE.search(stderr or b"")
-    if not hit:
+def _reject_degraded(stderr: bytes, src: str, what: str, *,
+                     local_covered: bool = False) -> None:
+    """Raise when ffmpeg logged a transport/decode failure despite exiting 0.
+
+    `local_covered` : la source est une fenetre LOCALE (oped/hls_cache) et le
+    decodage couvre toute la fenetre demandee. Aucune erreur de TRANSPORT n'y
+    est possible ; reste l'artefact connu d'une recherche `-ss` dans un .ts
+    concatene, ou le premier paquet AAC apres le point de recherche est tronque
+    (« Reserved bit set » -> « Invalid data found », UN paquet — mesure le
+    28/09 sur JJK ep3 vidmoly-va, ou il faisait perdre l'ED entier). On en
+    tolere 2 au plus ; un segment reellement corrompu en produit en serie et
+    reste rejete.
+    """
+    hits = _DECODE_ERROR_RE.findall(stderr or b"")
+    if not hits:
         return
+    if local_covered and len(hits) <= 2:
+        return
+    hit = _DECODE_ERROR_RE.search(stderr or b"")
     err = stderr.decode("utf-8", "replace").strip()
     raise RuntimeError(
         f"ffmpeg exited 0 but reported a decode/transport failure for {src!r} "
@@ -211,8 +226,15 @@ def decode_audio_abs(
     it unchanged, so the shared-clock contract still holds.
     """
     seek = start_abs
-    if is_megaplay(src, referer):
-        src = materialize_window(src, start_abs, dur, referer=referer)
+    remote_src = src
+    # Tout HLS se lit desormais depuis une fenetre LOCALE (segments paralleles,
+    # rendu le plus leger, cache par segment — cf. oped/hls_cache.py) ; megaplay
+    # y passe aussi (deballage PNG inclus). Son ancien chemin reste en repli.
+    local = local_window(src, start_abs, dur, referer=referer)
+    if local is None and is_megaplay(src, referer):
+        local = materialize_window(src, start_abs, dur, referer=referer)
+    if local is not None:
+        src = local
         referer = None  # local file: no HTTP headers, no HLS demuxer flags
         # ffmpeg's input `-ss` is RELATIVE to the container's start_time (it adds
         # ic->start_time to the seek target, and `-seek_timestamp 1` does not
@@ -256,9 +278,22 @@ def decode_audio_abs(
             f"ffmpeg returned 0 bytes of audio for {src!r} "
             f"(start_abs={start_abs}, dur={dur}). stderr:\n{err}"
         )
-    _reject_degraded(proc.stderr, str(src), f"start_abs={start_abs}, dur={dur}")
     m = _ASHOWINFO_PTS_RE.search(proc.stderr)
     abs_start = float(m.group(1)) if m else float(start_abs)
+    covered = False
+    if local is not None:
+        # La fenetre peut deborder la fin de l'episode (fenetre ED) : on attend
+        # alors la fin du FLUX, lue dans la playlist deja chargee (sans reseau).
+        stream_end = hls_playlist_duration(remote_src, referer=None) if not is_megaplay(remote_src) else None
+        want_end = start_abs + dur if dur is not None else stream_end
+        if want_end is not None and stream_end:
+            want_end = min(want_end, stream_end)
+        covered = (
+            abs_start <= start_abs + 1.0
+            and (want_end is None or abs_start + samples.size / sample_rate >= want_end - 1.0)
+        )
+    _reject_degraded(proc.stderr, str(src), f"start_abs={start_abs}, dur={dur}",
+                     local_covered=covered)
     return samples, abs_start
 
 

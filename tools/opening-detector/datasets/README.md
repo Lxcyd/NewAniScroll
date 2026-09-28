@@ -14,3 +14,4 @@ des résultats : les résultats de run vont dans `../out/` (git-ignoré).
 | `anime.audit*.json` | sous-lots d'audit manuel |
 | `anime.retry.json`, `anime.seed.json` | générés par `../scratch/_build_retry_list.py` / `_build_seed_list.py` |
 | `anime.top50.json`, `anime.top50.weights.json` | top 50 popularité, avec/sans pondération |
+| `anime.gt10.json`, `anime.gt-holdout.json` | **verite terrain OP/ED (v3, 28/09/2026)** — tires par `../scratch/_build_gt_list.py` (graine `20260928`, export `out/v3/anime.all.json` du 28/09) : 5 connus imposes + 2 peu connus + 3 aleatoires, ep 1-2-3-dernier (dernier = AniList). Le holdout (5 titres) n'est mesure qu'une fois, a la fin. Coordonnees frembed ajoutees par `../scratch/_frembed_coords.mjs`. |
