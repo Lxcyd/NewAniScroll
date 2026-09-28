@@ -83,7 +83,7 @@ def main() -> None:
                     groups.append({"duration": dur, "start": float(hit["start"]),
                                    "end": float(hit["end"]), "hosts": [host],
                                    "source": hit.get("source"),
-                                   "serve": hit.get("serve")})
+                                   "serve": bool((row.get(kind) or {}).get("serve"))})
             for g in groups:
                 key = f"{a['mal_id']}-{row['episode']}-{row['lang']}-{kind}-{g['hosts'][0]}"
                 sheet = sheets.get(f"{a['mal_id']}_{row['episode']}_{row['lang']}_{g['hosts'][0]}_{kind}")
