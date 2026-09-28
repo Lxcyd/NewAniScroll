@@ -248,7 +248,11 @@ async function handle(request, env, ctx) {
     const cached = await cache.match(cacheLookup);
     if (cached) {
       // Rebuild so headers are mutable (cache.match responses are immutable).
-      const hit = new Response(cached.body, cached);
+      // Les segments mis en cache AVANT `corrigeTypeVideo` gardent 24 h leur
+      // faux type image : on le corrige aussi a la lecture.
+      const c = await corrigeTypeVideo(cached.body, cached.headers.get("content-type"));
+      const hit = new Response(c.body, cached);
+      if (c.type) hit.headers.set("Content-Type", c.type);
       hit.headers.set("X-Aniscroll-Cache", "HIT");
       return hit;
     }
@@ -396,11 +400,15 @@ async function handle(request, env, ctx) {
     // flight to the player, means the player's request lands on a HIT instead of
     // paying that spike on the user's first Play / seek.
     const resourceUrls = [];
-    body = body.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${rewrite(toAbsolute(uri))}"`);
+    const miroir = /megaplay\.buzz/i.test(effectiveReferer || "")
+      ? await cdnMegaplay()
+      : null;
+    const absolu = (u) => remplaceCdnMort(toAbsolute(u), miroir);
+    body = body.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${rewrite(absolu(uri))}"`);
     body = body.replace(/^(?!#)(.+)$/gm, (line) => {
       const t = line.trim();
       if (!t || t.startsWith("#")) return line;
-      const abs = toAbsolute(t);
+      const abs = absolu(t);
       resourceUrls.push(abs);
       return rewrite(abs);
     });
@@ -508,18 +516,22 @@ async function handle(request, env, ctx) {
   //     extractor responses): cap at 60 s. These pages embed short-lived
   //     tokens — caching them for 24 h would re-serve a dead token long after
   //     it expired upstream.
+  // Le type CORRIGE decide : un segment deguise en .html est un segment, et
+  // merite les 24 h d'un binaire, pas les 60 s d'une page.
+  const corrige = await corrigeTypeVideo(response.body, contentType);
+  const typeReel = corrige.type || "";
   const isTextContent =
-    contentType.includes("text/html") ||
-    contentType.includes("application/xhtml") ||
-    contentType.includes("application/javascript") ||
-    contentType.includes("text/javascript") ||
-    contentType.includes("application/json") ||
-    contentType.includes("text/plain");
+    typeReel.includes("text/html") ||
+    typeReel.includes("application/xhtml") ||
+    typeReel.includes("application/javascript") ||
+    typeReel.includes("text/javascript") ||
+    typeReel.includes("application/json") ||
+    typeReel.includes("text/plain");
   const cacheControl = isTextContent
     ? "public, s-maxage=60, max-age=0"
     : "public, s-maxage=86400, max-age=3600, immutable";
   const passthroughHeaders = corsHeaders({
-    "Content-Type": contentType || "application/octet-stream",
+    "Content-Type": corrige.type || "application/octet-stream",
     "Accept-Ranges": "bytes",
     "Cache-Control": cacheControl,
   });
@@ -541,11 +553,90 @@ async function handle(request, env, ctx) {
   }
 
   return respondAndCache(
-    new Response(response.body, {
+    new Response(corrige.body, {
       status: response.status,
       headers: passthroughHeaders,
     }),
   );
+}
+
+/* CDN MORTS de megaplay. Leurs playlists pointent des hotes qui tournent et
+   meurent (28/09/2026 : `ajr25.neonsummit.top` rendait 403 a tout le monde).
+   Leur propre lecteur ne les lit pas tels quels : il consulte
+   `megaplay.buzz/lib/check_domain.json` — `{ fallback, failed: [...] }`, mis a
+   jour en continu — et remplace un hote de `failed` par `fallback`. On fait
+   pareil en reecrivant la playlist. Liste gardee 5 min par isolat ; si elle ne
+   repond pas, on garde la derniere connue, a defaut on ne touche a rien. */
+let cdnMemo = null;
+async function cdnMegaplay() {
+  if (cdnMemo && Date.now() - cdnMemo.at < 5 * 60 * 1000) return cdnMemo;
+  try {
+    const r = await fetch("https://megaplay.buzz/lib/check_domain.json", {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Referer: "https://megaplay.buzz/",
+      },
+    });
+    const j = r.ok ? await r.json() : null;
+    if (j && typeof j.fallback === "string" && Array.isArray(j.failed)) {
+      cdnMemo = { at: Date.now(), fallback: j.fallback, failed: new Set(j.failed) };
+    }
+  } catch {
+    /* derniere liste connue */
+  }
+  return cdnMemo;
+}
+
+function remplaceCdnMort(abs, miroir) {
+  if (!miroir) return abs;
+  try {
+    const u = new URL(abs);
+    if (!miroir.failed.has(u.hostname)) return abs;
+    u.hostname = miroir.fallback;
+    return u.toString();
+  } catch {
+    return abs;
+  }
+}
+
+/* Segments DEGUISES. MegaCloud (megaplay) sert ses segments MPEG-TS sous des
+   noms en .jpg, avec `Content-Type: image/jpeg`. hls.js ne regarde pas le type
+   et joue ; le lecteur HLS NATIF d'iOS, lui, s'y fie et refuse le segment —
+   megaplay jouait sur PC et restait noir sur iPhone (28/09/2026). On ne touche
+   qu'aux reponses annoncees « image/* » : on lit le premier morceau, et s'il
+   commence comme du TS (octet de synchro 0x47) ou du fMP4 (`ftyp`/`styp`/
+   `moof` a l'octet 4), on corrige le type. Une vraie image passe intacte. */
+async function corrigeTypeVideo(body, type) {
+  /* Deguises en .jpg, .html, .js, .png, .txt : on regarde tout ce qui
+     s'annonce image, texte ou script. Une vraie page commence par `<`, un
+     script par du texte — jamais par 0x47 ni par une boite MP4. */
+  const suspect = /^(image\/|text\/|application\/(javascript|x-javascript|json|octet-stream))/i;
+  if (!body || !suspect.test(type || "application/octet-stream")) return { body, type };
+  const lecteur = body.getReader();
+  const premier = await lecteur.read();
+  const octets = premier.value || new Uint8Array(0);
+  const boite = octets.length >= 8
+    ? String.fromCharCode(octets[4], octets[5], octets[6], octets[7])
+    : "";
+  let nouveau = type;
+  if (octets[0] === 0x47) nouveau = "video/mp2t";
+  else if (boite === "ftyp" || boite === "styp" || boite === "moof") nouveau = "video/mp4";
+  const flux = new ReadableStream({
+    start(c) {
+      if (!premier.done && premier.value) c.enqueue(premier.value);
+      if (premier.done) c.close();
+    },
+    async pull(c) {
+      const { done, value } = await lecteur.read();
+      if (done) c.close();
+      else c.enqueue(value);
+    },
+    cancel(r) {
+      return lecteur.cancel(r);
+    },
+  });
+  return { body: flux, type: nouveau };
 }
 
 export default {
