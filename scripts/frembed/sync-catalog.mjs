@@ -185,7 +185,13 @@ async function sonde(tmdbId, kind) {
     .filter((c) => c.tmdbId && !listes.has(`${c.kind}:${c.tmdbId}`))
     .slice(0, DRY ? 0 : PROBE_MAX);
 
-  let oui = 0, non = 0, flou = 0;
+  /* Ceux qu'on savait heberges : c'est sur eux qu'une panne se voit. */
+  const etaientHeberges = new Set(
+    (await db.execute("SELECT tmdb_id, kind FROM frembed_probe WHERE hosted = 1")).rows.map(
+      (r) => `${r.kind}:${r.tmdb_id}`,
+    ),
+  );
+  let oui = 0, non = 0, flou = 0, revus = 0, perdus = 0;
   const resultats = [];
   for (let i = 0; i < aVoir.length; i += PROBE_PAR) {
     const lot = aVoir.slice(i, i + PROBE_PAR);
@@ -193,8 +199,27 @@ async function sonde(tmdbId, kind) {
     lot.forEach((c, k) => {
       if (r[k] === null) return flou++;
       r[k] ? oui++ : non++;
+      if (etaientHeberges.has(`${c.kind}:${c.tmdbId}`)) {
+        revus++;
+        if (!r[k]) perdus++;
+      }
       resultats.push([c.tmdbId, c.kind, r[k] ? 1 : 0, now]);
     });
+  }
+  /* Meme logique que CHUTE_MAX pour la liste : frembed qui demenage vers une
+     page 404, ou qui renomme `sources`, ferait passer TOUS les titres en
+     « absent » en une nuit et effacerait la sonde. Des titres heberges qui
+     disparaissent, il y en a — quelques-uns par semaine, pas la majorite. */
+  if (revus >= 20 && perdus / revus > 0.5 && !FORCE) {
+    console.error(
+      `[frembed] sonde suspecte : ${perdus}/${revus} titres heberges seraient perdus — ` +
+        `rien n'est ecrit. Relancer avec --force si c'est reel.`,
+    );
+    process.exit(1);
+  }
+  if (aVoir.length >= 50 && oui + non === 0) {
+    console.error(`[frembed] sonde : aucune reponse exploitable sur ${aVoir.length} — frembed injoignable ?`);
+    process.exit(1);
   }
   for (let i = 0; i < resultats.length; i += 100) {
     await db.batch(
