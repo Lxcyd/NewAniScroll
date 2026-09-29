@@ -78,7 +78,7 @@ construit depuis `git log --since=<derniere release>`.
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
 | Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
-| Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 11 | tools/opening-detector, replis F1-F7, garde-fous P1-P8, audits |
+| Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 12 | tools/opening-detector (v1) et opening-detector-v2, replis, audits, lots de mesure |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 48 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
@@ -183,6 +183,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Detecteur OP/ED — [`devlog/oped.md`](devlog/oped.md)
 
+- 2026-09-29 — Detecteur v2 : reecrit a zero, 322/322 sur les cellules jugees, AniSkip a 44 % de faux
 - 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
 - 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu
 - 🔄 EN COURS au 08/08 15:50 — lot `top50`, à relire ce soir

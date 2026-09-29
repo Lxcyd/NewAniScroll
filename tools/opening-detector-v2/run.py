@@ -83,10 +83,18 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
         if not c.audio_ok():
             continue
         videos = next(r.theme.videos for r in refs if r.theme.key == c.ref)
-        try:
-            c.img, c.img_shift, c.sim, c.times, c.refimgs = image_score(stream, c, videos)
-        except Exception as exc:
-            c.reasons.append(f"image_indisponible: {str(exc)[:80]}")
+        # Un segment injoignable pendant le controle image est une panne de
+        # transport, pas un verdict : on reessaie avant de s'abstenir (SnK ep25
+        # VF, ansembed : seule abstention sur une cellule jugee juste du lot gt10).
+        for attempt in range(2):
+            try:
+                c.img, c.img_shift, c.sim, c.times, c.refimgs = image_score(stream, c, videos)
+                break
+            except Exception as exc:
+                err = exc
+                time.sleep(RETRY_DELAY_S)
+        else:
+            c.reasons.append(f"image_indisponible: {str(err)[:80]}")
             continue
         if c.img < decide.MIN_IMAGE:
             c.reasons.append("image")

@@ -5,6 +5,50 @@ replis F1-F7, garde-fous P1-P8, audits et lots de mesure.
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-09-29 — Detecteur v2 : reecrit a zero, 322/322 sur les cellules jugees, AniSkip a 44 % de faux
+
+La v1 tournait en rond (replis empiles, jamais mesuree contre une verite).
+Idee de Luc, reprise dans `tools/opening-detector-v2/` (la v1 reste intacte) :
+la reference AnimeThemes (medias seulement, plages d'episodes ignorees),
+une empreinte audio DENSE, et la **continuite** comme preuve — un vrai
+generique repasse la reference en entier, sans trou, a decalage constant ;
+une chanson reprise en musique de scene est trouee par les dialogues.
+L'image confirme (meme temps relatif que la video de reference) : c'est elle
+qui ecarte « meme chanson, autres images » (OP de Cyberpunk ep1 en generique
+de fin sur credits rouges, ED sur l'epilogue).
+
+**Separation mesuree (P1, 17 episodes dont 10 pieges)** : couverture audio
+0,99-1,00 pour les vrais, 0,21-0,72 pour les musiques de scene ; images
+0,98-1,00 contre 0,00-0,23 (meme avec recherche de decalage).
+
+**Lot gt10 (64 episodes, 256 lecteur-episodes, 3e passe)** : 322/322
+cellules jugees justes retrouvees a +/-1,5 s (borne de Wilson 1,2 %),
+18/18 « pas un generique » rejetes, 0 panne de transport, les 5 erreurs
+SERVIES par la v1 (decalages de 7 a 21 s) corrigees. **AniSkip sur les memes
+cellules, lecteur par lecteur : 179/317 justes** (70 % a +/-5 s, 23 % faux de
+plus de 10 s). Ces cellules ne sont PAS une verite humaine (la v1 les avait
+trouvees, Claude les a jugees) : la page « Releve OP/ED v2 »
+(https://claude.ai/artifact/WVk2AsiQcHKa8bkq3WD9Sv, 260 cases dont 74
+abstentions) sert a construire la vraie.
+
+**Pieges trouves en route** :
+- les clips NCBD portent 0 a 4,6 s de silence/noir en queue : fin = derniere
+  image concordante a la cadence native, pas debut + duree du fichier ;
+- la recherche HLS d'ansembed atterrit ~4 s apres le temps demande : fenetre
+  video demandee 12 s plus tot puis filtree par horodatage ;
+- cartons de credits : texte sur fond uni, different a chaque episode -> deux
+  cartons quasi unis de meme luminance concordent ;
+- frembed pose parfois les images 2 s apres la chanson (Railgun ep1) :
+  recherche de decalage +/-3 s, debut cale sur les IMAGES ;
+- « meme fichier » = duree a +/-0,2 s (frembed a +0,99 s est un autre encode) ;
+- megaplay n'est PAS retire du site ; un 429 sur episode complet = attendre.
+
+**Ouvert** : definitions a trancher par Luc (fin de l'ED quand les credits
+depassent la chanson ; plan fixe avant la musique, Railgun ep2 ; ED special
+v3 de Frieren ep28 qui commence sur la derniere scene). Lenteur : ~1,5 min
+par episode (episodes complets sur 5 lecteurs) — a optimiser avant tout
+backfill. Rien n'est importe en base.
+
 ## 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
 
 Objectif pose par Luc : « des pourcentages eleves et aucune erreur — ne pas avoir

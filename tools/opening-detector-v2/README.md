@@ -91,8 +91,40 @@ La marge de chaque côté des seuils est large.
 
 **À noter pour P2** : l'empreinte Chromaprint couvre environ 2,7 s de moins que le fichier de référence. La fin se calcule donc avec la durée du fichier, pas avec celle de l'empreinte.
 
+## Lot gt10 (29/09/2026, 3e passe)
+
+64 épisodes, 256 couples lecteur-épisode, VOSTFR et VF, `out/gt10.jsonl`.
+
+| Contrôle | Résultat |
+| --- | --- |
+| Cellules jugées justes (v1 trouvée + verdict Claude ou Luc), lecteur par lecteur, bords à ±1,5 s | **322/322** (erreur ≤ 1,2 % à 95 %) |
+| AniSkip sur les mêmes cellules | 179/317 (56 % ; 70 % à ±5 s) |
+| « Pas un générique » (chanson en musique de scène) | 18/18 rejetés |
+| Erreurs SERVIES par la v1 (décalages de 7 à 21 s) | 5/5 corrigées |
+| Contradictions entre lecteurs du même fichier (> 1 s) | 3, toutes sur JJK ep24 megaplay (+1,5 s, à trancher) |
+| Pannes de transport | 0 après second essai |
+
+**Ce n'est pas encore une mesure de précision.** Ces cellules viennent de ce que la v1 avait trouvé, et c'est Claude qui les a jugées. La vérité se construit sur la page « Relevé OP/ED v2 » (https://claude.ai/artifact/WVk2AsiQcHKa8bkq3WD9Sv) : 260 cases, dont 74 abstentions, où « Il en manque un » mesure ce que la v2 laisse passer.
+
+**Corrections apportées pendant le lot**
+
+- **Fin** = dernière image qui concorde, à la cadence native. Les clips NCBD ont 0 à 4,6 s de silence ou de noir en queue.
+- **Fenêtre vidéo** demandée 12 s plus tôt, puis filtrée par horodatage : la recherche HLS d'ansembed atterrissait environ 4 s trop tard.
+- **Cartons de crédits** : deux images quasi unies de même luminance concordent, quel que soit leur texte.
+- **Décalage image/son** : on cherche le meilleur à ±3 s. Chez frembed, Railgun ep1 a ses images 2 s après la chanson ; le début est alors calé sur les images.
+- **Le recul du début sur un plan fixe a été retiré.** Il reculait à tort de 2,5 à 4 s.
+
+**Faiblesses connues**
+
+- **Lenteur** : environ 1,5 min par épisode, car chaque épisode est téléchargé en entier sur chaque lecteur. Pistes :
+  - ne lire en entier qu'un lecteur par groupe de fichiers identiques ;
+  - chercher d'abord dans les 6 premières et 6 dernières minutes.
+- **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstient toujours. Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
+- **Abstentions sur les derniers épisodes** quand les crédits passent sur des scènes dialoguées. C'est voulu.
+
 ## Questions ouvertes pour Luc
 
+- **Plan fixe avant la musique** (Railgun ep2 : nuages environ 2 s avant) : ce plan fait-il partie de l'OP ? Tes verdicts disent « début faux » sur ansembed et megaplay, mais « juste » sur frembed, avec le même décalage.
 - **Fin de l'ED quand les crédits durent plus longtemps que la chanson** (derniers épisodes) : faut-il la placer à la fin de la chanson ou à la fin des crédits ?
 - **OP joué en générique de fin** (ep1 de Cyberpunk, Kimetsu, Railgun) : faut-il le servir comme ED ? La v2 l'étiquette d'après sa place (fin d'épisode), pas d'après le nom du thème.
 - **ED spécial référencé par AnimeThemes** : l'ep28 de Frieren a sa propre version, ED1v3, qui commence sur la dernière scène (Himmel), avant les crédits. L'audio et les images concordent à 100 % avec cette version. Faut-il la servir comme ED, ou s'abstenir parce qu'elle contient de l'histoire ?
