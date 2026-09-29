@@ -23,7 +23,7 @@ SERVER = {  # (lecteur, langue) -> identifiant de serveur du site (lib/servers.j
     ("vidmoly-va", "vf"): "voiranime-vidmoly", ("vidmoly-va", "vostfr"): "voiranime-vidmoly-vo",
     ("uqload", "vf"): "animesama-uqload", ("uqload", "vostfr"): "animesama-uqload-vo",
 }
-SAME_FILE_S = 1.0
+SAME_FILE_S = 0.2  # JJK ep2 : frembed a +0,99 s de duree est un AUTRE encode (tout decale de +1 s)
 SAME_EDGE_S = 0.5
 
 

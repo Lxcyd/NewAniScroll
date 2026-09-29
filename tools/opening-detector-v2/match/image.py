@@ -33,7 +33,7 @@ SUB_BAND = 0.25        # part basse de l'image ignoree (sous-titres incrustes)
 AV_SLACK_S = 0.6
 MATCH_NCC = 0.50       # correlation au-dessus de laquelle deux images « concordent » (credits incrustes sur une reference NC : 0,5-0,8 ; autres images : ~0)
 PREROLL_S = 12.0
-NEAR_FLAT_STD = 15.0   # texte sur fond uni : encore « uni » face a un aplat
+NEAR_FLAT_STD = 20.0   # texte sur fond uni (credits) : encore « uni » ; carton final d Anne Shirley ep3 ~15 sur la bande haute
 FLAT_STD = 4.0         # ecart-type sous lequel une image est un aplat (noir, fondu)
 
 _PTS_RE = re.compile(rb"pts_time:\s*(-?[0-9.]+)")
@@ -111,6 +111,11 @@ def _prep(frames: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def similarity(ep: np.ndarray, ref: np.ndarray, ep_stats: np.ndarray, ref_stats: np.ndarray) -> float:
     """Correlation entre deux images preparees ; aplats compares par luminance."""
     (sd_e, mu_e), (sd_r, mu_r) = ep_stats, ref_stats
+    # Deux cartons quasi unis (texte sur fond uni) de meme luminance : le meme
+    # carton de credits, dont le TEXTE change d'un episode a l'autre (Anne
+    # Shirley ep3 : les 4 dernieres secondes de l'ED, correlation 0,2-0,4).
+    if max(sd_e, sd_r) < NEAR_FLAT_STD:
+        return 1.0 if abs(mu_e - mu_r) < 20 else 0.0
     if sd_e < FLAT_STD or sd_r < FLAT_STD:
         # Un aplat face a une image quasi unie : c'est le carton de credits sur
         # fond uni contre le meme fond sans credits (reference NC). Kimetsu ep2 :
@@ -139,3 +144,26 @@ def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
         out[i] = best
     return out
 
+
+
+SHIFT_MAX_S = 3.0
+SHIFT_STEP_S = 0.5
+
+
+def best_shift(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
+               refs: list[tuple[np.ndarray, np.ndarray]]) -> tuple[float, float]:
+    """(decalage, part concordante) : la meilleure concordance quand on decale
+    l'image de la reference de +/- SHIFT_MAX_S par rapport au son.
+
+    Certains montages posent les images du generique quelques secondes apres
+    la chanson (Railgun S ep1 chez frembed : +2 s, 0,98 de concordance, contre
+    0,24 a decalage nul). Le decalage reste une mesure : il est rapporte, et
+    les bords image sont cherches a t0 + decalage."""
+    best = (0.0, -1.0)
+    for sh in np.arange(-SHIFT_MAX_S, SHIFT_MAX_S + 1e-6, SHIFT_STEP_S):
+        sim = compare(ep_frames, ep_times, t0 + sh, refs)
+        v = sim[~np.isnan(sim)]
+        frac = float((v >= MATCH_NCC).mean()) if len(v) else 0.0
+        if frac > best[1] + 1e-9 or (abs(frac - best[1]) < 1e-9 and abs(sh) < abs(best[0])):
+            best = (float(sh), frac)
+    return best

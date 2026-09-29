@@ -26,6 +26,7 @@ class Candidate:
     ref_dur: float
     occ: Occurrence
     img: float | None = None
+    img_shift: float = 0.0
     reasons: list[str] = field(default_factory=list)
 
     @property
@@ -51,6 +52,7 @@ class Candidate:
                 "end": round(self.end(ep_dur), 2), "coverage": round(o.coverage, 3),
                 "gap": round(o.longest_gap_s, 2), "n_gaps": o.n_gaps, "median_bits": o.median_bits,
                 "drift": o.drift_frames, "img": None if self.img is None else round(self.img, 3),
+                "img_shift": self.img_shift,
                 "reasons": self.reasons}
 
 

@@ -23,8 +23,8 @@ import numpy as np
 import decide
 from fetch.episode import fingerprint_stream, resolve
 from match.ber import occurrences
-from match.edges import extend_start, refine_end
-from match.image import FPS, MATCH_NCC, compare, episode_frames, ref_frames
+from match.edges import refine_end
+from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
 from refs.bank import load
 
@@ -34,27 +34,40 @@ RETRY_DELAY_S = 15
 
 
 def image_score(stream: dict, cand: decide.Candidate, videos):
-    """(part des images concordantes, sim, temps, images de reference)."""
-    ef, et = episode_frames(stream["url"], cand.start, cand.ref_dur, referer=stream.get("referer"))
+    """(part des images concordantes, decalage image/son, sim, temps, images de
+    reference). Decalage nul d'abord ; sinon meilleur decalage a +/- 3 s."""
+    ef, et = episode_frames(stream["url"], cand.start - SHIFT_MAX_S, cand.ref_dur + 2 * SHIFT_MAX_S,
+                            referer=stream.get("referer"))
     refs = [ref_frames(download(v.link, "video")) for v in videos]
+    shift = 0.0
     sim = compare(ef, et, cand.start, refs)
     valid = sim[~np.isnan(sim)]
     frac = float((valid >= MATCH_NCC).mean()) if len(valid) else 0.0
-    return frac, sim, et, refs
+    if frac < decide.MIN_IMAGE:
+        shift, frac = best_shift(ef, et, cand.start, refs)
+        sim = compare(ef, et, cand.start + shift, refs)
+    return frac, shift, sim, et, refs
 
 
 def edges(stream: dict, c: decide.Candidate, sim, et, refs, ep_dur: float) -> tuple[float, float]:
-    """Bords a l'image pres (match/edges.py). En cas d'echec, les bords audio."""
-    file_end = min(c.start + c.ref_dur, ep_dur)
+    """Bords a l'image pres (match/edges.py). En cas d'echec, les bords audio.
+    Avec un decalage image/son, le generique a l'ecran court de la musique
+    jusqu'a la derniere image concordante (decalee)."""
+    t0v = c.start + c.img_shift
+    file_end = min(max(c.start, t0v) + c.ref_dur, ep_dur)
     ok = np.nan_to_num(sim, nan=0.0) >= MATCH_NCC
     last = np.flatnonzero(ok)
     coarse = min(float(et[last[-1]]) + 1.0 / FPS, file_end) if len(last) else file_end
     ref = stream.get("referer")
     try:
-        end = refine_end(stream["url"], c.start, coarse, refs, referer=ref) or coarse
-        start = extend_start(stream["url"], c.start, refs, referer=ref)
+        end = refine_end(stream["url"], t0v, coarse, refs, referer=ref) or coarse
+        # Debut = la musique, ou l'apparition des IMAGES si elles la suivent
+        # (decalage > 0) : les secondes d'avant sont encore de l'episode.
+        # Le recul sur « meme premiere image » (29/09) est retire : il reculait
+        # a tort de 2,5 a 4 s (Cyberpunk ep10, Izure ep12) sans regler Railgun.
+        start = max(c.start, t0v)
     except Exception:
-        return c.start, file_end
+        return max(c.start, t0v), file_end
     return max(0.0, start), min(end, file_end)
 
 
@@ -71,7 +84,7 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
             continue
         videos = next(r.theme.videos for r in refs if r.theme.key == c.ref)
         try:
-            c.img, c.sim, c.times, c.refimgs = image_score(stream, c, videos)
+            c.img, c.img_shift, c.sim, c.times, c.refimgs = image_score(stream, c, videos)
         except Exception as exc:
             c.reasons.append(f"image_indisponible: {str(exc)[:80]}")
             continue
@@ -87,7 +100,8 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
         hit = {"start": round(start, 2), "end": round(end, 2), "votes": None,
                "audio_start": round(c.start, 2), "file_end": round(c.end(dur), 2),
                "source": "v2-audio+image", "confirmed_by_video": True, "serve": True,
-               "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3)}
+               "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3),
+               "img_shift": c.img_shift}
         if slot == "ed":
             hit["from_end_start"] = round(dur - hit["start"], 2)
             hit["from_end_end"] = round(dur - hit["end"], 2)

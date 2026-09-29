@@ -22,8 +22,8 @@ from pathlib import Path
 V1 = Path(__file__).resolve().parents[2] / "opening-detector" / "out" / "v3"
 RAW = Path(__file__).resolve().parent / "raw" / "verdicts"
 TOL_S = 1.5
-SAME_FILE_S = 1.0
-HOST_AGREE_S = 0.5
+SAME_FILE_S = 0.2  # JJK ep2 : frembed a +0,99 s de duree est un AUTRE encode (tout decale de +1 s)
+HOST_AGREE_S = 1.0  # l affinage de fin varie de 0,6-0,8 s entre deux encodes de meme duree (Kimetsu VF)
 
 
 def load_v2(path: str) -> dict:
