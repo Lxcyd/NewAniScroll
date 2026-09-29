@@ -1,0 +1,5 @@
+# Donnees derivees : caches de telechargement, empreintes, sorties de lot.
+cache/
+out/
+__pycache__/
+*.pyc

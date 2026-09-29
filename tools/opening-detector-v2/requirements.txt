@@ -1,0 +1,4 @@
+numpy>=1.24
+scipy>=1.10
+Pillow>=10
+# Hors pip : ffmpeg/ffprobe >= 8 avec le muxer chromaprint, Node >= 22 (bridge).
