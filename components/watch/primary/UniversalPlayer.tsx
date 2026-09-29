@@ -2008,6 +2008,22 @@ export default function UniversalPlayer({
             frag1AtRef.current = performance.now();
             frag1MsRef.current = frag1AtRef.current - manifestAtRef.current;
           });
+          /* Le point de depart (`startPosition`, cf. `cibleDepart`) ne vaut que
+             pour le PREMIER depart. hls.js le relit a chaque rattachement du
+             media quand le chargement est arrete (`onMediaAttached` ->
+             `startLoad(config.startPosition)`) — une rafale d'avances fait
+             `stopLoad()`, puis une erreur media fait `recoverMediaError()` — et
+             `seekToStartPos` ramenait alors la lecture au point sauvegarde, a
+             chaque recuperation : sur megaplay, « quand j'avance, ca me remet en
+             continu au timestamp sauvegarde » (30/09/2026). Une fois le premier
+             fragment dans le tampon, -1 : tout redemarrage repart de la tete de
+             lecture. Le premier saut ne lit que le champ du controleur, pas la
+             config : il n'est pas touche. */
+          (hls as any).once("hlsFragBuffered", () => {
+            try {
+              (hls as any).config.startPosition = -1;
+            } catch {}
+          });
         } catch {}
       }
       // Pin the audio rendition the CHIP stands for. Frembed serves VF and
