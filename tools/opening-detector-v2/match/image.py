@@ -31,7 +31,9 @@ W, H = 32, 18
 FPS = 2.0
 SUB_BAND = 0.25        # part basse de l'image ignoree (sous-titres incrustes)
 AV_SLACK_S = 0.6
-MATCH_NCC = 0.80       # correlation au-dessus de laquelle deux images « concordent »
+MATCH_NCC = 0.50       # correlation au-dessus de laquelle deux images « concordent » (credits incrustes sur une reference NC : 0,5-0,8 ; autres images : ~0)
+PREROLL_S = 12.0
+NEAR_FLAT_STD = 15.0   # texte sur fond uni : encore « uni » face a un aplat
 FLAT_STD = 4.0         # ecart-type sous lequel une image est un aplat (noir, fondu)
 
 _PTS_RE = re.compile(rb"pts_time:\s*(-?[0-9.]+)")
@@ -54,10 +56,22 @@ def _vf(fps: float | None = FPS) -> list[str]:
             "-an", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
 
 
-def episode_frames(src: str, start_abs: float, dur: float, *, referer: str | None = None
-                   ) -> tuple[np.ndarray, np.ndarray]:
+def episode_frames(src: str, start_abs: float, dur: float, *, referer: str | None = None,
+                   fps: float | None = FPS) -> tuple[np.ndarray, np.ndarray]:
     """Images de l'episode sur [start_abs, start_abs + dur], temps ABSOLUS
-    (meme horloge que l'audio : -copyts, comme fetch.audio.decode_audio_abs)."""
+    (meme horloge que l'audio : -copyts, comme fetch.audio.decode_audio_abs).
+
+    La fenetre est demandee PREROLL_S plus tot puis filtree par horodatage :
+    sur ansembed, la recherche atterrissait ~4 s apres le temps demande (premiere
+    image a 1380,19 pour 1376,0), et la fin d'un ED tombait dans ce trou."""
+    frames, times = _episode_frames(src, max(0.0, start_abs - PREROLL_S), dur + PREROLL_S,
+                                    referer=referer, fps=fps)
+    keep = (times >= start_abs - 1e-3) & (times <= start_abs + dur + 1e-3)
+    return frames[keep], times[keep]
+
+
+def _episode_frames(src: str, start_abs: float, dur: float, *, referer: str | None,
+                    fps: float | None) -> tuple[np.ndarray, np.ndarray]:
     seek = start_abs
     local = local_window(src, start_abs, dur, referer=referer, want="video") or local_mp4(src, referer=referer)
     if local is None and is_megaplay(src, referer):
@@ -66,7 +80,7 @@ def episode_frames(src: str, start_abs: float, dur: float, *, referer: str | Non
         src, referer = local, None
         seek = max(0.0, start_abs - _container_start(src))  # -ss relatif au debut du conteneur
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", *_input_headers(src, referer),
-           *_hls_flags(src), "-copyts", "-ss", str(seek), "-to", str(seek + dur), "-i", src, *_vf()]
+           *_hls_flags(src), "-copyts", "-ss", str(seek), "-to", str(seek + dur), "-i", src, *_vf(fps)]
     return _decode(cmd)
 
 
@@ -98,12 +112,17 @@ def similarity(ep: np.ndarray, ref: np.ndarray, ep_stats: np.ndarray, ref_stats:
     """Correlation entre deux images preparees ; aplats compares par luminance."""
     (sd_e, mu_e), (sd_r, mu_r) = ep_stats, ref_stats
     if sd_e < FLAT_STD or sd_r < FLAT_STD:
-        return 1.0 if (sd_e < FLAT_STD and sd_r < FLAT_STD and abs(mu_e - mu_r) < 20) else 0.0
+        # Un aplat face a une image quasi unie : c'est le carton de credits sur
+        # fond uni contre le meme fond sans credits (reference NC). Kimetsu ep2 :
+        # carton blanc final, ecart-type 4,2 chez ansembed (texte + filigrane)
+        # contre 0 pour la reference -> la fin tombait 2,8 s trop tot.
+        near_flat = max(sd_e, sd_r) < NEAR_FLAT_STD
+        return 1.0 if (near_flat and abs(mu_e - mu_r) < 20) else 0.0
     return float((ep * ref).mean())
 
 
 def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
-            refs: list[tuple[np.ndarray, np.ndarray]]) -> np.ndarray:
+            refs: list[tuple[np.ndarray, np.ndarray]], *, slack: float = AV_SLACK_S) -> np.ndarray:
     """Pour chaque image d'episode, meilleure correlation avec une image de
     reference au meme temps relatif (t - t0), toutes videos de reference
     confondues. NaN quand aucune reference ne couvre ce temps."""
@@ -114,8 +133,9 @@ def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
         r = t - t0
         best = np.nan
         for times, rp, rs in prepped:
-            for j in np.flatnonzero(np.abs(times - r) <= AV_SLACK_S):
+            for j in np.flatnonzero(np.abs(times - r) <= slack):
                 s = similarity(ep_p[i], rp[j], ep_s[i], rs[j])
                 best = s if np.isnan(best) else max(best, s)
         out[i] = best
     return out
+

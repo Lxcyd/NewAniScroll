@@ -30,6 +30,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +50,7 @@ WORKERS = int(os.environ.get("OPED_HLS_WORKERS", "8"))
 _PER_DOMAIN = int(os.environ.get("OPED_HLS_PER_DOMAIN", "12"))
 _domain_sems: dict[str, threading.BoundedSemaphore] = {}
 _domain_lock = threading.Lock()
+THROTTLE_RETRIES = 6
 _BW = re.compile(r"BANDWIDTH=(\d+)")
 
 
@@ -77,15 +79,29 @@ def _fetch(url: str, referer: str | None, tries: int = 3) -> bytes:
     if referer:
         headers["Referer"] = referer
     last: Exception | None = None
-    for k in range(tries):
+    k = throttled = 0
+    while k < tries:
         try:
             with _sem(url):
                 req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=60) as r:
                     return r.read()
+        except urllib.error.HTTPError as exc:
+            last = exc
+            # 429 : le CDN demande de ralentir, ce n'est pas une panne. La v2 lit
+            # des episodes COMPLETS (megaplay : 429 des le premier lot) ; on
+            # attend (Retry-After sinon 5/10/20/40 s) sans consommer d'essai.
+            if exc.code == 429 and throttled < THROTTLE_RETRIES:
+                wait = exc.headers.get("Retry-After")
+                time.sleep(float(wait) if wait and wait.isdigit() else min(60.0, 5.0 * 2 ** throttled))
+                throttled += 1
+                continue
+            k += 1
+            time.sleep(1.5 * k)
         except Exception as exc:  # reseau : on reessaie avant d'abandonner
             last = exc
-            time.sleep(1.5 * (k + 1))
+            k += 1
+            time.sleep(1.5 * k)
     raise RuntimeError(f"segment injoignable apres {tries} essais: {url[:120]} ({last})")
 
 
