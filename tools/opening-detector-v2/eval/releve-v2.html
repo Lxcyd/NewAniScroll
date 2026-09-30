@@ -102,7 +102,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
 <div class="wrap">
   <header>
     <h1>Relevé OP/ED v2</h1>
-    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10. Par épisode, un tableau OP et un tableau ED ; une ligne = les lecteurs qui partagent le même fichier et la même réponse, et un verdict la couvre. Clique le temps de <b>début</b> ou de <b>fin</b> pour ouvrir l'épisode sur dev.aniscroll.com à ce temps. Quand la v2 s'abstient et qu'il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss) : c'est ce qui mesure ce qu'elle laisse passer.</p>
+    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10. Par épisode, un tableau OP et un tableau ED ; une ligne = les lecteurs qui partagent le même fichier et la même réponse, et un verdict la couvre. Clique le temps de <b>début</b> ou de <b>fin</b> pour ouvrir l'épisode sur dev.aniscroll.com une seconde avant ; les temps sont ceux de la ligne <b>« Flux »</b> des statistiques vidéo (touche s), à comparer image par image (^ et $). Quand la v2 s'abstient et qu'il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss) : c'est ce qui mesure ce qu'elle laisse passer.</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -145,8 +145,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
   const link = (c, host, t) => {
     const p = new URLSearchParams({
       id: host.server + "-" + c.aniId + "-" + c.ep, num: String(c.ep),
-      // Le lecteur lit `t` en secondes entieres (parseInt) : arrondi au plus proche.
-      server: host.server, t: String(Math.max(0, Math.round(t))),
+      server: host.server, t: String(Math.max(0, Math.floor(t))),
     });
     if (c.lang === "vf") p.set("dub","true");
     // Journal de lecture (lib/diag.ts) : si le lecteur abandonne, on saura pourquoi.
@@ -209,10 +208,16 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
       return el("span",{class:"lab none"}, who,
         el("a",{href:url, target:"_blank", rel:"noopener noreferrer"}, c.kind === "op" ? "rien · voir le début" : "rien · voir la fin"));
     }
-    const u1 = link(c, h, c.start), u2 = link(c, h, c.end);
+    /* Les bornes sont dans l'horloge du FICHIER (ligne « Flux » des stats) ; `t`
+       est lu dans l'horloge du LECTEUR, en secondes entieres (parseInt). On
+       retire le debut du flux (megaplay : 1,40 s) et on ouvre 1 s AVANT, a la
+       seconde inferieure : on arrive juste avant la borne, puis ^ / $ pour
+       avancer image par image jusqu'a la valeur « Flux ». */
+    const vers = (t) => t - (c.clock === "flux" ? (c.clockOffset || 0) : 0) - 1;
+    const u1 = link(c, h, vers(c.start)), u2 = link(c, h, vers(c.end));
     return el("span",{class:"lab"}, who,
-      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir au début"}, el("span",{class:"tc", text:mmss(c.start)})),
-      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir à la fin"}, "→ ", el("span",{class:"tc", text:mmss(c.end)})));
+      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir 1 s avant le début (comparer avec la ligne « Flux » des stats)"}, el("span",{class:"tc", text:mmss(c.start)})),
+      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir 1 s avant la fin (comparer avec la ligne « Flux » des stats)"}, "→ ", el("span",{class:"tc", text:mmss(c.end)})));
   }
 
   function line(c){
