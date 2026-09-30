@@ -338,6 +338,12 @@ export default function VideoStats({
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
     /* Libelle en dur, comme les lignes de mise au point plus bas. */
     ["Image", frame ? `${fmtPrecise(frame.t)} · n° ${Math.round(frame.t * frame.fps)}` : "—"],
+    /* Temps de la meme image dans l'horloge du FICHIER (PTS), celle du
+       detecteur OP/ED : ne depend pas du point de reprise, contrairement a
+       « Image » (cf. hlsInitPtsFound dans UniversalPlayer). */
+    ["Flux", frame && hlsRef?.current?.__initPtsS != null
+      ? fmtPrecise(frame.t + hlsRef.current.__initPtsS)
+      : "—"],
     [t("stats.ttff"), stats.ttff],
     /* Libelles en dur : c'est un instrument de mise au point, pas une ligne de
        l'interface — les traduire supposerait qu'on les garde.

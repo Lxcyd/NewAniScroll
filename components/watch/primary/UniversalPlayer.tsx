@@ -2019,6 +2019,22 @@ export default function UniversalPlayer({
              fragment dans le tampon, -1 : tout redemarrage repart de la tete de
              lecture. Le premier saut ne lit que le champ du controleur, pas la
              config : il n'est pas touche. */
+          /* Recalage de l'horloge. hls.js cale le temps du lecteur sur le
+             PREMIER segment charge, a la place que lui donne la playlist
+             (EXTINF). Quand la playlist arrondit (ansembed : 15,000 s pile pour
+             des segments qui derivent de 0,1 a 3,1 s), l'heure affichee depend
+             donc du point de reprise : Railgun S ep2, meme image a 2:22.3 ou
+             a 2:24.2 selon la session (30/09/2026). `initPTS` est ce recalage ;
+             temps du fichier = temps lecteur + initPTS. Garde sur l'instance
+             pour le panneau de stats (et, a terme, les bornes OP/ED). */
+          (hls as any).on("hlsInitPtsFound", (_e: unknown, d: any) => {
+            try {
+              if (d?.id !== "main" || (hls as any).__initPtsS != null) return;
+              const base = typeof d.initPTS === "number" ? d.initPTS : d.initPTS?.baseTime;
+              const ts = d.timescale ?? d.initPTS?.timescale;
+              if (Number.isFinite(base) && ts > 0) (hls as any).__initPtsS = base / ts;
+            } catch {}
+          });
           (hls as any).once("hlsFragBuffered", () => {
             try {
               (hls as any).config.startPosition = -1;
