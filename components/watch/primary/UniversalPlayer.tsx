@@ -342,6 +342,16 @@ const END_GUARD = 15;
  * abandonnait (journal diag du 29/09/2026 : 4 s en tampon a 0:00, saut a 146,
  * « No first frame » a 12 s).
  */
+/** `?tf=<secondes>` : instant dans l'horloge du fichier (cf. cibleDepart). */
+function lireTf(): number | null {
+  try {
+    const v = parseFloat(new URLSearchParams(window.location.search).get("tf") || "");
+    return Number.isFinite(v) && v >= 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 function cibleDepart(
   serverId: string | undefined,
   aniListId: number | string | null | undefined,
@@ -358,6 +368,11 @@ function cibleDepart(
     const pourServeur = q.get("server");
     const autreFichier = !!pourServeur && !!serverId && pourServeur !== serverId;
     if (p != null && !autreFichier) urlAt = Math.max(0, parseInt(p, 10) || 0);
+    /* `tf` : un instant dans l'horloge du FICHIER (page de releve OP/ED, ligne
+       « Flux » des stats), au centieme. On charge 3 s avant ; `resume` se cale
+       ensuite a l'image pres une fois le recalage hls.js connu. */
+    const f = lireTf();
+    if (f != null && !autreFichier) urlAt = Math.max(0, Math.floor(f - 3));
   } catch {}
   if (urlAt > 0) return { at: urlAt, depuisUrl: true };
   if (aniListId == null || episodeNumber == null) return { at: 0, depuisUrl: false };
@@ -4698,6 +4713,7 @@ export default function UniversalPlayer({
         try {
           const u = new URL(window.location.href);
           u.searchParams.delete("t");
+          u.searchParams.delete("tf");
           window.history.replaceState(null, "", u.toString());
         } catch {}
       }
@@ -4718,6 +4734,26 @@ export default function UniversalPlayer({
         import("@/lib/badges/facts")
           .then((f) => f.recordFlag("resume"))
           .catch(() => {});
+      }
+      /* `?tf=` : se poser, en pause, sur l'image dont le temps FICHIER est tf.
+         temps lecteur = tf - initPTS, le recalage que hls.js vient de poser
+         sur le premier segment charge (il depend du point de reprise : 0,1 a
+         3,1 s chez ansembed). Sans hls.js, pas de recalage connu : tf tel quel. */
+      const tf = lireTf();
+      if (tf != null && urlAt > 0) {
+        const v = video;
+        const precis = () => {
+          const ip = (v as any).__initPtsS;
+          try {
+            v.pause();
+            v.currentTime = Math.max(0, tf - (typeof ip === "number" ? ip : 0));
+          } catch {}
+        };
+        if ((v as any).__initPtsS != null) setTimeout(precis, 300);
+        else {
+          v.addEventListener("aniscroll:initpts", () => setTimeout(precis, 300), { once: true });
+          setTimeout(() => { if ((v as any).__initPtsS == null) precis(); }, 5000);
+        }
       }
       // Mark applied even when there's nothing to resume — we only want to
       // honour the saved point ONCE per mount, never fight a later user seek.
