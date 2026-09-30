@@ -4708,6 +4708,8 @@ export default function UniversalPlayer({
       // later manual seek + reload doesn't snap back.
       const cible = cibleDepart(serverId, aniListId, episodeNumber);
       const urlAt = cible.depuisUrl ? cible.at : 0;
+      // Lu AVANT le nettoyage de l'URL ci-dessous, qui retire aussi `tf`.
+      const tf = lireTf();
       const at = cible.at;
       if (urlAt > 0) {
         try {
@@ -4739,7 +4741,6 @@ export default function UniversalPlayer({
          temps lecteur = tf - initPTS, le recalage que hls.js vient de poser
          sur le premier segment charge (il depend du point de reprise : 0,1 a
          3,1 s chez ansembed). Sans hls.js, pas de recalage connu : tf tel quel. */
-      const tf = lireTf();
       if (tf != null && urlAt > 0) {
         const v = video;
         const precis = () => {
