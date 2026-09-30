@@ -2060,6 +2060,32 @@ export default function UniversalPlayer({
         } catch {}
         pinAudio();
       }
+      /* Megaplay : certains maitres melangent deux encodages dont les PTS ne
+         partent pas du meme point — `index-f1-v1-a1` (1080p) a 0,1 s,
+         `index-new-*` (720p/480p) a 1,4 s. hls.js fixe son horloge sur le
+         premier niveau charge (le plus bas, cf. `startLevel: 0`) et ne recale
+         pas les autres : une fois monte en 1080p, tout s'affichait 1,3 s trop
+         tot, et chaque changement de qualite sautait 1,3 s. Mesure sur
+         Railgun S ep1 (30/09/2026) : carton « 次回予告 » a 23:29 au lieu de
+         23:30.2. On ne garde que la famille `new`, celle du depart. Maitre a
+         une seule famille (le cas courant) : rien ne change. */
+      if (hls && serverId === "megaplay") {
+        const uneFamille = () => {
+          try {
+            const levels: any[] = (hls as any).levels || [];
+            const isNew = (l: any) => /index-new-/.test(String(l?.url?.[0] ?? l?.uri ?? ""));
+            if (!levels.some(isNew) || levels.every(isNew)) return;
+            for (let i = levels.length - 1; i >= 0; i--) {
+              if (!isNew(levels[i])) (hls as any).removeLevel(i);
+            }
+            diag("megaplay-levels", { kept: (hls as any).levels?.length });
+          } catch {}
+        };
+        try {
+          (hls as any).on("hlsManifestParsed", uneFamille);
+        } catch {}
+        uneFamille();
+      }
       // Force Maximum Quality: pin hls.js to the top level (setting
       // currentLevel to a fixed index disables ABR auto-switching) once the
       // manifest's levels are known. Read the pref at setup time. When off we
