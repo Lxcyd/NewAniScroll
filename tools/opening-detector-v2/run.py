@@ -23,6 +23,8 @@ import numpy as np
 import decide
 from fetch.clock import stream_origin
 from fetch.episode import fingerprint_stream, resolve
+from fp.chroma import decode_file
+from match.audio_edges import refine_offset, sound_span
 from match.ber import occurrences
 from match.edges import HOLD_S, first_content, refine_end, refine_start
 from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, fine_align, ref_frames
@@ -88,6 +90,32 @@ def edges(stream: dict, c: decide.Candidate, ep_dur: float) -> tuple[float, floa
     return max(0.0, start), min(end, cap)
 
 
+_pcm: dict[str, np.ndarray] = {}
+_pcm_lock = threading.Lock()
+
+
+def ref_pcm(theme) -> np.ndarray:
+    with _pcm_lock:
+        if theme.key not in _pcm:
+            _pcm[theme.key] = decode_file(download(theme.audio_link, "audio"))
+        return _pcm[theme.key]
+
+
+def music_edges(stream: dict, c: decide.Candidate, theme) -> tuple[float, float] | None:
+    """Debut et fin de la MUSIQUE (horloge detecteur) : position de la
+    reference a l'echantillon pres + premier / dernier son de la reference.
+    None si la position n'est pas etablie (tranches en desaccord)."""
+    try:
+        pcm = ref_pcm(theme)
+        t0 = refine_offset(stream["url"], stream.get("referer"), c.start + c.img_shift, pcm)
+    except Exception:
+        return None
+    if t0 is None:
+        return None
+    a, b = sound_span(pcm)
+    return t0 + a, t0 + b
+
+
 def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
     dur, efp = fingerprint_stream(mal, lang, ep, stream)
     cands: list[decide.Candidate] = []
@@ -138,9 +166,19 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
         # pour megaplay ep1 (1425,48 - 1,40).
         entry["duration"] = round(dur - clock, 3)
     for slot, c in slots.items():
-        start, end = (x - clock for x in edges(stream, c, dur))
+        vs, ve = edges(stream, c, dur)
+        # Le generique commence des que sa musique OU ses images commencent, et
+        # finit quand les deux ont fini (Luc, 30/09/2026 : « la musique commence
+        # avant tes timings » — Railgun S ep1 megaplay, chanson a 22:01.425,
+        # premiere image de la reference a 22:01.55).
+        theme = next(r.theme for r in refs if r.theme.key == c.ref)
+        music = music_edges(stream, c, theme)
+        start, end = (min(vs, music[0]), max(ve, min(music[1], dur))) if music else (vs, ve)
+        start, end = start - clock, end - clock
         hit = {"start": round(start, 2), "end": round(end, 2), "votes": None,
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
+               "music": [round(m - clock, 3) for m in music] if music else None,
+               "image": [round(vs - clock, 3), round(ve - clock, 3)],
                "source": "v2-audio+image", "confirmed_by_video": True, "serve": True,
                "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3),
                "img_shift": c.img_shift}
