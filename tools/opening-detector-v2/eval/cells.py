@@ -71,11 +71,11 @@ def build(batch: list[dict], anime: dict[int, dict]) -> list[dict]:
 def why(hit: dict | None, cands: list[dict], slot: str, dur: float) -> str:
     if hit:
         return (f"{hit['ref']} : audio couvert à {hit['coverage']:.0%}, images conformes à {hit['img']:.0%}"
-                + (" (thème OP rejoué en fin d'épisode)" if hit["kind"] != slot else ""))
-    near = [c for c in cands if (c["start"] + c["end"]) / 2 < dur / 2] if slot == "op" else \
-           [c for c in cands if (c["start"] + c["end"]) / 2 >= dur / 2]
+                + (" (OP joué en fin d'épisode)" if slot == "op" and hit["start"] > dur / 2 else ""))
+    # L'etiquette vient du theme : on cherche les candidats du MEME type.
+    near = [c for c in cands if c["kind"] == slot]
     if not near:
-        return "aucune référence AnimeThemes entendue à cette place"
+        return f"aucun {slot.upper()} AnimeThemes entendu dans l'épisode"
     c = max(near, key=lambda c: c["coverage"])
     return (f"rejeté : {c['ref']} à {c['start']:.0f}-{c['end']:.0f} s, audio couvert à {c['coverage']:.0%}"
             + (f", images à {c['img']:.0%}" if c["img"] is not None else "") + f" ({', '.join(c['reasons'])})")

@@ -21,7 +21,9 @@ import numpy as np
 from .image import MATCH_NCC, compare, episode_frames
 
 END_BEFORE_S = 3.0
-END_AFTER_S = 1.0
+END_AFTER_S = 2.5
+HOLD_S = 2.0           # carton final tenu plus longtemps que dans le clip
+BLACK_LUMA = 2         # noir pur des amorces NC (0) ; un fondu (Kimetsu : 0,6 a 0,75 s, 20 seulement a 1,6 s) est deja du generique
 
 
 def _last_run_end(ok: np.ndarray, run: int) -> int | None:
@@ -37,8 +39,20 @@ def refine_end(src: str, t0: float, coarse_end: float, refs, *, referer=None) ->
                             referer=referer, fps=None)
     if len(et) < 5:
         return None
-    ok = np.nan_to_num(compare(ef, et, t0, refs), nan=0.0) >= MATCH_NCC
+    ok = np.nan_to_num(compare(ef, et, t0, refs, slack=0.1, hold=HOLD_S), nan=0.0) >= MATCH_NCC
     i = _last_run_end(ok, run=3)
     if i is None:
         return None
     return float(et[i] + np.median(np.diff(et)))
+
+
+def first_content(refs) -> float:
+    """Temps (dans la reference) de la premiere image qui n'est pas du noir
+    d'amorce. Le flash blanc qui ouvre un OP compte : c'est du generique."""
+    firsts = []
+    for frames, times in refs:
+        lum = frames.reshape(len(frames), -1).mean(axis=1)
+        idx = np.flatnonzero(lum > BLACK_LUMA)
+        if len(idx):
+            firsts.append(float(times[idx[0]]))
+    return min(firsts) if firsts else 0.0

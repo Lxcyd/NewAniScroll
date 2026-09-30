@@ -33,6 +33,7 @@ SUB_BAND = 0.25        # part basse de l'image ignoree (sous-titres incrustes)
 AV_SLACK_S = 0.6
 MATCH_NCC = 0.50       # correlation au-dessus de laquelle deux images « concordent » (credits incrustes sur une reference NC : 0,5-0,8 ; autres images : ~0)
 PREROLL_S = 12.0
+HOLD_MIN_LUMA = 20.0   # un dernier carton plus sombre n'est pas prolonge
 NEAR_FLAT_STD = 20.0   # texte sur fond uni (credits) : encore « uni » ; carton final d Anne Shirley ep3 ~15 sur la bande haute
 FLAT_STD = 4.0         # ecart-type sous lequel une image est un aplat (noir, fondu)
 
@@ -127,10 +128,16 @@ def similarity(ep: np.ndarray, ref: np.ndarray, ep_stats: np.ndarray, ref_stats:
 
 
 def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
-            refs: list[tuple[np.ndarray, np.ndarray]], *, slack: float = AV_SLACK_S) -> np.ndarray:
+            refs: list[tuple[np.ndarray, np.ndarray]], *, slack: float = AV_SLACK_S,
+            hold: float = 0.0) -> np.ndarray:
     """Pour chaque image d'episode, meilleure correlation avec une image de
     reference au meme temps relatif (t - t0), toutes videos de reference
-    confondues. NaN quand aucune reference ne couvre ce temps."""
+    confondues. NaN quand aucune reference ne couvre ce temps.
+
+    `hold` : apres la derniere image de la reference, on compare encore a
+    cette derniere image pendant `hold` secondes. Le carton final d'un
+    generique reste parfois affiche plus longtemps dans l'episode que dans le
+    clip (Railgun S ep1 chez frembed : +0,4 s)."""
     ep_p, ep_s = _prep(ep_frames)
     prepped = [(times, *_prep(frames)) for frames, times in refs]
     out = np.full(len(ep_frames), np.nan)
@@ -138,11 +145,49 @@ def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
         r = t - t0
         best = np.nan
         for times, rp, rs in prepped:
-            for j in np.flatnonzero(np.abs(times - r) <= slack):
+            idx = np.flatnonzero(np.abs(times - r) <= slack)
+            if (not len(idx) and len(times) and 0 < r - times[-1] <= hold
+                    and rs[-1, 1] > HOLD_MIN_LUMA):
+                # Pas sur du noir : prolonger un carton noir avalait ce qui
+                # suit le generique (Kimetsu ep2 sibnet : fin de l'OP +1,4 s).
+                idx = [len(times) - 1]
+            for j in idx:
                 s = similarity(ep_p[i], rp[j], ep_s[i], rs[j])
                 best = s if np.isnan(best) else max(best, s)
         out[i] = best
     return out
+
+
+FINE_SPAN_S = 0.8
+FINE_STEP_S = 0.04
+FINE_MIN_GAIN = 0.03   # gain de ressemblance moyenne exige pour deplacer t0
+
+
+def fine_align(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
+               refs: list[tuple[np.ndarray, np.ndarray]]) -> float:
+    """Recalage IMAGE au pas de 0,04 s autour de t0 : le decalage qui maximise la
+    ressemblance moyenne, chaque image d'episode comparee a l'image de
+    reference la plus proche (references a cadence native).
+
+    Le son ne suffit pas a placer les bords : a l'ecran, le generique commence
+    a sa premiere IMAGE. Railgun S ep1 : chez megaplay le flash blanc de l'OP
+    precede la musique de 0,6 s ; chez frembed l'image suit le son de 1,7 s."""
+    scores = {}
+    for sh in np.arange(-FINE_SPAN_S, FINE_SPAN_S + 1e-6, FINE_STEP_S):
+        sim = compare(ep_frames, ep_times, t0 + sh, refs, slack=0.025)
+        v = sim[~np.isnan(sim)]
+        if len(v) >= 20:
+            scores[round(float(sh), 3)] = float(np.clip(v, 0, 1).mean())
+    if not scores:
+        return 0.0
+    best = max(scores, key=lambda k: (scores[k], -abs(k)))
+    # Sur un plan lent (Kimetsu ep2 : panoramique de lycoris), tous les
+    # decalages se valent et le maximum tombe au hasard dans +/- 0,8 s : les
+    # lecteurs d'un meme fichier s'ecartaient de 0,6 s. On ne bouge que si le
+    # gain est net.
+    if scores[best] - scores.get(0.0, scores[best]) < FINE_MIN_GAIN:
+        return 0.0
+    return best
 
 
 

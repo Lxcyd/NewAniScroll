@@ -23,8 +23,8 @@ import numpy as np
 import decide
 from fetch.episode import fingerprint_stream, resolve
 from match.ber import occurrences
-from match.edges import refine_end
-from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
+from match.edges import HOLD_S, first_content, refine_end
+from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, fine_align, ref_frames
 from refs.animethemes import download
 from refs.bank import load
 
@@ -45,30 +45,33 @@ def image_score(stream: dict, cand: decide.Candidate, videos):
     frac = float((valid >= MATCH_NCC).mean()) if len(valid) else 0.0
     if frac < decide.MIN_IMAGE:
         shift, frac = best_shift(ef, et, cand.start, refs)
-        sim = compare(ef, et, cand.start + shift, refs)
-    return frac, shift, sim, et, refs
+    return frac, shift, ef, et, refs
 
 
-def edges(stream: dict, c: decide.Candidate, sim, et, refs, ep_dur: float) -> tuple[float, float]:
-    """Bords a l'image pres (match/edges.py). En cas d'echec, les bords audio.
-    Avec un decalage image/son, le generique a l'ecran court de la musique
-    jusqu'a la derniere image concordante (decalee)."""
+def edges(stream: dict, c: decide.Candidate, ep_dur: float) -> tuple[float, float]:
+    """Bords a l'image pres : c'est a l'ecran que le generique commence et
+    finit, et le son n'y est pas cale (Railgun S ep1 : megaplay montre le
+    flash blanc de l'OP 0,6 s avant la musique, frembed 1,7 s apres).
+    - alignement image fin (pas de 0,04 s) autour du decalage grossier ;
+    - debut = premiere image de la reference qui n'est pas du noir d'amorce ;
+    - fin = derniere image concordante a cadence native, le carton final
+      pouvant rester affiche jusqu'a HOLD_S de plus que dans le clip.
+    En cas d'echec : les bords audio."""
     t0v = c.start + c.img_shift
-    file_end = min(max(c.start, t0v) + c.ref_dur, ep_dur)
-    ok = np.nan_to_num(sim, nan=0.0) >= MATCH_NCC
-    last = np.flatnonzero(ok)
-    coarse = min(float(et[last[-1]]) + 1.0 / FPS, file_end) if len(last) else file_end
+    fallback = (max(0.0, t0v), min(t0v + c.ref_dur, ep_dur))
     ref = stream.get("referer")
     try:
-        end = refine_end(stream["url"], t0v, coarse, refs, referer=ref) or coarse
-        # Debut = la musique, ou l'apparition des IMAGES si elles la suivent
-        # (decalage > 0) : les secondes d'avant sont encore de l'episode.
-        # Le recul sur « meme premiere image » (29/09) est retire : il reculait
-        # a tort de 2,5 a 4 s (Cyberpunk ep10, Izure ep12) sans regler Railgun.
-        start = max(c.start, t0v)
+        t0v += fine_align(c.frames, c.times, t0v, c.refimgs)
+        start = t0v + first_content(c.refimgs)
+        sim = compare(c.frames, c.times, t0v, c.refimgs, hold=HOLD_S)
+        ok = np.nan_to_num(sim, nan=0.0) >= MATCH_NCC
+        last = np.flatnonzero(ok)
+        cap = min(t0v + c.ref_dur + HOLD_S, ep_dur)
+        coarse = min(float(c.times[last[-1]]) + 1.0 / FPS, cap) if len(last) else fallback[1]
+        end = refine_end(stream["url"], t0v, coarse, c.refimgs, referer=ref) or coarse
     except Exception:
-        return max(c.start, t0v), file_end
-    return max(0.0, start), min(end, file_end)
+        return fallback
+    return max(0.0, start), min(end, cap)
 
 
 def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
@@ -88,7 +91,7 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
         # VF, ansembed : seule abstention sur une cellule jugee juste du lot gt10).
         for attempt in range(2):
             try:
-                c.img, c.img_shift, c.sim, c.times, c.refimgs = image_score(stream, c, videos)
+                c.img, c.img_shift, c.frames, c.times, c.refimgs = image_score(stream, c, videos)
                 break
             except Exception as exc:
                 err = exc
@@ -104,7 +107,7 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
     entry = {"duration": round(dur, 3), "algo_version": ALGO_VERSION,
              "candidates": [c.as_dict(dur) for c in cands], "notes": notes}
     for slot, c in slots.items():
-        start, end = edges(stream, c, c.sim, c.times, c.refimgs, dur)
+        start, end = edges(stream, c, dur)
         hit = {"start": round(start, 2), "end": round(end, 2), "votes": None,
                "audio_start": round(c.start, 2), "file_end": round(c.end(dur), 2),
                "source": "v2-audio+image", "confirmed_by_video": True, "serve": True,

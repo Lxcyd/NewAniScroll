@@ -62,18 +62,18 @@ def overlap(a: Candidate, b: Candidate, ep_dur: float) -> float:
 
 
 def pick(served: list[Candidate], ep_dur: float) -> tuple[dict[str, Candidate], list[str]]:
-    """Retenus -> au plus un OP (debut d'episode) et un ED (fin), etiquetes par
-    leur PLACE : un OP rejoue en generique de fin est un ED pour le lecteur.
+    """Retenus -> au plus un OP et un ED, etiquetes par le theme reconnu.
     Deux references qui se chevauchent (ED1 / ED1v3) : la meilleure gagne.
-    Deux sequences distinctes pour la meme place : abstention (conflit)."""
+    Deux sequences distinctes du meme type : abstention (conflit)."""
     best: list[Candidate] = []
     for c in sorted(served, key=lambda c: (-(c.img or 0) - c.occ.coverage, c.occ.median_bits)):
         if all(overlap(c, b, ep_dur) < 0.5 for b in best):
             best.append(c)
+    # L'etiquette vient du THEME (OP ou ED selon AnimeThemes), pas de sa place :
+    # un OP rejoue en fin d'episode reste l'OP (Luc, 30/09/2026, Railgun S ep1).
     slots: dict[str, list[Candidate]] = {}
     for c in best:
-        mid = (c.start + c.end(ep_dur)) / 2
-        slots.setdefault("op" if mid < ep_dur / 2 else "ed", []).append(c)
+        slots.setdefault(c.kind, []).append(c)
     out, notes = {}, []
     for slot, cs in slots.items():
         if len(cs) == 1:
