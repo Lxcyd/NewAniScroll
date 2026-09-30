@@ -86,6 +86,17 @@ function fmtTime(s: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
+/** Temps a l'image pres : « 22:01.26 ». Pour relever un bord d'OP/ED a
+ *  l'image, la seconde entiere ne suffit pas. */
+function fmtPrecise(s: number): string {
+  if (!isFinite(s) || s < 0) return "—";
+  const m = Math.floor(s / 60);
+  const rest = (s - m * 60).toFixed(2).padStart(5, "0");
+  return `${m}:${rest}`;
+}
+
+const DEFAULT_FPS = 24000 / 1001;
+
 export default function VideoStats({
   playerRef,
   hlsRef,
@@ -101,6 +112,84 @@ export default function VideoStats({
 }) {
   const { t } = useTranslation();
   const [stats, setStats] = useState<Stats>(EMPTY);
+  /* Temps de l'IMAGE A L'ECRAN, pas de la tete de lecture : apres un saut,
+     `currentTime` vaut la cible demandee, alors que l'image montree est celle
+     du flux la plus proche. `requestVideoFrameCallback` donne son temps
+     exact (`mediaTime`) a chaque image presentee, pause comprise apres un saut. */
+  const [frame, setFrame] = useState<{ t: number; fps: number } | null>(null);
+  const fpsRef = useRef(DEFAULT_FPS);
+
+  const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    // Le <video> peut ne pas exister encore a l'ouverture du panneau.
+    const find = () =>
+      (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video") || null;
+    const v = find();
+    if (v) return setVideoEl(v);
+    const iv = setInterval(() => {
+      const w = find();
+      if (w) {
+        setVideoEl(w);
+        clearInterval(iv);
+      }
+    }, 500);
+    return () => clearInterval(iv);
+  }, [playerRef]);
+
+  useEffect(() => {
+    const video = videoEl;
+    if (!video) return;
+    let stop = false;
+    let id = 0;
+    const rvfc = (video as any).requestVideoFrameCallback?.bind(video);
+    const cancel = (video as any).cancelVideoFrameCallback?.bind(video);
+    const lire = () => {
+      try {
+        const lvl = hlsRef?.current?.levels?.[hlsRef.current.currentLevel];
+        const f = parseFloat(lvl?.attrs?.["FRAME-RATE"]);
+        if (f > 0) fpsRef.current = f;
+      } catch {}
+    };
+    if (rvfc) {
+      const onFrame = (_now: number, meta: any) => {
+        if (stop) return;
+        lire();
+        setFrame({ t: meta?.mediaTime ?? video.currentTime, fps: fpsRef.current });
+        id = rvfc(onFrame);
+      };
+      id = rvfc(onFrame);
+    }
+    // Navigateur sans rVFC : la tete de lecture, rafraichie aux sauts et en lecture.
+    const onTick = () => {
+      if (rvfc) return;
+      lire();
+      setFrame({ t: video.currentTime, fps: fpsRef.current });
+    };
+    video.addEventListener("seeked", onTick);
+    video.addEventListener("timeupdate", onTick);
+    onTick();
+
+    /* `,` / `.` : une image en arriere / en avant, en pause, panneau ouvert.
+       Pour se poser pile sur la premiere image d'un generique. */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "," && e.key !== ".") return;
+      const cible = e.target as HTMLElement | null;
+      if (cible?.closest("input, textarea, [contenteditable='true']")) return;
+      if (!video.paused) video.pause();
+      const pas = 1 / fpsRef.current;
+      video.currentTime = Math.max(0, video.currentTime + (e.key === "." ? pas : -pas));
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      stop = true;
+      if (cancel && id) cancel(id);
+      video.removeEventListener("seeked", onTick);
+      video.removeEventListener("timeupdate", onTick);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [videoEl, hlsRef]);
 
   useEffect(() => {
     let raf = 0;
@@ -247,6 +336,8 @@ export default function VideoStats({
     [t("stats.playbackRate"), stats.playbackRate],
     [t("stats.volume"), stats.volume],
     [t("stats.time"), `${stats.currentTime} / ${stats.duration}`],
+    /* Libelle en dur, comme les lignes de mise au point plus bas. */
+    ["Image", frame ? `${fmtPrecise(frame.t)} · n° ${Math.round(frame.t * frame.fps)}` : "—"],
     [t("stats.ttff"), stats.ttff],
     /* Libelles en dur : c'est un instrument de mise au point, pas une ligne de
        l'interface — les traduire supposerait qu'on les garde.
