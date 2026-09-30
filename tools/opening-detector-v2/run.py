@@ -49,6 +49,18 @@ def image_score(stream: dict, cand: decide.Candidate, videos):
     return frac, shift, ef, et, refs
 
 
+def zone_image(c: decide.Candidate, zone: str) -> float:
+    """Part des images concordantes dans la tete ou la queue de la reference :
+    la preuve qui remplace le son la ou il ne concorde pas. 0 si trop peu
+    d'images comparables (on ne sert pas sur une zone non verifiee)."""
+    t0 = c.start + c.img_shift
+    sim = compare(c.frames, c.times, t0, c.refimgs)
+    r = c.times - t0
+    lo, hi = (0.0, decide.EDGE_ZONE_S) if zone == "tete" else (c.ref_dur - decide.EDGE_ZONE_S, c.ref_dur)
+    v = sim[(r >= lo) & (r < hi) & ~np.isnan(sim)]
+    return float((v >= MATCH_NCC).mean()) if len(v) >= 10 else 0.0
+
+
 def edges(stream: dict, c: decide.Candidate, ep_dur: float) -> tuple[float, float]:
     """Bords a l'image pres : c'est a l'ecran que le generique commence et
     finit, et le son n'y est pas cale (Railgun S ep1 : megaplay montre le
@@ -102,6 +114,10 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
             continue
         if c.img < decide.MIN_IMAGE:
             c.reasons.append("image")
+            continue
+        bad = [z for z in c.edge_zones if zone_image(c, z) < decide.MIN_IMAGE]
+        if bad:
+            c.reasons += [f"image_{z}" for z in bad]
             continue
         served.append(c)
     slots, notes = decide.pick(served, dur)

@@ -54,9 +54,9 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("mal", type=int); ap.add_argument("ep", type=int); ap.add_argument("lang"); ap.add_argument("host")
     ap.add_argument("t", type=float); ap.add_argument("--span", type=float, default=3.0)
-    ap.add_argument("--fps", type=float, default=10.0); ap.add_argument("--out")
+    ap.add_argument("--fps", type=float, default=10.0); ap.add_argument("--out"); ap.add_argument("--list")
     a = ap.parse_args(argv)
-    entry = next(x for x in json.load(open(ANIME, encoding="utf-8")) if x["mal_id"] == a.mal)
+    entry = next(x for x in json.load(open(a.list or ANIME, encoding="utf-8")) if x["mal_id"] == a.mal)
     s = next(x for x in resolve(entry, season_of(entry, a.lang), a.ep, hosts=[a.host]) if x["host"] == a.host)
     t0 = a.t - a.span
     fr, pts = frames(s["url"], s.get("referer"), t0, 2 * a.span, a.fps)

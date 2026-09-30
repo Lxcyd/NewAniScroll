@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from match.ber import Occurrence
+from fp.chroma import FRAME_S
+from match.ber import MATCH_BITS, Occurrence, _runs, smooth
 
 # Audio : la reference passe EN ENTIER, sans trou, a decalage constant.
 MIN_COVERAGE = 0.95
@@ -15,6 +16,8 @@ MAX_GAP_S = 1.0
 MAX_DRIFT_FRAMES = 1
 # Image : memes images que la video de reference au meme temps relatif.
 MIN_IMAGE = 0.80
+# Tete / queue que le son peut manquer si le corps est parfait (cf. _edge_fallback).
+EDGE_ZONE_S = 15.0
 # Candidats notes (pour le diagnostic) a partir de cette couverture.
 REPORT_COVERAGE = 0.5
 
@@ -44,7 +47,37 @@ class Candidate:
             ("derive", o.drift_frames > MAX_DRIFT_FRAMES),
             ("hors_episode", o.start_s < -0.5),
         ) if bad]
+        self.edge_zones = []
+        if self.reasons and set(self.reasons) <= {"couverture", "trou"}:
+            zones = self._edge_fallback()
+            if zones:
+                self.edge_zones, self.reasons = zones, []
         return not self.reasons
+
+    def _edge_fallback(self) -> list[str]:
+        """Tete ou queue du generique qui ne concorde pas au son, corps parfait.
+
+        UBW ep3, ED1 : les 11 premieres secondes ont un autre son que la
+        reference (fin de scene mixee dessus), les 79 autres concordent a la
+        trame pres. Le corps prouve l'identite et donne le decalage ; la duree
+        totale de la reference replace debut et fin (idee de Luc, 30/09/2026).
+        Ce que le son ne prouve plus, les IMAGES doivent le prouver : les zones
+        renvoyees sont controlees a part dans run.py, sinon abstention."""
+        o = self.occ
+        ok = smooth(o.curve) <= MATCH_BITS
+        n, edge = len(ok), int(EDGE_ZONE_S / FRAME_S)
+        body = ok[edge:n - edge]
+        if len(body) < 0.5 * n or body.mean() < MIN_COVERAGE:
+            return []
+        gaps = [b - a for a, b in _runs(~body)]
+        if gaps and max(gaps) * FRAME_S > MAX_GAP_S:
+            return []
+        zones = []
+        if ok[:edge].mean() < MIN_COVERAGE:
+            zones.append("tete")
+        if ok[n - edge:].mean() < MIN_COVERAGE:
+            zones.append("queue")
+        return zones
 
     def as_dict(self, ep_dur: float) -> dict:
         o = self.occ
@@ -52,7 +85,7 @@ class Candidate:
                 "end": round(self.end(ep_dur), 2), "coverage": round(o.coverage, 3),
                 "gap": round(o.longest_gap_s, 2), "n_gaps": o.n_gaps, "median_bits": o.median_bits,
                 "drift": o.drift_frames, "img": None if self.img is None else round(self.img, 3),
-                "img_shift": self.img_shift,
+                "img_shift": self.img_shift, "edge_zones": getattr(self, "edge_zones", []),
                 "reasons": self.reasons}
 
 
