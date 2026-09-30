@@ -22,7 +22,9 @@ from .image import MATCH_NCC, compare, episode_frames
 
 END_BEFORE_S = 3.0
 END_AFTER_S = 2.5
-HOLD_S = 2.0           # carton final tenu plus longtemps que dans le clip
+ANCHOR_MAX_S = 0.5     # ecart maximal ancre / calage grossier
+FLASH_MAX_S = 2.0      # recherche de l'ancre du debut avant le calage grossier
+HOLD_S = 2.0          # carton final tenu plus longtemps que dans le clip
 BLACK_LUMA = 2         # noir pur des amorces NC (0) ; un fondu (Kimetsu : 0,6 a 0,75 s, 20 seulement a 1,6 s) est deja du generique
 
 
@@ -44,6 +46,52 @@ def refine_end(src: str, t0: float, coarse_end: float, refs, *, referer=None) ->
     if i is None:
         return None
     return float(et[i] + np.median(np.diff(et)))
+
+
+def refine_start(src: str, start: float, refs, *, referer=None) -> float | None:
+    """Debut a l'image pres, cadence native : premiere image de l'episode qui
+    correspond a la premiere image TEXTUREE de la reference, confirmee par 3
+    images de suite, ramenee au debut de la reference par son decalage connu.
+
+    A 2 images/s, l'alignement ne voit pas un aplat : Railgun S ep1 megaplay,
+    0,5 s de flash blanc (absent du clip AnimeThemes) avant le ciel pale ; le
+    debut tombait au milieu du flash, 0,3 s trop tot (Luc, stats « Flux »)."""
+    from .image import NEAR_FLAT_STD, _prep, similarity
+
+    # Ancre = premiere image TEXTUREE de la reference. Un fondu quasi uni se
+    # compare par sa seule luminance et ressemble a toute fin de scene sombre
+    # (SnK et Kimetsu ep2, ED : ancre 2 s trop tot).
+    h0 = first_content(refs)
+    heads, lag = [], None
+    for f, t in refs:
+        sd = f.reshape(len(f), -1).std(axis=1)
+        idx = np.flatnonzero((t >= h0) & (sd >= NEAR_FLAT_STD))
+        if len(idx):
+            heads.append(f[idx[0]])
+            lag = float(t[idx[0]]) - h0 if lag is None else min(lag, float(t[idx[0]]) - h0)
+    if not heads or lag > 3.0:
+        return None
+    ef, et = episode_frames(src, start + lag - FLASH_MAX_S, FLASH_MAX_S + 1.0, referer=referer, fps=None)
+    if len(et) < 5:
+        return None
+    ep_p, ep_s = _prep(ef)
+    rp, rs = _prep(np.stack(heads))
+    match = np.array([max(similarity(ep_p[i], rp[j], ep_s[i], rs[j]) for j in range(len(rp)))
+                      for i in range(len(ef))]) >= MATCH_NCC
+    # Ancre confirmee par 3 images de suite : une image isolee de la scene
+    # precedente qui ressemblerait a la reference ne suffit pas.
+    anchors = [k for k in range(len(match) - 2) if match[k:k + 3].all()]
+    if not anchors:
+        return None
+    # Debut = image de l'episode qui correspond au debut de la reference. Le
+    # flash blanc qui precede chez megaplay n'est PAS dans la reference : il
+    # n'est pas le generique (Luc, 30/09/2026).
+    t = float(et[anchors[0]]) - lag
+    # L'ancre affine le calage grossier (images a 2/s : +/- 0,5 s), elle ne le
+    # contredit pas. Au-dela, c'est une ressemblance fortuite ou un fondu mal
+    # replace (SnK ep2 ED : -2,2 s ; Kimetsu ep2 OP : +0,8 s) : on garde le
+    # calage grossier.
+    return t if abs(t - start) <= ANCHOR_MAX_S else None
 
 
 def first_content(refs) -> float:

@@ -24,7 +24,7 @@ import decide
 from fetch.clock import stream_origin
 from fetch.episode import fingerprint_stream, resolve
 from match.ber import occurrences
-from match.edges import HOLD_S, first_content, refine_end
+from match.edges import HOLD_S, first_content, refine_end, refine_start
 from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, fine_align, ref_frames
 from refs.animethemes import download
 from refs.bank import load
@@ -76,6 +76,7 @@ def edges(stream: dict, c: decide.Candidate, ep_dur: float) -> tuple[float, floa
     try:
         t0v += fine_align(c.frames, c.times, t0v, c.refimgs)
         start = t0v + first_content(c.refimgs)
+        start = refine_start(stream["url"], start, c.refimgs, referer=ref) or start
         sim = compare(c.frames, c.times, t0v, c.refimgs, hold=HOLD_S)
         ok = np.nan_to_num(sim, nan=0.0) >= MATCH_NCC
         last = np.flatnonzero(ok)
