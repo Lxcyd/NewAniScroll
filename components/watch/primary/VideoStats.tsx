@@ -169,25 +169,11 @@ export default function VideoStats({
     video.addEventListener("timeupdate", onTick);
     onTick();
 
-    /* `,` / `.` : une image en arriere / en avant, en pause, panneau ouvert.
-       Pour se poser pile sur la premiere image d'un generique. */
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "," && e.key !== ".") return;
-      const cible = e.target as HTMLElement | null;
-      if (cible?.closest("input, textarea, [contenteditable='true']")) return;
-      if (!video.paused) video.pause();
-      const pas = 1 / fpsRef.current;
-      video.currentTime = Math.max(0, video.currentTime + (e.key === "." ? pas : -pas));
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    window.addEventListener("keydown", onKey, true);
     return () => {
       stop = true;
       if (cancel && id) cancel(id);
       video.removeEventListener("seeked", onTick);
       video.removeEventListener("timeupdate", onTick);
-      window.removeEventListener("keydown", onKey, true);
     };
   }, [videoEl, hlsRef]);
 
@@ -344,6 +330,21 @@ export default function VideoStats({
     ["Flux", frame && hlsRef?.current?.__initPtsS != null
       ? fmtPrecise(frame.t + hlsRef.current.__initPtsS)
       : "—"],
+    /* Variante reellement jouee et recalage : deux sessions ne sont
+       comparables que si elles jouent la meme famille d'encodages (megaplay
+       Railgun S : 1080p et 720/480p decales de 1,3 s). */
+    ["Variante", (() => {
+      try {
+        const h = hlsRef?.current;
+        const l = h?.levels?.[h.currentLevel];
+        const u = String(l?.url?.[0] ?? l?.uri ?? "");
+        const nom = decodeURIComponent(u).split("?")[0].split("/").pop() || "—";
+        const ip = h?.__initPtsS;
+        return `${nom}${ip != null ? ` · +${ip.toFixed(2)}` : ""}`;
+      } catch {
+        return "—";
+      }
+    })()],
     [t("stats.ttff"), stats.ttff],
     /* Libelles en dur : c'est un instrument de mise au point, pas une ligne de
        l'interface — les traduire supposerait qu'on les garde.
