@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from eval.crosscheck import TOL_S, V1, human, load_v2, ov, served
+from eval.crosscheck import to_player, TOL_S, V1, human, load_v2, ov, served
 from eval.wilson import line
 
 CACHE = Path("cache/aniskip")
@@ -75,20 +75,21 @@ def main(argv: list[str]) -> int:
             e = v2.get((c["mal"], c["ep"], c["lang"], h["host"]))
             if e is None or "duration" not in e:
                 continue
+            c0, c1 = to_player(c, e)
             # La v2 sur ce lecteur
-            hits = [x for x in served(e) if ov(c["start"], c["end"], x[1], x[2]) > 0.3]
+            hits = [x for x in served(e) if ov(c0, c1, x[1], x[2]) > 0.3]
             if not hits:
                 score["v2"][2] += 1
             else:
-                ok = abs(hits[0][1] - c["start"]) <= TOL_S and abs(hits[0][2] - c["end"]) <= TOL_S
+                ok = abs(hits[0][1] - c0) <= TOL_S and abs(hits[0][2] - c1) <= TOL_S
                 score["v2"][0 if ok else 1] += 1
             # AniSkip sur ce lecteur : la place (op/ed) de la cellule
-            slot = "op" if (c["start"] + c["end"]) / 2 < c["duration"] / 2 else "ed"
+            slot = "op" if (c0 + c1) / 2 < c["duration"] / 2 else "ed"
             iv = ask.get(slot)
             if not iv:
                 score["aniskip"][2] += 1
             else:
-                ok = abs(iv[0] - c["start"]) <= TOL_S and abs(iv[1] - c["end"]) <= TOL_S
+                ok = abs(iv[0] - c0) <= TOL_S and abs(iv[1] - c1) <= TOL_S
                 score["aniskip"][0 if ok else 1] += 1
     print(f"Cellules jugees justes (Claude + Luc), lecteur par lecteur, bords a +/- {TOL_S} s :")
     for k, (good, bad, none) in score.items():

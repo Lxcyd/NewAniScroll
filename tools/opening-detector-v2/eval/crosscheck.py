@@ -40,6 +40,14 @@ def served(e: dict) -> list[tuple[str, float, float, str]]:
     return [(s, e[s]["start"], e[s]["end"], e[s]["ref"]) for s in ("op", "ed") if s in e]
 
 
+
+def to_player(c: dict, e: dict) -> tuple[float, float]:
+    """Bornes d'une cellule v1 sur l'horloge du LECTEUR. Les cellules v1 ont ete
+    relevees sur l'horloge du detecteur (PTS absolus) ; la v2 sert l'horloge du
+    lecteur, decalee de `clock_offset` (Railgun S megaplay : 1,4 s)."""
+    k = e.get("clock_offset") or 0.0
+    return c["start"] - k, c["end"] - k
+
 def ov(a0, a1, b0, b1) -> float:
     return max(0.0, min(a1, b1) - max(a0, b0)) / max(1e-6, min(a1 - a0, b1 - b0))
 
@@ -69,7 +77,8 @@ def main(argv: list[str]) -> int:
             if e is None or "detect_error" in e:
                 stats["v2_absent_ou_erreur"] += 1
                 continue
-            hits = [x for x in served(e) if ov(c["start"], c["end"], x[1], x[2]) > 0.3]
+            c0, c1 = to_player(c, e)
+            hits = [x for x in served(e) if ov(c0, c1, x[1], x[2]) > 0.3]
             tag = f"{c['mal']} ep{c['ep']} {c['lang']} {h['host']:<10} {c['kind']} v1={c['start']:.1f}-{c['end']:.1f}"
             if verdict in ("ok", "juste"):
                 if not hits:
@@ -79,7 +88,7 @@ def main(argv: list[str]) -> int:
                     lines["a_relire"].append(f"ABSTENTION  {tag}  meilleur candidat: {best}")
                     continue
                 s, a, b, ref = hits[0]
-                ds, de = a - c["start"], b - c["end"]
+                ds, de = a - c0, b - c1
                 if abs(ds) <= TOL_S and abs(de) <= TOL_S:
                     stats[f"{who}_ok__v2_accord"] += 1
                 else:

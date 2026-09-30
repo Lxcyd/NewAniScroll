@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 import decide
+from fetch.clock import stream_origin
 from fetch.episode import fingerprint_stream, resolve
 from match.ber import occurrences
 from match.edges import HOLD_S, first_content, refine_end
@@ -106,16 +107,29 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
     slots, notes = decide.pick(served, dur)
     entry = {"duration": round(dur, 3), "algo_version": ALGO_VERSION,
              "candidates": [c.as_dict(dur) for c in cands], "notes": notes}
+    clock = None
+    if slots:
+        # Tous nos temps sont en PTS absolus ; le site affiche l'horloge du
+        # lecteur, dont le 0 est le debut du flux. Sans lui, on ne sert rien
+        # (Railgun S ep1 megaplay : flux qui commence a 1,4 s).
+        clock = stream_origin(stream["url"], stream.get("referer"))
+        entry["clock_offset"] = clock
+        if clock is None:
+            entry["notes"].append("horloge_lecteur_inconnue")
+            return entry
+        # La duree sondee est la fin du flux en PTS : le site affiche 23:44
+        # pour megaplay ep1 (1425,48 - 1,40).
+        entry["duration"] = round(dur - clock, 3)
     for slot, c in slots.items():
-        start, end = edges(stream, c, dur)
+        start, end = (x - clock for x in edges(stream, c, dur))
         hit = {"start": round(start, 2), "end": round(end, 2), "votes": None,
-               "audio_start": round(c.start, 2), "file_end": round(c.end(dur), 2),
+               "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "source": "v2-audio+image", "confirmed_by_video": True, "serve": True,
                "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3),
                "img_shift": c.img_shift}
         if slot == "ed":
-            hit["from_end_start"] = round(dur - hit["start"], 2)
-            hit["from_end_end"] = round(dur - hit["end"], 2)
+            hit["from_end_start"] = round(entry["duration"] - hit["start"], 2)
+            hit["from_end_end"] = round(entry["duration"] - hit["end"], 2)
         entry[slot] = hit
     return entry
 
