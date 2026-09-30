@@ -45,6 +45,13 @@ export interface OpedHostSkipRow {
   algoVersion: number;
   serve: boolean;
   updatedAt: number; // epoch seconds
+  /** v2 seulement : temps stockes dans l'horloge du FICHIER (PTS), et PTS du
+   *  debut du flux. Le lecteur convertit a la lecture (t - initPTS de hls.js,
+   *  a defaut t - clockOffset) : son heure a lui depend de la variante jouee
+   *  et du point de reprise (tools/browser-check/frame-truth.mjs). Null = ligne
+   *  historique, deja dans l'horloge du lecteur. Colonne ajoutee par
+   *  l'importeur v2 ; absente, elle se lit null. */
+  clockOffset: number | null;
 }
 
 const CREATE_SQL = `
@@ -94,6 +101,7 @@ function rowFrom(r: any): OpedHostSkipRow {
     algoVersion: Number(r.algo_version ?? 1),
     serve: Number(r.serve ?? 0) === 1,
     updatedAt: Number(r.updated_at ?? 0),
+    clockOffset: num(r.clock_offset),
   };
 }
 

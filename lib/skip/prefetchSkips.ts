@@ -9,7 +9,7 @@
 
 import { serverToHost } from "@/lib/hostRegistry";
 
-export type Skip = { start: number; end: number; type: string };
+export type Skip = { start: number; end: number; type: string; pts?: number };
 
 /* La reponse de /api/v2/skip en mode `hosts=1` : le minutage par defaut de la
    langue, plus celui de chaque hote que notre detecteur a mesure. */

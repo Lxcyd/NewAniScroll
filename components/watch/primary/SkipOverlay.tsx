@@ -58,7 +58,7 @@ const EDGE_SNAP_END_SECONDS = 5;
 const MIN_SEGMENT_DURATION = 5;
 const MIN_OUTRO_START = 3;
 
-type Skip = { start: number; end: number; type: string };
+type Skip = { start: number; end: number; type: string; pts?: number };
 
 /* Module-level cache so changing servers (which remounts the player and
    therefore SkipOverlay) doesn't trigger a brand-new network request for
@@ -177,6 +177,31 @@ export default function SkipOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [malId, aniListId, episode, server]);
 
+  /* Bornes v2 (`pts`) : dans l'horloge du FICHIER. L'heure du lecteur en
+     differe du recalage que hls.js a pose sur le premier segment charge
+     (variante jouee, point de reprise) : t_lecteur = t_fichier - initPTS.
+     Hors hls.js (MP4, HLS natif), a defaut : t_fichier - pts (debut du flux).
+     Mesure au banc tools/browser-check/frame-truth.mjs (Railgun S, 3 lecteurs). */
+  const [initPts, setInitPts] = useState<number | null>(null);
+  useEffect(() => {
+    const video =
+      (playerRef.current?.el as HTMLElement | undefined)?.querySelector<HTMLVideoElement>("video") || null;
+    setInitPts(null);
+    if (!video) return;
+    const lire = () => {
+      const v = (video as any).__initPtsS;
+      if (typeof v === "number" && Number.isFinite(v)) setInitPts(v);
+    };
+    lire();
+    video.addEventListener("aniscroll:initpts", lire);
+    video.addEventListener("loadeddata", lire);
+    return () => {
+      video.removeEventListener("aniscroll:initpts", lire);
+      video.removeEventListener("loadeddata", lire);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server, duration > 0]);
+
   // Clamp/filter against the real duration once the player reports it.
   // Cheap CPU work — runs in microseconds, so the chapter pills appear
   // the same tick `duration` lands.
@@ -189,6 +214,11 @@ export default function SkipOverlay({
     // Clamp every segment to the player's real duration — any
     // timestamp past the end visually misaligns the chapter pills.
     const clamped = rawSkips
+      .map((s) => {
+        if (s.pts == null) return s;
+        const shift = initPts ?? s.pts;
+        return { ...s, start: Math.max(0, s.start - shift), end: s.end - shift };
+      })
       .map((s) => ({ ...s, end: Math.min(s.end, duration) }))
       .filter(
         (s) =>
@@ -230,7 +260,7 @@ export default function SkipOverlay({
     setSkips(sorted);
     watchCtx?.setSkipTimes?.(sorted);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawSkips, duration]);
+  }, [rawSkips, duration, initPts]);
 
   /* Active segment = the one (if any) whose [start, end] window
      contains currentTime. */

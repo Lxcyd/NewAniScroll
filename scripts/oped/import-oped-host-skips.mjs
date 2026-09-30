@@ -89,6 +89,13 @@ async function ensureBatchColumn(db) {
   } catch {
     /* deja presente */
   }
+  /* v2 : bornes dans l'horloge du FICHIER + PTS du debut du flux (cf.
+     lib/db/opedHostSkips.ts, clockOffset). Null pour les lignes v1. */
+  try {
+    await db.execute("ALTER TABLE oped_host_skips ADD COLUMN clock_offset REAL");
+  } catch {
+    /* deja presente */
+  }
 }
 
 const allowed = new Set(DISPLAYED_HOSTS);
@@ -196,6 +203,11 @@ function rowsFromRecord(rec, impossible) {
       impossible.push(x),
     );
     const serve = !!(op || ed);
+    /* v2 : les controles ci-dessus portent sur l'horloge du lecteur (comme la
+       duree) ; on ecrit l'horloge du FICHIER, que le lecteur reconvertit avec
+       le recalage reellement pose par hls.js. */
+    const clock = typeof hd.clock_offset === "number" ? hd.clock_offset : null;
+    const toPts = (t) => (t == null || clock == null ? t : Math.round((t + clock) * 1000) / 1000);
     const confirmed =
       (op && op.confirmed_by_video === true) ||
       (ed && ed.confirmed_by_video === true);
@@ -204,11 +216,11 @@ function rowsFromRecord(rec, impossible) {
       episode,
       lang,
       host,
-      opStart: op ? op.start : null,
-      opEnd: op ? op.end : null,
+      opStart: op ? toPts(op.start) : null,
+      opEnd: op ? toPts(op.end) : null,
       opVotes: op ? op.votes ?? null : null,
-      edStart: ed ? ed.start : null,
-      edEnd: ed ? ed.end : null,
+      edStart: ed ? toPts(ed.start) : null,
+      edEnd: ed ? toPts(ed.end) : null,
       edFromEndStart: ed ? ed.from_end_start ?? null : null,
       edFromEndEnd: ed ? ed.from_end_end ?? null : null,
       edVotes: ed ? ed.votes ?? null : null,
@@ -218,6 +230,7 @@ function rowsFromRecord(rec, impossible) {
       algoVersion: Number(hd.algo_version ?? 1),
       serve: serve ? 1 : 0,
       updatedAt: now,
+      clockOffset: clock,
     });
   }
   return { rows: out, rejected };
@@ -329,8 +342,8 @@ for (let i = 0; i < rows.length; i += 100) {
               (mal_id, episode, lang, host, op_start, op_end, op_votes,
                ed_start, ed_end, ed_from_end_start, ed_from_end_end, ed_votes,
                duration, source, confirmed_by_video, algo_version, serve,
-               updated_at, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               updated_at, batch_id, clock_offset)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mal_id, episode, lang, host) DO UPDATE SET
               op_start = excluded.op_start,
               op_end = excluded.op_end,
@@ -346,12 +359,13 @@ for (let i = 0; i < rows.length; i += 100) {
               algo_version = excluded.algo_version,
               serve = excluded.serve,
               updated_at = excluded.updated_at,
-              batch_id = excluded.batch_id`,
+              batch_id = excluded.batch_id,
+              clock_offset = excluded.clock_offset`,
       args: [
         r.malId, r.episode, r.lang, r.host, r.opStart, r.opEnd, r.opVotes,
         r.edStart, r.edEnd, r.edFromEndStart, r.edFromEndEnd, r.edVotes,
         r.duration, r.source, r.confirmedByVideo, r.algoVersion, r.serve,
-        r.updatedAt, BATCH_ID,
+        r.updatedAt, BATCH_ID, r.clockOffset ?? null,
       ],
     })),
     "write",

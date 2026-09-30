@@ -26,6 +26,9 @@ export type Skip = {
    *  "mixed". Permet au lecteur de dégrader l'auto-skip sur un timing plus
    *  grossier (vidéo seule). */
   confidence?: string;
+  /** Detecteur v2 : start/end sont dans l'horloge du FICHIER (PTS) ; la valeur
+   *  est le PTS du debut du flux. SkipOverlay convertit a la lecture. */
+  pts?: number;
 };
 
 const ANIME_SKIP_ENDPOINT = "https://api.anime-skip.com/graphql";

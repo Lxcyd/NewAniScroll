@@ -2032,7 +2032,15 @@ export default function UniversalPlayer({
               if (d?.id !== "main" || (hls as any).__initPtsS != null) return;
               const base = typeof d.initPTS === "number" ? d.initPTS : d.initPTS?.baseTime;
               const ts = d.timescale ?? d.initPTS?.timescale;
-              if (Number.isFinite(base) && ts > 0) (hls as any).__initPtsS = base / ts;
+              if (Number.isFinite(base) && ts > 0) {
+                (hls as any).__initPtsS = base / ts;
+                // Aussi sur le <video> : SkipOverlay n'a que lui (bornes v2).
+                const media = (hls as any).media;
+                if (media) {
+                  media.__initPtsS = base / ts;
+                  media.dispatchEvent(new Event("aniscroll:initpts"));
+                }
+              }
             } catch {}
           });
           (hls as any).once("hlsFragBuffered", () => {

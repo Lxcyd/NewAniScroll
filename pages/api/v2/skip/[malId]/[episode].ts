@@ -310,24 +310,29 @@ function hostRowToSkips(r: OpedHostSkipRow, episodeLength: number): Skip[] {
   const round2 = (x: number) => Math.round(x * 100) / 100;
   const out: Skip[] = [];
 
+  // v2 : horloge du fichier. Ni reprojection par la duree ni borne a
+  // `episodeLength` ici (tous deux dans l'horloge du lecteur) : SkipOverlay
+  // convertit, puis borne a la vraie duree.
+  const pts = r.clockOffset != null ? { pts: r.clockOffset } : null;
+
   if (r.opStart != null && r.opEnd != null) {
     let end = r.opEnd;
-    if (episodeLength > 0) end = Math.min(end, episodeLength);
+    if (episodeLength > 0 && !pts) end = Math.min(end, episodeLength);
     if (end - r.opStart >= 5) {
-      out.push({ start: round2(r.opStart), end: round2(end), type: "op", confidence: r.source });
+      out.push({ start: round2(r.opStart), end: round2(end), type: "op", confidence: r.source, ...pts });
     }
   }
 
   if (r.edStart != null && r.edEnd != null) {
     let start = r.edStart;
     let end = r.edEnd;
-    if (episodeLength > 0 && r.edFromEndStart != null && r.edFromEndEnd != null) {
+    if (episodeLength > 0 && !pts && r.edFromEndStart != null && r.edFromEndEnd != null) {
       start = Math.max(0, episodeLength - r.edFromEndStart);
       end = Math.max(start, episodeLength - r.edFromEndEnd);
     }
-    if (episodeLength > 0) end = Math.min(end, episodeLength);
+    if (episodeLength > 0 && !pts) end = Math.min(end, episodeLength);
     if (end - start >= 5) {
-      out.push({ start: round2(start), end: round2(end), type: "ed", confidence: r.source });
+      out.push({ start: round2(start), end: round2(end), type: "ed", confidence: r.source, ...pts });
     }
   }
 
