@@ -5037,6 +5037,12 @@ export default function UniversalPlayer({
       onMeta();
       // Last-chance save when the user navigates away / closes the tab.
       window.addEventListener("pagehide", onTimeUpdate);
+      /* Et on vise TOUT DE SUITE. Quand l'effet se relance sur un <video> deja
+         charge (`streamData` change d'identite sans changer de flux), plus
+         aucun evenement de chargement ne viendra : sans cet appel la cible
+         restait a mi-chemin — frembed, 02/10/2026 : pose a 41 s (position
+         grossiere) et jamais affine a 44,286. */
+      resume();
       return true;
     };
 
