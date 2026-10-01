@@ -1,51 +1,48 @@
-# Usage Monitor — 2026-09-30
+# Usage Monitor — 2026-10-01
 
-_Generated 2026-09-30T12:39:44.777Z_
+_Generated 2026-10-01T13:22:39.016Z_
 
 ## ⚠️ Flags
-- Key prefix `anilist:` **doubled** (292 → 798) — possible key-explosion or a cache-key bump.
-- Key prefix `src:` **doubled** (170 → 456) — possible key-explosion or a cache-key bump.
+- Key prefix `anime:` **doubled** (2,110 → 4,430) — possible key-explosion or a cache-key bump.
+- Key prefix `ftree:` **doubled** (241 → 701) — possible key-explosion or a cache-key bump.
 
 ## Upstash — daily commands
 > _skipped: Upstash mgmt 401 on /v2/redis/databases: {"error":"Unauthorized"}_
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **5,229** | scanned: 5,179 keys
+- DBSIZE: **7,248** | scanned: 7,248 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 2,110 | 40.7% | (+680 +48%) |
-| `episode:` | 959 | 18.5% | (+308 +47%) |
-| `anilist:` | 798 | 15.4% | (+506 +173%) |
-| `src:` | 456 | 8.8% | (+286 +168%) |
-| `avail:` | 337 | 6.5% | (+317 +1585%) |
-| `ftree:` | 241 | 4.7% | (+237 +5925%) |
-| `tr:` | 135 | 2.6% | (=) |
-| `asSlug:` | 93 | 1.8% | (+73 +365%) |
-| `asEps:` | 37 | 0.7% | (+33 +825%) |
-| `lock:` | 8 | 0.2% | (+3 +60%) |
-| `jikan:` | 4 | 0.1% | (-1 -20%) |
-| `new_schedule:` | 1 | 0.0% | — |
+| `anime:` | 4,430 | 61.1% | (+2,320 +110%) |
+| `episode:` | 1,900 | 26.2% | (+941 +98%) |
+| `ftree:` | 701 | 9.7% | (+460 +191%) |
+| `tr:` | 158 | 2.2% | (+23 +17%) |
+| `avail:` | 21 | 0.3% | (-316 -94%) |
+| `anilist:` | 20 | 0.3% | (-778 -97%) |
+| `src:` | 12 | 0.2% | (-444 -97%) |
+| `jikan:` | 3 | 0.0% | (-1 -25%) |
+| `asSlug:` | 1 | 0.0% | (-92 -99%) |
+| `index_server_v3:` | 1 | 0.0% | — |
+| `new_schedule:` | 1 | 0.0% | (=) |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v6` | 1,491 |
-| `episode:v12` | 944 |
-| `anilist:resp` | 797 |
+| `anime:v6` | 3,811 |
+| `episode:v12` | 1,885 |
+| `ftree:v5` | 701 |
 | `anime:v5` | 619 |
-| `src:v15` | 414 |
-| `avail:v5` | 337 |
-| `ftree:v5` | 240 |
-| `tr:fr` | 135 |
-| `asSlug:v1` | 93 |
-| `src:v15f2` | 42 |
-| `asEps:v1` | 37 |
+| `tr:fr` | 158 |
+| `avail:v5` | 21 |
+| `anilist:resp` | 17 |
 | `episode:v11` | 15 |
-| `lock:src` | 8 |
-| `jikan:eps` | 4 |
-| `anilist:list` | 1 |
+| `src:v15` | 12 |
+| `jikan:eps` | 3 |
+| `anilist:list` | 2 |
+| `anilist:upcoming` | 1 |
+| `asSlug:v1` | 1 |
 
 </details>
 
