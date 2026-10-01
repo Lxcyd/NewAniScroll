@@ -4929,16 +4929,15 @@ export default function UniversalPlayer({
          position de depart du navigateur, qui s'y rend de lui-meme a l'arrivee
          des metadonnees : sur un MP4, le debut du fichier n'est ni telecharge
          au-dela de l'index, ni affiche.
-         Et le compteur le DIT tout de suite. Vidstack ne relit `currentTime`
-         que sur un evenement : sans le `timeupdate` ci-dessous la barre restait
-         a 0:00 pendant tout le premier segment (0,6 a 1,2 s au banc du
-         01/10/2026), puis sautait au minutage. */
+         NE PAS envoyer de `timeupdate` de synthese pour faire lire cette
+         position au compteur de Vidstack (essaye le 01/10/2026, au `can-play`) :
+         la lecture repartait de 0:00 sur megaplay, frembed et ansembed. Le
+         compteur reste donc a 0:00 le temps du premier segment, ~0,5 s. */
       if (video.readyState === 0) {
         const depart = cibleDepart(serverId, aniListId, episodeNumber).at;
         if (depart > 0) {
           try {
             video.currentTime = depart;
-            video.dispatchEvent(new Event("timeupdate"));
           } catch {}
         }
       }

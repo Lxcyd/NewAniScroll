@@ -6,6 +6,62 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-01 (suite) — Ouvrir à un minutage : hls.js y allait déjà, le MP4 non
+
+Signalé ainsi : « quand on ouvre un anime à un certain timing, on charge
+l'anime puis on met au bon moment » — barre à 0:00 puis saut, parfois le début
+affiché, sur tous les lecteurs, par `?t=`, `?tf=` ou reprise.
+
+**Mesuré d'abord** (`player-timeline.mjs`, qui relève maintenant la tête de
+lecture et le compteur toutes les 100 ms, l'instant fichier de la première
+image présentée, et les segments demandés deux fois) — Railgun S ep 1,
+`?t=900` :
+
+| | 1er segment demandé | 1re image |
+| --- | --- | --- |
+| megaplay | `seg-new-f2-00224`, puis 225… | celle de 900,0 s |
+| frembed | `00090.m4s` | celle de 900,0 s |
+| ansembed | `seg-61` | celle de 900,1 s |
+
+Les lecteurs hls.js partaient donc **déjà** du bon segment (`startPosition`,
+29/09) : rien du début n'était téléchargé ni montré. Ce qui se voyait, c'est
+le compteur à 0:00 pendant le premier segment.
+
+**Une fausse piste, écrite dans un commit puis corrigée.** `seg-61` apparaît
+deux fois sur ansembed et j'ai cru à un saut en trop de `resume()`. Les tailles
+disent autre chose (1 966 et 1 875 Ko) : ce sont deux QUALITÉS. hls.js part
+bas, remonte, et les durées inexactes de la playlist (15,000 s annoncées pour
+des segments qui dérivent) lui font reprendre le même segment en plus haut.
+Après la première image, donc sans la retarder. Deux requêtes du même nom ne
+sont pas deux fois le même fichier.
+
+**Ce qui a changé.**
+- La position est posée sur le `<video>` avant toute donnée (`readyState` 0) :
+  le navigateur s'y rend seul à l'arrivée des métadonnées. Pour un MP4
+  progressif (sibnet, uqload) c'est ce qui évite de décoder et d'afficher
+  0:00 ; `resume()` s'accroche aussi à `loadedmetadata` (HLS natif d'iOS).
+- `resume()` ne saute plus quand hls.js a reçu la même position, ni quand la
+  tête y est déjà.
+- La sonde de première image (`blindProbeSrc`) ne tire plus une copie du début
+  du fichier quand on n'ouvre pas au début.
+- `warmStream` chauffe le segment qui couvre la reprise (cumul des `#EXTINF`),
+  plus le premier ; `warmChain` et la bascule préparée lui passent
+  `getResumeTime`.
+
+**Ce qui a échoué, à ne pas retenter tel quel.** Pour que le compteur affiche
+le minutage tout de suite, un `timeupdate` de synthèse envoyé au `can-play`
+(Vidstack ne branche son écoute qu'à ce moment). Résultat au banc : la lecture
+repartait de **0,1 s** sur megaplay, frembed et ansembed. Retiré dans la
+foulée (`git revert`). Le compteur reste à 0:00 ~0,5 s, le temps du premier
+segment ; la tête de lecture, elle, est au minutage dès l'apparition du
+lecteur.
+
+**Non vérifié.** Le cas MP4 : sibnet refuse l'IP du Chrome de test et la page
+bascule sur frembed, donc le banc ne le voit pas. À regarder à l'œil sur
+sibnet avec un lien `?t=`. Et rappel : quand le lien nomme un lecteur
+(`?server=`) et que la page bascule sur un autre, `t` n'est volontairement pas
+appliqué (28/09) — la lecture part alors de 0:00.
+
 ## 2026-10-01 — « Les lecteurs sont lents » : le lecteur était rapide, le serveur froid
 
 Signalé ainsi : « les lecteurs sont lents, j'ai l'impression que tous tes fix
