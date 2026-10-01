@@ -352,6 +352,15 @@ function lireTf(): number | null {
   }
 }
 
+/* Cible d'un lien (`?t=` / `?tf=`) deja consommee — l'URL n'en garde plus
+   trace. Un rechargement du lecteur dans la foulee (changement de qualite,
+   recuperation d'erreur hls.js, remontage) relit `cibleDepart` : sans ce
+   souvenir il retombait sur l'ANCIEN point de reprise (megaplay, Luc,
+   01/10/2026 : le lien se posait sur l'image puis la lecture revenait au
+   minutage sauvegarde). Valable 30 s, pour le meme episode. */
+let cibleLien: { cle: string; at: number; tf: number | null; quand: number } | null = null;
+const CIBLE_LIEN_MS = 30_000;
+
 function cibleDepart(
   serverId: string | undefined,
   aniListId: number | string | null | undefined,
@@ -375,6 +384,10 @@ function cibleDepart(
     if (f != null && !autreFichier) urlAt = Math.max(0, Math.floor(f - 3));
   } catch {}
   if (urlAt > 0) return { at: urlAt, depuisUrl: true };
+  const cle = `${aniListId}:${episodeNumber}`;
+  if (cibleLien && cibleLien.cle === cle && Date.now() - cibleLien.quand < CIBLE_LIEN_MS) {
+    return { at: cibleLien.at, depuisUrl: true };
+  }
   if (aniListId == null || episodeNumber == null) return { at: 0, depuisUrl: false };
   return { at: getResumeTime(aniListId, episodeNumber), depuisUrl: false };
 }
@@ -4741,14 +4754,22 @@ export default function UniversalPlayer({
          temps lecteur = tf - initPTS, le recalage que hls.js vient de poser
          sur le premier segment charge (il depend du point de reprise : 0,1 a
          3,1 s chez ansembed). Sans hls.js, pas de recalage connu : tf tel quel. */
+      if (urlAt > 0) {
+        cibleLien = { cle: `${aniListId}:${episodeNumber}`, at, tf, quand: Date.now() };
+        // Le point de reprise suit le lien, meme en pause (cf. cibleLien).
+        try { saveProgress(aniListId, episodeNumber, at, video.duration || 0); } catch {}
+      }
       if (tf != null && urlAt > 0) {
         const v = video;
         const precis = () => {
           const ip = (v as any).__initPtsS;
+          const cible = Math.max(0, tf - (typeof ip === "number" ? ip : 0));
           try {
             v.pause();
-            v.currentTime = Math.max(0, tf - (typeof ip === "number" ? ip : 0));
+            v.currentTime = cible;
           } catch {}
+          if (cibleLien) cibleLien = { ...cibleLien, at: cible, quand: Date.now() };
+          try { saveProgress(aniListId, episodeNumber, cible, v.duration || 0); } catch {}
         };
         if ((v as any).__initPtsS != null) setTimeout(precis, 300);
         else {

@@ -80,8 +80,14 @@ export function avecReprise(
   try {
     // Un lien horodate partage (`?t=`) prime sur le point sauvegarde, meme
     // regle que le chemin video — cf. UniversalPlayer, effet « resume ».
-    const t = new URLSearchParams(window.location.search).get("t");
-    const depuisUrl = t == null ? 0 : Math.max(0, parseInt(t, 10) || 0);
+    const q = new URLSearchParams(window.location.search);
+    const t = q.get("t");
+    // `tf` (page de releve OP/ED) : instant fichier ; l'iframe n'a pas de
+    // recalage connu, on le prend tel quel plutot que le point sauvegarde.
+    const tf = parseFloat(q.get("tf") || "");
+    const depuisUrl = Number.isFinite(tf) && tf > 0
+      ? Math.floor(tf)
+      : t == null ? 0 : Math.max(0, parseInt(t, 10) || 0);
     secondes = depuisUrl > 0 ? depuisUrl : getResumeTime(aniListId, episodeNumber);
   } catch {
     return src;
