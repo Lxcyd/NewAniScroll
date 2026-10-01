@@ -54,6 +54,28 @@ plus long), lecteur réellement joué et `<iframe>` dans chaque relevé.
 pas vidmoly. Le nom du lecteur affiché par le lien n'est pas celui qui joue ;
 c'est l'`id=` de l'URL après bascule, ou le journal, qui le dit.
 
+**Vérifié sur dev (SnK ep2, une visite par lecteur, `a4275159`)** — après deux
+ratés du premier jet, tous deux figés à 41 s pour 44,286 demandé sur frembed :
+le journal disait `minutage: utilisateur` à 1,1 s. Le recalage hls.js était
+connu AVANT les métadonnées, la cible fine valait donc déjà 44,286 quand
+hls.js se plaçait à sa `startPosition` (41, la position grossière), et
+`lacher` prenait ce placement pour un saut de l'utilisateur. `lacher` accepte
+maintenant les deux positions. (Le `resume()` en fin de `bind`, ajouté sur une
+mauvaise lecture du premier raté, reste : il est juste, mais ce n'était pas la
+cause.)
+
+| Lecteur | `tf` demandé | initPTS | attendu | obtenu | sauts |
+| --- | --: | --: | --: | --: | --: |
+| frembed | 44,286 | 0 | 44,286 | 44,286 | 1 |
+| megaplay | 60,218 | 0,100 | 60,118 | 60,1175 | 1 |
+| ansembed | 43,736 | 2,935 | 40,801 | 40,8005 | 1 |
+| vidmoly (voir-anime) | 44,369 | — | — | 0, sur frembed | — |
+
+Les trois premiers : en pause sur la cible, atteinte en moins de 2 s. Vidmoly :
+`source → absent` (`player_map`), bascule frembed, message « autre lecteur »
+émis, minutage non appliqué — comportement voulu tant que la table dit absent.
+Le journal ne part qu'à 25 s : une visite `ICI_S=8` le laisse vide.
+
 ## 2026-10-01 (suite) — Ouvrir à un minutage : hls.js y allait déjà, le MP4 non
 
 Signalé ainsi : « quand on ouvre un anime à un certain timing, on charge
