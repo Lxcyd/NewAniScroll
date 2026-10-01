@@ -6,6 +6,90 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-01 — « Les lecteurs sont lents » : le lecteur était rapide, le serveur froid
+
+Signalé ainsi : « les lecteurs sont lents, j'ai l'impression que tous tes fix
+les ont ralentis » — sur dev, tous lecteurs, avant la première image, pendant
+la lecture et aux sauts.
+
+**La relecture des commits n'a rien désigné, la mesure si.** Aucun changement
+du 22/09 au 01/10 ne ralentit à lui seul tous les lecteurs. Nouveau banc,
+`tools/browser-check/player-timeline.mjs` : une visite, chaque maillon
+chronométré (document, `/api/v2/source`, playlists, segments avec cache et
+Ko/s, première image, avance du tampon, attentes, deux sauts).
+
+Ce qu'il a montré, à froid :
+
+| | document | source | lecteur | 1re image |
+| --- | --: | --: | --: | --: |
+| megaplay, Railgun S 1 (dev) | 5,0 s | 2,3 s | 0,7 s | 8,05 s |
+| frembed-vo, Railgun S 1 (dev) | 2,7 s | 2,4 s | 0,5 s | 5,68 s |
+| megaplay, Haikyu!! 7 (dev) | 2,4 s | 1,35 s | 0,7 s | 4,48 s |
+| megaplay, Haikyu!! 8 (**prod**) | 2,3 s | 1,3 s | — | 12,8 s |
+
+- **Le lecteur est rapide.** Megaplay : segments à ~6 Mo/s (HIT du Worker),
+  240 s d'avance en 15 s, sauts en 150-350 ms, zéro attente, même sur un titre
+  que personne n'avait ouvert. Frembed : sauts à 1,4-2 s, le prix de sa
+  variante unique (segments de 7 Mo). Ansembed : CDN à 0,4-1,9 Mo/s.
+- **Le temps part avant, côté serveur**, et la source ne peut partir qu'une
+  fois le document reçu (le script de `earlySource` est dans le HTML).
+- **Dev = prod** sur ces deux maillons : ce n'est pas une régression du code
+  du lecteur. Même ouverture chaude : première image à 1,79 s.
+- Pourquoi on le sent sur dev : chaque push vide le cache du bord, les liens
+  de la page de relevé ouvrent une adresse distincte par lecteur, et depuis le
+  28/09 le « stale » de la page y était de 60 s (ci-dessous).
+
+**Ce qui a été corrigé.**
+
+- *Le rendu de la page attendait AniList.* Mémoire du lambda, puis la chaîne
+  cache Redis → santé → limiteur → AniList → écriture Redis, et Turso seulement
+  en repli. Turso passe devant quand sa ligne est fraîche (`expires_at`) et
+  complète ; périmée, elle sert de repli sans seconde lecture.
+  `Server-Timing` publie le détail (`turso`, `anilist`, `retires`, `total`).
+- *`getMediaMeta({ dbFirst })`* pour les lectures d'UN média sur le chemin
+  d'ouverture (`/api/v2/source` : megaplay, frembed, titre). L'ordre par défaut
+  reste AniList d'abord : les marcheurs de saisons lisent 10 à 30 médias.
+- *`getSources` megaplay* : Worker et direct en même temps (`Promise.any`),
+  au lieu du refus du Worker puis du direct, pour les fichiers récents.
+- *Le « stale » de 60 s sur dev* (28/09) revient à une journée. Un déploiement
+  vide déjà le cache du bord (infra, 20/09) : les 60 s n'achetaient rien et
+  imposaient un rendu complet à chaque ouverture passé 30 min.
+- *Une absence ne se redemande plus.* Les deux essais « anti-leurre » de
+  l'ouverture (+0,5 s, +1,2 s) relisaient un `{absent:true}` gardé 30 s par le
+  navigateur : 1 ms chacun, même réponse, 1,7 s de roue avant la bascule. Seul
+  un 503 (`no-store`) se redemande. Les sondes de fond gardent leur second
+  essai : elles ne sont pas sur le chemin de la première image.
+- *Chien de garde* : `hlsFragLoading` ne compte plus que pour un segment
+  nouveau (hls.js le réémet à chaque essai, un CDN mort n'était jamais
+  « calme ») ; plafond 40 s → 20 s, sauf lecteur imposé par `?server=`.
+- *Frembed* : son recul sous 12 Mb/s lit sa propre mesure (`srv:frembed`) et
+  non plus le meilleur débit tous CDN confondus, qui n'est qu'un plancher de
+  la connexion — quelques jours sur megaplay suffisaient à le reculer.
+
+Après, mêmes ouvertures à froid (cache du bord vidé par le déploiement) :
+
+| | document | source | 1re image | avant |
+| --- | --: | --: | --: | --: |
+| megaplay, Railgun S 1 (lambda neuf) | 2,26 s | 1,54 s | 4,80 s | 8,05 s |
+| frembed-vo, Railgun S 1 | 1,10 s | 0,51 s | 2,15 s | 5,68 s |
+| megaplay, Haikyu!! 10 | 1,05 s | 1,18 s | 3,54 s | 4,48 s |
+| ansembed-vo absent → bascule | | 0,02 s après le verdict | | 1,8 s |
+
+Réserve : la source frembed à 0,51 s a pu profiter d'un reste de cache Redis
+de la première passe ; le gain sûr est celui du document.
+
+**Ce qui reste, mesuré et non traité.**
+- `retires` : sur un lambda neuf, la lecture Prisma des titres retirés coûte
+  ~0,85 s et fait à elle seule le `total` du rendu. Mémoïsée 10 min, donc
+  nulle à chaud (1 ms) ; à froid c'est le maillon le plus long.
+- Le démarrage à froid du lambda lui-même : ~1,3 s entre `total` et le
+  document reçu sur la première requête d'un déploiement.
+- La source megaplay à froid : trois allers-retours en série par le Worker
+  (page, `getSources`, vérification du master), ~1,2 s.
+- Abandonnés faute de preuve : la clé de débit par hôte proxifié et le
+  dédoublonnage de la lecture anticipée du Worker — megaplay tient déjà
+  240 s d'avance.
+
 ## 2026-09-22 — L'instantané de disponibilité ÉLISAIT le lecteur au lieu d'écarter
 
 Signalé ainsi : « sur One Piece ep 1, on a choisi sibnet de base au lieu
