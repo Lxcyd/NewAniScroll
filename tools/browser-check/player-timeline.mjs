@@ -175,7 +175,9 @@ const ligne = (r) => {
   const ko = r.octets ? ` · ${(r.octets / 1024).toFixed(0)} Ko` : "";
   const debit = r.octets > 50000 && r.fin ? ` · ${(r.octets / 1024 / (r.fin - r.debut)).toFixed(0)} Ko/s` : "";
   const cache = r.entetes?.["x-aniscroll-cache"] || r.entetes?.["x-vercel-cache"] || "";
-  return `  ${a} ms  ${String(r.echec || r.statut || "?").padEnd(4)} ${d}${ko}${debit}${cache ? ` · ${cache}` : ""}  ${r.viaWorker ? "[W] " : ""}${court(r.url)}`;
+  // Le detail du rendu serveur, quand la route le publie (page de lecture).
+  const st = r.entetes?.["server-timing"] ? `  {${r.entetes["server-timing"].replace(/;dur=/g, " ")}}` : "";
+  return `  ${a} ms  ${String(r.echec || r.statut || "?").padEnd(4)} ${d}${ko}${debit}${cache ? ` · ${cache}` : ""}  ${r.viaWorker ? "[W] " : ""}${court(r.url)}${st}`;
 };
 const tout = [...req.values()].filter((r) => t0 != null && r.debut >= t0).sort((a, b) => a.debut - b.debut);
 for (const r of tout) r.viaWorker = /proxy\.aniscroll\.com\/\?url=/.test(r.url);

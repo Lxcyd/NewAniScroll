@@ -2050,10 +2050,16 @@ export default function Watch({
       // sur un serveur confirme des qu'il voit ce marquage : un 503 isolé
       // suffisait donc a reprendre a l'utilisateur le lecteur qu'il venait de
       // choisir, sous ses yeux. On redemande avant de conclure.
+      //
+      // Seul `retry` se redemande (01/10/2026). Une absence, meme non prouvee,
+      // est une reponse GARDEE : 30 s par le navigateur, 5 min au bord, 10 min
+      // en Redis. Les deux essais relisaient donc la meme reponse dans le cache
+      // du navigateur, en 1 ms chacun (banc player-timeline, ansembed sur
+      // Haikyu!!) : 1,7 s de roue avant la bascule, sans qu'aucun des deux
+      // puisse rendre autre chose. Un 503, lui, est `no-store`.
       for (
         let attempt = 0;
-        (out.kind === "retry" || (out.kind === "absent" && !out.hard)) &&
-        attempt < DECOY_RETRIES;
+        out.kind === "retry" && attempt < DECOY_RETRIES;
         attempt++
       ) {
         await new Promise((r) => setTimeout(r, DECOY_BACKOFF_MS[attempt]));
