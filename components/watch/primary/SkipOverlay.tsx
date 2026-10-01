@@ -327,6 +327,27 @@ export default function SkipOverlay({
     };
   }, [playerRef]);
 
+  /* Conteneur A NOUS dans la racine du lecteur. Monter le portail directement
+     sur la racine, dont Vidstack deplace lui-meme les enfants, faisait planter
+     React (« removeChild: the node to be removed is not a child ») quand la
+     page s'ouvrait EN PLEIN passage a sauter (bouton rendu des le montage) :
+     lien ?t= / ?tf= dans un OP ou un ED, Railgun S ep1 (01/10/2026). La page
+     se remontait et repartait de 0. `display: contents` : aucune boite, le
+     positionnement des boutons reste relatif a la racine du lecteur. */
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!playerEl) return;
+    const d = document.createElement("div");
+    d.className = "as-skip-portal";
+    d.style.display = "contents";
+    playerEl.appendChild(d);
+    setPortalEl(d);
+    return () => {
+      setPortalEl(null);
+      d.remove();
+    };
+  }, [playerEl]);
+
   /* Track whether Vidstack's control bar is currently visible.
      Vidstack exposes this as `useMediaState("controlsVisible")`
      which fires re-renders whenever the auto-hide timer flips it.
@@ -601,7 +622,7 @@ export default function SkipOverlay({
      This component now only owns the floating Skip / Next Episode
      buttons. */
   return (
-    <>{buttonStack && playerEl && createPortal(buttonStack, playerEl)}</>
+    <>{buttonStack && portalEl && createPortal(buttonStack, portalEl)}</>
   );
 }
 

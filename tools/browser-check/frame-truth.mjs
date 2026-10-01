@@ -123,10 +123,23 @@ if (process.env.PLAY_S) {
 }
 for (const t of process.env.PLAY_S ? [] : ts) {
   const avant = segs().length;
+  /* t = « ici » : ne pas bouger, relever ce que le lecteur affiche de lui-meme
+     (lien ?tf= de la page de releve, qui doit se poser seul sur l'image). */
+  const ici = t === "ici";
+  if (ici) {
+    // Historique des positions pendant le chargement (diagnostic des liens ?tf=).
+    for (let k = 0; k < 16; k++) {
+      const x = await evalue(`(() => { const v = document.querySelector("video"); return v ? [Math.round(v.currentTime * 100) / 100, v.paused, v.readyState, location.search] : null })()`);
+      console.log("  pos", k * 0.5, JSON.stringify(x));
+      await dors(500);
+    }
+  }
   const r = await evalue(`(async () => {
     const v = document.querySelector("video");
-    v.pause();
-    await new Promise((res) => { v.addEventListener("seeked", res, { once: true }); v.currentTime = ${Number(t)}; setTimeout(res, 20000); });
+    if (!${ici}) {
+      v.pause();
+      await new Promise((res) => { v.addEventListener("seeked", res, { once: true }); v.currentTime = ${Number(t) || 0}; setTimeout(res, 20000); });
+    }
     const meta = await new Promise((res) => {
       if (!v.requestVideoFrameCallback) return res(null);
       v.requestVideoFrameCallback((_n, m) => res(m));
@@ -141,13 +154,19 @@ for (const t of process.env.PLAY_S ? [] : ts) {
       const s = row.querySelectorAll("span");
       if (s.length === 2) lignes[s[0].textContent.trim()] = s[1].textContent.trim();
     }
-    return { cur: v.currentTime, mediaTime: meta ? meta.mediaTime : null, img, image: lignes["Image"] || null, flux: lignes["Flux"] || null, resolution: lignes["Résolution"] || null };
+    return { paused: v.paused, cur: v.currentTime, mediaTime: meta ? meta.mediaTime : null, img, image: lignes["Image"] || null, flux: lignes["Flux"] || null, resolution: lignes["Résolution"] || null };
   })()`);
   const fichier = `t_${t}.png`;
   if (r?.img?.startsWith("data:")) writeFileSync(join(outDir, fichier), Buffer.from(r.img.split(",")[1], "base64"));
-  const rec = { t: Number(t), cur: r?.cur, mediaTime: r?.mediaTime, image: r?.image, flux: r?.flux, resolution: r?.resolution, png: fichier, segments: segs().slice(avant) };
+  const rec = { t: ici ? "ici" : Number(t), paused: r?.paused, cur: r?.cur, mediaTime: r?.mediaTime, image: r?.image, flux: r?.flux, resolution: r?.resolution, png: fichier, segments: segs().slice(avant) };
   releves.push(rec);
   console.log(JSON.stringify({ ...rec, segments: rec.segments.slice(0, 4) }));
+}
+if (process.env.CONSOLE) {
+  for (const e of ev.filter((x) => x.method === "Runtime.consoleAPICalled" || x.method === "Runtime.exceptionThrown")) {
+    const a = e.params.args ? e.params.args.map((x) => x.value ?? x.description ?? "").join(" ") : JSON.stringify(e.params.exceptionDetails?.exception?.description || "");
+    if (/hls|diag|resume|tf|seek|reprise|error|Error/i.test(a)) console.log("  console", String(a).slice(0, 220));
+  }
 }
 writeFileSync(join(outDir, "truth.json"), JSON.stringify({ url, releves, segments_depart: segs().slice(0, 10) }, null, 1));
 ws.close();
