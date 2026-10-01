@@ -4810,20 +4810,6 @@ export default function UniversalPlayer({
             video.currentTime = at;
           } catch {}
         }
-        /* Le compteur. Vidstack ne branche son ecoute de `timeupdate` qu'a son
-           `can-play` : le signal envoye dans `bind` part donc trop tot pour lui
-           (banc du 01/10/2026 : tete a 900 s, compteur a 0:00 pendant 0,5 s).
-           `resume` court justement sur ce `can-play` ; on le renvoie ici, et
-           une fois de plus au tour suivant, au cas ou son ecoute se pose apres
-           la notre. */
-        const v = video;
-        const dire = () => {
-          try {
-            v.dispatchEvent(new Event("timeupdate"));
-          } catch {}
-        };
-        dire();
-        setTimeout(dire, 0);
         /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
            est pose ICI et pas a l'arrivee sur la page, parce que c'est la seule
            ligne qui prouve qu'il y avait REELLEMENT un point de reprise, et
