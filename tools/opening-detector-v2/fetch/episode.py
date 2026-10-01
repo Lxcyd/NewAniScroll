@@ -1,6 +1,7 @@
 """Resolution des lecteurs d'un episode et empreinte audio de l'episode complet."""
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from .adapter_aniscroll import resolve_episodes_multi
 from .audio import decode_audio_abs
 from .probe import probe_duration
 
-CACHE = Path("cache/ep")
+CACHE = Path(os.environ.get("OPED_EP_CACHE", "cache/ep"))  # variable : mesurer un lot a froid sans vider le cache
 
 
 def season_of(entry: dict, lang: str) -> dict:

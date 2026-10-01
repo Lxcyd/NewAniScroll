@@ -21,19 +21,22 @@ from pathlib import Path
 import numpy as np
 
 import decide
+from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
-from fetch.episode import fingerprint_stream, resolve
+from fetch.episode import CACHE, fingerprint_stream, resolve
 from fp.chroma import decode_file
 from match.audio_edges import refine_offset, sound_span
 from match.ber import occurrences
-from match.edges import HOLD_S, first_content, refine_end, refine_start
-from match.image import FPS, MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, fine_align, ref_frames
+from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
 from refs.bank import load
 
 ALGO_VERSION = 100  # v2 ; la v1 est en 1-2
 _write = threading.Lock()
 RETRY_DELAY_S = 15
+# --hosts : ne repasser que ces lecteurs (megaplay ecarte d'un lot par des 403
+# transitoires : on le refait seul, lentement, puis on fusionne).
+ONLY_HOSTS: list[str] | None = None
 
 
 def image_score(stream: dict, cand: decide.Candidate, videos):
@@ -63,33 +66,6 @@ def zone_image(c: decide.Candidate, zone: str) -> float:
     return float((v >= MATCH_NCC).mean()) if len(v) >= 10 else 0.0
 
 
-def edges(stream: dict, c: decide.Candidate, ep_dur: float) -> tuple[float, float]:
-    """Bords a l'image pres : c'est a l'ecran que le generique commence et
-    finit, et le son n'y est pas cale (Railgun S ep1 : megaplay montre le
-    flash blanc de l'OP 0,6 s avant la musique, frembed 1,7 s apres).
-    - alignement image fin (pas de 0,04 s) autour du decalage grossier ;
-    - debut = premiere image de la reference qui n'est pas du noir d'amorce ;
-    - fin = derniere image concordante a cadence native, le carton final
-      pouvant rester affiche jusqu'a HOLD_S de plus que dans le clip.
-    En cas d'echec : les bords audio."""
-    t0v = c.start + c.img_shift
-    fallback = (max(0.0, t0v), min(t0v + c.ref_dur, ep_dur))
-    ref = stream.get("referer")
-    try:
-        t0v += fine_align(c.frames, c.times, t0v, c.refimgs)
-        start = t0v + first_content(c.refimgs)
-        start = refine_start(stream["url"], start, c.refimgs, referer=ref) or start
-        sim = compare(c.frames, c.times, t0v, c.refimgs, hold=HOLD_S)
-        ok = np.nan_to_num(sim, nan=0.0) >= MATCH_NCC
-        last = np.flatnonzero(ok)
-        cap = min(t0v + c.ref_dur + HOLD_S, ep_dur)
-        coarse = min(float(c.times[last[-1]]) + 1.0 / FPS, cap) if len(last) else fallback[1]
-        end = refine_end(stream["url"], t0v, coarse, c.refimgs, referer=ref) or coarse
-    except Exception:
-        return fallback
-    return max(0.0, start), min(end, cap)
-
-
 _pcm: dict[str, np.ndarray] = {}
 _pcm_lock = threading.Lock()
 
@@ -101,23 +77,74 @@ def ref_pcm(theme) -> np.ndarray:
         return _pcm[theme.key]
 
 
-def music_edges(stream: dict, c: decide.Candidate, theme) -> tuple[float, float] | None:
-    """Debut et fin de la MUSIQUE (horloge detecteur) : position de la
-    reference a l'echantillon pres + premier / dernier son de la reference.
-    None si la position n'est pas etablie (tranches en desaccord)."""
+SILENCES = Path(__file__).parent / "refs" / "silences.json"
+
+
+def declared_silence(key: str) -> tuple[float, float]:
+    """(tete, queue) : silence qui fait PARTIE du theme, declare a la main dans
+    refs/silences.json. Le son ne permet pas de le deviner — cf. theme_bounds."""
+    try:
+        d = json.loads(SILENCES.read_text(encoding="utf-8")).get(key) or {}
+        return float(d.get("tete", 0.0)), float(d.get("queue", 0.0))
+    except (OSError, ValueError):
+        return 0.0, 0.0
+
+
+def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
+    """Bornes du generique AU SON, horloge detecteur : de la premiere a la
+    derniere note de la reference, placee dans l'episode.
+
+    Pas le fichier de reference entier : les clips AnimeThemes sont rembourres
+    de silence, et ce silence n'est pas dans l'episode. SnK OP1 : 0,57 s en
+    tete du fichier ; dans l'episode, ces 0,57 s sont la fin de la scene
+    d'avant (ep1 : 2 a 5 % du niveau de la chanson, ep2 : 13 a 60 %). Luc,
+    01/10/2026 : « on a un peu avant le debut de la musique, pour SnK l'OP
+    commence directement avec la musique ». Tester si l'episode est muet a cet
+    endroit ne tranche pas non plus (l'ep1 passerait pour muet).
+
+    Un theme qui contient un VRAI silence (« OP de 8 s : 1 s sans musique puis
+    musique jusqu'a 1:30, il commence a 1:22 ») se declare dans
+    refs/silences.json ; rien ne permet de le reconnaitre au son.
+
+    La position vient de la correlation des formes d'onde (refine_offset, a
+    quelques ms) ; si ses tranches ne concordent pas, on garde celle de
+    Chromaprint (0,12 s) et `exact` le dit. Le decalage image ne sert ici que
+    d'indice de recherche : Chromaprint peut etre a 2 s de la chanson (Railgun
+    S ep1 frembed)."""
     try:
         pcm = ref_pcm(theme)
+        length, (lead, last) = len(pcm) / SAMPLE_RATE, sound_span(pcm)
+    except Exception:
+        return {"start": c.start, "end": c.start + c.ref_dur, "music": None, "exact": False,
+                "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0)}
+    try:
         t0 = refine_offset(stream["url"], stream.get("referer"), c.start + c.img_shift, pcm)
     except Exception:
-        return None
-    if t0 is None:
-        return None
-    a, b = sound_span(pcm)
-    return t0 + a, t0 + b
+        t0 = None
+    file_start = c.start if t0 is None else t0
+    first, final = file_start + lead, file_start + last
+    head, tail = declared_silence(theme.key)
+    return {"start": first - head, "end": final + tail, "music": [first, final], "exact": t0 is not None,
+            "length": length, "lead": lead, "tail": length - last, "declared": (head, tail)}
 
 
 def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
+    """Detection + ce qu'elle a coute : temps reel par etape et reseau. Les
+    octets sont ceux du lot entier pendant ce lecteur : exacts avec
+    --workers 1, melanges entre episodes sinon."""
+    t0, net, steps = time.perf_counter(), stats.snapshot(), {}
+    entry = _detect_host(mal, lang, ep, stream, refs, steps)
+    entry["timing"] = {**{k: round(v, 2) for k, v in steps.items()},
+                       "total_s": round(time.perf_counter() - t0, 2), "reseau": stats.since(net)}
+    return entry
+
+
+def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) -> dict:
+    t = time.perf_counter()
+    cached = (CACHE / f"{mal}_{lang}_ep{ep}_{stream['host']}.npz").exists()
     dur, efp = fingerprint_stream(mal, lang, ep, stream)
+    steps["empreinte_s"], steps["empreinte_en_cache"] = time.perf_counter() - t, cached
+    t = time.perf_counter()
     cands: list[decide.Candidate] = []
     for r in refs:
         for o in occurrences(r.fp, efp):
@@ -149,6 +176,8 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
             c.reasons += [f"image_{z}" for z in bad]
             continue
         served.append(c)
+    steps["image_s"] = time.perf_counter() - t
+    t = time.perf_counter()
     slots, notes = decide.pick(served, dur)
     entry = {"duration": round(dur, 3), "algo_version": ALGO_VERSION,
              "candidates": [c.as_dict(dur) for c in cands], "notes": notes}
@@ -166,26 +195,25 @@ def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
         # pour megaplay ep1 (1425,48 - 1,40).
         entry["duration"] = round(dur - clock, 3)
     for slot, c in slots.items():
-        vs, ve = edges(stream, c, dur)
-        # Le generique commence des que sa musique OU ses images commencent, et
-        # finit quand les deux ont fini (Luc, 30/09/2026 : « la musique commence
-        # avant tes timings » — Railgun S ep1 megaplay, chanson a 22:01.425,
-        # premiere image de la reference a 22:01.55).
         theme = next(r.theme for r in refs if r.theme.key == c.ref)
-        music = music_edges(stream, c, theme)
-        start, end = (min(vs, music[0]), max(ve, min(music[1], dur))) if music else (vs, ve)
-        start, end = start - clock, end - clock
-        hit = {"start": round(start, 2), "end": round(end, 2), "votes": None,
+        tb = theme_bounds(stream, c, theme)
+        start, end = max(0.0, tb["start"]) - clock, min(tb["end"], dur) - clock
+        hit = {"start": round(start, 3), "end": round(end, 3), "votes": None,
+               "audio_exact": tb["exact"], "ref_dur": round(tb["length"], 3),
+               # Rembourrage du FICHIER de reference, hors bornes ; pour information.
+               "lead_silence": None if tb["lead"] is None else round(tb["lead"], 3),
+               "tail_silence": None if tb["tail"] is None else round(tb["tail"], 3),
+               "declared_silence": list(tb["declared"]),
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
-               "music": [round(m - clock, 3) for m in music] if music else None,
-               "image": [round(vs - clock, 3), round(ve - clock, 3)],
-               "source": "v2-audio+image", "confirmed_by_video": True, "serve": True,
+               "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
+               "source": "v2-audio", "confirmed_by_video": True, "serve": True,
                "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3),
                "img_shift": c.img_shift}
         if slot == "ed":
-            hit["from_end_start"] = round(entry["duration"] - hit["start"], 2)
-            hit["from_end_end"] = round(entry["duration"] - hit["end"], 2)
+            hit["from_end_start"] = round(entry["duration"] - hit["start"], 3)
+            hit["from_end_end"] = round(entry["duration"] - hit["end"], 3)
         entry[slot] = hit
+    steps["bords_s"] = time.perf_counter() - t
     return entry
 
 
@@ -196,7 +224,7 @@ def detect_episode(entry: dict, season: dict, ep: int) -> dict:
     if not refs:
         rec["error"] = "aucune_reference"
         return rec
-    for stream in resolve(entry, season, ep):
+    for stream in resolve(entry, season, ep, **({"hosts": ONLY_HOSTS} if ONLY_HOSTS else {})):
         host = stream["host"]
         try:
             rec["per_host"][host] = detect_host(mal, lang, ep, stream, refs)
@@ -233,7 +261,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=3)
     ap.add_argument("--lang", choices=["vostfr", "vf"])
+    ap.add_argument("--hosts", help="lecteurs a traiter, separes par des virgules (defaut : tous)")
     a = ap.parse_args(argv)
+    if a.hosts:
+        global ONLY_HOSTS
+        ONLY_HOSTS = [h.strip() for h in a.hosts.split(",") if h.strip()]
 
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -53,8 +53,13 @@ def _decode(cmd: list[str]) -> tuple[np.ndarray, np.ndarray]:
 
 def _vf(fps: float | None = FPS) -> list[str]:
     rate = f"fps={fps}," if fps else ""  # None : cadence native
+    # -fps_mode passthrough : sans lui, ffmpeg DOUBLE une image en sortie a
+    # chaque trou d'horodatage du flux (ansembed : ~1 par segment de 20 s),
+    # alors que showinfo n'en liste qu'une. Images et horodatages glissaient
+    # d'un cran a chaque trou : la meme coupe sortait a 135,348 en decodant
+    # son segment seul et a 135,515 quatre segments plus tot (Railgun S ep4).
     return ["-vf", f"{rate}scale={W}:{H}:flags=area,format=gray,showinfo",
-            "-an", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
+            "-an", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
 
 
 def episode_frames(src: str, start_abs: float, dur: float, *, referer: str | None = None,
@@ -156,39 +161,6 @@ def compare(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
                 best = s if np.isnan(best) else max(best, s)
         out[i] = best
     return out
-
-
-FINE_SPAN_S = 0.8
-FINE_STEP_S = 0.04
-FINE_MIN_GAIN = 0.03   # gain de ressemblance moyenne exige pour deplacer t0
-
-
-def fine_align(ep_frames: np.ndarray, ep_times: np.ndarray, t0: float,
-               refs: list[tuple[np.ndarray, np.ndarray]]) -> float:
-    """Recalage IMAGE au pas de 0,04 s autour de t0 : le decalage qui maximise la
-    ressemblance moyenne, chaque image d'episode comparee a l'image de
-    reference la plus proche (references a cadence native).
-
-    Le son ne suffit pas a placer les bords : a l'ecran, le generique commence
-    a sa premiere IMAGE. Railgun S ep1 : chez megaplay le flash blanc de l'OP
-    precede la musique de 0,6 s ; chez frembed l'image suit le son de 1,7 s."""
-    scores = {}
-    for sh in np.arange(-FINE_SPAN_S, FINE_SPAN_S + 1e-6, FINE_STEP_S):
-        sim = compare(ep_frames, ep_times, t0 + sh, refs, slack=0.025)
-        v = sim[~np.isnan(sim)]
-        if len(v) >= 20:
-            scores[round(float(sh), 3)] = float(np.clip(v, 0, 1).mean())
-    if not scores:
-        return 0.0
-    best = max(scores, key=lambda k: (scores[k], -abs(k)))
-    # Sur un plan lent (Kimetsu ep2 : panoramique de lycoris), tous les
-    # decalages se valent et le maximum tombe au hasard dans +/- 0,8 s : les
-    # lecteurs d'un meme fichier s'ecartaient de 0,6 s. On ne bouge que si le
-    # gain est net.
-    if scores[best] - scores.get(0.0, scores[best]) < FINE_MIN_GAIN:
-        return 0.0
-    return best
-
 
 
 SHIFT_MAX_S = 3.0

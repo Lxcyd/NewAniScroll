@@ -23,7 +23,7 @@ SEARCH_S = 3.0         # autour du calage grossier (Chromaprint corrige par l'im
 # 22:17.693, 8 tranches a 1 ms pres).
 MIN_CORR = 0.30        # correlation normalisee minimale d'une tranche
 AGREE_S = 0.02         # les tranches doivent concorder a 20 ms
-SOUND_WIN_S = 0.05
+SOUND_WIN_S = 0.01     # 0,05 s depassait une image (0,042 s) : bord son a +/- 1 image
 SOUND_REL = 0.10       # « son » : energie > 10 % de l'energie mediane de la reference
 
 
@@ -71,4 +71,6 @@ def sound_span(ref: np.ndarray) -> tuple[float, float]:
     on = np.flatnonzero(e > SOUND_REL * np.median(e))
     if not len(on):
         return 0.0, len(ref) / SR
-    return on[0] * SOUND_WIN_S, (on[-1] + 1) * SOUND_WIN_S
+    # w / SR, pas SOUND_WIN_S : la fenetre est un nombre ENTIER d'echantillons
+    # (551 pour 551,25), et l'ecart se cumule — 0,04 s en fin de generique.
+    return on[0] * w / SR, (on[-1] + 1) * w / SR

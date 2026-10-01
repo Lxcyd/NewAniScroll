@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .megaplay import depng, is_megaplay
+from .stats import fetched
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -84,8 +85,10 @@ def _fetch(url: str, referer: str | None, tries: int = 3) -> bytes:
         try:
             with _sem(url):
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=60) as r:
-                    return r.read()
+                with fetched() as got, urllib.request.urlopen(req, timeout=60) as r:
+                    data = r.read()
+                    got(len(data))
+                    return data
         except urllib.error.HTTPError as exc:
             last = exc
             # 429 : le CDN demande de ralentir, ce n'est pas une panne. La v2 lit
@@ -299,8 +302,9 @@ def _range(url: str, referer: str | None, a: int, b: int) -> bytes:
     for k in range(4):
         try:
             with _sem(url):
-                with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
+                with fetched() as got, urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
                     data = r.read()
+                    got(len(data))
             if len(data) == b - a + 1:
                 return data
             last = RuntimeError(f"plage incomplete {len(data)}/{b - a + 1}")

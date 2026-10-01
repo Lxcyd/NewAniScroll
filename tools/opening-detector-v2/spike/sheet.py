@@ -40,7 +40,8 @@ def frames(src: str, referer, t0: float, dur: float, fps: float):
         seek = max(0.0, t0 - _container_start(src))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info", *_input_headers(src, referer), *_hls_flags(src),
            "-copyts", "-ss", str(max(0.0, seek - 12)), "-to", str(seek + dur), "-i", src,
-           "-vf", f"fps={fps},scale={W}:{H},showinfo", "-an", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+           "-vf", f"{f'fps={fps},' if fps else ''}scale={W}:{H},showinfo",  # fps None : cadence native
+           "-an", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]  # cf. match.image._vf
     p = subprocess.run(cmd, capture_output=True, timeout=600)
     n = len(p.stdout) // (W * H * 3)
     fr = np.frombuffer(p.stdout[: n * W * H * 3], np.uint8).reshape(n, H, W, 3)

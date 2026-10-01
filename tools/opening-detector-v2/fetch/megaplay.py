@@ -99,8 +99,12 @@ def _fetch(url: str, referer: str | None) -> bytes:
     if referer:
         headers["Referer"] = referer
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+    from .stats import fetched  # import tardif : stats n'a aucune dependance, megaplay est charge tot
+
+    with fetched() as got, urllib.request.urlopen(req, timeout=30) as r:
+        data = r.read()
+        got(len(data))
+        return data
 
 
 def _variant_url(master_url: str, referer: str | None) -> str:

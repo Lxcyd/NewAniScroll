@@ -102,7 +102,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
 <div class="wrap">
   <header>
     <h1>Relevé OP/ED v2</h1>
-    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10. Par épisode, un tableau OP et un tableau ED ; une ligne = les lecteurs qui partagent le même fichier et la même réponse, et un verdict la couvre. Clique le temps de <b>début</b> ou de <b>fin</b> pour ouvrir l'épisode sur dev.aniscroll.com, en pause sur cette image ; les temps sont ceux de la ligne <b>« Flux »</b> des statistiques vidéo (touche s), à comparer image par image (^ et $). Quand la v2 s'abstient et qu'il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss) : c'est ce qui mesure ce qu'elle laisse passer.</p>
+    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10 et sur Railgun S en entier. Par épisode, un tableau OP et un tableau ED ; <b>une ligne par lecteur</b>, chacun ayant sa propre horloge. Les bornes sont posées <b>au son</b> : le début est la première note du thème, la fin sa dernière note. Clique le temps de <b>début</b> ou de <b>fin</b> pour ouvrir l’épisode sur dev.aniscroll.com à cet instant ; les temps sont ceux de la ligne <b>« Flux »</b> des statistiques vidéo (touche s). Quand la v2 s’abstient et qu’il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss).</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -122,6 +122,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
   <p class="note" id="note" hidden></p>
 </div>
 
+<script src="cells.js"></script>
 <script>
 (function(){
   const DEV = "https://dev.aniscroll.com/fr/anime/watch/";
@@ -132,10 +133,11 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
   let cells = [], verdicts = {}, db = null, filter = "todo", animeSel = "";
   const $ = (id) => document.getElementById(id);
 
-  const mmss = (t) => {
+  // d = decimales : 3 pour une borne dans l'horloge du fichier.
+  const mmss = (t, d = 1) => {
     if (t == null) return "—";
-    const s = Math.round(Math.max(0, t) * 10) / 10, m = Math.floor(s/60);
-    return m + ":" + (s - m*60).toFixed(1).padStart(4,"0");
+    const k = 10 ** d, s = Math.round(Math.max(0, t) * k) / k, m = Math.floor(s/60);
+    return m + ":" + (s - m*60).toFixed(d).padStart(d + 3,"0");
   };
   const parseMmss = (v) => {
     const m = String(v||"").trim().match(/^(\d+):(\d{1,2}(?:[.,]\d+)?)$/);
@@ -146,9 +148,11 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
     const p = new URLSearchParams({
       id: host.server + "-" + c.aniId + "-" + c.ep, num: String(c.ep), server: host.server,
     });
-    /* Borne dans l'horloge du FICHIER : `tf` au centieme, le lecteur convertit
-       avec le recalage qu'il vient d'appliquer et se met en pause sur l'image. */
-    if (flux) p.set("tf", t.toFixed(2)); else p.set("t", String(Math.max(0, Math.floor(t))));
+    /* Borne dans l'horloge du FICHIER : `tf` au millieme (au centieme, une
+       borne posee 4 ms dans son image retombait parfois sur la precedente), le
+       lecteur convertit avec le recalage qu'il vient d'appliquer et se met en
+       pause sur l'image. */
+    if (flux) p.set("tf", t.toFixed(3)); else p.set("t", String(Math.max(0, Math.floor(t))));
     if (c.lang === "vf") p.set("dub","true");
     // Journal de lecture (lib/diag.ts) : si le lecteur abandonne, on saura pourquoi.
     p.set("diag","1");
@@ -213,8 +217,8 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
     const flux = c.clock === "flux";
     const u1 = link(c, h, c.start, flux), u2 = link(c, h, c.end, flux);
     return el("span",{class:"lab"}, who,
-      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image du début (ligne « Flux » des stats)"}, el("span",{class:"tc", text:mmss(c.start)})),
-      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image de fin (ligne « Flux » des stats)"}, "→ ", el("span",{class:"tc", text:mmss(c.end)})));
+      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image du début (ligne « Flux » des stats)"}, el("span",{class:"tc", text:mmss(c.start, flux ? 3 : 1)})),
+      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image de fin (ligne « Flux » des stats)"}, "→ ", el("span",{class:"tc", text:mmss(c.end, flux ? 3 : 1)})));
   }
 
   function line(c){
@@ -342,7 +346,14 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
       $("list").replaceChildren(el("div",{class:"empty", text:"Le relevé n'est pas accessible dans cette vue."}));
       return;
     }
-    db.collection("cells").onSnapshot((snap) => {
+    /* Les cases viennent de cells.js, publie avec la page : un lot refait =
+       une republication, au lieu de centaines d'ecritures en base. La base
+       ne porte plus que les verdicts ; ses anciennes cases ne servent que si
+       le fichier manque. */
+    if (Array.isArray(window.RELEVE_CELLS) && window.RELEVE_CELLS.length){
+      cells = window.RELEVE_CELLS;
+      fillAnimeSelect(); render();
+    } else db.collection("cells").onSnapshot((snap) => {
       cells = snap.docs.map(d => Object.assign({id:d.id}, d.data()));
       fillAnimeSelect(); render();
     }, (e) => showNote("Lecture du relevé impossible (" + e.code + ")."));

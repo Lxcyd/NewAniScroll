@@ -5,6 +5,169 @@ replis F1-F7, garde-fous P1-P8, audits et lots de mesure.
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-01 (nuit) — Retour au son seul : le generique est le fichier de reference, silences compris
+
+Luc, apres avoir regarde les bornes calees sur les images : « je ne suis pas
+trop convaincu. Je veux precisement quand la musique de l'OP ou de l'ED
+commence ou finit. Ne fais pas de truc avec les images et les frames. » Et
+une regle : « OP sans musique a 1:22, 1 s sans musique puis musique jusqu'a
+1:30 ; si l'OP fait 8 s, il commence a 1:22, pas a 1:23. Pareil a la fin. »
+
+**Regle (`run.theme_bounds`)** : debut = instant ou l'echantillon 0 du fichier
+de reference tombe dans l'episode (`refine_offset`, correlation des formes
+d'onde, quelques ms) ; fin = debut + duree du fichier. Le silence de tete est
+DANS le generique, donc la fin ne se decale pas (inquietude de Luc en cours de
+route : « fin n'est pas forcement debut + duree »). Railgun S OP2 ep17
+frembed : debut 1:28.647, musique a 1:29.725 (1,08 s), fin 2:58.701.
+
+Le controle image ne sert plus qu'a decider de servir ou de s'abstenir (ED
+joue sur l'epilogue). Tout le calage par coupes de plan est supprime
+(`match/cuts.py`, `match/edges.py`, `eval/frame_check.py`,
+`spike/edge_sheet.py`, `fine_align`) : jamais commite, l'entree ci-dessous en
+garde l'histoire. Restent le correctif `-fps_mode passthrough`, celui de
+`sound_span`, et les compteurs de cout.
+
+**Resultats** : les 373 bornes recalculees HORS LIGNE (chaque borne portait
+deja `music[0]` = t0 + silence de tete), donc megaplay non sollicite ; 372
+positionnees au son, 1 par Chromaprint (Railgun ep15 ansembed ED). Le code
+neuf redonne les memes chiffres a 1 ms pres sur 8 bornes relancees. Dans le
+son des episodes, la musique entre bien apres le silence annonce (Railgun
+OP2, Railgun ED2, Anne Shirley OP1).
+
+**A trancher par Luc — fichier de reference plus long que le generique a
+l'ecran** (le son seul ne distingue pas un silence du theme d'un remplissage
+du clip) : Kimetsu OP1 et ED1 (91,09 s : debut ~0,8-1,0 s avant l'image, fin
+~1,1 s apres), Summer Time Render OP1 (fin +1,3 s), Jujutsu Kaisen OP1/OP2
+(debut -0,4 s). Partout ailleurs la duree du fichier colle a l'ecran a moins
+de 0,3 s. Frieren ED1v3 : -2 s a la fin, c'etait l'ancienne borne qui
+prolongeait le carton.
+
+**Corrige le lendemain (02/10) — premiere note, derniere note.** Luc, sur SnK
+ep1 : « on a un peu avant le debut de la musique, l'OP commence directement
+avec la musique ». Mesure dans le son de l'episode : les 0,57 s de tete du
+fichier de l'OP1 ne sont PAS du silence dans l'episode mais la fin de la scene
+d'avant (ep1 : 2 a 5 % du niveau de la chanson ; ep2 : 13 a 60 % ; ep3 : vrai
+silence). Le silence de tete et de queue des fichiers AnimeThemes est du
+rembourrage de clip. Regle finale (`run.theme_bounds`) : debut = premiere
+note, fin = derniere note. Tester « l'episode est-il muet ici » ne tranche
+pas (l'ep1 passerait pour muet). Un theme a VRAI silence se declare a la main
+dans `refs/silences.json` (vide). Les « themes a trancher » ci-dessus
+(Kimetsu, Summer Time Render, JJK) tombent d'eux-memes : c'etait ce
+rembourrage. 373 bornes recalculees hors ligne, SnK relance : 0 ms d'ecart.
+
+**Toujours ouvert** : l'horloge du lecteur sur ansembed (mesuree sur l'image,
+pas sur le son) ; megaplay a 15 episodes sur 24 de Railgun S.
+
+## 2026-10-01 — Bornes a l'image pres (Railgun S) : caler sur les coupes de plan, et un decodage qui decalait images et horodatages
+
+Luc : « les timings sont corrects a 0-4 frames pres, on peut les avoir a la
+frame pres ? ». Oui. Le symptome se lisait sans verite humaine : l'OP1 de
+reference fait 2158 images, donc sa duree « images » devrait etre la meme a
+chaque episode d'un lecteur ; elle allait de 89,965 a 90,090 s chez megaplay.
+
+**Quatre causes, par ordre de degat** :
+- **Le decodage doublait des images.** Sortie `rawvideo` sans
+  `-fps_mode passthrough` : a chaque trou d'horodatage du flux (ansembed, ~1
+  par segment de 20 s), ffmpeg double une image en sortie alors que `showinfo`
+  n'en liste qu'une. Images et horodatages glissaient d'un cran par trou : la
+  meme coupe sortait a 135,348 en decodant son segment seul et a 135,515
+  quatre segments plus tot. J'ai d'abord cru a un reencodage qui saute des
+  images, puis a une horloge qui depend du point de depart, et ecrit un
+  contournement (retrouver l'image par son contenu dans un decodage court) —
+  retire. **Ce qui a tranche : `ffprobe` des paquets, segment par segment —
+  PTS continus a 0,0417 pres.** Le flux etait sain, donc c'etait nous.
+- **Un calage par ressemblance moyenne ne tranche pas a une image.** Sur un
+  plan lent, decaler d'une image ne change presque rien au score. Nouveau
+  `match/cuts.py` : on associe les coupes franches de la reference a celles de
+  l'episode ; elles donnent toutes le meme decalage (frembed : 24 sur 24,
+  dispersion 1 ms).
+- **Un seuil de ressemblance a 0,5 laisse passer du hasard au bord.** Ep13,
+  OP : la derniere image de la scene « concordait » a 0,52 avec le ciel de
+  l'OP. Ep17 ansembed, ED3 : deux images du carton suivant comptees dans le
+  generique. Garde : une coupe de l'episode absente de la reference borne le
+  generique ; un carton tenu doit rester LE MEME a l'ecran.
+- **L'arrondi au centieme** : une borne sous l'horodatage de son image fait
+  poser le lien `tf` sur l'image d'avant. Sortie au millieme, posee 4 ms dans
+  son image ; page de releve et `cells_flux` au millieme.
+
+Et deux erreurs qui n'etaient pas « 0-4 images » : le **debut des ED** tombait
+6 a 7 images avant la coupe (ep4 frembed : 1317,139 pour 1317,401, au milieu
+du carton « To Be continued »), et `sound_span` comptait ses fenetres en
+secondes nominales alors qu'elles font un nombre ENTIER d'echantillons (551
+pour 551,25) : 0,04 s de derive en fin de chanson.
+
+**Resultat (24 episodes, 94 cases servies)** : 79 calees par un decalage
+unique, 15 par bord (ansembed surtout : cadence 0,09 % plus lente que la
+reference, donc pas UN decalage). Planches `spike/edge_sheet.py` (3 images
+avant, 3 apres chaque borne) : **les 94 fins tombent sur une coupe franche** ;
+42 debuts aussi ; les 52 autres sont des fondus (OP2) ou des debuts donnes par
+le son. Les ecarts de duree qui restent (0 a +3 images) sont dans le contenu :
+frembed et ansembed, encodages independants, les montrent aux memes episodes.
+
+**Ce qui n'est PAS regle, et qui ressemble a « 0-4 images »** : le debut suit
+la regle du 30/09 (« des que la musique OU les images commencent »). Or
+l'ecart image/son depend du lecteur — frembed : son 1,4 image APRES l'image,
+constant a 0,1 image ; megaplay : son 2,4 images AVANT ; ansembed : 1,7 ou
+4 a 5 images avant selon l'episode. Sur ces deux lecteurs le debut tombe donc
+2 a 5 images avant la premiere image de l'OP. C'est une definition a trancher
+par Luc, pas une imprecision.
+
+**OUVERT — sur ansembed, « Flux » n'est pas l'horloge du fichier.** Mesure
+dans un vrai Chrome (`frame-truth.mjs`, deux visites, ep1) et sur les captures
+de Luc : le premier ciel de l'OP s'affiche a Flux 22:01.31 alors que ffmpeg le
+date a 22:01.367 ; le carton d'apres l'OP a 23:31.31 contre 23:31.390. Ecart
+de 0,059 s puis 0,076 s (1,4 et 1,8 image), le meme dans deux sessions dont
+l'`initPTS` differait (0,10 et 0,30) : ce n'est donc pas le point de reprise.
+Les bornes image d'ansembed tombent ainsi 1 a 2 images TROP TARD dans le
+lecteur. Cause non etablie — a la lecture de hls.js 1.7.3 (`remuxVideo`), un
+fragment charge apres un saut garde ses PTS ; reste l'hypothese d'un
+horodatage des images different entre le demultiplexeur de hls.js et ffmpeg
+sur ce flux. A trancher en faisant tourner le demultiplexeur de hls.js sur
+les segments en cache, pas par des visites. megaplay et frembed n'ont pas ete
+recontroles dans le lecteur ce jour-la. Le SON de l'episode, lui, est mesure :
+muet jusqu'a 22:01.18 chez ansembed (musique a .189), jusqu'a 22:01.459 chez
+megaplay (musique a .469) — la musique precede bien l'image.
+
+**Lot complet de la page de releve (meme jour, soir)** : gt10 hors Railgun
+(60 episodes, 184 lecteurs) refait avec le nouvel algorithme, plus Railgun S.
+Total 84 episodes, 247 lecteurs, 373 bornes servies : 314 par decalage unique,
+59 par bord, **0 repli sur la ressemblance**, 121 abstentions. Quatre defauts
+n'apparaissaient que hors Railgun :
+- megaplay date ses images a la milliseconde (ecarts 0,041 / 0,042) : la
+  mediane des ecarts faisait croire a une autre cadence, tout megaplay etait
+  refuse -> pas MOYEN ;
+- megaplay sert Cyberpunk, Frieren, Izure, Toumei a **25 i/s** pour une
+  reference a 23,976 : plus de rejet, calage par bord ;
+- un ED qui va jusqu'a la derniere image du fichier (SnK, Toumei) etait pris
+  pour un echec (`j >= len(et)`) ;
+- clip de reference rogne en tete (Cyberpunk OP : 1 image ; Summer Time Render
+  OP : 3) : le debut recule jusqu'a la coupe si c'est le meme plan — 63 debuts
+  deplaces de 1 a 5 images, les memes sur tous les lecteurs d'un theme.
+Et une lecon de methode : `edges()` avalait toute exception du calage et
+retombait en silence sur l'ancienne voie ; le motif est maintenant note
+(`edge_note`). La page charge ses cases depuis `cells.js` publie avec elle
+(une republication par lot, au lieu de ~420 ecritures en base) ; la base ne
+garde que les verdicts.
+
+**Couts mesures** (`eval/timing.py`, champ `timing` de chaque lecteur) :
+- a froid, 3 episodes / 9 lecteurs, 1 fil : 653 s, 1,90 Go -> **72 s et
+  211 Mo par lecteur-episode**, ~3,6 min et 0,63 Go par episode (3 lecteurs) ;
+- tout en cache, 60 episodes / 184 lecteurs, 2 fils : 993 s -> **6,5 s par
+  lecteur-episode** de calcul pur. Le reseau fait donc ~90 % du temps ;
+- par lecteur a froid (medianes) : ansembed 90 s / 98 Mo, megaplay 71 s /
+  337 Mo, frembed 61 s / 338 Mo (c'est la FENETRE IMAGE qui pese, son rendu
+  video est a 13 Mb/s), vidmoly-va 45 s / 139 Mo.
+
+**megaplay** : 15 episodes sur 24 de Railgun S ; son API de resolution rend 403
+apres ~3 episodes d'affilee (3 obtenus, puis 9 refus, a la passe du soir).
+Historique du matin : 12 episodes sur 24, l'API de resolution repond 403
+sur les autres (passe a part, lente : 12 x 403). Les cases megaplay ep3 de la
+page datent donc de l'ancienne methode.
+
+**Non mesure** : la finesse du declenchement du saut dans le lecteur
+(`SkipOverlay` suit `currentTime`). Des bornes exactes ne garantissent pas un
+saut exact a l'image.
+
 ## 2026-09-29 — Detecteur v2 : reecrit a zero, 322/322 sur les cellules jugees, AniSkip a 44 % de faux
 
 La v1 tournait en rond (replis empiles, jamais mesuree contre une verite).
