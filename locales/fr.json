@@ -664,6 +664,8 @@
     "screenshotSaved": "Capture enregistrée",
     "screenshotFailed": "Impossible de capturer (source protégée)",
     "timestampCopied": "Lien copié (à {{time}})",
+    "timestampOtherServer": "Ce lien vise le lecteur {{server}}, indisponible ici : le minutage n'est pas appliqué",
+    "timestampUnreachable": "Impossible d'ouvrir à ce minutage sur ce lecteur",
     "timestampFailed": "Impossible de copier le lien"
   },
   "queue": {

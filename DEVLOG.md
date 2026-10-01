@@ -77,8 +77,8 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 47 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
-| Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 12 | tools/opening-detector (v1) et opening-detector-v2, replis, audits, lots de mesure |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 48 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 14 | tools/opening-detector (v1) et opening-detector-v2, replis, audits, lots de mesure |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 48 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
 | Comptes, identite & sauvegarde | [`devlog/comptes.md`](devlog/comptes.md) | 1 | invite local, compte AniScroll, lien AniList, cloudSync, onglet Users |
@@ -124,6 +124,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-10-02 — **Lien à un minutage : viser puis vérifier** : le saut ne partait qu'une fois, sur le premier `<video>`, et le `tf` était perdu au nettoyage de l'URL ; cible tenue jusqu'à être atteinte, effet relancé sur le flux vidmoly, messages quand le lien vise un autre lecteur / un iframe ; cause chez Luc = `player_map` donne voir-anime **absent à tort** pour SnK → bascule frembed → minutage écarté sans un mot (table NON corrigée)
 - 2026-10-01 (suite) — **Ouvrir à un minutage** : hls.js partait déjà du bon segment (mesuré : megaplay `00224`, frembed `00090`, ansembed `seg-61`), seul le compteur restait à 0:00 ; position posée avant toute donnée (MP4, non vérifiable au banc : sibnet refuse l'IP de test), sonde de 1re image et `warmStream` alignés sur la reprise ; **deux requêtes du même nom = deux qualités, pas un doublon** ; un `timeupdate` de synthèse au `can-play` fait repartir la lecture de 0:00 (retiré)
 - 2026-10-01 — **« Les lecteurs sont lents » : le lecteur était rapide, le serveur froid** : banc `player-timeline.mjs` (une visite, chaque maillon) ; dev = prod, le temps part dans le document (2,3-5 s) puis la source (1,3-2,4 s) ; Turso avant AniList au rendu de la page, `getMediaMeta({ dbFirst })`, `getSources` megaplay en course, stale de dev remis à 1 j, une absence ne se redemande plus (1,7 s de roue pour relire le cache du navigateur), chien de garde 40 → 20 s, frembed jugé sur SA mesure ; première image à froid 8,05 → 4,80 s (megaplay) et 5,68 → 2,15 s (frembed) ; reste `retires` (Prisma, ~0,85 s sur lambda neuf)
 - 2026-09-22 — **Un cache de verdicts positifs peut écarter, il ne peut pas élire** : la page info lisait le `ok` de l'instantané de disponibilité comme une liste blanche, donc élisait un hôte lent mais connu (sibnet, rang 4 sur One Piece ep 1) devant des mieux classés que personne n'avait essayés — `warmChain` s'arrêtant au premier succès, rien ne rattrapait ; on lit désormais `absent`. Les chips tardifs de frembed/ansembed sont le comportement voulu (sondes différées), pas un second bug. `sub=sub` est le drapeau `?dub=`, PAS la langue (fausse piste) ; les deux autres `confirmed:` restent légitimes — décision en direct, pas pari à froid
@@ -185,6 +186,8 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Detecteur OP/ED — [`devlog/oped.md`](devlog/oped.md)
 
+- 2026-10-01 (nuit) — **Retour au son seul** (Luc pas convaincu par le calage sur les images) : debut = debut du fichier de reference, fin = debut + sa duree, silences de tete et de queue compris ; 373 bornes recalculees hors ligne ; calage par coupes supprime ; a trancher : Kimetsu, Summer Time Render OP1, JJK OP, dont le fichier depasse le generique a l'ecran ; corrigé le 02/10 : **première note → dernière note** (le silence des fichiers AnimeThemes est du rembourrage, mesuré sur SnK)
+- 2026-10-01 — **Bornes a l'image pres (Railgun S)** : calage sur les coupes de plan (`match/cuts.py`), 94 fins sur 94 sur une coupe franche ; le decodage doublait une image a chaque trou d'horodatage (`-fps_mode passthrough`), cru a tort etre un defaut d'ansembed ; debut des ED 6-7 images trop tot ; lot complet de la page refait le soir (84 episodes, 373 bornes, 0 repli) ; couts : 72 s et 211 Mo par lecteur-episode a froid, 6,5 s en cache ; OUVERT : sur ansembed « Flux » du lecteur a 1,4-1,8 image d.avance sur ffmpeg, et debut au son ou a l.image
 - 2026-09-29 — Detecteur v2 : reecrit a zero, 322/322 sur les cellules jugees, AniSkip a 44 % de faux
 - 2026-08-26 — Le chiffre qu'on regardait ne gouvernait rien, et 46 % du parc etait injugeable
 - 2026-08-08 — Lot `top50` : le resultat, et pourquoi deux lecteurs sur six n'ont rien rendu

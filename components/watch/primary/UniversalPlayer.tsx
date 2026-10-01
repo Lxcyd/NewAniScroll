@@ -352,14 +352,45 @@ function lireTf(): number | null {
   }
 }
 
-/* Cible d'un lien (`?t=` / `?tf=`) deja consommee — l'URL n'en garde plus
-   trace. Un rechargement du lecteur dans la foulee (changement de qualite,
-   recuperation d'erreur hls.js, remontage) relit `cibleDepart` : sans ce
-   souvenir il retombait sur l'ANCIEN point de reprise (megaplay, Luc,
-   01/10/2026 : le lien se posait sur l'image puis la lecture revenait au
-   minutage sauvegarde). Valable 30 s, pour le meme episode. */
-let cibleLien: { cle: string; at: number; tf: number | null; quand: number } | null = null;
-const CIBLE_LIEN_MS = 30_000;
+/* Cible d'un lien (`?t=` / `?tf=`), retenue des qu'elle est LUE et jusqu'a ce
+   qu'elle soit ATTEINTE — plus « consommee une fois, oubliee au bout de 30 s ».
+   Le lecteur peut naitre tard (vidmoly : extraction dans le navigateur), etre
+   remonte (changement de qualite, recuperation d'erreur hls.js) ou ne pas
+   connaitre sa duree au premier evenement : chacun de ces cas relit la cible,
+   `tf` compris. Avant, l'URL etait nettoyee au premier passage et le souvenir
+   ne gardait que la position grossiere (megaplay, Luc, 01/10/2026 : le lien se
+   posait sur l'image puis la lecture revenait au minutage sauvegarde). Le
+   delai n'est plus qu'un garde-fou contre une cible qui trainerait. */
+let cibleLien: { cle: string; at: number; tf: number | null; quand: number; atteinte: boolean } | null = null;
+const CIBLE_LIEN_MS = 10 * 60_000;
+/* Lecteurs pour lesquels on a deja dit que le minutage du lien ne s'applique
+   pas : une fois par (episode, lecteur), pas a chaque remontage. */
+const lienSignale = new Set<string>();
+
+/** Le lien vise un AUTRE lecteur que celui qui joue : son id, sinon null. Un
+ *  minutage vaut pour un fichier (frembed ouvre Railgun S avec 16 s de plus
+ *  que megaplay) ; quand la page a du basculer, on ne l'applique pas — mais on
+ *  le dit, au lieu de demarrer a 0:00 sans un mot (SnK sur voir-anime, que la
+ *  table player_map donnait absent : Luc, 02/10/2026). */
+function lienPourAutreLecteur(serverId: string | undefined): string | null {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("t") == null && q.get("tf") == null) return null;
+    const pour = q.get("server");
+    return pour && serverId && pour !== serverId ? pour : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Le `tf` de la cible en cours pour cet episode (cf. cibleLien). */
+function tfDuLien(
+  aniListId: number | string | null | undefined,
+  episodeNumber: number | string | null | undefined,
+): number | null {
+  const c = cibleLien;
+  return c && !c.atteinte && c.cle === `${aniListId}:${episodeNumber}` ? c.tf : null;
+}
 
 function cibleDepart(
   serverId: string | undefined,
@@ -383,9 +414,15 @@ function cibleDepart(
     const f = lireTf();
     if (f != null && !autreFichier) urlAt = Math.max(0, Math.floor(f - 3));
   } catch {}
-  if (urlAt > 0) return { at: urlAt, depuisUrl: true };
   const cle = `${aniListId}:${episodeNumber}`;
-  if (cibleLien && cibleLien.cle === cle && Date.now() - cibleLien.quand < CIBLE_LIEN_MS) {
+  if (urlAt > 0) {
+    const tf = lireTf();
+    if (!cibleLien || cibleLien.cle !== cle || cibleLien.atteinte || cibleLien.at !== urlAt) {
+      cibleLien = { cle, at: urlAt, tf, quand: Date.now(), atteinte: false };
+    }
+    return { at: urlAt, depuisUrl: true };
+  }
+  if (cibleLien && cibleLien.cle === cle && !cibleLien.atteinte && Date.now() - cibleLien.quand < CIBLE_LIEN_MS) {
     return { at: cibleLien.at, depuisUrl: true };
   }
   if (aniListId == null || episodeNumber == null) return { at: 0, depuisUrl: false };
@@ -4388,7 +4425,10 @@ export default function UniversalPlayer({
     // playlists, so its budget scales with the part count instead of firing
     // mid-merge on a connection that was going to make it.
     let timedOut = false;
-    const budget = multipart ? 6000 * ce.embedUrls.length : 6000;
+    /* Lien horodate : 15 s au lieu de 6. Le repli en <iframe> ne peut pas etre
+       positionne ; mieux vaut attendre le vrai flux que d'ouvrir a 0:00. */
+    const patience = cibleDepart(serverId, aniListId, episodeNumber).depuisUrl ? 15000 : 6000;
+    const budget = multipart ? patience * ce.embedUrls.length : patience;
     const timeout = setTimeout(() => {
       timedOut = true;
       ac.abort();
@@ -4770,86 +4810,120 @@ export default function UniversalPlayer({
       onEpisodeCompleteRef.current?.({ aniListId, episodeNumber });
     };
 
+    /* Viser puis VERIFIER. Avant : un seul saut, au premier evenement venu,
+       sur le premier <video> trouve — et plus jamais ensuite. Trois facons de
+       rater sans que rien ne le dise : duree pas encore connue a cet instant,
+       saut ecrase par le moteur (hls.js se replace, MP4 qui n'a pas encore son
+       index), <video> remplace apres coup. Ici la cible reste due tant qu'elle
+       n'est pas CONSTATEE : a chaque evenement de chargement, si la tete de
+       lecture n'y est pas, on y retourne. Valable pour tous les moteurs
+       (hls.js, HLS natif, MP4), puisqu'on ne regarde que `currentTime`.
+       Bornes : 8 sauts ou 15 s, puis abandon signale ; un saut de
+       l'utilisateur AILLEURS que vers la cible rend la main tout de suite. */
+    const ESSAIS_MAX = 8;
+    const DELAI_MS = 15_000;
+    let debutVisee = 0;
+    let essais = 0;
+    let minuterie = 0;
+    let viseA = 0;
+    const terminer = (issue: string, at = 0) => {
+      resumeApplied = true;
+      window.clearInterval(minuterie);
+      diag("minutage", { issue, essais, at: Math.round(at * 1000) / 1000, ct: video ? Math.round(video.currentTime * 1000) / 1000 : null });
+    };
     const resume = () => {
       if (resumeApplied || !video) return;
       // A shared timestamped link (`?t=<seconds>`, from the copyTimestamp
       // shortcut) wins over the saved resume point — the sharer picked that
-      // exact moment on purpose. Consumed once, then removed from the URL so a
-      // later manual seek + reload doesn't snap back.
+      // exact moment on purpose. Removed from the URL once read (the target
+      // lives on in `cibleLien`) so a later manual seek + reload doesn't snap
+      // back.
       const cible = cibleDepart(serverId, aniListId, episodeNumber);
-      const urlAt = cible.depuisUrl ? cible.at : 0;
-      // Lu AVANT le nettoyage de l'URL ci-dessous, qui retire aussi `tf`.
-      const tf = lireTf();
-      const at = cible.at;
-      if (urlAt > 0) {
+      const lien = cible.depuisUrl;
+      const tf = lien ? tfDuLien(aniListId, episodeNumber) : null;
+      if (lien) {
         try {
           const u = new URL(window.location.href);
-          u.searchParams.delete("t");
-          u.searchParams.delete("tf");
-          window.history.replaceState(null, "", u.toString());
+          if (u.searchParams.has("t") || u.searchParams.has("tf")) {
+            u.searchParams.delete("t");
+            u.searchParams.delete("tf");
+            window.history.replaceState(null, "", u.toString());
+          }
         } catch {}
       }
+      // Rien a reprendre : on ne visera plus, jamais contre un saut ulterieur.
+      if (!(cible.at > 0)) return terminer("rien");
+      // Duree inconnue : trop tot pour juger, `durationchange` nous rappellera.
+      const dur = video.duration;
+      if (!Number.isFinite(dur) || dur <= 0) return;
+      if (!debutVisee) {
+        debutVisee = performance.now();
+        // Filet : certains moteurs n'emettent plus rien une fois poses.
+        minuterie = window.setInterval(resume, 1000);
+      }
+      const depuis = performance.now() - debutVisee;
+      /* `tf` : instant dans l'horloge du FICHIER. temps lecteur = tf - initPTS,
+         le recalage que hls.js pose sur le premier segment charge (0,1 a 3,1 s
+         chez ansembed selon le point de reprise). Tant qu'il n'est pas connu on
+         tient la position grossiere (3 s avant, cf. cibleDepart) ; sans hls.js,
+         ou s'il ne vient pas en 5 s, tf tel quel. */
+      const ip = typeof (video as any).__initPtsS === "number" ? ((video as any).__initPtsS as number) : null;
+      const fin = tf == null || ip != null || departHlsRef.current === 0 || depuis > 5000;
+      const at = tf != null && fin ? Math.max(0, tf - (ip ?? 0)) : cible.at;
       /* La garde de fin vaut pour une REPRISE automatique, pas pour un lien
          horodate : celui-la vise un instant precis, souvent la fin d'un ED a
          quelques secondes du carton final (Railgun S ep 1 : t=1411 sur 1422 s
          repartait de 0). On le suit jusqu'a la derniere seconde. */
-      const garde = urlAt > 0 ? 1 : END_GUARD;
-      if (at > 0 && video.duration && at < video.duration - garde) {
-        /* hls.js a recu cette position comme `startPosition` : il s'y place
-           seul, au premier segment — un second saut ici ne sert a rien. Deja
-           en place (position posee avant toute donnee, cf. `bind`) : rien a
-           faire non plus.
-           (Le `seg-61` vu deux fois au banc sur ansembed n'est PAS un saut en
-           trop : ce sont deux qualites — hls.js part bas puis remonte, et les
-           durees inexactes de la playlist lui font reprendre le meme segment
-           en plus haut. Apres la premiere image, donc sans la retarder.) */
-        const placeParHls = departHlsRef.current > 0 && departHlsRef.current === at;
-        const dejaLa = Math.abs(video.currentTime - at) < 0.5;
-        if (!placeParHls && !dejaLa) {
+      if (at >= dur - (lien ? 1 : END_GUARD)) return terminer("hors-duree", at);
+      viseA = at;
+      const tol = tf != null && fin ? 0.25 : 0.5;
+      if (Math.abs(video.currentTime - at) <= tol && !video.seeking) {
+        if (!fin) return; // position grossiere tenue : on attend le recalage
+        if (tf != null) {
           try {
-            video.currentTime = at;
+            video.pause();
           } catch {}
         }
+        if (lien) {
+          if (cibleLien) cibleLien = { ...cibleLien, atteinte: true };
+          // Le point de reprise suit le lien, meme en pause.
+          try { saveProgress(aniListId, episodeNumber, at, dur); } catch {}
+        }
         /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
-           est pose ICI et pas a l'arrivee sur la page, parce que c'est la seule
-           ligne qui prouve qu'il y avait REELLEMENT un point de reprise, et
-           qu'on y est alle. Un lien horodate partage (`?t=`) compte aussi :
-           dans les deux cas la lecture ne commence pas au debut. */
+           est pose ICI parce que c'est la seule ligne qui prouve qu'il y avait
+           REELLEMENT un point de reprise, et qu'on y est. Un lien horodate
+           partage (`?t=`) compte aussi. */
         import("@/lib/badges/facts")
           .then((f) => f.recordFlag("resume"))
           .catch(() => {});
+        return terminer("atteint", at);
       }
-      /* `?tf=` : se poser, en pause, sur l'image dont le temps FICHIER est tf.
-         temps lecteur = tf - initPTS, le recalage que hls.js vient de poser
-         sur le premier segment charge (il depend du point de reprise : 0,1 a
-         3,1 s chez ansembed). Sans hls.js, pas de recalage connu : tf tel quel. */
-      if (urlAt > 0) {
-        cibleLien = { cle: `${aniListId}:${episodeNumber}`, at, tf, quand: Date.now() };
-        // Le point de reprise suit le lien, meme en pause (cf. cibleLien).
-        try { saveProgress(aniListId, episodeNumber, at, video.duration || 0); } catch {}
+      if (video.seeking) return; // un saut est en cours : `seeked` nous rappellera
+      /* hls.js a recu cette position comme `startPosition` : il s'y place seul,
+         au premier segment. On le laisse faire tant qu'il n'a rien affiche ; un
+         saut de plus ici ferait recharger le segment. */
+      if (essais === 0 && departHlsRef.current > 0 && departHlsRef.current === at && video.readyState < 2 && depuis < 5000) return;
+      if (essais >= ESSAIS_MAX || depuis > DELAI_MS) {
+        if (lien) showPlayerNotice(t("stats.timestampUnreachable"), 6000, "error");
+        return terminer("abandon", at);
       }
-      if (tf != null && urlAt > 0) {
-        const v = video;
-        const precis = () => {
-          const ip = (v as any).__initPtsS;
-          const cible = Math.max(0, tf - (typeof ip === "number" ? ip : 0));
-          try {
-            v.pause();
-            v.currentTime = cible;
-          } catch {}
-          if (cibleLien) cibleLien = { ...cibleLien, at: cible, quand: Date.now() };
-          try { saveProgress(aniListId, episodeNumber, cible, v.duration || 0); } catch {}
-        };
-        if ((v as any).__initPtsS != null) setTimeout(precis, 300);
-        else {
-          v.addEventListener("aniscroll:initpts", () => setTimeout(precis, 300), { once: true });
-          setTimeout(() => { if ((v as any).__initPtsS == null) precis(); }, 5000);
-        }
-      }
-      // Mark applied even when there's nothing to resume — we only want to
-      // honour the saved point ONCE per mount, never fight a later user seek.
-      resumeApplied = true;
+      essais++;
+      diag("minutage", { issue: "saut", essais, at: Math.round(at * 1000) / 1000, ct: Math.round(video.currentTime * 1000) / 1000 });
+      try {
+        video.currentTime = at;
+      } catch {}
     };
+    /* Un saut qui ne va NI vers la cible NI vers le debut vient de
+       l'utilisateur (barre de progression, fleches) : on ne vise plus. Les
+       sauts du moteur, eux, vont vers la cible (`startPosition`) ou restent
+       pres de 0. Un clic « lecture » pendant le chargement ne compte donc pas :
+       la reprise doit survivre a quelqu'un qui appuie sur play trop tot. */
+    const lacher = () => {
+      if (resumeApplied || !debutVisee || !video) return;
+      const ct = video.currentTime;
+      if (ct > 1.5 && Math.abs(ct - viseA) > 1.5) terminer("utilisateur");
+    };
+    const recale = () => window.setTimeout(resume, 300);
 
     const onTimeUpdate = () => {
       if (!video) return;
@@ -4920,11 +4994,25 @@ export default function UniversalPlayer({
       if (!video) return false;
       // can-play fires once metadata + first frames are ready → safe to seek.
       el!.addEventListener("can-play", resume);
+      video.addEventListener("seeking", lacher);
       video.addEventListener("loadeddata", resume);
       /* Des les metadonnees : la duree suffit pour sauter. Attendre
          `loadeddata`, c'etait laisser un MP4 (ou le HLS natif d'iOS) decoder et
          montrer l'image de 0:00 avant de partir au minutage. */
       video.addEventListener("loadedmetadata", resume);
+      video.addEventListener("durationchange", resume);
+      video.addEventListener("seeked", resume);
+      video.addEventListener("aniscroll:initpts", recale);
+      /* Le lien visait un autre lecteur que celui qui joue : on le dit. Ici et
+         pas plus tot, parce que c'est le moment ou l'on SAIT quel lecteur a
+         reellement rendu un <video>. */
+      const autre = lienPourAutreLecteur(serverId);
+      const cleSignal = `${aniListId}:${episodeNumber}:${serverId}`;
+      if (autre && !lienSignale.has(cleSignal)) {
+        lienSignale.add(cleSignal);
+        diag("minutage", { issue: "autre-lecteur", vise: autre, joue: serverId });
+        showPlayerNotice(t("stats.timestampOtherServer", { server: getServer(autre)?.name || autre }), 8000, "error");
+      }
       /* La position posee AVANT toute donnee (`readyState` 0) devient la
          position de depart du navigateur, qui s'y rend de lui-meme a l'arrivee
          des metadonnees : sur un MP4, le debut du fichier n'est ni telecharge
@@ -4952,18 +5040,39 @@ export default function UniversalPlayer({
       return true;
     };
 
+    /* Un lecteur en <iframe> ne se pilote pas : aucun minutage possible. On le
+       dit, au lieu de laisser le lien ouvrir a 0:00. Meme condition que le
+       rendu : un flux vidmoly en cours d'extraction n'est PAS un iframe. */
+    const enIframe =
+      !!streamData?.iframe && !(streamData?.clientExtract && clientStatus !== "failed");
+    if (enIframe && cibleDepart(serverId, aniListId, episodeNumber).depuisUrl) {
+      const cleSignal = `${aniListId}:${episodeNumber}:${serverId}:iframe`;
+      if (!lienSignale.has(cleSignal)) {
+        lienSignale.add(cleSignal);
+        diag("minutage", { issue: "iframe", joue: serverId });
+        showPlayerNotice(t("stats.timestampUnreachable"), 8000, "error");
+      }
+    }
+
     if (!bind()) {
+      /* 30 s et non 10 : le <video> de vidmoly n'existe qu'apres l'extraction
+         faite dans le navigateur. */
       let tries = 0;
       pollId = window.setInterval(() => {
-        if (bind() || ++tries > 40) window.clearInterval(pollId);
+        if (bind() || ++tries > 120) window.clearInterval(pollId);
       }, 250);
     }
 
     return () => {
       window.clearInterval(pollId);
+      window.clearInterval(minuterie);
       el?.removeEventListener("can-play", resume);
+      video?.removeEventListener("seeking", lacher);
       video?.removeEventListener("loadeddata", resume);
       video?.removeEventListener("loadedmetadata", resume);
+      video?.removeEventListener("durationchange", resume);
+      video?.removeEventListener("seeked", resume);
+      video?.removeEventListener("aniscroll:initpts", recale);
       video?.removeEventListener("loadedmetadata", onMeta);
       video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);
@@ -4972,9 +5081,10 @@ export default function UniversalPlayer({
       window.removeEventListener("pagehide", onTimeUpdate);
     };
     // Re-bind per episode/anime and whenever the stream (server) changes so the
-    // resume seek runs on the freshly-loaded source.
+    // resume seek runs on the freshly-loaded source. `clientStream` aussi : le
+    // flux de vidmoly arrive APRES `streamData`, avec un nouveau <video>.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aniListId, episodeNumber, streamData, serverId]);
+  }, [aniListId, episodeNumber, streamData, serverId, clientStream, clientStatus]);
 
   // ── TEMP DEBUG: trace who resets currentTime to ~0 (add ?w2gdebug to URL) ──
   useEffect(() => {

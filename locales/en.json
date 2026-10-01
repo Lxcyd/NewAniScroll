@@ -664,6 +664,8 @@
     "screenshotSaved": "Screenshot saved",
     "screenshotFailed": "Couldn't capture (protected source)",
     "timestampCopied": "Link copied (at {{time}})",
+    "timestampOtherServer": "This link targets the {{server}} player, unavailable here: the timestamp is not applied",
+    "timestampUnreachable": "Could not open at this timestamp on this player",
     "timestampFailed": "Couldn't copy the link"
   },
   "queue": {

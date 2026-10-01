@@ -6,6 +6,54 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-02 — Lien à un minutage : viser puis vérifier, et le dire quand c'est impossible
+
+Signalé ainsi : « avec vidmoly-va, charger un épisode à un timing précis ne
+marche pas, fais un fix solide global pour tous les lecteurs » — le lien de la
+page de relevé ouvrait SnK à 0:00.
+
+**Ce que c'était (journal `?diag=1`, une visite)** : `source
+voiranime-vidmoly-vo → absent`, bascule sur frembed à 226 ms, puis le
+minutage — qui vaut pour UN fichier — était écarté par la garde `autreFichier`
+de `cibleDepart`. Rien à l'écran : on croit être sur vidmoly, on est sur
+frembed à 0:00. Et l'absence est fausse : `player_map` porte
+`voiranime / 16498 / absent (verify:not-found)` alors que le détecteur OP/ED
+lit SnK sur voir-anime sans difficulté. **Non corrigé** (table partagée avec la
+prod, audit à valider avec Luc).
+
+**Ce qui était fragile de toute façon**, lu dans `UniversalPlayer.tsx` : le
+saut ne partait qu'UNE fois (`resumeApplied`), au premier événement, sur le
+premier `<video>` trouvé en 10 s ; durée pas encore connue = pas de saut et
+pas de second essai ; l'effet ne se relançait pas quand le flux de vidmoly
+arrivait (`clientStream`, extrait dans le navigateur APRÈS `streamData`) ;
+l'URL nettoyée au premier passage emportait le `tf`, et le souvenir
+(`cibleLien`) expirait en 30 s ; en `<iframe>`, départ à 0:00 sans un mot.
+
+**Correctif** :
+- la cible du lien est mémorisée dès qu'elle est LUE (`tf` compris) et vit
+  jusqu'à être ATTEINTE ;
+- `resume` devient « viser puis vérifier » : à `loadedmetadata`,
+  `loadeddata`, `can-play`, `durationchange`, `seeked`, au recalage hls.js et
+  sur un battement d'1 s, si la tête de lecture n'est pas à ±0,25 s de la cible
+  (±0,5 s pour une reprise), on y retourne ; 8 sauts ou 15 s, puis abandon
+  signalé. Un seul critère, `currentTime`, donc le même code pour hls.js, le
+  HLS natif et le MP4 ;
+- l'effet se relance sur `clientStream` / `clientStatus`, et cherche le
+  `<video>` 30 s ;
+- un saut de l'utilisateur ailleurs que vers la cible rend la main ; un clic
+  « lecture » pendant le chargement, non (premier jet : `pointerdown` — il
+  aurait annulé la reprise de quiconque appuie sur play trop tôt) ;
+- messages : lien visant un autre lecteur que celui qui joue, lecteur en
+  `<iframe>`, cible jamais atteinte ; 15 s au lieu de 6 pour l'extraction
+  vidmoly quand un lien horodaté attend.
+
+`frame-truth.mjs` : `UA_NORMAL=1` (agent sans « Headless »), `ICI_S` (suivi
+plus long), lecteur réellement joué et `<iframe>` dans chaque relevé.
+
+**Leçon** : « démarre à 0:00 sur vidmoly » décrivait un lecteur qui n'était
+pas vidmoly. Le nom du lecteur affiché par le lien n'est pas celui qui joue ;
+c'est l'`id=` de l'URL après bascule, ou le journal, qui le dit.
+
 ## 2026-10-01 (suite) — Ouvrir à un minutage : hls.js y allait déjà, le MP4 non
 
 Signalé ainsi : « quand on ouvre un anime à un certain timing, on charge

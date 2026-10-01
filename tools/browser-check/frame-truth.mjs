@@ -42,7 +42,12 @@ for (let i = 0; ; i++) {
    l'episode (un profil neuf ne voit pas les retours au minutage sauvegarde).
    On passe par robots.txt du meme domaine pour ecrire son localStorage. */
 const SEED = process.env.SEED_PROGRESS;
-const premier = SEED ? new URL(url).origin + "/robots.txt" : process.env.TRACE_REMOVE ? "about:blank" : url;
+/* UA_NORMAL=1 : se presenter comme un Chrome ordinaire. En headless, l'agent
+   dit « HeadlessChrome » et vidmoly refuse l'extraction : la page basculait sur
+   frembed, et le lien horodate vise sur vidmoly n'etait jamais observe
+   (02/10/2026). */
+const UA_NORMAL = !!process.env.UA_NORMAL;
+const premier = SEED ? new URL(url).origin + "/robots.txt" : process.env.TRACE_REMOVE || UA_NORMAL ? "about:blank" : url;
 const onglet = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(premier)}`, { method: "PUT" }).then((r) => r.json());
 const ws = new WebSocket(onglet.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
@@ -58,6 +63,12 @@ const evalue = async (expr) =>
   (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
 await send("Network.enable");
 await send("Runtime.enable");
+if (UA_NORMAL) {
+  const v = await send("Browser.getVersion");
+  const ua = String(v.result?.userAgent || "").replace("HeadlessChrome", "Chrome");
+  if (ua) await send("Network.setUserAgentOverride", { userAgent: ua });
+  if (!SEED && !process.env.TRACE_REMOVE) await send("Page.navigate", { url });
+}
 /* TRACE_REMOVE=1 : dire QUEL noeud React n'arrive pas a retirer (le message
    « removeChild: not a child » ne nomme ni le noeud ni son vrai parent). */
 if (process.env.TRACE_REMOVE) {
@@ -88,6 +99,7 @@ if (process.env.THROTTLE_KBPS) {
 
 let pret = null;
 for (let i = 0; i < 90 && !pret; i++) {
+  if (i % 5 === 4) console.log("  attente video", i + 1, await evalue(`JSON.stringify([location.search, document.querySelectorAll("iframe").length, !!document.querySelector("video")])`));
   pret = await evalue(`(() => { const v = document.querySelector("video"); return v && v.readyState >= 2 && v.duration > 0 ? v.duration : null })()`);
   if (!pret) await dors(1000);
 }
@@ -155,8 +167,11 @@ for (const t of process.env.PLAY_S ? [] : ts) {
   const ici = t === "ici";
   if (ici) {
     // Historique des positions pendant le chargement (diagnostic des liens ?tf=).
-    for (let k = 0; k < 16; k++) {
-      const x = await evalue(`(() => { const v = document.querySelector("video"); return v ? [Math.round(v.currentTime * 100) / 100, v.paused, v.readyState, location.search] : null })()`);
+    /* ICI_S=<secondes> : suivre plus longtemps (vidmoly : extraction dans le
+       navigateur, le lecteur arrive tard). On note aussi le lecteur reellement
+       joue (`id=` de l'URL) et un eventuel repli en <iframe>. */
+    for (let k = 0; k < Number(process.env.ICI_S || 8) * 2; k++) {
+      const x = await evalue(`(() => { const v = document.querySelector("video"); return [v ? Math.round(v.currentTime * 100) / 100 : null, v ? v.paused : null, v ? v.readyState : null, v ? Math.round((v.duration || 0)) : null, document.querySelectorAll("iframe").length, location.search] })()`);
       console.log("  pos", k * 0.5, JSON.stringify(x));
       await dors(500);
     }
