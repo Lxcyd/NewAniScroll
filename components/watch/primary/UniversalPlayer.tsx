@@ -4826,6 +4826,7 @@ export default function UniversalPlayer({
     let essais = 0;
     let minuterie = 0;
     let viseA = 0;
+    let viseGros = 0;
     const terminer = (issue: string, at = 0) => {
       resumeApplied = true;
       window.clearInterval(minuterie);
@@ -4876,6 +4877,7 @@ export default function UniversalPlayer({
          repartait de 0). On le suit jusqu'a la derniere seconde. */
       if (at >= dur - (lien ? 1 : END_GUARD)) return terminer("hors-duree", at);
       viseA = at;
+      viseGros = cible.at;
       const tol = tf != null && fin ? 0.25 : 0.5;
       if (Math.abs(video.currentTime - at) <= tol && !video.seeking) {
         if (!fin) return; // position grossiere tenue : on attend le recalage
@@ -4917,11 +4919,17 @@ export default function UniversalPlayer({
        l'utilisateur (barre de progression, fleches) : on ne vise plus. Les
        sauts du moteur, eux, vont vers la cible (`startPosition`) ou restent
        pres de 0. Un clic « lecture » pendant le chargement ne compte donc pas :
-       la reprise doit survivre a quelqu'un qui appuie sur play trop tot. */
+       la reprise doit survivre a quelqu'un qui appuie sur play trop tot.
+       « Vers la cible » compte AUSSI la position grossiere (3 s avant un `tf`),
+       celle que hls.js recoit en `startPosition` : quand le recalage est connu
+       avant les metadonnees, la cible fine est deja 3 s plus loin au moment ou
+       le moteur se place, et ce placement passait pour un saut de l'utilisateur
+       (frembed, 02/10/2026 : `utilisateur` a 1,1 s, lecture figee a 41 s pour
+       44,286 demande). */
     const lacher = () => {
       if (resumeApplied || !debutVisee || !video) return;
       const ct = video.currentTime;
-      if (ct > 1.5 && Math.abs(ct - viseA) > 1.5) terminer("utilisateur");
+      if (ct > 1.5 && Math.abs(ct - viseA) > 1.5 && Math.abs(ct - viseGros) > 1.5) terminer("utilisateur");
     };
     const recale = () => window.setTimeout(resume, 300);
 
