@@ -201,6 +201,8 @@ if (process.env.THEN_PLAY) {
     const x = await evalue(`(() => { const v = document.querySelector("video"); return v ? [Math.round(v.currentTime * 100) / 100, v.paused, v.readyState, !!document.querySelector(".aniscroll-skip-btn"), !!document.querySelector(".aniscroll-next-btn")] : "PLUS DE VIDEO" })()`);
     console.log("  lecture", k * 0.5, JSON.stringify(x));
     await dors(500);
+    // Le clic synthetique ne lance pas toujours la lecture en headless.
+    if (k === 1 && Array.isArray(x) && x[1]) await evalue(`document.querySelector("video")?.play().catch(() => {})`);
   }
 }
 if (process.env.CONSOLE) {
