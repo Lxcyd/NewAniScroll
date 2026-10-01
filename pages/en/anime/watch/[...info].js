@@ -223,15 +223,14 @@ export async function getServerSideProps(context) {
      copy is cached, hence 30 min (vs 6 h there) + a day of
      stale-while-revalidate. */
   context.res.setHeader("Cache-Control", "public, max-age=60");
-  /* Sur DEV, le « stale » se compte en secondes. Une copie perimee survit aux
-     deploiements et embarque l'ANCIEN code du lecteur : une adresse peu visitee
-     (les liens `/watch/<id>/<serveur>` de la page de releve OP/ED) servait la
-     version d'avant le correctif qu'on venait de pousser (28/09/2026). La prod
-     garde sa journee de stale, qui epargne son quota CPU. */
-  const perime = process.env.VERCEL_GIT_COMMIT_REF === "dev" ? 60 : 86400;
+  /* Une journee de « stale » sur dev aussi (01/10/2026). Elle avait ete ramenee
+     a 60 s sur dev le 28/09, sur l'idee qu'une copie perimee survivait aux
+     deploiements ; or un deploiement vide le cache du bord (devlog infra du
+     20/09). Le seul effet mesure : passe 30 min, chaque ouverture attendait un
+     rendu complet, 2,3 a 5 s de document avant meme la source du lecteur. */
   context.res.setHeader(
     "CDN-Cache-Control",
-    `public, s-maxage=1800, stale-while-revalidate=${perime}`,
+    "public, s-maxage=1800, stale-while-revalidate=86400",
   );
 
   const [aniId, provider] = query?.info;
@@ -245,9 +244,18 @@ export async function getServerSideProps(context) {
   const watchId =
     aniId && epiNumber ? `${aniId}-${epiNumber}` : query?.id || null;
 
+  /* Chronometre du rendu, rendu dans `Server-Timing` : un document froid
+     coutait 2,3 a 5 s (banc player-timeline, 01/10/2026) sans qu'on sache
+     quel appel les prenait. Lisible dans l'onglet Reseau et par le banc. */
+  const t0 = Date.now();
+  const temps = [];
+  const chrono = (nom, depuis) => temps.push(`${nom};dur=${Date.now() - depuis}`);
+
   // Started now, awaited after the metadata: on a cold function it is a
   // Postgres round trip that used to sit in front of the AniList fetch.
-  const removedPromise = getRemovedMedia().catch(() => null);
+  const removedPromise = getRemovedMedia()
+    .catch(() => null)
+    .finally(() => chrono("retires", t0));
 
   // ── Non-blocking metadata resolution ──────────────────────────────────
   // Navigation here is SPA (router.push from the info page), but the Pages
@@ -267,11 +275,36 @@ export async function getServerSideProps(context) {
     data = { data: { Media: { ...mem, mediaListEntry: null } } };
   }
 
-  // 2. Cold/direct hit only: fetch from AniList with a tight timeout. We don't
+  /* 2. La copie Turso, AVANT AniList (01/10/2026). L'ordre inverse faisait
+        attendre a chaque ouverture froide la chaine cache Redis → sante →
+        limiteur → AniList → ecriture Redis, soit l'essentiel des 2,3 a 5 s du
+        document — et la source du lecteur ne part qu'une fois le document
+        recu. Une ligne lue par cle primaire repond en ~0,1 s. On ne la prend
+        que FRAICHE (`expires_at` : 1 h pour une serie en cours, 30 j terminee)
+        et complete ; perimee, elle reste en main comme repli si AniList
+        echoue, sans seconde lecture. Cout : une lecture Turso par rendu froid,
+        contre un appel AniList et quatre commandes Redis economises. */
+  let copie = null;
+  if (!data?.data?.Media) {
+    const t = Date.now();
+    try {
+      copie = await getCachedAnime(Number(aniId));
+    } catch (e) {
+      console.warn(`[watch SSR] DB read failed for ${aniId}:`, e?.message);
+    }
+    chrono("turso", t);
+    const d = copie?.data;
+    if (d?.title && "recommendations" in d && !copie.isStale) {
+      data = { data: { Media: { ...d, mediaListEntry: null } } };
+    }
+  }
+
+  // 3. Cold/direct hit only: fetch from AniList with a tight timeout. We don't
   //    want a full render with no metadata on a shared link, but we also never
   //    block longer than ~2.5s — the client will hydrate the rest.
   const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
   if (!data?.data?.Media) {
+    const t = Date.now();
     try {
       if (simulateDown) throw new Error("simulated AniList outage");
       // No `authToken`: this response is shared by every visitor (and cached
@@ -294,21 +327,17 @@ export async function getServerSideProps(context) {
     } catch (e) {
       console.warn(`[watch SSR] AniList fetch failed for ${aniId}:`, e.message);
     }
+    chrono("anilist", t);
   }
 
-  // 3. Last-resort persistent fallback (AniList slow/down on a cold hit).
-  if (!data?.data?.Media) {
-    try {
-      const cached = await getCachedAnime(Number(aniId));
-      if (cached?.data) {
-        data = { data: { Media: { ...cached.data, mediaListEntry: null } } };
-      }
-    } catch (e) {
-      console.warn(`[watch SSR] DB fallback failed for ${aniId}:`, e?.message);
-    }
+  // 4. AniList slow/down on a cold hit: the stale copy read above.
+  if (!data?.data?.Media && copie?.data) {
+    data = { data: { Media: { ...copie.data, mediaListEntry: null } } };
   }
 
   const removed   = await removedPromise;
+  chrono("total", t0);
+  context.res.setHeader("Server-Timing", temps.join(", "));
   const isRemoved = removed?.find((i) => +i?.aniId === +aniId);
   if (isRemoved) {
     return { redirect: { destination: "/en/removed", permanent: false } };

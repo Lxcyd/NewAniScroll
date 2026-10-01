@@ -648,7 +648,8 @@ async function getFrembedStream(serverKey, aniId, episode) {
   const asMovie =
     !!movieId &&
     Number(episode) <= 1 &&
-    (!tvId || (await getMediaMeta(aniId).catch(() => null))?.format === "MOVIE");
+    (!tvId ||
+      (await getMediaMeta(aniId, { dbFirst: true }).catch(() => null))?.format === "MOVIE");
   const tmdbId = asMovie ? movieId : tvId;
   if (!tmdbId) {
     dlog(`[frembed] no tmdb mapping for AniList ${aniId}`);
@@ -4466,24 +4467,31 @@ export default async function handler(req, res) {
       const j = await r.json().catch(() => null);
       return j && !j.error && (j.enc || Array.isArray(j.tracks)) ? j : null;
     };
-    let donnees = await fetchViaWorker(url).then(lire).catch(() => null);
-    if (!donnees) {
-      donnees = await fetchWithTimeout(
-        url,
-        {
-          headers: {
-            "User-Agent": SCRAPER_UA,
-            "X-Requested-With": "XMLHttpRequest",
-            Accept: "application/json, text/javascript, */*; q=0.01",
+    /* Les deux EN MEME TEMPS, la premiere reponse valable gagne (01/10/2026).
+       L'une apres l'autre, un fichier recent payait d'abord le refus du Worker :
+       un aller-retour de plus devant chaque ouverture froide (source a 2,3 s
+       sur Railgun S contre 1,3 s sur un fichier ancien, banc player-timeline). */
+    const valable = (p) => p.then(lire).then((j) => j || Promise.reject(new Error("refuse")));
+    const donnees = await Promise.any([
+      valable(fetchViaWorker(url)),
+      valable(
+        fetchWithTimeout(
+          url,
+          {
+            headers: {
+              "User-Agent": SCRAPER_UA,
+              "X-Requested-With": "XMLHttpRequest",
+              Accept: "application/json, text/javascript, */*; q=0.01",
+            },
           },
-        },
-        5000,
-      )
-        .then(lire)
-        .catch(() => null);
-      dlog(`[megaplay] ${idFichier} : Worker refuse, direct ${donnees ? "OK" : "refuse aussi"}`);
+          5000,
+        ),
+      ),
+    ]).catch(() => null);
+    if (!donnees) {
+      dlog(`[megaplay] ${idFichier} : getSources refuse par le Worker ET en direct`);
+      return null;
     }
-    if (!donnees) return null;
 
     const pistes = Array.isArray(donnees?.tracks) ? donnees.tracks : [];
     /* Le repertoire du flux se lit aussi sur N'IMPORTE quelle piste : elles
@@ -4564,7 +4572,9 @@ export default async function handler(req, res) {
 
   if (server === "megaplay") {
     const malId =
-      Number(mediaMeta?.idMal) || Number((await getMediaMeta(aniId))?.idMal) || null;
+      Number(mediaMeta?.idMal) ||
+      Number((await getMediaMeta(aniId, { dbFirst: true }))?.idMal) ||
+      null;
     /* La route MAL d'abord, la route AniList en secours : les deux resolvent le
        meme fichier (verifie — `mal/52991/1/sub` et `ani/154587/1/sub` rendent
        tous deux « File 13461 »), mais megaplay n'indexe pas tout sous les deux. */
@@ -4619,7 +4629,7 @@ export default async function handler(req, res) {
   // Helper to resolve anime title â€” uses shared cache, only hits AniList if missing
   async function resolveTitle() {
     if (title) return title;
-    const m = await getMediaMeta(aniId);
+    const m = await getMediaMeta(aniId, { dbFirst: true });
     return m?.title?.english || m?.title?.romaji || null;
   }
 
