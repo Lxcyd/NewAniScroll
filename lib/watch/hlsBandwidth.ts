@@ -63,19 +63,8 @@ export function readSavedBandwidth(key: string): number | null {
   return e.bps;
 }
 
-/**
- * Le meilleur debit mesure recemment, tous CDN confondus, ou `null`. Un CDN
- * lent ne dit rien de la connexion ; le plus rapide en donne un plancher.
- */
-export function bestSavedBandwidth(): number | null {
-  let best = 0;
-  for (const e of Object.values(lire())) {
-    if (!e || typeof e.bps !== "number") continue;
-    if (Date.now() - (e.at || 0) > BW_MAX_AGE_MS) continue;
-    if (e.bps > best) best = e.bps;
-  }
-  return best > 0 ? best : null;
-}
+/** Le debit mesure sur frembed, quel que soit le domaine de son CDN du jour. */
+export const FREMBED_BW_KEY = "srv:frembed";
 
 export function saveBandwidth(key: string, bps: number) {
   if (!Number.isFinite(bps) || bps <= 0) return;

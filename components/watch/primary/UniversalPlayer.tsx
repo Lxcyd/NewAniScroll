@@ -68,7 +68,7 @@ import {
 } from "@/lib/watch/progress";
 import { avecReprise, estMegaplay, ouvrePont } from "@/lib/watch/megaplayBridge";
 import { recordWatchToday } from "@/lib/stats/streak";
-import { bandwidthKey, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
+import { bandwidthKey, FREMBED_BW_KEY, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
 import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
@@ -2029,6 +2029,10 @@ export default function UniversalPlayer({
             if (now - bwSavedAt > 30_000) {
               bwSavedAt = now;
               saveBandwidth(bwProfile, (hls as any).bandwidthEstimate);
+              // Sous une cle STABLE aussi : le domaine du CDN de frembed tourne,
+              // et son classement se lit sur SA mesure (cf. `reculFrembed`).
+              if (serverId?.startsWith("frembed"))
+                saveBandwidth(FREMBED_BW_KEY, (hls as any).bandwidthEstimate);
             }
           });
           (hls as any).on("hlsFragLoaded", () => {
@@ -4538,7 +4542,13 @@ export default function UniversalPlayer({
          - rien ne bouge depuis CALME : la, et seulement la, on abandonne. */
     const DELAI = progressif ? 15000 : 10000;
     const CALME = 8000;
-    const PLAFOND = 40000;
+    /* 40 s seulement pour le lecteur que l'URL IMPOSE (`?server=`) : la, c'est
+       celui-la qu'on veut voir. Ailleurs un autre lecteur attend, deja chaud. */
+    let impose = false;
+    try {
+      impose = new URLSearchParams(window.location.search).get("server") === serverId;
+    } catch {}
+    const PLAFOND = impose ? 40000 : 20000;
     const debut = Date.now();
     let activite = debut;
     let lectureDemandee = false;
@@ -4558,6 +4568,17 @@ export default function UniversalPlayer({
       lectureDemandee = true;
       activite = Date.now();
     };
+    /* Un segment qu'on REDEMANDE n'est pas une activite : hls.js reemet
+       `hlsFragLoading` a chaque nouvel essai, donc un CDN mort n'etait jamais
+       « calme » et l'ecran restait noir jusqu'au plafond (01/10/2026). Seul un
+       segment nouveau compte. */
+    let fragVu = "";
+    const fragDemande = (_e: unknown, d: any) => {
+      const cle = `${d?.frag?.level}:${d?.frag?.sn}`;
+      if (cle === fragVu) return;
+      fragVu = cle;
+      bouge();
+    };
     const EVTS_ACTIVITE = ["progress", "loadedmetadata", "loadeddata", "seeked", "timeupdate", "canplay"];
     const brancherVideo = () => {
       const v = playerElState.querySelector("video") as HTMLVideoElement | null;
@@ -4572,9 +4593,9 @@ export default function UniversalPlayer({
       const h = hlsRef.current;
       if (!h || h === hlsSuivi) return;
       try {
-        hlsSuivi?.off?.("hlsFragLoading", bouge);
+        hlsSuivi?.off?.("hlsFragLoading", fragDemande);
         hlsSuivi?.off?.("hlsFragLoaded", bouge);
-        h.on("hlsFragLoading", bouge);
+        h.on("hlsFragLoading", fragDemande);
         h.on("hlsFragLoaded", bouge);
         hlsSuivi = h;
       } catch {
@@ -4611,11 +4632,11 @@ export default function UniversalPlayer({
       for (const e of EVTS_ACTIVITE) video?.removeEventListener(e, bouge);
       video?.removeEventListener("play", demande);
       try {
-        hlsSuivi?.off?.("hlsFragLoading", bouge);
+        hlsSuivi?.off?.("hlsFragLoading", fragDemande);
         hlsSuivi?.off?.("hlsFragLoaded", bouge);
       } catch {}
     };
-  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError, autoplay]);
+  }, [playerElState, videoAUneImage, streamData, clientStream, emettreDoute, onError, autoplay, serverId]);
 
   // ── Persistent volume (app-wide, shared across every player) ──
   // One value in localStorage, restored onto every player instance and every

@@ -47,7 +47,7 @@
 
 import { useEffect, useState } from "react";
 import SERVERS from "@/lib/servers";
-import { bestSavedBandwidth } from "./hlsBandwidth";
+import { FREMBED_BW_KEY, readSavedBandwidth } from "./hlsBandwidth";
 
 const KEY = "aniscroll:serverPerf";
 const ENABLED_KEY = "aniscroll:serverPerf:enabled";
@@ -613,13 +613,18 @@ export function serverPerfRank(server: { id: string; speed?: number }): number {
    sur la fibre et le plus lent partout ailleurs.
    Quand un debit memorise dit « connexion trop juste », il recule derriere
    ansembed (speed 2 → rang 20 ; frembed passe a 25) et reste devant les
-   suivants. Sans mesure, rien ne change : on ne recule pas sur une ignorance. */
+   suivants. Sans mesure, rien ne change : on ne recule pas sur une ignorance.
+   Et la mesure est celle de FREMBED, pas la meilleure tous CDN confondus
+   (01/10/2026) : un debit releve sur megaplay (bride a ~1 Mb/s) ou sur vmpx
+   est un plancher de la connexion, pas sa mesure. Quelques jours sur ces
+   hotes suffisaient a reculer frembed — qui, plus jamais joue, n'etait plus
+   jamais mesure. */
 const FREMBED_DEBIT_MIN = 12_000_000; // b/s : 8,6 de pic + marge
 const FREMBED_RECUL = 25;
 
 function reculFrembed(id: string): number {
   if (!id.startsWith("frembed") || typeof window === "undefined") return 0;
-  const bw = bestSavedBandwidth();
+  const bw = readSavedBandwidth(FREMBED_BW_KEY);
   return bw != null && bw < FREMBED_DEBIT_MIN ? FREMBED_RECUL : 0;
 }
 
