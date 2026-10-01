@@ -37,7 +37,13 @@ for (let i = 0; ; i++) {
   try { await fetch(`http://127.0.0.1:${PORT}/json/version`); break; }
   catch { if (i > 60) throw new Error("Chrome ne repond pas"); await dors(300); }
 }
-const onglet = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(url)}`, { method: "PUT" }).then((r) => r.json());
+/* SEED_PROGRESS="<cle>=<secondes>" (ex. 16049:1=600) : poser un point de
+   reprise AVANT d'ouvrir le lien, comme chez quelqu'un qui a deja regarde
+   l'episode (un profil neuf ne voit pas les retours au minutage sauvegarde).
+   On passe par robots.txt du meme domaine pour ecrire son localStorage. */
+const SEED = process.env.SEED_PROGRESS;
+const premier = SEED ? new URL(url).origin + "/robots.txt" : url;
+const onglet = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(premier)}`, { method: "PUT" }).then((r) => r.json());
 const ws = new WebSocket(onglet.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
 let n = 0;
@@ -52,6 +58,13 @@ const evalue = async (expr) =>
   (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
 await send("Network.enable");
 await send("Runtime.enable");
+if (SEED) {
+  await dors(1500);
+  const [cle, sec] = SEED.split("=");
+  await evalue(`localStorage.setItem("aniscroll:progress", JSON.stringify({ ${JSON.stringify(cle)}: { time: ${Number(sec)}, duration: 1424, updatedAt: Date.now() } }))`);
+  await send("Page.navigate", { url });
+  await dors(1000);
+}
 /* THROTTLE_KBPS : brider le debit pour que l'ABR reste sur une variante basse
    (Luc regardait megaplay en 480p ; le banc montait en 720p). */
 if (process.env.THROTTLE_KBPS) {
