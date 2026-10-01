@@ -4796,13 +4796,13 @@ export default function UniversalPlayer({
       const garde = urlAt > 0 ? 1 : END_GUARD;
       if (at > 0 && video.duration && at < video.duration - garde) {
         /* hls.js a recu cette position comme `startPosition` : il s'y place
-           seul, au premier segment. Sauter ICI en plus arrivait AVANT (Vidstack
-           emet un `can-play` de synthese des la playlist lue), pendant que le
-           segment vise chargeait : hls.js remettait son chargement a zero,
-           jetait le segment a l'arrivee et le redemandait. Banc du 01/10/2026,
-           ansembed `?t=900` : `seg-61` telecharge deux fois, 0,7 s perdue.
-           Deja en place (MP4 parti de la bonne position) : rien a faire non
-           plus. */
+           seul, au premier segment — un second saut ici ne sert a rien. Deja
+           en place (position posee avant toute donnee, cf. `bind`) : rien a
+           faire non plus.
+           (Le `seg-61` vu deux fois au banc sur ansembed n'est PAS un saut en
+           trop : ce sont deux qualites — hls.js part bas puis remonte, et les
+           durees inexactes de la playlist lui font reprendre le meme segment
+           en plus haut. Apres la premiere image, donc sans la retarder.) */
         const placeParHls = departHlsRef.current > 0 && departHlsRef.current === at;
         const dejaLa = Math.abs(video.currentTime - at) < 0.5;
         if (!placeParHls && !dejaLa) {
@@ -4925,16 +4925,20 @@ export default function UniversalPlayer({
          `loadeddata`, c'etait laisser un MP4 (ou le HLS natif d'iOS) decoder et
          montrer l'image de 0:00 avant de partir au minutage. */
       video.addEventListener("loadedmetadata", resume);
-      /* MP4 progressif : la position posee AVANT toute donnee (`readyState` 0)
-         devient la position de depart du navigateur, qui s'y rend de lui-meme a
-         l'arrivee des metadonnees — le debut du fichier n'est ni telecharge au-
-         dela de l'index, ni affiche. Pas pour hls.js : ce saut-la lui fait
-         jeter son premier segment (cf. `resume`). */
-      if (!m3u8Ref.current && video.readyState === 0) {
+      /* La position posee AVANT toute donnee (`readyState` 0) devient la
+         position de depart du navigateur, qui s'y rend de lui-meme a l'arrivee
+         des metadonnees : sur un MP4, le debut du fichier n'est ni telecharge
+         au-dela de l'index, ni affiche.
+         Et le compteur le DIT tout de suite. Vidstack ne relit `currentTime`
+         que sur un evenement : sans le `timeupdate` ci-dessous la barre restait
+         a 0:00 pendant tout le premier segment (0,6 a 1,2 s au banc du
+         01/10/2026), puis sautait au minutage. */
+      if (video.readyState === 0) {
         const depart = cibleDepart(serverId, aniListId, episodeNumber).at;
         if (depart > 0) {
           try {
             video.currentTime = depart;
+            video.dispatchEvent(new Event("timeupdate"));
           } catch {}
         }
       }

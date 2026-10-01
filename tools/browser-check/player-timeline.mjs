@@ -230,7 +230,7 @@ if (finis.length) {
 const vus = new Map();
 for (const r of segments) { const k = (() => { try { const x = new URL(interne(r.url)); return x.hostname + "/" + x.pathname.split("/").slice(-2).join("/"); } catch { return r.url; } })(); vus.set(k, (vus.get(k) || 0) + 1); }
 const doubles = [...vus].filter(([k, c]) => c > 1 && !/init\.mp4$/.test(k));
-console.log(`segments demandes plus d'une fois : ${doubles.length ? doubles.map(([k, c]) => `${k}×${c}`).join(", ") : "aucun"}`);
+console.log(`segments demandes plus d'une fois : ${doubles.length ? `${doubles.length} (` + doubles.slice(0, 4).map(([k, c]) => `${k.split("/").pop()}×${c}`).join(", ") + ")" : "aucun"}`);
 const erreurs = video.filter((r) => r.echec || r.statut >= 400);
 console.log(`erreurs sur le chemin video : ${erreurs.length}`);
 for (const r of erreurs.slice(0, 8)) console.log(ligne(r));
