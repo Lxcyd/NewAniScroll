@@ -1832,6 +1832,10 @@ export default function UniversalPlayer({
   // reel pour un flux direct, le Worker sinon). Meme passage de main par ref :
   // onProviderChange ne voit pas `bestStream`.
   const bwKeyRef = useRef<string>("proxied");
+  /* La position donnee a hls.js comme `startPosition` (0 = aucune, ou moteur
+     autre qu'hls.js). Quand elle vaut la cible, c'est hls.js qui place la tete
+     de lecture et `resume` ne doit PAS sauter a son tour — cf. `resume`. */
+  const departHlsRef = useRef(0);
   // La source courante est-elle un HLS ? Lu par le chien de garde de la
   // premiere image, qui laisse plus de temps a un MP4 progressif.
   const m3u8Ref = useRef<boolean>(true);
@@ -1887,6 +1891,7 @@ export default function UniversalPlayer({
       mse: typeof window !== "undefined" && "MediaSource" in window,
       mms: typeof window !== "undefined" && "ManagedMediaSource" in window,
     });
+    departHlsRef.current = 0;
     if (isHLSProvider(provider)) {
       // Direct/fragile CDNs (vidmoly) get the gentler, resilience-tuned config;
       // proxied edge-cached sources (megaplay) get the aggressive one. The ref
@@ -1922,6 +1927,7 @@ export default function UniversalPlayer({
       const depart = startEstimate(bwKeyRef.current);
       /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
       const position = cibleDepart(serverId, aniListId, episodeNumber).at;
+      departHlsRef.current = position;
       provider.config = {
         ...provider.config,
         ...cfg,
@@ -3002,6 +3008,14 @@ export default function UniversalPlayer({
        premier segment. Deux lectures de la meme video sur le meme lien, au
        moment precis ou la premiere image se joue. */
     if (autoplay) return;
+    /* Ni quand on n'ouvre pas au debut (lien `?t=`, reprise) : le verdict porte
+       sur l'image de 0:00, qu'on ne montrera pas, et la sonde tirerait le debut
+       du fichier pendant que le lecteur charge le minutage. `null` = « pas de
+       mesure » : on montre la video. */
+    if (cibleDepart(serverId, aniListId, episodeNumber).at > 0) {
+      setFirstFrameLit(null);
+      return;
+    }
     /* Sous le CHEMIN du fichier, pas son URL : la query est signee et change a
        chaque resolution. Deja mesure = verdict immediat, zero octet. */
     const path = blindStream!.url.split("?")[0];
@@ -4781,9 +4795,21 @@ export default function UniversalPlayer({
          repartait de 0). On le suit jusqu'a la derniere seconde. */
       const garde = urlAt > 0 ? 1 : END_GUARD;
       if (at > 0 && video.duration && at < video.duration - garde) {
-        try {
-          video.currentTime = at;
-        } catch {}
+        /* hls.js a recu cette position comme `startPosition` : il s'y place
+           seul, au premier segment. Sauter ICI en plus arrivait AVANT (Vidstack
+           emet un `can-play` de synthese des la playlist lue), pendant que le
+           segment vise chargeait : hls.js remettait son chargement a zero,
+           jetait le segment a l'arrivee et le redemandait. Banc du 01/10/2026,
+           ansembed `?t=900` : `seg-61` telecharge deux fois, 0,7 s perdue.
+           Deja en place (MP4 parti de la bonne position) : rien a faire non
+           plus. */
+        const placeParHls = departHlsRef.current > 0 && departHlsRef.current === at;
+        const dejaLa = Math.abs(video.currentTime - at) < 0.5;
+        if (!placeParHls && !dejaLa) {
+          try {
+            video.currentTime = at;
+          } catch {}
+        }
         /* « Reprise » : un episode repris la ou on l'avait laisse. Le drapeau
            est pose ICI et pas a l'arrivee sur la page, parce que c'est la seule
            ligne qui prouve qu'il y avait REELLEMENT un point de reprise, et
@@ -4895,6 +4921,23 @@ export default function UniversalPlayer({
       // can-play fires once metadata + first frames are ready → safe to seek.
       el!.addEventListener("can-play", resume);
       video.addEventListener("loadeddata", resume);
+      /* Des les metadonnees : la duree suffit pour sauter. Attendre
+         `loadeddata`, c'etait laisser un MP4 (ou le HLS natif d'iOS) decoder et
+         montrer l'image de 0:00 avant de partir au minutage. */
+      video.addEventListener("loadedmetadata", resume);
+      /* MP4 progressif : la position posee AVANT toute donnee (`readyState` 0)
+         devient la position de depart du navigateur, qui s'y rend de lui-meme a
+         l'arrivee des metadonnees — le debut du fichier n'est ni telecharge au-
+         dela de l'index, ni affiche. Pas pour hls.js : ce saut-la lui fait
+         jeter son premier segment (cf. `resume`). */
+      if (!m3u8Ref.current && video.readyState === 0) {
+        const depart = cibleDepart(serverId, aniListId, episodeNumber).at;
+        if (depart > 0) {
+          try {
+            video.currentTime = depart;
+          } catch {}
+        }
+      }
       video.addEventListener("loadedmetadata", onMeta);
       video.addEventListener("durationchange", onMeta);
       video.addEventListener("timeupdate", onTimeUpdate);
@@ -4917,6 +4960,7 @@ export default function UniversalPlayer({
       window.clearInterval(pollId);
       el?.removeEventListener("can-play", resume);
       video?.removeEventListener("loadeddata", resume);
+      video?.removeEventListener("loadedmetadata", resume);
       video?.removeEventListener("loadedmetadata", onMeta);
       video?.removeEventListener("durationchange", onMeta);
       video?.removeEventListener("timeupdate", onTimeUpdate);

@@ -17,6 +17,7 @@ import { peekWarmVidmoly } from "../clientVidmoly";
 import { bandwidthKey, pickStartVariant } from "./hlsBandwidth";
 import { playbackUrl, preconnectOrigin, proxied } from "./streamUrl";
 import { manifesteEnMemoire } from "./hlsPreload";
+import { getResumeTime } from "./progress";
 
 type CacheEntry = { data: any; at: number };
 
@@ -235,6 +236,8 @@ export async function warmChain(
   } = {},
 ): Promise<void> {
   const liste = candidats.filter(Boolean).slice(0, opts.max ?? 3);
+  // La ou la lecture reprendra : c'est ce segment-la qu'on chauffe.
+  const at = getResumeTime(params.aniId, params.episode);
   let meilleurRang = Infinity;
   const attendre = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -261,13 +264,14 @@ export async function warmChain(
         ? await warmStream(
             { streams: [{ url: master, isM3U8: true, directUrl: true }] },
             opts.signal,
+            { at },
           )
         : false;
     } else if (ce) {
       // Multipart : on ne prechauffe pas, mais on ne le declare pas mort non plus.
       ok = true;
     } else {
-      ok = await warmStream(data, opts.signal);
+      ok = await warmStream(data, opts.signal, { at });
     }
     if (opts.signal?.aborted) return false;
     if (!ok) {
@@ -321,7 +325,7 @@ export async function warmChain(
 export async function warmStream(
   streamData: any,
   signal?: AbortSignal,
-  opts: { viaProxy?: boolean } = {},
+  opts: { viaProxy?: boolean; at?: number } = {},
 ): Promise<boolean> {
   const source = streamData?.sources?.[0] ?? streamData?.streams?.[0];
   if (!source?.url) return false;
@@ -387,10 +391,26 @@ export async function warmStream(
       if (p === null) return false;
       playlist = p;
     }
-    const premier = playlist
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#"));
+    /* Le segment qui sera JOUE, pas forcement le premier : sur une reprise ou
+       un lien `?t=`, hls.js part du segment qui couvre `at` (`startPosition`).
+       Chauffer le premier, c'etait tirer 256 Ko que le lecteur ne demandera
+       pas. On cumule les `#EXTINF` jusqu'a depasser la cible. */
+    let premier: string | undefined;
+    let dernier: string | undefined;
+    let cumul = 0;
+    let duree = 0;
+    for (const l of playlist.split("\n").map((x) => x.trim())) {
+      if (l.startsWith("#EXTINF:")) duree = parseFloat(l.slice(8)) || 0;
+      if (!l || l.startsWith("#")) continue;
+      dernier = l;
+      cumul += duree;
+      duree = 0;
+      if (cumul > (opts.at || 0)) {
+        premier = l;
+        break;
+      }
+    }
+    premier = premier || dernier;
     if (!premier) return false;
     const segUrl = premier.startsWith("http")
       ? premier

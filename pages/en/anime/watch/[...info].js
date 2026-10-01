@@ -79,7 +79,7 @@ import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
 import { hasFreshUserList, peekListEntry } from "@/lib/anilist/userListCache";
-import { markComplete, getProgress, isCompleted } from "@/lib/watch/progress";
+import { markComplete, getProgress, isCompleted, getResumeTime } from "@/lib/watch/progress";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
@@ -795,7 +795,11 @@ export default function Watch({
          qu'on refuse sur la page info (visiteur qui ne regardera peut-etre
          jamais) mais qui se justifie ici : la personne regarde deja, et c'est
          le prix d'une bascule instantanee. */
-      void warmStream(data, undefined, { viaProxy: true });
+      void warmStream(data, undefined, {
+        viaProxy: true,
+        // Le suivant reprendra au point sauvegarde : c'est ce segment qu'on chauffe.
+        at: info?.id ? getResumeTime(info.id, epiNumber) : 0,
+      });
     },
     [info?.id, info?.idMal, info?.title, epiNumber, dub, pickNextServer],
   );

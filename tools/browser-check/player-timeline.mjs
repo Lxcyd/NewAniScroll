@@ -71,14 +71,22 @@ if (SEED) {
 /* Temoin pose avant tout script de la page : il guette le <video>, note la
    premiere image presentee et cumule les attentes (`waiting` → `playing`). */
 await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
-  const t = (window.__tl = { image: null, video: null, attentes: [], enAttente: null });
+  const t = (window.__tl = { image: null, imageA: null, video: null, attentes: [], enAttente: null, tete: [] });
   let vu = null;
+  /* La tete de lecture et le compteur affiche, toutes les 100 ms : combien de
+     temps la barre reste a 0:00 quand on ouvre a un minutage. */
+  setInterval(() => {
+    const v = document.querySelector("video");
+    if (!v || t.tete.length > 400) return;
+    const c = document.querySelector('.vds-time[data-type="current"]');
+    t.tete.push([Math.round(performance.now()), Math.round(v.currentTime * 10) / 10, c ? c.textContent.trim() : null]);
+  }, 100);
   setInterval(() => {
     const v = document.querySelector("video");
     if (!v || v === vu) return;
     vu = v;
     if (!t.video) t.video = performance.now();
-    v.requestVideoFrameCallback?.(() => { if (t.image == null) t.image = performance.now(); });
+    v.requestVideoFrameCallback?.((_n, m) => { if (t.image == null) { t.image = performance.now(); t.imageA = m.mediaTime; } });
     v.addEventListener("waiting", () => { if (t.image != null && t.enAttente == null) t.enAttente = performance.now(); });
     const fin = () => { if (t.enAttente != null) { t.attentes.push(Math.round(performance.now() - t.enAttente)); t.enAttente = null; } };
     v.addEventListener("playing", fin);
@@ -96,7 +104,19 @@ for (let i = 0; i < 120 && image == null; i++) {
 if (image == null) console.log("premiere image : AUCUNE en 60 s");
 else {
   const video = await evalue(`window.__tl.video`);
-  console.log(`<video> a ${(video / 1000).toFixed(2)} s, premiere image a ${(image / 1000).toFixed(2)} s`);
+  const imageA = await evalue(`window.__tl.imageA`);
+  console.log(`<video> a ${(video / 1000).toFixed(2)} s, premiere image a ${(image / 1000).toFixed(2)} s (image du fichier : ${imageA == null ? "?" : imageA.toFixed(1) + " s"})`);
+  /* Les paliers de la tete de lecture jusqu'a 3 s apres la premiere image. */
+  const tete = (await evalue(`window.__tl.tete`)) || [];
+  const paliers = [];
+  for (const [quand, ct, compteur] of tete) {
+    if (quand > image + 3000) break;
+    const d = paliers[paliers.length - 1];
+    const stable = d && Math.abs(d.ct - ct) < 1.5 && d.compteur === compteur;
+    if (stable) d.fin = quand;
+    else if (!d || Math.abs(d.ct - ct) >= 1.5 || d.compteur !== compteur) paliers.push({ debut: quand, fin: quand, ct, compteur });
+  }
+  console.log("  tete de lecture : " + paliers.slice(0, 8).map((x) => `${(x.debut / 1000).toFixed(1)}-${(x.fin / 1000).toFixed(1)} s → ${x.ct} s [${x.compteur ?? "sans compteur"}]`).join("  |  "));
 }
 
 const etat = `(() => {
@@ -207,6 +227,10 @@ if (finis.length) {
   for (const r of finis) { const c = r.entetes?.["x-aniscroll-cache"] || "direct"; caches[c] = (caches[c] || 0) + 1; }
   console.log(`  debit par segment : mediane ${debits[Math.floor(debits.length / 2)].toFixed(0)} Ko/s, mini ${debits[0].toFixed(0)}, maxi ${debits[debits.length - 1].toFixed(0)} · ${JSON.stringify(caches)}`);
 }
+const vus = new Map();
+for (const r of segments) { const k = (() => { try { const x = new URL(interne(r.url)); return x.hostname + "/" + x.pathname.split("/").slice(-2).join("/"); } catch { return r.url; } })(); vus.set(k, (vus.get(k) || 0) + 1); }
+const doubles = [...vus].filter(([k, c]) => c > 1 && !/init\.mp4$/.test(k));
+console.log(`segments demandes plus d'une fois : ${doubles.length ? doubles.map(([k, c]) => `${k}×${c}`).join(", ") : "aucun"}`);
 const erreurs = video.filter((r) => r.echec || r.statut >= 400);
 console.log(`erreurs sur le chemin video : ${erreurs.length}`);
 for (const r of erreurs.slice(0, 8)) console.log(ligne(r));
