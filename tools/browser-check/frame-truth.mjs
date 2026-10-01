@@ -42,7 +42,7 @@ for (let i = 0; ; i++) {
    l'episode (un profil neuf ne voit pas les retours au minutage sauvegarde).
    On passe par robots.txt du meme domaine pour ecrire son localStorage. */
 const SEED = process.env.SEED_PROGRESS;
-const premier = SEED ? new URL(url).origin + "/robots.txt" : url;
+const premier = SEED ? new URL(url).origin + "/robots.txt" : process.env.TRACE_REMOVE ? "about:blank" : url;
 const onglet = await fetch(`http://127.0.0.1:${PORT}/json/new?${encodeURIComponent(premier)}`, { method: "PUT" }).then((r) => r.json());
 const ws = new WebSocket(onglet.webSocketDebuggerUrl);
 await new Promise((r) => (ws.onopen = r));
@@ -58,6 +58,20 @@ const evalue = async (expr) =>
   (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result?.result?.value;
 await send("Network.enable");
 await send("Runtime.enable");
+/* TRACE_REMOVE=1 : dire QUEL noeud React n'arrive pas a retirer (le message
+   « removeChild: not a child » ne nomme ni le noeud ni son vrai parent). */
+if (process.env.TRACE_REMOVE) {
+  await send("Page.enable");
+  await send("Page.addScriptToEvaluateOnNewDocument", { source: `(() => {
+    const d = (n) => n ? (n.nodeName + (n.id ? "#" + n.id : "") + (n.className && n.className.baseVal === undefined ? "." + String(n.className).split(" ").slice(0, 4).join(".") : "") + " " + String(n.outerHTML || n.textContent || "").slice(0, 160)) : "null";
+    const o = Node.prototype.removeChild;
+    Node.prototype.removeChild = function (c) {
+      if (c && c.parentNode !== this) console.error("TRACE_REMOVE enfant=[" + d(c) + "] parent attendu=[" + d(this).slice(0, 120) + "] parent reel=[" + d(c.parentNode).slice(0, 120) + "]");
+      return o.call(this, c);
+    };
+  })()` });
+  if (!SEED) await send("Page.navigate", { url });
+}
 if (SEED) {
   await dors(1500);
   const [cle, sec] = SEED.split("=");
@@ -175,10 +189,24 @@ for (const t of process.env.PLAY_S ? [] : ts) {
   releves.push(rec);
   console.log(JSON.stringify({ ...rec, segments: rec.segments.slice(0, 4) }));
 }
+/* THEN_PLAY=<secondes> : apres les releves, appuyer sur lecture (clic au
+   centre du lecteur, comme Luc) et suivre le lecteur. Sert a voir s'il
+   DISPARAIT (PlayerErrorBoundary reste sur son repli) ou repart ailleurs. */
+if (process.env.THEN_PLAY) {
+  const boite = await evalue(`(() => { const r = document.querySelector("video")?.getBoundingClientRect(); return r ? [r.x + r.width / 2, r.y + r.height / 2] : null })()`);
+  if (boite) {
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: boite[0], y: boite[1], button: "left", clickCount: 1 });
+  }
+  for (let k = 0; k < Number(process.env.THEN_PLAY) * 2; k++) {
+    const x = await evalue(`(() => { const v = document.querySelector("video"); return v ? [Math.round(v.currentTime * 100) / 100, v.paused, v.readyState, !!document.querySelector(".aniscroll-skip-btn"), !!document.querySelector(".aniscroll-next-btn")] : "PLUS DE VIDEO" })()`);
+    console.log("  lecture", k * 0.5, JSON.stringify(x));
+    await dors(500);
+  }
+}
 if (process.env.CONSOLE) {
   for (const e of ev.filter((x) => x.method === "Runtime.consoleAPICalled" || x.method === "Runtime.exceptionThrown")) {
     const a = e.params.args ? e.params.args.map((x) => x.value ?? x.description ?? "").join(" ") : JSON.stringify(e.params.exceptionDetails?.exception?.description || "");
-    if (/hls|diag|resume|tf|seek|reprise|error|Error/i.test(a)) console.log("  console", String(a).slice(0, 220));
+    if (/hls|diag|resume|tf|seek|reprise|error|Error|TRACE_REMOVE/i.test(a)) console.log("  console", String(a).slice(0, Number(process.env.CONSOLE) > 1 ? 1500 : 220));
   }
 }
 writeFileSync(join(outDir, "truth.json"), JSON.stringify({ url, releves, segments_depart: segs().slice(0, 10) }, null, 1));

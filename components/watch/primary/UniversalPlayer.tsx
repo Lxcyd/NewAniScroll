@@ -2636,11 +2636,33 @@ export default function UniversalPlayer({
     // Vidstack and can leave both labels in the DOM → "ÉpisodeEpisode".
     // We own the element: write our value, then keep it pinned with a
     // MutationObserver that re-applies our text whenever Vidstack mutates it.
+    //
+    // JAMAIS `el.textContent = …` : cela detache le noeud texte que React a
+    // rendu pour Vidstack, et au changement de chapitre suivant React veut le
+    // retirer → « removeChild: not a child », deux fois de suite, et
+    // PlayerErrorBoundary laisse le lecteur vide. Vu sur un lien pose au debut
+    // d'un ED (Railgun S ep2 ansembed, 01/10/2026 ; noeud nomme par
+    // TRACE_REMOVE de tools/browser-check/frame-truth.mjs). On ecrit donc DANS
+    // les noeuds de React, et seul NOTRE noeud (`__asTitle`) est retire.
     let applying = false;
     const apply = () => {
       if (el.textContent === chapterTitle) return;
       applying = true;
-      el.textContent = chapterTitle;
+      const mien: Text | undefined = (el as any).__asTitle;
+      const autres = Array.from(el.childNodes).filter((n) => n !== mien);
+      const textes = autres.filter((n): n is Text => n.nodeType === Node.TEXT_NODE);
+      if (textes.length) {
+        if (mien && mien.parentNode === el) el.removeChild(mien);
+        (el as any).__asTitle = undefined;
+        textes.forEach((n, i) => {
+          const voulu = i === 0 ? chapterTitle : "";
+          if (n.data !== voulu) n.data = voulu;
+        });
+      } else if (mien && mien.parentNode === el) {
+        if (mien.data !== chapterTitle) mien.data = chapterTitle;
+      } else {
+        (el as any).__asTitle = el.appendChild(document.createTextNode(chapterTitle));
+      }
       applying = false;
     };
     apply();
