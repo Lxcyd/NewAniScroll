@@ -55,6 +55,32 @@ dans `refs/silences.json` (vide). Les « themes a trancher » ci-dessus
 (Kimetsu, Summer Time Render, JJK) tombent d'eux-memes : c'etait ce
 rembourrage. 373 bornes recalculees hors ligne, SnK relance : 0 ms d'ecart.
 
+**Encore corrige le 02/10 (soir) — la fin va au bout du theme quand l'episode
+y est muet.** Luc, lien pose sur la derniere note de l'OP de SnK ep1 (ansembed
+VF, Flux 3:33.97) : le carton « Produced by... » est encore a l'ecran ; « on
+n'a pas les 1:31 d'OP, on coupe trop tot ». Mesure au son : l'episode est muet
+(0 a 3 % du niveau de la chanson) pendant les 1,13 s de queue du fichier.
+Cette queue-la est donc du generique, pas du rembourrage. Regle
+(`audio_edges.tail_is_mute`) : fin = fin du fichier de reference si l'episode
+est muet de la derniere note jusque-la (90e centile <= 10 % du corps, aucune
+tranche > 25 %), sinon derniere note. Asymetrique : la tete reste a la
+premiere note, c'est Luc qui l'a ecartee sur ce meme ep1 pourtant quasi muet.
+SnK relance : 49 bornes sur 49 muettes en queue, OP1 = 91,40 s. Les 9 autres
+animes de la page sont ENCORE a la derniere note (un anime a la fois).
+
+Deux pieges trouves en route, tous deux par des decodages refuses
+(`_reject_degraded`, paquet AAC tronque au point de depart d'une fenetre
+locale) : `tail_is_mute` et `refine_offset` avalaient l'exception — 4 bornes
+sur 49 restaient a la derniere note, et un ED retombait sur Chromaprint
+(0,26 s d'ecart d'un jour a l'autre). Les deux reessaient maintenant depuis un
+autre point de depart. Et `run.py` REPREND un fichier de sortie existant : le
+relancer sans le supprimer ne recalcule rien.
+
+Rappel pour la relecture : le compteur du lecteur n'est pas l'horloge de la
+page. Sur ansembed, le meme instant s'affiche 3:32 au compteur et 3:33.97 en
+« Flux » (decalage 1,05 s en ouvrant a la fin de l'OP, 0,47 s en ouvrant au
+debut : il depend du point de chargement).
+
 **Toujours ouvert** : l'horloge du lecteur sur ansembed (mesuree sur l'image,
 pas sur le son) ; megaplay a 15 episodes sur 24 de Railgun S.
 

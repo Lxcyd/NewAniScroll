@@ -45,10 +45,18 @@ def refine_offset(src: str, referer, coarse: float, ref: np.ndarray) -> float | 
         seg = ref[int(s * SR): int((s + PIECE_S) * SR)]
         if seg.std() < 1e-4:
             continue
-        try:
-            pcm, a0 = decode_audio_abs(src, coarse + s - SEARCH_S, PIECE_S + 2 * SEARCH_S,
-                                       sample_rate=SR, referer=referer)
-        except Exception:
+        # Deux marges : un decodage refuse pour un paquet AAC tronque au point
+        # de depart (cf. MUTE_BODY_S) repart d'ailleurs. Sans cela une tranche
+        # perdue suffisait a retomber sur Chromaprint (SnK ep2 ansembed, ED :
+        # exact un jour, 0,26 s plus loin le lendemain).
+        for margin in (SEARCH_S, SEARCH_S + 1.5):
+            try:
+                pcm, a0 = decode_audio_abs(src, coarse + s - margin, PIECE_S + 2 * margin,
+                                           sample_rate=SR, referer=referer)
+                break
+            except Exception:
+                continue
+        else:
             continue
         if len(pcm) < len(seg):
             continue
@@ -60,6 +68,49 @@ def refine_offset(src: str, referer, coarse: float, ref: np.ndarray) -> float | 
     med = float(np.median(found))
     agree = [x for x in found if abs(x - med) <= AGREE_S]
     return med if len(agree) >= 2 else None
+
+
+# Corps de chanson qui donne le niveau de reference de l'episode. Plusieurs
+# longueurs : un decodage qui demarre sur un paquet AAC tronque est refuse
+# (fetch.audio._reject_degraded) ; une autre longueur demarre ailleurs (SnK ep1
+# VF ansembed : 8 s refuse, 12 s et 5 s passent).
+MUTE_BODY_S = (8.0, 12.0, 5.0)
+MUTE_WIN_S = 0.05
+# La derniere note s'eteint encore quelques dixiemes sous le seuil de
+# sound_span : SnK ep25 VF ansembed, 13 % puis 11 % du corps, puis plus rien.
+# Une scene qui reprend, elle, depasse largement.
+MUTE_PEAK = 0.25
+
+
+def tail_is_mute(src: str, referer, final: float, file_end: float) -> bool | None:
+    """L'episode est-il MUET de la derniere note a la fin du fichier de
+    reference ? Alors cette queue fait partie du generique : le dernier carton
+    reste a l'ecran sans musique (SnK OP1, 1,13 s — Luc, 02/10/2026 : « on n'a
+    pas les 1:31 d'OP, on coupe trop tot »). S'il y a du son, c'est la scene
+    suivante et la borne reste a la derniere note. None : pas pu decoder."""
+    if file_end - final < MUTE_WIN_S:
+        return False
+    for lead in MUTE_BODY_S:
+        try:
+            pcm, a0 = decode_audio_abs(src, final - lead, file_end - final + lead,
+                                       sample_rate=SR, referer=referer)
+            break
+        except Exception:
+            continue
+    else:
+        return None
+    w = int(MUTE_WIN_S * SR)
+
+    def levels(a: float, b: float) -> np.ndarray:
+        seg = pcm[max(0, int((a - a0) * SR)): max(0, int((b - a0) * SR))]
+        n = len(seg) // w
+        return np.sqrt((seg[: n * w].reshape(n, w) ** 2).mean(axis=1)) if n else np.zeros(0)
+
+    body, tail = levels(max(a0, final - lead), final - 1.0), levels(final, file_end)
+    if not len(body) or not len(tail) or np.median(body) <= 0:
+        return None
+    rel = tail / np.median(body)
+    return bool(np.percentile(rel, 90) <= SOUND_REL and rel.max() <= MUTE_PEAK)
 
 
 def sound_span(ref: np.ndarray) -> tuple[float, float]:

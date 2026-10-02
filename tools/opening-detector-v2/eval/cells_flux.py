@@ -6,7 +6,8 @@ stats du lecteur), pour la page « Relevé OP/ED ».
 Contrairement à eval.cells (un groupe de lecteurs par case, horloge du
 lecteur), une case = un lecteur, chacun ayant sa propre horloge ; le lien de
 la page porte `tf` (instant FICHIER = start + clock_offset). Les bornes sont
-celles du thème au son : de la première à la dernière note (run.theme_bounds).
+celles du thème au son : de la première note à la dernière, plus la queue du
+thème quand l'épisode y est muet (run.theme_bounds).
 Écrit un JSON par case dans <dossier> et <dossier>/batch.json (écritures pour
 ArtifactData, documents NOUVEAUX : pas de if_version).
 """
@@ -51,6 +52,10 @@ def build(batch: list[dict], anime: dict[int, dict]) -> list[dict]:
                         m = hit["music"]
                         txt += (f" · musique {mmss(m[0] + off)}–{mmss(m[1] + off)}"
                                 f" · silence du thème déclaré : {head:.2f} s en tête, {tail:.2f} s en queue")
+                    elif hit.get("mute_tail"):
+                        m = hit["music"]
+                        txt += (f" · de la première note à la fin du thème (dernière note à {mmss(m[1] + off)},"
+                                f" puis {end - (m[1] + off):.2f} s de carton muet)")
                     else:
                         txt += " · de la première à la dernière note"
                     if not hit.get("audio_exact"):

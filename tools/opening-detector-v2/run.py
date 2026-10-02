@@ -25,7 +25,7 @@ from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
 from fetch.episode import CACHE, fingerprint_stream, resolve
 from fp.chroma import decode_file
-from match.audio_edges import refine_offset, sound_span
+from match.audio_edges import refine_offset, sound_span, tail_is_mute
 from match.ber import occurrences
 from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
@@ -102,6 +102,13 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     commence directement avec la musique ». Tester si l'episode est muet a cet
     endroit ne tranche pas non plus (l'ep1 passerait pour muet).
 
+    La QUEUE du fichier, elle, compte quand l'episode y est muet lui aussi :
+    c'est le dernier carton du generique, tenu a l'ecran sans musique (SnK OP1,
+    1,13 s). Luc, 02/10/2026, lien pose sur la derniere note : « on n'a pas les
+    1:31 d'OP, on coupe trop tot ». Si l'episode a du son dans cette queue,
+    c'est la scene suivante : la borne reste a la derniere note. La tete, non :
+    c'est lui qui l'a ecartee sur l'ep1, pourtant quasi muet a cet endroit.
+
     Un theme qui contient un VRAI silence (« OP de 8 s : 1 s sans musique puis
     musique jusqu'a 1:30, il commence a 1:22 ») se declare dans
     refs/silences.json ; rien ne permet de le reconnaitre au son.
@@ -116,7 +123,7 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
         length, (lead, last) = len(pcm) / SAMPLE_RATE, sound_span(pcm)
     except Exception:
         return {"start": c.start, "end": c.start + c.ref_dur, "music": None, "exact": False,
-                "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0)}
+                "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0), "mute_tail": None}
     try:
         t0 = refine_offset(stream["url"], stream.get("referer"), c.start + c.img_shift, pcm)
     except Exception:
@@ -124,8 +131,10 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     file_start = c.start if t0 is None else t0
     first, final = file_start + lead, file_start + last
     head, tail = declared_silence(theme.key)
-    return {"start": first - head, "end": final + tail, "music": [first, final], "exact": t0 is not None,
-            "length": length, "lead": lead, "tail": length - last, "declared": (head, tail)}
+    mute = None if t0 is None else tail_is_mute(stream["url"], stream.get("referer"), final, file_start + length)
+    end = final + tail if tail else (file_start + length if mute else final)
+    return {"start": first - head, "end": end, "music": [first, final], "exact": t0 is not None,
+            "length": length, "lead": lead, "tail": length - last, "declared": (head, tail), "mute_tail": mute}
 
 
 def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
@@ -203,7 +212,7 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                # Rembourrage du FICHIER de reference, hors bornes ; pour information.
                "lead_silence": None if tb["lead"] is None else round(tb["lead"], 3),
                "tail_silence": None if tb["tail"] is None else round(tb["tail"], 3),
-               "declared_silence": list(tb["declared"]),
+               "declared_silence": list(tb["declared"]), "mute_tail": tb["mute_tail"],
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
                "source": "v2-audio", "confirmed_by_video": True, "serve": True,
