@@ -65,6 +65,9 @@ def build(batch: list[dict], anime: dict[int, dict], strips: Path | None = None)
                     if hit.get("tail_only"):
                         txt += (f" · fin seule servie : l'épisode recouvre la chanson jusque-là"
                                 f" (première note à {mmss(hit['music'][0] + off)})")
+                        if hit.get("dirty_ref"):
+                            txt += (" · la référence contient elle-même du dialogue : début = première plage"
+                                    " propre, à vérifier")
                     elif hit.get("mixed_head"):
                         txt += (f" · début retardé de {hit['mixed_head']:.1f} s : le son de l'épisode recouvre"
                                 f" la chanson jusque-là (première note à {mmss(hit['music'][0] + off)})")

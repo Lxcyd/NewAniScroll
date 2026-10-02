@@ -165,7 +165,8 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
     cands: list[decide.Candidate] = []
     for r in refs:
         for o in occurrences(r.fp, efp):
-            c = decide.Candidate(r.theme.key, r.theme.kind, r.duration, o)
+            c = decide.Candidate(r.theme.key, r.theme.kind, r.duration, o,
+                                 dirty=any(v.overlap != "None" for v in r.theme.videos))
             # Sous REPORT_COVERAGE aussi quand la fin seule est servable
             # (Railgun S ep14, ED2 : 48 %).
             if o.coverage >= decide.REPORT_COVERAGE or c.audio_ok():
@@ -218,7 +219,7 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                "lead_silence": None if tb["lead"] is None else round(tb["lead"], 3),
                "tail_silence": None if tb["tail"] is None else round(tb["tail"], 3),
                "declared_silence": list(tb["declared"]), "mute_tail": tb["mute_tail"],
-               "mixed_head": round(tb["mixed_head"], 3), "tail_only": bool(getattr(c, "tail_from", 0.0)),
+               "mixed_head": round(tb["mixed_head"], 3), "tail_only": bool(getattr(c, "tail_from", 0.0)), "dirty_ref": c.dirty,
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
                "source": "v2-audio", "confirmed_by_video": (c.img or 0.0) >= decide.MIN_IMAGE, "serve": True,

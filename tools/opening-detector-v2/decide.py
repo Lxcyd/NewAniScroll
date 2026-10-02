@@ -37,6 +37,15 @@ TAIL_MIN_S = 15.0     # chanson seule, au moins
 # bits jusqu'au bout — un son d'episode court sous la chanson — et le debut du
 # bout « seul » y variait de 10 s d'un lecteur a l'autre : abstention.
 TAIL_CLEAN_BITS = 6
+# Reference qui CONTIENT du dialogue (AnimeThemes : overlap = Transition / Over ;
+# Railgun S ED2 est l'extrait de l'ep11, voix comprises jusqu'a +69 s). Contre
+# elle, un desaccord peut venir de la reference : a l'ep14 l'episode se tait a
+# +52 s (carton « To Be continued », Luc : « trop tard les bornes »), mais les
+# repliques de l'ep11 brouillent jusqu'a +70 s. Ni les formes d'onde ni le
+# spectre ne disent de quel cote est le son en trop (essayes). Le debut est
+# alors la PREMIERE plage propre d'au moins DIRTY_CLEAN_S : fragile (une pause
+# entre deux repliques la tromperait), assume faute de version propre.
+DIRTY_CLEAN_S = 2.5
 TAIL_SLACK_S = 6.0    # silence de queue de la reference, ou rien ne concorde (Kimetsu ED1 : 5,1 s)
 # Milieu d'episode : une chanson de generique jouee sur une scene (combat) n'est
 # pas un generique. Sur les 387 bornes de la page, tout OP commence avant
@@ -56,6 +65,7 @@ class Candidate:
     img: float | None = None
     img_shift: float = 0.0
     reasons: list[str] = field(default_factory=list)
+    dirty: bool = False       # la reference contient du son d'episode (cf. DIRTY_CLEAN_S)
 
     @property
     def start(self) -> float:
@@ -74,13 +84,15 @@ class Candidate:
         ) if bad]
         self.edge_zones, self.tail_from = [], 0.0
         if self.reasons and set(self.reasons) <= {"couverture", "trou"}:
-            zones = self._edge_fallback()
-            if zones:
-                self.edge_zones, self.reasons = zones, []
+            # La fin seule d'abord : elle dit ou la chanson devient seule, meme
+            # au-dela des 15 s de la zone de tete (Frieren ep28 : 18,2 s).
+            self.tail_from = self._tail_fallback()
+            if self.tail_from:
+                self.reasons = []
             else:
-                self.tail_from = self._tail_fallback()
-                if self.tail_from:
-                    self.reasons = []
+                zones = self._edge_fallback()
+                if zones:
+                    self.edge_zones, self.reasons = zones, []
         return not self.reasons
 
     def _tail_fallback(self) -> float:
@@ -100,10 +112,13 @@ class Candidate:
             a = ra
         if (len(sm) - b) * FRAME_S > TAIL_SLACK_S:
             return 0.0
-        clean = sm[max(a, b - int(10.0 / FRAME_S)): b].max() + MIX_MARGIN_BITS
-        bad = np.flatnonzero(sm[a:b] > clean)
-        if len(bad):
-            a += int(bad[-1]) + 1
+        if self.dirty:
+            a = min([a] + [ra for ra, rb in runs if (rb - ra) * FRAME_S >= DIRTY_CLEAN_S])
+        else:
+            clean = sm[max(a, b - int(10.0 / FRAME_S)): b].max() + MIX_MARGIN_BITS
+            bad = np.flatnonzero(sm[a:b] > clean)
+            if len(bad):
+                a += int(bad[-1]) + 1
         return float(a * FRAME_S) if (b - a) * FRAME_S >= TAIL_MIN_S else 0.0
 
     def _edge_fallback(self) -> list[str]:
@@ -178,9 +193,18 @@ def pick(served: list[Candidate], ep_dur: float) -> tuple[dict[str, Candidate], 
     # chanson concorde aussi avec un refrain anterieur (Railgun S, OP2 : alias a
     # 19 % de couverture sur l'OP deja servi), et l'ED1v2 de Frieren passe ce
     # repli sur chaque ED1.
+    # Une reference qui contient du dialogue passe en dernier : la version
+    # propre de la meme chanson, quand elle existe, pose le debut (Frieren ep28 :
+    # ED1 contre ED1v3). Seule et reconnue en entier, elle ne prouve pas que
+    # la chanson est seule (Railgun S ep11 : 66 s de dialogue) : abstention.
     tail = lambda c: bool(getattr(c, "tail_from", 0.0))
-    for c in sorted(served, key=lambda c: (tail(c), -(c.img or 0) - c.occ.coverage, c.occ.median_bits)):
-        if tail(c) and any(b.kind == c.kind or overlap(c, b, ep_dur) > 0 for b in best):
+    dirty_notes = []
+    for c in sorted(served, key=lambda c: (c.dirty, tail(c), -(c.img or 0) - c.occ.coverage, c.occ.median_bits)):
+        if (tail(c) or c.dirty) and any(b.kind == c.kind or overlap(c, b, ep_dur) > 0 for b in best):
+            continue
+        if c.dirty and not tail(c):
+            c.reasons.append("reference_avec_dialogue")
+            dirty_notes.append(f"reference_avec_dialogue_{c.kind}")
             continue
         if all(overlap(c, b, ep_dur) < 0.5 for b in best):
             best.append(c)
@@ -189,7 +213,7 @@ def pick(served: list[Candidate], ep_dur: float) -> tuple[dict[str, Candidate], 
     slots: dict[str, list[Candidate]] = {}
     for c in best:
         slots.setdefault(c.kind, []).append(c)
-    out, notes = {}, []
+    out, notes = {}, dirty_notes
     for slot, cs in slots.items():
         if len(cs) == 1:
             out[slot] = cs[0]

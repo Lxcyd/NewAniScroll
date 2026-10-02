@@ -196,13 +196,32 @@ Resultat : ep12 ED1 22:51.649 -> 23:30.165 (38,5 s), ep14 ED2 23:09.234 ->
   servies ne change ; nouvelles : Railgun ep12/ep14, et Frieren ep28 VF
   (ansembed, vidmoly-va : 22:50.7 -> 24:02.5) NON applique, a decider.
 
-**References qui contiennent du dialogue (a trancher).** AnimeThemes marque
-`overlap` = Transition / Over sur les videos ; on le lit sans s'en servir.
-Railgun ED2 (ep11) et ED4 (ep23), Frieren ED1v3 (ep28) : la reference est
-l'extrait de l'episode, voix comprises, donc `mixed_head` ne voit rien et
-l'ED est servi des la premiere note. Pour Frieren il existe une version
-PROPRE de la meme chanson (ED1) : contre elle, l'ep28 est recouvert 18,2 s
-puis seul. Pas pour Railgun ED2/ED4.
+**References qui contiennent du dialogue (tranche le 02/10, nuit).** Luc,
+Railgun S ep14 : « trop tard les bornes » (le carton « To Be continued » est
+a 22:51, je servais a 23:09) ; et « fais en sorte pour Frieren de ne pas
+sauter la scene ». Cause : la reference ED2 est l'extrait de l'ep11, voix
+comprises jusqu'a +69 s ; a l'ep14 l'episode se tait a +52 s, mais les
+repliques de l'ep11 brouillent la comparaison jusqu'a +70 s. AnimeThemes le
+dit (`overlap` = Transition / Over sur la video), on le lisait sans s'en
+servir : `Candidate.dirty`.
+- Essaye et ECARTE pour dire de quel cote vient le son en trop : residu des
+  formes d'onde (correlation 0,1-0,4 meme chanson seule : pas coherent a
+  l'echantillon) ; exces d'energie spectrale par cote (separe bien propre /
+  brouille, mais les deux cotes montent ensemble des que la musique est
+  baissee sous une voix). Ne pas y revenir sans idee neuve.
+- Regle : (1) `decide.pick` classe une reference sale en dernier ; la version
+  PROPRE de la meme chanson pose le debut quand elle existe — Frieren ep28 :
+  ED1 contre ED1v3, 7 lignes, debut 22:32 -> 22:50.4 (la scene de 18 s n'est
+  plus sautee). (2) Reference sale, fin seule : debut = PREMIERE plage propre
+  d'au moins 2,5 s (`DIRTY_CLEAN_S`) — Railgun ep14 : 23:09.234 -> 22:51.154
+  (ansembed), pile sur le carton ; fragile (une pause entre deux repliques la
+  tromperait), la case dit « a verifier ». (3) Reference sale reconnue EN
+  ENTIER et sans version propre : abstention, motif `reference_avec_dialogue`
+  (Railgun ep11 ED2, ep23 ED4 : decision par defaut, Luc n'a pas tranche
+  entre abstention et debut declare a la main).
+- La fin seule passe AVANT le repli tete/queue : elle voit au-dela des 15 s
+  de zone (Frieren : 18,2 s). Railgun ep6 passe par elle, meme debut a 0,1 s.
+- megaplay repond de nouveau : ep6/ep14 ED servis, planches megaplay refaites.
 
 **Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
 autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
