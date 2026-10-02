@@ -30,7 +30,8 @@ W, H = 192, 108
 _PTS = re.compile(rb"pts_time:\s*(-?[0-9.]+)")
 
 
-def frames(src: str, referer, t0: float, dur: float, fps: float):
+def frames(src: str, referer, t0: float, dur: float, fps: float, size: tuple[int, int] = (W, H)):
+    W, H = size
     seek = t0
     local = local_window(src, t0, dur, referer=referer, want="video") or local_mp4(src, referer=referer)
     if local is None and is_megaplay(src, referer):

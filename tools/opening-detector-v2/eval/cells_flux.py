@@ -25,7 +25,7 @@ def mmss(t: float) -> str:
     return f"{int(t // 60)}:{t % 60:06.3f}"
 
 
-def build(batch: list[dict], anime: dict[int, dict]) -> list[dict]:
+def build(batch: list[dict], anime: dict[int, dict], strips: Path | None = None) -> list[dict]:
     cells = []
     for r in batch:
         a = anime[r["mal_id"]]
@@ -63,6 +63,9 @@ def build(batch: list[dict], anime: dict[int, dict]) -> list[dict]:
                     cell["claude"]["why"] = txt
                     cell |= {"start": start, "end": end, "clock": "flux", "clockOffset": off,
                              "dur": round(end - start, 3), "refDur": hit["ref_dur"]}
+                    # Planche de eval.edge_strips : 4 images avant / apres chaque borne.
+                    if strips is not None and (strips / f"{cell['id']}.jpg").exists():
+                        cell["sheet"] = f"strips/{cell['id']}.jpg"
                 cells.append(cell)
     return cells
 

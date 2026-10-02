@@ -88,6 +88,7 @@ select.chip{padding-right:26px}
 .fix input{width:78px;font:12.5px "IBM Plex Mono",monospace;border:1px solid var(--line);border-radius:6px;padding:2px 6px;background:var(--surface);color:var(--ink)}
 details summary{cursor:pointer;color:var(--muted);font-size:12.5px}
 details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:100%;height:auto}
+.strip{display:block;margin-top:8px}.strip img{display:block;border-radius:6px;border:1px solid var(--line);width:100%;height:auto}
 .note{font-size:13px;color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:8px;padding:10px 14px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .send-wrap{margin-left:auto;display:flex;gap:10px;align-items:center;font-size:13px}
@@ -102,7 +103,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
 <div class="wrap">
   <header>
     <h1>Relevé OP/ED v2</h1>
-    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10 et sur Railgun S en entier. Par épisode, un tableau OP et un tableau ED ; <b>une ligne par lecteur</b>, chacun ayant sa propre horloge. Les bornes sont posées <b>au son</b> : le début est la première note du thème, la fin sa dernière note. <b>Sur Shingeki no Kyojin</b>, la fin va jusqu’au bout du thème quand l’épisode est muet après la dernière note (le dernier carton reste à l’écran sans musique) ; les autres animés s’arrêtent encore à la dernière note. Clique le temps de <b>début</b> ou de <b>fin</b> pour ouvrir l’épisode sur dev.aniscroll.com à cet instant ; les temps sont ceux de la ligne <b>« Flux »</b> des statistiques vidéo (touche s), pas ceux du compteur du lecteur, qui peut afficher jusqu’à 3 s de moins sur ansembed. Quand la v2 s’abstient et qu’il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss).</p>
+    <p class="lede">Ce que le détecteur v2 sert, ou refuse de servir, sur le lot gt10 et sur Railgun S en entier. Par épisode, un tableau OP et un tableau ED ; <b>une ligne par lecteur</b>, chacun ayant sa propre horloge. Les bornes sont posées <b>au son</b> : le début est la première note du thème, la fin sa dernière note. <b>Sur Shingeki no Kyojin</b>, la fin va jusqu’au bout du thème quand l’épisode est muet après la dernière note (le dernier carton reste à l’écran sans musique) ; les autres animés s’arrêtent encore à la dernière note. Sous chaque ligne de Shingeki no Kyojin, <b>les 4 images d’avant et les 4 d’après</b> chaque borne (le trait rouge est la borne). Clique les temps pour ouvrir l’épisode sur dev.aniscroll.com : les bornes y sont des <b>traits rouges sur la barre de progression</b> ; les temps sont ceux de la ligne <b>« Flux »</b> des statistiques vidéo (touche s), pas ceux du compteur du lecteur, qui peut afficher jusqu’à 3 s de moins sur ansembed. Quand la v2 s’abstient et qu’il y avait bien un générique, choisis « Il en manque un » et indique ses bornes (m:ss).</p>
     <div class="stats" id="stats"></div>
   </header>
 
@@ -148,11 +149,14 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
     const p = new URLSearchParams({
       id: host.server + "-" + c.aniId + "-" + c.ep, num: String(c.ep), server: host.server,
     });
-    /* Borne dans l'horloge du FICHIER : `tf` au millieme (au centieme, une
-       borne posee 4 ms dans son image retombait parfois sur la precedente), le
-       lecteur convertit avec le recalage qu'il vient d'appliquer et se met en
-       pause sur l'image. */
-    if (flux) p.set("tf", t.toFixed(3)); else p.set("t", String(Math.max(0, Math.floor(t))));
+    /* Bornes dans l'horloge du FICHIER : le lecteur n'ouvre plus SUR une borne
+       (Luc, 02/10/2026), il dessine un trait rouge par borne sur sa barre de
+       progression (`marks`, les bornes OP et ED de CE lecteur pour l'episode). */
+    const marks = cells.filter(x => x.start != null && x.clock === "flux" && x.mal === c.mal && x.ep === c.ep
+        && x.lang === c.lang && x.hosts.some(h => h.server === host.server))
+      .flatMap(x => [x.start, x.end]).sort((a,b) => a - b).map(v => v.toFixed(3));
+    if (marks.length) p.set("marks", marks.join(","));
+    if (!flux && t != null) p.set("t", String(Math.max(0, Math.floor(t))));
     if (c.lang === "vf") p.set("dub","true");
     // Journal de lecture (lib/diag.ts) : si le lecteur abandonne, on saura pourquoi.
     p.set("diag","1");
@@ -215,10 +219,14 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
         el("a",{href:url, target:"_blank", rel:"noopener noreferrer"}, c.kind === "op" ? "rien · voir le début" : "rien · voir la fin"));
     }
     const flux = c.clock === "flux";
+    if (flux)
+      return el("span",{class:"lab"}, who,
+        el("a",{href:link(c, h, null, true), target:"_blank", rel:"noopener noreferrer", title:"Ouvrir l'épisode : les bornes sont les traits rouges sur la barre de progression"},
+          el("span",{class:"tc", text:mmss(c.start, 3)}), " → ", el("span",{class:"tc", text:mmss(c.end, 3)})));
     const u1 = link(c, h, c.start, flux), u2 = link(c, h, c.end, flux);
     return el("span",{class:"lab"}, who,
-      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image du début (ligne « Flux » des stats)"}, el("span",{class:"tc", text:mmss(c.start, flux ? 3 : 1)})),
-      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer", title:"Ouvrir en pause sur l'image de fin (ligne « Flux » des stats)"}, "→ ", el("span",{class:"tc", text:mmss(c.end, flux ? 3 : 1)})));
+      el("a",{href:u1, target:"_blank", rel:"noopener noreferrer"}, el("span",{class:"tc", text:mmss(c.start, 1)})),
+      el("a",{href:u2, target:"_blank", rel:"noopener noreferrer"}, "→ ", el("span",{class:"tc", text:mmss(c.end, 1)})));
   }
 
   function line(c){
@@ -240,7 +248,8 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
       el("input",{id:"e-"+c.id, class:"tc", placeholder:"m:ss", value:v && v.fixEnd != null ? mmss(v.fixEnd) : "",
         onchange:(e)=>{ const t = parseMmss(e.target.value); if (e.target.value && t == null){ e.target.value=""; return; } save(c,{fixEnd:t}); }}));
     const sheet = c.sheet
-      ? el("details",{}, el("summary",{text:"Planche d'images"}), el("img",{src:c.sheet, alt:"Planche d'images du " + c.kind.toUpperCase() + " épisode " + c.ep, loading:"lazy"}))
+      ? el("a",{class:"strip", href:c.sheet, target:"_blank", rel:"noopener", title:"Ouvrir en grand"},
+          el("img",{src:c.sheet, alt:"Les 4 images avant et les 4 images après le début, puis la fin, du " + c.kind.toUpperCase() + " épisode " + c.ep, loading:"lazy"}))
       : null;
     return el("div",{class:"line" + (v ? " done" : "")}, labels, meta, why, verdict, fix, sheet);
   }

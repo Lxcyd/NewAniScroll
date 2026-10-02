@@ -90,7 +90,7 @@ import {
 // Worker (unmetered + edge cache): an empty NEXT_PUBLIC_PROXY_BASE once fell
 // back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
-import { diag } from "@/lib/diag";
+import { diag, diagSession } from "@/lib/diag";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -366,6 +366,10 @@ const CIBLE_LIEN_MS = 10 * 60_000;
 /* Lecteurs pour lesquels on a deja dit que le minutage du lien ne s'applique
    pas : une fois par (episode, lecteur), pas a chaque remontage. */
 const lienSignale = new Set<string>();
+
+/* Reperes `?marks=` du releve OP/ED, gardes pour l'onglet : l'URL est reecrite
+   au fil de la lecture (cf. l'effet « Reperes du releve »). */
+let reperesLien: { cle: string; marks: number[] } | null = null;
 
 /** Le lien vise un AUTRE lecteur que celui qui joue : son id, sinon null. Un
  *  minutage vaut pour un fichier (frembed ouvre Railgun S avec 16 s de plus
@@ -5115,6 +5119,71 @@ export default function UniversalPlayer({
     // flux de vidmoly arrive APRES `streamData`, avec un nouveau <video>.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aniListId, episodeNumber, streamData, serverId, clientStream, clientStatus]);
+
+  /* Reperes du releve OP/ED : `?marks=<s>,<s>,…` (instants dans l'horloge du
+     FICHIER, comme `tf`) dessine un trait rouge par instant par-dessus la
+     barre de progression. Luc, 02/10/2026 : plutot que d'ouvrir le lecteur SUR
+     une borne, voir ou les bornes de la page tombent et s'y rendre soi-meme.
+     Mode diagnostic seulement (`?diag=1`) ; rien en base, rien pour les
+     visiteurs. Comme `tf`, les reperes valent pour UN fichier : ignores quand
+     la page a bascule sur un autre lecteur que `server=`.
+     La barre appartient au layout de Vidstack, qui la reconstruit a sa guise :
+     on y repose la boite chaque seconde plutot que de compter sur un montage. */
+  useEffect(() => {
+    if (typeof window === "undefined" || !diagSession()) return;
+    const cle = `${aniListId}:${episodeNumber}:${serverId}`;
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const pour = q.get("server");
+      const lus = (q.get("marks") || "")
+        .split(",")
+        .map((v) => parseFloat(v))
+        .filter((v) => Number.isFinite(v) && v >= 0)
+        .slice(0, 12);
+      if (lus.length && (!pour || !serverId || pour === serverId)) reperesLien = { cle, marks: lus };
+    } catch {}
+    if (!reperesLien || reperesLien.cle !== cle) return;
+    const marks = reperesLien.marks;
+    let boite: HTMLDivElement | null = null;
+    const poser = () => {
+      const racine = playerRef.current?.el as HTMLElement | undefined;
+      const video = racine?.querySelector<HTMLVideoElement>("video");
+      const barre = racine?.querySelector<HTMLElement>(
+        "media-time-slider, [data-media-time-slider], .vds-time-slider",
+      );
+      const dur = video?.duration ?? 0;
+      if (!video || !barre || !Number.isFinite(dur) || dur <= 0) return;
+      if (!boite || boite.parentElement !== barre) {
+        boite?.remove();
+        boite = document.createElement("div");
+        boite.setAttribute("data-releve-marks", "");
+        boite.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:6";
+        barre.appendChild(boite);
+      }
+      // temps lecteur = temps fichier - initPTS (cf. `resume`) ; 0 hors hls.js.
+      const ip = typeof (video as any).__initPtsS === "number" ? ((video as any).__initPtsS as number) : 0;
+      const parts = marks.map((m) => Math.min(1, Math.max(0, (m - ip) / dur)));
+      const empreinte = parts.map((v) => v.toFixed(5)).join(",");
+      if (boite.dataset.empreinte === empreinte) return;
+      boite.dataset.empreinte = empreinte;
+      boite.replaceChildren(
+        ...parts.map((part) => {
+          const trait = document.createElement("div");
+          trait.style.cssText =
+            `position:absolute;left:${(part * 100).toFixed(3)}%;top:50%;width:2px;height:20px;` +
+            "transform:translate(-50%,-50%);background:#ff1f1f;box-shadow:0 0 0 1px rgba(0,0,0,.65)";
+          return trait;
+        }),
+      );
+    };
+    poser();
+    const id = window.setInterval(poser, 1000);
+    return () => {
+      window.clearInterval(id);
+      boite?.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aniListId, episodeNumber, serverId, streamData, clientStream]);
 
   // ── TEMP DEBUG: trace who resets currentTime to ~0 (add ?w2gdebug to URL) ──
   useEffect(() => {
