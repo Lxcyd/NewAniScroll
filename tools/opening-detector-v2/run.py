@@ -40,8 +40,14 @@ ONLY_HOSTS: list[str] | None = None
 
 
 def image_score(stream: dict, cand: decide.Candidate, videos):
-    """(part des images concordantes, decalage image/son, sim, temps, images de
-    reference). Decalage nul d'abord ; sinon meilleur decalage a +/- 3 s."""
+    """(part des images concordantes, decalage image/son). Decalage nul
+    d'abord ; sinon meilleur decalage a +/- 3 s.
+
+    Pour INFORMATION seulement : le son seul decide de servir (Luc,
+    02/10/2026). Ce controle faisait s'abstenir sur des generiques valides :
+    Railgun S ep6, ED lance sur la fin de la scene (15 premieres secondes
+    d'images non conformes) ; Cyberpunk ep1, chanson de l'OP sur les credits
+    deroulants de fin (6 %)."""
     ef, et = episode_frames(stream["url"], cand.start - SHIFT_MAX_S, cand.ref_dur + 2 * SHIFT_MAX_S,
                             referer=stream.get("referer"))
     refs = [ref_frames(download(v.link, "video")) for v in videos]
@@ -51,19 +57,7 @@ def image_score(stream: dict, cand: decide.Candidate, videos):
     frac = float((valid >= MATCH_NCC).mean()) if len(valid) else 0.0
     if frac < decide.MIN_IMAGE:
         shift, frac = best_shift(ef, et, cand.start, refs)
-    return frac, shift, ef, et, refs
-
-
-def zone_image(c: decide.Candidate, zone: str) -> float:
-    """Part des images concordantes dans la tete ou la queue de la reference :
-    la preuve qui remplace le son la ou il ne concorde pas. 0 si trop peu
-    d'images comparables (on ne sert pas sur une zone non verifiee)."""
-    t0 = c.start + c.img_shift
-    sim = compare(c.frames, c.times, t0, c.refimgs)
-    r = c.times - t0
-    lo, hi = (0.0, decide.EDGE_ZONE_S) if zone == "tete" else (c.ref_dur - decide.EDGE_ZONE_S, c.ref_dur)
-    v = sim[(r >= lo) & (r < hi) & ~np.isnan(sim)]
-    return float((v >= MATCH_NCC).mean()) if len(v) >= 10 else 0.0
+    return frac, shift
 
 
 _pcm: dict[str, np.ndarray] = {}
@@ -125,7 +119,9 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
         return {"start": c.start, "end": c.start + c.ref_dur, "music": None, "exact": False,
                 "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0), "mute_tail": None}
     try:
-        t0 = refine_offset(stream["url"], stream.get("referer"), c.start + c.img_shift, pcm)
+        # Indice de recherche seulement, et seulement si les images concordent.
+        hint = c.img_shift if (c.img or 0.0) >= decide.MIN_IMAGE else 0.0
+        t0 = refine_offset(stream["url"], stream.get("referer"), c.start + hint, pcm)
     except Exception:
         t0 = None
     file_start = c.start if t0 is None else t0
@@ -167,26 +163,10 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
         if not c.audio_ok():
             continue
         videos = next(r.theme.videos for r in refs if r.theme.key == c.ref)
-        # Un segment injoignable pendant le controle image est une panne de
-        # transport, pas un verdict : on reessaie avant de s'abstenir (SnK ep25
-        # VF, ansembed : seule abstention sur une cellule jugee juste du lot gt10).
-        for attempt in range(2):
-            try:
-                c.img, c.img_shift, c.frames, c.times, c.refimgs = image_score(stream, c, videos)
-                break
-            except Exception as exc:
-                err = exc
-                time.sleep(RETRY_DELAY_S)
-        else:
-            c.reasons.append(f"image_indisponible: {str(err)[:80]}")
-            continue
-        if c.img < decide.MIN_IMAGE:
-            c.reasons.append("image")
-            continue
-        bad = [z for z in c.edge_zones if zone_image(c, z) < decide.MIN_IMAGE]
-        if bad:
-            c.reasons += [f"image_{z}" for z in bad]
-            continue
+        try:
+            c.img, c.img_shift = image_score(stream, c, videos)
+        except Exception:
+            pass  # l'image n'est qu'une information : sans elle, on sert quand meme
         served.append(c)
     steps["image_s"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -218,8 +198,8 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                "declared_silence": list(tb["declared"]), "mute_tail": tb["mute_tail"],
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
-               "source": "v2-audio", "confirmed_by_video": True, "serve": True,
-               "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": round(c.img, 3),
+               "source": "v2-audio", "confirmed_by_video": (c.img or 0.0) >= decide.MIN_IMAGE, "serve": True,
+               "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3), "img": None if c.img is None else round(c.img, 3),
                "img_shift": c.img_shift}
         if slot == "ed":
             hit["from_end_start"] = round(entry["duration"] - hit["start"], 3)

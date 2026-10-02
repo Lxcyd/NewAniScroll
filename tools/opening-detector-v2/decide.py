@@ -14,7 +14,9 @@ from match.ber import MATCH_BITS, Occurrence, _runs, smooth
 MIN_COVERAGE = 0.95
 MAX_GAP_S = 1.0
 MAX_DRIFT_FRAMES = 1
-# Image : memes images que la video de reference au meme temps relatif.
+# Image : memes images que la video de reference au meme temps relatif. Ne
+# decide plus de servir (Luc, 02/10/2026 : le son seul) ; au-dessus du seuil,
+# l'image est dite conforme et son decalage sert d'indice de recherche.
 MIN_IMAGE = 0.80
 # Tete / queue que le son peut manquer si le corps est parfait (cf. _edge_fallback).
 EDGE_ZONE_S = 15.0
@@ -61,8 +63,8 @@ class Candidate:
         reference (fin de scene mixee dessus), les 79 autres concordent a la
         trame pres. Le corps prouve l'identite et donne le decalage ; la duree
         totale de la reference replace debut et fin (idee de Luc, 30/09/2026).
-        Ce que le son ne prouve plus, les IMAGES doivent le prouver : les zones
-        renvoyees sont controlees a part dans run.py, sinon abstention."""
+        Les zones renvoyees sont notees pour le diagnostic ; le corps suffit a
+        servir (les images ne decident plus, cf. MIN_IMAGE)."""
         o = self.occ
         ok = smooth(o.curve) <= MATCH_BITS
         n, edge = len(ok), int(EDGE_ZONE_S / FRAME_S)

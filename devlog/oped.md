@@ -127,6 +127,24 @@ suivante y entre a 7 % du niveau, sous le seuil, donc « muet jusqu'au bout ».
 Les 9 autres animes de la page n'ont PAS ete relances avec cette regle ; SnK
 ne change pas par construction (49/49 muets jusqu'au bout).
 
+**Le son seul decide aussi de SERVIR (02/10, Luc : « je croyais qu'on ne
+faisait plus que par le son ? … tu rejettes des ED valides »).** Le controle
+image (>= 80 % d'images conformes, et preuve des zones tete/queue) etait
+reste comme garde servir / s'abstenir. Sur la page il ne rejetait que 4 cas
+a son parfait, dont au moins deux generiques valides : Railgun S ep6 (ED
+lance sur la fin de la scene, `image_tete` ; Luc l'a VU a l'ecran, j'avais
+suppose un epilogue sans regarder) et Cyberpunk ep1 (chanson de l'OP sur les
+credits deroulants de fin, images a 6 %). Retire de la decision (`run.py` :
+`zone_image` supprime, plus de motif `image*`) ; l'image reste calculee pour
+INFORMATION (« images conformes a X % », `confirmed_by_video` vrai seulement
+au-dessus de 80 %) et son decalage ne sert d'indice a `refine_offset` que si
+elle concorde. Relances : les 4 episodes seuls ; bornes deja servies
+identiques au ms ; 12 nouvelles lignes servies (Cyberpunk ep1 OP x7, Railgun
+ep16 ED x3, ep6 ED x2). Frieren ep28 : ED1 passe au son mais ED1v3 gagne, rien
+ne change. Railgun ep6 megaplay non refait (API 403), sa case dit encore
+« rejete (image_tete) ». Risque accepte : une chanson de generique jouee EN
+ENTIER, meme mixage, sur une scene d'histoire sera proposee au saut.
+
 **Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
 autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
 episodes, cache chaud), megaplay a 1 fil ensuite. 375 bornes (373 avant),

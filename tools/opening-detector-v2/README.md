@@ -14,7 +14,7 @@ Réécriture à zéro, décidée le 29/09/2026. La v1 (`../opening-detector/`) a
 4. **La continuité comme preuve.**
    - Un vrai générique a le même mixage que la référence. Il concorde du début à la fin, sans trou, à décalage constant (dérive nulle).
    - Une chanson reprise en musique de scène, sous des dialogues ou des effets, concorde par morceaux.
-5. **Contrôle image** : un ED complet posé sur l'épilogue du dernier épisode a un audio parfait, et le sauter couperait l'histoire. L'audio donne l'alignement exact, donc l'image se compare au même temps relatif que la vidéo de référence.
+5. **Contrôle image** (**informatif depuis le 02/10/2026** : le son seul décide de servir, ce contrôle rejetait des génériques valides — Railgun S ep6 ED, Cyberpunk ep1) : un ED complet posé sur l'épilogue du dernier épisode a un audio parfait, et le sauter couperait l'histoire. L'audio donne l'alignement exact, donc l'image se compare au même temps relatif que la vidéo de référence.
 6. **Décision** : servir, tronqué ou abstention, avec un code de raison. Les seuils sont calibrés sur des cas réels (phase P1), jamais raisonnés à la main.
 
 ## Ce qui a été écarté, et pourquoi
@@ -85,7 +85,7 @@ Il n'y a aucun recouvrement : l'écart entre le pire vrai (0,99) et le meilleur 
 **Verdict : GO**, sous réserve de la taille de l'échantillon (17 épisodes, étiquetés par les verdicts de Claude et non par Luc). Les seuils de départ sont les suivants :
 - couverture ≥ 0,95 ;
 - aucun trou > 1 s ;
-- images ≥ 0,80.
+- images ≥ 0,80 (seuil retiré de la décision le 02/10/2026, gardé comme information).
 
 La marge de chaque côté des seuils est large.
 
@@ -119,7 +119,7 @@ La marge de chaque côté des seuils est large.
 - **Lenteur** : environ 1,5 min par épisode, car chaque épisode est téléchargé en entier sur chaque lecteur. Pistes :
   - ne lire en entier qu'un lecteur par groupe de fichiers identiques ;
   - chercher d'abord dans les 6 premières et 6 dernières minutes.
-- **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstient toujours. Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
+- **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstenait toujours ; depuis le 02/10/2026 elle sert au son (choix de Luc). Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
 - **Abstentions sur les derniers épisodes** quand les crédits passent sur des scènes dialoguées. C'est voulu.
 
 ## Questions ouvertes pour Luc

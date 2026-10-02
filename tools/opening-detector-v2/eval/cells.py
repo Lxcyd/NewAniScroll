@@ -70,7 +70,10 @@ def build(batch: list[dict], anime: dict[int, dict]) -> list[dict]:
 
 def why(hit: dict | None, cands: list[dict], slot: str, dur: float) -> str:
     if hit:
-        return (f"{hit['ref']} : audio couvert à {hit['coverage']:.0%}, images conformes à {hit['img']:.0%}"
+        img = hit.get("img")
+        return (f"{hit['ref']} : audio couvert à {hit['coverage']:.0%}"
+                + ("" if img is None else f", images conformes à {img:.0%}")
+                + (" (chanson jouée sur d'autres images : servi au son)" if img is not None and img < 0.8 else "")
                 + (" (OP joué en fin d'épisode)" if slot == "op" and hit["start"] > dur / 2 else ""))
     # L'etiquette vient du theme : on cherche les candidats du MEME type.
     near = [c for c in cands if c["kind"] == slot]
