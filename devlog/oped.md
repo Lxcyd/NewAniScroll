@@ -5,6 +5,54 @@ replis F1-F7, garde-fous P1-P8, audits et lots de mesure.
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-02 (nuit) — v2 nettoyee et deux a trois fois plus rapide ; non-regression hors ligne
+
+Apres une journee de regles ajoutees une a une (entree ci-dessous), Luc :
+« clean le code, optimise-le et prepare la db ».
+
+**Le filet d'abord : `eval/regress.py`.** Rejoue la decision (theme retenu par
+type, debut, raisons d'ecart) sur les empreintes en cache, sans reseau, ~3 min
+pour 258 lecteurs-episodes. `--write` prend une photo, `--against` compare ;
+sans option, compare au lot lui-meme. C'est le controle refait a la main quatre
+fois dans la journee. Toute la refonte est passee a zero ecart.
+
+**Nettoyage.** `decide.py` : un seul point d'entree `shortlist(refs, efp, dur)`
+partage par `run.py` et `regress.py`, `head_cut` (fin seule, sinon tete
+recouverte), champs declares au lieu de `getattr`, l'ordre de preference de
+`pick` ecrit en clair. `run.py` : `theme_bounds` redocumente, sortie allegee
+(`votes`, `img_shift`, `file_end` retires). Retires : `spike/p1.py`, `p1b.py`,
+`frame_match.py` (prototypes de la phase P1), `eval/cells.py` (cases groupees
+de la v1). `spike/sheet.py` -> `eval/sheet.py`. Nouveau `eval/publish.py` :
+fusion d'une relance, planches, `cells.js`, liste a publier — le script jetable
+recopie a chaque relance. `ALGO_VERSION` 100 -> 101.
+
+**Vitesse : l'image sort du chemin par defaut.** Elle ne decide plus qu'au
+milieu de l'episode ; elle n'est calculee que la, ou avec `--images`. Mesure a
+chaud sur Railgun S (72 lecteurs-episodes) : megaplay 3,4 s et frembed 2,5 s par
+lecteur-episode, contre 10 s en mediane avant (image 5,4 s + bornes 4,5 s).
+L'indice de recherche que l'image donnait a `refine_offset` etait inutile : sur
+les 120 bornes de Railgun S, AUCUN debut n'a bouge, y compris l'ep1 frembed qui
+l'avait motive (empreinte a 2,2 s de la chanson).
+- Essaye et ECARTE : un seul decodage par generique au lieu de quatre fenetres.
+  Segments en cache, 4 fenetres = 0,7 s ; 1 fenetre de 96 s = 2 s.
+- ansembed ramait ce soir-la (58 s par lecteur-episode, reseau) et a rate une
+  lecture d'horloge (ep22, OP perdu) : `stream_origin` est retente une fois.
+
+**Ce que la relance a rattrape, et qui n'est pas une regression.** `all.tail`
+datait d'AVANT la regle de queue muette pour tout ce qui n'avait pas ete
+relance : megaplay (fins +0,06 a +3 s, 11 generiques nouveaux la ou megaplay
+etait en 403) et l'ED3 des ep19-20 (+1,4 s). 95 bornes sur 120 identiques au
+millieme dans l'horloge du FICHIER — comparer dans l'horloge du lecteur montre
+de faux ecarts : ansembed a rendu un `clock_offset` de 0,268 au lieu de 0,101
+sur deux episodes (autre variante servie).
+
+**Fragilite relevee, non corrigee.** `mute_end` normalise la queue par le
+niveau des 8, 12 ou 5 dernieres secondes selon le decodage qui passe
+(`MUTE_BODY_S`). Sur une fin de chanson qui s'eteint, ce niveau varie du simple
+au quadruple (Railgun ED1 : 0,02 a 0,09), et le verdict avec (ep2 : muet avec
+8 ou 12 s, pas avec 5). Rien n'a ete change : les bornes validees par Luc en
+dependent. A reprendre avec un niveau de reference stable.
+
 ## 2026-10-01 (nuit) — Retour au son seul : le generique est le fichier de reference, silences compris
 
 Luc, apres avoir regarde les bornes calees sur les images : « je ne suis pas

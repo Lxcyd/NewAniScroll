@@ -19,7 +19,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from fetch.episode import resolve
-from spike.sheet import frames
+from eval.sheet import frames
 
 W, H = 256, 144
 N = 4

@@ -17,6 +17,38 @@ Réécriture à zéro, décidée le 29/09/2026. La v1 (`../opening-detector/`) a
 5. **Contrôle image** (**informatif depuis le 02/10/2026** : le son seul décide de servir, ce contrôle rejetait des génériques valides — Railgun S ep6 ED, Cyberpunk ep1) : un ED complet posé sur l'épilogue du dernier épisode a un audio parfait, et le sauter couperait l'histoire. L'audio donne l'alignement exact, donc l'image se compare au même temps relatif que la vidéo de référence.
 6. **Décision** : servir, tronqué ou abstention, avec un code de raison. Les seuils sont calibrés sur des cas réels (phase P1), jamais raisonnés à la main.
 
+## Règles de décision et de bornes (état au 02/10/2026)
+
+Le **son décide seul**. Code : `decide.py` (servir ou s'abstenir), `run.theme_bounds` et `match/audio_edges.py` (bornes). Chaque seuil porte dans le code le cas mesuré qui l'a fixé.
+
+**Servir**
+
+| Cas | Condition | Exemple |
+| --- | --- | --- |
+| Reconnu en entier | couverture ≥ 95 %, aucun trou > 1 s, dérive ≤ 1 trame | la quasi-totalité |
+| Tête ou queue non reconnue | corps parfait hors des 15 s de bord | UBW ep3 ED1 |
+| Fin seule | le thème est noyé sous le dialogue, puis seul (≤ 6 bits) au moins 15 s jusqu'à sa dernière note, dans les 5 dernières minutes | Railgun S ep12, ep14 |
+
+**S'abstenir**
+
+- Thème au **milieu de l'épisode** (début après 8 min et fin à plus de 5 min de la fin) sans les images du générique (≥ 80 %) : une chanson de générique sur une scène n'est pas un générique. C'est le seul endroit où l'image décide.
+- **Référence qui contient du dialogue** (AnimeThemes : `overlap` = Transition / Over), reconnue en entier, sans version propre de la même chanson : rien ne prouve où la chanson devient seule (Railgun S ep11, ep23).
+- Deux séquences distinctes du même type : conflit.
+
+**Bornes**
+
+- **Début** = première note du thème dans l'épisode. Le silence de tête des clips AnimeThemes est du rembourrage.
+- **Début retardé** tant que le son de l'épisode recouvre la chanson (`decide.head_cut`, ± 0,3 s) : Railgun S ep6, 9,9 s de scène sous l'ED. Le générique servi est alors plus court que le thème.
+- **Fin** = dernière note, prolongée tant que l'épisode reste muet, au plus jusqu'au bout du fichier de référence (`audio_edges.mute_end`) : le dernier carton tient à l'écran sans musique.
+- **Référence avec dialogue** : la version propre de la même chanson pose le début quand elle existe (Frieren ep28, ED1 contre ED1v3). Sinon, en fin seule, le début est la première plage propre d'au moins 2,5 s — fragile, la page le signale.
+- Un thème qui contient un **vrai silence** se déclare à la main dans `refs/silences.json`.
+- Jamais de calage sur les images (rejeté par Luc le 01/10/2026). Dire de quel côté vient un son en trop, par les formes d'onde ou le spectre, a été essayé et écarté.
+
+**Limites connues**
+
+- Scène qui continue à l'image mais sans autre son que la chanson : invisible au son, la borne reste à la première note (Railgun S ep16).
+- Un son d'épisode discret sous toute la chanson (8 à 13 bits) : abstention (Railgun S ep24, Kimetsu ep26).
+
 ## Ce qui a été écarté, et pourquoi
 
 - **AniPlaylist** : n'héberge aucun audio, seulement des liens Spotify, Apple Music et Deezer vers les versions longues.
@@ -44,7 +76,13 @@ AniSkip est scoré sur les mêmes cases. Avec 0 erreur sur 100 cases, on ne peut
 | `refs/animethemes.py` | Récupère les références par MAL id, et met en cache les réponses d'API et les médias. |
 | `fp/chroma.py` | Empreinte Chromaprint via ffmpeg. |
 | `match/ber.py` | Matrice de bits différents, apparitions, mesures de continuité. |
-| `spike/p1.py` | Porte GO/NO-GO : la continuité sépare-t-elle les vrais génériques des musiques reprises ? |
+| `decide.py` | Servir ou s'abstenir, par lecteur. |
+| `run.py` | Lot : liste d'animés → JSONL par épisode et par lecteur. |
+| `match/audio_edges.py` | Calage à l'échantillon et queue muette. |
+| `match/image.py` | Comparaison d'images (milieu d'épisode, ou `--images`). |
+| `eval/regress.py` | Non-régression de la décision, hors ligne, sur les empreintes en cache. |
+| `eval/publish.py` | Fusion d'une relance, planches, `cells.js` de la page de relevé. |
+| `eval/edge_strips.py`, `eval/sheet.py` | Planches d'images autour des bornes, pour relire. |
 
 ## Lancer
 
@@ -52,14 +90,18 @@ AniSkip est scoré sur les mêmes cases. Avec 0 erreur sur 100 cases, on ne peut
 
 ```
 python -m fetch.probe ../opening-detector/datasets/anime.gt10.json 16498 1 vostfr
-OPED_HLS_CACHE=../opening-detector/cache/hls python -m spike.p1
+python run.py --anime-list out/all.list.json --out out/lot.jsonl [--hosts megaplay] [--images]
+python -m eval.regress out/all.tail.jsonl --against out/regress.json
+python -m eval.publish out/all.tail.jsonl out/all.list.json --merge out/relance.jsonl
 ```
+
+`run.py` reprend un fichier de sortie existant : le supprimer pour recalculer. Après tout changement de `decide.py`, `eval.regress` doit rester à zéro écart, ou chaque écart doit être voulu.
 
 `OPED_HLS_CACHE` réutilise les segments déjà téléchargés par la v1 (clé stable, sans jeton).
 
 ## P1 : est-ce une fausse bonne idée ? (29/09/2026)
 
-**Échantillon** : 17 épisodes VOSTFR tirés de gt10, avec un lecteur par épisode (`spike/p1.py`, `spike/p1b.py`).
+**Échantillon** : 17 épisodes VOSTFR tirés de gt10, avec un lecteur par épisode (scripts `spike/p1.py` et `spike/p1b.py`, retirés le 02/10/2026 : voir l'historique git).
 - 7 épisodes 2 « propres ».
 - 10 pièges connus d'après les verdicts de la v3 : chanson utilisée comme musique de scène, OP utilisé comme générique de fin, ED posé sur l'épilogue, ED spécial.
 
@@ -106,7 +148,7 @@ La marge de chaque côté des seuils est large.
 
 **Ce n'est pas encore une mesure de précision.** Ces cellules viennent de ce que la v1 avait trouvé, et c'est Claude qui les a jugées. La vérité se construit sur la page « Relevé OP/ED v2 » (https://claude.ai/artifact/WVk2AsiQcHKa8bkq3WD9Sv) : 260 cases, dont 74 abstentions, où « Il en manque un » mesure ce que la v2 laisse passer.
 
-**Corrections apportées pendant le lot**
+**Corrections apportées pendant le lot** (historique : les bornes ne se calent plus sur les images, voir « Règles de décision et de bornes »)
 
 - **Fin** = dernière image qui concorde, à la cadence native. Les clips NCBD ont 0 à 4,6 s de silence ou de noir en queue.
 - **Fenêtre vidéo** demandée 12 s plus tôt, puis filtrée par horodatage : la recherche HLS d'ansembed atterrissait environ 4 s trop tard.
@@ -122,7 +164,9 @@ La marge de chaque côté des seuils est large.
 - **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstenait toujours ; depuis le 02/10/2026 elle sert au son (choix de Luc). Deux garde-fous : au milieu de l'épisode (début après 8 min et fin à plus de 5 min de la fin), les images du générique restent exigées (`milieu_episode`) ; et si le son de l'épisode recouvre le début de la chanson, le début servi attend que la chanson soit seule (`mixed_head`). Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
 - **Abstentions sur les derniers épisodes** quand les crédits passent sur des scènes dialoguées. C'est voulu.
 
-## Questions ouvertes pour Luc
+## Questions ouvertes pour Luc (29/09/2026)
+
+Tranchées depuis : le début est la première note ; la fin suit le silence de l'épisode ; un OP joué en fin d'épisode garde l'étiquette de son thème ; Frieren ep28 est servi à partir du moment où la chanson est seule. Le texte d'origine est gardé ci-dessous.
 
 - **Plan fixe avant la musique** (Railgun ep2 : nuages environ 2 s avant) : ce plan fait-il partie de l'OP ? Tes verdicts disent « début faux » sur ansembed et megaplay, mais « juste » sur frembed, avec le même décalage.
 - **Fin de l'ED quand les crédits durent plus longtemps que la chanson** (derniers épisodes) : faut-il la placer à la fin de la chanson ou à la fin des crédits ?

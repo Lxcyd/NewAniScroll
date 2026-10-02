@@ -1,7 +1,7 @@
 """Planche d'images autour d'un bord, pour juger a l'oeil ou le generique
 commence ou finit vraiment sur UN lecteur.
 
-    python -m spike.sheet <mal> <ep> <lang> <host> <t_abs> [--span 3] [--fps 10] [--out f.png]
+    python -m eval.sheet <mal> <ep> <lang> <host> <t_abs> [--span 3] [--fps 10] [--out f.png]
 
 Images a --fps sur [t - span, t + span] en temps ABSOLUS (meme horloge que le
 detecteur), chacune legendee de son temps ; sous chaque image, l'energie audio

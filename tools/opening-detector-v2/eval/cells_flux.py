@@ -1,24 +1,36 @@
-"""Cases de relevé PAR LECTEUR, dans l'horloge du fichier (ligne « Flux » des
-stats du lecteur), pour la page « Relevé OP/ED ».
-
-    python -m eval.cells_flux out/railgun.full.jsonl out/railgun.full.json <dossier> [--skip-eps 1,2,3,24]
-
-Contrairement à eval.cells (un groupe de lecteurs par case, horloge du
-lecteur), une case = un lecteur, chacun ayant sa propre horloge ; le lien de
-la page porte `tf` (instant FICHIER = start + clock_offset). Les bornes sont
-celles du thème au son : de la première note à la dernière, plus la queue du
-thème quand l'épisode y est muet (run.theme_bounds).
-Écrit un JSON par case dans <dossier> et <dossier>/batch.json (écritures pour
-ArtifactData, documents NOUVEAUX : pas de if_version).
+"""Cases de la page « Relevé OP/ED » : une par lecteur et par type, dans
+l'horloge du FICHIER (ligne « Flux » des stats du lecteur), chaque lecteur
+ayant la sienne. Le texte de la case dit ce que la v2 a vu et quelle règle a
+posé chaque borne. Assemblage et publication : eval.publish.
 """
 from __future__ import annotations
 
-import argparse
-import json
-import sys
 from pathlib import Path
 
-from eval.cells import SERVER, why
+SERVER = {  # (lecteur, langue) -> identifiant de serveur du site (lib/servers.js)
+    ("ansembed", "vf"): "animesama-ansembed", ("ansembed", "vostfr"): "animesama-ansembed-vo",
+    ("frembed", "vf"): "frembed", ("frembed", "vostfr"): "frembed-vo",
+    ("megaplay", "vostfr"): "megaplay",
+    ("sibnet", "vf"): "animesama-sibnet", ("sibnet", "vostfr"): "animesama-sibnet-vo",
+    ("vidmoly-va", "vf"): "voiranime-vidmoly", ("vidmoly-va", "vostfr"): "voiranime-vidmoly-vo",
+    ("uqload", "vf"): "animesama-uqload", ("uqload", "vostfr"): "animesama-uqload-vo",
+}
+
+
+def why(hit: dict | None, cands: list[dict], slot: str, dur: float) -> str:
+    if hit:
+        img = hit.get("img")
+        return (f"{hit['ref']} : audio couvert à {hit['coverage']:.0%}"
+                + ("" if img is None else f", images conformes à {img:.0%}")
+                + (" (chanson jouée sur d'autres images : servi au son)" if img is not None and img < 0.8 else "")
+                + (" (OP joué en fin d'épisode)" if slot == "op" and hit["start"] > dur / 2 else ""))
+    # L'etiquette vient du theme : on cherche les candidats du MEME type.
+    near = [c for c in cands if c["kind"] == slot]
+    if not near:
+        return f"aucun {slot.upper()} AnimeThemes entendu dans l'épisode"
+    c = max(near, key=lambda c: c["coverage"])
+    return (f"rejeté : {c['ref']} à {c['start']:.0f}-{c['end']:.0f} s, audio couvert à {c['coverage']:.0%}"
+            + (f", images à {c['img']:.0%}" if c.get("img") is not None else "") + f" ({', '.join(c['reasons'])})")
 
 
 def mmss(t: float) -> str:
@@ -81,30 +93,3 @@ def build(batch: list[dict], anime: dict[int, dict], strips: Path | None = None)
                         cell["sheet"] = f"strips/{cell['id']}.jpg"
                 cells.append(cell)
     return cells
-
-
-def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("batch"); ap.add_argument("anime"); ap.add_argument("out")
-    ap.add_argument("--skip-eps", default="")
-    a = ap.parse_args(argv)
-    skip = {int(x) for x in a.skip_eps.split(",") if x}
-    batch = [json.loads(l) for l in open(a.batch, encoding="utf-8")]
-    batch = [r for r in batch if r["episode"] not in skip]
-    anime = {x["mal_id"]: x for x in json.load(open(a.anime, encoding="utf-8"))}
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    cells = build(batch, anime)
-    writes = []
-    for c in cells:
-        p = out / f"{c['id']}.json"
-        p.write_text(json.dumps(c, ensure_ascii=False), encoding="utf-8")
-        writes.append({"op": "set", "collection": "cells", "doc_id": c["id"], "file_path": str(p.resolve())})
-    (out / "batch.json").write_text(json.dumps(writes, ensure_ascii=False), encoding="utf-8")
-    served = sum(c["serve"] for c in cells)
-    print(f"{len(cells)} cases ({served} servies, {len(cells) - served} abstentions) -> {out}")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
