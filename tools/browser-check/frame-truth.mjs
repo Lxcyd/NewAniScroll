@@ -171,9 +171,23 @@ for (const t of process.env.PLAY_S ? [] : ts) {
        navigateur, le lecteur arrive tard). On note aussi le lecteur reellement
        joue (`id=` de l'URL) et un eventuel repli en <iframe>. */
     for (let k = 0; k < Number(process.env.ICI_S || 8) * 2; k++) {
-      const x = await evalue(`(() => { const v = document.querySelector("video"); return [v ? Math.round(v.currentTime * 100) / 100 : null, v ? v.paused : null, v ? v.readyState : null, v ? Math.round((v.duration || 0)) : null, document.querySelectorAll("iframe").length, location.search] })()`);
+      const x = await evalue(`(() => { const v = document.querySelector("video"); return [v ? Math.round(v.currentTime * 100) / 100 : null, v ? v.paused : null, v ? v.readyState : null, v ? Math.round((v.duration || 0)) : null, document.querySelectorAll("iframe").length, location.search, [...document.querySelectorAll("[data-releve-marks] div")].map((d) => d.style.left).join(" ")] })()`);
       console.log("  pos", k * 0.5, JSON.stringify(x));
       await dors(500);
+    }
+    /* SHOT=1 : capture de la PAGE (pas de l'image video), souris sur le lecteur
+       pour faire sortir les controles — reperes de la barre de progression. */
+    if (process.env.SHOT) {
+      // Profil vierge : nouveautes et bandeau de preferences recouvrent le lecteur.
+      for (let k = 0; k < 3; k++) {
+        await evalue(`(() => { for (const b of document.querySelectorAll("button")) if (/^(Compris|Valider|Tout refuser|Refuser|Tout accepter|Accepter)/i.test(b.textContent.trim())) { b.click(); return } })()`);
+        await dors(400);
+      }
+      const b = await evalue(`(() => { const r = document.querySelector("video").getBoundingClientRect(); return [r.left, r.top, r.width, r.height] })()`);
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: b[0] + b[2] / 2, y: b[1] + b[3] - 40 });
+      await dors(800);
+      const shot = await send("Page.captureScreenshot", { format: "png", clip: { x: b[0], y: b[1] + b[3] - 140, width: b[2], height: 140, scale: 1 } });
+      if (shot?.result?.data) writeFileSync(join(outDir, "barre.png"), Buffer.from(shot.result.data, "base64"));
     }
   }
   const r = await evalue(`(async () => {

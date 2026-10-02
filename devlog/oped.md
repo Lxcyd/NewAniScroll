@@ -81,6 +81,22 @@ page. Sur ansembed, le meme instant s'affiche 3:32 au compteur et 3:33.97 en
 « Flux » (decalage 1,05 s en ouvrant a la fin de l'OP, 0,47 s en ouvrant au
 debut : il depend du point de chargement).
 
+**Relecture, 02/10 (fin de journee) — traits rouges et planches.** Luc ne
+veut plus des liens qui ouvrent le lecteur SUR une borne : « tu mets sur la
+barre de progression des lignes rouges au niveau des timings, et dans le
+compte rendu je veux les 4 frames d'avant et d'apres pour chaque timing ».
+- Lecteur : `?marks=<s>,<s>,…` (horloge du FICHIER, comme `tf`), en mode
+  `?diag=1` seulement, un trait rouge par instant par-dessus la barre
+  (`UniversalPlayer`, effet « Reperes du releve »). Rien en base.
+- Page : le lien d'une ligne ouvre l'episode avec les bornes OP + ED de CE
+  lecteur en `marks` ; sous la ligne, la planche de `eval.edge_strips` (deux
+  rangees debut / fin, 4 images avant, trait rouge, 4 images apres, temps
+  « Flux »). Fait pour SnK : 49 planches, 5 Mo.
+- `frame-truth.mjs` : `SHOT=1` capture la barre de la PAGE (ferme d'abord les
+  panneaux d'un profil vierge) et la trace note la position des traits.
+Verifie sur dev (ep1 ansembed VF) : traits a 8,1 / 14,1 / 94,1 / 100 % pour
+8,11 / 14,10 / 94,13 / 100 % attendus. Les images ne servent qu'a RELIRE.
+
 **Toujours ouvert** : l'horloge du lecteur sur ansembed (mesuree sur l'image,
 pas sur le son) ; megaplay a 15 episodes sur 24 de Railgun S.
 
