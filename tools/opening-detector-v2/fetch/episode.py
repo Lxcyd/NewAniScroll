@@ -29,7 +29,10 @@ TAIL_S = 420.0
 # meme episode placent le theme a moins de 20 s les uns des autres (frembed :
 # +17,6 s sur Railgun S) ; au-dela, le theme sort de la fenetre, n'est pas
 # reconnu, et le lecteur repasse en tete + fin.
-GUIDE_GUARD_S = 45.0
+# 45 s au depart ; 30 depuis le 03/10/2026 : sur SnK, megaplay et ansembed (un
+# seul rendu, 1080p, 190 et 405 Mo par episode) pesaient 85 % du volume, et
+# les ecarts mesures entre lecteurs y vont de -16,6 a +16,0 s.
+GUIDE_GUARD_S = 30.0
 
 
 def season_of(entry: dict, lang: str) -> dict:

@@ -123,13 +123,13 @@ Arrêter proprement : créer `out/catalogue.stop`. Reprendre : relancer `lot.ps1
 | --- | --- | --- |
 | Résultat, une ligne par épisode-langue, en ajout seul | `out/catalogue/<mal>.jsonl` | La dernière ligne d'un épisode fait foi. Chaque ligne porte la version, le commit et la date. |
 | Empreinte de l'épisode | `cache/ep/*.npz` | Rejouer la décision. |
-| Son de chaque candidat, de 30 s avant à 30 s après la référence, FLAC 16 bits 11 kHz | `H:\oped-archive\<mal>\` | Rejouer les bornes. Le lot calcule ses bornes **sur ce fichier**, donc le rejeu rend les mêmes. |
+| Son de chaque candidat, de 20 s avant à 20 s après la référence, FLAC 16 bits 11 kHz | `H:\oped-archive\<mal>\` | Rejouer les bornes. Le lot calcule ses bornes **sur ce fichier**, donc le rejeu rend les mêmes. |
 | Audio des références | `H:\oped-archiveefsudio\` | Rejeu (déplacé là quand l'animé est fini). |
 | Niveaux de la queue de chaque générique | champ `env` de la ligne | Régler la règle du silence de fin sans rouvrir le son. |
 
 Sauvegarde des résultats, du registre et des empreintes sur `D:\oped-backup` et `H:\oped-backup` à chaque animé terminé. Les segments téléchargés vivent sur `D:\oped-tmp` et sont supprimés dès que le lecteur-épisode est écrit.
 
-**Ce qui est téléchargé.** Le lecteur le moins cher passe en premier (`lot.GUIDE_ORDER` : frembed a une piste son à part, ~18 Mo par épisode) en tête + fin (10 min + 7 min) ; il dit aux autres où écouter, et eux ne lisent que 45 s de part et d'autre de chaque thème qu'il a entendu. Un lecteur qui n'y retrouve pas un type attendu repasse en tête + fin, puis en entier s'il n'a toujours pas d'OP (`run._detect_host`, champ `timing.niveau`). ansembed ne propose parfois que du 1080p à 8 Mb/s : sans ce guidage, le catalogue ferait plus de 15 To.
+**Ce qui est téléchargé.** Le lecteur le moins cher passe en premier (`lot.GUIDE_ORDER` : frembed a une piste son à part, ~18 Mo par épisode) en tête + fin (10 min + 7 min) ; il dit aux autres où écouter, et eux ne lisent que 30 s de part et d'autre de chaque thème qu'il a entendu. Un lecteur qui n'y retrouve pas un type attendu repasse en tête + fin, puis en entier s'il n'a toujours pas d'OP (`run._detect_host`, champ `timing.niveau`). ansembed ne propose parfois que du 1080p à 8 Mb/s : sans ce guidage, le catalogue ferait plus de 15 To.
 
 **Pannes.** Une panne reste `detect_error`, jamais « pas de générique ». Deux essais sur le champ, puis deux passes de reprise en fin d'animé, puis `-RetryErrors`. Dix épisodes d'affilée en panne sur un lecteur : ce lecteur est mis en pause 30 min, 1 h, 2 h ; les autres continuent.
 

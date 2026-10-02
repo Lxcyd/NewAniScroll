@@ -29,7 +29,10 @@ from fetch import SAMPLE_RATE as SR
 from fetch.audio import decode_audio_abs
 
 ROOT = Path(os.environ.get("OPED_ARCHIVE", r"H:\oped-archive"))
-MARGIN_S = 30.0
+# 30 s pour les 44 premiers episodes du lot (SnK), 20 ensuite : le volume
+# telecharge suit cette marge sur les lecteurs en 1080p seul. Les bornes ne
+# lisent rien au-dela de 12 s avant la derniere note.
+MARGIN_S = 20.0
 # Un decodage refuse pour un paquet AAC tronque au point de depart repart
 # d'ailleurs (cf. audio_edges.MUTE_BODY_S).
 _MARGINS = (MARGIN_S, MARGIN_S + 3.0, MARGIN_S - 3.0)

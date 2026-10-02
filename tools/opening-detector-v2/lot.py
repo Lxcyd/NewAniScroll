@@ -481,6 +481,12 @@ class Lot:
                 if h in got:
                     continue
                 transient, why = failures.get(h, (False, "pas de flux pour cet episode"))
+                # sibnet : la page du lecteur est injoignable sur tout le
+                # catalogue depuis aout 2026 (le site ne le joue pas non plus).
+                # Le noter « a reprendre » a chaque episode noierait les vraies
+                # pannes ; le motif reste ecrit dans `absent`.
+                if transient and "unreachable or decoy" in why:
+                    transient = False
                 if transient:
                     rec["per_host"][h] = {"detect_error": f"resolution: {why}"}
                     self.hosts.note(h, f"resolution: {why}")
