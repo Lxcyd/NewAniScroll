@@ -117,7 +117,8 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
         length, (lead, last) = len(pcm) / SAMPLE_RATE, sound_span(pcm)
     except Exception:
         return {"start": c.start, "end": c.start + c.ref_dur, "music": None, "exact": False,
-                "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0), "mute_tail": None}
+                "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0), "mute_tail": None,
+                "mixed_head": 0.0}
     try:
         # Indice de recherche seulement, et seulement si les images concordent.
         hint = c.img_shift if (c.img or 0.0) >= decide.MIN_IMAGE else 0.0
@@ -132,8 +133,13 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     # mute_tail : l'episode est muet jusqu'au BOUT du fichier (la fin peut
     # aussi s'arreter avant, au retour du son : cf. mute_end).
     mute = None if quiet is None else bool(quiet >= file_start + length)
-    return {"start": first - head, "end": end, "music": [first, final], "exact": t0 is not None,
-            "length": length, "lead": lead, "tail": length - last, "declared": (head, tail), "mute_tail": mute}
+    # Son de l'episode par-dessus la tete : le debut attend que la chanson soit
+    # seule (cf. Candidate.mixed_head). Temps de l'empreinte, donc depuis c.start.
+    mixed = c.mixed_head(lead)
+    start = max(first - head, c.start + mixed) if mixed else first - head
+    return {"start": start, "end": end, "music": [first, final], "exact": t0 is not None,
+            "length": length, "lead": lead, "tail": length - last, "declared": (head, tail), "mute_tail": mute,
+            "mixed_head": float(start - (first - head))}
 
 
 def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
@@ -167,6 +173,11 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
             c.img, c.img_shift = image_score(stream, c, videos)
         except Exception:
             pass  # l'image n'est qu'une information : sans elle, on sert quand meme
+        # Sauf au milieu de l'episode, ou une chanson de generique est d'abord
+        # une musique de scene : la, il faut les images du generique.
+        if c.mid_episode(dur) and (c.img or 0.0) < decide.MIN_IMAGE:
+            c.reasons.append("milieu_episode")
+            continue
         served.append(c)
     steps["image_s"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -196,6 +207,7 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                "lead_silence": None if tb["lead"] is None else round(tb["lead"], 3),
                "tail_silence": None if tb["tail"] is None else round(tb["tail"], 3),
                "declared_silence": list(tb["declared"]), "mute_tail": tb["mute_tail"],
+               "mixed_head": round(tb["mixed_head"], 3),
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
                "source": "v2-audio", "confirmed_by_video": (c.img or 0.0) >= decide.MIN_IMAGE, "serve": True,

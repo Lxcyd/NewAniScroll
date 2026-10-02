@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from fp.chroma import FRAME_S
 from match.ber import MATCH_BITS, Occurrence, _runs, smooth
 
@@ -20,6 +22,16 @@ MAX_DRIFT_FRAMES = 1
 MIN_IMAGE = 0.80
 # Tete / queue que le son peut manquer si le corps est parfait (cf. _edge_fallback).
 EDGE_ZONE_S = 15.0
+# Son de l'episode PAR-DESSUS le debut de la chanson : trames a plus de
+# (pire trame du corps + marge) bits. Seuil relatif, car le bruit d'encodage
+# varie d'un lecteur a l'autre (corps max 2 a 10 bits) : a seuil fixe, 113
+# bornes sur 387 bougeaient a tort ; ainsi, seule Railgun S ep6 (ED, 9,6 s).
+MIX_MARGIN_BITS = 2
+# Milieu d'episode : une chanson de generique jouee sur une scene (combat) n'est
+# pas un generique. Sur les 387 bornes de la page, tout OP commence avant
+# 5 min 47 et tout ED finit a moins de 1 min 32 de la fin.
+MID_HEAD_S = 480.0
+MID_TAIL_S = 300.0
 # Candidats notes (pour le diagnostic) a partir de cette couverture.
 REPORT_COVERAGE = 0.5
 
@@ -80,6 +92,27 @@ class Candidate:
         if ok[n - edge:].mean() < MIN_COVERAGE:
             zones.append("queue")
         return zones
+
+    def mixed_head(self, lead: float) -> float:
+        """Secondes depuis `start` pendant lesquelles le son de l'episode
+        recouvre encore la chanson (0 si elle est seule des la premiere note).
+
+        Railgun S ep6, ED : la scene continue 9,6 s sous la chanson ; servir
+        des la premiere note ferait sauter un bout d'episode (Luc, 02/10/2026 :
+        « detecter quand il ne reste plus que le son de l'ED »). Precision :
+        celle de l'empreinte lissee, +/- 0,3 s. La queue n'a pas de regle
+        miroir : sur la page elle ne trouvait que des fondus de sortie et des
+        fichiers tronques. `lead` : silence de tete de la reference, ignore."""
+        sm = smooth(self.occ.curve)
+        a, edge = int(np.ceil(lead / FRAME_S)), int(EDGE_ZONE_S / FRAME_S)
+        body = sm[a + edge: len(sm) - edge]
+        if not len(body):
+            return 0.0
+        bad = np.flatnonzero(sm[a: a + edge] > body.max() + MIX_MARGIN_BITS)
+        return float((a + bad[-1] + 1) * FRAME_S) if len(bad) else 0.0
+
+    def mid_episode(self, ep_dur: float) -> bool:
+        return self.start > MID_HEAD_S and self.end(ep_dur) < ep_dur - MID_TAIL_S
 
     def as_dict(self, ep_dur: float) -> dict:
         o = self.occ

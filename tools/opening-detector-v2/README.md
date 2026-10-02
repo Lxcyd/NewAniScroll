@@ -119,7 +119,7 @@ La marge de chaque côté des seuils est large.
 - **Lenteur** : environ 1,5 min par épisode, car chaque épisode est téléchargé en entier sur chaque lecteur. Pistes :
   - ne lire en entier qu'un lecteur par groupe de fichiers identiques ;
   - chercher d'abord dans les 6 premières et 6 dernières minutes.
-- **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstenait toujours ; depuis le 02/10/2026 elle sert au son (choix de Luc). Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
+- **Chanson complète posée sur d'autres images** (OP rejoué sur des crédits déroulants, ED sur l'épilogue) : la v2 s'abstenait toujours ; depuis le 02/10/2026 elle sert au son (choix de Luc). Deux garde-fous : au milieu de l'épisode (début après 8 min et fin à plus de 5 min de la fin), les images du générique restent exigées (`milieu_episode`) ; et si le son de l'épisode recouvre le début de la chanson, le début servi attend que la chanson soit seule (`mixed_head`). Pour distinguer les deux, il faudrait savoir reconnaître des crédits. C'est la seule place d'un éventuel modèle de texte.
 - **Abstentions sur les derniers épisodes** quand les crédits passent sur des scènes dialoguées. C'est voulu.
 
 ## Questions ouvertes pour Luc

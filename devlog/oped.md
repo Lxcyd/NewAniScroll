@@ -145,6 +145,35 @@ ne change. Railgun ep6 megaplay non refait (API 403), sa case dit encore
 « rejete (image_tete) ». Risque accepte : une chanson de generique jouee EN
 ENTIER, meme mixage, sur une scene d'histoire sera proposee au saut.
 
+**Debut retarde quand l'episode recouvre la chanson, et garde « milieu
+d'episode » (02/10, soir).** Luc, Railgun S ep6 : l'ED est bien trouve mais
+la scene continue par-dessus ; « detecter quand il ne reste plus que le son
+de l'ED ou OP et donner une borne plus tard ; il n'aura pas forcement la meme
+longueur que celui d'AnimeThemes ». Instrument : la courbe de bits de
+l'empreinte (`Occurrence.curve`, lissee), deja en cache, donc hors ligne.
+Chanson seule : 1 a 3 bits ; recouverte : jusqu'a 16. La correlation des
+formes d'onde par fenetres de 0,25 s a ete essayee et ecartee (0,2 a 0,85
+meme chanson seule). Seuil : pire trame du CORPS + 2 bits — un seuil fixe
+(5 bits) deplacait 113 bornes sur 387, le bruit d'encodage variant d'un
+lecteur a l'autre (corps max 2 a 10). Avec le seuil relatif, une seule borne
+bouge sur la page : Railgun ep6 ED, debut 22:00.391 -> 22:10.287 (ansembed),
+22:17.934 -> 22:27.996 (frembed), ED servi de 79,9 s. Precision +/- 0,3 s
+(mediane glissante de 0,6 s). `decide.Candidate.mixed_head`, applique dans
+`run.theme_bounds`, champ `mixed_head`. Pas de regle miroir en queue : elle
+ne trouvait que des fondus de sortie et des fichiers tronques (0,4-1,7 s),
+aucun vrai recouvrement. Limite : Railgun ep16, la scene continue A L'IMAGE
+mais sans autre son que la chanson — le son ne peut pas le voir, la borne
+reste a la premiere note.
+
+Garde `milieu_episode` (crainte de Luc : chanson du generique sur un combat) :
+un theme qui commence apres 8 min ET finit a plus de 5 min de la fin n'est
+servi que si ses images sont celles du generique (>= 80 %). Seul endroit ou
+l'image redecide. Sur la page : 0 borne servie concernee (tout OP commence
+avant 5:47, tout ED finit a moins de 1:32 de la fin) ; 1 candidat au milieu,
+Summer Time Render ep25 ED3 a 11:24, deja rejete au son (couverture 53 %).
+Et le retard de tete ne sert jamais un candidat de plus : il deplace la
+borne d'un generique deja servi, 15 s au plus. megaplay ep6 toujours en 403.
+
 **Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
 autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
 episodes, cache chaud), megaplay a 1 fil ensuite. 375 bornes (373 avant),
