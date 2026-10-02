@@ -76,6 +76,18 @@ Les trois premiers : en pause sur la cible, atteinte en moins de 2 s. Vidmoly :
 émis, minutage non appliqué — comportement voulu tant que la table dit absent.
 Le journal ne part qu'à 25 s : une visite `ICI_S=8` le laisse vide.
 
+**Le soir même — un lien qui vise la fin du fichier.** Luc, fin de l'ED de SnK
+ep1 (frembed VF) : « la fin de l'ED est un peu avant la fin de la musique »,
+lecteur à 25:32 sur 25:35. La borne était juste (1535,45 = fin du fichier,
+depuis que la fin d'un ED va au bout du thème) ; c'est `resume` qui
+abandonnait (`hors-duree`) tout lien visant la dernière seconde, laissant la
+lecture sur la position grossière, 3 s avant. Un lien est maintenant RAMENÉ à
+0,5 s de la fin (`borne-fin` au journal) ; pas pile la fin, qui déclencherait
+`ended` et l'épisode suivant. La garde de 15 s des reprises automatiques ne
+change pas. Vérifié (`8c10c0f4`) : `tf=1535.45` → 1535,081, en pause, même
+épisode ; contrôle ep2 `tf=44.286` → 44,286. À noter : la durée du lecteur
+passe de 1535,45 à 1535,58 pendant le chargement, la cible suit.
+
 ## 2026-10-01 (suite) — Ouvrir à un minutage : hls.js y allait déjà, le MP4 non
 
 Signalé ainsi : « quand on ouvre un anime à un certain timing, on charge
