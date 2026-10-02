@@ -4827,6 +4827,7 @@ export default function UniversalPlayer({
     let minuterie = 0;
     let viseA = 0;
     let viseGros = 0;
+    let borneFinDite = false;
     const terminer = (issue: string, at = 0) => {
       resumeApplied = true;
       window.clearInterval(minuterie);
@@ -4870,12 +4871,27 @@ export default function UniversalPlayer({
          ou s'il ne vient pas en 5 s, tf tel quel. */
       const ip = typeof (video as any).__initPtsS === "number" ? ((video as any).__initPtsS as number) : null;
       const fin = tf == null || ip != null || departHlsRef.current === 0 || depuis > 5000;
-      const at = tf != null && fin ? Math.max(0, tf - (ip ?? 0)) : cible.at;
+      let at = tf != null && fin ? Math.max(0, tf - (ip ?? 0)) : cible.at;
       /* La garde de fin vaut pour une REPRISE automatique, pas pour un lien
          horodate : celui-la vise un instant precis, souvent la fin d'un ED a
          quelques secondes du carton final (Railgun S ep 1 : t=1411 sur 1422 s
-         repartait de 0). On le suit jusqu'a la derniere seconde. */
-      if (at >= dur - (lien ? 1 : END_GUARD)) return terminer("hors-duree", at);
+         repartait de 0). On le suit jusqu'au bout — et quand il vise la
+         derniere demi-seconde, voire la fin du fichier (un ED qui finit avec
+         l'episode : SnK ep1 frembed, tf=1535,45 sur 1535,45), on le RAMENE a
+         0,5 s de la fin au lieu d'abandonner. Avant, « hors-duree » laissait
+         la lecture sur la position grossiere, 3 s avant la borne (Luc,
+         02/10/2026 : « la fin de l'ED est un peu avant la fin de la
+         musique », lecteur a 25:32 sur 25:35). Pas pile la fin : le saut
+         declencherait `ended`, donc l'episode suivant. */
+      if (lien) {
+        if (at > dur - 0.5) {
+          if (!borneFinDite) {
+            borneFinDite = true;
+            diag("minutage", { issue: "borne-fin", vise: Math.round(at * 1000) / 1000, dur: Math.round(dur * 1000) / 1000 });
+          }
+          at = Math.max(0, dur - 0.5);
+        }
+      } else if (at >= dur - END_GUARD) return terminer("hors-duree", at);
       viseA = at;
       viseGros = cible.at;
       const tol = tf != null && fin ? 0.25 : 0.5;
