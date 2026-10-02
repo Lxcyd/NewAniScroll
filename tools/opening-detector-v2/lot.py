@@ -402,11 +402,34 @@ def resolve(entry: dict, season: dict, ep: int, hosts: list[str], fresh: bool, f
 GUIDE_ORDER = ["frembed", "megaplay", "sibnet", "uqload", "ansembed", "vidmoly-va"]
 
 
+# Un sous-processus (ffmpeg, node) sorti sur un code NTSTATUS. La v1 y voyait
+# une machine qui s'eteint ; sous Windows c'est aussi un ffmpeg qui plante
+# (03/10/2026 01:20 : un seul, et le lot s'est arrete pour la nuit). On le
+# traite comme une panne du lecteur-episode, a reprendre ; seule une rafale
+# (KILL_BURST en KILL_WINDOW_S) arrete le lot, et alors pour etre RELANCE.
+KILL_BURST = 5
+KILL_WINDOW_S = 120
+_kills: list[float] = []
+_kills_lock = threading.Lock()
+
+
+def killed(exc: Exception) -> dict:
+    with _kills_lock:
+        now_t = time.time()
+        _kills.append(now_t)
+        del _kills[:-KILL_BURST]
+        burst = len(_kills) >= KILL_BURST and now_t - _kills[0] < KILL_WINDOW_S
+    log(f"[processus tue] {str(exc)[:200]}")
+    if burst:
+        raise exc
+    return {"detect_error": f"processus_tue: {str(exc)[:180]}"}
+
+
 def detect(mal: int, lang: str, ep: int, stream: dict, refs, plan: dict | None = None) -> dict:
     try:
         return run.detect_host(mal, lang, ep, stream, refs, plan)
-    except ProcessKilled:
-        raise
+    except ProcessKilled as exc:
+        return killed(exc)
     except Exception as exc:
         return {"detect_error": f"{type(exc).__name__}: {str(exc)[:200]}"}
     finally:
@@ -475,7 +498,11 @@ class Lot:
                 if h not in live:
                     rec["per_host"][h] = {"detect_error": "lecteur_en_pause"}
             failures: dict = {}
-            streams = resolve(entry, season, ep, live, attempt > 0, failures) if live else []
+            try:
+                streams = resolve(entry, season, ep, live, attempt > 0, failures) if live else []
+            except ProcessKilled as exc:
+                why = killed(exc)["detect_error"]
+                streams, failures = [], {h: (True, why) for h in live}
             got = {s["host"] for s in streams}
             for h in live:
                 if h in got:
@@ -579,7 +606,8 @@ class Lot:
                 try:
                     rec = self.episode(entry, season, ep, prev, refs)
                 except ProcessKilled:
-                    self.stop_reason = "processus tue par le systeme"
+                    self.stop_reason = "rafale de processus tues"
+                    self.killed_burst = True
                     self.stop.set()
                     return
                 except Exception:
@@ -697,7 +725,8 @@ class Lot:
                 refs_keys = [r.theme.key for r in load_refs(mal)]
                 self.one_anime(entry, path, recs, retry_only=state == "a_reprendre")
             except ProcessKilled:
-                self.stop_reason = "processus tue par le systeme"
+                self.stop_reason = "rafale de processus tues"
+                self.killed_burst = True
                 break
             except Exception as exc:
                 log(f"!! anime {mal}\n{traceback.format_exc()}")
@@ -710,10 +739,12 @@ class Lot:
             self.status.set(etat="pause", raison=self.pause_reason)
             log(f"PAUSE : {self.pause_reason}")
             return 3
-        if self.stop.is_set():
+        if self.stop.is_set() or getattr(self, "killed_burst", False):
             self.status.set(etat="arrete", raison=self.stop_reason)
             log(f"arret : {self.stop_reason}")
-            return 2
+            # Une rafale de processus tues n'est pas un arret demande : le
+            # superviseur doit relancer (code autre que 0, 2, 3, 4).
+            return 5 if getattr(self, "killed_burst", False) else 2
         self.status.set(etat="fini", raison=None, anime_en_cours=None)
         log("fini")
         return 0
