@@ -97,6 +97,17 @@ compte rendu je veux les 4 frames d'avant et d'apres pour chaque timing ».
 Verifie sur dev (ep1 ansembed VF) : traits a 8,1 / 14,1 / 94,1 / 100 % pour
 8,11 / 14,10 / 94,13 / 100 % attendus. Les images ne servent qu'a RELIRE.
 
+**Fin en silence : la coupe de plan n'est pas la borne, et on le laisse
+ainsi (Luc, 02/10).** Sur la planche de SnK ep2 frembed, la fin de l'OP
+depasse sur le plan suivant. Mesure (difference d'images autour de chaque
+borne, diagnostic seulement) : fin de l'OP1 par rapport a la coupe = megaplay
+1 a 2 images trop tot, ansembed 0 a 2, vidmoly 0 a 1, frembed 1 a 2 trop
+TARD. Frembed a l'image ~3 images en avance sur le son par rapport aux trois
+autres, sur toutes ses bornes. Dans 1,13 s de silence le son ne peut pas voir
+la coupe. Propose : caler la fin sur la coupe dans ce seul cas. Reponse de
+Luc : « rester au son ». Rien n'est change ; l'ecart de 0 a 3 images est connu
+et assume. Ne pas reproposer.
+
 **Toujours ouvert** : l'horloge du lecteur sur ansembed (mesuree sur l'image,
 pas sur le son) ; megaplay a 15 episodes sur 24 de Railgun S.
 
