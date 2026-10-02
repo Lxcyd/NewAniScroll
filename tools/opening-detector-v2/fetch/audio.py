@@ -201,7 +201,41 @@ def load_audio(
     return samples
 
 
+# Un saut (`-ss`) qui tombe mal fait refuser les paquets AAC qui suivent : le
+# son commence alors ~1 s apres le point demande et la fenetre est refusee
+# (Mob Psycho 100 VF ep8, ansembed : 3 paquets, debut a 10,20 au lieu de 9,24 ;
+# ~7 % des fenetres d'ansembed et vidmoly-va la nuit du 03/10/2026). Le reste
+# du son est intact et bien date. On redecode donc depuis RETRY_LEAD_S plus tot
+# et on retire l'avance a l'echantillon, sur le temps absolu du premier.
+# (Decoder sans saut puis decouper a ete essaye : megaplay perdait tous ses
+# generiques et ansembed se decalait de 32 ms par rapport a la page validee.)
+RETRY_LEAD_S = 5.0
+
+
 def decode_audio_abs(
+    src: str,
+    start_abs: float,
+    dur: float | None = None,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    referer: str | None = None,
+) -> tuple[np.ndarray, float]:
+    """Voir `_decode_audio_abs`, avec un second essai plus tot en cas de refus."""
+    try:
+        return _decode_audio_abs(src, start_abs, dur, sample_rate=sample_rate, referer=referer)
+    except RuntimeError as exc:
+        if "decode/transport failure" not in str(exc) or start_abs < 0.5:
+            raise
+        lead = min(RETRY_LEAD_S, start_abs)
+        samples, a0 = _decode_audio_abs(src, start_abs - lead, None if dur is None else dur + lead,
+                                        sample_rate=sample_rate, referer=referer)
+        if a0 > start_abs + 1.0:
+            raise
+        i = max(0, int(round((start_abs - a0) * sample_rate)))
+        return samples[i:], a0 + i / sample_rate
+
+
+def _decode_audio_abs(
     src: str,
     start_abs: float,
     dur: float | None = None,
