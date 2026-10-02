@@ -35,6 +35,66 @@ import { playlistDurations } from "../../../lib/hlsMerge.js";
 // it returned a hard failure on every call, and had been doing so silently for
 // the whole top50 batch. Measured 2026-08-08: this URL 404s example.com.
 const WORKER = "https://proxy.aniscroll.com";
+
+// LOT CATALOGUE (03/10/2026) : ne pas payer le lot sur le quota du Worker
+// (100 000 requetes par jour, partagees avec la lecture video de la prod).
+// Les extracteurs du site (lib/extractors.js, fetchViaWorker) y font passer
+// la page d'embed de megaplay et de sibnet ; avec OPED_DIRECT=1, tout appel a
+// proxy.aniscroll.com est lu EN DIRECT depuis cette machine, avec le Referer
+// que le Worker aurait pose (worker/src/index.js, detectReferer). C'est aussi
+// plus juste : c'est cette machine qui telecharge ensuite le flux.
+// Le direct echoue : repli sur le Worker seulement si OPED_WORKER_OK=1 (le lot
+// tient un plafond quotidien), et chaque appel reel est note dans
+// OPED_WORKER_LOG, une ligne par appel.
+if (process.env.OPED_DIRECT === "1") {
+  const { appendFileSync } = await import("node:fs");
+  const realFetch = globalThis.fetch;
+  const UA_DIRECT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  const refererFor = (target) => {
+    if (target.includes("sibnet.ru")) return "https://video.sibnet.ru/";
+    if (target.includes("sendvid.")) return "https://sendvid.com/";
+    if (target.includes("vmwesa.") || target.includes("vidmoly.")) return "https://vidmoly.net/";
+    if (/mewstream\.buzz|lostproject\.club|megaplay\.buzz/.test(target)) return "https://megaplay.buzz/";
+    return new URL(target).origin + "/";
+  };
+  const viaRealWorker = (input, init) => {
+    if (process.env.OPED_WORKER_OK !== "1") {
+      throw new Error("worker: plafond quotidien du lot atteint, lecture directe en echec");
+    }
+    if (process.env.OPED_WORKER_LOG) {
+      try {
+        appendFileSync(process.env.OPED_WORKER_LOG, `${new Date().toISOString()}\n`);
+      } catch {}
+    }
+    return realFetch(input, init);
+  };
+  globalThis.fetch = async (input, init = {}) => {
+    const href = typeof input === "string" ? input : input?.url || String(input);
+    if (!href.startsWith(WORKER)) return realFetch(input, init);
+    const q = new URL(href).searchParams;
+    const target = q.get("url");
+    if (!target) return viaRealWorker(input, init);
+    try {
+      const res = await realFetch(target, {
+        ...init,
+        headers: {
+          ...(init.headers || {}),
+          "User-Agent": UA_DIRECT,
+          Referer: q.get("referer") || refererFor(target),
+          Accept: "*/*",
+          "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
+        },
+      });
+      // Une reponse 4xx du site cible est une reponse : le Worker aurait la
+      // meme. Seuls un blocage (403, 429) ou une panne (5xx, reseau) valent
+      // la peine d'essayer par le Worker.
+      if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 403 && res.status !== 429)) return res;
+    } catch {}
+    return viaRealWorker(input, init);
+  };
+}
+
 const BASE = "https://anime-sama.to";
 const VOIRANIME_BASE = "https://voir-anime.to";
 // `ansembed.net` is Vidmoly white-labelled: the same embed page (its own

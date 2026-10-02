@@ -5,6 +5,70 @@ replis F1-F7, garde-fous P1-P8, audits et lots de mesure.
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-03 — Lot catalogue : outillage pour tenir des semaines, et ce que les essais ont appris
+
+Luc : « run pour tous les animes du catalogue », par popularite, en supprimant
+les telechargements au fur et a mesure, avec reprise, retours reguliers, sans
+toucher a nos quotas, et « un plan tres robuste pour ne pas perdre plusieurs
+semaines ». Catalogue exporte le 02/10 : 1 824 animes, 45 366 episodes-langues
+(43 494 avec des references AnimeThemes). Mode d'emploi : README du detecteur,
+« Lot catalogue ».
+
+**Ce qui rend le lot rejouable.** `lot.py` ecrit un fichier par anime, en ajout
+seul. Le son de chaque candidat part en FLAC sur H: (`archive.py`) et les
+bornes sont calculees SUR cette archive : `eval/replay.py` les refait hors
+ligne a l'identique (Railgun S 120/120, Mob Psycho 139/139 au millieme). Une
+regle de bornes pourra donc changer apres le lot sans retelecharger. Le defaut
+de `mute_end` note la veille (niveau de reference selon la fenetre decodee)
+disparait au passage : sur l'archive, la premiere fenetre reussit toujours.
+Railgun S par ce chemin : 117 generiques sur 120 a 2 ms de la page ; l'ED de
+l'ep4 ansembed bouge de 0,5 s et retrouve la longueur des deux autres lecteurs.
+
+**Mesures qui ont change le plan (ne pas les refaire).**
+- Le v2 a SA copie du pont (`tools/opening-detector-v2/bridge/resolve.mjs`) ;
+  j'avais d'abord corrige celle de la v1, et l'essai a envoye quelques dizaines
+  d'appels au Worker Cloudflare (megaplay y fait passer sa page d'embed). Avec
+  `OPED_DIRECT=1` le pont lit en direct : 0 appel depuis.
+- CDN de Vidmoly (ansembed, vidmoly-va, `*.vmpx.online`) : une connexion
+  NEUVE par segment (urllib) le fait lacher les connexions au bout de trois
+  episodes, pour des minutes. Connexions gardees ouvertes (urllib3) : 1 a 8 de
+  front, aucun refus, 10 Mo/s — la ligne de Luc. Plafonner la famille a 2
+  mettait 34 fils en file (54 episodes/h) ; a 8, 88 a 112.
+- ansembed ne propose parfois que du 1080p a 8 Mb/s (Mob Psycho 100 VOSTFR,
+  1,2 Go par episode). D'ou les fenetres GUIDEES : le lecteur le moins cher
+  (frembed, piste son seule, ~18 Mo) passe en tete + fin et dit aux autres ou
+  ecouter (45 s autour de chaque theme). Railgun S : 5,6 Go -> 2,5 Go.
+- megaplay debite ~2 a 5 Mo/s par flux quel que soit le nombre de segments de
+  front (8, 16, 32) : c'est le nombre d'EPISODES de front qui compte.
+- Le disque des temporaires n'est pas le frein (meme debit sur SSD et sur D:).
+- Le debut grossier (Chromaprint) varie de 1 a 2 trames entre deux passages :
+  `np.argsort` departage des decalages ex aequo (score 1,0 sur un plateau).
+  Sans effet sur les bornes, recalees a l'echantillon ; +/- 0,25 s sur un
+  debut retarde (`head_cut`), dans sa precision annoncee.
+- `np.load` garde le .npz ouvert : sous Windows, remplacer une empreinte
+  partielle par une plus large echouait (PermissionError). `with np.load`.
+- Piste son plus courte que la playlist (Mob Psycho VF ansembed, 1,9 s) :
+  marge de fin de flux portee a 3 s dans `decode_audio_abs`.
+- Un .ts dont 3 paquets AAC sont invalides perd ~1 s de son et DECALE la
+  suite : laisse en panne expres (Mob Psycho VF ep8 ansembed). Piste :
+  `aresample=async=1`, a valider contre la page avant de l'adopter.
+- Sentinelle de coherence : « meme duree = meme fichier » est faux (megaplay et
+  ansembed a 0,07 s de duree, themes a 1,03 s d'ecart). Elle compare
+  maintenant la longueur de la musique et l'egalite du decalage OP / ED.
+
+**Debit mesure** : Railgun S 124 episodes/h et 102 Mo par episode-langue ; Mob
+Psycho 100 (deux langues, 1080p) 88 episodes/h et 320 Mo. La ligne (~11 Mo/s)
+est le plafond : compter 10 a 20 jours selon la part de 1080p. `out/debit.txt`
+plafonne le debit sans arreter le lot.
+
+**A faire, demande par Luc le 03/10** : quand un lecteur remplace un episode
+(duree differente), recalculer. Aujourd'hui le site refuse seulement de servir
+une ligne dont la duree s'ecarte de plus de 10 s de celle que les lecteurs
+rapportent (`seasonSkipsFromRows`). Manque : la liste de ces lignes (une lecture
+Turso : `episode_runtimes` contre `oped_host_skips.duration`) et son passage
+dans `lot.py --only`. Les durees rapportees sont arrondies a la seconde et un
+meme lecteur sert parfois deux variantes a 0,8 s d'ecart : seuil a mesurer.
+
 ## 2026-10-02 (nuit) — v2 nettoyee et deux a trois fois plus rapide ; non-regression hors ligne
 
 Apres une journee de regles ajoutees une a une (entree ci-dessous), Luc :

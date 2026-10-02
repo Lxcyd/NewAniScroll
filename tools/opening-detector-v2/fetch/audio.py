@@ -101,7 +101,7 @@ _DECODE_ERROR_RE = re.compile(
 
 
 def _reject_degraded(stderr: bytes, src: str, what: str, *,
-                     local_covered: bool = False) -> None:
+                     local_covered: bool = False, seconds: float = 0.0) -> None:
     """Raise when ffmpeg logged a transport/decode failure despite exiting 0.
 
     `local_covered` : la source est une fenetre LOCALE (oped/hls_cache) et le
@@ -116,6 +116,11 @@ def _reject_degraded(stderr: bytes, src: str, what: str, *,
     hits = _DECODE_ERROR_RE.findall(stderr or b"")
     if not hits:
         return
+    # Pas plus de 2, meme sur une longue fenetre : un paquet refuse emporte
+    # jusqu'a 0,3 s de son et DECALE toute la suite d'autant (Mob Psycho 100 VF
+    # ep8, ansembed : 3 paquets, 1 s en moins sur 180 s). Des bornes posees sur
+    # ce son seraient fausses d'autant ; mieux vaut une panne, a reprendre le
+    # jour ou le decodage comblera ces trous (aresample async=1, a valider).
     if local_covered and len(hits) <= 2:
         return
     hit = _DECODE_ERROR_RE.search(stderr or b"")
@@ -288,12 +293,17 @@ def decode_audio_abs(
         want_end = start_abs + dur if dur is not None else stream_end
         if want_end is not None and stream_end:
             want_end = min(want_end, stream_end)
+        # Jusqu'a la fin du flux, la piste son peut s'arreter avant la duree
+        # annoncee par la playlist (Mob Psycho 100 VF, ansembed : 1,9 s plus
+        # tot, et l'ED de 8 episodes sur 12 partait en panne). 3 s de marge la ;
+        # un dernier segment manquant (10 a 20 s) reste refuse.
+        slack = 3.0 if want_end is not None and stream_end and want_end >= stream_end - 0.01 else 1.0
         covered = (
             abs_start <= start_abs + 1.0
-            and (want_end is None or abs_start + samples.size / sample_rate >= want_end - 1.0)
+            and (want_end is None or abs_start + samples.size / sample_rate >= want_end - slack)
         )
     _reject_degraded(proc.stderr, str(src), f"start_abs={start_abs}, dur={dur}",
-                     local_covered=covered)
+                     local_covered=covered, seconds=samples.size / sample_rate)
     return samples, abs_start
 
 

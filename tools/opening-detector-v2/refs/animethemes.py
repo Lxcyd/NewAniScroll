@@ -25,6 +25,9 @@ API = "https://api.animethemes.moe/anime"
 UA = "AniScroll-oped-v2/0.1 (+https://aniscroll.com)"
 CACHE = Path("cache/refs")
 API_MIN_INTERVAL_S = 0.8  # < 90 req/min, marge comprise
+# Autres racines ou chercher un media avant de le retelecharger : le lot
+# catalogue deplace l'audio des references d'un anime fini vers l'archive.
+EXTRA_DIRS: list[Path] = []
 
 _lock = threading.Lock()
 _last_call = 0.0
@@ -135,6 +138,10 @@ def download(link: str, sub: str) -> Path:
     dst = CACHE / sub / link.rsplit("/", 1)[-1]
     if dst.exists() and dst.stat().st_size > 0:
         return dst
+    for root in EXTRA_DIRS:
+        alt = root / sub / dst.name
+        if alt.exists() and alt.stat().st_size > 0:
+            return alt
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_suffix(dst.suffix + ".part")
     req = urllib.request.Request(link, headers={"User-Agent": UA})

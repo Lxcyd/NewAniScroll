@@ -292,8 +292,13 @@ def resolve_episodes_multi(
     mal_id: int | str | None = None,
     va_slug: str | None = None,
     frembed: str | None = None,
+    failures: dict | None = None,
 ) -> dict[int, list[dict]]:
     """Resolve the range from SEVERAL hosts and group the streams by episode.
+
+    `failures` (dict fourni par l'appelant) recoit {hote: (transitoire, motif)}
+    pour chaque lecteur non resolu : le lot catalogue doit distinguer « pas
+    propose » (rien a refaire) d'une panne (a reprendre).
 
     Returns {ep: [{ep, url, isM3U8, host}, ...]} — one entry per host that
     resolved that episode. This is the input to the multi-host detector: the
@@ -384,6 +389,8 @@ def resolve_episodes_multi(
         # simply not offered for this season (a data gap, nothing to fix) or
         # actually failed to extract (a bug, a block, a dead host).
         print(f"  [no-host] {host}: {last}")
+        if failures is not None and last is not None:
+            failures[host] = (_is_transient(last), str(last)[:200])
         return host, []
 
     by_ep: dict[int, list[dict]] = {}

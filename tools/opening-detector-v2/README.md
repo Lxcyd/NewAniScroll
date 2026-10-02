@@ -83,6 +83,11 @@ AniSkip est scoré sur les mêmes cases. Avec 0 erreur sur 100 cases, on ne peut
 | `eval/regress.py` | Non-régression de la décision, hors ligne, sur les empreintes en cache. |
 | `eval/publish.py` | Fusion d'une relance, planches, `cells.js` de la page de relevé. |
 | `eval/edge_strips.py`, `eval/sheet.py` | Planches d'images autour des bornes, pour relire. |
+| `lot.py`, `lot.ps1` | Lot catalogue et son superviseur (voir « Lot catalogue »). |
+| `archive.py` | Son de chaque générique entendu, gardé sans perte sur le disque d'archive. |
+| `eval/status.py` | État du lot, registre, bilan d'un palier. |
+| `eval/replay.py` | Rejeu des décisions et des bornes hors ligne, depuis l'archive. |
+| `eval/sentinels.py` | Sentinelles de qualité et épisodes témoins du lot. |
 
 ## Lancer
 
@@ -98,6 +103,43 @@ python -m eval.publish out/all.tail.jsonl out/all.list.json --merge out/relance.
 `run.py` reprend un fichier de sortie existant : le supprimer pour recalculer. Après tout changement de `decide.py`, `eval.regress` doit rester à zéro écart, ou chaque écart doit être voulu.
 
 `OPED_HLS_CACHE` réutilise les segments déjà téléchargés par la v1 (clé stable, sans jeton).
+
+## Lot catalogue (03/10/2026)
+
+Tout le catalogue (1 824 animés, 45 366 épisodes-langues), par popularité, sur plusieurs jours. Conçu pour que rien n'oblige à le refaire.
+
+```
+powershell -ExecutionPolicy Bypass -File lot.ps1 [-Limit 20] [-RetryErrors]   # lancer ou reprendre
+python -m eval.status                      # où en est le lot
+python -m eval.status --palier 20          # bilan des 20 premiers animés
+python -m eval.replay --only 16049         # rejouer un animé hors ligne et comparer au lot
+```
+
+Arrêter proprement : créer `out/catalogue.stop`. Reprendre : relancer `lot.ps1`. Plafonner le débit : écrire un nombre de Mo/s dans `out/debit.txt` (relu toutes les 30 s).
+
+**Ce qui est gardé, par lecteur-épisode**
+
+| Quoi | Où | Sert à |
+| --- | --- | --- |
+| Résultat, une ligne par épisode-langue, en ajout seul | `out/catalogue/<mal>.jsonl` | La dernière ligne d'un épisode fait foi. Chaque ligne porte la version, le commit et la date. |
+| Empreinte de l'épisode | `cache/ep/*.npz` | Rejouer la décision. |
+| Son de chaque candidat, de 30 s avant à 30 s après la référence, FLAC 16 bits 11 kHz | `H:\oped-archive\<mal>\` | Rejouer les bornes. Le lot calcule ses bornes **sur ce fichier**, donc le rejeu rend les mêmes. |
+| Audio des références | `H:\oped-archiveefsudio\` | Rejeu (déplacé là quand l'animé est fini). |
+| Niveaux de la queue de chaque générique | champ `env` de la ligne | Régler la règle du silence de fin sans rouvrir le son. |
+
+Sauvegarde des résultats, du registre et des empreintes sur `D:\oped-backup` et `H:\oped-backup` à chaque animé terminé. Les segments téléchargés vivent sur `D:\oped-tmp` et sont supprimés dès que le lecteur-épisode est écrit.
+
+**Ce qui est téléchargé.** Le lecteur le moins cher passe en premier (`lot.GUIDE_ORDER` : frembed a une piste son à part, ~18 Mo par épisode) en tête + fin (10 min + 7 min) ; il dit aux autres où écouter, et eux ne lisent que 45 s de part et d'autre de chaque thème qu'il a entendu. Un lecteur qui n'y retrouve pas un type attendu repasse en tête + fin, puis en entier s'il n'a toujours pas d'OP (`run._detect_host`, champ `timing.niveau`). ansembed ne propose parfois que du 1080p à 8 Mb/s : sans ce guidage, le catalogue ferait plus de 15 To.
+
+**Pannes.** Une panne reste `detect_error`, jamais « pas de générique ». Deux essais sur le champ, puis deux passes de reprise en fin d'animé, puis `-RetryErrors`. Dix épisodes d'affilée en panne sur un lecteur : ce lecteur est mis en pause 30 min, 1 h, 2 h ; les autres continuent.
+
+**CDN de Vidmoly (ansembed, vidmoly-va).** Il lâche les connexions nouvelles dès qu'on en ouvre trop, alors qu'une connexion gardée ouverte débite 10 Mo/s. Les connexions sont réutilisées, deux au plus pour toute la famille (`fetch/hls_cache.py`).
+
+**Nos quotas.** Aucun appel à aniscroll.com. Le pont de résolution lit les pages des lecteurs en direct au lieu de passer par le Worker Cloudflare (`OPED_DIRECT`, `bridge/resolve.mjs`) ; un repli sur le Worker est plafonné à 5 000 appels par jour et compté dans l'état.
+
+**Sentinelles** (pause du lot, code de sortie 3) : désaccord entre deux lecteurs qui servent le même fichier ; chute de la part d'épisodes avec générique d'un lecteur par rapport au palier 1 ; hausse des bornes non calées à l'échantillon ; trois épisodes témoins de Railgun S refaits toutes les 2 h (`out/temoins.json`).
+
+**Changer une règle après le lot** : modifier `decide.py` ou `match/audio_edges.py`, puis `python -m eval.replay --write out/rejeu`. Aucun téléchargement. Sans changement de code, le rejeu rend les bornes du lot à l'identique (contrôlé sur Railgun S : 120 sur 120 au millième).
 
 ## P1 : est-ce une fausse bonne idée ? (29/09/2026)
 

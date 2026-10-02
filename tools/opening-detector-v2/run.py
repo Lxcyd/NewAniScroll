@@ -24,10 +24,11 @@ from pathlib import Path
 
 import numpy as np
 
+import archive
 import decide
 from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
-from fetch.episode import CACHE, fingerprint_stream, resolve
+from fetch.episode import CACHE, GUIDE_GUARD_S, cached_windows, fingerprint_stream, resolve
 from fp.chroma import decode_file
 from match.audio_edges import PIECE_S, mute_end, refine_offset, sound_span
 from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
@@ -43,6 +44,11 @@ RETRY_DELAY_S = 15
 # transitoires : on le refait seul, lentement, puis on fusionne).
 ONLY_HOSTS: list[str] | None = None
 IMAGES = False  # --images : part d'images conformes de chaque candidat, pour information
+# Lot catalogue (lot.py). KEEP : le son de chaque candidat est archive et les
+# bornes sont calculees sur l'archive. PARTIAL : tete et fin d'abord, le milieu
+# seulement si aucun OP n'a ete trouve (fetch.episode.HEAD_S).
+KEEP = False
+PARTIAL = False
 
 
 def image_score(stream: dict, cand: decide.Candidate, videos) -> float:
@@ -88,7 +94,7 @@ def declared_silence(key: str) -> tuple[float, float]:
         return 0.0, 0.0
 
 
-def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
+def theme_bounds(stream: dict, c: decide.Candidate, theme, src=None) -> dict:
     """Bornes du generique AU SON, horloge detecteur. Regles et cas d'origine :
     README, « Regles de bornes ».
 
@@ -101,25 +107,29 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
 
     La position vient de la correlation des formes d'onde (refine_offset, a
     quelques ms) ; si ses tranches ne concordent pas, on garde celle de
-    Chromaprint (0,12 s), sans queue muette, et `exact` le dit."""
+    Chromaprint (0,12 s), sans queue muette, et `exact` le dit.
+
+    `src` : fenetre de son archivee (archive.Window) a lire a la place du
+    flux ; c'est le chemin du lot catalogue et du rejeu hors ligne."""
+    src, referer, env = src or stream["url"], stream.get("referer"), {}
     try:
         pcm = ref_pcm(theme)
         length, (lead, last) = len(pcm) / SAMPLE_RATE, sound_span(pcm)
     except Exception:
         return {"start": c.start, "end": c.start + c.ref_dur, "music": None, "exact": False,
                 "length": c.ref_dur, "lead": None, "tail": None, "declared": (0.0, 0.0), "mute_tail": None,
-                "head_cut": 0.0}
+                "head_cut": 0.0, "env": env}
     # Fin seule : les tranches de calage viennent du bout propre.
     pieces = ([c.tail_from + 1.0, (c.tail_from + last - PIECE_S) / 2, last - PIECE_S - 1.0]
               if c.tail_from else None)
     try:
-        t0 = refine_offset(stream["url"], stream.get("referer"), c.start, pcm, pieces)
+        t0 = refine_offset(src, referer, c.start, pcm, pieces)
     except Exception:
         t0 = None
     file_start = c.start if t0 is None else t0
     first, final = file_start + lead, file_start + last
     head, tail = declared_silence(theme.key)
-    quiet = None if t0 is None else mute_end(stream["url"], stream.get("referer"), final, file_start + length)
+    quiet = None if t0 is None else mute_end(src, referer, final, file_start + length, env)
     end = final + tail if tail else (quiet or final)
     # Temps de l'empreinte, donc compte depuis c.start et non file_start.
     cut = c.head_cut(lead)
@@ -128,27 +138,58 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
             "length": length, "lead": lead, "tail": length - last, "declared": (head, tail),
             # L'episode est muet jusqu'au BOUT du fichier de reference.
             "mute_tail": None if quiet is None else bool(quiet >= file_start + length),
-            "head_cut": float(start - (first - head))}
+            "head_cut": float(start - (first - head)), "env": env}
 
 
-def detect_host(mal: int, lang: str, ep: int, stream: dict, refs) -> dict:
+def detect_host(mal: int, lang: str, ep: int, stream: dict, refs, plan: dict | None = None) -> dict:
     """Detection + ce qu'elle a coute : temps reel par etape et reseau. Les
     octets sont ceux du lot entier pendant ce lecteur : exacts avec
     --workers 1, melanges entre episodes sinon."""
     t0, net, steps = time.perf_counter(), stats.snapshot(), {}
-    entry = _detect_host(mal, lang, ep, stream, refs, steps)
-    entry["timing"] = {**{k: round(v, 2) for k, v in steps.items()},
+    entry = _detect_host(mal, lang, ep, stream, refs, steps, plan)
+    entry["timing"] = {**{k: round(v, 2) if isinstance(v, float) else v for k, v in steps.items()},
                        "total_s": round(time.perf_counter() - t0, 2), "reseau": stats.since(net)}
     return entry
 
 
-def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) -> dict:
+def plan_from(entry: dict) -> dict | None:
+    """Ce qu'un lecteur deja traite apprend aux autres lecteurs du meme
+    episode : ou ecouter (autour de chaque candidat) et quels types attendre.
+    None s'il n'a rien entendu : les autres ecoutent tete et fin."""
+    cands = entry.get("candidates") or []
+    if "detect_error" in entry or not cands:
+        return None
+    g = GUIDE_GUARD_S
+    return {"windows": [(c["start"] - g, c["end"] + g) for c in cands],
+            "kinds": sorted({c["kind"] for c in cands if not c["reasons"]})}
+
+
+def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict, plan: dict | None = None) -> dict:
     t = time.perf_counter()
-    cached = (CACHE / f"{mal}_{lang}_ep{ep}_{stream['host']}.npz").exists()
-    dur, efp = fingerprint_stream(mal, lang, ep, stream)
+    host = stream["host"]
+    cached = (CACHE / f"{mal}_{lang}_ep{ep}_{host}.npz").exists()
+    # Du moins cher au plus cher ; on s'arrete des que ce qu'on cherche est la.
+    # - guide : fenetres autour des themes entendus sur un autre lecteur du
+    #   meme episode ; suffit si tous les types qu'il a entendus sont entendus ici.
+    # - tete_fin : suffit si un OP est entendu (ou si la serie n'a pas d'OP).
+    # - entier : un OP peut suivre un tres long prologue.
+    levels = [("entier", None)]
+    if PARTIAL or plan:
+        levels.insert(0, ("tete_fin", "std"))
+    if plan:
+        levels.insert(0, ("guide", plan["windows"]))
+    has_op = any(r.theme.kind == "op" for r in refs)
+    for level, windows in levels:
+        dur, efp = fingerprint_stream(mal, lang, ep, stream, windows=windows)
+        cands, heard = decide.shortlist(refs, efp, dur)
+        kinds = {c.kind for c in heard}
+        if level == "guide" and set(plan["kinds"]) <= kinds:
+            break
+        if level == "tete_fin" and ("op" in kinds or not has_op):
+            break
+    steps["niveau"] = level
     steps["empreinte_s"], steps["empreinte_en_cache"] = time.perf_counter() - t, cached
     t = time.perf_counter()
-    cands, heard = decide.shortlist(refs, efp, dur)
     served = []
     for c in heard:
         if IMAGES or c.mid_episode(dur):
@@ -167,7 +208,14 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
     t = time.perf_counter()
     slots, notes = decide.pick(served, dur)
     entry = {"duration": round(dur, 3), "algo_version": ALGO_VERSION,
-             "candidates": [c.as_dict(dur) for c in cands], "notes": notes}
+             "candidates": [c.as_dict(dur) for c in cands], "notes": notes,
+             # Ce que l'empreinte couvre : [] = l'episode entier.
+             "fenetres": [[round(a, 1), round(b, 1)] for a, b in cached_windows(mal, lang, ep, host) or []]}
+    wins = []
+    if KEEP and cands:
+        # Avant tout calcul de bornes : elles se lisent sur l'archive.
+        wins, entry["archive"] = archive.keep(mal, lang, ep, stream, cands, dur)
+        steps["archive_s"] = time.perf_counter() - t
     clock = None
     if slots:
         # Tous nos temps sont en PTS absolus ; le site affiche l'horloge du
@@ -184,9 +232,23 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
         # La duree sondee est la fin du flux en PTS : le site affiche 23:44
         # pour megaplay ep1 (1425,48 - 1,40).
         entry["duration"] = round(dur - clock, 3)
+    fill_hits(entry, slots, refs, dur, clock, stream, wins if KEEP else None)
+    steps["bords_s"] = time.perf_counter() - t
+    return entry
+
+
+def fill_hits(entry: dict, slots: dict, refs, dur: float, clock: float, stream: dict, wins) -> None:
+    """Pose les generiques retenus dans `entry`, horloge du lecteur. `wins` :
+    fenetres d'archive sur lesquelles lire les bornes (lot catalogue et rejeu
+    hors ligne, eval/replay.py), ou None pour lire le flux."""
     for slot, c in slots.items():
         theme = next(r.theme for r in refs if r.theme.key == c.ref)
-        tb = theme_bounds(stream, c, theme)
+        src = None
+        if wins is not None:
+            src = archive.window_for(wins, c.start)
+            if src is None:
+                raise archive.ArchiveError(f"pas de fenetre d'archive pour {c.ref} a {c.start:.1f} s")
+        tb = theme_bounds(stream, c, theme, src)
         start, end = max(0.0, tb["start"]) - clock, min(tb["end"], dur) - clock
         hit = {"start": round(start, 3), "end": round(end, 3),
                "audio_exact": tb["exact"], "ref_dur": round(tb["length"], 3),
@@ -200,12 +262,12 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                "source": "v2-audio", "confirmed_by_video": (c.img or 0.0) >= decide.MIN_IMAGE, "serve": True,
                "ref": c.ref, "kind": c.kind, "coverage": round(c.occ.coverage, 3),
                "img": None if c.img is None else round(c.img, 3)}
+        if wins is not None:
+            hit["env"] = tb["env"]
         if slot == "ed":
             hit["from_end_start"] = round(entry["duration"] - hit["start"], 3)
             hit["from_end_end"] = round(entry["duration"] - hit["end"], 3)
         entry[slot] = hit
-    steps["bords_s"] = time.perf_counter() - t
-    return entry
 
 
 def detect_episode(entry: dict, season: dict, ep: int) -> dict:
@@ -289,7 +351,7 @@ def main(argv: list[str]) -> int:
             return
         with _write, open(out, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        print(f"{entry['title'][:26]:<26} ep{ep:<3} {season['lang']:<6} {summary(rec)}", flush=True)
+        print(f"{(entry.get('title') or entry['slug'])[:26]:<26} ep{ep:<3} {season['lang']:<6} {summary(rec)}", flush=True)
 
     with ThreadPoolExecutor(max_workers=a.workers) as pool:
         list(pool.map(work, tasks))

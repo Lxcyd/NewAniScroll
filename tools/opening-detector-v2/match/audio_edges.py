@@ -27,6 +27,15 @@ SOUND_WIN_S = 0.01     # 0,05 s depassait une image (0,042 s) : bord son a +/- 1
 SOUND_REL = 0.10       # « son » : energie > 10 % de l'energie mediane de la reference
 
 
+def _decode(src, referer, start: float, dur: float) -> tuple[np.ndarray, float]:
+    """Le flux, ou une fenetre deja decodee (archive.Window) : le lot calcule
+    ses bornes sur le son qu'il ARCHIVE, pour que le rejeu hors ligne rende
+    exactement les memes."""
+    if hasattr(src, "decode"):
+        return src.decode(start, dur)
+    return decode_audio_abs(src, start, dur, sample_rate=SR, referer=referer)
+
+
 def _xcorr(ep: np.ndarray, seg: np.ndarray) -> tuple[int, float]:
     c = fftconvolve(ep, seg[::-1], mode="valid")
     n = np.sqrt(fftconvolve(ep ** 2, np.ones(len(seg)), mode="valid")) * np.sqrt((seg ** 2).sum())
@@ -54,8 +63,7 @@ def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None
         # exact un jour, 0,26 s plus loin le lendemain).
         for margin in (SEARCH_S, SEARCH_S + 1.5):
             try:
-                pcm, a0 = decode_audio_abs(src, coarse + s - margin, PIECE_S + 2 * margin,
-                                           sample_rate=SR, referer=referer)
+                pcm, a0 = _decode(src, referer, coarse + s - margin, PIECE_S + 2 * margin)
                 break
             except Exception:
                 continue
@@ -87,7 +95,7 @@ MUTE_PEAK = 0.25
 MUTE_FLOOR = 0.03
 
 
-def mute_end(src: str, referer, final: float, file_end: float) -> float | None:
+def mute_end(src: str, referer, final: float, file_end: float, env: dict | None = None) -> float | None:
     """Jusqu'ou l'episode reste MUET apres la derniere note, sans depasser la
     fin du fichier de reference. Cette queue muette fait partie du generique :
     le dernier carton reste a l'ecran sans musique (SnK OP1, 1,13 s — Luc,
@@ -98,13 +106,16 @@ def mute_end(src: str, referer, final: float, file_end: float) -> float | None:
     02/10 : Kimetsu OP1, queue de 2,42 s, le son revient a 1,4 s (ep1) ou 1,8 s
     (ep2) — la borne retombait sur la derniere note, 87,87 s d'OP contre 90,28
     a l'ep3 ; ED1, 4,6 s de silence sur 5,12 perdues de meme. Sans vrai
-    silence, la borne reste a la derniere note. None : pas pu decoder."""
+    silence, la borne reste a la derniere note. None : pas pu decoder.
+
+    `env` recoit les niveaux mesures (queue en millieme du corps, par
+    MUTE_WIN_S) : gardes dans la ligne de resultat du lot, ils permettent de
+    regler ces seuils plus tard sans rouvrir le son."""
     if file_end - final < MUTE_WIN_S:
         return final
     for lead in MUTE_BODY_S:
         try:
-            pcm, a0 = decode_audio_abs(src, final - lead, file_end - final + lead,
-                                       sample_rate=SR, referer=referer)
+            pcm, a0 = _decode(src, referer, final - lead, file_end - final + lead)
             break
         except Exception:
             continue
@@ -121,6 +132,9 @@ def mute_end(src: str, referer, final: float, file_end: float) -> float | None:
     if not len(body) or not len(tail) or np.median(body) <= 0:
         return None
     rel = tail / np.median(body)
+    if env is not None:
+        env.update(corps_s=lead, corps=round(float(np.median(body)), 5),
+                   queue=[int(min(9999, round(1000 * x))) for x in rel])
     if np.percentile(rel, 90) <= SOUND_REL and rel.max() <= MUTE_PEAK:
         return file_end
     quiet = np.flatnonzero(rel <= MUTE_FLOOR)

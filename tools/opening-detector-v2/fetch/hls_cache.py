@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import threading
 import time
 import urllib.error
@@ -36,6 +37,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import urllib3
+except ImportError:  # repli : une connexion par requete, comme avant
+    urllib3 = None
 
 from .megaplay import depng, is_megaplay
 from .stats import fetched
@@ -67,35 +73,152 @@ _playlists: dict[tuple[str, str], _Playlist | None] = {}
 _pl_lock = threading.Lock()
 
 
-def _sem(url: str) -> threading.BoundedSemaphore:
+# CDN de Vidmoly (ansembed, vidmoly-va) : vmpx.online, vmbox.space, vmeas.cloud,
+# vmnow.online, vmwesa.online, vmcld.space... Mesure du 02/10/2026 sur
+# prx-vi-a-1.vmpx.online : UNE connexion gardee ouverte debite 10 Mo/s sans
+# faiblir, mais les connexions NOUVELLES sont lachees des qu'on en ouvre trop
+# (ConnectTimeout, puis des minutes de penitence) : c'etait le cas quand chaque
+# segment ouvrait la sienne. Gardees ouvertes, 1, 2, 4 ou 8 connexions passent
+# sans un refus et remplissent la ligne (10 Mo/s). A 2, le lot entier faisait
+# la queue derriere elles (34 fils en attente, 54 episodes/h sur Mob Psycho) :
+# certains fichiers ne donnent que ~2 Mo/s par connexion. 8 pour toute la
+# famille et tous les episodes en cours.
+_VIDMOLY = re.compile(r"(^|\.)vm[a-z0-9]+\.(online|space|cloud|net|to)$")
+_FAMILY_CAP = {"vidmoly": int(os.environ.get("OPED_VIDMOLY_CONNS", "8"))}
+
+
+def _family(url: str) -> str:
     host = urllib.parse.urlsplit(url).hostname or ""
+    return "vidmoly" if _VIDMOLY.search(host) else host
+
+
+def _sem(url: str) -> threading.BoundedSemaphore:
+    fam = _family(url)
     with _domain_lock:
-        if host not in _domain_sems:
-            _domain_sems[host] = threading.BoundedSemaphore(_PER_DOMAIN)
-        return _domain_sems[host]
+        if fam not in _domain_sems:
+            _domain_sems[fam] = threading.BoundedSemaphore(_FAMILY_CAP.get(fam, _PER_DOMAIN))
+        return _domain_sems[fam]
 
 
-def _fetch(url: str, referer: str | None, tries: int = 3) -> bytes:
+# Plafond de debit global, en Mo/s, lu dans un fichier (OPED_RATE_FILE) pour
+# etre change sans arreter le lot : sans lui le lot sature la ligne de la
+# maison jour et nuit. Fichier absent ou vide : pas de plafond.
+_RATE_FILE = os.environ.get("OPED_RATE_FILE")
+_rate_lock = threading.Lock()
+_rate = {"read": 0.0, "mbps": 0.0, "next": 0.0}
+
+
+def _pace(n: int) -> None:
+    """Appele apres avoir recu n octets : dort ce qu'il faut pour tenir le plafond."""
+    if not _RATE_FILE:
+        return
+    with _rate_lock:
+        now = time.monotonic()
+        if now - _rate["read"] > 30:
+            _rate["read"] = now
+            try:
+                _rate["mbps"] = float(Path(_RATE_FILE).read_text().strip().replace(",", ".") or 0)
+            except (OSError, ValueError):
+                _rate["mbps"] = 0.0
+        if _rate["mbps"] <= 0:
+            return
+        _rate["next"] = max(_rate["next"], now) + n / (_rate["mbps"] * 1e6)
+        wait = _rate["next"] - now
+    if wait > 0.05:
+        time.sleep(min(wait, 30.0))
+
+
+# Delai d'une requete. 60 s jusqu'au 02/10/2026 : le CDN d'ansembed
+# (prx-vi-a-1.vmpx.online) laisse par moments une connexion sans reponse, et
+# chaque segment perdu tenait alors un fil 60 s — un episode passait de 16 s a
+# plus de 100. Un segment sain arrive en 1 a 3 s ; mieux vaut abandonner tot
+# et reessayer une fois de plus.
+FETCH_TIMEOUT_S = float(os.environ.get("OPED_HLS_TIMEOUT", "25"))
+TOTAL_TIMEOUT_S = float(os.environ.get("OPED_HLS_TOTAL_TIMEOUT", "180"))
+# Une connexion s'etablit en moins d'une demi-seconde, ou pas du tout : le CDN
+# de Vidmoly lache une partie des demandes de connexion, meme a deux de front
+# (02/10/2026 : 18 Mo en 10 a 30 s, le temps passe a attendre 10 s une
+# connexion qui ne viendra pas). On renonce vite et on redemande, sans compter
+# cela comme un essai du segment.
+CONNECT_TIMEOUT_S = 4.0
+CONNECT_RETRIES = 8
+
+
+# Connexions REUTILISEES (keep-alive). Jusqu'au 02/10/2026 chaque segment
+# ouvrait sa propre connexion TLS (urllib) : 55 a 260 connexions neuves par
+# lecteur-episode. Le CDN d'ansembed et de vidmoly-va (vmpx.online) laissait
+# passer trois episodes (12 s chacun) puis ne repondait plus aux nouvelles
+# connexions pendant plus de dix minutes (WinError 10060) — un limiteur de
+# connexions par IP, que le lecteur d'un navigateur ne declenche pas : lui
+# garde quelques connexions ouvertes. Meme chose ici.
+_pool = urllib3.PoolManager(num_pools=32, maxsize=16, block=False) if urllib3 else None
+
+
+class _HTTPStatus(Exception):
+    def __init__(self, code: int, retry_after: str | None):
+        super().__init__(f"HTTP Error {code}")
+        self.code, self.retry_after = code, retry_after
+
+
+def _get(url: str, headers: dict) -> bytes:
+    if _pool is None:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=FETCH_TIMEOUT_S) as r:
+                return r.read()
+        except urllib.error.HTTPError as exc:
+            raise _HTTPStatus(exc.code, exc.headers.get("Retry-After")) from None
+    r = _pool.request("GET", url, headers=headers, preload_content=False,
+                      timeout=urllib3.Timeout(connect=CONNECT_TIMEOUT_S, read=FETCH_TIMEOUT_S),
+                      retries=urllib3.util.Retry(total=None, connect=0, read=0, status=0, other=0, redirect=5,
+                                                 raise_on_status=False),
+                      # Une reponse coupee avant sa fin doit ECHOUER : urllib3 1.26
+                      # la rendait telle quelle, et le segment tronque donnait un
+                      # .ts que ffmpeg refusait ensuite (Mob Psycho 100 VF,
+                      # ansembed, 02/10/2026 : 9 lecteurs-episodes en panne).
+                      enforce_content_length=True)
+    try:
+        if r.status >= 400:
+            raise _HTTPStatus(r.status, r.headers.get("Retry-After"))
+        # Delai TOTAL : le delai de lecture ne vaut que entre deux paquets, et
+        # un serveur qui egrene un octet toutes les 20 s tiendrait le fil sans fin.
+        end, chunks = time.monotonic() + TOTAL_TIMEOUT_S, []
+        for chunk in r.stream(1 << 16):
+            chunks.append(chunk)
+            if time.monotonic() > end:
+                raise TimeoutError(f"reponse non terminee apres {TOTAL_TIMEOUT_S:.0f} s")
+        data = b"".join(chunks)
+        want = r.headers.get("Content-Length")
+        if want and want.isdigit() and r.headers.get("Content-Encoding") is None and len(data) != int(want):
+            raise IOError(f"reponse tronquee : {len(data)} octets sur {want}")
+        return data
+    except BaseException:
+        r.close()   # connexion a moitie lue : ne pas la rendre a la reserve
+        raise
+    finally:
+        r.release_conn()
+
+
+def _fetch(url: str, referer: str | None, tries: int = 4) -> bytes:
     headers = {"User-Agent": _UA}
     if referer:
         headers["Referer"] = referer
     last: Exception | None = None
-    k = throttled = 0
+    k = throttled = refused = 0
     while k < tries:
         try:
             with _sem(url):
-                req = urllib.request.Request(url, headers=headers)
-                with fetched() as got, urllib.request.urlopen(req, timeout=60) as r:
-                    data = r.read()
+                with fetched() as got:
+                    data = _get(url, headers)
                     got(len(data))
-                    return data
-        except urllib.error.HTTPError as exc:
+                _pace(len(data))
+                return data
+        except _HTTPStatus as exc:
             last = exc
             # 429 : le CDN demande de ralentir, ce n'est pas une panne. La v2 lit
             # des episodes COMPLETS (megaplay : 429 des le premier lot) ; on
             # attend (Retry-After sinon 5/10/20/40 s) sans consommer d'essai.
             if exc.code == 429 and throttled < THROTTLE_RETRIES:
-                wait = exc.headers.get("Retry-After")
+                wait = exc.retry_after
                 time.sleep(float(wait) if wait and wait.isdigit() else min(60.0, 5.0 * 2 ** throttled))
                 throttled += 1
                 continue
@@ -103,6 +226,10 @@ def _fetch(url: str, referer: str | None, tries: int = 3) -> bytes:
             time.sleep(1.5 * k)
         except Exception as exc:  # reseau : on reessaie avant d'abandonner
             last = exc
+            if "ConnectTimeout" in repr(exc) and refused < CONNECT_RETRIES:
+                refused += 1
+                time.sleep(0.5)
+                continue
             k += 1
             time.sleep(1.5 * k)
     raise RuntimeError(f"segment injoignable apres {tries} essais: {url[:120]} ({last})")
@@ -355,6 +482,32 @@ def local_mp4(url: str, *, referer: str | None = None) -> str | None:
     return str(out)
 
 
+def release(url: str) -> int:
+    """Supprime tout ce qui a ete telecharge pour ce flux (segments, fenetres,
+    MP4 complet) et rend le nombre d'octets liberes. Le lot catalogue l'appelle
+    des qu'un lecteur-episode est ecrit : ~100 Mo par lecteur-episode, 13 To
+    sur le catalogue, ne peuvent pas attendre la purge a l'anciennete."""
+    with _pl_lock:
+        keys = {pl.key for (u, _), pl in _playlists.items() if u == url and pl}
+        for k in [k for k in _playlists if k[0] == url]:
+            del _playlists[k]
+    keys.add(_stable_key(url))
+    freed = 0
+    for key in keys:
+        d = SEG_DIR / key
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            try:
+                freed += f.stat().st_size
+            except OSError:
+                pass
+        shutil.rmtree(d, ignore_errors=True)
+    with _domain_lock:
+        _mp4_locks.pop(_stable_key(url), None)
+    return freed
+
+
 _prune_lock = threading.Lock()
 
 
@@ -370,15 +523,20 @@ def _prune() -> None:
         # thread qui avait pourtant reussi son telechargement et lui faisait
         # perdre son calage image (9 cellules du lot gt10 du 28/09).
         snap = []
-        for p in SEG_DIR.rglob("*"):
-            if ".part" in p.name:
-                continue
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            if p.is_file():
-                snap.append((p, st.st_size, st.st_mtime))
+        try:
+            for p in SEG_DIR.rglob("*"):
+                if ".part" in p.name:
+                    continue
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                if p.is_file():
+                    snap.append((p, st.st_size, st.st_mtime))
+        except OSError:
+            # Un dossier supprime pendant le parcours (release d'un autre
+            # lecteur-episode, lot catalogue) : la purge attendra le prochain appel.
+            return
         total = sum(s for _, s, _ in snap)
         if total <= BUDGET_BYTES:
             return
