@@ -1,176 +1,90 @@
-import { getTursoClient, tableEnsurer } from "./turso";
+import { CREATE_SQL } from "./opedHostSkipsSchema";
 
 /**
- * oped_host_skips — PER-HOST OP/ED timings from the offline detector
- * (tools/opening-detector/), one row per (mal_id, episode, lang, host).
+ * oped_host_skips — minutages OP/ED PAR LECTEUR du detecteur hors ligne
+ * (tools/opening-detector-v2/), une ligne par (mal_id, episode, lang, host).
  *
- * Why per-host, not the single reconciled row of `oped_skips`:
- *   The OP/ED position is ENCODE-specific. Measured on SnK ep1: the OP starts at
- *   2:02 on sibnet but 2:19 on megaplay (different cold-open lengths, 17s apart).
- *   A single absolute OP time is therefore wrong for at least one player. Storing
- *   per host lets `/api/v2/skip?server=…` return the timing for the exact encode
- *   the viewer is on. (ED is duration-independent via `from_end_*`, but the OP's
- *   absolute start genuinely differs per host.)
+ * Pourquoi par lecteur : la position d'un generique depend de l'encodage.
+ * Mesure sur SnK ep1 : l'OP commence a 2:02 chez sibnet et a 2:19 chez megaplay.
  *
- * A row EXISTS as soon as a host has been processed for an episode — even with no
- * hit (op_… and ed_… left null). That's what distinguishes "processed, found nothing"
- * from "not processed yet", which the batch's version-based resume relies on.
+ * Une ligne EXISTE des qu'un lecteur a ete traite pour un episode, meme sans
+ * generique trouve (op_… et ed_… nuls, serve = 0) : c'est ce qui distingue
+ * « traite, rien a servir » de « pas encore traite ».
  *
- * `host` is always one of lib/hostRegistry.js DISPLAYED_HOSTS — the importer
- * rejects anything else and `purgeUndisplayedHosts` deletes rows for hosts no
- * longer shown, so this table only ever holds players a viewer can actually pick.
+ * `host` est toujours un des DISPLAYED_HOSTS de lib/hostRegistry.js : l'importeur
+ * refuse le reste et purge les lecteurs retires.
  *
- * `algo_version` is the detector version that produced the row (see
- * host_versions.json). The batch re-runs a host only when its version has moved
- * past what's stored — e.g. megaplay 1→2 after the PNG-decoy de-obfuscation.
+ * Lecture : par SAISON et par lecteur, dans l'appel /api/v2/runtimes que la
+ * page fait deja (lib/db/episodeRuntimes.ts, `getSeason`). Avant le 02/10/2026
+ * la route /api/v2/skip lisait cette table et `oped_skips` a CHAQUE episode
+ * ouvert : deux requetes Turso par episode, pour des tables vides.
  */
-
-/** One stored per-host OP/ED result (both intervals live on one row). */
-export interface OpedHostSkipRow {
-  malId: number;
-  episode: number;
-  lang: string;
-  host: string;
-  opStart: number | null;
-  opEnd: number | null;
-  opVotes: number | null;
-  edStart: number | null;
-  edEnd: number | null;
-  edFromEndStart: number | null;
-  edFromEndEnd: number | null;
-  edVotes: number | null;
-  duration: number | null; // THIS host's encode length (ED re-projection)
-  source: string; // "audio" | "video" | "mixed"
-  confirmedByVideo: boolean;
-  algoVersion: number;
-  serve: boolean;
-  updatedAt: number; // epoch seconds
-  /** v2 seulement : temps stockes dans l'horloge du FICHIER (PTS), et PTS du
-   *  debut du flux. Le lecteur convertit a la lecture (t - initPTS de hls.js,
-   *  a defaut t - clockOffset) : son heure a lui depend de la variante jouee
-   *  et du point de reprise (tools/browser-check/frame-truth.mjs). Null = ligne
-   *  historique, deja dans l'horloge du lecteur. Colonne ajoutee par
-   *  l'importeur v2 ; absente, elle se lit null. */
-  clockOffset: number | null;
-}
-
-const CREATE_SQL = `
-CREATE TABLE IF NOT EXISTS oped_host_skips (
-  mal_id             INTEGER NOT NULL,
-  episode            INTEGER NOT NULL,
-  lang               TEXT    NOT NULL,
-  host               TEXT    NOT NULL,
-  op_start           REAL,
-  op_end             REAL,
-  op_votes           INTEGER,
-  ed_start           REAL,
-  ed_end             REAL,
-  ed_from_end_start  REAL,
-  ed_from_end_end    REAL,
-  ed_votes           INTEGER,
-  duration           REAL,
-  source             TEXT    NOT NULL DEFAULT 'audio',
-  confirmed_by_video INTEGER NOT NULL DEFAULT 0,
-  algo_version       INTEGER NOT NULL DEFAULT 1,
-  serve              INTEGER NOT NULL DEFAULT 0,
-  updated_at         INTEGER NOT NULL,
-  PRIMARY KEY (mal_id, episode, lang, host)
-)`;
-
-// non-fatal — lookups return [] and the caller falls back
-const ensureTable = tableEnsurer(CREATE_SQL);
-
-function rowFrom(r: any): OpedHostSkipRow {
-  const num = (v: any) => (v == null ? null : Number(v));
-  return {
-    malId: Number(r.mal_id),
-    episode: Number(r.episode),
-    lang: String(r.lang),
-    host: String(r.host),
-    opStart: num(r.op_start),
-    opEnd: num(r.op_end),
-    opVotes: num(r.op_votes),
-    edStart: num(r.ed_start),
-    edEnd: num(r.ed_end),
-    edFromEndStart: num(r.ed_from_end_start),
-    edFromEndEnd: num(r.ed_from_end_end),
-    edVotes: num(r.ed_votes),
-    duration: num(r.duration),
-    source: String(r.source ?? "audio"),
-    confirmedByVideo: Number(r.confirmed_by_video ?? 0) === 1,
-    algoVersion: Number(r.algo_version ?? 1),
-    serve: Number(r.serve ?? 0) === 1,
-    updatedAt: Number(r.updated_at ?? 0),
-    clockOffset: num(r.clock_offset),
-  };
-}
+export { CREATE_SQL };
 
 /**
- * All per-host rows for one (malId, episode, lang). Returns [] on miss / DB
- * disabled / error. Includes non-servable rows — callers filter on `serve`.
+ * Les generiques d'un episode sur un lecteur :
+ * `[opDebut, opFin, edDebut, edFin, pts]`, nul la ou il n'y a rien.
+ *
+ * `pts` (lignes v2) : les bornes sont dans l'horloge du FICHIER, et `pts` est
+ * le PTS du debut du flux. Le lecteur convertit a la lecture (t - initPTS de
+ * hls.js, a defaut t - pts) : son heure a lui depend de la variante jouee et du
+ * point de reprise (tools/browser-check/frame-truth.mjs). Nul : ligne
+ * historique, deja dans l'horloge du lecteur.
  */
-export async function getHostSkips(
-  malId: number,
-  episode: number,
-  lang: string,
-): Promise<OpedHostSkipRow[]> {
-  const db = getTursoClient();
-  if (!db) return [];
-  await ensureTable();
-  try {
-    const r = await db.execute({
-      sql: `SELECT * FROM oped_host_skips
-            WHERE mal_id = ? AND episode = ? AND lang = ?`,
-      args: [malId, episode, lang],
-    });
-    return r.rows.map(rowFrom);
-  } catch {
-    return [];
-  }
-}
+export type SeasonSkip = [
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+  number | null,
+];
 
-/** The single row for a specific host (the serve path's fast lookup), or null. */
-export async function getHostSkip(
-  malId: number,
-  episode: number,
-  lang: string,
-  host: string,
-): Promise<OpedHostSkipRow | null> {
-  const db = getTursoClient();
-  if (!db) return null;
-  await ensureTable();
-  try {
-    const r = await db.execute({
-      sql: `SELECT * FROM oped_host_skips
-            WHERE mal_id = ? AND episode = ? AND lang = ? AND host = ? LIMIT 1`,
-      args: [malId, episode, lang, host],
-    });
-    return r.rows.length ? rowFrom(r.rows[0]) : null;
-  } catch {
-    return null;
-  }
-}
+export const SEASON_SKIPS_SQL = `
+SELECT episode, op_start, op_end, ed_start, ed_end, duration, clock_offset
+  FROM oped_host_skips
+ WHERE mal_id = ? AND lang = ? AND host = ? AND serve = 1`;
 
 /**
- * Delete every row whose host is NOT in `displayedHosts` (lib/hostRegistry.js
- * DISPLAYED_HOSTS). Called by the importer so the table only ever holds hosts a
- * viewer can pick — removing a server from lib/servers.js purges its rows on the
- * next import. Returns the number of rows deleted (0 on error / DB disabled).
+ * Au-dela de cet ecart entre la duree contre laquelle une ligne a ete mesuree et
+ * celle que les lecteurs rapportent aujourd'hui, la ligne n'est plus servie.
+ *
+ * Les hotes changent de fichier : le jour ou l'un d'eux reuploade un MONTAGE
+ * different, la ligne stockee devient un minutage etranger servi avec pleine
+ * confiance (DEVLOG, « 2026-08-07 — Audit OP/ED », §6). 10 s laisse passer le
+ * bruit de mesure entre ffprobe et le lecteur et arrete un remplacement.
+ *
+ * Cette garde etait INERTE dans l'ancienne route (aucun appelant n'envoyait la
+ * duree). Ici elle mord : `runtimes` est ce que les lecteurs ont mesure sur ce
+ * meme hote, lu dans le meme aller-retour.
  */
-export async function purgeUndisplayedHosts(
-  displayedHosts: string[],
-): Promise<number> {
-  const db = getTursoClient();
-  if (!db) return 0;
-  await ensureTable();
-  const placeholders = displayedHosts.map(() => "?").join(", ");
-  try {
-    const r = await db.execute({
-      sql: `DELETE FROM oped_host_skips WHERE host NOT IN (${placeholders})`,
-      args: displayedHosts,
-    });
-    return Number(r.rowsAffected ?? 0);
-  } catch {
-    return 0;
+const DURATION_TOLERANCE_S = 10;
+
+const num = (v: unknown) => (v == null ? null : Number(v));
+const round3 = (v: number | null) => (v == null ? null : Math.round(v * 1000) / 1000);
+
+/** Lignes de SEASON_SKIPS_SQL -> `{ episode: SeasonSkip }`. */
+export function seasonSkipsFromRows(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  runtimes: Record<number, number>,
+): Record<number, SeasonSkip> {
+  const out: Record<number, SeasonSkip> = {};
+  for (const r of rows) {
+    const episode = Number(r.episode);
+    const measured = num(r.duration);
+    const current = runtimes[episode];
+    if (measured && current && Math.abs(measured - current) > DURATION_TOLERANCE_S) {
+      console.warn(
+        `[skip] ligne perimee ignoree: ep${episode} mesuree sur ${measured}s, lecteur a ${current}s`,
+      );
+      continue;
+    }
+    out[episode] = [
+      round3(num(r.op_start)),
+      round3(num(r.op_end)),
+      round3(num(r.ed_start)),
+      round3(num(r.ed_end)),
+      round3(num(r.clock_offset)),
+    ];
   }
+  return out;
 }

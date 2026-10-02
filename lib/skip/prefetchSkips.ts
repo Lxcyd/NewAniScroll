@@ -8,22 +8,42 @@
 // Web Components). Keeping it dependency-free here avoids all that.
 
 import { serverToHost } from "@/lib/hostRegistry";
+import { loadHostSkips } from "@/lib/watch/episodeRuntime";
 
 export type Skip = { start: number; end: number; type: string; pts?: number };
 
-/* La reponse de /api/v2/skip en mode `hosts=1` : le minutage par defaut de la
-   langue, plus celui de chaque hote que notre detecteur a mesure. */
-type SkipResponse = { skips: Skip[]; hosts: Record<string, Skip[]> };
+/* La reponse de /api/v2/skip : le minutage participatif de l'episode. */
+type SkipResponse = { skips: Skip[] };
+
+/* En dessous, aucun bouton « passer » n'a de sens. */
+const MIN_SKIP_S = 5;
+
+/**
+ * Les generiques de NOTRE detecteur pour cet episode sur ce lecteur, ou null.
+ * Ils arrivent avec la saison (/api/v2/runtimes, un appel par anime et par
+ * lecteur que la page fait deja) : aucun appel par episode.
+ */
+async function ownSkips(malId: number, episode: number, server: string): Promise<Skip[] | null> {
+  const row = (await loadHostSkips(malId, server))[episode];
+  if (!row) return null;
+  const [opStart, opEnd, edStart, edEnd, clock] = row;
+  const pts = clock != null ? { pts: clock } : null;
+  const out: Skip[] = [];
+  if (opStart != null && opEnd != null && opEnd - opStart >= MIN_SKIP_S)
+    out.push({ start: opStart, end: opEnd, type: "op", ...pts });
+  if (edStart != null && edEnd != null && edEnd - edStart >= MIN_SKIP_S)
+    out.push({ start: edStart, end: edEnd, type: "ed", ...pts });
+  return out.length ? out.sort((a, b) => a.start - b.start) : null;
+}
 const RESP_MEMO = new Map<string, SkipResponse>();
 const RESP_INFLIGHT = new Map<string, Promise<SkipResponse | null>>();
 
 // Module-level memo so changing servers (which remounts the player and
 // therefore SkipOverlay) doesn't refetch the same episode. The discriminator is
-// the ACTIVE SERVER id when known, else the lang: our own detector now stores
+// the ACTIVE SERVER id when known, else the lang: our own detector stores
 // PER-HOST rows because the OP's absolute start is encode-specific (SnK ep1 OP
 // is 2:02 on sibnet, 2:19 on megaplay), so two servers must not share a cache
-// entry. Falling back to lang keeps the crowdsourced path (server-agnostic)
-// deduped as before.
+// entry.
 export const SKIP_MEMO = new Map<string, Skip[]>();
 export const skipMemoKey = (mal: number, ep: number, disc = "vostfr") =>
   `${mal}:${ep}:${disc}`;
@@ -34,7 +54,8 @@ export const skipMemoKey = (mal: number, ep: number, disc = "vostfr") =>
 const SKIP_INFLIGHT = new Map<string, Promise<Skip[]>>();
 
 /**
- * Fetch AniSkip data for an episode and cache it in SKIP_MEMO. Safe to call
+ * The skips of an episode — our detector's when it has measured this server,
+ * else the crowdsourced ones — cached in SKIP_MEMO. Safe to call
  * eagerly from the watch page the moment malId/episode are known — well before
  * the (dynamically-imported) player and SkipOverlay have mounted — so the data
  * is already warm when the overlay reads it. Returns the kept skips.
@@ -60,17 +81,14 @@ export async function prefetchSkips(
   if (inflight) return inflight;
   const p = (async () => {
     try {
-      const resp = await fetchSkipResponse(
-        malId,
-        episode,
-        aniListId ?? null,
-        lang,
-        opts?.episodeLength,
-      );
-      if (!resp) return [];
-      // The active host's own measurement when we have one, else the language's
-      // default answer — the same arbitration the API used to make per server.
-      const arr = (mapped && resp.hosts[mapped.host]) || resp.skips;
+      // Our own measurement for the active host when we have one; the
+      // crowdsourced route only for episodes the detector has not served.
+      const own = mapped && server ? await ownSkips(malId, episode, server) : null;
+      const arr =
+        own ||
+        (await fetchSkipResponse(malId, episode, aniListId ?? null, lang, opts?.episodeLength))
+          ?.skips;
+      if (!arr) return [];
       SKIP_MEMO.set(key, arr);
       return arr;
     } finally {
@@ -82,13 +100,8 @@ export async function prefetchSkips(
 }
 
 /**
- * ONE request per (episode, language), whatever the number of servers tried.
- *
- * The watch page walks through several `activeServer` values while it loads
- * (order guess, saved preference, confirmation, safety net, auto-fallback), and
- * each used to be its own `?server=` URL — its own CDN entry, its own cold
- * invocation, ~4 per page. The answer for every host of a language now comes
- * back at once, and picking the host's entry is done here.
+ * The crowdsourced answer: ONE request per (episode, language), whatever the
+ * number of servers the watch page walks through while it loads.
  */
 function fetchSkipResponse(
   malId: number,
@@ -108,18 +121,12 @@ function fetchSkipResponse(
       const params = new URLSearchParams();
       if (aniListId) params.set("aniListId", String(aniListId));
       params.set("lang", lang);
-      params.set("hosts", "1");
-      // episodeLength lets the API re-project an ED onto this encode's real
-      // duration (and is required by the AniSkip fallback). 0/absent is fine —
-      // the API then serves the ED in its canonical duration.
+      // AniSkip matches its submissions against the episode length when given.
       if (len) params.set("episodeLength", String(len));
       const res = await fetch(`/api/v2/skip/${malId}/${episode}?${params.toString()}`);
       if (!res.ok) return null;
       const json = await res.json();
-      const resp: SkipResponse = {
-        skips: Array.isArray(json?.skips) ? json.skips : [],
-        hosts: json?.hosts && typeof json.hosts === "object" ? json.hosts : {},
-      };
+      const resp: SkipResponse = { skips: Array.isArray(json?.skips) ? json.skips : [] };
       RESP_MEMO.set(key, resp);
       return resp;
     } catch {

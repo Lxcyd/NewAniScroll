@@ -6,6 +6,48 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-02 — Minutages OP/ED : zero requete Turso par episode
+
+Luc, avant de passer le detecteur v2 sur le catalogue : « eviter de faire 46
+mille appels a la db Turso pour connaitre les timings ».
+
+**Etat trouve.** `/api/v2/skip/{mal}/{ep}` lisait `oped_host_skips` puis
+`oped_skips` a chaque episode ouvert (hors cache CDN, que chaque deploiement
+vide) : deux requetes Turso par episode — pour deux tables VIDES, rien de la v2
+n'ayant ete importe. `oped_skips` est la table reconciliee de la v1, que la v2
+n'ecrira jamais.
+
+**Ce qui est fait.** Les minutages voyagent dans l'appel « saison » que la page
+fait deja pour les durees : `GET /api/v2/runtimes/{mal}?server=` rend en plus
+`skips: { episode: [opDebut, opFin, edDebut, edFin, pts] }` pour ce lecteur.
+Les deux lectures partent dans un seul `db.batch` (`episodeRuntimes.getSeason`).
+Cote client, `prefetchSkips` lit d'abord la saison (`loadHostSkips`, meme memo
+que les durees) ; la route par episode n'est plus appelee que pour un episode
+que le detecteur n'a pas servi, et ne lit plus aucune base (participatif seul).
+Modes `?server=` et `hosts=1` retires : sans effet, les tables etaient vides.
+- Par episode ouvert : 2 requetes Turso -> 0. Par anime et par lecteur : 1 de
+  plus dans une invocation existante, cachee 6 h au CDN. Aucune URL nouvelle.
+- Index `(mal_id, lang, host)` : la cle primaire commence par `(mal_id,
+  episode)`, lire une saison aurait parcouru tous les lecteurs et les deux
+  langues. Turso facture les lignes lues.
+- La garde de peremption (ligne mesuree sur un fichier que l'hote a remplace)
+  etait INERTE dans l'ancienne route, faute de duree envoyee ; elle mord
+  maintenant, la duree rapportee par les lecteurs etant dans le meme lot.
+
+**Base.** Une seule definition de la table (`lib/db/opedHostSkipsSchema.js`,
+site + importeur) ; migration passee sur Turso le 02/10 (`batch_id`,
+`clock_offset`, index), `scripts/oped/migrate-oped-host-skips.mjs`. Table
+toujours VIDE : essai a blanc de l'importeur = 258 lignes, 235 servables.
+
+**PAS importe, et pourquoi.** La base est lue par la prod, dont `SkipOverlay`
+(`main`, 496 commits de retard) ne sait pas convertir l'horloge du fichier
+(`pts`) : ses bornes seraient decalees de 0 a 3 s. L'import se fait avec la
+release, ou sur accord explicite de Luc.
+
+**Reste vrai.** Un deploiement vide le cache du CDN : chaque anime regarde
+relit sa saison une fois apres chaque mise en ligne. Si la mesure montre que ca
+pese, l'etape suivante est un fichier par anime servi hors Vercel.
+
 ## 2026-09-22 (soir) — Synchro du socle : le conflit qui emporte un voisin
 
 Deuxième synchro de `release/socle` dans la journée (PR #20), arrêtée

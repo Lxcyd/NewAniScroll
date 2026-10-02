@@ -1,4 +1,5 @@
 import { getTursoClient, tableEnsurer } from "./turso";
+import { SEASON_SKIPS_SQL, seasonSkipsFromRows, type SeasonSkip } from "./opedHostSkips";
 
 /**
  * episode_runtimes — duree EXACTE d'un episode SUR UN HOTE donne, une ligne par
@@ -96,6 +97,43 @@ export async function getSeasonRuntimes(
     return out;
   } catch {
     return {};
+  }
+}
+
+/**
+ * La saison d'un anime sur UN hote : durees ET minutages OP/ED, en un seul
+ * aller-retour vers Turso. C'est ce qui evite toute lecture par episode — la
+ * page de lecture fait deja cet appel pour afficher les durees.
+ *
+ * Si la table des minutages manque encore (base neuve), le lot echoue en
+ * entier : on retombe sur les durees seules.
+ */
+export async function getSeason(
+  malId: number,
+  lang: string,
+  host: string,
+): Promise<{ runtimes: Record<number, number>; skips: Record<number, SeasonSkip> }> {
+  const db = getTursoClient();
+  if (!db) return { runtimes: {}, skips: {} };
+  await ensureTable();
+  const args = [malId, lang, host];
+  try {
+    const [rt, sk] = await db.batch(
+      [
+        {
+          sql: `SELECT episode, seconds FROM episode_runtimes
+                WHERE mal_id = ? AND lang = ? AND host = ?`,
+          args,
+        },
+        { sql: SEASON_SKIPS_SQL, args },
+      ],
+      "read",
+    );
+    const runtimes: Record<number, number> = {};
+    for (const row of rt.rows) runtimes[Number(row.episode)] = Number(row.seconds);
+    return { runtimes, skips: seasonSkipsFromRows(sk.rows as any[], runtimes) };
+  } catch {
+    return { runtimes: await getSeasonRuntimes(malId, lang, host), skips: {} };
   }
 }
 

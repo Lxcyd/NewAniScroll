@@ -213,10 +213,15 @@ export function queueRuntime(
  * ------------------------------------------------------------------------- */
 
 type HostMap = Record<number, number>;
+/** Les generiques d'un episode : `[opDebut, opFin, edDebut, edFin, pts]`
+ *  (lib/db/opedHostSkips.ts, SeasonSkip). */
+type SkipRow = Array<number | null>;
 
 /** Saisons deja chargees, par (malId, serveur). Memoire de session : la valeur
  *  est deja cachee au CDN, on evite juste le re-fetch au changement d'onglet. */
 const HOST_RUNTIMES = new Map<string, HostMap>();
+/** Les minutages OP/ED arrives dans la MEME reponse (cf. loadHostSkips). */
+const HOST_SKIPS = new Map<string, Record<number, SkipRow>>();
 const HOST_INFLIGHT = new Map<string, Promise<HostMap>>();
 
 const hostKey = (malId: number | string, server: string) => `${malId}@${server}`;
@@ -248,6 +253,8 @@ export function loadHostRuntimes(
         const n = Number(s);
         if (Number.isFinite(n) && n > 60) map[Number(ep)] = n;
       }
+      const skips = json?.skips;
+      HOST_SKIPS.set(key, skips && typeof skips === "object" ? skips : {});
       HOST_RUNTIMES.set(key, map);
       return map;
     } catch {
@@ -258,6 +265,20 @@ export function loadHostRuntimes(
   })();
   HOST_INFLIGHT.set(key, p);
   return p;
+}
+
+/**
+ * Les minutages OP/ED de notre detecteur pour cet anime sur CE lecteur, par
+ * episode. Aucune requete de plus : c'est la reponse de `loadHostRuntimes`,
+ * que la liste d'episodes demande de toute facon. {} si rien n'est connu.
+ */
+export async function loadHostSkips(
+  malId?: number | string | null,
+  server?: string | null,
+): Promise<Record<number, SkipRow>> {
+  if (malId == null || !server) return {};
+  await loadHostRuntimes(malId, server);
+  return HOST_SKIPS.get(hostKey(malId, server)) || {};
 }
 
 /** Duree connue pour cette ligne sur ce lecteur, sans aucune requete. */

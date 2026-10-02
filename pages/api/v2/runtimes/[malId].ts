@@ -1,15 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import {
-  getSeasonRuntimes,
+  getSeason,
   putRuntime,
   isPlausibleRuntime,
 } from "@/lib/db/episodeRuntimes";
 import { serverToHost, isDisplayedHost } from "@/lib/hostRegistry";
 
 /**
- * Durees d'episode PAR LECTEUR.
+ * La SAISON d'un anime sur un lecteur : durees d'episode et minutages OP/ED.
  *
- *   GET  /api/v2/runtimes/{malId}?server={serverId}          -> { host, lang, runtimes }
+ *   GET  /api/v2/runtimes/{malId}?server={serverId}          -> { host, lang, runtimes, skips }
  *   GET  /api/v2/runtimes/{malId}?host={host}&lang={lang}    (idem, sans passer par servers.js)
  *   POST /api/v2/runtimes/{malId}  { episode, seconds, server | host+lang }
  *
@@ -26,6 +26,12 @@ import { serverToHost, isDisplayedHost } from "@/lib/hostRegistry";
  * qu'on n'avait rien), donc un episode stable ne genere aucune ecriture. C'est
  * ce qui repond a « si la video a change / si le timing n'est plus bon » sans
  * re-sonder quoi que ce soit a l'aveugle.
+ *
+ * `skips` : `{ "<episode>": [opDebut, opFin, edDebut, edFin, pts] }`, les
+ * minutages de notre detecteur pour CE lecteur (lib/db/opedHostSkips.ts). Ils
+ * voyagent ici parce que la page fait deja cet appel : les lire a part coutait
+ * deux requetes Turso par episode ouvert (/api/v2/skip, jusqu'au 02/10/2026).
+ * Meme aller-retour vers la base, aucune URL de plus.
  *
  * Zero Upstash des deux cotes.
  */
@@ -100,10 +106,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Un serveur sans hote detecteur n'est pas une erreur : la liste d'episodes
     // retombe simplement sur ses autres sources.
     res.setHeader("Cache-Control", CACHE);
-    return res.status(200).json({ host: null, lang: null, runtimes: {} });
+    return res.status(200).json({ host: null, lang: null, runtimes: {}, skips: {} });
   }
 
-  const runtimes = await getSeasonRuntimes(malId, target.lang, target.host);
+  const { runtimes, skips } = await getSeason(malId, target.lang, target.host);
   res.setHeader("Cache-Control", CACHE);
-  return res.status(200).json({ host: target.host, lang: target.lang, runtimes });
+  return res.status(200).json({ host: target.host, lang: target.lang, runtimes, skips });
 }

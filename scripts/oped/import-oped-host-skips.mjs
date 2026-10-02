@@ -34,6 +34,7 @@ import fs from "node:fs";
 import readline from "node:readline";
 import { createClient } from "@libsql/client";
 import { DISPLAYED_HOSTS } from "../../lib/hostRegistry.js";
+import { migrate } from "../../lib/db/opedHostSkipsSchema.js";
 import { implausibleReason } from "./lib/opedPlausibility.mjs";
 
 const args = Object.fromEntries(
@@ -56,46 +57,6 @@ const BATCH_ID =
 if (!REVERT && !fs.existsSync(IN)) {
   console.error(`[import-host] input not found: ${IN}`);
   process.exit(1);
-}
-
-const CREATE_SQL = `
-CREATE TABLE IF NOT EXISTS oped_host_skips (
-  mal_id             INTEGER NOT NULL,
-  episode            INTEGER NOT NULL,
-  lang               TEXT    NOT NULL,
-  host               TEXT    NOT NULL,
-  op_start           REAL,
-  op_end             REAL,
-  op_votes           INTEGER,
-  ed_start           REAL,
-  ed_end             REAL,
-  ed_from_end_start  REAL,
-  ed_from_end_end    REAL,
-  ed_votes           INTEGER,
-  duration           REAL,
-  source             TEXT    NOT NULL DEFAULT 'audio',
-  confirmed_by_video INTEGER NOT NULL DEFAULT 0,
-  algo_version       INTEGER NOT NULL DEFAULT 1,
-  serve              INTEGER NOT NULL DEFAULT 0,
-  updated_at         INTEGER NOT NULL,
-  batch_id           TEXT,
-  PRIMARY KEY (mal_id, episode, lang, host)
-)`;
-
-/** Migration defensive et idempotente (meme motif que player_map.algo_version). */
-async function ensureBatchColumn(db) {
-  try {
-    await db.execute("ALTER TABLE oped_host_skips ADD COLUMN batch_id TEXT");
-  } catch {
-    /* deja presente */
-  }
-  /* v2 : bornes dans l'horloge du FICHIER + PTS du debut du flux (cf.
-     lib/db/opedHostSkips.ts, clockOffset). Null pour les lignes v1. */
-  try {
-    await db.execute("ALTER TABLE oped_host_skips ADD COLUMN clock_offset REAL");
-  } catch {
-    /* deja presente */
-  }
 }
 
 const allowed = new Set(DISPLAYED_HOSTS);
@@ -242,7 +203,7 @@ if (REVERT) {
     url: process.env.TURSO_DATABASE_URL,
     authToken: process.env.TURSO_AUTH_TOKEN,
   });
-  await ensureBatchColumn(db);
+  await migrate(db);
   const n = await db.execute({
     sql: "select count(*) c from oped_host_skips where batch_id = ?",
     args: [REVERT],
@@ -329,8 +290,7 @@ const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-await db.execute(CREATE_SQL);
-await ensureBatchColumn(db);
+await migrate(db);
 console.log(`[import-host] lot "${BATCH_ID}" — reversible via --revert=${BATCH_ID}`);
 
 let written = 0;
