@@ -35,11 +35,14 @@ def _xcorr(ep: np.ndarray, seg: np.ndarray) -> tuple[int, float]:
     return k, float(cc[k])
 
 
-def refine_offset(src: str, referer, coarse: float, ref: np.ndarray) -> float | None:
+def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None) -> float | None:
     """Temps episode (horloge detecteur) de l'echantillon 0 de la reference,
-    ou None si les tranches ne concordent pas (on garde alors Chromaprint)."""
+    ou None si les tranches ne concordent pas (on garde alors Chromaprint).
+    `starts` : debuts des tranches dans la reference, quand seul un bout de la
+    chanson est propre dans l'episode (cf. decide._tail_fallback)."""
     dur = len(ref) / SR
-    starts = [s for s in (15.0, dur / 2 - PIECE_S / 2, dur - 15.0 - PIECE_S) if 0 <= s and s + PIECE_S <= dur]
+    starts = [s for s in (starts or (15.0, dur / 2 - PIECE_S / 2, dur - 15.0 - PIECE_S))
+              if 0 <= s and s + PIECE_S <= dur]
     found = []
     for s in starts:
         seg = ref[int(s * SR): int((s + PIECE_S) * SR)]

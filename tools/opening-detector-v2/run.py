@@ -25,7 +25,7 @@ from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
 from fetch.episode import CACHE, fingerprint_stream, resolve
 from fp.chroma import decode_file
-from match.audio_edges import mute_end, refine_offset, sound_span
+from match.audio_edges import PIECE_S, mute_end, refine_offset, sound_span
 from match.ber import occurrences
 from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
@@ -122,7 +122,10 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     try:
         # Indice de recherche seulement, et seulement si les images concordent.
         hint = c.img_shift if (c.img or 0.0) >= decide.MIN_IMAGE else 0.0
-        t0 = refine_offset(stream["url"], stream.get("referer"), c.start + hint, pcm)
+        tail_from = getattr(c, "tail_from", 0.0)
+        # Fin seule : les tranches de calage viennent du bout propre.
+        pieces = [tail_from + 1.0, (tail_from + last - PIECE_S) / 2, last - PIECE_S - 1.0] if tail_from else None
+        t0 = refine_offset(stream["url"], stream.get("referer"), c.start + hint, pcm, pieces)
     except Exception:
         t0 = None
     file_start = c.start if t0 is None else t0
@@ -135,7 +138,7 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     mute = None if quiet is None else bool(quiet >= file_start + length)
     # Son de l'episode par-dessus la tete : le debut attend que la chanson soit
     # seule (cf. Candidate.mixed_head). Temps de l'empreinte, donc depuis c.start.
-    mixed = c.mixed_head(lead)
+    mixed = getattr(c, "tail_from", 0.0) or c.mixed_head(lead)
     start = max(first - head, c.start + mixed) if mixed else first - head
     return {"start": start, "end": end, "music": [first, final], "exact": t0 is not None,
             "length": length, "lead": lead, "tail": length - last, "declared": (head, tail), "mute_tail": mute,
@@ -162,11 +165,19 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
     cands: list[decide.Candidate] = []
     for r in refs:
         for o in occurrences(r.fp, efp):
-            if o.coverage >= decide.REPORT_COVERAGE:
-                cands.append(decide.Candidate(r.theme.key, r.theme.kind, r.duration, o))
+            c = decide.Candidate(r.theme.key, r.theme.kind, r.duration, o)
+            # Sous REPORT_COVERAGE aussi quand la fin seule est servable
+            # (Railgun S ep14, ED2 : 48 %).
+            if o.coverage >= decide.REPORT_COVERAGE or c.audio_ok():
+                cands.append(c)
     served = []
     for c in cands:
         if not c.audio_ok():
+            continue
+        # La fin seule ne se sert qu'en fin d'episode : ailleurs, 15 s de
+        # chanson propre sont une musique de scene.
+        if c.tail_from and c.end(dur) < dur - decide.MID_TAIL_S:
+            c.reasons.append("fin_seule_hors_fin_episode")
             continue
         videos = next(r.theme.videos for r in refs if r.theme.key == c.ref)
         try:
@@ -207,7 +218,7 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict) 
                "lead_silence": None if tb["lead"] is None else round(tb["lead"], 3),
                "tail_silence": None if tb["tail"] is None else round(tb["tail"], 3),
                "declared_silence": list(tb["declared"]), "mute_tail": tb["mute_tail"],
-               "mixed_head": round(tb["mixed_head"], 3),
+               "mixed_head": round(tb["mixed_head"], 3), "tail_only": bool(getattr(c, "tail_from", 0.0)),
                "audio_start": round(c.start - clock, 2), "file_end": round(c.end(dur) - clock, 2),
                "music": [round(m - clock, 3) for m in tb["music"]] if tb["music"] else None,
                "source": "v2-audio", "confirmed_by_video": (c.img or 0.0) >= decide.MIN_IMAGE, "serve": True,

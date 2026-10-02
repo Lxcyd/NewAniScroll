@@ -174,6 +174,36 @@ Summer Time Render ep25 ED3 a 11:24, deja rejete au son (couverture 53 %).
 Et le retard de tete ne sert jamais un candidat de plus : il deplace la
 borne d'un generique deja servi, 15 s au plus. megaplay ep6 toujours en 403.
 
+**Fin seule servie (02/10, soir ; Luc : « oui tu sers la fin »).** Railgun S
+ep14 : l'ED2 n'est reconnu qu'a 48 % (dialogue sur ~70 s), donc abstention ;
+mais la chanson est seule sur ses 20 dernieres secondes. Nouveau repli
+`decide._tail_fallback` : la derniere plage propre (<= 6 bits lisses, trous
+<= 1 s combles) doit toucher la fin de la reference et durer >= 15 s ; servi
+seulement si le theme finit dans les 5 dernieres minutes (`fin_seule_hors_
+fin_episode` sinon). `refine_offset` prend ses tranches dans le bout propre.
+Resultat : ep12 ED1 22:51.649 -> 23:30.165 (38,5 s), ep14 ED2 23:09.234 ->
+23:30.463 (21,2 s) ; megaplay ep14 en 403.
+- Le seuil « propre » compte : avec le seuil de concordance ordinaire (10
+  bits), Railgun ep24 (ED3) et Kimetsu ep26 (OP1 sur la scene finale)
+  passaient, a 8-13 bits jusqu'au bout — un son d'episode court SOUS la
+  chanson — et le debut du bout « seul » variait de 10 s d'un lecteur a
+  l'autre. A 6 bits ils restent en abstention.
+- La fin d'une chanson concorde aussi avec un refrain anterieur : alias a
+  19 % sur chaque OP2 de Railgun, et l'ED1v2/ED1v3 de Frieren passe le repli
+  sur chaque ED1. `decide.pick` : un generique reconnu en entier gagne
+  toujours, une fin seule n'entre que si rien n'occupe sa place ni son type.
+- Essai a blanc sur tout le cache (1576 occurrences) : aucune des bornes
+  servies ne change ; nouvelles : Railgun ep12/ep14, et Frieren ep28 VF
+  (ansembed, vidmoly-va : 22:50.7 -> 24:02.5) NON applique, a decider.
+
+**References qui contiennent du dialogue (a trancher).** AnimeThemes marque
+`overlap` = Transition / Over sur les videos ; on le lit sans s'en servir.
+Railgun ED2 (ep11) et ED4 (ep23), Frieren ED1v3 (ep28) : la reference est
+l'extrait de l'episode, voix comprises, donc `mixed_head` ne voit rien et
+l'ED est servi des la premiere note. Pour Frieren il existe une version
+PROPRE de la meme chanson (ED1) : contre elle, l'ep28 est recouvert 18,2 s
+puis seul. Pas pour Railgun ED2/ED4.
+
 **Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
 autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
 episodes, cache chaud), megaplay a 1 fil ensuite. 375 bornes (373 avant),

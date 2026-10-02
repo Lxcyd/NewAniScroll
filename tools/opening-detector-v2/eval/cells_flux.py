@@ -62,7 +62,10 @@ def build(batch: list[dict], anime: dict[int, dict], strips: Path | None = None)
                                 f" puis {end - (m[1] + off):.2f} s de silence)")
                     else:
                         txt += " · de la première à la dernière note"
-                    if hit.get("mixed_head"):
+                    if hit.get("tail_only"):
+                        txt += (f" · fin seule servie : l'épisode recouvre la chanson jusque-là"
+                                f" (première note à {mmss(hit['music'][0] + off)})")
+                    elif hit.get("mixed_head"):
                         txt += (f" · début retardé de {hit['mixed_head']:.1f} s : le son de l'épisode recouvre"
                                 f" la chanson jusque-là (première note à {mmss(hit['music'][0] + off)})")
                     if not hit.get("audio_exact"):
