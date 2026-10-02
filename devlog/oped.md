@@ -108,6 +108,15 @@ la coupe. Propose : caler la fin sur la coupe dans ce seul cas. Reponse de
 Luc : « rester au son ». Rien n'est change ; l'ecart de 0 a 3 images est connu
 et assume. Ne pas reproposer.
 
+**Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
+autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
+episodes, cache chaud), megaplay a 1 fil ensuite. 375 bornes (373 avant),
+toutes calees au son, 0 perdue ; 323 vont au bout du theme, 52 restent a la
+derniere note (son juste apres). megaplay Railgun S : encore des 403 — 8
+episodes recalcules, 7 gardent l'ancienne borne (derniere note), 9 toujours
+sans ligne. Planches : 365 sur 375 (les 10 manquantes = ces megaplay Railgun).
+Page version 12.
+
 **Toujours ouvert** : l'horloge du lecteur sur ansembed (mesuree sur l'image,
 pas sur le son) ; megaplay a 15 episodes sur 24 de Railgun S.
 
