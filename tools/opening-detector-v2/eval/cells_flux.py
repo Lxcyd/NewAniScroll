@@ -56,6 +56,10 @@ def build(batch: list[dict], anime: dict[int, dict], strips: Path | None = None)
                         m = hit["music"]
                         txt += (f" · de la première note à la fin du thème (dernière note à {mmss(m[1] + off)},"
                                 f" puis {end - (m[1] + off):.2f} s de carton muet)")
+                    elif end - (hit["music"][1] + off) >= 0.05:
+                        m = hit["music"]
+                        txt += (f" · de la première note au retour du son (dernière note à {mmss(m[1] + off)},"
+                                f" puis {end - (m[1] + off):.2f} s de silence)")
                     else:
                         txt += " · de la première à la dernière note"
                     if not hit.get("audio_exact"):

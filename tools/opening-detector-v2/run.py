@@ -25,7 +25,7 @@ from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
 from fetch.episode import CACHE, fingerprint_stream, resolve
 from fp.chroma import decode_file
-from match.audio_edges import refine_offset, sound_span, tail_is_mute
+from match.audio_edges import mute_end, refine_offset, sound_span
 from match.ber import occurrences
 from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
@@ -131,8 +131,11 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme) -> dict:
     file_start = c.start if t0 is None else t0
     first, final = file_start + lead, file_start + last
     head, tail = declared_silence(theme.key)
-    mute = None if t0 is None else tail_is_mute(stream["url"], stream.get("referer"), final, file_start + length)
-    end = final + tail if tail else (file_start + length if mute else final)
+    quiet = None if t0 is None else mute_end(stream["url"], stream.get("referer"), final, file_start + length)
+    end = final + tail if tail else (quiet or final)
+    # mute_tail : l'episode est muet jusqu'au BOUT du fichier (la fin peut
+    # aussi s'arreter avant, au retour du son : cf. mute_end).
+    mute = None if quiet is None else bool(quiet >= file_start + length)
     return {"start": first - head, "end": end, "music": [first, final], "exact": t0 is not None,
             "length": length, "lead": lead, "tail": length - last, "declared": (head, tail), "mute_tail": mute}
 

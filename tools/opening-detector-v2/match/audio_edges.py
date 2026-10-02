@@ -80,16 +80,24 @@ MUTE_WIN_S = 0.05
 # sound_span : SnK ep25 VF ansembed, 13 % puis 11 % du corps, puis plus rien.
 # Une scene qui reprend, elle, depasse largement.
 MUTE_PEAK = 0.25
+# Vrai silence de l'episode : 0 a 3 % du corps (SnK OP1, Kimetsu OP1/ED1).
+MUTE_FLOOR = 0.03
 
 
-def tail_is_mute(src: str, referer, final: float, file_end: float) -> bool | None:
-    """L'episode est-il MUET de la derniere note a la fin du fichier de
-    reference ? Alors cette queue fait partie du generique : le dernier carton
-    reste a l'ecran sans musique (SnK OP1, 1,13 s — Luc, 02/10/2026 : « on n'a
-    pas les 1:31 d'OP, on coupe trop tot »). S'il y a du son, c'est la scene
-    suivante et la borne reste a la derniere note. None : pas pu decoder."""
+def mute_end(src: str, referer, final: float, file_end: float) -> float | None:
+    """Jusqu'ou l'episode reste MUET apres la derniere note, sans depasser la
+    fin du fichier de reference. Cette queue muette fait partie du generique :
+    le dernier carton reste a l'ecran sans musique (SnK OP1, 1,13 s — Luc,
+    02/10/2026 : « on n'a pas les 1:31 d'OP, on coupe trop tot »).
+
+    Muet jusqu'au bout : fin du fichier. Sinon, l'instant ou le son REVIENT
+    apres un vrai silence : c'est la scene suivante. Tout-ou-rien avant le
+    02/10 : Kimetsu OP1, queue de 2,42 s, le son revient a 1,4 s (ep1) ou 1,8 s
+    (ep2) — la borne retombait sur la derniere note, 87,87 s d'OP contre 90,28
+    a l'ep3 ; ED1, 4,6 s de silence sur 5,12 perdues de meme. Sans vrai
+    silence, la borne reste a la derniere note. None : pas pu decoder."""
     if file_end - final < MUTE_WIN_S:
-        return False
+        return final
     for lead in MUTE_BODY_S:
         try:
             pcm, a0 = decode_audio_abs(src, final - lead, file_end - final + lead,
@@ -110,7 +118,20 @@ def tail_is_mute(src: str, referer, final: float, file_end: float) -> bool | Non
     if not len(body) or not len(tail) or np.median(body) <= 0:
         return None
     rel = tail / np.median(body)
-    return bool(np.percentile(rel, 90) <= SOUND_REL and rel.max() <= MUTE_PEAK)
+    if np.percentile(rel, 90) <= SOUND_REL and rel.max() <= MUTE_PEAK:
+        return file_end
+    quiet = np.flatnonzero(rel <= MUTE_FLOOR)
+    if not len(quiet):
+        return final
+    back = np.flatnonzero(rel[quiet[0]:] > SOUND_REL)
+    if not len(back):
+        return file_end
+    # Remonter la montee du son jusqu'au silence : un fondu d'entree met
+    # 0,2 s a passer le seuil (Kimetsu ep1 : 3, 7, 12, 18, 35 % par 0,1 s).
+    k = int(quiet[0] + back[0])
+    while rel[k - 1] > MUTE_FLOOR:
+        k -= 1
+    return final + k * w / SR
 
 
 def sound_span(ref: np.ndarray) -> tuple[float, float]:

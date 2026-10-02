@@ -108,6 +108,25 @@ la coupe. Propose : caler la fin sur la coupe dans ce seul cas. Reponse de
 Luc : « rester au son ». Rien n'est change ; l'ecart de 0 a 3 images est connu
 et assume. Ne pas reproposer.
 
+**Fin au retour du son (02/10, Kimetsu) : la queue muette n'etait prise qu'en
+tout-ou-rien.** Luc, sur la page : « le bout de la musique de cet opening est
+silencieux et ici le silence de fin n'est pas pris pareil : 1:28 alors que
+l'OP fait 1:30 ». Verifie : OP1 = 87,87 s aux ep. 1 et 2, 90,28 s a l'ep. 3.
+`tail_is_mute` exigeait le silence jusqu'au BOUT du fichier de reference
+(queue de 2,42 s) ; or le son de la scene suivante revient a 1,45 s (ep1) et
+1,80 s (ep2) de la derniere note, donc la borne retombait sur la derniere
+note. Pire pour l'ED1 : 4,5 s de silence sur 5,12 de queue, toutes perdues
+(85,32 s). Regle (`audio_edges.mute_end`, remplace `tail_is_mute`) : muet
+jusqu'au bout -> fin du fichier, comme avant ; sinon la fin est l'instant ou
+le son REVIENT apres un vrai silence (<= 3 % du corps), en remontant la
+montee du fondu ; sans vrai silence, derniere note. Kimetsu relance seul
+(35 bornes, debuts inchanges au ms) : OP1 = 89,32 / 89,67 / 90,28 s (ep 1 / 2
+/ 3), ED1 = 89,7-89,8 s partout. Sur la planche de l'ED ep2 la fin tombe sur
+la premiere image du volet de transition. L'ep3 reste a 90,28 : la scene
+suivante y entre a 7 % du niveau, sous le seuil, donc « muet jusqu'au bout ».
+Les 9 autres animes de la page n'ont PAS ete relances avec cette regle ; SnK
+ne change pas par construction (49/49 muets jusqu'au bout).
+
 **Lot complet relance le 02/10 (apres-midi)** avec la regle de queue : les 8
 autres animes de gt10 + Railgun S (24 ep), lecteurs FR a 3 fils (12 min pour 52
 episodes, cache chaud), megaplay a 1 fil ensuite. 375 bornes (373 avant),
