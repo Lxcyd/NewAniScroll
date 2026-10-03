@@ -30,7 +30,7 @@ from fetch import SAMPLE_RATE, stats
 from fetch.clock import stream_origin
 from fetch.episode import CACHE, GUIDE_GUARD_S, cached_windows, fingerprint_stream, resolve
 from fp.chroma import decode_file
-from match.audio_edges import PIECE_S, mute_end, refine_offset, sound_span
+from match.audio_edges import PIECE_S, mute_end, refine, sound_span
 from match.image import MATCH_NCC, SHIFT_MAX_S, best_shift, compare, episode_frames, ref_frames
 from refs.animethemes import download
 from refs.bank import load
@@ -38,7 +38,10 @@ from refs.bank import load
 # v2 ; la v1 est en 1-2. 101 (02/10/2026) : son seul, queue muette jusqu'au
 # retour du son, tete recouverte, fin seule, references avec dialogue.
 # 102 (03/10/2026) : calage confirme par l'enveloppe quand le mixage differe.
-ALGO_VERSION = 102
+# 103 (03/10/2026) : l'enveloppe fait foi quand la forme d'onde est trop faible
+# pour situer, et vitesse estimee quand les trois tranches derivent sur une
+# droite (doublage accelere 1000/1001).
+ALGO_VERSION = 103
 _write = threading.Lock()
 RETRY_DELAY_S = 15
 # --hosts : ne repasser que ces lecteurs (megaplay ecarte d'un lot par des 403
@@ -124,13 +127,14 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme, src=None) -> dict:
     pieces = ([c.tail_from + 1.0, (c.tail_from + last - PIECE_S) / 2, last - PIECE_S - 1.0]
               if c.tail_from else None)
     try:
-        t0 = refine_offset(src, referer, c.start, pcm, pieces)
+        t0, rate = refine(src, referer, c.start, pcm, pieces) or (None, 1.0)
     except Exception:
-        t0 = None
+        t0, rate = None, 1.0
     file_start = c.start if t0 is None else t0
-    first, final = file_start + lead, file_start + last
+    # Positions de la reference ramenees au temps episode (vitesse != 1 : cf. RATE_MAX).
+    first, final = file_start + lead * rate, file_start + last * rate
     head, tail = declared_silence(theme.key)
-    quiet = None if t0 is None else mute_end(src, referer, final, file_start + length, env)
+    quiet = None if t0 is None else mute_end(src, referer, final, file_start + length * rate, env)
     end = final + tail if tail else (quiet or final)
     # Temps de l'empreinte, donc compte depuis c.start et non file_start.
     cut = c.head_cut(lead)
@@ -138,7 +142,7 @@ def theme_bounds(stream: dict, c: decide.Candidate, theme, src=None) -> dict:
     return {"start": start, "end": end, "music": [first, final], "exact": t0 is not None,
             "length": length, "lead": lead, "tail": length - last, "declared": (head, tail),
             # L'episode est muet jusqu'au BOUT du fichier de reference.
-            "mute_tail": None if quiet is None else bool(quiet >= file_start + length),
+            "mute_tail": None if quiet is None else bool(quiet >= file_start + length * rate),
             "head_cut": float(start - (first - head)), "env": env}
 
 

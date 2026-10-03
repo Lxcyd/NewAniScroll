@@ -22,13 +22,14 @@ SEARCH_S = 3.0         # autour du calage grossier (Chromaprint corrige par l'im
 # Railgun S ep1 frembed : Chromaprint a 2,2 s de la chanson (22:15.49 contre
 # 22:17.693, 8 tranches a 1 ms pres).
 MIN_CORR = 0.30        # correlation normalisee minimale d'une tranche
-# Meme chanson, autre MIXAGE (Naruto, ED : la version de l'episode n'est pas
-# celle d'AnimeThemes) : la forme d'onde tombe au bon endroit sur les trois
-# tranches, a 6 ms pres, mais ne ressemble qu'a 0,16-0,34 ; l'enveloppe (valeur
-# absolue lissee 5 ms) ressemble a 0,60-0,95 et donne la meme position. Faute
-# de calage, l'empreinte placait l'ED 0,41 s trop tard (Luc, 03/10/2026 :
-# « l'ED debut a 0,5 s pres »). Une tranche faible est donc gardee quand
-# l'enveloppe confirme sa position ; la position reste celle de la forme d'onde.
+# Meme chanson, autre MIXAGE (Naruto, ED : version TV dans l'episode, autre
+# version chez AnimeThemes) : la forme d'onde tombe au bon endroit sur les
+# trois tranches, a 6 ms pres, mais ne ressemble qu'a 0,16-0,34 ; l'enveloppe
+# (valeur absolue lissee 5 ms) ressemble a 0,60-0,95 et donne la meme position.
+# Faute de calage, l'empreinte placait l'ED 0,41 s trop tard (Luc, 03/10/2026 :
+# « l'ED debut a 0,5 s pres »). Une tranche faible est donc gardee si
+# l'enveloppe ressemble ; la position reste celle de la forme d'onde si
+# l'enveloppe la confirme a ENV_AGREE_S, sinon c'est celle de l'enveloppe.
 WEAK_CORR = 0.10
 ENV_CORR = 0.50
 ENV_AGREE_S = 0.01
@@ -61,15 +62,30 @@ def _envelope(a: np.ndarray) -> np.ndarray:
     return e - e.mean()
 
 
+# Meme chanson, autre VITESSE (FMAB VF, OP1/ED1 : 0,1 % plus rapide, transfert
+# 23,976 -> 24 i/s) : chaque tranche cale nettement mais leurs positions
+# derivent de ~25 ms d'une tranche a l'autre et ne concordent plus a AGREE_S.
+# Les trois tranches sur une meme droite donnent debut ET vitesse ; deux points
+# feraient toujours une droite, d'ou les trois exiges.
+RATE_MAX = 0.005
+RATE_FIT_S = 0.01
+
+
 def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None) -> float | None:
-    """Temps episode (horloge detecteur) de l'echantillon 0 de la reference,
-    ou None si les tranches ne concordent pas (on garde alors Chromaprint).
+    r = refine(src, referer, coarse, ref, starts)
+    return None if r is None else r[0]
+
+
+def refine(src: str, referer, coarse: float, ref: np.ndarray, starts=None) -> tuple[float, float] | None:
+    """(t0, vitesse) : temps episode (horloge detecteur) de l'echantillon 0 de
+    la reference, et duree episode d'une seconde de reference ; None si les
+    tranches ne concordent pas (on garde alors Chromaprint).
     `starts` : debuts des tranches dans la reference, quand seul un bout de la
     chanson est propre dans l'episode (cf. decide._tail_fallback)."""
     dur = len(ref) / SR
     starts = [s for s in (starts or (15.0, dur / 2 - PIECE_S / 2, dur - 15.0 - PIECE_S))
               if 0 <= s and s + PIECE_S <= dur]
-    found = []
+    found, at = [], []
     for s in starts:
         seg = ref[int(s * SR): int((s + PIECE_S) * SR)]
         if seg.std() < 1e-4:
@@ -89,18 +105,32 @@ def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None
         if len(pcm) < len(seg):
             continue
         k, corr = _xcorr(pcm, seg)
-        if corr < WEAK_CORR:
-            continue
-        if corr < MIN_CORR:
+        if corr < MIN_CORR and corr >= WEAK_CORR:
             k2, c2 = _xcorr(_envelope(pcm), _envelope(seg))
-            if c2 < ENV_CORR or abs(k2 - k) > ENV_AGREE_S * SR:
+            if c2 < ENV_CORR:
                 continue
+            if abs(k2 - k) > ENV_AGREE_S * SR:
+                # Forme d'onde trop faible pour situer (FMAB VF OP1 : 0,15,
+                # a 15-33 ms de l'enveloppe a 0,8) : l'enveloppe fait foi, la
+                # concordance entre tranches reste le garde-fou.
+                k = k2
+        elif corr < MIN_CORR:
+            continue
         found.append(a0 + k / SR - s)
+        at.append(s)
     if len(found) < 2:
         return None
     med = float(np.median(found))
     agree = [x for x in found if abs(x - med) <= AGREE_S]
-    return med if len(agree) >= 2 else None
+    if len(agree) >= 2:
+        return med, 1.0
+    if len(found) < 3:
+        return None
+    s, p = np.array(at), np.array(found) + np.array(at)
+    rate, t0 = np.polyfit(s, p, 1)
+    if abs(rate - 1) > RATE_MAX or np.abs(p - (t0 + rate * s)).max() > RATE_FIT_S:
+        return None
+    return float(t0), float(rate)
 
 
 # Corps de chanson qui donne le niveau de reference de l'episode. Plusieurs
