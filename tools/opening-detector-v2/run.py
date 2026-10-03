@@ -191,7 +191,10 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict, 
         kinds = {c.kind for c in heard}
         if level == "guide" and set(plan["kinds"]) <= kinds:
             break
-        if level == "tete_fin" and ("op" in kinds or not has_op):
+        # Aucune trace d'aucun theme en tete ni en fin, meme partielle : fichier
+        # sans generique (Hunter x Hunter chez ansembed et vidmoly-va, 1 min plus
+        # court que chez megaplay) ; le telecharger en entier ne trouverait rien.
+        if level == "tete_fin" and ("op" in kinds or not has_op or not cands):
             break
     steps["niveau"] = level
     steps["empreinte_s"], steps["empreinte_en_cache"] = time.perf_counter() - t, cached
