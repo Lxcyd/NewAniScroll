@@ -3352,3 +3352,8 @@ Flou réglable dans Paramètres du lecteur (ligne « Flou », 0-100 px, `ambient
 **8 px par défaut**. `saturate` suit le flou (1 → 1,8 à 94 px) : sur-saturer un halo presque net
 casserait la continuité au bord du lecteur. Pourquoi l'ancienne copie unique ne pouvait pas descendre
 en flou : au bord du lecteur elle montre l'image à 1/1,3 de sa position → cassure nette.
+
+Même jour, retouches : le curseur quitte le menu du lecteur pour **Paramètres › Lecteur vidéo**
+(sous l'économie de données), défaut **20 px** au lieu de 8 — à 8 px on voit les traînées radiales
+du bord, c'est le rendu brut du procédé, pas celui de la capture de référence qui est floutée.
+Fondu extérieur en courbe (0,45 aux deux tiers de la bande) au lieu d'une rampe linéaire.

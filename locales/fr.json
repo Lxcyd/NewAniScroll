@@ -223,6 +223,8 @@
       "serverPerfResetDesc": "Scores appris sur cet appareil. Réinitialiser fait revenir à l'ordre par défaut.",
       "serverPerfNone": "Aucune mesure pour l'instant",
       "serverPerfResetBtn": "Réinitialiser",
+      "ambientBlur": "Flou de la lumière d'ambiance",
+      "ambientBlurDesc": "Adoucit la lumière qui prolonge l'image autour du lecteur. À 0, l'image continue nette, en traînées ; plus haut, elle se fond en halo.",
       "seekStep": "Pas d’avance / recul",
       "seekStepDesc": "De combien de secondes les raccourcis avancent ou reculent. Le nombre s’affiche sur les touches du clavier des raccourcis."
     },
@@ -538,7 +540,6 @@
     "subsNoneDub": "Cette version (VF) n'a pas de sous-titres.",
     "track": "Piste {{n}}",
     "ambientLights": "Lumières d'ambiance",
-    "ambientBlur": "Flou",
     "automation": "Automatisation",
     "autoSkipIntro": "Passer l'intro auto",
     "autoSkipOutro": "Passer l'outro auto",

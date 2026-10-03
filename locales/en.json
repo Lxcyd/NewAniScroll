@@ -223,6 +223,8 @@
       "serverPerfResetDesc": "Scores learned on this device. Reset to fall back to the default order.",
       "serverPerfNone": "Nothing measured yet",
       "serverPerfResetBtn": "Reset",
+      "ambientBlur": "Ambient light blur",
+      "ambientBlurDesc": "Softens the light that extends the picture around the player. At 0 the picture continues sharp, in streaks; higher, it melts into a glow.",
       "seekStep": "Seek step",
       "seekStepDesc": "How many seconds the forward / backward shortcuts jump. The number is shown on those keys in the shortcut keyboard."
     },
@@ -538,7 +540,6 @@
     "subsNoneDub": "This (dubbed) version has no subtitles.",
     "track": "Track {{n}}",
     "ambientLights": "Ambient lights",
-    "ambientBlur": "Blur",
     "automation": "Automation",
     "autoSkipIntro": "Auto-skip intro",
     "autoSkipOutro": "Auto-skip outro",

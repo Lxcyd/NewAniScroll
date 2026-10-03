@@ -21,6 +21,7 @@ import {
   SEEK_STEP_MAX,
 } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
+import { useWatchProvider } from "@/lib/context/watchPageProvider";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useBadgePrefs, setBadgeFx } from "@/lib/prefs/badgePrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
@@ -371,6 +372,7 @@ export default function Settings() {
   const syncPrefs = useSyncPrefs();
   const playerPrefs = usePlayerPrefs();
   const dataSaver = useDataSaver();
+  const { ambientBlur, setAmbientBlur } = useWatchProvider();
   const notifPrefs = useNotifPrefs();
   const badgePrefs = useBadgePrefs();
   const clickTarget = useClickTarget();
@@ -998,6 +1000,32 @@ export default function Settings() {
                 checked={dataSaver}
                 onChange={setDataSaver}
               />
+              {/* Flou de la lumiere d'ambiance. Le contexte du lecteur vit dans
+                  _app : le lecteur relit la valeur sans recharger. */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t("settings.player.ambientBlur")}
+                  </div>
+                  <div className="text-white/50 text-xs mt-0.5">
+                    {t("settings.player.ambientBlurDesc")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={ambientBlur}
+                    onChange={(e) => setAmbientBlur(e.target.value)}
+                    className="w-32 accent-action cursor-pointer"
+                  />
+                  <span className="text-sm tabular-nums text-white/80 w-12 text-right">
+                    {ambientBlur}px
+                  </span>
+                </div>
+              </div>
               {/* Le pas des raccourcis avancer / reculer. Pose juste au-dessus
                   du bouton du clavier : c'est le meme sujet, et le nombre
                   choisi ici s'affiche sur les deux touches correspondantes de

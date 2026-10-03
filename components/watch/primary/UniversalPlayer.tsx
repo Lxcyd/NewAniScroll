@@ -831,8 +831,12 @@ function LiveAmbient({
   // Bord du lecteur, en % du calque : la lumiere y est pleine, et s'eteint
   // jusqu'au bord exterieur.
   const edge = (((SPREAD - 1) / 2 / SPREAD) * 100).toFixed(2);
+  // Extinction en courbe et non en droite : pleine au bord du lecteur, deja a
+  // moitie a un tiers de la bande. Une rampe lineaire laissait les trainees du
+  // bord presque intactes jusqu'au haut de la page.
+  const e = +edge;
   const fade = (dir: string) =>
-    `linear-gradient(${dir}, transparent, #000 ${edge}%, #000 ${100 - +edge}%, transparent)`;
+    `linear-gradient(${dir}, transparent, rgba(0,0,0,.12) ${(e * 0.35).toFixed(2)}%, rgba(0,0,0,.45) ${(e * 0.7).toFixed(2)}%, #000 ${e}%, #000 ${100 - e}%, rgba(0,0,0,.45) ${(100 - e * 0.7).toFixed(2)}%, rgba(0,0,0,.12) ${(100 - e * 0.35).toFixed(2)}%, transparent)`;
   const mask = `${fade("to right")}, ${fade("to bottom")}`;
   return (
     <div
@@ -1559,57 +1563,6 @@ function SettingsToggleRow({
             transition: "left 120ms ease",
           }}
         />
-      </span>
-    </div>
-  );
-}
-
-// Slider row, same chrome as the toggle rows. Pointer and key events stop here:
-// Vidstack's menu would otherwise read the arrows as menu navigation and a
-// click as "close".
-function SettingsSliderRow({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-  iconPath,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (next: number) => void;
-  iconPath: string;
-}) {
-  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
-  return (
-    <div
-      className="vds-menu-button as-menu-row"
-      style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}
-      onClick={stop}
-      onPointerDown={stop}
-      onKeyDown={stop}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        style={{ width: 22, height: 22, marginRight: -2, flexShrink: 0 }}
-      >
-        <path d={iconPath} />
-      </svg>
-      <span>{label}</span>
-      <input
-        type="range"
-        aria-label={label}
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{ flex: 1, minWidth: 0, accentColor: "#E94560", cursor: "pointer" }}
-      />
-      <span style={{ width: 40, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-        {value}px
       </span>
     </div>
   );
@@ -2812,8 +2765,7 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 8;
-  const setAmbientBlurCtx: (v: number) => void = watchCtx.setAmbientBlur || (() => {});
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 20;
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
@@ -7228,17 +7180,6 @@ export default function UniversalPlayer({
               // Material "lightbulb_outline" icon.
               iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
             />
-            {ctxAmbient && (
-              <SettingsSliderRow
-                label={t("player.ambientBlur")}
-                value={ctxAmbientBlur}
-                min={0}
-                max={100}
-                onChange={setAmbientBlurCtx}
-                // Material "blur_on" icon (simplified dots).
-                iconPath="M6 13c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm4 4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 8c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm4-8c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm4-3.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"
-              />
-            )}
             {/* Drill-in to the player automation toggles (autoplay, auto-skip
                 intro/outro, auto next episode). Grouped to keep the main menu
                 compact. */}
