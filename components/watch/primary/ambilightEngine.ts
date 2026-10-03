@@ -26,14 +26,17 @@ import {
 const INNER_STRENGTH = 2;
 
 /** Leurs reglages par defaut (settings-config.js), ceux que lisent les
- *  projecteurs et ce fichier — SAUF `resolution` et `spread`, recopies du
- *  panneau de l'extension de Luc le 03/10 (defauts : 100 et 17). Le flou
- *  (5) vient des preferences du site. */
+ *  projecteurs et ce fichier — SAUF `resolution`, `spread` et `edge`, repris
+ *  de l'export des reglages de l'extension de Luc le 03/10 (defauts : 100, 17
+ *  et 12). `edge` est un reglage avance, masque dans leur panneau mais actif :
+ *  a 2, chaque anneau ne montre qu'un liseré du bord et la lumiere s'etire en
+ *  trainees continues ; a 12 elle montrait une copie agrandie de l'image. Le
+ *  flou (5) vient des preferences du site. */
 const DEFAULT_SETTINGS = {
   webGL: true,
   resolution: 400,
   blur2: 30,
-  edge: 12,
+  edge: 2,
   spread: 100,
   spreadFadeStart: 15,
   spreadFadeCurve: 35,

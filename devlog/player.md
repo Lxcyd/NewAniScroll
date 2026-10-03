@@ -3416,3 +3416,9 @@ Neuvième point, annulé : le défaut à 30 (`5465a4b8`) est revenu à 5 — l'e
 à 5 %. Moteur, géométrie, tampon, shader et chemin de dessin relus contre `ambientlight.js` : identiques.
 L'écart restant doit venir des réglages avancés de son extension (masqués, mais actifs même mode
 avancé coupé) — export de ses réglages demandé.
+
+Dixième point, la cause : export des réglages de l'extension de Luc → **`edge` 2** (défaut 12),
+réglage avancé masqué mais actif. Pas de 2 % entre niveaux : 53 anneaux au lieu de 11, chacun ne
+montre qu'un liseré du bord → la lumière s'étire en traînées continues (le cimier du chevalier monte
+dans l'en-tête), au lieu d'une copie agrandie de l'image. Le reste de l'export (`headerShadowSize`,
+`headerImagesOpacity`, `videoShadowSize`, `theme`) ne touche que la page YouTube.
