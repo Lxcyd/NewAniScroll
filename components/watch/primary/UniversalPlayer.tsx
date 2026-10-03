@@ -643,9 +643,15 @@ const memoWrite = (path: string, lit: boolean) => {
    (WesselKroos/youtube-ambilight, licence MIT — settings-config.js). La
    geometrie, l'ombre et le flou ci-dessous en suivent les formules, reecrites
    en Canvas 2D (voir LiveAmbient). */
-const AL_EDGE = 12; // % d'agrandissement d'une copie a la suivante
-const AL_SPREAD = 17; // % de debord
-const AL_INNER = 2; // copies plus petites que le lecteur (innerStrength)
+/** Debord total, en part de la largeur du lecteur (leur `spread` 17 au pas
+ *  `edge` minimal de 2 : 9 crans de 2 % = 18 %). */
+const AL_SPREAD = 0.18;
+/** 2^7 = 128 copies emboitees : l'anneau visible de chacune ne montre plus
+ *  qu'environ 1 px du bord de l'image — chaque point du halo prend la couleur
+ *  du bord dans sa direction, en trainees continues. Avec 2 a 32 copies, chaque
+ *  anneau montrait une bande d'image : deuxieme image visible (sous-titre
+ *  recopie sous le lecteur) ou marches en escalier. */
+const AL_COPIES_LOG2 = 7;
 const AL_FADE_START = 15; // % de la bande laisse plein contre le lecteur
 const AL_FADE_CURVE = 35;
 
@@ -653,8 +659,8 @@ type AmbientLayout = {
   key: string;
   /** Taille de l'image source reduite (leur « projector size »). */
   p: { w: number; h: number };
-  /** Echelles des copies, de la plus grande a la plus petite. */
-  scales: { x: number; y: number }[];
+  /** Rapport d'echelle entre deux copies voisines. */
+  f: { x: number; y: number };
   last: { x: number; y: number };
   W: number;
   H: number;
@@ -672,24 +678,15 @@ function ambientLayout(vw: number, vh: number, blur: number): AmbientLayout {
     Math.min(1024 / vw, 1024 / vh),
   );
   const p = { w: Math.ceil(vw * pScale), h: Math.ceil(vh * pScale) };
-  // Le pas vertical est multiplie par le rapport largeur/hauteur : le debord
-  // fait le meme nombre de pixels sur les quatre cotes.
+  // Le debord vertical est multiplie par le rapport largeur/hauteur : il fait
+  // le meme nombre de pixels sur les quatre cotes.
   const ratio = p.w > p.h ? { x: 1, y: p.w / p.h } : { x: p.h / p.w, y: 1 };
-  const levels = Math.max(2, Math.round(AL_SPREAD / AL_EDGE) + AL_INNER + 1);
-  const step = AL_EDGE / 100;
-  const scales: { x: number; y: number }[] = [];
-  for (let i = 0; i < levels; i++) {
-    const pos = i - AL_INNER;
-    scales.push({
-      x: Math.max(1 / p.w, 1 + step * ratio.x * pos),
-      y: Math.max(1 / p.h, 1 + step * ratio.y * pos),
-    });
-  }
-  const last = scales[levels - 1];
+  const last = { x: 1 + AL_SPREAD * ratio.x, y: 1 + AL_SPREAD * ratio.y };
+  const n = 2 ** AL_COPIES_LOG2;
   return {
     key: `${p.w}x${p.h}|${blur}`,
     p,
-    scales: scales.reverse(),
+    f: { x: Math.pow(last.x, 1 / n), y: Math.pow(last.y, 1 / n) },
     last,
     W: Math.floor(p.w * last.x),
     H: Math.floor(p.h * last.y),
@@ -756,6 +753,9 @@ function LiveAmbient({
     shadow.height = SHADOW_SIZE;
     const sctx = source.getContext("2d");
     const shctx = shadow.getContext("2d");
+    // Les deux tampons du doublement (voir `paint`).
+    let ping = document.createElement("canvas");
+    let pong = document.createElement("canvas");
 
     let raf = 0;
     let lastFrameTime = -1;
@@ -788,10 +788,9 @@ function LiveAmbient({
     /* Une image -> la lumiere, etape par etape comme l'extension :
        1. l'image reduite a `p` (leur texture mipmappee : un seul
           sous-echantillonnage de qualite, tout part ensuite de ce petit canvas) ;
-       2. les copies emboitees, de la plus grande a la plus petite — de chaque
-          copie ne reste visible que l'anneau qui depasse de la suivante. Leur
-          shader choisit la copie par anneau rectangulaire : c'est exactement
-          cette superposition ;
+       2. les copies emboitees — de chaque copie ne reste visible que l'anneau
+          qui depasse de la suivante. Leur shader choisit la copie par anneau
+          rectangulaire : c'est cette superposition, en 128 copies ;
        3. l'ombre, retiree en `destination-out` ;
        4. le flou, en CSS sur le canvas — meme rayon a l'ecran que le leur
           (flou x 1,275 x hauteur du lecteur / 512). */
@@ -807,6 +806,8 @@ function LiveAmbient({
         source.height = next.p.h;
         glow.width = next.W;
         glow.height = next.H;
+        ping.width = pong.width = next.W;
+        ping.height = pong.height = next.H;
         drawAmbientShadow(shctx, SHADOW_SIZE, next.last);
       }
       const L = layout;
@@ -827,15 +828,40 @@ function LiveAmbient({
         sctx.imageSmoothingQuality = "high";
         sctx.drawImage(src, 0, 0, L.p.w, L.p.h);
 
-        gctx.globalCompositeOperation = "source-over";
-        gctx.imageSmoothingEnabled = true;
-        gctx.imageSmoothingQuality = "high";
-        gctx.clearRect(0, 0, L.W, L.H);
-        for (const s of L.scales) {
-          const cw = L.p.w * s.x;
-          const ch = L.p.h * s.y;
-          gctx.drawImage(source, (L.W - cw) / 2, (L.H - ch) / 2, cw, ch);
+        /* Les 128 copies en 7 dessins doubles : on part de l'image a 1x, puis
+           a chaque tour on redessine le tampon entier agrandi de f^(2^j)
+           DERRIERE lui-meme — 1 copie, 2, 4… 128, d'echelles f^0 a f^127. */
+        const pctx0 = ping.getContext("2d");
+        if (!pctx0) return;
+        pctx0.clearRect(0, 0, L.W, L.H);
+        pctx0.drawImage(
+          source,
+          (L.W - L.p.w) / 2,
+          (L.H - L.p.h) / 2,
+          L.p.w,
+          L.p.h,
+        );
+        for (let j = 0; j < AL_COPIES_LOG2; j++) {
+          const gx = Math.pow(L.f.x, 2 ** j);
+          const gy = Math.pow(L.f.y, 2 ** j);
+          const qctx = pong.getContext("2d");
+          if (!qctx) return;
+          qctx.imageSmoothingEnabled = true;
+          qctx.clearRect(0, 0, L.W, L.H);
+          qctx.drawImage(
+            ping,
+            (L.W - L.W * gx) / 2,
+            (L.H - L.H * gy) / 2,
+            L.W * gx,
+            L.H * gy,
+          );
+          qctx.drawImage(ping, 0, 0);
+          [ping, pong] = [pong, ping];
         }
+
+        gctx.globalCompositeOperation = "source-over";
+        gctx.clearRect(0, 0, L.W, L.H);
+        gctx.drawImage(ping, 0, 0);
         gctx.globalCompositeOperation = "destination-out";
         gctx.drawImage(shadow, 0, 0, L.W, L.H);
         gctx.globalCompositeOperation = "source-over";
@@ -2828,7 +2854,7 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 30;
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 0;
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".

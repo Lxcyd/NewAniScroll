@@ -3380,3 +3380,10 @@ multiplié par largeur/hauteur (même débord en px sur les 4 côtés, une seule
 lecteur) ; l'ombre en courbe appliquée AVANT le flou ; le flou proportionnel à la hauteur du lecteur
 (flou × 1,275 × H / 512). Pas leur WebGL : `texImage2D` refuse un flux cross-origin sans CORS, que
 `drawImage` accepte. Réglage passé sur leur échelle 0-100 (`ambient_blur:v3`, 30 par défaut).
+
+Sixième version (référence à flou 0 fournie par Luc) : à 0, leur rendu montre des **traînées
+continues** du bord de l'image, pas une seconde copie. Notre portage aux défauts (une seule copie à
+×1,12 hors du lecteur) recopiait l'image décalée — sous-titre dupliqué sous le lecteur. Passé à
+**128 copies emboîtées** (leur `edge` minimal, débord 18 % de la largeur), construites en 7 dessins
+doublés : le tampon redessiné agrandi de f^(2^j) derrière lui-même. Chaque anneau ne montre plus
+qu'~1 px du bord → étirement radial continu. Flou par défaut à 0 le temps des essais.
