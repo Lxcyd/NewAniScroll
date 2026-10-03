@@ -3387,3 +3387,8 @@ continues** du bord de l'image, pas une seconde copie. Notre portage aux défaut
 **128 copies emboîtées** (leur `edge` minimal, débord 18 % de la largeur), construites en 7 dessins
 doublés : le tampon redessiné agrandi de f^(2^j) derrière lui-même. Chaque anneau ne montre plus
 qu'~1 px du bord → étirement radial continu. Flou par défaut à 0 le temps des essais.
+
+Septième et dernière décision de Luc : retour au portage fidèle de leurs défauts (`88a9decd`,
+une copie à ×1,12/×1,21 hors du lecteur), la version à 128 copies abandonnée. Flou **5 par défaut
+et minimum** (`AMBIENT_BLUR_MIN` dans watchPageProvider, curseur borné à 5) : à 0, la copie agrandie
+se lit comme une seconde image.

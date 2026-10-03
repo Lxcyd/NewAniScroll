@@ -21,7 +21,10 @@ import {
   SEEK_STEP_MAX,
 } from "@/lib/prefs/playerPrefs";
 import { useDataSaver, setDataSaver } from "@/lib/prefs/dataSaver";
-import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import {
+  useWatchProvider,
+  AMBIENT_BLUR_MIN,
+} from "@/lib/context/watchPageProvider";
 import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useBadgePrefs, setBadgeFx } from "@/lib/prefs/badgePrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
@@ -1014,7 +1017,7 @@ export default function Settings() {
                 <div className="flex items-center gap-3 shrink-0">
                   <input
                     type="range"
-                    min={0}
+                    min={AMBIENT_BLUR_MIN}
                     max={100}
                     step={1}
                     value={ambientBlur}
