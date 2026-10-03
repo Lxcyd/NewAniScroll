@@ -178,6 +178,12 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict, 
         levels.insert(0, ("tete_fin", "std"))
     if plan:
         levels.insert(0, ("guide", plan["windows"]))
+        # Le guide a deja cherche partout : ce qu'il a trouve est dans les
+        # premieres et dernieres minutes. Un lecteur qui n'y retrouve rien sert
+        # un autre contenu (Death Note, vidmoly-va : le meme fichier de 21:11
+        # pour tous les episodes, telecharge EN ENTIER, en 1080p, a chaque fois
+        # la nuit du 03/10/2026). Il s'abstient.
+        levels.pop()
     has_op = any(r.theme.kind == "op" for r in refs)
     for level, windows in levels:
         dur, efp = fingerprint_stream(mal, lang, ep, stream, windows=windows)
