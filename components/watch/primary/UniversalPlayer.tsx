@@ -703,18 +703,39 @@ function LiveAmbient({
       io.observe(playerEl0);
     }
 
-    const paint = (src: CanvasImageSource, w: number, h: number) => {
+    /* WebGL accepte-t-il cette source ? Une reponse PAR source : la vignette
+       vient de CDN sans CORS et se charge sans `crossorigin` — WebGL la refuse
+       toujours — alors que la video, servie avec CORS, passe. Un seul verdict
+       pour les deux faisait dessiner TOUTE la lecture par leur projecteur 2D
+       des que la vignette avait ete refusee (03/10). */
+    const webGLFor = { video: true, poster: true };
+    let building = false;
+    const rebuild = (webGL: boolean) => {
+      engine?.destroy();
+      engine = null;
+      lastFrameTime = -1;
+      lastPoster = "";
+      building = true;
+      void build(webGL).finally(() => {
+        building = false;
+      });
+    };
+
+    const paint = (
+      src: CanvasImageSource,
+      w: number,
+      h: number,
+      kind: "video" | "poster",
+    ) => {
       const e = engine;
       if (!e) return;
+      // Le moteur courant n'est pas celui que cette source demande : on le
+      // remplace, la source sera dessinee au tour suivant.
+      if (e.webGL !== webGLFor[kind]) return rebuild(webGLFor[kind]);
       e.setBlur(blurRef.current);
       if (!e.draw(src, w, h) && e.webGL) {
-        // Detruit ICI : `build` ne voit plus ce moteur une fois `engine` a
-        // null, et ses canvas restaient dans la page, image figee.
-        e.destroy();
-        engine = null;
-        lastFrameTime = -1;
-        lastPoster = "";
-        void build(false);
+        webGLFor[kind] = false;
+        rebuild(false);
       }
     };
 
@@ -722,7 +743,7 @@ function LiveAmbient({
       raf = requestAnimationFrame(tick);
 
       // Skip all work while hidden / off-screen — cheapest possible early-out.
-      if (document.hidden || !onScreen || !engine) return;
+      if (document.hidden || !onScreen || !engine || building) return;
       // Throttle to the ambient sample rate.
       if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
       lastSampleAt = now;
@@ -762,7 +783,7 @@ function LiveAmbient({
         if (posterKey === lastPoster) return;
         lastPoster = posterKey;
         lastFrameTime = -1;
-        paint(img, img.naturalWidth, img.naturalHeight);
+        paint(img, img.naturalWidth, img.naturalHeight, "poster");
         return;
       }
 
@@ -773,7 +794,7 @@ function LiveAmbient({
       )
         return;
       lastFrameTime = video!.currentTime;
-      paint(video!, video!.videoWidth, video!.videoHeight);
+      paint(video!, video!.videoWidth, video!.videoHeight, "video");
     };
 
     raf = requestAnimationFrame(tick);

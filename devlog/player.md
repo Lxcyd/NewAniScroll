@@ -3406,3 +3406,8 @@ Réglages recopiés du panneau de l'extension de Luc (capture du 03/10) : `sprea
 `resolution` **400** (défaut 100), 60 images/s, flou 5, mode avancé désactivé (le reste par défaut).
 L'écart restant : nos flux cross-origin sans CORS passent par leur projecteur 2D, YouTube par le
 WebGL — l'en-tête CORS sur le proxy n'est pas posé, en attente de l'accord de Luc.
+
+Pourquoi c'était encore leur 2D : pas le flux (Ansembed est servi avec CORS), mais la **vignette**
+d'avant-play, chargée exprès sans `crossorigin` (CDN sans CORS). WebGL la refusait au premier
+dessin et la façade basculait en 2D pour toute la lecture. Verdict WebGL désormais **par source**
+(`webGLFor.video` / `webGLFor.poster`) : la vignette peut passer par le 2D, la vidéo revient au WebGL.
