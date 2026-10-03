@@ -707,6 +707,9 @@ function LiveAmbient({
       if (!e) return;
       e.setBlur(blurRef.current);
       if (!e.draw(src, w, h) && e.webGL) {
+        // Detruit ICI : `build` ne voit plus ce moteur une fois `engine` a
+        // null, et ses canvas restaient dans la page, image figee.
+        e.destroy();
         engine = null;
         lastFrameTime = -1;
         lastPoster = "";
