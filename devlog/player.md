@@ -3422,3 +3422,8 @@ réglage avancé masqué mais actif. Pas de 2 % entre niveaux : 53 anneaux au li
 montre qu'un liseré du bord → la lumière s'étire en traînées continues (le cimier du chevalier monte
 dans l'en-tête), au lieu d'une copie agrandie de l'image. Le reste de l'export (`headerShadowSize`,
 `headerImagesOpacity`, `videoShadowSize`, `theme`) ne touche que la page YouTube.
+
+Menu du lecteur : la ligne « Lumières d'ambiance » devient un sous-menu (chevron, comme
+Automatisation ; indice « Désactivé » quand elles sont coupées). Dedans : l'interrupteur et un
+curseur « Flou » (5-100, même valeur que Paramètres › Lecteur vidéo). Le curseur arrête clics et
+touches : le menu Vidstack lit les flèches pour sa navigation et volait celles du curseur.

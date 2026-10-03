@@ -43,7 +43,10 @@ const FullscreenChat = dynamic(
   { ssr: false },
 );
 // @ts-ignore — context module is plain JS, no types
-import { useWatchProvider } from "@/lib/context/watchPageProvider";
+import {
+  AMBIENT_BLUR_MIN,
+  useWatchProvider,
+} from "@/lib/context/watchPageProvider";
 import { getServer } from "@/lib/servers";
 import {
   beginSession,
@@ -1595,6 +1598,74 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
   );
 }
 
+// Slider row of a sub-panel (ambient blur): icon + label on top, the range and
+// its value underneath — a 28 px track beside a long label leaves nothing to
+// drag. Pointer and key events stop here: Vidstack's menu reads arrow keys for
+// its own focus navigation and would steal the slider's.
+function SettingsSliderRow({
+  label,
+  value,
+  min,
+  max,
+  unit = "",
+  disabled = false,
+  onChange,
+  iconPath,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  unit?: string;
+  disabled?: boolean;
+  onChange: (next: number) => void;
+  iconPath: string;
+}) {
+  return (
+    <div
+      className="vds-menu-button as-menu-row"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 6,
+        cursor: "default",
+        userSelect: "none",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
+        >
+          <path d={iconPath} />
+        </svg>
+        <span style={{ flex: 1 }}>{label}</span>
+        <span style={{ opacity: 0.6, fontSize: "0.92em", fontVariantNumeric: "tabular-nums" }}>
+          {value}
+          {unit}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ width: "100%", accentColor: "#E94560", cursor: disabled ? "default" : "pointer" }}
+      />
+    </div>
+  );
+}
+
 /**
  * Big centred play button. Its whole purpose is the MANUAL start path — when
  * the user has NOT enabled autoplay. Its click is a real user gesture, so play()
@@ -2277,6 +2348,8 @@ export default function UniversalPlayer({
   // expanded inside the Settings menu. Lives at the player root so closing the
   // whole settings menu (below) can collapse it back to the main list.
   const [automationOpen, setAutomationOpen] = useState(false);
+  // Same for the "Ambient lights" sub-panel (toggle + blur slider).
+  const [ambientOpen, setAmbientOpen] = useState(false);
   // ── Mobile / iOS detection ─────────────────────────────────
   // Touch the platform exactly once so the player can:
   //  - Reroute custom buttons (Download / Subs / Cast) into the Settings
@@ -2707,7 +2780,8 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 5;
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? AMBIENT_BLUR_MIN;
+  const setAmbientBlurCtx: (v: number) => void = watchCtx.setAmbientBlur || (() => {});
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
@@ -3219,7 +3293,10 @@ export default function UniversalPlayer({
   // Collapse the Automation sub-panel back to the main list whenever the
   // Settings menu closes, so reopening always lands on the top-level list.
   useEffect(() => {
-    if (!settingsHostAttached) setAutomationOpen(false);
+    if (!settingsHostAttached) {
+      setAutomationOpen(false);
+      setAmbientOpen(false);
+    }
   }, [settingsHostAttached]);
 
   // Locate (and re-locate) Vidstack's bottom controls group + Settings menu
@@ -7078,6 +7155,34 @@ export default function UniversalPlayer({
               iconPath="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
             />
           </>
+        ) : ambientOpen ? (
+          /* ── Ambient lights sub-panel ───────────────────────────────
+             Drilled into from the "Ambient lights" row below: the on/off
+             toggle and the blur (same value as Settings › Video player). */
+          <>
+            <SettingsSubmenuHeader
+              label={t("player.ambientLights")}
+              onBack={() => setAmbientOpen(false)}
+            />
+            <SettingsToggleRow
+              label={t("player.ambientEnable")}
+              enabled={ctxAmbient}
+              onToggle={setAmbientCtx}
+              // Material "lightbulb_outline" icon.
+              iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
+            />
+            <SettingsSliderRow
+              label={t("player.ambientBlur")}
+              value={ctxAmbientBlur}
+              min={AMBIENT_BLUR_MIN}
+              max={100}
+              unit=" %"
+              disabled={!ctxAmbient}
+              onChange={setAmbientBlurCtx}
+              // Material "blur_on" icon.
+              iconPath="M6 13c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm-3 .5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zM6 5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm15 5.5c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zM14 7c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm0-3.5c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zm-11 10c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm7 7c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm0-17c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zM10 7c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm8 .5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm3 8.5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zM14 17c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 3.5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm-4-12c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 8.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm4-4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"
+            />
+          </>
         ) : (
           <>
             {isSmallLayout && (
@@ -7115,10 +7220,12 @@ export default function UniversalPlayer({
                 )}
               </>
             )}
-            <SettingsToggleRow
+            {/* Drill-in to the ambient lights toggle + blur. The hint says
+                when they are off, since the toggle is no longer on this list. */}
+            <SettingsSubmenuRow
               label={t("player.ambientLights")}
-              enabled={ctxAmbient}
-              onToggle={setAmbientCtx}
+              hint={ctxAmbient ? undefined : t("player.off")}
+              onOpen={() => setAmbientOpen(true)}
               // Material "lightbulb_outline" icon.
               iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
             />
