@@ -3433,3 +3433,8 @@ curseur, valeur) — sur deux lignes la rangée dépassait la boîte que Vidstac
 menu et chevauchait « Vitesse ». La ligne « Lumières d'ambiance » du menu principal porte un
 interrupteur avant le chevron (`toggle` de `SettingsSubmenuRow`) : la pastille bascule sur place, le
 reste de la ligne ouvre le sous-menu.
+
+Le sous-menu ambient cachait la ligne « Automatisation », alors qu'Automatisation garde « Lumières
+d'ambiance » épinglée au-dessus. Les deux lignes d'entrée sont désormais partagées
+(`ambientMenuRow`, `automationMenuRow`) : chaque sous-menu garde la ligne de l'autre à sa place, et
+on passe de l'un à l'autre directement.

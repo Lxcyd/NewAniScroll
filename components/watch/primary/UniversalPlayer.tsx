@@ -6866,6 +6866,40 @@ export default function UniversalPlayer({
     />
   ) : null;
 
+  // The two drill-in rows of the Settings menu. Each sub-panel shows the
+  // OTHER's row too, so opening one never hides the rest of the menu.
+  // Ambient lights: the switch toggles on the spot, the rest of the row drills
+  // into the sub-panel (toggle + blur).
+  const ambientMenuRow = (
+    <SettingsSubmenuRow
+      label={t("player.ambientLights")}
+      toggle={{
+        enabled: ctxAmbient,
+        onToggle: setAmbientCtx,
+        label: t("player.ambientEnable"),
+      }}
+      onOpen={() => {
+        setAutomationOpen(false);
+        setAmbientOpen(true);
+      }}
+      // Material "lightbulb_outline" icon.
+      iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
+    />
+  );
+  // Automation toggles (autoplay, auto-skip intro/outro, auto next episode),
+  // grouped to keep the main menu compact.
+  const automationMenuRow = (
+    <SettingsSubmenuRow
+      label={t("player.automation")}
+      onOpen={() => {
+        setAmbientOpen(false);
+        setAutomationOpen(true);
+      }}
+      // Material "fast_forward" icon.
+      iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
+    />
+  );
+
   return (
     // `isolation: isolate` creates a new stacking context here. Without it,
     // the ambient's z-index:-1 would slip behind elements OUTSIDE this
@@ -7107,17 +7141,12 @@ export default function UniversalPlayer({
           /* ── Automation sub-panel ───────────────────────────────────
              Drilled into from the "Automation" row below. SkipOverlay
              reads playerPrefs and performs the actual skips / next-ep.
-             Ambient Lights stays pinned at the top so this quick toggle
-             is reachable from the sub-panel too (it used to vanish when
-             the sub-panel replaced the whole main list). */
+             The Ambient lights row stays pinned above it, and the
+             Automation row below the ambient sub-panel: each sub-panel
+             keeps the other's row where the main list had it, instead of
+             hiding the rest of the menu. */
           <>
-            <SettingsToggleRow
-              label={t("player.ambientLights")}
-              enabled={ctxAmbient}
-              onToggle={setAmbientCtx}
-              // Material "lightbulb_outline" icon.
-              iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
-            />
+            {ambientMenuRow}
             <SettingsSubmenuHeader
               label={t("player.automation")}
               onBack={() => setAutomationOpen(false)}
@@ -7228,6 +7257,7 @@ export default function UniversalPlayer({
               // Material "blur_on" icon.
               iconPath="M6 13c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm-3 .5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zM6 5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm15 5.5c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zM14 7c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm0-3.5c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zm-11 10c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm7 7c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm0-17c.28 0 .5-.22.5-.5s-.22-.5-.5-.5-.5.22-.5.5.22.5.5.5zM10 7c.55 0 1-.45 1-1s-.45-1-1-1-1 .45-1 1 .45 1 1 1zm0 5.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm8 .5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm3 8.5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zM14 17c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 3.5c-.28 0-.5.22-.5.5s.22.5.5.5.5-.22.5-.5-.22-.5-.5-.5zm-4-12c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 8.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm4-4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"
             />
+            {automationMenuRow}
           </>
         ) : (
           <>
@@ -7266,28 +7296,8 @@ export default function UniversalPlayer({
                 )}
               </>
             )}
-            {/* Ambient lights: the switch toggles on the spot, the rest of
-                the row drills into the sub-panel (toggle + blur). */}
-            <SettingsSubmenuRow
-              label={t("player.ambientLights")}
-              toggle={{
-                enabled: ctxAmbient,
-                onToggle: setAmbientCtx,
-                label: t("player.ambientEnable"),
-              }}
-              onOpen={() => setAmbientOpen(true)}
-              // Material "lightbulb_outline" icon.
-              iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
-            />
-            {/* Drill-in to the player automation toggles (autoplay, auto-skip
-                intro/outro, auto next episode). Grouped to keep the main menu
-                compact. */}
-            <SettingsSubmenuRow
-              label={t("player.automation")}
-              onOpen={() => setAutomationOpen(true)}
-              // Material "fast_forward" icon.
-              iconPath="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"
-            />
+            {ambientMenuRow}
+            {automationMenuRow}
             {/* No stats row here — the video-stats overlay is reachable via its
                 keyboard shortcut (toggleStats), not a menu toggle (per request). */}
             {/* Opens the visual keyboard shortcut editor overlay. */}
