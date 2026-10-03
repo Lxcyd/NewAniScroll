@@ -11,6 +11,7 @@ from . import SAMPLE_RATE
 from .adapter_aniscroll import resolve_episodes_multi
 from .audio import decode_audio_abs
 from .probe import probe_duration
+from . import hls_cache
 
 CACHE = Path(os.environ.get("OPED_EP_CACHE", "cache/ep"))  # variable : mesurer un lot a froid sans vider le cache
 
@@ -134,7 +135,15 @@ def fingerprint_stream(mal: int, lang: str, ep: int, stream: dict, *,
         if _covered(have, [] if windows is None else _normalize(windows, dur)):
             return dur, fp
     url, referer = stream["url"], stream.get("referer")
-    dur = probe_duration(url, referer)
+    dur = None
+    if hls_cache._family(url) == "vidmoly":
+        # ffprobe ouvre ses propres connexions, que le CDN de Vidmoly lache
+        # (03/10/2026 : vidmoly-va en pause, « duree illisible » a la chaine).
+        # La playlist, lue par nos connexions gardees ouvertes, donne la meme
+        # duree au millieme sur ce CDN (SnK 1421,11 ; Mob Psycho 1451,951).
+        dur = hls_cache.playlist_duration(url, referer=referer)
+    if not dur:
+        dur = probe_duration(url, referer)
     wins = [] if windows is None else _normalize(windows, dur)
     if wins:
         pcm = np.zeros(int(round(dur * SAMPLE_RATE)) + SAMPLE_RATE, np.float32)
