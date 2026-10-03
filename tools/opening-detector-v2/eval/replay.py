@@ -72,6 +72,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--only")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--write")
+    ap.add_argument("--inexact", action="store_true",
+                    help="seulement les lecteurs-episodes avec une borne non calee, plus 1 sur --control des autres")
+    ap.add_argument("--control", type=int, default=10)
     a = ap.parse_args(argv)
     base = Path(a.out)
     if a.write and Path(a.write).resolve() == base.resolve():
@@ -100,6 +103,17 @@ def main(argv: list[str]) -> int:
                 if "detect_error" in e:
                     new["per_host"][host] = e
                     continue
+                if a.inexact:
+                    loose = any(e.get(s) and not e[s].get("audio_exact") for s in ("op", "ed"))
+                    seen_hosts = globals().setdefault("_seen", [0])
+                    seen_hosts[0] += 1
+                    if not loose and seen_hosts[0] % a.control:
+                        new["per_host"][host] = e
+                        continue
+                done_hosts = globals().setdefault("_done", [0])
+                done_hosts[0] += 1
+                if done_hosts[0] % 50 == 0:
+                    print(f"  ... {done_hosts[0]} lecteurs-episodes rejoues", flush=True)
                 try:
                     x = replay_host(mal, lang, ep, host, e, refs)
                 except archive.ArchiveError as exc:
@@ -116,6 +130,9 @@ def main(argv: list[str]) -> int:
                         continue
                     n += 1
                     tag = f"{mal} ep{ep} {lang} {host} {s}"
+                    if p and q and not p.get("audio_exact") and q.get("audio_exact"):
+                        globals().setdefault("_gained", []).append(
+                            f"{tag} : {p['start']}-{p['end']} -> {q['start']}-{q['end']}")
                     if (p is None) != (q is None) or p["ref"] != q["ref"]:
                         changed.append(f"{tag} : {p and p['ref']} -> {q and q['ref']}")
                         continue
@@ -132,6 +149,10 @@ def main(argv: list[str]) -> int:
         print("  theme change :", line)
     for d, line in sorted(moved, reverse=True)[:40]:
         print(f"  borne deplacee de {d:.3f} s :", line)
+    gained = globals().get("_gained", [])
+    for line in gained[:12]:
+        print("  desormais calee :", line)
+    print(f"{len(gained)} bornes desormais calees a l'echantillon")
     sizes = collections.Counter("<= 50 ms" if d <= 0.05 else "<= 0,5 s" if d <= 0.5 else "> 0,5 s" for d, _ in moved)
     print(f"{n} generiques : {same} identiques au millieme, {len(moved)} deplaces {dict(sizes)}, "
           f"{len(changed)} changes ; {missing} lecteurs-episodes sans empreinte ou sans archive")

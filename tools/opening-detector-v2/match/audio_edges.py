@@ -22,6 +22,17 @@ SEARCH_S = 3.0         # autour du calage grossier (Chromaprint corrige par l'im
 # Railgun S ep1 frembed : Chromaprint a 2,2 s de la chanson (22:15.49 contre
 # 22:17.693, 8 tranches a 1 ms pres).
 MIN_CORR = 0.30        # correlation normalisee minimale d'une tranche
+# Meme chanson, autre MIXAGE (Naruto, ED : la version de l'episode n'est pas
+# celle d'AnimeThemes) : la forme d'onde tombe au bon endroit sur les trois
+# tranches, a 6 ms pres, mais ne ressemble qu'a 0,16-0,34 ; l'enveloppe (valeur
+# absolue lissee 5 ms) ressemble a 0,60-0,95 et donne la meme position. Faute
+# de calage, l'empreinte placait l'ED 0,41 s trop tard (Luc, 03/10/2026 :
+# « l'ED debut a 0,5 s pres »). Une tranche faible est donc gardee quand
+# l'enveloppe confirme sa position ; la position reste celle de la forme d'onde.
+WEAK_CORR = 0.10
+ENV_CORR = 0.50
+ENV_AGREE_S = 0.01
+ENV_SMOOTH_S = 0.005
 AGREE_S = 0.02         # les tranches doivent concorder a 20 ms
 SOUND_WIN_S = 0.01     # 0,05 s depassait une image (0,042 s) : bord son a +/- 1 image
 SOUND_REL = 0.10       # « son » : energie > 10 % de l'energie mediane de la reference
@@ -42,6 +53,12 @@ def _xcorr(ep: np.ndarray, seg: np.ndarray) -> tuple[int, float]:
     cc = c / np.maximum(n, 1e-9)
     k = int(cc.argmax())
     return k, float(cc[k])
+
+
+def _envelope(a: np.ndarray) -> np.ndarray:
+    k = max(1, int(ENV_SMOOTH_S * SR))
+    e = np.convolve(np.abs(a), np.ones(k) / k, mode="same")
+    return e - e.mean()
 
 
 def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None) -> float | None:
@@ -72,8 +89,13 @@ def refine_offset(src: str, referer, coarse: float, ref: np.ndarray, starts=None
         if len(pcm) < len(seg):
             continue
         k, corr = _xcorr(pcm, seg)
-        if corr >= MIN_CORR:
-            found.append(a0 + k / SR - s)
+        if corr < WEAK_CORR:
+            continue
+        if corr < MIN_CORR:
+            k2, c2 = _xcorr(_envelope(pcm), _envelope(seg))
+            if c2 < ENV_CORR or abs(k2 - k) > ENV_AGREE_S * SR:
+                continue
+        found.append(a0 + k / SR - s)
     if len(found) < 2:
         return None
     med = float(np.median(found))

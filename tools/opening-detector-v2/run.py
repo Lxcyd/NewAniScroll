@@ -37,7 +37,8 @@ from refs.bank import load
 
 # v2 ; la v1 est en 1-2. 101 (02/10/2026) : son seul, queue muette jusqu'au
 # retour du son, tete recouverte, fin seule, references avec dialogue.
-ALGO_VERSION = 101
+# 102 (03/10/2026) : calage confirme par l'enveloppe quand le mixage differe.
+ALGO_VERSION = 102
 _write = threading.Lock()
 RETRY_DELAY_S = 15
 # --hosts : ne repasser que ces lecteurs (megaplay ecarte d'un lot par des 403
