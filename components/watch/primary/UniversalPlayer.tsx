@@ -2707,7 +2707,7 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 5;
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 30;
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
