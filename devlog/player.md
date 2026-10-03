@@ -3339,3 +3339,16 @@ binaire, `JSON.parse` jettera, et on retombera sur la dérivation sans rien cass
 `streams`. Ce n'était pas un bug d'extraction mais le cache Redis (`SOURCE_CACHE_TTL_S` = 20 min),
 qui survit aux déploiements. Il n'existe aucun paramètre de contournement sur cette route : pour
 juger une correction, interroger un épisode **froid** et lire `X-Vercel-Cache: MISS`.
+
+## 03/10/2026 — Ambient lights : prolongement de l'image + réglage du flou
+
+Le halo n'est plus une copie agrandie ×1,3 floutée de 72 px : c'est l'image qui **continue** au-delà
+du lecteur (rendu des extensions « Ambient light for YouTube », principe repris, code réécrit).
+32 copies opaques emboîtées de ×1 à ×1,4, peintes de la plus grande à la plus petite : chaque anneau
+visible montre la bande extérieure de l'image, donc un point du halo prend la couleur du bord le plus
+proche dans sa direction. Un masque (deux dégradés en intersection) éteint la lumière vers l'extérieur.
+
+Flou réglable dans Paramètres du lecteur (ligne « Flou », 0-100 px, `ambient_blur` en localStorage),
+**8 px par défaut**. `saturate` suit le flou (1 → 1,8 à 94 px) : sur-saturer un halo presque net
+casserait la continuité au bord du lecteur. Pourquoi l'ancienne copie unique ne pouvait pas descendre
+en flou : au bord du lecteur elle montre l'image à 1/1,3 de sa position → cassure nette.

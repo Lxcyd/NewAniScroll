@@ -460,13 +460,28 @@ function getOutroStart(
 /**
  * LiveAmbient — la lumiere d'ambiance derriere le lecteur.
  *
- * UNE copie de l'image, agrandie au-dela du lecteur, floutee, sur-saturee.
- * C'est exactement la structure de la lumiere du survol de carte (voir
- * TrailerStage, dont le halo est un second exemplaire de la video floute) — et
- * ce n'en etait pas une avant : cinq copies concentriques, chacune un peu plus
- * grande et beaucoup plus pale, se composaient a la place.
+ * LE PROLONGEMENT DE L'IMAGE (depuis le 03/10/2026). Le halo n'est plus une
+ * copie agrandie et noyee de flou : c'est l'image elle-meme qui continue au-dela
+ * du lecteur, et le flou devient un reglage (`blurPx`, 8 px par defaut).
  *
- * POURQUOI LA PILE EST PARTIE, mesure a l'appui (meme instrument sur les deux,
+ * Mecanisme : RINGS copies OPAQUES, emboitees de 1x (exactement le lecteur) a
+ * SPREAD, peintes de la plus grande a la plus petite. De chaque copie on ne voit
+ * que l'anneau qui depasse de la suivante, et cet anneau montre la bande
+ * EXTERIEURE de l'image. Un point du halo prend donc la couleur du bord le plus
+ * proche dans sa direction : le rouge du bord droit continue a droite, le ciel
+ * continue en haut. Un masque eteint ensuite la lumiere vers l'exterieur.
+ *
+ * Ce n'est pas le retour de la pile decrite plus bas : ses deux defauts
+ * tenaient a des copies PALES (du noir dans le total) et a des copies grandes
+ * qui echantillonnaient le centre du cadre. Ici chaque copie est opaque et ne
+ * montre que son bord.
+ *
+ * Avant : UNE copie de l'image, agrandie au-dela du lecteur, floutee de 72 px,
+ * sur-saturee — la structure de la lumiere du survol de carte (TrailerStage).
+ * Juste en flou fort, elle ment en flou faible : au bord du lecteur elle montre
+ * l'image a 1/1,3 de sa position, d'ou une cassure nette des que le flou baisse.
+ *
+ * POURQUOI LA PILE EST PARTIE (a l'epoque), mesure a l'appui (meme instrument sur les deux,
  * bande de 30 px juste a l'exterieur, sur une scene orange saturee) :
  *
  *     lecteur, ancienne pile   image s42 l50   ->   halo s82 l39
@@ -632,8 +647,11 @@ const memoWrite = (path: string, lit: boolean) => {
 function LiveAmbient({
   playerRef,
   lit,
+  blurPx,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
+  /** Flou de la lumiere, en px ecran (0-100). */
+  blurPx: number;
   /** La premiere image du fichier est-elle une vraie image ?
    *  `false` (noir mesure) est le seul cas ou l'ambient prend la vignette pour
    *  source avant le premier play : c'est le seul ou elle est a l'ecran.
@@ -644,19 +662,18 @@ function LiveAmbient({
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
 
-  /* De combien la copie deborde le lecteur. C'est elle qui fait le halo : la
-     bande ou la lumiere se voit doit tomber DANS une copie opaque, pas dans sa
-     retombee. Meme valeur que le survol de carte (GLOW_SPREAD). */
-  const SPREAD = 1.3;
-  /* Rayon du flou, avant le `scale` — les deux sont sur le meme element, donc
-     l'ecran en voit 72 x 1,3 ≈ 94 px, soit 7,4 % de la largeur du lecteur. Le
-     survol de carte floute 34 px sur une boite de 473 px : 7,2 %. La meme
-     lumiere, a l'echelle pres. */
-  const BLUR_PX = 72;
-  // Canvas pixel size. Stays small because CSS transform handles the visible
+  /* Jusqu'ou la lumiere deborde du lecteur : 1,4 = 20 % de sa taille de chaque
+     cote. */
+  const SPREAD = 1.4;
+  /* Nombre de copies emboitees : un anneau fait ~2 px du canvas source, assez
+     fin pour que les marches disparaissent sous un flou de quelques px. */
+  const RINGS = 32;
+  // Canvas pixel size. Stays small because CSS stretching handles the visible
   // scaling with GPU bilinear filtering. Higher would just waste pixels.
   const SRC_W = 320;
   const SRC_H = 180;
+  const GLOW_W = Math.round(SRC_W * SPREAD);
+  const GLOW_H = Math.round(SRC_H * SPREAD);
 
   useEffect(() => {
     if (!sourceRef.current) {
@@ -677,7 +694,8 @@ function LiveAmbient({
 
     // GPU budget: the ambient glow is a soft, heavily-blurred backdrop — it
     // does not need 60 fps. Sampling at ~30 fps halves the per-frame canvas
-    // work (8+ drawImage calls across 5 layers) with no perceptible change.
+    // work (RINGS + 3 drawImage calls on small canvases) with no perceptible
+    // change.
     const SAMPLE_INTERVAL_MS = 1000 / 30;
 
     // Pause sampling entirely when the tab is hidden OR the player is scrolled
@@ -736,8 +754,17 @@ function LiveAmbient({
           const glow = glowRef.current;
           const gctx = glow?.getContext("2d");
           if (!gctx) return;
-          gctx.clearRect(0, 0, SRC_W, SRC_H);
-          gctx.drawImage(source, 0, 0);
+          gctx.imageSmoothingEnabled = true;
+          gctx.imageSmoothingQuality = "high";
+          // De la plus grande a la plus petite : chacune recouvre le centre de
+          // la precedente et n'en laisse que l'anneau exterieur. Opaques, donc
+          // pas de clearRect.
+          for (let k = RINGS; k >= 0; k--) {
+            const s = 1 + ((SPREAD - 1) * k) / RINGS;
+            const w = SRC_W * s;
+            const h = SRC_H * s;
+            gctx.drawImage(source, (GLOW_W - w) / 2, (GLOW_H - h) / 2, w, h);
+          }
         } catch {
           // Cross-origin taint — silently skip. (Le dessin, lui, ne teinte que
           // la lecture des pixels, qu'on ne fait jamais ici.)
@@ -792,11 +819,21 @@ function LiveAmbient({
     };
   }, [playerRef, lit]);
 
-  /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic. La copie
-     y est agrandie de SPREAD puis floutee : le lecteur en cache le centre, et
-     ce qui deborde EST la lumiere. Le flou et le `scale` sont sur le meme
-     element — l'ecran voit donc un flou de BLUR_PX x SPREAD, ce dont la
-     constante tient compte. */
+  /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic. Il
+     deborde de (SPREAD - 1) / 2 de chaque cote, en % du lecteur, sans
+     `transform` : le flou est donc en px ecran, tel que regle.
+     `saturate` suit le flou : un flou fort dilue les couleurs et 1,8 les
+     rendait (valeur du survol de carte) ; un flou faible n'a rien dilue, et
+     sur-saturer y casserait la continuite avec l'image au bord du lecteur. */
+  const blur = Math.max(0, blurPx);
+  const saturation = 1 + 0.8 * Math.min(1, blur / 94);
+  const overhang = `${((SPREAD - 1) / 2) * 100}%`;
+  // Bord du lecteur, en % du calque : la lumiere y est pleine, et s'eteint
+  // jusqu'au bord exterieur.
+  const edge = (((SPREAD - 1) / 2 / SPREAD) * 100).toFixed(2);
+  const fade = (dir: string) =>
+    `linear-gradient(${dir}, transparent, #000 ${edge}%, #000 ${100 - +edge}%, transparent)`;
+  const mask = `${fade("to right")}, ${fade("to bottom")}`;
   return (
     <div
       aria-hidden
@@ -804,32 +841,30 @@ function LiveAmbient({
       style={{ zIndex: -1 }}
     >
       <div
-        className="absolute inset-0 overflow-visible"
+        className="absolute"
         style={{
-          transform: `scale(${SPREAD})`,
-          transformOrigin: "center",
-          // Le flou lisse le degrade et efface au passage ce qui resterait de
-          // la grille de pixels du canvas agrandi. `saturate` est la meme
-          // valeur que le survol de carte : une matrice lineaire, qui densifie
-          // sans pouvoir deplacer une teinte (a la difference d'un
-          // `brightness`, qui ecrete — l'orange y devient jaune).
-          filter: `blur(${BLUR_PX}px) saturate(1.8)`,
-          willChange: "transform",
+          inset: `-${overhang}`,
+          filter: blur > 0 ? `blur(${blur}px) saturate(${saturation})` : undefined,
+          // Le filtre passe avant le masque : le flou ne recree pas de bord dur.
+          maskImage: mask,
+          WebkitMaskImage: mask,
+          maskComposite: "intersect",
+          WebkitMaskComposite: "source-in",
         }}
       >
         <canvas
           ref={glowRef}
-          width={SRC_W}
-          height={SRC_H}
+          width={GLOW_W}
+          height={GLOW_H}
           // width/height: 100% stretches the canvas to fill the wrapper
           // via CSS — this is the only path where browsers DO interpolate
-          // (the canvas is treated as a replaced element). object-fit
-          // ensures it covers fully.
+          // (the canvas is treated as a replaced element). `fill` and not
+          // `cover`: the inner copy must land exactly on the player.
           style={{
             width: "100%",
             height: "100%",
             display: "block",
-            objectFit: "cover",
+            objectFit: "fill",
             imageRendering: "auto",
           }}
         />
@@ -1524,6 +1559,57 @@ function SettingsToggleRow({
             transition: "left 120ms ease",
           }}
         />
+      </span>
+    </div>
+  );
+}
+
+// Slider row, same chrome as the toggle rows. Pointer and key events stop here:
+// Vidstack's menu would otherwise read the arrows as menu navigation and a
+// click as "close".
+function SettingsSliderRow({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+  iconPath,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (next: number) => void;
+  iconPath: string;
+}) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div
+      className="vds-menu-button as-menu-row"
+      style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}
+      onClick={stop}
+      onPointerDown={stop}
+      onKeyDown={stop}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        style={{ width: 22, height: 22, marginRight: -2, flexShrink: 0 }}
+      >
+        <path d={iconPath} />
+      </svg>
+      <span>{label}</span>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ flex: 1, minWidth: 0, accentColor: "#E94560", cursor: "pointer" }}
+      />
+      <span style={{ width: 40, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+        {value}px
       </span>
     </div>
   );
@@ -2726,6 +2812,8 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 8;
+  const setAmbientBlurCtx: (v: number) => void = watchCtx.setAmbientBlur || (() => {});
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
@@ -6774,7 +6862,11 @@ export default function UniversalPlayer({
       style={{ isolation: "isolate" }}
     >
       {ambientEnabled && (
-        <LiveAmbient playerRef={playerRef} lit={firstFrameLit ?? null} />
+        <LiveAmbient
+          playerRef={playerRef}
+          lit={firstFrameLit ?? null}
+          blurPx={ctxAmbientBlur}
+        />
       )}
 
       <MediaPlayer
@@ -7136,6 +7228,17 @@ export default function UniversalPlayer({
               // Material "lightbulb_outline" icon.
               iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"
             />
+            {ctxAmbient && (
+              <SettingsSliderRow
+                label={t("player.ambientBlur")}
+                value={ctxAmbientBlur}
+                min={0}
+                max={100}
+                onChange={setAmbientBlurCtx}
+                // Material "blur_on" icon (simplified dots).
+                iconPath="M6 13c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm4 4.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 8c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm4-8c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0 4c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm4-3.5c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0-4c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1zm0 8c-.55 0-1 .45-1 1s.45 1 1 1 1-.45 1-1-.45-1-1-1z"
+              />
+            )}
             {/* Drill-in to the player automation toggles (autoplay, auto-skip
                 intro/outro, auto next episode). Grouped to keep the main menu
                 compact. */}

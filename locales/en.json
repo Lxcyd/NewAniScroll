@@ -538,6 +538,7 @@
     "subsNoneDub": "This (dubbed) version has no subtitles.",
     "track": "Track {{n}}",
     "ambientLights": "Ambient lights",
+    "ambientBlur": "Blur",
     "automation": "Automation",
     "autoSkipIntro": "Auto-skip intro",
     "autoSkipOutro": "Auto-skip outro",

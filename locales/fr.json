@@ -538,6 +538,7 @@
     "subsNoneDub": "Cette version (VF) n'a pas de sous-titres.",
     "track": "Piste {{n}}",
     "ambientLights": "Lumières d'ambiance",
+    "ambientBlur": "Flou",
     "automation": "Automatisation",
     "autoSkipIntro": "Passer l'intro auto",
     "autoSkipOutro": "Passer l'outro auto",
