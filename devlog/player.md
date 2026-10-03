@@ -3392,3 +3392,12 @@ Septième et dernière décision de Luc : retour au portage fidèle de leurs dé
 une copie à ×1,12/×1,21 hors du lecteur), la version à 128 copies abandonnée. Flou **5 par défaut
 et minimum** (`AMBIENT_BLUR_MIN` dans watchPageProvider, curseur borné à 5) : à 0, la copie agrandie
 se lit comme une seconde image.
+
+Huitième version, demande explicite de Luc (« je veux le même code ») : leur moteur de rendu est
+**copié sans modification** dans `lib/vendor/youtube-ambilight/` (MIT, commit `2207e621`) —
+`projector-webgl.js`, `projector-2d.js`, `projector-shadow.js`, `canvas-webgl.js`, `generic.js`,
+avec `LICENSE`. Seuls `sentry-reporter.js` (console) et `storage.js` (localStorage) sont remplacés.
+`components/watch/primary/ambilightEngine.ts` joue leur orchestrateur : `updateSizes`,
+`resizeCanvasses` et la boucle de dessin repris à l'identique. WebGL d'abord ; leur projecteur 2D
+dès qu'un flux cross-origin sans CORS fait lever `SecurityError` à `texImage2D`. Flou 5 (défaut et
+minimum).

@@ -91,6 +91,25 @@ html.tab-hidden *::after {
   animation: 0.3s ease 0s 1 as-preview-in;
 }
 
+/* Lumiere d'ambiance du LECTEUR : les canvas que le moteur de
+   « Ambient light for YouTube » (lib/vendor/youtube-ambilight, MIT) installe
+   dans LiveAmbient. Chacun couvre la boite du lecteur ; le moteur les agrandit
+   lui-meme par `transform: scale()` autour du centre. */
+.ambientlight__projectors,
+.ambientlight__projector-list,
+.ambientlight__projector,
+.ambientlight__shadow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+.ambientlight__projector {
+  contain: strict;
+  background: none;
+}
+
 /* Ambient light. The banner artwork, blown past the card's edges, blurred and
    over-saturated — bias lighting for the popup. It has to live outside the card
    (which clips) and behind it (whose surface is opaque), hence the negative

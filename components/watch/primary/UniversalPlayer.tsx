@@ -91,6 +91,7 @@ import {
 // back to /api/v2/proxy/m3u8 and took every proxy-routed server down in prod.
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
 import { diag, diagSession } from "@/lib/diag";
+import { AmbilightEngine } from "./ambilightEngine";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -460,18 +461,14 @@ function getOutroStart(
 /**
  * LiveAmbient — la lumiere d'ambiance derriere le lecteur.
  *
- * DEPUIS LE 03/10/2026 : le rendu de l'extension « Ambient light for YouTube »
- * (WesselKroos/youtube-ambilight, MIT), reecrit en Canvas 2D avec ses reglages
- * par defaut — voir `ambientLayout`, `drawAmbientShadow` et `paint`. Copies
- * OPAQUES emboitees (pas de 12 %, debord de 17 %, autant de pixels sur les
- * quatre cotes), image source reduite a ~128 px, ombre en courbe, flou reglable
- * sur leur echelle (5-100, 5 par defaut et minimum).
- * Pas leur WebGL : un flux cross-origin sans CORS se dessine en 2D mais est
- * refuse par `texImage2D`, et leur shader revient de toute facon a superposer
- * des rectangles.
- * Trois essais maison l'ont precede le meme jour (32 anneaux fins, puis 4, puis
- * 2, flou en px) : trainees radiales et pixels visibles — le detail qui comptait
- * etait l'image source minuscule et l'ombre, pas le nombre d'anneaux.
+ * DEPUIS LE 03/10/2026 : LEUR code. Le moteur de rendu de l'extension
+ * « Ambient light for YouTube » (WesselKroos/youtube-ambilight, MIT) est copie
+ * sans modification dans lib/vendor/youtube-ambilight ; ambilightEngine.ts
+ * l'alimente comme leur orchestrateur. WebGL, et leur projecteur 2D en repli
+ * (flux cross-origin sans CORS, refuse par texImage2D). Leurs reglages par
+ * defaut, sauf le flou : 5 par defaut et minimum (choix de Luc).
+ * Le meme jour l'ont precede des reecritures maison (anneaux fins, puis une
+ * reecriture en Canvas 2D de leurs formules) : jamais tout a fait leur rendu.
  *
  * Avant : UNE copie de l'image, agrandie au-dela du lecteur, floutee de 72 px,
  * sur-saturee — la structure de la lumiere du survol de carte (TrailerStage).
@@ -639,104 +636,13 @@ const memoWrite = (path: string, lit: boolean) => {
   }
 };
 
-/* Reglages par defaut de l'extension « Ambient light for YouTube »
-   (WesselKroos/youtube-ambilight, licence MIT — settings-config.js). La
-   geometrie, l'ombre et le flou ci-dessous en suivent les formules, reecrites
-   en Canvas 2D (voir LiveAmbient). */
-const AL_EDGE = 12; // % d'agrandissement d'une copie a la suivante
-const AL_SPREAD = 17; // % de debord
-const AL_INNER = 2; // copies plus petites que le lecteur (innerStrength)
-const AL_FADE_START = 15; // % de la bande laisse plein contre le lecteur
-const AL_FADE_CURVE = 35;
-
-type AmbientLayout = {
-  key: string;
-  /** Taille de l'image source reduite (leur « projector size »). */
-  p: { w: number; h: number };
-  /** Echelles des copies, de la plus grande a la plus petite. */
-  scales: { x: number; y: number }[];
-  last: { x: number; y: number };
-  W: number;
-  H: number;
-  /** Flou en px du canvas W x H. */
-  blurPx: number;
-};
-
-function ambientLayout(vw: number, vh: number, blur: number): AmbientLayout {
-  // Plus le flou est fort, plus l'image source est petite : elle n'a pas a
-  // porter de detail que le flou effacera.
-  const pMin = blur >= 20 ? 128 : blur >= 10 ? 192 : 256;
-  const pScale = Math.min(
-    0.5,
-    Math.max(pMin / vw, pMin / vh),
-    Math.min(1024 / vw, 1024 / vh),
-  );
-  const p = { w: Math.ceil(vw * pScale), h: Math.ceil(vh * pScale) };
-  // Le pas vertical est multiplie par le rapport largeur/hauteur : le debord
-  // fait le meme nombre de pixels sur les quatre cotes.
-  const ratio = p.w > p.h ? { x: 1, y: p.w / p.h } : { x: p.h / p.w, y: 1 };
-  const levels = Math.max(2, Math.round(AL_SPREAD / AL_EDGE) + AL_INNER + 1);
-  const step = AL_EDGE / 100;
-  const scales: { x: number; y: number }[] = [];
-  for (let i = 0; i < levels; i++) {
-    const pos = i - AL_INNER;
-    scales.push({
-      x: Math.max(1 / p.w, 1 + step * ratio.x * pos),
-      y: Math.max(1 / p.h, 1 + step * ratio.y * pos),
-    });
-  }
-  const last = scales[levels - 1];
-  return {
-    key: `${p.w}x${p.h}|${blur}`,
-    p,
-    scales: scales.reverse(),
-    last,
-    W: Math.floor(p.w * last.x),
-    H: Math.floor(p.h * last.y),
-    blurPx: blur * (p.h / 512) * 1.275,
-  };
-}
-
-/** L'ombre qui eteint la lumiere vers l'exterieur : pleine contre le lecteur
- *  sur AL_FADE_START % de la bande, puis une courbe en puissance jusqu'au bord.
- *  Dessinee en noir, appliquee en `destination-out` — l'equivalent d'une
- *  opacite `1 - ombre`. Une par axe ; les deux se composent. */
-function drawAmbientShadow(
-  ctx: CanvasRenderingContext2D,
-  size: number,
-  last: { x: number; y: number },
-) {
-  const easing = 16 / (AL_FADE_CURVE * 0.64);
-  const keep = AL_FADE_START / 100;
-  ctx.clearRect(0, 0, size, size);
-  for (const horizontal of [false, true]) {
-    const s = horizontal ? last.x : last.y;
-    const band = ((s - 1) / 2 / s) * (1 - keep);
-    const g = ctx.createLinearGradient(
-      0,
-      0,
-      horizontal ? size : 0,
-      horizontal ? 0 : size,
-    );
-    const N = 64;
-    for (let k = 0; k <= N; k++) {
-      const q = k / N;
-      const a = Math.pow(1 - q, easing).toFixed(4);
-      g.addColorStop(band * q, `rgba(0,0,0,${a})`);
-      g.addColorStop(1 - band * q, `rgba(0,0,0,${a})`);
-    }
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, size, size);
-  }
-}
-
 function LiveAmbient({
   playerRef,
   lit,
   blur,
 }: {
   playerRef: React.RefObject<MediaPlayerInstance>;
-  /** Flou, sur l'echelle de l'extension de reference (5-100, 5 par defaut). */
+  /** Flou, sur l'echelle de l'extension (leur `blur2`, 5-100). */
   blur: number;
   /** La premiere image du fichier est-elle une vraie image ?
    *  `false` (noir mesure) est le seul cas ou l'ambient prend la vignette pour
@@ -744,25 +650,36 @@ function LiveAmbient({
    *  `true` comme `null` laissent la video, qui montre alors quelque chose. */
   lit: boolean | null;
 }) {
-  const glowRef = useRef<HTMLCanvasElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const blurRef = useRef(blur);
   blurRef.current = blur;
 
   useEffect(() => {
-    const source = document.createElement("canvas");
-    const shadow = document.createElement("canvas");
-    const SHADOW_SIZE = 512;
-    shadow.width = SHADOW_SIZE;
-    shadow.height = SHADOW_SIZE;
-    const sctx = source.getContext("2d");
-    const shctx = shadow.getContext("2d");
+    const root = rootRef.current;
+    if (!root) return;
+
+    let disposed = false;
+    let engine: AmbilightEngine | null = null;
+    /* WebGL d'abord ; leur projecteur 2D si WebGL manque, ou des que le flux
+       s'avere cross-origin sans CORS (refuse par texImage2D, pas par le 2D). */
+    const build = async (webGL: boolean) => {
+      engine?.destroy();
+      engine = null;
+      let next = new AmbilightEngine(root, blurRef.current, webGL);
+      if (!(await next.init()) && webGL) {
+        next.destroy();
+        next = new AmbilightEngine(root, blurRef.current, false);
+        await next.init();
+      }
+      if (disposed) next.destroy();
+      else engine = next;
+    };
+    void build(true);
 
     let raf = 0;
     let lastFrameTime = -1;
     let lastSampleAt = 0;
     let lastPoster = "";
-    let layout: AmbientLayout | null = null;
-    let styleKey = "";
 
     // ~30 fps suffit a une lumiere floue, et divise par deux le travail.
     const SAMPLE_INTERVAL_MS = 1000 / 30;
@@ -785,63 +702,15 @@ function LiveAmbient({
       io.observe(playerEl0);
     }
 
-    /* Une image -> la lumiere, etape par etape comme l'extension :
-       1. l'image reduite a `p` (leur texture mipmappee : un seul
-          sous-echantillonnage de qualite, tout part ensuite de ce petit canvas) ;
-       2. les copies emboitees, de la plus grande a la plus petite — de chaque
-          copie ne reste visible que l'anneau qui depasse de la suivante. Leur
-          shader choisit la copie par anneau rectangulaire : c'est exactement
-          cette superposition ;
-       3. l'ombre, retiree en `destination-out` ;
-       4. le flou, en CSS sur le canvas — meme rayon a l'ecran que le leur
-          (flou x 1,275 x hauteur du lecteur / 512). */
     const paint = (src: CanvasImageSource, w: number, h: number) => {
-      const glow = glowRef.current;
-      const gctx = glow?.getContext("2d");
-      if (!glow || !gctx || !sctx || !shctx || !w || !h) return;
-
-      const next = ambientLayout(w, h, blurRef.current);
-      if (!layout || layout.key !== next.key) {
-        layout = next;
-        source.width = next.p.w;
-        source.height = next.p.h;
-        glow.width = next.W;
-        glow.height = next.H;
-        drawAmbientShadow(shctx, SHADOW_SIZE, next.last);
-      }
-      const L = layout;
-
-      const boxH = glow.parentElement?.clientHeight || 0;
-      const screenBlur = (L.blurPx * boxH) / L.p.h;
-      const nextStyle = `${L.last.x}|${L.last.y}|${screenBlur.toFixed(1)}`;
-      if (nextStyle !== styleKey) {
-        styleKey = nextStyle;
-        glow.style.transform = `scale(${L.last.x}, ${L.last.y})`;
-        // Le filtre s'applique avant le `scale` : on divise par l'echelle.
-        glow.style.filter =
-          screenBlur > 0 ? `blur(${(screenBlur / L.last.y).toFixed(2)}px)` : "";
-      }
-
-      try {
-        sctx.imageSmoothingEnabled = true;
-        sctx.imageSmoothingQuality = "high";
-        sctx.drawImage(src, 0, 0, L.p.w, L.p.h);
-
-        gctx.globalCompositeOperation = "source-over";
-        gctx.imageSmoothingEnabled = true;
-        gctx.imageSmoothingQuality = "high";
-        gctx.clearRect(0, 0, L.W, L.H);
-        for (const s of L.scales) {
-          const cw = L.p.w * s.x;
-          const ch = L.p.h * s.y;
-          gctx.drawImage(source, (L.W - cw) / 2, (L.H - ch) / 2, cw, ch);
-        }
-        gctx.globalCompositeOperation = "destination-out";
-        gctx.drawImage(shadow, 0, 0, L.W, L.H);
-        gctx.globalCompositeOperation = "source-over";
-      } catch {
-        // Cross-origin taint — silently skip. (Le dessin, lui, ne teinte que
-        // la lecture des pixels, qu'on ne fait jamais ici.)
+      const e = engine;
+      if (!e) return;
+      e.setBlur(blurRef.current);
+      if (!e.draw(src, w, h) && e.webGL) {
+        engine = null;
+        lastFrameTime = -1;
+        lastPoster = "";
+        void build(false);
       }
     };
 
@@ -849,7 +718,7 @@ function LiveAmbient({
       raf = requestAnimationFrame(tick);
 
       // Skip all work while hidden / off-screen — cheapest possible early-out.
-      if (document.hidden || !onScreen) return;
+      if (document.hidden || !onScreen || !engine) return;
       // Throttle to the ambient sample rate.
       if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
       lastSampleAt = now;
@@ -896,7 +765,7 @@ function LiveAmbient({
       // Frame inchangee et meme flou : rien a refaire.
       if (
         video!.currentTime === lastFrameTime &&
-        layout?.key.endsWith(`|${blurRef.current}`)
+        engine.settings.blur2 === blurRef.current
       )
         return;
       lastFrameTime = video!.currentTime;
@@ -905,38 +774,23 @@ function LiveAmbient({
 
     raf = requestAnimationFrame(tick);
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       io?.disconnect();
+      engine?.destroy();
     };
   }, [playerRef, lit]);
 
   /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic : le
-     lecteur cache le centre, ce qui deborde EST la lumiere. Le canvas a la
-     taille du lecteur, agrandi par `scale` a celle de la plus grande copie ;
-     transform et filtre sont poses par la boucle, qui connait la geometrie. */
+     lecteur cache le centre, ce qui deborde EST la lumiere. Leur moteur y
+     installe ses canvas (classes `ambientlight__*`, styles dans globals.css). */
   return (
     <div
+      ref={rootRef}
       aria-hidden
       className="pointer-events-none absolute inset-0"
       style={{ zIndex: -1 }}
-    >
-      <canvas
-        ref={glowRef}
-        width={1}
-        height={1}
-        // width/height: 100% stretches the canvas via CSS — the only path
-        // where browsers DO interpolate (replaced element, GPU bilinear).
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-          display: "block",
-          transformOrigin: "center",
-          imageRendering: "auto",
-        }}
-      />
-    </div>
+    />
   );
 }
 
