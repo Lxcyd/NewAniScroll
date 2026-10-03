@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Facade autour du moteur de rendu de « Ambient light for YouTube »
  * (lib/vendor/youtube-ambilight, MIT, copie sans modification).

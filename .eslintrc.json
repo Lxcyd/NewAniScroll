@@ -1,5 +1,9 @@
 {
   "extends": "next/core-web-vitals",
+  // Code tiers copie sans modification (voir son README) : on ne le lint pas,
+  // le corriger le ferait diverger de l'original. `generic.js` y lit par
+  // exemple `cookieStore`, global que `no-undef` ne connait pas.
+  "ignorePatterns": ["lib/vendor/**"],
   // `no-undef` attrape la variable libre : un nom lu sans jamais avoir ete
   // declare dans une portee visible. C'est exactement ce qui a rendu la page de
   // lecture inutilisable le 20/09/2026 — `SERVERS` y etait `require` a
