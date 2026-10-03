@@ -1022,7 +1022,7 @@ export default function Settings() {
                     className="w-32 accent-action cursor-pointer"
                   />
                   <span className="text-sm tabular-nums text-white/80 w-12 text-right">
-                    {ambientBlur}px
+                    {ambientBlur}%
                   </span>
                 </div>
               </div>

@@ -3371,3 +3371,12 @@ Quatrième point, pas un bug de rendu : capture de Luc nette alors que la sonde
 `ambient-probe.mjs` (profil neuf, donc défaut 50 px) montre un halo doux sur la même page. Son
 navigateur gardait une valeur d'essai (8 ou 20 px) dans `ambient_blur`. Clé passée à
 `ambient_blur:v2` pour que tout le monde reparte du défaut.
+
+Cinquième version, « reprends exactement leur code » : rendu de l'extension porté en Canvas 2D avec
+ses défauts (`edge` 12, `spread` 17, `innerStrength` 2, `spreadFadeStart` 15, `spreadFadeCurve` 35,
+`blur2` 30). Ce qui faisait vraiment la différence avec mes essais : l'image source réduite à
+~128 px (192/256 si flou < 20/10), qui ôte tout détail avant l'agrandissement ; le pas vertical
+multiplié par largeur/hauteur (même débord en px sur les 4 côtés, une seule copie visible hors du
+lecteur) ; l'ombre en courbe appliquée AVANT le flou ; le flou proportionnel à la hauteur du lecteur
+(flou × 1,275 × H / 512). Pas leur WebGL : `texImage2D` refuse un flux cross-origin sans CORS, que
+`drawImage` accepte. Réglage passé sur leur échelle 0-100 (`ambient_blur:v3`, 30 par défaut).
