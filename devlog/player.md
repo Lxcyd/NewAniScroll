@@ -3401,3 +3401,8 @@ avec `LICENSE`. Seuls `sentry-reporter.js` (console) et `storage.js` (localStora
 `resizeCanvasses` et la boucle de dessin repris à l'identique. WebGL d'abord ; leur projecteur 2D
 dès qu'un flux cross-origin sans CORS fait lever `SecurityError` à `texImage2D`. Flou 5 (défaut et
 minimum).
+
+Réglages recopiés du panneau de l'extension de Luc (capture du 03/10) : `spread` **100** (défaut 17),
+`resolution` **400** (défaut 100), 60 images/s, flou 5, mode avancé désactivé (le reste par défaut).
+L'écart restant : nos flux cross-origin sans CORS passent par leur projecteur 2D, YouTube par le
+WebGL — l'en-tête CORS sur le proxy n'est pas posé, en attente de l'accord de Luc.

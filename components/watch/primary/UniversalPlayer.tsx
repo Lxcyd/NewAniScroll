@@ -681,8 +681,9 @@ function LiveAmbient({
     let lastSampleAt = 0;
     let lastPoster = "";
 
-    // ~30 fps suffit a une lumiere floue, et divise par deux le travail.
-    const SAMPLE_INTERVAL_MS = 1000 / 30;
+    // 60 fps : la limite reglee dans l'extension de reference (03/10). A 30,
+    // le halo retardait d'une image sur la video aux coupes de plan.
+    const SAMPLE_INTERVAL_MS = 1000 / 60;
 
     // Pause sampling entirely when the tab is hidden OR the player is scrolled
     // out of view. Browsers already throttle rAF in background tabs, but the
