@@ -3411,9 +3411,3 @@ Pourquoi c'était encore leur 2D : pas le flux (Ansembed est servi avec CORS), m
 d'avant-play, chargée exprès sans `crossorigin` (CDN sans CORS). WebGL la refusait au premier
 dessin et la façade basculait en 2D pour toute la lecture. Verdict WebGL désormais **par source**
 (`webGLFor.video` / `webGLFor.poster`) : la vignette peut passer par le 2D, la vidéo revient au WebGL.
-
-Neuvième point (capture YouTube côte à côte) : le halo de l'extension est **lisse**, le nôtre
-gardait le détail de l'image (étoiles, arc vert net au-dessus du lecteur). Cause : le flou 5 — le
-projecteur agrandi ×2,8 n'efface rien à ce flou-là. Rendu dev forcé à 30 (leur défaut) : identique
-à la capture YouTube. Défaut passé à **30** (`AMBIENT_BLUR_DEFAULT`), minimum toujours 5, clé
-`ambient_blur:v4` pour que le 5 déjà enregistré ne masque pas le nouveau défaut.

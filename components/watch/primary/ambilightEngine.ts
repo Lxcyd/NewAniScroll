@@ -28,7 +28,7 @@ const INNER_STRENGTH = 2;
 /** Leurs reglages par defaut (settings-config.js), ceux que lisent les
  *  projecteurs et ce fichier — SAUF `resolution` et `spread`, recopies du
  *  panneau de l'extension de Luc le 03/10 (defauts : 100 et 17). Le flou
- *  vient des preferences du site (30 par defaut, comme chez eux). */
+ *  (5) vient des preferences du site. */
 const DEFAULT_SETTINGS = {
   webGL: true,
   resolution: 400,
