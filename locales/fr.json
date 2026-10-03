@@ -224,7 +224,7 @@
       "serverPerfNone": "Aucune mesure pour l'instant",
       "serverPerfResetBtn": "Réinitialiser",
       "ambientBlur": "Flou de la lumière d'ambiance",
-      "ambientBlurDesc": "Adoucit la lumière qui prolonge l'image autour du lecteur. Même échelle que l'extension « Ambient light for YouTube » : 5 au minimum, comme par défaut.",
+      "ambientBlurDesc": "Adoucit la lumière qui prolonge l'image autour du lecteur. Même échelle que l'extension « Ambient light for YouTube » : 20 par défaut, 5 au minimum.",
       "seekStep": "Pas d’avance / recul",
       "seekStepDesc": "De combien de secondes les raccourcis avancent ou reculent. Le nombre s’affiche sur les touches du clavier des raccourcis."
     },

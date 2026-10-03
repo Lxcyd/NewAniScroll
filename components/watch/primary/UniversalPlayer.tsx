@@ -44,6 +44,7 @@ const FullscreenChat = dynamic(
 );
 // @ts-ignore — context module is plain JS, no types
 import {
+  AMBIENT_BLUR_DEFAULT,
   AMBIENT_BLUR_MIN,
   useWatchProvider,
 } from "@/lib/context/watchPageProvider";
@@ -2826,7 +2827,7 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? AMBIENT_BLUR_MIN;
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? AMBIENT_BLUR_DEFAULT;
   const setAmbientBlurCtx: (v: number) => void = watchCtx.setAmbientBlur || (() => {});
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),

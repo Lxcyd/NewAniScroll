@@ -3438,3 +3438,6 @@ Le sous-menu ambient cachait la ligne « Automatisation », alors qu'Automatisat
 d'ambiance » épinglée au-dessus. Les deux lignes d'entrée sont désormais partagées
 (`ambientMenuRow`, `automationMenuRow`) : chaque sous-menu garde la ligne de l'autre à sa place, et
 on passe de l'un à l'autre directement.
+
+Flou par défaut passé à **20** (`AMBIENT_BLUR_DEFAULT`, demande de Luc), minimum toujours 5. Clé
+`ambient_blur:v4` : les valeurs d'essai de la v3 auraient masqué le nouveau défaut.

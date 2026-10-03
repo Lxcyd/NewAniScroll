@@ -224,7 +224,7 @@
       "serverPerfNone": "Nothing measured yet",
       "serverPerfResetBtn": "Reset",
       "ambientBlur": "Ambient light blur",
-      "ambientBlurDesc": "Softens the light that extends the picture around the player. Same scale as the “Ambient light for YouTube” extension: 5 at minimum, which is also the default.",
+      "ambientBlurDesc": "Softens the light that extends the picture around the player. Same scale as the “Ambient light for YouTube” extension: 20 by default, 5 at minimum.",
       "seekStep": "Seek step",
       "seekStepDesc": "How many seconds the forward / backward shortcuts jump. The number is shown on those keys in the shortcut keyboard."
     },
