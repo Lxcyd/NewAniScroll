@@ -147,6 +147,9 @@ def keep(mal: int, lang: str, ep: int, stream: dict, cands, ep_dur: float) -> tu
 
 
 def window_for(wins: list[Window], start: float) -> Window | None:
-    """La fenetre qui contient le debut du candidat."""
+    """La fenetre qui contient le debut du candidat. Un flux peut commencer
+    APRES le debut d'un generique joue des la premiere image (megaplay : flux a
+    1,4 s ; One Piece OP1 a 0,0 s, 43 lecteurs-episodes en panne le 03/10/2026) :
+    jusqu'a 5 s d'ecart, c'est la bonne fenetre."""
     t = max(0.0, start)
-    return next((w for w in wins if w.a0 - 1.0 <= t < w.end), None)
+    return next((w for w in wins if w.a0 - 5.0 <= t < w.end), None)
