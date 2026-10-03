@@ -191,6 +191,15 @@ def _detect_host(mal: int, lang: str, ep: int, stream: dict, refs, steps: dict, 
         kinds = {c.kind for c in heard}
         if level == "guide" and set(plan["kinds"]) <= kinds:
             break
+        # Pas la moindre trace, meme partielle, la ou le guide a entendu ses
+        # themes : fichier sans generique (Hunter x Hunter chez ansembed et
+        # vidmoly-va : 1 min de moins, rien en tete ni en fin). Le relire en
+        # tete + fin coutait ~1 Go par episode en 1080p pour ne rien trouver.
+        # Un meme generique decale de plus de GUIDE_GUARD_S d'un lecteur a
+        # l'autre serait perdu ; mesure jusqu'ici : 17 s au plus.
+        if level == "guide" and not cands:
+            steps["guide_sans_trace"] = True
+            break
         # Aucune trace d'aucun theme en tete ni en fin, meme partielle : fichier
         # sans generique (Hunter x Hunter chez ansembed et vidmoly-va, 1 min plus
         # court que chez megaplay) ; le telecharger en entier ne trouverait rien.
