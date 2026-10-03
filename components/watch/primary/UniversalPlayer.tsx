@@ -1483,33 +1483,39 @@ function SettingsToggleRow({
         {iconNode ?? <path d={iconPath} />}
       </svg>
       <span style={{ flex: 1 }}>{label}</span>
-      {/* Pill-style toggle */}
-      <span
-        aria-hidden
-        style={{
-          width: 28,
-          height: 16,
-          borderRadius: 999,
-          backgroundColor: enabled ? "#E94560" : "rgba(255,255,255,0.18)",
-          position: "relative",
-          flexShrink: 0,
-          transition: "background-color 120ms ease",
-        }}
-      >
-        <span
-          style={{
-            position: "absolute",
-            top: 2,
-            left: enabled ? 14 : 2,
-            width: 12,
-            height: 12,
-            borderRadius: "50%",
-            backgroundColor: "#fff",
-            transition: "left 120ms ease",
-          }}
-        />
-      </span>
+      <TogglePill enabled={enabled} />
     </div>
+  );
+}
+
+// Pill-style switch drawn by the toggle rows (and the submenu row's shortcut).
+function TogglePill({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 28,
+        height: 16,
+        borderRadius: 999,
+        backgroundColor: enabled ? "#E94560" : "rgba(255,255,255,0.18)",
+        position: "relative",
+        flexShrink: 0,
+        transition: "background-color 120ms ease",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 2,
+          left: enabled ? 14 : 2,
+          width: 12,
+          height: 12,
+          borderRadius: "50%",
+          backgroundColor: "#fff",
+          transition: "left 120ms ease",
+        }}
+      />
+    </span>
   );
 }
 
@@ -1519,11 +1525,15 @@ function SettingsToggleRow({
 function SettingsSubmenuRow({
   label,
   hint,
+  toggle,
   onOpen,
   iconPath,
 }: {
   label: string;
   hint?: string;
+  /** Shortcut switch before the chevron: the pill toggles, the rest of the
+   *  row still opens the sub-panel. */
+  toggle?: { enabled: boolean; onToggle: (next: boolean) => void; label: string };
   onOpen: () => void;
   iconPath: string;
 }) {
@@ -1554,6 +1564,30 @@ function SettingsSubmenuRow({
       <span style={{ flex: 1 }}>{label}</span>
       {hint && (
         <span style={{ opacity: 0.6, marginRight: 4, fontSize: "0.92em" }}>{hint}</span>
+      )}
+      {toggle && (
+        <span
+          role="switch"
+          aria-checked={toggle.enabled}
+          aria-label={toggle.label}
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggle.onToggle(!toggle.enabled);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              toggle.onToggle(!toggle.enabled);
+            }
+          }}
+          // Wider hit area than the 28 px pill, so a near miss doesn't open
+          // the sub-panel instead.
+          style={{ display: "flex", padding: "6px 4px", margin: "-6px 2px -6px 0" }}
+        >
+          <TogglePill enabled={toggle.enabled} />
+        </span>
       )}
       {/* chevron-right */}
       <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 18, height: 18, flexShrink: 0 }}>
@@ -1598,9 +1632,10 @@ function SettingsSubmenuHeader({ label, onBack }: { label: string; onBack: () =>
   );
 }
 
-// Slider row of a sub-panel (ambient blur): icon + label on top, the range and
-// its value underneath — a 28 px track beside a long label leaves nothing to
-// drag. Pointer and key events stop here: Vidstack's menu reads arrow keys for
+// Slider row of a sub-panel (ambient blur): icon, label, range and value on
+// ONE line, at the height of every other row — a second line made the row
+// taller than the box Vidstack sizes the menu for, and it ran into the next
+// item. Pointer and key events stop here: Vidstack's menu reads arrow keys for
 // its own focus navigation and would steal the slider's.
 function SettingsSliderRow({
   label,
@@ -1629,28 +1664,20 @@ function SettingsSliderRow({
       onKeyDown={(e) => e.stopPropagation()}
       style={{
         display: "flex",
-        flexDirection: "column",
-        alignItems: "stretch",
-        gap: 6,
+        alignItems: "center",
         cursor: "default",
         userSelect: "none",
         opacity: disabled ? 0.45 : 1,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center" }}>
-        <svg
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
-        >
-          <path d={iconPath} />
-        </svg>
-        <span style={{ flex: 1 }}>{label}</span>
-        <span style={{ opacity: 0.6, fontSize: "0.92em", fontVariantNumeric: "tabular-nums" }}>
-          {value}
-          {unit}
-        </span>
-      </div>
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        style={{ width: 22, height: 22, marginRight: 6, flexShrink: 0 }}
+      >
+        <path d={iconPath} />
+      </svg>
+      <span style={{ flexShrink: 0 }}>{label}</span>
       <input
         type="range"
         min={min}
@@ -1660,8 +1687,27 @@ function SettingsSliderRow({
         disabled={disabled}
         aria-label={label}
         onChange={(e) => onChange(Number(e.target.value))}
-        style={{ width: "100%", accentColor: "#E94560", cursor: disabled ? "default" : "pointer" }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          margin: "0 10px",
+          accentColor: "#E94560",
+          cursor: disabled ? "default" : "pointer",
+        }}
       />
+      <span
+        style={{
+          opacity: 0.6,
+          fontSize: "0.92em",
+          fontVariantNumeric: "tabular-nums",
+          minWidth: "3.2em",
+          textAlign: "right",
+          flexShrink: 0,
+        }}
+      >
+        {value}
+        {unit}
+      </span>
     </div>
   );
 }
@@ -7220,11 +7266,15 @@ export default function UniversalPlayer({
                 )}
               </>
             )}
-            {/* Drill-in to the ambient lights toggle + blur. The hint says
-                when they are off, since the toggle is no longer on this list. */}
+            {/* Ambient lights: the switch toggles on the spot, the rest of
+                the row drills into the sub-panel (toggle + blur). */}
             <SettingsSubmenuRow
               label={t("player.ambientLights")}
-              hint={ctxAmbient ? undefined : t("player.off")}
+              toggle={{
+                enabled: ctxAmbient,
+                onToggle: setAmbientCtx,
+                label: t("player.ambientEnable"),
+              }}
               onOpen={() => setAmbientOpen(true)}
               // Material "lightbulb_outline" icon.
               iconPath="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"

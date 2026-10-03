@@ -3427,3 +3427,9 @@ Menu du lecteur : la ligne « Lumières d'ambiance » devient un sous-menu (chev
 Automatisation ; indice « Désactivé » quand elles sont coupées). Dedans : l'interrupteur et un
 curseur « Flou » (5-100, même valeur que Paramètres › Lecteur vidéo). Le curseur arrête clics et
 touches : le menu Vidstack lit les flèches pour sa navigation et volait celles du curseur.
+
+Retouches du sous-menu (captures de Luc) : le curseur « Flou » tient sur UNE ligne (icône, libellé,
+curseur, valeur) — sur deux lignes la rangée dépassait la boîte que Vidstack a mesurée pour le
+menu et chevauchait « Vitesse ». La ligne « Lumières d'ambiance » du menu principal porte un
+interrupteur avant le chevron (`toggle` de `SettingsSubmenuRow`) : la pastille bascule sur place, le
+reste de la ligne ouvre le sous-menu.
