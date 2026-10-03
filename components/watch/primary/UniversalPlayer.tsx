@@ -662,15 +662,16 @@ function LiveAmbient({
   const sourceRef = useRef<HTMLCanvasElement | null>(null);
   const prevRef = useRef<HTMLCanvasElement | null>(null);
 
-  /* Jusqu'ou la lumiere deborde du lecteur : 1,4 = 20 % de sa taille de chaque
-     cote. */
-  const SPREAD = 1.4;
-  /* Nombre de copies emboitees : 4, soit un anneau tous les 10 % — chacun montre
+  /* Jusqu'ou la lumiere deborde du lecteur : 1,2 = 10 % de sa taille de chaque
+     cote. L'extension de reference deborde de 17 % au total ; a 1,4 la lumiere
+     couvrait toute la barre du haut et la page entiere en paraissait noyee. */
+  const SPREAD = 1.2;
+  /* Nombre de copies emboitees : 2, soit un anneau tous les 10 % — chacun montre
      le dixieme exterieur de l'image, une vraie bande d'image et non une ligne
      de pixels. Avec 32 anneaux de 2 px, chaque anneau etirait une ligne du
      bord : trainees radiales et grain visibles (03/10). C'est aussi l'ordre de
-     grandeur de l'extension de reference (pas de 12 %, 17 % de debord). */
-  const RINGS = 4;
+     grandeur de l'extension de reference (pas de 12 %). */
+  const RINGS = 2;
   // Canvas pixel size. Stays small because CSS stretching handles the visible
   // scaling with GPU bilinear filtering. Higher would just waste pixels.
   // 480x270 et non plus 320x180 : avec un flou faible, l'agrandissement x5 du

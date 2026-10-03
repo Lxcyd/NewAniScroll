@@ -3363,3 +3363,6 @@ de référence (`settings-config.js`) — `edge` 12 (copies espacées de 12 %), 
 (≈ 60 px écran pour un lecteur de 700 px), saturation 100. Donc **peu de copies, grosses, et
 franchement floutées** — pas 32 anneaux fins. Passé à 4 anneaux (pas de 10 %), canvas 480×270
 au lieu de 320×180 (le ×5 laissait voir les pixels), défaut **50 px**, saturation 1 → 1,4.
+
+Troisième retouche : débord ramené de ×1,4 à **×1,2** (10 % de chaque côté, 2 anneaux). À ×1,4 la
+lumière couvrait toute la NavBar ; l'extension de référence ne déborde que de 17 % au total.
