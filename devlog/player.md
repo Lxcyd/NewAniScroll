@@ -3366,3 +3366,8 @@ au lieu de 320×180 (le ×5 laissait voir les pixels), défaut **50 px**, satura
 
 Troisième retouche : débord ramené de ×1,4 à **×1,2** (10 % de chaque côté, 2 anneaux). À ×1,4 la
 lumière couvrait toute la NavBar ; l'extension de référence ne déborde que de 17 % au total.
+
+Quatrième point, pas un bug de rendu : capture de Luc nette alors que la sonde
+`ambient-probe.mjs` (profil neuf, donc défaut 50 px) montre un halo doux sur la même page. Son
+navigateur gardait une valeur d'essai (8 ou 20 px) dans `ambient_blur`. Clé passée à
+`ambient_blur:v2` pour que tout le monde reparte du défaut.
