@@ -3357,3 +3357,9 @@ Même jour, retouches : le curseur quitte le menu du lecteur pour **Paramètres 
 (sous l'économie de données), défaut **20 px** au lieu de 8 — à 8 px on voit les traînées radiales
 du bord, c'est le rendu brut du procédé, pas celui de la capture de référence qui est floutée.
 Fondu extérieur en courbe (0,45 aux deux tiers de la bande) au lieu d'une rampe linéaire.
+
+Deuxième retouche (« moins pixelisé, pas ce rendu-là ») : lu les réglages par défaut de l'extension
+de référence (`settings-config.js`) — `edge` 12 (copies espacées de 12 %), `spread` 17, `blur2` 30
+(≈ 60 px écran pour un lecteur de 700 px), saturation 100. Donc **peu de copies, grosses, et
+franchement floutées** — pas 32 anneaux fins. Passé à 4 anneaux (pas de 10 %), canvas 480×270
+au lieu de 320×180 (le ×5 laissait voir les pixels), défaut **50 px**, saturation 1 → 1,4.

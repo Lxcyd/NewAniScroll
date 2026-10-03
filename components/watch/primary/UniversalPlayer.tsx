@@ -665,13 +665,18 @@ function LiveAmbient({
   /* Jusqu'ou la lumiere deborde du lecteur : 1,4 = 20 % de sa taille de chaque
      cote. */
   const SPREAD = 1.4;
-  /* Nombre de copies emboitees : un anneau fait ~2 px du canvas source, assez
-     fin pour que les marches disparaissent sous un flou de quelques px. */
-  const RINGS = 32;
+  /* Nombre de copies emboitees : 4, soit un anneau tous les 10 % — chacun montre
+     le dixieme exterieur de l'image, une vraie bande d'image et non une ligne
+     de pixels. Avec 32 anneaux de 2 px, chaque anneau etirait une ligne du
+     bord : trainees radiales et grain visibles (03/10). C'est aussi l'ordre de
+     grandeur de l'extension de reference (pas de 12 %, 17 % de debord). */
+  const RINGS = 4;
   // Canvas pixel size. Stays small because CSS stretching handles the visible
   // scaling with GPU bilinear filtering. Higher would just waste pixels.
-  const SRC_W = 320;
-  const SRC_H = 180;
+  // 480x270 et non plus 320x180 : avec un flou faible, l'agrandissement x5 du
+  // canvas laissait voir ses pixels.
+  const SRC_W = 480;
+  const SRC_H = 270;
   const GLOW_W = Math.round(SRC_W * SPREAD);
   const GLOW_H = Math.round(SRC_H * SPREAD);
 
@@ -822,11 +827,11 @@ function LiveAmbient({
   /* Le calque est derriere le lecteur (z:-1) et ne recoit aucun clic. Il
      deborde de (SPREAD - 1) / 2 de chaque cote, en % du lecteur, sans
      `transform` : le flou est donc en px ecran, tel que regle.
-     `saturate` suit le flou : un flou fort dilue les couleurs et 1,8 les
-     rendait (valeur du survol de carte) ; un flou faible n'a rien dilue, et
-     sur-saturer y casserait la continuite avec l'image au bord du lecteur. */
+     `saturate` suit le flou, de 1 a 1,4 : les copies sont opaques, le flou
+     dilue peu, et sur-saturer casserait la continuite avec l'image au bord du
+     lecteur. L'ancien 1,8 compensait une copie unique noyee dans 94 px. */
   const blur = Math.max(0, blurPx);
-  const saturation = 1 + 0.8 * Math.min(1, blur / 94);
+  const saturation = 1 + 0.4 * Math.min(1, blur / 100);
   const overhang = `${((SPREAD - 1) / 2) * 100}%`;
   // Bord du lecteur, en % du calque : la lumiere y est pleine, et s'eteint
   // jusqu'au bord exterieur.
@@ -2765,7 +2770,7 @@ export default function UniversalPlayer({
   // Ambient lights toggle — defaults to true if undefined (older context).
   const ctxAmbient: boolean = watchCtx.ambientLights !== false;
   const setAmbientCtx: (v: boolean) => void = watchCtx.setAmbientLights || (() => {});
-  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 20;
+  const ctxAmbientBlur: number = watchCtx.ambientBlur ?? 50;
   // The user toggle wins over the prop — we leave the prop in place so
   // callers can still force-disable ambient (e.g. an embedded preview),
   // but the user setting overrides "ambient is on by default".
