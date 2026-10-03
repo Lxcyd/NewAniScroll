@@ -3411,3 +3411,8 @@ Pourquoi c'était encore leur 2D : pas le flux (Ansembed est servi avec CORS), m
 d'avant-play, chargée exprès sans `crossorigin` (CDN sans CORS). WebGL la refusait au premier
 dessin et la façade basculait en 2D pour toute la lecture. Verdict WebGL désormais **par source**
 (`webGLFor.video` / `webGLFor.poster`) : la vignette peut passer par le 2D, la vidéo revient au WebGL.
+
+Neuvième point, annulé : le défaut à 30 (`5465a4b8`) est revenu à 5 — l'extension de Luc est bien
+à 5 %. Moteur, géométrie, tampon, shader et chemin de dessin relus contre `ambientlight.js` : identiques.
+L'écart restant doit venir des réglages avancés de son extension (masqués, mais actifs même mode
+avancé coupé) — export de ses réglages demandé.
