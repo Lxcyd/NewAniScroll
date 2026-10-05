@@ -1,8 +1,8 @@
 {
   "prod": {
-    "libelle": "Production — aniscroll.com",
-    "orgId": "team_ZzntjDEDtJ0UVAlQZjVkUQpL",
-    "projectId": "prj_vjyHC0Mj6ZzG3glD3HfpsyuTDVsX",
+    "libelle": "Production — aniscroll.com (compte recree le 05/10/2026, projet new-ani-scroll)",
+    "orgId": "team_Q9HOkhy16BBpSjnY5mmqwyiw",
+    "projectId": "prj_5thQq7UqgdiTaaSyO0udRzDx2oZq",
     "scope": "aniscroll"
   },
   "dev": {
