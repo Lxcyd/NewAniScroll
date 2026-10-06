@@ -1,0 +1,7 @@
+{
+  "_pourquoi": "anime-sama numerote une franchise d'un seul tenant la ou AniList la coupe en fiches. Le lot detecte le panneau entier sous la premiere fiche ; ces regles rangent les episodes sous la bonne fiche (eval/renumerote.py, ajout seul). Fairy Tail : 05/10/2026, player_map corrige le meme jour (offsets 175 et 277).",
+  "regles": [
+    {"source_mal": 6702, "de": 176, "a": 277, "cible_mal": 22043, "decalage": 175, "titre": "FAIRY TAIL (2014)"},
+    {"source_mal": 6702, "de": 278, "a": 328, "cible_mal": 35972, "decalage": 277, "titre": "FAIRY TAIL (2018) Final Series"}
+  ]
+}
