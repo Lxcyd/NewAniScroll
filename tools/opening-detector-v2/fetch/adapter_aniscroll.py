@@ -206,8 +206,11 @@ def resolve_episodes(
 # il ne se resout qu'avec les coordonnees `frembed` de la saison (cf.
 # scratch/_frembed_coords.mjs), sinon il est ecarte proprement comme
 # vidmoly-va sans va_slug.
-MULTI_HOSTS = ["sibnet", "megaplay", "ansembed", "vidmoly-va",
-               "uqload", "frembed"]
+# 07/10/2026 : la liste n'est plus ecrite ici mais lue dans lib/lecteurs.json
+# (sibnet mort et uqload retire tournaient encore au lot, cf. lecteurs.py).
+from lecteurs import du_lot  # noqa: E402
+
+MULTI_HOSTS = du_lot()
 
 # --- Réessai de résolution (07/08) -------------------------------------------
 # MESURÉ AVANT D'ÊTRE ÉCRIT. Sur 8 lots successifs, parmi les couples

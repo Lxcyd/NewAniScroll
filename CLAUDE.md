@@ -60,6 +60,19 @@ deploiement repart avec un cache d'edge vide.
 - L'upgrade Pro, seule action qui relance un compte deja en pause : le Fluid
   CPU deja consomme ne redescend qu'au 1er du mois.
 
+## Lecteurs : une seule source, `lib/lecteurs.json`
+
+Une decision de l'utilisateur sur un lecteur (mort, retire, rallume) s'ecrit
+**tout de suite** dans [lib/lecteurs.json](lib/lecteurs.json), avec la date et
+la raison — pas seulement dans la conversation ou la memoire. Un lecteur absent
+du registre n'existe pas. Le detecteur OP/ED en derive ses listes
+([lecteurs.py](tools/opening-detector-v2/lecteurs.py)) et refuse de partir sur un
+lecteur interdit (code 5) ; le site leve au build si un chip pointe un lecteur
+`site: false` ([hostRegistry.js](lib/hostRegistry.js)) ;
+[check-lecteurs.mjs](scripts/check-lecteurs.mjs) tourne dans build-test.
+Ne jamais ecrire une liste de lecteurs a la main. (Pose le 07/10/2026 : sibnet,
+dit mort, et uqload, dit retire, tournaient encore au lot et s'affichaient.)
+
 ## Le reste
 
 - **Prod = `main`**, dev = `dev`. Mesurer l'ecart sur le REMOTE

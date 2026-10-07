@@ -1,0 +1,12 @@
+{
+  "_lire": "SEULE source de verite des lecteurs (07/10/2026). Une decision de Luc sur un lecteur s'ecrit ICI, tout de suite. `site` : chips affiches (lib/hostRegistry.js leve si un chip pointe un lecteur `site: false`). `lot` : utilises par le detecteur OP/ED, dans l'ORDRE de ce fichier (= ordre de guidage) ; tools/opening-detector-v2/lecteurs.py derive MULTI_HOSTS / GUIDE_ORDER / priorite du pont et lot.py refuse de partir sur un lecteur hors liste. Un lecteur absent de ce fichier n'existe pas.",
+  "lecteurs": {
+    "frembed":    { "etat": "actif", "site": true, "lot": true, "note": "piste son a part, guide les autres" },
+    "megaplay":   { "etat": "actif", "site": true, "lot": true, "note": "un 403 / 429 = ralentir, jamais exclure (rallume en iframe le 20/09)" },
+    "ansembed":   { "etat": "actif", "site": true, "lot": true },
+    "vidmoly-va": { "etat": "actif", "site": true, "lot": true },
+    "sibnet":     { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "flux HS : propose ~85 % mais 3 reussites sur 483 essais du lot (07/10) ; deja HS au 08/08" },
+    "uqload":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "retire du site a la demande de Luc ; 59 % de pannes au lot" },
+    "sendvid":    { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-08-31", "decide": "Luc", "raison": "sendvid.com repond 502 sur toutes ses urls" }
+  }
+}

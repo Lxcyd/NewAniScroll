@@ -66,6 +66,7 @@ import run  # noqa: E402
 from eval import sentinels  # noqa: E402
 from fetch import hls_cache, stats  # noqa: E402
 from fetch.adapter_aniscroll import MULTI_HOSTS, resolve_episodes_multi  # noqa: E402
+import lecteurs  # noqa: E402
 from fetch.episode import CACHE as EP_CACHE  # noqa: E402
 from fetch.errors import ProcessKilled  # noqa: E402
 from refs import animethemes  # noqa: E402
@@ -399,7 +400,8 @@ def resolve(entry: dict, season: dict, ep: int, hosts: list[str], fresh: bool, f
 # Ordre de passage des lecteurs d'un episode : le moins cher d'abord, il sert
 # de GUIDE aux autres (run.plan_from). frembed a une piste son a part (~18 Mo
 # par episode) ; megaplay et la famille Vidmoly portent la video avec.
-GUIDE_ORDER = ["frembed", "megaplay", "sibnet", "uqload", "ansembed", "vidmoly-va"]
+# L'ordre est celui de lib/lecteurs.json (cf. lecteurs.py), jamais ecrit ici.
+GUIDE_ORDER = list(MULTI_HOSTS)
 
 
 # Un sous-processus (ffmpeg, node) sorti sur un code NTSTATUS. La v1 y voyait
@@ -700,6 +702,7 @@ class Lot:
                         animes_faits=anime_done(), palier=a.limit or None, a_reprendre=redo())
         log(f"lot {self.run_id} code {self.code} : {self.done} / {total} episodes-langues deja faits, "
             f"{len(todo)} animes dans ce lancement")
+        log(f"lecteurs (lib/lecteurs.json) : {', '.join(GUIDE_ORDER)}")
 
         beat = threading.Thread(target=self.heartbeat, daemon=True)
         beat.start()
@@ -790,6 +793,12 @@ def main(argv: list[str]) -> int:
         write_atomic(path, json.dumps(counts))
         print(f"{sum(1 for v in counts.values() if v)} animes avec references sur {len(counts)}")
         return 0
+    # Garde du registre : un lecteur mort ou retire ne tourne pas, meme si une
+    # liste a ete reecrite a la main (sibnet / uqload, 07/10/2026).
+    bad = lecteurs.interdits(dict.fromkeys([*MULTI_HOSTS, *GUIDE_ORDER]))
+    if bad:
+        print("lecteur(s) interdit(s) par lib/lecteurs.json : " + " ; ".join(bad), flush=True)
+        return 5
     lock = base.with_name(base.name + ".lock")
     if lock.exists():
         try:

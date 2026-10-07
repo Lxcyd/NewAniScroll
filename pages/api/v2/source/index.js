@@ -851,7 +851,8 @@ const seasonCache = new Map();
 const slugCache = new Map();
 const ANIMESAMA_SERVERS = {
   // VF (French dub)
-  "animesama-sibnet":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vf" },
+  // "animesama-sibnet" (VF et VO) et "animesama-uqload" (VF et VO) retires le
+  // 07/10/2026 (lib/lecteurs.json : sibnet mort, uqload retire, decision de Luc).
   // "animesama-sendvid" retire le 31/08/2026 : sendvid.com est HS (502 sur tout
   // le site) — voir lib/servers.js. L'extracteur reste en place dans
   // lib/extractors.js, prêt si l'hôte revient.
@@ -863,15 +864,9 @@ const ANIMESAMA_SERVERS = {
   // resolution attempt per episode. Voir-Anime's vidmoly is a DIFFERENT site
   // with its own uploads and stays.
   "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
-  // Fallback only — uqload's stream token is IP/single-use-bound (a concurrent
-  // pull 403s), so it's the least reliable host; kept last so it's offered only
-  // when the more robust players above are unavailable.
-  "animesama-uqload":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vf" },
   // VOSTFR (Japanese + French subs)
-  "animesama-sibnet-vo":       { name: "Sibnet",      preferred: ["sibnet.ru"],                              lang: "vostfr" },
   // "animesama-sendvid-vo" retire avec son jumeau VF (31/08/2026).
   "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
-  "animesama-uqload-vo":       { name: "Uqload",      preferred: ["uqload."],                                lang: "vostfr" },
 };
 
 /**

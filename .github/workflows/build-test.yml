@@ -39,6 +39,11 @@ jobs:
         # needs a C++ toolchain. It is irrelevant to the Next.js bundle.
         run: npm install --ignore-scripts
 
+      - name: Registre des lecteurs (lib/lecteurs.json)
+        # Echoue si une liste de lecteurs du detecteur OP/ED redevient ecrite en
+        # dur ou si le registre est incoherent (cf. scripts/check-lecteurs.mjs).
+        run: node scripts/check-lecteurs.mjs
+
       - name: Build the Next.js app
         env:
           # Parsed for schema validation only — never connected to.

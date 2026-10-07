@@ -8,6 +8,7 @@
 #   code 2  arret demande (.stop)   -> fin
 #   code 3  pause sur sentinelle    -> fin (regarder out/catalogue.status.txt)
 #   code 4  un lot tourne deja      -> fin
+#   code 5  lecteur interdit par lib/lecteurs.json -> fin (lire .run.out)
 #   autre   plantage                -> relance, attente croissante
 # 5 relances d'affilee sans un seul episode de plus : arret, pour ne pas
 # marteler un lecteur ou un disque en panne.
@@ -74,7 +75,7 @@ while ($true) {
   # lecteurs, traces) reste dans .run.out / .run.err, l'avant-derniere en .prev.
   if ($killed) { $code = 99 }
   Say "sortie code $code"
-  if ($code -in 0, 2, 3, 4) { break }
+  if ($code -in 0, 2, 3, 4, 5) { break }   # 5 : lecteur interdit par lib/lecteurs.json
   $after = Done-Count
   if ($after -gt $before) { $idle = 0 } else { $idle++ }
   if ($idle -ge 5) { Say "5 relances sans progres : arret. Voir $log"; break }

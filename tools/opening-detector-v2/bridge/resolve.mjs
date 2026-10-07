@@ -207,7 +207,14 @@ async function extractVidmolyDirect(embedUrl) {
 //     safe downstream pull. Added at LOW priority (after the proven hosts).
 //     NOTE: uqload gates the embed on the anime-sama Referer — the extractor
 //     sends it; a wrong Referer yields a 38-byte "restricted" stub.
-const DEFAULT_PRIORITY = ["sibnet", "sendvid", "megaplay", "uqload"];
+// 07/10/2026 : filtre par lib/lecteurs.json (seule source de verite) — sibnet,
+// sendvid et uqload y sont morts / retires et ne doivent plus etre resolus.
+const LECTEURS = JSON.parse(
+  readFileSync(new URL("../../../lib/lecteurs.json", import.meta.url), "utf8"),
+).lecteurs;
+const DEFAULT_PRIORITY = ["sibnet", "sendvid", "megaplay", "uqload"].filter(
+  (h) => LECTEURS[h]?.lot && LECTEURS[h]?.etat === "actif",
+);
 
 async function viaWorker(url) {
   const r = await fetch(`${WORKER}?url=${encodeURIComponent(url)}`);
