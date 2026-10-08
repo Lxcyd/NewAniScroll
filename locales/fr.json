@@ -1059,6 +1059,7 @@
     "studioLayoutSection": "Agencement du profil",
     "studioFrameSection": "Cadre d'avatar",
     "studioFrameNone": "Aucun cadre",
+    "studioFrameRemove": "Retirer le cadre",
     "studioFrameLoading": "Chargement des cadres…",
     "studioLayout_band": "Bandeau",
     "studioLayoutHint_band": "Avatar et nom en bas à gauche, les quatre chiffres en cartes dessous",

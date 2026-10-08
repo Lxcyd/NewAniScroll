@@ -1563,6 +1563,17 @@ export default function BannerStudio({
             {t("profile.bannerReset")}
           </button>
         ) : null}
+        {/* Retirer le cadre sans rouvrir sa grille : il se voit sur l'aperçu,
+            il s'enlève d'ici. */}
+        {draft.frame ? (
+          <button
+            type="button"
+            onClick={() => patch({ frame: null })}
+            className="rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            {t("profile.studioFrameRemove")}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onClose}

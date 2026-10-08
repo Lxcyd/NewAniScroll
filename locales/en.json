@@ -1059,6 +1059,7 @@
     "studioLayoutSection": "Profile layout",
     "studioFrameSection": "Avatar frame",
     "studioFrameNone": "No frame",
+    "studioFrameRemove": "Remove frame",
     "studioFrameLoading": "Loading frames…",
     "studioLayout_band": "Banner",
     "studioLayoutHint_band": "Avatar and name bottom-left, the four figures as cards below",

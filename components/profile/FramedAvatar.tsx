@@ -39,7 +39,15 @@ export default function FramedAvatar({
 }) {
   return (
     <div className="relative shrink-0">
-      <div className="rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
+      {/* L'anneau d'accent s'efface sous un cadre : le cadre EST la bordure, et
+          un liseré rose entre lui et la photo faisait double contour. */}
+      <div
+        className={
+          frame
+            ? "rounded-full p-[3px]"
+            : "rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow"
+        }
+      >
         {src ? (
           <Image
             src={src}
