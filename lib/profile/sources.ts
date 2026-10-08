@@ -49,9 +49,11 @@ export function entriesFromAniList(
         format: e.media?.format ?? null,
         year: e.media?.startDate?.year ?? null,
         duration: e.media?.duration ?? null,
-        // Trois genres suffisent aux blocs qui les lisent (radar, top genres) et
-        // c'est ce qui garde la charge d'une liste de 800 titres raisonnable.
-        genres: Array.isArray(e.media?.genres) ? e.media.genres.slice(0, 3) : [],
+        // TOUS les genres. On n'en gardait que trois « pour la charge » : le radar
+        // perdait ainsi les genres listés en 4e ou plus (Surnaturel 8 au lieu de
+        // 62, Thriller absent, 09/10/2026). AniList en donne au plus ~7 courts
+        // par titre, le gain était négligeable.
+        genres: Array.isArray(e.media?.genres) ? e.media.genres : [],
         studio: e.media?.studios?.nodes?.[0]?.name ?? null,
         /* La bande-annonce, et seulement si elle est sur YouTube : AniList
            publie aussi des identifiants Dailymotion, que le fond du profil ne
