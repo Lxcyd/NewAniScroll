@@ -83,6 +83,28 @@ export default function FramedAvatar({
   px?: number;
   priority?: boolean;
 }) {
+  /* L'ANIMÉ N'ARRIVE QU'UNE FOIS DÉCODÉ. Posé directement, l'APNG (~800 Ko) se
+     mettait à jouer pendant son téléchargement et son décodage, en même temps
+     que l'hydratation de la page : l'animation saccadait à chaque
+     rechargement. La miniature fixe (quelques Ko) tient la place, et l'animé ne
+     la remplace qu'entièrement prêt (`decode()`), donc fluide dès sa première
+     image. */
+  const [animated, setAnimated] = useState(false);
+  useEffect(() => {
+    setAnimated(false);
+    if (!frame) return;
+    let alive = true;
+    const probe = new window.Image();
+    probe.src = frameUrl(frame);
+    probe
+      .decode()
+      .catch(() => undefined)
+      .then(() => alive && setAnimated(true));
+    return () => {
+      alive = false;
+    };
+  }, [frame]);
+
   return (
     <div className="relative shrink-0">
       {/* L'anneau d'accent s'efface sous un cadre : le cadre EST la bordure, et
@@ -117,7 +139,7 @@ export default function FramedAvatar({
       {frame ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={frameUrl(frame)}
+          src={animated ? frameUrl(frame) : frameThumbUrl(frame, 240)}
           alt=""
           aria-hidden
           draggable={false}
