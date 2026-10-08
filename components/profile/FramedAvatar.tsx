@@ -23,8 +23,12 @@ export function FrameTileImage({ asset, className }: { asset: string; className?
         if (!entries.some((e) => e.isIntersecting)) return;
         io.disconnect();
         const probe = new window.Image();
-        probe.onload = () => alive && setAnimated(true);
         probe.src = frameUrl(asset);
+        /* Décodé avant d'être montré : même raison que pour l'avatar du profil. */
+        probe
+          .decode()
+          .catch(() => undefined)
+          .then(() => alive && setAnimated(true));
       },
       { rootMargin: "200px" },
     );
