@@ -80,5 +80,8 @@ dit mort, et uqload, dit retire, tournaient encore au lot et s'affichaient.)
 - **Tout test navigateur se fait sur dev.aniscroll.com**, jamais sur localhost
   (pas de Redis, pas de CDN, compilations froides) — ca coute un deploiement,
   voir la regle 1.
+- **Sites, API et outils externes** (utilises ou en reserve, jusqu'aux plus
+  niches) : [docs/RESSOURCES.md](docs/RESSOURCES.md). Y chercher avant le web,
+  et y ajouter toute nouvelle source adoptee ou analysee.
 - Le devlog est decoupe par sous-systeme sous `devlog/`. Lire seulement
   l'index `DEVLOG.md` en debut de session.
