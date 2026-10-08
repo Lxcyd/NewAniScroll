@@ -1,5 +1,51 @@
 import Image from "next/image";
-import { frameUrl } from "@/lib/profile/frames";
+import { useEffect, useRef, useState } from "react";
+import { frameThumbUrl, frameUrl } from "@/lib/profile/frames";
+
+/**
+ * Un cadre de GRILLE : la miniature fixe d'abord (~6 Ko, affichée tout de
+ * suite), puis l'APNG animé (~800 Ko — Discord n'en sert pas de plus petit)
+ * chargé dès que la case entre à l'écran, et substitué une fois arrivé. La
+ * grille s'affiche donc aussi vite qu'avant, et chaque cadre visible s'anime
+ * sans attendre qu'on le survole. Les cases jamais atteintes au défilement ne
+ * téléchargent jamais leur animé.
+ */
+export function FrameTileImage({ asset, className }: { asset: string; className?: string }) {
+  const ref = useRef<HTMLImageElement | null>(null);
+  const [animated, setAnimated] = useState(false);
+  useEffect(() => {
+    setAnimated(false);
+    const el = ref.current;
+    if (!el) return;
+    let alive = true;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        const probe = new window.Image();
+        probe.onload = () => alive && setAnimated(true);
+        probe.src = frameUrl(asset);
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => {
+      alive = false;
+      io.disconnect();
+    };
+  }, [asset]);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      ref={ref}
+      src={animated ? frameUrl(asset) : frameThumbUrl(asset)}
+      alt=""
+      decoding="async"
+      draggable={false}
+      className={className}
+    />
+  );
+}
 
 /**
  * L'avatar du profil : TOUJOURS rond, et coiffé de son cadre quand il en porte

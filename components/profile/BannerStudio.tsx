@@ -24,8 +24,8 @@ import {
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
-import FramedAvatar from "@/components/profile/FramedAvatar";
-import { frameThumbUrl, frameUrl, type FrameCollection } from "@/lib/profile/frames";
+import FramedAvatar, { FrameTileImage } from "@/components/profile/FramedAvatar";
+import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
@@ -217,8 +217,6 @@ export default function BannerStudio({
   const [themes, setThemes] = useState<ThemeRow[]>([]);
   /** Le catalogue des cadres, chargé à la première ouverture de l'onglet. */
   const [frames, setFrames] = useState<FrameCollection[] | null>(null);
-  /** Le cadre survolé dans la grille : le seul (avec le choisi) joué animé. */
-  const [hoverFrame, setHoverFrame] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
@@ -626,8 +624,6 @@ export default function BannerStudio({
             aria-label={label}
             aria-pressed={on}
             onClick={() => patch({ frame: asset })}
-            onMouseEnter={() => setHoverFrame(asset)}
-            onMouseLeave={() => setHoverFrame((h) => (h === asset ? null : h))}
             className={`relative grid aspect-square place-items-center rounded-xl transition-colors ${
               on ? "bg-action/20 ring-2 ring-action" : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
             }`}
@@ -638,16 +634,10 @@ export default function BannerStudio({
               ) : null}
             </span>
             {asset ? (
-              /* Fixe et légère dans la grille (frameThumbUrl, ~6 Ko) ; animée
-                 seulement quand on la survole ou qu'elle est choisie — l'APNG
-                 animé pèse ~800 Ko et Discord ne le redimensionne pas. */
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={on || hoverFrame === asset ? frameUrl(asset) : frameThumbUrl(asset)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                draggable={false}
+              /* Miniature fixe tout de suite, animée dès que la case est à
+                 l'écran (cf. FrameTileImage). */
+              <FrameTileImage
+                asset={asset}
                 className="pointer-events-none absolute left-1/2 top-1/2 h-[70%] w-[70%] -translate-x-1/2 -translate-y-1/2"
               />
             ) : (
@@ -1293,7 +1283,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, hoverFrame]);
+      accent, patch, t, frames, identity.avatar]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
