@@ -1031,7 +1031,7 @@ export function GenresBlock({
      maquette. */
   const R = 100;
   /** Le rayon des étiquettes : hors de la toile, sans s'en éloigner. */
-  const RL = R + 15;
+  const RL = R + 14;
   const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
   const point = (i: number, r: number) => {
     const a = angle(i);
@@ -1043,14 +1043,14 @@ export function GenresBlock({
 
   return (
     /* LE `viewBox` EST PLUS LARGE QUE LA TOILE, et c'est ce qui donne leur place
-       aux étiquettes : la toile va de 0 à 200, la boîte de -80 à 280. La marge
+       aux étiquettes : la toile va de 0 à 200, la boîte de -92 à 292. La marge
        se mesure sur le PIRE des noms, celui de neuf heures, qui pousse vers la
-       gauche depuis x=-15 — « Science-fiction », quinze signes, en fait environ
-       64 : il reste une unité de jeu. En hauteur, la boîte descend à 232 pour
-       porter le compte de l'étiquette du bas, posé dix unités sous son nom.
+       gauche depuis x=-14 — « Science-fiction », quinze signes, en fait environ
+       64. En hauteur, de -36 (le nom de midi, posé AU-DESSUS de son compte) à
+       238 (le compte de six heures, sous son nom).
        `meet` (le défaut) fait ensuite tenir le tout dans la carte quelle que
        soit sa forme, sans déformer. */
-    <svg viewBox="-80 -22 360 254" className="h-full w-full">
+    <svg viewBox="-92 -36 384 274" className="h-full w-full">
       {/* LA TOILE EST FAITE DE CERCLES, plus de polygones. Un polygone à seize
           côtés dessine seize sommets de plus dans une figure qui en a déjà
           seize : les repères devenaient impossibles à distinguer de la mesure.
@@ -1100,11 +1100,18 @@ export function GenresBlock({
            droite, celle de gauche vers la gauche, et celles du haut et du bas se
            centrent. Toutes centrées, les longues mordaient sur le cercle. */
         const anchor = c > 0.15 ? "start" : c < -0.15 ? "end" : "middle";
+        /* LE BLOC « NOM + COMPTE » SE POSE DU CÔTÉ EXTÉRIEUR DE SA BRANCHE.
+           Le nom était posé SUR le point et le compte dix unités dessous : en
+           haut, le compte retombait dans la toile (« Action 112 » à cheval sur
+           le cercle). La ligne de base suit maintenant le sinus : en haut le bloc
+           entier monte au-dessus du point, en bas il descend dessous, sur les
+           côtés il se centre sur lui. */
+        const s = Math.sin(angle(i));
         return (
           <text
             key={g.key}
             x={x}
-            y={y}
+            y={y - 2 + s * 10.5}
             textAnchor={anchor}
             fontFamily="Karla, sans-serif"
             fontSize="8.5"
@@ -1119,7 +1126,7 @@ export function GenresBlock({
                 quand on lit une branche, et la ligne du dessus le nomme déjà. */}
             <tspan
               x={x}
-              dy="10"
+              dy="11"
               fill="var(--brand-primary, #E94560)"
               fontWeight="700"
               fontSize="9"

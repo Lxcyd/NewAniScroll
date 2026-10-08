@@ -357,7 +357,10 @@ export function ResumeBlock({
         </Link>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center">
+      {/* `relative z-10` : le halo est en position absolue, et un élément
+          positionné se peint PAR-DESSUS le contenu non positionné qui le suit.
+          Sans ça la lueur voilait le titre et les boutons. */}
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center">
         <Link href={href} className="min-w-0">
           <h3 className="as-widget-lead line-clamp-3 font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action">
             {rowTitle(row, remoteTitle)}
@@ -492,7 +495,10 @@ export function RecentsBlock({
        ne sert qu'à lui donner son coin. */
     <div className="relative h-full">
       {streakOn && !editing && streak > 0 ? <StreakBadge days={streak} t={t} /> : null}
-      <div className="grid h-full content-start gap-2 overflow-y-auto pr-1">
+      {/* `minmax(0,1fr)` : une colonne `auto` prend la largeur naturelle du plus
+          long titre et poussait les lignes hors de la carte, coupées à droite.
+          `as-scroller` rend la barre de défilement que le site masque partout. */}
+      <div className="as-scroller grid h-full grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
         {rows.map((r) => (
           <RecentRow
             key={`${r.aniId}:${r.episode}`}
@@ -581,7 +587,7 @@ function RecentRow({
       /* `as-recent-row` porte la hauteur de vignette du palier courant, et le
          `gap` qui va avec (cf. globals.css) : tout le reste de la ligne en
          descend. */
-      className="as-recent-row group flex items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
+      className="as-recent-row group flex min-w-0 items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
       <div className="as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card">
         {/* La vignette monte à 178 px de large dans le plus grand palier : un
