@@ -371,6 +371,7 @@ export default function Profile({
               name={identity.name}
               tag={identity.tag}
               avatar={identity.avatar}
+              frame={banner.frame}
               anilistName={identity.anilistName}
               createdAt={identity.createdAt}
               stats={heroStats(t, stats)}

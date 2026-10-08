@@ -1,0 +1,46 @@
+# Recopie les decorations d'avatar de la boutique Discord dans `avatar_frames`.
+#
+# Source : itemshop.gg/discord, qui republie la boutique entiere chaque jour
+# (l'API de Discord exige un compte connecte). Les nouvelles collections
+# arrivent donc dans le studio du profil le lendemain de leur sortie, sans
+# deploiement ni intervention. Ajout seul : un cadre retire de la boutique reste
+# porte par qui l'a choisi. Detail et garde-fou : scripts/discord-frames/sync-frames.mjs.
+#
+# Tourne sur GitHub Actions : aucune invocation Vercel.
+#
+# Secrets requis : TURSO_DATABASE_URL, TURSO_AUTH_TOKEN (les memes que sync-dub-catalog).
+
+name: sync-avatar-frames
+
+on:
+  schedule:
+    - cron: "17 5 * * *" # 05:17 UTC, la boutique Discord change vers 17:00 UTC la veille
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Ne rien ecrire, seulement rapporter"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Sync avatar frames
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node scripts/discord-frames/sync-frames.mjs ${{ inputs.dry == true && '--dry' || '' }}

@@ -1,5 +1,5 @@
-import Image from "next/image";
 import { useTranslation } from "react-i18next";
+import FramedAvatar from "./FramedAvatar";
 
 import type { HeroStat } from "./ProfileHero";
 
@@ -25,10 +25,13 @@ export default function ProfileAside({
   createdAt,
   stats,
   subtitle,
+  frame,
 }: {
   name: string;
   tag?: string | null;
   avatar?: string | null;
+  /** Cadre d'avatar (décoration Discord), ou rien. */
+  frame?: string | null;
   anilistName?: string | null;
   createdAt?: number | null;
   stats: HeroStat[];
@@ -39,22 +42,14 @@ export default function ProfileAside({
   return (
     <aside className="as-stat-card sticky top-24 flex w-full flex-col gap-4 rounded-2xl p-4 ring-1 ring-white/10">
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="rounded-[1.35rem] bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
-          {avatar ? (
-            <Image
-              src={avatar}
-              alt={name}
-              width={128}
-              height={128}
-              priority
-              className="h-24 w-24 rounded-[1.2rem] object-cover"
-            />
-          ) : (
-            <div className="flex h-24 w-24 items-center justify-center rounded-[1.2rem] bg-primary text-3xl font-bold text-white/80">
-              {name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
+        <FramedAvatar
+          src={avatar}
+          name={name}
+          frame={frame}
+          priority
+          px={128}
+          sizeClass="h-24 w-24"
+        />
         <div className="min-w-0 w-full">
           <h1 className="truncate font-outfit text-2xl font-bold leading-tight">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">

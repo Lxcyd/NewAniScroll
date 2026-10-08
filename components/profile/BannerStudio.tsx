@@ -24,6 +24,8 @@ import {
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
+import FramedAvatar from "@/components/profile/FramedAvatar";
+import { frameUrl, type FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
@@ -175,7 +177,7 @@ type Section = {
 };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
-type PaletteScope = DressingKind | "music" | "layout";
+type PaletteScope = DressingKind | "music" | "layout" | "frame";
 
 type ThemeRow = {
   slug: string;
@@ -213,6 +215,8 @@ export default function BannerStudio({
   const [animeId, setAnimeId] = useState<number | null>(null);
   const [art, setArt] = useState<BannerOption[]>([]);
   const [themes, setThemes] = useState<ThemeRow[]>([]);
+  /** Le catalogue des cadres, chargé à la première ouverture de l'onglet. */
+  const [frames, setFrames] = useState<FrameCollection[] | null>(null);
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
@@ -395,12 +399,29 @@ export default function BannerStudio({
      elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
      déroulant n'est pas forcément dans sa liste — sans ce repli, l'en-tête
      serait vide sur la moitié des franchises. */
+  /* Les cadres : une seule requête, au premier passage sur l'onglet. La réponse
+     est la même pour tout le monde et cachée au bord (/api/v2/avatar-frames),
+     et la table se met à jour seule chaque nuit avec la boutique Discord. */
+  useEffect(() => {
+    if (!open || scope !== "frame" || frames) return;
+    let alive = true;
+    fetch("/api/v2/avatar-frames")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive) setFrames(Array.isArray(d?.collections) ? d.collections : []);
+      })
+      .catch(() => alive && setFrames([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, scope, frames]);
+
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
     /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
        en-tête porte la même affiche et le même sélecteur de saison, et une
        saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
-    if (scope === "color" || scope === "layout" || !scope) return;
+    if (scope === "color" || scope === "layout" || scope === "frame" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
@@ -583,6 +604,62 @@ export default function BannerStudio({
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
+
+    /* ── Les cadres d'avatar ──────────────────────────────────────────────
+       Une section par collection de la boutique Discord, la plus récente en
+       tête (ordre de la table). Les tuiles montrent le cadre SUR l'avatar du
+       profil : un cadre seul, sur fond noir, ne dit pas comment il habille.
+       La recherche passe par le nom du cadre ET de sa collection — « arcane »
+       sort toute la collection. Retour anticipé : les sections d'animés qui
+       suivent n'ont rien à faire dans cet onglet. */
+    if (scope === "frame") {
+      if (!frames) return [{ title: t("profile.studioFrameLoading"), rows: [], node: <span /> }];
+      const tile = (asset: string | null, label: string) => {
+        const on = (draft.frame ?? null) === asset;
+        return (
+          <button
+            key={asset ?? "none"}
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={on}
+            onClick={() => patch({ frame: asset })}
+            className={`relative grid aspect-square place-items-center rounded-xl transition-colors ${
+              on ? "bg-action/20 ring-2 ring-action" : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
+            }`}
+          >
+            <span className="relative h-[58%] w-[58%] overflow-hidden rounded-full bg-primary">
+              {identity.avatar ? (
+                <Image src={identity.avatar} alt="" fill sizes="64px" className="object-cover" />
+              ) : null}
+            </span>
+            {asset ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={frameUrl(asset, 160)}
+                alt=""
+                loading="lazy"
+                draggable={false}
+                className="pointer-events-none absolute left-1/2 top-1/2 h-[70%] w-[70%] -translate-x-1/2 -translate-y-1/2"
+              />
+            ) : (
+              <XMarkIcon className="absolute bottom-1.5 right-1.5 h-4 w-4 text-white/50" />
+            )}
+          </button>
+        );
+      };
+      const grid = (children: ReactNode) => (
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">{children}</div>
+      );
+      if (!q) out.push({ title: t("profile.studioFrameNone"), rows: [], node: grid(tile(null, t("profile.studioFrameNone"))) });
+      for (const c of frames) {
+        const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
+        if (!hit.length) continue;
+        out.push({ title: c.name, rows: [], node: grid(hit.map((f) => tile(f.asset, f.name))) });
+      }
+      if (!out.length) out.push({ title: t("profile.studioNoResult"), rows: [], node: <span /> });
+      return out;
+    }
 
     /* ── Les agencements ──────────────────────────────────────────────────
        Quatre dispositions du même matériel. Chacune se lit à sa description :
@@ -1208,7 +1285,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t]);
+      accent, patch, t, frames, identity.avatar]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1357,7 +1434,9 @@ export default function BannerStudio({
       ? SpeakerWaveIcon
       : scope === "layout"
         ? LAYOUT_ICON[draft.layout ?? "band"]
-        : KIND_ICON[scope];
+        : scope === "frame"
+          ? UserCircleIcon
+          : KIND_ICON[scope];
 
   return (
     /* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
@@ -1396,21 +1475,14 @@ export default function BannerStudio({
 
       <div className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-6">
         <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 text-center">
-          <div className="rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow">
-            {identity.avatar ? (
-              <Image
-                src={identity.avatar}
-                alt=""
-                width={128}
-                height={128}
-                className="h-28 w-28 rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-primary text-4xl font-bold text-white/80">
-                {identity.name.charAt(0).toUpperCase() || "?"}
-              </div>
-            )}
-          </div>
+          <FramedAvatar
+            src={identity.avatar}
+            name={identity.name}
+            frame={draft.frame}
+            px={128}
+            sizeClass="h-28 w-28"
+            textClass="text-4xl"
+          />
           <p
             className="font-outfit text-5xl font-bold leading-none"
             style={{ textShadow: "0 2px 18px rgba(0,0,0,.75)" }}
@@ -2098,6 +2170,22 @@ export default function BannerStudio({
               const Icon = LAYOUT_ICON[draft.layout ?? "band"];
               return <Icon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />;
             })()}
+          </button>
+
+          {/* Le cadre d'avatar, à côté de l'agencement : lui aussi habille
+              l'identité, pas le fond. */}
+          <button
+            type="button"
+            onClick={() => openScope("frame")}
+            title={t("profile.studioFrameSection")}
+            aria-label={t("profile.studioFrameSection")}
+            className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
+              scope === "frame"
+                ? "bg-action text-white"
+                : "text-white/55 hover:bg-white/[0.08] hover:text-white"
+            }`}
+          >
+            <SparklesIcon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />
           </button>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />

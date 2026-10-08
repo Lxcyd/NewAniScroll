@@ -18,6 +18,7 @@
  */
 
 import type { BannerOption } from "./types";
+import { isFrameAsset } from "./frames";
 
 /** Les huit fonds proposés par le dock du studio. */
 export type DressingKind =
@@ -194,6 +195,12 @@ export type Dressing = {
   blur: number;
   /** Agencement du haut de profil. Absent des anciennes valeurs : « band ». */
   layout: HeroLayout;
+  /**
+   * Le cadre posé autour de l'avatar : un `asset` de décoration Discord
+   * (lib/profile/frames.ts), ou `null`. Comme l'agencement, il n'habille pas le
+   * fond mais se choisit dans le studio et se sauvegarde par le même appel.
+   */
+  frame: string | null;
 };
 
 /**
@@ -417,6 +424,8 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     music,
     blur: clampBlur(obj.blur),
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
+    /* Validé à la FORME : seul un asset Discord exact part dans l'URL du CDN. */
+    frame: isFrameAsset(obj.frame) ? obj.frame : null,
   };
 }
 
@@ -436,5 +445,6 @@ export function emptyDressing(): Dressing {
     music: null,
     blur: 0,
     layout: "band",
+    frame: null,
   };
 }

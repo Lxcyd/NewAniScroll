@@ -1,5 +1,5 @@
-import Image from "next/image";
 import Link from "next/link";
+import FramedAvatar from "@/components/profile/FramedAvatar";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -54,6 +54,8 @@ export type HeroBanner = {
   videoFade?: Dressing["videoFade"];
   /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
   layout?: Dressing["layout"] | null;
+  /** Cadre d'avatar (décoration Discord), ou rien. */
+  frame?: Dressing["frame"] | null;
 };
 
 /**
@@ -326,38 +328,18 @@ export default function ProfileHero({
         centered ? "flex-col items-center text-center" : "items-end"
       }`}
     >
-      <div
-        className={`shrink-0 bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow ${
-          /* Le médaillon monte sur la plaque au lieu de s'y adosser : c'est ce
-             chevauchement franc qui le fait lire comme un portrait épinglé et
-             non comme une vignette posée au bord. */
-          medallion ? "-mt-8 rounded-full md:-mt-14" : "rounded-[1.35rem]"
-        }`}
-      >
-        {avatar ? (
-          <Image
-            src={avatar}
-            alt={name}
-            width={160}
-            height={160}
-            priority
-            className={`object-cover ${
-              medallion
-                ? "h-24 w-24 rounded-full md:h-36 md:w-36"
-                : "h-20 w-20 rounded-[1.2rem] md:h-28 md:w-28"
-            }`}
-          />
-        ) : (
-          <div
-            className={`flex items-center justify-center bg-primary font-bold text-white/80 ${
-              medallion
-                ? "h-24 w-24 rounded-full text-4xl md:h-36 md:w-36 md:text-5xl"
-                : "h-20 w-20 rounded-[1.2rem] text-3xl md:h-28 md:w-28 md:text-4xl"
-            }`}
-          >
-            {name.charAt(0).toUpperCase()}
-          </div>
-        )}
+      {/* Le médaillon monte sur la plaque au lieu de s'y adosser : c'est ce
+          chevauchement franc qui le fait lire comme un portrait épinglé et non
+          comme une vignette posée au bord. */}
+      <div className={medallion ? "-mt-8 md:-mt-14" : ""}>
+        <FramedAvatar
+          src={avatar}
+          name={name}
+          frame={banner.frame}
+          priority
+          sizeClass={medallion ? "h-24 w-24 md:h-36 md:w-36" : "h-20 w-20 md:h-28 md:w-28"}
+          textClass={medallion ? "text-4xl md:text-5xl" : "text-3xl md:text-4xl"}
+        />
       </div>
 
       <div className={`min-w-0 pb-1 ${centered ? "flex flex-col items-center" : ""}`}>

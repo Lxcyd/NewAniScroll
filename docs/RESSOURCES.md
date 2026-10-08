@@ -78,6 +78,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 ### Cadres d'avatar (decorations)
 | Source | Contenu | Note |
 | --- | --- | --- |
+| [itemshop.gg/discord](https://itemshop.gg/discord) | Toute la boutique Discord republiee chaque jour (688 decorations, 90 collections au 08/10/2026), donnees dans le flux Next.js de la page | ✅ source du catalogue `avatar_frames` (scripts/discord-frames/sync-frames.mjs, GH Action nocturne) ; images hotlinkees sur le CDN Discord |
 | [Kadantte/discord-fake-avatar-decorations](https://github.com/Kadantte/discord-fake-avatar-decorations) | 640 PNG animes `public/decorations/<slug>.png`, miniatures WebP, catalogue `src/data/decorations.js` | ⚖️ fork d'un depot retire par DMCA (ItsPi3141) |
 | CDN Discord `cdn.discordapp.com/avatar-decoration-presets/<asset>.png?passthrough=true` | Les originaux | ⚖️ il faut l'`asset` (API boutique 🔑) |
 | [Vencord « Decor »](https://github.com/Vendicated/Vencord) | Decorations creees par les utilisateurs | ⚖️ variable |
