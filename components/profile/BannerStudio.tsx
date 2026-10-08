@@ -1627,14 +1627,16 @@ export default function BannerStudio({
                 {searchable ? (
                   <>
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
+                    {scope === "frame" ? null : (
                     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
                       {t(`profile.studioKind_${scope}`)}
                     </span>
+                    )}
                     <input
                       ref={search}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder={t("profile.studioSearch")}
+                      placeholder={t(scope === "frame" ? "profile.studioFrameSearch" : "profile.studioSearch")}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
                   </>
