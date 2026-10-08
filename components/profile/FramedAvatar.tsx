@@ -43,8 +43,11 @@ export default function FramedAvatar({
           un liseré rose entre lui et la photo faisait double contour. */}
       <div
         className={
+          /* Marge au lieu de padding : la boîte garde sa taille (la mise en page
+             ne bouge pas), mais il n'y a plus d'espace vide entre la photo et
+             le cadre. */
           frame
-            ? "rounded-full p-[3px]"
+            ? "m-[3px] rounded-full"
             : "rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow"
         }
       >
@@ -72,7 +75,10 @@ export default function FramedAvatar({
           alt=""
           aria-hidden
           draggable={false}
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[120%] w-[120%] max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
+          /* 1,2 fois la PHOTO, pas la boîte : celle-ci la dépasse de 3 px de
+             chaque côté, d'où le « - 7,2 px » (1,2 x 6). Mesuré sur la boîte, le
+             cadre était trop grand et laissait un vide autour du visage. */
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[calc(120%-7.2px)] w-[calc(120%-7.2px)] max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
         />
       ) : null}
     </div>
