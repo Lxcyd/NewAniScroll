@@ -23,3 +23,15 @@ export function isFrameAsset(v: unknown): v is string {
 export function frameUrl(asset: string, size = 240): string {
   return `https://cdn.discordapp.com/avatar-decoration-presets/${asset}.png?size=${size}&passthrough=true`;
 }
+
+/**
+ * La MINIATURE FIXE d'un cadre, pour les grilles.
+ *
+ * L'animé ne se redimensionne pas : avec `passthrough=true` Discord ignore
+ * `size` et sert l'APNG d'origine, ~800 Ko. Mesure du 09/10/2026 sur
+ * « Hex's Hat » : 807 402 octets animé, 6 128 en WebP fixe de 128 px. Une
+ * grille de 688 cases chargée en animé, c'était des centaines de Mo.
+ */
+export function frameThumbUrl(asset: string, size = 128): string {
+  return `https://cdn.discordapp.com/avatar-decoration-presets/${asset}.webp?size=${size}&passthrough=false`;
+}
