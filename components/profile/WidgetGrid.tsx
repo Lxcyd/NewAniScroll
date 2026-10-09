@@ -434,10 +434,14 @@ export default function WidgetGrid({
                taille qu'on lui a donnee, sans que ni la grille ni le bloc n'aient
                à se dire quoi que ce soit. */
             className={`as-widget absolute flex flex-col overflow-hidden rounded-[20px] px-5 py-4 ring-1 ${
+              /* En édition, la carte garde SA transparence (`as-stat-card`, la
+                 même qu'en lecture) : on range le profil tel qu'il sera vu. Elle
+                 ne fonce qu'au survol ou tenue, pour dire « c'est celle-ci
+                 qu'on attrape ». Le liseré rose dit le mode. */
               editing
-                ? `bg-[#13141b]/95 ring-action/40 ring-dashed ${
-                    active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"
-                  }`
+                ? `as-stat-card as-widget-edit ring-action/40 ring-dashed ${
+                    active ? "is-held" : ""
+                  } ${active && drag?.mode === "move" ? "cursor-grabbing" : "cursor-grab"}`
                 : "as-stat-card ring-white/10"
             } ${
               /* AUCUNE transition sur le bloc tenu : il est déjà à la position

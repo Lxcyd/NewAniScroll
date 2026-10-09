@@ -2463,14 +2463,16 @@ html:not(.as-scene-docked) .as-scene-ui-left {
   opacity: 0;
   pointer-events: none;
 }
-/* La barre du bas suit le même signal, un temps après le menu. */
+/* La barre du bas suit le même signal, un temps après le menu, et MONTE DU
+   BAS DE L'ÉCRAN : elle part d'une hauteur entière de sa zone plus bas, donc
+   hors de la fenêtre, au lieu d'un simple frémissement de 14 px. */
 .as-scene-ui-bottom {
   transition:
-    transform 0.4s var(--as-scene-ease) 0.1s,
-    opacity 0.3s ease 0.1s;
+    transform 0.5s var(--as-scene-ease) 0.08s,
+    opacity 0.25s ease 0.08s;
 }
 html:not(.as-scene-docked) .as-scene-ui-bottom {
-  transform: translateY(14px);
+  transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
 }
@@ -2636,6 +2638,17 @@ html.as-scene-leave .as-navbar {
     rgba(20, 22, 28, var(--as-plate-a1, 0.72)),
     rgba(12, 13, 16, var(--as-plate-a2, 0.58))
   );
+}
+/* Un widget en mode édition garde la transparence ci-dessus — on range le
+   profil tel qu'il sera vu — et ne fonce qu'au survol ou tenu : « c'est
+   celui-ci qu'on attrape ». `background` entier, pas une couleur : celle-ci
+   passerait SOUS le dégradé de `.as-stat-card`. */
+.as-widget-edit {
+  transition: background-color 0.15s ease;
+}
+.as-widget-edit:hover,
+.as-widget-edit.is-held {
+  background: rgba(19, 20, 27, 0.95);
 }
 
 /* ── LE FLOU DU STUDIO REMPLIT LA CARTE JUSQU'À SON LISERÉ ──────────────────
