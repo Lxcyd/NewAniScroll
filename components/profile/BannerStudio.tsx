@@ -2353,8 +2353,10 @@ export default function BannerStudio({
             </p>
           )}
 
-          {/* Les réglages du profil, une boîte chacun, sous le cadre. */}
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[1.5vw] right-[2vw] top-[78.5vh] z-30 flex items-center gap-3 lg:left-[27vw]">
+          {/* Les réglages du profil : UNE barre sous le cadre, un compartiment
+              par réglage, séparés d'un filet. */}
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[1.5vw] right-[2vw] top-[78.5vh] z-30 flex items-center lg:left-[27vw]">
+          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10 backdrop-blur-xl">
             <SceneBox label={t("profile.studioKind_layout")} active={scope === "layout"}>
               <button
                 type="button"
@@ -2468,7 +2470,7 @@ export default function BannerStudio({
               }
             >
               <span className="as-range relative block h-4 w-full">
-                <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+                <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
                 <span
                   className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
                   style={{ width: `${(draft.blur / MAX_BLUR) * 100}%` }}
@@ -2487,6 +2489,7 @@ export default function BannerStudio({
               </span>
             </SceneBox>
           </div>
+          </div>
         </>
       )}
     </div>
@@ -2495,10 +2498,10 @@ export default function BannerStudio({
 }
 
 /**
- * Une boîte de réglage du bas de la scène : un intitulé, puis la commande.
- * Toutes à la même hauteur, alignées sur le cadre — c'est ce qui rend la
- * rangée lisible d'un coup d'œil, là où l'ancienne barre alignait douze
- * icônes de même poids.
+ * Un compartiment de la barre du bas de la scène : un intitulé, puis la
+ * commande. Tous à la même hauteur dans une seule barre — c'est ce qui rend la
+ * rangée lisible d'un coup d'œil, là où l'ancien dock alignait douze icônes de
+ * même poids.
  */
 function SceneBox({
   label,
@@ -2515,9 +2518,9 @@ function SceneBox({
 }) {
   return (
     <div
-      className={`pointer-events-auto flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 rounded-2xl px-3.5 py-2.5 ring-1 backdrop-blur-xl transition-colors ${
+      className={`flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 px-4 py-2.5 transition-colors ${
         grow ? "flex-[1.6]" : "flex-1"
-      } ${active ? "bg-white/[0.12] ring-action/60" : "bg-[#15161d]/90 ring-white/10 hover:ring-white/20"}`}
+      } ${active ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
     >
       <span className="flex items-center justify-between gap-2">
         <span className="font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-white/40">

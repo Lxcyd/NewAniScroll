@@ -171,15 +171,56 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       if (!raf) raf = requestAnimationFrame(place);
       th.classList.add("is-on");
       clearTimeout(hide);
-      hide = setTimeout(() => th.classList.remove("is-on"), 1000);
+      /* Tenu, il reste : il ne s'efface qu'une fois lâché. */
+      if (!grab) hide = setTimeout(() => th.classList.remove("is-on"), 1000);
+    };
+    /* Le pouce se saisit. Le déplacement du pointeur est en pixels ÉCRAN, le
+       pouce vit en pixels de mise en page sous une échelle : on ramène l'un à
+       l'autre par le rapport mesuré, puis à la course du défilement. */
+    let grab: { y: number; top: number; k: number; per: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const { scrollHeight, clientHeight } = el;
+      const track = clientHeight - 2 * THUMB_INSET;
+      const h = th.offsetHeight;
+      const k = th.offsetHeight ? th.getBoundingClientRect().height / th.offsetHeight : 1;
+      grab = {
+        y: e.clientY,
+        top: el.scrollTop,
+        k: k || 1,
+        per: (scrollHeight - clientHeight) / Math.max(1, track - h),
+      };
+      th.setPointerCapture(e.pointerId);
+      th.classList.add("is-on", "is-held");
+      clearTimeout(hide);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!grab) return;
+      el.scrollTop = grab.top + ((e.clientY - grab.y) / grab.k) * grab.per;
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!grab) return;
+      grab = null;
+      th.releasePointerCapture(e.pointerId);
+      th.classList.remove("is-held");
+      onScroll();
     };
     place();
     el.addEventListener("scroll", onScroll, { passive: true });
+    th.addEventListener("pointerdown", onDown);
+    th.addEventListener("pointermove", onMove);
+    th.addEventListener("pointerup", onUp);
+    th.addEventListener("pointercancel", onUp);
     return () => {
+      th.removeEventListener("pointerdown", onDown);
+      th.removeEventListener("pointermove", onMove);
+      th.removeEventListener("pointerup", onUp);
+      th.removeEventListener("pointercancel", onUp);
       el.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(raf);
       clearTimeout(hide);
-      th.classList.remove("is-on");
+      th.classList.remove("is-on", "is-held");
     };
   }, [fixed]);
 

@@ -2310,12 +2310,31 @@ input[type="number"] {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(4px);
   opacity: 0;
-  transition: opacity 0.4s ease;
+  transition: opacity 0.4s ease, width 0.15s ease, background-color 0.15s ease;
   will-change: transform;
+  /* Le calque est transparent aux clics, le pouce non : il se saisit. */
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
 }
-.as-scene-thumb.is-on {
+/* Une zone de prise plus large que le trait : 7 px se visent mal. */
+.as-scene-thumb::before {
+  content: "";
+  position: absolute;
+  inset: -4px -8px;
+}
+.as-scene-thumb.is-on,
+.as-scene-thumb:hover {
   opacity: 1;
   transition-duration: 0.15s;
+}
+.as-scene-thumb:hover,
+.as-scene-thumb.is-held {
+  width: 10px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.as-scene-thumb.is-held {
+  cursor: grabbing;
 }
 .as-scene-screen.is-fixed,
 .as-stage.is-fixed,
@@ -2357,12 +2376,17 @@ input[type="number"] {
   from { opacity: 0; transform: translateY(14px); }
 }
 .as-scene-ui-top { animation: as-scene-from-top 0.45s var(--as-scene-ease) 0.25s both; }
-/* Le menu des fonds et les boîtes du bas attendent le glissement à droite :
-   ils arrivent dans la place qu'il vient de libérer. Une fois installés, un
-   menu rouvert entre sans attendre (`-now`). */
-.as-scene-ui-left { animation: as-scene-from-left 0.45s var(--as-scene-ease) 0.95s both; }
+/* Le menu des fonds et la barre du bas entrent avec le glissement à droite,
+   dans la place qu'il libère. Une fois installé, un menu rouvert entre sans
+   attendre (`-now`). */
+/* Le glissement part à 0,56 s (ProfileStage) : le menu le suit de 0,14 s et
+   entre PENDANT qu'il glisse, de plus loin, comme poussé par lui. */
+@keyframes as-scene-menu-in {
+  from { opacity: 0; transform: translateX(-48px); }
+}
+.as-scene-ui-left { animation: as-scene-menu-in 0.55s var(--as-scene-ease) 0.7s both; }
 .as-scene-ui-left-now { animation: as-scene-from-left 0.3s var(--as-scene-ease) both; }
-.as-scene-ui-bottom { animation: as-scene-from-bottom 0.45s var(--as-scene-ease) 1.05s both; }
+.as-scene-ui-bottom { animation: as-scene-from-bottom 0.5s var(--as-scene-ease) 0.78s both; }
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
 /* Au retour, la navbar était cachée par l'écran de la scène et surgissait à
    la fin : elle entre en fondu, avec une descente à peine sensible. */
