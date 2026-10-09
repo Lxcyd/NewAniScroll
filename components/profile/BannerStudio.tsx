@@ -9,7 +9,9 @@ import {
   Bars3Icon,
   FilmIcon,
   MagnifyingGlassIcon,
+  MinusIcon,
   MusicalNoteIcon,
+  PlusIcon,
   PhotoIcon,
   ScissorsIcon,
   SparklesIcon,
@@ -179,6 +181,21 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout" | "frame";
 
+type FrameSort = "recent" | "collection" | "name";
+const FRAME_SORTS: FrameSort[] = ["recent", "collection", "name"];
+const FRAME_COLS_MIN = 3;
+const FRAME_COLS_MAX = 10;
+
+/** L'icône du cadre d'avatar : un portrait dans des coins de cadrage (Material
+    Symbols). Même signature que les icônes Heroicons du dock. */
+function FrameIcon({ className }: { className?: string; strokeWidth?: number }) {
+  return (
+    <svg viewBox="0 -960 960 960" fill="currentColor" className={className} aria-hidden>
+      <path d="M480-480q-51 0-85.5-34.5T360-600q0-50 34.5-85t85.5-35q50 0 85 35t35 85q0 51-35 85.5T480-480Zm0-80q17 0 28.5-11.5T520-600q0-17-11.5-28.5T480-640q-17 0-28.5 11.5T440-600q0 17 11.5 28.5T480-560ZM240-280v-36q0-21 10.5-39.5T279-385q46-27 96.5-41T480-440q54 0 104.5 14t96.5 41q18 11 28.5 29.5T720-316v36q0 17-11.5 28.5T680-240H280q-17 0-28.5-11.5T240-280Zm160-70q-39 10-74 30h308q-35-20-74-30t-80-10q-41 0-80 10Zm80-250Zm80 280h74-308 234ZM160-80q-33 0-56.5-23.5T80-160v-120q0-17 11.5-28.5T120-320q17 0 28.5 11.5T160-280v120h120q17 0 28.5 11.5T320-120q0 17-11.5 28.5T280-80H160ZM80-680v-120q0-33 23.5-56.5T160-880h120q17 0 28.5 11.5T320-840q0 17-11.5 28.5T280-800H160v120q0 17-11.5 28.5T120-640q-17 0-28.5-11.5T80-680ZM800-80H680q-17 0-28.5-11.5T640-120q0-17 11.5-28.5T680-160h120v-120q0-17 11.5-28.5T840-320q17 0 28.5 11.5T880-280v120q0 33-23.5 56.5T800-80Zm0-600v-120H680q-17 0-28.5-11.5T640-840q0-17 11.5-28.5T680-880h120q33 0 56.5 23.5T880-800v120q0 17-11.5 28.5T840-640q-17 0-28.5-11.5T800-680Z" />
+    </svg>
+  );
+}
+
 type ThemeRow = {
   slug: string;
   kind: "op" | "ed";
@@ -217,6 +234,10 @@ export default function BannerStudio({
   const [themes, setThemes] = useState<ThemeRow[]>([]);
   /** Le catalogue des cadres, chargé à la première ouverture de l'onglet. */
   const [frames, setFrames] = useState<FrameCollection[] | null>(null);
+  /** Tri de la grille des cadres : boutique (récentes d'abord), collections A→Z, cadres A→Z. */
+  const [frameSort, setFrameSort] = useState<FrameSort>("recent");
+  /** Cases par ligne : moins = plus grandes. */
+  const [frameCols, setFrameCols] = useState(6);
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
@@ -646,14 +667,31 @@ export default function BannerStudio({
           </button>
         );
       };
+      /* Le nombre de colonnes est un réglage (boutons − / + de l'en-tête) : une
+         classe Tailwind ne se calcule pas, d'où le style en ligne. */
       const grid = (children: ReactNode) => (
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">{children}</div>
+        <div
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${frameCols}, minmax(0, 1fr))` }}
+        >
+          {children}
+        </div>
       );
       if (!q) out.push({ title: t("profile.studioFrameNone"), rows: [], node: grid(tile(null, t("profile.studioFrameNone"))) });
-      for (const c of frames) {
-        const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
-        if (!hit.length) continue;
-        out.push({ title: c.name, rows: [], node: grid(hit.map((f) => tile(f.asset, f.name))) });
+      const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+      if (frameSort === "name") {
+        /* À plat, de A à Z : on cherche un cadre précis sans savoir sa collection. */
+        const all = frames
+          .flatMap((c) => (match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))))
+          .sort(byName);
+        if (all.length) out.push({ title: t("profile.studioFrameAll"), rows: [], node: grid(all.map((f) => tile(f.asset, f.name))) });
+      } else {
+        const cols = frameSort === "collection" ? [...frames].sort(byName) : frames;
+        for (const c of cols) {
+          const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
+          if (!hit.length) continue;
+          out.push({ title: c.name, rows: [], node: grid(hit.map((f) => tile(f.asset, f.name))) });
+        }
       }
       if (!out.length) out.push({ title: t("profile.studioNoResult"), rows: [], node: <span /> });
       return out;
@@ -1283,7 +1321,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar]);
+      accent, patch, t, frames, identity.avatar, frameSort, frameCols]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1433,7 +1471,7 @@ export default function BannerStudio({
       : scope === "layout"
         ? LAYOUT_ICON[draft.layout ?? "band"]
         : scope === "frame"
-          ? UserCircleIcon
+          ? FrameIcon
           : KIND_ICON[scope];
 
   return (
@@ -1607,7 +1645,7 @@ export default function BannerStudio({
           <div className="pointer-events-none absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
             <div
               className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
-                galerieOuverte ? "max-w-6xl" : "max-w-3xl"
+                galerieOuverte ? "max-w-6xl" : scope === "frame" ? "max-w-5xl" : "max-w-3xl"
               }`}
             >
               <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
@@ -1629,6 +1667,47 @@ export default function BannerStudio({
                       placeholder={t(scope === "frame" ? "profile.studioFrameSearch" : "profile.studioSearch")}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
+                    {/* Les réglages de la grille des cadres : le tri, et la
+                        taille des cases (− = plus de cases par ligne, donc plus
+                        petites ; + = moins de cases, plus grandes). */}
+                    {scope === "frame" ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <div className="flex rounded-full bg-white/[0.06] p-0.5 ring-1 ring-white/10">
+                          {FRAME_SORTS.map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setFrameSort(s)}
+                              className={`rounded-full px-2.5 py-1 font-karla text-[11px] font-bold transition-colors ${
+                                frameSort === s ? "bg-action text-white" : "text-white/55 hover:text-white"
+                              }`}
+                            >
+                              {t(`profile.studioFrameSort_${s}`)}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameSmaller")}
+                          aria-label={t("profile.studioFrameSmaller")}
+                          disabled={frameCols >= FRAME_COLS_MAX}
+                          onClick={() => setFrameCols((c) => Math.min(FRAME_COLS_MAX, c + 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <MinusIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameBigger")}
+                          aria-label={t("profile.studioFrameBigger")}
+                          disabled={frameCols <= FRAME_COLS_MIN}
+                          onClick={() => setFrameCols((c) => Math.max(FRAME_COLS_MIN, c - 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <PlusIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -2196,7 +2275,7 @@ export default function BannerStudio({
                 : "text-white/55 hover:bg-white/[0.08] hover:text-white"
             }`}
           >
-            <SparklesIcon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />
+            <FrameIcon className="h-[1.55rem] w-[1.55rem]" />
           </button>
 
           <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
