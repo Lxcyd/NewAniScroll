@@ -733,6 +733,8 @@ export default function BannerStudio({
                 <Image src={identity.avatar} alt="" fill sizes="64px" className="object-cover" />
               ) : null}
             </span>
+            {/* La case « aucun cadre » n'a plus de croix : l'avatar nu dit déjà
+                ce qu'elle fait, et la croix se lisait comme « supprimer ». */}
             {asset ? (
               /* Miniature fixe tout de suite, animée dès que la case est à
                  l'écran (cf. FrameTileImage). */
@@ -742,9 +744,7 @@ export default function BannerStudio({
                 size={frameCols <= 4 ? 256 : 160}
                 className="pointer-events-none absolute left-1/2 top-1/2 h-[70%] w-[70%] -translate-x-1/2 -translate-y-1/2"
               />
-            ) : (
-              <XMarkIcon className="absolute bottom-1.5 right-1.5 h-4 w-4 text-white/50" />
-            )}
+            ) : null}
           </button>
         );
       };
