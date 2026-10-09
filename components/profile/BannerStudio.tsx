@@ -30,6 +30,7 @@ import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
 import FramedAvatar, { FrameTileImage } from "@/components/profile/FramedAvatar";
 import type { FrameCollection } from "@/lib/profile/frames";
+import { FRAME_GENRES, frameGenre } from "@/lib/profile/frameGenres";
 import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
@@ -183,17 +184,19 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout" | "frame";
 
-/** Les tris de la grille des cadres. Les quatre premiers gardent les sections
+/** Les tris de la grille des cadres. « genre » range en sections par genre
+    (cf. lib/profile/frameGenres.ts) ; les quatre suivants gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
 type FrameSort =
   | "recent"
+  | "genre"
   | "oldest"
   | "collection"
   | "biggest"
   | "name"
   | "name_desc"
   | "random";
-const FRAME_SORTS: FrameSort[] = ["recent", "oldest", "collection", "biggest", "name", "name_desc", "random"];
+const FRAME_SORTS: FrameSort[] = ["recent", "genre", "oldest", "collection", "biggest", "name", "name_desc", "random"];
 
 /** Un ordre « au hasard » STABLE : le même tirage tant qu'on ne relance pas,
     sans quoi la grille se rebattrait à chaque frappe dans la recherche. */
@@ -712,7 +715,18 @@ export default function BannerStudio({
       );
       if (!q) out.push({ title: t("profile.studioFrameNone"), rows: [], node: grid(tile(null, t("profile.studioFrameNone"))) });
       const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
-      if (frameSort === "name" || frameSort === "name_desc" || frameSort === "random") {
+      if (frameSort === "genre") {
+        /* Une section par genre, dans l'ordre de FRAME_GENRES ; dedans, les
+           collections gardent l'ordre de la boutique. La recherche prend aussi
+           le nom du genre : « horreur » sort toute la section. */
+        for (const g of FRAME_GENRES) {
+          const label = t(`profile.frameGenre_${g}`);
+          const hit = frames
+            .filter((c) => frameGenre(c.name) === g)
+            .flatMap((c) => (match(label) || match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))));
+          if (hit.length) out.push({ title: label, rows: [], node: grid(hit.map((f) => tile(f.asset, f.name))) });
+        }
+      } else if (frameSort === "name" || frameSort === "name_desc" || frameSort === "random") {
         /* À plat : on cherche un cadre précis sans savoir sa collection, ou on
            se laisse surprendre. */
         const all = frames.flatMap((c) => (match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))));
@@ -1714,7 +1728,7 @@ export default function BannerStudio({
                         petites ; + = moins de cases, plus grandes). */}
                     {scope === "frame" ? (
                       <div className="flex shrink-0 items-center gap-1.5">
-                        {/* Un menu plutôt qu'une rangée de boutons : sept tris
+                        {/* Un menu plutôt qu'une rangée de boutons : huit tris
                             ne tiennent pas à côté de la recherche. */}
                         <div ref={frameSortRef} className="relative">
                           <button
