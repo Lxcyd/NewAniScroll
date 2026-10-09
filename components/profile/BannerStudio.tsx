@@ -205,6 +205,30 @@ function shuffleKey(asset: string, seed: number): number {
   for (let i = 0; i < asset.length; i++) h = Math.imul(h ^ asset.charCodeAt(i), 16777619);
   return h >>> 0;
 }
+/* Le menu ouvert à gauche de la scène, retenu d'une édition à l'autre sur cet
+   appareil. Une commodité : sans stockage, on retombe sur Image. */
+const LAST_SCOPE_KEY = "as-studio-scope";
+const SCOPES: PaletteScope[] = [
+  "color", "banner", "anim", "image", "video", "oped", "clip", "upload",
+  "music", "layout", "frame",
+];
+function readLastScope(): PaletteScope {
+  try {
+    const v = localStorage.getItem(LAST_SCOPE_KEY) as PaletteScope | null;
+    if (v && SCOPES.includes(v)) return v;
+  } catch {
+    /* stockage refusé : le défaut */
+  }
+  return "image";
+}
+function writeLastScope(s: PaletteScope) {
+  try {
+    localStorage.setItem(LAST_SCOPE_KEY, s);
+  } catch {
+    /* stockage refusé : rien à retenir */
+  }
+}
+
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -355,9 +379,9 @@ export default function BannerStudio({
   useEffect(() => {
     if (!open) return;
     setDraft(value ?? emptyDressing());
-    /* Le menu des fonds est ouvert d'entrée, sur la sorte de fond portée :
-       c'est lui qui glisse dans la colonne de gauche avec la scène. */
-    setScope(value?.kind ?? "banner");
+    /* Le menu de gauche est ouvert d'entrée — il l'est toujours — sur le
+       dernier choisi, et sur Image la toute première fois. */
+    setScope(readLastScope());
     setPick(null);
     setMini(false);
     setQuery("");
@@ -662,6 +686,7 @@ export default function BannerStudio({
 
   const openScope = useCallback((s: PaletteScope) => {
     setScope(s);
+    writeLastScope(s);
     setMini(false);
     setQuery("");
     setCursor(0);
@@ -1397,13 +1422,10 @@ export default function BannerStudio({
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        /* Échap ferme la palette, et seulement elle : le dock vit sur la page,
-           où Échap sert aussi aux champs des widgets (renommage), et une
-           touche ne doit pas coûter tout le brouillon. */
-        if (scope) {
-          e.preventDefault();
-          setScope(null);
-        }
+        /* Échap ne ferme RIEN : le menu de gauche est toujours ouvert (il n'y a
+           pas d'état « sans menu » dans la scène), et Échap sert aussi aux
+           champs des widgets (renommage). Coûter tout le brouillon sur une
+           touche est exclu. */
         return;
       }
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
@@ -1540,8 +1562,9 @@ export default function BannerStudio({
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
   const searchable = scope !== "color" && scope !== "layout";
-  /** Un menu de FOND : il s'ouvre dans la colonne de gauche de la scène. */
-  const inColumn = !mini && !!scope && DRESSING_KINDS.some((k) => k.id === scope);
+  /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
+      en a toujours un d'ouvert, sauf quand le studio est réduit. */
+  const inColumn = !mini && !!scope;
   /** On regarde des illustrations : le panneau prend toute la place qu'il peut. */
   const galerieOuverte = (scope === "banner" || scope === "image") && pick != null;
   const ScopeIcon =
@@ -1583,7 +1606,7 @@ export default function BannerStudio({
       type="button"
       onClick={() => {
         /* Réduire referme tout ; revenir en scène rouvre le menu des fonds. */
-        setScope(mini ? draft.kind : null);
+        setScope(mini ? readLastScope() : null);
         setMini(!mini);
       }}
       title={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
@@ -1637,7 +1660,7 @@ export default function BannerStudio({
           <div
             className={
               inColumn
-                ? `pointer-events-none absolute bottom-[3vh] left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 flex w-[var(--as-scene-menu-w)] ${
+                ? `pointer-events-none absolute bottom-[3vh] left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 flex w-[var(--as-scene-menu-w)] ${
                     "as-scene-ui-left"
                   }`
                 : "pointer-events-none absolute bottom-[calc(100%_-_var(--as-scene-frame-bottom)_+_0.75rem)] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] z-30 flex justify-center"
@@ -1753,10 +1776,14 @@ export default function BannerStudio({
                     </h2>
                   </>
                 )}
+                {/* Pas de croix dans la colonne : on y change de menu, on ne
+                    la vide pas. */}
                 <button
                   type="button"
                   onClick={() => setScope(null)}
-                  className="shrink-0 rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                  className={`shrink-0 rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white ${
+                    inColumn ? "hidden" : ""
+                  }`}
                   aria-label={t("common.close", { defaultValue: "Close" })}
                 >
                   <XMarkIcon className="h-[1.15rem] w-[1.15rem]" />
@@ -2294,17 +2321,16 @@ export default function BannerStudio({
             {sizeToggle}
           </div>
 
-          {/* Le menu des fonds, première moitié : les huit sortes. La palette
-              de celle qu'on ouvre se pose juste dessous (plus haut, `inColumn`). */}
-          <div
-            className={`pointer-events-auto absolute left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 w-[var(--as-scene-menu-w)] rounded-2xl bg-[#15161d]/95 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,.6)] ring-1 ring-white/10 backdrop-blur-xl ${
-              "as-scene-ui-left"
-            }`}
-          >
-            <p className="px-1.5 pb-2 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
-              {t("profile.studioBackground")}
-            </p>
-            <div className="grid grid-cols-4 gap-1">
+          {/* LA barre du bas, sous le cadre : TOUS les menus y sont, et celui
+              qui est ouvert à gauche y est allumé. La colonne de gauche n'est
+              jamais vide — on y change de menu, on ne la ferme pas. */}
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-center">
+          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10 backdrop-blur-xl">
+            <SceneBox
+              label={t("profile.studioBackground")}
+              active={DRESSING_KINDS.some((k) => k.id === scope)}
+              fit
+            >
               {DRESSING_KINDS.map(({ id }) => {
                 const Icon = KIND_ICON[id];
                 const on = scope === id;
@@ -2315,39 +2341,24 @@ export default function BannerStudio({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => (on ? setScope(null) : openScope(id))}
+                    onClick={() => openScope(id)}
                     title={t(`profile.studioKind_${id}`)}
+                    aria-label={t(`profile.studioKind_${id}`)}
                     aria-pressed={on}
-                    className={`relative flex h-[3.6rem] flex-col items-center justify-center gap-1 rounded-xl px-1 transition-colors ${
-                      on ? "bg-action text-white" : "text-white/60 hover:bg-white/[0.07] hover:text-white"
+                    className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors ${
+                      on
+                        ? "bg-action text-white shadow-[0_6px_18px_rgba(233,69,96,.35)]"
+                        : "text-white/55 hover:bg-white/[0.08] hover:text-white"
                     }`}
                   >
                     <Icon className="h-5 w-5" strokeWidth={1.7} />
-                    <span className="w-full truncate text-center font-karla text-[10px] font-bold leading-none">
-                      {t(`profile.studioKind_${id}`)}
-                    </span>
                     {worn ? (
-                      <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     ) : null}
                   </button>
                 );
               })}
-            </div>
-          </div>
-          {inColumn ? null : (
-            <p
-              className={`pointer-events-none absolute left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 w-[var(--as-scene-menu-w)] px-3 font-karla text-xs text-white/35 ${
-                "as-scene-ui-left"
-              }`}
-            >
-              {t("profile.studioBackgroundHint")}
-            </p>
-          )}
-
-          {/* Les réglages du profil : UNE barre sous le cadre, un compartiment
-              par réglage, séparés d'un filet. */}
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-center">
-          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10 backdrop-blur-xl">
+            </SceneBox>
             <SceneBox label={t("profile.studioKind_layout")} active={scope === "layout"}>
               <button
                 type="button"
@@ -2498,28 +2509,39 @@ function SceneBox({
   label,
   active,
   grow,
+  fit,
   extra,
   children,
 }: {
   label: string;
+  /** Son menu est celui ouvert à gauche : le compartiment s'allume. */
   active?: boolean;
   grow?: boolean;
+  /** À la largeur de son contenu (la rangée des huit fonds). */
+  fit?: boolean;
   extra?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div
-      className={`flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 px-4 py-2.5 transition-colors ${
-        grow ? "flex-[1.6]" : "flex-1"
-      } ${active ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"}`}
+      className={`relative flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 px-4 py-2.5 transition-colors ${
+        fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
+      } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
+      {/* Le liseré du haut dit « ce menu est ouvert à gauche » d'un coup d'œil,
+          même quand le compartiment n'a pas de bouton rose à lui. */}
+      {active ? <span className="absolute inset-x-3 top-0 h-[2px] rounded-full bg-action" /> : null}
       <span className="flex items-center justify-between gap-2">
-        <span className="font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-white/40">
+        <span
+          className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
+            active ? "text-action" : "text-white/40"
+          }`}
+        >
           {label}
         </span>
         {extra}
       </span>
-      <div className="flex min-w-0 items-center gap-2.5">{children}</div>
+      <div className={`flex min-w-0 items-center ${fit ? "gap-1" : "gap-2.5"}`}>{children}</div>
     </div>
   );
 }
