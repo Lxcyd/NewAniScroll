@@ -76,7 +76,14 @@ export default function PlateBackground({
   /* Le cadre existe avant d'avoir chargé, et son `contentWindow` est alors
      encore `about:blank` sur NOTRE origine : lui poster un message adressé à
      YouTube lève « target origin does not match ». */
-  const frameLoaded = useRef(false);
+  /* La bande-annonce dont le cadre a FINI de charger. Tenue par l'iframe et non
+     remise à zéro par l'effet : quand l'effet se rejouait sans que le cadre se
+     remonte (le studio qui se ferme retire `videoRemote`), le drapeau retombait
+     à faux pour toujours — `onLoad` ne revient pas — et le lecteur n'entendait
+     plus rien : plus de boucle, plus de durée, plus de borne (10/10). */
+  const loadedFor = useRef<string | null>(null);
+  /** Poste une commande au lecteur YouTube monté, s'il a chargé. */
+  const post = useRef<(func: string, args?: unknown[]) => void>(() => {});
   /* Les bornes voyagent par référence : elles bougent à chaque image pendant
      qu'on tire une poignée, et l'abonnement aux messages ne doit pas se
      défaire (donc se réabonner, donc se taire une seconde) à chaque pixel. */
@@ -130,31 +137,21 @@ export default function PlateBackground({
   const trailerId = dressing.kind === "video" ? dressing.trailerId ?? null : null;
   useEffect(() => {
     if (!trailerId) return;
-    frameLoaded.current = false;
     duration.current = 0;
+    const loaded = () => loadedFor.current === trailerId;
 
-    const post = (func: string, args: unknown[] = []) => {
-      if (!frameLoaded.current) return;
+    post.current = (func: string, args: unknown[] = []) => {
+      if (!loaded()) return;
       frame.current?.contentWindow?.postMessage(
         JSON.stringify({ event: "command", func, args }),
         YT_ORIGIN,
       );
     };
-    if (videoRemote) {
-      videoRemote.current = {
-        seek: (s) => {
-          post("seekTo", [s, true]);
-          said.current = { at: s, wall: performance.now(), playing: said.current.playing };
-        },
-        play: () => post("playVideo"),
-        pause: () => post("pauseVideo"),
-      };
-    }
 
     /* Le lecteur ne dit rien tant qu'on ne lui a pas demandé de parler, et il
        rate un `listening` envoyé pendant son démarrage : on répète. */
     const subscribe = () => {
-      if (!frameLoaded.current) return;
+      if (!loaded()) return;
       frame.current?.contentWindow?.postMessage(
         JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
         YT_ORIGIN,
@@ -196,7 +193,7 @@ export default function PlateBackground({
          sinon un lecteur qui rapporte 4,98 s pour une borne à 5 s se ferait
          renvoyer en boucle sur sa propre position. */
       if (to > from && (at >= to || at < from - 1)) {
-        post("seekTo", [from, true]);
+        post.current("seekTo", [from, true]);
         said.current = { at: from, wall: performance.now(), playing: said.current.playing };
       }
     };
@@ -205,7 +202,24 @@ export default function PlateBackground({
     return () => {
       window.clearInterval(ping);
       window.removeEventListener("message", onMessage);
-      if (videoRemote) videoRemote.current = null;
+      post.current = () => {};
+    };
+  }, [trailerId]);
+
+  /* La télécommande du studio, à part : la donner ou la reprendre ne doit
+     jamais toucher à l'abonnement du lecteur. */
+  useEffect(() => {
+    if (!trailerId || !videoRemote) return;
+    videoRemote.current = {
+      seek: (s) => {
+        post.current("seekTo", [s, true]);
+        said.current = { at: s, wall: performance.now(), playing: said.current.playing };
+      },
+      play: () => post.current("playVideo"),
+      pause: () => post.current("pauseVideo"),
+    };
+    return () => {
+      videoRemote.current = null;
     };
   }, [trailerId, videoRemote]);
 
@@ -356,7 +370,7 @@ export default function PlateBackground({
             key={dressing.trailerId}
             ref={frame}
             onLoad={() => {
-              frameLoaded.current = true;
+              loadedFor.current = dressing.trailerId ?? null;
             }}
             /* `enablejsapi` est ce qui permet le découpage : sans lui le cadre
                n'écoute aucune commande et ne rapporte aucune position. Mesuré
