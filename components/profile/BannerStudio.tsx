@@ -5,8 +5,10 @@ import {
   AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
   ArrowUturnLeftIcon,
+  ArrowsUpDownIcon,
   Bars3BottomLeftIcon,
   Bars3Icon,
+  ChevronDownIcon,
   FilmIcon,
   MagnifyingGlassIcon,
   MinusIcon,
@@ -181,8 +183,25 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout" | "frame";
 
-type FrameSort = "recent" | "collection" | "name";
-const FRAME_SORTS: FrameSort[] = ["recent", "collection", "name"];
+/** Les tris de la grille des cadres. Les quatre premiers gardent les sections
+    par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
+type FrameSort =
+  | "recent"
+  | "oldest"
+  | "collection"
+  | "biggest"
+  | "name"
+  | "name_desc"
+  | "random";
+const FRAME_SORTS: FrameSort[] = ["recent", "oldest", "collection", "biggest", "name", "name_desc", "random"];
+
+/** Un ordre « au hasard » STABLE : le même tirage tant qu'on ne relance pas,
+    sans quoi la grille se rebattrait à chaque frappe dans la recherche. */
+function shuffleKey(asset: string, seed: number): number {
+  let h = seed | 0;
+  for (let i = 0; i < asset.length; i++) h = Math.imul(h ^ asset.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -234,8 +253,20 @@ export default function BannerStudio({
   const [themes, setThemes] = useState<ThemeRow[]>([]);
   /** Le catalogue des cadres, chargé à la première ouverture de l'onglet. */
   const [frames, setFrames] = useState<FrameCollection[] | null>(null);
-  /** Tri de la grille des cadres : boutique (récentes d'abord), collections A→Z, cadres A→Z. */
+  /** Tri de la grille des cadres (cf. FRAME_SORTS), et le menu qui le choisit. */
   const [frameSort, setFrameSort] = useState<FrameSort>("recent");
+  const [frameSortOpen, setFrameSortOpen] = useState(false);
+  /** Le tirage du tri « au hasard » : rechoisir ce tri relance la donne. */
+  const [frameSeed, setFrameSeed] = useState(1);
+  const frameSortRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!frameSortOpen) return;
+    const close = (e: PointerEvent) => {
+      if (!frameSortRef.current?.contains(e.target as Node)) setFrameSortOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [frameSortOpen]);
   /** Cases par ligne : moins = plus grandes. */
   const [frameCols, setFrameCols] = useState(6);
   const [loading, setLoading] = useState(false);
@@ -681,14 +712,23 @@ export default function BannerStudio({
       );
       if (!q) out.push({ title: t("profile.studioFrameNone"), rows: [], node: grid(tile(null, t("profile.studioFrameNone"))) });
       const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
-      if (frameSort === "name") {
-        /* À plat, de A à Z : on cherche un cadre précis sans savoir sa collection. */
-        const all = frames
-          .flatMap((c) => (match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))))
-          .sort(byName);
+      if (frameSort === "name" || frameSort === "name_desc" || frameSort === "random") {
+        /* À plat : on cherche un cadre précis sans savoir sa collection, ou on
+           se laisse surprendre. */
+        const all = frames.flatMap((c) => (match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))));
+        if (frameSort === "random") all.sort((a, b) => shuffleKey(a.asset, frameSeed) - shuffleKey(b.asset, frameSeed));
+        else all.sort((a, b) => (frameSort === "name" ? byName(a, b) : byName(b, a)));
         if (all.length) out.push({ title: t("profile.studioFrameAll"), rows: [], node: grid(all.map((f) => tile(f.asset, f.name))) });
       } else {
-        const cols = frameSort === "collection" ? [...frames].sort(byName) : frames;
+        /* La table range les collections de la plus récente à la plus ancienne. */
+        const cols =
+          frameSort === "collection"
+            ? [...frames].sort(byName)
+            : frameSort === "oldest"
+              ? [...frames].reverse()
+              : frameSort === "biggest"
+                ? [...frames].sort((a, b) => b.frames.length - a.frames.length)
+                : frames;
         for (const c of cols) {
           const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
           if (!hit.length) continue;
@@ -1323,7 +1363,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, frameSort, frameCols]);
+      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1650,7 +1690,7 @@ export default function BannerStudio({
                 galerieOuverte ? "max-w-6xl" : scope === "frame" ? "max-w-5xl" : "max-w-3xl"
               }`}
             >
-              <div className="flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
+              <div className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
                     ne filtrerait rien. */}
@@ -1674,19 +1714,49 @@ export default function BannerStudio({
                         petites ; + = moins de cases, plus grandes). */}
                     {scope === "frame" ? (
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <div className="flex rounded-full bg-white/[0.06] p-0.5 ring-1 ring-white/10">
-                          {FRAME_SORTS.map((s) => (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setFrameSort(s)}
-                              className={`rounded-full px-2.5 py-1 font-karla text-[11px] font-bold transition-colors ${
-                                frameSort === s ? "bg-action text-white" : "text-white/55 hover:text-white"
-                              }`}
+                        {/* Un menu plutôt qu'une rangée de boutons : sept tris
+                            ne tiennent pas à côté de la recherche. */}
+                        <div ref={frameSortRef} className="relative">
+                          <button
+                            type="button"
+                            aria-haspopup="listbox"
+                            aria-expanded={frameSortOpen}
+                            title={t("profile.studioFrameSortLabel")}
+                            onClick={() => setFrameSortOpen((o) => !o)}
+                            className="flex h-7 items-center gap-1.5 rounded-full bg-white/[0.06] pl-2.5 pr-2 font-karla text-[11px] font-bold text-white/80 ring-1 ring-white/10 transition-colors hover:text-white"
+                          >
+                            <ArrowsUpDownIcon className="h-3.5 w-3.5" />
+                            {t(`profile.studioFrameSort_${frameSort}`)}
+                            <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${frameSortOpen ? "rotate-180" : ""}`} />
+                          </button>
+                          {frameSortOpen ? (
+                            <ul
+                              role="listbox"
+                              aria-label={t("profile.studioFrameSortLabel")}
+                              className="absolute right-0 top-full z-30 mt-1.5 min-w-[11rem] rounded-xl bg-[#14141c] p-1 shadow-xl ring-1 ring-white/10"
                             >
-                              {t(`profile.studioFrameSort_${s}`)}
-                            </button>
-                          ))}
+                              {FRAME_SORTS.map((s) => (
+                                <li key={s}>
+                                  <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={frameSort === s}
+                                    onClick={() => {
+                                      if (s === "random") setFrameSeed((n) => n + 1);
+                                      setFrameSort(s);
+                                      setFrameSortOpen(false);
+                                    }}
+                                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left font-karla text-[12px] font-bold transition-colors ${
+                                      frameSort === s ? "bg-action/20 text-white" : "text-white/65 hover:bg-white/[0.06] hover:text-white"
+                                    }`}
+                                  >
+                                    {t(`profile.studioFrameSort_${s}`)}
+                                    {frameSort === s ? <CheckIcon className="h-3.5 w-3.5 text-action" /> : null}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                         </div>
                         <button
                           type="button"
