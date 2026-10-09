@@ -14,6 +14,7 @@ import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileAside from "@/components/profile/ProfileAside";
 import ProfileOverview from "@/components/profile/ProfileOverview";
+import ProfileStage from "@/components/profile/ProfileStage";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { useBadgeState } from "@/lib/badges/store";
@@ -99,6 +100,7 @@ export default function LocalProfile() {
   const saved: HeroBanner = pinned ?? auto ?? { url: null, animeId: null, title: null };
   /* Pendant l'édition, la page montre le brouillon du dock (cf. BannerStudio). */
   const [draft, setDraft] = useState<Dressing | null>(null);
+  const [compact, setCompact] = useState(false);
   const studioBridge = useRef<StudioBridge>({
     remote: { current: null },
     progress: { current: null },
@@ -111,6 +113,7 @@ export default function LocalProfile() {
   function closeEditor() {
     setPicker(false);
     setDraft(null);
+    setCompact(false);
   }
 
   /* Les douze meilleurs candidats à la bannière EN TÊTE, puis toute la liste.
@@ -147,6 +150,7 @@ export default function LocalProfile() {
 
   return (
     <>
+      <ProfileStage scene={picker && !compact}>
       <ProfileHero
         name={name || t("nav.myList")}
         tag={identity ? guestTag(identity) : null}
@@ -280,12 +284,14 @@ export default function LocalProfile() {
       <div className="relative z-10">
         <Footer />
       </div>
+      </ProfileStage>
 
       {studioEverOpened && (
         <BannerStudio
           open={picker}
           onClose={closeEditor}
           onDraft={setDraft}
+          onMini={setCompact}
           bridge={studioBridge}
           animes={topAnimes}
           value={pinned}

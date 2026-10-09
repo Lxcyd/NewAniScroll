@@ -2227,6 +2227,92 @@ input[type="number"] {
   z-index: 0;
   overflow: hidden;
 }
+
+/* ── La scène (components/profile/ProfileStage.tsx) ─────────────────────
+   En édition, le profil recule dans un cadre arrondi et le studio range ses
+   outils dans la marge. 7 % de marge de chaque côté : c'est la place que
+   BannerStudio donne à sa barre du haut, à son rail et à sa barre du bas
+   (`h-[7vh]`, `w-[7vw]`) — les deux nombres vont ensemble. */
+:root {
+  --as-scene-s: 0.86;
+  --as-scene-ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+}
+.as-scene-back,
+.as-scene-screen {
+  display: none;
+}
+.as-scene-back.is-fixed {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background:
+    radial-gradient(80% 60% at 50% 45%, rgba(233, 69, 96, 0.06), transparent 70%),
+    #060609;
+  opacity: 0;
+  transition: opacity 0.6s var(--as-scene-ease);
+}
+.as-scene-back.is-shrunk {
+  opacity: 1;
+}
+.as-scene-screen.is-fixed {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  overflow: hidden;
+  background: #0c0d10;
+}
+.as-stage.is-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.as-scene-screen.is-fixed,
+.as-stage.is-fixed {
+  transform-origin: 50% 50%;
+  transition:
+    transform 0.6s var(--as-scene-ease),
+    border-radius 0.6s var(--as-scene-ease),
+    box-shadow 0.6s var(--as-scene-ease);
+}
+/* Le rayon est divisé par l'échelle : il est appliqué AVANT la réduction, et
+   doit arriver à l'écran à 24 px. */
+.as-scene-screen.is-shrunk,
+.as-stage.is-shrunk {
+  transform: scale(var(--as-scene-s));
+  border-radius: calc(24px / var(--as-scene-s));
+}
+.as-scene-screen.is-shrunk {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 40px 120px rgba(0, 0, 0, 0.75);
+}
+/* Les outils arrivent APRÈS le recul, chacun depuis son bord. */
+@keyframes as-scene-from-top {
+  from { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes as-scene-from-left {
+  from { opacity: 0; transform: translateX(-14px); }
+}
+@keyframes as-scene-from-bottom {
+  from { opacity: 0; transform: translateY(14px); }
+}
+.as-scene-ui-top { animation: as-scene-from-top 0.45s var(--as-scene-ease) 0.25s both; }
+.as-scene-ui-left { animation: as-scene-from-left 0.45s var(--as-scene-ease) 0.32s both; }
+.as-scene-ui-bottom { animation: as-scene-from-bottom 0.45s var(--as-scene-ease) 0.38s both; }
+.as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
+@media (max-width: 767px) {
+  :root { --as-scene-s: 0.8; }
+}
+/* PAS de coupure sous `prefers-reduced-motion`, délibérément : le poste de
+   l'auteur répond `reduce` (cf. la mémoire « poste en reduced-motion »), et
+   le recul est l'objet même de la demande. Il est court, sans rebond, et
+   déclenché par un clic — pas une animation qui s'impose au chargement. */
 .as-page-scrim {
   position: absolute;
   inset: 0;

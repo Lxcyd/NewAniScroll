@@ -130,6 +130,10 @@ type Drag = {
   mode: "move" | "resize";
   sx: number;
   sy: number;
+  /** Échelle d'affichage de la grille : < 1 dans la scène d'édition
+      (ProfileStage), où le curseur parcourt moins de pixels écran que la
+      grille n'a de pixels de mise en page. */
+  k: number;
   x: number;
   y: number;
   w: number;
@@ -257,7 +261,9 @@ export default function WidgetGrid({
         // place disponible est montré par le haut, pas par le milieu.
         delta = Math.min(bottom - (vh - BOTTOM_MARGIN), top - NAV_CLEARANCE);
       }
-      if (delta) window.scrollBy({ top: delta, behavior: "smooth" });
+      /* En scène d'édition, c'est la scène qui défile, pas la fenêtre. */
+      const scroller = host.closest<HTMLElement>(".as-stage.is-fixed");
+      if (delta) (scroller ?? window).scrollBy({ top: delta, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
   }, [settings]);
@@ -281,8 +287,8 @@ export default function WidgetGrid({
       const d = dragRef.current;
       if (!d) return;
       const cw = columnWidth(width || 1);
-      const dx = e.clientX - d.sx;
-      const dy = e.clientY - d.sy;
+      const dx = (e.clientX - d.sx) / d.k;
+      const dy = (e.clientY - d.sy) / d.k;
       if (d.mode === "move") {
         const nx = Math.min(COLS - d.w, Math.max(0, d.x + Math.round(dx / (cw + GAP))));
         const ny = Math.max(0, d.y + Math.round(dy / (ROW + GAP)));
@@ -339,6 +345,11 @@ export default function WidgetGrid({
       mode,
       sx: e.clientX,
       sy: e.clientY,
+      k: (() => {
+        const host = hostRef.current;
+        const k = host && host.offsetWidth ? host.getBoundingClientRect().width / host.offsetWidth : 1;
+        return k > 0 ? k : 1;
+      })(),
       x: it.x,
       y: it.y,
       w: it.w,

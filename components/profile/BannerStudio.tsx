@@ -64,12 +64,13 @@ import type { BannerOption } from "@/lib/profile/types";
  * commodité :
  *
  *   1. L'APERÇU EST LE PROFIL. Plus d'écran à part : depuis le 09/10/2026 le
- *      studio n'est qu'un dock fixé en bas de la VRAIE page, fusionné avec le
- *      mode réorganisation des widgets. La page montre le brouillon (via
- *      `onDraft`, cf. `previewBanner` dans ProfileHero), les widgets se
- *      déplacent en place, et le dock se réduit d'une flèche pour laisser voir
- *      le profil entier. Une grille de propositions à droite a existé dans une
- *      première version — elle doublait ce que la palette montre déjà.
+ *      studio est fusionné avec le mode réorganisation des widgets. La VRAIE
+ *      page recule dans un cadre (« mode scène », ProfileStage) et montre le
+ *      brouillon (via `onDraft`, cf. `previewBanner` dans ProfileHero) ; les
+ *      outils occupent la marge libérée, rien ne flotte plus par-dessus le
+ *      profil. La flèche rend au profil sa taille et ne garde qu'une pilule.
+ *      Une grille de propositions à droite a existé dans une première
+ *      version — elle doublait ce que la palette montre déjà.
  *
  *   2. UN SEUL MENU. Les huit boutons du dock ouvrent le MÊME objet, une
  *      palette de recherche cadrée sur le type cliqué. La recherche continue
@@ -107,6 +108,8 @@ type Props = {
   onDraft?: (draft: Dressing) => void;
   /** Le lecteur du fond vidéo vit dans la page (ProfileHero), pas ici. */
   bridge?: StudioBridge;
+  /** Réduit ou non : la page sort de la scène quand le studio est réduit. */
+  onMini?: (mini: boolean) => void;
 };
 
 /** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
@@ -240,6 +243,7 @@ export default function BannerStudio({
   onApply,
   onDraft,
   bridge,
+  onMini,
 }: Props) {
   const { t } = useTranslation();
   const accent = useAccent();
@@ -338,8 +342,13 @@ export default function BannerStudio({
     };
   }, [bridge, onVideoProgress]);
 
-  /** Le dock réduit à sa seule barre de titre, pour voir le profil entier. */
+  /** Réduit : le profil reprend sa taille, il ne reste qu'une pilule. */
   const [mini, setMini] = useState(false);
+  const miniOut = useRef(onMini);
+  miniOut.current = onMini;
+  useEffect(() => {
+    if (open) miniOut.current?.(mini);
+  }, [open, mini]);
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
@@ -347,6 +356,7 @@ export default function BannerStudio({
     if (!open) return;
     setDraft(value ?? emptyDressing());
     setScope(null);
+    setMini(false);
     setQuery("");
     setAnimeId(value?.animeId ?? animes[0]?.mediaId ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1538,18 +1548,64 @@ export default function BannerStudio({
           ? FrameIcon
           : KIND_ICON[scope];
 
+  /* Les pièces que la scène et la pilule réduite partagent. */
+  const liveBadge = (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      {t("profile.studioLive")}
+    </span>
+  );
+  const cancelButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      className="shrink-0 rounded-full bg-black/40 px-3 py-1.5 text-[11px] font-bold text-white/80 ring-1 ring-white/15 transition-colors hover:bg-black/70"
+    >
+      {t("common.cancel", { defaultValue: "Annuler" })}
+    </button>
+  );
+  const saveButton = (
+    <button
+      type="button"
+      onClick={finish}
+      className="shrink-0 rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105"
+    >
+      {t("profile.studioSave")}
+    </button>
+  );
+  const sizeToggle = (
+    <button
+      type="button"
+      onClick={() => {
+        setScope(null);
+        setMini((m) => !m);
+      }}
+      title={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
+      aria-label={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
+      aria-expanded={!mini}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+    >
+      <ChevronDownIcon
+        className={`h-4 w-4 transition-transform ${mini ? "rotate-180" : ""}`}
+        strokeWidth={2.2}
+      />
+    </button>
+  );
+  const railButton = (on: boolean) =>
+    `grid h-11 w-11 shrink-0 place-items-center rounded-2xl transition-colors ${
+      on ? "bg-action text-white" : "text-white/55 hover:bg-white/[0.08] hover:text-white"
+    }`;
+
   return (
     <>
-    {/* La place du dock dans le flux : il est fixé en bas de la fenêtre, et
-        sans cette cale il recouvrirait pour de bon le bas du profil — le pied
-        de page, et les derniers widgets qu'on veut justement ranger. */}
-    <div aria-hidden className={mini ? "h-20" : "h-52"} />
-    {/* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
-        elle recouvrait la barre du studio. Le conteneur couvre la fenêtre mais
-        ne capte RIEN (`pointer-events-none`) : le profil dessous reste
-        cliquable, ses widgets déplaçables — seuls le dock, la palette et son
-        voile reprennent les clics. */}
-    <div className="pointer-events-none fixed inset-0 z-[10000] overflow-hidden text-white">
+    {/* Réduite, la pilule flotte sur le profil rendu à sa taille : cette cale
+        lui garde sa place sous le pied de page. En scène, le profil défile
+        dans son cadre et n'en a pas besoin. */}
+    {mini ? <div aria-hidden className="h-20" /> : null}
+    {/* Au-dessus de la scène (ProfileStage, z-[10002]) et de la barre de
+        navigation. Le conteneur couvre la fenêtre mais ne capte RIEN : le
+        profil reste cliquable, ses widgets déplaçables. */}
+    <div className="pointer-events-none fixed inset-0 z-[10003] overflow-hidden text-white">
       {/* ── La palette, ancrée sur le bouton cliqué ───────────────────── */}
       {scope ? (
         <>
@@ -1570,7 +1626,7 @@ export default function BannerStudio({
           {/* LE PANNEAU S'ELARGIT POUR LES IMAGES. Trois colonnes de vignettes
               dans 768 px, ce sont des timbres-poste ; le reste des onglets, lui,
               est fait de lignes de texte et n'a rien a gagner a s'etaler. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-[13.5rem] z-30 flex justify-center px-4">
+          <div className="pointer-events-none absolute inset-x-0 bottom-[max(8vh,4rem)] z-30 flex justify-center px-4">
             <div
               className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
                 galerieOuverte ? "max-w-6xl" : scope === "frame" ? "max-w-5xl" : "max-w-3xl"
@@ -1687,7 +1743,7 @@ export default function BannerStudio({
 
               <div
                 className={`overflow-y-auto p-2.5 ${
-                  galerieOuverte ? "max-h-[56vh]" : "max-h-[50vh]"
+                  galerieOuverte ? "max-h-[64vh]" : "max-h-[56vh]"
                 }`}
               >
                 {loading && flat.length === 0 ? (
@@ -2170,262 +2226,203 @@ export default function BannerStudio({
         />
       ) : null}
 
-      {/* ── Le dock ───────────────────────────────────────────────────── */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
-        <div className="pointer-events-auto flex max-w-full flex-col rounded-[1.5rem] bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
-        {/* La barre de titre : ce qui était en haut de l'écran plein. Elle
-            reste seule quand le dock est réduit — de quoi enregistrer ou
-            annuler sans rouvrir les outils. */}
-        <div
-          className={`flex items-center gap-2 px-3 pt-2.5 ${mini ? "pb-2.5" : "pb-0"}`}
-        >
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            {t("profile.studioLive")}
-          </span>
-          <span className="font-outfit text-sm font-bold">{t("profile.studioTitle")}</span>
-          {mini ? null : (
-            <span className="hidden min-w-0 max-w-[16rem] truncate text-[11px] text-white/45 lg:block">
+      {/* ── La scène ──────────────────────────────────────────────────────
+          Le profil recule dans un cadre (ProfileStage) et les outils occupent
+          la marge qu'il libère : titre et validation en haut, les fonds en
+          rail à gauche, la musique et le flou en bas. La flèche rend au profil
+          sa taille réelle et ne laisse qu'une pilule — la version « petite ». */}
+      {mini ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
+          <div className="as-scene-pill pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-[#15161d]/90 py-1.5 pl-3 pr-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
+            {liveBadge}
+            <span className="font-outfit text-sm font-bold">{t("profile.studioTitle")}</span>
+            <span className="w-2" />
+            {cancelButton}
+            {saveButton}
+            {sizeToggle}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[7vh] min-h-[3.25rem] items-center gap-2 px-4 md:px-[7vw]">
+            {liveBadge}
+            <h2 className="font-outfit text-lg font-bold">{t("profile.studioTitle")}</h2>
+            <span className="hidden min-w-0 truncate text-xs text-white/45 md:block">
               {draft.title || t("profile.studioDockNote")}
             </span>
-          )}
-          <span className="min-w-[1rem] flex-1" />
-          {!mini && pinned ? (
-            <button
-              type="button"
-              onClick={() => onApply(null)}
-              className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              {t("profile.bannerReset")}
-            </button>
-          ) : null}
-          {/* Retirer le cadre sans rouvrir sa grille : il se voit sur la page,
-              il s'enlève d'ici. */}
-          {!mini && draft.frame ? (
-            <button
-              type="button"
-              onClick={() => patch({ frame: null })}
-              className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              {t("profile.studioFrameRemove")}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-full bg-black/40 px-3 py-1.5 text-[11px] font-bold text-white/80 ring-1 ring-white/15 transition-colors hover:bg-black/70"
-          >
-            {t("common.cancel", { defaultValue: "Annuler" })}
-          </button>
-          <button
-            type="button"
-            onClick={finish}
-            className="shrink-0 rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105"
-          >
-            {t("profile.studioSave")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setScope(null);
-              setMini((m) => !m);
-            }}
-            title={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
-            aria-label={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
-            aria-expanded={!mini}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <ChevronDownIcon
-              className={`h-4 w-4 transition-transform ${mini ? "rotate-180" : ""}`}
-              strokeWidth={2.2}
-            />
-          </button>
-        </div>
-        <div
-          className={`flex max-w-full items-center gap-1.5 overflow-x-auto p-3 scrollbar-hide ${
-            mini ? "hidden" : ""
-          }`}
-        >
-          {DRESSING_KINDS.map(({ id }) => {
-            const Icon = KIND_ICON[id];
-            /* Le rose dit UNIQUEMENT « ce menu est ouvert ». Il disait aussi
-               « c'est le type du brouillon », et une fois le menu refermé un
-               bouton restait allumé sans rien désigner d'ouvert. */
-            const on = scope === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => openScope(id)}
-                title={t(`profile.studioKind_${id}`)}
-                aria-label={t(`profile.studioKind_${id}`)}
-                className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
-                  on
-                    ? "bg-action text-white"
-                    : "text-white/55 hover:bg-white/[0.08] hover:text-white"
-                }`}
-              >
-                <Icon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />
-              </button>
-            );
-          })}
-
-          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
-
-          {/* L'agencement n'est pas un fond : il vit après le séparateur, du
-              côté des réglages, avec la musique et le flou. Le dock dit ainsi
-              ce que la palette fait — à gauche ce qu'on met SUR le profil, à
-              droite comment le profil se tient. */}
-          <button
-            type="button"
-            onClick={() => openScope("layout")}
-            title={t("profile.studioLayoutSection")}
-            aria-label={t("profile.studioLayoutSection")}
-            className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
-              scope === "layout"
-                ? "bg-action text-white"
-                : "text-white/55 hover:bg-white/[0.08] hover:text-white"
-            }`}
-          >
-            {(() => {
-              const Icon = LAYOUT_ICON[draft.layout ?? "band"];
-              return <Icon className="h-[1.4rem] w-[1.4rem]" strokeWidth={1.7} />;
-            })()}
-          </button>
-
-          {/* Le cadre d'avatar, à côté de l'agencement : lui aussi habille
-              l'identité, pas le fond. */}
-          <button
-            type="button"
-            onClick={() => openScope("frame")}
-            title={t("profile.studioFrameSection")}
-            aria-label={t("profile.studioFrameSection")}
-            className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${
-              scope === "frame"
-                ? "bg-action text-white"
-                : "text-white/55 hover:bg-white/[0.08] hover:text-white"
-            }`}
-          >
-            <FrameIcon className="h-[1.55rem] w-[1.55rem]" />
-          </button>
-
-          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
-
-          {/* Deux commandes, pas une. La pochette lance et arrête ; le texte
-              ouvre le menu. Un seul bouton pour les deux gestes obligeait à
-              ouvrir le menu pour couper le son, ce qui est l'inverse de ce
-              qu'on veut d'un lecteur. Ils ne peuvent pas être imbriqués — un
-              bouton dans un bouton n'existe pas en HTML — d'où la boîte. */}
-          <div
-            className={`relative flex w-56 shrink-0 items-center gap-3 rounded-2xl px-2.5 py-3 transition-colors ${
-              /* Le survol allume le MÊME fond que l'ouverture, en plus discret :
-                 sans lui, le seul bloc cliquable du dock qui ne réagissait pas
-                 au passage de la souris était celui qui en a le plus l'air. */
-              scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
-            }`}
-          >
-            {draft.music ? (
+            <span className="min-w-[1rem] flex-1" />
+            {pinned ? (
               <button
                 type="button"
-                onClick={() => {
-                  const el = preview.current;
-                  if (!el) return;
-                  if (el.paused) {
-                    if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
-                    void el.play().catch(() => setPlaying(false));
-                  } else el.pause();
-                }}
-                aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-black/50"
+                onClick={() => onApply(null)}
+                className="hidden shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:block"
               >
-                {draft.music.cover ? (
-                  <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
-                ) : null}
-                <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/65">
-                  {buffering ? (
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  ) : playing ? (
-                    <PauseIcon className="h-4 w-4 drop-shadow" />
-                  ) : (
-                    <PlayIcon className="ml-0.5 h-4 w-4 drop-shadow" />
-                  )}
-                </span>
+                {t("profile.bannerReset")}
               </button>
-            ) : (
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/[0.07] text-white/45">
-                <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => openScope("music")}
-              className="min-w-0 flex-1 rounded-lg text-left"
-            >
-              <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
-                {draft.music ? draft.music.title : t("profile.studioMusicNone")}
-              </span>
-              <span className="block truncate font-karla text-[11.5px] leading-snug text-white/40">
-                {draft.music
-                  ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
-                  : t("profile.studioMusicAdd")}
-              </span>
-              {/* La progression sous le texte, donc alignée sur lui et à droite
-                  de la pochette — elle appartient au titre qu'elle suit, pas au
-                  bloc entier. Elle ne montre QUE l'extrait retenu : c'est lui
-                  qui tourne. */}
-              {draft.music && to > from ? (
-                <span className="mt-1.5 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
-                  <span
-                    className="block h-full rounded-full bg-action"
-                    style={{
-                      width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
-                    }}
-                  />
-                </span>
-              ) : null}
-            </button>
+            ) : null}
+            {/* Retirer le cadre sans rouvrir sa grille : il se voit sur la page,
+                il s'enlève d'ici. */}
+            {draft.frame ? (
+              <button
+                type="button"
+                onClick={() => patch({ frame: null })}
+                className="hidden shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:block"
+              >
+                {t("profile.studioFrameRemove")}
+              </button>
+            ) : null}
+            {cancelButton}
+            {saveButton}
+            {sizeToggle}
           </div>
 
-          <span className="mx-2 h-8 w-px shrink-0 bg-white/10" />
+          {/* Le rail des fonds, puis — après le trait — ce qui habille
+              l'identité : l'agencement et le cadre. */}
+          <div className="as-scene-ui as-scene-ui-left pointer-events-none absolute inset-y-[7vh] left-0 z-30 flex w-[7vw] min-w-[3.75rem] items-center justify-center">
+            <div className="pointer-events-auto flex max-h-full flex-col items-center gap-1 overflow-y-auto rounded-2xl py-1 scrollbar-hide">
+              {DRESSING_KINDS.map(({ id }) => {
+                const Icon = KIND_ICON[id];
+                /* Le rose dit UNIQUEMENT « ce menu est ouvert ». */
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => openScope(id)}
+                    title={t(`profile.studioKind_${id}`)}
+                    aria-label={t(`profile.studioKind_${id}`)}
+                    className={railButton(scope === id)}
+                  >
+                    <Icon className="h-[1.35rem] w-[1.35rem]" strokeWidth={1.7} />
+                  </button>
+                );
+              })}
+              <span className="my-1.5 h-px w-7 shrink-0 bg-white/12" />
+              <button
+                type="button"
+                onClick={() => openScope("layout")}
+                title={t("profile.studioLayoutSection")}
+                aria-label={t("profile.studioLayoutSection")}
+                className={railButton(scope === "layout")}
+              >
+                {(() => {
+                  const Icon = LAYOUT_ICON[draft.layout ?? "band"];
+                  return <Icon className="h-[1.35rem] w-[1.35rem]" strokeWidth={1.7} />;
+                })()}
+              </button>
+              <button
+                type="button"
+                onClick={() => openScope("frame")}
+                title={t("profile.studioFrameSection")}
+                aria-label={t("profile.studioFrameSection")}
+                className={railButton(scope === "frame")}
+              >
+                <FrameIcon className="h-[1.5rem] w-[1.5rem]" />
+              </button>
+            </div>
+          </div>
 
-          {/* Le curseur du flou reprend `as-range` : même rail, même pastille
-              cerclée d'accent que les réglages de widget. Il n'a qu'une poignée,
-              donc on lui rend le clic sur le rail (`pointer-events-auto`), que la
-              version à deux poignées doit, elle, désactiver pour ne pas se voler
-              les clics. */}
-          <label className="flex w-52 shrink-0 flex-col gap-2 px-2">
-            <span className="flex items-center justify-between gap-2">
-              <span className="inline-flex items-center gap-1.5 font-karla text-[12px] font-bold uppercase tracking-[.08em] text-white/45">
-                <AdjustmentsHorizontalIcon className="h-4 w-4" strokeWidth={2} />
-                {t("profile.studioBlur")}
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute inset-x-0 bottom-0 z-30 flex h-[7vh] min-h-[3.5rem] items-center justify-center gap-4 px-4">
+            {/* Deux commandes, pas une : la pochette lance et arrête, le texte
+                ouvre le menu (un bouton dans un bouton n'existe pas en HTML). */}
+            <div
+              className={`pointer-events-auto relative flex w-60 shrink-0 items-center gap-3 rounded-2xl px-2 py-1.5 transition-colors ${
+                scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
+              }`}
+            >
+              {draft.music ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = preview.current;
+                    if (!el) return;
+                    if (el.paused) {
+                      if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
+                      void el.play().catch(() => setPlaying(false));
+                    } else el.pause();
+                  }}
+                  aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
+                  className="group relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-black/50"
+                >
+                  {draft.music.cover ? (
+                    <Image src={draft.music.cover} alt="" fill sizes="40px" className="object-cover" />
+                  ) : null}
+                  <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/65">
+                    {buffering ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    ) : playing ? (
+                      <PauseIcon className="h-4 w-4 drop-shadow" />
+                    ) : (
+                      <PlayIcon className="ml-0.5 h-4 w-4 drop-shadow" />
+                    )}
+                  </span>
+                </button>
+              ) : (
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/[0.07] text-white/45">
+                  <SpeakerWaveIcon className="h-5 w-5" strokeWidth={1.7} />
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => openScope("music")}
+                className="min-w-0 flex-1 rounded-lg text-left"
+              >
+                <span className="block truncate font-outfit text-[13.5px] font-bold text-white">
+                  {draft.music ? draft.music.title : t("profile.studioMusicNone")}
+                </span>
+                <span className="block truncate font-karla text-[11.5px] leading-snug text-white/40">
+                  {draft.music
+                    ? [draft.music.artist, draft.music.slug].filter(Boolean).join(" · ")
+                    : t("profile.studioMusicAdd")}
+                </span>
+                {draft.music && to > from ? (
+                  <span className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-white/12">
+                    <span
+                      className="block h-full rounded-full bg-action"
+                      style={{
+                        width: `${((Math.min(Math.max(at, from), to) - from) / (to - from)) * 100}%`,
+                      }}
+                    />
+                  </span>
+                ) : null}
+              </button>
+            </div>
+
+            <span className="h-8 w-px shrink-0 bg-white/10" />
+
+            {/* Le curseur du flou reprend `as-range`, celui des réglages de
+                widget. Une seule poignée : on lui rend le clic sur le rail. */}
+            <label className="pointer-events-auto flex w-52 shrink-0 flex-col gap-2 px-2">
+              <span className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-karla text-[12px] font-bold uppercase tracking-[.08em] text-white/45">
+                  <AdjustmentsHorizontalIcon className="h-4 w-4" strokeWidth={2} />
+                  {t("profile.studioBlur")}
+                </span>
+                <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[12px] font-bold text-white/80">
+                  {draft.blur} px
+                </span>
               </span>
-              <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[12px] font-bold text-white/80">
-                {draft.blur} px
+              <span className="as-range relative block h-4 w-full">
+                <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+                <span
+                  className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                  style={{ width: `${(draft.blur / MAX_BLUR) * 100}%` }}
+                />
+                <input
+                  type="range"
+                  min={0}
+                  max={MAX_BLUR}
+                  value={draft.blur}
+                  onChange={(e) => patch({ blur: clampBlur(e.target.value) })}
+                  /* En ligne : `.as-range input[type=range]` coupe les clics
+                     avec une spécificité qu'un utilitaire seul ne dépasse pas. */
+                  style={{ pointerEvents: "auto" }}
+                  aria-label={t("profile.studioBlur")}
+                />
               </span>
-            </span>
-            <span className="as-range relative block h-4 w-full">
-              <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
-              <span
-                className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
-                style={{ width: `${(draft.blur / MAX_BLUR) * 100}%` }}
-              />
-              <input
-                type="range"
-                min={0}
-                max={MAX_BLUR}
-                value={draft.blur}
-                onChange={(e) => patch({ blur: clampBlur(e.target.value) })}
-                /* En ligne, et pas une classe : `.as-range input[type=range]`
-                   coupe les clics avec une spécificité qu'un utilitaire seul ne
-                   dépasse pas. */
-                style={{ pointerEvents: "auto" }}
-                aria-label={t("profile.studioBlur")}
-              />
-            </span>
-          </label>
-        </div>
-        </div>
-      </div>
+            </label>
+          </div>
+        </>
+      )}
     </div>
     </>
   );

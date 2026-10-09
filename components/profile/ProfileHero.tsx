@@ -13,6 +13,8 @@ import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
 import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
 import type { MutableRefObject } from "react";
+import { createPortal } from "react-dom";
+import { useScene } from "@/components/profile/ProfileStage";
 import dynamic from "next/dynamic";
 /* Only mounted for a YouTube music banner. next/dynamic keeps SSR (the server
    still renders it when it applies) but its chunk leaves the profile's first
@@ -340,6 +342,13 @@ export default function ProfileHero({
      read on the picture IS the design, and the artwork has room to spare. */
   const onArtwork = mode !== "band";
 
+  /* En scène, le papier peint quitte le profil pour l'écran de ProfileStage :
+     dans la scène transformée, un élément fixe partirait avec le défilement.
+     Voir l'en-tête de ProfileStage.tsx. */
+  const scene = useScene();
+  const portal = (node: React.ReactNode) =>
+    scene.fixed && scene.screen ? createPortal(node, scene.screen) : node;
+
   /* ── L'agencement ──────────────────────────────────────────────────────
      Quatre dispositions du même matériel — avatar, nom, badges, chiffres. Ce
      n'est pas de l'habillage (le fond, la musique) mais ça se choisit au même
@@ -515,7 +524,7 @@ export default function ProfileHero({
         </div>
       ) : null}
       {viaYouTube ? <TrailerStage scene="music" /> : null}
-      {asPage ? (
+      {asPage ? portal(
         <div className="as-page-plate">
           {/* Full-bleed, and a wallpaper that fills the window is worth the ~10%
               a 16:9 artwork loses to a wider one. `contain` plus a blurred copy
@@ -548,7 +557,7 @@ export default function ProfileHero({
               pour détacher du texte d'une PHOTO, et l'appliquer à un aplat
               rendait une autre couleur que celle qu'on avait cliquée. */}
           <div className={flat ? "as-page-scrim-tint" : "as-page-scrim"} />
-        </div>
+        </div>,
       ) : null}
 
       <header className="relative z-10 w-full">

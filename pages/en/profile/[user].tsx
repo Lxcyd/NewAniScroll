@@ -55,6 +55,7 @@ import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
 import { noteListCounter } from "@/lib/badges/facts";
 import { silenceNextEvaluation } from "@/lib/badges/evaluate";
 import ProfileOverview from "@/components/profile/ProfileOverview";
+import ProfileStage from "@/components/profile/ProfileStage";
 import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import type {
   ProfileCharacter,
@@ -195,6 +196,8 @@ export default function Profile({
   const [picker, setPicker] = useState(false);
   const studioEverOpened = useMountedOnce(picker);
   const [draft, setDraft] = useState<Dressing | null>(null);
+  /** Le studio réduit : le profil sort de la scène, l'édition continue. */
+  const [compact, setCompact] = useState(false);
   const studioBridge = useRef<StudioBridge>({
     remote: { current: null },
     progress: { current: null },
@@ -266,6 +269,7 @@ export default function Profile({
   function closeEditor() {
     setPicker(false);
     setDraft(null);
+    setCompact(false);
   }
 
   if (isPrivate) {
@@ -345,6 +349,9 @@ export default function Profile({
 
       <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
 
+      {/* En édition, tout le profil recule dans un cadre et le studio range
+          ses outils autour (ProfileStage). Réduit, il reprend sa taille. */}
+      <ProfileStage scene={picker && !compact}>
       <ProfileHero
         name={identity.name}
         tag={identity.tag}
@@ -474,6 +481,7 @@ export default function Profile({
       <div className="relative z-10">
         <Footer />
       </div>
+      </ProfileStage>
 
       {isOwner && (
         <>
@@ -483,6 +491,7 @@ export default function Profile({
               open={picker}
               onClose={closeEditor}
               onDraft={setDraft}
+              onMini={setCompact}
               bridge={studioBridge}
               animes={studioAnimes}
               value={pinned ? normalizeDressing(banner) : null}
