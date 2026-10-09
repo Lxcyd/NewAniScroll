@@ -48,6 +48,77 @@ const THUMB_INSET = 12;
 /** Écart entre le bord droit du cadre et la gouttière du pouce. */
 const THUMB_GAP = 8;
 
+/**
+ * Où se pose le cadre une fois glissé à droite, et où se posent les outils
+ * autour de lui. Tout dérive des mêmes nombres :
+ *
+ *   — à gauche, le menu des fonds (bord 1,5 %, largeur 24 % bornée 300–440 px),
+ *     puis un écart de 1,5 % ;
+ *   — à droite, 2 % de marge (la gouttière du pouce y vit) ;
+ *   — en haut, la barre de titre (7 %, au moins 52 px) ;
+ *   — en bas, la barre des réglages (21,5 %, au moins 150 px).
+ *
+ * Le cadre prend la plus grande échelle qui tient dans ce qui reste, centré
+ * dedans. La transformation garde l'origine au CENTRE de la fenêtre, comme le
+ * premier temps (recul centré) : changer d'origine entre les deux ferait
+ * sauter le cadre.
+ *
+ * Sous 1024 px il n'y a pas la place d'une colonne : le cadre reste centré à
+ * l'échelle du premier temps.
+ */
+export function sceneGeometry(W: number, H: number): Record<string, string> {
+  const px = (n: number) => `${Math.round(n * 100) / 100}px`;
+  const first = W < 768 ? 0.8 : 0.86;
+  const top = Math.max(52, H * 0.07);
+  if (W < 1024) {
+    const w = first * W;
+    const h = first * H;
+    return {
+      "--as-scene-s": String(first),
+      "--as-scene-dock-s": String(first),
+      "--as-scene-dock-x": "0px",
+      "--as-scene-dock-y": "0px",
+      "--as-scene-top": px(top),
+      "--as-scene-menu-left": px(W * 0.015),
+      "--as-scene-menu-w": px(Math.min(440, Math.max(300, W * 0.24))),
+      "--as-scene-menu-from": "0px",
+      "--as-scene-frame-left": px((W - w) / 2),
+      "--as-scene-frame-right": px((W - w) / 2),
+      "--as-scene-frame-bottom": px((H + h) / 2),
+    };
+  }
+  const menuLeft = W * 0.015;
+  const menuW = Math.min(440, Math.max(300, W * 0.24));
+  const gap = W * 0.015;
+  const zoneLeft = menuLeft + menuW + gap;
+  const zoneRight = W * 0.02;
+  const bottom = Math.max(150, H * 0.215);
+  const availW = W - zoneLeft - zoneRight;
+  const availH = H - top - bottom;
+  const s = Math.max(0.3, Math.min(availW / W, availH / H));
+  const w = s * W;
+  const h = s * H;
+  const x0 = zoneLeft + (availW - w) / 2;
+  const y0 = top + (availH - h) / 2;
+  /* Le bord gauche du cadre, centré au premier temps puis posé : le menu
+     parcourt EXACTEMENT cette distance pendant le glissement (globals.css,
+     `.as-scene-ui-left`), d'où un écart constant entre les deux. */
+  const firstLeft = (W - first * W) / 2;
+  return {
+    "--as-scene-s": String(first),
+    "--as-scene-dock-s": String(Math.round(s * 10000) / 10000),
+    "--as-scene-dock-x": px(x0 + w / 2 - W / 2),
+    "--as-scene-dock-y": px(y0 + h / 2 - H / 2),
+    "--as-scene-top": px(top),
+    "--as-scene-menu-left": px(menuLeft),
+    "--as-scene-menu-w": px(menuW),
+    "--as-scene-menu-from": px(-(x0 - firstLeft)),
+    "--as-scene-frame-left": px(x0),
+    "--as-scene-frame-right": px(W - x0 - w),
+    "--as-scene-frame-bottom": px(y0 + h),
+  };
+}
+
 export default function ProfileStage({ scene, children }: { scene: boolean; children: ReactNode }) {
   const stage = useRef<HTMLDivElement | null>(null);
   const [screen, setScreen] = useState<HTMLDivElement | null>(null);
@@ -118,6 +189,26 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
+
+  /* ── La géométrie ─────────────────────────────────────────────────────
+     Calculée EN PIXELS sur la fenêtre réelle, et publiée en variables CSS que
+     la scène ET le studio lisent. Elle était écrite à la main en vw (24, 27,
+     0,71) : les vw comptent la barre de défilement de la fenêtre, le menu a
+     une largeur plancher, et le cadre finissait sous le menu au lieu d'être à
+     1,5 vw de lui. Une seule source, plus d'écart possible. */
+  useLayoutEffect(() => {
+    if (!fixed) return;
+    const html = document.documentElement;
+    const apply = () => {
+      const W = html.clientWidth;
+      const H = html.clientHeight;
+      const vars = sceneGeometry(W, H);
+      for (const [k, v] of Object.entries(vars)) html.style.setProperty(k, v);
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, [fixed]);
 
   const mounted = useRef(false);
   useLayoutEffect(() => {

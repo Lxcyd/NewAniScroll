@@ -2237,15 +2237,20 @@ input[type="number"] {
   --as-scene-s: 0.86;
   --as-scene-ease: cubic-bezier(0.22, 0.8, 0.24, 1);
   /* Second temps (`.is-docked`) : le cadre glisse à droite et laisse à gauche
-     la colonne du menu des fonds. La géométrie, en part de la fenêtre :
-       colonne = 1,5 vw de bord + 24 vw de menu + 1,5 vw d'écart ;
-       cadre   = 71 vw de large (échelle 0,71), 2 vw de marge à droite ;
-       en haut 7 vh (la barre de titre), en bas 21,5 vh (les boîtes de
-       réglages). Centre du cadre : 62,5 vw / 42,5 vh, d'où le décalage.
-     BannerStudio pose ses colonnes sur les MÊMES nombres (27vw, 2vw, 80vh). */
+     la colonne du menu des fonds. Ces valeurs ne sont que des replis : la
+     géométrie réelle est calculée en pixels par `sceneGeometry`
+     (ProfileStage.tsx) et posée sur <html> à l'entrée en scène — le cadre,
+     le menu et la barre du bas lisent les mêmes variables. */
   --as-scene-dock-s: 0.71;
   --as-scene-dock-x: 12.5vw;
   --as-scene-dock-y: -7.5vh;
+  --as-scene-top: 7vh;
+  --as-scene-menu-left: 1.5vw;
+  --as-scene-menu-w: 24vw;
+  --as-scene-menu-from: -20vw;
+  --as-scene-frame-left: 27vw;
+  --as-scene-frame-right: 2vw;
+  --as-scene-frame-bottom: 78.5vh;
 }
 .as-scene-back,
 .as-scene-screen {
@@ -2381,14 +2386,15 @@ input[type="number"] {
    attendre (`-now`). */
 /* LE MENU EST ACCROCHÉ AU BORD DU CADRE pendant le glissement, et c'est un
    calcul, pas un réglage à l'œil. Le glissement part à 0,56 s (ProfileStage)
-   et dure 0,55 s ; son bord gauche va de 7 vw (centré, échelle 0,86) à 27 vw
-   (docké), soit 20 vw — linéairement dans la progression de la courbe, car
-   translation et échelle s'interpolent ensemble. Le menu part donc 20 vw plus
-   à gauche, au même instant, avec la même durée et la même courbe : son bord
-   droit reste à 1,5 vw du cadre à chaque image. Il entrait d'abord avec un
-   décalage à lui (48 px, 0,7 s) et chevauchait le profil encore large. */
+   et dure 0,55 s ; le bord gauche du cadre va de sa place centrée à sa place
+   finale linéairement dans la progression de la courbe (translation et
+   échelle s'interpolent ensemble). Le menu part de la MÊME distance
+   (`--as-scene-menu-from`, calculée par sceneGeometry), au même instant, avec
+   la même durée et la même courbe : l'écart entre les deux reste constant à
+   chaque image. Il entrait d'abord avec un décalage à lui (48 px, 0,7 s) et
+   chevauchait le profil encore large. */
 @keyframes as-scene-menu-in {
-  from { transform: translateX(-20vw); }
+  from { transform: translateX(var(--as-scene-menu-from)); }
 }
 @keyframes as-scene-menu-fade {
   from { opacity: 0; }
@@ -2408,18 +2414,6 @@ input[type="number"] {
 }
 html.as-scene-leave .as-navbar {
   animation: as-scene-nav-in 0.5s var(--as-scene-ease) both;
-}
-@media (max-width: 767px) {
-  :root { --as-scene-s: 0.8; }
-}
-/* Sous 1024 px, une colonne de menu à gauche ne laisserait qu'un timbre-poste
-   de profil : le cadre reste centré. */
-@media (max-width: 1023px) {
-  :root {
-    --as-scene-dock-s: var(--as-scene-s);
-    --as-scene-dock-x: 0px;
-    --as-scene-dock-y: 0px;
-  }
 }
 /* PAS de coupure sous `prefers-reduced-motion`, délibérément : le poste de
    l'auteur répond `reduce` (cf. la mémoire « poste en reduced-motion »), et

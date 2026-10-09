@@ -1646,10 +1646,10 @@ export default function BannerStudio({
           <div
             className={
               inColumn
-                ? `pointer-events-none absolute bottom-[3vh] left-[1.5vw] top-[calc(7vh+11rem)] z-30 flex w-[24vw] ${
+                ? `pointer-events-none absolute bottom-[3vh] left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 flex w-[var(--as-scene-menu-w)] ${
                     settled ? "as-scene-ui-left-now" : "as-scene-ui-left"
                   }`
-                : "pointer-events-none absolute bottom-[23vh] left-0 right-0 z-30 flex justify-center px-4 lg:left-[27vw] lg:right-[2vw]"
+                : "pointer-events-none absolute bottom-[calc(100%_-_var(--as-scene-frame-bottom)_+_0.75rem)] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] z-30 flex justify-center"
             }
           >
             <div
@@ -2282,7 +2282,7 @@ export default function BannerStudio({
         </div>
       ) : (
         <>
-          <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[7vh] min-h-[3.25rem] items-center gap-2 pl-[1.5vw] pr-[2vw]">
+          <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[var(--as-scene-top)] items-center gap-2 pl-[var(--as-scene-menu-left)] pr-[var(--as-scene-frame-right)]">
             {liveBadge}
             <h2 className="font-outfit text-lg font-bold">{t("profile.studioTitle")}</h2>
             <span className="hidden min-w-0 truncate text-xs text-white/45 md:block">
@@ -2306,7 +2306,7 @@ export default function BannerStudio({
           {/* Le menu des fonds, première moitié : les huit sortes. La palette
               de celle qu'on ouvre se pose juste dessous (plus haut, `inColumn`). */}
           <div
-            className={`pointer-events-auto absolute left-[1.5vw] top-[7vh] z-30 w-[24vw] rounded-2xl bg-[#15161d]/95 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,.6)] ring-1 ring-white/10 backdrop-blur-xl ${
+            className={`pointer-events-auto absolute left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 w-[var(--as-scene-menu-w)] rounded-2xl bg-[#15161d]/95 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,.6)] ring-1 ring-white/10 backdrop-blur-xl ${
               settled ? "" : "as-scene-ui-left"
             }`}
           >
@@ -2345,7 +2345,7 @@ export default function BannerStudio({
           </div>
           {inColumn ? null : (
             <p
-              className={`pointer-events-none absolute left-[1.5vw] top-[calc(7vh+11rem)] z-30 w-[24vw] px-3 font-karla text-xs text-white/35 ${
+              className={`pointer-events-none absolute left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 w-[var(--as-scene-menu-w)] px-3 font-karla text-xs text-white/35 ${
                 settled ? "" : "as-scene-ui-left"
               }`}
             >
@@ -2355,7 +2355,7 @@ export default function BannerStudio({
 
           {/* Les réglages du profil : UNE barre sous le cadre, un compartiment
               par réglage, séparés d'un filet. */}
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[1.5vw] right-[2vw] top-[78.5vh] z-30 flex items-center lg:left-[27vw]">
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-center">
           <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10 backdrop-blur-xl">
             <SceneBox label={t("profile.studioKind_layout")} active={scope === "layout"}>
               <button
