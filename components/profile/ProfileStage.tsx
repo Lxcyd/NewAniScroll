@@ -46,8 +46,10 @@ export function useScene(): Scene {
 const DURATION = 500;
 /** Écart du pouce aux bords haut et bas du cadre, en pixels écran. */
 const THUMB_INSET = 12;
-/** Écart entre le bord droit du cadre et la gouttière du pouce. */
-const THUMB_GAP = 8;
+/** Écart entre le bord droit du cadre et la gouttière du pouce (dedans). */
+const THUMB_GAP = 4;
+/** Largeur de la gouttière (la zone saisissable), cf. `.as-scene-gutter`. */
+const GUTTER_W = 12;
 /** Hauteur de la barre des réglages (BannerStudio, `min-h-[4.75rem]` + bords). */
 const BOTTOM_BAR = 78;
 /** Le menu de gauche ne descend pas sous cette largeur à la poignée. */
@@ -376,11 +378,13 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     };
     const place = () => {
       const { r, room, h, top } = geometry();
-      /* Pas de marge (début du recul) ou rien à faire défiler : pas de pouce. */
-      const visible = room > 0 && window.innerWidth - r.right > THUMB_GAP + 6;
+      /* Rien à faire défiler, ou cadre encore plein écran : pas de pouce. Il
+         est DANS le cadre, contre son bord droit (demande du 10/10 : la
+         marge le faisait lire comme un objet à part). */
+      const visible = room > 0 && r.width < window.innerWidth - 1;
       gu.style.display = visible ? "block" : "none";
       if (!visible) return;
-      gu.style.transform = `translate(${r.right + THUMB_GAP}px, ${r.top + THUMB_INSET}px)`;
+      gu.style.transform = `translate(${r.right - THUMB_GAP - GUTTER_W}px, ${r.top + THUMB_INSET}px)`;
       gu.style.height = `${r.height - 2 * THUMB_INSET}px`;
       th.style.height = `${h}px`;
       th.style.transform = `translateY(${top}px)`;

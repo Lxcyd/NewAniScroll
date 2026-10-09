@@ -2359,16 +2359,17 @@ html.as-scene-resizing * {
   left: 0;
   top: 0;
   z-index: 10004;
-  width: 16px;
-  margin-left: -4px;
+  width: 12px;
   cursor: pointer;
   touch-action: none;
 }
+/* Fin, contre le bord intérieur droit du cadre ; il s'élargit un peu sous la
+   souris pour se saisir, sans jamais redevenir une barre. */
 .as-scene-thumb {
   position: absolute;
   top: 0;
-  left: 4px;
-  width: 7px;
+  right: 2px;
+  width: 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.55);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
@@ -2381,11 +2382,11 @@ html.as-scene-resizing * {
   cursor: grab;
   touch-action: none;
 }
-/* Une zone de prise plus large que le trait : 7 px se visent mal. */
+/* Une zone de prise plus large que le trait : 4 px se visent mal. */
 .as-scene-thumb::before {
   content: "";
   position: absolute;
-  inset: -4px -8px;
+  inset: -4px -6px;
 }
 .as-scene-thumb.is-on,
 .as-scene-thumb:hover {
@@ -2394,8 +2395,8 @@ html.as-scene-resizing * {
 }
 .as-scene-thumb:hover,
 .as-scene-thumb.is-held {
-  width: 10px;
-  background: rgba(255, 255, 255, 0.8);
+  width: 6px;
+  background: rgba(255, 255, 255, 0.75);
 }
 .as-scene-thumb.is-held {
   cursor: grabbing;
@@ -2646,9 +2647,16 @@ html.as-scene-leave .as-navbar {
 .as-widget-edit {
   transition: background-color 0.15s ease;
 }
+/* Un cran plus sombre que la carte au repos, pas un aplat : +0,14 d'opacité
+   sur le MÊME dégradé, donc le flou et l'image restent devinables dessous.
+   Le noir à 0,95 du premier jet éteignait la carte au passage de la souris. */
 .as-widget-edit:hover,
 .as-widget-edit.is-held {
-  background: rgba(19, 20, 27, 0.95);
+  background: linear-gradient(
+    145deg,
+    rgba(20, 22, 28, calc(var(--as-plate-a1, 0.72) + 0.14)),
+    rgba(12, 13, 16, calc(var(--as-plate-a2, 0.58) + 0.14))
+  );
 }
 
 /* ── LE FLOU DU STUDIO REMPLIT LA CARTE JUSQU'À SON LISERÉ ──────────────────
