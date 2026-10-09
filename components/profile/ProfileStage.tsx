@@ -48,6 +48,8 @@ const DURATION = 500;
 const THUMB_INSET = 12;
 /** Écart entre le bord droit du cadre et la gouttière du pouce. */
 const THUMB_GAP = 8;
+/** Hauteur de la barre des réglages (BannerStudio, `min-h-[4.75rem]` + bords). */
+const BOTTOM_BAR = 78;
 
 /**
  * Où se pose le cadre une fois glissé à droite, et où se posent les outils
@@ -57,7 +59,7 @@ const THUMB_GAP = 8;
  *     puis un écart de 1,5 % ;
  *   — à droite, 2 % de marge (la gouttière du pouce y vit) ;
  *   — en haut, la barre de titre (7 %, au moins 52 px) ;
- *   — en bas, la barre des réglages (21,5 %, au moins 150 px).
+ *   — en bas, la barre des réglages et ses deux écarts (114 px).
  *
  * Le cadre prend la plus grande échelle qui tient dans ce qui reste, centré
  * dedans. La transformation garde l'origine au CENTRE de la fenêtre, comme le
@@ -93,7 +95,10 @@ export function sceneGeometry(W: number, H: number): Record<string, string> {
   const gap = W * 0.015;
   const zoneLeft = menuLeft + menuW + gap;
   const zoneRight = W * 0.02;
-  const bottom = Math.max(150, H * 0.215);
+  /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. Elle
+     valait 21,5 % de la fenêtre (au moins 150 px) : la barre flottait au
+     milieu d'une bande vide deux fois plus haute qu'elle. */
+  const bottom = BOTTOM_BAR + 14 + 22;
   const availW = W - zoneLeft - zoneRight;
   const availH = H - top - bottom;
   const s = Math.max(0.3, Math.min(availW / W, availH / H));

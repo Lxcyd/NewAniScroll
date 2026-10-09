@@ -2324,7 +2324,7 @@ export default function BannerStudio({
           {/* LA barre du bas, sous le cadre : TOUS les menus y sont, et celui
               qui est ouvert à gauche y est allumé. La colonne de gauche n'est
               jamais vide — on y change de menu, on ne la ferme pas. */}
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-center">
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-start pt-3.5">
           <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
             <SceneBox
               label={t("profile.studioBackground")}
