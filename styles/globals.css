@@ -2241,9 +2241,13 @@ input[type="number"] {
      géométrie réelle est calculée en pixels par `sceneGeometry`
      (ProfileStage.tsx) et posée sur <html> à l'entrée en scène — le cadre,
      le menu et la barre du bas lisent les mêmes variables. */
-  --as-scene-dock-s: 0.71;
-  --as-scene-dock-x: 12.5vw;
-  --as-scene-dock-y: -7.5vh;
+  --as-scene-s1-x: 7vw;
+  --as-scene-s1-y: 7vh;
+  --as-scene-zoom: 0.71;
+  --as-scene-dock-x: 27vw;
+  --as-scene-dock-y: 7vh;
+  --as-scene-dock-w: 100vw;
+  --as-scene-dock-h: 100vh;
   --as-scene-top: 7vh;
   --as-scene-menu-left: 1.5vw;
   --as-scene-menu-w: 24vw;
@@ -2275,14 +2279,12 @@ input[type="number"] {
 .as-scene-screen.is-fixed {
   display: block;
   position: fixed;
-  inset: 0;
   z-index: 10001;
   overflow: hidden;
   background: #0c0d10;
 }
 .as-stage.is-fixed {
   position: fixed;
-  inset: 0;
   z-index: 10002;
   overflow-x: hidden;
   overflow-y: auto;
@@ -2409,12 +2411,27 @@ html.as-scene-resizing * {
    au premier temps et ~20 px une fois glissé, et une ombre que le fond de
    salle découvre en fondu de toute façon. `will-change` fait peindre la
    texture une fois pour toutes avant le premier pas. */
+/* LA BOÎTE ET SON ÉCHELLE (sceneGeometry, ProfileStage.tsx). Origine en haut
+   à gauche pour les deux temps, la translation fait le placement :
+     — premier temps : la boîte a la taille de la fenêtre, réduite et centrée ;
+     — second temps (O1, 10/10) : la boîte prend la forme de la ZONE (zone ÷
+       zoom), réduite au zoom et posée sur la zone — le cadre la remplit, ses
+       bords tombent sur ceux du menu et de la barre du bas.
+   En « Ajuster », la largeur de la boîte reste celle de la fenêtre : au
+   glissement, seule sa HAUTEUR change, et elle s'anime avec la transformation
+   (pas de remise en page du profil, la largeur ne bougeant pas). */
 .as-scene-screen.is-fixed,
 .as-stage.is-fixed {
-  transform-origin: 50% 50%;
+  left: 0;
+  top: 0;
+  width: var(--as-scene-W, 100vw);
+  height: var(--as-scene-H, 100vh);
+  transform-origin: 0 0;
   border-radius: 28px;
   will-change: transform;
-  transition: transform 0.5s var(--as-scene-ease);
+  transition:
+    transform 0.5s var(--as-scene-ease),
+    height 0.45s var(--as-scene-ease);
 }
 .as-scene-screen.is-fixed {
   box-shadow:
@@ -2423,12 +2440,75 @@ html.as-scene-resizing * {
 }
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
-  transform: scale(var(--as-scene-s));
+  transform: translate(var(--as-scene-s1-x), var(--as-scene-s1-y)) scale(var(--as-scene-s));
 }
 .as-scene-screen.is-docked,
 .as-stage.is-docked {
-  transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-dock-s));
+  width: var(--as-scene-dock-w);
+  height: var(--as-scene-dock-h);
+  transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-zoom));
+  /* Le rayon est appliqué AVANT l'échelle : 20 px à l'écran quel que soit le
+     zoom. */
+  border-radius: calc(20px / var(--as-scene-zoom));
   transition-duration: 0.45s;
+}
+
+/* Les commandes de zoom (O5), dans le coin bas droit du cadre, au-dessus de
+   tout le studio. Elles n'existent qu'une fois le cadre posé. */
+.as-scene-zoom {
+  display: none;
+  position: fixed;
+  z-index: 10004;
+  right: calc(var(--as-scene-frame-right) + 14px);
+  top: calc(var(--as-scene-frame-bottom) - 14px);
+  transform: translateY(-100%);
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(21, 22, 29, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font: 700 12px/1 var(--font-karla, "Karla", system-ui, sans-serif);
+}
+html.as-scene-docked .as-scene-zoom {
+  display: inline-flex;
+  animation: as-scene-from-bottom 0.3s var(--as-scene-ease) 0.3s both;
+}
+@media (max-width: 1023px) {
+  html.as-scene-docked .as-scene-zoom {
+    display: none;
+  }
+}
+.as-scene-zoom button {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.as-scene-zoom button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.as-scene-zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.as-scene-zoom .as-scene-zoom-fit {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.as-scene-zoom-pct {
+  min-width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 /* Les outils arrivent APRÈS le recul, chacun depuis son bord. */
 @keyframes as-scene-from-top {

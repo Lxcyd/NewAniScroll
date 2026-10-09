@@ -54,6 +54,16 @@ const GUTTER_W = 12;
 const BOTTOM_BAR = 78;
 /** Le menu de gauche ne descend pas sous cette largeur à la poignée. */
 const MENU_MIN = 280;
+/** Le zoom choisi, retenu sur l'appareil (absent = « Ajuster »). */
+const ZOOM_KEY = "as-scene-zoom";
+function readZoom(): number | null {
+  try {
+    const n = Number(localStorage.getItem(ZOOM_KEY));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
 /** La largeur choisie à la poignée, retenue sur l'appareil. */
 const MENU_KEY = "as-scene-menu-w";
 function readMenuWidth(): number | null {
@@ -65,20 +75,35 @@ function readMenuWidth(): number | null {
   }
 }
 
+/** Zoom du profil dans le cadre : bornes et pas des boutons − / +. */
+export const ZOOM_MIN = 0.4;
+export const ZOOM_MAX = 1.25;
+export const ZOOM_STEP = 0.1;
+
 /**
  * Où se pose le cadre une fois glissé à droite, et où se posent les outils
  * autour de lui. Tout dérive des mêmes nombres :
  *
- *   — à gauche, le menu des fonds (bord 1,5 %, largeur 24 % bornée 300–440 px),
- *     puis un écart de 1,5 % ;
- *   — à droite, 2 % de marge (la gouttière du pouce y vit) ;
+ *   — à gauche, le menu (bord 1,5 %, largeur réglable à la poignée), puis un
+ *     écart de 1,5 % ;
+ *   — à droite, 2 % de marge ;
  *   — en haut, la barre de titre (7 %, au moins 52 px) ;
  *   — en bas, la barre des réglages et ses deux écarts (114 px).
  *
- * Le cadre prend la plus grande échelle qui tient dans ce qui reste, centré
- * dedans. La transformation garde l'origine au CENTRE de la fenêtre, comme le
- * premier temps (recul centré) : changer d'origine entre les deux ferait
- * sauter le cadre.
+ * LE CADRE REMPLIT CETTE ZONE, quelle que soit sa forme (choix O1 du 10/10).
+ * Il gardait la forme de l'écran et rétrécissait jusqu'à tenir en largeur :
+ * une bande vide au-dessus, un haut désaligné du menu. La scène prend donc au
+ * second temps la forme de la ZONE — `zone / zoom` en pixels de mise en page —
+ * puis est réduite au zoom, l'origine en haut à gauche.
+ *
+ * LE ZOOM en découle : c'est l'échelle du profil dans le cadre, comme le zoom
+ * du navigateur. `null` = « Ajuster » : zoneW / W, où le profil garde la
+ * largeur de mise en page de la fenêtre — et où le glissement ne change donc
+ * pas la largeur de la scène, seulement sa hauteur.
+ *
+ * Premier temps (recul centré) : même origine en haut à gauche, la translation
+ * fait le centrage — une seule origine pour les deux temps, sans quoi le cadre
+ * sauterait au passage de l'un à l'autre.
  *
  * Sous 1024 px il n'y a pas la place d'une colonne : le cadre reste centré à
  * l'échelle du premier temps.
@@ -87,25 +112,41 @@ export function sceneGeometry(
   W: number,
   H: number,
   menuWidth?: number | null,
-): Record<string, string> {
+  zoom?: number | null,
+): { vars: Record<string, string>; fit: number; zoom: number } {
   const px = (n: number) => `${Math.round(n * 100) / 100}px`;
+  const num = (n: number) => String(Math.round(n * 10000) / 10000);
   const first = W < 768 ? 0.8 : 0.86;
   const top = Math.max(52, H * 0.07);
+  const firstLeft = ((1 - first) * W) / 2;
+  const firstTop = ((1 - first) * H) / 2;
+  const common = {
+    "--as-scene-W": px(W),
+    "--as-scene-H": px(H),
+    "--as-scene-s": num(first),
+    "--as-scene-s1-x": px(firstLeft),
+    "--as-scene-s1-y": px(firstTop),
+    "--as-scene-top": px(top),
+  };
   if (W < 1024) {
-    const w = first * W;
-    const h = first * H;
     return {
-      "--as-scene-s": String(first),
-      "--as-scene-dock-s": String(first),
-      "--as-scene-dock-x": "0px",
-      "--as-scene-dock-y": "0px",
-      "--as-scene-top": px(top),
-      "--as-scene-menu-left": px(W * 0.015),
-      "--as-scene-menu-w": px(Math.min(440, Math.max(300, W * 0.24))),
-      "--as-scene-menu-from": "0px",
-      "--as-scene-frame-left": px((W - w) / 2),
-      "--as-scene-frame-right": px((W - w) / 2),
-      "--as-scene-frame-bottom": px((H + h) / 2),
+      fit: first,
+      zoom: first,
+      vars: {
+        ...common,
+        "--as-scene-zoom": num(first),
+        "--as-scene-dock-x": px(firstLeft),
+        "--as-scene-dock-y": px(firstTop),
+        "--as-scene-dock-w": px(W),
+        "--as-scene-dock-h": px(H),
+        "--as-scene-menu-left": px(W * 0.015),
+        "--as-scene-menu-w": px(Math.min(440, Math.max(300, W * 0.24))),
+        "--as-scene-gap": px(W * 0.015),
+        "--as-scene-menu-from": "0px",
+        "--as-scene-frame-left": px(firstLeft),
+        "--as-scene-frame-right": px(firstLeft),
+        "--as-scene-frame-bottom": px(firstTop + first * H),
+      },
     };
   }
   const menuLeft = W * 0.015;
@@ -117,34 +158,33 @@ export function sceneGeometry(
   const menuW = Math.min(menuMax, Math.max(MENU_MIN, menuWidth ?? Math.min(440, W * 0.24)));
   const zoneLeft = menuLeft + menuW + gap;
   const zoneRight = W * 0.02;
-  /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. Elle
-     valait 21,5 % de la fenêtre (au moins 150 px) : la barre flottait au
-     milieu d'une bande vide deux fois plus haute qu'elle. */
+  /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. */
   const bottom = BOTTOM_BAR + 14 + 22;
-  const availW = W - zoneLeft - zoneRight;
-  const availH = H - top - bottom;
-  const s = Math.max(0.3, Math.min(availW / W, availH / H));
-  const w = s * W;
-  const h = s * H;
-  const x0 = zoneLeft + (availW - w) / 2;
-  const y0 = top + (availH - h) / 2;
-  /* Le bord gauche du cadre, centré au premier temps puis posé : le menu
-     parcourt EXACTEMENT cette distance pendant le glissement (globals.css,
-     `.as-scene-ui-left`), d'où un écart constant entre les deux. */
-  const firstLeft = (W - first * W) / 2;
+  const zoneW = W - zoneLeft - zoneRight;
+  const zoneH = H - top - bottom;
+  const fit = zoneW / W;
+  const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom ?? fit));
   return {
-    "--as-scene-s": String(first),
-    "--as-scene-dock-s": String(Math.round(s * 10000) / 10000),
-    "--as-scene-dock-x": px(x0 + w / 2 - W / 2),
-    "--as-scene-dock-y": px(y0 + h / 2 - H / 2),
-    "--as-scene-top": px(top),
-    "--as-scene-menu-left": px(menuLeft),
-    "--as-scene-menu-w": px(menuW),
-    "--as-scene-gap": px(gap),
-    "--as-scene-menu-from": px(-(x0 - firstLeft)),
-    "--as-scene-frame-left": px(x0),
-    "--as-scene-frame-right": px(W - x0 - w),
-    "--as-scene-frame-bottom": px(y0 + h),
+    fit,
+    zoom: z,
+    vars: {
+      ...common,
+      "--as-scene-zoom": num(z),
+      "--as-scene-dock-x": px(zoneLeft),
+      "--as-scene-dock-y": px(top),
+      "--as-scene-dock-w": px(zoneW / z),
+      "--as-scene-dock-h": px(zoneH / z),
+      "--as-scene-menu-left": px(menuLeft),
+      "--as-scene-menu-w": px(menuW),
+      "--as-scene-gap": px(gap),
+      /* Le bord gauche du cadre, centré au premier temps puis posé : le menu
+         parcourt EXACTEMENT cette distance pendant le glissement (globals.css,
+         `.as-scene-ui-left`), d'où un écart constant entre les deux. */
+      "--as-scene-menu-from": px(-(zoneLeft - firstLeft)),
+      "--as-scene-frame-left": px(zoneLeft),
+      "--as-scene-frame-right": px(zoneRight),
+      "--as-scene-frame-bottom": px(top + zoneH),
+    },
   };
 }
 
@@ -226,18 +266,76 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
      une largeur plancher, et le cadre finissait sous le menu au lieu d'être à
      1,5 vw de lui. Une seule source, plus d'écart possible. */
   const split = useRef<HTMLDivElement | null>(null);
+  /** Ce que les commandes de zoom affichent, et ce qu'elles déclenchent. */
+  const [zoomView, setZoomView] = useState<{ pct: number; fit: boolean }>({ pct: 100, fit: true });
+  const zoomApi = useRef<{ step: (dir: 1 | -1) => void; fit: () => void } | null>(null);
   useLayoutEffect(() => {
     if (!fixed) return;
     const html = document.documentElement;
     let menuW = readMenuWidth();
+    /** Le zoom choisi, ou null pour « Ajuster » (cf. sceneGeometry). */
+    let zoom = readZoom();
     const apply = () => {
       const W = html.clientWidth;
       const H = html.clientHeight;
-      const vars = sceneGeometry(W, H, menuW);
-      for (const [k, v] of Object.entries(vars)) html.style.setProperty(k, v);
+      const g = sceneGeometry(W, H, menuW, zoom);
+      for (const [k, v] of Object.entries(g.vars)) html.style.setProperty(k, v);
+      setZoomView({ pct: Math.round(g.zoom * 100), fit: zoom == null });
+      return g;
     };
     apply();
     window.addEventListener("resize", apply);
+
+    /* ── Le zoom ──────────────────────────────────────────────────────────
+       Changer le zoom change la largeur de mise en page de la scène : le
+       profil se remet en page, comme au zoom du navigateur. Sans transition
+       (le contenu se remet en page d'un coup, une échelle qui glisserait par
+       là-dessus se lirait comme un raté), et en gardant l'endroit qu'on
+       lisait : la part défilée est conservée. */
+    const el = stage.current;
+    const setZoom = (next: number | null) => {
+      const before = el && el.scrollHeight > el.clientHeight
+        ? el.scrollTop / (el.scrollHeight - el.clientHeight)
+        : 0;
+      zoom = next == null ? null : Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next * 100) / 100));
+      html.classList.add("as-scene-resizing");
+      apply();
+      if (el) el.scrollTop = before * Math.max(0, el.scrollHeight - el.clientHeight);
+      requestAnimationFrame(() => {
+        html.classList.remove("as-scene-resizing");
+        el?.dispatchEvent(new Event("transitionend")); // recale le pouce
+      });
+      try {
+        if (zoom == null) localStorage.removeItem(ZOOM_KEY);
+        else localStorage.setItem(ZOOM_KEY, String(zoom));
+      } catch {
+        /* stockage refusé : le zoom vaut pour cette édition */
+      }
+    };
+    const current = () => apply().zoom;
+    zoomApi.current = {
+      step: (dir) => setZoom(current() + dir * ZOOM_STEP),
+      fit: () => setZoom(null),
+    };
+    /* Ctrl + molette sur le cadre : le zoom du PROFIL, pas celui du navigateur
+       (qui grossirait aussi le menu et les barres). Écouteur non passif, pour
+       pouvoir empêcher le zoom du navigateur. */
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      setZoom(current() + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+    };
+    /* Ctrl + 0 / Ctrl + − / Ctrl + = : mêmes gestes qu'au navigateur. */
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !html.classList.contains("as-scene-docked")) return;
+      if (e.key === "0") setZoom(null);
+      else if (e.key === "-" || e.key === "_") setZoom(current() - ZOOM_STEP);
+      else if (e.key === "=" || e.key === "+") setZoom(current() + ZOOM_STEP);
+      else return;
+      e.preventDefault();
+    };
+    el?.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKey);
 
     /* ── La poignée entre le menu et le cadre ───────────────────────────
        Tirer élargit l'un et rétrécit l'autre. Le cadre suit EN DIRECT, sans
@@ -297,6 +395,9 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     handle?.addEventListener("dblclick", onReset);
     return () => {
       window.removeEventListener("resize", apply);
+      el?.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
+      zoomApi.current = null;
       handle?.removeEventListener("pointerdown", onDown);
       handle?.removeEventListener("pointermove", onMove);
       handle?.removeEventListener("pointerup", onUp);
@@ -485,6 +586,40 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
         <>
           <div ref={gutter} aria-hidden className="as-scene-gutter">
             <div ref={thumb} className="as-scene-thumb" />
+          </div>
+          {/* Le zoom, dans le coin bas droit du cadre (choix O5) : on règle la
+              taille du profil là où on la regarde. */}
+          <div className="as-scene-zoom" role="group" aria-label="Zoom du profil">
+            <button
+              type="button"
+              onClick={() => zoomApi.current?.step(-1)}
+              disabled={zoomView.pct <= Math.round(ZOOM_MIN * 100)}
+              aria-label="Dézoomer"
+              title="Dézoomer (Ctrl + molette)"
+            >
+              −
+            </button>
+            <span className="as-scene-zoom-pct" aria-live="polite">
+              {zoomView.pct} %
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomApi.current?.step(1)}
+              disabled={zoomView.pct >= Math.round(ZOOM_MAX * 100)}
+              aria-label="Zoomer"
+              title="Zoomer (Ctrl + molette)"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => zoomApi.current?.fit()}
+              disabled={zoomView.fit}
+              className="as-scene-zoom-fit"
+              title="Le profil reprend sa largeur habituelle (Ctrl + 0)"
+            >
+              Ajuster
+            </button>
           </div>
           <div
             ref={split}

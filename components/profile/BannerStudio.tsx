@@ -1660,7 +1660,7 @@ export default function BannerStudio({
           <div
             className={
               inColumn
-                ? `pointer-events-none absolute bottom-[3vh] left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 flex w-[var(--as-scene-menu-w)] ${
+                ? `pointer-events-none absolute bottom-[22px] left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 flex w-[var(--as-scene-menu-w)] ${
                     "as-scene-ui-left"
                   }`
                 : "pointer-events-none absolute bottom-[calc(100%_-_var(--as-scene-frame-bottom)_+_0.75rem)] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] z-30 flex justify-center"
