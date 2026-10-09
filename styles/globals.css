@@ -2294,6 +2294,60 @@ input[type="number"] {
 .as-stage.is-fixed::-webkit-scrollbar {
   display: none;
 }
+/* La poignée entre le menu et le cadre (ProfileStage) : tout l'écart entre
+   les deux se saisit, et un trait apparaît au survol. Elle n'existe qu'une
+   fois le cadre glissé — avant, il n'y a rien à répartir. Sous 1024 px la
+   colonne n'existe pas, la poignée non plus. */
+.as-scene-split {
+  display: none;
+  position: fixed;
+  z-index: 10004;
+  top: var(--as-scene-top);
+  bottom: 22px;
+  left: calc(var(--as-scene-menu-left) + var(--as-scene-menu-w));
+  width: max(12px, var(--as-scene-gap, 12px));
+  cursor: col-resize;
+  touch-action: none;
+}
+html.as-scene-docked .as-scene-split {
+  display: block;
+}
+@media (max-width: 1023px) {
+  html.as-scene-docked .as-scene-split {
+    display: none;
+  }
+}
+.as-scene-split::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 56px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  transform: translate(-50%, -50%);
+  transition: background-color 0.15s ease, height 0.2s ease;
+}
+.as-scene-split:hover::after,
+html.as-scene-resizing .as-scene-split::after {
+  height: 96px;
+  background: var(--brand-primary, #e94560);
+}
+/* Pendant qu'on tire : le cadre et le menu suivent le pointeur sans délai,
+   et rien ne se sélectionne au passage. */
+html.as-scene-resizing .as-stage.is-fixed,
+html.as-scene-resizing .as-scene-screen.is-fixed,
+html.as-scene-resizing .as-scene-ui-left,
+html.as-scene-resizing .as-scene-ui-bottom {
+  transition: none;
+}
+html.as-scene-resizing,
+html.as-scene-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
 /* Le pouce qui la remplace (ProfileStage) : dans la MARGE à droite du cadre,
    jamais sur le profil, et au-dessus du studio (z 10003) pour que rien ne le
    recouvre. ProfileStage le cale en pixels écran sur le cadre visible. La

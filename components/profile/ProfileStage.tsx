@@ -50,6 +50,18 @@ const THUMB_INSET = 12;
 const THUMB_GAP = 8;
 /** Hauteur de la barre des réglages (BannerStudio, `min-h-[4.75rem]` + bords). */
 const BOTTOM_BAR = 78;
+/** Le menu de gauche ne descend pas sous cette largeur à la poignée. */
+const MENU_MIN = 280;
+/** La largeur choisie à la poignée, retenue sur l'appareil. */
+const MENU_KEY = "as-scene-menu-w";
+function readMenuWidth(): number | null {
+  try {
+    const n = Number(localStorage.getItem(MENU_KEY));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Où se pose le cadre une fois glissé à droite, et où se posent les outils
@@ -69,7 +81,11 @@ const BOTTOM_BAR = 78;
  * Sous 1024 px il n'y a pas la place d'une colonne : le cadre reste centré à
  * l'échelle du premier temps.
  */
-export function sceneGeometry(W: number, H: number): Record<string, string> {
+export function sceneGeometry(
+  W: number,
+  H: number,
+  menuWidth?: number | null,
+): Record<string, string> {
   const px = (n: number) => `${Math.round(n * 100) / 100}px`;
   const first = W < 768 ? 0.8 : 0.86;
   const top = Math.max(52, H * 0.07);
@@ -91,8 +107,12 @@ export function sceneGeometry(W: number, H: number): Record<string, string> {
     };
   }
   const menuLeft = W * 0.015;
-  const menuW = Math.min(440, Math.max(300, W * 0.24));
   const gap = W * 0.015;
+  /* La largeur du menu se règle à la poignée entre lui et le cadre
+     (`menuWidth`). Bornée des deux côtés : le menu garde de quoi lire une
+     ligne, le cadre au moins 35 % de la fenêtre. */
+  const menuMax = Math.max(MENU_MIN, W - menuLeft - gap - W * 0.02 - W * 0.35);
+  const menuW = Math.min(menuMax, Math.max(MENU_MIN, menuWidth ?? Math.min(440, W * 0.24)));
   const zoneLeft = menuLeft + menuW + gap;
   const zoneRight = W * 0.02;
   /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. Elle
@@ -118,6 +138,7 @@ export function sceneGeometry(W: number, H: number): Record<string, string> {
     "--as-scene-top": px(top),
     "--as-scene-menu-left": px(menuLeft),
     "--as-scene-menu-w": px(menuW),
+    "--as-scene-gap": px(gap),
     "--as-scene-menu-from": px(-(x0 - firstLeft)),
     "--as-scene-frame-left": px(x0),
     "--as-scene-frame-right": px(W - x0 - w),
@@ -202,18 +223,85 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
      0,71) : les vw comptent la barre de défilement de la fenêtre, le menu a
      une largeur plancher, et le cadre finissait sous le menu au lieu d'être à
      1,5 vw de lui. Une seule source, plus d'écart possible. */
+  const split = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!fixed) return;
     const html = document.documentElement;
+    let menuW = readMenuWidth();
     const apply = () => {
       const W = html.clientWidth;
       const H = html.clientHeight;
-      const vars = sceneGeometry(W, H);
+      const vars = sceneGeometry(W, H, menuW);
       for (const [k, v] of Object.entries(vars)) html.style.setProperty(k, v);
     };
     apply();
     window.addEventListener("resize", apply);
-    return () => window.removeEventListener("resize", apply);
+
+    /* ── La poignée entre le menu et le cadre ───────────────────────────
+       Tirer élargit l'un et rétrécit l'autre. Le cadre suit EN DIRECT, sans
+       transition (`as-scene-resizing`) : une transition de 0,45 s derrière
+       le pointeur se lirait comme de la mollesse. Seule la transformation du
+       cadre change — pas de mise en page du profil, le geste reste léger. */
+    const handle = split.current;
+    let drag: { x: number; w: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 || !handle) return;
+      e.preventDefault();
+      const cur = parseFloat(getComputedStyle(html).getPropertyValue("--as-scene-menu-w")) || 0;
+      drag = { x: e.clientX, w: cur };
+      handle.setPointerCapture(e.pointerId);
+      html.classList.add("as-scene-resizing");
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!drag) return;
+      menuW = drag.w + (e.clientX - drag.x);
+      apply();
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!drag || !handle) return;
+      drag = null;
+      if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
+      html.classList.remove("as-scene-resizing");
+      /* Retenue telle que bornée : la variable porte la largeur réellement
+         appliquée, pas celle que le pointeur demandait au-delà des bornes. */
+      const applied = parseFloat(getComputedStyle(html).getPropertyValue("--as-scene-menu-w"));
+      if (applied > 0) {
+        menuW = applied;
+        try {
+          localStorage.setItem(MENU_KEY, String(Math.round(applied)));
+        } catch {
+          /* stockage refusé : la largeur vaut pour cette édition */
+        }
+      }
+      /* Le pouce se recale sur le cadre déplacé. */
+      stage.current?.dispatchEvent(new Event("transitionend"));
+    };
+    /* Double-clic : retour à la largeur par défaut. */
+    const onReset = () => {
+      menuW = null;
+      try {
+        localStorage.removeItem(MENU_KEY);
+      } catch {
+        /* rien à oublier */
+      }
+      html.classList.add("as-scene-resizing");
+      apply();
+      requestAnimationFrame(() => html.classList.remove("as-scene-resizing"));
+    };
+    handle?.addEventListener("pointerdown", onDown);
+    handle?.addEventListener("pointermove", onMove);
+    handle?.addEventListener("pointerup", onUp);
+    handle?.addEventListener("pointercancel", onUp);
+    handle?.addEventListener("dblclick", onReset);
+    return () => {
+      window.removeEventListener("resize", apply);
+      handle?.removeEventListener("pointerdown", onDown);
+      handle?.removeEventListener("pointermove", onMove);
+      handle?.removeEventListener("pointerup", onUp);
+      handle?.removeEventListener("pointercancel", onUp);
+      handle?.removeEventListener("dblclick", onReset);
+      html.classList.remove("as-scene-resizing");
+    };
   }, [fixed]);
 
   /* Le signal du glissement, pour le studio : son menu et sa barre du bas
@@ -390,9 +478,18 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
         {children}
       </div>
       {fixed ? (
-        <div ref={gutter} aria-hidden className="as-scene-gutter">
-          <div ref={thumb} className="as-scene-thumb" />
-        </div>
+        <>
+          <div ref={gutter} aria-hidden className="as-scene-gutter">
+            <div ref={thumb} className="as-scene-thumb" />
+          </div>
+          <div
+            ref={split}
+            role="separator"
+            aria-orientation="vertical"
+            title="Glisser pour répartir la place · double-clic pour revenir"
+            className="as-scene-split"
+          />
+        </>
       ) : null}
     </SceneContext.Provider>
   );
