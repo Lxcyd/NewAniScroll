@@ -37,6 +37,14 @@ function useFrameSrc(asset: string | null | undefined, size: 160 | 256, start: b
   return asset ? src ?? frameThumbUrl(asset, size) : null;
 }
 
+/** Le premier ancêtre qui défile, ou `null` (la fenêtre). */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return null;
+}
+
 /**
  * Un cadre de GRILLE : miniature fixe tout de suite, animé léger dès que la
  * case approche de l'écran (cf. `useFrameSrc`). Les cases jamais atteintes au
@@ -63,8 +71,10 @@ export function FrameTileImage({
         setVisible(true);
       },
       /* Large : l'AVIF est assez léger pour partir AVANT que la case arrive,
-         et elle s'anime alors dès qu'on la voit. */
-      { rootMargin: "600px" },
+         et elle s'anime alors dès qu'on la voit. `root` = le panneau qui
+         défile : sur la fenêtre, la marge ne servait à rien, le panneau
+         rogne ses cases et elles ne « croisaient » qu'une fois à l'écran. */
+      { root: scrollParent(el), rootMargin: "800px 0px" },
     );
     io.observe(el);
     return () => io.disconnect();
