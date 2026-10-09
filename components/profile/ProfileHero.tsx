@@ -342,12 +342,16 @@ export default function ProfileHero({
      read on the picture IS the design, and the artwork has room to spare. */
   const onArtwork = mode !== "band";
 
-  /* En scène, le papier peint quitte le profil pour l'écran de ProfileStage :
-     dans la scène transformée, un élément fixe partirait avec le défilement.
-     Voir l'en-tête de ProfileStage.tsx. */
+  /* Le papier peint vit dans l'écran de ProfileStage, PAS seulement en scène :
+     dans la scène transformée, un élément fixe partirait avec le défilement,
+     et ne l'y déplacer qu'à l'entrée en édition le démontait — l'image
+     repassait par son aperçu flou le temps de se redécoder, en plein recul.
+     L'écran est un simple conteneur hors scène : le papier peint s'y comporte
+     comme avant. Le seul remontage a lieu à l'hydratation (le serveur le rend
+     sur place), quand l'image est encore en chargement de toute façon. */
   const scene = useScene();
   const portal = (node: React.ReactNode) =>
-    scene.fixed && scene.screen ? createPortal(node, scene.screen) : node;
+    scene.screen ? createPortal(node, scene.screen) : node;
 
   /* ── L'agencement ──────────────────────────────────────────────────────
      Quatre dispositions du même matériel — avatar, nom, badges, chiffres. Ce

@@ -1669,7 +1669,7 @@ export default function BannerStudio({
             <div
               className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
                 inColumn
-                  ? "flex flex-col bg-[#15161d]/95 backdrop-blur-xl"
+                  ? "flex flex-col bg-[#15161d]"
                   : galerieOuverte
                     ? "max-w-6xl"
                     : scope === "frame"
@@ -2325,7 +2325,7 @@ export default function BannerStudio({
               qui est ouvert à gauche y est allumé. La colonne de gauche n'est
               jamais vide — on y change de menu, on ne la ferme pas. */}
           <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-center">
-          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10 backdrop-blur-xl">
+          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
             <SceneBox
               label={t("profile.studioBackground")}
               active={DRESSING_KINDS.some((k) => k.id === scope)}

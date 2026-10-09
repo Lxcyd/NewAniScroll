@@ -42,7 +42,8 @@ export function useScene(): Scene {
   return useContext(SceneContext);
 }
 
-const DURATION = 600;
+/** Le recul, en ms — `.as-stage.is-fixed` dans globals.css. */
+const DURATION = 500;
 /** Écart du pouce aux bords haut et bas du cadre, en pixels écran. */
 const THUMB_INSET = 12;
 /** Écart entre le bord droit du cadre et la gouttière du pouce. */
@@ -261,8 +262,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
      événement de défilement n'a aucune raison d'être. */
   const gutter = useRef<HTMLDivElement | null>(null);
   const thumb = useRef<HTMLDivElement | null>(null);
-  /** Recaler le pouce sans le faire apparaître (suivi des transitions). */
-  const placeRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     const el = stage.current;
     const gu = gutter.current;
@@ -293,15 +292,10 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       th.style.height = `${h}px`;
       th.style.transform = `translateY(${top}px)`;
     };
-    /* Le cadre bouge pendant ses transitions : on suit image par image tant
-       qu'elles durent (recul + glissement, ~1,2 s), puis aux seuls événements. */
-    let follow = 0;
-    const until = performance.now() + 1400;
-    const tick = () => {
-      place();
-      if (performance.now() < until) follow = requestAnimationFrame(tick);
-    };
-    follow = requestAnimationFrame(tick);
+    /* Pas de suivi image par image pendant les transitions : le pouce est
+       invisible à ce moment-là, et une mesure par image coûtait au moment le
+       plus chargé. Il se recale à la fin de chaque transition du cadre
+       (`transitionend`, plus bas). */
 
     const flash = () => {
       th.classList.add("is-on");
@@ -352,7 +346,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       if (!grab) flash();
     };
 
-    placeRef.current = place;
     el.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", place);
     el.addEventListener("transitionend", place);
@@ -363,7 +356,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     gu.addEventListener("pointerenter", onEnter);
     gu.addEventListener("pointerleave", onLeave);
     return () => {
-      placeRef.current = null;
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", place);
       el.removeEventListener("transitionend", place);
@@ -374,27 +366,12 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       gu.removeEventListener("pointerenter", onEnter);
       gu.removeEventListener("pointerleave", onLeave);
       cancelAnimationFrame(raf);
-      cancelAnimationFrame(follow);
       clearTimeout(hide);
       gu.style.display = "none";
       th.classList.remove("is-on", "is-held");
     };
   }, [fixed]);
 
-  /* Le cadre se déplace aussi au second temps (glissement) et au retour : on
-     relance le suivi image par image à chaque changement d'état. */
-  useLayoutEffect(() => {
-    const el = stage.current;
-    if (!fixed || !el) return;
-    let raf = 0;
-    const until = performance.now() + 900;
-    const tick = () => {
-      placeRef.current?.();
-      if (performance.now() < until) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [fixed, shrunk, docked]);
 
   const state = `${fixed ? " is-fixed" : ""}${shrunk ? " is-shrunk" : ""}${
     shrunk && docked ? " is-docked" : ""

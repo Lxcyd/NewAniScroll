@@ -2252,8 +2252,10 @@ input[type="number"] {
   --as-scene-frame-right: 2vw;
   --as-scene-frame-bottom: 78.5vh;
 }
-.as-scene-back,
-.as-scene-screen {
+/* L'écran n'est PAS masqué hors scène : le papier peint y vit en permanence
+   (ProfileHero), et un simple conteneur sans style ne change rien à son
+   `position: fixed`. */
+.as-scene-back {
   display: none;
 }
 .as-scene-back.is-fixed {
@@ -2265,7 +2267,7 @@ input[type="number"] {
     radial-gradient(80% 60% at 50% 45%, rgba(233, 69, 96, 0.06), transparent 70%),
     #060609;
   opacity: 0;
-  transition: opacity 0.6s var(--as-scene-ease);
+  transition: opacity 0.5s var(--as-scene-ease);
 }
 .as-scene-back.is-shrunk {
   opacity: 1;
@@ -2344,31 +2346,34 @@ input[type="number"] {
 .as-scene-thumb.is-held {
   cursor: grabbing;
 }
+/* SEULE LA TRANSFORMATION S'ANIME, et c'est ce qui rend le mouvement fluide.
+   Le rayon des coins et l'ombre étaient animés aussi : deux propriétés qui
+   forcent à REPEINDRE tout le profil (bandeau, widgets, flous) à chaque image,
+   là où une transformation ne fait que déplacer une texture déjà peinte. Ils
+   sont donc posés d'un coup à l'entrée — 28 px de mise en page, soit ~24 px
+   au premier temps et ~20 px une fois glissé, et une ombre que le fond de
+   salle découvre en fondu de toute façon. `will-change` fait peindre la
+   texture une fois pour toutes avant le premier pas. */
 .as-scene-screen.is-fixed,
 .as-stage.is-fixed {
   transform-origin: 50% 50%;
-  transition:
-    transform 0.6s var(--as-scene-ease),
-    border-radius 0.6s var(--as-scene-ease),
-    box-shadow 0.6s var(--as-scene-ease);
+  border-radius: 28px;
+  will-change: transform;
+  transition: transform 0.5s var(--as-scene-ease);
 }
-/* Le rayon est divisé par l'échelle : il est appliqué AVANT la réduction, et
-   doit arriver à l'écran à 24 px. */
+.as-scene-screen.is-fixed {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 40px 120px rgba(0, 0, 0, 0.75);
+}
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
   transform: scale(var(--as-scene-s));
-  border-radius: calc(24px / var(--as-scene-s));
 }
 .as-scene-screen.is-docked,
 .as-stage.is-docked {
   transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-dock-s));
-  border-radius: calc(20px / var(--as-scene-dock-s));
-  transition-duration: 0.55s;
-}
-.as-scene-screen.is-shrunk {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 40px 120px rgba(0, 0, 0, 0.75);
+  transition-duration: 0.45s;
 }
 /* Les outils arrivent APRÈS le recul, chacun depuis son bord. */
 @keyframes as-scene-from-top {
@@ -2380,28 +2385,24 @@ input[type="number"] {
 @keyframes as-scene-from-bottom {
   from { opacity: 0; transform: translateY(14px); }
 }
-.as-scene-ui-top { animation: as-scene-from-top 0.45s var(--as-scene-ease) 0.25s both; }
-/* Le menu des fonds et la barre du bas entrent avec le glissement à droite,
-   dans la place qu'il libère. Une fois installé, un menu rouvert entre sans
-   attendre (`-now`). */
+.as-scene-ui-top { animation: as-scene-from-top 0.4s var(--as-scene-ease) 0.2s both; }
 /* LE MENU EST ACCROCHÉ AU BORD DU CADRE pendant le glissement, et c'est un
-   calcul, pas un réglage à l'œil. Le glissement part à 0,56 s (ProfileStage)
-   et dure 0,55 s ; le bord gauche du cadre va de sa place centrée à sa place
-   finale linéairement dans la progression de la courbe (translation et
-   échelle s'interpolent ensemble). Le menu part de la MÊME distance
-   (`--as-scene-menu-from`, calculée par sceneGeometry), au même instant, avec
-   la même durée et la même courbe : l'écart entre les deux reste constant à
-   chaque image. Il entrait d'abord avec un décalage à lui (48 px, 0,7 s) et
-   chevauchait le profil encore large. */
-/* UNE TRANSITION, PAS UNE ANIMATION À DÉLAI : elle part quand ProfileStage
+   calcul, pas un réglage à l'œil. Le bord gauche du cadre va de sa place
+   centrée à sa place finale linéairement dans la progression de la courbe
+   (translation et échelle s'interpolent ensemble). Le menu part de la MÊME
+   distance (`--as-scene-menu-from`, calculée par sceneGeometry), avec la même
+   durée (0,45 s, celle de `.is-docked`) et la même courbe : l'écart entre les
+   deux reste constant à chaque image.
+
+   UNE TRANSITION, PAS UNE ANIMATION À DÉLAI : elle part quand ProfileStage
    pose `as-scene-docked` sur <html>, dans la même image que le glissement du
-   cadre. Un délai CSS partait du montage du studio, pas du cadre, et prenait
-   ~40 ms d'avance — assez pour chevaucher le profil. Au retour, le menu
-   repart avec le cadre de la même façon. */
+   cadre. Un délai CSS partait du montage du studio et prenait ~40 ms
+   d'avance — assez pour chevaucher le profil. Au retour, le menu repart avec
+   le cadre de la même façon. */
 .as-scene-ui-left {
   transition:
-    transform 0.55s var(--as-scene-ease),
-    opacity 0.25s ease;
+    transform 0.45s var(--as-scene-ease),
+    opacity 0.2s ease;
 }
 html:not(.as-scene-docked) .as-scene-ui-left {
   transform: translateX(var(--as-scene-menu-from));
@@ -2411,8 +2412,8 @@ html:not(.as-scene-docked) .as-scene-ui-left {
 /* La barre du bas suit le même signal, un temps après le menu. */
 .as-scene-ui-bottom {
   transition:
-    transform 0.5s var(--as-scene-ease) 0.15s,
-    opacity 0.4s ease 0.15s;
+    transform 0.4s var(--as-scene-ease) 0.1s,
+    opacity 0.3s ease 0.1s;
 }
 html:not(.as-scene-docked) .as-scene-ui-bottom {
   transform: translateY(14px);
