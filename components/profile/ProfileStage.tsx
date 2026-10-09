@@ -51,6 +51,20 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
   const [fixed, setFixed] = useState(false);
   /** La réduction est appliquée — c'est elle que la transition anime. */
   const [shrunk, setShrunk] = useState(false);
+  /** Second temps : le cadre glisse à droite pour laisser la place au menu
+      du fond (BannerStudio). Il attend la fin du recul — les deux mouvements
+      à la fois se liraient comme une seule dérive en diagonale. */
+  const [docked, setDocked] = useState(false);
+  useLayoutEffect(() => {
+    if (!shrunk) {
+      setDocked(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (want.current) setDocked(true);
+    }, DURATION - 40);
+    return () => clearTimeout(timer);
+  }, [shrunk]);
   /** Le défilement à reprendre d'un mode à l'autre, pour que rien ne saute. */
   const scroll = useRef(0);
   const want = useRef(scene);
@@ -72,6 +86,7 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     }
     if (!fixed) return;
     setShrunk(false);
+    setDocked(false);
     const el = stage.current;
     let done = false;
     const release = () => {
@@ -79,6 +94,12 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       done = true;
       scroll.current = el?.scrollTop ?? 0;
       setFixed(false);
+      /* Ce qui vit HORS de la scène — la navbar d'abord — était caché par
+         l'écran opaque pendant tout le retour, et surgissait d'un coup à la
+         fin. Il entre en fondu, le temps d'une classe (globals.css). */
+      const html = document.documentElement;
+      html.classList.add("as-scene-leave");
+      setTimeout(() => html.classList.remove("as-scene-leave"), 700);
     };
     const onEnd = (e: TransitionEvent) => {
       if (e.target === el && e.propertyName === "transform") release();
@@ -120,7 +141,9 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     window.scrollTo(0, scroll.current);
   }, [fixed]);
 
-  const state = `${fixed ? " is-fixed" : ""}${shrunk ? " is-shrunk" : ""}`;
+  const state = `${fixed ? " is-fixed" : ""}${shrunk ? " is-shrunk" : ""}${
+    shrunk && docked ? " is-docked" : ""
+  }`;
 
   return (
     <SceneContext.Provider value={{ screen, fixed }}>

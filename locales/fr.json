@@ -1143,7 +1143,10 @@
     "studioSave": "Enregistrer",
     "studioCollapse": "Réduire la barre",
     "studioExpand": "Agrandir la barre",
-    "studioDockNote": "Aperçu en direct sur ton profil — les widgets se déplacent directement."
+    "studioDockNote": "Aperçu en direct sur ton profil — les widgets se déplacent directement.",
+    "studioBackground": "Fond",
+    "studioBackgroundHint": "Choisis un type de fond pour parcourir ses images.",
+    "studioFrameOn": "Cadre posé"
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",

@@ -349,13 +349,25 @@ export default function BannerStudio({
   useEffect(() => {
     if (open) miniOut.current?.(mini);
   }, [open, mini]);
+  /* La scène est installée (recul + glissement finis) : un menu rouvert
+     ensuite entre tout de suite, sans rejouer l'attente de l'entrée. */
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    if (!open || mini) return;
+    const timer = setTimeout(() => setSettled(true), 1500);
+    return () => clearTimeout(timer);
+  }, [open, mini]);
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
   useEffect(() => {
     if (!open) return;
     setDraft(value ?? emptyDressing());
-    setScope(null);
+    /* Le menu des fonds est ouvert d'entrée, sur la sorte de fond portée :
+       c'est lui qui glisse dans la colonne de gauche avec la scène. */
+    setScope(value?.kind ?? "banner");
+    setPick(null);
     setMini(false);
     setQuery("");
     setAnimeId(value?.animeId ?? animes[0]?.mediaId ?? null);
@@ -1537,6 +1549,8 @@ export default function BannerStudio({
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
   const searchable = scope !== "color" && scope !== "layout";
+  /** Un menu de FOND : il s'ouvre dans la colonne de gauche de la scène. */
+  const inColumn = !mini && !!scope && DRESSING_KINDS.some((k) => k.id === scope);
   /** On regarde des illustrations : le panneau prend toute la place qu'il peut. */
   const galerieOuverte = (scope === "banner" || scope === "image") && pick != null;
   const ScopeIcon =
@@ -1577,8 +1591,9 @@ export default function BannerStudio({
     <button
       type="button"
       onClick={() => {
-        setScope(null);
-        setMini((m) => !m);
+        /* Réduire referme tout ; revenir en scène rouvre le menu des fonds. */
+        setScope(mini ? draft.kind : null);
+        setMini(!mini);
       }}
       title={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
       aria-label={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
@@ -1591,10 +1606,6 @@ export default function BannerStudio({
       />
     </button>
   );
-  const railButton = (on: boolean) =>
-    `grid h-11 w-11 shrink-0 place-items-center rounded-2xl transition-colors ${
-      on ? "bg-action text-white" : "text-white/55 hover:bg-white/[0.08] hover:text-white"
-    }`;
 
   return (
     <>
@@ -1609,12 +1620,18 @@ export default function BannerStudio({
       {/* ── La palette, ancrée sur le bouton cliqué ───────────────────── */}
       {scope ? (
         <>
+          {/* Le menu des fonds vit dans sa colonne, à côté du profil : pas de
+              voile, on regarde le résultat en choisissant. Les autres menus
+              (musique, agencement, cadre) restent des fenêtres posées sur le
+              cadre, et se ferment d'un clic à côté. */}
+          {inColumn ? null : (
           <button
             type="button"
             aria-label={t("common.close", { defaultValue: "Close" })}
             onClick={() => setScope(null)}
             className="pointer-events-auto absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
           />
+          )}
           {/* Plus AUCUNE ancre en pointe sous le panneau : la flèche visait un
               bouton qui bouge d'un onglet à l'autre, donc elle en désignait un
               autre une fois sur deux. Le panneau se tient à distance du dock et
@@ -1626,10 +1643,24 @@ export default function BannerStudio({
           {/* LE PANNEAU S'ELARGIT POUR LES IMAGES. Trois colonnes de vignettes
               dans 768 px, ce sont des timbres-poste ; le reste des onglets, lui,
               est fait de lignes de texte et n'a rien a gagner a s'etaler. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-[max(8vh,4rem)] z-30 flex justify-center px-4">
+          <div
+            className={
+              inColumn
+                ? `pointer-events-none absolute bottom-[3vh] left-[1.5vw] top-[calc(7vh+11rem)] z-30 flex w-[24vw] ${
+                    settled ? "as-scene-ui-left-now" : "as-scene-ui-left"
+                  }`
+                : "pointer-events-none absolute bottom-[23vh] left-0 right-0 z-30 flex justify-center px-4 lg:left-[27vw] lg:right-[2vw]"
+            }
+          >
             <div
               className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
-                galerieOuverte ? "max-w-6xl" : scope === "frame" ? "max-w-5xl" : "max-w-3xl"
+                inColumn
+                  ? "flex flex-col bg-[#15161d]/95 backdrop-blur-xl"
+                  : galerieOuverte
+                    ? "max-w-6xl"
+                    : scope === "frame"
+                      ? "max-w-5xl"
+                      : "max-w-3xl"
               }`}
             >
               <div className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
@@ -1743,7 +1774,7 @@ export default function BannerStudio({
 
               <div
                 className={`overflow-y-auto p-2.5 ${
-                  galerieOuverte ? "max-h-[64vh]" : "max-h-[56vh]"
+                  inColumn ? "min-h-0 flex-1" : "max-h-[52vh]"
                 }`}
               >
                 {loading && flat.length === 0 ? (
@@ -1777,9 +1808,13 @@ export default function BannerStudio({
                            montrerait de chaque image ce qu'on n'a pas choisi. */
                         <div
                           className={`grid gap-2 px-1 pb-2 ${
-                            s.bande
-                              ? "grid-cols-1 lg:grid-cols-2"
-                              : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                            inColumn
+                              ? s.bande
+                                ? "grid-cols-1"
+                                : "grid-cols-2"
+                              : s.bande
+                                ? "grid-cols-1 lg:grid-cols-2"
+                                : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
                           }`}
                         >
                           {s.rows.map((row) => {
@@ -2227,10 +2262,13 @@ export default function BannerStudio({
       ) : null}
 
       {/* ── La scène ──────────────────────────────────────────────────────
-          Le profil recule dans un cadre (ProfileStage) et les outils occupent
-          la marge qu'il libère : titre et validation en haut, les fonds en
-          rail à gauche, la musique et le flou en bas. La flèche rend au profil
-          sa taille réelle et ne laisse qu'une pilule — la version « petite ». */}
+          Le profil recule, puis glisse à droite (ProfileStage). La place
+          libérée porte : en haut le titre et la validation ; à gauche le MENU
+          DES FONDS — les sortes de fond, puis la palette de celle ouverte ;
+          en bas, sous le cadre, une boîte par réglage du profil (agencement,
+          cadre, musique, flou). La flèche rend au profil sa taille réelle et
+          ne laisse qu'une pilule. Les colonnes reprennent la géométrie de
+          globals.css (`--as-scene-dock-*`) : 27 vw à gauche, 2 vw à droite. */}
       {mini ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
           <div className="as-scene-pill pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-[#15161d]/90 py-1.5 pl-3 pr-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
@@ -2244,7 +2282,7 @@ export default function BannerStudio({
         </div>
       ) : (
         <>
-          <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[7vh] min-h-[3.25rem] items-center gap-2 px-4 md:px-[7vw]">
+          <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[7vh] min-h-[3.25rem] items-center gap-2 pl-[1.5vw] pr-[2vw]">
             {liveBadge}
             <h2 className="font-outfit text-lg font-bold">{t("profile.studioTitle")}</h2>
             <span className="hidden min-w-0 truncate text-xs text-white/45 md:block">
@@ -2260,75 +2298,107 @@ export default function BannerStudio({
                 {t("profile.bannerReset")}
               </button>
             ) : null}
-            {/* Retirer le cadre sans rouvrir sa grille : il se voit sur la page,
-                il s'enlève d'ici. */}
-            {draft.frame ? (
-              <button
-                type="button"
-                onClick={() => patch({ frame: null })}
-                className="hidden shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:block"
-              >
-                {t("profile.studioFrameRemove")}
-              </button>
-            ) : null}
             {cancelButton}
             {saveButton}
             {sizeToggle}
           </div>
 
-          {/* Le rail des fonds, puis — après le trait — ce qui habille
-              l'identité : l'agencement et le cadre. */}
-          <div className="as-scene-ui as-scene-ui-left pointer-events-none absolute inset-y-[7vh] left-0 z-30 flex w-[7vw] min-w-[3.75rem] items-center justify-center">
-            <div className="pointer-events-auto flex max-h-full flex-col items-center gap-1 overflow-y-auto rounded-2xl py-1 scrollbar-hide">
+          {/* Le menu des fonds, première moitié : les huit sortes. La palette
+              de celle qu'on ouvre se pose juste dessous (plus haut, `inColumn`). */}
+          <div
+            className={`pointer-events-auto absolute left-[1.5vw] top-[7vh] z-30 w-[24vw] rounded-2xl bg-[#15161d]/95 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,.6)] ring-1 ring-white/10 backdrop-blur-xl ${
+              settled ? "" : "as-scene-ui-left"
+            }`}
+          >
+            <p className="px-1.5 pb-2 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
+              {t("profile.studioBackground")}
+            </p>
+            <div className="grid grid-cols-4 gap-1">
               {DRESSING_KINDS.map(({ id }) => {
                 const Icon = KIND_ICON[id];
-                /* Le rose dit UNIQUEMENT « ce menu est ouvert ». */
+                const on = scope === id;
+                /* Le point dit « c'est le fond porté » ; le rose, « ce menu est
+                   ouvert ». Les deux ne désignent pas toujours la même case. */
+                const worn = draft.kind === id && !!(draft.url || draft.color || draft.trailerId);
                 return (
                   <button
                     key={id}
                     type="button"
-                    onClick={() => openScope(id)}
+                    onClick={() => (on ? setScope(null) : openScope(id))}
                     title={t(`profile.studioKind_${id}`)}
-                    aria-label={t(`profile.studioKind_${id}`)}
-                    className={railButton(scope === id)}
+                    aria-pressed={on}
+                    className={`relative flex h-[3.6rem] flex-col items-center justify-center gap-1 rounded-xl px-1 transition-colors ${
+                      on ? "bg-action text-white" : "text-white/60 hover:bg-white/[0.07] hover:text-white"
+                    }`}
                   >
-                    <Icon className="h-[1.35rem] w-[1.35rem]" strokeWidth={1.7} />
+                    <Icon className="h-5 w-5" strokeWidth={1.7} />
+                    <span className="w-full truncate text-center font-karla text-[10px] font-bold leading-none">
+                      {t(`profile.studioKind_${id}`)}
+                    </span>
+                    {worn ? (
+                      <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    ) : null}
                   </button>
                 );
               })}
-              <span className="my-1.5 h-px w-7 shrink-0 bg-white/12" />
+            </div>
+          </div>
+          {inColumn ? null : (
+            <p
+              className={`pointer-events-none absolute left-[1.5vw] top-[calc(7vh+11rem)] z-30 w-[24vw] px-3 font-karla text-xs text-white/35 ${
+                settled ? "" : "as-scene-ui-left"
+              }`}
+            >
+              {t("profile.studioBackgroundHint")}
+            </p>
+          )}
+
+          {/* Les réglages du profil, une boîte chacun, sous le cadre. */}
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[1.5vw] right-[2vw] top-[78.5vh] z-30 flex items-center gap-3 lg:left-[27vw]">
+            <SceneBox label={t("profile.studioKind_layout")} active={scope === "layout"}>
               <button
                 type="button"
                 onClick={() => openScope("layout")}
-                title={t("profile.studioLayoutSection")}
-                aria-label={t("profile.studioLayoutSection")}
-                className={railButton(scope === "layout")}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
                 {(() => {
                   const Icon = LAYOUT_ICON[draft.layout ?? "band"];
-                  return <Icon className="h-[1.35rem] w-[1.35rem]" strokeWidth={1.7} />;
+                  return <Icon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />;
                 })()}
+                <span className="truncate font-outfit text-[13.5px] font-bold">
+                  {t(`profile.studioLayout_${draft.layout ?? "band"}`)}
+                </span>
               </button>
+            </SceneBox>
+
+            <SceneBox label={t("profile.studioFrameSection")} active={scope === "frame"}>
               <button
                 type="button"
                 onClick={() => openScope("frame")}
-                title={t("profile.studioFrameSection")}
-                aria-label={t("profile.studioFrameSection")}
-                className={railButton(scope === "frame")}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
-                <FrameIcon className="h-[1.5rem] w-[1.5rem]" />
+                <FrameIcon className="h-6 w-6 shrink-0 text-white/75" />
+                <span className="truncate font-outfit text-[13.5px] font-bold">
+                  {draft.frame ? t("profile.studioFrameOn") : t("profile.studioFrameNone")}
+                </span>
               </button>
-            </div>
-          </div>
+              {/* Retirer le cadre sans rouvrir sa grille. */}
+              {draft.frame ? (
+                <button
+                  type="button"
+                  onClick={() => patch({ frame: null })}
+                  title={t("profile.studioFrameRemove")}
+                  aria-label={t("profile.studioFrameRemove")}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              ) : null}
+            </SceneBox>
 
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute inset-x-0 bottom-0 z-30 flex h-[7vh] min-h-[3.5rem] items-center justify-center gap-4 px-4">
-            {/* Deux commandes, pas une : la pochette lance et arrête, le texte
-                ouvre le menu (un bouton dans un bouton n'existe pas en HTML). */}
-            <div
-              className={`pointer-events-auto relative flex w-60 shrink-0 items-center gap-3 rounded-2xl px-2 py-1.5 transition-colors ${
-                scope === "music" ? "bg-white/[0.10]" : "hover:bg-white/[0.06]"
-              }`}
-            >
+            <SceneBox label={t("profile.studioKind_music")} active={scope === "music"} grow>
+              {/* Deux commandes, pas une : la pochette lance et arrête, le
+                  texte ouvre le menu (un bouton dans un bouton n'existe pas). */}
               {draft.music ? (
                 <button
                   type="button"
@@ -2385,22 +2455,18 @@ export default function BannerStudio({
                   </span>
                 ) : null}
               </button>
-            </div>
-
-            <span className="h-8 w-px shrink-0 bg-white/10" />
+            </SceneBox>
 
             {/* Le curseur du flou reprend `as-range`, celui des réglages de
                 widget. Une seule poignée : on lui rend le clic sur le rail. */}
-            <label className="pointer-events-auto flex w-52 shrink-0 flex-col gap-2 px-2">
-              <span className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-1.5 font-karla text-[12px] font-bold uppercase tracking-[.08em] text-white/45">
-                  <AdjustmentsHorizontalIcon className="h-4 w-4" strokeWidth={2} />
-                  {t("profile.studioBlur")}
-                </span>
-                <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[12px] font-bold text-white/80">
+            <SceneBox
+              label={t("profile.studioBlur")}
+              extra={
+                <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
                   {draft.blur} px
                 </span>
-              </span>
+              }
+            >
               <span className="as-range relative block h-4 w-full">
                 <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
                 <span
@@ -2419,12 +2485,48 @@ export default function BannerStudio({
                   aria-label={t("profile.studioBlur")}
                 />
               </span>
-            </label>
+            </SceneBox>
           </div>
         </>
       )}
     </div>
     </>
+  );
+}
+
+/**
+ * Une boîte de réglage du bas de la scène : un intitulé, puis la commande.
+ * Toutes à la même hauteur, alignées sur le cadre — c'est ce qui rend la
+ * rangée lisible d'un coup d'œil, là où l'ancienne barre alignait douze
+ * icônes de même poids.
+ */
+function SceneBox({
+  label,
+  active,
+  grow,
+  extra,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  grow?: boolean;
+  extra?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`pointer-events-auto flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 rounded-2xl px-3.5 py-2.5 ring-1 backdrop-blur-xl transition-colors ${
+        grow ? "flex-[1.6]" : "flex-1"
+      } ${active ? "bg-white/[0.12] ring-action/60" : "bg-[#15161d]/90 ring-white/10 hover:ring-white/20"}`}
+    >
+      <span className="flex items-center justify-between gap-2">
+        <span className="font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-white/40">
+          {label}
+        </span>
+        {extra}
+      </span>
+      <div className="flex min-w-0 items-center gap-2.5">{children}</div>
+    </div>
   );
 }
 

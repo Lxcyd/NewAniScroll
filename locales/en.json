@@ -1143,7 +1143,10 @@
     "studioSave": "Save",
     "studioCollapse": "Shrink the bar",
     "studioExpand": "Expand the bar",
-    "studioDockNote": "Live preview on your profile — widgets move in place."
+    "studioDockNote": "Live preview on your profile — widgets move in place.",
+    "studioBackground": "Background",
+    "studioBackgroundHint": "Pick a background type to browse its pictures.",
+    "studioFrameOn": "Frame on"
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

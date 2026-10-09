@@ -2236,6 +2236,16 @@ input[type="number"] {
 :root {
   --as-scene-s: 0.86;
   --as-scene-ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  /* Second temps (`.is-docked`) : le cadre glisse à droite et laisse à gauche
+     la colonne du menu des fonds. La géométrie, en part de la fenêtre :
+       colonne = 1,5 vw de bord + 24 vw de menu + 1,5 vw d'écart ;
+       cadre   = 71 vw de large (échelle 0,71), 2 vw de marge à droite ;
+       en haut 7 vh (la barre de titre), en bas 21,5 vh (les boîtes de
+       réglages). Centre du cadre : 62,5 vw / 42,5 vh, d'où le décalage.
+     BannerStudio pose ses colonnes sur les MÊMES nombres (27vw, 2vw, 80vh). */
+  --as-scene-dock-s: 0.71;
+  --as-scene-dock-x: 12.5vw;
+  --as-scene-dock-y: -7.5vh;
 }
 .as-scene-back,
 .as-scene-screen {
@@ -2270,7 +2280,12 @@ input[type="number"] {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
+  /* Pas de barre de défilement : elle tombait en plein dans le cadre, à
+     l'échelle réduite. L'indicateur qui la remplace est à choisir. */
+  scrollbar-width: none;
+}
+.as-stage.is-fixed::-webkit-scrollbar {
+  display: none;
 }
 .as-scene-screen.is-fixed,
 .as-stage.is-fixed {
@@ -2286,6 +2301,12 @@ input[type="number"] {
 .as-stage.is-shrunk {
   transform: scale(var(--as-scene-s));
   border-radius: calc(24px / var(--as-scene-s));
+}
+.as-scene-screen.is-docked,
+.as-stage.is-docked {
+  transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-dock-s));
+  border-radius: calc(20px / var(--as-scene-dock-s));
+  transition-duration: 0.55s;
 }
 .as-scene-screen.is-shrunk {
   box-shadow:
@@ -2303,11 +2324,32 @@ input[type="number"] {
   from { opacity: 0; transform: translateY(14px); }
 }
 .as-scene-ui-top { animation: as-scene-from-top 0.45s var(--as-scene-ease) 0.25s both; }
-.as-scene-ui-left { animation: as-scene-from-left 0.45s var(--as-scene-ease) 0.32s both; }
-.as-scene-ui-bottom { animation: as-scene-from-bottom 0.45s var(--as-scene-ease) 0.38s both; }
+/* Le menu des fonds et les boîtes du bas attendent le glissement à droite :
+   ils arrivent dans la place qu'il vient de libérer. Une fois installés, un
+   menu rouvert entre sans attendre (`-now`). */
+.as-scene-ui-left { animation: as-scene-from-left 0.45s var(--as-scene-ease) 0.95s both; }
+.as-scene-ui-left-now { animation: as-scene-from-left 0.3s var(--as-scene-ease) both; }
+.as-scene-ui-bottom { animation: as-scene-from-bottom 0.45s var(--as-scene-ease) 1.05s both; }
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
+/* Au retour, la navbar était cachée par l'écran de la scène et surgissait à
+   la fin : elle entre en fondu, avec une descente à peine sensible. */
+@keyframes as-scene-nav-in {
+  from { opacity: 0; transform: translateY(-8px); }
+}
+html.as-scene-leave .as-navbar {
+  animation: as-scene-nav-in 0.5s var(--as-scene-ease) both;
+}
 @media (max-width: 767px) {
   :root { --as-scene-s: 0.8; }
+}
+/* Sous 1024 px, une colonne de menu à gauche ne laisserait qu'un timbre-poste
+   de profil : le cadre reste centré. */
+@media (max-width: 1023px) {
+  :root {
+    --as-scene-dock-s: var(--as-scene-s);
+    --as-scene-dock-x: 0px;
+    --as-scene-dock-y: 0px;
+  }
 }
 /* PAS de coupure sous `prefers-reduced-motion`, délibérément : le poste de
    l'auteur répond `reduce` (cf. la mémoire « poste en reduced-motion »), et

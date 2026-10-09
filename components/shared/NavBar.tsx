@@ -173,7 +173,7 @@ export function Navbar({
         //     into the navbar's box.
         //   - `backface-visibility: hidden` hints to the compositor that
         //     the navbar is fully opaque, killing edge-sampling artefacts.
-        className={`fixed top-0 left-0 right-0 z-[9999] w-full ${PAD_X} py-2 rounded-none border-0 ${
+        className={`as-navbar fixed top-0 left-0 right-0 z-[9999] w-full ${PAD_X} py-2 rounded-none border-0 ${
           bgHover ? "hover:bg-tersier" : ""
         } ${scrolled ? "bg-tersier" : ""} ${
           onLight ? "nav-on-light" : ""
