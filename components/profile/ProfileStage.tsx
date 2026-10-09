@@ -43,6 +43,8 @@ export function useScene(): Scene {
 }
 
 const DURATION = 600;
+/** Écart du pouce aux bords haut et bas du cadre, en pixels de mise en page. */
+const THUMB_INSET = 14;
 
 export default function ProfileStage({ scene, children }: { scene: boolean; children: ReactNode }) {
   const stage = useRef<HTMLDivElement | null>(null);
@@ -141,6 +143,46 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     window.scrollTo(0, scroll.current);
   }, [fixed]);
 
+  /* ── Le pouce ─────────────────────────────────────────────────────────
+     La barre de défilement native est masquée (elle tombait dans le cadre).
+     À sa place, une pilule translucide qui n'existe que pendant qu'on défile
+     et s'efface une seconde après, comme sur macOS. Elle vit sur son propre
+     calque, transformé comme la scène : posée DANS la scène, elle défilerait
+     avec le contenu. Positionnée hors React — un rendu par événement de
+     défilement n'a aucune raison d'être. */
+  const thumb = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = stage.current;
+    const th = thumb.current;
+    if (!fixed || !el || !th) return;
+    let raf = 0;
+    let hide: ReturnType<typeof setTimeout> | undefined;
+    const place = () => {
+      raf = 0;
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const room = scrollHeight - clientHeight;
+      if (room <= 0) return;
+      const track = clientHeight - 2 * THUMB_INSET;
+      const h = Math.max(48, (clientHeight / scrollHeight) * track);
+      th.style.height = `${h}px`;
+      th.style.transform = `translateY(${THUMB_INSET + (scrollTop / room) * (track - h)}px)`;
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(place);
+      th.classList.add("is-on");
+      clearTimeout(hide);
+      hide = setTimeout(() => th.classList.remove("is-on"), 1000);
+    };
+    place();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+      clearTimeout(hide);
+      th.classList.remove("is-on");
+    };
+  }, [fixed]);
+
   const state = `${fixed ? " is-fixed" : ""}${shrunk ? " is-shrunk" : ""}${
     shrunk && docked ? " is-docked" : ""
   }`;
@@ -151,6 +193,9 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       <div aria-hidden ref={setScreen} className={`as-scene-screen${state}`} />
       <div ref={stage} className={`as-stage${state}`}>
         {children}
+      </div>
+      <div aria-hidden className={`as-scene-track${state}`}>
+        <div ref={thumb} className="as-scene-thumb" />
       </div>
     </SceneContext.Provider>
   );

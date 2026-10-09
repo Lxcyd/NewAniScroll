@@ -2281,14 +2281,45 @@ input[type="number"] {
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Pas de barre de défilement : elle tombait en plein dans le cadre, à
-     l'échelle réduite. L'indicateur qui la remplace est à choisir. */
+     l'échelle réduite. Remplacée par le pouce qui apparaît, ci-dessous. */
   scrollbar-width: none;
 }
 .as-stage.is-fixed::-webkit-scrollbar {
   display: none;
 }
+/* Le pouce qui la remplace (ProfileStage) : un calque à part, transformé comme
+   la scène, au-dessus d'elle et transparent aux clics. Il n'apparaît que
+   pendant le défilement. */
+.as-scene-track {
+  display: none;
+}
+.as-scene-track.is-fixed {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  pointer-events: none;
+}
+.as-scene-thumb {
+  position: absolute;
+  top: 0;
+  right: 10px;
+  width: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  will-change: transform;
+}
+.as-scene-thumb.is-on {
+  opacity: 1;
+  transition-duration: 0.15s;
+}
 .as-scene-screen.is-fixed,
-.as-stage.is-fixed {
+.as-stage.is-fixed,
+.as-scene-track.is-fixed {
   transform-origin: 50% 50%;
   transition:
     transform 0.6s var(--as-scene-ease),
@@ -2298,12 +2329,14 @@ input[type="number"] {
 /* Le rayon est divisé par l'échelle : il est appliqué AVANT la réduction, et
    doit arriver à l'écran à 24 px. */
 .as-scene-screen.is-shrunk,
-.as-stage.is-shrunk {
+.as-stage.is-shrunk,
+.as-scene-track.is-shrunk {
   transform: scale(var(--as-scene-s));
   border-radius: calc(24px / var(--as-scene-s));
 }
 .as-scene-screen.is-docked,
-.as-stage.is-docked {
+.as-stage.is-docked,
+.as-scene-track.is-docked {
   transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-dock-s));
   border-radius: calc(20px / var(--as-scene-dock-s));
   transition-duration: 0.55s;
