@@ -2324,8 +2324,10 @@ export default function BannerStudio({
           {/* LA barre du bas, sous le cadre : TOUS les menus y sont, et celui
               qui est ouvert à gauche y est allumé. La colonne de gauche n'est
               jamais vide — on y change de menu, on ne la ferme pas. */}
-          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-0 left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-start pt-3.5">
-          <div className="pointer-events-auto flex w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
+          <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-[22px] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-stretch pt-3.5">
+          {/* Hauteur imposée par la scène (BOTTOM_BAR) : le bas du bandeau tombe
+              au même niveau que le bas de la colonne de gauche (22 px). */}
+          <div className="pointer-events-auto flex h-full w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
             <SceneBox
               label={t("profile.studioBackground")}
               active={DRESSING_KINDS.some((k) => k.id === scope)}
@@ -2524,7 +2526,7 @@ function SceneBox({
 }) {
   return (
     <div
-      className={`relative flex min-h-[4.75rem] min-w-0 flex-col justify-center gap-2 px-4 py-2.5 transition-colors ${
+      className={`relative flex min-w-0 flex-col justify-center gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
