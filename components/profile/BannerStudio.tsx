@@ -659,6 +659,8 @@ export default function BannerStudio({
                  l'écran (cf. FrameTileImage). */
               <FrameTileImage
                 asset={asset}
+                /* 256 px quand les cases sont grandes (4 par ligne ou moins). */
+                size={frameCols <= 4 ? 256 : 160}
                 className="pointer-events-none absolute left-1/2 top-1/2 h-[70%] w-[70%] -translate-x-1/2 -translate-y-1/2"
               />
             ) : (

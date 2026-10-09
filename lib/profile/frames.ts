@@ -25,6 +25,17 @@ export function frameUrl(asset: string, size = 240): string {
 }
 
 /**
+ * L'ANIMÉ LÉGER d'un cadre : AVIF animé avec transparence, fabriqué par
+ * scripts/discord-frames/encode-frames.mjs et servi par notre Worker depuis KV.
+ * ~55 Ko en 160 px contre ~800 Ko pour l'APNG de Discord (mesure du 09/10/2026).
+ * 404 tant que le cadre n'est pas encodé : l'appelant retombe alors sur
+ * `frameUrl` (cf. FramedAvatar).
+ */
+export function frameAnimUrl(asset: string, size: 160 | 256): string {
+  return `https://proxy.aniscroll.com/w/frame/${asset}/${size}.avif`;
+}
+
+/**
  * La MINIATURE FIXE d'un cadre, pour les grilles.
  *
  * L'animé ne se redimensionne pas : avec `passthrough=true` Discord ignore

@@ -216,6 +216,45 @@ async function handleDiagGet(request, env) {
   return json({ total: liste.keys.length, entrees }, 200, { "Cache-Control": "no-store" });
 }
 
+/**
+ * GET /w/frame/<asset>/<160|256>.avif — un cadre d avatar (decoration Discord)
+ * reencode en AVIF anime leger (transparence comprise) : ~85 Ko contre ~1 Mo.
+ *
+ * Discord ne sert l'animation qu'en APNG d'origine (~800 Ko, `size` ignore) :
+ * la grille du studio mettait des secondes a s'animer. Les versions legeres
+ * sont fabriquees par scripts/discord-frames/encode-frames.mjs et rangees dans
+ * KV (`frame:<asset>:<taille>`). Un asset Discord ne change jamais de contenu,
+ * d'ou le cache d'un an `immutable` et le cache d'edge devant KV : une lecture
+ * KV par cadre et par point de presence, pas par visiteur.
+ */
+const FRAME_RE = /^\/w\/frame\/((?:a_)?[0-9a-f]{32})\/(160|256)\.avif$/;
+
+async function handleFrame(request, pathname, env, ctx) {
+  const m = FRAME_RE.exec(pathname);
+  if (!m || !env.W2G_CACHE) return new Response("Not found", { status: 404 });
+  const cache = caches.default;
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const body = await env.W2G_CACHE.get(`frame:${m[1]}:${m[2]}`, "arrayBuffer");
+  if (!body) {
+    /* Pas encore encode : le site retombe sur l'APNG de Discord. Cache court
+       pour que l'encodage de la nuit suivante soit vu. */
+    return new Response("Not found", {
+      status: 404,
+      headers: { "Cache-Control": "public, max-age=300", ...cors() },
+    });
+  }
+  const res = new Response(body, {
+    headers: {
+      "Content-Type": "image/avif",
+      "Cache-Control": "public, max-age=31536000, immutable",
+      ...cors(),
+    },
+  });
+  ctx.waitUntil(cache.put(request, res.clone()));
+  return res;
+}
+
 function nullableText(v) {
   return v == null || v === "" ? { type: "null" } : { type: "text", value: v };
 }
@@ -234,6 +273,9 @@ export async function handleEdgeEndpoint(request, env, ctx) {
 
   if (pathname === "/w/broadcast" && request.method === "GET") {
     return handleBroadcast(env);
+  }
+  if (pathname.startsWith("/w/frame/") && request.method === "GET") {
+    return handleFrame(request, pathname, env, ctx);
   }
   if (pathname === "/w/track" && request.method === "POST") {
     return handleTrack(request, env, ctx);

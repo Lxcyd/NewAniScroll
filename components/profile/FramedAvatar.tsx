@@ -1,48 +1,80 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { frameThumbUrl, frameUrl } from "@/lib/profile/frames";
+import { frameAnimUrl, frameThumbUrl, frameUrl } from "@/lib/profile/frames";
 
 /**
- * Un cadre de GRILLE : la miniature fixe d'abord (~6 Ko, affichée tout de
- * suite), puis l'APNG animé (~800 Ko — Discord n'en sert pas de plus petit)
- * chargé dès que la case entre à l'écran, et substitué une fois arrivé. La
- * grille s'affiche donc aussi vite qu'avant, et chaque cadre visible s'anime
- * sans attendre qu'on le survole. Les cases jamais atteintes au défilement ne
- * téléchargent jamais leur animé.
+ * La source animée d'un cadre, dans l'ordre du plus léger au plus lourd :
+ *
+ *   1. la miniature FIXE de Discord (~6 Ko), affichée tout de suite ;
+ *   2. l'AVIF animé de notre Worker (~55 Ko en 160 px, cf. `frameAnimUrl`),
+ *      téléchargé ET décodé avant d'être montré, donc fluide dès sa première
+ *      image ;
+ *   3. s'il n'existe pas encore (cadre sorti dans la nuit, pas encore encodé),
+ *      l'APNG d'origine de Discord (~800 Ko), même règle.
+ *
+ * `start` retarde le téléchargement (une case de grille attend d'être à
+ * l'écran) ; l'avatar du profil part tout de suite.
  */
-export function FrameTileImage({ asset, className }: { asset: string; className?: string }) {
-  const ref = useRef<HTMLImageElement | null>(null);
-  const [animated, setAnimated] = useState(false);
+function useFrameSrc(asset: string | null | undefined, size: 160 | 256, start: boolean) {
+  const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
-    setAnimated(false);
+    setSrc(null);
+    if (!asset || !start) return;
+    let alive = true;
+    const tente = (url: string) => {
+      const probe = new window.Image();
+      probe.src = url;
+      return probe.decode().then(() => url);
+    };
+    tente(frameAnimUrl(asset, size))
+      .catch(() => tente(frameUrl(asset)))
+      .then((url) => alive && setSrc(url))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [asset, size, start]);
+  return asset ? src ?? frameThumbUrl(asset, size) : null;
+}
+
+/**
+ * Un cadre de GRILLE : miniature fixe tout de suite, animé léger dès que la
+ * case approche de l'écran (cf. `useFrameSrc`). Les cases jamais atteintes au
+ * défilement ne téléchargent rien de plus que leur miniature.
+ */
+export function FrameTileImage({
+  asset,
+  className,
+  size = 160,
+}: {
+  asset: string;
+  className?: string;
+  size?: 160 | 256;
+}) {
+  const ref = useRef<HTMLImageElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    let alive = true;
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         io.disconnect();
-        const probe = new window.Image();
-        probe.src = frameUrl(asset);
-        /* Décodé avant d'être montré : même raison que pour l'avatar du profil. */
-        probe
-          .decode()
-          .catch(() => undefined)
-          .then(() => alive && setAnimated(true));
+        setVisible(true);
       },
-      { rootMargin: "200px" },
+      /* Large : l'AVIF est assez léger pour partir AVANT que la case arrive,
+         et elle s'anime alors dès qu'on la voit. */
+      { rootMargin: "600px" },
     );
     io.observe(el);
-    return () => {
-      alive = false;
-      io.disconnect();
-    };
+    return () => io.disconnect();
   }, [asset]);
+  const src = useFrameSrc(asset, size, visible);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       ref={ref}
-      src={animated ? frameUrl(asset) : frameThumbUrl(asset)}
+      src={src ?? undefined}
       alt=""
       decoding="async"
       draggable={false}
@@ -66,7 +98,7 @@ export function FrameTileImage({ asset, className }: { asset: string; className?
  * page autour ne bouge pas d'un pixel qu'on porte un cadre ou non.
  *
  * Un `<img>` et pas `next/image` pour le cadre : l'optimiseur réencoderait
- * l'APNG animé en image fixe, et le CDN de Discord sert déjà la bonne taille.
+ * l'animation en image fixe, et nos AVIF sont déjà à la bonne taille.
  */
 export default function FramedAvatar({
   src,
@@ -87,27 +119,10 @@ export default function FramedAvatar({
   px?: number;
   priority?: boolean;
 }) {
-  /* L'ANIMÉ N'ARRIVE QU'UNE FOIS DÉCODÉ. Posé directement, l'APNG (~800 Ko) se
-     mettait à jouer pendant son téléchargement et son décodage, en même temps
-     que l'hydratation de la page : l'animation saccadait à chaque
-     rechargement. La miniature fixe (quelques Ko) tient la place, et l'animé ne
-     la remplace qu'entièrement prêt (`decode()`), donc fluide dès sa première
-     image. */
-  const [animated, setAnimated] = useState(false);
-  useEffect(() => {
-    setAnimated(false);
-    if (!frame) return;
-    let alive = true;
-    const probe = new window.Image();
-    probe.src = frameUrl(frame);
-    probe
-      .decode()
-      .catch(() => undefined)
-      .then(() => alive && setAnimated(true));
-    return () => {
-      alive = false;
-    };
-  }, [frame]);
+  /* Version 256 px : l'avatar du profil monte à ~170 px, cadre compris.
+     Miniature fixe d'abord, animé une fois décodé (plus de saccade au
+     rechargement), cf. `useFrameSrc`. */
+  const frameSrc = useFrameSrc(frame, 256, true);
 
   return (
     /* L'anneau d'accent s'efface sous un cadre (le cadre EST la bordure), mais
@@ -144,7 +159,7 @@ export default function FramedAvatar({
         {frame ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={animated ? frameUrl(frame) : frameThumbUrl(frame, 240)}
+            src={frameSrc ?? undefined}
             alt=""
             aria-hidden
             draggable={false}

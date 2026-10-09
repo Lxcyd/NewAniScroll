@@ -79,6 +79,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | Source | Contenu | Note |
 | --- | --- | --- |
 | [itemshop.gg/discord](https://itemshop.gg/discord) | Toute la boutique Discord republiee chaque jour (688 decorations, 90 collections au 08/10/2026), donnees dans le flux Next.js de la page | ✅ source du catalogue `avatar_frames` (scripts/discord-frames/sync-frames.mjs, GH Action nocturne) ; images hotlinkees sur le CDN Discord |
+| Versions legeres maison | AVIF anime avec transparence, 160 et 256 px (~55 Ko au lieu de ~800 Ko d'APNG Discord ; le WebP anime ne descend pas sous ~530 Ko), dans KV `frame:<asset>:<taille>` | ✅ scripts/discord-frames/encode-frames.mjs (450/nuit, quota KV 1 000 ecritures/jour) ; servi par le Worker `/w/frame/<asset>/<taille>.avif` |
 | [Kadantte/discord-fake-avatar-decorations](https://github.com/Kadantte/discord-fake-avatar-decorations) | 640 PNG animes `public/decorations/<slug>.png`, miniatures WebP, catalogue `src/data/decorations.js` | ⚖️ fork d'un depot retire par DMCA (ItsPi3141) |
 | CDN Discord `cdn.discordapp.com/avatar-decoration-presets/<asset>.png?passthrough=true` | Les originaux | ⚖️ il faut l'`asset` (API boutique 🔑) |
 | [Vencord « Decor »](https://github.com/Vendicated/Vencord) | Decorations creees par les utilisateurs | ⚖️ variable |

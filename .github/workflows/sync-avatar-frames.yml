@@ -44,3 +44,20 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: node scripts/discord-frames/sync-frames.mjs ${{ inputs.dry == true && '--dry' || '' }}
+
+      # Versions legeres (AVIF anime ~55 Ko au lieu de l'APNG Discord ~800 Ko),
+      # rangees dans le KV que le Worker sert sur proxy.aniscroll.com/w/frame/.
+      # 450 cadres max par nuit : le KV gratuit accepte 1 000 ecritures par jour.
+      - name: Install ffmpeg
+        if: ${{ inputs.dry != true }}
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Encode light frames
+        if: ${{ inputs.dry != true }}
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+          CF_KV_API_TOKEN: ${{ secrets.CF_KV_API_TOKEN }}
+        run: node scripts/discord-frames/encode-frames.mjs --max 450
