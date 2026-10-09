@@ -349,15 +349,6 @@ export default function BannerStudio({
   useEffect(() => {
     if (open) miniOut.current?.(mini);
   }, [open, mini]);
-  /* La scène est installée (recul + glissement finis) : un menu rouvert
-     ensuite entre tout de suite, sans rejouer l'attente de l'entrée. */
-  const [settled, setSettled] = useState(false);
-  useEffect(() => {
-    setSettled(false);
-    if (!open || mini) return;
-    const timer = setTimeout(() => setSettled(true), 1500);
-    return () => clearTimeout(timer);
-  }, [open, mini]);
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
@@ -1647,7 +1638,7 @@ export default function BannerStudio({
             className={
               inColumn
                 ? `pointer-events-none absolute bottom-[3vh] left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 flex w-[var(--as-scene-menu-w)] ${
-                    settled ? "as-scene-ui-left-now" : "as-scene-ui-left"
+                    "as-scene-ui-left"
                   }`
                 : "pointer-events-none absolute bottom-[calc(100%_-_var(--as-scene-frame-bottom)_+_0.75rem)] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] z-30 flex justify-center"
             }
@@ -2307,7 +2298,7 @@ export default function BannerStudio({
               de celle qu'on ouvre se pose juste dessous (plus haut, `inColumn`). */}
           <div
             className={`pointer-events-auto absolute left-[var(--as-scene-menu-left)] top-[var(--as-scene-top)] z-30 w-[var(--as-scene-menu-w)] rounded-2xl bg-[#15161d]/95 p-2.5 shadow-[0_28px_70px_rgba(0,0,0,.6)] ring-1 ring-white/10 backdrop-blur-xl ${
-              settled ? "" : "as-scene-ui-left"
+              "as-scene-ui-left"
             }`}
           >
             <p className="px-1.5 pb-2 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
@@ -2346,7 +2337,7 @@ export default function BannerStudio({
           {inColumn ? null : (
             <p
               className={`pointer-events-none absolute left-[var(--as-scene-menu-left)] top-[calc(var(--as-scene-top)_+_11rem)] z-30 w-[var(--as-scene-menu-w)] px-3 font-karla text-xs text-white/35 ${
-                settled ? "" : "as-scene-ui-left"
+                "as-scene-ui-left"
               }`}
             >
               {t("profile.studioBackgroundHint")}

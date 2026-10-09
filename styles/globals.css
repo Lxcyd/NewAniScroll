@@ -2393,19 +2393,32 @@ input[type="number"] {
    la même durée et la même courbe : l'écart entre les deux reste constant à
    chaque image. Il entrait d'abord avec un décalage à lui (48 px, 0,7 s) et
    chevauchait le profil encore large. */
-@keyframes as-scene-menu-in {
-  from { transform: translateX(var(--as-scene-menu-from)); }
-}
-@keyframes as-scene-menu-fade {
-  from { opacity: 0; }
-}
+/* UNE TRANSITION, PAS UNE ANIMATION À DÉLAI : elle part quand ProfileStage
+   pose `as-scene-docked` sur <html>, dans la même image que le glissement du
+   cadre. Un délai CSS partait du montage du studio, pas du cadre, et prenait
+   ~40 ms d'avance — assez pour chevaucher le profil. Au retour, le menu
+   repart avec le cadre de la même façon. */
 .as-scene-ui-left {
-  animation:
-    as-scene-menu-in 0.55s var(--as-scene-ease) 0.56s both,
-    as-scene-menu-fade 0.25s ease 0.56s both;
+  transition:
+    transform 0.55s var(--as-scene-ease),
+    opacity 0.25s ease;
 }
-.as-scene-ui-left-now { animation: as-scene-from-left 0.3s var(--as-scene-ease) both; }
-.as-scene-ui-bottom { animation: as-scene-from-bottom 0.5s var(--as-scene-ease) 0.78s both; }
+html:not(.as-scene-docked) .as-scene-ui-left {
+  transform: translateX(var(--as-scene-menu-from));
+  opacity: 0;
+  pointer-events: none;
+}
+/* La barre du bas suit le même signal, un temps après le menu. */
+.as-scene-ui-bottom {
+  transition:
+    transform 0.5s var(--as-scene-ease) 0.15s,
+    opacity 0.4s ease 0.15s;
+}
+html:not(.as-scene-docked) .as-scene-ui-bottom {
+  transform: translateY(14px);
+  opacity: 0;
+  pointer-events: none;
+}
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
 /* Au retour, la navbar était cachée par l'écran de la scène et surgissait à
    la fin : elle entre en fondu, avec une descente à peine sensible. */

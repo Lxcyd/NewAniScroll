@@ -210,6 +210,18 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     return () => window.removeEventListener("resize", apply);
   }, [fixed]);
 
+  /* Le signal du glissement, pour le studio : son menu et sa barre du bas
+     TRANSITIONNENT sur cette classe (globals.css) au lieu de partir sur un
+     délai à eux. Posée dans la même image que la classe du cadre, avec la même
+     durée et la même courbe, elle ne peut plus prendre d'avance — un délai
+     CSS fixe démarrait ~40 ms avant le cadre, et sur une courbe aussi raide au
+     départ, c'était assez pour passer dessus. */
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    html.classList.toggle("as-scene-docked", shrunk && docked);
+  }, [shrunk, docked]);
+  useLayoutEffect(() => () => document.documentElement.classList.remove("as-scene-docked"), []);
+
   const mounted = useRef(false);
   useLayoutEffect(() => {
     const body = document.body.style;
