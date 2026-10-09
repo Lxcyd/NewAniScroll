@@ -1139,7 +1139,11 @@
     "artKind_cover": "Affiche",
     "playSound": "Écouter le son du profil",
     "playMusic": "Écouter « {{title}} »",
-    "studioLive": "en direct"
+    "studioLive": "en direct",
+    "studioSave": "Enregistrer",
+    "studioCollapse": "Réduire la barre",
+    "studioExpand": "Agrandir la barre",
+    "studioDockNote": "Aperçu en direct sur ton profil — les widgets se déplacent directement."
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",

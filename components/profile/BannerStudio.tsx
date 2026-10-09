@@ -27,8 +27,9 @@ import {
 } from "@heroicons/react/24/outline";
 import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
-import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
-import FramedAvatar, { FrameTileImage } from "@/components/profile/FramedAvatar";
+import type { TrailerRemote } from "@/components/profile/PlateBackground";
+import type { StudioBridge } from "@/components/profile/ProfileHero";
+import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks } from "@/components/anime/v2/helpers";
 import { useFanarts } from "@/lib/hooks/useFanarts";
@@ -62,11 +63,13 @@ import type { BannerOption } from "@/lib/profile/types";
  * Deux partis pris, tenus depuis les maquettes et à ne pas défaire par
  * commodité :
  *
- *   1. L'APERÇU EST L'ÉCRAN. Pas une vignette dans un coin : le profil occupe
- *      tout le fond, à taille réelle, et c'est lui qu'on regarde. Tout le reste
- *      flotte par-dessus et peut disparaître. Une grille de propositions à
- *      droite a existé dans une première version — elle doublait ce que la
- *      palette montre déjà et mangeait le coin du profil qu'on vient voir.
+ *   1. L'APERÇU EST LE PROFIL. Plus d'écran à part : depuis le 09/10/2026 le
+ *      studio n'est qu'un dock fixé en bas de la VRAIE page, fusionné avec le
+ *      mode réorganisation des widgets. La page montre le brouillon (via
+ *      `onDraft`, cf. `previewBanner` dans ProfileHero), les widgets se
+ *      déplacent en place, et le dock se réduit d'une flèche pour laisser voir
+ *      le profil entier. Une grille de propositions à droite a existé dans une
+ *      première version — elle doublait ce que la palette montre déjà.
  *
  *   2. UN SEUL MENU. Les huit boutons du dock ouvrent le MÊME objet, une
  *      palette de recherche cadrée sur le type cliqué. La recherche continue
@@ -98,15 +101,12 @@ type Props = {
   /** Ce que l'automatique donne — sert d'aperçu quand rien n'est épinglé. */
   auto: { url: string | null; source: BannerOption["source"] | null; title: string | null };
   identity: { name: string; avatar: string | null };
-  /**
-   * Les chiffres du profil, tels que l'en-tête les affiche (heroStats).
-   * L'aperçu les montre dans ses trois cartes : ce sont elles qui rendent le
-   * flou visible, et de VRAIS chiffres dedans valent mieux que trois barres —
-   * on juge alors la lisibilité qu'on aura, pas celle d'un gabarit.
-   */
-  stats?: Array<{ key: string; label: string; value: string }>;
   /** `null` dépingle et rend le profil à son anime préféré. */
   onApply: (value: Dressing | null) => void;
+  /** Le brouillon, à chaque changement : la page le montre en direct. */
+  onDraft?: (draft: Dressing) => void;
+  /** Le lecteur du fond vidéo vit dans la page (ProfileHero), pas ici. */
+  bridge?: StudioBridge;
 };
 
 /** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
@@ -237,8 +237,9 @@ export default function BannerStudio({
   value,
   auto,
   identity,
-  stats,
   onApply,
+  onDraft,
+  bridge,
 }: Props) {
   const { t } = useTranslation();
   const accent = useAccent();
@@ -316,7 +317,8 @@ export default function BannerStudio({
      fond de l'écran est déjà la vidéo, il n'y a donc pas de second lecteur à
      monter — le pied du panneau ne fait que la piloter (PlateBackground rend
      la télécommande, et rapporte la position que le lecteur annonce). */
-  const remote = useRef<TrailerRemote | null>(null);
+  const ownRemote = useRef<TrailerRemote | null>(null);
+  const remote = bridge?.remote ?? ownRemote;
   const [vAt, setVAt] = useState(0);
   const [vLen, setVLen] = useState(0);
   const [vPlaying, setVPlaying] = useState(false);
@@ -328,6 +330,16 @@ export default function BannerStudio({
     },
     [],
   );
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.progress.current = onVideoProgress;
+    return () => {
+      bridge.progress.current = null;
+    };
+  }, [bridge, onVideoProgress]);
+
+  /** Le dock réduit à sa seule barre de titre, pour voir le profil entier. */
+  const [mini, setMini] = useState(false);
 
   /* Rouvrir repart de ce que le profil porte VRAIMENT, pas d'un brouillon
      abandonné la fois d'avant. */
@@ -344,16 +356,13 @@ export default function BannerStudio({
     if (animeId == null && animes.length) setAnimeId(animes[0].mediaId);
   }, [animes, animeId]);
 
-  /* L'écran est plein : la page en dessous ne doit pas défiler sous lui, sinon
-     fermer le studio rend un profil qui a bougé tout seul. */
+  /* La page montre le brouillon : elle le reçoit à chaque changement. Plus de
+     verrou de défilement — le profil sous le dock EST l'aperçu, on le parcourt. */
+  const draftOut = useRef(onDraft);
+  draftOut.current = onDraft;
   useEffect(() => {
-    if (!open) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+    if (open) draftOut.current?.(draft);
+  }, [open, draft]);
 
   const currentAnime = animes.find((a) => a.mediaId === animeId) ?? null;
 
@@ -640,6 +649,7 @@ export default function BannerStudio({
 
   const openScope = useCallback((s: PaletteScope) => {
     setScope(s);
+    setMini(false);
     setQuery("");
     setCursor(0);
     /* Un onglet à deux écrans s'ouvre TOUJOURS sur la liste des animés :
@@ -1374,11 +1384,13 @@ export default function BannerStudio({
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        e.preventDefault();
-        /* Échap ferme la palette d'abord, l'écran ensuite : sinon un menu ouvert
-           par erreur coûte tout le brouillon. */
-        if (scope) setScope(null);
-        else onClose();
+        /* Échap ferme la palette, et seulement elle : le dock vit sur la page,
+           où Échap sert aussi aux champs des widgets (renommage), et une
+           touche ne doit pas coûter tout le brouillon. */
+        if (scope) {
+          e.preventDefault();
+          setScope(null);
+        }
         return;
       }
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
@@ -1417,7 +1429,17 @@ export default function BannerStudio({
     draft.url || draft.color || draft.trailerId
       ? draft
       : { ...draft, kind: "banner", url: auto.url, source: auto.source };
-  const cardAlpha = draft.blur > 0 ? 0.34 : 0.62;
+
+  /* « Enregistrer » ferme l'édition dans tous les cas. Rien n'a changé : rien à
+     écrire. Un brouillon sans fond à lui (on n'a touché qu'au cadre, au flou ou
+     à l'agencement) épingle la plaque automatique avec ces réglages — c'est ce
+     que la page montrait, et l'ancien bouton grisé perdait ces réglages-là en
+     silence maintenant qu'on les règle directement sur le profil. */
+  const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
+  const finish = () => {
+    if (changed && (shown.url || shown.color || shown.trailerId)) onApply(shown);
+    else onClose();
+  };
 
   let index = -1;
 
@@ -1517,153 +1539,17 @@ export default function BannerStudio({
           : KIND_ICON[scope];
 
   return (
-    /* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
-       elle recouvrait la barre du studio, et « Appliquer » se trouvait sous le
-       menu du site. C'est le même étage que les autres écrans pleins du site
-       (ChangelogButton, ReportModal). */
-    <div className="fixed inset-0 z-[10000] overflow-hidden bg-primary text-white">
-      {/* ── L'aperçu, à taille réelle ─────────────────────────────────── */}
-      <div className="absolute inset-0">
-        <PlateBackground
-          dressing={shown}
-          fallback={shown.source === "cover"}
-          /* L'aperçu EST le lecteur de la bande-annonce : le pied du panneau
-             Vidéo le pilote plutôt que d'en monter un second. */
-          onVideoProgress={onVideoProgress}
-          videoRemote={remote}
-        />
-        {/* Le voile : lourd en haut pour porter la barre — il n'y a plus de
-            navigation derrière elle — lourd en bas pour porter le dock, et
-            presque rien au milieu, là où l'on regarde l'image.
-
-            Sur un APLAT DE COULEUR il s'allège de moitié : la barre et le dock
-            portent leur propre fond depuis qu'ils sont opaques, et une couleur
-            vue à travers un voile à 0,88 n'est plus la couleur qu'on vient de
-            choisir — l'aperçu doit montrer ce qui sera appliqué. */}
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              shown.kind === "color"
-                ? "linear-gradient(to bottom, rgba(6,7,10,.5) 0%, rgba(6,7,10,.12) 14%, rgba(6,7,10,.08) 52%, rgba(6,7,10,.5) 100%)"
-                : "linear-gradient(to bottom, rgba(6,7,10,.82) 0%, rgba(6,7,10,.25) 14%, rgba(6,7,10,.18) 52%, rgba(6,7,10,.88) 100%)",
-          }}
-        />
-      </div>
-
-      <div className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-6">
-        <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 text-center">
-          <FramedAvatar
-            src={identity.avatar}
-            name={identity.name}
-            frame={draft.frame}
-            px={128}
-            sizeClass="h-28 w-28"
-            textClass="text-4xl"
-          />
-          <p
-            className="font-outfit text-5xl font-bold leading-none"
-            style={{ textShadow: "0 2px 18px rgba(0,0,0,.75)" }}
-          >
-            {identity.name}
-          </p>
-          {/* Les trois cartes existent pour UNE raison : montrer le flou. C'est
-              le seul réglage dont l'effet ne se voit pas sur le fond.
-
-              Elles le montrent donc TEL QUE LE PROFIL LE REND : `.as-frost`
-              est le même calque que celui des cartes du profil (globals.css),
-              si bien qu'une règle changée là-bas se voit ici sans y toucher. */}
-          <div
-            className="grid w-full grid-cols-3 gap-3"
-            style={{ ["--as-plate-blur" as string]: `${draft.blur}px` }}
-          >
-            {(stats && stats.length
-              ? stats
-              : [
-                  { key: "a", label: t("profile.statAnime"), value: "—" },
-                  { key: "b", label: t("profile.statEpisodes"), value: "—" },
-                  { key: "c", label: t("profile.statWatched"), value: "—" },
-                ]
-            )
-              .slice(0, 3)
-              .map((s) => (
-                <div
-                  key={s.key}
-                  className={`rounded-[20px] px-4 py-3.5 text-left ring-1 ring-white/15 ${
-                    draft.blur > 0 ? "as-frost" : ""
-                  }`}
-                  style={{
-                    background: `linear-gradient(145deg, rgba(20,22,28,${cardAlpha}), rgba(12,13,16,${cardAlpha - 0.14}))`,
-                  }}
-                >
-                  <p className="text-[10px] uppercase tracking-[.12em] text-white/45">
-                    {s.label}
-                  </p>
-                  <p className="mt-0.5 font-outfit text-2xl font-bold leading-tight">
-                    {s.value}
-                  </p>
-                </div>
-              ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Barre du haut ─────────────────────────────────────────────── */}
-      <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-3 px-4 py-4 md:px-6">
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15 backdrop-blur-md">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          {t("profile.studioLive")}
-        </span>
-        <h2
-          className="font-outfit text-lg font-bold"
-          style={{ textShadow: "0 2px 14px rgba(0,0,0,.85)" }}
-        >
-          {t("profile.studioTitle")}
-        </h2>
-        <span className="hidden truncate text-xs text-white/55 sm:block">
-          {draft.title || t("profile.studioPreviewNote")}
-        </span>
-        <span className="flex-1" />
-        {pinned ? (
-          <button
-            type="button"
-            onClick={() => onApply(null)}
-            className="rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            {t("profile.bannerReset")}
-          </button>
-        ) : null}
-        {/* Retirer le cadre sans rouvrir sa grille : il se voit sur l'aperçu,
-            il s'enlève d'ici. */}
-        {draft.frame ? (
-          <button
-            type="button"
-            onClick={() => patch({ frame: null })}
-            className="rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-          >
-            {t("profile.studioFrameRemove")}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-full bg-black/50 px-3 py-1.5 text-[11px] font-bold text-white/80 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-black/70"
-        >
-          {t("common.cancel", { defaultValue: "Annuler" })}
-        </button>
-        {/* Une bande-annonce est un fond COMPLET, sans fichier ni couleur :
-            sans elle dans le test ci-dessous, on choisissait un trailer et le
-            bouton « Utiliser cette bannière » restait éteint. */}
-        <button
-          type="button"
-          disabled={!draft.url && !draft.color && !draft.trailerId}
-          onClick={() => onApply(draft)}
-          className="rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105 disabled:opacity-40 disabled:hover:scale-100"
-        >
-          {t("profile.bannerApply")}
-        </button>
-      </div>
-
+    <>
+    {/* La place du dock dans le flux : il est fixé en bas de la fenêtre, et
+        sans cette cale il recouvrirait pour de bon le bas du profil — le pied
+        de page, et les derniers widgets qu'on veut justement ranger. */}
+    <div aria-hidden className={mini ? "h-20" : "h-52"} />
+    {/* Au-dessus de la barre de navigation, qui est en z-[9999] : sans cela
+        elle recouvrait la barre du studio. Le conteneur couvre la fenêtre mais
+        ne capte RIEN (`pointer-events-none`) : le profil dessous reste
+        cliquable, ses widgets déplaçables — seuls le dock, la palette et son
+        voile reprennent les clics. */}
+    <div className="pointer-events-none fixed inset-0 z-[10000] overflow-hidden text-white">
       {/* ── La palette, ancrée sur le bouton cliqué ───────────────────── */}
       {scope ? (
         <>
@@ -1671,7 +1557,7 @@ export default function BannerStudio({
             type="button"
             aria-label={t("common.close", { defaultValue: "Close" })}
             onClick={() => setScope(null)}
-            className="absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
+            className="pointer-events-auto absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
           />
           {/* Plus AUCUNE ancre en pointe sous le panneau : la flèche visait un
               bouton qui bouge d'un onglet à l'autre, donc elle en désignait un
@@ -1684,7 +1570,7 @@ export default function BannerStudio({
           {/* LE PANNEAU S'ELARGIT POUR LES IMAGES. Trois colonnes de vignettes
               dans 768 px, ce sont des timbres-poste ; le reste des onglets, lui,
               est fait de lignes de texte et n'a rien a gagner a s'etaler. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-[10rem] z-30 flex justify-center px-4">
+          <div className="pointer-events-none absolute inset-x-0 bottom-[13.5rem] z-30 flex justify-center px-4">
             <div
               className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
                 galerieOuverte ? "max-w-6xl" : scope === "frame" ? "max-w-5xl" : "max-w-3xl"
@@ -1801,7 +1687,7 @@ export default function BannerStudio({
 
               <div
                 className={`overflow-y-auto p-2.5 ${
-                  galerieOuverte ? "max-h-[62vh]" : "max-h-[54vh]"
+                  galerieOuverte ? "max-h-[56vh]" : "max-h-[50vh]"
                 }`}
               >
                 {loading && flat.length === 0 ? (
@@ -2285,8 +2171,81 @@ export default function BannerStudio({
       ) : null}
 
       {/* ── Le dock ───────────────────────────────────────────────────── */}
-      <div className="absolute inset-x-0 bottom-6 z-30 flex justify-center px-3">
-        <div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-[1.5rem] bg-[#15161d]/90 p-3 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl scrollbar-hide">
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
+        <div className="pointer-events-auto flex max-w-full flex-col rounded-[1.5rem] bg-[#15161d]/90 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
+        {/* La barre de titre : ce qui était en haut de l'écran plein. Elle
+            reste seule quand le dock est réduit — de quoi enregistrer ou
+            annuler sans rouvrir les outils. */}
+        <div
+          className={`flex items-center gap-2 px-3 pt-2.5 ${mini ? "pb-2.5" : "pb-0"}`}
+        >
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            {t("profile.studioLive")}
+          </span>
+          <span className="font-outfit text-sm font-bold">{t("profile.studioTitle")}</span>
+          {mini ? null : (
+            <span className="hidden min-w-0 max-w-[16rem] truncate text-[11px] text-white/45 lg:block">
+              {draft.title || t("profile.studioDockNote")}
+            </span>
+          )}
+          <span className="min-w-[1rem] flex-1" />
+          {!mini && pinned ? (
+            <button
+              type="button"
+              onClick={() => onApply(null)}
+              className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {t("profile.bannerReset")}
+            </button>
+          ) : null}
+          {/* Retirer le cadre sans rouvrir sa grille : il se voit sur la page,
+              il s'enlève d'ici. */}
+          {!mini && draft.frame ? (
+            <button
+              type="button"
+              onClick={() => patch({ frame: null })}
+              className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {t("profile.studioFrameRemove")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-full bg-black/40 px-3 py-1.5 text-[11px] font-bold text-white/80 ring-1 ring-white/15 transition-colors hover:bg-black/70"
+          >
+            {t("common.cancel", { defaultValue: "Annuler" })}
+          </button>
+          <button
+            type="button"
+            onClick={finish}
+            className="shrink-0 rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105"
+          >
+            {t("profile.studioSave")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setScope(null);
+              setMini((m) => !m);
+            }}
+            title={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
+            aria-label={t(mini ? "profile.studioExpand" : "profile.studioCollapse")}
+            aria-expanded={!mini}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <ChevronDownIcon
+              className={`h-4 w-4 transition-transform ${mini ? "rotate-180" : ""}`}
+              strokeWidth={2.2}
+            />
+          </button>
+        </div>
+        <div
+          className={`flex max-w-full items-center gap-1.5 overflow-x-auto p-3 scrollbar-hide ${
+            mini ? "hidden" : ""
+          }`}
+        >
           {DRESSING_KINDS.map(({ id }) => {
             const Icon = KIND_ICON[id];
             /* Le rose dit UNIQUEMENT « ce menu est ouvert ». Il disait aussi
@@ -2465,8 +2424,10 @@ export default function BannerStudio({
             </span>
           </label>
         </div>
+        </div>
       </div>
     </div>
+    </>
   );
 }
 

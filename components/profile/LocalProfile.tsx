@@ -1,10 +1,15 @@
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
-import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
+import ProfileHero, {
+  heroStats,
+  previewBanner,
+  type HeroBanner,
+  type StudioBridge,
+} from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileAside from "@/components/profile/ProfileAside";
@@ -91,7 +96,22 @@ export default function LocalProfile() {
   const entries = useMemo(() => entriesFromLocalEntries(raw), [raw]);
   const stats = useMemo(() => statsFromEntries(entries), [entries]);
   const auto = useProfileBanner(entries);
-  const banner: HeroBanner = pinned ?? auto ?? { url: null, animeId: null, title: null };
+  const saved: HeroBanner = pinned ?? auto ?? { url: null, animeId: null, title: null };
+  /* Pendant l'édition, la page montre le brouillon du dock (cf. BannerStudio). */
+  const [draft, setDraft] = useState<Dressing | null>(null);
+  const studioBridge = useRef<StudioBridge>({
+    remote: { current: null },
+    progress: { current: null },
+  }).current;
+  const banner = picker && draft ? previewBanner(draft, saved) : saved;
+  function openEditor() {
+    changeTab("overview");
+    setPicker(true);
+  }
+  function closeEditor() {
+    setPicker(false);
+    setDraft(null);
+  }
 
   /* Les douze meilleurs candidats à la bannière EN TÊTE, puis toute la liste.
      Le classement sert à choisir une illustration, et douze suffisent pour ça ;
@@ -118,7 +138,7 @@ export default function LocalProfile() {
   function pick(next: Dressing | null) {
     setPinned(next);
     writePinnedBanner(next);
-    setPicker(false);
+    closeEditor();
   }
 
   // Null until the effect has read localStorage: the generated guest name must
@@ -134,8 +154,9 @@ export default function LocalProfile() {
         banner={banner}
         stats={heroStats(t, stats)}
         isOwner
-        onEditBanner={() => setPicker(true)}
+        onEditBanner={openEditor}
         subtitle={t("profile.localOnly")}
+        studio={picker ? studioBridge : null}
       />
 
       {/* relative z-10, and no veil over it: see the note in profile/[user].tsx. */}
@@ -216,6 +237,8 @@ export default function LocalProfile() {
                 setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
                 changeTab("list");
               }}
+              editing={picker}
+              onEditingChange={(on) => (on ? openEditor() : closeEditor())}
             />
           ) : null}
 
@@ -261,7 +284,9 @@ export default function LocalProfile() {
       {studioEverOpened && (
         <BannerStudio
           open={picker}
-          onClose={() => setPicker(false)}
+          onClose={closeEditor}
+          onDraft={setDraft}
+          bridge={studioBridge}
           animes={topAnimes}
           value={pinned}
           auto={{
@@ -270,7 +295,6 @@ export default function LocalProfile() {
             title: auto?.title ?? null,
           }}
           identity={{ name: name || t("nav.myList"), avatar: null }}
-          stats={heroStats(t, stats)}
           onApply={pick}
         />
       )}

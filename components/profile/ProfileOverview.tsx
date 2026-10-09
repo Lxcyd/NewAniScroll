@@ -98,6 +98,13 @@ type Props = {
    *  bloc est réglé ainsi, sans quoi la liste montrerait des titres que la
    *  colonne cliquée ne comptait pas. Absent sur le profil d'un autre. */
   onPickScore?: (score: number, completedOnly: boolean) => void;
+  /**
+   * Le mode édition, quand la PAGE le tient : il est alors le même que celui
+   * du studio (fond, musique, cadre), dont le dock porte « Enregistrer ». Le
+   * bouton d'ici ne sert plus qu'à y entrer.
+   */
+  editing?: boolean;
+  onEditingChange?: (on: boolean) => void;
 };
 
 /**
@@ -140,6 +147,8 @@ export default function ProfileOverview({
   activity,
   streak,
   onPickScore,
+  editing: editingProp,
+  onEditingChange,
 }: Props) {
   const { t } = useTranslation();
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
@@ -150,7 +159,10 @@ export default function ProfileOverview({
   const source = onAccount ? accountLayout : device.layout;
   const loaded = onAccount || device.loaded;
 
-  const [editing, setEditing] = useState(false);
+  const [ownEditing, setOwnEditing] = useState(false);
+  const controlled = onEditingChange !== undefined;
+  const editing = controlled ? !!editingProp : ownEditing;
+  const setEditing = (on: boolean) => (controlled ? onEditingChange(on) : setOwnEditing(on));
   const [library, setLibrary] = useState(false);
   /* La disposition vit ici pendant la session : le stockage n'est écrit qu'aux
      changements, et le relire à chaque déplacement ferait un aller-retour par
@@ -661,9 +673,12 @@ export default function ProfileOverview({
             </svg>
             {t("profile.widgets.add")}
           </button>
+          {/* Piloté par la page, le bouton disparaît pendant l'édition : c'est
+              le dock du studio qui la termine, en enregistrant le fond avec. */}
+          {controlled && editing ? null : (
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => setEditing(!editing)}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 font-karla text-xs font-bold text-white ring-1 transition-colors ${
               editing ? "bg-action ring-action" : "bg-white/5 ring-white/15 hover:ring-white/30"
             }`}
@@ -673,8 +688,13 @@ export default function ProfileOverview({
               <polyline points="16 18 12 22 8 18" />
               <line x1="12" y1="2" x2="12" y2="22" />
             </svg>
-            {editing ? t("profile.widgets.done") : t("profile.widgets.rearrange")}
+            {editing
+              ? t("profile.widgets.done")
+              : controlled
+                ? t("profile.studioTitle")
+                : t("profile.widgets.rearrange")}
           </button>
+          )}
         </div>
       ) : null}
 

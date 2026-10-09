@@ -11,7 +11,8 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
 import { plateMode } from "@/lib/profile/types";
-import PlateBackground from "@/components/profile/PlateBackground";
+import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateBackground";
+import type { MutableRefObject } from "react";
 import dynamic from "next/dynamic";
 /* Only mounted for a YouTube music banner. next/dynamic keeps SSR (the server
    still renders it when it applies) but its chunk leaves the profile's first
@@ -57,6 +58,33 @@ export type HeroBanner = {
   /** Cadre d'avatar (décoration Discord), ou rien. */
   frame?: Dressing["frame"] | null;
 };
+
+/**
+ * Le pont entre le dock du studio et le fond de la VRAIE page.
+ *
+ * Le studio n'a plus d'aperçu à lui : c'est le profil lui-même qui montre le
+ * brouillon. Le rail de découpe vidéo du dock doit donc piloter le lecteur du
+ * plateau de ProfileHero — d'où ces deux références, créées par la page et
+ * tenues des deux côtés.
+ */
+export type StudioBridge = {
+  remote: MutableRefObject<TrailerRemote | null>;
+  progress: MutableRefObject<((at: number, duration: number, playing: boolean) => void) | null>;
+};
+
+/**
+ * Ce que la page montre pendant l'édition : le brouillon dès qu'il porte un
+ * fond, sinon le fond actuel habillé des réglages du brouillon (agencement,
+ * cadre, flou). Sans la musique : le dock a son propre lecteur, et deux
+ * boutons de son pour un même morceau se marcheraient dessus.
+ */
+export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
+  const own = draft.url || draft.color || draft.trailerId;
+  return {
+    ...(own ? draft : { ...base, layout: draft.layout, frame: draft.frame, blur: draft.blur }),
+    music: null,
+  };
+}
 
 /**
  * The four numbers under the name, formatted. Lives here rather than in the
@@ -117,6 +145,8 @@ type Props = {
   onEditBanner?: () => void;
   /** Free-form line under the name (e.g. "local profile, this device only"). */
   subtitle?: string | null;
+  /** Pendant l'édition : le dock du studio pilote le fond vidéo d'ici. */
+  studio?: StudioBridge | null;
 };
 
 export default function ProfileHero({
@@ -130,6 +160,7 @@ export default function ProfileHero({
   isOwner,
   onEditBanner,
   subtitle,
+  studio,
 }: Props) {
   const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
@@ -508,6 +539,10 @@ export default function ProfileHero({
             fallback={cover}
             unmuted={sound && !banner.music}
             priority
+            videoRemote={studio?.remote}
+            onVideoProgress={
+              studio ? (at, d, playing) => studio.progress.current?.(at, d, playing) : undefined
+            }
           />
           {/* Une couleur choisie reçoit un voile léger : le voile lourd existe
               pour détacher du texte d'une PHOTO, et l'appliquer à un aplat

@@ -12,7 +12,12 @@ import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
 import ForYouPanel from "@/components/discover/ForYouPanel";
-import ProfileHero, { heroStats, type HeroBanner } from "@/components/profile/ProfileHero";
+import ProfileHero, {
+  heroStats,
+  previewBanner,
+  type HeroBanner,
+  type StudioBridge,
+} from "@/components/profile/ProfileHero";
 import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
 import ProfileAside from "@/components/profile/ProfileAside";
 import dynamic from "next/dynamic";
@@ -184,12 +189,20 @@ export default function Profile({
   }, [isOwner, stats.episodes, stats.minutes]);
 
   const [banner, setBanner] = useState<HeroBanner>(initialBanner ?? { url: null, animeId: null, title: null });
-  /* L'identité descend dans une colonne à gauche — et le bandeau ne la porte
-     plus. Un seul booléen tient les deux moitiés du même agencement. */
-  const asideLayout = banner.layout === "column";
   const [pinned, setPinned] = useState(!!initialPinned);
+  /* LE mode édition : widgets ET habillage, un seul état. Le studio n'est plus
+     qu'un dock en bas de la page, et la page montre son brouillon. */
   const [picker, setPicker] = useState(false);
   const studioEverOpened = useMountedOnce(picker);
+  const [draft, setDraft] = useState<Dressing | null>(null);
+  const studioBridge = useRef<StudioBridge>({
+    remote: { current: null },
+    progress: { current: null },
+  }).current;
+  const shownBanner = picker && draft ? previewBanner(draft, banner) : banner;
+  /* L'identité descend dans une colonne à gauche — et le bandeau ne la porte
+     plus. Un seul booléen tient les deux moitiés du même agencement. */
+  const asideLayout = shownBanner.layout === "column";
   const [showForYou, setShowForYou] = useState(false);
   /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
      est à un clic. L'état reste local, mais il est MIROITÉ DANS LE FRAGMENT
@@ -245,6 +258,16 @@ export default function Profile({
     });
   }
 
+  /* L'édition se fait sur l'Aperçu : c'est lui qui porte les widgets. */
+  function openEditor() {
+    changeTab("overview");
+    setPicker(true);
+  }
+  function closeEditor() {
+    setPicker(false);
+    setDraft(null);
+  }
+
   if (isPrivate) {
     return (
       <>
@@ -286,7 +309,7 @@ export default function Profile({
       setBanner(initialBanner);
       setPinned(false);
     }
-    setPicker(false);
+    closeEditor();
     try {
       const r = await fetch("/api/v2/account/profile-banner", {
         method: choice ? "PUT" : "DELETE",
@@ -328,10 +351,11 @@ export default function Profile({
         avatar={identity.avatar}
         anilistName={identity.anilistName}
         createdAt={identity.createdAt}
-        banner={banner}
+        banner={shownBanner}
         stats={heroStats(t, stats)}
         isOwner={isOwner}
-        onEditBanner={() => setPicker(true)}
+        onEditBanner={openEditor}
+        studio={picker ? studioBridge : null}
       />
 
       {/* relative z-10: the wallpaper an illustration is worn as is a z-0 layer
@@ -371,7 +395,7 @@ export default function Profile({
               name={identity.name}
               tag={identity.tag}
               avatar={identity.avatar}
-              frame={banner.frame}
+              frame={shownBanner.frame}
               anilistName={identity.anilistName}
               createdAt={identity.createdAt}
               stats={heroStats(t, stats)}
@@ -411,6 +435,8 @@ export default function Profile({
             activity={activity ?? null}
             streak={streak ?? null}
             onPickScore={openScore}
+            editing={picker}
+            onEditingChange={(on) => (on ? openEditor() : closeEditor())}
           />
         ) : null}
 
@@ -455,7 +481,9 @@ export default function Profile({
           {studioEverOpened && (
             <BannerStudio
               open={picker}
-              onClose={() => setPicker(false)}
+              onClose={closeEditor}
+              onDraft={setDraft}
+              bridge={studioBridge}
               animes={studioAnimes}
               value={pinned ? normalizeDressing(banner) : null}
               auto={{
@@ -464,7 +492,6 @@ export default function Profile({
                 title: initialBanner?.title ?? null,
               }}
               identity={{ name: identity.name, avatar: identity.avatar ?? null }}
-              stats={heroStats(t, stats)}
               onApply={(d) => void save(d)}
             />
           )}
