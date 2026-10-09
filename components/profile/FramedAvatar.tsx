@@ -13,9 +13,15 @@ import { frameAnimUrl, frameThumbUrl, frameUrl } from "@/lib/profile/frames";
  *      l'APNG d'origine de Discord (~800 Ko), même règle.
  *
  * `start` retarde le téléchargement (une case de grille attend d'être à
- * l'écran) ; l'avatar du profil part tout de suite.
+ * l'écran) ; l'avatar du profil part tout de suite. `urgent` passe la requête
+ * devant les autres : la case est déjà à l'écran, pas seulement en approche.
  */
-function useFrameSrc(asset: string | null | undefined, size: 160 | 256, start: boolean) {
+function useFrameSrc(
+  asset: string | null | undefined,
+  size: 160 | 256,
+  start: boolean,
+  urgent = true,
+) {
   const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
     setSrc(null);
@@ -23,6 +29,8 @@ function useFrameSrc(asset: string | null | undefined, size: 160 | 256, start: b
     let alive = true;
     const tente = (url: string) => {
       const probe = new window.Image();
+      /* `fetchPriority` manque aux types DOM de ce TypeScript. */
+      if (urgent) probe.setAttribute("fetchpriority", "high");
       probe.src = url;
       return probe.decode().then(() => url);
     };
@@ -33,6 +41,7 @@ function useFrameSrc(asset: string | null | undefined, size: 160 | 256, start: b
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `urgent` ne vaut qu'au départ
   }, [asset, size, start]);
   return asset ? src ?? frameThumbUrl(asset, size) : null;
 }
@@ -61,31 +70,42 @@ export function FrameTileImage({
 }) {
   const ref = useRef<HTMLImageElement | null>(null);
   const [visible, setVisible] = useState(false);
+  const [urgent, setUrgent] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const root = scrollParent(el);
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         io.disconnect();
+        /* Déjà à l'écran (ouverture du panneau) : priorité haute. Sans elle, à
+           l'ouverture, les cases visibles attendaient derrière la file des
+           cases en approche (mesure du 09/10/2026 : 2 à 8 s au lieu de ~1 s). */
+        const r = el.getBoundingClientRect();
+        const b = root ? root.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+        setUrgent(r.bottom > b.top && r.top < b.bottom);
         setVisible(true);
       },
       /* Large : l'AVIF est assez léger pour partir AVANT que la case arrive,
          et elle s'anime alors dès qu'on la voit. `root` = le panneau qui
          défile : sur la fenêtre, la marge ne servait à rien, le panneau
          rogne ses cases et elles ne « croisaient » qu'une fois à l'écran. */
-      { root: scrollParent(el), rootMargin: "800px 0px" },
+      { root, rootMargin: "800px 0px" },
     );
     io.observe(el);
     return () => io.disconnect();
   }, [asset]);
-  const src = useFrameSrc(asset, size, visible);
+  const src = useFrameSrc(asset, size, visible, urgent);
   return (
+    /* `loading="lazy"` : sans lui, les 688 miniatures fixes partaient toutes à
+       l'ouverture et encombraient la connexion des animés visibles. */
     // eslint-disable-next-line @next/next/no-img-element
     <img
       ref={ref}
       src={src ?? undefined}
       alt=""
+      loading="lazy"
       decoding="async"
       draggable={false}
       className={className}
