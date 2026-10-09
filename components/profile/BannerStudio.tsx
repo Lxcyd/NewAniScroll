@@ -9,6 +9,7 @@ import {
   Bars3BottomLeftIcon,
   Bars3Icon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   FilmIcon,
   MagnifyingGlassIcon,
   MinusIcon,
@@ -1452,6 +1453,20 @@ export default function BannerStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, scope, flat, cursor, onClose, openScope]);
 
+  /* La barre du bas bascule sur le rail de la vidéo dès qu'on en CHOISIT une :
+     les menus glissent hors du bandeau, une flèche à droite les rappelle. Le
+     choix seul déclenche la bascule — rouvrir le studio sur une vidéo déjà
+     portée laisse les menus en place. */
+  const videoKey =
+    draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
+  const [barVideo, setBarVideo] = useState(false);
+  const lastVideo = useRef(videoKey);
+  useEffect(() => {
+    if (videoKey && videoKey !== lastVideo.current) setBarVideo(true);
+    if (!videoKey) setBarVideo(false);
+    lastVideo.current = videoKey;
+  }, [videoKey]);
+
   if (!open) return null;
 
   const pinned = !!value;
@@ -1653,6 +1668,102 @@ export default function BannerStudio({
       />
     </button>
   );
+
+  /* ── L'extrait du fond vidéo ──────────────────────────────
+      Le même pied, le même rail et le même geste que la musique —
+      c'est le même besoin : une bande-annonce commence par un logo
+      de studio, un opening par un carton de titre, et ce n'est pas
+      ce qu'on veut voir tourner en fond de profil.
+
+      Il sert les DEUX onglets vidéo, et c'est voulu : « Vidéo » et
+      « Intro / Outro » ne diffèrent que par la provenance du plan
+      (un lecteur YouTube d'un côté, un fichier d'AnimeThemes de
+      l'autre) ; le geste de découpe, lui, est le même, et le
+      plateau les pilote déjà tous les deux par la même
+      télécommande.
+
+      Pas de volume ici : le fond de profil est muet par principe —
+      c'est la musique qui a le droit de faire du bruit.
+
+      Il vit dans la BARRE DU BAS, sous le cadre où la vidéo tourne :
+      choisir une vidéo y pousse les menus hors du bandeau (10/10). */
+  const videoBar =
+    (scope === "video" || scope === "oped") && videoDraft ? (
+    <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-2">
+      <button
+        type="button"
+        onClick={() =>
+          vPlaying ? remote.current?.pause() : remote.current?.play()
+        }
+        aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
+        className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+      >
+        {trailerAnime?.cover ? (
+          <Image src={trailerAnime.cover} alt="" fill sizes="44px" className="object-cover" />
+        ) : null}
+        <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
+          {vPlaying ? (
+            <PauseIcon className="h-5 w-5 drop-shadow" />
+          ) : (
+            <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
+          )}
+        </span>
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-outfit text-[13px] font-bold text-white">
+          {draft.title || t("profile.artTrailer")}
+          <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+            {t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
+          </span>
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+            {clock(vAt)}
+          </span>
+          <TrimRail
+            len={vLen}
+            from={vFrom}
+            to={vTo}
+            at={vAt}
+            onSeek={vSeek}
+            onTrim={setVTrim}
+            onGrab={grabVTrim}
+            t={t}
+          />
+          <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+            {clock(vLen)}
+          </span>
+
+          {/* Le fondu AU NOIR, à la reprise de la boucle. Même
+              bascule que celle de la musique, et même défaut d'une
+              seconde et demie une fois allumée — sauf qu'ici elle
+              naît allumée : un fond qui reboucle sous les yeux de
+              qui lit la page saute à chaque tour, et la coupe
+              franche y est la gêne plutôt que l'exception. */}
+          <button
+            type="button"
+            onClick={() =>
+              patch({
+                videoFade: clampFade(
+                  (draft.videoFade ?? 0) > 0 ? 0 : DEFAULT_VIDEO_FADE,
+                ),
+              })
+            }
+            aria-pressed={(draft.videoFade ?? 0) > 0}
+            title={t("profile.studioVideoFadeHint")}
+            className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+              (draft.videoFade ?? 0) > 0
+                ? "bg-action/20 text-white ring-action/50"
+                : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+            }`}
+          >
+            {t("profile.studioMusicFade")}
+          </button>
+        </div>
+      </div>
+    </div>
+    ) : null;
+  const showVideo = barVideo && !!videoBar;
 
   return (
     <>
@@ -2181,96 +2292,6 @@ export default function BannerStudio({
                 </div>
               ) : null}
 
-              {/* ── L'extrait du fond vidéo ──────────────────────────────
-                  Le même pied, le même rail et le même geste que la musique —
-                  c'est le même besoin : une bande-annonce commence par un logo
-                  de studio, un opening par un carton de titre, et ce n'est pas
-                  ce qu'on veut voir tourner en fond de profil.
-
-                  Il sert les DEUX onglets vidéo, et c'est voulu : « Vidéo » et
-                  « Intro / Outro » ne diffèrent que par la provenance du plan
-                  (un lecteur YouTube d'un côté, un fichier d'AnimeThemes de
-                  l'autre) ; le geste de découpe, lui, est le même, et le
-                  plateau les pilote déjà tous les deux par la même
-                  télécommande.
-
-                  Pas de volume ici : le fond de profil est muet par principe —
-                  c'est la musique qui a le droit de faire du bruit. */}
-              {(scope === "video" || scope === "oped") && videoDraft ? (
-                <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      vPlaying ? remote.current?.pause() : remote.current?.play()
-                    }
-                    aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
-                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
-                  >
-                    {trailerAnime?.cover ? (
-                      <Image src={trailerAnime.cover} alt="" fill sizes="44px" className="object-cover" />
-                    ) : null}
-                    <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
-                      {vPlaying ? (
-                        <PauseIcon className="h-5 w-5 drop-shadow" />
-                      ) : (
-                        <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
-                      )}
-                    </span>
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-outfit text-[13px] font-bold text-white">
-                      {draft.title || t("profile.artTrailer")}
-                      <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
-                        {t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
-                      </span>
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
-                        {clock(vAt)}
-                      </span>
-                      <TrimRail
-                        len={vLen}
-                        from={vFrom}
-                        to={vTo}
-                        at={vAt}
-                        onSeek={vSeek}
-                        onTrim={setVTrim}
-                        onGrab={grabVTrim}
-                        t={t}
-                      />
-                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
-                        {clock(vLen)}
-                      </span>
-
-                      {/* Le fondu AU NOIR, à la reprise de la boucle. Même
-                          bascule que celle de la musique, et même défaut d'une
-                          seconde et demie une fois allumée — sauf qu'ici elle
-                          naît allumée : un fond qui reboucle sous les yeux de
-                          qui lit la page saute à chaque tour, et la coupe
-                          franche y est la gêne plutôt que l'exception. */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          patch({
-                            videoFade: clampFade(
-                              (draft.videoFade ?? 0) > 0 ? 0 : DEFAULT_VIDEO_FADE,
-                            ),
-                          })
-                        }
-                        aria-pressed={(draft.videoFade ?? 0) > 0}
-                        title={t("profile.studioVideoFadeHint")}
-                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
-                          (draft.videoFade ?? 0) > 0
-                            ? "bg-action/20 text-white ring-action/50"
-                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
-                        }`}
-                      >
-                        {t("profile.studioMusicFade")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         </>
@@ -2362,7 +2383,33 @@ export default function BannerStudio({
           <div className="as-scene-ui as-scene-ui-bottom pointer-events-none absolute bottom-[22px] left-[var(--as-scene-frame-left)] right-[var(--as-scene-frame-right)] top-[var(--as-scene-frame-bottom)] z-30 flex items-stretch pt-3.5">
           {/* Hauteur imposée par la scène (BOTTOM_BAR) : le bas du bandeau tombe
               au même niveau que le bas de la colonne de gauche (22 px). */}
-          <div className="pointer-events-auto flex h-full w-full items-stretch divide-x divide-white/[0.08] overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
+          <div className="pointer-events-auto relative h-full w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
+          {/* Le rail de la vidéo entre par la gauche pendant que les menus
+              sortent par la droite ; il ne reste d'eux que la flèche. */}
+          <div
+            aria-hidden={!showVideo}
+            className={`absolute inset-0 flex items-stretch transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showVideo ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"
+            }`}
+          >
+            {videoBar}
+            <button
+              type="button"
+              onClick={() => setBarVideo(false)}
+              tabIndex={showVideo ? 0 : -1}
+              title={t("profile.studioShowMenus")}
+              aria-label={t("profile.studioShowMenus")}
+              className="grid w-12 shrink-0 place-items-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <ChevronLeftIcon className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
+          <div
+            aria-hidden={showVideo}
+            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showVideo ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
+            }`}
+          >
             <SceneBox
               label={t("profile.studioBackground")}
               active={DRESSING_KINDS.some((k) => k.id === scope)}
@@ -2378,7 +2425,11 @@ export default function BannerStudio({
                   <button
                     key={id}
                     type="button"
-                    onClick={() => openScope(id)}
+                    onClick={() => {
+                      /* Rappuyer sur le fond vidéo ouvert ramène son rail. */
+                      if (on && videoBar) setBarVideo(true);
+                      else openScope(id);
+                    }}
                     title={t(`profile.studioKind_${id}`)}
                     aria-label={t(`profile.studioKind_${id}`)}
                     aria-pressed={on}
@@ -2527,6 +2578,7 @@ export default function BannerStudio({
                 />
               </span>
             </SceneBox>
+          </div>
           </div>
           </div>
         </>
