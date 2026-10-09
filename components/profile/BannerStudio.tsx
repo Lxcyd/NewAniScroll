@@ -1561,6 +1561,36 @@ export default function BannerStudio({
     setVAt(p);
   };
 
+  /* Pendant qu'on tire une borne, la lecture se fige sur le plan de la borne ;
+     au lâcher, elle repart. Après la borne de fin, on reprend trois secondes
+     avant : on voit la fin de l'extrait PUIS la reprise de la boucle. */
+  const grabVTrim = (edge: "from" | "to", held: boolean) => {
+    if (held) {
+      remote.current?.pause();
+      return;
+    }
+    if (edge === "to") {
+      const p = Math.max(vFrom, vTo - 3);
+      remote.current?.seek(p);
+      setVAt(p);
+    }
+    remote.current?.play();
+  };
+  const grabTrim = (edge: "from" | "to", held: boolean) => {
+    const el = preview.current;
+    if (!el) return;
+    if (held) {
+      el.pause();
+      return;
+    }
+    if (edge === "to") {
+      const p = Math.max(from, to - 3);
+      el.currentTime = p;
+      setAt(p);
+    }
+    void el.play().catch(() => setPlaying(false));
+  };
+
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
@@ -2039,6 +2069,7 @@ export default function BannerStudio({
                         buf={buf}
                         onSeek={seek}
                         onTrim={setTrim}
+                        onGrab={grabTrim}
                         t={t}
                       />
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
@@ -2204,6 +2235,7 @@ export default function BannerStudio({
                         at={vAt}
                         onSeek={vSeek}
                         onTrim={setVTrim}
+                        onGrab={grabVTrim}
                         t={t}
                       />
                       <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
@@ -2571,6 +2603,7 @@ function TrimRail({
   buf = 0,
   onSeek,
   onTrim,
+  onGrab,
   t,
 }: {
   /** La durée totale. Rien ne se dessine tant qu'elle est inconnue. */
@@ -2584,6 +2617,8 @@ function TrimRail({
   /** Une fraction du rail, 0 à 1. */
   onSeek: (ratio: number) => void;
   onTrim: (edge: "from" | "to", seconds: number) => void;
+  /** Une poignée est saisie (vrai) ou lâchée (faux). */
+  onGrab?: (edge: "from" | "to", held: boolean) => void;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
   /** Vrai tant qu'on tient le rail : le glissement déplace alors l'écoute. */
@@ -2685,13 +2720,21 @@ function TrimRail({
             e.preventDefault();
             e.currentTarget.setPointerCapture(e.pointerId);
             setGrab(edge);
+            onGrab?.(edge, true);
           }}
           onPointerMove={(e) => {
             if (grab !== edge || !len) return;
             const r = e.currentTarget.parentElement!.getBoundingClientRect();
             onTrim(edge, ((e.clientX - r.left) / r.width) * len);
           }}
-          onPointerUp={() => setGrab(null)}
+          onPointerUp={() => {
+            setGrab(null);
+            onGrab?.(edge, false);
+          }}
+          onPointerCancel={() => {
+            setGrab(null);
+            onGrab?.(edge, false);
+          }}
           onKeyDown={(e) => {
             const step = e.shiftKey ? 5 : 1;
             if (e.key === "ArrowLeft") onTrim(edge, value - step);
