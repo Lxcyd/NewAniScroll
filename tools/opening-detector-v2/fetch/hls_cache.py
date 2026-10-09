@@ -58,6 +58,8 @@ _PER_DOMAIN = int(os.environ.get("OPED_HLS_PER_DOMAIN", "12"))
 _domain_sems: dict[str, threading.BoundedSemaphore] = {}
 _domain_lock = threading.Lock()
 THROTTLE_RETRIES = 6
+# Attentes patientes sur 502/503/504 (5+10+20+40 s), en plus des essais normaux.
+GATEWAY_RETRIES = 4
 _BW = re.compile(r"BANDWIDTH=(\d+)")
 
 
@@ -203,7 +205,7 @@ def _fetch(url: str, referer: str | None, tries: int = 4) -> bytes:
     if referer:
         headers["Referer"] = referer
     last: Exception | None = None
-    k = throttled = refused = 0
+    k = throttled = refused = gateway = 0
     while k < tries:
         try:
             with _sem(url):
@@ -221,6 +223,15 @@ def _fetch(url: str, referer: str | None, tries: int = 4) -> bytes:
                 wait = exc.retry_after
                 time.sleep(float(wait) if wait and wait.isdigit() else min(60.0, 5.0 * 2 ** throttled))
                 throttled += 1
+                continue
+            # 502/503/504 : la passerelle du CDN n'a pas joint son origine.
+            # Passager, mais plus long que les 9 s des essais ordinaires — le
+            # 09/10, 214 lecteurs-episodes ansembed sont tombes sur un seul
+            # segment en 502, et un segment perdu fait tomber l'episode entier.
+            # On patiente donc (5/10/20/40 s) sans consommer d'essai, plafonne.
+            if exc.code in (502, 503, 504) and gateway < GATEWAY_RETRIES:
+                time.sleep(min(40.0, 5.0 * 2 ** gateway))
+                gateway += 1
                 continue
             k += 1
             time.sleep(1.5 * k)
@@ -327,6 +338,28 @@ def _parse(master_url: str, referer: str | None, want: str) -> _Playlist | None:
                      ext=".mp4" if init else ".ts")
 
 
+def _publish(tmp: Path, dst: Path) -> None:
+    """Remplace `dst` par `tmp`, sans echouer sur un fichier deja publie.
+
+    Plusieurs workers peuvent fabriquer le MEME segment en meme temps. Sous
+    Windows, `replace` est refuse (WinError 5) tant qu'un autre processus a la
+    cible ouverte — typiquement un worker qui la relit pour assembler sa
+    fenetre. Le 09/10, 16 episodes vidmoly-va sont tombes la-dessus alors que
+    le segment etait deja la, complet. Donc : si la cible existe et n'est pas
+    vide, l'autre a gagne la course, on jette notre copie ; sinon on reessaie
+    (verrou d'antivirus ou d'indexeur, de quelques dizaines de ms)."""
+    for attempt in range(6):
+        try:
+            tmp.replace(dst)
+            return
+        except PermissionError:
+            if dst.exists() and dst.stat().st_size > 0:
+                tmp.unlink(missing_ok=True)
+                return
+            time.sleep(0.05 * (2 ** attempt))
+    tmp.replace(dst)  # dernier essai : l'erreur remonte, avec son vrai message
+
+
 def _segment_file(pl: _Playlist, idx: int, url: str, referer: str | None,
                   megaplay: bool) -> Path:
     d = SEG_DIR / pl.key
@@ -339,7 +372,7 @@ def _segment_file(pl: _Playlist, idx: int, url: str, referer: str | None,
         data = depng(data)
     tmp = f.with_suffix(f".part{threading.get_ident()}")
     tmp.write_bytes(data)
-    tmp.replace(f)
+    _publish(tmp, f)
     return f
 
 
@@ -388,7 +421,7 @@ def local_window(master_url: str, start_abs: float, dur: float | None, *,
     with open(tmp, "wb") as w:
         for f in files:
             w.write(f.read_bytes())
-    tmp.replace(out)
+    _publish(tmp, out)
     _prune()
     return str(out)
 
@@ -477,7 +510,7 @@ def local_mp4(url: str, *, referer: str | None = None) -> str | None:
 
         with ThreadPoolExecutor(max_workers=WORKERS) as pool:
             list(pool.map(get, spans))
-        tmp.replace(out)
+        _publish(tmp, out)
     _prune()
     return str(out)
 
