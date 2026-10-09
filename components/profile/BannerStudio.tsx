@@ -1506,12 +1506,13 @@ export default function BannerStudio({
         ? { from: Math.max(0, Math.min(s, to - MIN)), to }
         : { from, to: Math.min(len, Math.max(s, from + MIN)) };
     patch({ music: { ...draft.music, ...next } });
-    /* La tête de lecture doit rester DANS l'extrait, sinon on entend du son qui
-       ne sera jamais joué sur le profil. */
+    /* L'écoute suit la borne qu'on tire, comme pour la vidéo : on entend
+       l'endroit exact où l'extrait commence ou s'arrête. */
     const el = preview.current;
-    if (el && (el.currentTime < next.from || el.currentTime > next.to)) {
-      el.currentTime = next.from;
-      setAt(next.from);
+    if (el) {
+      const p = edge === "from" ? next.from : Math.max(next.from, next.to - 0.1);
+      el.currentTime = p;
+      setAt(p);
     }
   };
 
@@ -1549,13 +1550,15 @@ export default function BannerStudio({
         ? { videoFrom: Math.max(0, Math.min(s, vTo - MIN)), videoTo: vTo }
         : { videoFrom: vFrom, videoTo: Math.min(vLen, Math.max(s, vFrom + MIN)) };
     patch(next);
-    /* La lecture doit rester dans l'extrait : sinon l'aperçu montre un plan qui
-       ne sera jamais joué sur le profil. C'est le lecteur, et non nous, qui
-       dira où il est retombé — d'où le simple saut. */
-    if (vAt < next.videoFrom || vAt > next.videoTo) {
-      remote.current?.seek(next.videoFrom);
-      setVAt(next.videoFrom);
-    }
+    /* La vidéo suit la borne qu'on tire : on voit le plan exact où l'extrait
+       commence ou s'arrête. Pour la fin, un dixième avant — posée PILE sur la
+       borne, la boucle du fond la renverrait aussitôt au début. */
+    const p =
+      edge === "from"
+        ? next.videoFrom
+        : Math.max(next.videoFrom, next.videoTo - 0.1);
+    remote.current?.seek(p);
+    setVAt(p);
   };
 
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
