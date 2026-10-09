@@ -110,19 +110,21 @@ export default function FramedAvatar({
   }, [frame]);
 
   return (
-    <div className="relative shrink-0">
-      {/* L'anneau d'accent s'efface sous un cadre : le cadre EST la bordure, et
-          un liseré rose entre lui et la photo faisait double contour. */}
-      <div
-        className={
-          /* Marge au lieu de padding : la boîte garde sa taille (la mise en page
-             ne bouge pas), mais il n'y a plus d'espace vide entre la photo et
-             le cadre. */
-          frame
-            ? "m-[3px] rounded-full"
-            : "rounded-full bg-gradient-to-br from-as-accent to-as-accent2 p-[3px] shadow-glow"
-        }
-      >
+    /* L'anneau d'accent s'efface sous un cadre (le cadre EST la bordure), mais
+       son padding reste : la boîte garde sa taille et la mise en page autour ne
+       bouge pas. */
+    <div
+      className={`shrink-0 rounded-full p-[3px] ${
+        frame ? "" : "bg-gradient-to-br from-as-accent to-as-accent2 shadow-glow"
+      }`}
+    >
+      {/* LE CADRE EST POSÉ SUR LA PHOTO ELLE-MÊME, dans cette boîte qui n'a
+          qu'elle : -10 % de chaque côté = 1,2 fois la photo, la géométrie de
+          Discord (l'anneau de « Summoning Circle » s'ouvre sur 83 % de l'image,
+          soit 1/1,2). Mesuré sur une boîte plus grande que la photo (padding,
+          puis marge qui fuyait en hauteur mais pas en largeur), le cadre sortait
+          trop grand, puis écrasé, et la photo débordait de l'anneau. */}
+      <div className="relative">
         {src ? (
           <Image
             src={src}
@@ -139,20 +141,17 @@ export default function FramedAvatar({
             {name.charAt(0).toUpperCase() || "?"}
           </div>
         )}
+        {frame ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={animated ? frameUrl(frame) : frameThumbUrl(frame, 240)}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="pointer-events-none absolute -left-[10%] -top-[10%] h-[120%] w-[120%] max-w-none select-none"
+          />
+        ) : null}
       </div>
-      {frame ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={animated ? frameUrl(frame) : frameThumbUrl(frame, 240)}
-          alt=""
-          aria-hidden
-          draggable={false}
-          /* 1,2 fois la PHOTO, pas la boîte : celle-ci la dépasse de 3 px de
-             chaque côté, d'où le « - 7,2 px » (1,2 x 6). Mesuré sur la boîte, le
-             cadre était trop grand et laissait un vide autour du visage. */
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[calc(120%-7.2px)] w-[calc(120%-7.2px)] max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
-        />
-      ) : null}
     </div>
   );
 }
