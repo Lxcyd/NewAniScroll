@@ -43,8 +43,10 @@ export function useScene(): Scene {
 }
 
 const DURATION = 600;
-/** Écart du pouce aux bords haut et bas du cadre, en pixels de mise en page. */
-const THUMB_INSET = 14;
+/** Écart du pouce aux bords haut et bas du cadre, en pixels écran. */
+const THUMB_INSET = 12;
+/** Écart entre le bord droit du cadre et la gouttière du pouce. */
+const THUMB_GAP = 8;
 
 export default function ProfileStage({ scene, children }: { scene: boolean; children: ReactNode }) {
   const stage = useRef<HTMLDivElement | null>(null);
@@ -145,84 +147,151 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
 
   /* ── Le pouce ─────────────────────────────────────────────────────────
      La barre de défilement native est masquée (elle tombait dans le cadre).
-     À sa place, une pilule translucide qui n'existe que pendant qu'on défile
-     et s'efface une seconde après, comme sur macOS. Elle vit sur son propre
-     calque, transformé comme la scène : posée DANS la scène, elle défilerait
-     avec le contenu. Positionnée hors React — un rendu par événement de
-     défilement n'a aucune raison d'être. */
+     À sa place, un pouce DANS LA MARGE, à droite du cadre : jamais posé sur le
+     profil, et sur un calque au-dessus du studio, donc rien ne le recouvre.
+
+     Il vit en coordonnées ÉCRAN, recalées sur le rectangle VISIBLE de la
+     scène (`getBoundingClientRect`, transformations comprises) : c'est ce qui
+     le garde collé au cadre pendant le recul et le glissement, où ce rectangle
+     bouge à chaque image. Toute la gouttière se survole et se clique — viser
+     un trait de 7 px n'est pas un usage. Positionné hors React : un rendu par
+     événement de défilement n'a aucune raison d'être. */
+  const gutter = useRef<HTMLDivElement | null>(null);
   const thumb = useRef<HTMLDivElement | null>(null);
+  /** Recaler le pouce sans le faire apparaître (suivi des transitions). */
+  const placeRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     const el = stage.current;
+    const gu = gutter.current;
     const th = thumb.current;
-    if (!fixed || !el || !th) return;
+    if (!fixed || !el || !gu || !th) return;
     let raf = 0;
     let hide: ReturnType<typeof setTimeout> | undefined;
-    const place = () => {
-      raf = 0;
+    let grab: { y: number; top: number; per: number } | null = null;
+
+    /** La course du pouce, en pixels écran. */
+    const geometry = () => {
+      const r = el.getBoundingClientRect();
       const { scrollTop, scrollHeight, clientHeight } = el;
-      const room = scrollHeight - clientHeight;
-      if (room <= 0) return;
-      const track = clientHeight - 2 * THUMB_INSET;
-      const h = Math.max(48, (clientHeight / scrollHeight) * track);
-      th.style.height = `${h}px`;
-      th.style.transform = `translateY(${THUMB_INSET + (scrollTop / room) * (track - h)}px)`;
+      const room = Math.max(0, scrollHeight - clientHeight);
+      const track = Math.max(0, r.height - 2 * THUMB_INSET);
+      const h = room ? Math.max(40, (clientHeight / scrollHeight) * track) : 0;
+      const top = room ? (scrollTop / room) * (track - h) : 0;
+      return { r, room, track, h, top };
     };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(place);
+    const place = () => {
+      const { r, room, h, top } = geometry();
+      /* Pas de marge (début du recul) ou rien à faire défiler : pas de pouce. */
+      const visible = room > 0 && window.innerWidth - r.right > THUMB_GAP + 6;
+      gu.style.display = visible ? "block" : "none";
+      if (!visible) return;
+      gu.style.transform = `translate(${r.right + THUMB_GAP}px, ${r.top + THUMB_INSET}px)`;
+      gu.style.height = `${r.height - 2 * THUMB_INSET}px`;
+      th.style.height = `${h}px`;
+      th.style.transform = `translateY(${top}px)`;
+    };
+    /* Le cadre bouge pendant ses transitions : on suit image par image tant
+       qu'elles durent (recul + glissement, ~1,2 s), puis aux seuls événements. */
+    let follow = 0;
+    const until = performance.now() + 1400;
+    const tick = () => {
+      place();
+      if (performance.now() < until) follow = requestAnimationFrame(tick);
+    };
+    follow = requestAnimationFrame(tick);
+
+    const flash = () => {
       th.classList.add("is-on");
       clearTimeout(hide);
       /* Tenu, il reste : il ne s'efface qu'une fois lâché. */
       if (!grab) hide = setTimeout(() => th.classList.remove("is-on"), 1000);
     };
-    /* Le pouce se saisit. Le déplacement du pointeur est en pixels ÉCRAN, le
-       pouce vit en pixels de mise en page sous une échelle : on ramène l'un à
-       l'autre par le rapport mesuré, puis à la course du défilement. */
-    let grab: { y: number; top: number; k: number; per: number } | null = null;
+    const onScroll = () => {
+      if (!raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          place();
+        });
+      flash();
+    };
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      const { scrollHeight, clientHeight } = el;
-      const track = clientHeight - 2 * THUMB_INSET;
-      const h = th.offsetHeight;
-      const k = th.offsetHeight ? th.getBoundingClientRect().height / th.offsetHeight : 1;
-      grab = {
-        y: e.clientY,
-        top: el.scrollTop,
-        k: k || 1,
-        per: (scrollHeight - clientHeight) / Math.max(1, track - h),
-      };
-      th.setPointerCapture(e.pointerId);
+      const g = geometry();
+      const per = g.room / Math.max(1, g.track - g.h);
+      /* Un clic dans la gouttière, hors du pouce, y amène d'abord son centre :
+         on tire ensuite depuis là, comme une barre native. */
+      if (e.target !== th) {
+        const y = e.clientY - (g.r.top + THUMB_INSET) - g.h / 2;
+        el.scrollTop = y * per;
+      }
+      grab = { y: e.clientY, top: el.scrollTop, per };
+      gu.setPointerCapture(e.pointerId);
       th.classList.add("is-on", "is-held");
       clearTimeout(hide);
     };
     const onMove = (e: PointerEvent) => {
       if (!grab) return;
-      el.scrollTop = grab.top + ((e.clientY - grab.y) / grab.k) * grab.per;
+      el.scrollTop = grab.top + (e.clientY - grab.y) * grab.per;
     };
     const onUp = (e: PointerEvent) => {
       if (!grab) return;
       grab = null;
-      th.releasePointerCapture(e.pointerId);
+      if (gu.hasPointerCapture(e.pointerId)) gu.releasePointerCapture(e.pointerId);
       th.classList.remove("is-held");
-      onScroll();
+      flash();
     };
-    place();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    th.addEventListener("pointerdown", onDown);
-    th.addEventListener("pointermove", onMove);
-    th.addEventListener("pointerup", onUp);
-    th.addEventListener("pointercancel", onUp);
-    return () => {
-      th.removeEventListener("pointerdown", onDown);
-      th.removeEventListener("pointermove", onMove);
-      th.removeEventListener("pointerup", onUp);
-      th.removeEventListener("pointercancel", onUp);
-      el.removeEventListener("scroll", onScroll);
-      cancelAnimationFrame(raf);
+    const onEnter = () => {
+      th.classList.add("is-on");
       clearTimeout(hide);
+    };
+    const onLeave = () => {
+      if (!grab) flash();
+    };
+
+    placeRef.current = place;
+    el.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", place);
+    el.addEventListener("transitionend", place);
+    gu.addEventListener("pointerdown", onDown);
+    gu.addEventListener("pointermove", onMove);
+    gu.addEventListener("pointerup", onUp);
+    gu.addEventListener("pointercancel", onUp);
+    gu.addEventListener("pointerenter", onEnter);
+    gu.addEventListener("pointerleave", onLeave);
+    return () => {
+      placeRef.current = null;
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", place);
+      el.removeEventListener("transitionend", place);
+      gu.removeEventListener("pointerdown", onDown);
+      gu.removeEventListener("pointermove", onMove);
+      gu.removeEventListener("pointerup", onUp);
+      gu.removeEventListener("pointercancel", onUp);
+      gu.removeEventListener("pointerenter", onEnter);
+      gu.removeEventListener("pointerleave", onLeave);
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(follow);
+      clearTimeout(hide);
+      gu.style.display = "none";
       th.classList.remove("is-on", "is-held");
     };
   }, [fixed]);
+
+  /* Le cadre se déplace aussi au second temps (glissement) et au retour : on
+     relance le suivi image par image à chaque changement d'état. */
+  useLayoutEffect(() => {
+    const el = stage.current;
+    if (!fixed || !el) return;
+    let raf = 0;
+    const until = performance.now() + 900;
+    const tick = () => {
+      placeRef.current?.();
+      if (performance.now() < until) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [fixed, shrunk, docked]);
 
   const state = `${fixed ? " is-fixed" : ""}${shrunk ? " is-shrunk" : ""}${
     shrunk && docked ? " is-docked" : ""
@@ -235,9 +304,11 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       <div ref={stage} className={`as-stage${state}`}>
         {children}
       </div>
-      <div aria-hidden className={`as-scene-track${state}`}>
-        <div ref={thumb} className="as-scene-thumb" />
-      </div>
+      {fixed ? (
+        <div ref={gutter} aria-hidden className="as-scene-gutter">
+          <div ref={thumb} className="as-scene-thumb" />
+        </div>
+      ) : null}
     </SceneContext.Provider>
   );
 }

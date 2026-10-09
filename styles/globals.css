@@ -2287,23 +2287,26 @@ input[type="number"] {
 .as-stage.is-fixed::-webkit-scrollbar {
   display: none;
 }
-/* Le pouce qui la remplace (ProfileStage) : un calque à part, transformé comme
-   la scène, au-dessus d'elle et transparent aux clics. Il n'apparaît que
-   pendant le défilement. */
-.as-scene-track {
+/* Le pouce qui la remplace (ProfileStage) : dans la MARGE à droite du cadre,
+   jamais sur le profil, et au-dessus du studio (z 10003) pour que rien ne le
+   recouvre. ProfileStage le cale en pixels écran sur le cadre visible. La
+   gouttière entière se survole et se clique ; le pouce n'apparaît qu'au
+   défilement ou au survol. */
+.as-scene-gutter {
   display: none;
-}
-.as-scene-track.is-fixed {
-  display: block;
   position: fixed;
-  inset: 0;
-  z-index: 10002;
-  pointer-events: none;
+  left: 0;
+  top: 0;
+  z-index: 10004;
+  width: 16px;
+  margin-left: -4px;
+  cursor: pointer;
+  touch-action: none;
 }
 .as-scene-thumb {
   position: absolute;
   top: 0;
-  right: 10px;
+  left: 4px;
   width: 7px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.55);
@@ -2337,8 +2340,7 @@ input[type="number"] {
   cursor: grabbing;
 }
 .as-scene-screen.is-fixed,
-.as-stage.is-fixed,
-.as-scene-track.is-fixed {
+.as-stage.is-fixed {
   transform-origin: 50% 50%;
   transition:
     transform 0.6s var(--as-scene-ease),
@@ -2348,14 +2350,12 @@ input[type="number"] {
 /* Le rayon est divisé par l'échelle : il est appliqué AVANT la réduction, et
    doit arriver à l'écran à 24 px. */
 .as-scene-screen.is-shrunk,
-.as-stage.is-shrunk,
-.as-scene-track.is-shrunk {
+.as-stage.is-shrunk {
   transform: scale(var(--as-scene-s));
   border-radius: calc(24px / var(--as-scene-s));
 }
 .as-scene-screen.is-docked,
-.as-stage.is-docked,
-.as-scene-track.is-docked {
+.as-stage.is-docked {
   transform: translate(var(--as-scene-dock-x), var(--as-scene-dock-y)) scale(var(--as-scene-dock-s));
   border-radius: calc(20px / var(--as-scene-dock-s));
   transition-duration: 0.55s;
@@ -2379,12 +2379,25 @@ input[type="number"] {
 /* Le menu des fonds et la barre du bas entrent avec le glissement à droite,
    dans la place qu'il libère. Une fois installé, un menu rouvert entre sans
    attendre (`-now`). */
-/* Le glissement part à 0,56 s (ProfileStage) : le menu le suit de 0,14 s et
-   entre PENDANT qu'il glisse, de plus loin, comme poussé par lui. */
+/* LE MENU EST ACCROCHÉ AU BORD DU CADRE pendant le glissement, et c'est un
+   calcul, pas un réglage à l'œil. Le glissement part à 0,56 s (ProfileStage)
+   et dure 0,55 s ; son bord gauche va de 7 vw (centré, échelle 0,86) à 27 vw
+   (docké), soit 20 vw — linéairement dans la progression de la courbe, car
+   translation et échelle s'interpolent ensemble. Le menu part donc 20 vw plus
+   à gauche, au même instant, avec la même durée et la même courbe : son bord
+   droit reste à 1,5 vw du cadre à chaque image. Il entrait d'abord avec un
+   décalage à lui (48 px, 0,7 s) et chevauchait le profil encore large. */
 @keyframes as-scene-menu-in {
-  from { opacity: 0; transform: translateX(-48px); }
+  from { transform: translateX(-20vw); }
 }
-.as-scene-ui-left { animation: as-scene-menu-in 0.55s var(--as-scene-ease) 0.7s both; }
+@keyframes as-scene-menu-fade {
+  from { opacity: 0; }
+}
+.as-scene-ui-left {
+  animation:
+    as-scene-menu-in 0.55s var(--as-scene-ease) 0.56s both,
+    as-scene-menu-fade 0.25s ease 0.56s both;
+}
 .as-scene-ui-left-now { animation: as-scene-from-left 0.3s var(--as-scene-ease) both; }
 .as-scene-ui-bottom { animation: as-scene-from-bottom 0.5s var(--as-scene-ease) 0.78s both; }
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
