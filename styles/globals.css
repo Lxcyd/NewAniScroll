@@ -2485,13 +2485,18 @@ html.as-scene-docked .as-scene-zoom {
 .as-scene-zoom button {
   display: grid;
   place-items: center;
-  min-width: 28px;
+  width: 28px;
   height: 28px;
-  padding: 0 8px;
   border-radius: 999px;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 15px;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+/* Sépare le réglage (− % +) de la remise à zéro. */
+.as-scene-zoom-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.14);
 }
 .as-scene-zoom button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
@@ -2501,12 +2506,8 @@ html.as-scene-docked .as-scene-zoom {
   opacity: 0.35;
   cursor: default;
 }
-.as-scene-zoom .as-scene-zoom-fit {
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.7);
-}
 .as-scene-zoom-pct {
-  min-width: 46px;
+  min-width: 42px;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }

@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ArrowPathIcon, MinusIcon, PlusIcon } from "@heroicons/react/24/outline";
 
 /**
  * LA SCÈNE : le profil qui recule quand on le personnalise.
@@ -597,7 +598,7 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
               aria-label="Dézoomer"
               title="Dézoomer (Ctrl + molette)"
             >
-              −
+              <MinusIcon className="h-4 w-4" strokeWidth={2} />
             </button>
             <span className="as-scene-zoom-pct" aria-live="polite">
               {zoomView.pct} %
@@ -609,16 +610,17 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
               aria-label="Zoomer"
               title="Zoomer (Ctrl + molette)"
             >
-              +
+              <PlusIcon className="h-4 w-4" strokeWidth={2} />
             </button>
+            <span aria-hidden className="as-scene-zoom-sep" />
             <button
               type="button"
               onClick={() => zoomApi.current?.fit()}
               disabled={zoomView.fit}
-              className="as-scene-zoom-fit"
-              title="Le profil reprend sa largeur habituelle (Ctrl + 0)"
+              aria-label="Réinitialiser le zoom"
+              title="Réinitialiser : le profil reprend sa largeur habituelle (Ctrl + 0)"
             >
-              Ajuster
+              <ArrowPathIcon className="h-4 w-4" strokeWidth={2} />
             </button>
           </div>
           <div
