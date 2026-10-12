@@ -2314,6 +2314,15 @@ input[type="number"] {
 html.as-scene-docked .as-scene-split {
   display: block;
 }
+/* Le trait apparaît en fondu une fois le cadre posé (0,45 s de glissement) :
+   affiché d'emblée, il surgissait seul au milieu d'un écran encore en
+   mouvement. Opacité seule — la transformation du trait le centre. */
+@keyframes as-scene-fade-in {
+  from { opacity: 0; }
+}
+html.as-scene-docked .as-scene-split::after {
+  animation: as-scene-fade-in 0.3s ease 0.45s both;
+}
 @media (max-width: 1023px) {
   html.as-scene-docked .as-scene-split {
     display: none;
