@@ -1945,8 +1945,10 @@ export default function BannerStudio({
                 </button>
               </div>
 
+              {/* La barre de défilement partagée du site (`as-scroller`) : sur
+                  une liste de cadres aussi longue, il faut voir où l'on en est. */}
               <div
-                className={`overflow-y-auto p-2.5 ${
+                className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "min-h-0 flex-1" : "max-h-[52vh]"
                 }`}
               >
