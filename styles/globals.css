@@ -2433,10 +2433,11 @@ html.as-scene-resizing * {
     transform 0.5s var(--as-scene-ease),
     height 0.45s var(--as-scene-ease);
 }
+/* Le liseré seul. L'ombre de 120 px qui l'accompagnait se repeignait à chaque
+   image du glissement (la hauteur de l'écran s'y anime), pour un effet nul :
+   noir sur le fond de salle presque noir (#060609). */
 .as-scene-screen.is-fixed {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 40px 120px rgba(0, 0, 0, 0.75);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {

@@ -143,6 +143,17 @@ const HATCH =
     le raccord ; plus long, il mange le refrain d'un extrait de vingt secondes. */
 const DEFAULT_FADE = 1.5;
 
+/**
+ * La position de lecture telle que le studio l'AFFICHE, au dixième de seconde.
+ * Les boucles de lecture tournent à chaque image (raccord et fondu l'exigent),
+ * mais une position brute changeait l'état à chaque image : le studio entier se
+ * rendait soixante fois par seconde tant qu'un fond vidéo jouait, et la scène
+ * saccadait en reculant. Arrondie, la valeur ne change que dix fois par seconde
+ * et React ignore les rendus intermédiaires — sur un rail de générique, un
+ * dixième de seconde ne se voit pas.
+ */
+const railTime = (s: number) => Math.round(s * 10) / 10;
+
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
   Number.isFinite(s) && s > 0
@@ -353,7 +364,7 @@ export default function BannerStudio({
   const [vPlaying, setVPlaying] = useState(false);
   const onVideoProgress = useCallback(
     (at: number, duration: number, playing: boolean) => {
-      setVAt(at);
+      setVAt(railTime(at));
       setVLen(duration);
       setVPlaying(playing);
     },
@@ -660,7 +671,7 @@ export default function BannerStudio({
         const f = draft.music?.from ?? 0;
         const end = draft.music?.to ?? 0;
         if (end > f && el.currentTime >= end) el.currentTime = f;
-        setAt(el.currentTime);
+        setAt(railTime(el.currentTime));
         /* Le fondu se pose ici, dans la boucle qui tient déjà le raccord : le
            volume réglé donne le PLAFOND, le fondu le rabaisse aux extrémités. */
         const g = fadeGain(el.currentTime, f, end || el.duration || 0, fadeSec);

@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -576,8 +577,12 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     shrunk && docked ? " is-docked" : ""
   }`;
 
+  /* Mémorisée : un objet neuf à chaque rendu (recul, glissement, zoom)
+     rendait de nouveau ProfileHero au beau milieu de l'animation. */
+  const sceneValue = useMemo(() => ({ screen, fixed }), [screen, fixed]);
+
   return (
-    <SceneContext.Provider value={{ screen, fixed }}>
+    <SceneContext.Provider value={sceneValue}>
       <div aria-hidden className={`as-scene-back${state}`} />
       <div aria-hidden ref={setScreen} className={`as-scene-screen${state}`} />
       <div ref={stage} className={`as-stage${state}`}>
