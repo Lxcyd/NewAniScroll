@@ -2448,6 +2448,14 @@ html.as-scene-resizing * {
 .as-scene-screen.is-fixed {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
+/* Le papier peint s'arrête à 2 px du bord du cadre. La scène (le profil) est
+   posée PAR-DESSUS l'écran, réduite : au pixel du bord elle ne couvre qu'à
+   moitié, et sous un pied de page opaque le papier peint perçait en liseré de
+   sa couleur (#1e161a mesuré sur un fond Cubes rose, 13/10/2026). Dessous, il
+   n'y a plus que la couleur de page, la même que celle du pied. */
+.as-scene-screen.is-fixed .as-page-plate {
+  clip-path: inset(2px round calc(20px / var(--as-scene-zoom, 1) - 2px));
+}
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
   transform: translate(var(--as-scene-s1-x), var(--as-scene-s1-y)) scale(var(--as-scene-s));
