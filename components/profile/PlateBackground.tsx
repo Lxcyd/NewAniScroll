@@ -7,6 +7,7 @@ import {
   patternLayers,
   PATTERN_BASE,
   PATTERN_ZOOM_DEFAULT,
+  type PatternId,
 } from "@/lib/profile/patterns";
 
 /**
@@ -37,6 +38,65 @@ export type TrailerRemote = {
   play: () => void;
   pause: () => void;
 };
+
+/** La vitesse de référence (px/s) qui fixe la DURÉE de l'animation CSS. */
+const PATTERN_SPEED_REF = 24;
+
+/**
+ * Une plaque à motif. Animée, la position du fond glisse d'UNE période en
+ * boucle : la fin est identique au début (globals.css, .as-pattern-scroll).
+ *
+ * LA VITESSE EST UNE CADENCE DE LECTURE, pas une durée : changer la durée
+ * d'une animation CSS recalcule sa position depuis le temps écoulé, et le
+ * motif sautait à chaque cran du curseur. La durée reste celle de la vitesse
+ * de référence ; `playbackRate` accélère ou ralentit à partir de la position
+ * courante, sans saut.
+ */
+function PatternPlate({
+  id,
+  color,
+  zoom,
+  anim,
+  speed,
+}: {
+  id: PatternId;
+  color: string;
+  zoom: number;
+  anim: boolean;
+  speed: number;
+}) {
+  const L = patternLayers(id, color, zoom);
+  const [px, py] = L.period;
+  const layer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = layer.current;
+    if (!anim || !el || typeof el.getAnimations !== "function") return;
+    for (const a of el.getAnimations()) {
+      if ((a as CSSAnimation).animationName === "as-pattern-scroll") {
+        a.updatePlaybackRate(speed / PATTERN_SPEED_REF);
+      }
+    }
+  }, [anim, speed, px, py]);
+  const moving: CSSProperties = anim
+    ? {
+        background: L.moving,
+        ["--pat-dx" as any]: `${px}px`,
+        ["--pat-dy" as any]: `${py}px`,
+        animationDuration: `${Math.max(0.5, Math.hypot(px, py) / PATTERN_SPEED_REF)}s`,
+      }
+    : { background: L.moving };
+  /* Un fondu (Trame en fondu) est un MASQUE du motif, pas un calque posé
+     dessus : posé dessus, il laissait percer le motif au pixel du bord du
+     cadre, en pointillé rose (cf. MASK dans lib/profile/patterns). */
+  const mask: CSSProperties = L.mask ? { maskImage: L.mask, WebkitMaskImage: L.mask } : {};
+  return (
+    <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
+      <div className="absolute inset-0 overflow-hidden" style={mask}>
+        <div ref={layer} className={`absolute inset-0 ${anim ? "as-pattern-scroll" : ""}`} style={moving} />
+      </div>
+    </div>
+  );
+}
 
 type Props = {
   dressing: Pick<Dressing, "kind" | "url" | "color"> & {
@@ -327,36 +387,14 @@ export default function PlateBackground({
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     /* Un motif se dessine DANS la couleur, sur fond sombre (lib/profile/patterns). */
     if (isPatternId(dressing.pattern)) {
-      const L = patternLayers(
-        dressing.pattern,
-        dressing.color || "#E94560",
-        dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT,
-      );
-      /* Animé, la position du fond glisse d'UNE période en boucle : la fin
-         est identique au début (globals.css, .as-pattern-scroll). */
-      const [px, py] = L.period;
-      const speed = clampPatternSpeed(dressing.patternSpeed);
-      const moving: CSSProperties = dressing.patternAnim
-        ? {
-            background: L.moving,
-            ["--pat-dx" as any]: `${px}px`,
-            ["--pat-dy" as any]: `${py}px`,
-            animationDuration: `${Math.max(0.5, Math.hypot(px, py) / speed)}s`,
-          }
-        : { background: L.moving };
-      /* Un fondu (Trame en fondu) est un MASQUE du motif, pas un calque posé
-         dessus : posé dessus, il laissait percer le motif au pixel du bord du
-         cadre, en pointillé rose (cf. MASK dans lib/profile/patterns). */
-      const mask: CSSProperties = L.mask ? { maskImage: L.mask, WebkitMaskImage: L.mask } : {};
       return (
-        <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
-          <div className="absolute inset-0 overflow-hidden" style={mask}>
-            <div
-              className={`absolute inset-0 ${dressing.patternAnim ? "as-pattern-scroll" : ""}`}
-              style={moving}
-            />
-          </div>
-        </div>
+        <PatternPlate
+          id={dressing.pattern}
+          color={dressing.color || "#E94560"}
+          zoom={dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT}
+          anim={!!dressing.patternAnim}
+          speed={clampPatternSpeed(dressing.patternSpeed)}
+        />
       );
     }
     return (
