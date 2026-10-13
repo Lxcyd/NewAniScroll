@@ -346,17 +346,18 @@ export default function PlateBackground({
             animationDuration: `${Math.max(0.5, Math.hypot(px, py) / speed)}s`,
           }
         : { background: L.moving };
+      /* Un fondu (Trame en fondu) est un MASQUE du motif, pas un calque posé
+         dessus : posé dessus, il laissait percer le motif au pixel du bord du
+         cadre, en pointillé rose (cf. MASK dans lib/profile/patterns). */
+      const mask: CSSProperties = L.mask ? { maskImage: L.mask, WebkitMaskImage: L.mask } : {};
       return (
         <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
-          <div
-            className={dressing.patternAnim ? "as-pattern-scroll absolute left-0 top-0" : "absolute inset-0"}
-            style={moving}
-          />
-          {/* Le calque fixe DÉBORDE de 4 px (rogné par le parent) : bord à bord
-              avec le motif, il ne couvrait qu'à moitié le pixel du bord une
-              fois le profil réduit dans la scène (×0,71), et les points vifs du
-              dessous perçaient en pointillé rouge le long du cadre. */}
-          {L.still ? <div className="absolute -inset-1" style={{ background: L.still }} /> : null}
+          <div className="absolute inset-0 overflow-hidden" style={mask}>
+            <div
+              className={dressing.patternAnim ? "as-pattern-scroll absolute left-0 top-0" : "absolute inset-0"}
+              style={moving}
+            />
+          </div>
         </div>
       );
     }

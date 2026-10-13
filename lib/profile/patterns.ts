@@ -195,9 +195,19 @@ const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
   /* 186 */ tokusa: (k: Ctx) => tokusa(k),
 };
 
-/** Ce qui reste FIXE quand le motif défile (posé par-dessus). */
+/** Ce qui reste FIXE quand le motif défile (posé par-dessus) — pour l'image
+    immobile : vignettes, plaque sans animation. */
 const STILL: Record<string, (k: Ctx) => string> = {
   halftone: (k) => `linear-gradient(90deg,${k.b},transparent 75%)`,
+};
+
+/* Le même fondu, en MASQUE, pour la plaque animée. Posé par-dessus un calque
+   qui défile, le fondu laissait percer un liseré rose au bord du cadre : le
+   calque animé est composité à part, et son bord ne tombe pas au même pixel
+   que celui du fondu. Un masque efface le motif lui-même — il n'y a plus rien
+   de rose sous le bord à faire percer. */
+const MASK: Record<string, string> = {
+  halftone: "linear-gradient(90deg,transparent,#000 75%)",
 };
 
 /* La PÉRIODE de défilement, en px avant zoom : une translation de ce vecteur
@@ -284,6 +294,8 @@ export type PatternLayers = {
   moving: string;
   /** Ce qui reste en place par-dessus, ou `null`. */
   still: string | null;
+  /** Le même effet en masque du calque qui défile (plaque animée), ou `null`. */
+  mask: string | null;
   /** Une période de défilement, en px d'écran (zoom compris). */
   period: [number, number];
 };
@@ -314,6 +326,7 @@ export function patternLayers(id: PatternId, color: string, zoom = 1): PatternLa
   return {
     moving: scale(DRAW[id](k, z)),
     still: STILL[id] ? scale(STILL[id](k)) : null,
+    mask: MASK[id] ?? null,
     period: [px1(px) * f, px1(py) * f],
   };
 }
