@@ -241,13 +241,14 @@ export function isPatternId(v: unknown): v is PatternId {
   return typeof v === "string" && (PATTERN_IDS as readonly string[]).includes(v);
 }
 
-/** Le zoom du motif : un multiplicateur de toutes ses tailles. Défaut ×4 — à
+/** Le zoom du motif : un multiplicateur de toutes ses tailles. Défaut ×8 — à
     ×1, les tuiles du catalogue étaient faites pour des vignettes, et se
     perdaient en grain sur une plaque pleine page. */
 export const PATTERN_ZOOM_MIN = 1;
-export const PATTERN_ZOOM_MAX = 8;
+export const PATTERN_ZOOM_MAX = 16;
 export const PATTERN_ZOOM_STEP = 0.1;
-export const PATTERN_ZOOM_DEFAULT = 4;
+/* ×8 par défaut, ×16 au plus (Luc, 13/10/2026) : ×4 restait trop fin. */
+export const PATTERN_ZOOM_DEFAULT = 8;
 
 export function clampPatternZoom(v: unknown): number {
   const n = Number(v);

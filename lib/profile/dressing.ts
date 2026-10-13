@@ -161,7 +161,7 @@ export type Dressing = {
   /** Motif dessiné dans cette couleur (lib/profile/patterns.ts), ou `null` :
       l'aplat. Ne vit qu'avec un fond de couleur. */
   pattern: PatternId | null;
-  /** Zoom du motif, ×1 à ×8 (défaut ×4). */
+  /** Zoom du motif, ×1 à ×16 (défaut ×8). */
   patternZoom: number;
   /** Le motif défile en boucle infinie. */
   patternAnim: boolean;

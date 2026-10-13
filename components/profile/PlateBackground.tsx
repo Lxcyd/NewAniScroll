@@ -352,7 +352,11 @@ export default function PlateBackground({
             className={dressing.patternAnim ? "as-pattern-scroll absolute left-0 top-0" : "absolute inset-0"}
             style={moving}
           />
-          {L.still ? <div className="absolute inset-0" style={{ background: L.still }} /> : null}
+          {/* Le calque fixe DÉBORDE de 4 px (rogné par le parent) : bord à bord
+              avec le motif, il ne couvrait qu'à moitié le pixel du bord une
+              fois le profil réduit dans la scène (×0,71), et les points vifs du
+              dessous perçaient en pointillé rouge le long du cadre. */}
+          {L.still ? <div className="absolute -inset-1" style={{ background: L.still }} /> : null}
         </div>
       );
     }
