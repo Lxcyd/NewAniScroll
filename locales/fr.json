@@ -1117,6 +1117,8 @@
     "studioTrailers": "Bandes-annonces de ma liste",
     "studioNoTrailer": "Aucune bande-annonce dans cette liste",
     "studioSeeArt": "Voir ses illustrations",
+    "studioArtSeeAll": "Voir les {{count}} images",
+    "studioArtCollapse": "Replier",
     "studioArtCount_one": "{{count}} illustration",
     "studioArtCount_other": "{{count}} illustrations",
     "studioNoArtHere": "Aucune illustration pour ce titre",

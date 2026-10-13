@@ -1117,6 +1117,8 @@
     "studioTrailers": "Trailers from my list",
     "studioNoTrailer": "No trailer in this list",
     "studioSeeArt": "See its artwork",
+    "studioArtSeeAll": "See all {{count}} images",
+    "studioArtCollapse": "Collapse",
     "studioArtCount_one": "{{count}} artwork",
     "studioArtCount_other": "{{count}} artworks",
     "studioNoArtHere": "No artwork for this title",

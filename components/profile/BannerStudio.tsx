@@ -10,6 +10,7 @@ import {
   Bars3Icon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
   FilmIcon,
   MagnifyingGlassIcon,
   MinusIcon,
@@ -183,6 +184,8 @@ type Row = {
   icon?: typeof PhotoIcon;
   disabled?: boolean;
   selected?: boolean;
+  /** Une ligne d'accordéon (fermée) : un chevron au bout dit qu'elle se déplie. */
+  expand?: boolean;
   run?: () => void;
 };
 
@@ -467,6 +470,10 @@ export default function BannerStudio({
      d'en atteindre un autre : la recherche filtrait des images qui n'ont pas de
      nom, donc elle ne trouvait rien. */
   const [pick, setPick] = useState<number | null>(null);
+  /* L'accordéon des onglets Image et Bannière : la ligne de la liste qui est
+     ouverte (voir `ouvert`), et sa galerie déroulée en entier ou non. */
+  const [artRoot, setArtRoot] = useState<number | null>(null);
+  const [artAll, setArtAll] = useState(false);
   const twoScreens = scope === "video" || scope === "banner" || scope === "image";
 
   const listedAnime = twoScreens
@@ -1085,23 +1092,31 @@ export default function BannerStudio({
       const PLEIN: string[] = ["wallpaper", "background"];
       const familles = scope === "banner" ? LARGE : PLEIN;
 
-      if (pick == null) {
-        const rows = animes
-          .filter((a) => match(a.title))
-          .map((a) => ({
-            key: `anime-art-${a.mediaId}`,
-            label: a.title,
-            hint: t("profile.studioSeeArt"),
-            thumb: a.cover ?? null,
-            selected: draft.animeId === a.mediaId && !!draft.url,
-            run: () => {
-              setPick(a.mediaId);
-              setQuery("");
-              setCursor(0);
-            },
-          }));
-        out.push({ title: t(`profile.studioKind_${scope}`), rows });
-      } else {
+      /* EN ACCORDÉON (13/10/2026) : la liste des animés reste à l'écran, et
+         celui qu'on ouvre déplie sa galerie SOUS SA LIGNE. Plus d'aller-retour
+         entre deux écrans pour comparer deux titres. Un seul ouvert à la fois :
+         la galerie tient sur les sources d'UN anime (`pick`). `artRoot` garde la
+         ligne ouverte quand le sélecteur de saison fait changer `pick` vers une
+         saison absente de la liste. */
+      const ouvert = pick == null ? null : artRoot ?? pick;
+      const liste = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+      const ligne = (a: StudioAnime): Row => ({
+        key: `anime-art-${a.mediaId}`,
+        label: a.title,
+        hint: t("profile.studioSeeArt"),
+        thumb: a.cover ?? null,
+        selected: draft.animeId === a.mediaId && !!draft.url,
+        expand: false,
+        run: () => {
+          setPick(a.mediaId);
+          setArtRoot(a.mediaId);
+          setArtAll(false);
+          setCursor(0);
+        },
+      });
+      const at = ouvert == null ? -1 : liste.findIndex((a) => a.mediaId === ouvert);
+      const gal: Section[] = [];
+      if (pick != null) {
         const cible = listedAnime;
         /* Trois provenances pour une seule galerie : fanart.tv (tous ses
            types), TMDB (fonds, affiches, logos — il couvre les titres que
@@ -1217,7 +1232,9 @@ export default function BannerStudio({
           }));
         const total = rows.length;
 
-        out.push({
+        /* L'en-tête de l'animé ouvert EST sa ligne de l'accordéon : un clic
+           dessus le replie. */
+        gal.push({
           title: "",
           node: (
             <AnimeHead
@@ -1228,23 +1245,17 @@ export default function BannerStudio({
               current={pick}
               onPick={(id) => {
                 setPick(id);
+                setArtAll(false);
+                setCursor(0);
+              }}
+              onClose={() => {
+                setPick(null);
                 setCursor(0);
               }}
               t={t}
             />
           ),
-          rows: [
-            {
-              key: "art-back",
-              label: t("profile.studioAllAnimes"),
-              icon: ArrowUturnLeftIcon,
-              run: () => {
-                setPick(null);
-                setQuery("");
-                setCursor(0);
-              },
-            },
-          ],
+          rows: [],
         });
         if (rows.length) {
           /* TRIER LES FONDS D'ÉCRAN PAR NATURE, avant la grille.
@@ -1256,34 +1267,68 @@ export default function BannerStudio({
              captures » ou « avec le personnage » est exactement la question
              qu'on se pose à ce moment-là.
 
-             Des lignes ordinaires, comme « dérouler » plus bas : elles héritent
-             du curseur clavier. Et seulement celles qui mènent quelque part —
-             une facette vide serait une ligne qui ne fait rien. */
+             Une rangée de puces, pas cinq lignes : dans l'accordéon, chaque
+             ligne de plus repousse les animés suivants hors de vue. Seulement
+             celles qui mènent quelque part — une facette vide ne ferait rien. */
           if (scope === "image" && facettes.tout > 0) {
             const proposables = (
               ["tout", "illustration", "capture", "personnage", "paysage"] as const
             ).filter((f) => f === "tout" || facettes[f] > 0);
             if (proposables.length > 1) {
-              out.push({
+              gal.push({
                 title: "",
-                rows: proposables.map((f) => ({
-                  key: `wall-facette-${f}`,
-                  label: t(`anime.artFacet.${f}`),
-                  chip: { text: String(facettes[f]), op: false },
-                  icon: PhotoIcon,
-                  selected: facette === f,
-                  run: () => setFacette(f),
-                })),
+                rows: [],
+                node: (
+                  <div className="flex flex-wrap gap-1.5 px-1 pt-1">
+                    {proposables.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => setFacette(f)}
+                        aria-pressed={facette === f}
+                        className={`rounded-full px-2.5 py-1 font-karla text-[12px] font-bold transition-colors ${
+                          facette === f
+                            ? "bg-action text-white"
+                            : "bg-white/[0.06] text-white/65 hover:text-white"
+                        }`}
+                      >
+                        {t(`anime.artFacet.${f}`)}
+                        <span className="ml-1 opacity-60">{facettes[f]}</span>
+                      </button>
+                    ))}
+                  </div>
+                ),
               });
             }
           }
-          out.push({ title: "", rows, grid: true, bande: scope === "banner" });
+          /* Six images d'abord : l'animé ouvert ne doit pas chasser les
+             suivants de la colonne. Le reste se déroule sur demande. */
+          const APERCU = 6;
+          const court = !artAll && rows.length > APERCU;
+          gal.push({
+            title: "",
+            rows: court ? rows.slice(0, APERCU) : rows,
+            grid: true,
+            bande: scope === "banner",
+          });
+          if (court)
+            gal.push({
+              title: "",
+              rows: [
+                {
+                  key: "art-all",
+                  label: t("profile.studioArtSeeAll", { count: rows.length }),
+                  icon: PhotoIcon,
+                  run: () => setArtAll(true),
+                },
+              ],
+            });
           /* DÉROULER WALLHAVEN. Une ligne ordinaire, pas un bouton à part :
              elle hérite ainsi du curseur clavier et du survol de toutes les
              autres, et se place naturellement au bout de la grille. Seul
              l'onglet Image en a une — c'est le seul qui interroge Wallhaven. */
-          if (wallHasMore)
-            out.push({
+          else if (wallHasMore)
+            gal.push({
               title: "",
               rows: [
                 {
@@ -1298,7 +1343,7 @@ export default function BannerStudio({
               ],
             });
         } else
-          out.push({
+          gal.push({
             title: "",
             rows: [
               {
@@ -1311,6 +1356,14 @@ export default function BannerStudio({
             ],
           });
       }
+      const titre = t(`profile.studioKind_${scope}`);
+      if (at < 0) out.push(...gal, { title: titre, rows: liste.map(ligne) });
+      else
+        out.push(
+          { title: titre, rows: liste.slice(0, at).map(ligne) },
+          ...gal,
+          { title: "", rows: liste.slice(at + 1).map(ligne) },
+        );
     }
 
     /* ── Les bandes-annonces ──────────────────────────────────────────────
@@ -1573,7 +1626,8 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini]);
+      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
+      artRoot, artAll]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -2318,6 +2372,9 @@ export default function BannerStudio({
                             </span>
                             {row.selected ? (
                               <CheckIcon className="h-[1.15rem] w-[1.15rem] shrink-0 text-action" />
+                            ) : null}
+                            {row.expand === false ? (
+                              <ChevronRightIcon className="h-4 w-4 shrink-0 text-white/35" strokeWidth={2.2} />
                             ) : null}
                           </button>
                         );
@@ -3135,6 +3192,7 @@ function AnimeHead({
   seasons,
   current,
   onPick,
+  onClose,
   t,
 }: {
   anime: StudioAnime | null;
@@ -3144,22 +3202,40 @@ function AnimeHead({
   seasons: Array<{ id: number; label: string }>;
   current: number | null;
   onPick: (id: number) => void;
+  /** En accordéon : l'en-tête est la ligne ouverte, et un clic la replie. */
+  onClose?: () => void;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
   if (!anime) return null;
-  return (
-    <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+  const ident = (
+    <>
       {anime.cover ? (
         <span className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md bg-black/50">
           <Image src={anime.cover} alt="" fill sizes="44px" className="object-cover" />
         </span>
       ) : null}
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-outfit text-[15px] font-bold text-white">{anime.title}</p>
-        <p className="mt-0.5 font-karla text-[12px] text-white/40">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-outfit text-[15px] font-bold text-white">{anime.title}</span>
+        <span className="mt-0.5 block font-karla text-[12px] text-white/40">
           {t(countKey, { count })}
-        </p>
-      </div>
+        </span>
+      </span>
+    </>
+  );
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+      {onClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-expanded
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          {ident}
+        </button>
+      ) : (
+        ident
+      )}
       {/* Une saison unique n'a pas de menu : un sélecteur à une entrée annonce
           un choix qui n'existe pas. */}
       {seasons.length > 1 ? (
@@ -3175,6 +3251,16 @@ function AnimeHead({
             </option>
           ))}
         </select>
+      ) : null}
+      {onClose ? (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("profile.studioArtCollapse")}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <ChevronRightIcon className="h-4 w-4 rotate-90" strokeWidth={2.2} />
+        </button>
       ) : null}
     </div>
   );

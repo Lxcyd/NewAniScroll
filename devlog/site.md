@@ -2403,3 +2403,5 @@ reellement ouverts repaient un fan-out, une fois.
 - « Bannière animée » et « Clip d'anime » retirés du dock (aucune source en vue) ; `normalizeDressing` ne les accepte plus.
 - Le dock regroupe les fonds (`DOCK_GROUPS`) : Couleur · Image (onglets Image / Bannière) · Vidéo (onglets Vidéo / Intro-Outro) · Import perso. Changer d'onglet Image↔Bannière garde la recherche et l'animé choisi.
 
+- Menu Image/Bannière en **accordéon** (choix n°3 de l'artefact « Menu Image ») : la liste reste à l'écran, l'animé ouvert déplie sa galerie sous sa ligne (6 images puis « Voir les N images »), facettes Wallhaven en puces ; un seul ouvert à la fois (`artRoot` garde la ligne quand le sélecteur de saison change `pick`).
+
