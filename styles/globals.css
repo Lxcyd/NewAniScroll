@@ -2654,9 +2654,11 @@ html.as-scene-leave .as-navbar {
   animation: as-pattern-scroll 20s linear infinite;
   will-change: transform;
 }
+/* Vers la droite et le bas : le calque part décalé d'une période en haut à
+   gauche (il en déborde d'autant) et revient à zéro. */
 @keyframes as-pattern-scroll {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(var(--pat-dx, 0px), var(--pat-dy, 0px), 0); }
+  from { transform: translate3d(var(--pat-dx, 0px), var(--pat-dy, 0px), 0); }
+  to { transform: translate3d(0, 0, 0); }
 }
 /* Le voile d'une plaque de COULEUR, bien plus léger que celui d'une
    illustration (`.as-page-scrim`, 0.72 / 0.28 / 0.6).

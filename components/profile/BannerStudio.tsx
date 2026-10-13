@@ -2748,9 +2748,17 @@ function PatternGrid({ count, fill, children }: { count: number; fill: boolean; 
   }, [fill, count]);
   return (
     <div ref={box} className={fill ? "min-h-[3rem] overflow-hidden" : undefined}>
+      {/* Une fois les colonnes choisies, les rangées s'étirent sur toute la
+          hauteur : le reste de la colonne ne reste pas vide sous la grille. */}
       <div
-        className={`grid gap-1.5 ${cols ? "" : "grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))]"}`}
-        style={cols ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
+        className={`grid gap-1.5 ${
+          cols ? "h-full [&>*]:aspect-auto" : "grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))]"
+        }`}
+        style={
+          cols
+            ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(0, 1fr)" }
+            : undefined
+        }
       >
         {children}
       </div>

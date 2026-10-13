@@ -22,7 +22,7 @@ Puis, même jour : zoom ×1–×8 au dixième (défaut ×4, les px de la valeur 
 sont multipliés : rendu net), couleurs PLEINES pré-mélangées au fond (deux
 traits qui se croisent ne s'additionnent plus), défilement infini d'une
 période exacte par motif (`PERIOD`, translation CSS, vitesse en px/s), mosaïque
-d'une seule grande tuile. « Sucre d'orge » retiré, Kikkō hanabishi et Tokusa
+d'une seule grande tuile. « Diagonales fines » retiré, Kikkō hanabishi et Tokusa
 ajoutés (série wagara du catalogue), liste triée du plus simple au plus
 chargé. Le sélecteur remplit la colonne (`grow`), le carré prend le reste.
 

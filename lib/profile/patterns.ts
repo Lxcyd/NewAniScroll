@@ -174,8 +174,8 @@ function tokusa(k: Ctx) {
 const HONEY ="M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
 
 const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
-  /* 1 */ "diag-fine": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(35)} 0 2px,transparent 2px 12px)`,
   /* 2 */ "diag-wide": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(26)} 0 14px,transparent 14px 28px)`,
+  /* 9 */ candy: (k: Ctx) => `repeating-linear-gradient(-45deg,${k.a(42)} 0 10px,${k.a(10)} 10px 20px)`,
   /* 11 */ zigzag: (k: Ctx) => {
     const A = k.a(32);
     return `linear-gradient(135deg,${A} 25%,transparent 25%) -20px 0/40px 40px,linear-gradient(225deg,${A} 25%,transparent 25%) -20px 0/40px 40px,linear-gradient(315deg,${A} 25%,transparent 25%) 0 0/40px 40px,linear-gradient(45deg,${A} 25%,transparent 25%) 0 0/40px 40px`;
@@ -207,8 +207,8 @@ const STILL: Record<string, (k: Ctx) => string> = {
    de la diagonale elles glisseraient sur elles-mêmes et paraîtraient figées.
    Les tuiles, elles, défilent en diagonale d'une tuile. */
 const PERIOD: Record<string, (zoom: number) => [number, number]> = {
-  "diag-fine": () => [12 * Math.SQRT2, 0],
   "diag-wide": () => [28 * Math.SQRT2, 0],
+  candy: () => [20 * Math.SQRT2, 0],
   zigzag: () => [40, 40],
   halftone: () => [10, 10],
   tatami: () => [60, 60],
@@ -226,10 +226,11 @@ const PERIOD: Record<string, (zoom: number) => [number, number]> = {
 };
 
 /** Dans l'ordre où le studio les propose : du plus simple au plus chargé
-    (tri demandé par Luc le 13/10/2026). « Sucre d'orge » retiré le même jour ;
-    un profil qui le portait retombe sur l'aplat (`isPatternId` le refuse). */
+    (tri demandé par Luc le 13/10/2026). « Diagonales fines » retiré le même
+    jour ; un profil qui le portait retombe sur l'aplat (`isPatternId` le
+    refuse). */
 export const PATTERN_IDS = [
-  "diag-fine", "diag-wide", "zigzag", "halftone", "tokusa", "tatami", "weave",
+  "diag-wide", "candy", "zigzag", "halftone", "tokusa", "tatami", "weave",
   "honeycomb", "scales", "seigaiha", "cubes", "kikko-hanabishi", "asanoha", "mosaic",
 ] as const;
 
