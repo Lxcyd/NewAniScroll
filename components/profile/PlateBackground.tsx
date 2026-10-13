@@ -332,17 +332,15 @@ export default function PlateBackground({
         dressing.color || "#E94560",
         dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT,
       );
-      /* Animé, le calque dépasse d'UNE période à droite et en bas, et glisse
-         de cette période en boucle : la fin est identique au début. */
+      /* Animé, la position du fond glisse d'UNE période en boucle : la fin
+         est identique au début (globals.css, .as-pattern-scroll). */
       const [px, py] = L.period;
       const speed = clampPatternSpeed(dressing.patternSpeed);
-      const moving: CSSProperties =dressing.patternAnim
+      const moving: CSSProperties = dressing.patternAnim
         ? {
             background: L.moving,
-            width: `calc(100% + ${px}px)`,
-            height: `calc(100% + ${py}px)`,
-            ["--pat-dx" as any]: `${-px}px`,
-            ["--pat-dy" as any]: `${-py}px`,
+            ["--pat-dx" as any]: `${px}px`,
+            ["--pat-dy" as any]: `${py}px`,
             animationDuration: `${Math.max(0.5, Math.hypot(px, py) / speed)}s`,
           }
         : { background: L.moving };
@@ -354,7 +352,7 @@ export default function PlateBackground({
         <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
           <div className="absolute inset-0 overflow-hidden" style={mask}>
             <div
-              className={dressing.patternAnim ? "as-pattern-scroll absolute left-0 top-0" : "absolute inset-0"}
+              className={`absolute inset-0 ${dressing.patternAnim ? "as-pattern-scroll" : ""}`}
               style={moving}
             />
           </div>

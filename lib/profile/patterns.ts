@@ -173,6 +173,9 @@ function tokusa(k: Ctx) {
 
 const HONEY ="M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
 
+/* Chaque motif tient en UN SEUL calque de fond : l'animation fait glisser
+   `background-position`, une valeur pour un calque (globals.css,
+   .as-pattern-scroll). Un second calque resterait immobile. */
 const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
   /* 2 */ "diag-wide": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(26)} 0 14px,transparent 14px 28px)`,
   /* 9 */ candy: (k: Ctx) => `repeating-linear-gradient(-45deg,${k.a(42)} 0 10px,${k.a(10)} 10px 20px)`,
