@@ -937,8 +937,15 @@ export default function BannerStudio({
               );
             })}
           </div>
-          {current ? (
-            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2.5 px-1">
+          {/* Toujours affichés : sur l'aplat, grisés plutôt qu'absents — sinon on
+              cherche le zoom sans savoir qu'il faut d'abord choisir un motif. */}
+          {(
+            <div
+              className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2.5 px-1 ${
+                current ? "" : "pointer-events-none opacity-35"
+              }`}
+              aria-disabled={!current}
+            >
               {/* Zoom au dixième : un pas de ×0,5 sautait trop d'un coup. */}
               <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                 {t("profile.studioPatternZoom")}
@@ -982,7 +989,7 @@ export default function BannerStudio({
                 {speed} px/s
               </span>
             </div>
-          ) : null}
+          )}
           </div>
         ),
       });
@@ -2065,7 +2072,10 @@ export default function BannerStudio({
                   sections.map((s, i) => (
                     <div
                       key={s.title || `sec-${i}`}
-                      className={s.grow && inColumn ? "flex min-h-0 flex-1 flex-col" : undefined}
+                      /* Pas de `min-h-0` : le sélecteur ne doit jamais être
+                         comprimé sous sa hauteur utile — s'il manque de la
+                         place, la colonne défile au lieu de tout tasser. */
+                      className={s.grow && inColumn ? "flex flex-1 flex-col" : undefined}
                     >
                       {/* Un bloc peut porter son propre intitulé (le sélecteur de
                           couleur nomme lui-même ses deux moitiés) : on ne lui en
