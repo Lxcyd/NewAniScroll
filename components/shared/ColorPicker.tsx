@@ -351,24 +351,30 @@ export default function ColorPicker({
 
   /* ── Large : le carré à gauche, tout le reste à sa droite ──────────── */
   if (wide) {
+    /* Les deux colonnes se décident sur la largeur du PANNEAU (requête de
+       conteneur), pas sur celle de la fenêtre : le studio peut faire 460 px
+       dans un écran de 1900, et un `sm:` y forçait les deux colonnes — la ligne
+       du bas, incompressible, débordait alors à droite. */
     return (
-      <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 sm:grid-cols-[10rem_1fr]">
-        {/* Le rail prend la place qui reste sous le carré et s'y centre : la
-            colonne de droite est plus haute, et un rail collé sous le carré
-            laissait un vide en bas de la gauche. */}
-        <div className="flex flex-col gap-2.5">
-          {svBlock}
-          <div className="flex flex-1 items-center">{hueBlock}</div>
-        </div>
-        <div className="grid content-start gap-2.5">
-          {header}
-          {swatchBlock}
-          {/* La ligne du bas tient l'aperçu, la valeur et les formats : c'est ce
-              qui permet au bloc entier de finir sous les 250 px. */}
-          <div className="flex items-center gap-2">
-            {dot}
-            {inputsBlock}
-            <div className="w-[13.5rem] shrink-0">{tabsBlock}</div>
+      <div className="[container-type:inline-size]">
+        <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[10rem_minmax(0,1fr)]">
+          {/* Le rail prend la place qui reste sous le carré et s'y centre : la
+              colonne de droite est plus haute, et un rail collé sous le carré
+              laissait un vide en bas de la gauche. */}
+          <div className="flex flex-col gap-2.5">
+            {svBlock}
+            <div className="flex flex-1 items-center">{hueBlock}</div>
+          </div>
+          <div className="grid min-w-0 content-start gap-2.5">
+            {header}
+            {swatchBlock}
+            {/* La ligne du bas tient l'aperçu, la valeur et les formats ; les
+                formats passent à la ligne quand la place manque. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {dot}
+              <div className="flex min-w-[8rem] flex-1">{inputsBlock}</div>
+              <div className="min-w-0 grow basis-[13.5rem]">{tabsBlock}</div>
+            </div>
           </div>
         </div>
       </div>
