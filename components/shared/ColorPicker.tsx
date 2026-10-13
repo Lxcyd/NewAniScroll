@@ -129,26 +129,6 @@ export default function ColorPicker({
   const svRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
 
-  /* En large, le carré reste UN CARRÉ : son côté se cale sur la hauteur de la
-     colonne de droite, moins le rail (h-8) et l'écart (10 px). Le CSS seul ne
-     sait pas tirer une largeur d'une hauteur imposée par la voisine, d'où la
-     mesure. Côté nul = une seule colonne, le carré prend toute la largeur. */
-  const leftRef = useRef<HTMLDivElement>(null);
-  const rightRef = useRef<HTMLDivElement>(null);
-  const [side, setSide] = useState<number | null>(null);
-  useEffect(() => {
-    const left = leftRef.current, right = rightRef.current;
-    if (!wide || !left || !right) return;
-    const measure = () => {
-      const twoCols = right.offsetTop === left.offsetTop;
-      setSide(twoCols ? Math.max(120, Math.round(right.offsetHeight - 42)) : null);
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(right);
-    measure();
-    return () => ro.disconnect();
-  }, [wide]);
-
   /* Une couleur reçue de l'extérieur (une pastille cliquée dans la liste
      au-dessus) doit se voir ici — mais seulement si elle diffère VRAIMENT de ce
      qu'on affiche, sans quoi chaque frappe se ferait renvoyer sa propre valeur
@@ -200,7 +180,7 @@ export default function ColorPicker({
           drag(svRef, e, (x, y) => commit({ ...hsv, s: x, v: 1 - y }));
         }}
         className={`relative w-full cursor-crosshair touch-none rounded-lg ${
-          wide ? "aspect-square" : "aspect-[5/3]"
+          wide ? "min-h-[10rem] flex-1" : "aspect-[5/3]"
         }`}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
@@ -377,19 +357,15 @@ export default function ColorPicker({
        du bas, incompressible, débordait alors à droite. */
     return (
       <div className="[container-type:inline-size]">
-        <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[auto_minmax(0,1fr)]">
-          {/* Le carré prend la hauteur que la colonne de droite laisse, et le
-              rail, de la hauteur de l'aperçu (h-8), s'aligne sur la ligne du
+        <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[10rem_minmax(0,1fr)]">
+          {/* Le carré prend toute la hauteur que la colonne de droite laisse, et
+              le rail, de la hauteur de l'aperçu (h-8), s'aligne sur la ligne du
               bas : aperçu, valeur, formats. */}
-          <div
-            ref={leftRef}
-            className={`flex flex-col gap-2.5 ${side ? "" : "w-full max-w-[18rem]"}`}
-            style={side ? { width: side } : undefined}
-          >
+          <div className="flex flex-col gap-2.5">
             {svBlock}
             <div className="flex h-8 shrink-0 items-center">{hueBlock}</div>
           </div>
-          <div ref={rightRef} className="grid min-w-0 content-start gap-2.5">
+          <div className="grid min-w-0 content-start gap-2.5">
             {header}
             {swatchBlock}
             {/* La ligne du bas tient l'aperçu, la valeur et les formats ; les
