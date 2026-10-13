@@ -180,7 +180,7 @@ export default function ColorPicker({
           drag(svRef, e, (x, y) => commit({ ...hsv, s: x, v: 1 - y }));
         }}
         className={`relative w-full cursor-crosshair touch-none rounded-lg ${
-          wide ? "h-40" : "aspect-[5/3]"
+          wide ? "min-h-[10rem] flex-1" : "aspect-[5/3]"
         }`}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
@@ -358,12 +358,12 @@ export default function ColorPicker({
     return (
       <div className="[container-type:inline-size]">
         <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[10rem_minmax(0,1fr)]">
-          {/* Le rail prend la place qui reste sous le carré et s'y centre : la
-              colonne de droite est plus haute, et un rail collé sous le carré
-              laissait un vide en bas de la gauche. */}
+          {/* Le carré prend toute la hauteur que la colonne de droite laisse, et
+              le rail, de la hauteur de l'aperçu (h-8), s'aligne sur la ligne du
+              bas : aperçu, valeur, formats. */}
           <div className="flex flex-col gap-2.5">
             {svBlock}
-            <div className="flex flex-1 items-center">{hueBlock}</div>
+            <div className="flex h-8 shrink-0 items-center">{hueBlock}</div>
           </div>
           <div className="grid min-w-0 content-start gap-2.5">
             {header}
