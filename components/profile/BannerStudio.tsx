@@ -101,6 +101,18 @@ import type { BannerOption } from "@/lib/profile/types";
  * premier retour d'usage a été « la bannière a changé toute seule ».
  */
 
+/** La recherche d'animés du studio chez AniList : le strict nécessaire pour
+    une ligne (titre, affiche). Le reste vient de la fiche quand on l'ouvre. */
+const STUDIO_SEARCH = `query ($search: String) {
+  Page(perPage: 12) {
+    media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
+      id
+      title { userPreferred english romaji }
+      coverImage { medium }
+    }
+  }
+}`;
+
 export type StudioAnime = {
   mediaId: number;
   title: string;
@@ -462,6 +474,54 @@ export default function BannerStudio({
     if (q.length < 3) return null;
     return animes.find((a) => fold(a.title).includes(q)) ?? null;
   }, [scope, query, animes]);
+
+  /* CHERCHER HORS DE SA LISTE (14/10/2026). Les onglets Image et Bannière ne
+     proposaient que les animés de la liste : impossible de poser une
+     illustration d'un titre qu'on n'a pas noté. Dès trois lettres, la frappe
+     part aussi chez AniList — DEPUIS LE NAVIGATEUR, comme la page de
+     recherche, donc sans invocation de fonction ni file d'attente du limiteur
+     partagé du site. `vus` garde l'identité de chaque titre trouvé : la ligne
+     ouverte doit survivre à une recherche qui ne la trouve plus. */
+  const [found, setFound] = useState<StudioAnime[]>([]);
+  const vus = useRef(new Map<number, StudioAnime>());
+  useEffect(() => {
+    const q = query.trim();
+    if ((scope !== "image" && scope !== "banner") || fold(q).length < 3) {
+      setFound([]);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      fetch("https://graphql.anilist.co/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: STUDIO_SEARCH, variables: { search: q } }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (!alive) return;
+          const media: Array<{
+            id: number;
+            title?: { userPreferred?: string; english?: string; romaji?: string };
+            coverImage?: { medium?: string };
+          }> = json?.data?.Page?.media ?? [];
+          const out = media.map((m) => ({
+            mediaId: m.id,
+            title: m.title?.userPreferred || m.title?.english || m.title?.romaji || `#${m.id}`,
+            cover: m.coverImage?.medium ?? null,
+          }));
+          for (const a of out) vus.current.set(a.mediaId, a);
+          setFound(out);
+        })
+        .catch(() => alive && setFound([]));
+    }, 350);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+    // `fold` est une fonction pure redéfinie à chaque rendu : hors dépendances.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, query]);
 
   /* L'anime OUVERT, dans les onglets qui se parcourent en deux écrans —
      Vidéo, Bannière et Image. `null` : on est encore devant la liste des
@@ -1131,11 +1191,20 @@ export default function BannerStudio({
          ligne ouverte quand le sélecteur de saison fait changer `pick` vers une
          saison absente de la liste. */
       const ouvert = pick == null ? null : artRoot ?? pick;
+      /* Ta liste d'abord, puis ce qu'AniList trouve en plus ; et la ligne
+         ouverte reste, même quand la recherche ne la trouve plus. */
+      const dansListe = new Set(animes.map((a) => a.mediaId));
       const liste = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+      const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
+      const ouvertAilleurs =
+        ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
+          ? vus.current.get(ouvert)
+          : undefined;
+      liste.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
       const ligne = (a: StudioAnime): Row => ({
         key: `anime-art-${a.mediaId}`,
         label: a.title,
-        hint: t("profile.studioSeeArt"),
+        hint: dansListe.has(a.mediaId) ? t("profile.studioSeeArt") : t("profile.studioNotInList"),
         thumb: a.cover ?? null,
         selected: draft.animeId === a.mediaId && !!draft.url,
         expand: false,
@@ -1659,7 +1728,9 @@ export default function BannerStudio({
        doit contenir que ce qu'il annonce — une liste d'animés sous les couleurs
        n'appartenait pas à l'onglet « Couleur ». Elle reste donc là où elle sert,
        sous une frappe, et jamais dans un onglet qui ne cherche pas d'anime. */
-    const others = (!q || scope === "color" ? [] : animes)
+    /* Pas dans Image ni Bannière : leur accordéon liste déjà les animés
+       trouvés, cette section les y montrait une seconde fois. */
+    const others = (!q || scope === "color" || scope === "image" || scope === "banner" ? [] : animes)
       .filter(
         (a) =>
           a.mediaId !== listedAnimeId &&
@@ -1690,7 +1761,7 @@ export default function BannerStudio({
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
-      artRoot, artAll, loading, fanartsLoading, holdAnchor]);
+      artRoot, artAll, loading, fanartsLoading, holdAnchor, found]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 

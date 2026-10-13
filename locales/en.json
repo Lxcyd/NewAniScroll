@@ -1116,6 +1116,7 @@
     "studioCovers": "Posters from my list",
     "studioTrailers": "Trailers from my list",
     "studioNoTrailer": "No trailer in this list",
+    "studioNotInList": "Not in your list · see its artwork",
     "studioSeeArt": "See its artwork",
     "studioArtSeeAll": "See all {{count}} images",
     "studioArtCollapse": "Collapse",

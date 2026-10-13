@@ -1116,6 +1116,7 @@
     "studioCovers": "Affiches de ma liste",
     "studioTrailers": "Bandes-annonces de ma liste",
     "studioNoTrailer": "Aucune bande-annonce dans cette liste",
+    "studioNotInList": "Pas dans ta liste · voir ses illustrations",
     "studioSeeArt": "Voir ses illustrations",
     "studioArtSeeAll": "Voir les {{count}} images",
     "studioArtCollapse": "Replier",

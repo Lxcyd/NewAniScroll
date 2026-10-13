@@ -2409,3 +2409,8 @@ reellement ouverts repaient un fan-out, une fois.
 
 - Accordéon : ouvrir un animé repliait celui d'avant ; s'il était au-dessus, la colonne « remontait » et la ligne cliquée sortait de vue. Ancre `data-anchor` notée au clic et défilement recalé avant peinture (`useBeforePaint`) : la ligne / l'en-tête reste au pixel près sous le pointeur (vérifié : 252 px avant, après ouverture, après chargement, après repli).
 
+
+## 2026-10-14 — Studio : chercher un animé hors de sa liste
+
+- Image / Bannière : dès 3 lettres, la recherche interroge aussi AniList DEPUIS LE NAVIGATEUR (`STUDIO_SEARCH`, 12 résultats, debounce 350 ms, sans fonction Vercel ni limiteur partagé). Les titres hors liste viennent après les siens, marqués « Pas dans ta liste », et se déplient comme les autres ; la ligne ouverte survit à une recherche qui ne la trouve plus (`vus`). La section « Autres animés » est retirée de ces deux onglets (doublon). Vérifié en local : « berserk » → 6 titres, Kenpuu Denki Berserk → 32 illustrations.
+
