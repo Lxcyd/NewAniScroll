@@ -177,8 +177,16 @@ const HONEY ="M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
    `background-position`, une valeur pour un calque (globals.css,
    .as-pattern-scroll). Un second calque resterait immobile. */
 const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
-  /* 2 */ "diag-wide": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(26)} 0 14px,transparent 14px 28px)`,
-  /* 9 */ candy: (k: Ctx) => `repeating-linear-gradient(-45deg,${k.a(42)} 0 10px,${k.a(10)} 10px 20px)`,
+  /* 2 et 9 — en tuiles SVG, plus en `repeating-linear-gradient` : Chrome
+     redessine un dégradé répété par carreaux de rastérisation, et une fois
+     le fond animé leurs raccords ne tombaient plus juste — les rayures
+     montraient des cassures horizontales. Une tuile SVG est dessinée une
+     fois puis recopiée. Pas horizontal de 40 et 28 px (≈ 28 et 20 px
+     perpendiculaires, les pas d'origine). */
+  /* 2 */ "diag-wide": (k: Ctx) =>
+    svg(40, 40, `<polygon points='0,0 20,0 40,20 40,40' ${k.F(0.26)}/><polygon points='0,20 20,40 0,40' ${k.F(0.26)}/>`),
+  /* 9 */ candy: (k: Ctx) =>
+    svg(28, 28, `<rect width='28' height='28' ${k.F(0.1)}/><polygon points='0,0 14,0 0,14' ${k.F(0.42)}/><polygon points='28,0 28,14 14,28 0,28' ${k.F(0.42)}/>`),
   /* 11 — en SVG, plus en quatre dégradés : leurs arrêts nets laissaient un
      filet clair à chaque jointure de tuile. */
   zigzag: (k: Ctx) => svg(40, 40, `<polygon points='0,0 20,20 40,0 40,20 20,40 0,20' ${k.F(0.32)}/>`),
@@ -219,10 +227,9 @@ const MASK: Record<string, string> = {
    de la diagonale elles glisseraient sur elles-mêmes et paraîtraient figées.
    Les tuiles, elles, défilent en diagonale d'une tuile. */
 const PERIOD: Record<string, (zoom: number) => [number, number] | [number, number, number]> = {
-  /* [px, py, facteur] : le pas d'une rayure à 45° se mesure le long du
-     dégradé, l'écart horizontal qui la reproduit vaut √2 fois ce pas. */
-  "diag-wide": () => [28, 0, Math.SQRT2],
-  candy: () => [20, 0, Math.SQRT2],
+  /* [px, py, facteur] : les rayures défilent à l'horizontale d'une tuile. */
+  "diag-wide": () => [40, 0],
+  candy: () => [28, 0],
   zigzag: () => [40, 40],
   halftone: () => [10, 10],
   tatami: () => [60, 60],
