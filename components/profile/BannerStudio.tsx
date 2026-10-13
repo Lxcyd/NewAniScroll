@@ -963,7 +963,7 @@ export default function BannerStudio({
                   colonne. Ils passent l'un sous l'autre si la place manque. */}
               <div className="flex min-w-[12rem] flex-1 items-center gap-2.5">
                 {/* Zoom au dixième : un pas de ×0,5 sautait trop d'un coup. */}
-                <span className="font-karla text-[13px] font-bold uppercase tracking-[.1em] text-white/45">
+                <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                   {t("profile.studioPatternZoom")}
                 </span>
                 <StudioRange
@@ -974,13 +974,13 @@ export default function BannerStudio({
                   onChange={(v) => patch({ ...withPattern, patternZoom: clampPatternZoom(v) })}
                   label={t("profile.studioPatternZoom")}
                 />
-                <span className="w-[4.25rem] shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[12.5px] font-bold tabular-nums text-white/80">
+                <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
                   ×{zoom.toFixed(1)}
                 </span>
               </div>
               <div className="flex min-w-[15rem] flex-1 items-center gap-2.5">
                 {/* L'intitulé, PUIS l'interrupteur : on lit ce qu'on bascule. */}
-                <span className="font-karla text-[13px] font-bold uppercase tracking-[.1em] text-white/45">
+                <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                   {t("profile.studioPatternAnim")}
                 </span>
                 <button
@@ -1015,7 +1015,7 @@ export default function BannerStudio({
                     onChange={(v) => patch({ patternSpeed: clampPatternSpeed(v) })}
                     label={t("profile.studioPatternSpeed")}
                   />
-                  <span className="w-[4.25rem] shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[12.5px] font-bold tabular-nums text-white/80">
+                  <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
                     {speed} px/s
                   </span>
                 </div>
