@@ -309,7 +309,7 @@ export default function BannerStudio({
     return () => document.removeEventListener("pointerdown", close);
   }, [frameSortOpen]);
   /** Cases par ligne : moins = plus grandes. */
-  const [frameCols, setFrameCols] = useState(6);
+  const [frameCols, setFrameCols] = useState(4);
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
