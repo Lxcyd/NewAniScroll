@@ -235,9 +235,21 @@ function shuffleKey(asset: string, seed: number): number {
    appareil. Une commodité : sans stockage, on retombe sur Image. */
 const LAST_SCOPE_KEY = "as-studio-scope";
 const SCOPES: PaletteScope[] = [
-  "color", "banner", "anim", "image", "video", "oped", "clip", "upload",
+  "color", "banner", "image", "video", "oped", "upload",
   "music", "layout", "frame",
 ];
+
+/** Le dock regroupe les fonds de même nature : un bouton par groupe, et un
+    onglet par fond dans l'en-tête du menu quand le groupe en compte plusieurs.
+    Le bouton porte le nom et l'icône du premier. */
+const DOCK_GROUPS: DressingKind[][] = [
+  ["color"],
+  ["image", "banner"],
+  ["video", "oped"],
+  ["upload"],
+];
+const groupOf = (k: PaletteScope | null) =>
+  DOCK_GROUPS.find((g) => g.includes(k as DressingKind)) ?? null;
 function readLastScope(): PaletteScope {
   try {
     const v = localStorage.getItem(LAST_SCOPE_KEY) as PaletteScope | null;
@@ -1977,7 +1989,33 @@ export default function BannerStudio({
                 {searchable ? (
                   <>
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
-                    {scope === "frame" ? null : (
+                    {scope === "frame" ? null : (groupOf(scope)?.length ?? 0) > 1 ? (
+                      /* Un groupe du dock : un onglet par fond. Changer
+                         d'onglet garde la recherche et l'animé choisi — ses
+                         images et ses bannières sont la même galerie. */
+                      <div role="tablist" className="flex shrink-0 rounded-full bg-white/[0.06] p-0.5 ring-1 ring-white/10">
+                        {groupOf(scope)!.map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            role="tab"
+                            aria-selected={scope === k}
+                            onClick={() => {
+                              if (scope === k) return;
+                              setScope(k);
+                              writeLastScope(k);
+                              setCursor(0);
+                              if (k === "video" || k === "oped") setPick(null);
+                            }}
+                            className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+                              scope === k ? "bg-action text-white" : "text-white/55 hover:text-white"
+                            }`}
+                          >
+                            {t(`profile.studioKind_${k}`)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
                     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
                       {t(`profile.studioKind_${scope}`)}
                     </span>
@@ -2576,12 +2614,14 @@ export default function BannerStudio({
               active={DRESSING_KINDS.some((k) => k.id === scope)}
               fit
             >
-              {DRESSING_KINDS.map(({ id }) => {
+              {DOCK_GROUPS.map((kinds) => {
+                const id = kinds[0];
                 const Icon = KIND_ICON[id];
-                const on = scope === id;
+                const on = kinds.includes(scope as DressingKind);
                 /* Le point dit « c'est le fond porté » ; le rose, « ce menu est
                    ouvert ». Les deux ne désignent pas toujours la même case. */
-                const worn = draft.kind === id && !!(draft.url || draft.color || draft.trailerId);
+                const worn =
+                  !!draft.kind && kinds.includes(draft.kind) && !!(draft.url || draft.color || draft.trailerId);
                 return (
                   <button
                     key={id}
@@ -2589,7 +2629,17 @@ export default function BannerStudio({
                     onClick={() => {
                       /* Rappuyer sur le fond vidéo ouvert ramène son rail. */
                       if (on && videoBar) setBarVideo(true);
-                      else openScope(id);
+                      /* Le groupe s'ouvre sur l'onglet du fond porté s'il en
+                         fait partie, sinon sur le premier ; ouvert, il revient
+                         à la liste de son onglet. */
+                      else
+                        openScope(
+                          on
+                            ? (scope as DressingKind)
+                            : draft.kind && kinds.includes(draft.kind)
+                              ? draft.kind
+                              : id,
+                        );
                     }}
                     title={t(`profile.studioKind_${id}`)}
                     aria-label={t(`profile.studioKind_${id}`)}

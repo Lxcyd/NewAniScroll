@@ -2397,3 +2397,9 @@ reellement ouverts repaient un fan-out, une fois.
 - Palette Ctrl+S : AniList et FTS Turso affiches chacun des qu'ils repondent
   (avant : `Promise.all`, donc le plus lent), debounce 300 ms.
 - Garde de sequence : une reponse perimee n'ecrase plus la recherche courante.
+
+## 2026-10-13 — Studio : dock regroupé en onglets
+
+- « Bannière animée » et « Clip d'anime » retirés du dock (aucune source en vue) ; `normalizeDressing` ne les accepte plus.
+- Le dock regroupe les fonds (`DOCK_GROUPS`) : Couleur · Image (onglets Image / Bannière) · Vidéo (onglets Vidéo / Intro-Outro) · Import perso. Changer d'onglet Image↔Bannière garde la recherche et l'animé choisi.
+

@@ -221,25 +221,26 @@ export type Dressing = {
 };
 
 /**
- * Ce que le dock propose, dans l'ordre où il l'affiche.
+ * Les fonds que le studio propose (le dock les regroupe : DOCK_GROUPS de
+ * BannerStudio).
  *
- * `ready: false` n'est pas un « à faire » décoratif : ces quatre fonds
- * attendent une source qui n'existe pas encore côté site (aucune vidéothèque,
- * pas de découpage d'épisode, aucun stockage d'import ni d'IA anti-NSFW en
- * ligne). Le bouton reste dans le dock — la palette dit alors ce qui manque,
- * plutôt que de faire disparaître une option annoncée.
+ * `ready: false` n'est pas un « à faire » décoratif : l'import attend un
+ * stockage et une IA anti-NSFW qui n'existent pas encore en ligne. Le bouton
+ * reste dans le dock — la palette dit alors ce qui manque.
+ *
+ * « Bannière animée » et « Clip d'anime » ont été retirés le 13/10/2026 (aucune
+ * source en vue) : le type les garde pour ne pas casser `isVideoKind`, mais
+ * `normalizeDressing` ne les accepte plus.
  */
 export const DRESSING_KINDS: Array<{ id: DressingKind; ready: boolean }> = [
   { id: "color", ready: true },
   { id: "banner", ready: true },
-  { id: "anim", ready: false },
   { id: "image", ready: true },
   /* « Vidéo » est servi par les bandes-annonces AniList depuis le 06/09/2026 :
      elles existent pour presque tous les titres, et arrivent dans la requête
      que le profil fait déjà. */
   { id: "video", ready: true },
   { id: "oped", ready: true },
-  { id: "clip", ready: false },
   { id: "upload", ready: false },
 ];
 
