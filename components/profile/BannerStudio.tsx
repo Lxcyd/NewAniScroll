@@ -937,24 +937,19 @@ export default function BannerStudio({
                   onClick={() =>
                     patch({ kind: "color", color: tint, pattern: id, url: null, source: null, animeId: null, title: null })
                   }
-                  /* La vignette choisie : anneau `action` épais ET pastille ✓.
-                     L'anneau blanc fin d'avant se perdait dans les motifs à
-                     traits clairs — on ne voyait pas lequel était pris. */
-                  className={`relative aspect-[3/2] rounded-md transition-transform hover:scale-[1.04] ${
+                  /* La vignette choisie : une bordure `action` de 2 px, À
+                     L'INTÉRIEUR (`ring-inset`). L'anneau blanc fin d'avant se
+                     perdait dans les motifs ; un anneau extérieur décalé, lui,
+                     débordait sur les voisines (l'écart n'est que de 6 px). */
+                  className={`aspect-[3/2] rounded-md transition-transform hover:scale-[1.04] ${
                     current === id
-                      ? "ring-[3px] ring-action ring-offset-2 ring-offset-[#15161d]"
+                      ? /* « Aucun motif » est un aplat de la couleur : une
+                           bordure `action` s'y fondrait, elle y est blanche. */
+                        `ring-2 ring-inset ${id ? "ring-action" : "ring-white"}`
                       : "ring-1 ring-white/10"
                   }`}
                   style={{ background: id ? patternBackground(id, tint, 1.5) : tint }}
-                >
-                  {current === id ? (
-                    <span className="absolute right-1 top-1 grid h-[18px] w-[18px] place-items-center rounded-full bg-white text-[#15161d] shadow-[0_1px_4px_rgba(0,0,0,.5)]">
-                      <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M3.5 8.5l3 3 6-7" />
-                      </svg>
-                    </span>
-                  ) : null}
-                </button>
+                />
               );
             })}
           </PatternGrid>
