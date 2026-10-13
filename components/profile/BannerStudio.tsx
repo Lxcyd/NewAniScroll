@@ -1,5 +1,9 @@
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
+/* Le recalage du défilement doit passer avant que l'écran ne se peigne ; côté
+   serveur, `useLayoutEffect` ne fait qu'avertir. */
+const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffect;
 import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
@@ -474,6 +478,25 @@ export default function BannerStudio({
      ouverte (voir `ouvert`), et sa galerie déroulée en entier ou non. */
   const [artRoot, setArtRoot] = useState<number | null>(null);
   const [artAll, setArtAll] = useState(false);
+  /* L'ACCORDÉON NE DOIT PAS FAIRE SAUTER LA COLONNE. Ouvrir un animé replie
+     celui d'avant ; s'il était plus haut, tout ce qui suit remontait de la
+     hauteur de sa galerie et la ligne cliquée filait hors de vue. On note où
+     était la ligne au clic, et on recale le défilement après le rendu pour
+     qu'elle — ou l'en-tête qui la remplace — reste sous le pointeur. */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const anchor = useRef<{ key: string; top: number } | null>(null);
+  const holdAnchor = useCallback((key: string) => {
+    const el = scrollerRef.current?.querySelector<HTMLElement>(`[data-anchor="${key}"]`);
+    anchor.current = el ? { key, top: el.getBoundingClientRect().top } : null;
+  }, []);
+  useBeforePaint(() => {
+    const a = anchor.current;
+    const box = scrollerRef.current;
+    if (!a || !box) return;
+    anchor.current = null;
+    const el = box.querySelector<HTMLElement>(`[data-anchor="${a.key}"]`);
+    if (el) box.scrollTop += el.getBoundingClientRect().top - a.top;
+  });
   const twoScreens = scope === "video" || scope === "banner" || scope === "image";
 
   const listedAnime = twoScreens
@@ -1117,6 +1140,7 @@ export default function BannerStudio({
         selected: draft.animeId === a.mediaId && !!draft.url,
         expand: false,
         run: () => {
+          holdAnchor(`anime-art-${a.mediaId}`);
           setPick(a.mediaId);
           setArtRoot(a.mediaId);
           setArtAll(false);
@@ -1261,7 +1285,9 @@ export default function BannerStudio({
                 setArtAll(false);
                 setCursor(0);
               }}
+              anchor={`anime-art-${ouvert}`}
               onClose={() => {
+                holdAnchor(`anime-art-${ouvert}`);
                 setPick(null);
                 setCursor(0);
               }}
@@ -1664,7 +1690,7 @@ export default function BannerStudio({
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
-      artRoot, artAll, loading, fanartsLoading]);
+      artRoot, artAll, loading, fanartsLoading, holdAnchor]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -2227,6 +2253,7 @@ export default function BannerStudio({
               {/* La barre de défilement partagée du site (`as-scroller`) : sur
                   une liste de cadres aussi longue, il faut voir où l'on en est. */}
               <div
+                ref={scrollerRef}
                 className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
@@ -2342,6 +2369,7 @@ export default function BannerStudio({
                         return (
                           <button
                             key={row.key}
+                            data-anchor={row.key}
                             type="button"
                             disabled={row.disabled}
                             onMouseMove={() => setCursor(flat.indexOf(row))}
@@ -3230,6 +3258,7 @@ function AnimeHead({
   current,
   onPick,
   onClose,
+  anchor,
   t,
 }: {
   anime: StudioAnime | null;
@@ -3241,6 +3270,8 @@ function AnimeHead({
   onPick: (id: number) => void;
   /** En accordéon : l'en-tête est la ligne ouverte, et un clic la replie. */
   onClose?: () => void;
+  /** Le repère que le studio retrouve pour garder la ligne sous le pointeur. */
+  anchor?: string;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
   if (!anime) return null;
@@ -3260,7 +3291,7 @@ function AnimeHead({
     </>
   );
   return (
-    <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
+    <div data-anchor={anchor} className="flex items-center gap-3 rounded-xl bg-white/[0.04] px-3 py-2.5">
       {onClose ? (
         <button
           type="button"

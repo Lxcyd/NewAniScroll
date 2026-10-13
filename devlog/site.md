@@ -2407,3 +2407,5 @@ reellement ouverts repaient un fan-out, une fois.
 
 - Accordéon : ouvrir un autre animé montrait les images du PRÉCÉDENT puis les échangeait. useFanarts / useTmdbArtworks / useWallhaven rangent maintenant leur réponse avec l'id de l'anime et ne rendent jamais celle d'un autre ; le studio lit `art` dans son cache par `pick`. Cases grises tant que la galerie du profil et fanart.tv ne sont pas arrivés (plus de planche qui se réordonne). `loading` pouvait rester vrai pour de bon après une requête interrompue (corrigé).
 
+- Accordéon : ouvrir un animé repliait celui d'avant ; s'il était au-dessus, la colonne « remontait » et la ligne cliquée sortait de vue. Ancre `data-anchor` notée au clic et défilement recalé avant peinture (`useBeforePaint`) : la ligne / l'en-tête reste au pixel près sous le pointeur (vérifié : 252 px avant, après ouverture, après chargement, après repli).
+
