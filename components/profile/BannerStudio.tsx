@@ -38,7 +38,13 @@ import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import { useWallhaven } from "@/lib/hooks/useWallhaven";
 import { byQuality } from "@/lib/images/artQuality";
 import ColorPicker from "@/components/shared/ColorPicker";
-import { PATTERN_IDS, patternBackground } from "@/lib/profile/patterns";
+import {
+  clampPatternZoom,
+  PATTERN_IDS,
+  PATTERN_ZOOM_MAX,
+  PATTERN_ZOOM_MIN,
+  patternBackground,
+} from "@/lib/profile/patterns";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
@@ -892,11 +898,15 @@ export default function BannerStudio({
          réel, pas sur une vignette générique. « Aucun » rend l'aplat. */
       const tint = isHexColor(draft.color) ? draft.color! : accent;
       const current = draft.kind === "color" ? draft.pattern ?? null : null;
+      const zoom = clampPatternZoom(draft.patternZoom);
       out.push({
         title: t("profile.studioPatternSection"),
         rows: [],
         node: (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
+          <div className="grid gap-2.5">
+          {/* Vignettes courtes (3:2, ~70 px) : la couleur ET les motifs doivent
+              tenir dans la colonne sans barre de défilement. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))] gap-1.5">
             {[null, ...PATTERN_IDS].map((id) => {
               const name = id ? t(`profile.studioPatterns.${id}`) : t("profile.studioPatternNone");
               return (
@@ -909,13 +919,55 @@ export default function BannerStudio({
                   onClick={() =>
                     patch({ kind: "color", color: tint, pattern: id, url: null, source: null, animeId: null, title: null })
                   }
-                  className={`aspect-[16/9] rounded-lg ring-1 ring-white/10 transition-transform hover:scale-[1.04] ${
+                  className={`aspect-[3/2] rounded-md ring-1 ring-white/10 transition-transform hover:scale-[1.04] ${
                     current === id ? "ring-2 ring-white ring-offset-2 ring-offset-[#15161d]" : ""
                   }`}
-                  style={{ background: id ? patternBackground(id, tint) : tint }}
+                  style={{ background: id ? patternBackground(id, tint, 1.5) : tint }}
                 />
               );
             })}
+          </div>
+          {current ? (
+            <div className="flex items-center gap-3 px-1">
+              <span className="shrink-0 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+                {t("profile.studioPatternZoom")}
+              </span>
+              <span className="as-range relative block h-4 min-w-0 flex-1">
+                <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+                <span
+                  className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                  style={{
+                    width: `${((zoom - PATTERN_ZOOM_MIN) / (PATTERN_ZOOM_MAX - PATTERN_ZOOM_MIN)) * 100}%`,
+                  }}
+                />
+                <input
+                  type="range"
+                  min={PATTERN_ZOOM_MIN}
+                  max={PATTERN_ZOOM_MAX}
+                  step={0.5}
+                  value={zoom}
+                  onChange={(e) => patch({ patternZoom: clampPatternZoom(e.target.value) })}
+                  style={{ pointerEvents: "auto" }}
+                  aria-label={t("profile.studioPatternZoom")}
+                />
+              </span>
+              <span className="w-9 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold text-white/80">
+                ×{zoom}
+              </span>
+              <button
+                type="button"
+                onClick={() => patch({ patternAnim: !draft.patternAnim })}
+                aria-pressed={!!draft.patternAnim}
+                className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+                  draft.patternAnim
+                    ? "bg-action/20 text-white ring-action/50"
+                    : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+                }`}
+              >
+                {t("profile.studioPatternAnim")}
+              </button>
+            </div>
+          ) : null}
           </div>
         ),
       });

@@ -1,7 +1,12 @@
 import Image from "next/image";
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
-import { isPatternId, patternBackground } from "@/lib/profile/patterns";
+import {
+  isPatternId,
+  patternBackground,
+  PATTERN_BASE,
+  PATTERN_ZOOM_DEFAULT,
+} from "@/lib/profile/patterns";
 
 /**
  * Le fond d'un profil, quel qu'il soit — couleur, image, vidéo.
@@ -40,6 +45,8 @@ type Props = {
     videoTo?: Dressing["videoTo"];
     videoFade?: Dressing["videoFade"];
     pattern?: Dressing["pattern"];
+    patternZoom?: Dressing["patternZoom"];
+    patternAnim?: Dressing["patternAnim"];
   };
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
@@ -318,11 +325,22 @@ export default function PlateBackground({
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     /* Un motif se dessine DANS la couleur, sur fond sombre (lib/profile/patterns). */
     if (isPatternId(dressing.pattern)) {
+      /* Animé, le calque déborde de 12 % de chaque côté et dérive en
+         va-et-vient : un aller-retour boucle sans couture quel que soit le pas
+         du motif, ce qu'une translation d'une tuile ne ferait pas pour tous. */
       return (
-        <div
-          className="absolute inset-0"
-          style={{ background: patternBackground(dressing.pattern, dressing.color || "#E94560") }}
-        />
+        <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
+          <div
+            className={`absolute ${dressing.patternAnim ? "-inset-[12%] as-pattern-drift" : "inset-0"}`}
+            style={{
+              background: patternBackground(
+                dressing.pattern,
+                dressing.color || "#E94560",
+                dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT,
+              ),
+            }}
+          />
+        </div>
       );
     }
     return (

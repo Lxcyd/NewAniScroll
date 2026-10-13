@@ -96,21 +96,42 @@ function cubes(k: Ctx, a: number) {
   return svg(r1(w), 3 * a, s);
 }
 
-function mosaic(k: Ctx) {
+/* La mosaïque NE SE RÉPÈTE PAS : une tuile de 4×4 cases se voyait à l'œil nu
+   sur une plaque pleine page. Elle couvre donc ~2400×1440 px UNE FOIS ZOOMÉE,
+   quel que soit le zoom — d'où le nombre de cases qui baisse quand le zoom
+   monte : une tuile fixe en unités deviendrait au zoom ×8 une image de
+   9600 px à rasteriser. Les triangles sont regroupés par opacité (six paliers,
+   un chemin chacun) pour garder la donnée sous ~40 Ko. */
+const MOSAIC_PX = [2400, 1440];
+const mosaicCache = new Map<string, string>();
+function mosaic(k: Ctx, zoom: number) {
+  const key = `${k.c}|${zoom}`;
+  const hit = mosaicCache.get(key);
+  if (hit) return hit;
+  /* Plafond à 60×36 cases : au zoom ×1 la tuile fait 1200 px et se répète,
+     mais une donnée de 17 000 triangles pèserait plus que la page. */
+  const cols = Math.min(60, Math.ceil(MOSAIC_PX[0] / (20 * zoom)));
+  const rows = Math.min(36, Math.ceil(MOSAIC_PX[1] / (20 * zoom)));
   const R = rng(5);
-  let s = "";
-  for (let y = 0; y < 4; y++)
-    for (let x = 0; x < 4; x++) {
+  const paths: string[] = ["", "", "", "", "", ""];
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
       const X = x * 20, Y = y * 20;
-      s += `<polygon points='${X},${Y} ${X + 20},${Y} ${X},${Y + 20}' ${k.F(r1(R() * 0.35))}/>`;
-      s += `<polygon points='${X + 20},${Y} ${X + 20},${Y + 20} ${X},${Y + 20}' ${k.F(r1(R() * 0.35))}/>`;
+      paths[Math.floor(R() * 6)] += `M${X} ${Y}h20L${X} ${Y + 20}z`;
+      paths[Math.floor(R() * 6)] += `M${X + 20} ${Y}v20H${X}z`;
     }
-  return svg(80, 80, s);
+  const out = svg(
+    cols * 20,
+    rows * 20,
+    paths.map((d, i) => (i && d ? `<path d='${d}' ${k.F(r1(i * 0.07))}/>` : "")).join(""),
+  );
+  mosaicCache.set(key, out);
+  return out;
 }
 
 const HONEY = "M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
 
-const DRAW = {
+const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
   /* 1 */ "diag-fine": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(35)} 0 2px,transparent 2px 12px)`,
   /* 2 */ "diag-wide": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(26)} 0 14px,transparent 14px 28px)`,
   /* 9 */ candy: (k: Ctx) => `repeating-linear-gradient(-45deg,${k.a(42)} 0 10px,${k.a(10)} 10px 20px)`,
@@ -128,21 +149,44 @@ const DRAW = {
   /* 52 */ scales: (k: Ctx) => fans(k, 14, [13.5], 0.1),
   /* 57 */ honeycomb: (k: Ctx) => svg(56, 100, `<path d='${HONEY}' ${k.S(0.4, 2)}/>`, "28px 50px"),
   /* 59 */ cubes: (k: Ctx) => cubes(k, 16),
-  /* 66 */ mosaic: (k: Ctx) => mosaic(k),
+  /* 66 */ mosaic: (k: Ctx, zoom: number) => mosaic(k, zoom),
   /* 72 */ asanoha: (k: Ctx) => asanoha(k, 28),
-} as const;
-
-export type PatternId = keyof typeof DRAW;
+};
 
 /** Dans l'ordre où le studio les propose. */
-export const PATTERN_IDS = Object.keys(DRAW) as PatternId[];
+export const PATTERN_IDS = [
+  "diag-fine", "diag-wide", "candy", "zigzag", "halftone", "tatami", "weave",
+  "seigaiha", "scales", "honeycomb", "cubes", "mosaic", "asanoha",
+] as const;
+
+export type PatternId = (typeof PATTERN_IDS)[number];
 
 export function isPatternId(v: unknown): v is PatternId {
-  return typeof v === "string" && Object.prototype.hasOwnProperty.call(DRAW, v);
+  return typeof v === "string" && (PATTERN_IDS as readonly string[]).includes(v);
 }
 
-/** La valeur CSS `background` complète : le motif, puis le fond sombre. */
-export function patternBackground(id: PatternId, color: string): string {
+/** Le zoom du motif : un multiplicateur de toutes ses tailles. Défaut ×4 — à
+    ×1, les tuiles du catalogue étaient faites pour des vignettes, et se
+    perdaient en grain sur une plaque pleine page. */
+export const PATTERN_ZOOM_MIN = 1;
+export const PATTERN_ZOOM_MAX = 8;
+export const PATTERN_ZOOM_DEFAULT = 4;
+
+export function clampPatternZoom(v: unknown): number {
+  const n = Number(v);
+  if (v === null || v === undefined || !Number.isFinite(n)) return PATTERN_ZOOM_DEFAULT;
+  return Math.max(PATTERN_ZOOM_MIN, Math.min(PATTERN_ZOOM_MAX, Math.round(n * 2) / 2));
+}
+
+/**
+ * La valeur CSS `background` complète : le motif, puis le fond sombre.
+ *
+ * Le zoom multiplie chaque longueur en `px` de la valeur — pas de `transform`
+ * qui agrandirait une image déjà rasterisée : les dégradés et les tuiles SVG
+ * sont redessinés nets à leur nouvelle taille. Les tuiles SVG n'écrivent
+ * aucune unité dans leur dessin, seule leur `background-size` est touchée.
+ */
+export function patternBackground(id: PatternId, color: string, zoom = 1): string {
   const k: Ctx = {
     c: color,
     b: PATTERN_BASE,
@@ -150,5 +194,7 @@ export function patternBackground(id: PatternId, color: string): string {
     F: (o) => `fill='${color}' fill-opacity='${o}'`,
     S: (o, w) => `fill='none' stroke='${color}' stroke-opacity='${o}' stroke-width='${w}'`,
   };
-  return `${DRAW[id](k)},${PATTERN_BASE}`;
+  const z = clampPatternZoom(zoom);
+  const css = DRAW[id](k, z).replace(/(-?\d*\.?\d+)px/g, (_, n) => `${r1(Number(n) * z)}px`);
+  return `${css},${PATTERN_BASE}`;
 }

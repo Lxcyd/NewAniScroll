@@ -1092,6 +1092,8 @@
     "studioColorTheme": "My theme colour",
     "studioPatternSection": "Patterns",
     "studioPatternNone": "No pattern",
+    "studioPatternZoom": "Zoom",
+    "studioPatternAnim": "Animation",
     "studioPatterns": {
       "diag-fine": "Fine diagonals",
       "diag-wide": "Wide diagonals",

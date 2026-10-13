@@ -19,7 +19,7 @@
 
 import type { BannerOption } from "./types";
 import { isFrameAsset } from "./frames";
-import { isPatternId, type PatternId } from "./patterns";
+import { clampPatternZoom, isPatternId, PATTERN_ZOOM_DEFAULT, type PatternId } from "./patterns";
 
 /** Les huit fonds proposés par le dock du studio. */
 export type DressingKind =
@@ -154,6 +154,10 @@ export type Dressing = {
   /** Motif dessiné dans cette couleur (lib/profile/patterns.ts), ou `null` :
       l'aplat. Ne vit qu'avec un fond de couleur. */
   pattern: PatternId | null;
+  /** Zoom du motif, ×1 à ×8 (défaut ×4). */
+  patternZoom: number;
+  /** Le motif dérive lentement (va-et-vient). */
+  patternAnim: boolean;
   animeId: number | null;
   title: string | null;
   /** Nature de l'illustration — décide fond-de-page ou bandeau (types.plateMode). */
@@ -412,6 +416,8 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     url: kind === "color" ? null : url,
     color: kind === "color" ? color : null,
     pattern: kind === "color" && isPatternId(obj.pattern) ? obj.pattern : null,
+    patternZoom: clampPatternZoom(obj.patternZoom),
+    patternAnim: obj.patternAnim === true,
     animeId: Number.isFinite(animeId) && animeId > 0 ? animeId : null,
     title: str(obj.title, 300),
     source: SOURCES.has(obj.source) ? obj.source : null,
@@ -441,6 +447,8 @@ export function emptyDressing(): Dressing {
     url: null,
     color: null,
     pattern: null,
+    patternZoom: PATTERN_ZOOM_DEFAULT,
+    patternAnim: false,
     animeId: null,
     title: null,
     source: null,

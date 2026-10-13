@@ -1092,6 +1092,8 @@
     "studioColorTheme": "Couleur de mon thème",
     "studioPatternSection": "Motifs",
     "studioPatternNone": "Aucun motif",
+    "studioPatternZoom": "Zoom",
+    "studioPatternAnim": "Animation",
     "studioPatterns": {
       "diag-fine": "Diagonales fines",
       "diag-wide": "Diagonales larges",

@@ -180,7 +180,7 @@ export default function ColorPicker({
           drag(svRef, e, (x, y) => commit({ ...hsv, s: x, v: 1 - y }));
         }}
         className={`relative w-full cursor-crosshair touch-none rounded-lg ${
-          wide ? "min-h-[10rem] flex-1" : "aspect-[5/3]"
+          wide ? "h-28 flex-1 [@container(min-width:36rem)]:h-auto [@container(min-width:36rem)]:min-h-[10rem]" : "aspect-[5/3]"
         }`}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
