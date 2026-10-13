@@ -171,7 +171,24 @@ function tokusa(k: Ctx) {
   return svg(60, 120, s);
 }
 
-const HONEY ="M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
+/* Les centres d'un réseau hexagonal pointe en haut (rayon a) qui touchent une
+   tuile de a√3 × 3a, voisines comprises. */
+function hexLattice(a: number) {
+  const w = a * SQ3;
+  return [[0, 0], [w, 0], [w / 2, 1.5 * a], [0, 3 * a], [w, 3 * a], [-w / 2, 1.5 * a], [w * 1.5, 1.5 * a]];
+}
+const hexPoints = (cx: number, cy: number, r: number) =>
+  pts([0, 1, 2, 3, 4, 5].map((i) => {
+    const t = (Math.PI / 3) * i - Math.PI / 2;
+    return [cx + r * Math.cos(t), cy + r * Math.sin(t)];
+  }));
+
+function honeycomb(k: Ctx, a: number) {
+  const s = hexLattice(a)
+    .map(([x, y]) => `<polygon points='${hexPoints(x, y, a)}' ${k.S(0.4, 2)} stroke-linejoin='round'/>`)
+    .join("");
+  return svg(r1(a * SQ3), 3 * a, s);
+}
 
 /* Chaque motif tient en UN SEUL calque de fond : l'animation fait glisser
    `background-position`, une valeur pour un calque (globals.css,
@@ -198,7 +215,10 @@ const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
     svg(24, 24, `<path d='M0 3H12M0 6H12M0 9H12M12 15H24M12 18H24M12 21H24M15 0V12M18 0V12M21 0V12M3 12V24M6 12V24M9 12V24' ${k.S(0.32, 1)}/>`),
   /* 47 */ seigaiha: (k: Ctx) => fans(k, 20, [19, 14.5, 10, 5.5], 0),
   /* 52 */ scales: (k: Ctx) => fans(k, 14, [13.5], 0.1),
-  /* 57 */ honeycomb: (k: Ctx) => svg(56, 100, `<path d='${HONEY}' ${k.S(0.4, 2)}/>`, "28px 50px"),
+  /* 57 — hexagones FERMÉS, centres voisins compris : l'ancien tracé (un chemin
+     ouvert dont deux côtés suivaient le bord de la tuile) n'en dessinait que la
+     moitié, et chaque sommet posé sur le bord sortait tronqué, en encoche. */
+  honeycomb: (k: Ctx) => honeycomb(k, 16),
   /* 59 */ cubes: (k: Ctx) => cubes(k, 16),
   /* 66 */ mosaic: (k: Ctx, zoom: number) => mosaic(k, zoom),
   /* 72 */ asanoha: (k: Ctx) => asanoha(k, 28),
@@ -236,7 +256,7 @@ const PERIOD: Record<string, (zoom: number) => [number, number] | [number, numbe
   weave: () => [24, 24],
   seigaiha: () => [40, 20],
   scales: () => [28, 14],
-  honeycomb: () => [28, 50],
+  honeycomb: () => [r1(16 * SQ3), 48],
   /* Arrondies comme la `background-size` de leur tuile (r1), sinon la boucle
      glisserait d'une fraction de pixel à chaque tour. */
   cubes: () => [r1(16 * SQ3), 48],
