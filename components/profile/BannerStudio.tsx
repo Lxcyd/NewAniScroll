@@ -865,7 +865,13 @@ export default function BannerStudio({
           <p className="pb-2 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
             {t("profile.studioColorSection")}
           </p>
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Une seule rangée de colonnes égales : en `flex-wrap`, la dernière
+              pastille tombait seule sur une seconde ligne dès que la colonne
+              rétrécissait. */}
+          <div
+            className="grid items-center gap-2"
+            style={{ gridTemplateColumns: `repeat(${swatches.length}, minmax(0, 1fr))` }}
+          >
             {swatches.map((c) => {
               const on = draft.kind === "color" && draft.color?.toLowerCase() === c.toLowerCase();
               return (
@@ -877,7 +883,7 @@ export default function BannerStudio({
                   onClick={() =>
                     patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null })
                   }
-                  className={`h-9 w-9 rounded-full transition-transform hover:scale-110 ${
+                  className={`aspect-square w-full max-w-9 justify-self-center rounded-full transition-transform hover:scale-110 ${
                     on ? "ring-2 ring-white ring-offset-2 ring-offset-[#15161d]" : ""
                   }`}
                   style={{ background: c }}
