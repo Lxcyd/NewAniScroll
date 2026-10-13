@@ -39,10 +39,14 @@ import { useWallhaven } from "@/lib/hooks/useWallhaven";
 import { byQuality } from "@/lib/images/artQuality";
 import ColorPicker from "@/components/shared/ColorPicker";
 import {
+  clampPatternSpeed,
   clampPatternZoom,
   PATTERN_IDS,
+  PATTERN_SPEED_MAX,
+  PATTERN_SPEED_MIN,
   PATTERN_ZOOM_MAX,
   PATTERN_ZOOM_MIN,
+  PATTERN_ZOOM_STEP,
   patternBackground,
 } from "@/lib/profile/patterns";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
@@ -189,6 +193,9 @@ type Section = {
   title: string;
   rows: Row[];
   node?: ReactNode;
+  /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
+      couleur) : le menu est rempli, sans barre de défilement. */
+  grow?: boolean;
   /* Les illustrations se rendent EN GRILLE, cote a cote et en grand : une
      image ne se choisit pas a son nom (elles n'en ont pas), elle se choisit a
      l'oeil, et une vignette de 64 px posee au bout d'une ligne ne permet pas de
@@ -883,9 +890,11 @@ export default function BannerStudio({
       out.push({
         title: "",
         rows: [],
+        grow: true,
         node: (
           <ColorPicker
             wide
+            grow
             header={baseSwatches}
             value={isHexColor(draft.color) ? draft.color! : accent}
             onChange={(hex) =>
@@ -899,6 +908,7 @@ export default function BannerStudio({
       const tint = isHexColor(draft.color) ? draft.color! : accent;
       const current = draft.kind === "color" ? draft.pattern ?? null : null;
       const zoom = clampPatternZoom(draft.patternZoom);
+      const speed = clampPatternSpeed(draft.patternSpeed);
       out.push({
         title: t("profile.studioPatternSection"),
         rows: [],
@@ -928,37 +938,27 @@ export default function BannerStudio({
             })}
           </div>
           {current ? (
-            <div className="flex items-center gap-3 px-1">
-              <span className="shrink-0 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2.5 px-1">
+              {/* Zoom au dixième : un pas de ×0,5 sautait trop d'un coup. */}
+              <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                 {t("profile.studioPatternZoom")}
               </span>
-              <span className="as-range relative block h-4 min-w-0 flex-1">
-                <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
-                <span
-                  className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
-                  style={{
-                    width: `${((zoom - PATTERN_ZOOM_MIN) / (PATTERN_ZOOM_MAX - PATTERN_ZOOM_MIN)) * 100}%`,
-                  }}
-                />
-                <input
-                  type="range"
-                  min={PATTERN_ZOOM_MIN}
-                  max={PATTERN_ZOOM_MAX}
-                  step={0.5}
-                  value={zoom}
-                  onChange={(e) => patch({ patternZoom: clampPatternZoom(e.target.value) })}
-                  style={{ pointerEvents: "auto" }}
-                  aria-label={t("profile.studioPatternZoom")}
-                />
-              </span>
-              <span className="w-9 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold text-white/80">
-                ×{zoom}
+              <StudioRange
+                value={zoom}
+                min={PATTERN_ZOOM_MIN}
+                max={PATTERN_ZOOM_MAX}
+                step={PATTERN_ZOOM_STEP}
+                onChange={(v) => patch({ patternZoom: clampPatternZoom(v) })}
+                label={t("profile.studioPatternZoom")}
+              />
+              <span className="w-12 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+                ×{zoom.toFixed(1)}
               </span>
               <button
                 type="button"
                 onClick={() => patch({ patternAnim: !draft.patternAnim })}
                 aria-pressed={!!draft.patternAnim}
-                className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+                className={`h-6 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
                   draft.patternAnim
                     ? "bg-action/20 text-white ring-action/50"
                     : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
@@ -966,6 +966,21 @@ export default function BannerStudio({
               >
                 {t("profile.studioPatternAnim")}
               </button>
+              {/* La vitesse ne sert qu'animé : grisée sinon, mais à sa place,
+                  pour que la ligne ne saute pas au clic sur Animation. */}
+              <div className={draft.patternAnim ? "" : "pointer-events-none opacity-35"}>
+                <StudioRange
+                  value={speed}
+                  min={PATTERN_SPEED_MIN}
+                  max={PATTERN_SPEED_MAX}
+                  step={1}
+                  onChange={(v) => patch({ patternSpeed: clampPatternSpeed(v) })}
+                  label={t("profile.studioPatternSpeed")}
+                />
+              </div>
+              <span className="w-12 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+                {speed} px/s
+              </span>
             </div>
           ) : null}
           </div>
@@ -2033,7 +2048,7 @@ export default function BannerStudio({
                   une liste de cadres aussi longue, il faut voir où l'on en est. */}
               <div
                 className={`as-scroller overflow-y-auto p-2.5 ${
-                  inColumn ? "min-h-0 flex-1" : "max-h-[52vh]"
+                  inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
               >
                 {loading && flat.length === 0 ? (
@@ -2048,7 +2063,10 @@ export default function BannerStudio({
                   </p>
                 ) : (
                   sections.map((s, i) => (
-                    <div key={s.title || `sec-${i}`}>
+                    <div
+                      key={s.title || `sec-${i}`}
+                      className={s.grow && inColumn ? "flex min-h-0 flex-1 flex-col" : undefined}
+                    >
                       {/* Un bloc peut porter son propre intitulé (le sélecteur de
                           couleur nomme lui-même ses deux moitiés) : on ne lui en
                           impose pas un second. */}
@@ -2057,7 +2075,11 @@ export default function BannerStudio({
                           {s.title}
                         </p>
                       ) : null}
-                      {s.node ? <div className="px-1 pb-1">{s.node}</div> : null}
+                      {s.node ? (
+                        <div className={`px-1 pb-1 ${s.grow && inColumn ? "flex flex-1 flex-col" : ""}`}>
+                          {s.node}
+                        </div>
+                      ) : null}
                       {s.grid ? (
                         /* LA GRILLE D'ILLUSTRATIONS. Les mêmes `rows`, donc le
                            même curseur clavier et la même coche que partout
@@ -2682,6 +2704,45 @@ export default function BannerStudio({
       )}
     </div>
     </>
+  );
+}
+
+/** Le curseur `as-range` du studio (rail, remplissage, poignée native). */
+function StudioRange({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  label,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  label: string;
+}) {
+  return (
+    <span className="as-range relative block h-4 w-full min-w-0">
+      <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+      <span
+        className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+        style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        /* En ligne : `.as-range input[type=range]` coupe les clics avec une
+           spécificité qu'un utilitaire seul ne dépasse pas. */
+        style={{ pointerEvents: "auto" }}
+        aria-label={label}
+      />
+    </span>
   );
 }
 

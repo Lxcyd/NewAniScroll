@@ -2643,17 +2643,20 @@ html.as-scene-leave .as-navbar {
 .as-hero-tint {
   background: var(--as-tint, #e94560);
 }
-/* La dérive d'un fond à motifs (PlateBackground). PAS de garde
-   `prefers-reduced-motion` : l'animation est une case que le propriétaire a
-   cochée lui-même, et Chrome répond `reduce` sur certains postes — elle y
-   aurait été invisible malgré le choix explicite. */
-.as-pattern-drift {
-  animation: as-pattern-drift 36s ease-in-out infinite alternate;
+/* Le défilement d'un fond à motifs (PlateBackground) : le calque glisse d'une
+   PÉRIODE exacte du motif (--pat-dx/--pat-dy, cf. lib/profile/patterns.ts) puis
+   repart de zéro — la dernière image est la première, la boucle est infinie
+   sans retour en arrière. La durée vient du curseur de vitesse.
+   PAS de garde `prefers-reduced-motion` : l'animation est une case que le
+   propriétaire a cochée lui-même, et Chrome répond `reduce` sur certains
+   postes — elle y aurait été invisible malgré le choix explicite. */
+.as-pattern-scroll {
+  animation: as-pattern-scroll 20s linear infinite;
   will-change: transform;
 }
-@keyframes as-pattern-drift {
-  from { transform: translate3d(-6%, -4%, 0); }
-  to { transform: translate3d(6%, 4%, 0); }
+@keyframes as-pattern-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--pat-dx, 0px), var(--pat-dy, 0px), 0); }
 }
 /* Le voile d'une plaque de COULEUR, bien plus léger que celui d'une
    illustration (`.as-page-scrim`, 0.72 / 0.28 / 0.6).

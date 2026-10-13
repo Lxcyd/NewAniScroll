@@ -1,9 +1,10 @@
 import Image from "next/image";
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, type CSSProperties, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import {
+  clampPatternSpeed,
   isPatternId,
-  patternBackground,
+  patternLayers,
   PATTERN_BASE,
   PATTERN_ZOOM_DEFAULT,
 } from "@/lib/profile/patterns";
@@ -47,6 +48,7 @@ type Props = {
     pattern?: Dressing["pattern"];
     patternZoom?: Dressing["patternZoom"];
     patternAnim?: Dressing["patternAnim"];
+    patternSpeed?: Dressing["patternSpeed"];
   };
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
@@ -325,21 +327,32 @@ export default function PlateBackground({
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     /* Un motif se dessine DANS la couleur, sur fond sombre (lib/profile/patterns). */
     if (isPatternId(dressing.pattern)) {
-      /* Animé, le calque déborde de 12 % de chaque côté et dérive en
-         va-et-vient : un aller-retour boucle sans couture quel que soit le pas
-         du motif, ce qu'une translation d'une tuile ne ferait pas pour tous. */
+      const L = patternLayers(
+        dressing.pattern,
+        dressing.color || "#E94560",
+        dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT,
+      );
+      /* Animé, le calque dépasse d'UNE période à droite et en bas, et glisse
+         de cette période en boucle : la fin est identique au début. */
+      const [px, py] = L.period;
+      const speed = clampPatternSpeed(dressing.patternSpeed);
+      const moving: CSSProperties =dressing.patternAnim
+        ? {
+            background: L.moving,
+            width: `calc(100% + ${px}px)`,
+            height: `calc(100% + ${py}px)`,
+            ["--pat-dx" as any]: `${-px}px`,
+            ["--pat-dy" as any]: `${-py}px`,
+            animationDuration: `${Math.max(0.5, Math.hypot(px, py) / speed)}s`,
+          }
+        : { background: L.moving };
       return (
         <div className="absolute inset-0 overflow-hidden" style={{ background: PATTERN_BASE }}>
           <div
-            className={`absolute ${dressing.patternAnim ? "-inset-[12%] as-pattern-drift" : "inset-0"}`}
-            style={{
-              background: patternBackground(
-                dressing.pattern,
-                dressing.color || "#E94560",
-                dressing.patternZoom ?? PATTERN_ZOOM_DEFAULT,
-              ),
-            }}
+            className={dressing.patternAnim ? "as-pattern-scroll absolute left-0 top-0" : "absolute inset-0"}
+            style={moving}
           />
+          {L.still ? <div className="absolute inset-0" style={{ background: L.still }} /> : null}
         </div>
       );
     }

@@ -18,6 +18,14 @@ choisie, sur le fond sombre `#15161d` (la base « Sombre » du catalogue).
 Le sélecteur de couleur suit aussi la largeur du panneau (requête de
 conteneur), plus celle de la fenêtre.
 
+Puis, même jour : zoom ×1–×8 au dixième (défaut ×4, les px de la valeur CSS
+sont multipliés : rendu net), couleurs PLEINES pré-mélangées au fond (deux
+traits qui se croisent ne s'additionnent plus), défilement infini d'une
+période exacte par motif (`PERIOD`, translation CSS, vitesse en px/s), mosaïque
+d'une seule grande tuile. « Sucre d'orge » retiré, Kikkō hanabishi et Tokusa
+ajoutés (série wagara du catalogue), liste triée du plus simple au plus
+chargé. Le sélecteur remplit la colonne (`grow`), le carré prend le reste.
+
 ## 2026-09-24 (suite 18) — La date à égale distance du haut et de la droite
 
 La ligne a `py-3` (12 px) et `px-3.5` (14 px). La colonne de la date prend

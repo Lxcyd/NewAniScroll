@@ -19,7 +19,14 @@
 
 import type { BannerOption } from "./types";
 import { isFrameAsset } from "./frames";
-import { clampPatternZoom, isPatternId, PATTERN_ZOOM_DEFAULT, type PatternId } from "./patterns";
+import {
+  clampPatternSpeed,
+  clampPatternZoom,
+  isPatternId,
+  PATTERN_SPEED_DEFAULT,
+  PATTERN_ZOOM_DEFAULT,
+  type PatternId,
+} from "./patterns";
 
 /** Les huit fonds proposés par le dock du studio. */
 export type DressingKind =
@@ -156,8 +163,10 @@ export type Dressing = {
   pattern: PatternId | null;
   /** Zoom du motif, ×1 à ×8 (défaut ×4). */
   patternZoom: number;
-  /** Le motif dérive lentement (va-et-vient). */
+  /** Le motif défile en boucle infinie. */
   patternAnim: boolean;
+  /** Vitesse de ce défilement, en px par seconde. */
+  patternSpeed: number;
   animeId: number | null;
   title: string | null;
   /** Nature de l'illustration — décide fond-de-page ou bandeau (types.plateMode). */
@@ -418,6 +427,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     pattern: kind === "color" && isPatternId(obj.pattern) ? obj.pattern : null,
     patternZoom: clampPatternZoom(obj.patternZoom),
     patternAnim: obj.patternAnim === true,
+    patternSpeed: clampPatternSpeed(obj.patternSpeed),
     animeId: Number.isFinite(animeId) && animeId > 0 ? animeId : null,
     title: str(obj.title, 300),
     source: SOURCES.has(obj.source) ? obj.source : null,
@@ -449,6 +459,7 @@ export function emptyDressing(): Dressing {
     pattern: null,
     patternZoom: PATTERN_ZOOM_DEFAULT,
     patternAnim: false,
+    patternSpeed: PATTERN_SPEED_DEFAULT,
     animeId: null,
     title: null,
     source: null,

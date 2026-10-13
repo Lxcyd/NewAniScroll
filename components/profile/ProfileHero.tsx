@@ -50,6 +50,7 @@ export type HeroBanner = {
   pattern?: Dressing["pattern"];
   patternZoom?: Dressing["patternZoom"];
   patternAnim?: Dressing["patternAnim"];
+  patternSpeed?: Dressing["patternSpeed"];
   music?: Dressing["music"];
   blur?: number | null;
   /** Bande-annonce YouTube portée en fond (kind « video »). */
@@ -547,6 +548,7 @@ export default function ProfileHero({
               pattern: banner.pattern ?? null,
               patternZoom: banner.patternZoom,
               patternAnim: banner.patternAnim ?? false,
+              patternSpeed: banner.patternSpeed,
               source: banner.source ?? null,
               trailerId: banner.trailerId ?? null,
               /* Le découpage et le fondu voyagent avec le fond : c'est le

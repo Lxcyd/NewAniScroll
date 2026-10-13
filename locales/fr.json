@@ -1094,10 +1094,12 @@
     "studioPatternNone": "Aucun motif",
     "studioPatternZoom": "Zoom",
     "studioPatternAnim": "Animation",
+    "studioPatternSpeed": "Vitesse de l'animation",
     "studioPatterns": {
       "diag-fine": "Diagonales fines",
       "diag-wide": "Diagonales larges",
-      "candy": "Sucre d'orge",
+      "kikko-hanabishi": "Kikkō hanabishi",
+      "tokusa": "Tokusa",
       "zigzag": "Zigzag",
       "halftone": "Trame en fondu",
       "tatami": "Tatami",

@@ -1094,10 +1094,12 @@
     "studioPatternNone": "No pattern",
     "studioPatternZoom": "Zoom",
     "studioPatternAnim": "Animation",
+    "studioPatternSpeed": "Animation speed",
     "studioPatterns": {
       "diag-fine": "Fine diagonals",
       "diag-wide": "Wide diagonals",
-      "candy": "Candy stripes",
+      "kikko-hanabishi": "Kikkō hanabishi",
+      "tokusa": "Tokusa",
       "zigzag": "Zigzag",
       "halftone": "Fading halftone",
       "tatami": "Tatami",
