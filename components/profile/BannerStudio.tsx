@@ -1989,33 +1989,9 @@ export default function BannerStudio({
                 {searchable ? (
                   <>
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
-                    {scope === "frame" ? null : (groupOf(scope)?.length ?? 0) > 1 ? (
-                      /* Un groupe du dock : un onglet par fond. Changer
-                         d'onglet garde la recherche et l'animé choisi — ses
-                         images et ses bannières sont la même galerie. */
-                      <div role="tablist" className="flex shrink-0 rounded-full bg-white/[0.06] p-0.5 ring-1 ring-white/10">
-                        {groupOf(scope)!.map((k) => (
-                          <button
-                            key={k}
-                            type="button"
-                            role="tab"
-                            aria-selected={scope === k}
-                            onClick={() => {
-                              if (scope === k) return;
-                              setScope(k);
-                              writeLastScope(k);
-                              setCursor(0);
-                              if (k === "video" || k === "oped") setPick(null);
-                            }}
-                            className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-                              scope === k ? "bg-action text-white" : "text-white/55 hover:text-white"
-                            }`}
-                          >
-                            {t(`profile.studioKind_${k}`)}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
+                    {/* Un groupe du dock porte ses onglets sous l'en-tête :
+                        pas de pastille en plus. */}
+                    {scope === "frame" || (groupOf(scope)?.length ?? 0) > 1 ? null : (
                     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
                       {t(`profile.studioKind_${scope}`)}
                     </span>
@@ -2120,6 +2096,42 @@ export default function BannerStudio({
                   <XMarkIcon className="h-[1.15rem] w-[1.15rem]" />
                 </button>
               </div>
+
+              {/* Les onglets d'un groupe du dock (Image / Bannière…), en
+                  sélecteur pleine largeur. Changer d'onglet garde la recherche
+                  et l'animé choisi : ses images et ses bannières sont la même
+                  galerie. */}
+              {(groupOf(scope)?.length ?? 0) > 1 ? (
+                <div className="px-2.5 pt-2.5">
+                  <div
+                    role="tablist"
+                    className="flex gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]"
+                  >
+                    {groupOf(scope)!.map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        role="tab"
+                        aria-selected={scope === k}
+                        onClick={() => {
+                          if (scope === k) return;
+                          setScope(k);
+                          writeLastScope(k);
+                          setCursor(0);
+                          if (k === "video" || k === "oped") setPick(null);
+                        }}
+                        className={`min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors ${
+                          scope === k
+                            ? "bg-white/[0.1] text-white"
+                            : "text-white/40 hover:text-white/75"
+                        }`}
+                      >
+                        {t(`profile.studioKind_${k}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {/* La barre de défilement partagée du site (`as-scroller`) : sur
                   une liste de cadres aussi longue, il faut voir où l'on en est. */}
