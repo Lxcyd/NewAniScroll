@@ -2747,8 +2747,9 @@ function PatternGrid({ count, fill, children }: { count: number; fill: boolean; 
     const el = box.current;
     if (!fill || !el) return setCols(null);
     const GAP = 6;
+    const PAD = 5; /* la marge intérieure de la boîte, des deux côtés */
     const fit = () => {
-      const W = el.clientWidth, H = el.clientHeight;
+      const W = el.clientWidth - 2 * PAD, H = el.clientHeight - 2 * PAD;
       if (!W || !H) return;
       /* Le moins de colonnes possible (vignettes les plus larges) dont la
          hauteur totale tient encore dans H. */
@@ -2765,7 +2766,10 @@ function PatternGrid({ count, fill, children }: { count: number; fill: boolean; 
     return () => ro.disconnect();
   }, [fill, count]);
   return (
-    <div ref={box} className={fill ? "min-h-[3rem] overflow-hidden" : undefined}>
+    /* `p-[5px]` : la boîte rogne ce qui dépasse, et l'anneau de la vignette
+       choisie (2 px + 2 px de décalage) comme le grossissement au survol
+       dépassent de la grille. Sans cette marge ils étaient coupés au bord. */
+    <div ref={box} className={fill ? "min-h-[3rem] overflow-hidden p-[5px]" : undefined}>
       {/* Une fois les colonnes choisies, les rangées s'étirent sur toute la
           hauteur : le reste de la colonne ne reste pas vide sous la grille. */}
       <div

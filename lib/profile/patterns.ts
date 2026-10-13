@@ -176,10 +176,9 @@ const HONEY ="M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100";
 const DRAW: Record<string, (k: Ctx, zoom: number) => string> = {
   /* 2 */ "diag-wide": (k: Ctx) => `repeating-linear-gradient(45deg,${k.a(26)} 0 14px,transparent 14px 28px)`,
   /* 9 */ candy: (k: Ctx) => `repeating-linear-gradient(-45deg,${k.a(42)} 0 10px,${k.a(10)} 10px 20px)`,
-  /* 11 */ zigzag: (k: Ctx) => {
-    const A = k.a(32);
-    return `linear-gradient(135deg,${A} 25%,transparent 25%) -20px 0/40px 40px,linear-gradient(225deg,${A} 25%,transparent 25%) -20px 0/40px 40px,linear-gradient(315deg,${A} 25%,transparent 25%) 0 0/40px 40px,linear-gradient(45deg,${A} 25%,transparent 25%) 0 0/40px 40px`;
-  },
+  /* 11 — en SVG, plus en quatre dégradés : leurs arrêts nets laissaient un
+     filet clair à chaque jointure de tuile. */
+  zigzag: (k: Ctx) => svg(40, 40, `<polygon points='0,0 20,20 40,0 40,20 20,40 0,20' ${k.F(0.32)}/>`),
   /* 18 — le fondu est dans STILL : il ne défile pas avec la trame. */
   halftone: (k: Ctx) => `radial-gradient(${k.a(65)} 35%,transparent 37%) 0 0/10px 10px`,
   /* 33 */ tatami: (k: Ctx) =>
@@ -206,9 +205,11 @@ const STILL: Record<string, (k: Ctx) => string> = {
    défilent à l'horizontale (√2 × leur pas, puisqu'elles sont à 45°) : le long
    de la diagonale elles glisseraient sur elles-mêmes et paraîtraient figées.
    Les tuiles, elles, défilent en diagonale d'une tuile. */
-const PERIOD: Record<string, (zoom: number) => [number, number]> = {
-  "diag-wide": () => [28 * Math.SQRT2, 0],
-  candy: () => [20 * Math.SQRT2, 0],
+const PERIOD: Record<string, (zoom: number) => [number, number] | [number, number, number]> = {
+  /* [px, py, facteur] : le pas d'une rayure à 45° se mesure le long du
+     dégradé, l'écart horizontal qui la reproduit vaut √2 fois ce pas. */
+  "diag-wide": () => [28, 0, Math.SQRT2],
+  candy: () => [20, 0, Math.SQRT2],
   zigzag: () => [40, 40],
   halftone: () => [10, 10],
   tatami: () => [60, 60],
@@ -302,12 +303,17 @@ export function patternLayers(id: PatternId, color: string, zoom = 1): PatternLa
     S: (o, w) => `fill='none' stroke='${mixHex(color, o)}' stroke-width='${w}'`,
   };
   const z = clampPatternZoom(zoom);
-  const scale = (css: string) => css.replace(/(-?\d*\.?\d+)px/g, (_, n) => `${r1(Number(n) * z)}px`);
-  const [px, py] = PERIOD[id](z);
+  /* Longueurs ARRONDIES au pixel entier : une tuile de 110,8 px se pose à
+     cheval sur deux pixels d'écran, et la jointure se voit en filet clair. La
+     période de défilement est arrondie de la même façon, sinon la boucle
+     glisserait d'une fraction à chaque tour. */
+  const px1 = (n: number) => Math.round(n * z);
+  const scale = (css: string) => css.replace(/(-?\d*\.?\d+)px/g, (_, n) => `${px1(Number(n))}px`);
+  const [px, py, f = 1] = PERIOD[id](z);
   return {
     moving: scale(DRAW[id](k, z)),
     still: STILL[id] ? scale(STILL[id](k)) : null,
-    period: [px * z, py * z],
+    period: [px1(px) * f, px1(py) * f],
   };
 }
 
