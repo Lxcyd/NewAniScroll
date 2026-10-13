@@ -16,6 +16,9 @@ import type { TmdbArtwork } from "@/lib/tmdb/artworks";
  */
 const MEMO = new Map<number, TmdbArtwork[]>();
 const INFLIGHT = new Map<number, Promise<TmdbArtwork[]>>();
+/* Une seule référence pour « rien » : un `[]` neuf à chaque rendu relancerait
+   les mémos qui dépendent de `tmdbArts`. */
+const EMPTY: TmdbArtwork[] = [];
 
 async function fetchTmdbArtworks(animeId: number): Promise<TmdbArtwork[]> {
   const memo = MEMO.get(animeId);
@@ -45,20 +48,24 @@ async function fetchTmdbArtworks(animeId: number): Promise<TmdbArtwork[]> {
 }
 
 export function useTmdbArtworks(animeId: number): { tmdbArts: TmdbArtwork[] } {
-  const [tmdbArts, setTmdbArts] = useState<TmdbArtwork[]>(
-    () => MEMO.get(animeId) ?? [],
-  );
+  /* Rangées avec leur anime : un autre id ne rend jamais les images du
+     précédent pendant que les siennes arrivent (cf. useFanarts). */
+  const [state, setState] = useState<{ id: number; arts: TmdbArtwork[] }>(() => ({
+    id: animeId,
+    arts: MEMO.get(animeId) ?? [],
+  }));
 
   useEffect(() => {
     let cancelled = false;
     if (!Number.isFinite(animeId) || animeId <= 0) return;
     fetchTmdbArtworks(animeId).then((arts) => {
-      if (!cancelled) setTmdbArts(arts);
+      if (!cancelled) setState({ id: animeId, arts });
     });
     return () => {
       cancelled = true;
     };
   }, [animeId]);
 
+  const tmdbArts = state.id === animeId ? state.arts : MEMO.get(animeId) ?? EMPTY;
   return { tmdbArts };
 }

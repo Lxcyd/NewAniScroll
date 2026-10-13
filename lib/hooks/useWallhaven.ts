@@ -32,7 +32,8 @@ const INFLIGHT = new Map<string, Promise<Page>>();
 const FACETTES_VIDES: Record<Facette, number> = {
   tout: 0, illustration: 0, capture: 0, personnage: 0, paysage: 0,
 };
-const VIDE: Page = { arts: [], hasMore: false, total: 0, facettes: FACETTES_VIDES };
+const AUCUN: WallhavenArtwork[] = [];
+const VIDE: Page ={ arts: [], hasMore: false, total: 0, facettes: FACETTES_VIDES };
 const keyOf = (animeId: number, facette: Facette, page: number) =>
   `${animeId}:${facette}:${page}`;
 
@@ -100,6 +101,10 @@ export function useWallhaven(animeId: number): {
      disparaîtraient dès le premier clic. Seule la page 1 de « tout » les
      rapporte. */
   const [facettes, setFacettes] = useState<Record<Facette, number>>(FACETTES_VIDES);
+  /* L'anime auquel appartiennent `wallpapers` et `facettes`. Les vider dans
+     l'effet ne suffit pas : le rendu qui suit le changement d'id passe AVANT
+     l'effet, et montrait les fonds de l'anime précédent. */
+  const [wallFor, setWallFor] = useState(animeId);
   /* La dernière page OBTENUE, en ref : `loadMore` ne doit pas changer
      d'identité à chaque page, sinon tout consommateur qui la met en dépendance
      se réabonne à chaque clic. */
@@ -128,6 +133,7 @@ export function useWallhaven(animeId: number): {
     fetchPage(animeId, facette, 1).then((p) => {
       if (cancelled) return;
       page.current = 1;
+      setWallFor(animeId);
       setWallpapers(p.arts);
       setHasMore(p.hasMore);
       setTotal(p.total);
@@ -166,8 +172,15 @@ export function useWallhaven(animeId: number): {
     });
   }, []);
 
+  const frais = wallFor === animeId;
   return {
-    wallpapers, hasMore, loading, loadMore,
-    total, facettes, facette, setFacette,
+    wallpapers: frais ? wallpapers : AUCUN,
+    hasMore: frais && hasMore,
+    loading,
+    loadMore,
+    total: frais ? total : 0,
+    facettes: frais ? facettes : FACETTES_VIDES,
+    facette,
+    setFacette,
   };
 }

@@ -489,7 +489,7 @@ export default function BannerStudio({
      logos, les clear arts, ni le fonds TMDB.
      `null` hors de ces deux onglets : les hooks ne demandent alors rien. */
   const galerieId = scope === "banner" || scope === "image" ? pick : null;
-  const { fanarts } = useFanarts(galerieId);
+  const { fanarts, loading: fanartsLoading } = useFanarts(galerieId);
   const { tmdbArts } = useTmdbArtworks(galerieId ?? 0);
   /* Wallhaven, la troisieme source — mais seulement pour l'onglet Image : elle
      sert des fonds d'ecran en 16/9, et n'a a peu pres rien en bande (mesure le
@@ -519,6 +519,9 @@ export default function BannerStudio({
     const hit = artCache.current.get(cible);
     if (hit) {
       setArt(hit);
+      /* Une requête interrompue par ce changement d'anime ne passe plus par
+         son `finally` : sans cette ligne, `loading` restait vrai pour de bon. */
+      setLoading(false);
       return;
     }
     let alive = true;
@@ -531,7 +534,13 @@ export default function BannerStudio({
         artCache.current.set(cible, options);
         setArt(options);
       })
-      .catch(() => alive && setArt([]))
+      .catch(() => {
+        if (!alive) return;
+        /* Un échec se range comme « rien », sinon la planche attendrait
+           indéfiniment une réponse qui ne viendra pas. */
+        artCache.current.set(cible, []);
+        setArt([]);
+      })
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
@@ -1166,7 +1175,11 @@ export default function BannerStudio({
            deux autres sources ne propose. */
         for (const w of wallpapers)
           ajouter(w.url, w.type, w.likes || 0, w.fullUrl, w.width, w.height);
-        for (const o of art) {
+        /* Lu dans le cache, par l'id ouvert, et non dans `art` : ce dernier
+           garde la réponse de l'anime PRÉCÉDENT jusqu'à l'arrivée de la
+           nouvelle, et ses images s'affichaient sous le nouveau titre. `art`
+           reste en dépendance : c'est lui qui annonce l'arrivée. */
+        for (const o of artCache.current.get(pick) ?? []) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
         /* L'affiche de la liste arrive en `medium` — 230 px de large. La
@@ -1257,7 +1270,11 @@ export default function BannerStudio({
           ),
           rows: [],
         });
-        if (rows.length) {
+        /* La planche n'apparaît qu'une fois la galerie du profil et fanart.tv
+           arrivés : montrée dès la première source, elle se réordonnait sous
+           les yeux à l'arrivée des suivantes. */
+        const enRoute = loading || fanartsLoading || !artCache.current.has(pick);
+        if (rows.length && !enRoute) {
           /* TRIER LES FONDS D'ÉCRAN PAR NATURE, avant la grille.
 
              Ce sont les seules images de la planche qui portent des facettes :
@@ -1342,7 +1359,27 @@ export default function BannerStudio({
                 },
               ],
             });
-        } else
+        } else if (enRoute || wallLoading)
+          /* Les sources sont encore en route : des cases qui attendent, au
+             format de l'onglet, plutôt qu'un « aucune illustration » qui
+             mentirait pendant une seconde. */
+          gal.push({
+            title: "",
+            rows: [],
+            node: (
+              <div className={`grid gap-2 px-0 pb-2 ${scope === "banner" ? "grid-cols-1" : "grid-cols-2"}`}>
+                {Array.from({ length: scope === "banner" ? 3 : 6 }, (_, i) => (
+                  <div
+                    key={i}
+                    className={`animate-pulse rounded-xl bg-white/[0.05] ${
+                      scope === "banner" ? "aspect-[1000/185]" : "h-36"
+                    }`}
+                  />
+                ))}
+              </div>
+            ),
+          });
+        else
           gal.push({
             title: "",
             rows: [
@@ -1627,7 +1664,7 @@ export default function BannerStudio({
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
-      artRoot, artAll]);
+      artRoot, artAll, loading, fanartsLoading]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 

@@ -70,25 +70,31 @@ export function useFanarts(
 ): UseFanarts {
   const seed =
     initial ?? (animeId != null ? MEMO.get(animeId) ?? null : null);
-  const [fanarts, setFanarts] = useState<FanartResponse | null>(seed);
+  /* La réponse est rangée AVEC l'anime auquel elle appartient : quand l'id
+     change, l'ancienne n'est plus rendue, même le temps d'une requête. Sans
+     cela, ouvrir un autre titre montrait les images du précédent, puis les
+     remplaçait sous les yeux (studio, 13/10/2026). */
+  const [state, setState] = useState<{ id: number | null | undefined; data: FanartResponse | null }>(
+    { id: animeId, data: seed },
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (animeId == null) return;
     if (initial) {
-      setFanarts(initial);
+      setState({ id: animeId, data: initial });
       return;
     }
     const cached = MEMO.get(animeId);
     if (cached !== undefined) {
-      setFanarts(cached);
+      setState({ id: animeId, data: cached });
       return;
     }
     let cancelled = false;
     setLoading(true);
     fetchFanarts(animeId).then((res) => {
       if (cancelled) return;
-      setFanarts(res);
+      setState({ id: animeId, data: res });
       setLoading(false);
     });
     return () => {
@@ -96,5 +102,9 @@ export function useFanarts(
     };
   }, [animeId, initial]);
 
+  const fanarts =
+    state.id === animeId
+      ? state.data
+      : initial ?? (animeId != null ? MEMO.get(animeId) ?? null : null);
   return { fanarts, loading };
 }

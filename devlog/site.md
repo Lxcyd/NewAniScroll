@@ -2405,3 +2405,5 @@ reellement ouverts repaient un fan-out, une fois.
 
 - Menu Image/Bannière en **accordéon** (choix n°3 de l'artefact « Menu Image ») : la liste reste à l'écran, l'animé ouvert déplie sa galerie sous sa ligne (6 images puis « Voir les N images »), facettes Wallhaven en puces ; un seul ouvert à la fois (`artRoot` garde la ligne quand le sélecteur de saison change `pick`).
 
+- Accordéon : ouvrir un autre animé montrait les images du PRÉCÉDENT puis les échangeait. useFanarts / useTmdbArtworks / useWallhaven rangent maintenant leur réponse avec l'id de l'anime et ne rendent jamais celle d'un autre ; le studio lit `art` dans son cache par `pick`. Cases grises tant que la galerie du profil et fanart.tv ne sont pas arrivés (plus de planche qui se réordonne). `loading` pouvait rester vrai pour de bon après une requête interrompue (corrigé).
+
