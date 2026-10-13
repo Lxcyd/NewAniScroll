@@ -6,6 +6,18 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-13 — Studio : fonds à motifs sur la plaque de couleur
+
+Treize motifs (`lib/profile/patterns.ts`), retenus par Luc parmi les 100 d'un
+catalogue en artefact (« Fonds à motifs », numéros d'origine en commentaire ;
+une série 2 de 50 dégradés/glow/néons y attend son tri). Tout en CSS :
+dégradés et tuiles SVG `data:`, rien à servir ni à mettre en liste blanche.
+Stocké : l'identifiant seul, dans `Dressing.pattern`, gardé uniquement avec
+`kind: "color"` ; le dessin se recalcule à l'affichage dans la couleur
+choisie, sur le fond sombre `#15161d` (la base « Sombre » du catalogue).
+Le sélecteur de couleur suit aussi la largeur du panneau (requête de
+conteneur), plus celle de la fenêtre.
+
 ## 2026-09-24 (suite 18) — La date à égale distance du haut et de la droite
 
 La ligne a `py-3` (12 px) et `px-3.5` (14 px). La colonne de la date prend

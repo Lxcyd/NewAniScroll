@@ -47,6 +47,7 @@ export type HeroBanner = {
      sans musique ni flou — exactement ce qu'il était. */
   kind?: Dressing["kind"] | null;
   color?: string | null;
+  pattern?: Dressing["pattern"];
   music?: Dressing["music"];
   blur?: number | null;
   /** Bande-annonce YouTube portée en fond (kind « video »). */
@@ -541,6 +542,7 @@ export default function ProfileHero({
               kind: banner.kind ?? "banner",
               url: banner.url,
               color: banner.color ?? null,
+              pattern: banner.pattern ?? null,
               source: banner.source ?? null,
               trailerId: banner.trailerId ?? null,
               /* Le découpage et le fondu voyagent avec le fond : c'est le

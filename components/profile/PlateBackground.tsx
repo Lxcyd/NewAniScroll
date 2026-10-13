@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { isPatternId, patternBackground } from "@/lib/profile/patterns";
 
 /**
  * Le fond d'un profil, quel qu'il soit — couleur, image, vidéo.
@@ -38,6 +39,7 @@ type Props = {
     videoFrom?: Dressing["videoFrom"];
     videoTo?: Dressing["videoTo"];
     videoFade?: Dressing["videoFade"];
+    pattern?: Dressing["pattern"];
   };
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
@@ -314,6 +316,15 @@ export default function PlateBackground({
   );
 
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
+    /* Un motif se dessine DANS la couleur, sur fond sombre (lib/profile/patterns). */
+    if (isPatternId(dressing.pattern)) {
+      return (
+        <div
+          className="absolute inset-0"
+          style={{ background: patternBackground(dressing.pattern, dressing.color || "#E94560") }}
+        />
+      );
+    }
     return (
       <div
         /* Pas de `as-hero-weave` ici : la trame à 45° salissait l'aplat et

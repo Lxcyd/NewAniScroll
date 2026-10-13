@@ -38,6 +38,7 @@ import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
 import { useWallhaven } from "@/lib/hooks/useWallhaven";
 import { byQuality } from "@/lib/images/artQuality";
 import ColorPicker from "@/components/shared/ColorPicker";
+import { PATTERN_IDS, patternBackground } from "@/lib/profile/patterns";
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
@@ -885,6 +886,37 @@ export default function BannerStudio({
               patch({ kind: "color", color: hex, url: null, source: null, animeId: null, title: null })
             }
           />
+        ),
+      });
+      /* Les motifs, dessinés dans la couleur courante : on choisit sur le rendu
+         réel, pas sur une vignette générique. « Aucun » rend l'aplat. */
+      const tint = isHexColor(draft.color) ? draft.color! : accent;
+      const current = draft.kind === "color" ? draft.pattern ?? null : null;
+      out.push({
+        title: t("profile.studioPatternSection"),
+        rows: [],
+        node: (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-2">
+            {[null, ...PATTERN_IDS].map((id) => {
+              const name = id ? t(`profile.studioPatterns.${id}`) : t("profile.studioPatternNone");
+              return (
+                <button
+                  key={id ?? "none"}
+                  type="button"
+                  title={name}
+                  aria-label={name}
+                  aria-pressed={current === id}
+                  onClick={() =>
+                    patch({ kind: "color", color: tint, pattern: id, url: null, source: null, animeId: null, title: null })
+                  }
+                  className={`aspect-[16/9] rounded-lg ring-1 ring-white/10 transition-transform hover:scale-[1.04] ${
+                    current === id ? "ring-2 ring-white ring-offset-2 ring-offset-[#15161d]" : ""
+                  }`}
+                  style={{ background: id ? patternBackground(id, tint) : tint }}
+                />
+              );
+            })}
+          </div>
         ),
       });
     }
