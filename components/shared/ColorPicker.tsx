@@ -100,6 +100,7 @@ export default function ColorPicker({
   onChange,
   wide = false,
   header,
+  onPreview,
 }: {
   value: string;
   onChange: (hex: string) => void;
@@ -114,6 +115,9 @@ export default function ColorPicker({
   /** Un bloc à poser en tête de la colonne de droite (les couleurs de base du
       studio, avec leur intitulé — que ce composant ne traduit pas lui-même). */
   header?: ReactNode;
+  /** Une pastille survolée (`null` à la sortie) : l'appelant peut la montrer
+      en aperçu sans qu'elle soit choisie. */
+  onPreview?: (hex: string | null) => void;
 }) {
   const [hsv, setHsv] = useState(() => {
     const rgb = parseHex(value) ?? { r: 0.91, g: 0.27, b: 0.38 };
@@ -246,7 +250,12 @@ export default function ColorPicker({
                 type="button"
                 title={p}
                 aria-label={p}
-                onClick={() => commit(rgbToHsv(c.r, c.g, c.b))}
+                onClick={() => {
+                  onPreview?.(null);
+                  commit(rgbToHsv(c.r, c.g, c.b));
+                }}
+                onPointerEnter={() => onPreview?.(p)}
+                onPointerLeave={() => onPreview?.(null)}
                 className="aspect-square w-full rounded transition-transform hover:scale-125 hover:ring-2 hover:ring-white/40"
                 style={{ background: p }}
               />

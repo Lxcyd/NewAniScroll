@@ -423,9 +423,28 @@ export default function BannerStudio({
      verrou de défilement — le profil sous le dock EST l'aperçu, on le parcourt. */
   const draftOut = useRef(onDraft);
   draftOut.current = onDraft;
+  /* La couleur SURVOLÉE (pastilles de l'onglet Couleur) : la page la montre
+     tant que le pointeur reste dessus, sans toucher au brouillon — on essaie
+     d'un geste, on ne s'engage qu'au clic. Le motif choisi est gardé. */
+  const [hoverColor, setHoverColor] = useState<string | null>(null);
   useEffect(() => {
-    if (open) draftOut.current?.(draft);
-  }, [open, draft]);
+    if (!open) return;
+    draftOut.current?.(
+      hoverColor
+        ? {
+            ...draft,
+            kind: "color",
+            color: hoverColor,
+            url: null,
+            source: null,
+            trailerId: null,
+            pattern: draft.kind === "color" ? draft.pattern : null,
+          }
+        : draft,
+    );
+  }, [open, draft, hoverColor]);
+  /* Un survol ne survit pas à un changement d'onglet. */
+  useEffect(() => setHoverColor(null), [scope]);
 
   const currentAnime = animes.find((a) => a.mediaId === animeId) ?? null;
 
@@ -874,9 +893,12 @@ export default function BannerStudio({
                   type="button"
                   title={c === accent ? `${t("profile.studioColorTheme")} · ${c}` : c}
                   aria-label={c}
-                  onClick={() =>
-                    patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null })
-                  }
+                  onClick={() => {
+                    setHoverColor(null);
+                    patch({ kind: "color", color: c, url: null, source: null, animeId: null, title: null });
+                  }}
+                  onPointerEnter={() => setHoverColor(c)}
+                  onPointerLeave={() => setHoverColor(null)}
                   className={`h-9 w-9 rounded-full transition-transform hover:scale-110 ${
                     on ? "ring-2 ring-white ring-offset-2 ring-offset-[#15161d]" : ""
                   }`}
@@ -898,6 +920,7 @@ export default function BannerStudio({
             onChange={(hex) =>
               patch({ kind: "color", color: hex, url: null, source: null, animeId: null, title: null })
             }
+            onPreview={setHoverColor}
           />
         ),
       });
@@ -940,53 +963,69 @@ export default function BannerStudio({
               cherche le zoom sans savoir qu'il faut d'abord choisir un motif. */}
           {(
             <div
-              className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2.5 px-1 ${
+              className={`flex flex-wrap items-center gap-x-6 gap-y-2.5 px-1 ${
                 current ? "" : "pointer-events-none opacity-35"
               }`}
               aria-disabled={!current}
             >
-              {/* Zoom au dixième : un pas de ×0,5 sautait trop d'un coup. */}
-              <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
-                {t("profile.studioPatternZoom")}
-              </span>
-              <StudioRange
-                value={zoom}
-                min={PATTERN_ZOOM_MIN}
-                max={PATTERN_ZOOM_MAX}
-                step={PATTERN_ZOOM_STEP}
-                onChange={(v) => patch({ patternZoom: clampPatternZoom(v) })}
-                label={t("profile.studioPatternZoom")}
-              />
-              <span className="w-12 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
-                ×{zoom.toFixed(1)}
-              </span>
-              <button
-                type="button"
-                onClick={() => patch({ patternAnim: !draft.patternAnim })}
-                aria-pressed={!!draft.patternAnim}
-                className={`h-6 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
-                  draft.patternAnim
-                    ? "bg-action/20 text-white ring-action/50"
-                    : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
-                }`}
-              >
-                {t("profile.studioPatternAnim")}
-              </button>
-              {/* La vitesse ne sert qu'animé : grisée sinon, mais à sa place,
-                  pour que la ligne ne saute pas au clic sur Animation. */}
-              <div className={draft.patternAnim ? "" : "pointer-events-none opacity-35"}>
+              {/* Les deux réglages CÔTE À CÔTE, chacun sa moitié : sur deux
+                  lignes, l'œil faisait l'aller-retour d'un bout à l'autre de la
+                  colonne. Ils passent l'un sous l'autre si la place manque. */}
+              <div className="flex min-w-[12rem] flex-1 items-center gap-2.5">
+                {/* Zoom au dixième : un pas de ×0,5 sautait trop d'un coup. */}
+                <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+                  {t("profile.studioPatternZoom")}
+                </span>
                 <StudioRange
-                  value={speed}
-                  min={PATTERN_SPEED_MIN}
-                  max={PATTERN_SPEED_MAX}
-                  step={1}
-                  onChange={(v) => patch({ patternSpeed: clampPatternSpeed(v) })}
-                  label={t("profile.studioPatternSpeed")}
+                  value={zoom}
+                  min={PATTERN_ZOOM_MIN}
+                  max={PATTERN_ZOOM_MAX}
+                  step={PATTERN_ZOOM_STEP}
+                  onChange={(v) => patch({ patternZoom: clampPatternZoom(v) })}
+                  label={t("profile.studioPatternZoom")}
                 />
+                <span className="w-10 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+                  ×{zoom.toFixed(1)}
+                </span>
               </div>
-              <span className="w-12 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
-                {speed} px/s
-              </span>
+              <div className="flex min-w-[12rem] flex-1 items-center gap-2.5">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!draft.patternAnim}
+                  aria-label={t("profile.studioPatternAnim")}
+                  title={t("profile.studioPatternAnim")}
+                  onClick={() => patch({ patternAnim: !draft.patternAnim })}
+                  className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+                    draft.patternAnim ? "bg-action" : "bg-white/[0.16]"
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+                      draft.patternAnim ? "translate-x-[14px]" : ""
+                    }`}
+                  />
+                </button>
+                {/* La vitesse ne sert qu'animé : grisée sinon, mais à sa place,
+                    pour que la ligne ne saute pas quand on bascule. */}
+                <div
+                  className={`flex min-w-0 flex-1 items-center gap-2.5 ${
+                    draft.patternAnim ? "" : "pointer-events-none opacity-35"
+                  }`}
+                >
+                  <StudioRange
+                    value={speed}
+                    min={PATTERN_SPEED_MIN}
+                    max={PATTERN_SPEED_MAX}
+                    step={1}
+                    onChange={(v) => patch({ patternSpeed: clampPatternSpeed(v) })}
+                    label={t("profile.studioPatternSpeed")}
+                  />
+                  <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+                    {speed} px/s
+                  </span>
+                </div>
+              </div>
             </div>
           )}
           </div>
