@@ -100,7 +100,6 @@ export default function ColorPicker({
   onChange,
   wide = false,
   header,
-  grow = false,
 }: {
   value: string;
   onChange: (hex: string) => void;
@@ -115,9 +114,6 @@ export default function ColorPicker({
   /** Un bloc à poser en tête de la colonne de droite (les couleurs de base du
       studio, avec leur intitulé — que ce composant ne traduit pas lui-même). */
   header?: ReactNode;
-  /** En large : le bloc remplit la hauteur que son parent (flex) lui donne,
-      et c'est le carré qui prend la place en plus. */
-  grow?: boolean;
 }) {
   const [hsv, setHsv] = useState(() => {
     const rgb = parseHex(value) ?? { r: 0.91, g: 0.27, b: 0.38 };
@@ -184,7 +180,7 @@ export default function ColorPicker({
           drag(svRef, e, (x, y) => commit({ ...hsv, s: x, v: 1 - y }));
         }}
         className={`relative w-full cursor-crosshair touch-none rounded-lg ${
-          wide ? "min-h-[7rem] flex-1 [@container(min-width:36rem)]:min-h-[10rem]" : "aspect-[5/3]"
+          wide ? "h-28 [@container(min-width:36rem)]:h-auto [@container(min-width:36rem)]:min-h-[10rem] [@container(min-width:36rem)]:flex-1" : "aspect-[5/3]"
         }`}
         style={{
           background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
@@ -360,14 +356,8 @@ export default function ColorPicker({
        dans un écran de 1900, et un `sm:` y forçait les deux colonnes — la ligne
        du bas, incompressible, débordait alors à droite. */
     return (
-      <div className={`[container-type:inline-size] ${grow ? "flex flex-1 flex-col" : ""}`}>
-        {/* En une colonne, la rangée du carré est `1fr` : avec `grow`, c'est
-            elle qui absorbe la hauteur libre du menu. */}
-        <div
-          className={`grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[10rem_minmax(0,1fr)] ${
-            grow ? "flex-1 grid-rows-[minmax(7rem,1fr)_auto] [@container(min-width:36rem)]:grid-rows-[auto]" : ""
-          }`}
-        >
+      <div className="[container-type:inline-size]">
+        <div className="grid gap-3.5 rounded-xl bg-black/25 p-3 ring-1 ring-white/10 [@container(min-width:36rem)]:grid-cols-[10rem_minmax(0,1fr)]">
           {/* Le carré prend toute la hauteur que la colonne de droite laisse, et
               le rail, de la hauteur de l'aperçu (h-8), s'aligne sur la ligne du
               bas : aperçu, valeur, formats. */}

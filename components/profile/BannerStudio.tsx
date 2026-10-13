@@ -890,11 +890,9 @@ export default function BannerStudio({
       out.push({
         title: "",
         rows: [],
-        grow: true,
         node: (
           <ColorPicker
             wide
-            grow
             header={baseSwatches}
             value={isHexColor(draft.color) ? draft.color! : accent}
             onChange={(hex) =>
@@ -912,11 +910,12 @@ export default function BannerStudio({
       out.push({
         title: t("profile.studioPatternSection"),
         rows: [],
+        grow: true,
         node: (
-          <div className="grid gap-2.5">
-          {/* Vignettes courtes (3:2, ~70 px) : la couleur ET les motifs doivent
-              tenir dans la colonne sans barre de défilement. */}
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))] gap-1.5">
+          <div className={`grid gap-2.5 ${!mini && scope ? "min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto]" : ""}`}>
+          {/* Les vignettes prennent la place que le sélecteur de couleur laisse
+              dans la colonne (PatternGrid) : rien à faire défiler. */}
+          <PatternGrid count={PATTERN_IDS.length + 1} fill={!mini && !!scope}>
             {[null, ...PATTERN_IDS].map((id) => {
               const name = id ? t(`profile.studioPatterns.${id}`) : t("profile.studioPatternNone");
               return (
@@ -936,7 +935,7 @@ export default function BannerStudio({
                 />
               );
             })}
-          </div>
+          </PatternGrid>
           {/* Toujours affichés : sur l'aplat, grisés plutôt qu'absents — sinon on
               cherche le zoom sans savoir qu'il faut d'abord choisir un motif. */}
           {(
@@ -1529,7 +1528,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols]);
+      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -2714,6 +2713,48 @@ export default function BannerStudio({
       )}
     </div>
     </>
+  );
+}
+
+/**
+ * La grille des motifs. Avec `fill`, elle occupe la hauteur que la colonne lui
+ * laisse et choisit le NOMBRE DE COLONNES qui donne les plus grandes vignettes
+ * 3:2 tenant dans cette surface. Sans `fill` (dock réduit, hauteur libre), la
+ * grille classique à vignettes de ~70 px.
+ */
+function PatternGrid({ count, fill, children }: { count: number; fill: boolean; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState<number | null>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!fill || !el) return setCols(null);
+    const GAP = 6;
+    const fit = () => {
+      const W = el.clientWidth, H = el.clientHeight;
+      if (!W || !H) return;
+      /* Le moins de colonnes possible (vignettes les plus larges) dont la
+         hauteur totale tient encore dans H. */
+      for (let n = 2; n <= count; n++) {
+        const rows = Math.ceil(count / n);
+        const tileH = ((W - GAP * (n - 1)) / n) * (2 / 3);
+        if (rows * tileH + GAP * (rows - 1) <= H) return setCols(n);
+      }
+      setCols(count);
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    fit();
+    return () => ro.disconnect();
+  }, [fill, count]);
+  return (
+    <div ref={box} className={fill ? "min-h-[3rem] overflow-hidden" : undefined}>
+      <div
+        className={`grid gap-1.5 ${cols ? "" : "grid-cols-[repeat(auto-fill,minmax(4.25rem,1fr))]"}`}
+        style={cols ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
