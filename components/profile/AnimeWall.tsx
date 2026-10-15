@@ -130,7 +130,31 @@ export default function AnimeWall({
     if (n === 0) return;
     let raf = 0;
     let last: number | null = null;
+    /* L'ÉCHELLE À LAQUELLE LE MUR EST VU. En mode scène (studio), le profil
+       est réduit par une transformation d'un ancêtre (ProfileStage). Chrome
+       fige la résolution d'un calque `will-change: transform` à celle de sa
+       création : peint à 100 % puis réduit à 70 % par la scène, il était
+       sous-échantillonné, et ses arêtes scintillaient en glissant — le
+       clignotement entre deux affiches, amplifié par le flou des widgets
+       (16/10/2026 : la page était réparée, la scène non). Quand l'échelle
+       change, on retire puis repose `will-change` : le calque est repeint à
+       la bonne résolution. Relevée toutes les 30 images, pas à chaque. */
+    let vue = 1;
+    let tour = 0;
+    const releveEchelle = () => {
+      const el = box.current;
+      if (!el || !el.offsetWidth) return;
+      const s = Math.round((el.getBoundingClientRect().width / el.offsetWidth) * 100) / 100;
+      if (s === vue) return;
+      vue = s;
+      const pistesEl = pistes.current.filter((p): p is HTMLDivElement => !!p);
+      for (const p of pistesEl) p.style.willChange = "auto";
+      requestAnimationFrame(() => {
+        for (const p of pistesEl) p.style.willChange = "";
+      });
+    };
     const pose = (now: number) => {
+      if (tour++ % 30 === 0) releveEchelle();
       /* Un onglet en arrière-plan ne reçoit plus d'images : au retour, l'écart
          est plafonné, le mur reprend sans rattraper la minute perdue. */
       const dt = last == null || !anim ? 0 : Math.min(0.1, (now - last) / 1000);
