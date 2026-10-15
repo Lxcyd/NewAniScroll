@@ -2459,6 +2459,14 @@ html.as-scene-resizing * {
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
   transform: translate(var(--as-scene-s1-x), var(--as-scene-s1-y)) scale(var(--as-scene-s));
+  /* RÉDUITS, PLUS DE `will-change`. Chrome fige la résolution d'un calque
+     `will-change: transform` : l'écran restait peint à 100 % puis réduit au
+     zoom de la scène, sous-échantillonné — les arêtes du mur d'animes qui
+     glisse scintillaient, et le flou des widgets en faisait un clignotement
+     entre deux affiches (16/10/2026 : la page était saine, la scène non). Les
+     transitions de `transform` restent sur le compositeur sans lui, et le
+     calque est repeint à la bonne échelle quand elles finissent. */
+  will-change: auto;
 }
 .as-scene-screen.is-docked,
 .as-stage.is-docked {

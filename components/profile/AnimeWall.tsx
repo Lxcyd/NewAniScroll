@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WallDir } from "@/lib/profile/wall";
+import { useScene } from "./ProfileStage";
 
 /**
  * Le mur d'animés : des colonnes d'affiches qui remplissent le fond, et qui
@@ -46,6 +47,8 @@ export default function AnimeWall({
   speed: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  /* Le studio est ouvert : le mur vit dans la scène réduite. */
+  const scene = useScene().fixed;
   const [size, setSize] = useState({ w: 1440, h: 900 });
   useEffect(() => {
     const el = box.current;
@@ -130,31 +133,7 @@ export default function AnimeWall({
     if (n === 0) return;
     let raf = 0;
     let last: number | null = null;
-    /* L'ÉCHELLE À LAQUELLE LE MUR EST VU. En mode scène (studio), le profil
-       est réduit par une transformation d'un ancêtre (ProfileStage). Chrome
-       fige la résolution d'un calque `will-change: transform` à celle de sa
-       création : peint à 100 % puis réduit à 70 % par la scène, il était
-       sous-échantillonné, et ses arêtes scintillaient en glissant — le
-       clignotement entre deux affiches, amplifié par le flou des widgets
-       (16/10/2026 : la page était réparée, la scène non). Quand l'échelle
-       change, on retire puis repose `will-change` : le calque est repeint à
-       la bonne résolution. Relevée toutes les 30 images, pas à chaque. */
-    let vue = 1;
-    let tour = 0;
-    const releveEchelle = () => {
-      const el = box.current;
-      if (!el || !el.offsetWidth) return;
-      const s = Math.round((el.getBoundingClientRect().width / el.offsetWidth) * 100) / 100;
-      if (s === vue) return;
-      vue = s;
-      const pistesEl = pistes.current.filter((p): p is HTMLDivElement => !!p);
-      for (const p of pistesEl) p.style.willChange = "auto";
-      requestAnimationFrame(() => {
-        for (const p of pistesEl) p.style.willChange = "";
-      });
-    };
     const pose = (now: number) => {
-      if (tour++ % 30 === 0) releveEchelle();
       /* Un onglet en arrière-plan ne reçoit plus d'images : au retour, l'écart
          est plafonné, le mur reprend sans rattraper la minute perdue. */
       const dt = last == null || !anim ? 0 : Math.min(0.1, (now - last) / 1000);
@@ -170,7 +149,16 @@ export default function AnimeWall({
            16/10/2026 contre un clignotement sous le flou des widgets), la
            colonne, à ~0,3 px par image, avançait par sauts d'un pixel toutes
            les trois ou quatre images : le mur saccadait. */
-        if (el) el.style.transform = `translate3d(0, ${-off}px, 0)`;
+        /* EN MODE SCÈNE (studio), le profil est réduit par une transformation
+           d'un ancêtre (ProfileStage), et la piste n'est PLUS un calque : une
+           simple translation 2D, repeinte à chaque image à l'échelle où on la
+           voit. En calque, Chrome la peignait à 100 % puis la réduisait à
+           ~70 % en la glissant, sous-échantillonnée : ses arêtes scintillaient,
+           et le flou des widgets en faisait le clignotement entre deux
+           affiches (16/10/2026 : la page était réparée, la scène non — et
+           retirer puis reposer `will-change` au changement d'échelle n'y a
+           rien fait). Le repeint coûte, mais seulement le temps d'éditer. */
+        if (el) el.style.transform = scene ? `translate(0, ${-off}px)` : `translate3d(0, ${-off}px, 0)`;
         const k = Math.floor(off / step) - MARGE;
         if (next[c] !== k) {
           next[c] = k;
@@ -185,7 +173,7 @@ export default function AnimeWall({
     };
     raf = requestAnimationFrame(pose);
     return () => cancelAnimationFrame(raf);
-  }, [anim, cols, mouvement, step, n]);
+  }, [anim, cols, mouvement, step, n, scene]);
 
   return (
     <div ref={box} className="absolute inset-0 overflow-hidden bg-[#0c0d12]" aria-hidden>
@@ -215,7 +203,7 @@ export default function AnimeWall({
                   ref={(el) => {
                     pistes.current[c] = el;
                   }}
-                  className="as-wall-track absolute inset-x-0 top-0"
+                  className={`absolute inset-x-0 top-0 ${scene ? "" : "as-wall-track"}`}
                 >
                   {debut == null || len === 0
                     ? null
