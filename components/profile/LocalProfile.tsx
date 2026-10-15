@@ -156,6 +156,7 @@ export default function LocalProfile() {
         tag={identity ? guestTag(identity) : null}
         avatar={null}
         banner={banner}
+        entries={entries}
         stats={heroStats(t, stats)}
         isOwner
         onEditBanner={openEditor}
@@ -294,6 +295,7 @@ export default function LocalProfile() {
           onMini={setCompact}
           bridge={studioBridge}
           animes={topAnimes}
+          entries={entries}
           value={pinned}
           auto={{
             url: auto?.url ?? null,

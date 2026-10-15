@@ -1,6 +1,6 @@
 import Link from "next/link";
 import FramedAvatar from "@/components/profile/FramedAvatar";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   PhotoIcon,
@@ -22,7 +22,8 @@ import dynamic from "next/dynamic";
 const TrailerStage = dynamic(() => import("@/components/shared/HoverPreview/TrailerStage"));
 import { attachStage, detachStage } from "@/components/shared/HoverPreview/stageStore";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
-import type { BannerOption, ProfileStats } from "@/lib/profile/types";
+import type { BannerOption, ProfileEntry, ProfileStats } from "@/lib/profile/types";
+import { defaultWall, wallCovers } from "@/lib/profile/wall";
 
 /**
  * The top of a profile: the plate, the identity, the numbers.
@@ -63,6 +64,8 @@ export type HeroBanner = {
   layout?: Dressing["layout"] | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
   frame?: Dressing["frame"] | null;
+  /** Le filtre du mur d'animés (kind « wall »). */
+  wall?: Dressing["wall"];
 };
 
 /**
@@ -85,7 +88,7 @@ export type StudioBridge = {
  * boutons de son pour un même morceau se marcheraient dessus.
  */
 export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
-  const own = draft.url || draft.color || draft.trailerId;
+  const own = draft.url || draft.color || draft.trailerId || draft.kind === "wall";
   return {
     ...(own ? draft : { ...base, layout: draft.layout, frame: draft.frame, blur: draft.blur }),
     music: null,
@@ -153,6 +156,8 @@ type Props = {
   subtitle?: string | null;
   /** Pendant l'édition : le dock du studio pilote le fond vidéo d'ici. */
   studio?: StudioBridge | null;
+  /** La liste du profil : un mur d'animés y prend ses affiches. */
+  entries?: ProfileEntry[];
 };
 
 export default function ProfileHero({
@@ -167,6 +172,7 @@ export default function ProfileHero({
   onEditBanner,
   subtitle,
   studio,
+  entries,
 }: Props) {
   const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
@@ -192,6 +198,13 @@ export default function ProfileHero({
      ni proportions à mesurer, elle remplit la fenêtre. */
   const trailer = banner.kind === "video" && !!banner.trailerId;
   const flat = banner.kind === "color" && !!banner.color;
+  /* Le mur d'animés : un fond d'écran sans fichier, fait des affiches de la
+     liste que la page tient déjà (lib/profile/wall.ts). */
+  const wall = banner.kind === "wall";
+  const covers = useMemo(
+    () => (wall && entries ? wallCovers(entries, banner.wall ?? defaultWall()) : []),
+    [wall, entries, banner.wall],
+  );
   /* Une pochette portrait est floutée et sur-dimensionnée, qu'elle arrive comme
      dernier recours de la résolution automatique (`fallback`) ou comme un choix
      délibéré du studio (le type « Image ») : c'est la même image mal découpée
@@ -211,7 +224,7 @@ export default function ProfileHero({
     probe.src = banner.url;
   }, [banner.url, video, flat]);
 
-  const mode = flat
+  const mode = flat || wall
     ? "page"
     : trailer
       ? "page"
@@ -549,6 +562,7 @@ export default function ProfileHero({
               patternZoom: banner.patternZoom,
               patternAnim: banner.patternAnim ?? false,
               patternSpeed: banner.patternSpeed,
+              wall: banner.wall ?? null,
               source: banner.source ?? null,
               trailerId: banner.trailerId ?? null,
               /* Le découpage et le fondu voyagent avec le fond : c'est le
@@ -558,6 +572,7 @@ export default function ProfileHero({
               videoFade: banner.videoFade ?? 0,
             }}
             fallback={cover}
+            wallCovers={covers}
             unmuted={sound && !banner.music}
             priority
             videoRemote={studio?.remote}
@@ -594,7 +609,7 @@ export default function ProfileHero({
             priority
           />
         ) : null}
-        {!banner.url && !flat && !trailer ? (
+        {!banner.url && !flat && !trailer && !wall ? (
           /* No list, no artwork: the site's own colour. */
           <div className="absolute inset-0 as-hero-default as-hero-weave" />
         ) : null}

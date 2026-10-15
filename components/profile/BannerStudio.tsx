@@ -8,6 +8,8 @@ import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
   ArrowUturnLeftIcon,
   ArrowsUpDownIcon,
   Bars3BottomLeftIcon,
@@ -21,6 +23,7 @@ import {
   MusicalNoteIcon,
   PlusIcon,
   PhotoIcon,
+  RectangleGroupIcon,
   ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
@@ -31,16 +34,28 @@ import {
   ViewColumnsIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
+import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import type { FrameCollection } from "@/lib/profile/frames";
-import { collectArtworks } from "@/components/anime/v2/helpers";
-import { useFanarts } from "@/lib/hooks/useFanarts";
-import { useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
-import { useWallhaven } from "@/lib/hooks/useWallhaven";
+import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
+import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
+import { customListNames } from "@/lib/profile/insights";
+import {
+  clampWallSpeed,
+  defaultWall,
+  inList,
+  wallEntries,
+  WALL_DIRS,
+  WALL_SPEED_MAX,
+  WALL_SPEED_MIN,
+  type DressingWall,
+} from "@/lib/profile/wall";
+import { fetchFanarts, useFanarts } from "@/lib/hooks/useFanarts";
+import { fetchTmdbArtworks, useTmdbArtworks } from "@/lib/hooks/useTmdbArtworks";
+import { fetchPage, useWallhaven } from "@/lib/hooks/useWallhaven";
 import { byQuality } from "@/lib/images/artQuality";
 import ColorPicker from "@/components/shared/ColorPicker";
 import {
@@ -65,6 +80,7 @@ import {
   clampFade,
   emptyDressing,
   fadeGain,
+  hasOwnPlate,
   isHexColor,
   isVideoKind,
   pleineTaille,
@@ -72,7 +88,7 @@ import {
   type DressingKind,
   type HeroLayout,
 } from "@/lib/profile/dressing";
-import type { BannerOption } from "@/lib/profile/types";
+import type { BannerOption, ProfileEntry } from "@/lib/profile/types";
 
 /**
  * Le studio : l'écran plein où l'on habille son profil.
@@ -139,6 +155,8 @@ type Props = {
   bridge?: StudioBridge;
   /** Réduit ou non : la page sort de la scène quand le studio est réduit. */
   onMini?: (mini: boolean) => void;
+  /** La liste du profil : le mur d'animés y prend ses affiches. */
+  entries?: ProfileEntry[];
 };
 
 /** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
@@ -151,6 +169,7 @@ const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   color: SwatchIcon,
+  wall: RectangleGroupIcon,
   banner: PhotoIcon,
   anim: SparklesIcon,
   image: Squares2X2Icon,
@@ -182,6 +201,29 @@ const DEFAULT_FADE = 1.5;
  */
 const railTime = (s: number) => Math.round(s * 10) / 10;
 
+/* Les comptes d'illustrations par animé et par type (/api/v2/art-counts),
+   pour la session : un studio rouvert ne les redemande pas. */
+let ART_TYPES: Record<number, Record<string, number>> = {};
+const ART_DEMANDES = new Set<number>();
+
+/* LA VIGNETTE D'UNE TUILE fanart.tv. Le proxy sert l'image entière
+   (1920×1080, ~115 Ko) et, sous `/preview/`, une réduction de 200×112
+   (4,7 Ko) : trop petite pour la tuile, elle tient lieu de fond flou le temps
+   que l'image arrive — et c'est elle qu'on précharge en premier. */
+const apercuDe = (url: string | null | undefined): string | null =>
+  url && /^https:\/\/fanart-proxy\.[^/]+\/fanart\//.test(url)
+    ? url.replace("/fanart/", "/preview/")
+    : null;
+
+/* Les images déjà demandées au navigateur pendant la session : une URL ne part
+   qu'une fois, même si l'on rouvre l'animé. */
+const PRECHARGEES = new Set<string>();
+/** Téléchargements de préchargement simultanés : assez pour remplir la file
+    vite, pas assez pour voler la bande passante des tuiles visibles. */
+const PRECHARGE_PARALLELE = 4;
+/** La taille de page de /api/v2/wallhaven (PAR_PAGE de lib/wallhaven/artworks.ts). */
+const WALL_PAR_PAGE = 24;
+
 /** m:ss — un générique dure une minute et demie, l'heure n'a pas lieu d'être. */
 const clock = (s: number) =>
   Number.isFinite(s) && s > 0
@@ -202,6 +244,12 @@ type Row = {
   selected?: boolean;
   /** Une ligne d'accordéon (fermée) : un chevron au bout dit qu'elle se déplie. */
   expand?: boolean;
+  /** La vignette est une affiche : en portrait, pas en 16/9. */
+  cover?: boolean;
+  /** Grisée sans être désactivée : rien à y prendre, mais on peut l'ouvrir. */
+  dim?: boolean;
+  /** Survol prolongé : précharge ce que le clic ouvrira (`null` à la sortie). */
+  hover?: (on: boolean) => void;
   run?: () => void;
 };
 
@@ -226,6 +274,16 @@ type Section = {
      bannières l'une de l'autre. Moins de colonnes, au format de ce qu'elles
      montrent. */
   bande?: boolean;
+  /* L'animé ouvert de l'accordéon : ses sections (en-tête, puces, grille,
+     « montrer plus ») se suivent dans UN même cadre teinté, pour qu'on voie où
+     sa galerie commence et où reprend la liste. */
+  panel?: boolean;
+  /** Une grille tronquée : un fondu sur sa dernière rangée porte le bouton
+      qui la déroule. */
+  fondu?: { label: string; run: () => void };
+  /** La grille continue d'elle-même : un repère sous sa dernière rangée
+      demande la suite quand il approche de l'écran. */
+  suite?: () => void;
 };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
@@ -254,7 +312,7 @@ function shuffleKey(asset: string, seed: number): number {
    appareil. Une commodité : sans stockage, on retombe sur Image. */
 const LAST_SCOPE_KEY = "as-studio-scope";
 const SCOPES: PaletteScope[] = [
-  "color", "banner", "image", "video", "oped", "upload",
+  "color", "banner", "image", "wall", "video", "oped", "upload",
   "music", "layout", "frame",
 ];
 
@@ -263,7 +321,9 @@ const SCOPES: PaletteScope[] = [
     Le bouton porte le nom et l'icône du premier. */
 const DOCK_GROUPS: DressingKind[][] = [
   ["color"],
-  ["image", "banner"],
+  /* Le mur d'animés à côté des images : c'est un fond fixe lui aussi, fait
+     d'affiches au lieu d'une illustration. */
+  ["image", "banner", "wall"],
   ["video", "oped"],
   ["upload"],
 ];
@@ -284,6 +344,47 @@ function writeLastScope(s: PaletteScope) {
   } catch {
     /* stockage refusé : rien à retenir */
   }
+}
+
+/* LA DENSITÉ DE LA GRILLE D'ILLUSTRATIONS (Image, Bannière) : une image par
+   rangée pour bien voir, deux ou trois pour comparer, beaucoup pour balayer.
+   Retenue par navigateur, comme le dernier onglet. */
+type Densite = 1 | 2 | 3;
+const DENSITE_KEY = "aniscroll:studioDensite";
+function readDensite(): Densite {
+  try {
+    const v = Number(localStorage.getItem(DENSITE_KEY));
+    if (v === 1 || v === 2 || v === 3) return v;
+  } catch {
+    /* stockage refusé : le défaut */
+  }
+  return 2;
+}
+function writeDensite(d: Densite) {
+  try {
+    localStorage.setItem(DENSITE_KEY, String(d));
+  } catch {
+    /* stockage refusé : rien à retenir */
+  }
+}
+/** L'icône d'une densité : la grille qu'elle produit, en d×d carrés. */
+function DensiteIcon({ d, className }: { d: Densite; className?: string }) {
+  const gap = 1.6;
+  const c = (16 - gap * (d - 1)) / d;
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
+      {Array.from({ length: d * d }, (_, i) => (
+        <rect
+          key={i}
+          x={(i % d) * (c + gap)}
+          y={Math.floor(i / d) * (c + gap)}
+          width={c}
+          height={c}
+          rx={d === 1 ? 2.5 : 1.2}
+        />
+      ))}
+    </svg>
+  );
 }
 
 const FRAME_COLS_MIN = 3;
@@ -325,6 +426,7 @@ export default function BannerStudio({
   onDraft,
   bridge,
   onMini,
+  entries = [],
 }: Props) {
   const { t } = useTranslation();
   const accent = useAccent();
@@ -361,6 +463,36 @@ export default function BannerStudio({
      pendant que la nouvelle charge — d'où le cache, par anime, pour la durée de
      l'écran seulement. */
   const artCache = useRef(new Map<number, BannerOption[]>());
+  /* La galerie du profil d'un anime, partagée entre l'ouverture et le
+     préchargement au survol : une requête en vol n'est pas relancée. Un échec
+     se range comme « rien », sinon la planche attendrait indéfiniment une
+     réponse qui ne viendra pas. */
+  const artEnVol = useRef(new Map<number, Promise<BannerOption[]>>());
+  const profileArt = (id: number): Promise<BannerOption[]> => {
+    const hit = artCache.current.get(id);
+    if (hit) return Promise.resolve(hit);
+    const vol = artEnVol.current.get(id);
+    if (vol) return vol;
+    const p = fetch(`/api/v2/profile-banner?anime=${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => (Array.isArray(json?.options) ? (json.options as BannerOption[]) : []))
+      .catch(() => [] as BannerOption[])
+      .then((options) => {
+        artCache.current.set(id, options);
+        artEnVol.current.delete(id);
+        return options;
+      });
+    artEnVol.current.set(id, p);
+    return p;
+  };
+  /* Le nombre d'illustrations de chaque animé déjà ouvert, une fois toutes ses
+     sources arrivées — par onglet (`image:123`, `banner:123`) : on ne le sait
+     qu'après l'avoir ouvert une fois. Sonder toute la liste d'avance coûterait
+     une requête par anime et par source. Zéro grise la ligne. */
+  const artCompte = useRef(new Map<string, number>());
+  /* Ce que la grille de l'animé ouvert tient CACHÉ (sous le fondu), écrit par
+     le mémo des sections : la file de préchargement le lit après le rendu. */
+  const aPrecharger = useRef<{ id: number | null; urls: string[] }>({ id: null, urls: [] });
   const themeCache = useRef(new Map<number, ThemeRow[]>());
   /* L'anime dont on liste les musiques, tel qu'on l'AFFICHE. Il ne vient pas
      toujours de `animes` : le sélecteur de saison peut mener sur une saison que
@@ -523,6 +655,32 @@ export default function BannerStudio({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, query]);
 
+  /* Les comptes d'illustrations, par animé et par type, pour le sous-titre des
+     lignes — en UNE requête pour toute la liste (cf. /api/v2/art-counts), puis
+     une par recherche pour les titres qu'elle ajoute. Demandés DÈS L'OUVERTURE
+     du studio, pas au passage sur l'onglet : la réponse est là quand on y
+     arrive. Gardés au niveau du module, un studio rouvert les a d'emblée. */
+  const [artTypes, setArtTypes] = useState(ART_TYPES);
+  useEffect(() => {
+    if (!open) return;
+    const ids = [...animes, ...found]
+      .map((a) => a.mediaId)
+      .filter((id) => !ART_DEMANDES.has(id));
+    if (!ids.length) return;
+    for (const id of ids) ART_DEMANDES.add(id);
+    const tri = [...new Set(ids)].sort((a, b) => a - b);
+    // La route borne à 40 ids par appel.
+    for (let i = 0; i < tri.length; i += 40)
+      fetch(`/api/v2/art-counts?ids=${tri.slice(i, i + 40).join(",")}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (!json?.counts) return;
+          ART_TYPES = { ...ART_TYPES, ...json.counts };
+          setArtTypes(ART_TYPES);
+        })
+        .catch(() => {});
+  }, [open, animes, found]);
+
   /* L'anime OUVERT, dans les onglets qui se parcourent en deux écrans —
      Vidéo, Bannière et Image. `null` : on est encore devant la liste des
      animés. Un seul état pour les trois : un seul onglet est ouvert à la fois,
@@ -538,6 +696,9 @@ export default function BannerStudio({
      ouverte (voir `ouvert`), et sa galerie déroulée en entier ou non. */
   const [artRoot, setArtRoot] = useState<number | null>(null);
   const [artAll, setArtAll] = useState(false);
+  /* Lue après le montage : le rendu serveur ne connaît pas le stockage. */
+  const [densite, setDensite] = useState<Densite>(2);
+  useEffect(() => setDensite(readDensite()), []);
   /* L'ACCORDÉON NE DOIT PAS FAIRE SAUTER LA COLONNE. Ouvrir un animé replie
      celui d'avant ; s'il était plus haut, tout ce qui suit remontait de la
      hauteur de sa galerie et la ligne cliquée filait hors de vue. On note où
@@ -609,26 +770,51 @@ export default function BannerStudio({
     }
     let alive = true;
     setLoading(true);
-    fetch(`/api/v2/profile-banner?anime=${cible}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (!alive) return;
-        const options: BannerOption[] = Array.isArray(json?.options) ? json.options : [];
-        artCache.current.set(cible, options);
-        setArt(options);
-      })
-      .catch(() => {
-        if (!alive) return;
-        /* Un échec se range comme « rien », sinon la planche attendrait
-           indéfiniment une réponse qui ne viendra pas. */
-        artCache.current.set(cible, []);
-        setArt([]);
-      })
+    profileArt(cible)
+      .then((options) => alive && setArt(options))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
+    // `profileArt` ne lit que des refs : identité stable dans les faits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, listedAnimeId, scope]);
+
+  /* Les deux hôtes d'images de la galerie que `_document` ne prépare pas
+     (fanart-proxy y est déjà) : la connexion TLS se fait pendant qu'on choisit
+     un anime, pas au moment où les tuiles la demandent. Une fois par page. */
+  useEffect(() => {
+    if (!open) return;
+    for (const href of ["https://image.tmdb.org", "https://th.wallhaven.cc"]) {
+      if (document.head.querySelector(`link[rel="preconnect"][href="${href}"]`)) continue;
+      const l = document.createElement("link");
+      l.rel = "preconnect";
+      l.href = href;
+      document.head.appendChild(l);
+    }
+  }, [open]);
+
+  /* PRÉCHARGER AU SURVOL. Une ligne survolée 150 ms est presque toujours la
+     prochaine cliquée : ses sources partent alors, et le clic trouve les mémos
+     des hooks (et `artCache`) déjà remplis. Un passage rapide de la souris sur
+     la liste ne déclenche rien. Seulement les routes de l'onglet — Wallhaven
+     n'existe que pour Image — et toutes sont en cache d'edge. */
+  const survol = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchArt = useCallback(
+    (id: number | null) => {
+      if (survol.current) clearTimeout(survol.current);
+      survol.current = null;
+      if (id == null) return;
+      survol.current = setTimeout(() => {
+        void fetchFanarts(id);
+        void fetchTmdbArtworks(id);
+        if (scope === "image") void fetchPage(id, "tout", 1);
+        void profileArt(id);
+      }, 150);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scope],
+  );
 
   /* L'identité de l'anime listé : prise dans la liste de l'utilisateur quand
      elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
@@ -656,7 +842,7 @@ export default function BannerStudio({
     /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
        en-tête porte la même affiche et le même sélecteur de saison, et une
        saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
-    if (scope === "color" || scope === "layout" || scope === "frame" || !scope) return;
+    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "wall" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
@@ -841,6 +1027,43 @@ export default function BannerStudio({
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
+
+    /* ── Le mur d'animés ───────────────────────────────────────────────────
+       Un seul bloc de réglages : ce qu'on y met (listes, notes) et comment ça
+       bouge. Chaque geste PORTE le mur — pas de bouton « valider » à trouver
+       après avoir tout réglé, la page change sous la main. */
+    if (scope === "wall") {
+      const wall = draft.wall ?? defaultWall();
+      return [
+        {
+          title: "",
+          rows: [],
+          node: (
+            <WallPanel
+              entries={entries}
+              wall={wall}
+              worn={draft.kind === "wall"}
+              onChange={(next) =>
+                patch({
+                  kind: "wall",
+                  wall: next,
+                  url: null,
+                  color: null,
+                  pattern: null,
+                  trailerId: null,
+                  videoFrom: null,
+                  videoTo: null,
+                  source: null,
+                  animeId: null,
+                  title: null,
+                })
+              }
+              t={t}
+            />
+          ),
+        },
+      ];
+    }
 
     /* ── Les cadres d'avatar ──────────────────────────────────────────────
        Une section par collection de la boutique Discord, la plus récente en
@@ -1201,11 +1424,28 @@ export default function BannerStudio({
           ? vus.current.get(ouvert)
           : undefined;
       liste.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
-      const ligne = (a: StudioAnime): Row => ({
+      const ligne = (a: StudioAnime): Row => {
+        /* Le compte exact une fois l'animé ouvert, sinon celui de la route
+           groupée, réduit aux types que l'onglet garde. */
+        const types = artTypes[a.mediaId];
+        const n =
+          artCompte.current.get(`${scope}:${a.mediaId}`) ??
+          (types ? familles.reduce((s, f) => s + (types[f] || 0), 0) : undefined);
+        const vide = n === 0;
+        return {
         key: `anime-art-${a.mediaId}`,
         label: a.title,
-        hint: dansListe.has(a.mediaId) ? t("profile.studioSeeArt") : t("profile.studioNotInList"),
+        hint: vide
+          ? t("profile.studioNoArt")
+          : n != null
+            ? t("profile.studioArtCount", { count: n })
+            : dansListe.has(a.mediaId)
+              ? null
+              : t("profile.studioNotInList"),
         thumb: a.cover ?? null,
+        cover: true,
+        dim: vide,
+        hover: (on) => prefetchArt(on ? a.mediaId : null),
         selected: draft.animeId === a.mediaId && !!draft.url,
         expand: false,
         run: () => {
@@ -1215,7 +1455,8 @@ export default function BannerStudio({
           setArtAll(false);
           setCursor(0);
         },
-      });
+        };
+      };
       const at = ouvert == null ? -1 : liste.findIndex((a) => a.mediaId === ouvert);
       const gal: Section[] = [];
       if (pick != null) {
@@ -1246,7 +1487,11 @@ export default function BannerStudio({
           likes: number;
           width?: number;
           height?: number;
+          /** La provenance, qui ordonne la planche : 0 fanart.tv, 1 TMDB,
+              2 Wallhaven, 3 la galerie du profil. */
+          src: number;
         }> = [];
+        let src = 0;
         const ajouter = (
           url: string | null | undefined,
           type: string,
@@ -1257,21 +1502,24 @@ export default function BannerStudio({
         ) => {
           if (!url || vues.has(url)) return;
           vues.add(url);
-          galerie.push({ url, plein: plein || url, type, likes, width, height });
+          galerie.push({ url, plein: plein || url, type, likes, width, height, src });
         };
         for (const a of collectArtworks(fanarts)) ajouter(a.url, a.type, a.likes || 0);
+        src = 1;
         for (const a of tmdbArts) ajouter(a.url, a.type, a.likes || 0, a.fullUrl);
         /* Wallhaven en dernier : ses images sont trouvees par recherche texte
            et non par identifiant, donc ce sont les seules des trois qui
            puissent appartenir a un autre anime. La vignette pour la tuile, le
            fichier entier pour le fond — jusqu'a 7680x4320, ce qu'aucune des
            deux autres sources ne propose. */
+        src = 2;
         for (const w of wallpapers)
           ajouter(w.url, w.type, w.likes || 0, w.fullUrl, w.width, w.height);
         /* Lu dans le cache, par l'id ouvert, et non dans `art` : ce dernier
            garde la réponse de l'anime PRÉCÉDENT jusqu'à l'arrivée de la
            nouvelle, et ses images s'affichaient sous le nouveau titre. `art`
            reste en dépendance : c'est lui qui annonce l'arrivée. */
+        src = 3;
         for (const o of artCache.current.get(pick) ?? []) {
           ajouter(o.url, o.source === "cover" ? "poster" : o.source, o.likes || 0);
         }
@@ -1316,12 +1564,19 @@ export default function BannerStudio({
                il se reduit exactement aux votes tant que les dimensions sont
                fixes (fanart.tv) et classe les fonds d'ecran Wallhaven par
                resolution reelle entre eux. */
-            (a, b) => rang.get(a.type)! - rang.get(b.type)! || byQuality(a, b),
+            /* FANART.TV EN TÊTE (14/10/2026, demande de Luc) : ses fonds
+               sont faits pour un titre précis et classés par votes, là où
+               Wallhaven est trouvé par recherche texte. Le format ordonnait
+               seul, et `wallpaper` venant avant `background`, Wallhaven
+               passait devant toute la galerie fanart.tv. La provenance
+               d'abord, puis le format, puis la qualité. */
+            (a, b) => a.src - b.src || rang.get(a.type)! - rang.get(b.type)! || byQuality(a, b),
           )
           .map((o) => ({
             key: o.url,
             label: cible?.title || "",
-            hint: o.likes > 0 ? `♥ ${o.likes}` : null,
+            /* Pas de compte de votes sur la tuile : il ne sert qu'au tri. */
+            hint: null,
             thumb: o.url,
             selected: draft.url === o.url,
             run: () =>
@@ -1336,7 +1591,15 @@ export default function BannerStudio({
                 title: cible?.title ?? null,
               }),
           }));
-        const total = rows.length;
+        /* LE COMPTE DU TITRE, pas de ce qui est chargé : Wallhaven arrive par
+           pages de 24, et compter les lignes reçues donnait « 29 » dans
+           l'en-tête quand la liste, elle, annonçait « 140 » (15/10/2026). Le
+           même calcul sert à l'en-tête, au fondu et au sous-titre de la ligne. */
+        const total =
+          scope === "image"
+            ? galerie.filter((o) => rang.has(o.type) && o.type !== "wallpaper").length +
+              Math.max(facettes.tout, wallpapers.length)
+            : rows.length;
 
         /* L'en-tête de l'animé ouvert EST sa ligne de l'accordéon : un clic
            dessus le replie. */
@@ -1365,10 +1628,19 @@ export default function BannerStudio({
           ),
           rows: [],
         });
-        /* La planche n'apparaît qu'une fois la galerie du profil et fanart.tv
-           arrivés : montrée dès la première source, elle se réordonnait sous
-           les yeux à l'arrivée des suivantes. */
-        const enRoute = loading || fanartsLoading || !artCache.current.has(pick);
+        /* La planche apparaît dès que fanart.tv est là, sans attendre la
+           galerie du profil (/api/v2/profile-banner, la plus lente : elle passe
+           par AniList). Celle-ci n'apporte que la bannière AniList et l'affiche,
+           rangées en DERNIER par `rang`, ou des doublons de fanart.tv écartés
+           par URL : leur arrivée allonge la planche sans la réordonner.
+           fanart.tv en échec (`null` sans requête en vol) : on attend alors la
+           galerie du profil avant de conclure qu'il n'y a rien. */
+        const enRoute = fanartsLoading || (fanarts == null && !artCache.current.has(pick));
+        const complet = !enRoute && !loading && artCache.current.has(pick) && !wallLoading;
+        /* Wallhaven se déroule par pages de 24 : compté à son total (`tout`),
+           comme le fait la route groupée, et non à ce qui est déjà chargé. */
+        if (complet)
+          artCompte.current.set(`${scope}:${pick}`, total);
         if (rows.length && !enRoute) {
           /* TRIER LES FONDS D'ÉCRAN PAR NATURE, avant la grille.
 
@@ -1415,46 +1687,53 @@ export default function BannerStudio({
           }
           /* Six images d'abord : l'animé ouvert ne doit pas chasser les
              suivants de la colonne. Le reste se déroule sur demande. */
-          const APERCU = 6;
+          /* Trois rangées, quelle que soit la densité. */
+          const APERCU = mini ? 6 : densite * 3;
           const court = !artAll && rows.length > APERCU;
+          /* PAS DE TROU EN BAS DE LA GRILLE. Tant qu'il reste des images à
+             charger, on n'en montre qu'un multiple du nombre de colonnes : la
+             dernière rangée est pleine, et l'image en trop arrive avec la page
+             suivante. Dans la colonne, 2 tuiles par rangée (1 en bande) ; en
+             pleine largeur la grille passe de 2 à 4 colonnes, d'où 12, qui
+             tombe juste dans les trois cas. */
+          const cols = mini ? 12 : densite;
+          const encore = !court && wallHasMore;
+          const montre = court
+            ? rows.slice(0, APERCU)
+            : encore
+              ? rows.slice(0, Math.max(cols, rows.length - (rows.length % cols)))
+              : rows;
+          aPrecharger.current = {
+            id: pick,
+            urls: rows.slice(montre.length).flatMap((r) => (r.thumb ? [r.thumb] : [])),
+          };
           gal.push({
             title: "",
-            rows: court ? rows.slice(0, APERCU) : rows,
+            rows: montre,
             grid: true,
             bande: scope === "banner",
-          });
-          if (court)
-            gal.push({
-              title: "",
-              rows: [
-                {
-                  key: "art-all",
-                  label: t("profile.studioArtSeeAll", { count: rows.length }),
-                  icon: PhotoIcon,
+            /* La suite se devine sous un fondu posé sur la dernière rangée
+               (choix n° 01 de l'artefact « Bouton Montrer plus », 14/10) : une
+               pilule sous la grille se lisait comme un élément de plus. Le
+               même fondu déroule ensuite Wallhaven, page par page (onglet
+               Image seulement : c'est le seul qui l'interroge). */
+            fondu: court
+              ? {
+                  label: t("profile.studioArtSeeAll", { count: total - APERCU }),
                   run: () => setArtAll(true),
-                },
-              ],
-            });
-          /* DÉROULER WALLHAVEN. Une ligne ordinaire, pas un bouton à part :
-             elle hérite ainsi du curseur clavier et du survol de toutes les
-             autres, et se place naturellement au bout de la grille. Seul
-             l'onglet Image en a une — c'est le seul qui interroge Wallhaven. */
-          else if (wallHasMore)
-            gal.push({
-              title: "",
-              rows: [
-                {
-                  key: "wall-more",
-                  label: wallLoading
-                    ? t("anime.artLoading")
-                    : t("anime.artMore"),
-                  icon: PhotoIcon,
-                  disabled: wallLoading,
-                  run: loadMoreWall,
-                },
-              ],
-            });
-        } else if (enRoute || wallLoading)
+                }
+              : undefined,
+            /* UN SEUL CLIC (15/10/2026). Une fois déroulée, la grille ne
+               redemande plus rien : Wallhaven continue au défilement, page
+               après page. La page suivante est déjà préchargée (cf. la file
+               de préchargement), elle arrive donc sans attente. */
+            suite: encore
+              ? () => {
+                  if (!wallLoading) loadMoreWall();
+                }
+              : undefined,
+          });
+        } else if (!complet)
           /* Les sources sont encore en route : des cases qui attendent, au
              format de l'onglet, plutôt qu'un « aucune illustration » qui
              mentirait pendant une seconde. */
@@ -1467,7 +1746,7 @@ export default function BannerStudio({
                   <div
                     key={i}
                     className={`animate-pulse rounded-xl bg-white/[0.05] ${
-                      scope === "banner" ? "aspect-[1000/185]" : "h-36"
+                      scope === "banner" ? "aspect-[1000/185]" : "aspect-video"
                     }`}
                   />
                 ))}
@@ -1488,6 +1767,7 @@ export default function BannerStudio({
             ],
           });
       }
+      for (const s of gal) s.panel = true;
       const titre = t(`profile.studioKind_${scope}`);
       if (at < 0) out.push(...gal, { title: titre, rows: liste.map(ligne) });
       else
@@ -1761,7 +2041,64 @@ export default function BannerStudio({
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
-      artRoot, artAll, loading, fanartsLoading, holdAnchor, found]);
+      artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
+      entries]);
+
+  /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
+     manquait, ce sont les images — le navigateur ne les demandait qu'à
+     l'affichage. Elles partent donc d'avance, une fois les tuiles visibles
+     servies (au repos du navigateur) : d'abord les vignettes `/preview/` de
+     fanart.tv (~5 Ko), pour que la grille soit pleine même sur un clic
+     rapide, puis les images entières. Quatre à la fois au plus. Puis, onglet
+     Image, la page Wallhaven suivante et ses vignettes : son MEMO est celui
+     que relit `loadMore`, le clic suivant n'attend plus le réseau.
+     Rien côté Vercel pour les images (fanart-proxy, TMDB, Wallhaven) ; la
+     page Wallhaven est en cache d'edge. Seulement pour l'animé OUVERT : la
+     file s'arrête dès qu'il change. */
+  useEffect(() => {
+    const cible = aPrecharger.current;
+    if (pick == null || cible.id !== pick) return;
+    const file = [
+      ...cible.urls.flatMap((u) => {
+        const a = apercuDe(u);
+        return a ? [a] : [];
+      }),
+      ...cible.urls,
+    ].filter((u) => !PRECHARGEES.has(u));
+    let alive = true;
+    let wallDemandee = false;
+    const suivant = () => {
+      if (!alive) return;
+      const u = file.shift();
+      if (u) {
+        PRECHARGEES.add(u);
+        const img = new window.Image();
+        img.decoding = "async";
+        img.onload = img.onerror = suivant;
+        img.src = u;
+        return;
+      }
+      /* La file est vide : une page Wallhaven d'avance, une seule. */
+      if (wallDemandee || scope !== "image" || !wallHasMore || wallLoading) return;
+      wallDemandee = true;
+      const page = Math.ceil(wallpapers.length / WALL_PAR_PAGE) + 1;
+      fetchPage(pick, facette, page).then((p) => {
+        if (!alive) return;
+        file.push(...p.arts.map((a) => a.url).filter((x) => !PRECHARGEES.has(x)));
+        for (let k = 0; k < PRECHARGE_PARALLELE; k++) suivant();
+      });
+    };
+    const lancer = () => {
+      for (let k = 0; k < PRECHARGE_PARALLELE; k++) suivant();
+    };
+    const ric = typeof window.requestIdleCallback === "function";
+    const h = ric ? window.requestIdleCallback(lancer, { timeout: 1500 }) : window.setTimeout(lancer, 400);
+    return () => {
+      alive = false;
+      if (ric) window.cancelIdleCallback(h);
+      else window.clearTimeout(h);
+    };
+  }, [sections, pick, scope, wallHasMore, wallLoading, wallpapers.length, facette]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
@@ -1825,7 +2162,7 @@ export default function BannerStudio({
      elle dans ce test, l'aperçu retombait sur la bannière automatique et le
      studio montrait autre chose que ce qu'on venait de choisir. */
   const shown: Dressing =
-    draft.url || draft.color || draft.trailerId
+    hasOwnPlate(draft)
       ? draft
       : { ...draft, kind: "banner", url: auto.url, source: auto.source };
 
@@ -1836,7 +2173,7 @@ export default function BannerStudio({
      silence maintenant qu'on les règle directement sur le profil. */
   const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
   const finish = () => {
-    if (changed && (shown.url || shown.color || shown.trailerId)) onApply(shown);
+    if (changed && hasOwnPlate(shown)) onApply(shown);
     else onClose();
   };
 
@@ -1958,7 +2295,7 @@ export default function BannerStudio({
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont quatre, et un champ de recherche au-dessus
      de quatre lignes est un aveu de liste trop longue. */
-  const searchable = scope !== "color" && scope !== "layout";
+  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall";
   /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
       en a toujours un d'ouvert, sauf quand le studio est réduit. */
   const inColumn = !mini && !!scope;
@@ -2290,11 +2627,26 @@ export default function BannerStudio({
                   et l'animé choisi : ses images et ses bannières sont la même
                   galerie. */}
               {(groupOf(scope)?.length ?? 0) > 1 ? (
-                <div className="px-2.5 pt-2.5">
+                /* `pb-2.5` : un espace fixe entre les onglets et la grille, qui
+                   ne part pas au défilement (le padding du défileur, lui, s'en
+                   va avec la première rangée). */
+                <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-2.5">
                   <div
                     role="tablist"
-                    className="flex gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]"
+                    className="relative flex min-w-0 flex-1 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]"
                   >
+                    {/* LA PASTILLE GLISSE d'un onglet à l'autre au lieu de
+                        sauter. Transition simple, sans condition
+                        `prefers-reduced-motion` : ce poste répond `reduce`, et
+                        ce n'est qu'un déplacement court. */}
+                    <span
+                      aria-hidden
+                      className="absolute bottom-1 left-1 top-1 rounded-lg bg-white/[0.1] transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+                      style={{
+                        width: `calc((100% - 0.5rem - ${(groupOf(scope)!.length - 1) * 0.25}rem) / ${groupOf(scope)!.length})`,
+                        transform: `translateX(calc(${Math.max(0, groupOf(scope)!.indexOf(scope as DressingKind))} * (100% + 0.25rem)))`,
+                      }}
+                    />
                     {groupOf(scope)!.map((k) => (
                       <button
                         key={k}
@@ -2308,16 +2660,48 @@ export default function BannerStudio({
                           setCursor(0);
                           if (k === "video" || k === "oped") setPick(null);
                         }}
-                        className={`min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors ${
-                          scope === k
-                            ? "bg-white/[0.1] text-white"
-                            : "text-white/40 hover:text-white/75"
+                        className={`relative min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors duration-300 group ${
+                          scope === k ? "text-white" : "text-white/40 hover:text-white/75"
                         }`}
                       >
-                        {t(`profile.studioKind_${k}`)}
+                        {/* Le libellé actif grossit d'un cheveu en s'allumant. */}
+                        <span
+                          className={`inline-block transition-transform duration-300 ${
+                            scope === k ? "scale-105" : "scale-100"
+                          } group-active:scale-95`}
+                        >
+                          {t(`profile.studioKind_${k}`)}
+                        </span>
                       </button>
                     ))}
                   </div>
+                  {scope === "image" || scope === "banner" ? (
+                    /* Trois états en un bouton : 1 → 2 → 3 → 1. L'icône montre
+                       la grille affichée MAINTENANT, et tourne en changeant. */
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = (densite === 3 ? 1 : densite + 1) as Densite;
+                        setDensite(d);
+                        writeDensite(d);
+                        setArtAll(false);
+                      }}
+                      title={t(`profile.studioDensite_${densite}`)}
+                      aria-label={t(`profile.studioDensite_${densite}`)}
+                      className="grid h-[2.35rem] w-[2.35rem] shrink-0 place-items-center rounded-xl bg-white/[0.04] text-white/60 ring-1 ring-white/[0.06] transition-colors hover:bg-white/[0.08] hover:text-white group"
+                    >
+                      {/* Ce qui bouge au clic est DEDANS : un bouton qui rétrécit
+                          sous le pointeur perd le clic relâché sur son bord. */}
+                      <span className="grid place-items-center transition-transform duration-150 group-active:scale-90">
+                        <span
+                          className="grid place-items-center transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+                          style={{ transform: `rotate(${(densite - 1) * 90}deg)` }}
+                        >
+                          <DensiteIcon d={densite} className="h-4 w-4" />
+                        </span>
+                      </span>
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -2342,11 +2726,32 @@ export default function BannerStudio({
                 ) : (
                   sections.map((s, i) => (
                     <div
-                      key={s.title || `sec-${i}`}
+                      /* Les sections de l'animé ouvert changent de clé avec
+                         lui : elles se remontent, et rejouent leur entrée. */
+                      key={s.panel ? `ouvert-${pick}-${i}` : s.title || `sec-${i}`}
                       /* Pas de `min-h-0` : le sélecteur ne doit jamais être
                          comprimé sous sa hauteur utile — s'il manque de la
                          place, la colonne défile au lieu de tout tasser. */
-                      className={s.grow && inColumn ? "flex flex-1 flex-col" : undefined}
+                      className={
+                        s.panel
+                          ? "as-acc-in " + /* Un seul cadre pour les sections consécutives de
+                               l'animé ouvert : bords hauts sur la première,
+                               bas sur la dernière. */
+                            `border-x px-1 ${
+                              sections[i - 1]?.panel ? "" : "mt-1 rounded-t-2xl border-t pt-1"
+                            } ${sections[i + 1]?.panel ? "" : "mb-2 rounded-b-2xl border-b pb-1"}`
+                          : s.grow && inColumn
+                            ? "flex flex-1 flex-col"
+                            : undefined
+                      }
+                      style={
+                        s.panel
+                          ? {
+                              borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
+                              background: `color-mix(in srgb, ${accent} 7%, transparent)`,
+                            }
+                          : undefined
+                      }
                     >
                       {/* Un bloc peut porter son propre intitulé (le sélecteur de
                           couleur nomme lui-même ses deux moitiés) : on ne lui en
@@ -2368,20 +2773,35 @@ export default function BannerStudio({
                            non `cover` : une affiche est en portrait, un visuel
                            clé en 16/9, et recadrer pour aligner les tuiles
                            montrerait de chaque image ce qu'on n'a pas choisi. */
+                        <div className="relative">
                         <div
+                          key={`grille-${densite}`}
                           className={`grid gap-2 px-1 pb-2 ${
                             inColumn
-                              ? s.bande
+                              ? densite === 1
                                 ? "grid-cols-1"
-                                : "grid-cols-2"
+                                : densite === 2
+                                  ? "grid-cols-2"
+                                  : "grid-cols-3"
                               : s.bande
                                 ? "grid-cols-1 lg:grid-cols-2"
-                                : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                                : densite === 1
+                                  ? "grid-cols-1 sm:grid-cols-2"
+                                  : densite === 2
+                                    ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"
+                                    : "grid-cols-3 sm:grid-cols-4 lg:grid-cols-6"
                           }`}
                         >
-                          {s.rows.map((row) => {
+                          {s.rows.map((row, j) => {
                             index += 1;
                             const active = index === cursor;
+                            /* LA VIGNETTE D'ABORD. Une tuile fanart.tv charge
+                               l'image entière (1920×1080, ~115 Ko, 0,86 s
+                               mesuré) ; le même proxy sert sous `/preview/`
+                               une réduction de 200×112 (4,7 Ko, 0,45 s). Trop
+                               petite pour la tuile, elle tient lieu de fond
+                               flou le temps que l'image arrive par-dessus. */
+                            const apercu = apercuDe(row.thumb);
                             return (
                               <button
                                 key={row.key}
@@ -2389,14 +2809,26 @@ export default function BannerStudio({
                                 onMouseMove={() => setCursor(flat.indexOf(row))}
                                 onClick={() => row.run?.()}
                                 title={row.hint || row.label}
+                                style={{
+                                  /* Une cascade courte : chaque tuile 30 ms
+                                     après la précédente, plafonnée pour qu'une
+                                     page de 24 ne traîne pas. */
+                                  ["--i" as string]: Math.min(j % 24, 8),
+                                  ...(apercu
+                                    ? { backgroundImage: `url("${apercu}")`, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }
+                                    : {}),
+                                }}
                                 /* La tuile prend le FORMAT de ce qu'elle
                                    montre : 1000×185 pour une bande — la mesure
                                    de fanart.tv, et le plus étroit des deux, de
                                    sorte qu'une bannière AniList (1900×400) y
                                    entre entière avec un filet de noir plutôt
                                    que l'inverse. */
-                                className={`relative overflow-hidden rounded-xl bg-black/40 ring-1 transition-colors ${
-                                  s.bande ? "aspect-[1000/185]" : "h-36"
+                                className={`as-tile-in group relative overflow-hidden rounded-xl bg-black/40 ring-1 transition-colors ${
+                                  /* 16/9 : le format de presque toute la pleine page (fonds
+                                     fanart.tv en 1920×1080, Wallhaven, TMDB) —
+                                     plus de bandes noires autour. */
+                                  s.bande ? "aspect-[1000/185]" : "aspect-video"
                                 } ${
                                   row.selected
                                     ? "ring-2 ring-action"
@@ -2415,7 +2847,13 @@ export default function BannerStudio({
                                         ? "(min-width: 1024px) 45vw, 90vw"
                                         : "(min-width: 1024px) 20vw, 40vw"
                                     }
-                                    className="object-contain"
+                                    /* Les six premières sont celles qu'on voit
+                                       en ouvrant : pas de chargement paresseux,
+                                       et la priorité réseau. */
+                                    loading={j < 6 ? "eager" : "lazy"}
+                                    fetchPriority={j < 6 ? "high" : "auto"}
+                                    onLoad={(e) => e.currentTarget.setAttribute("data-loaded", "")}
+                                    className="as-tile-img object-contain transition-transform duration-300 group-hover:scale-[1.03]"
                                   />
                                 ) : null}
                                 {row.selected ? (
@@ -2432,6 +2870,40 @@ export default function BannerStudio({
                             );
                           })}
                         </div>
+                        {s.suite ? <Suite onVisible={s.suite} root={scrollerRef} /> : null}
+                        {s.fondu ? (
+                          /* Le fondu finit sur le fond du cadre de l'animé
+                             ouvert (l'accent à 7 % sur la colonne), pour que
+                             la dernière rangée s'y efface sans liseré. */
+                          <div
+                            /* Hauteur FIXE, à peu près une rangée de tuiles :
+                               en pourcentage de la grille, le fondu grandissait
+                               avec elle et, une fois dépliée, noyait plusieurs
+                               rangées dont la dernière entièrement — un grand
+                               vide au-dessus du libellé. */
+                            className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-center ${
+                              s.bande ? "h-14" : densite === 1 ? "h-40" : densite === 2 ? "h-28" : "h-20"
+                            }`}
+                            style={{
+                              background: `linear-gradient(to bottom, transparent, color-mix(in srgb, ${accent} 7%, #15161d) 92%)`,
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={s.fondu.run}
+                              key={s.fondu.label}
+                              className="as-fondu-cta group pointer-events-auto rounded-full px-3 pb-0.5 pt-1.5 font-outfit text-[13.5px] font-bold text-white/90 transition-colors duration-200 hover:text-white"
+                            >
+                              <span className="flex items-center gap-1.5 transition-transform duration-200 group-hover:translate-y-0.5 group-active:scale-95">
+                                {s.fondu.label}
+                                <span className="as-nudge inline-grid">
+                                  <ChevronRightIcon className="h-3.5 w-3.5 rotate-90" strokeWidth={2.4} />
+                                </span>
+                              </span>
+                            </button>
+                          </div>
+                        ) : null}
+                        </div>
                       ) : null}
                       {s.grid ? null : s.rows.map((row) => {
                         index += 1;
@@ -2444,8 +2916,12 @@ export default function BannerStudio({
                             type="button"
                             disabled={row.disabled}
                             onMouseMove={() => setCursor(flat.indexOf(row))}
+                            onPointerEnter={row.hover ? () => row.hover!(true) : undefined}
+                            onPointerLeave={row.hover ? () => row.hover!(false) : undefined}
                             onClick={() => row.run?.()}
-                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+                            className={`group flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${
+                              row.cover ? "py-2" : "py-2.5"
+                            } ${row.dim ? "opacity-40 grayscale" : ""} ${
                               row.disabled
                                 ? "cursor-not-allowed opacity-45"
                                 : active
@@ -2461,7 +2937,11 @@ export default function BannerStudio({
                             }`}
                           >
                             {row.thumb ? (
-                              <span className="relative h-9 w-16 shrink-0 overflow-hidden rounded-md bg-black/50">
+                              <span
+                                className={`relative shrink-0 overflow-hidden rounded-md bg-black/50 ${
+                                  row.cover ? "h-14 w-10" : "h-9 w-16"
+                                }`}
+                              >
                                 <Image src={row.thumb} alt="" fill sizes="64px" className="object-cover" />
                               </span>
                             ) : row.color ? (
@@ -2510,7 +2990,7 @@ export default function BannerStudio({
                               <CheckIcon className="h-[1.15rem] w-[1.15rem] shrink-0 text-action" />
                             ) : null}
                             {row.expand === false ? (
-                              <ChevronRightIcon className="h-4 w-4 shrink-0 text-white/35" strokeWidth={2.2} />
+                              <ChevronRightIcon className="h-4 w-4 shrink-0 text-white/35 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-white/60" strokeWidth={2.2} />
                             ) : null}
                           </button>
                         );
@@ -2826,7 +3306,7 @@ export default function BannerStudio({
                 /* Le point dit « c'est le fond porté » ; le rose, « ce menu est
                    ouvert ». Les deux ne désignent pas toujours la même case. */
                 const worn =
-                  !!draft.kind && kinds.includes(draft.kind) && !!(draft.url || draft.color || draft.trailerId);
+                  !!draft.kind && kinds.includes(draft.kind) && hasOwnPlate(draft);
                 return (
                   <button
                     key={id}
@@ -3001,6 +3481,220 @@ export default function BannerStudio({
       )}
     </div>
     </>
+  );
+}
+
+/**
+ * LES RÉGLAGES DU MUR D'ANIMÉS — trois questions, dans l'ordre où on se les
+ * pose : quelles affiches (les listes), lesquelles parmi elles (la note), et
+ * comment elles bougent. En tête, ce que le mur contient MAINTENANT : un nombre
+ * et six affiches, pour qu'un filtre trop serré se voie avant qu'on cherche
+ * pourquoi le fond est vide.
+ *
+ * Les listes se COMBINENT (union) : un mur « Terminés + En cours » est l'usage
+ * le plus naturel, et un menu à choix unique l'interdisait. Aucune liste
+ * cochée = toute la liste, d'où la pastille « Toute la liste » qui s'allume
+ * seule quand on décoche la dernière.
+ */
+function WallPanel({
+  entries,
+  wall,
+  worn,
+  onChange,
+  t,
+}: {
+  entries: ProfileEntry[];
+  wall: DressingWall;
+  /** Le mur est le fond du brouillon. */
+  worn: boolean;
+  onChange: (next: DressingWall) => void;
+  t: (key: string, opts?: any) => string;
+}) {
+  const set = (p: Partial<DressingWall>) => onChange({ ...wall, ...p });
+  const shown = useMemo(() => wallEntries(entries, wall), [entries, wall]);
+  const withCover = useMemo(() => entries.filter((e) => !!e.cover), [entries]);
+  const lists = useMemo(() => {
+    const statuses = ["favourites", ...Object.values(STATUS_TO_LIST)];
+    const custom = customListNames(entries).map((n) => `custom:${n}`);
+    return [...statuses, ...custom]
+      .map((id) => ({ id, n: withCover.filter((e) => inList(e, id)).length }))
+      .filter((l) => l.n > 0 || wall.lists.includes(l.id));
+  }, [entries, withCover, wall.lists]);
+  const toggle = (id: string) =>
+    set({ lists: wall.lists.includes(id) ? wall.lists.filter((l) => l !== id) : [...wall.lists, id] });
+
+  const head = (label: string, hint?: string) => (
+    <div className="flex items-baseline justify-between gap-3 pb-2">
+      <p className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">{label}</p>
+      {hint ? <p className="truncate font-karla text-[11px] text-white/30">{hint}</p> : null}
+    </div>
+  );
+  /* Ce qui bouge au clic est DEDANS : un bouton qui rétrécit sous le pointeur
+     perd le clic relâché sur son bord (cf. la densité de la grille). */
+  const chip = (id: string | null, label: ReactNode, n: number, on: boolean, color?: string) => (
+    <button
+      key={id ?? "all"}
+      type="button"
+      aria-pressed={on}
+      onClick={() => (id ? toggle(id) : set({ lists: [] }))}
+      className={`group inline-flex items-center rounded-full py-1 pl-2.5 pr-2 font-karla text-[12px] font-bold ring-1 transition-colors ${
+        on ? "bg-white/[0.12] text-white ring-white/25" : "bg-white/[0.03] text-white/55 ring-white/[0.08] hover:text-white/85"
+      }`}
+    >
+      <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
+        {color ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} /> : null}
+        {label}
+        <span className={`tabular-nums ${on ? "text-white/60" : "text-white/30"}`}>{n}</span>
+      </span>
+    </button>
+  );
+  const sw = (on: boolean, flip: () => void, label: string) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={flip}
+      className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${on ? "bg-action" : "bg-white/[0.16]"}`}
+    >
+      <span
+        className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
+          on ? "translate-x-[14px]" : ""
+        }`}
+      />
+    </button>
+  );
+  const DIR_ICON = { up: ArrowUpIcon, down: ArrowDownIcon, alt: ArrowsUpDownIcon } as const;
+
+  return (
+    <div className="flex flex-col gap-5 p-1">
+      {/* Ce que le mur contient, et le geste qui le porte. */}
+      <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.07]">
+        <div className="grid w-[9.5rem] shrink-0 grid-cols-6 gap-0.5 overflow-hidden rounded-lg">
+          {Array.from({ length: 6 }, (_, i) => {
+            const e = shown[i];
+            return (
+              <span key={i} className="relative aspect-[2/3] bg-white/[0.06]">
+                {e?.cover ? <Image src={e.cover} alt="" fill sizes="26px" className="object-cover" /> : null}
+              </span>
+            );
+          })}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-outfit text-[14px] font-bold text-white">
+            {t("profile.studioWallCount", { count: shown.length })}
+          </p>
+          {shown.length === 0 ? (
+            <p className="font-karla text-[11.5px] leading-snug text-white/45">{t("profile.studioWallEmpty")}</p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={worn}
+          onClick={() => onChange(wall)}
+          className={`group shrink-0 rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-colors ${
+            worn ? "bg-emerald-500/15 text-emerald-300" : "bg-action text-white hover:brightness-110"
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
+            {worn ? <CheckIcon className="h-3.5 w-3.5" /> : null}
+            {t(worn ? "profile.studioWallWorn" : "profile.studioWallUse")}
+          </span>
+        </button>
+      </div>
+
+      <div>
+        {head(t("profile.studioWallLists"), t("profile.studioWallListsHint"))}
+        <div className="flex flex-wrap gap-1.5">
+          {chip(null, t("profile.studioWallAll"), withCover.length, wall.lists.length === 0)}
+          {lists.map((l) => {
+            const custom = l.id.startsWith("custom:") ? l.id.slice("custom:".length) : null;
+            const label =
+              l.id === "favourites" ? (
+                <>
+                  <HeartIcon className="h-3 w-3 text-action" />
+                  {t("profile.widgets.options.sourceFavourites")}
+                </>
+              ) : (
+                custom ?? listLabel(t as any, l.id)
+              );
+            const color = l.id === "favourites" ? undefined : custom ? customListColor(custom) : LIST_COLORS[l.id];
+            return chip(l.id, label, l.n, wall.lists.includes(l.id), color);
+          })}
+        </div>
+      </div>
+
+      <div>
+        {head(t("profile.studioWallScores"))}
+        <ScoreRange
+          min={0}
+          max={10}
+          step={0.5}
+          from={wall.scores[0]}
+          to={wall.scores[1]}
+          onChange={(lo, hi) => set({ scores: [lo, hi] })}
+        />
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <span className="font-karla text-[12.5px] text-white/70">{t("profile.studioWallUnrated")}</span>
+          {sw(wall.unrated, () => set({ unrated: !wall.unrated }), t("profile.studioWallUnrated"))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3 pb-2">
+          <p className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+            {t("profile.studioWallAnim")}
+          </p>
+          {sw(wall.anim, () => set({ anim: !wall.anim }), t("profile.studioWallAnim"))}
+        </div>
+        {/* Grisés à l'arrêt mais à leur place : la colonne ne saute pas quand on
+            bascule, et on voit ce que l'interrupteur rallumera. */}
+        <div className={`flex flex-col gap-3 transition-opacity ${wall.anim ? "" : "pointer-events-none opacity-35"}`}>
+          <div role="radiogroup" className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]">
+            {WALL_DIRS.map((d) => {
+              const Icon = DIR_ICON[d];
+              const on = wall.dir === d;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => set({ dir: d })}
+                  className={`group rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors ${
+                    on ? "bg-white/[0.1] text-white" : "text-white/45 hover:text-white/80"
+                  }`}
+                >
+                  <span className="inline-flex items-center justify-center gap-1.5 transition-transform duration-150 group-active:scale-95">
+                    <Icon
+                      className={`h-3.5 w-3.5 ${on && wall.anim ? `as-wall-nudge-${d}` : ""}`}
+                      strokeWidth={2.2}
+                    />
+                    {t(`profile.studioWallDir_${d}`)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
+              {t("profile.studioWallSpeed")}
+            </span>
+            <StudioRange
+              value={wall.speed}
+              min={WALL_SPEED_MIN}
+              max={WALL_SPEED_MAX}
+              step={1}
+              onChange={(v) => set({ speed: clampWallSpeed(v) })}
+              label={t("profile.studioWallSpeed")}
+            />
+            <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+              {wall.speed} px/s
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3403,4 +4097,34 @@ function AnimeHead({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Le repère de fin de grille : invisible, il appelle `onVisible` quand il
+ * arrive à moins de 600 px du bas de la colonne qui défile — assez tôt pour
+ * que la page suivante soit là avant qu'on l'atteigne. Il se réarme à chaque
+ * rendu (la page arrivée le repousse plus bas), donc rien ne part en boucle :
+ * un repère resté visible attend que `onVisible` change.
+ */
+function Suite({
+  onVisible,
+  root,
+}: {
+  onVisible: () => void;
+  root: React.RefObject<HTMLDivElement | null>;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onVisible();
+      },
+      { root: root.current, rootMargin: "0px 0px 600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [onVisible, root]);
+  return <div ref={ref} aria-hidden className="h-px w-full" />;
 }

@@ -1,6 +1,8 @@
 import Image from "next/image";
 import { useEffect, useRef, type CSSProperties, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { defaultWall } from "@/lib/profile/wall";
+import AnimeWall from "@/components/profile/AnimeWall";
 import {
   clampPatternSpeed,
   isPatternId,
@@ -109,7 +111,11 @@ type Props = {
     patternZoom?: Dressing["patternZoom"];
     patternAnim?: Dressing["patternAnim"];
     patternSpeed?: Dressing["patternSpeed"];
+    wall?: Dressing["wall"];
   };
+  /** Les affiches d'un mur d'animés, déjà filtrées (lib/profile/wall.ts) : le
+      fond ne connaît pas la liste, c'est la page qui la tient. */
+  wallCovers?: string[];
   /** `object-contain` : une bande large est montrée entière, jamais recadrée. */
   contain?: boolean;
   /** Une pochette portrait étirée en bandeau : floutée et sur-dimensionnée. */
@@ -141,6 +147,7 @@ export default function PlateBackground({
   sizes = "100vw",
   onVideoProgress,
   videoRemote,
+  wallCovers,
 }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -383,6 +390,11 @@ export default function PlateBackground({
       style={{ opacity: 0 }}
     />
   );
+
+  if (dressing.kind === "wall") {
+    const w = dressing.wall ?? defaultWall();
+    return <AnimeWall covers={wallCovers ?? []} anim={w.anim} dir={w.dir} speed={w.speed} />;
+  }
 
   if (dressing.kind === "color" || (!dressing.url && dressing.color)) {
     /* Un motif se dessine DANS la couleur, sur fond sombre (lib/profile/patterns). */

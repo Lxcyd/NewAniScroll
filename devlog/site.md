@@ -2414,3 +2414,15 @@ reellement ouverts repaient un fan-out, une fois.
 
 - Image / Bannière : dès 3 lettres, la recherche interroge aussi AniList DEPUIS LE NAVIGATEUR (`STUDIO_SEARCH`, 12 résultats, debounce 350 ms, sans fonction Vercel ni limiteur partagé). Les titres hors liste viennent après les siens, marqués « Pas dans ta liste », et se déplient comme les autres ; la ligne ouverte survit à une recherche qui ne la trouve plus (`vus`). La section « Autres animés » est retirée de ces deux onglets (doublon). Vérifié en local : « berserk » → 6 titres, Kenpuu Denki Berserk → 32 illustrations.
 
+
+### 14/10/2026 — Studio Image/Bannière : comptes en sous-titre, galerie plus rapide
+- Lignes d'animés en affiche (portrait), sous-titre = nombre d'illustrations de l'onglet, ligne grisée « Aucune illustration disponible » à 0 ; animé ouvert dans un cadre teinté à l'accent ; « Montrer plus » en vrai bouton sous les 6 premières.
+- `/api/v2/art-counts?ids=…` : comptes par type pour toute la liste en **3 requêtes SQL** (`countFanartsByType`, `compterToutParAnime`, `countCachedTmdbArtworks` dans `lib/tmdb/artworksCache.ts`). TMDB lu **dans son cache seulement** : la 1re version appelait `getTmdbArtworks` par titre, et une clé froide y déclenchait TMDB + hachage perceptuel (sharp) — vingt fois par invocation. 0,19 s pour 10 titres en local.
+- Comptes demandés à l'ouverture du studio (cache module) ; la grille n'attend plus `/api/v2/profile-banner` (AniList, la plus lente) ; préchargement des sources au survol 150 ms d'une ligne ; tuiles fanart.tv avec la variante `/preview/` (200×112, 4,7 Ko) en fond le temps que l'image entière arrive ; 6 premières tuiles en eager/high ; preconnect image.tmdb.org + th.wallhaven.cc.
+- « Voir les N autres » instantané : file de préchargement au repos (`requestIdleCallback`, 4 en parallèle) des images cachées sous le fondu — vignettes `/preview/` fanart.tv d'abord, images entières ensuite — puis la page Wallhaven suivante via `fetchPage` (MEMO relu par `loadMore`) et ses vignettes. Animé ouvert seulement, arrêt au changement. Cascade d'entrée plafonnée à 8 × 20 ms, fondu d'image 0,2 s.
+
+### 15/10/2026 — Studio : fond « Mur d'animés »
+- Nouveau `DressingKind` `wall`, 3e onglet du groupe Image / Bannière. L'habillage ne stocke que le FILTRE (`wall: { lists, scores, unrated, anim, dir, speed }`, `lib/profile/wall.ts`) ; les affiches sont relues dans `entries` à chaque rendu → aucune URL à valider, le mur suit la liste sans resauvegarde.
+- Listes combinables (union : favoris, statuts, listes perso ; aucune = toute la liste), plage de notes (double curseur de WidgetSettings) + non notés, défilement on/off, sens haut / bas / alterné, vitesse 4-60 px/s.
+- `AnimeWall` : colonnes mesurées (ResizeObserver, ~150 px), suite d'affiches doublée et translation CSS de `--wall-half` px (pas -50 % : décalage d'un demi-écart), vitesse ±15 % par colonne, départs décalés. Mélange stable par mediaId, 120 affiches max.
+- `hasOwnPlate()` (dressing.ts) remplace les tests `url || color || trailerId` du studio ; la route PUT n'exige pas d'URL pour `wall`.

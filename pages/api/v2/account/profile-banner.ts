@@ -43,7 +43,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     /* Une bande-annonce n'a pas d'URL à valider : `normalizeDressing` n'a gardé
        son identifiant que s'il avait la forme exacte d'un id YouTube, et c'est
        la seule chose qui parte ensuite dans l'iframe. */
-    if (dressing.kind !== "color" && !dressing.trailerId) {
+    /* Un mur d'animés non plus : il ne stocke qu'un filtre, ses affiches sont
+       relues dans la liste du profil (lib/profile/wall.ts). */
+    if (dressing.kind !== "color" && dressing.kind !== "wall" && !dressing.trailerId) {
       const ok = isVideoKind(dressing.kind)
         ? isAllowedMediaUrl(dressing.url)
         : isAllowedBannerUrl(dressing.url);

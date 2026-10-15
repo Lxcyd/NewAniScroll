@@ -2671,6 +2671,31 @@ html.as-scene-leave .as-navbar {
   from { background-position: 0 0; }
   to { background-position: var(--pat-dx, 0px) var(--pat-dy, 0px); }
 }
+/* Le mur d'animés (components/profile/AnimeWall) : chaque colonne porte ses
+   affiches deux fois et glisse d'exactement une suite (`--wall-half`, en px).
+   Le sens et la durée sont posés en ligne, colonne par colonne. Pas de garde
+   `prefers-reduced-motion` : le mur s'éteint par son propre interrupteur, et
+   le poste de Luc répond `reduce` (le défilement y serait invisible). */
+.as-wall-scroll {
+  animation: as-wall-scroll 40s linear infinite;
+  will-change: transform;
+}
+@keyframes as-wall-scroll {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-1 * var(--wall-half, 0px))); }
+}
+/* La flèche du sens choisi bat doucement dans ce sens (réglages du mur). */
+.as-wall-nudge-up { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: -2px; }
+.as-wall-nudge-down { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: 2px; }
+.as-wall-nudge-alt { animation: as-wall-nudge-alt 1.4s ease-in-out infinite; }
+@keyframes as-wall-nudge {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(var(--nudge)); }
+}
+@keyframes as-wall-nudge-alt {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.18); }
+}
 /* Le voile d'une plaque de COULEUR, bien plus léger que celui d'une
    illustration (`.as-page-scrim`, 0.72 / 0.28 / 0.6).
 
@@ -4452,4 +4477,57 @@ html.as-scene-leave .as-navbar {
     animation-duration: 120ms;
     animation-delay: 0ms !important;
   }
+}
+
+/* ── Studio du profil : galerie d'illustrations (14/10/2026) ─────────────────
+   PAS de garde `prefers-reduced-motion` : ce poste répond `reduce` (cf. la
+   mémoire « poste en reduced-motion ») et ces animations sont courtes, sans
+   rebond, déclenchées par un clic. */
+@keyframes as-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+/* Les tuiles entrent en cascade (`--i` = leur rang, plafonné). */
+.as-tile-in {
+  animation: as-tile-in 0.38s cubic-bezier(0.3, 0.7, 0.2, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+/* L'image entière apparaît en fondu par-dessus la vignette `/preview/`. */
+.as-tile-img {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.as-tile-img[data-loaded] {
+  opacity: 1;
+}
+/* L'animé ouvert se déplie : ses sections descendent d'un cheveu. */
+@keyframes as-acc-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.as-acc-in {
+  animation: as-acc-in 0.28s cubic-bezier(0.3, 0.7, 0.2, 1) backwards;
+}
+/* Le libellé du fondu entre après les tuiles, et sa flèche invite au clic. */
+/* Il DESCEND à sa place : il montre la direction où la grille se déroule. */
+@keyframes as-fondu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.as-fondu-cta {
+  animation: as-fondu-in 0.4s cubic-bezier(0.3, 0.7, 0.2, 1) 0.18s backwards;
+}
+@keyframes as-nudge {
+  50% {
+    transform: translateY(3px);
+  }
+}
+.as-nudge {
+  animation: as-nudge 1.6s ease-in-out infinite;
 }

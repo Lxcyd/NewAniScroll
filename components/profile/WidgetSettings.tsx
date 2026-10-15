@@ -261,7 +261,7 @@ export function Dropdown({
  * plutôt que de les échanger en cours de glissement — un intervalle qui se
  * retourne sous la main est désorientant, et « de 8 à 3 » ne veut rien dire.
  */
-function Range({
+export function Range({
   min,
   max,
   step,

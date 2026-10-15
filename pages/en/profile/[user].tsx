@@ -359,6 +359,7 @@ export default function Profile({
         anilistName={identity.anilistName}
         createdAt={identity.createdAt}
         banner={shownBanner}
+        entries={entries}
         stats={heroStats(t, stats)}
         isOwner={isOwner}
         onEditBanner={openEditor}
@@ -494,6 +495,7 @@ export default function Profile({
               onMini={setCompact}
               bridge={studioBridge}
               animes={studioAnimes}
+              entries={entries}
               value={pinned ? normalizeDressing(banner) : null}
               auto={{
                 url: initialBanner?.url ?? null,

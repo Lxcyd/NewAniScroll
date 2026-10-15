@@ -27,10 +27,12 @@ import {
   PATTERN_ZOOM_DEFAULT,
   type PatternId,
 } from "./patterns";
+import { normalizeWall, type DressingWall } from "./wall";
 
-/** Les huit fonds proposés par le dock du studio. */
+/** Les fonds proposés par le dock du studio. */
 export type DressingKind =
   | "color"
+  | "wall"
   | "banner"
   | "anim"
   | "image"
@@ -210,6 +212,12 @@ export type Dressing = {
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
   blur: number;
+  /**
+   * Le mur d'animés (kind « wall », lib/profile/wall.ts) : le FILTRE qui choisit
+   * les affiches et la façon dont elles défilent. Les affiches, elles, sont
+   * relues dans la liste à chaque rendu. `null` sur tout autre fond.
+   */
+  wall: DressingWall | null;
   /** Agencement du haut de profil. Absent des anciennes valeurs : « band ». */
   layout: HeroLayout;
   /**
@@ -236,6 +244,8 @@ export const DRESSING_KINDS: Array<{ id: DressingKind; ready: boolean }> = [
   { id: "color", ready: true },
   { id: "banner", ready: true },
   { id: "image", ready: true },
+  /* Le mur d'animés (15/10/2026) : les affiches de la liste, en colonnes. */
+  { id: "wall", ready: true },
   /* « Vidéo » est servi par les bandes-annonces AniList depuis le 06/09/2026 :
      elles existent pour presque tous les titres, et arrivent dans la requête
      que le profil fait déjà. */
@@ -280,6 +290,17 @@ export function isAllowedMediaUrl(url: unknown): url is string {
 }
 
 /** Un fond de ce type est une vidéo : le plateau la lit au lieu de l'afficher. */
+/**
+ * L'habillage porte-t-il un fond À LUI ? Une image, une couleur, une
+ * bande-annonce — ou un mur, qui n'a ni URL ni couleur : sans lui dans ce test,
+ * le studio retombait sur la plaque automatique au lieu du mur choisi.
+ */
+export function hasOwnPlate(
+  d: Pick<Dressing, "url" | "color" | "trailerId" | "kind"> | null | undefined,
+): boolean {
+  return !!d && !!(d.url || d.color || d.trailerId || d.kind === "wall");
+}
+
 export function isVideoKind(kind: DressingKind | null | undefined): boolean {
   return kind === "oped" || kind === "video" || kind === "clip" || kind === "anim";
 }
@@ -391,7 +412,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
      elle dans ce garde-fou, tout l'habillage — musique et agencement compris —
      serait jeté à la relecture d'un profil qui porte un trailer. */
   const trailerId = youtubeId(obj.trailerId);
-  if (!url && !color && !trailerId) return null;
+  if (!url && !color && !trailerId && kind !== "wall") return null;
 
   const rawMusic = obj.music;
   const musicUrl = rawMusic ? str(rawMusic.url, 500) : null;
@@ -423,7 +444,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
 
   return {
     kind,
-    url: kind === "color" ? null : url,
+    url: kind === "color" || kind === "wall" ? null : url,
     color: kind === "color" ? color : null,
     pattern: kind === "color" && isPatternId(obj.pattern) ? obj.pattern : null,
     patternZoom: clampPatternZoom(obj.patternZoom),
@@ -445,6 +466,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
       : 0,
     music,
     blur: clampBlur(obj.blur),
+    wall: kind === "wall" ? normalizeWall(obj.wall) : null,
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
     /* Validé à la FORME : seul un asset Discord exact part dans l'URL du CDN. */
     frame: isFrameAsset(obj.frame) ? obj.frame : null,
@@ -470,6 +492,7 @@ export function emptyDressing(): Dressing {
     videoFade: DEFAULT_VIDEO_FADE,
     music: null,
     blur: 0,
+    wall: null,
     layout: "band",
     frame: null,
   };
