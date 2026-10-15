@@ -2679,10 +2679,22 @@ html.as-scene-leave .as-navbar {
 .as-wall-scroll {
   animation: as-wall-scroll 40s linear infinite;
   will-change: transform;
+  /* Une affiche qui s'efface une demi-seconde puis revient (15/10/2026) :
+     c'est le compositeur qui repeint la tuile de la colonne en cours de
+     mouvement. `translate3d` + `backface-visibility: hidden` gardent la
+     colonne sur UN calque GPU stable, au lieu d'un calque que WebKit
+     défait et refait au gré du défilement. */
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+}
+.as-wall-scroll > img {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 @keyframes as-wall-scroll {
-  from { transform: translateY(0); }
-  to { transform: translateY(calc(-1 * var(--wall-half, 0px))); }
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(0, calc(-1 * var(--wall-half, 0px)), 0); }
 }
 /* La flèche du sens choisi bat doucement dans ce sens (réglages du mur). */
 .as-wall-nudge-up { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: -2px; }
