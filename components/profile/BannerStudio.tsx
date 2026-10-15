@@ -20,6 +20,8 @@ import {
   FilmIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
+  MagnifyingGlassMinusIcon,
+  MagnifyingGlassPlusIcon,
   MinusIcon,
   MusicalNoteIcon,
   PlusIcon,
@@ -415,28 +417,16 @@ function writeTailleLigne(v: TailleLigne) {
 }
 /** Affiche et texte de chaque taille : 1 petite, 2 moyenne, 3 grande. */
 const LIGNE: Record<TailleLigne, { cover: string; sizes: string; text: string }> = {
-  1: { cover: "h-7 w-5", sizes: "20px", text: "text-[12px]" },
-  2: { cover: "h-10 w-7", sizes: "28px", text: "text-[12.5px]" },
-  3: { cover: "h-16 w-11", sizes: "44px", text: "text-[13.5px]" },
+  1: { cover: "h-9 w-[26px]", sizes: "26px", text: "text-[12px]" },
+  2: { cover: "h-16 w-[46px]", sizes: "46px", text: "text-[13.5px]" },
+  3: { cover: "h-28 w-20", sizes: "80px", text: "text-[15px]" },
 };
-/** L'icône d'une taille : des lignes, d'autant moins nombreuses et plus
-    épaisses que la taille est grande. */
-function TailleLigneIcon({ v, className }: { v: TailleLigne; className?: string }) {
-  const n = v === 1 ? 4 : v === 2 ? 3 : 2;
-  const gap = 1.8;
-  const h = (16 - gap * (n - 1)) / n;
-  return (
-    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
-      {Array.from({ length: n }, (_, i) => (
-        <g key={i}>
-          <rect x={0} y={i * (h + gap)} width={h * 0.72} height={h} rx={0.8} />
-          <rect x={h * 0.72 + 1.6} y={i * (h + gap) + h * 0.3} width={16 - h * 0.72 - 1.6} height={h * 0.4} rx={0.6} />
-        </g>
-      ))}
-    </svg>
-  );
-}
-
+/** L'icône d'une taille : une loupe, moins → neutre → plus. */
+const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
+  1: MagnifyingGlassMinusIcon,
+  2: MagnifyingGlassIcon,
+  3: MagnifyingGlassPlusIcon,
+};
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -3833,7 +3823,10 @@ function WallPanel({
                 {/* Ce qui bouge au clic est DEDANS : un bouton qui rétrécit
                     sous le pointeur perd le clic relâché sur son bord. */}
                 <span className="grid place-items-center transition-transform duration-150 group-active:scale-90">
-                  <TailleLigneIcon v={taille} className="h-4 w-4" />
+                  {(() => {
+                    const Icon = LIGNE_ICON[taille];
+                    return <Icon className="h-[1.1rem] w-[1.1rem]" strokeWidth={2} />;
+                  })()}
                 </span>
               </button>
             </div>
