@@ -472,7 +472,9 @@ export default function ProfileHero({
         />
       </div>
 
-      <div className={`min-w-0 pb-1 ${centered ? "flex flex-col items-center" : ""}`}>
+      {/* Centré, le pseudo REMONTE sous l'avatar : l'interligne d'un titre
+          de 60 px laisse à lui seul un vide au-dessus des lettres. */}
+      <div className={`min-w-0 pb-1 ${centered ? "-mt-1 flex flex-col items-center md:-mt-3" : ""}`}>
         {/* The name can overlap a plate that is anything at all: the shadow is
             what keeps it readable over a bright artwork.
 
@@ -613,7 +615,7 @@ export default function ProfileHero({
       /* Centré, l'écart est VERTICAL, entre l'avatar et le pseudo : le
          `gap-6` d'à côté les décollait trop (16/10/2026). */
       className={`mx-auto flex w-full max-w-screen-xl px-4 ${
-        centered ? "flex-col items-center gap-1.5 text-center md:gap-2" : "items-end gap-4 md:gap-6"
+        centered ? "flex-col items-center gap-0 text-center" : "items-end gap-4 md:gap-6"
       } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
