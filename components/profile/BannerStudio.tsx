@@ -3988,9 +3988,10 @@ function WallPanel({
       {choix ? null : card(
         <ArrowsUpDownIcon className="h-4 w-4" />,
         t("profile.studioWallMotion"),
-        /* Grisés à l'arrêt mais à leur place : la carte ne saute pas quand on
-           bascule, et on voit ce que l'interrupteur rallumera. */
-        <div className={`flex flex-col gap-4 transition-opacity ${wall.anim ? "" : "pointer-events-none opacity-35"}`}>
+        /* Atténués à l'arrêt mais TOUJOURS RÉGLABLES (15/10/2026) : on prépare
+           le sens et la vitesse avant de rallumer le défilement. Bloqués, ils
+           passaient pour cassés. */
+        <div className={`flex flex-col gap-4 transition-opacity ${wall.anim ? "" : "opacity-55 hover:opacity-90"}`}>
           <div>
             {label(t("profile.studioWallDirection"))}
             <div role="radiogroup" className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]">
