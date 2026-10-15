@@ -583,7 +583,9 @@ export default function ProfileHero({
           {/* Une couleur choisie reçoit un voile léger : le voile lourd existe
               pour détacher du texte d'une PHOTO, et l'appliquer à un aplat
               rendait une autre couleur que celle qu'on avait cliquée. */}
-          <div className={flat ? "as-page-scrim-tint" : "as-page-scrim"} />
+          {/* Le mur aussi : il porte son propre voile, un second voile lourd
+              le noircissait sous la barre de navigation. */}
+          <div className={flat || wall ? "as-page-scrim-tint" : "as-page-scrim"} />
         </div>,
       ) : null}
 

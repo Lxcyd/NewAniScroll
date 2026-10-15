@@ -43,10 +43,22 @@ export default function AnimeWall({
   useEffect(() => {
     const el = box.current;
     if (!el) return;
+    /* LA HAUTEUR NE FAIT QUE MONTER, et elle part de celle de l'écran. Sur un
+       téléphone ou une tablette, la barre d'adresse se replie au défilement :
+       la fenêtre gagne ou perd 80 px, et chaque variation recalculait le
+       nombre d'affiches par colonne et la durée de l'animation — toutes les
+       colonnes sautaient et se rechargeaient, d'où les affiches qui
+       « clignotaient ». Une colonne un peu trop longue ne coûte rien. */
+    let measured = false;
     const fit = () => {
       const w = el.clientWidth;
-      const h = el.clientHeight;
-      if (w && h) setSize((s) => (Math.abs(s.w - w) < 8 && Math.abs(s.h - h) < 8 ? s : { w, h }));
+      const h = Math.max(el.clientHeight, window.screen?.height || 0);
+      if (!w || !h) return;
+      setSize((s) => {
+        const nh = Math.ceil((measured ? Math.max(s.h, h) : h) / 200) * 200;
+        measured = true;
+        return Math.abs(s.w - w) < 24 && nh === s.h ? s : { w, h: nh };
+      });
     };
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -97,12 +109,15 @@ export default function AnimeWall({
               <div key={c} className="relative min-w-0 flex-1">
                 <div className={`flex flex-col ${anim ? "as-wall-scroll" : ""}`} style={{ gap: GAP, ...style }}>
                   {[...items, ...(anim ? items : [])].map((src, j) => (
+                    /* Décodage SYNCHRONE, et c'est voulu : dans un calque qui
+                       bouge, une affiche décodée à part peut être effacée puis
+                       redécodée par le compositeur, et se voit clignoter. */
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       key={j}
                       src={src}
                       alt=""
-                      decoding="async"
+                      decoding="sync"
                       draggable={false}
                       className="w-full shrink-0 rounded-lg object-cover shadow-[0_8px_24px_rgba(0,0,0,.45)]"
                       style={{ height: itemH }}
@@ -115,14 +130,11 @@ export default function AnimeWall({
         </div>
       ) : null}
       {/* Le voile du mur : des affiches pleine intensité se battent avec le
-          nom et les widgets posés dessus. Plus sombre aux bords. */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(120% 90% at 50% 40%, rgba(12,13,18,.35) 0%, rgba(12,13,18,.7) 100%)",
-        }}
-      />
+          nom et les widgets posés dessus. UNIFORME, jusqu'aux bords : il était
+          assombri en périphérie (0,7) et, cumulé au voile de page, le haut et
+          les côtés tombaient au noir sur des affiches sombres — le mur avait
+          l'air de s'arrêter avant le bord de l'écran (15/10/2026). */}
+      <div className="pointer-events-none absolute inset-0 bg-[rgba(12,13,18,.35)]" />
     </div>
   );
 }
