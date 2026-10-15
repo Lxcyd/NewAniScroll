@@ -3252,20 +3252,30 @@ html.as-scene-leave .as-navbar {
 }
 
 /* « Reprendre la lecture » : les deux boutons tiennent sur UNE ligne (cf.
-   DeviceBlocks). Sous ~270 px — la paire en grande taille, libellés compris —
-   « Plus d'infos » se réduit à son glyphe dans une pastille ronde. La requête
-   porte sur la ligne de boutons elle-même : c'est sa largeur qui manque, pas
-   celle de la carte (la vignette en prend une part variable). */
+   DeviceBlocks), libellés COMPRIS. Quand la ligne rétrécit, ce sont les
+   boutons qui rapetissent (marges, corps, hauteur) — pas le texte qui part :
+   une première version réduisait « Plus d'infos » à son glyphe, et un rond
+   avec un « i » ne disait plus où il menait (15/10/2026). La requête porte sur
+   la ligne de boutons elle-même : c'est sa largeur qui manque, pas celle de
+   la carte (la vignette en prend une part variable). Doublée pour passer
+   devant les tailles de `.as-widget-btn` posées par les requêtes `widget`. */
 .as-resume-actions {
   container-type: inline-size;
 }
-@container (max-width: 270px) {
-  .as-resume-info-label {
-    display: none;
+@container (max-width: 290px) {
+  .as-resume-actions .as-widget-btn.as-widget-btn {
+    height: 2rem;
+    padding-inline: 0.75rem;
+    font-size: 0.6875rem;
+    gap: 0.3rem;
   }
-  .as-resume-info.as-resume-info {
-    aspect-ratio: 1;
-    padding-inline: 0;
+}
+@container (max-width: 225px) {
+  .as-resume-actions .as-widget-btn.as-widget-btn {
+    height: 1.75rem;
+    padding-inline: 0.55rem;
+    font-size: 0.625rem;
+    letter-spacing: 0;
   }
 }
 @container widget (max-width: 360px) {

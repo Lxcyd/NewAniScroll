@@ -387,9 +387,9 @@ export function ResumeBlock({
         {/* UNE seule ligne, jamais deux : en `flex-wrap`, une colonne de texte
             étroite renvoyait « Plus d'infos » sous « Reprendre », et la carte
             (hauteur fixe, `overflow-hidden`) le coupait à moitié (15/10/2026).
-            Trop étroite, la pilule perd son libellé et garde son glyphe —
+            Trop étroite, les deux pilules rapetissent, libellés gardés —
             `.as-resume-actions`, une requête sur la largeur de cette ligne. */}
-        <div className="as-resume-actions mt-3 flex flex-nowrap items-center gap-2">
+        <div className="as-resume-actions mt-3 flex flex-nowrap items-center gap-1.5">
           <Link
             href={href}
             className="as-widget-btn inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-action px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"
@@ -404,14 +404,12 @@ export function ResumeBlock({
                ce dernier renverrait vers un épisode, c'est-à-dire là où mène
                déjà tout le reste du bloc. */
             href={`/en/anime/${row.aniId}`}
-            aria-label={t("profile.blocks.resume.info")}
-            title={t("profile.blocks.resume.info")}
-            className="as-widget-btn as-resume-info inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
+            className="as-widget-btn inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white outline-none backdrop-blur-sm transition-colors hover:bg-white/20 focus:outline-none focus-visible:outline-none"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5 shrink-0">
               <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
             </svg>
-            <span className="as-resume-info-label whitespace-nowrap">{t("profile.blocks.resume.info")}</span>
+            <span className="whitespace-nowrap">{t("profile.blocks.resume.info")}</span>
           </Link>
         </div>
       </div>
