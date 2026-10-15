@@ -47,6 +47,21 @@ export type BadgeTokenProps = {
 /** La taille de référence du dessin : tout le reste est une mise à l'échelle. */
 const BASE = 118;
 
+/* LE REFLET EST SYNCHRONISÉ sur toute la page. Une animation CSS part quand
+   son élément apparaît : trois jetons montés à des moments différents (un
+   badge ajouté à la vitrine du pseudo, une ligne de l'onglet qui arrive au
+   défilement) balayaient chacun à leur rythme. Chaque balayage reçoit donc,
+   à son montage, un retard NÉGATIF égal à sa phase sur l'horloge de la page
+   (`performance.now()`, commune à tous) : ils passent tous en même temps.
+   Posé après le montage et pas en style React, parce que le serveur n'a pas
+   la même horloge — la valeur différerait à l'hydratation. Fonction de module,
+   donc référence stable : React ne la rappelle qu'au montage, et un nouveau
+   retard en cours d'animation ferait sauter le reflet. */
+const SWEEP_MS = 5500;
+function syncSweep(el: SVGRectElement | null) {
+  if (el) el.style.animationDelay = `-${Math.round(performance.now() % SWEEP_MS)}ms`;
+}
+
 function BadgeTokenInner({
   id, rarity, icon, tag = "", unlocked = false, hidden = false,
   size = BASE, animate = true, check = false,
@@ -131,7 +146,8 @@ function BadgeTokenInner({
                 width={R.sweep}
                 height={168}
                 fill="url(#asSweep)"
-                style={{ animation: "asSweep 5.5s ease-in-out infinite" }}
+                ref={syncSweep}
+                style={{ animation: `asSweep ${SWEEP_MS}ms ease-in-out infinite` }}
               />
             </g>
           </g>
