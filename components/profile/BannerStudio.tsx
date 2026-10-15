@@ -20,6 +20,7 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ArrowUturnLeftIcon,
+  ArrowsPointingOutIcon,
   ArrowsUpDownIcon,
   Bars3BottomLeftIcon,
   Bars3Icon,
@@ -52,6 +53,7 @@ import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/s
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
+import LayoutThumb from "@/components/profile/LayoutThumb";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
@@ -179,6 +181,7 @@ const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
   center: Bars3Icon,
   medallion: UserCircleIcon,
   column: ViewColumnsIcon,
+  showcase: ArrowsPointingOutIcon,
 };
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
@@ -1212,22 +1215,60 @@ export default function BannerStudio({
     }
 
     /* ── Les agencements ──────────────────────────────────────────────────
-       Quatre dispositions du même matériel. Chacune se lit à sa description :
-       l'aperçu du studio est une mise en scène centrée, pas le vrai haut de
-       profil, donc une vignette par agencement aurait été un cinquième dessin à
-       tenir à jour — et il aurait menti aussi. La phrase, elle, dit ce qui
-       bouge. */
+       Cinq dispositions du même matériel, en vignettes : un plan de la page
+       entière (LayoutThumb), dessiné sur le fond du brouillon et avec le vrai
+       avatar. Le plan dit où tombe chaque pièce ; la page, derrière, montre
+       le résultat en direct. La phrase de l'agencement retenu reste dessous. */
     if (scope === "layout") {
+      const current = draft.layout ?? "band";
+      /* Sans fond à lui, le brouillon porte le fond actuel (cf. previewBanner). */
+      const own = draft.url || draft.color || draft.trailerId || draft.kind === "wall";
+      const plateUrl = draft.url && !isVideoKind(draft.kind) ? draft.url : !own ? auto.url : null;
+      const plate =
+        draft.kind === "color" && draft.color
+          ? draft.color
+          : plateUrl
+            ? `url("${plateUrl}") center / cover`
+            : "linear-gradient(140deg, #1b1538, #4a2050 45%, #b2565a 80%, #e09a62)";
       out.push({
         title: t("profile.studioLayoutSection"),
-        rows: HERO_LAYOUTS.map((id) => ({
-          key: `layout-${id}`,
-          label: t(`profile.studioLayout_${id}`),
-          hint: t(`profile.studioLayoutHint_${id}`),
-          icon: LAYOUT_ICON[id],
-          selected: (draft.layout ?? "band") === id,
-          run: () => patch({ layout: id }),
-        })),
+        rows: [],
+        node: (
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {HERO_LAYOUTS.map((id) => {
+                const on = current === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={on}
+                    title={t(`profile.studioLayoutHint_${id}`)}
+                    onClick={() => patch({ layout: id })}
+                    className={`group grid gap-1.5 rounded-xl p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
+                      on ? "bg-action/15 ring-2 ring-action" : "bg-white/[0.03] ring-1 ring-white/10 hover:bg-white/[0.07]"
+                    }`}
+                  >
+                    <span className="block transition-transform duration-200 group-hover:scale-[1.02]">
+                      <LayoutThumb layout={id} plate={plate} avatar={identity.avatar} />
+                    </span>
+                    <span
+                      className={`flex items-center justify-between px-1 pb-0.5 font-karla text-[13px] font-bold ${
+                        on ? "text-white" : "text-white/70"
+                      }`}
+                    >
+                      {t(`profile.studioLayout_${id}`)}
+                      {on ? <CheckIcon className="h-4 w-4 text-action" /> : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="px-1 text-xs leading-relaxed text-white/50">
+              {t(`profile.studioLayoutHint_${current}`)}
+            </p>
+          </div>
+        ),
       });
     }
 
@@ -2104,7 +2145,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, auto.url, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -2361,8 +2402,8 @@ export default function BannerStudio({
   };
 
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
-     agencements non plus — ils sont quatre, et un champ de recherche au-dessus
-     de quatre lignes est un aveu de liste trop longue. */
+     agencements non plus — ils sont cinq, en vignettes, et un champ de recherche
+     au-dessus de cinq vignettes est un aveu de liste trop longue. */
   const searchable = scope !== "color" && scope !== "layout" && scope !== "wall";
   /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
       en a toujours un d'ouvert, sauf quand le studio est réduit. */

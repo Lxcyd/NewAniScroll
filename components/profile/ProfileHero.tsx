@@ -3,6 +3,7 @@ import FramedAvatar from "@/components/profile/FramedAvatar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ChevronDownIcon,
   PhotoIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
@@ -382,12 +383,42 @@ export default function ProfileHero({
   /* En colonne, le haut de profil n'est plus qu'une plaque : l'identité et les
      chiffres sont rendus par la PAGE, dans une colonne à gauche du contenu. */
   const asColumn = layout === "column";
+  /* La vitrine n'a de sens que sur un papier peint : un bandeau a ses propres
+     proportions, l'étirer sur tout l'écran est le zoom qu'on refuse plus haut.
+     Sur un bandeau, elle se rabat sur l'agencement d'origine. */
+  const showcase = layout === "showcase" && asPage;
+
+  /* Les chiffres en une ligne de texte : le médaillon dessous, la vitrine à
+     droite du nom — deux places, une seule ligne. */
+  const statLine = (
+    <dl
+      className={`flex flex-wrap items-baseline gap-x-6 gap-y-2 ${
+        showcase ? "w-full md:ml-auto md:w-auto md:justify-end md:pb-2" : ""
+      }`}
+    >
+      {stats.map((s) => (
+        <div key={s.key} className="flex items-baseline gap-2">
+          <dd
+            className={`font-outfit text-xl font-bold leading-none ${
+              s.accent ? "text-action" : "text-white"
+            } ${showcase ? "md:text-2xl" : ""}`}
+            style={showcase && !flat ? { textShadow: "0 1px 2px rgba(0,0,0,0.7)" } : undefined}
+          >
+            {s.value}
+          </dd>
+          <dt className="text-[10px] font-bold uppercase tracking-wider text-white/50">
+            {s.label}
+          </dt>
+        </div>
+      ))}
+    </dl>
+  );
 
   const identity = (
     <div
-      className={`mx-auto flex w-full max-w-screen-lg gap-4 px-4 pb-5 md:gap-6 md:pb-7 ${
+      className={`mx-auto flex w-full max-w-screen-lg gap-4 px-4 md:gap-6 ${
         centered ? "flex-col items-center text-center" : "items-end"
-      }`}
+      } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {/* Le médaillon monte sur la plaque au lieu de s'y adosser : c'est ce
           chevauchement franc qui le fait lire comme un portrait épinglé et non
@@ -431,7 +462,9 @@ export default function ProfileHero({
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
         <h1
-          className="break-words font-outfit text-3xl font-bold leading-tight md:text-5xl"
+          className={`break-words font-outfit text-3xl font-bold leading-tight ${
+            showcase ? "md:text-6xl" : "md:text-5xl"
+          }`}
           style={flat ? undefined : { textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}
         >
           {name}
@@ -492,6 +525,7 @@ export default function ProfileHero({
         </div>
         {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
       </div>
+      {showcase ? statLine : null}
     </div>
   );
 
@@ -594,7 +628,9 @@ export default function ProfileHero({
         className={`relative w-full overflow-hidden ${
           asPage ? "as-hero-band" : "as-hero-band-slim"
         }`}
-        style={bandStyle}
+        /* `svh` : la hauteur de l'écran barre d'adresse comprise, sinon sur un
+           téléphone le bas de l'identité passe sous la barre au chargement. */
+        style={showcase ? { height: "100svh" } : bandStyle}
       >
         {!asPage && banner.url ? (
           <PlateBackground
@@ -697,6 +733,14 @@ export default function ProfileHero({
         {onArtwork && !asColumn && !medallion ? (
           <div className="absolute inset-x-0 bottom-0 z-10">{identity}</div>
         ) : null}
+        {/* La vitrine cache tout le reste sous la ligne de flottaison : le
+            chevron dit qu'il y a une suite. */}
+        {showcase ? (
+          <ChevronDownIcon
+            aria-hidden
+            className="pointer-events-none absolute bottom-4 left-1/2 z-10 h-6 w-6 -translate-x-1/2 text-white/60"
+          />
+        ) : null}
       </div>
 
       {/* Under a strip: below it, the avatar overlapping the edge. */}
@@ -708,25 +752,10 @@ export default function ProfileHero({
           un grand portrait rond au-dessus d'une grille de cadres faisait deux
           objets lourds l'un sur l'autre, et c'est le portrait qu'on regarde. */}
       {medallion && stats.length > 0 ? (
-        <dl className="mx-auto mt-3 flex w-full max-w-screen-lg flex-wrap items-baseline gap-x-6 gap-y-2 px-4">
-          {stats.map((s) => (
-            <div key={s.key} className="flex items-baseline gap-2">
-              <dd
-                className={`font-outfit text-xl font-bold leading-none ${
-                  s.accent ? "text-action" : "text-white"
-                }`}
-              >
-                {s.value}
-              </dd>
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
-                {s.label}
-              </dt>
-            </div>
-          ))}
-        </dl>
+        <div className="mx-auto mt-3 w-full max-w-screen-lg px-4">{statLine}</div>
       ) : null}
 
-      {!medallion && !asColumn && stats.length > 0 ? (
+      {!medallion && !asColumn && !showcase && stats.length > 0 ? (
         <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
           {stats.map((s) => (
             <div

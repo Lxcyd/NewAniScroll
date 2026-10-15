@@ -144,11 +144,13 @@ export function fadeGain(
  *   "band"      l'existant : identité en bas à gauche, quatre cartes dessous ;
  *   "center"    axe centré, le nom devient le titre de la page ;
  *   "medallion" grand avatar rond débordant sur la plaque, chiffres en ligne ;
- *   "column"    identité en colonne collante à gauche, le contenu à droite.
+ *   "column"    identité en colonne collante à gauche, le contenu à droite ;
+ *   "showcase"  le fond prend tout l'écran, identité et chiffres posés en bas,
+ *               le contenu commence sous la ligne de flottaison (15/10/2026).
  */
-export type HeroLayout = "band" | "center" | "medallion" | "column";
+export type HeroLayout = "band" | "center" | "medallion" | "column" | "showcase";
 
-export const HERO_LAYOUTS: HeroLayout[] = ["band", "center", "medallion", "column"];
+export const HERO_LAYOUTS: HeroLayout[] = ["band", "center", "medallion", "column", "showcase"];
 
 export function isHeroLayout(v: unknown): v is HeroLayout {
   return typeof v === "string" && (HERO_LAYOUTS as string[]).includes(v);

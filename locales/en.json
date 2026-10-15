@@ -1115,6 +1115,8 @@
     "studioLayoutHint_medallion": "Large round portrait overlapping the plate, figures on one line",
     "studioLayout_column": "Column",
     "studioLayoutHint_column": "Identity in a sticky left column, widgets to its right and then below",
+    "studioLayout_showcase": "Showcase",
+    "studioLayoutHint_showcase": "The background fills the screen, name and figures at the bottom, the rest after scrolling",
     "studioKind_music": "Music",
     "studioSoon_anim": "No animated banners yet",
     "studioSoon_video": "No videos offered yet",
