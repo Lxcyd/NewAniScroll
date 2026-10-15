@@ -239,7 +239,7 @@ export type Dressing = {
 };
 
 export const SCALE_MIN = 60;
-export const SCALE_MAX = 160;
+export const SCALE_MAX = 200;
 
 export function clampScale(v: unknown): number {
   const n = Number(v);
