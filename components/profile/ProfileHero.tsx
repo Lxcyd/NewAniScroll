@@ -536,19 +536,21 @@ export default function ProfileHero({
               rel="noreferrer"
               title={`AniList · ${anilistName}`}
               aria-label={`AniList · ${anilistName}`}
-              className="grid h-[1.6rem] w-[1.6rem] shrink-0 place-items-center rounded-md bg-[#152232] ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110"
+              className="grid h-[1.6rem] w-[1.6rem] shrink-0 place-items-center rounded-full bg-[#152232] ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="https://anilist.co/img/icons/icon.svg" alt="" className="h-4 w-4" />
             </a>
           ) : null}
           {tag ? (
-            <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
+            /* `as-stat-card` : le fond et le flou des widgets (le curseur
+               « Flou » du studio), pas un flou à part. */
+            <span className="as-stat-card rounded-md px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
               #{tag}
             </span>
           ) : null}
           {createdAt ? (
-            <span className="rounded-md bg-black/40 px-2 py-1 text-white/65 ring-1 ring-white/10 backdrop-blur-sm">
+            <span className="as-stat-card rounded-md px-2 py-1 text-white/65 ring-1 ring-white/10">
               {/* Formatée contre la langue ACTIVE de l'interface, jamais contre
                   celle de l'environnement — même note que Hero.tsx, et le même
                   prix quand on l'oublie. `toLocaleDateString(undefined)`
