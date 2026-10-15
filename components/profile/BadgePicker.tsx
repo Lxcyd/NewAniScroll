@@ -138,7 +138,7 @@ export default function BadgePicker({
                 const dropped = e.dataTransfer.getData("text/plain");
                 if (BY_ID[dropped]) drop(dropped, i);
               }}
-              className={`relative grid h-32 place-items-center rounded-2xl border-[1.5px] transition-colors ${
+              className={`relative grid h-28 place-items-center rounded-2xl border-[1.5px] transition-colors ${
                 over === i
                   ? "border-action bg-action/10"
                   : id
@@ -154,7 +154,7 @@ export default function BadgePicker({
                     title={nameOf(id)}
                     className="grid cursor-grab justify-items-center gap-1 active:cursor-grabbing"
                   >
-                    {token(id, 68)}
+                    {token(id, 56)}
                     <span className="line-clamp-1 max-w-full px-1 text-center font-karla text-[11px] font-bold text-white/80">
                       {nameOf(id)}
                     </span>
@@ -264,7 +264,7 @@ export default function BadgePicker({
         }`}
       >
         {/* Le jeton suit la taille des cases : plus de colonnes, plus petit. */}
-        {token(id, cols === 1 ? 80 : cols <= 3 ? 78 : cols <= 4 ? 66 : 54)}
+        {token(id, cols === 1 ? 80 : cols <= 3 ? 60 : cols <= 4 ? 52 : 40)}
         <span
           className={`font-karla font-bold leading-tight text-white/90 ${
             cols === 1
