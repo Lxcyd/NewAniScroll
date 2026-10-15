@@ -1259,9 +1259,14 @@ export default function BannerStudio({
         {
           title: t("profile.studioBadgesSection"),
           rows: [],
+          /* Toute la hauteur de la colonne, et c'est la GRILLE qui défile
+             (cf. BadgePicker) : le titre, la consigne, les trois places et le
+             menu de rareté restent en place pendant qu'on cherche un badge. */
+          grow: true,
+          fill: true,
           node: (
-            <div className="grid gap-3">
-              <p className="px-2 text-xs leading-relaxed text-white/50">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <p className="shrink-0 px-2 text-xs leading-relaxed text-white/50">
                 {t("profile.studioBadgesHint", { max: FEATURED_MAX })}
               </p>
               <BadgePicker

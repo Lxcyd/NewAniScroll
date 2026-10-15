@@ -106,10 +106,13 @@ export default function BadgePicker({
     );
   };
 
+  /* Les places et la barre d'outils restent fixes ; seule la liste des badges
+     défile (`min-h-0 flex-1 overflow-y-auto`), dans la hauteur que la colonne
+     du studio donne au menu. */
   return (
-    <div className="grid gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <BadgeDefs />
-      <div className="grid grid-cols-3 gap-2 px-1">
+      <div className="grid shrink-0 grid-cols-3 gap-2 px-1">
         {Array.from({ length: FEATURED_MAX }, (_, i) => {
           const id = chosen[i];
           return (
@@ -174,11 +177,12 @@ export default function BadgePicker({
         })}
       </div>
 
-      {toolbar}
+      <div className="shrink-0">{toolbar}</div>
 
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
           qu'on ne voit qu'une fois trouvés, et qu'on a souvent le plus envie
           de montrer. Une catégorie vide ne s'affiche pas. */}
+      <div className="as-scroller -mx-1 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-1 pb-1">
       {[
         { key: "normal", ids: owned.filter((id) => !BY_ID[id].secret) },
         { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }
@@ -198,6 +202,7 @@ export default function BadgePicker({
           </section>
         ) : null
       )}
+      </div>
     </div>
   );
 
