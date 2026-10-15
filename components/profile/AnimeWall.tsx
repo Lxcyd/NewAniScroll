@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WallDir } from "@/lib/profile/wall";
 
 /**
@@ -8,16 +8,20 @@ import type { WallDir } from "@/lib/profile/wall";
  * Il remplit son parent comme les autres fonds (PlateBackground) : le parent
  * porte le `relative` et l'`overflow-hidden`.
  *
- * LE DÉFILEMENT EST UNE ANIMATION CSS, PAS UNE BOUCLE JS. Chaque colonne porte
- * sa suite d'affiches DEUX FOIS, et glisse d'exactement la moitié de sa hauteur
- * (`as-wall-scroll`, globals.css) : la fin est identique au début, la reprise
- * ne se voit pas. Le navigateur la compose sur le GPU, la page n'est jamais
- * re-rendue pour un pixel de défilement.
+ * TOUTE LA SÉLECTION PASSE SUR LE MUR, PAS SEULEMENT CE QUI TIENT À L'ÉCRAN.
+ * La première version doublait une suite d'affiches par colonne et la faisait
+ * glisser en CSS : seules ~40 à 120 affiches existaient, quand la sélection en
+ * comptait 685 (15/10/2026). Mettre les 685 dans des colonnes CSS aurait fait
+ * des calques de 30 000 px de haut, que le compositeur repeint par tuiles — et
+ * une tuile en retard, c'est une affiche qui disparaît.
  *
- * La géométrie (nombre de colonnes, affiches par colonne) se mesure sur la
- * boîte réelle : une valeur par défaut tient le rendu serveur, puis la mesure
- * la remplace — le mur n'a pas de sens imprimé, il n'y a donc rien à hydrater
- * au pixel près.
+ * Chaque colonne est donc une suite INFINIE d'emplacements (k ∈ ℤ, l'affiche
+ * k % n de la colonne), dont seuls ceux à l'écran, plus une marge, sont
+ * rendus. Une boucle d'animation pose la translation de chaque colonne
+ * directement sur le DOM — pas de rendu React par image ; React ne repasse que
+ * lorsqu'un emplacement entre ou sort, soit une fois toutes les quelques
+ * secondes par colonne. Les emplacements gardent leur clé `k` en glissant :
+ * une affiche à l'écran n'est jamais remontée, donc jamais rechargée.
  */
 
 /** Largeur visée d'une colonne : assez pour reconnaître une affiche. */
@@ -25,6 +29,9 @@ const COL_TARGET = 150;
 const GAP = 12;
 /** Le rapport d'une affiche AniList (230×326 et ses multiples). */
 const POSTER = 1.42;
+/** Emplacements rendus au-delà de chaque bord : le temps de charger l'affiche
+    avant qu'elle n'entre. */
+const MARGE = 2;
 
 export default function AnimeWall({
   covers,
@@ -45,10 +52,8 @@ export default function AnimeWall({
     if (!el) return;
     /* LA HAUTEUR NE FAIT QUE MONTER, et elle part de celle de l'écran. Sur un
        téléphone ou une tablette, la barre d'adresse se replie au défilement :
-       la fenêtre gagne ou perd 80 px, et chaque variation recalculait le
-       nombre d'affiches par colonne et la durée de l'animation — toutes les
-       colonnes sautaient et se rechargeaient, d'où les affiches qui
-       « clignotaient ». Une colonne un peu trop longue ne coûte rien. */
+       chaque variation recalculait la géométrie, et toutes les colonnes
+       sautaient. Une colonne un peu trop longue ne coûte rien. */
     let measured = false;
     const fit = () => {
       const w = el.clientWidth;
@@ -72,9 +77,83 @@ export default function AnimeWall({
      net au bord de l'écran se lit comme un cadre, pas comme un mur. */
   const colW = (size.w + COL_TARGET - GAP * (cols - 1)) / cols;
   const itemH = colW * POSTER;
-  /* Une colonne doit couvrir l'écran, plus une affiche pour la reprise. */
-  const perCol = Math.max(2, Math.ceil(size.h / (itemH + GAP)) + 1);
-  const half = perCol * (itemH + GAP);
+  const step = itemH + GAP;
+  const visibles = Math.ceil(size.h / step) + 1;
+
+  /* Les affiches de chaque colonne : une sur `cols` (c, c+cols, …), donc deux
+     voisines ne se suivent jamais. Avec peu d'affiches, chaque colonne reprend
+     toute la sélection, décalée — sinon certaines colonnes seraient vides. */
+  const parColonne = useMemo(
+    () =>
+      Array.from({ length: cols }, (_, c) => {
+        if (n === 0) return [];
+        if (n < cols * 3) return covers.map((_, i) => covers[(i + c * 3) % n]);
+        return covers.filter((_, i) => i % cols === c);
+      }),
+    [covers, cols, n],
+  );
+
+  /* Le mouvement de chaque colonne, en px par seconde, signé : positif, le
+     contenu monte. Chaque colonne a SA vitesse, à ±15 % : à vitesse égale le
+     mur glisse d'un bloc, comme un seul calque, et le relief disparaît. Un
+     départ décalé par colonne, sinon toutes les rangées sont alignées. */
+  const mouvement = useMemo(
+    () =>
+      Array.from({ length: cols }, (_, c) => {
+        const reverse = dir === "down" || (dir === "alt" && c % 2 === 1);
+        const v = speed * (0.85 + ((c * 37) % 31) / 100);
+        return { v: reverse ? -v : v, phase: ((c * 0.618) % 1) * step * 3 };
+      }),
+    [cols, dir, speed, step],
+  );
+
+  /* Le premier emplacement rendu de chaque colonne. */
+  const [debuts, setDebuts] = useState<number[]>([]);
+  const pistes = useRef<Array<HTMLDivElement | null>>([]);
+  const debutsRef = useRef<number[]>([]);
+  /* La position de chaque colonne, INTÉGRÉE image par image : changer la
+     vitesse ou le sens dans le studio repart de là où le mur en est, au lieu
+     de le faire sauter (une position calculée depuis l'heure de départ
+     bondissait à chaque cran du curseur). Repartie de zéro quand le nombre de
+     colonnes change — la géométrie n'est alors plus la même. */
+  const offs = useRef<number[]>([]);
+  useEffect(() => {
+    offs.current = mouvement.map((m) => m.phase);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cols, step]);
+
+  useEffect(() => {
+    if (n === 0) return;
+    let raf = 0;
+    let last: number | null = null;
+    const pose = (now: number) => {
+      /* Un onglet en arrière-plan ne reçoit plus d'images : au retour, l'écart
+         est plafonné, le mur reprend sans rattraper la minute perdue. */
+      const dt = last == null || !anim ? 0 : Math.min(0.1, (now - last) / 1000);
+      last = now;
+      let change = false;
+      const next = debutsRef.current.slice();
+      for (let c = 0; c < cols; c++) {
+        if (offs.current[c] == null) offs.current[c] = mouvement[c].phase;
+        offs.current[c] += mouvement[c].v * dt;
+        const off = offs.current[c];
+        const el = pistes.current[c];
+        if (el) el.style.transform = `translate3d(0, ${(-off).toFixed(2)}px, 0)`;
+        const k = Math.floor(off / step) - MARGE;
+        if (next[c] !== k) {
+          next[c] = k;
+          change = true;
+        }
+      }
+      if (change) {
+        debutsRef.current = next;
+        setDebuts(next);
+      }
+      if (anim) raf = requestAnimationFrame(pose);
+    };
+    raf = requestAnimationFrame(pose);
+    return () => cancelAnimationFrame(raf);
+  }, [anim, cols, mouvement, step, n]);
 
   return (
     <div ref={box} className="absolute inset-0 overflow-hidden bg-[#0c0d12]" aria-hidden>
@@ -95,46 +174,35 @@ export default function AnimeWall({
             })(),
           }}
         >
-          {Array.from({ length: cols }, (_, c) => {
-            /* Les affiches tournent d'une colonne à l'autre (c, c+cols, …) : deux
-               voisines ne commencent jamais par la même. */
-            const items = Array.from({ length: perCol }, (_, j) => covers[(c + j * cols) % n]);
-            const reverse = dir === "down" || (dir === "alt" && c % 2 === 1);
-            /* Chaque colonne a SA vitesse, à ±15 % : à vitesse égale le mur
-               glisse d'un bloc, comme un seul calque, et le relief disparaît. */
-            const v = speed * (0.85 + ((c * 37) % 31) / 100);
-            const duration = half / Math.max(1, v);
-            const style: CSSProperties = anim
-              ? {
-                  /* En pixels, pas en `-50 %` : la piste compte un écart de
-                     moins qu'elle n'a d'affiches, et la moitié en pourcentage
-                     tombait un demi-écart à côté — un sursaut à chaque tour. */
-                  ["--wall-half" as string]: `${half.toFixed(2)}px`,
-                  animationDuration: `${duration.toFixed(2)}s`,
-                  animationDirection: reverse ? "reverse" : "normal",
-                  /* Un départ décalé par colonne : sinon toutes les rangées
-                     sont alignées au premier rendu. */
-                  animationDelay: `${(-duration * ((c * 0.618) % 1)).toFixed(2)}s`,
-                }
-              : { transform: `translateY(${-((c % 2) * (itemH + GAP)) / 2}px)` };
+          {parColonne.map((items, c) => {
+            const debut = debuts[c];
+            const len = items.length;
             return (
               <div key={c} className="relative min-w-0 flex-1">
-                <div className={`flex flex-col ${anim ? "as-wall-scroll" : ""}`} style={{ gap: GAP, ...style }}>
-                  {[...items, ...(anim ? items : [])].map((src, j) => (
-                    /* Décodage SYNCHRONE, et c'est voulu : dans un calque qui
-                       bouge, une affiche décodée à part peut être effacée puis
-                       redécodée par le compositeur, et se voit clignoter. */
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={j}
-                      src={src}
-                      alt=""
-                      decoding="sync"
-                      draggable={false}
-                      className="w-full shrink-0 rounded-lg object-cover shadow-[0_8px_24px_rgba(0,0,0,.45)]"
-                      style={{ height: itemH }}
-                    />
-                  ))}
+                <div
+                  ref={(el) => {
+                    pistes.current[c] = el;
+                  }}
+                  className="as-wall-track absolute inset-x-0 top-0"
+                >
+                  {debut == null || len === 0
+                    ? null
+                    : Array.from({ length: visibles + 2 * MARGE }, (_, j) => {
+                        const k = debut + j;
+                        const src = items[((k % len) + len) % len];
+                        return (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={k}
+                            src={src}
+                            alt=""
+                            decoding="async"
+                            draggable={false}
+                            className="absolute inset-x-0 w-full rounded-lg object-cover shadow-[0_8px_24px_rgba(0,0,0,.45)]"
+                            style={{ top: k * step, height: itemH }}
+                          />
+                        );
+                      })}
                 </div>
               </div>
             );
@@ -142,10 +210,8 @@ export default function AnimeWall({
         </div>
       ) : null}
       {/* Le voile du mur : des affiches pleine intensité se battent avec le
-          nom et les widgets posés dessus. UNIFORME, jusqu'aux bords : il était
-          assombri en périphérie (0,7) et, cumulé au voile de page, le haut et
-          les côtés tombaient au noir sur des affiches sombres — le mur avait
-          l'air de s'arrêter avant le bord de l'écran (15/10/2026). */}
+          nom et les widgets posés dessus. UNIFORME, jusqu'aux bords : assombri
+          en périphérie, il faisait tomber le haut et les côtés au noir. */}
       <div className="pointer-events-none absolute inset-0 bg-[rgba(12,13,18,.35)]" />
     </div>
   );

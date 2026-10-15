@@ -1071,7 +1071,7 @@
     "studioWallMotion": "Mouvement",
     "studioWallDirection": "Sens",
     "studioWallStatuses": "Statuts",
-    "studioWallCustom": "Listes perso",
+    "studioWallCustom": "Listes personnalisées",
     "studioWallListsN_one": "{{count}} liste",
     "studioWallListsN_other": "{{count}} listes",
     "studioKind_video": "Vidéo",

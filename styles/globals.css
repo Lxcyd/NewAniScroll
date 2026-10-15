@@ -2671,30 +2671,13 @@ html.as-scene-leave .as-navbar {
   from { background-position: 0 0; }
   to { background-position: var(--pat-dx, 0px) var(--pat-dy, 0px); }
 }
-/* Le mur d'animés (components/profile/AnimeWall) : chaque colonne porte ses
-   affiches deux fois et glisse d'exactement une suite (`--wall-half`, en px).
-   Le sens et la durée sont posés en ligne, colonne par colonne. Pas de garde
-   `prefers-reduced-motion` : le mur s'éteint par son propre interrupteur, et
-   le poste de Luc répond `reduce` (le défilement y serait invisible). */
-.as-wall-scroll {
-  animation: as-wall-scroll 40s linear infinite;
+/* Le mur d'animés (components/profile/AnimeWall) : la translation de chaque
+   colonne est posée image par image par le composant ; ici, seulement de quoi
+   garder la colonne sur un calque GPU stable. */
+.as-wall-track {
   will-change: transform;
-  /* Une affiche qui s'efface une demi-seconde puis revient (15/10/2026) :
-     c'est le compositeur qui repeint la tuile de la colonne en cours de
-     mouvement. `translate3d` + `backface-visibility: hidden` gardent la
-     colonne sur UN calque GPU stable, au lieu d'un calque que WebKit
-     défait et refait au gré du défilement. */
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-}
-.as-wall-scroll > img {
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-@keyframes as-wall-scroll {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(0, calc(-1 * var(--wall-half, 0px)), 0); }
 }
 /* La flèche du sens choisi bat doucement dans ce sens (réglages du mur). */
 .as-wall-nudge-up { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: -2px; }

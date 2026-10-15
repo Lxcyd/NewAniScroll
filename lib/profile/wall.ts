@@ -43,8 +43,10 @@ export type DressingWall = {
 export const WALL_SPEED_MIN = 4;
 export const WALL_SPEED_MAX = 60;
 export const WALL_SPEED_DEFAULT = 18;
-/** Au-delà, des affiches en double ne servent à rien et coûtent du réseau. */
-export const WALL_MAX = 120;
+/** Un garde-fou, pas un plafond d'usage : le mur ne rend que ce qui est à
+    l'écran (AnimeWall), toute la sélection y passe. Il borne seulement le tri
+    d'une liste démesurée. */
+export const WALL_MAX = 5000;
 const MAX_LISTS = 16;
 
 export function defaultWall(): DressingWall {
