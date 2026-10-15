@@ -1119,6 +1119,8 @@
     "studioBadgesSection": "Badges mis en avant · {{n}} / {{max}}",
     "studioBadgesHint": "Glisse jusqu'à {{max}} badges sur les places (ou clique-les) : ils s'affichent à côté de ton pseudo, dans cet ordre.",
     "studioBadgesDrop": "Dépose un badge ici",
+    "studioBadgesGroup_normal": "Badges",
+    "studioBadgesGroup_secret": "Secrets",
     "studioBadgesRemove": "Retirer {{name}}",
     "studioBadgesSearch": "Rechercher un badge…",
     "studioBadgeSort_rare": "Plus rares",

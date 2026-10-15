@@ -30,11 +30,20 @@ function startDrag(e: React.DragEvent<HTMLElement>, id: string) {
   const src = e.currentTarget.querySelector<HTMLElement>(".as-badge-token");
   if (!src) return;
   const ghost = src.cloneNode(true) as HTMLElement;
-  Object.assign(ghost.style, { position: "fixed", top: "-1000px", left: "-1000px", pointerEvents: "none" });
+  Object.assign(ghost.style, {
+    position: "fixed",
+    top: "-1000px",
+    left: "-1000px",
+    pointerEvents: "none"
+  });
   document.body.appendChild(ghost);
   /* Saisi par son centre — mesuré sur le clone, hors de la scène du studio
      qui est mise à l'échelle. */
-  e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+  e.dataTransfer.setDragImage(
+    ghost,
+    ghost.offsetWidth / 2,
+    ghost.offsetHeight / 2
+  );
   requestAnimationFrame(() => ghost.remove());
 }
 
@@ -44,7 +53,7 @@ export default function BadgePicker({
   onChange,
   nameOf,
   toolbar,
-  t,
+  t
 }: {
   /** Les badges obtenus à montrer, déjà filtrés et triés. */
   owned: string[];
@@ -60,10 +69,19 @@ export default function BadgePicker({
   const full = chosen.length >= FEATURED_MAX;
 
   const toggle = (id: string) =>
-    onChange(chosen.includes(id) ? chosen.filter((b) => b !== id) : full ? chosen : [...chosen, id]);
+    onChange(
+      chosen.includes(id)
+        ? chosen.filter((b) => b !== id)
+        : full
+          ? chosen
+          : [...chosen, id]
+    );
 
   const drop = (id: string, at: number) => {
-    const slots: (string | undefined)[] = Array.from({ length: FEATURED_MAX }, (_, i) => chosen[i]);
+    const slots: (string | undefined)[] = Array.from(
+      { length: FEATURED_MAX },
+      (_, i) => chosen[i]
+    );
     const from = slots.indexOf(id);
     if (from >= 0) slots[from] = slots[at];
     slots[at] = id;
@@ -72,7 +90,17 @@ export default function BadgePicker({
 
   const token = (id: string, size: number) => {
     const def = BY_ID[id];
-    return <BadgeToken id={id} rarity={def.rarity} icon={def.icon} tag={def.tag} unlocked animate={false} size={size} />;
+    return (
+      <BadgeToken
+        id={id}
+        rarity={def.rarity}
+        icon={def.icon}
+        tag={def.tag}
+        unlocked
+        animate={false}
+        size={size}
+      />
+    );
   };
 
   return (
@@ -122,15 +150,21 @@ export default function BadgePicker({
                   <button
                     type="button"
                     onClick={() => onChange(chosen.filter((b) => b !== id))}
-                    aria-label={t("profile.studioBadgesRemove", { name: nameOf(id) })}
-                    title={t("profile.studioBadgesRemove", { name: nameOf(id) })}
+                    aria-label={t("profile.studioBadgesRemove", {
+                      name: nameOf(id)
+                    })}
+                    title={t("profile.studioBadgesRemove", {
+                      name: nameOf(id)
+                    })}
                     className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
                   >
                     <XMarkIcon className="h-4 w-4" />
                   </button>
                 </>
               ) : (
-                <span className="font-karla text-xs text-white/40">{t("profile.studioBadgesDrop")}</span>
+                <span className="font-karla text-xs text-white/40">
+                  {t("profile.studioBadgesDrop")}
+                </span>
               )}
             </div>
           );
@@ -139,34 +173,52 @@ export default function BadgePicker({
 
       {toolbar}
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
-        {owned.map((id) => {
-          const on = chosen.includes(id);
-          return (
-            <button
-              key={id}
-              type="button"
-              draggable
-              onDragStart={(e) => startDrag(e, id)}
-              aria-pressed={on}
-              title={nameOf(id)}
-              onClick={() => toggle(id)}
-              className={`relative flex cursor-grab flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors active:cursor-grabbing ${
-                on
-                  ? "bg-action/15 ring-2 ring-action"
-                  : full
-                    ? "bg-white/[0.03] opacity-50 ring-1 ring-white/10 hover:opacity-100"
-                    : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
-              }`}
-            >
-              {token(id, 52)}
-              <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
-                {nameOf(id)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
+          qu'on ne voit qu'une fois trouvés, et qu'on a souvent le plus envie
+          de montrer. Une catégorie vide ne s'affiche pas. */}
+      {[
+        { key: "normal", ids: owned.filter((id) => !BY_ID[id].secret) },
+        { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }
+      ].map((g) =>
+        g.ids.length ? (
+          <section key={g.key} className="grid gap-2">
+            <p className="flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
+              {t(`profile.studioBadgesGroup_${g.key}`)}
+              <span className="text-white/25">{g.ids.length}</span>
+            </p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
+              {g.ids.map(tile)}
+            </div>
+          </section>
+        ) : null
+      )}
     </div>
   );
+
+  function tile(id: string) {
+    const on = chosen.includes(id);
+    return (
+      <button
+        key={id}
+        type="button"
+        draggable
+        onDragStart={(e) => startDrag(e, id)}
+        aria-pressed={on}
+        title={nameOf(id)}
+        onClick={() => toggle(id)}
+        className={`relative flex cursor-grab flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors active:cursor-grabbing ${
+          on
+            ? "bg-action/15 ring-2 ring-action"
+            : full
+              ? "bg-white/[0.03] opacity-50 ring-1 ring-white/10 hover:opacity-100"
+              : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
+        }`}
+      >
+        {token(id, 52)}
+        <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
+          {nameOf(id)}
+        </span>
+      </button>
+    );
+  }
 }
