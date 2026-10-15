@@ -194,7 +194,7 @@ export default function BadgePicker({
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
           qu'on ne voit qu'une fois trouvés, et qu'on a souvent le plus envie
           de montrer. Une catégorie vide ne s'affiche pas. */}
-      <div className="as-scroller -mx-1 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-1 pb-1">
+      <div className="as-scroller -mx-1 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto overflow-x-hidden px-1 pb-1 pt-1">
       {[
         { key: "normal", ids: owned.filter((id) => !BY_ID[id].secret) },
         { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }
@@ -251,7 +251,9 @@ export default function BadgePicker({
            éteint se lisait comme « pas obtenu ». Seul l'anneau dit le choix. */
         /* Un par ligne, la case devient une LIGNE : le jeton à gauche, le nom
            à côté, lisible en entier. */
-        className={`relative flex cursor-grab rounded-xl transition-colors active:cursor-grabbing ${
+        /* `min-w-0` : un élément de grille ne descend pas d'office sous la
+           largeur de son contenu — le nom débordait de sa colonne. */
+        className={`relative flex min-w-0 cursor-grab rounded-xl transition-colors active:cursor-grabbing ${
           cols === 1 ? "items-center gap-3 px-3 py-2 text-left" : "flex-col items-center gap-1.5 px-1.5 pb-2 pt-3"
         } ${
           on
@@ -265,7 +267,9 @@ export default function BadgePicker({
         {token(id, cols === 1 ? 44 : cols <= 3 ? 60 : cols <= 4 ? 52 : 40)}
         <span
           className={`font-karla font-bold leading-tight text-white/90 ${
-            cols === 1 ? "min-w-0 flex-1 text-[13px]" : "line-clamp-2 text-center text-[11px]"
+            cols === 1
+              ? "min-w-0 flex-1 text-[13px]"
+              : "line-clamp-2 w-full break-words text-center text-[11px] [hyphens:auto]"
           }`}
         >
           {nameOf(id)}
