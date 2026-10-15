@@ -1070,7 +1070,7 @@
     "studioWallPickHelp": "Décoche un animé pour le retirer du mur, recoche-le pour le remettre.",
     "studioWallPickClose": "Replier pour revenir aux réglages",
     "studioWallPick": "Choisir les animés du mur",
-    "studioWallPickHint": "Déroule pour éditer",
+    "studioWallPickHint": "Déroule pour modifier les animés",
     "studioWallRemoved_one": "{{count}} retiré à la main",
     "studioWallRemoved_other": "{{count}} retirés à la main",
     "studioWallAllOn": "Tous",

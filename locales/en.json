@@ -1070,7 +1070,7 @@
     "studioWallPickHelp": "Untick an anime to take it off the wall, tick it again to bring it back.",
     "studioWallPickClose": "Collapse to get back to the settings",
     "studioWallPick": "Choose the anime on the wall",
-    "studioWallPickHint": "Open to edit",
+    "studioWallPickHint": "Open to change the anime",
     "studioWallRemoved_one": "{{count}} removed by hand",
     "studioWallRemoved_other": "{{count}} removed by hand",
     "studioWallAllOn": "All",
