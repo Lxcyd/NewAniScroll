@@ -254,7 +254,7 @@ export default function BadgePicker({
         /* `min-w-0` : un élément de grille ne descend pas d'office sous la
            largeur de son contenu — le nom débordait de sa colonne. */
         className={`relative flex min-w-0 cursor-grab rounded-xl transition-colors active:cursor-grabbing ${
-          cols === 1 ? "items-center gap-3 px-3 py-2 text-left" : "flex-col items-center gap-1.5 px-1.5 pb-2 pt-3"
+          cols === 1 ? "items-center gap-4 px-3 py-2.5 text-left" : "flex-col items-center gap-1.5 px-1.5 pb-2 pt-3"
         } ${
           on
             ? /* Le fond gris des autres cases, en rose. En valeur explicite :
@@ -264,11 +264,11 @@ export default function BadgePicker({
         }`}
       >
         {/* Le jeton suit la taille des cases : plus de colonnes, plus petit. */}
-        {token(id, cols === 1 ? 44 : cols <= 3 ? 60 : cols <= 4 ? 52 : 40)}
+        {token(id, cols === 1 ? 72 : cols <= 3 ? 60 : cols <= 4 ? 52 : 40)}
         <span
           className={`font-karla font-bold leading-tight text-white/90 ${
             cols === 1
-              ? "min-w-0 flex-1 text-[13px]"
+              ? "min-w-0 flex-1 text-[15px]"
               : "line-clamp-2 w-full break-words text-center text-[11px] [hyphens:auto]"
           }`}
         >
