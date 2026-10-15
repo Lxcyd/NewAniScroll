@@ -1,5 +1,14 @@
 import Image from "next/image";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 /* Le recalage du défilement doit passer avant que l'écran ne se peigne ; côté
    serveur, `useLayoutEffect` ne fait qu'avertir. */
@@ -430,6 +439,9 @@ const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
   2: QueueListIcon,
   3: RectangleStackIcon,
 };
+/** Lignes d'animés rendues d'un coup ; la suite vient au défilement. */
+const LIGNES_PAR_TRANCHE = 50;
+
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -478,6 +490,15 @@ export default function BannerStudio({
   const [scope, setScope] = useState<PaletteScope | null>(null);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  /* LA LISTE SE RENDRAIT D'UN BLOC : l'onglet Image montre toute la liste du
+     profil, 685 lignes à affiche sur un compte réel, et changer d'onglet les
+     montait toutes d'un coup — d'où le gel à chaque bascule (15/10/2026). Elle
+     arrive par tranches : les premières lignes, puis la suite quand le bas
+     approche (le même repère que la galerie, `Suite`). */
+  const [limite, setLimite] = useState(LIGNES_PAR_TRANCHE);
+  /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
+     contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
+  const [tabVise, setTabVise] = useState<PaletteScope | null>(null);
   /** L'anime dans lequel la palette cherche. */
   const [animeId, setAnimeId] = useState<number | null>(null);
   const [art, setArt] = useState<BannerOption[]>([]);
@@ -2148,8 +2169,16 @@ export default function BannerStudio({
   }, [sections, pick, scope, wallHasMore, wallLoading, wallpapers.length, facette]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
+  const plusDeLignes = useCallback(() => setLimite((l) => l + LIGNES_PAR_TRANCHE), []);
 
   useEffect(() => setCursor(0), [scope, query, animeId]);
+  useEffect(() => setLimite(LIGNES_PAR_TRANCHE), [scope, query]);
+  useEffect(() => {
+    if (cursor > limite - 5) setLimite((l) => l + LIGNES_PAR_TRANCHE);
+  }, [cursor, limite]);
+  useEffect(() => {
+    if (tabVise && tabVise === scope) setTabVise(null);
+  }, [tabVise, scope]);
 
   /* ── Clavier ─────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -2691,7 +2720,7 @@ export default function BannerStudio({
                       className="absolute bottom-1 left-1 top-1 rounded-lg bg-white/[0.1] transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
                       style={{
                         width: `calc((100% - 0.5rem - ${(groupOf(scope)!.length - 1) * 0.25}rem) / ${groupOf(scope)!.length})`,
-                        transform: `translateX(calc(${Math.max(0, groupOf(scope)!.indexOf(scope as DressingKind))} * (100% + 0.25rem)))`,
+                        transform: `translateX(calc(${Math.max(0, groupOf(scope)!.indexOf((tabVise ?? scope) as DressingKind))} * (100% + 0.25rem)))`,
                       }}
                     />
                     {groupOf(scope)!.map((k) => (
@@ -2699,22 +2728,25 @@ export default function BannerStudio({
                         key={k}
                         type="button"
                         role="tab"
-                        aria-selected={scope === k}
+                        aria-selected={(tabVise ?? scope) === k}
                         onClick={() => {
-                          if (scope === k) return;
-                          setScope(k);
+                          if ((tabVise ?? scope) === k) return;
+                          setTabVise(k);
                           writeLastScope(k);
-                          setCursor(0);
-                          if (k === "video" || k === "oped") setPick(null);
+                          startTransition(() => {
+                            setScope(k);
+                            setCursor(0);
+                            if (k === "video" || k === "oped") setPick(null);
+                          });
                         }}
                         className={`relative min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors duration-300 group ${
-                          scope === k ? "text-white" : "text-white/40 hover:text-white/75"
+                          (tabVise ?? scope) === k ? "text-white" : "text-white/40 hover:text-white/75"
                         }`}
                       >
                         {/* Le libellé actif grossit d'un cheveu en s'allumant. */}
                         <span
                           className={`inline-block transition-transform duration-300 ${
-                            scope === k ? "scale-105" : "scale-100"
+                            (tabVise ?? scope) === k ? "scale-105" : "scale-100"
                           } group-active:scale-95`}
                         >
                           {t(`profile.studioKind_${k}`)}
@@ -2722,10 +2754,23 @@ export default function BannerStudio({
                       </button>
                     ))}
                   </div>
-                  {scope === "image" || scope === "banner" ? (
+                  {groupOf(scope)?.includes("image") ? (
                     /* Trois états en un bouton : 1 → 2 → 3 → 1. L'icône montre
-                       la grille affichée MAINTENANT, et tourne en changeant. */
+                       la grille affichée MAINTENANT, et tourne en changeant.
+                       Il reste MONTÉ dans tout le groupe et se replie sur le
+                       Mur d'animés, qui n'a pas de grille : il glisse et
+                       s'efface au lieu de disparaître d'un coup (la largeur
+                       et la marge rattrapent l'écart du `gap-2`). */
+                    <span
+                      aria-hidden={!((tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner")}
+                      className={`grid shrink-0 place-items-center overflow-hidden transition-[width,margin,opacity,transform] duration-300 ease-[cubic-bezier(.3,.7,.2,1)] ${
+                        (tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner"
+                          ? "ml-0 w-[2.35rem] scale-100 opacity-100"
+                          : "pointer-events-none -ml-2 w-0 scale-75 opacity-0"
+                      }`}
+                    >
                     <button
+                      tabIndex={(tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner" ? 0 : -1}
                       type="button"
                       onClick={() => {
                         const d = (densite === 3 ? 1 : densite + 1) as Densite;
@@ -2748,6 +2793,7 @@ export default function BannerStudio({
                         </span>
                       </span>
                     </button>
+                    </span>
                   ) : null}
                 </div>
               ) : null}
@@ -2954,6 +3000,7 @@ export default function BannerStudio({
                       ) : null}
                       {s.grid ? null : s.rows.map((row) => {
                         index += 1;
+                        if (index >= limite) return null;
                         const active = index === cursor;
                         const Icon = row.icon;
                         return (
@@ -2962,7 +3009,6 @@ export default function BannerStudio({
                             data-anchor={row.key}
                             type="button"
                             disabled={row.disabled}
-                            onMouseMove={() => setCursor(flat.indexOf(row))}
                             onPointerEnter={row.hover ? () => row.hover!(true) : undefined}
                             onPointerLeave={row.hover ? () => row.hover!(false) : undefined}
                             onClick={() => row.run?.()}
@@ -2978,9 +3024,10 @@ export default function BannerStudio({
                                        « choisi » alors que la coche, elle, le
                                        dit déjà — deux marques pour deux états
                                        différents rendaient la ligne survolée
-                                       indiscernable de la ligne active. */
+                                       indiscernable de la ligne active. Le survol est en CSS :
+                                       il écrivait le curseur à chaque ligne traversée. */
                                     "bg-white/[0.09]"
-                                  : ""
+                                  : "hover:bg-white/[0.09]"
                             }`}
                           >
                             {row.thumb ? (
@@ -3045,6 +3092,9 @@ export default function BannerStudio({
                     </div>
                   ))
                 )}
+                {flat.length > limite ? (
+                  <Suite onVisible={plusDeLignes} root={scrollerRef} />
+                ) : null}
               </div>
 
               {/* ── L'écoute ──────────────────────────────────────────────
