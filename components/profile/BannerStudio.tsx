@@ -392,6 +392,51 @@ function DensiteIcon({ d, className }: { d: Densite; className?: string }) {
   );
 }
 
+/* LA TAILLE DES LIGNES du choix des animés du mur : petite pour balayer 685
+   titres, grande pour reconnaître les affiches. Retenue par navigateur, comme
+   la densité de la grille. */
+type TailleLigne = 1 | 2 | 3;
+const TAILLE_LIGNE_KEY = "aniscroll:wallRowSize";
+function readTailleLigne(): TailleLigne {
+  try {
+    const v = Number(localStorage.getItem(TAILLE_LIGNE_KEY));
+    if (v === 1 || v === 2 || v === 3) return v;
+  } catch {
+    /* stockage refusé : le défaut */
+  }
+  return 2;
+}
+function writeTailleLigne(v: TailleLigne) {
+  try {
+    localStorage.setItem(TAILLE_LIGNE_KEY, String(v));
+  } catch {
+    /* stockage refusé : rien à retenir */
+  }
+}
+/** Affiche et texte de chaque taille : 1 petite, 2 moyenne, 3 grande. */
+const LIGNE: Record<TailleLigne, { cover: string; sizes: string; text: string }> = {
+  1: { cover: "h-7 w-5", sizes: "20px", text: "text-[12px]" },
+  2: { cover: "h-10 w-7", sizes: "28px", text: "text-[12.5px]" },
+  3: { cover: "h-16 w-11", sizes: "44px", text: "text-[13.5px]" },
+};
+/** L'icône d'une taille : des lignes, d'autant moins nombreuses et plus
+    épaisses que la taille est grande. */
+function TailleLigneIcon({ v, className }: { v: TailleLigne; className?: string }) {
+  const n = v === 1 ? 4 : v === 2 ? 3 : 2;
+  const gap = 1.8;
+  const h = (16 - gap * (n - 1)) / n;
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden>
+      {Array.from({ length: n }, (_, i) => (
+        <g key={i}>
+          <rect x={0} y={i * (h + gap)} width={h * 0.72} height={h} rx={0.8} />
+          <rect x={h * 0.72 + 1.6} y={i * (h + gap) + h * 0.3} width={16 - h * 0.72 - 1.6} height={h * 0.4} rx={0.6} />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -3527,6 +3572,7 @@ function WallPanel({
   const exclus = useMemo(() => new Set(wall.excluded ?? []), [wall.excluded]);
   const [choix, setChoix] = useState(false);
   const [cherche, setCherche] = useState("");
+  const [taille, setTaille] = useState<TailleLigne>(() => readTailleLigne());
   /* La liste du sélecteur : par titre, pas dans l'ordre mélangé du mur — on y
      cherche un animé, on ne le regarde pas défiler. */
   const trouves = useMemo(() => {
@@ -3771,6 +3817,25 @@ function WallPanel({
               >
                 {t("profile.studioWallAllOff")}
               </button>
+              {/* Trois tailles en un bouton : petite → moyenne → grande →
+                  petite. L'icône montre la taille AFFICHÉE. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const v = (taille === 3 ? 1 : taille + 1) as TailleLigne;
+                  setTaille(v);
+                  writeTailleLigne(v);
+                }}
+                title={t(`profile.studioWallRowSize_${taille}`)}
+                aria-label={t(`profile.studioWallRowSize_${taille}`)}
+                className="group grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/[0.04] text-white/60 ring-1 ring-white/[0.08] transition-colors hover:bg-white/[0.08] hover:text-white"
+              >
+                {/* Ce qui bouge au clic est DEDANS : un bouton qui rétrécit
+                    sous le pointeur perd le clic relâché sur son bord. */}
+                <span className="grid place-items-center transition-transform duration-150 group-active:scale-90">
+                  <TailleLigneIcon v={taille} className="h-4 w-4" />
+                </span>
+              </button>
             </div>
             <p className="px-3 pb-1.5 font-karla text-[11px] text-white/40">
               {t("profile.studioWallPickHelp")}
@@ -3800,14 +3865,14 @@ function WallPanel({
                         {on ? <CheckIcon className="h-3 w-3 text-white" /> : null}
                       </span>
                       <span
-                        className={`relative h-10 w-7 shrink-0 overflow-hidden rounded bg-white/[0.06] transition-opacity ${
+                        className={`relative ${LIGNE[taille].cover} shrink-0 overflow-hidden rounded bg-white/[0.06] transition-[opacity,width,height] duration-200 ${
                           on ? "" : "opacity-35"
                         }`}
                       >
-                        {e.cover ? <Image src={e.cover} alt="" fill sizes="28px" className="object-cover" /> : null}
+                        {e.cover ? <Image src={e.cover} alt="" fill sizes={LIGNE[taille].sizes} className="object-cover" /> : null}
                       </span>
                       <span
-                        className={`min-w-0 flex-1 truncate font-karla text-[12.5px] font-bold transition-colors ${
+                        className={`min-w-0 flex-1 truncate font-karla ${LIGNE[taille].text} font-bold transition-colors ${
                           on ? "text-white/85" : "text-white/35 line-through decoration-white/20"
                         }`}
                       >
