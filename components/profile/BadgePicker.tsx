@@ -54,13 +54,16 @@ export default function BadgePicker({
   onChange,
   nameOf,
   toolbar,
+  hint,
   t
 }: {
+  /** La consigne, en tête de la zone des places. */
+  hint?: React.ReactNode;
   /** Les badges obtenus à montrer, déjà filtrés et triés. */
   owned: string[];
   /** Les badges en avant, dans l'ordre des places. */
   chosen: string[];
-  /** Badges par ligne (boutons − / + de l'en-tête du menu). */
+  /** Badges par ligne (bouton de densité de l'en-tête du menu). */
   cols?: number;
   onChange: (next: string[]) => void;
   nameOf: (id: string) => string;
@@ -109,10 +112,16 @@ export default function BadgePicker({
   /* Les places et la barre d'outils restent fixes ; seule la liste des badges
      défile (`min-h-0 flex-1 overflow-y-auto`), dans la hauteur que la colonne
      du studio donne au menu. */
+  /* DEUX ZONES, et elles se voient : en haut, sur un fond plus clair, ce qu'on
+     compose (la consigne et les trois places) ; dessous, sur un fond plus
+     sombre, ce dans quoi on pioche (le menu de rareté et la grille, seule
+     partie qui défile). */
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <BadgeDefs />
-      <div className="grid shrink-0 grid-cols-3 gap-2 px-1">
+      <section className="grid shrink-0 gap-3 rounded-2xl bg-white/[0.05] p-3 ring-1 ring-white/10">
+      {hint}
+      <div className="grid grid-cols-3 gap-2">
         {Array.from({ length: FEATURED_MAX }, (_, i) => {
           const id = chosen[i];
           return (
@@ -177,6 +186,9 @@ export default function BadgePicker({
         })}
       </div>
 
+      </section>
+
+      <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/[0.06]">
       <div className="shrink-0">{toolbar}</div>
 
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
@@ -203,6 +215,7 @@ export default function BadgePicker({
         ) : null
       )}
       </div>
+      </section>
     </div>
   );
 
@@ -217,17 +230,18 @@ export default function BadgePicker({
         aria-pressed={on}
         title={nameOf(id)}
         onClick={() => toggle(id)}
+        /* Aucun badge n'est terni, même les trois places prises : on peut
+           toujours en glisser un sur une place pour la remplacer, et un jeton
+           éteint se lisait comme « pas obtenu ». Seul l'anneau dit le choix. */
         className={`relative flex cursor-grab flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors active:cursor-grabbing ${
           on
             ? "bg-action/15 ring-2 ring-action"
-            : full
-              ? "bg-white/[0.03] opacity-50 ring-1 ring-white/10 hover:opacity-100"
-              : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
+            : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
         }`}
       >
         {/* Le jeton suit la taille des cases : plus de colonnes, plus petit. */}
         {token(id, cols <= 3 ? 64 : cols <= 4 ? 52 : cols <= 6 ? 42 : 34)}
-        <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
+        <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/90">
           {nameOf(id)}
         </span>
       </button>
