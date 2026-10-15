@@ -3684,13 +3684,15 @@ function WallPanel({
             <p className="font-outfit text-[15px] font-bold text-white">
               {t("profile.studioWallCount", { count: shown.length })}
             </p>
-            <p className="font-karla text-[11.5px] leading-snug text-white/45">
-              {shown.length === 0
-                ? t("profile.studioWallEmpty")
-                : candidats.length > shown.length
-                  ? t("profile.studioWallRemoved", { count: candidats.length - shown.length })
-                  : t("profile.studioWallFromLists")}
-            </p>
+            {/* Une ligne seulement quand elle apprend quelque chose : un mur vide,
+                ou des animés retirés à la main. */}
+            {shown.length === 0 || candidats.length > shown.length ? (
+              <p className="font-karla text-[11.5px] leading-snug text-white/45">
+                {shown.length === 0
+                  ? t("profile.studioWallEmpty")
+                  : t("profile.studioWallRemoved", { count: candidats.length - shown.length })}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
