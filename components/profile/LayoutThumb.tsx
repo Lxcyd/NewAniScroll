@@ -3,8 +3,9 @@ import type { HeroLayout } from "@/lib/profile/dressing";
 
 /**
  * La vignette d'un agencement dans le studio, en SQUELETTE : les formes de la
- * page en gris, comme un écran de chargement — avatar, pseudo, pastilles,
- * chiffres, onglets, widgets — et rien d'autre.
+ * page en gris, comme un écran de chargement — pastilles, onglets, widgets —
+ * avec, seules pièces réelles, l'avatar, le pseudo et les quatre chiffres du
+ * profil : ce qu'on déplace en changeant d'agencement, c'est son identité.
  *
  * Trois versions écartées le 15/10/2026 : toute en barres abstraites (illisible),
  * réduite à l'avatar et au nom (vide), puis en couleurs avec le vrai fond, le
@@ -18,7 +19,7 @@ import type { HeroLayout } from "@/lib/profile/dressing";
 
 type Shape =
   | { k: "av"; l: number; t: number; w: number }
-  | { k: "name"; l: number; t: number; w: number; h: number; center?: boolean }
+  | { k: "name"; l: number; t: number; w: number; size: number; center?: boolean }
   | { k: "chips"; l: number; t: number; scale?: number; center?: boolean }
   | { k: "cards"; l: number; t: number; w: number; h: number; rows?: number }
   | { k: "bar"; l: number; t: number; w: number; h: number }
@@ -31,7 +32,7 @@ type Shape =
 const PLAN: Record<HeroLayout, Shape[]> = {
   band: [
     { k: "av", l: 7, t: 19, w: 17 },
-    { k: "name", l: 28, t: 29, w: 30, h: 6 },
+    { k: "name", l: 28, t: 28, w: 64, size: 8 },
     { k: "chips", l: 28, t: 41 },
     { k: "cards", l: 7, t: 54, w: 86, h: 14 },
     { k: "tabs", l: 7, t: 72, w: 86 },
@@ -39,7 +40,7 @@ const PLAN: Record<HeroLayout, Shape[]> = {
   ],
   center: [
     { k: "av", l: 41.5, t: 4, w: 17 },
-    { k: "name", l: 35, t: 34, w: 30, h: 6, center: true },
+    { k: "name", l: 7, t: 33, w: 86, size: 8, center: true },
     { k: "chips", l: 0, t: 45, center: true },
     { k: "cards", l: 7, t: 54, w: 86, h: 14 },
     { k: "tabs", l: 7, t: 72, w: 86 },
@@ -47,7 +48,7 @@ const PLAN: Record<HeroLayout, Shape[]> = {
   ],
   medallion: [
     { k: "av", l: 7, t: 12, w: 26 },
-    { k: "name", l: 37, t: 27, w: 30, h: 6 },
+    { k: "name", l: 37, t: 25, w: 56, size: 8 },
     { k: "chips", l: 37, t: 39 },
     { k: "bar", l: 7, t: 56, w: 86, h: 12 },
     { k: "tabs", l: 7, t: 72, w: 86 },
@@ -56,7 +57,7 @@ const PLAN: Record<HeroLayout, Shape[]> = {
   column: [
     { k: "panel", l: 4, t: 12, w: 31, h: 95 },
     { k: "av", l: 7.5, t: 17, w: 12 },
-    { k: "name", l: 7.5, t: 40, w: 18, h: 4 },
+    { k: "name", l: 7.5, t: 39, w: 25, size: 5 },
     { k: "chips", l: 7.5, t: 48, scale: 0.6 },
     { k: "cards", l: 7.5, t: 57, w: 24, h: 28, rows: 2 },
     { k: "tabs", l: 39, t: 12, w: 57 },
@@ -64,9 +65,9 @@ const PLAN: Record<HeroLayout, Shape[]> = {
   ],
   showcase: [
     { k: "av", l: 7, t: 58, w: 17 },
-    { k: "name", l: 28, t: 64, w: 26, h: 7 },
+    { k: "name", l: 28, t: 63, w: 28, size: 7.5 },
     { k: "chips", l: 28, t: 76 },
-    { k: "line", r: 7, t: 69, w: 34 },
+    { k: "line", r: 6, t: 68, w: 38 },
     { k: "cue" },
   ],
 };
@@ -76,25 +77,40 @@ const SURFACE = "bg-white/[0.05] ring-1 ring-white/[0.06]";
 const SHAPE = "bg-white/[0.13]";
 const STRONG = "bg-white/[0.24]";
 
+const PLACEHOLDER = ["—", "—", "—", "—"];
+
 export default function LayoutThumb({
   layout,
+  avatar,
+  name,
+  stats,
   fill = false,
 }: {
   layout: HeroLayout;
+  avatar: string | null;
+  name: string;
+  /** Les quatre chiffres formatés du haut de profil. */
+  stats?: string[];
   /** Remplit la hauteur de son parent au lieu de garder le format 16/10. */
   fill?: boolean;
 }) {
+  const values = stats && stats.length === 4 ? stats : PLACEHOLDER;
   const box = (s: { l: number; t: number; w: number; h: number }): CSSProperties => ({
     left: `${s.l}%`,
     top: `${s.t}%`,
     width: `${s.w}%`,
     height: `${s.h}%`,
   });
-  /* Un chiffre : une valeur (forte) sur son intitulé (pâle). */
-  const figure = (j: number, label = true) => (
+  /* Un chiffre : sa vraie valeur, sous son intitulé (pâle, en gris). */
+  const figure = (j: number, label = true, size = 3.6) => (
     <span key={j} className="flex flex-col gap-[0.8cqw]">
       {label ? <span className={`h-[0.9cqw] w-[6cqw] rounded-full ${SHAPE}`} /> : null}
-      <span className={`h-[2.2cqw] w-[7cqw] rounded-full ${STRONG}`} />
+      <span
+        className="font-outfit font-bold leading-none tabular-nums text-white/80"
+        style={{ fontSize: `${size}cqw` }}
+      >
+        {values[j]}
+      </span>
     </span>
   );
 
@@ -112,12 +128,27 @@ export default function LayoutThumb({
             return (
               <span
                 key={i}
-                className={`absolute aspect-square rounded-full ${STRONG}`}
+                className={`absolute aspect-square overflow-hidden rounded-full ${STRONG}`}
                 style={{ left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}%` }}
-              />
+              >
+                {avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={avatar} alt="" className="h-full w-full object-cover" loading="lazy" />
+                ) : null}
+              </span>
             );
           case "name":
-            return <span key={i} className={`absolute rounded-full ${STRONG}`} style={box(s)} />;
+            return (
+              <span
+                key={i}
+                className={`absolute truncate font-outfit font-bold leading-none text-white/90 ${
+                  s.center ? "text-center" : ""
+                }`}
+                style={{ left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}%`, fontSize: `${s.size}cqw` }}
+              >
+                {name}
+              </span>
+            );
           case "chips": {
             const k = s.scale ?? 1;
             return (
@@ -146,7 +177,7 @@ export default function LayoutThumb({
               >
                 {[0, 1, 2, 3].map((j) => (
                   <span key={j} className={`flex items-center overflow-hidden rounded-[4px] px-[1.6cqw] ${SURFACE}`}>
-                    {figure(j, rows === 1)}
+                    {figure(j, rows === 1, rows === 1 ? 4 : 3)}
                   </span>
                 ))}
               </span>
@@ -169,7 +200,7 @@ export default function LayoutThumb({
                 className="absolute flex justify-between"
                 style={{ right: `${s.r}%`, top: `${s.t}%`, width: `${s.w}%` }}
               >
-                {[0, 1, 2, 3].map((j) => figure(j))}
+                {[0, 1, 2, 3].map((j) => figure(j, true, 3))}
               </span>
             );
           case "tabs":

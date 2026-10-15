@@ -162,7 +162,9 @@ type Props = {
   value: Dressing | null;
   /** Ce que l'automatique donne — sert d'aperçu quand rien n'est épinglé. */
   auto: { url: string | null; source: BannerOption["source"] | null; title: string | null };
-  identity: { name: string; avatar: string | null };
+  /** `stats` : les quatre chiffres du haut de profil, déjà formatés — les
+      vignettes d'agencement les écrivent à leur place. */
+  identity: { name: string; avatar: string | null; stats?: string[] };
   /** `null` dépingle et rend le profil à son anime préféré. */
   onApply: (value: Dressing | null) => void;
   /** Le brouillon, à chaque changement : la page le montre en direct. */
@@ -1083,6 +1085,10 @@ export default function BannerStudio({
     requestAnimationFrame(() => search.current?.focus());
   }, []);
 
+  /* Les chiffres arrivent dans un tableau neuf à chaque rendu de la page : la
+     clé en texte évite de recalculer toute la palette pour rien. */
+  const statsKey = identity.stats?.join("\u0001") ?? "";
+
   /* ── Ce que la palette liste ─────────────────────────────────────────── */
   const sections: Section[] = useMemo(() => {
     if (!scope) return [];
@@ -1256,6 +1262,9 @@ export default function BannerStudio({
                   >
                     <LayoutThumb
                       layout={id}
+                      avatar={identity.avatar}
+                      name={identity.name}
+                      stats={statsKey ? statsKey.split("\u0001") : undefined}
                       fill={tall}
                     />
                   </span>
@@ -2153,7 +2162,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, statsKey, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
