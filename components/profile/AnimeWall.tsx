@@ -81,7 +81,19 @@ export default function AnimeWall({
       {n > 0 ? (
         <div
           className="absolute inset-y-0 flex"
-          style={{ gap: GAP, left: -COL_TARGET / 2, right: -COL_TARGET / 2 }}
+          /* LES BORDS GAUCHE ET DROIT S'ÉTEIGNENT dans le fond, comme les
+             carrousels du site (`.as-fade-x`) : un masque, pas un calque noir
+             posé dessus — le fond de page passe au travers. La boîte déborde
+             d'une demi-colonne, d'où le décalage du dégradé. */
+          style={{
+            gap: GAP,
+            left: -COL_TARGET / 2,
+            right: -COL_TARGET / 2,
+            ...(() => {
+              const m = `linear-gradient(90deg, transparent ${COL_TARGET / 2}px, #000 calc(${COL_TARGET / 2}px + clamp(64px, 14vw, 220px)), #000 calc(100% - ${COL_TARGET / 2}px - clamp(64px, 14vw, 220px)), transparent calc(100% - ${COL_TARGET / 2}px))`;
+              return { maskImage: m, WebkitMaskImage: m };
+            })(),
+          }}
         >
           {Array.from({ length: cols }, (_, c) => {
             /* Les affiches tournent d'une colonne à l'autre (c, c+cols, …) : deux
