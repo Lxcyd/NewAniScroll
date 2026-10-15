@@ -57,7 +57,9 @@ import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
-import { BY_ID, RARITY_ORDER } from "@/lib/badges/catalog";
+import { BY_ID, RARITY_ORDER, type Rarity } from "@/lib/badges/catalog";
+import { RING_HUE, ringSwatch } from "@/components/profile/badges/rarity";
+import { Dropdown } from "@/components/profile/WidgetSettings";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
@@ -320,10 +322,6 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout" | "frame" | "badges";
 
-/** Les tris du menu Badges. */
-type BadgeSort = "rare" | "common" | "recent" | "oldest" | "name";
-const BADGE_SORTS: BadgeSort[] = ["rare", "common", "recent", "oldest", "name"];
-
 /** Les tris de la grille des cadres. Les quatre premiers gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
 type FrameSort =
@@ -522,8 +520,8 @@ export default function BannerStudio({
   const [frames, setFrames] = useState<FrameCollection[] | null>(null);
   /** Tri de la grille des cadres (cf. FRAME_SORTS), et le menu qui le choisit. */
   const [frameSort, setFrameSort] = useState<FrameSort>("recent");
-  /** Le tri du menu Badges : les plus rares d'abord par défaut. */
-  const [badgeSort, setBadgeSort] = useState<BadgeSort>("rare");
+  /** Le filtre de rareté du menu Badges (le tri, lui, est fixe : les plus rares d'abord). */
+  const [badgeRarity, setBadgeRarity] = useState<"all" | Rarity>("all");
   const [frameSortOpen, setFrameSortOpen] = useState(false);
   /** Le tirage du tri « au hasard » : rechoisir ce tri relance la donne. */
   const [frameSeed, setFrameSeed] = useState(1);
@@ -1237,8 +1235,8 @@ export default function BannerStudio({
     }
 
     /* ── Les badges mis en avant ──────────────────────────────────────────
-       Les badges OBTENUS, les plus rares d'abord (autres tris au-dessus de la
-       grille), cherchables par leur nom, et posés au glisser-déposer sur trois
+       Les badges OBTENUS, toujours les plus rares d'abord, filtrables par
+       rareté (menu au-dessus de la grille), cherchables par leur nom, et posés au glisser-déposer sur trois
        places — l'ordre dans lequel ils s'alignent à côté du pseudo. Le clic
        reste un raccourci (cf. BadgePicker). */
     if (scope === "badges") {
@@ -1251,21 +1249,8 @@ export default function BannerStudio({
       }
       const at = (id: string) => earned?.[id] ?? 0;
       const owned = all
-        .filter((id) => match(nameOf(id)))
-        .sort((a, b) => {
-          switch (badgeSort) {
-            case "rare":
-              return rank(b) - rank(a) || at(b) - at(a);
-            case "common":
-              return rank(a) - rank(b) || at(b) - at(a);
-            case "recent":
-              return at(b) - at(a);
-            case "oldest":
-              return at(a) - at(b);
-            case "name":
-              return nameOf(a).localeCompare(nameOf(b));
-          }
-        });
+        .filter((id) => match(nameOf(id)) && (badgeRarity === "all" || BY_ID[id].rarity === badgeRarity))
+        .sort((a, b) => rank(b) - rank(a) || at(b) - at(a));
       return [
         {
           title: t("profile.studioBadgesSection", { n: chosen.length, max: FEATURED_MAX }),
@@ -1283,22 +1268,28 @@ export default function BannerStudio({
                 t={t}
                 toolbar={
                   <>
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                      {BADGE_SORTS.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          aria-pressed={badgeSort === s}
-                          onClick={() => setBadgeSort(s)}
-                          className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-                            badgeSort === s
-                              ? "bg-white text-[#15161d]"
-                              : "bg-white/[0.06] text-white/65 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"
-                          }`}
-                        >
-                          {t(`profile.studioBadgeSort_${s}`)}
-                        </button>
-                      ))}
+                    {/* Le même menu de rareté que l'onglet Badges : pastilles
+                        aux couleurs des anneaux, « Toutes » en roue. */}
+                    <div className="relative z-20 px-1">
+                      <Dropdown
+                        className="as-dd-full w-[200px]"
+                        label={t("badges.ui.rarityFilter.label")}
+                        value={badgeRarity}
+                        choices={[
+                          {
+                            value: "all",
+                            label: t("badges.ui.rarityFilter.all"),
+                            swatch: `conic-gradient(${RARITY_ORDER.map((r) => RING_HUE[r]).join(", ")}, ${RING_HUE.c})`,
+                          },
+                          ...[...RARITY_ORDER].reverse().map((r) => ({
+                            value: r,
+                            label: t(`badges.ui.rarity.${r}`),
+                            color: RING_HUE[r],
+                            swatch: ringSwatch(r),
+                          })),
+                        ]}
+                        onPick={(v) => setBadgeRarity(v as "all" | Rarity)}
+                      />
                     </div>
                     {owned.length ? null : (
                       <p className="px-2 py-6 text-center font-karla text-sm text-white/45">
@@ -2294,7 +2285,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeSort, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeRarity, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
