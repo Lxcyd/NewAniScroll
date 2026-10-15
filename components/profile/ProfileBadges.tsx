@@ -160,27 +160,53 @@ export default function ProfileBadges({
    * surlignage à chaque retour arrière, et `router.replace()` refroidirait la
    * page entière pour une histoire de fragment.
    */
+  /* REJOUÉE à chaque `hashchange`, et pas seulement au montage : les badges
+     mis en avant à côté du pseudo (FeaturedBadges) envoient ici depuis la
+     même page — l'onglet peut être déjà ouvert, et rien ne se remonte.
+     Les filtres reviennent à « tout » : un badge caché par « À obtenir » ou
+     par une rareté ne serait pas trouvé. Et un palier d'ÉCHELLE déjà franchi
+     n'a pas de ligne à lui (l'échelle se replie sur son palier du moment) :
+     on surligne alors la ligne de l'échelle. */
+  const gotRef = useRef(state.got);
+  gotRef.current = state.got;
   useEffect(() => {
-    const cible = revealTarget();
-    if (!cible) return;
     let sorti = false;
-    const t = requestAnimationFrame(() => {
-      const el = document.getElementById(revealAnchor(cible));
-      if (!el) return;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("as-badge-flash");
-      window.setTimeout(() => {
-        if (!sorti) el.classList.remove("as-badge-flash");
-      }, 2600);
-      try {
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      } catch {
-        /* au mieux */
-      }
-    });
+    let t = 0;
+    const reveler = () => {
+      const cible = revealTarget();
+      if (!cible) return;
+      setFilter("all");
+      setRarity("all");
+      cancelAnimationFrame(t);
+      /* Deux images : les filtres remis à zéro doivent avoir rendu la ligne. */
+      t = requestAnimationFrame(() => {
+        t = requestAnimationFrame(() => {
+          const def = BY_ID[cible];
+          const tiers = def?.ladder ? LADDERS[def.ladder] ?? [] : [];
+          const head = tiers.find((id) => gotRef.current[id] == null) ?? tiers[tiers.length - 1];
+          const el =
+            document.getElementById(revealAnchor(cible)) ??
+            (head ? document.getElementById(revealAnchor(head)) : null);
+          if (!el) return;
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("as-badge-flash");
+          window.setTimeout(() => {
+            if (!sorti) el.classList.remove("as-badge-flash");
+          }, 2600);
+          try {
+            window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          } catch {
+            /* au mieux */
+          }
+        });
+      });
+    };
+    reveler();
+    window.addEventListener("hashchange", reveler);
     return () => {
       sorti = true;
       cancelAnimationFrame(t);
+      window.removeEventListener("hashchange", reveler);
     };
   }, []);
 

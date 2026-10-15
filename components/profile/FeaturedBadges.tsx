@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { BY_ID } from "@/lib/badges/catalog";
+import { revealAnchor } from "@/lib/badges/reveal";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
 
@@ -44,14 +45,17 @@ export default function FeaturedBadges({
         const def = BY_ID[id];
         const name = t(`badges.${id}.name`);
         return (
-          /* Pas de lien : `revealHref` mène à `/en/profile/me`, le profil du
-             VISITEUR — faux sur le profil de quelqu'un d'autre. */
-          <span
+          /* Un lien vers l'onglet Badges DE CETTE PAGE, sur ce badge : le seul
+             fragment `#badge-<id>`, sans chemin. `revealHref` n'irait pas —
+             il mène à `/en/profile/me`, le profil du VISITEUR, faux sur celui
+             de quelqu'un d'autre. Le fragment ouvre l'onglet ([user].tsx,
+             `lireOnglet`) et ProfileBadges y fait défiler puis surligne. */
+          <a
             key={id}
+            href={`#${revealAnchor(id)}`}
             title={name}
-            role="img"
             aria-label={name}
-            className="block transition-transform duration-200 hover:scale-110"
+            className="block rounded-lg outline-none transition-transform duration-200 hover:scale-110 focus-visible:ring-2 focus-visible:ring-white/70"
           >
             <BadgeToken
               id={id}
@@ -61,7 +65,7 @@ export default function FeaturedBadges({
               unlocked
               size={size}
             />
-          </span>
+          </a>
         );
       })}
     </div>
