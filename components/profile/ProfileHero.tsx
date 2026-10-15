@@ -424,9 +424,13 @@ export default function ProfileHero({
     </dl>
   );
 
+  /* `max-w-screen-xl`, la largeur des onglets et des widgets (page) : en
+     `screen-lg` l'avatar et les chiffres partaient 128 px plus à droite que
+     « Aperçu » sur un grand écran, deux bords gauches l'un au-dessus de
+     l'autre (15/10/2026). */
   const identity = (
     <div
-      className={`mx-auto flex w-full max-w-screen-lg gap-4 px-4 md:gap-6 ${
+      className={`mx-auto flex w-full max-w-screen-xl gap-4 px-4 md:gap-6 ${
         centered ? "flex-col items-center text-center" : "items-end"
       } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
@@ -762,11 +766,11 @@ export default function ProfileHero({
           un grand portrait rond au-dessus d'une grille de cadres faisait deux
           objets lourds l'un sur l'autre, et c'est le portrait qu'on regarde. */}
       {medallion && stats.length > 0 ? (
-        <div className="mx-auto mt-3 w-full max-w-screen-lg px-4">{statLine}</div>
+        <div className="mx-auto mt-3 w-full max-w-screen-xl px-4">{statLine}</div>
       ) : null}
 
       {!medallion && !asColumn && !showcase && stats.length > 0 ? (
-        <dl className="mx-auto mt-5 grid w-full max-w-screen-lg grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
+        <dl className="mx-auto mt-5 grid w-full max-w-screen-xl grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
           {stats.map((s) => (
             <div
               key={s.key}
