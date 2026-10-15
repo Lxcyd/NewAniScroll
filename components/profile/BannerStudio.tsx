@@ -499,6 +499,11 @@ export default function BannerStudio({
   /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
      contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
   const [tabVise, setTabVise] = useState<PaletteScope | null>(null);
+  /* LA LIGNE DU CURSEUR NE S'ALLUME QU'AU CLAVIER. Le curseur vaut 0 par
+     défaut, et la souris ne le déplace plus (le survol est en CSS) : la
+     première ligne restait allumée comme si on la survolait (15/10/2026). Les
+     flèches l'allument, le premier mouvement de souris l'éteint. */
+  const [clavier, setClavier] = useState(false);
   /** L'anime dans lequel la palette cherche. */
   const [animeId, setAnimeId] = useState<number | null>(null);
   const [art, setArt] = useState<BannerOption[]>([]);
@@ -2197,6 +2202,7 @@ export default function BannerStudio({
         return;
       }
       if (!scope) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") setClavier(true);
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setCursor((c) => Math.min(flat.length - 1, c + 1));
@@ -2802,6 +2808,7 @@ export default function BannerStudio({
                   une liste de cadres aussi longue, il faut voir où l'on en est. */}
               <div
                 ref={scrollerRef}
+                onPointerMove={clavier ? () => setClavier(false) : undefined}
                 className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
@@ -2887,7 +2894,7 @@ export default function BannerStudio({
                         >
                           {s.rows.map((row, j) => {
                             index += 1;
-                            const active = index === cursor;
+                            const active = clavier && index === cursor;
                             /* LA VIGNETTE D'ABORD. Une tuile fanart.tv charge
                                l'image entière (1920×1080, ~115 Ko, 0,86 s
                                mesuré) ; le même proxy sert sous `/preview/`
@@ -3001,7 +3008,7 @@ export default function BannerStudio({
                       {s.grid ? null : s.rows.map((row) => {
                         index += 1;
                         if (index >= limite) return null;
-                        const active = index === cursor;
+                        const active = clavier && index === cursor;
                         const Icon = row.icon;
                         return (
                           <button
