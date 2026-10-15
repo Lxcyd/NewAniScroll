@@ -2766,9 +2766,23 @@ export default function BannerStudio({
                       type="button"
                       onClick={() => {
                         const d = (densite === 3 ? 1 : densite + 1) as Densite;
+                        /* LE REGARD RESTE SUR LA MÊME IMAGE (15/10/2026). La
+                           grille se réorganise, et la galerie déroulée se
+                           repliait : on perdait l'image qu'on regardait. On
+                           garde le dépliage, et on ancre la première tuile
+                           visible — après le rendu, le défilement est recalé
+                           pour qu'elle reste à la même hauteur à l'écran
+                           (`holdAnchor`, le mécanisme de l'accordéon). */
+                        const box = scrollerRef.current;
+                        if (box) {
+                          const haut = box.getBoundingClientRect().top;
+                          const tuile = [...box.querySelectorAll<HTMLElement>('[data-anchor^="tuile:"]')].find(
+                            (el) => el.getBoundingClientRect().bottom > haut + 8,
+                          );
+                          if (tuile) holdAnchor(tuile.dataset.anchor!);
+                        }
                         setDensite(d);
                         writeDensite(d);
-                        setArtAll(false);
                       }}
                       title={t(`profile.studioDensite_${densite}`)}
                       aria-label={t(`profile.studioDensite_${densite}`)}
@@ -2860,8 +2874,11 @@ export default function BannerStudio({
                            clé en 16/9, et recadrer pour aligner les tuiles
                            montrerait de chaque image ce qu'on n'a pas choisi. */
                         <div className="relative">
+                        {/* PAS de clé par densité : elle remontait toutes
+                            les tuiles à chaque changement — les images
+                            clignotaient, rejouaient leur entrée, et l'image
+                            regardée se perdait (15/10/2026). */}
                         <div
-                          key={`grille-${densite}`}
                           className={`grid gap-2 px-1 pb-2 ${
                             inColumn
                               ? densite === 1
@@ -2891,8 +2908,8 @@ export default function BannerStudio({
                             return (
                               <button
                                 key={row.key}
+                                data-anchor={`tuile:${row.key}`}
                                 type="button"
-                                onMouseMove={() => setCursor(flat.indexOf(row))}
                                 onClick={() => row.run?.()}
                                 title={row.hint || row.label}
                                 style={{
