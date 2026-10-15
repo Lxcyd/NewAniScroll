@@ -203,26 +203,19 @@ export default function BadgePicker({
         { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }
       ].map((g) =>
         g.ids.length ? (
-          /* Les secrets se DÉTACHENT : un filet au-dessus, puis leur propre
-             boîte teintée de leur couleur — celle du « + n secrets » de
-             l'onglet Badges (#FF7F57). Ce sont des trouvailles, pas un palier
-             de plus. */
+          /* Les secrets se DÉTACHENT par un trait franc et de l'air au-dessus —
+             pas par une couleur : une boîte orangée a été essayée et retirée
+             le 16/10/2026, la démarcation suffit. */
           <section
             key={g.key}
             className={
-              g.key === "secret"
-                ? "relative mt-4 grid gap-2 rounded-xl bg-[#FF7F57]/[0.06] p-2.5 ring-1 ring-[#FF7F57]/30 before:absolute before:-top-3.5 before:inset-x-1 before:h-px before:bg-white/10"
-                : "grid gap-2"
+              g.key === "secret" ? "mt-3 grid gap-2 border-t-2 border-white/15 pt-5" : "grid gap-2"
             }
           >
-            <p
-              className={`flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] ${
-                g.key === "secret" ? "text-[#FF7F57]" : "text-white/40"
-              }`}
-            >
+            <p className="flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
               {g.key === "secret" ? <SparklesIcon className="h-3.5 w-3.5" /> : null}
               {t(g.key === "secret" ? "badges.ui.family.secret" : "profile.studioKind_badges")}
-              <span className={g.key === "secret" ? "text-[#FF7F57]/55" : "text-white/25"}>{g.ids.length}</span>
+              <span className="text-white/25">{g.ids.length}</span>
             </p>
             <div
               className="grid gap-2"
