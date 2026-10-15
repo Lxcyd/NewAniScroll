@@ -17,6 +17,27 @@ import { FEATURED_MAX } from "./FeaturedBadges";
  * le retire ; sur la croix d'une place, il la vide — parce qu'un glisser ne
  * se fait ni au clavier ni au doigt (le DnD HTML5 est inerte sur mobile).
  */
+/**
+ * Le départ d'un glisser : l'id du badge, et un FANTÔME fait du seul jeton.
+ * Sans `setDragImage`, le navigateur photographiait la case entière — bordure,
+ * numéro, croix — et c'est la boîte qu'on voyait partir, pas le badge
+ * (15/10/2026). Le jeton est cloné hors écran le temps que le navigateur en
+ * prenne l'image, puis retiré.
+ */
+function startDrag(e: React.DragEvent<HTMLElement>, id: string) {
+  e.dataTransfer.setData("text/plain", id);
+  e.dataTransfer.effectAllowed = "move";
+  const src = e.currentTarget.querySelector<HTMLElement>(".as-badge-token");
+  if (!src) return;
+  const ghost = src.cloneNode(true) as HTMLElement;
+  Object.assign(ghost.style, { position: "fixed", top: "-1000px", left: "-1000px", pointerEvents: "none" });
+  document.body.appendChild(ghost);
+  /* Saisi par son centre — mesuré sur le clone, hors de la scène du studio
+     qui est mise à l'échelle. */
+  e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+  requestAnimationFrame(() => ghost.remove());
+}
+
 export default function BadgePicker({
   owned,
   chosen,
@@ -86,7 +107,7 @@ export default function BadgePicker({
                 <>
                   <div
                     draggable
-                    onDragStart={(e) => e.dataTransfer.setData("text/plain", id)}
+                    onDragStart={(e) => startDrag(e, id)}
                     title={nameOf(id)}
                     className="grid cursor-grab justify-items-center gap-1 active:cursor-grabbing"
                   >
@@ -126,7 +147,7 @@ export default function BadgePicker({
               key={id}
               type="button"
               draggable
-              onDragStart={(e) => e.dataTransfer.setData("text/plain", id)}
+              onDragStart={(e) => startDrag(e, id)}
               aria-pressed={on}
               title={nameOf(id)}
               onClick={() => toggle(id)}
