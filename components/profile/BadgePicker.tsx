@@ -183,7 +183,7 @@ export default function BadgePicker({
         g.ids.length ? (
           <section key={g.key} className="grid gap-2">
             <p className="flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
-              {t(`profile.studioBadgesGroup_${g.key}`)}
+              {t(g.key === "secret" ? "badges.ui.family.secret" : "profile.studioKind_badges")}
               <span className="text-white/25">{g.ids.length}</span>
             </p>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">

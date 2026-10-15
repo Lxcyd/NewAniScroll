@@ -1253,7 +1253,7 @@ export default function BannerStudio({
         .sort((a, b) => rank(b) - rank(a) || at(b) - at(a));
       return [
         {
-          title: t("profile.studioBadgesSection", { n: chosen.length, max: FEATURED_MAX }),
+          title: t("profile.studioBadgesSection"),
           rows: [],
           node: (
             <div className="grid gap-3">
@@ -2767,7 +2767,7 @@ export default function BannerStudio({
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
                     {/* Un groupe du dock porte ses onglets sous l'en-tête :
                         pas de pastille en plus. */}
-                    {scope === "frame" || (groupOf(scope)?.length ?? 0) > 1 ? null : (
+                    {scope === "frame" || scope === "badges" || (groupOf(scope)?.length ?? 0) > 1 ? null : (
                     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
                       {t(`profile.studioKind_${scope}`)}
                     </span>
