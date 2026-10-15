@@ -1235,12 +1235,17 @@ export default function BannerStudio({
         rows: [],
         node: (
           <div className="grid gap-3">
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {HERO_LAYOUTS.map((id) => {
+            {/* Cinq vignettes sur trois colonnes laissaient un trou à droite de
+                la dernière. Sur une grille de six, les trois premières en
+                prennent deux chacune et les deux dernières trois : deux rangées
+                pleines, la seconde aux vignettes plus grandes. */}
+            <div className="grid grid-cols-6 gap-2.5">
+              {HERO_LAYOUTS.map((id, i) => {
                 const on = current === id;
                 return (
                   <button
                     key={id}
+                    style={{ gridColumn: `span ${i < 3 ? 2 : 3} / span ${i < 3 ? 2 : 3}` }}
                     type="button"
                     aria-pressed={on}
                     title={t(`profile.studioLayoutHint_${id}`)}
@@ -1250,7 +1255,7 @@ export default function BannerStudio({
                     }`}
                   >
                     <span className="block transition-transform duration-200 group-hover:scale-[1.02]">
-                      <LayoutThumb layout={id} plate={plate} avatar={identity.avatar} />
+                      <LayoutThumb layout={id} plate={plate} avatar={identity.avatar} name={identity.name} />
                     </span>
                     <span
                       className={`flex items-center justify-between px-1 pb-0.5 font-karla text-[13px] font-bold ${
@@ -2145,7 +2150,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, auto.url, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, auto.url, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 

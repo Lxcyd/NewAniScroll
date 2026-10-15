@@ -390,14 +390,24 @@ export default function ProfileHero({
 
   /* Les chiffres en une ligne de texte : le médaillon dessous, la vitrine à
      droite du nom — deux places, une seule ligne. */
+  /* Sous le médaillon, les chiffres sont posés à même le papier peint, et un
+     mur d'affiches ou une illustration chargée les rendait illisibles (la note,
+     en couleur d'accent, disparaissait sur une affiche rouge). Ils y ont donc
+     leur propre fond, une barre vitrée ; la vitrine, elle, les pose sur le bas
+     du voile, déjà sombre. */
   const statLine = (
     <dl
-      className={`flex flex-wrap items-baseline gap-x-6 gap-y-2 ${
-        showcase ? "w-full md:ml-auto md:w-auto md:justify-end md:pb-2" : ""
-      }`}
+      className={
+        showcase
+          ? "flex w-full flex-wrap items-baseline gap-x-6 gap-y-2 md:ml-auto md:w-auto md:justify-end md:pb-2"
+          : "inline-grid grid-cols-2 gap-y-3 rounded-2xl bg-black/55 py-3 ring-1 ring-white/10 backdrop-blur-md sm:grid-cols-4 sm:divide-x sm:divide-white/10"
+      }
     >
       {stats.map((s) => (
-        <div key={s.key} className="flex items-baseline gap-2">
+        <div
+          key={s.key}
+          className={`flex items-baseline gap-2 ${showcase ? "" : "px-5"}`}
+        >
           <dd
             className={`font-outfit text-xl font-bold leading-none ${
               s.accent ? "text-action" : "text-white"
@@ -406,7 +416,7 @@ export default function ProfileHero({
           >
             {s.value}
           </dd>
-          <dt className="text-[10px] font-bold uppercase tracking-wider text-white/50">
+          <dt className="text-[10px] font-bold uppercase tracking-wider text-white/60">
             {s.label}
           </dt>
         </div>
