@@ -1122,7 +1122,6 @@
     "studioBadgesRemove": "Remove {{name}}",
     "studioBadgesSearch": "Search a badge…",
     "studioBadgesNone": "No badges earned yet",
-    "studioBadgesCount": "{{n}} / {{max}} featured",
     "studioAvatarScale": "Avatar size",
     "studioNameScale": "Name size",
     "studioLayout_showcase": "Showcase",
