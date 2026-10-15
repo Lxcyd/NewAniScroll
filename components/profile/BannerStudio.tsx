@@ -92,6 +92,9 @@ import {
   DRESSING_KINDS,
   HERO_LAYOUTS,
   MAX_BLUR,
+  SCALE_MAX,
+  SCALE_MIN,
+  clampScale,
   clampBlur,
   clampFade,
   emptyDressing,
@@ -1233,12 +1236,50 @@ export default function BannerStudio({
          n'a pas de hauteur à donner : les lignes prennent celle de leur
          vignette. */
       const tall = !mini;
+      /* La taille de l'avatar et du pseudo : un facteur sur les tailles de
+         l'agencement, le même curseur que le flou (`as-range`). */
+      const scaleSlider = (key: "avatarScale" | "nameScale", label: string) => {
+        const v = draft[key] ?? 100;
+        return (
+          <div key={key} className="grid gap-1.5">
+            <span className="flex items-center justify-between font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/45">
+              {label}
+              <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 normal-case tracking-normal text-white/80">
+                {v} %
+              </span>
+            </span>
+            <span className="as-range relative block h-4 w-full">
+              <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+              <span
+                className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                style={{ width: `${((v - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100}%` }}
+              />
+              <input
+                type="range"
+                min={SCALE_MIN}
+                max={SCALE_MAX}
+                step={5}
+                value={v}
+                onChange={(e) => patch({ [key]: clampScale(e.target.value) })}
+                onDoubleClick={() => patch({ [key]: 100 })}
+                style={{ pointerEvents: "auto" }}
+                aria-label={label}
+              />
+            </span>
+          </div>
+        );
+      };
       out.push({
         title: t("profile.studioLayoutSection"),
         rows: [],
         grow: true,
         fill: true,
         node: (
+          <div className={`flex flex-col gap-4 ${tall ? "min-h-0 flex-1" : ""}`}>
+          <div className="grid grid-cols-2 gap-4 px-1">
+            {scaleSlider("avatarScale", t("profile.studioAvatarScale"))}
+            {scaleSlider("nameScale", t("profile.studioNameScale"))}
+          </div>
           <div
             className={`grid gap-2 ${tall ? "min-h-0 flex-1" : ""}`}
             style={tall ? { gridTemplateRows: `repeat(${HERO_LAYOUTS.length}, minmax(4.5rem, 1fr))` } : undefined}
@@ -1283,6 +1324,7 @@ export default function BannerStudio({
                 </button>
               );
             })}
+          </div>
           </div>
         ),
       });

@@ -30,7 +30,12 @@ export default function ProfileAside({
   stats,
   subtitle,
   frame,
+  avatarScale = 100,
+  nameScale = 100,
 }: {
+  /** Tailles de l'avatar et du pseudo, en % — le réglage du studio. */
+  avatarScale?: number;
+  nameScale?: number;
   name: string;
   tag?: string | null;
   avatar?: string | null;
@@ -44,20 +49,25 @@ export default function ProfileAside({
   const { t, i18n } = useTranslation();
 
   return (
-    <aside className="as-stat-card sticky top-24 flex w-full flex-col overflow-hidden rounded-2xl ring-1 ring-white/10">
+    <aside
+      className="as-stat-card sticky top-24 flex w-full flex-col overflow-hidden rounded-2xl ring-1 ring-white/10"
+      style={{ "--as-av": avatarScale / 100, "--as-nm": nameScale / 100 } as React.CSSProperties}
+    >
       <div className="flex flex-col items-center gap-4 px-5 pb-5 pt-7 text-center">
         <FramedAvatar
           src={avatar}
           name={name}
           frame={frame}
           priority
-          px={160}
-          sizeClass="h-28 w-28"
+          px={256}
+          sizeClass="h-[calc(7rem*var(--as-av,1))] w-[calc(7rem*var(--as-av,1))]"
           textClass="text-4xl"
         />
         <div className="min-w-0 w-full">
           {/* À la ligne plutôt que tronqué : un pseudo se lit en entier. */}
-          <h1 className="break-words font-outfit text-[1.65rem] font-bold leading-tight">{name}</h1>
+          <h1 className="break-words font-outfit text-[length:calc(1.65rem*var(--as-nm,1))] font-bold leading-tight">
+            {name}
+          </h1>
           <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
             {tag ? (
               <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">

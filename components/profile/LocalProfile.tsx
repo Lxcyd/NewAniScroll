@@ -196,6 +196,8 @@ export default function LocalProfile() {
                 avatar={null}
                 stats={heroStats(t, stats)}
                 subtitle={t("profile.localOnly")}
+                avatarScale={banner.avatarScale}
+                nameScale={banner.nameScale}
               />
             </div>
           ) : null}

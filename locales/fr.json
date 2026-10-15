@@ -1115,6 +1115,8 @@
     "studioLayoutHint_medallion": "Grand portrait rond débordant sur la plaque, chiffres en une ligne",
     "studioLayout_column": "Colonne",
     "studioLayoutHint_column": "Identité en colonne collante à gauche, widgets à sa droite puis en dessous",
+    "studioAvatarScale": "Taille de l'avatar",
+    "studioNameScale": "Taille du pseudo",
     "studioLayout_showcase": "Vitrine",
     "studioLayoutHint_showcase": "Le fond prend tout l'écran, nom et chiffres en bas, le reste après défilement",
     "studioKind_music": "Musique",

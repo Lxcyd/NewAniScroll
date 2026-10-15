@@ -404,6 +404,8 @@ export default function Profile({
               tag={identity.tag}
               avatar={identity.avatar}
               frame={shownBanner.frame}
+              avatarScale={shownBanner.avatarScale}
+              nameScale={shownBanner.nameScale}
               anilistName={identity.anilistName}
               createdAt={identity.createdAt}
               stats={heroStats(t, stats)}

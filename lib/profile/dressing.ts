@@ -228,7 +228,24 @@ export type Dressing = {
    * fond mais se choisit dans le studio et se sauvegarde par le même appel.
    */
   frame: string | null;
+  /**
+   * La taille de l'avatar et celle du pseudo, en % de la taille de
+   * l'agencement (100 = inchangé). Un facteur et non une taille : chaque
+   * agencement garde ses tailles par écran (téléphone, ordinateur), le
+   * réglage les multiplie toutes, et le profil reste responsive.
+   */
+  avatarScale: number;
+  nameScale: number;
 };
+
+export const SCALE_MIN = 60;
+export const SCALE_MAX = 160;
+
+export function clampScale(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 100;
+  return Math.max(SCALE_MIN, Math.min(SCALE_MAX, Math.round(n)));
+}
 
 /**
  * Les fonds que le studio propose (le dock les regroupe : DOCK_GROUPS de
@@ -472,6 +489,8 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
     /* Validé à la FORME : seul un asset Discord exact part dans l'URL du CDN. */
     frame: isFrameAsset(obj.frame) ? obj.frame : null,
+    avatarScale: clampScale(obj.avatarScale),
+    nameScale: clampScale(obj.nameScale),
   };
 }
 
@@ -497,5 +516,7 @@ export function emptyDressing(): Dressing {
     wall: null,
     layout: "band",
     frame: null,
+    avatarScale: 100,
+    nameScale: 100,
   };
 }

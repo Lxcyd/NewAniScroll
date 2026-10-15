@@ -65,6 +65,9 @@ export type HeroBanner = {
   layout?: Dressing["layout"] | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
   frame?: Dressing["frame"] | null;
+  /** Tailles de l'avatar et du pseudo, en % (100 = celles de l'agencement). */
+  avatarScale?: number;
+  nameScale?: number;
   /** Le filtre du mur d'animés (kind « wall »). */
   wall?: Dressing["wall"];
 };
@@ -91,7 +94,16 @@ export type StudioBridge = {
 export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
   const own = draft.url || draft.color || draft.trailerId || draft.kind === "wall";
   return {
-    ...(own ? draft : { ...base, layout: draft.layout, frame: draft.frame, blur: draft.blur }),
+    ...(own
+      ? draft
+      : {
+          ...base,
+          layout: draft.layout,
+          frame: draft.frame,
+          blur: draft.blur,
+          avatarScale: draft.avatarScale,
+          nameScale: draft.nameScale,
+        }),
     music: null,
   };
 }
@@ -395,11 +407,16 @@ export default function ProfileHero({
      en couleur d'accent, disparaissait sur une affiche rouge). Ils ont donc
      leur propre fond, une barre vitrée — dans la vitrine aussi : le bas du
      voile n'y suffisait pas sur un mur d'affiches (15/10/2026). */
+  /* Dans la plaque du médaillon, la barre perd son propre fond : la plaque en
+     est déjà un, et deux vitres l'une dans l'autre se liraient comme deux
+     objets. */
   const statLine = (
     <dl
-      className={`inline-grid grid-cols-2 gap-y-3 rounded-2xl bg-black/55 py-3 ring-1 ring-white/10 backdrop-blur-md sm:grid-cols-4 sm:divide-x sm:divide-white/10 ${
-        showcase ? "md:mb-1 md:ml-auto" : ""
-      }`}
+      className={`grid grid-cols-2 gap-y-3 sm:grid-cols-4 sm:divide-x sm:divide-white/10 ${
+        medallion
+          ? "w-full py-1 md:ml-auto md:w-auto md:self-center"
+          : "rounded-2xl bg-black/55 py-3 ring-1 ring-white/10 backdrop-blur-md"
+      } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
       {stats.map((s) => (
         <div key={s.key} className="flex items-baseline gap-2 px-5">
@@ -422,22 +439,25 @@ export default function ProfileHero({
      `screen-lg` l'avatar et les chiffres partaient 128 px plus à droite que
      « Aperçu » sur un grand écran, deux bords gauches l'un au-dessus de
      l'autre (15/10/2026). */
-  const identity = (
-    <div
-      className={`mx-auto flex w-full max-w-screen-xl gap-4 px-4 md:gap-6 ${
-        centered ? "flex-col items-center text-center" : "items-end"
-      } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
-    >
-      {/* Le médaillon monte sur la plaque au lieu de s'y adosser : c'est ce
-          chevauchement franc qui le fait lire comme un portrait épinglé et non
-          comme une vignette posée au bord. */}
-      <div className={medallion ? "-mt-8 md:-mt-14" : ""}>
+  /* Les tailles de l'avatar et du pseudo sont celles de l'agencement, par
+     écran, MULTIPLIÉES par le réglage du studio (`--as-av`, `--as-nm`, posés
+     sur la racine plus bas) : le profil reste responsive à toute taille. */
+  const identityBody = (
+    <>
+      {/* Le médaillon sort par le HAUT de sa plaque : c'est ce chevauchement
+          franc qui le fait lire comme un portrait épinglé et non comme une
+          vignette posée dedans. */}
+      <div className={medallion ? "-mt-12 md:-mt-16" : ""}>
         <FramedAvatar
           src={avatar}
           name={name}
           frame={banner.frame}
           priority
-          sizeClass={medallion ? "h-24 w-24 md:h-36 md:w-36" : "h-20 w-20 md:h-28 md:w-28"}
+          sizeClass={
+            medallion
+              ? "h-[calc(6rem*var(--as-av,1))] w-[calc(6rem*var(--as-av,1))] md:h-[calc(9rem*var(--as-av,1))] md:w-[calc(9rem*var(--as-av,1))]"
+              : "h-[calc(5rem*var(--as-av,1))] w-[calc(5rem*var(--as-av,1))] md:h-[calc(7rem*var(--as-av,1))] md:w-[calc(7rem*var(--as-av,1))]"
+          }
           textClass={medallion ? "text-4xl md:text-5xl" : "text-3xl md:text-4xl"}
         />
       </div>
@@ -470,8 +490,10 @@ export default function ProfileHero({
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
         <h1
-          className={`break-words font-outfit text-3xl font-bold leading-tight ${
-            showcase ? "md:text-6xl" : "md:text-5xl"
+          className={`break-words font-outfit text-[length:calc(1.875rem*var(--as-nm,1))] font-bold leading-tight ${
+            showcase
+              ? "md:text-[length:calc(3.75rem*var(--as-nm,1))]"
+              : "md:text-[length:calc(3rem*var(--as-nm,1))]"
           }`}
           style={flat ? undefined : { textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}
         >
@@ -533,12 +555,40 @@ export default function ProfileHero({
         </div>
         {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
       </div>
-      {showcase ? statLine : null}
+      {showcase || medallion ? statLine : null}
+    </>
+  );
+
+  /* Le médaillon (refait le 15/10/2026, il ne se distinguait plus du
+     bandeau) : TOUTE l'identité tient dans une seule plaque vitrée — avatar,
+     pseudo, pastilles, chiffres — et le portrait en sort par le haut. Un
+     objet, là où le bandeau pose ses pièces à même le fond. */
+  const identity = medallion ? (
+    <div className="mx-auto w-full max-w-screen-xl px-4 pb-5 pt-14 md:pb-7 md:pt-20">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-4 rounded-3xl bg-black/50 px-5 pb-5 ring-1 ring-white/10 backdrop-blur-md md:px-7 md:pb-6">
+        {identityBody}
+      </div>
+    </div>
+  ) : (
+    <div
+      className={`mx-auto flex w-full max-w-screen-xl gap-4 px-4 md:gap-6 ${
+        centered ? "flex-col items-center text-center" : "items-end"
+      } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
+    >
+      {identityBody}
     </div>
   );
 
   return (
-    <div className="relative w-full">
+    <div
+      className="relative w-full"
+      style={
+        {
+          "--as-av": (banner.avatarScale ?? 100) / 100,
+          "--as-nm": (banner.nameScale ?? 100) / 100,
+        } as React.CSSProperties
+      }
+    >
       {/* La musique du profil. `loop` parce que le rip d'AnimeThemes dure 90
           secondes et qu'un profil se lit plus longtemps que ça. Jamais
           `autoPlay` : voir la note sur le son plus haut. Court-circuité dès
@@ -756,13 +806,8 @@ export default function ProfileHero({
         <div className={`relative z-10 ${medallion ? "" : "-mt-12 md:-mt-14"}`}>{identity}</div>
       ) : null}
 
-      {/* Le médaillon remplace les quatre cartes par une ligne de chiffres :
-          un grand portrait rond au-dessus d'une grille de cadres faisait deux
-          objets lourds l'un sur l'autre, et c'est le portrait qu'on regarde. */}
-      {medallion && stats.length > 0 ? (
-        <div className="mx-auto mt-3 w-full max-w-screen-xl px-4">{statLine}</div>
-      ) : null}
-
+      {/* Le médaillon et la vitrine portent leurs chiffres dans l'identité
+          (statLine) ; les cartes ne servent qu'au bandeau et au centré. */}
       {!medallion && !asColumn && !showcase && stats.length > 0 ? (
         <dl className="mx-auto mt-5 grid w-full max-w-screen-xl grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
           {stats.map((s) => (
