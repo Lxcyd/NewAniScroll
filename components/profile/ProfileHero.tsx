@@ -473,8 +473,20 @@ export default function ProfileHero({
       </div>
 
       {/* Centré, le pseudo REMONTE sous l'avatar : l'interligne d'un titre
-          de 60 px laisse à lui seul un vide au-dessus des lettres. */}
-      <div className={`min-w-0 pb-1 ${centered ? "-mt-1 flex flex-col items-center md:-mt-3" : ""}`}>
+          laisse à lui seul un vide au-dessus des lettres. La remontée suit la
+          TAILLE DU PSEUDO (15 % de sa police, `--as-nm` compris) : fixe, un
+          petit pseudo passait sous l'avatar (16/10/2026). */}
+      <div
+        className={`min-w-0 pb-1 ${
+          centered
+            ? `-mt-[calc(0.15*1.875rem*var(--as-nm,1))] flex flex-col items-center ${
+                showcase
+                  ? "md:-mt-[calc(0.15*3.75rem*var(--as-nm,1))]"
+                  : "md:-mt-[calc(0.15*3rem*var(--as-nm,1))]"
+              }`
+            : ""
+        }`}
+      >
         {/* The name can overlap a plate that is anything at all: the shadow is
             what keeps it readable over a bright artwork.
 
