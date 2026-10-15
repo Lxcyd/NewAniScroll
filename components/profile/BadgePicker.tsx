@@ -209,9 +209,14 @@ export default function BadgePicker({
           <section
             key={g.key}
             className={
-              g.key === "secret" ? "mt-3 grid gap-2 border-t-2 border-white/15 pt-5" : "grid gap-2"
+              g.key === "secret" ? "mt-2 grid gap-2" : "grid gap-2"
             }
           >
+            {/* Une barre et non une bordure : grise, douce, aux bouts arrondis.
+                La bordure de 2 px se lisait comme un trait blanc tranchant. */}
+            {g.key === "secret" ? (
+              <div aria-hidden className="mx-1 mb-3 h-[3px] rounded-full bg-white/[0.08]" />
+            ) : null}
             <p className="flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
               {g.key === "secret" ? <SparklesIcon className="h-3.5 w-3.5" /> : null}
               {t(g.key === "secret" ? "badges.ui.family.secret" : "profile.studioKind_badges")}
