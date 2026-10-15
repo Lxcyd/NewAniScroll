@@ -119,7 +119,7 @@ export default function BadgePicker({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <BadgeDefs />
-      <section className="grid shrink-0 gap-3 rounded-2xl bg-white/[0.05] p-3 ring-1 ring-white/10">
+      <section className="grid shrink-0 gap-3 rounded-2xl bg-[#1c1d26] p-3 ring-1 ring-white/[0.08]">
       {hint}
       <div className="grid grid-cols-3 gap-2">
         {Array.from({ length: FEATURED_MAX }, (_, i) => {
@@ -188,7 +188,7 @@ export default function BadgePicker({
 
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl bg-black/30 p-3 ring-1 ring-white/[0.06]">
+      <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl bg-[#101118] p-3 ring-1 ring-white/[0.06]">
       <div className="shrink-0">{toolbar}</div>
 
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
@@ -233,15 +233,23 @@ export default function BadgePicker({
         /* Aucun badge n'est terni, même les trois places prises : on peut
            toujours en glisser un sur une place pour la remplacer, et un jeton
            éteint se lisait comme « pas obtenu ». Seul l'anneau dit le choix. */
-        className={`relative flex cursor-grab flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors active:cursor-grabbing ${
+        /* Un par ligne, la case devient une LIGNE : le jeton à gauche, le nom
+           à côté, lisible en entier. */
+        className={`relative flex cursor-grab rounded-xl transition-colors active:cursor-grabbing ${
+          cols === 1 ? "items-center gap-3 px-3 py-2 text-left" : "flex-col items-center gap-1.5 px-1.5 pb-2 pt-3"
+        } ${
           on
             ? "bg-action/15 ring-2 ring-action"
             : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
         }`}
       >
         {/* Le jeton suit la taille des cases : plus de colonnes, plus petit. */}
-        {token(id, cols <= 3 ? 64 : cols <= 4 ? 52 : cols <= 6 ? 42 : 34)}
-        <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/90">
+        {token(id, cols === 1 ? 44 : cols <= 3 ? 60 : cols <= 4 ? 52 : 40)}
+        <span
+          className={`font-karla font-bold leading-tight text-white/90 ${
+            cols === 1 ? "min-w-0 flex-1 text-[13px]" : "line-clamp-2 text-center text-[11px]"
+          }`}
+        >
           {nameOf(id)}
         </span>
       </button>

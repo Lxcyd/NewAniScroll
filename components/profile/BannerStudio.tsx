@@ -536,10 +536,10 @@ export default function BannerStudio({
   }, [frameSortOpen]);
   /** Cases par ligne : moins = plus grandes. */
   const [frameCols, setFrameCols] = useState(4);
-  /** La densité du menu Badges, au bouton de la galerie : 1 = 3 par ligne,
-      2 = 4, 3 = 6. */
+  /** La densité du menu Badges, au bouton de la galerie : 1 = un par ligne
+      (en liste), 2 = 3, 3 = 5. */
   const [badgeDens, setBadgeDens] = useState<Densite>(2);
-  const badgeCols = badgeDens === 1 ? 3 : badgeDens === 2 ? 4 : 6;
+  const badgeCols = badgeDens === 1 ? 1 : badgeDens === 2 ? 3 : 5;
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
@@ -1282,7 +1282,7 @@ export default function BannerStudio({
                   <>
                     {/* Le même menu de rareté que l'onglet Badges : pastilles
                         aux couleurs des anneaux, « Toutes » en roue. */}
-                    <div className="relative z-20 px-1">
+                    <div className="relative z-20 flex items-center gap-2">
                       <Dropdown
                         className="as-dd-full w-[200px]"
                         label={t("badges.ui.rarityFilter.label")}
@@ -1302,6 +1302,25 @@ export default function BannerStudio({
                         ]}
                         onPick={(v) => setBadgeRarity(v as "all" | Rarity)}
                       />
+                      {/* La disposition, tout à droite : le bouton de densité de
+                          la galerie d'illustrations — un bouton, trois crans
+                          (1, 3, 5 par ligne), la grille de l'icône dit le cran. */}
+                      <button
+                        type="button"
+                        onClick={() => setBadgeDens((d) => ((d % 3) + 1) as Densite)}
+                        title={t(`profile.studioDensite_${badgeDens}`)}
+                        aria-label={t(`profile.studioDensite_${badgeDens}`)}
+                        className="group ml-auto grid h-[2.35rem] w-[2.35rem] shrink-0 place-items-center rounded-xl bg-white/[0.04] text-white/60 ring-1 ring-white/[0.06] transition-colors hover:bg-white/[0.08] hover:text-white"
+                      >
+                        <span className="grid place-items-center transition-transform duration-150 group-active:scale-90">
+                          <span
+                            className="grid place-items-center transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+                            style={{ transform: `rotate(${(badgeDens - 1) * 90}deg)` }}
+                          >
+                            <DensiteIcon d={badgeDens} className="h-4 w-4" />
+                          </span>
+                        </span>
+                      </button>
                     </div>
                     {owned.length ? null : (
                       <p className="px-2 py-6 text-center font-karla text-sm text-white/45">
@@ -2867,27 +2886,6 @@ export default function BannerStudio({
                           <PlusIcon className="h-4 w-4" />
                         </button>
                       </div>
-                    ) : null}
-                    {/* Les badges ont le bouton de densité de la galerie
-                        d'illustrations : un seul bouton, trois crans, la grille
-                        de l'icône dit le cran (cf. DensiteIcon). */}
-                    {scope === "badges" ? (
-                      <button
-                        type="button"
-                        onClick={() => setBadgeDens((d) => ((d % 3) + 1) as Densite)}
-                        title={t(`profile.studioDensite_${badgeDens}`)}
-                        aria-label={t(`profile.studioDensite_${badgeDens}`)}
-                        className="group grid h-[2.35rem] w-[2.35rem] shrink-0 place-items-center rounded-xl bg-white/[0.04] text-white/60 ring-1 ring-white/[0.06] transition-colors hover:bg-white/[0.08] hover:text-white"
-                      >
-                        <span className="grid place-items-center transition-transform duration-150 group-active:scale-90">
-                          <span
-                            className="grid place-items-center transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
-                            style={{ transform: `rotate(${(badgeDens - 1) * 90}deg)` }}
-                          >
-                            <DensiteIcon d={badgeDens} className="h-4 w-4" />
-                          </span>
-                        </span>
-                      </button>
                     ) : null}
                   </>
                 ) : (
