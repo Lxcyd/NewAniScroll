@@ -609,8 +609,10 @@ export default function ProfileHero({
     </div>
   ) : (
     <div
-      className={`mx-auto flex w-full max-w-screen-xl gap-4 px-4 md:gap-6 ${
-        centered ? "flex-col items-center text-center" : "items-end"
+      /* Centré, l'écart est VERTICAL, entre l'avatar et le pseudo : le
+         `gap-6` d'à côté les décollait trop (16/10/2026). */
+      className={`mx-auto flex w-full max-w-screen-xl px-4 ${
+        centered ? "flex-col items-center gap-1.5 text-center md:gap-2" : "items-end gap-4 md:gap-6"
       } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
