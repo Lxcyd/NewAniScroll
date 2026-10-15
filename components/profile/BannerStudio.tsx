@@ -56,7 +56,7 @@ import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
-import FeaturedBadges, { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
+import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
 import { BY_ID, RARITY_ORDER, type Rarity } from "@/lib/badges/catalog";
 import { RING_HUE, ringSwatch } from "@/components/profile/badges/rarity";
 import { Dropdown } from "@/components/profile/WidgetSettings";
@@ -3699,8 +3699,10 @@ export default function BannerStudio({
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
                 <TrophyIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
-                {/* Les badges choisis eux-mêmes, en petit — pas de compteur. */}
-                <FeaturedBadges ids={draft.badges} earned={earned} size={26} className="gap-1" />
+                {/* Un libellé, pas de compteur. */}
+                <span className="truncate font-outfit text-[13.5px] font-bold">
+                  {t("profile.studioBadgesSection")}
+                </span>
               </button>
             </SceneBox>
 
