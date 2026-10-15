@@ -18,6 +18,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   FilmIcon,
+  FunnelIcon,
   MagnifyingGlassIcon,
   MinusIcon,
   MusicalNoteIcon,
@@ -3485,16 +3486,18 @@ export default function BannerStudio({
 }
 
 /**
- * LES RÉGLAGES DU MUR D'ANIMÉS — trois questions, dans l'ordre où on se les
- * pose : quelles affiches (les listes), lesquelles parmi elles (la note), et
- * comment elles bougent. En tête, ce que le mur contient MAINTENANT : un nombre
- * et six affiches, pour qu'un filtre trop serré se voie avant qu'on cherche
- * pourquoi le fond est vide.
+ * LES RÉGLAGES DU MUR D'ANIMÉS, en trois cartes qui répondent chacune à UNE
+ * question : qu'est-ce que le mur montre maintenant (l'aperçu et le geste qui
+ * le porte), qu'est-ce qui y entre (les listes, la note), et comment il bouge.
+ * Des cartes et non des intitulés à la suite : la première version empilait
+ * cinq titres de même poids, et l'œil ne savait pas où finissait le filtre et
+ * où commençait l'animation (15/10/2026).
  *
- * Les listes se COMBINENT (union) : un mur « Terminés + En cours » est l'usage
- * le plus naturel, et un menu à choix unique l'interdisait. Aucune liste
- * cochée = toute la liste, d'où la pastille « Toute la liste » qui s'allume
- * seule quand on décoche la dernière.
+ * LES LISTES SONT UN MENU DÉROULANT À CASES. Les pastilles prenaient trois
+ * lignes dès qu'on avait quelques listes personnalisées, et repoussaient tout
+ * le reste. Le bouton fermé résume le choix ; ouvert, il montre toutes les
+ * listes avec leur couleur et leur nombre. Elles se COMBINENT (union) ; aucune
+ * cochée = toute la liste.
  */
 function WallPanel({
   entries,
@@ -3514,40 +3517,74 @@ function WallPanel({
   const shown = useMemo(() => wallEntries(entries, wall), [entries, wall]);
   const withCover = useMemo(() => entries.filter((e) => !!e.cover), [entries]);
   const lists = useMemo(() => {
-    const statuses = ["favourites", ...Object.values(STATUS_TO_LIST)];
-    const custom = customListNames(entries).map((n) => `custom:${n}`);
-    return [...statuses, ...custom]
+    const all = [
+      "favourites",
+      ...Object.values(STATUS_TO_LIST),
+      ...customListNames(entries).map((n) => `custom:${n}`),
+    ];
+    return all
       .map((id) => ({ id, n: withCover.filter((e) => inList(e, id)).length }))
       .filter((l) => l.n > 0 || wall.lists.includes(l.id));
   }, [entries, withCover, wall.lists]);
   const toggle = (id: string) =>
     set({ lists: wall.lists.includes(id) ? wall.lists.filter((l) => l !== id) : [...wall.lists, id] });
 
-  const head = (label: string, hint?: string) => (
-    <div className="flex items-baseline justify-between gap-3 pb-2">
-      <p className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">{label}</p>
-      {hint ? <p className="truncate font-karla text-[11px] text-white/30">{hint}</p> : null}
-    </div>
-  );
-  /* Ce qui bouge au clic est DEDANS : un bouton qui rétrécit sous le pointeur
-     perd le clic relâché sur son bord (cf. la densité de la grille). */
-  const chip = (id: string | null, label: ReactNode, n: number, on: boolean, color?: string) => (
-    <button
-      key={id ?? "all"}
-      type="button"
-      aria-pressed={on}
-      onClick={() => (id ? toggle(id) : set({ lists: [] }))}
-      className={`group inline-flex items-center rounded-full py-1 pl-2.5 pr-2 font-karla text-[12px] font-bold ring-1 transition-colors ${
-        on ? "bg-white/[0.12] text-white ring-white/25" : "bg-white/[0.03] text-white/55 ring-white/[0.08] hover:text-white/85"
-      }`}
-    >
-      <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
-        {color ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} /> : null}
-        {label}
-        <span className={`tabular-nums ${on ? "text-white/60" : "text-white/30"}`}>{n}</span>
+  /* Le menu se ferme au clic dehors et sur Échap — et Échap ne remonte pas :
+     le studio, lui, n'a rien à fermer sur cette touche. */
+  const [menu, setMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const down = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenu(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(false);
+    };
+    document.addEventListener("mousedown", down);
+    window.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [menu]);
+
+  const meta = (id: string) => {
+    const custom = id.startsWith("custom:") ? id.slice("custom:".length) : null;
+    return {
+      label:
+        id === "favourites"
+          ? t("profile.widgets.options.sourceFavourites")
+          : custom ?? listLabel(t as any, id),
+      color: id === "favourites" ? null : custom ? customListColor(custom) : LIST_COLORS[id],
+      custom: !!custom,
+    };
+  };
+  const dot = (id: string) => {
+    const m = meta(id);
+    return id === "favourites" ? (
+      <HeartIcon className="h-3 w-3 shrink-0 text-action" />
+    ) : (
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.color ?? "#fff" }} />
+    );
+  };
+  /* Le résumé du bouton fermé : le nom quand il n'y en a qu'une, les pastilles
+     et le nombre au-delà — trois noms ne tiennent pas sur la ligne. */
+  const resume =
+    wall.lists.length === 0 ? (
+      <span className="truncate">{t("profile.studioWallAll")}</span>
+    ) : wall.lists.length === 1 ? (
+      <span className="flex min-w-0 items-center gap-1.5">
+        {dot(wall.lists[0])}
+        <span className="truncate">{meta(wall.lists[0]).label}</span>
       </span>
-    </button>
-  );
+    ) : (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="flex shrink-0 -space-x-0.5">{wall.lists.slice(0, 4).map((l) => <span key={l} className="grid h-3 w-3 place-items-center">{dot(l)}</span>)}</span>
+        <span className="truncate">{t("profile.studioWallListsN", { count: wall.lists.length })}</span>
+      </span>
+    );
+
   const sw = (on: boolean, flip: () => void, label: string) => (
     <button
       type="button"
@@ -3564,22 +3601,65 @@ function WallPanel({
       />
     </button>
   );
+  /** Une carte : un en-tête (icône, titre, et à droite de quoi le piloter). */
+  const card = (icon: ReactNode, title: string, body: ReactNode, aside?: ReactNode) => (
+    <section className="rounded-xl bg-white/[0.03] ring-1 ring-white/[0.07]">
+      <header className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2.5">
+        <span className="text-white/45">{icon}</span>
+        <h3 className="min-w-0 flex-1 font-outfit text-[13px] font-bold text-white/90">{title}</h3>
+        {aside}
+      </header>
+      <div className="flex flex-col gap-4 p-3">{body}</div>
+    </section>
+  );
+  const label = (text: string) => (
+    <p className="pb-1.5 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">{text}</p>
+  );
+  const row = (id: string, n: number) => {
+    const on = wall.lists.includes(id);
+    return (
+      <button
+        key={id}
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={on}
+        onClick={() => toggle(id)}
+        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left font-karla text-[12.5px] font-bold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+      >
+        <span
+          className={`grid h-4 w-4 shrink-0 place-items-center rounded-[5px] ring-1 transition-colors ${
+            on ? "bg-action ring-action" : "ring-white/25"
+          }`}
+        >
+          {on ? <CheckIcon className="h-3 w-3 text-white" /> : null}
+        </span>
+        {dot(id)}
+        <span className="min-w-0 flex-1 truncate">{meta(id).label}</span>
+        <span className="tabular-nums text-white/35">{n}</span>
+      </button>
+    );
+  };
+  const statuts = lists.filter((l) => !meta(l.id).custom);
+  const perso = lists.filter((l) => meta(l.id).custom);
   const DIR_ICON = { up: ArrowUpIcon, down: ArrowDownIcon, alt: ArrowsUpDownIcon } as const;
 
   return (
-    <div className="flex flex-col gap-5 p-1">
-      {/* Ce que le mur contient, et le geste qui le porte. */}
-      <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.07]">
-        <div className="grid w-[9.5rem] shrink-0 grid-cols-6 gap-0.5 overflow-hidden rounded-lg">
-          {Array.from({ length: 6 }, (_, i) => {
+    <div className="flex flex-col gap-3 p-1">
+      {/* 1. Ce que le mur contient, et le geste qui le porte. L'aperçu sur
+          toute la largeur, le compte et le bouton dessous : côte à côte, la
+          colonne de 320 px renvoyait le compte à la ligne à chaque mot. */}
+      <div className="flex flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.07]">
+        <div className="grid grid-cols-8 gap-0.5 overflow-hidden rounded-lg">
+          {Array.from({ length: 8 }, (_, i) => {
             const e = shown[i];
             return (
               <span key={i} className="relative aspect-[2/3] bg-white/[0.06]">
-                {e?.cover ? <Image src={e.cover} alt="" fill sizes="26px" className="object-cover" /> : null}
+                {e?.cover ? <Image src={e.cover} alt="" fill sizes="40px" className="object-cover" /> : null}
               </span>
             );
           })}
         </div>
+        <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="font-outfit text-[14px] font-bold text-white">
             {t("profile.studioWallCount", { count: shown.length })}
@@ -3601,99 +3681,147 @@ function WallPanel({
             {t(worn ? "profile.studioWallWorn" : "profile.studioWallUse")}
           </span>
         </button>
-      </div>
-
-      <div>
-        {head(t("profile.studioWallLists"), t("profile.studioWallListsHint"))}
-        <div className="flex flex-wrap gap-1.5">
-          {chip(null, t("profile.studioWallAll"), withCover.length, wall.lists.length === 0)}
-          {lists.map((l) => {
-            const custom = l.id.startsWith("custom:") ? l.id.slice("custom:".length) : null;
-            const label =
-              l.id === "favourites" ? (
-                <>
-                  <HeartIcon className="h-3 w-3 text-action" />
-                  {t("profile.widgets.options.sourceFavourites")}
-                </>
-              ) : (
-                custom ?? listLabel(t as any, l.id)
-              );
-            const color = l.id === "favourites" ? undefined : custom ? customListColor(custom) : LIST_COLORS[l.id];
-            return chip(l.id, label, l.n, wall.lists.includes(l.id), color);
-          })}
         </div>
       </div>
 
-      <div>
-        {head(t("profile.studioWallScores"))}
-        <ScoreRange
-          min={0}
-          max={10}
-          step={0.5}
-          from={wall.scores[0]}
-          to={wall.scores[1]}
-          onChange={(lo, hi) => set({ scores: [lo, hi] })}
-        />
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <span className="font-karla text-[12.5px] text-white/70">{t("profile.studioWallUnrated")}</span>
-          {sw(wall.unrated, () => set({ unrated: !wall.unrated }), t("profile.studioWallUnrated"))}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between gap-3 pb-2">
-          <p className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
-            {t("profile.studioWallAnim")}
-          </p>
-          {sw(wall.anim, () => set({ anim: !wall.anim }), t("profile.studioWallAnim"))}
-        </div>
-        {/* Grisés à l'arrêt mais à leur place : la colonne ne saute pas quand on
-            bascule, et on voit ce que l'interrupteur rallumera. */}
-        <div className={`flex flex-col gap-3 transition-opacity ${wall.anim ? "" : "pointer-events-none opacity-35"}`}>
-          <div role="radiogroup" className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]">
-            {WALL_DIRS.map((d) => {
-              const Icon = DIR_ICON[d];
-              const on = wall.dir === d;
-              return (
+      {/* 2. Ce qui entre sur le mur. */}
+      {card(
+        <FunnelIcon className="h-4 w-4" />,
+        t("profile.studioWallContent"),
+        <>
+          <div ref={menuRef} className="relative">
+            {label(t("profile.studioWallLists"))}
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menu}
+              onClick={() => setMenu((o) => !o)}
+              className={`flex h-9 w-full items-center gap-2 rounded-lg bg-white/[0.05] px-3 text-left font-karla text-[12.5px] font-bold text-white/85 ring-1 transition-colors hover:bg-white/[0.08] ${
+                menu ? "ring-action/60" : "ring-white/10"
+              }`}
+            >
+              <span className="flex min-w-0 flex-1 items-center">{resume}</span>
+              <ChevronDownIcon className={`h-4 w-4 shrink-0 text-white/50 transition-transform duration-200 ${menu ? "rotate-180" : ""}`} />
+            </button>
+            {menu ? (
+              <div
+                role="menu"
+                className="as-acc-in absolute left-0 right-0 top-full z-30 mt-1.5 max-h-[22rem] overflow-y-auto rounded-xl bg-[#1b1c25] p-1.5 shadow-[0_18px_44px_rgba(0,0,0,.6)] ring-1 ring-white/10 as-scroller"
+              >
                 <button
-                  key={d}
                   type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => set({ dir: d })}
-                  className={`group rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors ${
-                    on ? "bg-white/[0.1] text-white" : "text-white/45 hover:text-white/80"
-                  }`}
+                  role="menuitemradio"
+                  aria-checked={wall.lists.length === 0}
+                  onClick={() => set({ lists: [] })}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left font-karla text-[12.5px] font-bold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
                 >
-                  <span className="inline-flex items-center justify-center gap-1.5 transition-transform duration-150 group-active:scale-95">
-                    <Icon
-                      className={`h-3.5 w-3.5 ${on && wall.anim ? `as-wall-nudge-${d}` : ""}`}
-                      strokeWidth={2.2}
-                    />
-                    {t(`profile.studioWallDir_${d}`)}
+                  <span
+                    className={`grid h-4 w-4 shrink-0 place-items-center rounded-full ring-1 ${
+                      wall.lists.length === 0 ? "bg-action ring-action" : "ring-white/25"
+                    }`}
+                  >
+                    {wall.lists.length === 0 ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
                   </span>
+                  <span className="min-w-0 flex-1 truncate">{t("profile.studioWallAll")}</span>
+                  <span className="tabular-nums text-white/35">{withCover.length}</span>
                 </button>
-              );
-            })}
+                {statuts.length ? (
+                  <>
+                    <p className="px-2.5 pb-1 pt-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-white/30">
+                      {t("profile.studioWallStatuses")}
+                    </p>
+                    {statuts.map((l) => row(l.id, l.n))}
+                  </>
+                ) : null}
+                {perso.length ? (
+                  <>
+                    <p className="px-2.5 pb-1 pt-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-white/30">
+                      {t("profile.studioWallCustom")}
+                    </p>
+                    {perso.map((l) => row(l.id, l.n))}
+                  </>
+                ) : null}
+                <p className="border-t border-white/[0.06] px-2.5 pb-1 pt-2 font-karla text-[11px] text-white/35">
+                  {t("profile.studioWallListsHint")}
+                </p>
+              </div>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2.5">
-            <span className="font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
-              {t("profile.studioWallSpeed")}
-            </span>
-            <StudioRange
-              value={wall.speed}
-              min={WALL_SPEED_MIN}
-              max={WALL_SPEED_MAX}
-              step={1}
-              onChange={(v) => set({ speed: clampWallSpeed(v) })}
-              label={t("profile.studioWallSpeed")}
+          <div>
+            {label(t("profile.studioWallScores"))}
+            <ScoreRange
+              min={0}
+              max={10}
+              step={0.5}
+              from={wall.scores[0]}
+              to={wall.scores[1]}
+              onChange={(lo, hi) => set({ scores: [lo, hi] })}
             />
-            <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
-              {wall.speed} px/s
-            </span>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="font-karla text-[12.5px] text-white/70">{t("profile.studioWallUnrated")}</span>
+              {sw(wall.unrated, () => set({ unrated: !wall.unrated }), t("profile.studioWallUnrated"))}
+            </div>
           </div>
-        </div>
-      </div>
+        </>,
+      )}
+
+      {/* 3. Comment il bouge — l'interrupteur dans l'en-tête de la carte. */}
+      {card(
+        <ArrowsUpDownIcon className="h-4 w-4" />,
+        t("profile.studioWallMotion"),
+        /* Grisés à l'arrêt mais à leur place : la carte ne saute pas quand on
+           bascule, et on voit ce que l'interrupteur rallumera. */
+        <div className={`flex flex-col gap-4 transition-opacity ${wall.anim ? "" : "pointer-events-none opacity-35"}`}>
+          <div>
+            {label(t("profile.studioWallDirection"))}
+            <div role="radiogroup" className="grid grid-cols-3 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]">
+              {WALL_DIRS.map((d) => {
+                const Icon = DIR_ICON[d];
+                const on = wall.dir === d;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => set({ dir: d })}
+                    /* L'icône AU-DESSUS du libellé : trois libellés côte à côte
+                       ne tiennent pas dans la colonne (« Sens contr… »). */
+                    className={`group min-w-0 rounded-lg px-1 py-2 font-karla text-[11.5px] font-bold leading-tight transition-colors ${
+                      on ? "bg-white/[0.1] text-white" : "text-white/45 hover:text-white/80"
+                    }`}
+                  >
+                    <span className="flex flex-col items-center gap-1 transition-transform duration-150 group-active:scale-95">
+                      <Icon
+                        className={`h-4 w-4 shrink-0 ${on && wall.anim ? `as-wall-nudge-${d}` : ""}`}
+                        strokeWidth={2.2}
+                      />
+                      <span className="text-center">{t(`profile.studioWallDir_${d}`)}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            {label(t("profile.studioWallSpeed"))}
+            <div className="flex items-center gap-2.5">
+              <StudioRange
+                value={wall.speed}
+                min={WALL_SPEED_MIN}
+                max={WALL_SPEED_MAX}
+                step={1}
+                onChange={(v) => set({ speed: clampWallSpeed(v) })}
+                label={t("profile.studioWallSpeed")}
+              />
+              <span className="w-14 shrink-0 rounded-md bg-white/[0.07] py-0.5 text-center font-karla text-[11px] font-bold tabular-nums text-white/80">
+                {wall.speed} px/s
+              </span>
+            </div>
+          </div>
+        </div>,
+        sw(wall.anim, () => set({ anim: !wall.anim }), t("profile.studioWallAnim")),
+      )}
     </div>
   );
 }
