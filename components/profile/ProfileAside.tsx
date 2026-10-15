@@ -13,9 +13,13 @@ import type { HeroStat } from "./ProfileHero";
  * identité qui disparaît au premier défilement n'avait pas besoin d'une
  * colonne à elle.
  *
- * Les chiffres y sont empilés en lignes « libellé / valeur » plutôt qu'en
- * cartes : quatre cadres dans une colonne de 18 rem redeviendraient une pile de
- * boîtes, et la carte du dessous porte déjà le cadre.
+ * Les chiffres forment une grille 2 × 2 séparée par des filets, sans cadre à
+ * eux : quatre cartes dans une colonne de 18 rem redeviendraient une pile de
+ * boîtes, et la carte du dessous porte déjà le cadre. Ils étaient d'abord
+ * empilés en lignes « libellé / valeur » ; à 18 rem, la valeur en `text-lg`
+ * et l'intitulé à 10 px faisaient une liste tassée qu'on ne lisait pas
+ * (15/10/2026). En grille, chaque chiffre a la largeur d'une demi-colonne et
+ * se lit en grand.
  */
 export default function ProfileAside({
   name,
@@ -40,19 +44,21 @@ export default function ProfileAside({
   const { t, i18n } = useTranslation();
 
   return (
-    <aside className="as-stat-card sticky top-24 flex w-full flex-col gap-4 rounded-2xl p-4 ring-1 ring-white/10">
-      <div className="flex flex-col items-center gap-3 text-center">
+    <aside className="as-stat-card sticky top-24 flex w-full flex-col overflow-hidden rounded-2xl ring-1 ring-white/10">
+      <div className="flex flex-col items-center gap-4 px-5 pb-5 pt-7 text-center">
         <FramedAvatar
           src={avatar}
           name={name}
           frame={frame}
           priority
-          px={128}
-          sizeClass="h-24 w-24"
+          px={160}
+          sizeClass="h-28 w-28"
+          textClass="text-4xl"
         />
         <div className="min-w-0 w-full">
-          <h1 className="truncate font-outfit text-2xl font-bold leading-tight">{name}</h1>
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
+          {/* À la ligne plutôt que tronqué : un pseudo se lit en entier. */}
+          <h1 className="break-words font-outfit text-[1.65rem] font-bold leading-tight">{name}</h1>
+          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
             {tag ? (
               <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
                 #{tag}
@@ -70,7 +76,7 @@ export default function ProfileAside({
             ) : null}
           </div>
           {createdAt ? (
-            <p className="mt-1.5 text-[11px] text-white/45">
+            <p className="mt-2.5 text-[11px] text-white/45">
               {/* Formatée contre la langue ACTIVE, en UTC — mêmes raisons, et le
                   même prix quand on l'oublie, que dans ProfileHero. */}
               {t("profile.memberSince", {
@@ -87,14 +93,19 @@ export default function ProfileAside({
       </div>
 
       {stats.length > 0 ? (
-        <dl className="flex flex-col gap-1.5 border-t border-white/10 pt-3">
-          {stats.map((s) => (
-            <div key={s.key} className="flex items-baseline justify-between gap-3">
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+        <dl className="grid grid-cols-2 border-t border-white/10">
+          {stats.map((s, i) => (
+            <div
+              key={s.key}
+              className={`flex flex-col-reverse gap-1.5 px-4 py-4 ${i % 2 ? "border-l border-white/10" : ""} ${
+                i >= 2 ? "border-t border-white/10" : ""
+              }`}
+            >
+              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/45">
                 {s.label}
               </dt>
               <dd
-                className={`font-outfit text-lg font-bold leading-none ${
+                className={`font-outfit text-2xl font-bold leading-none tabular-nums ${
                   s.accent ? "text-action" : "text-white"
                 }`}
               >
