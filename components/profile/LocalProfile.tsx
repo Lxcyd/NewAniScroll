@@ -302,7 +302,11 @@ export default function LocalProfile() {
             source: auto?.source ?? null,
             title: auto?.title ?? null,
           }}
-          identity={{ name: name || t("nav.myList"), avatar: null }}
+          identity={{
+            name: name || t("nav.myList"),
+            avatar: null,
+            stats: heroStats(t, stats).map((s) => s.value),
+          }}
           onApply={pick}
         />
       )}

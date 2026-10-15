@@ -502,7 +502,11 @@ export default function Profile({
                 source: initialBanner?.source ?? null,
                 title: initialBanner?.title ?? null,
               }}
-              identity={{ name: identity.name, avatar: identity.avatar ?? null }}
+              identity={{
+                name: identity.name,
+                avatar: identity.avatar ?? null,
+                stats: heroStats(t, stats).map((s) => s.value),
+              }}
               onApply={(d) => void save(d)}
             />
           )}
