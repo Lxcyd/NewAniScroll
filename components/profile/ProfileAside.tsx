@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import FramedAvatar from "./FramedAvatar";
+import FeaturedBadges from "./FeaturedBadges";
 
 import type { HeroStat } from "./ProfileHero";
 
@@ -32,7 +33,12 @@ export default function ProfileAside({
   frame,
   avatarScale = 100,
   nameScale = 100,
+  badges,
+  earned,
 }: {
+  /** Les badges mis en avant, et ceux obtenus qui les filtrent. */
+  badges?: string[];
+  earned?: Record<string, number> | null;
   /** Tailles de l'avatar et du pseudo, en % — le réglage du studio. */
   avatarScale?: number;
   nameScale?: number;
@@ -68,6 +74,7 @@ export default function ProfileAside({
           <h1 className="break-words font-outfit text-[length:calc(1.65rem*var(--as-nm,1))] font-bold leading-tight">
             {name}
           </h1>
+          <FeaturedBadges ids={badges} earned={earned} size={34} className="mt-2.5 justify-center" />
           <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
             {tag ? (
               <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">

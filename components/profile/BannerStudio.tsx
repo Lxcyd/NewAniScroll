@@ -44,6 +44,7 @@ import {
   SpeakerXMarkIcon,
   Squares2X2Icon,
   SwatchIcon,
+  TrophyIcon,
   UserCircleIcon,
   ViewColumnsIcon,
   XMarkIcon,
@@ -54,6 +55,10 @@ import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
+import BadgeDefs from "@/components/profile/badges/BadgeDefs";
+import BadgeToken from "@/components/profile/badges/BadgeToken";
+import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
+import { BY_ID } from "@/lib/badges/catalog";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
@@ -178,6 +183,8 @@ type Props = {
   onMini?: (mini: boolean) => void;
   /** La liste du profil : le mur d'animés y prend ses affiches. */
   entries?: ProfileEntry[];
+  /** Les badges obtenus (id → date) : le menu Badges y choisit les cinq mis en avant. */
+  earned?: Record<string, number> | null;
 };
 
 /** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
@@ -312,7 +319,7 @@ type Section = {
 };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
-type PaletteScope = DressingKind | "music" | "layout" | "frame";
+type PaletteScope = DressingKind | "music" | "layout" | "frame" | "badges";
 
 /** Les tris de la grille des cadres. Les quatre premiers gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
@@ -338,7 +345,7 @@ function shuffleKey(asset: string, seed: number): number {
 const LAST_SCOPE_KEY = "as-studio-scope";
 const SCOPES: PaletteScope[] = [
   "color", "banner", "image", "wall", "video", "oped", "upload",
-  "music", "layout", "frame",
+  "music", "layout", "frame", "badges",
 ];
 
 /** Le dock regroupe les fonds de même nature : un bouton par groupe, et un
@@ -487,6 +494,7 @@ export default function BannerStudio({
   bridge,
   onMini,
   entries = [],
+  earned = null,
 }: Props) {
   const { t } = useTranslation();
   const accent = useAccent();
@@ -910,7 +918,7 @@ export default function BannerStudio({
     /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
        en-tête porte la même affiche et le même sélecteur de saison, et une
        saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
-    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "wall" || !scope) return;
+    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "badges" || scope === "wall" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
@@ -1221,6 +1229,76 @@ export default function BannerStudio({
       }
       if (!out.length) out.push({ title: t("profile.studioNoResult"), rows: [], node: <span /> });
       return out;
+    }
+
+    /* ── Les badges mis en avant ──────────────────────────────────────────
+       Les badges OBTENUS, du plus récent au plus ancien ; un clic en met un en
+       avant ou l'en retire, cinq au plus, dans l'ordre des clics — c'est
+       l'ordre dans lequel ils s'alignent à côté du pseudo. Le numéro sur la
+       case dit cette place. */
+    if (scope === "badges") {
+      const chosen = (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]);
+      const owned = Object.entries(earned ?? {})
+        .filter(([id]) => BY_ID[id])
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => id);
+      if (!owned.length) {
+        return [{ title: t("profile.studioBadgesNone"), rows: [], node: <span /> }];
+      }
+      const full = chosen.length >= FEATURED_MAX;
+      return [
+        {
+          title: t("profile.studioBadgesSection", { n: chosen.length, max: FEATURED_MAX }),
+          rows: [],
+          node: (
+            <div className="grid gap-3">
+              <p className="px-2 text-xs leading-relaxed text-white/50">{t("profile.studioBadgesHint")}</p>
+              <BadgeDefs />
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
+                {owned.map((id) => {
+                  const def = BY_ID[id];
+                  const place = chosen.indexOf(id);
+                  const on = place >= 0;
+                  const name = t(`badges.${id}.name`);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={on}
+                      disabled={!on && full}
+                      title={name}
+                      onClick={() =>
+                        patch({ badges: on ? chosen.filter((b) => b !== id) : [...chosen, id] })
+                      }
+                      className={`relative flex flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                        on ? "bg-action/15 ring-2 ring-action" : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
+                      }`}
+                    >
+                      <BadgeToken
+                        id={id}
+                        rarity={def.rarity}
+                        icon={def.icon}
+                        tag={def.tag}
+                        unlocked
+                        animate={false}
+                        size={52}
+                      />
+                      <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
+                        {name}
+                      </span>
+                      {on ? (
+                        <span className="absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-action font-outfit text-[11px] font-bold text-white">
+                          {place + 1}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ),
+        },
+      ];
     }
 
     /* ── Les agencements ──────────────────────────────────────────────────
@@ -2203,7 +2281,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -2462,7 +2540,7 @@ export default function BannerStudio({
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont cinq, en vignettes, et un champ de recherche
      au-dessus de cinq vignettes est un aveu de liste trop longue. */
-  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall";
+  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall" && scope !== "badges";
   /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
       en a toujours un d'ouvert, sauf quand le studio est réduit. */
   const inColumn = !mini && !!scope;
@@ -2475,7 +2553,9 @@ export default function BannerStudio({
         ? LAYOUT_ICON[draft.layout ?? "band"]
         : scope === "frame"
           ? FrameIcon
-          : KIND_ICON[scope];
+          : scope === "badges"
+            ? TrophyIcon
+            : KIND_ICON[scope];
 
   /* Les pièces que la scène et la pilule réduite partagent. */
   const liveBadge = (
@@ -3600,6 +3680,22 @@ export default function BannerStudio({
                   <XMarkIcon className="h-4 w-4" />
                 </button>
               ) : null}
+            </SceneBox>
+
+            <SceneBox label={t("profile.studioKind_badges")} active={scope === "badges"}>
+              <button
+                type="button"
+                onClick={() => openScope("badges")}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+              >
+                <TrophyIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
+                <span className="truncate font-outfit text-[13.5px] font-bold">
+                  {t("profile.studioBadgesCount", {
+                    n: (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]).length,
+                    max: FEATURED_MAX,
+                  })}
+                </span>
+              </button>
             </SceneBox>
 
             <SceneBox label={t("profile.studioKind_music")} active={scope === "music"} grow>

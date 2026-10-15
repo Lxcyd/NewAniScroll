@@ -236,7 +236,26 @@ export type Dressing = {
    */
   avatarScale: number;
   nameScale: number;
+  /**
+   * Les badges mis en avant à côté du pseudo (ids de lib/badges/catalog.ts),
+   * cinq au plus, dans l'ordre choisi. Validés à la FORME seulement : le
+   * catalogue n'est pas importé ici (ce fichier sert aussi l'API), et
+   * l'affichage refiltre de toute façon par ce que le profil a obtenu
+   * (components/profile/FeaturedBadges.tsx).
+   */
+  badges: string[];
 };
+
+const BADGE_ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
+const BADGES_MAX = 5;
+
+function cleanBadges(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((x): x is string => typeof x === "string" && BADGE_ID_RE.test(x)))].slice(
+    0,
+    BADGES_MAX,
+  );
+}
 
 export const SCALE_MIN = 60;
 export const SCALE_MAX = 200;
@@ -491,6 +510,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     frame: isFrameAsset(obj.frame) ? obj.frame : null,
     avatarScale: clampScale(obj.avatarScale),
     nameScale: clampScale(obj.nameScale),
+    badges: cleanBadges(obj.badges),
   };
 }
 
@@ -518,5 +538,6 @@ export function emptyDressing(): Dressing {
     frame: null,
     avatarScale: 100,
     nameScale: 100,
+    badges: [],
   };
 }

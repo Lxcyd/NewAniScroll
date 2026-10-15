@@ -158,6 +158,7 @@ export default function LocalProfile() {
         banner={banner}
         entries={entries}
         stats={heroStats(t, stats)}
+        earned={badgeState.got}
         isOwner
         onEditBanner={openEditor}
         subtitle={t("profile.localOnly")}
@@ -198,6 +199,8 @@ export default function LocalProfile() {
                 subtitle={t("profile.localOnly")}
                 avatarScale={banner.avatarScale}
                 nameScale={banner.nameScale}
+                badges={banner.badges}
+                earned={badgeState.got}
               />
             </div>
           ) : null}
@@ -298,6 +301,7 @@ export default function LocalProfile() {
           bridge={studioBridge}
           animes={topAnimes}
           entries={entries}
+          earned={badgeState.got}
           value={pinned}
           auto={{
             url: auto?.url ?? null,

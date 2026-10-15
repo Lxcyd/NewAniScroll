@@ -1,5 +1,6 @@
 import Link from "next/link";
 import FramedAvatar from "@/components/profile/FramedAvatar";
+import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -68,6 +69,8 @@ export type HeroBanner = {
   /** Tailles de l'avatar et du pseudo, en % (100 = celles de l'agencement). */
   avatarScale?: number;
   nameScale?: number;
+  /** Les badges mis en avant à côté du pseudo (cinq au plus). */
+  badges?: string[];
   /** Le filtre du mur d'animés (kind « wall »). */
   wall?: Dressing["wall"];
 };
@@ -103,6 +106,7 @@ export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
           blur: draft.blur,
           avatarScale: draft.avatarScale,
           nameScale: draft.nameScale,
+          badges: draft.badges,
         }),
     music: null,
   };
@@ -171,6 +175,8 @@ type Props = {
   studio?: StudioBridge | null;
   /** La liste du profil : un mur d'animés y prend ses affiches. */
   entries?: ProfileEntry[];
+  /** Les badges obtenus (id → date) : filtre ceux mis en avant. */
+  earned?: Record<string, number> | null;
 };
 
 export default function ProfileHero({
@@ -186,6 +192,7 @@ export default function ProfileHero({
   subtitle,
   studio,
   entries,
+  earned,
 }: Props) {
   const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
@@ -489,8 +496,11 @@ export default function ProfileHero({
             SUR UN APLAT DE COULEUR, pas d'ombre du tout : le contraste y est
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
+        <div
+          className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${centered ? "justify-center" : ""}`}
+        >
         <h1
-          className={`break-words font-outfit text-[length:calc(1.875rem*var(--as-nm,1))] font-bold leading-tight ${
+          className={`min-w-0 break-words font-outfit text-[length:calc(1.875rem*var(--as-nm,1))] font-bold leading-tight ${
             showcase
               ? "md:text-[length:calc(3.75rem*var(--as-nm,1))]"
               : "md:text-[length:calc(3rem*var(--as-nm,1))]"
@@ -499,6 +509,15 @@ export default function ProfileHero({
         >
           {name}
         </h1>
+        {/* Les badges mis en avant, À CÔTÉ du pseudo : sur sa ligne, et sous
+            lui quand le pseudo prend toute la largeur (téléphone). */}
+        <FeaturedBadges
+          ids={banner.badges}
+          earned={earned}
+          size={40}
+          className={centered ? "justify-center" : ""}
+        />
+        </div>
         <div
           className={`mt-2 flex flex-wrap items-center gap-1.5 text-[11px] ${
             centered ? "justify-center" : ""

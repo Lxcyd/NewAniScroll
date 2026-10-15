@@ -51,7 +51,12 @@ import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileBadges from "@/components/profile/ProfileBadges";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
-import { parseBadgeState, type BadgeState } from "@/lib/badges/store";
+import {
+  mergeBadgeState,
+  parseBadgeState,
+  useBadgeState,
+  type BadgeState,
+} from "@/lib/badges/store";
 import { noteListCounter } from "@/lib/badges/facts";
 import { silenceNextEvaluation } from "@/lib/badges/evaluate";
 import ProfileOverview from "@/components/profile/ProfileOverview";
@@ -206,6 +211,14 @@ export default function Profile({
   /* L'identité descend dans une colonne à gauche — et le bandeau ne la porte
      plus. Un seul booléen tient les deux moitiés du même agencement. */
   const asideLayout = shownBanner.layout === "column";
+  /* Les badges obtenus, pour filtrer ceux mis en avant. Chez soi, l'état
+     sauvegardé PLUS celui de cet appareil — comme l'onglet Badges (`live`) :
+     un badge tombé depuis la dernière synchro peut déjà être mis en avant. */
+  const localBadges = useBadgeState();
+  const earned = useMemo(
+    () => (isOwner ? mergeBadgeState(badges ?? { v: 1, got: {} }, localBadges) : badges)?.got ?? null,
+    [isOwner, badges, localBadges],
+  );
   const [showForYou, setShowForYou] = useState(false);
   /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
      est à un clic. L'état reste local, mais il est MIROITÉ DANS LE FRAGMENT
@@ -361,6 +374,7 @@ export default function Profile({
         banner={shownBanner}
         entries={entries}
         stats={heroStats(t, stats)}
+        earned={earned}
         isOwner={isOwner}
         onEditBanner={openEditor}
         studio={picker ? studioBridge : null}
@@ -406,6 +420,8 @@ export default function Profile({
               frame={shownBanner.frame}
               avatarScale={shownBanner.avatarScale}
               nameScale={shownBanner.nameScale}
+              badges={shownBanner.badges}
+              earned={earned}
               anilistName={identity.anilistName}
               createdAt={identity.createdAt}
               stats={heroStats(t, stats)}
@@ -498,6 +514,7 @@ export default function Profile({
               bridge={studioBridge}
               animes={studioAnimes}
               entries={entries}
+              earned={earned}
               value={pinned ? normalizeDressing(banner) : null}
               auto={{
                 url: initialBanner?.url ?? null,
