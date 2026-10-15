@@ -162,9 +162,7 @@ type Props = {
   value: Dressing | null;
   /** Ce que l'automatique donne — sert d'aperçu quand rien n'est épinglé. */
   auto: { url: string | null; source: BannerOption["source"] | null; title: string | null };
-  /** `stats` : les quatre chiffres du haut de profil, déjà formatés — les
-      vignettes d'agencement les écrivent à leur place. */
-  identity: { name: string; avatar: string | null; stats?: string[] };
+  identity: { name: string; avatar: string | null };
   /** `null` dépingle et rend le profil à son anime préféré. */
   onApply: (value: Dressing | null) => void;
   /** Le brouillon, à chaque changement : la page le montre en direct. */
@@ -1085,10 +1083,6 @@ export default function BannerStudio({
     requestAnimationFrame(() => search.current?.focus());
   }, []);
 
-  /* Les chiffres arrivent dans un tableau neuf à chaque rendu de la page : la
-     clé en texte évite de recalculer toute la palette pour rien. */
-  const statsKey = identity.stats?.join("\u0001") ?? "";
-
   /* ── Ce que la palette liste ─────────────────────────────────────────── */
   const sections: Section[] = useMemo(() => {
     if (!scope) return [];
@@ -1222,20 +1216,10 @@ export default function BannerStudio({
 
     /* ── Les agencements ──────────────────────────────────────────────────
        Cinq dispositions du même matériel, en vignettes : un plan de la page
-       entière (LayoutThumb), dessiné sur le fond du brouillon et avec le vrai
-       avatar. Le plan dit où tombe chaque pièce ; la page, derrière, montre
-       le résultat en direct. La phrase de l'agencement retenu reste dessous. */
+       entière en squelette gris (LayoutThumb). Le plan dit où tombe chaque
+       pièce ; la page, derrière, montre le résultat en direct. */
     if (scope === "layout") {
       const current = draft.layout ?? "band";
-      /* Sans fond à lui, le brouillon porte le fond actuel (cf. previewBanner). */
-      const own = draft.url || draft.color || draft.trailerId || draft.kind === "wall";
-      const plateUrl = draft.url && !isVideoKind(draft.kind) ? draft.url : !own ? auto.url : null;
-      const plate =
-        draft.kind === "color" && draft.color
-          ? draft.color
-          : plateUrl
-            ? `url("${plateUrl}") center / cover`
-            : "linear-gradient(140deg, #1b1538, #4a2050 45%, #b2565a 80%, #e09a62)";
       /* Une ligne par agencement, les unes sous les autres : la vignette à
          gauche, son nom et sa phrase à droite. Dans la colonne de la scène les
          cinq lignes se partagent TOUTE la hauteur du menu (`grow`), et la
@@ -1272,10 +1256,6 @@ export default function BannerStudio({
                   >
                     <LayoutThumb
                       layout={id}
-                      plate={plate}
-                      avatar={identity.avatar}
-                      name={identity.name}
-                      stats={statsKey ? statsKey.split("\u0001") : undefined}
                       fill={tall}
                     />
                   </span>
@@ -2173,7 +2153,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, auto.url, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
