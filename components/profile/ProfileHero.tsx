@@ -528,8 +528,9 @@ export default function ProfileHero({
             fond flou englobant les trois a été essayé et retiré le 16/10/2026. */}
         {tag || anilistName || createdAt ? (
         /* `mb-2` : posée à ras du bas de l'en-tête, la ligne paraissait
-           tomber trop bas (16/10/2026). */
-        <div className={`mb-2 mt-2.5 flex md:mb-3 ${centered ? "justify-center" : ""}`}>
+           tomber trop bas, et `mb-2` la laissait encore collée aux widgets
+           (16/10/2026). */
+        <div className={`mb-5 mt-2.5 flex md:mb-7 ${centered ? "justify-center" : ""}`}>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           {anilistName ? (
             <a
