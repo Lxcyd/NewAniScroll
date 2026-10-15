@@ -3874,11 +3874,6 @@ function WallPanel({
                       >
                         {titre}
                       </span>
-                      {e.score ? (
-                        <span className="shrink-0 font-karla text-[11px] font-bold tabular-nums text-white/40">
-                          {e.score}
-                        </span>
-                      ) : null}
                     </button>
                   );
                 })
