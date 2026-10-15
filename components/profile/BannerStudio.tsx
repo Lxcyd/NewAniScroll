@@ -1231,7 +1231,7 @@ export default function BannerStudio({
             ? `url("${plateUrl}") center / cover`
             : "linear-gradient(140deg, #1b1538, #4a2050 45%, #b2565a 80%, #e09a62)";
       /* Une ligne par agencement, les unes sous les autres : la vignette à
-         gauche, son nom à droite. Dans la colonne de la scène les
+         gauche, son nom et sa phrase à droite. Dans la colonne de la scène les
          cinq lignes se partagent TOUTE la hauteur du menu (`grow`), et la
          vignette grandit avec sa ligne en gardant son format. Réduit, le studio
          n'a pas de hauteur à donner : les lignes prennent celle de leur
@@ -1244,7 +1244,7 @@ export default function BannerStudio({
         fill: true,
         node: (
           <div
-            className={`grid gap-3 px-1 pt-1 ${tall ? "min-h-0 flex-1" : ""}`}
+            className={`grid gap-2 ${tall ? "min-h-0 flex-1" : ""}`}
             style={tall ? { gridTemplateRows: `repeat(${HERO_LAYOUTS.length}, minmax(4.5rem, 1fr))` } : undefined}
           >
             {HERO_LAYOUTS.map((id) => {
@@ -1255,18 +1255,13 @@ export default function BannerStudio({
                   type="button"
                   aria-pressed={on}
                   onClick={() => patch({ layout: id })}
-                  /* Pas de carte autour de la ligne, pas de coche, pas de phrase :
-                     la vignette dit déjà tout. La phrase reste en infobulle. */
-                  title={t(`profile.studioLayoutHint_${id}`)}
-                  className="group flex min-h-0 items-center gap-4 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  className={`group flex min-h-0 items-stretch gap-3 rounded-xl p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
+                    on ? "bg-action/15 ring-2 ring-action" : "bg-white/[0.03] ring-1 ring-white/10 hover:bg-white/[0.07]"
+                  }`}
                 >
                   <span
-                    className={`block shrink-0 rounded-lg transition duration-200 ${
-                      tall ? "aspect-[16/10] h-full max-w-[60%]" : "w-36"
-                    } ${
-                      on
-                        ? "outline outline-2 outline-offset-2 outline-action"
-                        : "opacity-60 group-hover:opacity-100"
+                    className={`block shrink-0 transition-transform duration-200 group-hover:scale-[1.02] ${
+                      tall ? "aspect-[16/10] h-full max-w-[55%]" : "w-36"
                     }`}
                   >
                     <LayoutThumb
@@ -1277,12 +1272,18 @@ export default function BannerStudio({
                       fill={tall}
                     />
                   </span>
-                  <span
-                    className={`min-w-0 font-outfit text-lg font-semibold transition-colors ${
-                      on ? "text-white" : "text-white/45 group-hover:text-white/80"
-                    }`}
-                  >
-                    {t(`profile.studioLayout_${id}`)}
+                  <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-1 pr-1">
+                    <span
+                      className={`flex items-center justify-between gap-2 font-karla text-[15px] font-bold ${
+                        on ? "text-white" : "text-white/80"
+                      }`}
+                    >
+                      {t(`profile.studioLayout_${id}`)}
+                      {on ? <CheckIcon className="h-4 w-4 shrink-0 text-action" /> : null}
+                    </span>
+                    <span className="text-xs leading-snug text-white/50">
+                      {t(`profile.studioLayoutHint_${id}`)}
+                    </span>
                   </span>
                 </button>
               );
