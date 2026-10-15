@@ -43,11 +43,12 @@ import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
-import { customListNames } from "@/lib/profile/insights";
+import { customListNames, entryTitle } from "@/lib/profile/insights";
 import {
   clampWallSpeed,
   defaultWall,
   inList,
+  wallCandidates,
   wallEntries,
   WALL_DIRS,
   WALL_SPEED_MAX,
@@ -264,6 +265,9 @@ type Section = {
   /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
       couleur) : le menu est rempli, sans barre de défilement. */
   grow?: boolean;
+  /** Avec `grow` : le bloc tient DANS la colonne (`min-h-0`) et fait défiler
+      son propre contenu, au lieu d'allonger la colonne (le mur d'animés). */
+  fill?: boolean;
   /* Les illustrations se rendent EN GRILLE, cote a cote et en grand : une
      image ne se choisit pas a son nom (elles n'en ont pas), elle se choisit a
      l'oeil, et une vignette de 64 px posee au bout d'une ligne ne permet pas de
@@ -1039,6 +1043,10 @@ export default function BannerStudio({
         {
           title: "",
           rows: [],
+          /* Toute la hauteur de la colonne : la carte des animés prend ce que
+             les réglages laissent. */
+          grow: true,
+          fill: true,
           node: (
             <WallPanel
               entries={entries}
@@ -2742,7 +2750,7 @@ export default function BannerStudio({
                               sections[i - 1]?.panel ? "" : "mt-1 rounded-t-2xl border-t pt-1"
                             } ${sections[i + 1]?.panel ? "" : "mb-2 rounded-b-2xl border-b pb-1"}`
                           : s.grow && inColumn
-                            ? "flex flex-1 flex-col"
+                            ? `flex flex-1 flex-col ${s.fill ? "min-h-0" : ""}`
                             : undefined
                       }
                       style={
@@ -2763,7 +2771,7 @@ export default function BannerStudio({
                         </p>
                       ) : null}
                       {s.node ? (
-                        <div className={`px-1 pb-1 ${s.grow && inColumn ? "flex flex-1 flex-col" : ""}`}>
+                        <div className={`px-1 pb-1 ${s.grow && inColumn ? `flex flex-1 flex-col ${s.fill ? "min-h-0" : ""}` : ""}`}>
                           {s.node}
                         </div>
                       ) : null}
@@ -3515,6 +3523,27 @@ function WallPanel({
 }) {
   const set = (p: Partial<DressingWall>) => onChange({ ...wall, ...p });
   const shown = useMemo(() => wallEntries(entries, wall), [entries, wall]);
+  const candidats = useMemo(() => wallCandidates(entries, wall), [entries, wall]);
+  const exclus = useMemo(() => new Set(wall.excluded ?? []), [wall.excluded]);
+  const [choix, setChoix] = useState(false);
+  const [cherche, setCherche] = useState("");
+  /* La liste du sélecteur : par titre, pas dans l'ordre mélangé du mur — on y
+     cherche un animé, on ne le regarde pas défiler. */
+  const trouves = useMemo(() => {
+    const q = cherche.trim().toLowerCase();
+    return candidats
+      .map((e) => ({ e, titre: entryTitle(e) }))
+      .filter(({ titre }) => !q || titre.toLowerCase().includes(q))
+      .sort((a, b) => a.titre.localeCompare(b.titre));
+  }, [candidats, cherche]);
+  const exclure = (ids: number[], off: boolean) => {
+    const next = new Set(exclus);
+    for (const id of ids) {
+      if (off) next.add(id);
+      else next.delete(id);
+    }
+    set({ excluded: [...next] });
+  };
   const withCover = useMemo(() => entries.filter((e) => !!e.cover), [entries]);
   const lists = useMemo(() => {
     const all = [
@@ -3603,7 +3632,7 @@ function WallPanel({
   );
   /** Une carte : un en-tête (icône, titre, et à droite de quoi le piloter). */
   const card = (icon: ReactNode, title: string, body: ReactNode, aside?: ReactNode) => (
-    <section className="rounded-xl bg-white/[0.03] ring-1 ring-white/[0.07]">
+    <section className="shrink-0 rounded-xl bg-white/[0.03] ring-1 ring-white/[0.07]">
       <header className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2.5">
         <span className="text-white/45">{icon}</span>
         <h3 className="min-w-0 flex-1 font-outfit text-[13px] font-bold text-white/90">{title}</h3>
@@ -3644,48 +3673,174 @@ function WallPanel({
   const DIR_ICON = { up: ArrowUpIcon, down: ArrowDownIcon, alt: ArrowsUpDownIcon } as const;
 
   return (
-    <div className="flex flex-col gap-3 p-1">
-      {/* 1. Ce que le mur contient, et le geste qui le porte. L'aperçu sur
-          toute la largeur, le compte et le bouton dessous : côte à côte, la
-          colonne de 320 px renvoyait le compte à la ligne à chaque mot. */}
-      <div className="flex flex-col gap-2.5 rounded-xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.07]">
-        <div className="grid grid-cols-8 gap-0.5 overflow-hidden rounded-lg">
-          {Array.from({ length: 8 }, (_, i) => {
-            const e = shown[i];
-            return (
-              <span key={i} className="relative aspect-[2/3] bg-white/[0.06]">
-                {e?.cover ? <Image src={e.cover} alt="" fill sizes="40px" className="object-cover" /> : null}
-              </span>
-            );
-          })}
+    <div className="flex min-h-0 flex-1 flex-col gap-3 p-1">
+      {/* 1. LES ANIMÉS DU MUR. La carte prend toute la hauteur que les deux
+          autres laissent : fermée, une mosaïque des affiches qui y passent ;
+          ouverte, la liste complète, avec une recherche et une case par animé
+          pour en retirer un ou le remettre. */}
+      <section className="flex min-h-[10rem] flex-1 flex-col overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-white/[0.07]">
+        <div className="flex items-center gap-3 px-3 pb-2.5 pt-3">
+          <div className="min-w-0 flex-1">
+            <p className="font-outfit text-[15px] font-bold text-white">
+              {t("profile.studioWallCount", { count: shown.length })}
+            </p>
+            <p className="font-karla text-[11.5px] leading-snug text-white/45">
+              {shown.length === 0
+                ? t("profile.studioWallEmpty")
+                : exclus.size && candidats.length > shown.length
+                  ? t("profile.studioWallRemoved", { count: candidats.length - shown.length })
+                  : t("profile.studioWallPickHint")}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={worn}
+            onClick={() => onChange(wall)}
+            className={`group shrink-0 rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-colors ${
+              worn ? "bg-emerald-500/15 text-emerald-300" : "bg-action text-white hover:brightness-110"
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
+              {worn ? <CheckIcon className="h-3.5 w-3.5" /> : null}
+              {t(worn ? "profile.studioWallWorn" : "profile.studioWallUse")}
+            </span>
+          </button>
         </div>
-        <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="font-outfit text-[14px] font-bold text-white">
-            {t("profile.studioWallCount", { count: shown.length })}
-          </p>
-          {shown.length === 0 ? (
-            <p className="font-karla text-[11.5px] leading-snug text-white/45">{t("profile.studioWallEmpty")}</p>
-          ) : null}
-        </div>
+
+        {/* Le bouton du menu : la mosaïque (fermé) ou la liste (ouvert). */}
         <button
           type="button"
-          disabled={worn}
-          onClick={() => onChange(wall)}
-          className={`group shrink-0 rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-colors ${
-            worn ? "bg-emerald-500/15 text-emerald-300" : "bg-action text-white hover:brightness-110"
-          }`}
+          aria-expanded={choix}
+          onClick={() => {
+            setChoix((o) => !o);
+            setCherche("");
+          }}
+          className="group mx-3 flex h-9 items-center gap-2 rounded-lg bg-white/[0.05] px-3 text-left font-karla text-[12.5px] font-bold text-white/85 ring-1 ring-white/10 transition-colors hover:bg-white/[0.08]"
         >
-          <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
-            {worn ? <CheckIcon className="h-3.5 w-3.5" /> : null}
-            {t(worn ? "profile.studioWallWorn" : "profile.studioWallUse")}
+          <Squares2X2Icon className="h-4 w-4 shrink-0 text-white/50" />
+          <span className="min-w-0 flex-1 truncate">{t("profile.studioWallPick")}</span>
+          <span className="tabular-nums text-white/40">
+            {shown.length}/{candidats.length}
           </span>
+          <ChevronDownIcon
+            className={`h-4 w-4 shrink-0 text-white/50 transition-transform duration-200 ${choix ? "rotate-180" : ""}`}
+          />
         </button>
-        </div>
-      </div>
 
-      {/* 2. Ce qui entre sur le mur. */}
-      {card(
+        {choix ? (
+          <div className="as-acc-in mt-2 flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center gap-2 px-3 pb-2">
+              <div className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-black/25 px-2.5 ring-1 ring-white/[0.08] focus-within:ring-action/60">
+                <MagnifyingGlassIcon className="h-4 w-4 shrink-0 text-white/40" />
+                <input
+                  autoFocus
+                  value={cherche}
+                  onChange={(e) => setCherche(e.target.value)}
+                  placeholder={t("profile.studioSearch")}
+                  className="min-w-0 flex-1 bg-transparent font-karla text-[13px] text-white outline-none placeholder:text-white/35"
+                />
+                {cherche ? (
+                  <button
+                    type="button"
+                    onClick={() => setCherche("")}
+                    aria-label={t("common.close", { defaultValue: "Close" })}
+                    className="text-white/40 hover:text-white"
+                  >
+                    <XMarkIcon className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+              {/* Tout cocher / tout décocher porte sur ce que la recherche
+                  montre : « naruto » puis « Aucun » retire toute la franchise. */}
+              <button
+                type="button"
+                onClick={() => exclure(trouves.map((x) => x.e.mediaId), false)}
+                className="shrink-0 rounded-md px-2 py-1 font-karla text-[11.5px] font-bold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+              >
+                {t("profile.studioWallAllOn")}
+              </button>
+              <button
+                type="button"
+                onClick={() => exclure(trouves.map((x) => x.e.mediaId), true)}
+                className="shrink-0 rounded-md px-2 py-1 font-karla text-[11.5px] font-bold text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+              >
+                {t("profile.studioWallAllOff")}
+              </button>
+            </div>
+            <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
+              {trouves.length === 0 ? (
+                <p className="px-3 py-6 text-center font-karla text-[13px] text-white/40">
+                  {t("profile.studioNoResult")}
+                </p>
+              ) : (
+                trouves.map(({ e, titre }) => {
+                  const on = !exclus.has(e.mediaId);
+                  return (
+                    <button
+                      key={e.mediaId}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      onClick={() => exclure([e.mediaId], on)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-white/[0.05]"
+                    >
+                      <span
+                        className={`grid h-4 w-4 shrink-0 place-items-center rounded-[5px] ring-1 transition-colors ${
+                          on ? "bg-action ring-action" : "ring-white/25"
+                        }`}
+                      >
+                        {on ? <CheckIcon className="h-3 w-3 text-white" /> : null}
+                      </span>
+                      <span
+                        className={`relative h-10 w-7 shrink-0 overflow-hidden rounded bg-white/[0.06] transition-opacity ${
+                          on ? "" : "opacity-35"
+                        }`}
+                      >
+                        {e.cover ? <Image src={e.cover} alt="" fill sizes="28px" className="object-cover" /> : null}
+                      </span>
+                      <span
+                        className={`min-w-0 flex-1 truncate font-karla text-[12.5px] font-bold transition-colors ${
+                          on ? "text-white/85" : "text-white/35 line-through decoration-white/20"
+                        }`}
+                      >
+                        {titre}
+                      </span>
+                      {e.score ? (
+                        <span className="shrink-0 font-karla text-[11px] font-bold tabular-nums text-white/40">
+                          {e.score}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : (
+          /* La mosaïque remplit la carte ; le bas s'estompe au lieu de couper
+             une rangée à mi-hauteur. */
+          <div
+            className="mt-2.5 min-h-0 flex-1 overflow-hidden px-3 pb-3"
+            style={{
+              maskImage: "linear-gradient(to bottom, #000 70%, transparent)",
+              WebkitMaskImage: "linear-gradient(to bottom, #000 70%, transparent)",
+            }}
+          >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1">
+              {shown.slice(0, 80).map((e) => (
+                <span key={e.mediaId} className="relative aspect-[2/3] overflow-hidden rounded-md bg-white/[0.06]">
+                  {e.cover ? <Image src={e.cover} alt="" fill sizes="56px" className="object-cover" /> : null}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* 2. Ce qui entre sur le mur. Les cartes 2 et 3 se RANGENT pendant
+          qu'on choisit les animés : le menu ouvert prend toute la colonne, au
+          lieu de deux lignes de liste coincées entre les réglages. */}
+      {choix ? null : card(
         <FunnelIcon className="h-4 w-4" />,
         t("profile.studioWallContent"),
         <>
@@ -3766,7 +3921,7 @@ function WallPanel({
       )}
 
       {/* 3. Comment il bouge — l'interrupteur dans l'en-tête de la carte. */}
-      {card(
+      {choix ? null : card(
         <ArrowsUpDownIcon className="h-4 w-4" />,
         t("profile.studioWallMotion"),
         /* Grisés à l'arrêt mais à leur place : la carte ne saute pas quand on

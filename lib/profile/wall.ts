@@ -38,6 +38,12 @@ export type DressingWall = {
   dir: WallDir;
   /** Vitesse du défilement, en px par seconde. */
   speed: number;
+  /**
+   * Les animés RETIRÉS à la main du mur (mediaId), après les listes et la
+   * note. Une liste d'exclusions et non de sélection : le mur reste « mes
+   * Terminés notés 8+ », et un titre ajouté demain à la liste y entre seul.
+   */
+  excluded: number[];
 };
 
 export const WALL_SPEED_MIN = 4;
@@ -48,6 +54,7 @@ export const WALL_SPEED_DEFAULT = 18;
     d'une liste démesurée. */
 export const WALL_MAX = 5000;
 const MAX_LISTS = 16;
+const MAX_EXCLUDED = 5000;
 
 export function defaultWall(): DressingWall {
   return {
@@ -57,6 +64,7 @@ export function defaultWall(): DressingWall {
     anim: true,
     dir: "up",
     speed: WALL_SPEED_DEFAULT,
+    excluded: [],
   };
 }
 
@@ -99,6 +107,13 @@ export function normalizeWall(raw: unknown): DressingWall {
     anim: typeof o.anim === "boolean" ? o.anim : d.anim,
     dir: WALL_DIRS.includes(o.dir as WallDir) ? (o.dir as WallDir) : d.dir,
     speed: o.speed === undefined ? d.speed : clampWallSpeed(o.speed),
+    excluded: Array.isArray(o.excluded)
+      ? [
+          ...new Set(
+            o.excluded.filter((x): x is number => Number.isInteger(x) && (x as number) > 0),
+          ),
+        ].slice(0, MAX_EXCLUDED)
+      : d.excluded,
   };
 }
 
@@ -131,6 +146,13 @@ function melange(id: number): number {
  * se lit plus que comme du remplissage.
  */
 export function wallEntries(entries: ProfileEntry[], wall: DressingWall): ProfileEntry[] {
+  const out = new Set(wall.excluded ?? []);
+  return wallCandidates(entries, wall).filter((e) => !out.has(e.mediaId));
+}
+
+/** Ce que les listes et la note laissent passer, AVANT les retraits à la main :
+    c'est ce que la liste du studio montre, cochée ou non. */
+export function wallCandidates(entries: ProfileEntry[], wall: DressingWall): ProfileEntry[] {
   return entries
     .filter(
       (e) =>
