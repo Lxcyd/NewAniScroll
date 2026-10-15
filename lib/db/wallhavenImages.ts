@@ -254,3 +254,44 @@ export async function compterFacettes(
     return zero;
   }
 }
+
+/**
+ * Le décompte `tout` de compterFacettes, pour toute une liste en UNE requête
+ * (sous-titres du studio de profil, /api/v2/art-counts). La fenêtre est déjà
+ * partitionnée par anime : le plafond `rang <= TOP_PAR_TITRE` reste par titre.
+ */
+export async function compterToutParAnime(
+  ids: number[],
+  minLargeur = AFFICHAGE_MIN_LARGEUR,
+  minHauteur = AFFICHAGE_MIN_HAUTEUR,
+): Promise<Record<number, number>> {
+  const out: Record<number, number> = {};
+  const db = getFanartsClient();
+  if (!db || !ids.length) return out;
+  await ensureTable();
+  const score = sqlScore("w");
+
+  const sql = `
+    WITH classe AS (
+      SELECT w.anime_id,
+             ${score} AS points,
+             ROW_NUMBER() OVER (PARTITION BY w.anime_id ORDER BY ${score} DESC, w.wh_id) AS rang
+        FROM wallhaven_image w
+       WHERE w.anime_id IN (${ids.map(() => "?").join(",")})
+         AND w.width >= ? AND w.height >= ? AND ${OU_SERIE_OK}
+    )
+    SELECT anime_id, COUNT(*) AS tout
+      FROM classe WHERE points >= ? AND rang <= ?
+     GROUP BY anime_id`;
+
+  try {
+    const r = await db.execute({
+      sql,
+      args: [...ids, minLargeur, minHauteur, PLANCHER_DUR, TOP_PAR_TITRE],
+    });
+    for (const row of r.rows as any[]) out[Number(row.anime_id)] = Number(row.tout) || 0;
+  } catch {
+    /* Sans Wallhaven, les comptes restent ceux de fanart.tv et TMDB. */
+  }
+  return out;
+}

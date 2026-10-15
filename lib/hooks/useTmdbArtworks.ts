@@ -20,7 +20,7 @@ const INFLIGHT = new Map<number, Promise<TmdbArtwork[]>>();
    les mémos qui dépendent de `tmdbArts`. */
 const EMPTY: TmdbArtwork[] = [];
 
-async function fetchTmdbArtworks(animeId: number): Promise<TmdbArtwork[]> {
+export async function fetchTmdbArtworks(animeId: number): Promise<TmdbArtwork[]> {
   const memo = MEMO.get(animeId);
   if (memo) return memo;
   const pending = INFLIGHT.get(animeId);

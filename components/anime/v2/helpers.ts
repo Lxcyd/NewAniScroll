@@ -464,23 +464,27 @@ function shuffle<T>(arr: T[]): T[] {
    a TMDB logo while hiding fanart.tv's, and hid 28,000 clearart/character
    images that exist for no other surface. Character art in particular has no
    home anywhere else in the app. */
+/** Les types fanart.tv que la galerie montre — partagés avec le compte groupé
+    de lib/db/fanarts.ts (countFanartsByType). */
+export const GALLERY_TYPES = new Set([
+  "background",
+  "poster",
+  "banner",
+  "thumb",
+  "seasonposter",
+  "seasonbanner",
+  "seasonthumb",
+  "logo",
+  "clearart",
+  "character",
+  "disc",
+]);
+
 export function collectArtworks(
   fanarts: FanartResponse | null
 ): Array<FanartItem & { type: string }> {
   if (!fanarts) return [];
-  const KEEP = new Set([
-    "background",
-    "poster",
-    "banner",
-    "thumb",
-    "seasonposter",
-    "seasonbanner",
-    "seasonthumb",
-    "logo",
-    "clearart",
-    "character",
-    "disc",
-  ]);
+  const KEEP = GALLERY_TYPES;
   const out: Array<FanartItem & { type: string }> = [];
   for (const [type, items] of Object.entries(fanarts.types)) {
     if (!KEEP.has(type)) continue;

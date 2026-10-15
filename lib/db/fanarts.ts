@@ -1,4 +1,5 @@
 import { getFanartsClient } from "@/lib/db/turso-fanarts";
+import { GALLERY_TYPES, isAcceptableLang } from "@/components/anime/v2/helpers";
 
 /* Cloudflare Worker proxy in front of fanart.tv. Cached 1 year on
    330+ edges -> first paint of clearart/banner/cover is ~50ms worldwide
@@ -119,4 +120,36 @@ export async function loadFanarts(
     console.warn(`[loadFanarts] failed for ${animeId}:`, e?.message);
     return null;
   }
+}
+
+/* Le compte par type de toute une liste, pour les sous-titres du studio de
+   profil (/api/v2/art-counts) : UNE requête au lieu d'un loadFanarts par
+   anime, et sans les URL. Mêmes règles que ce que la galerie montre —
+   étiquettes sûres seulement, et le filtre de `collectArtworks` (types gardés,
+   langue acceptable), sinon le compte annoncé ne serait pas celui affiché. */
+export async function countFanartsByType(
+  ids: number[]
+): Promise<Record<number, Record<string, number>>> {
+  const out: Record<number, Record<string, number>> = {};
+  const db = getFanartsClient();
+  if (!db || !ids.length) return out;
+  try {
+    const r = await db.execute({
+      sql: `SELECT anime_id, type, language
+              FROM anime_fanarts
+             WHERE anime_id IN (${ids.map(() => "?").join(",")})
+               AND nsfw_label IN ('safe', 'safe-skipped', 'manual-safe')`,
+      args: ids,
+    });
+    for (const row of r.rows) {
+      const type = String(row.type);
+      if (!GALLERY_TYPES.has(type)) continue;
+      if (!isAcceptableLang(row.language != null ? String(row.language) : null)) continue;
+      const types = (out[Number(row.anime_id)] ??= {});
+      types[type] = (types[type] || 0) + 1;
+    }
+  } catch (e: any) {
+    console.warn(`[countFanartsByType] failed:`, e?.message);
+  }
+  return out;
 }

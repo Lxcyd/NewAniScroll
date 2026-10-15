@@ -27,7 +27,7 @@ import type { FanartResponse } from "@/components/anime/v2/helpers";
 const MEMO = new Map<number, FanartResponse | null>();
 const INFLIGHT = new Map<number, Promise<FanartResponse | null>>();
 
-async function fetchFanarts(animeId: number): Promise<FanartResponse | null> {
+export async function fetchFanarts(animeId: number): Promise<FanartResponse | null> {
   if (MEMO.has(animeId)) return MEMO.get(animeId) ?? null;
   const pending = INFLIGHT.get(animeId);
   if (pending) return pending;

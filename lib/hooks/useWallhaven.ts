@@ -37,7 +37,7 @@ const VIDE: Page ={ arts: [], hasMore: false, total: 0, facettes: FACETTES_VIDES
 const keyOf = (animeId: number, facette: Facette, page: number) =>
   `${animeId}:${facette}:${page}`;
 
-async function fetchPage(
+export async function fetchPage(
   animeId: number,
   facette: Facette,
   page: number,

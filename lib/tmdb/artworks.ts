@@ -35,6 +35,7 @@ import {
   type TmdbImages,
 } from "./client";
 import { resolveTmdbTarget } from "./animeImages";
+import { artworksKey, estExclue, TTL_S } from "./artworksCache";
 import {
   DUPLICATE_THRESHOLD,
   hammingHex,
@@ -57,26 +58,8 @@ export interface TmdbArtwork {
   fullUrl: string;
 }
 
-/* IMAGES TMDB QUI N'APPARTIENNENT PAS A LEUR FICHE. TMDB est alimente par ses
-   utilisateurs, et une affiche d'un autre anime s'y glisse parfois. Aucun
-   signal ne les distingue : sur Tengoku Daimakyo (TMDB 208891), les deux
-   intruses sont sans langue et a 0 vote, exactement comme deux vraies affiches
-   de la meme fiche. D'ou une liste a la main, par `file_path`, appliquee a la
-   LECTURE pour agir aussi sur les 30 jours de cache.
-   Signaler l'image sur TMDB en parallele : c'est la seule correction a la source. */
-const EXCLUES = new Set<string>([
-  "7yMryD19UQQbFi4dTejR8YRNjJI", // Tengoku Daimakyo — couple sous les cerisiers (13/09/2026)
-  "yK4GKL7Eh1r7R8AFB0NL9MLiD0z", // Tengoku Daimakyo — deux garcons, porte vitree (13/09/2026)
-]);
-
-const estExclue = (a: TmdbArtwork) =>
-  EXCLUES.has(a.url.slice(a.url.lastIndexOf("/") + 1).replace(/\.\w+$/, ""));
-
-const TTL_S = 30 * 24 * 60 * 60;
-/* v1 -> v2 (2026-08-08): cross-provider de-duplication shipped. A v1 row holds
-   the un-deduplicated list, and the duplicates the user reported are exactly
-   what it would keep serving for 30 days. */
-const CACHE_VERSION = "v2";
+/* La liste d'exclusion, le TTL et la clé de cache vivent dans ./artworksCache,
+   que la route de comptes lit sans tirer le hachage perceptuel. */
 
 /* Gallery thumbnails render in a grid at a few hundred px; w780 is sharp there
    without pulling a 3840 px original per tile. The lightbox gets `original`,
@@ -183,7 +166,7 @@ export async function getTmdbArtworks(
   if (!Number.isFinite(anilistId) || anilistId <= 0) return [];
   if (!tmdbEnabled()) return [];
 
-  const key = `tmdbArtworks:${CACHE_VERSION}:${anilistId}`;
+  const key = artworksKey(anilistId);
   const cached = await getCachedJson<{ arts: TmdbArtwork[] }>(key, TTL_S);
   if (cached) return (cached.arts ?? []).filter((a) => !estExclue(a));
 
