@@ -14,19 +14,20 @@ import {
   ArrowsUpDownIcon,
   Bars3BottomLeftIcon,
   Bars3Icon,
+  Bars4Icon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FilmIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
-  MagnifyingGlassMinusIcon,
-  MagnifyingGlassPlusIcon,
   MinusIcon,
   MusicalNoteIcon,
   PlusIcon,
   PhotoIcon,
+  QueueListIcon,
   RectangleGroupIcon,
+  RectangleStackIcon,
   ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
@@ -421,11 +422,13 @@ const LIGNE: Record<TailleLigne, { cover: string; sizes: string; text: string }>
   2: { cover: "h-16 w-[46px]", sizes: "46px", text: "text-[13.5px]" },
   3: { cover: "h-28 w-20", sizes: "80px", text: "text-[15px]" },
 };
-/** L'icône d'une taille : une loupe, moins → neutre → plus. */
+/** L'icône d'une taille : la FORME de la liste qu'elle donne — des lignes
+    serrées, une liste à vignettes, des cartes empilées. (Une loupe disait
+    « zoom » sans dire sur quoi.) */
 const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
-  1: MagnifyingGlassMinusIcon,
-  2: MagnifyingGlassIcon,
-  3: MagnifyingGlassPlusIcon,
+  1: Bars4Icon,
+  2: QueueListIcon,
+  3: RectangleStackIcon,
 };
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
