@@ -3250,6 +3250,24 @@ html.as-scene-leave .as-navbar {
 .as-head-short {
   display: none;
 }
+
+/* « Reprendre la lecture » : les deux boutons tiennent sur UNE ligne (cf.
+   DeviceBlocks). Sous ~270 px — la paire en grande taille, libellés compris —
+   « Plus d'infos » se réduit à son glyphe dans une pastille ronde. La requête
+   porte sur la ligne de boutons elle-même : c'est sa largeur qui manque, pas
+   celle de la carte (la vignette en prend une part variable). */
+.as-resume-actions {
+  container-type: inline-size;
+}
+@container (max-width: 270px) {
+  .as-resume-info-label {
+    display: none;
+  }
+  .as-resume-info.as-resume-info {
+    aspect-ratio: 1;
+    padding-inline: 0;
+  }
+}
 @container widget (max-width: 360px) {
   .as-head-full {
     display: none;
