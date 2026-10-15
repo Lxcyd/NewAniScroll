@@ -523,28 +523,34 @@ export default function ProfileHero({
           className={`gap-2 self-center ${centered ? "justify-center" : ""}`}
         />
         </div>
-        <div
-          className={`mt-2 flex flex-wrap items-center gap-1.5 text-[11px] ${
-            centered ? "justify-center" : ""
-          }`}
-        >
-          {tag ? (
-            <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10 backdrop-blur-sm">
-              #{tag}
-            </span>
-          ) : null}
+        {/* LA LIGNE D'IDENTITÉ : le logo AniList (lien vers le profil AniList),
+            l'identifiant, la date d'arrivée. Plus de pastilles : un seul
+            ensemble, posé sur un flou doux — et le texte porte les halos de
+            l'annonce de badge (`.as-ach-text`, des ombres qui épousent les
+            lettres), pour rester lisible sur un mur d'affiches. */}
+        {tag || anilistName || createdAt ? (
+        <div className={`mt-2.5 flex ${centered ? "justify-center" : ""}`}>
+        <div className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-full bg-black/25 py-1 pl-1.5 pr-3.5 text-[12px] backdrop-blur-md">
           {anilistName ? (
             <a
               href={`https://anilist.co/user/${anilistName}`}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md bg-[#02a9ff]/20 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 backdrop-blur-sm transition-colors hover:bg-[#02a9ff]/30"
+              title={`AniList · ${anilistName}`}
+              aria-label={`AniList · ${anilistName}`}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#152232] ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110"
             >
-              AniList · {anilistName}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="https://anilist.co/img/icons/icon.svg" alt="" className="h-4 w-4" />
             </a>
           ) : null}
+          {tag ? (
+            <span className={`as-ach-text font-mono font-bold text-white/85 ${anilistName ? "" : "pl-2"}`}>
+              #{tag}
+            </span>
+          ) : null}
           {createdAt ? (
-            <span className="px-1 py-1 text-white/50">
+            <span className="as-ach-text text-white/70">
               {/* Formatée contre la langue ACTIVE de l'interface, jamais contre
                   celle de l'environnement — même note que Hero.tsx, et le même
                   prix quand on l'oublie. `toLocaleDateString(undefined)`
@@ -577,6 +583,8 @@ export default function ProfileHero({
             </span>
           ) : null}
         </div>
+        </div>
+        ) : null}
         {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
       </div>
       {showcase || medallion ? statLine : null}
