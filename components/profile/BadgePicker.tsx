@@ -112,14 +112,14 @@ export default function BadgePicker({
   /* Les places et la barre d'outils restent fixes ; seule la liste des badges
      défile (`min-h-0 flex-1 overflow-y-auto`), dans la hauteur que la colonne
      du studio donne au menu. */
-  /* DEUX ZONES, et elles se voient : en haut, sur un fond plus clair, ce qu'on
-     compose (la consigne et les trois places) ; dessous, sur un fond plus
-     sombre, ce dans quoi on pioche (le menu de rareté et la grille, seule
-     partie qui défile). */
+  /* DEUX ZONES, deux boîtes au fond des sections du panneau du mur
+     (`bg-white/[0.03]`, liseré `white/[0.07]`) : en haut ce qu'on compose (la
+     consigne et les trois places), dessous ce dans quoi on pioche (le menu de
+     rareté et la grille, seule partie qui défile). */
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <BadgeDefs />
-      <section className="grid shrink-0 gap-3 rounded-2xl bg-[#1c1d26] p-3 ring-1 ring-white/[0.08]">
+      <section className="grid shrink-0 gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/[0.07]">
       {hint}
       <div className="grid grid-cols-3 gap-2">
         {Array.from({ length: FEATURED_MAX }, (_, i) => {
@@ -188,7 +188,7 @@ export default function BadgePicker({
 
       </section>
 
-      <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-2xl bg-[#101118] p-3 ring-1 ring-white/[0.06]">
+      <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/[0.07]">
       <div className="shrink-0">{toolbar}</div>
 
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
