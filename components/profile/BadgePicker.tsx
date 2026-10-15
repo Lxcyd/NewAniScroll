@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { SparklesIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { BY_ID } from "@/lib/badges/catalog";
 import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
@@ -200,10 +200,26 @@ export default function BadgePicker({
         { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }
       ].map((g) =>
         g.ids.length ? (
-          <section key={g.key} className="grid gap-2">
-            <p className="flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/40">
+          /* Les secrets se DÉTACHENT : un filet au-dessus, puis leur propre
+             boîte teintée de leur couleur — celle du « + n secrets » de
+             l'onglet Badges (#FF7F57). Ce sont des trouvailles, pas un palier
+             de plus. */
+          <section
+            key={g.key}
+            className={
+              g.key === "secret"
+                ? "relative mt-4 grid gap-2 rounded-xl bg-[#FF7F57]/[0.06] p-2.5 ring-1 ring-[#FF7F57]/30 before:absolute before:-top-3.5 before:inset-x-1 before:h-px before:bg-white/10"
+                : "grid gap-2"
+            }
+          >
+            <p
+              className={`flex items-center gap-2 px-2 pt-1 font-karla text-[11px] font-bold uppercase tracking-[.12em] ${
+                g.key === "secret" ? "text-[#FF7F57]" : "text-white/40"
+              }`}
+            >
+              {g.key === "secret" ? <SparklesIcon className="h-3.5 w-3.5" /> : null}
               {t(g.key === "secret" ? "badges.ui.family.secret" : "profile.studioKind_badges")}
-              <span className="text-white/25">{g.ids.length}</span>
+              <span className={g.key === "secret" ? "text-[#FF7F57]/55" : "text-white/25"}>{g.ids.length}</span>
             </p>
             <div
               className="grid gap-2"
@@ -239,7 +255,9 @@ export default function BadgePicker({
           cols === 1 ? "items-center gap-3 px-3 py-2 text-left" : "flex-col items-center gap-1.5 px-1.5 pb-2 pt-3"
         } ${
           on
-            ? "bg-action/15 ring-2 ring-action"
+            ? /* Le fond gris des autres cases, en rose. En valeur explicite :
+                 `bg-action/15` ne peignait rien. */
+              "bg-[#E94560]/[0.12] ring-2 ring-action"
             : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
         }`}
       >
