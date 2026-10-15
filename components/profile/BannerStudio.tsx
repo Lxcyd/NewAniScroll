@@ -1230,16 +1230,23 @@ export default function BannerStudio({
           : plateUrl
             ? `url("${plateUrl}") center / cover`
             : "linear-gradient(140deg, #1b1538, #4a2050 45%, #b2565a 80%, #e09a62)";
+      /* Dans la colonne de la scène, les vignettes prennent TOUTE la hauteur
+         du menu (`grow`) : deux rangées qui s'étirent, plus de vide dessous.
+         Réduit, le studio n'a pas de hauteur à donner : elles gardent leur
+         format 16/10. */
+      const tall = !mini;
       out.push({
         title: t("profile.studioLayoutSection"),
         rows: [],
+        grow: true,
+        fill: true,
         node: (
-          <div className="grid gap-3">
+          <div className={`flex flex-col gap-3 ${tall ? "min-h-0 flex-1" : ""}`}>
             {/* Cinq vignettes sur trois colonnes laissaient un trou à droite de
                 la dernière. Sur une grille de six, les trois premières en
                 prennent deux chacune et les deux dernières trois : deux rangées
                 pleines, la seconde aux vignettes plus grandes. */}
-            <div className="grid grid-cols-6 gap-2.5">
+            <div className={`grid grid-cols-6 gap-2.5 ${tall ? "min-h-0 flex-1 grid-rows-2" : ""}`}>
               {HERO_LAYOUTS.map((id, i) => {
                 const on = current === id;
                 return (
@@ -1250,12 +1257,22 @@ export default function BannerStudio({
                     aria-pressed={on}
                     title={t(`profile.studioLayoutHint_${id}`)}
                     onClick={() => patch({ layout: id })}
-                    className={`group grid gap-1.5 rounded-xl p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
+                    className={`group flex min-h-0 flex-col gap-1.5 rounded-xl p-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
                       on ? "bg-action/15 ring-2 ring-action" : "bg-white/[0.03] ring-1 ring-white/10 hover:bg-white/[0.07]"
                     }`}
                   >
-                    <span className="block transition-transform duration-200 group-hover:scale-[1.02]">
-                      <LayoutThumb layout={id} plate={plate} avatar={identity.avatar} name={identity.name} />
+                    <span
+                      className={`block transition-transform duration-200 group-hover:scale-[1.02] ${
+                        tall ? "min-h-[4.5rem] flex-1" : ""
+                      }`}
+                    >
+                      <LayoutThumb
+                        layout={id}
+                        plate={plate}
+                        avatar={identity.avatar}
+                        name={identity.name}
+                        fill={tall}
+                      />
                     </span>
                     <span
                       className={`flex items-center justify-between px-1 pb-0.5 font-karla text-[13px] font-bold ${

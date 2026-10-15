@@ -77,8 +77,11 @@ export default function LayoutThumb({
   plate,
   avatar,
   name,
+  fill = false,
 }: {
   layout: HeroLayout;
+  /** Remplit la hauteur de son parent au lieu de garder le format 16/10. */
+  fill?: boolean;
   /** Le fond du brouillon, en valeur CSS `background` : on choisit sur son propre fond. */
   plate: string;
   avatar: string | null;
@@ -86,7 +89,9 @@ export default function LayoutThumb({
 }) {
   return (
     <span
-      className="relative block aspect-[16/10] w-full overflow-hidden rounded-lg bg-[#101118]"
+      className={`relative block w-full overflow-hidden rounded-lg bg-[#101118] ${
+        fill ? "h-full" : "aspect-[16/10]"
+      }`}
       style={{ containerType: "inline-size" }}
       aria-hidden
     >
