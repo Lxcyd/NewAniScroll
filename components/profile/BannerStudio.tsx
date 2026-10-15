@@ -1272,7 +1272,7 @@ export default function BannerStudio({
                 footer={
                   <div className="grid gap-1.5 pt-1">
                     <span className="flex items-center justify-between font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/45">
-                      {t("profile.studioBadgeScale")}
+                      {t("profile.studioBadgeScale", "Taille sur le profil")}
                       <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 normal-case tracking-normal text-white/80">
                         {draft.badgeScale ?? 100} %
                       </span>
@@ -1294,7 +1294,7 @@ export default function BannerStudio({
                         onChange={(e) => patch({ badgeScale: clampScale(e.target.value) })}
                         onDoubleClick={() => patch({ badgeScale: 100 })}
                         style={{ pointerEvents: "auto" }}
-                        aria-label={t("profile.studioBadgeScale")}
+                        aria-label={t("profile.studioBadgeScale", "Taille sur le profil")}
                       />
                     </span>
                   </div>
