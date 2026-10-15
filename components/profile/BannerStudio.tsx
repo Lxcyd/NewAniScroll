@@ -1275,7 +1275,6 @@ export default function BannerStudio({
                       }`}
                     >
                       {t(`profile.studioLayout_${id}`)}
-                      {on ? <CheckIcon className="h-4 w-4 shrink-0 text-action" /> : null}
                     </span>
                     <span className="text-xs leading-snug text-white/50">
                       {t(`profile.studioLayoutHint_${id}`)}

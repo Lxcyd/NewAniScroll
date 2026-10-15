@@ -407,6 +407,7 @@ export default function ProfileHero({
             className={`font-outfit text-xl font-bold leading-none ${
               s.accent ? "text-action" : "text-white"
             } ${showcase ? "md:text-2xl" : ""}`}
+          >
             {s.value}
           </dd>
           <dt className="text-[10px] font-bold uppercase tracking-wider text-white/60">
