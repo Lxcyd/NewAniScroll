@@ -453,6 +453,9 @@ export default function ProfileHero({
           name={name}
           frame={banner.frame}
           priority
+          /* Jusqu'à 9rem × 200 % = 288 px affichés : la version 160 px aurait
+             été floue au maximum du réglage. */
+          px={(banner.avatarScale ?? 100) > 110 ? 320 : 160}
           sizeClass={
             medallion
               ? "h-[calc(6rem*var(--as-av,1))] w-[calc(6rem*var(--as-av,1))] md:h-[calc(9rem*var(--as-av,1))] md:w-[calc(9rem*var(--as-av,1))]"
