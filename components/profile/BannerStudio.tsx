@@ -1292,6 +1292,14 @@ export default function BannerStudio({
                             value: "all",
                             label: t("badges.ui.rarityFilter.all"),
                             swatch: `conic-gradient(${RARITY_ORDER.map((r) => RING_HUE[r]).join(", ")}, ${RING_HUE.c})`,
+                            /* La lueur de la roue, comme dans l'onglet Badges : une
+                               ombre par rareté, décalée vers l'angle où la roue
+                               porte sa couleur, à 22 % pour que leur somme vaille
+                               la lueur d'une seule pastille (cf. ProfileBadges). */
+                            glow: RARITY_ORDER.map((r, i) => {
+                              const a = (i / RARITY_ORDER.length) * 2 * Math.PI;
+                              return `${(Math.sin(a) * 1.5).toFixed(1)}px ${(-Math.cos(a) * 1.5).toFixed(1)}px 6px ${RING_HUE[r]}38`;
+                            }).join(", "),
                           },
                           ...[...RARITY_ORDER].reverse().map((r) => ({
                             value: r,
