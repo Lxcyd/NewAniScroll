@@ -439,9 +439,6 @@ const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
   2: QueueListIcon,
   3: RectangleStackIcon,
 };
-/** Lignes d'animés rendues d'un coup ; la suite vient au défilement. */
-const LIGNES_PAR_TRANCHE = 50;
-
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
 
@@ -490,12 +487,6 @@ export default function BannerStudio({
   const [scope, setScope] = useState<PaletteScope | null>(null);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  /* LA LISTE SE RENDRAIT D'UN BLOC : l'onglet Image montre toute la liste du
-     profil, 685 lignes à affiche sur un compte réel, et changer d'onglet les
-     montait toutes d'un coup — d'où le gel à chaque bascule (15/10/2026). Elle
-     arrive par tranches : les premières lignes, puis la suite quand le bas
-     approche (le même repère que la galerie, `Suite`). */
-  const [limite, setLimite] = useState(LIGNES_PAR_TRANCHE);
   /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
      contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
   const [tabVise, setTabVise] = useState<PaletteScope | null>(null);
@@ -2174,13 +2165,8 @@ export default function BannerStudio({
   }, [sections, pick, scope, wallHasMore, wallLoading, wallpapers.length, facette]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
-  const plusDeLignes = useCallback(() => setLimite((l) => l + LIGNES_PAR_TRANCHE), []);
 
   useEffect(() => setCursor(0), [scope, query, animeId]);
-  useEffect(() => setLimite(LIGNES_PAR_TRANCHE), [scope, query]);
-  useEffect(() => {
-    if (cursor > limite - 5) setLimite((l) => l + LIGNES_PAR_TRANCHE);
-  }, [cursor, limite]);
   useEffect(() => {
     if (tabVise && tabVise === scope) setTabVise(null);
   }, [tabVise, scope]);
@@ -3007,7 +2993,6 @@ export default function BannerStudio({
                       ) : null}
                       {s.grid ? null : s.rows.map((row) => {
                         index += 1;
-                        if (index >= limite) return null;
                         const active = clavier && index === cursor;
                         const Icon = row.icon;
                         return (
@@ -3019,6 +3004,22 @@ export default function BannerStudio({
                             onPointerEnter={row.hover ? () => row.hover!(true) : undefined}
                             onPointerLeave={row.hover ? () => row.hover!(false) : undefined}
                             onClick={() => row.run?.()}
+                            /* TOUTE LA LISTE EST LÀ, mais le navigateur ne
+                               peint que les lignes à l'écran : `content-
+                               visibility` saute les autres et leur réserve
+                               leur hauteur, donc la barre de défilement est
+                               juste dès le départ. (Des tranches chargées au
+                               défilement la faisaient remonter à chaque
+                               arrivée, 15/10/2026.) Les affiches hors écran,
+                               elles, ne sont pas demandées (next/image paresseux). */
+                            style={{
+                              contentVisibility: "auto",
+                              /* La hauteur du CONTENU, sans le rembourrage
+                                 (`py-2`, ajouté par-dessus) : 72 px réservés
+                                 en faisaient 88, et la liste raccourcissait
+                                 en défilant. */
+                              containIntrinsicSize: row.cover ? "auto 56px" : "auto 40px",
+                            }}
                             className={`group flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${
                               row.cover ? "py-2" : "py-2.5"
                             } ${row.dim ? "opacity-40 grayscale" : ""} ${
@@ -3099,9 +3100,6 @@ export default function BannerStudio({
                     </div>
                   ))
                 )}
-                {flat.length > limite ? (
-                  <Suite onVisible={plusDeLignes} root={scrollerRef} />
-                ) : null}
               </div>
 
               {/* ── L'écoute ──────────────────────────────────────────────
