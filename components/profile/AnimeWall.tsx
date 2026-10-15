@@ -101,7 +101,11 @@ export default function AnimeWall({
     () =>
       Array.from({ length: cols }, (_, c) => {
         const reverse = dir === "down" || (dir === "alt" && c % 2 === 1);
-        const v = speed * (0.85 + ((c * 37) % 31) / 100);
+        /* À CONTRESENS, LA VITESSE EST DIVISÉE PAR DEUX : deux colonnes
+           voisines qui se croisent se déplacent l'une par rapport à l'autre au
+           double de leur vitesse, et l'œil lit cet écart — à 18 px/s, le mur
+           paraissait deux fois plus rapide qu'en sens unique (15/10/2026). */
+        const v = speed * (dir === "alt" ? 0.5 : 1) * (0.85 + ((c * 37) % 31) / 100);
         return { v: reverse ? -v : v, phase: ((c * 0.618) % 1) * step * 3 };
       }),
     [cols, dir, speed, step],
