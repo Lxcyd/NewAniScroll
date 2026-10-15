@@ -55,8 +55,7 @@ import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
-import BadgeDefs from "@/components/profile/badges/BadgeDefs";
-import BadgeToken from "@/components/profile/badges/BadgeToken";
+import BadgePicker from "@/components/profile/BadgePicker";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
 import { BY_ID, RARITY_ORDER } from "@/lib/badges/catalog";
 import type { FrameCollection } from "@/lib/profile/frames";
@@ -1239,10 +1238,9 @@ export default function BannerStudio({
 
     /* ── Les badges mis en avant ──────────────────────────────────────────
        Les badges OBTENUS, les plus rares d'abord (autres tris au-dessus de la
-       grille), cherchables par leur nom. Un clic en met un en avant ou l'en
-       retire, trois au plus, dans l'ordre des clics — c'est l'ordre dans
-       lequel ils s'alignent à côté du pseudo. Le numéro sur la case dit cette
-       place. */
+       grille), cherchables par leur nom, et posés au glisser-déposer sur trois
+       places — l'ordre dans lequel ils s'alignent à côté du pseudo. Le clic
+       reste un raccourci (cf. BadgePicker). */
     if (scope === "badges") {
       const chosen = (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]);
       const nameOf = (id: string) => t(`badges.${id}.name`);
@@ -1268,7 +1266,6 @@ export default function BannerStudio({
               return nameOf(a).localeCompare(nameOf(b));
           }
         });
-      const full = chosen.length >= FEATURED_MAX;
       return [
         {
           title: t("profile.studioBadgesSection", { n: chosen.length, max: FEATURED_MAX }),
@@ -1278,70 +1275,39 @@ export default function BannerStudio({
               <p className="px-2 text-xs leading-relaxed text-white/50">
                 {t("profile.studioBadgesHint", { max: FEATURED_MAX })}
               </p>
-              <div className="flex flex-wrap gap-1.5 px-1">
-                {BADGE_SORTS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    aria-pressed={badgeSort === s}
-                    onClick={() => setBadgeSort(s)}
-                    className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-                      badgeSort === s
-                        ? "bg-white text-[#15161d]"
-                        : "bg-white/[0.06] text-white/65 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"
-                    }`}
-                  >
-                    {t(`profile.studioBadgeSort_${s}`)}
-                  </button>
-                ))}
-              </div>
-              <BadgeDefs />
-              {owned.length ? null : (
-                <p className="px-2 py-6 text-center font-karla text-sm text-white/45">
-                  {t("profile.studioNoResult")}
-                </p>
-              )}
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
-                {owned.map((id) => {
-                  const def = BY_ID[id];
-                  const place = chosen.indexOf(id);
-                  const on = place >= 0;
-                  const name = t(`badges.${id}.name`);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-pressed={on}
-                      disabled={!on && full}
-                      title={name}
-                      onClick={() =>
-                        patch({ badges: on ? chosen.filter((b) => b !== id) : [...chosen, id] })
-                      }
-                      className={`relative flex flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
-                        on ? "bg-action/15 ring-2 ring-action" : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
-                      }`}
-                    >
-                      <BadgeToken
-                        id={id}
-                        rarity={def.rarity}
-                        icon={def.icon}
-                        tag={def.tag}
-                        unlocked
-                        animate={false}
-                        size={52}
-                      />
-                      <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
-                        {name}
-                      </span>
-                      {on ? (
-                        <span className="absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-action font-outfit text-[11px] font-bold text-white">
-                          {place + 1}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+              <BadgePicker
+                owned={owned}
+                chosen={chosen}
+                onChange={(next) => patch({ badges: next })}
+                nameOf={nameOf}
+                t={t}
+                toolbar={
+                  <>
+                    <div className="flex flex-wrap gap-1.5 px-1">
+                      {BADGE_SORTS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          aria-pressed={badgeSort === s}
+                          onClick={() => setBadgeSort(s)}
+                          className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+                            badgeSort === s
+                              ? "bg-white text-[#15161d]"
+                              : "bg-white/[0.06] text-white/65 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"
+                          }`}
+                        >
+                          {t(`profile.studioBadgeSort_${s}`)}
+                        </button>
+                      ))}
+                    </div>
+                    {owned.length ? null : (
+                      <p className="px-2 py-6 text-center font-karla text-sm text-white/45">
+                        {t("profile.studioNoResult")}
+                      </p>
+                    )}
+                  </>
+                }
+              />
             </div>
           ),
         },

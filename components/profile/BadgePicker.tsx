@@ -1,0 +1,151 @@
+import { useState } from "react";
+import { XMarkIcon } from "@heroicons/react/24/outline";
+import { BY_ID } from "@/lib/badges/catalog";
+import BadgeDefs from "./badges/BadgeDefs";
+import BadgeToken from "./badges/BadgeToken";
+import { FEATURED_MAX } from "./FeaturedBadges";
+
+/**
+ * Le choix des badges mis en avant, au GLISSER-DÉPOSER (maquette 10 de
+ * l'artefact « Choisir ses badges », retenue le 15/10/2026).
+ *
+ * En haut, les trois places, dans l'ordre où les badges s'aligneront à côté
+ * du pseudo ; dessous, les badges obtenus. On attrape un badge et on le
+ * dépose sur une place : une place prise est remplacée, et un badge déjà
+ * placé qu'on dépose ailleurs ÉCHANGE sa place avec l'occupant. Le clic reste
+ * un raccourci complet — sur un badge, il le met à la première place libre ou
+ * le retire ; sur la croix d'une place, il la vide — parce qu'un glisser ne
+ * se fait ni au clavier ni au doigt (le DnD HTML5 est inerte sur mobile).
+ */
+export default function BadgePicker({
+  owned,
+  chosen,
+  onChange,
+  nameOf,
+  toolbar,
+  t,
+}: {
+  /** Les badges obtenus à montrer, déjà filtrés et triés. */
+  owned: string[];
+  /** Les badges en avant, dans l'ordre des places. */
+  chosen: string[];
+  onChange: (next: string[]) => void;
+  nameOf: (id: string) => string;
+  /** Les tris, posés entre les places et la grille. */
+  toolbar?: React.ReactNode;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}) {
+  const [over, setOver] = useState<number | null>(null);
+  const full = chosen.length >= FEATURED_MAX;
+
+  const toggle = (id: string) =>
+    onChange(chosen.includes(id) ? chosen.filter((b) => b !== id) : full ? chosen : [...chosen, id]);
+
+  const drop = (id: string, at: number) => {
+    const slots: (string | undefined)[] = Array.from({ length: FEATURED_MAX }, (_, i) => chosen[i]);
+    const from = slots.indexOf(id);
+    if (from >= 0) slots[from] = slots[at];
+    slots[at] = id;
+    onChange(slots.filter((s): s is string => !!s));
+  };
+
+  const token = (id: string, size: number) => {
+    const def = BY_ID[id];
+    return <BadgeToken id={id} rarity={def.rarity} icon={def.icon} tag={def.tag} unlocked animate={false} size={size} />;
+  };
+
+  return (
+    <div className="grid gap-3">
+      <BadgeDefs />
+      <div className="grid grid-cols-3 gap-2 px-1">
+        {Array.from({ length: FEATURED_MAX }, (_, i) => {
+          const id = chosen[i];
+          return (
+            <div
+              key={i}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOver(i);
+              }}
+              onDragLeave={() => setOver((o) => (o === i ? null : o))}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOver(null);
+                const dropped = e.dataTransfer.getData("text/plain");
+                if (BY_ID[dropped]) drop(dropped, i);
+              }}
+              className={`relative grid h-28 place-items-center rounded-2xl border-[1.5px] transition-colors ${
+                over === i
+                  ? "border-action bg-action/10"
+                  : id
+                    ? "border-white/15 bg-white/[0.04]"
+                    : "border-dashed border-white/20"
+              }`}
+            >
+              {id ? (
+                <>
+                  <div
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData("text/plain", id)}
+                    title={nameOf(id)}
+                    className="grid cursor-grab justify-items-center gap-1 active:cursor-grabbing"
+                  >
+                    {token(id, 56)}
+                    <span className="line-clamp-1 max-w-full px-1 text-center font-karla text-[11px] font-bold text-white/80">
+                      {nameOf(id)}
+                    </span>
+                  </div>
+                  <span className="absolute left-2 top-1.5 font-outfit text-[11px] font-bold text-white/35">
+                    {i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onChange(chosen.filter((b) => b !== id))}
+                    aria-label={t("profile.studioBadgesRemove", { name: nameOf(id) })}
+                    title={t("profile.studioBadgesRemove", { name: nameOf(id) })}
+                    className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <span className="font-karla text-xs text-white/40">{t("profile.studioBadgesDrop")}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {toolbar}
+
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
+        {owned.map((id) => {
+          const on = chosen.includes(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              draggable
+              onDragStart={(e) => e.dataTransfer.setData("text/plain", id)}
+              aria-pressed={on}
+              title={nameOf(id)}
+              onClick={() => toggle(id)}
+              className={`relative flex cursor-grab flex-col items-center gap-1.5 rounded-xl px-1.5 pb-2 pt-3 transition-colors active:cursor-grabbing ${
+                on
+                  ? "bg-action/15 ring-2 ring-action"
+                  : full
+                    ? "bg-white/[0.03] opacity-50 ring-1 ring-white/10 hover:opacity-100"
+                    : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
+              }`}
+            >
+              {token(id, 52)}
+              <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
+                {nameOf(id)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
