@@ -47,12 +47,12 @@ const PLAN: Record<HeroLayout, Shape[]> = {
     { k: "wid", l: 7, t: 80, w: 86, h: 40 },
   ],
   medallion: [
-    /* Une plaque vitrée qui tient tout, le portrait en sort par le haut. */
-    { k: "panel", l: 7, t: 38, w: 86, h: 30 },
-    { k: "av", l: 10, t: 22, w: 20 },
-    { k: "name", l: 33, t: 46, w: 26, size: 6.5 },
-    { k: "chips", l: 33, t: 57, scale: 0.8 },
-    { k: "line", r: 10, t: 48, w: 30 },
+    /* Une plaque vitrée qui tient tout, portrait compris. */
+    { k: "panel", l: 7, t: 30, w: 86, h: 38 },
+    { k: "av", l: 10, t: 35, w: 17 },
+    { k: "name", l: 30, t: 42, w: 28, size: 6.5 },
+    { k: "chips", l: 30, t: 53, scale: 0.8 },
+    { k: "line", r: 10, t: 45, w: 30 },
     { k: "tabs", l: 7, t: 73, w: 86 },
     { k: "wid", l: 7, t: 80, w: 86, h: 40 },
   ],

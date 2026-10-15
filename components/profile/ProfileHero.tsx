@@ -415,7 +415,7 @@ export default function ProfileHero({
       className={`grid grid-cols-2 gap-y-3 sm:grid-cols-4 sm:divide-x sm:divide-white/10 ${
         medallion
           ? "w-full py-1 md:ml-auto md:w-auto md:self-center"
-          : "rounded-2xl bg-black/55 py-3 ring-1 ring-white/10 backdrop-blur-md"
+          : "as-stat-card rounded-2xl py-3 ring-1 ring-white/10"
       } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
       {stats.map((s) => (
@@ -444,10 +444,7 @@ export default function ProfileHero({
      sur la racine plus bas) : le profil reste responsive à toute taille. */
   const identityBody = (
     <>
-      {/* Le médaillon sort par le HAUT de sa plaque : c'est ce chevauchement
-          franc qui le fait lire comme un portrait épinglé et non comme une
-          vignette posée dedans. */}
-      <div className={medallion ? "-mt-12 md:-mt-16" : ""}>
+      <div className="shrink-0">
         <FramedAvatar
           src={avatar}
           name={name}
@@ -564,11 +561,15 @@ export default function ProfileHero({
 
   /* Le médaillon (refait le 15/10/2026, il ne se distinguait plus du
      bandeau) : TOUTE l'identité tient dans une seule plaque vitrée — avatar,
-     pseudo, pastilles, chiffres — et le portrait en sort par le haut. Un
-     objet, là où le bandeau pose ses pièces à même le fond. */
+     pseudo, pastilles, chiffres. Un objet, là où le bandeau pose ses pièces
+     à même le fond. */
+  /* La plaque est une carte de widget (`as-stat-card`) : même teinte, même
+     liseré et SURTOUT même flou — celui du curseur « Flou » du studio — que
+     les blocs qu'elle surplombe. L'avatar y est tout entier (il en sortait par
+     le haut dans la première version, 15/10/2026). */
   const identity = medallion ? (
-    <div className="mx-auto w-full max-w-screen-xl px-4 pb-5 pt-14 md:pb-7 md:pt-20">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-4 rounded-3xl bg-black/50 px-5 pb-5 ring-1 ring-white/10 backdrop-blur-md md:px-7 md:pb-6">
+    <div className="mx-auto w-full max-w-screen-xl px-4 pb-5 md:pb-7">
+      <div className="as-stat-card flex flex-wrap items-center gap-x-6 gap-y-4 rounded-3xl p-5 ring-1 ring-white/10 md:px-7 md:py-6">
         {identityBody}
       </div>
     </div>
