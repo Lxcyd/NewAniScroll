@@ -3679,35 +3679,28 @@ function WallPanel({
           ouverte, la liste complète, avec une recherche et une case par animé
           pour en retirer un ou le remettre. */}
       <section className="flex min-h-[10rem] flex-1 flex-col overflow-hidden rounded-xl bg-white/[0.04] ring-1 ring-white/[0.07]">
-        <div className="flex items-center gap-3 px-3 pb-2.5 pt-3">
-          <div className="min-w-0 flex-1">
-            <p className="font-outfit text-[15px] font-bold text-white">
-              {t("profile.studioWallCount", { count: shown.length })}
-            </p>
-            {/* Une ligne seulement quand elle apprend quelque chose : un mur vide,
-                ou des animés retirés à la main. */}
-            {shown.length === 0 || candidats.length > shown.length ? (
-              <p className="font-karla text-[11.5px] leading-snug text-white/45">
-                {shown.length === 0
-                  ? t("profile.studioWallEmpty")
-                  : t("profile.studioWallRemoved", { count: candidats.length - shown.length })}
-              </p>
-            ) : null}
-          </div>
+        {/* PLUS D'EN-TÊTE (15/10/2026) : le compte est sur le bouton du menu
+            (685/685), et « Fond actuel » ne disait rien qu'on ne voie déjà sur
+            le profil. Restent les deux choses qui servent : porter le mur tant
+            qu'il ne l'est pas, et le message d'un mur vide ou retouché. */}
+        {!worn ? (
           <button
             type="button"
-            disabled={worn}
             onClick={() => onChange(wall)}
-            className={`group shrink-0 rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-colors ${
-              worn ? "bg-emerald-500/15 text-emerald-300" : "bg-action text-white hover:brightness-110"
-            }`}
+            className="group mx-3 mt-3 rounded-lg bg-action px-3.5 py-2 font-karla text-[12.5px] font-bold text-white transition-[filter] hover:brightness-110"
           >
-            <span className="inline-flex items-center gap-1.5 transition-transform duration-150 group-active:scale-95">
-              {worn ? <CheckIcon className="h-3.5 w-3.5" /> : null}
-              {t(worn ? "profile.studioWallWorn" : "profile.studioWallUse")}
+            <span className="inline-block transition-transform duration-150 group-active:scale-95">
+              {t("profile.studioWallUse")}
             </span>
           </button>
-        </div>
+        ) : null}
+        {shown.length === 0 || candidats.length > shown.length ? (
+          <p className="mx-3 mt-2.5 font-karla text-[11.5px] leading-snug text-white/45">
+            {shown.length === 0
+              ? t("profile.studioWallEmpty")
+              : t("profile.studioWallRemoved", { count: candidats.length - shown.length })}
+          </p>
+        ) : null}
 
         {/* Le bouton du menu : la mosaïque (fermé) ou la liste (ouvert). */}
         <button
@@ -3720,7 +3713,7 @@ function WallPanel({
           /* DEUX LIGNES, et la seconde dit à quoi sert le menu : « Choisir les
              animés » seul ne laissait pas deviner qu'on pouvait en retirer un
              par un en le déroulant (15/10/2026). */
-          className={`group mx-3 flex items-center gap-2.5 rounded-lg px-3 py-2 text-left font-karla ring-1 transition-colors ${
+          className={`group mx-3 mt-3 flex items-center gap-2.5 rounded-lg px-3 py-2 text-left font-karla ring-1 transition-colors ${
             choix ? "bg-action/[0.12] ring-action/40" : "bg-white/[0.05] ring-white/10 hover:bg-white/[0.08]"
           }`}
         >
