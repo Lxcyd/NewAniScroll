@@ -4,7 +4,7 @@ import BadgeDefs from "./badges/BadgeDefs";
 import BadgeToken from "./badges/BadgeToken";
 
 /** Combien de badges un profil peut mettre en avant à côté de son pseudo. */
-export const FEATURED_MAX = 5;
+export const FEATURED_MAX = 3;
 
 /**
  * Les badges mis en avant, à côté du pseudo (haut de profil et colonne).

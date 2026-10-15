@@ -238,7 +238,7 @@ export type Dressing = {
   nameScale: number;
   /**
    * Les badges mis en avant à côté du pseudo (ids de lib/badges/catalog.ts),
-   * cinq au plus, dans l'ordre choisi. Validés à la FORME seulement : le
+   * trois au plus, dans l'ordre choisi. Validés à la FORME seulement : le
    * catalogue n'est pas importé ici (ce fichier sert aussi l'API), et
    * l'affichage refiltre de toute façon par ce que le profil a obtenu
    * (components/profile/FeaturedBadges.tsx).
@@ -247,7 +247,9 @@ export type Dressing = {
 };
 
 const BADGE_ID_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
-const BADGES_MAX = 5;
+/* Trois, et non cinq (15/10/2026) : à côté du pseudo, cinq jetons faisaient
+   une rangée qui rivalisait avec lui. Garder en phase avec FEATURED_MAX. */
+const BADGES_MAX = 3;
 
 function cleanBadges(v: unknown): string[] {
   if (!Array.isArray(v)) return [];

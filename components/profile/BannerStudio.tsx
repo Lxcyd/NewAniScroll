@@ -58,7 +58,7 @@ import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
-import { BY_ID } from "@/lib/badges/catalog";
+import { BY_ID, RARITY_ORDER } from "@/lib/badges/catalog";
 import type { FrameCollection } from "@/lib/profile/frames";
 import { collectArtworks, customListColor, LIST_COLORS, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { Range as ScoreRange } from "@/components/profile/WidgetSettings";
@@ -321,6 +321,10 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 type PaletteScope = DressingKind | "music" | "layout" | "frame" | "badges";
 
+/** Les tris du menu Badges. */
+type BadgeSort = "rare" | "common" | "recent" | "oldest" | "name";
+const BADGE_SORTS: BadgeSort[] = ["rare", "common", "recent", "oldest", "name"];
+
 /** Les tris de la grille des cadres. Les quatre premiers gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
 type FrameSort =
@@ -519,6 +523,8 @@ export default function BannerStudio({
   const [frames, setFrames] = useState<FrameCollection[] | null>(null);
   /** Tri de la grille des cadres (cf. FRAME_SORTS), et le menu qui le choisit. */
   const [frameSort, setFrameSort] = useState<FrameSort>("recent");
+  /** Le tri du menu Badges : les plus rares d'abord par défaut. */
+  const [badgeSort, setBadgeSort] = useState<BadgeSort>("rare");
   const [frameSortOpen, setFrameSortOpen] = useState(false);
   /** Le tirage du tri « au hasard » : rechoisir ce tri relance la donne. */
   const [frameSeed, setFrameSeed] = useState(1);
@@ -1232,19 +1238,36 @@ export default function BannerStudio({
     }
 
     /* ── Les badges mis en avant ──────────────────────────────────────────
-       Les badges OBTENUS, du plus récent au plus ancien ; un clic en met un en
-       avant ou l'en retire, cinq au plus, dans l'ordre des clics — c'est
-       l'ordre dans lequel ils s'alignent à côté du pseudo. Le numéro sur la
-       case dit cette place. */
+       Les badges OBTENUS, les plus rares d'abord (autres tris au-dessus de la
+       grille), cherchables par leur nom. Un clic en met un en avant ou l'en
+       retire, trois au plus, dans l'ordre des clics — c'est l'ordre dans
+       lequel ils s'alignent à côté du pseudo. Le numéro sur la case dit cette
+       place. */
     if (scope === "badges") {
       const chosen = (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]);
-      const owned = Object.entries(earned ?? {})
-        .filter(([id]) => BY_ID[id])
-        .sort((a, b) => b[1] - a[1])
-        .map(([id]) => id);
-      if (!owned.length) {
+      const nameOf = (id: string) => t(`badges.${id}.name`);
+      const rank = (id: string) => RARITY_ORDER.indexOf(BY_ID[id].rarity);
+      const all = Object.keys(earned ?? {}).filter((id) => BY_ID[id]);
+      if (!all.length) {
         return [{ title: t("profile.studioBadgesNone"), rows: [], node: <span /> }];
       }
+      const at = (id: string) => earned?.[id] ?? 0;
+      const owned = all
+        .filter((id) => match(nameOf(id)))
+        .sort((a, b) => {
+          switch (badgeSort) {
+            case "rare":
+              return rank(b) - rank(a) || at(b) - at(a);
+            case "common":
+              return rank(a) - rank(b) || at(b) - at(a);
+            case "recent":
+              return at(b) - at(a);
+            case "oldest":
+              return at(a) - at(b);
+            case "name":
+              return nameOf(a).localeCompare(nameOf(b));
+          }
+        });
       const full = chosen.length >= FEATURED_MAX;
       return [
         {
@@ -1252,8 +1275,32 @@ export default function BannerStudio({
           rows: [],
           node: (
             <div className="grid gap-3">
-              <p className="px-2 text-xs leading-relaxed text-white/50">{t("profile.studioBadgesHint")}</p>
+              <p className="px-2 text-xs leading-relaxed text-white/50">
+                {t("profile.studioBadgesHint", { max: FEATURED_MAX })}
+              </p>
+              <div className="flex flex-wrap gap-1.5 px-1">
+                {BADGE_SORTS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={badgeSort === s}
+                    onClick={() => setBadgeSort(s)}
+                    className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+                      badgeSort === s
+                        ? "bg-white text-[#15161d]"
+                        : "bg-white/[0.06] text-white/65 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"
+                    }`}
+                  >
+                    {t(`profile.studioBadgeSort_${s}`)}
+                  </button>
+                ))}
+              </div>
               <BadgeDefs />
+              {owned.length ? null : (
+                <p className="px-2 py-6 text-center font-karla text-sm text-white/45">
+                  {t("profile.studioNoResult")}
+                </p>
+              )}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
                 {owned.map((id) => {
                   const def = BY_ID[id];
@@ -2281,7 +2328,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeSort, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -2540,7 +2587,7 @@ export default function BannerStudio({
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont cinq, en vignettes, et un champ de recherche
      au-dessus de cinq vignettes est un aveu de liste trop longue. */
-  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall" && scope !== "badges";
+  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall";
   /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
       en a toujours un d'ouvert, sauf quand le studio est réduit. */
   const inColumn = !mini && !!scope;
@@ -2772,7 +2819,13 @@ export default function BannerStudio({
                       ref={search}
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder={t(scope === "frame" ? "profile.studioFrameSearch" : "profile.studioSearch")}
+                      placeholder={t(
+                        scope === "frame"
+                          ? "profile.studioFrameSearch"
+                          : scope === "badges"
+                            ? "profile.studioBadgesSearch"
+                            : "profile.studioSearch",
+                      )}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
                     {/* Les réglages de la grille des cadres : le tri, et la
