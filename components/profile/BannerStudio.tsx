@@ -1267,6 +1267,38 @@ export default function BannerStudio({
           node: (
             <div className="flex min-h-0 flex-1 flex-col gap-3">
               <BadgePicker
+                /* La taille des badges SUR LE PROFIL — même curseur que les
+                   tailles d'avatar et de pseudo (`as-range`), double-clic = 100 %. */
+                footer={
+                  <div className="grid gap-1.5 pt-1">
+                    <span className="flex items-center justify-between font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/45">
+                      {t("profile.studioBadgeScale")}
+                      <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 normal-case tracking-normal text-white/80">
+                        {draft.badgeScale ?? 100} %
+                      </span>
+                    </span>
+                    <span className="as-range relative block h-4 w-full">
+                      <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+                      <span
+                        className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+                        style={{
+                          width: `${(((draft.badgeScale ?? 100) - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100}%`,
+                        }}
+                      />
+                      <input
+                        type="range"
+                        min={SCALE_MIN}
+                        max={SCALE_MAX}
+                        step={5}
+                        value={draft.badgeScale ?? 100}
+                        onChange={(e) => patch({ badgeScale: clampScale(e.target.value) })}
+                        onDoubleClick={() => patch({ badgeScale: 100 })}
+                        style={{ pointerEvents: "auto" }}
+                        aria-label={t("profile.studioBadgeScale")}
+                      />
+                    </span>
+                  </div>
+                }
                 hint={
                   <p className="text-xs leading-relaxed text-white/55">
                     {t("profile.studioBadgesHint", { max: FEATURED_MAX })}

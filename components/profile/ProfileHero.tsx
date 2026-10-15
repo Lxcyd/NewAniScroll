@@ -71,6 +71,8 @@ export type HeroBanner = {
   nameScale?: number;
   /** Les badges mis en avant à côté du pseudo (trois au plus). */
   badges?: string[];
+  /** Leur taille, en % (100 = 56 px). */
+  badgeScale?: number;
   /** Le filtre du mur d'animés (kind « wall »). */
   wall?: Dressing["wall"];
 };
@@ -107,6 +109,7 @@ export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
           avatarScale: draft.avatarScale,
           nameScale: draft.nameScale,
           badges: draft.badges,
+          badgeScale: draft.badgeScale,
         }),
     music: null,
   };
@@ -511,12 +514,12 @@ export default function ProfileHero({
         </h1>
         {/* Les badges mis en avant, À CÔTÉ du pseudo : sur sa ligne, et sous
             lui quand le pseudo prend toute la largeur (téléphone). */}
-        {/* Centrés sur la hauteur du pseudo, et à sa mesure : le réglage de
-            taille du pseudo les grossit avec lui. */}
+        {/* Centrés sur la hauteur du pseudo ; leur taille a son propre
+            réglage dans le menu Badges du studio (`badgeScale`). */}
         <FeaturedBadges
           ids={banner.badges}
           earned={earned}
-          size={Math.round(56 * ((banner.nameScale ?? 100) / 100))}
+          size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
           className={`gap-2 self-center ${centered ? "justify-center" : ""}`}
         />
         </div>

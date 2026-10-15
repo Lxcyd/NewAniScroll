@@ -1122,6 +1122,7 @@
     "studioBadgesRemove": "Remove {{name}}",
     "studioBadgesSearch": "Search a badge…",
     "studioBadgesNone": "No badges earned yet",
+    "studioBadgeScale": "Size on the profile",
     "studioAvatarScale": "Avatar size",
     "studioNameScale": "Name size",
     "studioLayout_showcase": "Showcase",

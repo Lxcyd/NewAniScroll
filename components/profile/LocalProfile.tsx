@@ -200,6 +200,7 @@ export default function LocalProfile() {
                 avatarScale={banner.avatarScale}
                 nameScale={banner.nameScale}
                 badges={banner.badges}
+                badgeScale={banner.badgeScale}
                 earned={badgeState.got}
               />
             </div>

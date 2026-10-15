@@ -55,10 +55,13 @@ export default function BadgePicker({
   nameOf,
   toolbar,
   hint,
+  footer,
   t
 }: {
   /** La consigne, en tête de la zone des places. */
   hint?: React.ReactNode;
+  /** Sous les places, dans la même zone (le curseur de taille). */
+  footer?: React.ReactNode;
   /** Les badges obtenus à montrer, déjà filtrés et triés. */
   owned: string[];
   /** Les badges en avant, dans l'ordre des places. */
@@ -185,7 +188,7 @@ export default function BadgePicker({
           );
         })}
       </div>
-
+      {footer}
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col gap-3 rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/[0.07]">

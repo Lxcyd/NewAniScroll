@@ -421,6 +421,7 @@ export default function Profile({
               avatarScale={shownBanner.avatarScale}
               nameScale={shownBanner.nameScale}
               badges={shownBanner.badges}
+              badgeScale={shownBanner.badgeScale}
               earned={earned}
               anilistName={identity.anilistName}
               createdAt={identity.createdAt}

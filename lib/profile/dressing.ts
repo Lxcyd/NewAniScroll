@@ -236,6 +236,8 @@ export type Dressing = {
    */
   avatarScale: number;
   nameScale: number;
+  /** La taille des badges mis en avant, en % (100 = celle de l'agencement). */
+  badgeScale: number;
   /**
    * Les badges mis en avant à côté du pseudo (ids de lib/badges/catalog.ts),
    * trois au plus, dans l'ordre choisi. Validés à la FORME seulement : le
@@ -512,6 +514,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     frame: isFrameAsset(obj.frame) ? obj.frame : null,
     avatarScale: clampScale(obj.avatarScale),
     nameScale: clampScale(obj.nameScale),
+    badgeScale: clampScale(obj.badgeScale),
     badges: cleanBadges(obj.badges),
   };
 }
@@ -540,6 +543,7 @@ export function emptyDressing(): Dressing {
     frame: null,
     avatarScale: 100,
     nameScale: 100,
+    badgeScale: 100,
     badges: [],
   };
 }

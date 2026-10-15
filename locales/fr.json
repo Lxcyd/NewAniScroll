@@ -1122,6 +1122,7 @@
     "studioBadgesRemove": "Retirer {{name}}",
     "studioBadgesSearch": "Rechercher un badge…",
     "studioBadgesNone": "Aucun badge obtenu pour l'instant",
+    "studioBadgeScale": "Taille sur le profil",
     "studioAvatarScale": "Taille de l'avatar",
     "studioNameScale": "Taille du pseudo",
     "studioLayout_showcase": "Vitrine",
