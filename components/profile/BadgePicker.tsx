@@ -50,6 +50,7 @@ function startDrag(e: React.DragEvent<HTMLElement>, id: string) {
 export default function BadgePicker({
   owned,
   chosen,
+  cols = 4,
   onChange,
   nameOf,
   toolbar,
@@ -59,6 +60,8 @@ export default function BadgePicker({
   owned: string[];
   /** Les badges en avant, dans l'ordre des places. */
   chosen: string[];
+  /** Badges par ligne (boutons − / + de l'en-tête du menu). */
+  cols?: number;
   onChange: (next: string[]) => void;
   nameOf: (id: string) => string;
   /** Les tris, posés entre les places et la grille. */
@@ -186,7 +189,10 @@ export default function BadgePicker({
               {t(g.key === "secret" ? "badges.ui.family.secret" : "profile.studioKind_badges")}
               <span className="text-white/25">{g.ids.length}</span>
             </p>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2">
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+            >
               {g.ids.map(tile)}
             </div>
           </section>
@@ -214,7 +220,8 @@ export default function BadgePicker({
               : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
         }`}
       >
-        {token(id, 52)}
+        {/* Le jeton suit la taille des cases : plus de colonnes, plus petit. */}
+        {token(id, cols <= 3 ? 64 : cols <= 4 ? 52 : cols <= 6 ? 42 : 34)}
         <span className="line-clamp-2 text-center font-karla text-[11px] font-bold leading-tight text-white/75">
           {nameOf(id)}
         </span>

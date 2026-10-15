@@ -457,6 +457,9 @@ const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
 };
 const FRAME_COLS_MIN = 3;
 const FRAME_COLS_MAX = 10;
+/** Badges par ligne dans le menu Badges. */
+const BADGE_COLS_MIN = 2;
+const BADGE_COLS_MAX = 8;
 
 /** L'icône du cadre d'avatar : un portrait dans des coins de cadrage (Material
     Symbols). Même signature que les icônes Heroicons du dock. */
@@ -536,6 +539,7 @@ export default function BannerStudio({
   }, [frameSortOpen]);
   /** Cases par ligne : moins = plus grandes. */
   const [frameCols, setFrameCols] = useState(4);
+  const [badgeCols, setBadgeCols] = useState(4);
   const [loading, setLoading] = useState(false);
   const search = useRef<HTMLInputElement | null>(null);
   /* Une palette rouverte ne doit pas resservir la liste de l'anime précédent
@@ -1263,6 +1267,7 @@ export default function BannerStudio({
               <BadgePicker
                 owned={owned}
                 chosen={chosen}
+                cols={badgeCols}
                 onChange={(next) => patch({ badges: next })}
                 nameOf={nameOf}
                 t={t}
@@ -2285,7 +2290,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeRarity, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -2850,6 +2855,32 @@ export default function BannerStudio({
                           aria-label={t("profile.studioFrameBigger")}
                           disabled={frameCols <= FRAME_COLS_MIN}
                           onClick={() => setFrameCols((c) => Math.max(FRAME_COLS_MIN, c - 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <PlusIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : null}
+                    {/* Les badges, comme les cadres : − = plus de badges par
+                        ligne (donc plus petits), + = moins, plus grands. */}
+                    {scope === "badges" ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameSmaller")}
+                          aria-label={t("profile.studioFrameSmaller")}
+                          disabled={badgeCols >= BADGE_COLS_MAX}
+                          onClick={() => setBadgeCols((c) => Math.min(BADGE_COLS_MAX, c + 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <MinusIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameBigger")}
+                          aria-label={t("profile.studioFrameBigger")}
+                          disabled={badgeCols <= BADGE_COLS_MIN}
+                          onClick={() => setBadgeCols((c) => Math.max(BADGE_COLS_MIN, c - 1))}
                           className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
                         >
                           <PlusIcon className="h-4 w-4" />
