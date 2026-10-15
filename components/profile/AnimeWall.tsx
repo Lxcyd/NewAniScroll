@@ -130,6 +130,7 @@ export default function AnimeWall({
     if (n === 0) return;
     let raf = 0;
     let last: number | null = null;
+    const dpr = window.devicePixelRatio || 1;
     const pose = (now: number) => {
       /* Un onglet en arrière-plan ne reçoit plus d'images : au retour, l'écart
          est plafonné, le mur reprend sans rattraper la minute perdue. */
@@ -142,7 +143,15 @@ export default function AnimeWall({
         offs.current[c] += mouvement[c].v * dt;
         const off = offs.current[c];
         const el = pistes.current[c];
-        if (el) el.style.transform = `translate3d(0, ${(-off).toFixed(2)}px, 0)`;
+        /* CALÉE SUR LES PIXELS DE L'ÉCRAN, jamais entre deux. À 18 px/s la
+           colonne avance de ~0,3 px par image : posée à une fraction de pixel,
+           chaque arête nette — le passage d'une affiche à l'interstice sombre
+           qui la suit — était ré-échantillonnée autrement à chaque image et
+           oscillait. Invisible à l'œil nu, mais le flou des widgets
+           (`backdrop-filter`) l'amplifiait en clignotement entre deux affiches
+           (constaté le 16/10/2026 : disparaît avec le flou à 0, ou le mur
+           figé). Un pas d'un pixel physique ne ré-échantillonne rien. */
+        if (el) el.style.transform = `translate3d(0, ${-Math.round(off * dpr) / dpr}px, 0)`;
         const k = Math.floor(off / step) - MARGE;
         if (next[c] !== k) {
           next[c] = k;
