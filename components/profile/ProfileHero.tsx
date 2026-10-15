@@ -516,7 +516,7 @@ export default function ProfileHero({
         <FeaturedBadges
           ids={banner.badges}
           earned={earned}
-          size={Math.round(56 * ((banner.nameScale ?? 100) / 100))}
+          size={Math.round(72 * ((banner.nameScale ?? 100) / 100))}
           className={`gap-2 self-center ${centered ? "justify-center" : ""}`}
         />
         </div>

@@ -74,7 +74,7 @@ export default function ProfileAside({
           <h1 className="break-words font-outfit text-[length:calc(1.65rem*var(--as-nm,1))] font-bold leading-tight">
             {name}
           </h1>
-          <FeaturedBadges ids={badges} earned={earned} size={44} className="mt-3 justify-center gap-2" />
+          <FeaturedBadges ids={badges} earned={earned} size={56} className="mt-3 justify-center gap-2" />
           <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
             {tag ? (
               <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
