@@ -445,6 +445,36 @@ export default function ProfileHero({
     </dl>
   );
 
+  /* EN BANDEAU, les cartes de chiffres passent À DROITE de l'identité, en
+     2 × 2, à partir de `md` (16/10/2026) ; en dessous, elles restent sur leur
+     rangée sous l'en-tête. */
+  const besideCards = !centered && !medallion && !showcase && !asColumn && stats.length > 0;
+  const statCard = (s: (typeof stats)[number]) => (
+    <div
+      key={s.key}
+      className="as-stat-card rounded-xl px-3.5 py-3 ring-1 ring-white/10"
+    >
+      <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+        {s.label}
+      </dt>
+      <dd
+        className={`mt-0.5 font-outfit text-2xl font-bold leading-none ${
+          s.accent ? "text-action" : "text-white"
+        }`}
+      >
+        {s.value}
+      </dd>
+      {s.hint ? (
+        <p className="mt-1 text-[10px] text-white/35">{s.hint}</p>
+      ) : null}
+    </div>
+  );
+  const statCards = (
+    <dl className="ml-auto hidden shrink-0 grid-cols-2 gap-2.5 md:grid md:gap-3">
+      {stats.map(statCard)}
+    </dl>
+  );
+
   /* `max-w-screen-xl`, la largeur des onglets et des widgets (page) : en
      `screen-lg` l'avatar et les chiffres partaient 128 px plus à droite que
      « Aperçu » sur un grand écran, deux bords gauches l'un au-dessus de
@@ -613,6 +643,7 @@ export default function ProfileHero({
         {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
       </div>
       {showcase || medallion ? statLine : null}
+      {besideCards ? statCards : null}
     </>
   );
 
@@ -877,27 +908,12 @@ export default function ProfileHero({
       {/* Le médaillon et la vitrine portent leurs chiffres dans l'identité
           (statLine) ; les cartes ne servent qu'au bandeau et au centré. */}
       {!medallion && !asColumn && !showcase && stats.length > 0 ? (
-        <dl className="mx-auto mt-5 grid w-full max-w-screen-xl grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3">
-          {stats.map((s) => (
-            <div
-              key={s.key}
-              className="as-stat-card rounded-xl px-3.5 py-3 ring-1 ring-white/10"
-            >
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-white/40">
-                {s.label}
-              </dt>
-              <dd
-                className={`mt-0.5 font-outfit text-2xl font-bold leading-none ${
-                  s.accent ? "text-action" : "text-white"
-                }`}
-              >
-                {s.value}
-              </dd>
-              {s.hint ? (
-                <p className="mt-1 text-[10px] text-white/35">{s.hint}</p>
-              ) : null}
-            </div>
-          ))}
+        <dl
+          className={`mx-auto mt-5 grid w-full max-w-screen-xl grid-cols-2 gap-2.5 px-4 sm:grid-cols-4 md:gap-3 ${
+            besideCards ? "md:hidden" : ""
+          }`}
+        >
+          {stats.map(statCard)}
         </dl>
       ) : null}
 
