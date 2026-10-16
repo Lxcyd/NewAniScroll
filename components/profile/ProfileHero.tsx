@@ -18,6 +18,11 @@ import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useScene } from "@/components/profile/ProfileStage";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
+import HoverVolume from "@/components/shared/HoverVolume";
+
+const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
+/* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
+const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileEntry, ProfileStats } from "@/lib/profile/types";
 import { defaultWall, wallCovers } from "@/lib/profile/wall";
@@ -299,6 +304,22 @@ export default function ProfileHero({
      est donc la seule façon de l'entendre, et il dit ce qu'il joue. */
   const audio = useRef<HTMLAudioElement | null>(null);
   const [sound, setSound] = useState(false);
+  /* Le niveau du son du profil — musique, version YouTube, fond vidéo —,
+     réglé au rail de l'icône (HoverVolume, le même que les aperçus au
+     survol) et retenu sur l'appareil, à part de celui des aperçus. */
+  const [vol, setVol] = useState(PROFILE_DEFAULT_VOLUME);
+  useEffect(() => {
+    try {
+      const v = parseFloat(localStorage.getItem(PROFILE_VOLUME_KEY) ?? "");
+      if (Number.isFinite(v)) setVol(Math.min(1, Math.max(0, v)));
+    } catch {}
+  }, []);
+  const changeVol = (v: number) => {
+    setVol(v);
+    try {
+      localStorage.setItem(PROFILE_VOLUME_KEY, String(v));
+    } catch {}
+  };
   /* Une bande-annonce ne compte PAS comme une source de son : elle est jouée
      muette et le reste (voir PlateBackground). Un bouton de son qui ne
      débloquerait rien vaut moins que pas de bouton du tout. */
@@ -343,16 +364,21 @@ export default function ProfileHero({
     const to = banner.music?.to ?? 0;
     let raf = 0;
     const tick = () => {
-      const g = fadeGain(el.currentTime, f, to || el.duration || 0, fade);
+      const g = vol * fadeGain(el.currentTime, f, to || el.duration || 0, fade);
       if (Math.abs(el.volume - g) > 0.005) el.volume = g;
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      el.volume = 1;
+      el.volume = vol;
     };
-  }, [sound, viaYouTube, fade, banner.music?.from, banner.music?.to, banner.music?.url]);
+  }, [sound, viaYouTube, fade, vol, banner.music?.from, banner.music?.to, banner.music?.url]);
+  /* Sans fondu, le niveau se pose tel quel. */
+  useEffect(() => {
+    const el = audio.current;
+    if (el && !(fade > 0)) el.volume = vol;
+  }, [vol, fade, sound, banner.music?.url]);
 
   /* A strip is shown WHOLE or it is not shown honestly. Guessing its shape is
      how the last crop happened: the band was cut to 4.75:1, the ratio AniList
@@ -746,7 +772,7 @@ export default function ProfileHero({
             ref={yt}
             videoId={banner.music.videoId}
             className="block h-[200px] w-[200px]"
-            clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0 }}
+            clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             onError={() => setSound(false)}
           />
           <p className="max-w-[200px] truncate px-2.5 py-1.5 text-[11px] text-white/80">
@@ -784,6 +810,7 @@ export default function ProfileHero({
             fallback={cover}
             wallCovers={covers}
             unmuted={sound && !banner.music}
+            volume={vol}
             priority
             videoRemote={studio?.remote}
             onVideoProgress={
@@ -864,34 +891,22 @@ export default function ProfileHero({
             </Link>
           ) : null}
           {hasSound ? (
-            <button
-              type="button"
-              onClick={() => setSound((s) => !s)}
-              aria-label={
-                banner.music
-                  ? t("profile.playMusic", { title: banner.music.title })
-                  : t("profile.playSound")
-              }
-              title={
+            /* Une icône seule, le volume des aperçus au survol (16/10/2026) :
+               clic = couper / rétablir, survol = rail vertical. Le titre du
+               morceau reste dans l'infobulle. */
+            <HoverVolume
+              muted={!sound}
+              volume={vol}
+              onMuted={(m) => setSound(!m)}
+              onVolume={changeVol}
+              placement="down"
+              fallback={PROFILE_DEFAULT_VOLUME}
+              label={
                 banner.music
                   ? `${banner.music.title}${banner.music.artist ? ` — ${banner.music.artist}` : ""}`
                   : t("profile.playSound")
               }
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-medium ring-1 backdrop-blur-md transition-colors ${
-                sound
-                  ? "bg-action text-white ring-action"
-                  : "bg-black/45 text-white/75 ring-white/10 hover:bg-black/70 hover:text-white"
-              }`}
-            >
-              {sound ? (
-                <SpeakerWaveIcon className="h-4 w-4" />
-              ) : (
-                <SpeakerXMarkIcon className="h-4 w-4" />
-              )}
-              {banner.music ? (
-                <span className="max-w-[9rem] truncate">{banner.music.title}</span>
-              ) : null}
-            </button>
+            />
           ) : null}
           {isOwner && onEditBanner ? (
             <button

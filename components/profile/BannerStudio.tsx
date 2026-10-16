@@ -67,6 +67,7 @@ import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/s
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
+import HoverVolume from "@/components/shared/HoverVolume";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
@@ -3574,79 +3575,30 @@ export default function BannerStudio({
                         {t("profile.studioMusicFade")}
                       </button>
 
-                      {/* Le volume dans sa propre pastille : posé à même le pied
-                          du panneau, il flottait entre le minutage et le bord et
-                          on ne voyait pas où commençait la commande. Le fond la
-                          délimite, comme les pastilles de valeur des réglages de
-                          widget. Le haut-parleur coupe et rétablit — c'est le
-                          geste qu'on cherche en premier, et il évite d'avoir à
-                          viser le zéro du rail. */}
-                      <div className="flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.07] px-2 ring-1 ring-white/[0.06]">
-                      <button
-                        type="button"
-                        onClick={() =>
+                      {/* Le volume des aperçus au survol, à l'identique : une
+                          icône qui coupe et rétablit, un rail vertical au
+                          survol (16/10/2026). Couper garde le niveau d'avant
+                          (`lastVol`), comme le haut-parleur qu'il remplace. */}
+                      <HoverVolume
+                        muted={vol === 0}
+                        volume={vol > 0 ? vol : lastVol.current}
+                        onMuted={(m) =>
                           setVol((v) => {
-                            /* Rétablir rend le niveau qu'on avait réglé, pas un
-                               volume plein qui ferait sursauter. */
-                            if (v > 0) {
-                              lastVol.current = v;
+                            if (m) {
+                              if (v > 0) lastVol.current = v;
                               return 0;
                             }
-                            return lastVol.current;
+                            return lastVol.current || PREVIEW_DEFAULT_VOLUME;
                           })
                         }
-                        aria-label={t(vol > 0 ? "profile.studioMusicMute" : "profile.studioMusicUnmute")}
-                        className="shrink-0 text-white/45 transition-colors hover:text-white"
-                      >
-                        {vol > 0 ? (
-                          <SpeakerWaveIcon className="h-4 w-4" />
-                        ) : (
-                          <SpeakerXMarkIcon className="h-4 w-4" />
-                        )}
-                      </button>
-                      {/* Le curseur de volume est celui du site : remplissage à
-                          l'accent, pastille blanche cerclée d'accent — le même
-                          que le lecteur vidéo et que le flou du dock. Une barre
-                          pleine sans pastille ne disait pas qu'elle se prend en
-                          main. Le rail est ici à 4 px et non 3 : la pastille qui
-                          l'enferme est courte, et un trait de 3 px au milieu de
-                          28 px de fond se lisait comme une grosse boîte autour
-                          d'un fil. */}
-                      <div
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                          setVol(railAt(e));
+                        onVolume={(v) => {
+                          if (v > 0) lastVol.current = v;
+                          setVol(v);
                         }}
-                        onPointerMove={(e) => {
-                          if (e.buttons & 1) setVol(railAt(e));
-                        }}
-                        role="slider"
-                        tabIndex={0}
-                        aria-label={t("profile.studioMusicVolume")}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(vol * 100)}
-                        onKeyDown={(e) => {
-                          const step = e.shiftKey ? 0.2 : 0.05;
-                          if (e.key === "ArrowLeft") setVol((v) => Math.max(0, v - step));
-                          else if (e.key === "ArrowRight") setVol((v) => Math.min(1, v + step));
-                          else return;
-                          e.preventDefault();
-                        }}
-                        className="relative h-4 w-[72px] shrink-0 cursor-pointer touch-none rounded-full outline-none"
-                      >
-                        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/12" />
-                        <span
-                          className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-action"
-                          style={{ width: `${vol * 100}%` }}
-                        />
-                        <span
-                          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
-                          style={{ left: `${vol * 100}%` }}
-                        />
-                      </div>
-                      </div>
+                        placement="up"
+                        fallback={PREVIEW_DEFAULT_VOLUME}
+                        label={t("profile.studioMusicVolume")}
+                      />
                     </div>
                   </div>
     </>

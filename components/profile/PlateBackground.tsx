@@ -128,6 +128,8 @@ type Props = {
    * c'est le bouton de ProfileHero qui le débloque.
    */
   unmuted?: boolean;
+  /** Le niveau du son quand il est rétabli, 0 à 1 (rail de ProfileHero). */
+  volume?: number;
   sizes?: string;
   /**
    * Le studio écoute le fond vidéo pour dessiner son rail : position et durée
@@ -144,6 +146,7 @@ export default function PlateBackground({
   fallback,
   priority,
   unmuted,
+  volume = 1,
   sizes = "100vw",
   onVideoProgress,
   videoRemote,
@@ -200,6 +203,9 @@ export default function PlateBackground({
     el.muted = !unmuted;
     void el.play().catch(() => {});
   }, [unmuted, dressing.url]);
+  useEffect(() => {
+    if (video.current) video.current.volume = Math.min(1, Math.max(0, volume));
+  }, [volume, dressing.url]);
 
   /* ── L'extrait de la bande-annonce ───────────────────────────────────────
      La boucle est tenue ICI, à la main, et non par les paramètres `start` et
