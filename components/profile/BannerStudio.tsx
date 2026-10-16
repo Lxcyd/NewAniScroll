@@ -734,6 +734,17 @@ export default function BannerStudio({
   const barLayerEl = useRef<HTMLDivElement | null>(null);
   const menusEl = useRef<HTMLDivElement | null>(null);
   const firstBarMusic = useRef(true);
+  /* La hauteur de la barre du bas : le lecteur au pied du menu prend la même,
+     et son bord haut tombe pile au niveau de celui de la barre (les deux
+     bas sont déjà calés à 22 px). */
+  const [barH, setBarH] = useState(0);
+  useEffect(() => {
+    const box = menusEl.current?.parentElement;
+    if (!open || !box) return;
+    const ro = new ResizeObserver(() => setBarH(Math.round(box.getBoundingClientRect().height)));
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [open, scope]);
   /*
    * LE LECTEUR PASSE D'UNE FENÊTRE À L'AUTRE, D'UN SEUL TENANT (16/10/2026).
    *
@@ -4285,7 +4296,8 @@ export default function BannerStudio({
                   /* La teinte des cartes du Mur d'animés (`card`, blanc à 3 %),
                      rendue OPAQUE (#1c1d24 sur le fond du panneau) puisque la
                      liste passe dessous (16/10/2026). */
-                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 py-3 ${
+                  style={barH ? { height: barH } : undefined}
+                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 ${barH ? "" : "py-3"} ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
                 >
