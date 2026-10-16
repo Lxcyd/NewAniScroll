@@ -785,8 +785,11 @@ export default function ProfileHero({
             07/09/2026 : c'était le seul calque large peint dans l'en-tête. */}
 
         {/* Where the plate comes from — and, for the owner, the way to change
-            it. Pinned under the navbar so it never crowds the name below. */}
-        <div className="absolute right-3 top-[4.75rem] z-10 flex flex-wrap items-center justify-end gap-2 md:right-6">
+            it. Pinned under the navbar so it never crowds the name below.
+            `z-20`, AU-DESSUS de l'identité (`z-10`, posée après) : en vitrine,
+            sa boîte pleine largeur remonte jusqu'ici une fois les badges sous
+            le pseudo, et avalait le clic du bouton bannière (16/10/2026). */}
+        <div className="absolute right-3 top-[4.75rem] z-20 flex flex-wrap items-center justify-end gap-2 md:right-6">
           {banner.title && banner.animeId ? (
             <Link
               href={animeHref(banner.animeId, clickTarget)}
