@@ -45,10 +45,12 @@ import {
   TrophyIcon,
   ViewColumnsIcon,
   XMarkIcon,
+  LinkIcon,
 } from "@heroicons/react/24/outline";
 import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
+import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
@@ -689,9 +691,16 @@ export default function BannerStudio({
 
   /* L'écoute, dans le menu Musique. Elle ne sert qu'à choisir : le lecteur vit
      avec le menu et s'arrête en même temps que lui, puisqu'il en est retiré du
-     DOM. C'est le fichier d'AnimeThemes qui est écouté ici — le rip de 90 s —
-     même quand le profil jouera ensuite la version complète depuis YouTube. */
-  const preview = useRef<HTMLAudioElement | null>(null);
+     DOM. On écoute ce que le profil jouera : le fichier d'AnimeThemes (90 s),
+     ou la vidéo YouTube quand la musique en a une (version complète, lien
+     collé, bande-annonce) — d'où un type commun aux deux lecteurs. */
+  const preview = useRef<MusicMedia | null>(null);
+  /** La version complète qu'on a quittée pour la version TV, par fichier :
+      revenir à « Complète » la retrouve, même collée à la main. */
+  const [fullFor, setFullFor] = useState<Record<string, string>>({});
+  /** Le champ « lien YouTube » du pied : ouvert ou non, et ce qu'on y tape. */
+  const [ytLink, setYtLink] = useState<string | null>(null);
+  const [ytBad, setYtBad] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
@@ -1107,7 +1116,8 @@ export default function BannerStudio({
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
        au site, qui la lit dans le même cache mais à jour. */
-    if (known && (scope !== "video" || known.trailer)) {
+    /* La musique aussi la veut : la bande-annonce se prend comme musique. */
+    if (known && ((scope !== "video" && scope !== "music") || known.trailer)) {
       setMeta(known);
       return;
     }
@@ -1258,7 +1268,7 @@ export default function BannerStudio({
      changement de morceau, comme dans n'importe quel lecteur. */
   useEffect(() => {
     if (preview.current) preview.current.volume = vol;
-  }, [vol, draft.music?.url]);
+  }, [vol, draft.music?.url, draft.music?.videoId]);
 
   /** La durée du fondu de l'extrait, en secondes — 0 quand la coupe est franche. */
   const fadeSec = draft.music?.fade ?? 0;
@@ -1315,7 +1325,7 @@ export default function BannerStudio({
     setBuf(0);
     el.currentTime = draft.music?.from ?? 0;
     void el.play().catch(() => setPlaying(false));
-  }, [wantPlay, draft.music?.url]);
+  }, [wantPlay, draft.music?.url, draft.music?.videoId]);
 
   const openScope = useCallback((s: PaletteScope) => {
     /* La barre réagit au clic (`barVise`, urgent) ; le menu lui-même se prépare
@@ -2643,6 +2653,43 @@ export default function BannerStudio({
               />
             ),
           });
+          /* La bande-annonce se prend aussi comme musique (16/10/2026) : en
+             tête, avant les génériques, et même quand l'anime n'en a aucun —
+             c'est souvent le seul son d'un titre pas encore diffusé. */
+          const vu = meta?.mediaId === pick ? meta : listedAnime;
+          const pv = vu?.trailer ?? null;
+          if (pv)
+            gal.push({
+              title: "",
+              rows: [
+                {
+                  key: `music-trailer-${pv}`,
+                  label: t("profile.artTrailer"),
+                  chip: { text: "PV", op: true },
+                  hint: vu?.title ?? null,
+                  icon: FilmIcon,
+                  thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
+                  square: true,
+                  selected: !draft.music?.url && draft.music?.videoId === pv,
+                  run: () => {
+                    patch({
+                      music: {
+                        url: "",
+                        title: t("profile.artTrailer"),
+                        artist: vu?.title ?? null,
+                        slug: "PV",
+                        cover: vu?.cover ?? null,
+                        from: null,
+                        to: null,
+                        fade: fadeSec,
+                        videoId: pv,
+                      },
+                    });
+                    setWantPlay(true);
+                  },
+                },
+              ],
+            });
           if (liste == null)
             /* Les génériques sont en route : des lignes qui attendent, plutôt
                qu'un « aucun générique » qui mentirait une seconde. */
@@ -2902,6 +2949,49 @@ export default function BannerStudio({
   const from = draft.music?.from ?? 0;
   const to = draft.music?.to ?? len;
   const pct = (s: number) => (len ? Math.min(100, Math.max(0, (s / len) * 100)) : 0);
+
+  /* ── La source : version TV ou version complète ─────────────────────
+     Un générique a deux sources possibles : le rip d'AnimeThemes (90 s, la
+     version télé) et la version COMPLÈTE sur YouTube, quand le résolveur l'a
+     trouvée — ou quand on colle soi-même le lien. Le choix se fait au pied du
+     menu ; changer de source remet les bornes à zéro, les deux durées n'ayant
+     rien de commun. */
+  const tvUrl = draft.music?.url || "";
+  let knownFull: string | null = null;
+  if (tvUrl)
+    for (const list of themeCache.current.values())
+      for (const th of list)
+        if (!knownFull && [th.videoNc?.audio, th.video?.audio, th.videoNc?.url, th.video?.url].includes(tvUrl))
+          knownFull = th.youtubeId ?? null;
+  const fullId = (tvUrl && draft.music?.videoId) || fullFor[tvUrl] || knownFull;
+  const setSource = (full: boolean) => {
+    if (!draft.music) return;
+    const cur = draft.music.videoId;
+    if (!full && cur && tvUrl) setFullFor((m) => ({ ...m, [tvUrl]: cur }));
+    patch({ music: { ...draft.music, videoId: full ? fullId || null : null, from: null, to: null } });
+    setAt(0);
+    setLen(0);
+    setWantPlay(true);
+  };
+  /** Un lien YouTube collé (watch, youtu.be, shorts, embed) ou l'identifiant nu. */
+  const applyLink = () => {
+    const raw = (ytLink ?? "").trim();
+    const m =
+      /(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/.exec(raw) ??
+      /^([A-Za-z0-9_-]{11})$/.exec(raw);
+    if (!m || !draft.music) {
+      setYtBad(true);
+      return;
+    }
+    const id = m[1];
+    if (tvUrl) setFullFor((f) => ({ ...f, [tvUrl]: id }));
+    patch({ music: { ...draft.music, videoId: id, from: null, to: null } });
+    setYtLink(null);
+    setYtBad(false);
+    setAt(0);
+    setLen(0);
+    setWantPlay(true);
+  };
 
   /** Poser l'écoute à une fraction du rail, en la gardant DANS l'extrait : le
       son entendu doit être celui qui sera joué sur le profil. */
@@ -3821,14 +3911,97 @@ export default function BannerStudio({
                     </span>
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-outfit text-[13px] font-bold text-white">
-                      {draft.music.title}
-                      {draft.music.videoId ? (
-                        <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
-                          {t("profile.studioMusicFull")}
-                        </span>
+                    {ytLink !== null ? (
+                      /* Coller sa propre version : le résolveur peut ne pas
+                         l'avoir trouvée, ou avoir pris la mauvaise. */
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          applyLink();
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          autoFocus
+                          value={ytLink}
+                          onChange={(e) => {
+                            setYtLink(e.target.value);
+                            setYtBad(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.stopPropagation();
+                              setYtLink(null);
+                            }
+                          }}
+                          placeholder={t("profile.studioMusicLinkPh")}
+                          className={`h-7 min-w-0 flex-1 rounded-md bg-white/[0.07] px-2.5 font-karla text-[12px] text-white outline-none ring-1 placeholder:text-white/30 ${
+                            ytBad ? "ring-red-400/70" : "ring-white/10 focus:ring-action/60"
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          className="h-7 shrink-0 rounded-md bg-action px-3 font-karla text-[11px] font-bold text-white"
+                        >
+                          {t("profile.studioMusicLinkOk")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setYtLink(null)}
+                          aria-label={t("profile.studioMusicLinkCancel")}
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/45 hover:text-white"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </form>
+                    ) : (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
+                        {draft.music.title}
+                      </p>
+                      {/* Version TV / complète : seulement pour un générique
+                          (la bande-annonce n'a que sa vidéo). « Complète »
+                          sans version connue ouvre directement le champ du
+                          lien. */}
+                      {tvUrl ? (
+                        <div className="flex h-6 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
+                          {([false, true] as const).map((full) => {
+                            const on = full === !!draft.music?.videoId;
+                            return (
+                              <button
+                                key={String(full)}
+                                type="button"
+                                onClick={() => {
+                                  if (on) return;
+                                  if (full && !fullId) setYtLink("");
+                                  else setSource(full);
+                                }}
+                                aria-pressed={on}
+                                title={full ? t("profile.studioMusicFull") : undefined}
+                                className={`h-5 rounded-full px-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors ${
+                                  on ? "bg-action text-white" : "text-white/45 hover:text-white"
+                                }`}
+                              >
+                                {t(full ? "profile.studioMusicSrcFull" : "profile.studioMusicSrcTv")}
+                              </button>
+                            );
+                          })}
+                        </div>
                       ) : null}
-                    </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setYtLink("");
+                          setYtBad(false);
+                        }}
+                        title={t("profile.studioMusicLink")}
+                        aria-label={t("profile.studioMusicLink")}
+                        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/45 ring-1 ring-white/[0.06] transition-colors hover:text-white"
+                      >
+                        <LinkIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    )}
                     {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
                         Les deux poignées jaunes bornent ce qui sera joué sur le
                         profil ; entre elles, le rose dit où en est l'écoute.
@@ -3980,9 +4153,43 @@ export default function BannerStudio({
           que l'en-tête, et chaque saut dans le morceau redemandait sa plage au
           serveur avant de reprendre. Un générique pèse ~2 Mo — chargé une fois,
           il ne fait plus jamais attendre. */}
-      {draft.music ? (
+      {draft.music?.videoId ? (
+        /* La vidéo YouTube (version complète, lien collé, bande-annonce). Le
+           lecteur officiel reste VISIBLE tant qu'il joue — même règle que sur
+           le profil (voir YouTubeMusic) ; à l'arrêt il s'efface, sans être
+           démonté pour ne pas recharger. */
+        <div
+          className={`pointer-events-auto fixed bottom-[124px] right-4 z-[10004] overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15 transition-opacity ${
+            playing || buffering ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
+          <YouTubeMusic
+            ref={preview}
+            videoId={draft.music.videoId}
+            className="block h-[200px] w-[200px]"
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onWaiting={() => setBuffering(true)}
+            onPlaying={() => setBuffering(false)}
+            onDuration={(d) => {
+              setLen(d);
+              /* Le lecteur ne dit pas ce qu'il a chargé : tout le rail est
+                 « prêt », YouTube rattrape les sauts tout seul. */
+              setBuf(1);
+            }}
+            onTime={(x) => setAt(x)}
+            onError={() => {
+              setPlaying(false);
+              setBuffering(false);
+            }}
+          />
+        </div>
+      ) : draft.music ? (
         <audio
-          ref={preview}
+          ref={(el) => {
+            preview.current = el;
+          }}
           src={audioFirst(draft.music.url)}
           onError={(e) => {
             const url = draft.music?.url;

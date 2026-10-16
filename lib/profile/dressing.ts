@@ -65,8 +65,10 @@ export type DressingMusic = {
    * plutôt que de laisser le hasard décider par où la boucle repasse, on
    * découpe une fois pour toutes.
    *
-   * Ne s'applique qu'au fichier d'AnimeThemes. La version YouTube complète est
-   * jouée par le lecteur officiel, qu'on ne pilote pas d'ici.
+   * S'applique à la source jouée : le fichier d'AnimeThemes, OU la vidéo
+   * YouTube quand `videoId` est posé (pilotée depuis le 16/10/2026, voir
+   * components/profile/YouTubeMusic). Les deux n'ont pas la même durée : le
+   * studio remet les bornes à zéro quand on passe de l'une à l'autre.
    */
   from: number | null;
   to: number | null;
@@ -80,7 +82,10 @@ export type DressingMusic = {
    * bandes-annonces au survol, scène « music » (voir stageStore).
    *
    * Reste `null` tant que la table de résolution n'est pas remplie : le
-   * résolveur de tools/ost-resolver produit ces identifiants hors ligne.
+   * résolveur de tools/ost-resolver produit ces identifiants hors ligne. Le
+   * studio laisse aussi le poser à la main (lien collé) ou y mettre la
+   * bande-annonce de l'anime : `url` est alors vide, la vidéo est la seule
+   * source.
    */
   videoId: string | null;
   /**
@@ -91,8 +96,7 @@ export type DressingMusic = {
    * fondu est SYMÉTRIQUE (même durée des deux côtés) : deux réglages pour un
    * geste qu'on veut « adoucir la boucle » auraient coûté un panneau.
    *
-   * Comme les bornes, ne s'applique qu'au fichier d'AnimeThemes — la version
-   * YouTube est jouée par un lecteur qu'on ne pilote pas.
+   * Comme les bornes, s'applique à la source jouée, fichier ou YouTube.
    */
   fade: number;
 };
@@ -460,9 +464,11 @@ export function normalizeDressing(raw: unknown): Dressing | null {
   const musicUrl = rawMusic ? str(rawMusic.url, 500) : null;
   const videoId = youtubeId(rawMusic?.videoId);
 
-  const music: DressingMusic | null = musicUrl
+  /* Une musique sans fichier est légitime dès qu'elle a sa vidéo : c'est le
+     cas de la bande-annonce prise comme musique. */
+  const music: DressingMusic | null = musicUrl || videoId
     ? {
-        url: musicUrl,
+        url: musicUrl ?? "",
         title: str(rawMusic.title) || "—",
         artist: str(rawMusic.artist),
         slug: str(rawMusic.slug, 16),

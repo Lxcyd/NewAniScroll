@@ -52,7 +52,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!ok) return res.status(400).json({ error: "url" });
     }
 
-    if (dressing.music && !isAllowedMediaUrl(dressing.music.url)) {
+    /* `url` vide = la musique n'est que sa vidéo YouTube (bande-annonce,
+       lien collé) : `videoId` est déjà filtré par normalizeDressing. */
+    if (dressing.music?.url && !isAllowedMediaUrl(dressing.music.url)) {
       return res.status(400).json({ error: "music" });
     }
 

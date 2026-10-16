@@ -17,12 +17,7 @@ import PlateBackground, { type TrailerRemote } from "@/components/profile/PlateB
 import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useScene } from "@/components/profile/ProfileStage";
-import dynamic from "next/dynamic";
-/* Only mounted for a YouTube music banner. next/dynamic keeps SSR (the server
-   still renders it when it applies) but its chunk leaves the profile's first
-   load for every other banner. */
-const TrailerStage = dynamic(() => import("@/components/shared/HoverPreview/TrailerStage"));
-import { attachStage, detachStage } from "@/components/shared/HoverPreview/stageStore";
+import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileEntry, ProfileStats } from "@/lib/profile/types";
 import { defaultWall, wallCovers } from "@/lib/profile/wall";
@@ -317,19 +312,17 @@ export default function ProfileHero({
      bandes-annonces au survol (scène « music », indépendante : voir
      stageStore, sinon survoler une affiche coupait le son). */
   const viaYouTube = !!banner.music?.videoId;
-  const musicSlot = useRef<HTMLDivElement | null>(null);
+  const yt = useRef<MusicMedia | null>(null);
 
+  /* Le lecteur YouTube est monté par le clic (il ne se charge qu'à ce
+     moment-là) : `play` part dès qu'il est là, et la file du composant garde
+     l'ordre s'il démarre encore. */
   useEffect(() => {
-    const el = musicSlot.current;
-    const id = banner.music?.videoId;
-    if (!el || !id || !sound) return;
-    attachStage("music", {
-      el,
-      id,
-      handlers: { onPlaying: () => {}, onHide: () => setSound(false), onProgress: () => {} },
-    });
-    return () => detachStage("music", el);
-  }, [sound, banner.music?.videoId]);
+    const el = yt.current;
+    if (!el || !viaYouTube) return;
+    if (sound) void el.play();
+    else el.pause();
+  }, [sound, viaYouTube, banner.music?.videoId]);
 
   useEffect(() => {
     const el = audio.current;
@@ -737,21 +730,25 @@ export default function ProfileHero({
           lecteur officiel qui sert le morceau et sa publicité, laquelle paie la
           licence. Le masquer pour n'en garder que le son reviendrait à
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
-          demandent les conditions de l'API ; le SCALE de TrailerStage efface
-          par ailleurs l'habillage YouTube, donc ça se lit comme une pochette
-          qui bouge, pas comme une vidéo. */}
-      {viaYouTube && sound ? (
+          demandent les conditions de l'API. */}
+      {viaYouTube && sound && banner.music?.videoId ? (
         <div className="fixed bottom-4 right-4 z-40 overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15">
-          <div ref={musicSlot} className="h-[200px] w-[200px]" />
-          {banner.music ? (
-            <p className="max-w-[200px] truncate px-2.5 py-1.5 text-[11px] text-white/80">
-              {banner.music.title}
-              {banner.music.artist ? ` — ${banner.music.artist}` : ""}
-            </p>
-          ) : null}
+          {/* Les bornes et le fondu réglés au studio valent aussi pour la
+              version YouTube depuis le 16/10/2026 : le lecteur est piloté
+              (YouTubeMusic), il n'est plus la scène muette des aperçus. */}
+          <YouTubeMusic
+            ref={yt}
+            videoId={banner.music.videoId}
+            className="block h-[200px] w-[200px]"
+            clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0 }}
+            onError={() => setSound(false)}
+          />
+          <p className="max-w-[200px] truncate px-2.5 py-1.5 text-[11px] text-white/80">
+            {banner.music.title}
+            {banner.music.artist ? ` — ${banner.music.artist}` : ""}
+          </p>
         </div>
       ) : null}
-      {viaYouTube ? <TrailerStage scene="music" /> : null}
       {asPage ? portal(
         <div className="as-page-plate">
           {/* Full-bleed, and a wallpaper that fills the window is worth the ~10%
