@@ -711,6 +711,8 @@ export default function BannerStudio({
      disparaît : deux lecteurs montés, et le champ du lien (autoFocus)
      prenait le focus dans celui qu'on ne voit pas. */
   const [barMusicMounted, setBarMusicMounted] = useState(false);
+  /** La hauteur du lecteur au pied du menu, pour animer sa fermeture. */
+  const [footH, setFootH] = useState(0);
   useEffect(() => {
     if (barMusic) {
       setBarMusicMounted(true);
@@ -4199,11 +4201,19 @@ export default function BannerStudio({
                      menu se resserre — glisser en se refermant le faisait
                      descendre en même temps (16/10/2026). Au retour, l'ordre
                      inverse : la place s'ouvre, puis il entre. */
-                  className={`grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic ? "grid-rows-[0fr] delay-500" : "grid-rows-[1fr] delay-0"
+                  /* La hauteur en pixels, mesurée : `grid-template-rows` de 1fr
+                     à 0fr ne s'animait pas (mesuré par CDP, saut net), et la
+                     liste sautait d'un coup au lieu de se réadapter. */
+                  className={`overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
+                    barMusic ? "delay-500" : "delay-0"
                   }`}
+                  style={{ height: barMusic ? 0 : footH || "auto" }}
                 >
-                <div className="min-h-0 overflow-hidden">
+                <div
+                  ref={(el) => {
+                    if (el && el.offsetHeight && el.offsetHeight !== footH) setFootH(el.offsetHeight);
+                  }}
+                >
                 <div
                   className={`flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3 transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
                     barMusic
