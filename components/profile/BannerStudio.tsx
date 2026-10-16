@@ -270,7 +270,7 @@ type Row = {
   label: string;
   hint?: string | null;
   /** Pastille de nature — OP en accent, ED en bleu, comme sur la fiche anime. */
-  chip?: { text: string; op: boolean } | null;
+  chip?: { text: string; op: boolean; color?: string } | null;
   thumb?: string | null;
   /** Vignette carrée (pochette d'un générique) plutôt qu'en paysage. */
   square?: boolean;
@@ -2706,8 +2706,9 @@ export default function BannerStudio({
               rows: [
                 {
                   key: `music-trailer-${pv}`,
-                  label: t("profile.artTrailer"),
-                  chip: { text: "PV", op: true },
+                  label: t("profile.studioMusicTrailer"),
+                  /* TRL, en vert : ni opening (accent) ni ending (bleu). */
+                  chip: { text: "TRL", op: false, color: "#4ade80" },
                   hint: vu?.title ?? null,
                   icon: FilmIcon,
                   thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
@@ -2717,9 +2718,9 @@ export default function BannerStudio({
                     patch({
                       music: {
                         url: "",
-                        title: t("profile.artTrailer"),
+                        title: t("profile.studioMusicTrailer"),
                         artist: vu?.title ?? null,
-                        slug: "PV",
+                        slug: "TRL",
                         cover: vu?.cover ?? null,
                         from: null,
                         to: null,
@@ -3883,10 +3884,12 @@ export default function BannerStudio({
                                     className="shrink-0 rounded font-karla text-[10px] font-bold leading-none tracking-[.03em]"
                                     style={{
                                       padding: "3px 5px",
-                                      background: row.chip.op
-                                        ? `color-mix(in srgb, ${accent} 16%, transparent)`
-                                        : "rgba(120,140,255,0.14)",
-                                      color: row.chip.op ? accent : "#8a9bff",
+                                      background: row.chip.color
+                                        ? `color-mix(in srgb, ${row.chip.color} 16%, transparent)`
+                                        : row.chip.op
+                                          ? `color-mix(in srgb, ${accent} 16%, transparent)`
+                                          : "rgba(120,140,255,0.14)",
+                                      color: row.chip.color ?? (row.chip.op ? accent : "#8a9bff"),
                                     }}
                                   >
                                     {row.chip.text}
