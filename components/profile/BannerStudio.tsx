@@ -45,7 +45,6 @@ import {
   TrophyIcon,
   ViewColumnsIcon,
   XMarkIcon,
-  LinkIcon,
 } from "@heroicons/react/24/outline";
 import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
@@ -705,6 +704,8 @@ export default function BannerStudio({
   /** Le champ « lien YouTube » du pied : ouvert ou non, et ce qu'on y tape. */
   const [ytLink, setYtLink] = useState<string | null>(null);
   const [ytBad, setYtBad] = useState(false);
+  /** Menu Musique replié : il ne reste que le lecteur, posé sur la barre. */
+  const [musicFold, setMusicFold] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
@@ -907,6 +908,8 @@ export default function BannerStudio({
   /* Musique y est depuis le 16/10/2026 : même accordéon que Image — la liste
      des animés (et la recherche AniList), un anime ouvert déplie ses
      génériques sous sa ligne. */
+  /* Le menu Musique replié sur son lecteur (flèche du pied). */
+  const musicFolded = scope === "music" && musicFold && !!draft.music;
   const twoScreens = scope === "video" || scope === "banner" || scope === "image" || scope === "music";
 
   const listedAnime = twoScreens
@@ -3322,7 +3325,7 @@ export default function BannerStudio({
               voile, on regarde le résultat en choisissant. Les autres menus
               (musique, agencement, cadre) restent des fenêtres posées sur le
               cadre, et se ferment d'un clic à côté. */}
-          {inColumn ? null : (
+          {inColumn || musicFolded ? null : (
           <button
             type="button"
             aria-label={t("common.close", { defaultValue: "Close" })}
@@ -3361,7 +3364,7 @@ export default function BannerStudio({
                       : "max-w-3xl"
               }`}
             >
-              <div className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
+              <div className={`relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5 ${musicFolded ? "hidden" : ""}`}>
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
                     ne filtrerait rien. */}
@@ -3598,7 +3601,7 @@ export default function BannerStudio({
                 onPointerMove={clavier ? () => setClavier(false) : undefined}
                 className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
-                }`}
+                } ${musicFolded ? "hidden" : ""}`}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
@@ -4035,18 +4038,6 @@ export default function BannerStudio({
                           })}
                         </div>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setYtLink("");
-                          setYtBad(false);
-                        }}
-                        title={t("profile.studioMusicLink")}
-                        aria-label={t("profile.studioMusicLink")}
-                        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white/[0.07] text-white/45 ring-1 ring-white/[0.06] transition-colors hover:text-white"
-                      >
-                        <LinkIcon className="h-3.5 w-3.5" />
-                      </button>
                     </div>
                     )}
                     {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
@@ -4177,6 +4168,22 @@ export default function BannerStudio({
                       </div>
                     </div>
                   </div>
+                  {/* La flèche de droite replie le menu : il ne reste que ce
+                      lecteur, posé sur la barre du bas, pour écouter et régler
+                      les bornes en regardant le profil. Elle le rouvre aussi. */}
+                  <button
+                    type="button"
+                    onClick={() => setMusicFold((f) => !f)}
+                    aria-expanded={!musicFold}
+                    aria-label={t(musicFold ? "profile.studioMusicUnfold" : "profile.studioMusicFold")}
+                    title={t(musicFold ? "profile.studioMusicUnfold" : "profile.studioMusicFold")}
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <ChevronDownIcon
+                      className={`h-4 w-4 transition-transform ${musicFold ? "rotate-180" : ""}`}
+                      strokeWidth={2.2}
+                    />
+                  </button>
                 </div>
               ) : null}
 
