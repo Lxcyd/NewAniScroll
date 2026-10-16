@@ -1424,7 +1424,8 @@ export default function BannerStudio({
         );
       };
       out.push({
-        title: t("profile.studioLayoutSection"),
+        /* Sans intitulé : le menu s'appelle déjà « Agencement » (16/10/2026). */
+        title: "",
         rows: [],
         grow: true,
         fill: true,
