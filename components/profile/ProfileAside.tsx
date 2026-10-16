@@ -79,7 +79,7 @@ export default function ProfileAside({
           </h1>
           <FeaturedBadges ids={badges} earned={earned} size={Math.round(44 * (badgeScale / 100))} className="mt-3 justify-center gap-2" />
           {/* LA LIGNE D'IDENTITÉ, la même que dans l'en-tête (ProfileHero) :
-              le logo AniList en lien, l'identifiant, la date d'arrivée —
+              le logo AniList en lien, la date d'arrivée, l'identifiant À DROITE —
               chacun dans sa petite boîte (16/10/2026). Sans fond flou à
               elles : la colonne en est déjà une. */}
           {tag || anilistName || createdAt ? (
@@ -97,11 +97,6 @@ export default function ProfileAside({
                   <img src="https://anilist.co/img/icons/icon.svg" alt="" className="h-4 w-4" />
                 </a>
               ) : null}
-              {tag ? (
-                <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
-                  #{tag}
-                </span>
-              ) : null}
               {createdAt ? (
                 <span className="rounded-md bg-black/40 px-2 py-1 text-white/65 ring-1 ring-white/10">
                   {/* Formatée contre la langue ACTIVE, en UTC — mêmes raisons,
@@ -113,6 +108,11 @@ export default function ProfileAside({
                       timeZone: "UTC",
                     }),
                   })}
+                </span>
+              ) : null}
+              {tag ? (
+                <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
+                  #{tag}
                 </span>
               ) : null}
             </div>
