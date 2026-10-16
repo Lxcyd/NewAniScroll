@@ -745,8 +745,11 @@ export default function BannerStudio({
    * deux vitesses, et on voyait le lecteur en double, les menus à la traîne.
    *
    * Ici une seule course `o` (la couche de la barre, de 0 à −largeur) ; les
-   * menus la suivent bord à bord, et la copie du menu est posée à la même
-   * abscisse que celle de la barre — arrêtée à son pied (`max(0, …)`).
+   * menus la suivent bord à bord, et la copie du menu suit le BORD DROIT de
+   * celle de la barre : elle arrive à son pied à l'instant exact où la
+   * dernière parcelle de la barre en sort, et inversement. Aligner les bords
+   * gauches ne suffisait pas : la copie de la barre est trois fois plus large,
+   * son volume restait sur la barre quand le menu avait fini (16/10/2026).
    */
   useBeforePaint(() => {
     if (firstBarMusic.current) {
@@ -760,7 +763,6 @@ export default function BannerStudio({
     if (!layer || !menus || !box) return;
     const W = box.getBoundingClientRect().width;
     const panel = foot?.parentElement;
-    const dx = panel ? box.getBoundingClientRect().left - panel.getBoundingClientRect().left : 0;
     const N = 40;
     const at = (k: number) => {
       const e = dockEase(k / N);
@@ -771,7 +773,7 @@ export default function BannerStudio({
     const opts: KeyframeAnimationOptions = { duration: 500, easing: "linear", fill: "backwards" };
     layer.animate(frames((o) => o), opts);
     menus.animate(frames((o) => o + W), opts);
-    if (foot && panel) foot.animate(frames((o) => Math.max(0, dx + o)), opts);
+    if (foot && panel) foot.animate(frames((o) => o + W), opts);
   }, [barMusic]);
   /* La liste rend sa place au lecteur en même temps qu'il part, mais ne la
      reprend qu'une fois qu'il est revenu : avant, le bas de la liste se
