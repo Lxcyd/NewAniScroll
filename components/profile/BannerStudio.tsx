@@ -3939,7 +3939,7 @@ export default function BannerStudio({
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
                 /* La place du lecteur de musique posé par-dessus le bas. */
-                style={scope === "music" && draft.music && footSpace && !barMusic ? { marginBottom: footH + 10 } : undefined}
+                style={scope === "music" && draft.music && footSpace && !barMusic ? { marginBottom: footH } : undefined}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
@@ -4282,10 +4282,10 @@ export default function BannerStudio({
                   }}
                   /* Pas de transition CSS : le glissement est calculé avec
                      celui de la barre (voir `barMusic`). */
-                  /* Une carte, comme celles du Mur d'animés (`card`) : le blanc
-                     à 3 % de ces cartes, rendu OPAQUE (#1c1d24 sur le fond du
-                     panneau) puisque la liste passe dessous (16/10/2026). */
-                  className={`absolute inset-x-2.5 bottom-2.5 z-20 flex select-none items-center gap-3 rounded-xl bg-[#1c1d24] px-3.5 py-3 ring-1 ring-white/[0.07] ${
+                  /* La teinte des cartes du Mur d'animés (`card`, blanc à 3 %),
+                     rendue OPAQUE (#1c1d24 sur le fond du panneau) puisque la
+                     liste passe dessous (16/10/2026). */
+                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 py-3 ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
                 >
