@@ -17,60 +17,74 @@ import type { HeroLayout } from "@/lib/profile/dressing";
  * de taille avec sa ligne de menu sans que rien ne change de proportion.
  */
 
+type Align = "start" | "center" | "end";
+
 type Shape =
   | { k: "av"; l: number; t: number; w: number }
-  | { k: "name"; l: number; t: number; w: number; size: number; center?: boolean }
-  | { k: "chips"; l: number; t: number; scale?: number; center?: boolean }
+  /* `badges` : les badges sur la ligne du pseudo, à sa droite (leur échelle). */
+  | { k: "name"; l: number; t: number; w: number; size: number; center?: boolean; badges?: number }
+  /* La ligne d'identité (logo AniList, identifiant, date). Avec `w`, alignée
+     dans cette largeur ; sans, posée à `l`. */
+  | { k: "chips"; l: number; t: number; w?: number; scale?: number; align?: Align }
+  /* Les badges mis en avant, seuls sur leur ligne. */
+  | { k: "badges"; l: number; t: number; w: number; scale?: number; align?: Align }
   | { k: "cards"; l: number; t: number; w: number; h: number; rows?: number }
   | { k: "bar"; l: number; t: number; w: number; h: number }
-  | { k: "line"; r: number; t: number; w: number }
+  /* Les quatre chiffres en 2 × 2, sans cartes (médaillon). */
+  | { k: "grid2"; l: number; t: number; w: number; h: number }
   | { k: "tabs"; l: number; t: number; w: number }
   | { k: "panel"; l: number; t: number; w: number; h: number }
-  | { k: "wid"; l: number; t: number; w: number; h: number; cols?: number }
-  | { k: "cue" };
+  | { k: "wid"; l: number; t: number; w: number; h: number; cols?: number };
 
+/* Redessinées le 16/10/2026 sur les agencements tels qu'ils sont devenus :
+   badges à côté du pseudo (bandeau), dessous (centré, colonne), au-dessus des
+   chiffres (vitrine) ; chiffres en 2 × 2 dans le médaillon ; plus de chevron
+   en vitrine, ce sont les onglets qui dépassent en bas. */
 const PLAN: Record<HeroLayout, Shape[]> = {
   band: [
     { k: "av", l: 7, t: 19, w: 17 },
-    { k: "name", l: 28, t: 28, w: 64, size: 8 },
-    { k: "chips", l: 28, t: 41 },
+    { k: "name", l: 28, t: 24, w: 64, size: 8, badges: 1 },
+    { k: "chips", l: 28, t: 38 },
     { k: "cards", l: 7, t: 54, w: 86, h: 14 },
     { k: "tabs", l: 7, t: 72, w: 86 },
     { k: "wid", l: 7, t: 80, w: 86, h: 40 },
   ],
   center: [
-    { k: "av", l: 41.5, t: 4, w: 17 },
-    { k: "name", l: 7, t: 33, w: 86, size: 8, center: true },
-    { k: "chips", l: 0, t: 45, center: true },
-    { k: "cards", l: 7, t: 54, w: 86, h: 14 },
-    { k: "tabs", l: 7, t: 72, w: 86 },
-    { k: "wid", l: 7, t: 80, w: 86, h: 40 },
+    { k: "av", l: 42.5, t: 3, w: 15 },
+    { k: "name", l: 7, t: 28, w: 86, size: 7.5, center: true },
+    { k: "badges", l: 7, t: 39, w: 86, align: "center" },
+    { k: "chips", l: 7, t: 47.5, w: 86, scale: 0.8, align: "center" },
+    { k: "cards", l: 7, t: 56, w: 86, h: 13 },
+    { k: "tabs", l: 7, t: 73, w: 86 },
+    { k: "wid", l: 7, t: 81, w: 86, h: 40 },
   ],
   medallion: [
     /* Une plaque vitrée qui tient tout, portrait compris. */
-    { k: "panel", l: 7, t: 30, w: 86, h: 38 },
-    { k: "av", l: 10, t: 35, w: 17 },
-    { k: "name", l: 30, t: 42, w: 28, size: 6.5 },
-    { k: "chips", l: 30, t: 53, scale: 0.8 },
-    { k: "line", r: 10, t: 45, w: 30 },
+    { k: "panel", l: 7, t: 22, w: 86, h: 44 },
+    { k: "av", l: 10, t: 30, w: 17 },
+    { k: "name", l: 30, t: 33, w: 30, size: 6.5, badges: 0.75 },
+    { k: "chips", l: 30, t: 46, scale: 0.8 },
+    { k: "grid2", l: 62, t: 27, w: 28, h: 34 },
     { k: "tabs", l: 7, t: 73, w: 86 },
     { k: "wid", l: 7, t: 80, w: 86, h: 40 },
   ],
   column: [
     { k: "panel", l: 4, t: 12, w: 31, h: 95 },
-    { k: "av", l: 7.5, t: 17, w: 12 },
-    { k: "name", l: 7.5, t: 39, w: 25, size: 5 },
-    { k: "chips", l: 7.5, t: 48, scale: 0.6 },
-    { k: "cards", l: 7.5, t: 57, w: 24, h: 28, rows: 2 },
+    { k: "av", l: 13.5, t: 16, w: 12 },
+    { k: "name", l: 4, t: 37, w: 31, size: 5, center: true },
+    { k: "badges", l: 4, t: 45, w: 31, scale: 0.6, align: "center" },
+    { k: "chips", l: 4, t: 51.5, w: 31, scale: 0.55, align: "center" },
+    { k: "cards", l: 7.5, t: 58, w: 24, h: 28, rows: 2 },
     { k: "tabs", l: 39, t: 12, w: 57 },
     { k: "wid", l: 39, t: 21, w: 57, h: 90, cols: 2 },
   ],
   showcase: [
-    { k: "av", l: 7, t: 58, w: 17 },
-    { k: "name", l: 28, t: 63, w: 28, size: 7.5 },
-    { k: "chips", l: 28, t: 76 },
-    { k: "line", r: 6, t: 68, w: 38 },
-    { k: "cue" },
+    { k: "av", l: 6, t: 57, w: 16 },
+    { k: "name", l: 25, t: 62, w: 28, size: 7 },
+    { k: "chips", l: 25, t: 75, scale: 0.8 },
+    { k: "badges", l: 55, t: 57, w: 39, scale: 0.8, align: "end" },
+    { k: "bar", l: 55, t: 70, w: 39, h: 11 },
+    { k: "tabs", l: 6, t: 92, w: 88 },
   ],
 };
 
@@ -116,6 +130,22 @@ export default function LayoutThumb({
     </span>
   );
 
+  /* Un badge : un hexagone, comme les vrais jetons. */
+  const badgeRow = (k: number) =>
+    [0, 1, 2].map((j) => (
+      <span
+        key={j}
+        className={`shrink-0 ${j === 0 ? "bg-white/[0.32]" : STRONG}`}
+        style={{
+          width: `${4.6 * k}cqw`,
+          height: `${4.6 * k}cqw`,
+          clipPath: "polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)",
+        }}
+      />
+    ));
+  const justify = (a?: Align) =>
+    a === "center" ? "justify-center" : a === "end" ? "justify-end" : "justify-start";
+
   return (
     <span
       className={`relative block w-full overflow-hidden rounded-lg bg-[#17181f] ${
@@ -143,12 +173,20 @@ export default function LayoutThumb({
             return (
               <span
                 key={i}
-                className={`absolute truncate font-outfit font-bold leading-none text-white/90 ${
-                  s.center ? "text-center" : ""
-                }`}
-                style={{ left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}%`, fontSize: `${s.size}cqw` }}
+                className={`absolute flex items-center gap-[1.6cqw] ${s.center ? "justify-center" : ""}`}
+                style={{ left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}%` }}
               >
-                {name}
+                <span
+                  className="min-w-0 truncate font-outfit font-bold leading-none text-white/90"
+                  style={{ fontSize: `${s.size}cqw` }}
+                >
+                  {name}
+                </span>
+                {s.badges ? (
+                  <span className="flex shrink-0" style={{ gap: `${0.8 * s.badges}cqw` }}>
+                    {badgeRow(s.badges)}
+                  </span>
+                ) : null}
               </span>
             );
           case "chips": {
@@ -156,19 +194,47 @@ export default function LayoutThumb({
             return (
               <span
                 key={i}
-                className={`absolute flex ${s.center ? "inset-x-0 justify-center" : ""}`}
-                style={{ left: s.center ? undefined : `${s.l}%`, top: `${s.t}%`, gap: `${k}cqw` }}
+                className={`absolute flex items-center ${justify(s.align)}`}
+                style={{
+                  left: `${s.l}%`,
+                  top: `${s.t}%`,
+                  width: s.w != null ? `${s.w}%` : undefined,
+                  gap: `${k}cqw`,
+                }}
               >
-                {[9, 13].map((w) => (
+                {/* Le logo AniList, rond, puis l'identifiant et la date. */}
+                <span
+                  className={`shrink-0 rounded-full ${STRONG}`}
+                  style={{ width: `${2.6 * k}cqw`, height: `${2.6 * k}cqw` }}
+                />
+                {[7, 13].map((w) => (
                   <span
                     key={w}
-                    className={`rounded-[2px] ${SHAPE}`}
+                    className={`shrink-0 rounded-[2px] ${SHAPE}`}
                     style={{ width: `${w * k}cqw`, height: `${2.4 * k}cqw` }}
                   />
                 ))}
               </span>
             );
           }
+          case "badges": {
+            const k = s.scale ?? 1;
+            return (
+              <span
+                key={i}
+                className={`absolute flex ${justify(s.align)}`}
+                style={{ left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}%`, gap: `${0.8 * k}cqw` }}
+              >
+                {badgeRow(k)}
+              </span>
+            );
+          }
+          case "grid2":
+            return (
+              <span key={i} className="absolute grid grid-cols-2 content-around gap-x-[2cqw]" style={box(s)}>
+                {[0, 1, 2, 3].map((j) => figure(j, true, 4.4))}
+              </span>
+            );
           case "cards": {
             const rows = s.rows ?? 1;
             return (
@@ -193,16 +259,6 @@ export default function LayoutThumb({
                 style={box(s)}
               >
                 {[0, 1, 2, 3].map((j) => figure(j))}
-              </span>
-            );
-          case "line":
-            return (
-              <span
-                key={i}
-                className="absolute flex justify-between"
-                style={{ right: `${s.r}%`, top: `${s.t}%`, width: `${s.w}%` }}
-              >
-                {[0, 1, 2, 3].map((j) => figure(j, true, 3))}
               </span>
             );
           case "tabs":
@@ -239,13 +295,6 @@ export default function LayoutThumb({
                   </span>
                 ))}
               </span>
-            );
-          case "cue":
-            return (
-              <span
-                key={i}
-                className="absolute bottom-[6%] left-1/2 h-[3.4cqw] w-[3.4cqw] -translate-x-1/2 rotate-45 border-b-2 border-r-2 border-white/25"
-              />
             );
         }
       })}
