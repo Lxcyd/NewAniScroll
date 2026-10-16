@@ -2687,6 +2687,33 @@ html.as-scene-leave .as-navbar {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
+/* L'entrée des affiches (AnimeWall, 16/10/2026) : invisibles tant que leur
+   image n'est pas arrivée, puis elles montent en fondu, en cascade (`--d`).
+   SANS `prefers-reduced-motion` pour le fondu : ce réglage est actif sur le
+   poste de référence et l'entrée y serait invisible ; seul le déplacement
+   tombe sous `reduce`, l'opacité reste. */
+.as-wall-cover {
+  opacity: 0;
+}
+.as-wall-cover.is-in {
+  animation: as-wall-in 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d, 0ms) both;
+}
+@keyframes as-wall-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes as-wall-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
 /* La flèche du sens choisi bat doucement dans ce sens (réglages du mur). */
 .as-wall-nudge-up { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: -2px; }
 .as-wall-nudge-down { animation: as-wall-nudge 1.4s ease-in-out infinite; --nudge: 2px; }

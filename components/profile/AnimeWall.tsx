@@ -117,6 +117,13 @@ export default function AnimeWall({
   /* Le premier emplacement rendu de chaque colonne. */
   const [debuts, setDebuts] = useState<number[]>([]);
   const pistes = useRef<Array<HTMLDivElement | null>>([]);
+  /* L'ENTRÉE DU MUR (16/10/2026) : au chargement, chaque affiche apparaît
+     quand SON image est arrivée (`is-in`, posé à `load`), en cascade —
+     colonne par colonne, puis de haut en bas. La cascade ne vaut que pour la
+     première seconde et demie ; ensuite, les affiches qui entrent en bord de
+     mur en glissant n'attendent rien (elles naissent hors champ de toute
+     façon). */
+  const monte = useRef(Date.now());
   const debutsRef = useRef<number[]>([]);
   /* La position de chaque colonne, INTÉGRÉE image par image : changer la
      vitesse ou le sens dans le studio repart de là où le mur en est, au lieu
@@ -210,6 +217,8 @@ export default function AnimeWall({
                     : Array.from({ length: visibles + 2 * MARGE }, (_, j) => {
                         const k = debut + j;
                         const src = items[((k % len) + len) % len];
+                        const cascade =
+                          Date.now() - monte.current < 1500 ? c * 70 + Math.max(0, j - MARGE) * 45 : 0;
                         return (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -218,8 +227,14 @@ export default function AnimeWall({
                             alt=""
                             decoding="async"
                             draggable={false}
-                            className="absolute inset-x-0 w-full rounded-lg object-cover shadow-[0_8px_24px_rgba(0,0,0,.45)]"
-                            style={{ top: k * step, height: itemH }}
+                            /* Une image déjà en cache a fini AVANT que React
+                               n'écoute `load` : le ref la rattrape. */
+                            ref={(el) => {
+                              if (el?.complete && el.naturalWidth) el.classList.add("is-in");
+                            }}
+                            onLoad={(e) => e.currentTarget.classList.add("is-in")}
+                            className="as-wall-cover absolute inset-x-0 w-full rounded-lg object-cover shadow-[0_8px_24px_rgba(0,0,0,.45)]"
+                            style={{ top: k * step, height: itemH, "--d": `${cascade}ms` } as React.CSSProperties}
                           />
                         );
                       })}
