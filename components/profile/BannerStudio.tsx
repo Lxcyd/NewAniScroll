@@ -3616,7 +3616,7 @@ export default function BannerStudio({
             }
           >
             <div
-              className={`pointer-events-auto w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
+              className={`pointer-events-auto relative w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10 ${
                 inColumn
                   ? "flex flex-col bg-[#15161d]"
                   : galerieOuverte
@@ -3864,6 +3864,8 @@ export default function BannerStudio({
                 className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
+                /* La place du lecteur de musique posé par-dessus le bas. */
+                style={scope === "music" && draft.music && !barMusic ? { marginBottom: footH } : undefined}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
@@ -4191,34 +4193,20 @@ export default function BannerStudio({
                   rail et finit sur le titre surlignait le texte au passage, et
                   le curseur d'interdiction du glisser-déposer apparaissait
                   par-dessus. */}
-              {/* Posé sur la barre, le lecteur PART PAR LA DROITE (et en revient),
-                 au même rythme que la barre qui le reçoit ; sa hauteur se
-                 referme en même temps pour que la liste en profite. */}
+              {/* Posé sur la barre, le lecteur PART PAR LA DROITE (et en revient).
+                 Il est posé PAR-DESSUS le bas de la liste, qui ne bouge jamais :
+                 en glissant, il la découvre au fur et à mesure — pas de fondu,
+                 pas de hauteur qui se referme (demande de Luc, 16/10/2026).
+                 Fond opaque, sinon la liste se lirait à travers. La marge du
+                 bas de la liste (`footH`) n'existe que tant qu'il est là. */}
               {scope === "music" && draft.music ? (
                 <div
                   aria-hidden={barMusic}
-                  /* EN DEUX TEMPS, jamais ensemble : il glisse d'abord, PUIS le
-                     menu se resserre — glisser en se refermant le faisait
-                     descendre en même temps (16/10/2026). Au retour, l'ordre
-                     inverse : la place s'ouvre, puis il entre. */
-                  /* La hauteur en pixels, mesurée : `grid-template-rows` de 1fr
-                     à 0fr ne s'animait pas (mesuré par CDP, saut net), et la
-                     liste sautait d'un coup au lieu de se réadapter. */
-                  className={`overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic ? "delay-500" : "delay-0"
-                  }`}
-                  style={{ height: barMusic ? 0 : footH || "auto" }}
-                >
-                <div
                   ref={(el) => {
                     if (el && el.offsetHeight && el.offsetHeight !== footH) setFootH(el.offsetHeight);
                   }}
-                >
-                <div
-                  className={`flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3 transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic
-                      ? "pointer-events-none translate-x-full opacity-0 delay-0"
-                      : "translate-x-0 opacity-100 delay-300"
+                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#101116] px-4 py-3 transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+                    barMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
                   }`}
                 >
                   {musicPlayer}
@@ -4236,8 +4224,6 @@ export default function BannerStudio({
                   >
                     <ChevronRightIcon className="h-4 w-4" strokeWidth={2.2} />
                   </button>
-                </div>
-                </div>
                 </div>
               ) : null}
 
