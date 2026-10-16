@@ -422,10 +422,11 @@ export default function ProfileHero({
      objets. */
   const statLine = (
     <dl
-      className={`grid grid-cols-2 gap-y-3 sm:grid-cols-4 sm:divide-x sm:divide-white/10 ${
+      className={`grid grid-cols-2 gap-y-3 ${
         medallion
-          ? "w-full py-1 md:ml-auto md:w-auto md:self-center"
-          : "as-stat-card rounded-2xl py-3 ring-1 ring-white/10"
+          ? /* Dans le médaillon, en 2 × 2 à droite de l'identité (16/10/2026). */
+            "w-full py-1 md:ml-auto md:w-auto md:self-center"
+          : "as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
       } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
       {stats.map((s) => (
@@ -544,11 +545,11 @@ export default function ProfileHero({
             l'identifiant, la date d'arrivée — chacun dans sa petite boîte. Un
             fond flou englobant les trois a été essayé et retiré le 16/10/2026. */}
         {tag || anilistName || createdAt ? (
-        /* Centré, `mb-8` : posée à ras du bas de l'en-tête, la ligne
-           paraissait tomber trop bas, et `mb-2` la laissait encore collée aux
-           widgets (16/10/2026). Ailleurs, aucune marge : le bloc de droite est
-           centré sur l'avatar, et une marge sous la ligne le décentrerait. */
-        <div className={`mt-2.5 flex ${centered ? "mb-8 justify-center md:mb-10" : ""}`}>
+        /* `mb-8` : posée à ras du bas de l'en-tête, la ligne paraissait
+           tomber trop bas, et `mb-2` la laissait encore collée aux widgets
+           (16/10/2026). Pas dans le médaillon : la plaque centre son contenu
+           sur l'avatar, et une marge sous la ligne le décentrait. */
+        <div className={`mt-2.5 flex ${medallion ? "" : "mb-8 md:mb-10"} ${centered ? "justify-center" : ""}`}>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           {anilistName ? (
             <a
@@ -633,11 +634,9 @@ export default function ProfileHero({
   ) : (
     <div
       /* Centré, l'écart est VERTICAL, entre l'avatar et le pseudo : le
-         `gap-6` d'à côté les décollait trop (16/10/2026). À côté, pseudo,
-         badges et ligne d'identité sont centrés sur la hauteur de l'avatar
-         (`items-center`, 16/10/2026 — calés en bas, ils flottaient trop haut). */
+         `gap-6` d'à côté les décollait trop (16/10/2026). */
       className={`mx-auto flex w-full max-w-screen-xl px-4 ${
-        centered ? "flex-col items-center gap-0 text-center" : "items-center gap-4 md:gap-6"
+        centered ? "flex-col items-center gap-0 text-center" : "items-end gap-4 md:gap-6"
       } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
