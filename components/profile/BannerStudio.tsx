@@ -2498,8 +2498,11 @@ export default function BannerStudio({
         return;
       }
       line.style.transition = slide && line.style.opacity === "1" ? "" : "opacity .2s";
-      line.style.transform = `translateX(${box.offsetLeft}px)`;
-      line.style.width = `${box.offsetWidth}px`;
+      /* Tout passe par `transform` : c'est le compositeur qui fait glisser le
+         trait, et le rendu du menu qui s'ouvre (grille des cadres, images) ne
+         peut plus le faire bégayer — une transition de `width` tourne sur le
+         fil principal, celui que ce rendu occupe. */
+      line.style.transform = `translateX(${box.offsetLeft}px) scaleX(${box.offsetWidth / row.offsetWidth})`;
       line.style.opacity = "1";
     };
     place(true);
@@ -3723,7 +3726,7 @@ export default function BannerStudio({
             <span
               ref={sceneLineRef}
               aria-hidden
-              className="pointer-events-none absolute left-0 top-0 z-[1] h-[2px] bg-action opacity-0 transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+              className="pointer-events-none absolute left-0 top-0 z-[1] h-[2px] w-full origin-left bg-action opacity-0 transition-[transform,opacity] duration-300 will-change-transform ease-[cubic-bezier(.3,.7,.2,1)]"
             />
             <SceneBox
               label={t("profile.studioBackground")}
