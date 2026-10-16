@@ -4177,9 +4177,22 @@ export default function BannerStudio({
                   rail et finit sur le titre surlignait le texte au passage, et
                   le curseur d'interdiction du glisser-déposer apparaissait
                   par-dessus. */}
-              {/* Posé sur la barre, le lecteur n'est plus ici : un seul à la fois. */}
-              {scope === "music" && draft.music && !barMusic ? (
-                <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
+              {/* Posé sur la barre, le lecteur PART PAR LA DROITE (et en revient),
+                 au même rythme que la barre qui le reçoit ; sa hauteur se
+                 referme en même temps pour que la liste en profite. */}
+              {scope === "music" && draft.music ? (
+                <div
+                  aria-hidden={barMusic}
+                  className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+                    barMusic ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                  }`}
+                >
+                <div className="min-h-0 overflow-hidden">
+                <div
+                  className={`flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3 transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+                    barMusic ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
+                  }`}
+                >
                   {musicPlayer}
                   {/* La flèche de droite pose ce lecteur SUR la barre du bas,
                       à la place des menus (comme le rail de la vidéo) : on
@@ -4195,6 +4208,8 @@ export default function BannerStudio({
                   >
                     <ChevronRightIcon className="h-4 w-4" strokeWidth={2.2} />
                   </button>
+                </div>
+                </div>
                 </div>
               ) : null}
 
@@ -4358,7 +4373,8 @@ export default function BannerStudio({
             }`}
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
-              {showMusic ? musicPlayer : null}
+              {/* Toujours rendu : il doit être là pendant qu'il glisse. */}
+              {musicPlayer}
             </div>
             <button
               type="button"
