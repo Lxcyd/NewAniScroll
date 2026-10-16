@@ -430,7 +430,7 @@ export default function ProfileHero({
                celle de l'avatar (`--as-av`), bornée. */
             "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:shrink-0 md:content-around md:gap-x-8 md:self-stretch"
           : "gap-y-3 as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
-      } ${showcase ? "md:mb-1 md:ml-auto md:shrink-0" : ""}`}
+      } ${showcase ? "w-full md:mb-1 md:w-auto" : ""}`}
     >
       {stats.map((s) => (
         <div key={s.key} className="flex items-baseline gap-2 px-5">
@@ -528,7 +528,7 @@ export default function ProfileHero({
           className={
             centered
               ? "flex flex-col items-center gap-2"
-              : `flex flex-wrap items-center gap-x-4 gap-y-2 ${showcase ? "md:flex-nowrap" : ""}`
+              : "flex flex-wrap items-center gap-x-4 gap-y-2"
           }
         >
         <h1
@@ -543,14 +543,15 @@ export default function ProfileHero({
         </h1>
         {/* À côté, centrés sur la hauteur du pseudo ; leur taille a son
             propre réglage dans le menu Badges du studio (`badgeScale`).
-            En vitrine, ils ne passent JAMAIS sous le pseudo (`md:flex-nowrap`) :
-            faute de place, ils débordent à droite, au-dessus des chiffres
-            calés en bas (16/10/2026). */}
+            En vitrine, à partir de `md`, ils quittent le pseudo pour la
+            colonne de droite, AU-DESSUS des chiffres et calés sur leur bord
+            droit (16/10/2026) : à côté d'un grand pseudo, ils
+            passaient dessous ou débordaient sur la barre. */}
         <FeaturedBadges
           ids={banner.badges}
           earned={earned}
           size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
-          className={`gap-2 ${centered ? "justify-center" : "self-center"} ${showcase ? "md:shrink-0" : ""}`}
+          className={`gap-2 ${centered ? "justify-center" : "self-center"} ${showcase ? "md:hidden" : ""}`}
         />
         </div>
         {/* LA LIGNE D'IDENTITÉ : le logo AniList (lien vers le profil AniList),
@@ -626,7 +627,18 @@ export default function ProfileHero({
         ) : null}
         {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
       </div>
-      {showcase || medallion ? statLine : null}
+      {medallion ? statLine : null}
+      {showcase ? (
+        <div className="flex w-full flex-col items-end gap-3 md:ml-auto md:w-auto md:shrink-0">
+          <FeaturedBadges
+            ids={banner.badges}
+            earned={earned}
+            size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
+            className="hidden gap-2 md:flex"
+          />
+          {statLine}
+        </div>
+      ) : null}
     </>
   );
 
