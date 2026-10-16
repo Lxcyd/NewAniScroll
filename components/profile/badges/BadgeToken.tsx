@@ -55,11 +55,31 @@ const BASE = 118;
    (`performance.now()`, commune à tous) : ils passent tous en même temps.
    Posé après le montage et pas en style React, parce que le serveur n'a pas
    la même horloge — la valeur différerait à l'hydratation. Fonction de module,
-   donc référence stable : React ne la rappelle qu'au montage, et un nouveau
-   retard en cours d'animation ferait sauter le reflet. */
+   donc référence stable : React ne la rappelle qu'au montage.
+
+   LE RETARD SEUL NE TENAIT PAS (16/10/2026). Calculé une fois au montage, il
+   devient faux dès que le navigateur RELANCE l'animation : un jeton déplacé
+   dans le DOM (réordonner les badges mis en avant dans le studio), un parent
+   masqué puis réaffiché. L'animation repartait de zéro avec un retard périmé,
+   et les trois jetons du pseudo balayaient chacun à son rythme. On cale donc
+   l'animation elle-même sur l'origine de la ligne de temps du document
+   (`startTime = 0`), et on la recale à chaque redémarrage (`animationstart`). */
 const SWEEP_MS = 5500;
 function syncSweep(el: SVGRectElement | null) {
-  if (el) el.style.animationDelay = `-${Math.round(performance.now() % SWEEP_MS)}ms`;
+  if (!el) return;
+  /* Repli (navigateur sans `getAnimations`) : le retard au montage. Pas les
+     deux ensemble — avec `startTime = 0`, chaque retard décalerait son jeton. */
+  if (!el.getAnimations) {
+    el.style.animationDelay = `-${Math.round(performance.now() % SWEEP_MS)}ms`;
+    return;
+  }
+  const align = () => {
+    for (const a of el.getAnimations()) {
+      a.startTime = 0;
+    }
+  };
+  align();
+  el.addEventListener("animationstart", align);
 }
 
 function BadgeTokenInner({
