@@ -29,6 +29,14 @@ export type ThemeVideo = {
   source: string | null;
   /** Free-form episode mapping from AnimeThemes (e.g. "1-13", "2-18, 20-25"). */
   episodes: string | null;
+  /**
+   * The same rip as AUDIO ONLY (a.animethemes.moe/*.ogg), when AnimeThemes has
+   * it. This is what music should play: CyberpunkEdgerunners-OP1 is 47 MB as
+   * WebM video and 2.2 MB as OGG (16/10/2026). Its file name does NOT always
+   * mirror the video's (ChainsawMan-OP1.webm -> ...-OP1-NCBD1080.ogg), so it
+   * is read from the API, never derived.
+   */
+  audio?: string | null;
 };
 
 export type Theme = {
@@ -112,11 +120,12 @@ export async function resolveSlug({
 /** Fetch normalized OP/ED themes for an anime slug (best NC video per theme). */
 export async function fetchThemes(slug: string): Promise<Theme[]> {
   const data = await get(`/anime/${encodeURIComponent(slug)}`, {
-    include: "animethemes.animethemeentries.videos,animethemes.song.artists",
+    include: "animethemes.animethemeentries.videos.audio,animethemes.song.artists",
     "fields[anime]": "slug,name",
     "fields[animetheme]": "type,sequence,slug",
     "fields[animethemeentry]": "episodes,version,nsfw,spoiler",
     "fields[video]": "link,nc,overlap,resolution,source",
+    "fields[audio]": "link",
     "fields[song]": "title",
     "fields[artist]": "name",
   });
@@ -145,6 +154,7 @@ export async function fetchThemes(slug: string): Promise<Theme[]> {
           resolution: v.resolution ?? null,
           source: v.source ?? null,
           episodes: e?.episodes ?? null,
+          audio: v.audio?.link ?? null,
         };
         if (cand.nc) {
           if (!bestNc || rankNc(cand) > rankNc(bestNc)) bestNc = cand;

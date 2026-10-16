@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { audioFirst } from "@/lib/animethemes/audioUrl";
 import FramedAvatar from "@/components/profile/FramedAvatar";
 import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -708,7 +709,12 @@ export default function ProfileHero({
            fin — le navigateur, lui, ne sait reboucler que sur le fichier. */
         <audio
           ref={audio}
-          src={banner.music.url}
+          src={audioFirst(banner.music.url)}
+          /* L'OGG tenté par audioFirst n'existe pas : la vidéo d'origine. */
+          onError={(e) => {
+            const url = banner.music?.url;
+            if (url && e.currentTarget.src !== url) e.currentTarget.src = url;
+          }}
           loop={!(banner.music.to && banner.music.to > (banner.music.from ?? 0))}
           preload="none"
           onPlay={(e) => {

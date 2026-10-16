@@ -26,14 +26,16 @@ import { resolvedVideoIds } from "@/lib/db/opedYoutube";
  * on garde le titre le plus proche (la version remix a sa propre pochette).
  *
  * Caches : Turso une semaine (season_cache), CDN une semaine. Une réponse
- * PARTIELLE (budget de 8 s épuisé, service en panne) n'est jamais mise en cache
+ * PARTIELLE (budget de 5 s épuisé, service en panne) n'est jamais mise en cache
  * et porte `partial: true` : le studio redemande, et l'appel suivant reprend où
  * le précédent s'est arrêté (`tried`, cf. Entry).
  */
 // v3 : replis MusicBrainz et YouTube. Les lignes v2 gardaient des `null`.
 const COVERS_KEY = (anilistId: number) => `themecovers:v3:al${anilistId}`;
-/** Sous la limite des fonctions Hobby : au-delà, on rend ce qu'on a. */
-const BUDGET_MS = 8000;
+/** Au-delà, on rend ce qu'on a et le studio redemande la suite. Court
+ *  exprès : la PREMIÈRE vague de pochettes s'affiche au bout de ~5 s au plus,
+ *  au lieu d'attendre qu'un anime à vingt-cinq génériques soit fini. */
+const BUDGET_MS = 5000;
 const DEEZER = "https://api.deezer.com/search";
 
 type Hit = { title: string; artist: { name: string }; album: { cover_medium?: string } };
@@ -303,7 +305,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return p;
   };
 
-  /* La cascade complète par morceau, trois morceaux à la fois (Deezer : 50
+  /* La cascade complète par morceau, quatre morceaux à la fois (Deezer : 50
      requêtes / 5 s). Un morceau n'est commencé que s'il reste de quoi le
      finir ; une erreur réseau le laisse à retenter au prochain appel. */
   const run = async (j: (typeof jobs)[number]) => {
@@ -324,8 +326,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
   let next = 0;
   await Promise.all(
-    Array.from({ length: 3 }, async () => {
-      while (next < jobs.length && timeLeft() > 3000) await run(jobs[next++]);
+    Array.from({ length: 4 }, async () => {
+      while (next < jobs.length && timeLeft() > 2000) await run(jobs[next++]);
     }),
   );
 

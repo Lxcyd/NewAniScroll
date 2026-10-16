@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { audioFirst } from "@/lib/animethemes/audioUrl";
 import {
   startTransition,
   useCallback,
@@ -478,8 +479,8 @@ type ThemeRow = {
   artists: string[];
   /* `episodes` est du texte libre côté AnimeThemes ("1-13", "2, 5") : on
      l'affiche tel quel, il situe un ED parmi douze. */
-  video: { url: string; episodes?: string | null } | null;
-  videoNc: { url: string; episodes?: string | null } | null;
+  video: { url: string; episodes?: string | null; audio?: string | null } | null;
+  videoNc: { url: string; episodes?: string | null; audio?: string | null } | null;
   /** Version COMPLÈTE sur YouTube, attachée par /api/v2/themes/{id} depuis la
       table oped_youtube. Absent tant que le morceau n'a pas été résolu — le
       profil retombe alors sur les 90 s d'AnimeThemes. */
@@ -918,6 +919,37 @@ export default function BannerStudio({
     [scope],
   );
 
+  /* MUSIQUE : LE SURVOL PRÉPARE L'OUVERTURE. Même délai que les images
+     (150 ms, un passage de souris ne coûte rien) : la liste des génériques et
+     la première vague de pochettes arrivent dans les caches, et les images
+     sont déjà téléchargées par le navigateur — l'accordéon s'ouvre plein. Une
+     seule fois par anime. */
+  const musicAsked = useRef(new Set<number>());
+  const prefetchMusic = useCallback((id: number | null) => {
+    if (survol.current) clearTimeout(survol.current);
+    survol.current = null;
+    if (id == null || musicAsked.current.has(id)) return;
+    survol.current = setTimeout(() => {
+      musicAsked.current.add(id);
+      if (!themeCache.current.has(id))
+        fetch(`/api/v2/themes/${id}?v=3`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json) => {
+            if (Array.isArray(json?.themes)) themeCache.current.set(id, json.themes);
+          })
+          .catch(() => {});
+      if (!coverCache.current.has(id))
+        fetch(`/api/v2/theme-covers/${id}?v=3`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json) => {
+            const covers = (json?.covers ?? {}) as Record<string, string | null>;
+            for (const u of Object.values(covers)) if (u) new window.Image().src = u;
+            if (json?.covers && !json.partial) coverCache.current.set(id, covers);
+          })
+          .catch(() => {});
+    }, 150);
+  }, []);
+
   /* L'identité de l'anime listé : prise dans la liste de l'utilisateur quand
      elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
      déroulant n'est pas forcément dans sa liste — sans ce repli, l'en-tête
@@ -1033,7 +1065,9 @@ export default function BannerStudio({
     }
     let alive = true;
     setLoading(true);
-    fetch(`/api/v2/themes/${listedAnimeId}`)
+    /* `?v=3` : les réponses d'avant (gardées un jour par le navigateur)
+       n'ont pas le lien audio. */
+    fetch(`/api/v2/themes/${listedAnimeId}?v=3`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive) return;
@@ -1052,10 +1086,13 @@ export default function BannerStudio({
      part, lancée une fois les thèmes là : la liste n'attend jamais les images,
      et la note reste en place tant qu'une pochette manque. Un anime à
      vingt-cinq génériques se résout en plusieurs fois : tant que la réponse est
-     `partial`, on redemande la suite (6 fois au plus), et les pochettes
+     `partial`, on redemande la suite (8 fois au plus), et les pochettes
      arrivent par vagues. */
   useEffect(() => {
-    if (!open || listedAnimeId == null || !themes.length) return;
+    /* Lancée EN MÊME TEMPS que la liste des génériques, pas après : la route
+       relit elle-même les thèmes, et attendre les uns pour demander les autres
+       ajoutait un aller-retour complet avant la première pochette. */
+    if (!open || listedAnimeId == null) return;
     if (scope !== "oped" && scope !== "music") return;
     const hit = coverCache.current.get(listedAnimeId);
     if (hit) {
@@ -1070,7 +1107,7 @@ export default function BannerStudio({
         .then((r) => (r.ok ? r.json() : null))
         .then((json) => {
           if (!alive || !json?.covers) return;
-          const partial = !!json.partial && round < 6;
+          const partial = !!json.partial && round < 8;
           /* Partielle : seulement les pochettes trouvées. Un `null` y veut dire
              « pas encore cherché », et l'affiche de repli s'afficherait trop
              tôt. */
@@ -1087,7 +1124,7 @@ export default function BannerStudio({
       alive = false;
       clearTimeout(timer);
     };
-  }, [open, listedAnimeId, scope, themes]);
+  }, [open, listedAnimeId, scope]);
 
   const patch = useCallback(
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
@@ -2352,13 +2389,18 @@ export default function BannerStudio({
             square: true,
             disabled: !url,
             selected:
-              scope === "music" ? draft.music?.url === url : draft.url === url,
+              scope === "music"
+                ? !!draft.music?.url &&
+                  [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url)
+                : draft.url === url,
             run: url
               ? () =>
                   scope === "music"
                     ? (patch({
                         music: {
-                          url,
+                          /* L'OGG d'AnimeThemes, pas la vidéo : 2 Mo au lieu
+                             de 47 pour le même son (Cyberpunk OP1). */
+                          url: th.videoNc?.audio || th.video?.audio || url,
                           title: label,
                           artist,
                           slug: th.slug.toUpperCase(),
@@ -2442,6 +2484,7 @@ export default function BannerStudio({
             thumb: a.cover ?? null,
             cover: true,
             dim: n === 0,
+            hover: (on) => prefetchMusic(on ? a.mediaId : null),
             expand: false,
             run: () => {
               holdAnchor(`anime-music-${a.mediaId}`);
@@ -2583,7 +2626,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, frameBudget, coverState, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, frameBudget, coverState, prefetchMusic, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -3067,13 +3110,8 @@ export default function BannerStudio({
                 {searchable ? (
                   <>
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
-                    {/* Un groupe du dock porte ses onglets sous l'en-tête :
-                        pas de pastille en plus. */}
-                    {scope === "frame" || scope === "badges" || (groupOf(scope)?.length ?? 0) > 1 ? null : (
-                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-action px-3 py-1 font-karla text-[12px] font-bold text-white">
-                      {t(`profile.studioKind_${scope}`)}
-                    </span>
-                    )}
+                    {/* Plus de pastille du menu (rose) avant le champ : la
+                        barre du bas dit déjà quel menu est ouvert (16/10/2026). */}
                     <input
                       ref={search}
                       value={query}
@@ -3822,7 +3860,11 @@ export default function BannerStudio({
       {draft.music ? (
         <audio
           ref={preview}
-          src={draft.music.url}
+          src={audioFirst(draft.music.url)}
+          onError={(e) => {
+            const url = draft.music?.url;
+            if (url && e.currentTarget.src !== url) e.currentTarget.src = url;
+          }}
           preload="auto"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
