@@ -438,13 +438,13 @@ export default function ProfileHero({
           <dd
             className={`font-outfit font-bold leading-none ${
               s.accent ? "text-action" : "text-white"
-            } ${medallion ? "text-3xl md:text-[length:clamp(2.5rem,calc(3rem*var(--as-av,1)),4.5rem)]" : "text-xl"} ${showcase ? "md:text-2xl" : ""}`}
+            } ${medallion ? "text-3xl md:text-[length:clamp(1.875rem,calc(2rem*var(--as-av,1)),3rem)]" : "text-xl"} ${showcase ? "md:text-2xl" : ""}`}
           >
             {s.value}
           </dd>
           <dt
             className={`font-bold uppercase tracking-wider text-white/60 ${
-              medallion ? "text-xs md:text-[length:clamp(0.8rem,calc(0.9rem*var(--as-av,1)),1.15rem)]" : "text-[10px]"
+              medallion ? "text-xs md:text-[length:clamp(0.7rem,calc(0.75rem*var(--as-av,1)),0.95rem)]" : "text-[10px]"
             }`}
           >
             {s.label}
