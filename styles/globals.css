@@ -2451,9 +2451,12 @@ html.as-scene-resizing * {
    posée PAR-DESSUS l'écran, réduite : au pixel du bord elle ne couvre qu'à
    moitié, et sous un pied de page opaque le papier peint perçait en liseré de
    sa couleur (#1e161a mesuré sur un fond Cubes rose, 13/10/2026). Dessous, il
-   n'y a plus que la couleur de page, la même que celle du pied. */
+   n'y a plus que la couleur de page, la même que celle du pied.
+   LA MARGE EST EN PIXELS D'ÉCRAN (÷ zoom). 2 px de mise en page ne valaient
+   que 1,6 px à 80 % : une colonne de papier peint non assombri perçait au
+   bord gauche du cadre (16/10/2026), et pire encore aux petits zooms. */
 .as-scene-screen.is-fixed .as-page-plate {
-  clip-path: inset(2px round calc(20px / var(--as-scene-zoom, 1) - 2px));
+  clip-path: inset(calc(3px / var(--as-scene-zoom, 1)) round calc(17px / var(--as-scene-zoom, 1)));
 }
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
