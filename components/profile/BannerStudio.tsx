@@ -2721,7 +2721,9 @@ export default function BannerStudio({
                         title: "Trailer",
                         artist: vu?.title ?? null,
                         slug: "TRL",
-                        cover: vu?.cover ?? null,
+                        /* La vignette du trailer, la même que sa ligne : l'affiche
+                           de `vu` pouvait être celle d'un autre anime (16/10/2026). */
+                        cover: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
                         from: null,
                         to: null,
                         fade: fadeSec,
