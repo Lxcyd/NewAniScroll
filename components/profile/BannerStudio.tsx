@@ -713,6 +713,18 @@ export default function BannerStudio({
   const [barMusicMounted, setBarMusicMounted] = useState(false);
   /** La hauteur du lecteur au pied du menu, pour animer sa fermeture. */
   const [footH, setFootH] = useState(0);
+  /* La liste rend sa place au lecteur en même temps qu'il part, mais ne la
+     reprend qu'une fois qu'il est revenu : avant, le bas de la liste se
+     vidait d'un coup puis le lecteur arrivait sur du vide. */
+  const [footSpace, setFootSpace] = useState(true);
+  useEffect(() => {
+    if (barMusic) {
+      setFootSpace(false);
+      return;
+    }
+    const id = window.setTimeout(() => setFootSpace(true), 500);
+    return () => window.clearTimeout(id);
+  }, [barMusic]);
   useEffect(() => {
     if (barMusic) {
       setBarMusicMounted(true);
@@ -3865,7 +3877,7 @@ export default function BannerStudio({
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
                 /* La place du lecteur de musique posé par-dessus le bas. */
-                style={scope === "music" && draft.music && !barMusic ? { marginBottom: footH } : undefined}
+                style={scope === "music" && draft.music && footSpace && !barMusic ? { marginBottom: footH } : undefined}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
