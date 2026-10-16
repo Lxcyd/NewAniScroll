@@ -516,6 +516,10 @@ type ThemeRow = {
   youtubeId?: string | null;
 };
 
+/** Les comptes de génériques déjà reçus, et ceux en route : pour la session. */
+const musicCountsSeen: Record<number, number> = {};
+const musicCountsAsked = new Set<number>();
+
 export default function BannerStudio({
   open,
   onClose,
@@ -1063,6 +1067,37 @@ export default function BannerStudio({
      (Boku no Kokoro no Yabai Yatsu 3rd Season, 16/10/2026). Une requête, et
      seulement dans ce cas-là. */
   const [notAired, setNotAired] = useState<Record<number, boolean>>({});
+
+  /* Le nombre de génériques de CHAQUE ligne du menu Musique, sans avoir à
+     l'ouvrir : une requête groupée par paquet de 100 (/api/v2/theme-counts,
+     un seul appel AnimeThemes). Gardé pour la session (`musicCountsSeen`),
+     comme les génériques eux-mêmes. */
+  const [musicCounts, setMusicCounts] = useState<Record<number, number>>(() => ({ ...musicCountsSeen }));
+  useEffect(() => {
+    if (!open || (scope !== "music" && barVise !== "music")) return;
+    const ids = [...animes, ...found]
+      .map((a) => a.mediaId)
+      .filter((id) => !(id in musicCountsSeen) && !musicCountsAsked.has(id) && !themeCache.current.has(id));
+    if (!ids.length) return;
+    for (const id of ids) musicCountsAsked.add(id);
+    for (let i = 0; i < ids.length; i += 100) {
+      const lot = ids.slice(i, i + 100);
+      fetch(`/api/v2/theme-counts?ids=${lot.sort((a, b) => a - b).join(",")}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          const c: Record<number, number> = d?.counts ?? {};
+          if (!Object.keys(c).length) {
+            for (const id of lot) musicCountsAsked.delete(id);
+            return;
+          }
+          Object.assign(musicCountsSeen, c);
+          setMusicCounts((m) => ({ ...m, ...c }));
+        })
+        .catch(() => {
+          for (const id of lot) musicCountsAsked.delete(id);
+        });
+    }
+  }, [open, scope, barVise, animes, found]);
   useEffect(() => {
     if (!open || scope !== "music" || pick == null || pick in notAired) return;
     if (themeCache.current.get(pick)?.length !== 0) return;
@@ -2601,8 +2636,9 @@ export default function BannerStudio({
             : undefined;
         tous.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
         const ligne = (a: StudioAnime): Row => {
-          /* Le compte une fois les génériques connus (déjà ouvert une fois). */
-          const n = themeCache.current.get(a.mediaId)?.length;
+          /* Le compte exact une fois les génériques ouverts, sinon celui de
+             la requête groupée. */
+          const n = themeCache.current.get(a.mediaId)?.length ?? musicCounts[a.mediaId];
           return {
             key: `anime-music-${a.mediaId}`,
             label: a.title,
@@ -2797,7 +2833,7 @@ export default function BannerStudio({
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
-      artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
+      artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
       entries]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
@@ -4160,7 +4196,10 @@ export default function BannerStudio({
            démonté pour ne pas recharger. */
         <div
           className={`pointer-events-auto fixed bottom-[124px] right-4 z-[10004] overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15 transition-opacity ${
-            playing || buffering ? "opacity-100" : "pointer-events-none opacity-0"
+            /* La bande-annonce ne joue QUE son son, comme un générique
+               (demande de Luc, 16/10/2026) : pas de carte vidéo pour elle.
+               Elle se reconnaît à son `url` vide. */
+            (playing || buffering) && draft.music.url ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
           <YouTubeMusic
