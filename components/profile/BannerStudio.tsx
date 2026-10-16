@@ -704,8 +704,9 @@ export default function BannerStudio({
   /** Le champ « lien YouTube » du pied : ouvert ou non, et ce qu'on y tape. */
   const [ytLink, setYtLink] = useState<string | null>(null);
   const [ytBad, setYtBad] = useState(false);
-  /** Menu Musique replié : il ne reste que le lecteur, posé sur la barre. */
-  const [musicFold, setMusicFold] = useState(false);
+  /** Le lecteur de musique posé SUR la barre du bas, à la place des menus —
+      comme le rail de la vidéo (`barVideo`). */
+  const [barMusic, setBarMusic] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
@@ -908,8 +909,6 @@ export default function BannerStudio({
   /* Musique y est depuis le 16/10/2026 : même accordéon que Image — la liste
      des animés (et la recherche AniList), un anime ouvert déplie ses
      génériques sous sa ligne. */
-  /* Le menu Musique replié sur son lecteur (flèche du pied). */
-  const musicFolded = scope === "music" && musicFold && !!draft.music;
   const twoScreens = scope === "video" || scope === "banner" || scope === "image" || scope === "music";
 
   const listedAnime = twoScreens
@@ -2958,6 +2957,11 @@ export default function BannerStudio({
   const videoKey =
     draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
   const [barVideo, setBarVideo] = useState(false);
+  /* Rouvrir un menu ramène les menus sur la barre : le lecteur posé dessus
+     cède sa place. */
+  useEffect(() => {
+    if (scope) setBarMusic(false);
+  }, [scope]);
   const lastVideo = useRef(videoKey);
   useEffect(() => {
     if (videoKey && videoKey !== lastVideo.current) setBarVideo(true);
@@ -3308,6 +3312,251 @@ export default function BannerStudio({
     ) : null;
   const showVideo = barVideo && !!videoBar;
 
+  /* Le lecteur de musique — pochette, titre, version, rail des bornes, fondu,
+     volume. Le même au pied du menu Musique et posé sur la barre du bas. */
+  const musicPlayer = draft.music ? (
+    <>
+                  {/* La pochette EST le bouton, comme dans un lecteur de
+                      musique : l'image porte le triangle, au lieu d'une pastille
+                      rose posée à côté qui doublait la mise. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = preview.current;
+                      if (!el) return;
+                      if (el.paused) {
+                        if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
+                        void el.play().catch(() => setPlaying(false));
+                      } else el.pause();
+                    }}
+                    aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
+                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+                  >
+                    {draft.music.cover ? (
+                      <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
+                    ) : null}
+                    <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
+                      {buffering ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      ) : playing ? (
+                        <PauseIcon className="h-5 w-5 drop-shadow" />
+                      ) : (
+                        <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
+                      )}
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    {ytLink !== null ? (
+                      /* Coller sa propre version : le résolveur peut ne pas
+                         l'avoir trouvée, ou avoir pris la mauvaise. */
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          applyLink();
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          autoFocus
+                          value={ytLink}
+                          onChange={(e) => {
+                            setYtLink(e.target.value);
+                            setYtBad(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.stopPropagation();
+                              setYtLink(null);
+                            }
+                          }}
+                          placeholder={t("profile.studioMusicLinkPh")}
+                          className={`h-7 min-w-0 flex-1 rounded-md bg-white/[0.07] px-2.5 font-karla text-[12px] text-white outline-none ring-1 placeholder:text-white/30 ${
+                            ytBad ? "ring-red-400/70" : "ring-white/10 focus:ring-action/60"
+                          }`}
+                        />
+                        <button
+                          type="submit"
+                          className="h-7 shrink-0 rounded-md bg-action px-3 font-karla text-[11px] font-bold text-white"
+                        >
+                          {t("profile.studioMusicLinkOk")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setYtLink(null)}
+                          aria-label={t("profile.studioMusicLinkCancel")}
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/45 hover:text-white"
+                        >
+                          <XMarkIcon className="h-4 w-4" />
+                        </button>
+                      </form>
+                    ) : (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
+                        {draft.music.title}
+                      </p>
+                      {/* Version TV / complète : seulement pour un générique
+                          (la bande-annonce n'a que sa vidéo). « Complète »
+                          sans version connue ouvre directement le champ du
+                          lien. */}
+                      {tvUrl ? (
+                        <div className="flex h-6 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
+                          {([false, true] as const).map((full) => {
+                            const on = full === !!draft.music?.videoId;
+                            return (
+                              <button
+                                key={String(full)}
+                                type="button"
+                                onClick={() => {
+                                  if (on) return;
+                                  if (full && !fullId) setYtLink("");
+                                  else setSource(full);
+                                }}
+                                aria-pressed={on}
+                                title={full ? t("profile.studioMusicFull") : undefined}
+                                className={`h-5 rounded-full px-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors ${
+                                  on ? "bg-action text-white" : "text-white/45 hover:text-white"
+                                }`}
+                              >
+                                {t(full ? "profile.studioMusicSrcFull" : "profile.studioMusicSrcTv")}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                    )}
+                    {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
+                        Les deux poignées jaunes bornent ce qui sera joué sur le
+                        profil ; entre elles, le rose dit où en est l'écoute.
+                        Cliquer dans le rail déplace la lecture, saisir une
+                        poignée déplace la borne — d'où le `data-grab` : sans
+                        lui, attraper une poignée aurait aussi fait sauter le
+                        son à cet endroit. */}
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+                        {clock(at)}
+                      </span>
+                      <TrimRail
+                        len={len}
+                        from={from}
+                        to={to}
+                        at={at}
+                        buf={buf}
+                        onSeek={seek}
+                        onTrim={setTrim}
+                        onGrab={grabTrim}
+                        t={t}
+                      />
+                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+                        {clock(len)}
+                      </span>
+
+                      {/* Le fondu, en une seule bascule et non deux : « entrée »
+                          et « sortie » séparés, c'est deux réglages pour un seul
+                          geste — on veut que la boucle ne claque pas, pas régler
+                          chaque bout. Un défaut d'1,5 s, assez pour effacer le
+                          raccord sans manger le refrain. */}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          draft.music &&
+                          patch({
+                            music: {
+                              ...draft.music,
+                              fade: clampFade(fadeSec > 0 ? 0 : DEFAULT_FADE),
+                            },
+                          })
+                        }
+                        aria-pressed={fadeSec > 0}
+                        title={t("profile.studioMusicFadeHint")}
+                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
+                          fadeSec > 0
+                            ? "bg-action/20 text-white ring-action/50"
+                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+                        }`}
+                      >
+                        {t("profile.studioMusicFade")}
+                      </button>
+
+                      {/* Le volume dans sa propre pastille : posé à même le pied
+                          du panneau, il flottait entre le minutage et le bord et
+                          on ne voyait pas où commençait la commande. Le fond la
+                          délimite, comme les pastilles de valeur des réglages de
+                          widget. Le haut-parleur coupe et rétablit — c'est le
+                          geste qu'on cherche en premier, et il évite d'avoir à
+                          viser le zéro du rail. */}
+                      <div className="flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.07] px-2 ring-1 ring-white/[0.06]">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVol((v) => {
+                            /* Rétablir rend le niveau qu'on avait réglé, pas un
+                               volume plein qui ferait sursauter. */
+                            if (v > 0) {
+                              lastVol.current = v;
+                              return 0;
+                            }
+                            return lastVol.current;
+                          })
+                        }
+                        aria-label={t(vol > 0 ? "profile.studioMusicMute" : "profile.studioMusicUnmute")}
+                        className="shrink-0 text-white/45 transition-colors hover:text-white"
+                      >
+                        {vol > 0 ? (
+                          <SpeakerWaveIcon className="h-4 w-4" />
+                        ) : (
+                          <SpeakerXMarkIcon className="h-4 w-4" />
+                        )}
+                      </button>
+                      {/* Le curseur de volume est celui du site : remplissage à
+                          l'accent, pastille blanche cerclée d'accent — le même
+                          que le lecteur vidéo et que le flou du dock. Une barre
+                          pleine sans pastille ne disait pas qu'elle se prend en
+                          main. Le rail est ici à 4 px et non 3 : la pastille qui
+                          l'enferme est courte, et un trait de 3 px au milieu de
+                          28 px de fond se lisait comme une grosse boîte autour
+                          d'un fil. */}
+                      <div
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          setVol(railAt(e));
+                        }}
+                        onPointerMove={(e) => {
+                          if (e.buttons & 1) setVol(railAt(e));
+                        }}
+                        role="slider"
+                        tabIndex={0}
+                        aria-label={t("profile.studioMusicVolume")}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(vol * 100)}
+                        onKeyDown={(e) => {
+                          const step = e.shiftKey ? 0.2 : 0.05;
+                          if (e.key === "ArrowLeft") setVol((v) => Math.max(0, v - step));
+                          else if (e.key === "ArrowRight") setVol((v) => Math.min(1, v + step));
+                          else return;
+                          e.preventDefault();
+                        }}
+                        className="relative h-4 w-[72px] shrink-0 cursor-pointer touch-none rounded-full outline-none"
+                      >
+                        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/12" />
+                        <span
+                          className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-action"
+                          style={{ width: `${vol * 100}%` }}
+                        />
+                        <span
+                          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
+                          style={{ left: `${vol * 100}%` }}
+                        />
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+    </>
+  ) : null;
+  const showMusic = barMusic && !!musicPlayer && !showVideo;
+
   return (
     <>
     {/* Réduite, la pilule flotte sur le profil rendu à sa taille : cette cale
@@ -3325,7 +3574,7 @@ export default function BannerStudio({
               voile, on regarde le résultat en choisissant. Les autres menus
               (musique, agencement, cadre) restent des fenêtres posées sur le
               cadre, et se ferment d'un clic à côté. */}
-          {inColumn || musicFolded ? null : (
+          {inColumn ? null : (
           <button
             type="button"
             aria-label={t("common.close", { defaultValue: "Close" })}
@@ -3364,7 +3613,7 @@ export default function BannerStudio({
                       : "max-w-3xl"
               }`}
             >
-              <div className={`relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5 ${musicFolded ? "hidden" : ""}`}>
+              <div className="relative z-10 flex items-center gap-3 border-b border-white/[0.07] px-4 py-3.5">
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
                     ne filtrerait rien. */}
@@ -3601,7 +3850,7 @@ export default function BannerStudio({
                 onPointerMove={clavier ? () => setClavier(false) : undefined}
                 className={`as-scroller overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
-                } ${musicFolded ? "hidden" : ""}`}
+                }`}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
@@ -3931,258 +4180,21 @@ export default function BannerStudio({
                   par-dessus. */}
               {scope === "music" && draft.music ? (
                 <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
-                  {/* La pochette EST le bouton, comme dans un lecteur de
-                      musique : l'image porte le triangle, au lieu d'une pastille
-                      rose posée à côté qui doublait la mise. */}
+                  {musicPlayer}
+                  {/* La flèche de droite pose ce lecteur SUR la barre du bas,
+                      à la place des menus (comme le rail de la vidéo) : on
+                      écoute et on règle les bornes en regardant le profil. */}
                   <button
                     type="button"
                     onClick={() => {
-                      const el = preview.current;
-                      if (!el) return;
-                      if (el.paused) {
-                        if (el.currentTime < from || el.currentTime > to) el.currentTime = from;
-                        void el.play().catch(() => setPlaying(false));
-                      } else el.pause();
+                      setBarMusic(true);
+                      setScope(null);
                     }}
-                    aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
-                  >
-                    {draft.music.cover ? (
-                      <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
-                    ) : null}
-                    <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
-                      {buffering ? (
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      ) : playing ? (
-                        <PauseIcon className="h-5 w-5 drop-shadow" />
-                      ) : (
-                        <PlayIcon className="ml-0.5 h-5 w-5 drop-shadow" />
-                      )}
-                    </span>
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    {ytLink !== null ? (
-                      /* Coller sa propre version : le résolveur peut ne pas
-                         l'avoir trouvée, ou avoir pris la mauvaise. */
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          applyLink();
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <input
-                          autoFocus
-                          value={ytLink}
-                          onChange={(e) => {
-                            setYtLink(e.target.value);
-                            setYtBad(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              e.stopPropagation();
-                              setYtLink(null);
-                            }
-                          }}
-                          placeholder={t("profile.studioMusicLinkPh")}
-                          className={`h-7 min-w-0 flex-1 rounded-md bg-white/[0.07] px-2.5 font-karla text-[12px] text-white outline-none ring-1 placeholder:text-white/30 ${
-                            ytBad ? "ring-red-400/70" : "ring-white/10 focus:ring-action/60"
-                          }`}
-                        />
-                        <button
-                          type="submit"
-                          className="h-7 shrink-0 rounded-md bg-action px-3 font-karla text-[11px] font-bold text-white"
-                        >
-                          {t("profile.studioMusicLinkOk")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setYtLink(null)}
-                          aria-label={t("profile.studioMusicLinkCancel")}
-                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/45 hover:text-white"
-                        >
-                          <XMarkIcon className="h-4 w-4" />
-                        </button>
-                      </form>
-                    ) : (
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
-                        {draft.music.title}
-                      </p>
-                      {/* Version TV / complète : seulement pour un générique
-                          (la bande-annonce n'a que sa vidéo). « Complète »
-                          sans version connue ouvre directement le champ du
-                          lien. */}
-                      {tvUrl ? (
-                        <div className="flex h-6 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
-                          {([false, true] as const).map((full) => {
-                            const on = full === !!draft.music?.videoId;
-                            return (
-                              <button
-                                key={String(full)}
-                                type="button"
-                                onClick={() => {
-                                  if (on) return;
-                                  if (full && !fullId) setYtLink("");
-                                  else setSource(full);
-                                }}
-                                aria-pressed={on}
-                                title={full ? t("profile.studioMusicFull") : undefined}
-                                className={`h-5 rounded-full px-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors ${
-                                  on ? "bg-action text-white" : "text-white/45 hover:text-white"
-                                }`}
-                              >
-                                {t(full ? "profile.studioMusicSrcFull" : "profile.studioMusicSrcTv")}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                    )}
-                    {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
-                        Les deux poignées jaunes bornent ce qui sera joué sur le
-                        profil ; entre elles, le rose dit où en est l'écoute.
-                        Cliquer dans le rail déplace la lecture, saisir une
-                        poignée déplace la borne — d'où le `data-grab` : sans
-                        lui, attraper une poignée aurait aussi fait sauter le
-                        son à cet endroit. */}
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
-                        {clock(at)}
-                      </span>
-                      <TrimRail
-                        len={len}
-                        from={from}
-                        to={to}
-                        at={at}
-                        buf={buf}
-                        onSeek={seek}
-                        onTrim={setTrim}
-                        onGrab={grabTrim}
-                        t={t}
-                      />
-                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
-                        {clock(len)}
-                      </span>
-
-                      {/* Le fondu, en une seule bascule et non deux : « entrée »
-                          et « sortie » séparés, c'est deux réglages pour un seul
-                          geste — on veut que la boucle ne claque pas, pas régler
-                          chaque bout. Un défaut d'1,5 s, assez pour effacer le
-                          raccord sans manger le refrain. */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          draft.music &&
-                          patch({
-                            music: {
-                              ...draft.music,
-                              fade: clampFade(fadeSec > 0 ? 0 : DEFAULT_FADE),
-                            },
-                          })
-                        }
-                        aria-pressed={fadeSec > 0}
-                        title={t("profile.studioMusicFadeHint")}
-                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
-                          fadeSec > 0
-                            ? "bg-action/20 text-white ring-action/50"
-                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
-                        }`}
-                      >
-                        {t("profile.studioMusicFade")}
-                      </button>
-
-                      {/* Le volume dans sa propre pastille : posé à même le pied
-                          du panneau, il flottait entre le minutage et le bord et
-                          on ne voyait pas où commençait la commande. Le fond la
-                          délimite, comme les pastilles de valeur des réglages de
-                          widget. Le haut-parleur coupe et rétablit — c'est le
-                          geste qu'on cherche en premier, et il évite d'avoir à
-                          viser le zéro du rail. */}
-                      <div className="flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.07] px-2 ring-1 ring-white/[0.06]">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setVol((v) => {
-                            /* Rétablir rend le niveau qu'on avait réglé, pas un
-                               volume plein qui ferait sursauter. */
-                            if (v > 0) {
-                              lastVol.current = v;
-                              return 0;
-                            }
-                            return lastVol.current;
-                          })
-                        }
-                        aria-label={t(vol > 0 ? "profile.studioMusicMute" : "profile.studioMusicUnmute")}
-                        className="shrink-0 text-white/45 transition-colors hover:text-white"
-                      >
-                        {vol > 0 ? (
-                          <SpeakerWaveIcon className="h-4 w-4" />
-                        ) : (
-                          <SpeakerXMarkIcon className="h-4 w-4" />
-                        )}
-                      </button>
-                      {/* Le curseur de volume est celui du site : remplissage à
-                          l'accent, pastille blanche cerclée d'accent — le même
-                          que le lecteur vidéo et que le flou du dock. Une barre
-                          pleine sans pastille ne disait pas qu'elle se prend en
-                          main. Le rail est ici à 4 px et non 3 : la pastille qui
-                          l'enferme est courte, et un trait de 3 px au milieu de
-                          28 px de fond se lisait comme une grosse boîte autour
-                          d'un fil. */}
-                      <div
-                        onPointerDown={(e) => {
-                          e.preventDefault();
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                          setVol(railAt(e));
-                        }}
-                        onPointerMove={(e) => {
-                          if (e.buttons & 1) setVol(railAt(e));
-                        }}
-                        role="slider"
-                        tabIndex={0}
-                        aria-label={t("profile.studioMusicVolume")}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(vol * 100)}
-                        onKeyDown={(e) => {
-                          const step = e.shiftKey ? 0.2 : 0.05;
-                          if (e.key === "ArrowLeft") setVol((v) => Math.max(0, v - step));
-                          else if (e.key === "ArrowRight") setVol((v) => Math.min(1, v + step));
-                          else return;
-                          e.preventDefault();
-                        }}
-                        className="relative h-4 w-[72px] shrink-0 cursor-pointer touch-none rounded-full outline-none"
-                      >
-                        <span className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/12" />
-                        <span
-                          className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-action"
-                          style={{ width: `${vol * 100}%` }}
-                        />
-                        <span
-                          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-action bg-white shadow-[0_1px_4px_rgba(0,0,0,.5)]"
-                          style={{ left: `${vol * 100}%` }}
-                        />
-                      </div>
-                      </div>
-                    </div>
-                  </div>
-                  {/* La flèche de droite replie le menu : il ne reste que ce
-                      lecteur, posé sur la barre du bas, pour écouter et régler
-                      les bornes en regardant le profil. Elle le rouvre aussi. */}
-                  <button
-                    type="button"
-                    onClick={() => setMusicFold((f) => !f)}
-                    aria-expanded={!musicFold}
-                    aria-label={t(musicFold ? "profile.studioMusicUnfold" : "profile.studioMusicFold")}
-                    title={t(musicFold ? "profile.studioMusicUnfold" : "profile.studioMusicFold")}
+                    aria-label={t("profile.studioMusicToBar")}
+                    title={t("profile.studioMusicToBar")}
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/55 transition-colors hover:bg-white/10 hover:text-white"
                   >
-                    <ChevronDownIcon
-                      className={`h-4 w-4 transition-transform ${musicFold ? "rotate-180" : ""}`}
-                      strokeWidth={2.2}
-                    />
+                    <ChevronRightIcon className="h-4 w-4 rotate-90" strokeWidth={2.2} />
                   </button>
                 </div>
               ) : null}
@@ -4341,9 +4353,29 @@ export default function BannerStudio({
             </button>
           </div>
           <div
-            aria-hidden={showVideo}
+            aria-hidden={!showMusic}
+            className={`absolute inset-0 flex items-stretch transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showMusic ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"
+            }`}
+          >
+            <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
+              {showMusic ? musicPlayer : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBarMusic(false)}
+              tabIndex={showMusic ? 0 : -1}
+              title={t("profile.studioShowMenus")}
+              aria-label={t("profile.studioShowMenus")}
+              className="grid w-12 shrink-0 place-items-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <ChevronLeftIcon className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </div>
+          <div
+            aria-hidden={showVideo || showMusic}
             className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showVideo ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
+              showVideo || showMusic ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
             }`}
           >
             <SceneBox
