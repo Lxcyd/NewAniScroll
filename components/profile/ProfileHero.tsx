@@ -543,16 +543,22 @@ export default function ProfileHero({
         </h1>
         {/* À côté, centrés sur la hauteur du pseudo ; leur taille a son
             propre réglage dans le menu Badges du studio (`badgeScale`).
-            En vitrine, à partir de `md`, ils quittent le pseudo pour la
-            colonne de droite, AU-DESSUS des chiffres et calés sur leur bord
+            En vitrine, ils quittent le pseudo pour la colonne de droite, AU-DESSUS des chiffres et calés sur leur bord
             droit (16/10/2026) : à côté d'un grand pseudo, ils
             passaient dessous ou débordaient sur la barre. */}
-        <FeaturedBadges
-          ids={banner.badges}
-          earned={earned}
-          size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
-          className={`gap-2 ${centered ? "justify-center" : "self-center"} ${showcase ? "md:hidden" : ""}`}
-        />
+        {/* UN SEUL montage par page, jamais un second caché par CSS : chaque
+            FeaturedBadges porte les dégradés des jetons (BadgeDefs) sous les
+            mêmes ids, et le navigateur résout `url(#…)` vers le PREMIER — s'il
+            est dans un bloc `display: none`, tous les badges de la page, studio
+            compris, perdent leurs couleurs (16/10/2026). */}
+        {showcase ? null : (
+          <FeaturedBadges
+            ids={banner.badges}
+            earned={earned}
+            size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
+            className={`gap-2 ${centered ? "justify-center" : "self-center"}`}
+          />
+        )}
         </div>
         {/* LA LIGNE D'IDENTITÉ : le logo AniList (lien vers le profil AniList),
             l'identifiant, la date d'arrivée — chacun dans sa petite boîte. Un
@@ -634,7 +640,7 @@ export default function ProfileHero({
             ids={banner.badges}
             earned={earned}
             size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
-            className="hidden gap-2 md:flex"
+            className="gap-2"
           />
           {statLine}
         </div>
