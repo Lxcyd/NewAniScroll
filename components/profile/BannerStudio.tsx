@@ -2664,7 +2664,12 @@ export default function BannerStudio({
                 : draft.url === url,
             run: url
               ? () =>
-                  scope === "music"
+                  scope === "music" &&
+                  !!draft.music?.url &&
+                  [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url)
+                    ? /* Recliquer le morceau coché le retire. */
+                      patch({ music: null })
+                    : scope === "music"
                     ? (patch({
                         music: {
                           /* L'OGG d'AnimeThemes, pas la vidéo : 2 Mo au lieu
@@ -2714,19 +2719,8 @@ export default function BannerStudio({
            ses génériques sous sa ligne, avec leurs pochettes. Il n'y avait
            avant qu'UN anime à la fois, et l'atteindre demandait de taper son
            nom exact. */
-        if (draft.music)
-          out.push({
-            title: "",
-            rows: [
-              {
-                key: "no-music",
-                label: t("profile.studioMusicOff"),
-                hint: draft.music.title,
-                icon: SpeakerWaveIcon,
-                run: () => patch({ music: null }),
-              },
-            ],
-          });
+        /* Plus de ligne « Couper la musique » en tête (retirée le
+           16/10/2026) : on retire un morceau en recliquant sa ligne cochée. */
         const ouvert = pick == null ? null : artRoot ?? pick;
         const dansListe = new Set(animes.map((a) => a.mediaId));
         const tous = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
@@ -2816,6 +2810,10 @@ export default function BannerStudio({
                   square: true,
                   selected: !draft.music?.url && draft.music?.videoId === pv,
                   run: () => {
+                    if (!draft.music?.url && draft.music?.videoId === pv) {
+                      patch({ music: null });
+                      return;
+                    }
                     patch({
                       music: {
                         url: "",
