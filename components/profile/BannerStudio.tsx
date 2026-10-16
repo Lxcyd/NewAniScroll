@@ -4195,14 +4195,20 @@ export default function BannerStudio({
               {scope === "music" && draft.music ? (
                 <div
                   aria-hidden={barMusic}
-                  className={`grid transition-[grid-template-rows] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                  /* EN DEUX TEMPS, jamais ensemble : il glisse d'abord, PUIS le
+                     menu se resserre — glisser en se refermant le faisait
+                     descendre en même temps (16/10/2026). Au retour, l'ordre
+                     inverse : la place s'ouvre, puis il entre. */
+                  className={`grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
+                    barMusic ? "grid-rows-[0fr] delay-500" : "grid-rows-[1fr] delay-0"
                   }`}
                 >
                 <div className="min-h-0 overflow-hidden">
                 <div
                   className={`flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3 transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
+                    barMusic
+                      ? "pointer-events-none translate-x-full opacity-0 delay-0"
+                      : "translate-x-0 opacity-100 delay-300"
                   }`}
                 >
                   {musicPlayer}
