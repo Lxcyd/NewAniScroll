@@ -14,6 +14,23 @@ import {
 /* Le recalage du défilement doit passer avant que l'écran ne se peigne ; côté
    serveur, `useLayoutEffect` ne fait qu'avertir. */
 const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+/** cubic-bezier(.22,1,.36,1), la courbe des glissements de la barre, en JS :
+    le passage du lecteur entre la barre et le menu se calcule image par
+    image (voir `barMusic`). */
+function dockEase(x: number): number {
+  const [x1, y1, x2, y2] = [0.22, 1, 0.36, 1];
+  const bx = (t: number) => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3;
+  const by = (t: number) => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 30; i++) {
+    const m = (lo + hi) / 2;
+    if (bx(m) < x) lo = m;
+    else hi = m;
+  }
+  return by((lo + hi) / 2);
+}
 import { useTranslation } from "react-i18next";
 import {
   AdjustmentsHorizontalIcon,
@@ -711,8 +728,51 @@ export default function BannerStudio({
      disparaît : deux lecteurs montés, et le champ du lien (autoFocus)
      prenait le focus dans celui qu'on ne voit pas. */
   const [barMusicMounted, setBarMusicMounted] = useState(false);
-  /** La hauteur du lecteur au pied du menu, pour animer sa fermeture. */
+  /** La hauteur du lecteur au pied du menu : la place qu'il prend à la liste. */
   const [footH, setFootH] = useState(0);
+  const footEl = useRef<HTMLDivElement | null>(null);
+  const barLayerEl = useRef<HTMLDivElement | null>(null);
+  const menusEl = useRef<HTMLDivElement | null>(null);
+  const firstBarMusic = useRef(true);
+  /*
+   * LE LECTEUR PASSE D'UNE FENÊTRE À L'AUTRE, D'UN SEUL TENANT (16/10/2026).
+   *
+   * Le menu et la barre sont sur la même ligne ; le lecteur est un seul objet
+   * qui file vers la gauche (retour au menu) ou vers la droite (pose sur la
+   * barre), vu à travers deux fenêtres. Ses deux copies doivent donc être à
+   * la MÊME abscisse à chaque image. En CSS, chacune parcourait sa propre
+   * largeur (1 370 px pour la barre, 440 pour le menu) dans le même temps :
+   * deux vitesses, et on voyait le lecteur en double, les menus à la traîne.
+   *
+   * Ici une seule course `o` (la couche de la barre, de 0 à −largeur) ; les
+   * menus la suivent bord à bord, et la copie du menu est posée à la même
+   * abscisse que celle de la barre — arrêtée à son pied (`max(0, …)`).
+   */
+  useBeforePaint(() => {
+    if (firstBarMusic.current) {
+      firstBarMusic.current = false;
+      return;
+    }
+    const layer = barLayerEl.current;
+    const menus = menusEl.current;
+    const foot = footEl.current;
+    const box = layer?.parentElement;
+    if (!layer || !menus || !box) return;
+    const W = box.getBoundingClientRect().width;
+    const panel = foot?.parentElement;
+    const dx = panel ? box.getBoundingClientRect().left - panel.getBoundingClientRect().left : 0;
+    const N = 40;
+    const at = (k: number) => {
+      const e = dockEase(k / N);
+      return barMusic ? -W * (1 - e) : -W * e;
+    };
+    const frames = (f: (o: number) => number) =>
+      Array.from({ length: N + 1 }, (_, k) => ({ transform: `translateX(${f(at(k)).toFixed(1)}px)` }));
+    const opts: KeyframeAnimationOptions = { duration: 500, easing: "linear", fill: "backwards" };
+    layer.animate(frames((o) => o), opts);
+    menus.animate(frames((o) => o + W), opts);
+    if (foot && panel) foot.animate(frames((o) => Math.max(0, dx + o)), opts);
+  }, [barMusic]);
   /* La liste rend sa place au lecteur en même temps qu'il part, mais ne la
      reprend qu'une fois qu'il est revenu : avant, le bas de la liste se
      vidait d'un coup puis le lecteur arrivait sur du vide. */
@@ -4215,10 +4275,13 @@ export default function BannerStudio({
                 <div
                   aria-hidden={barMusic}
                   ref={(el) => {
+                    footEl.current = el;
                     if (el && el.offsetHeight && el.offsetHeight !== footH) setFootH(el.offsetHeight);
                   }}
-                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#101116] px-4 py-3 transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-                    barMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
+                  /* Pas de transition CSS : le glissement est calculé avec
+                     celui de la barre (voir `barMusic`). */
+                  className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#101116] px-4 py-3 ${
+                    barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
                 >
                   {musicPlayer}
@@ -4393,15 +4456,12 @@ export default function BannerStudio({
             </button>
           </div>
           <div
+            ref={barLayerEl}
             aria-hidden={!showMusic}
-            /* Le lecteur NE BOUGE PAS : il est sous les menus, qui glissent
-               vers la droite pour le découvrir et reviennent le recouvrir —
-               comme dans le menu Musique. Quand il glissait lui aussi, on
-               voyait deux lecteurs en route et les menus avaient l'air à la
-               traîne derrière le sien (16/10/2026). */
+            /* Glissement calculé avec la copie du menu (voir `barMusic`). */
             className={`absolute inset-0 flex items-stretch ${
-              showMusic ? "" : "pointer-events-none"
-            } ${barMusic || barMusicMounted ? "" : "invisible"}`}
+              showMusic ? "translate-x-0" : "pointer-events-none -translate-x-full"
+            }`}
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
               {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
@@ -4419,9 +4479,9 @@ export default function BannerStudio({
             </button>
           </div>
           <div
+            ref={menusEl}
             aria-hidden={showVideo || showMusic}
-            /* Opaque et au-dessus : c'est lui qui recouvre le lecteur posé. */
-            className={`relative z-10 flex h-full w-full items-stretch divide-x divide-white/[0.08] bg-[#15161d] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
               showVideo || showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
             }`}
           >
