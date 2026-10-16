@@ -117,7 +117,7 @@ export default function ProfileAside({
           {stats.map((s, i) => (
             <div
               key={s.key}
-              className={`flex flex-col-reverse gap-1.5 px-4 py-4 ${i % 2 ? "border-l border-white/10" : ""} ${
+              className={`flex flex-col-reverse items-center gap-1.5 px-4 py-4 text-center ${i % 2 ? "border-l border-white/10" : ""} ${
                 i >= 2 ? "border-t border-white/10" : ""
               }`}
             >
