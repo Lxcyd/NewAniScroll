@@ -4310,9 +4310,11 @@ export default function BannerStudio({
                     onClick={() => setBarMusic(true)}
                     aria-label={t("profile.studioMusicToBar")}
                     title={t("profile.studioMusicToBar")}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                    /* Le pendant exact du bouton « revenir » de la barre : une
+                       bande pleine hauteur à droite, filet à gauche. */
+                    className="-mr-4 grid w-12 shrink-0 place-items-center self-stretch border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white"
                   >
-                    <ChevronRightIcon className="h-4 w-4" strokeWidth={2.2} />
+                    <ChevronRightIcon className="h-5 w-5" strokeWidth={2} />
                   </button>
                 </div>
               ) : null}
