@@ -2706,7 +2706,7 @@ export default function BannerStudio({
               rows: [
                 {
                   key: `music-trailer-${pv}`,
-                  label: t("profile.studioMusicTrailer"),
+                  label: "Trailer",
                   /* TRL, en vert : ni opening (accent) ni ending (bleu). */
                   chip: { text: "TRL", op: false, color: "#4ade80" },
                   hint: vu?.title ?? null,
@@ -2718,7 +2718,7 @@ export default function BannerStudio({
                     patch({
                       music: {
                         url: "",
-                        title: t("profile.studioMusicTrailer"),
+                        title: "Trailer",
                         artist: vu?.title ?? null,
                         slug: "TRL",
                         cover: vu?.cover ?? null,
