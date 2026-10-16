@@ -117,19 +117,26 @@ export async function resolveSlug({
   return null;
 }
 
+/** What every themes query asks AnimeThemes for. */
+const THEME_FIELDS = {
+  include: "animethemes.animethemeentries.videos.audio,animethemes.song.artists",
+  "fields[anime]": "slug,name",
+  "fields[animetheme]": "type,sequence,slug",
+  "fields[animethemeentry]": "episodes,version,nsfw,spoiler",
+  "fields[video]": "link,nc,overlap,resolution,source",
+  "fields[audio]": "link",
+  "fields[song]": "title",
+  "fields[artist]": "name",
+} as const;
+
 /** Fetch normalized OP/ED themes for an anime slug (best NC video per theme). */
 export async function fetchThemes(slug: string): Promise<Theme[]> {
-  const data = await get(`/anime/${encodeURIComponent(slug)}`, {
-    include: "animethemes.animethemeentries.videos.audio,animethemes.song.artists",
-    "fields[anime]": "slug,name",
-    "fields[animetheme]": "type,sequence,slug",
-    "fields[animethemeentry]": "episodes,version,nsfw,spoiler",
-    "fields[video]": "link,nc,overlap,resolution,source",
-    "fields[audio]": "link",
-    "fields[song]": "title",
-    "fields[artist]": "name",
-  });
-  const anime = data?.anime || {};
+  const data = await get(`/anime/${encodeURIComponent(slug)}`, THEME_FIELDS);
+  return normalize(data?.anime || {});
+}
+
+/** One AnimeThemes anime payload → our Theme list. */
+function normalize(anime: any): Theme[] {
   const out: Theme[] = [];
   for (const t of anime?.animethemes || []) {
     const song = t?.song?.title ?? null;
@@ -207,6 +214,28 @@ export async function themesForAnime({
   malId?: number | null;
   anilistId?: number | null;
 }): Promise<Theme[]> {
+  /* ONE round-trip instead of two. The anime index filtered on its external
+     resource returns the anime WITH its themes (verified 16/10/2026 on
+     Cyberpunk: Edgerunners, 0.95 s) — the old path resolved the slug through
+     /resource first, then fetched /anime/{slug}: two sequential waits on every
+     cache miss. The slug path stays as the fallback if the filter comes back
+     empty. */
+  const site = malId ? _SITE.mal : anilistId ? _SITE.anilist : null;
+  const ext = malId || anilistId;
+  if (site && ext) {
+    try {
+      const data = await get("/anime", {
+        ...THEME_FIELDS,
+        "filter[has]": "resources",
+        "filter[site]": site,
+        "filter[external_id]": ext,
+      });
+      const anime = Array.isArray(data?.anime) ? data.anime[0] : null;
+      if (anime) return normalize(anime);
+    } catch {
+      /* fall through to the two-step path */
+    }
+  }
   const slug = await resolveSlug({ malId, anilistId });
   if (!slug) return [];
   return fetchThemes(slug);

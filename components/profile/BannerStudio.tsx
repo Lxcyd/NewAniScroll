@@ -383,6 +383,33 @@ function writeLastScope(s: PaletteScope) {
   }
 }
 
+/* LE CACHE MUSIQUE SURVIT AU RECHARGEMENT (16/10/2026). Génériques et
+   pochettes d'un anime ne bougent pas d'un jour à l'autre : rouvrir le studio,
+   ou un anime déjà vu, ne refait plus aucune requête. Sept jours, cent
+   cinquante animés au plus (les plus anciens sortent). */
+const MUSIC_KEY = "as-music-cache-v1";
+const MUSIC_TTL = 7 * 24 * 3600 * 1000;
+type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
+function readMusicStore(): MusicStore {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MUSIC_KEY) || "{}") as MusicStore;
+    const now = Date.now();
+    for (const k of Object.keys(raw)) if (!(now - raw[k].at < MUSIC_TTL)) delete raw[k];
+    return raw;
+  } catch {
+    return {};
+  }
+}
+function writeMusicStore(store: MusicStore) {
+  try {
+    const keys = Object.keys(store).sort((a, b) => store[b].at - store[a].at);
+    for (const k of keys.slice(150)) delete store[k];
+    localStorage.setItem(MUSIC_KEY, JSON.stringify(store));
+  } catch {
+    /* stockage plein ou refusé : le cache reste en mémoire */
+  }
+}
+
 /* LA DENSITÉ DE LA GRILLE D'ILLUSTRATIONS (Image, Bannière) : une image par
    rangée pour bien voir, deux ou trois pour comparer, beaucoup pour balayer.
    Retenue par navigateur, comme le dernier onglet. */
@@ -602,6 +629,54 @@ export default function BannerStudio({
     covers: {},
   });
   const coverCache = useRef(new Map<number, Record<string, string | null>>());
+  const musicStore = useRef<MusicStore | null>(null);
+  /* Relu une fois, au premier usage (le rendu serveur n'a pas de stockage). */
+  const store = () => {
+    if (!musicStore.current) {
+      musicStore.current = readMusicStore();
+      for (const [k, v] of Object.entries(musicStore.current)) {
+        if (v.t && !themeCache.current.has(+k)) themeCache.current.set(+k, v.t);
+        if (v.c && !coverCache.current.has(+k)) coverCache.current.set(+k, v.c);
+      }
+    }
+    return musicStore.current;
+  };
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remember = useCallback((id: number, part: { t?: ThemeRow[]; c?: Record<string, string | null> }) => {
+    if (part.t) themeCache.current.set(id, part.t);
+    if (part.c) coverCache.current.set(id, part.c);
+    const st = store();
+    st[id] = { ...st[id], ...part, at: Date.now() };
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => writeMusicStore(st), 800);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /* Les génériques d'un anime, une seule requête en vol par anime. La réponse
+     porte aussi les pochettes quand /api/v2/theme-covers a déjà fini cet anime
+     (`coversDone`) : on les range, et la seconde requête n'a pas lieu. */
+  const themesInflight = useRef(new Map<number, Promise<ThemeRow[]>>());
+  const loadThemes = useCallback((id: number): Promise<ThemeRow[]> => {
+    store();
+    const hit = themeCache.current.get(id);
+    if (hit) return Promise.resolve(hit);
+    const going = themesInflight.current.get(id);
+    if (going) return going;
+    const p = fetch(`/api/v2/themes/${id}?v=4`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        /* Une panne n'est pas « aucun générique » : rien n'est retenu. */
+        if (!json) return [] as ThemeRow[];
+        const list: ThemeRow[] = Array.isArray(json.themes) ? json.themes : [];
+        if (json.coversDone && json.covers) remember(id, { t: list, c: json.covers });
+        else remember(id, { t: list });
+        return list;
+      })
+      .catch(() => [] as ThemeRow[])
+      .finally(() => themesInflight.current.delete(id));
+    themesInflight.current.set(id, p);
+    return p;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remember]);
   /* L'anime dont on liste les musiques, tel qu'on l'AFFICHE. Il ne vient pas
      toujours de `animes` : le sélecteur de saison peut mener sur une saison que
      l'utilisateur n'a pas dans sa liste, et cette saison a quand même une
@@ -925,30 +1000,74 @@ export default function BannerStudio({
      sont déjà téléchargées par le navigateur — l'accordéon s'ouvre plein. Une
      seule fois par anime. */
   const musicAsked = useRef(new Set<number>());
-  const prefetchMusic = useCallback((id: number | null) => {
-    if (survol.current) clearTimeout(survol.current);
-    survol.current = null;
-    if (id == null || musicAsked.current.has(id)) return;
-    survol.current = setTimeout(() => {
+  const warmMusic = useCallback(
+    async (id: number) => {
+      if (musicAsked.current.has(id)) return;
       musicAsked.current.add(id);
-      if (!themeCache.current.has(id))
-        fetch(`/api/v2/themes/${id}?v=3`)
+      await loadThemes(id);
+      let covers = coverCache.current.get(id);
+      if (!covers) {
+        const json = await fetch(`/api/v2/theme-covers/${id}?v=4`)
           .then((r) => (r.ok ? r.json() : null))
-          .then((json) => {
-            if (Array.isArray(json?.themes)) themeCache.current.set(id, json.themes);
-          })
-          .catch(() => {});
-      if (!coverCache.current.has(id))
-        fetch(`/api/v2/theme-covers/${id}?v=3`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((json) => {
-            const covers = (json?.covers ?? {}) as Record<string, string | null>;
-            for (const u of Object.values(covers)) if (u) new window.Image().src = u;
-            if (json?.covers && !json.partial) coverCache.current.set(id, covers);
-          })
-          .catch(() => {});
-    }, 150);
-  }, []);
+          .catch(() => null);
+        covers = json?.covers ?? undefined;
+        if (json?.covers && !json.partial) remember(id, { c: json.covers });
+      }
+      for (const u of Object.values(covers ?? {})) if (u) new window.Image().src = u;
+    },
+    [loadThemes, remember],
+  );
+  const prefetchMusic = useCallback(
+    (id: number | null) => {
+      if (survol.current) clearTimeout(survol.current);
+      survol.current = null;
+      if (id == null || musicAsked.current.has(id)) return;
+      survol.current = setTimeout(() => void warmMusic(id), 150);
+    },
+    [warmMusic],
+  );
+  /* À l'ouverture du menu Musique, les six premiers animés de la liste se
+     préparent dans les temps morts, l'un après l'autre : les plus probables
+     s'ouvrent pleins, et leur ligne affiche déjà son nombre de génériques.
+     Six seulement — chaque anime neuf coûte une invocation ; les autres
+     passent par le survol. */
+  useEffect(() => {
+    if (!open || scope !== "music") return;
+    const ids = animes.slice(0, 6).map((a) => a.mediaId);
+    let alive = true;
+    let cancel = () => {};
+    let i = 0;
+    const step = () => {
+      if (!alive || i >= ids.length) return;
+      const id = ids[i++];
+      cancel = whenIdle(() => void warmMusic(id).finally(step), 1500);
+    };
+    step();
+    return () => {
+      alive = false;
+      cancel();
+    };
+  }, [open, scope, animes, warmMusic]);
+
+  /* Un anime ouvert SANS générique : est-il seulement sorti ? « Aucun
+     générique connu » se lisait comme un manque du site sur un titre annoncé
+     (Boku no Kokoro no Yabai Yatsu 3rd Season, 16/10/2026). Une requête, et
+     seulement dans ce cas-là. */
+  const [notAired, setNotAired] = useState<Record<number, boolean>>({});
+  useEffect(() => {
+    if (!open || scope !== "music" || pick == null || pick in notAired) return;
+    if (themeCache.current.get(pick)?.length !== 0) return;
+    let alive = true;
+    const id = pick;
+    fetch(`/api/v2/media/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => alive && setNotAired((s) => ({ ...s, [id]: m?.status === "NOT_YET_RELEASED" })))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scope, pick, themes]);
 
   /* L'identité de l'anime listé : prise dans la liste de l'utilisateur quand
      elle s'y trouve, sinon demandée au site. Une saison atteinte par le menu
@@ -1058,6 +1177,7 @@ export default function BannerStudio({
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
     if (scope !== "oped" && scope !== "music") return;
+    store();
     const hit = themeCache.current.get(listedAnimeId);
     if (hit) {
       setThemes(hit);
@@ -1065,21 +1185,15 @@ export default function BannerStudio({
     }
     let alive = true;
     setLoading(true);
-    /* `?v=3` : les réponses d'avant (gardées un jour par le navigateur)
-       n'ont pas le lien audio. */
-    fetch(`/api/v2/themes/${listedAnimeId}?v=3`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (!alive) return;
-        const list: ThemeRow[] = Array.isArray(json?.themes) ? json.themes : [];
-        themeCache.current.set(listedAnimeId, list);
-        setThemes(list);
-      })
-      .catch(() => alive && setThemes([]))
+    /* `?v=4` (dans loadThemes) : les réponses d'avant, gardées un jour par le
+       navigateur, n'ont ni le lien audio ni les pochettes jointes. */
+    loadThemes(listedAnimeId)
+      .then((list) => alive && setThemes(list))
       .finally(() => alive && setLoading(false));
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, listedAnimeId, scope]);
 
   /* La pochette de chaque générique (/api/v2/theme-covers). Une requête à
@@ -1094,16 +1208,18 @@ export default function BannerStudio({
        ajoutait un aller-retour complet avant la première pochette. */
     if (!open || listedAnimeId == null) return;
     if (scope !== "oped" && scope !== "music") return;
-    const hit = coverCache.current.get(listedAnimeId);
+    const id = listedAnimeId;
+    store();
+    const hit = coverCache.current.get(id);
     if (hit) {
-      setCoverState({ id: listedAnimeId, covers: hit });
+      setCoverState({ id, covers: hit });
       return;
     }
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setCoverState({ id: listedAnimeId, covers: {} });
+    setCoverState({ id, covers: {} });
     const ask = (round: number) =>
-      fetch(`/api/v2/theme-covers/${listedAnimeId}?v=3`)
+      fetch(`/api/v2/theme-covers/${id}?v=4`)
         .then((r) => (r.ok ? r.json() : null))
         .then((json) => {
           if (!alive || !json?.covers) return;
@@ -1114,12 +1230,19 @@ export default function BannerStudio({
           const covers: Record<string, string | null> = partial
             ? Object.fromEntries(Object.entries(json.covers as Record<string, string | null>).filter(([, v]) => v))
             : json.covers;
-          setCoverState({ id: listedAnimeId, covers });
+          setCoverState({ id, covers });
           if (partial) timer = setTimeout(() => ask(round + 1), 400);
-          else coverCache.current.set(listedAnimeId, covers);
+          else remember(id, { c: covers });
         })
         .catch(() => {});
-    void ask(1);
+    /* La réponse des génériques porte peut-être déjà les pochettes : on
+       l'attend un quart de seconde au plus avant de les demander à part. */
+    void Promise.race([loadThemes(id), new Promise((r) => setTimeout(r, 250))]).then(() => {
+      if (!alive) return;
+      const ready = coverCache.current.get(id);
+      if (ready) setCoverState({ id, covers: ready });
+      else void ask(1);
+    });
     return () => {
       alive = false;
       clearTimeout(timer);
@@ -2545,7 +2668,7 @@ export default function BannerStudio({
                 : [
                     {
                       key: "no-theme",
-                      label: t("profile.studioMusicNoneHere"),
+                      label: t(notAired[pick] ? "profile.studioMusicNotAired" : "profile.studioMusicNoneHere"),
                       icon: MusicalNoteIcon,
                       disabled: true,
                     },
@@ -2626,7 +2749,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, frameBudget, coverState, prefetchMusic, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 

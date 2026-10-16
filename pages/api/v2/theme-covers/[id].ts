@@ -4,6 +4,7 @@ import { THEMES_KEY } from "@/lib/animethemes/themesKey";
 import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import { kanaToRomaji, phonetic } from "@/lib/animethemes/kanaRomaji";
 import { resolvedVideoIds } from "@/lib/db/opedYoutube";
+import { COVERS_KEY, type CoversEntry as Entry } from "@/lib/animethemes/coversKey";
 
 /**
  * LA POCHETTE DE CHAQUE GÉNÉRIQUE — le menu Musique du studio de profil.
@@ -30,8 +31,6 @@ import { resolvedVideoIds } from "@/lib/db/opedYoutube";
  * et porte `partial: true` : le studio redemande, et l'appel suivant reprend où
  * le précédent s'est arrêté (`tried`, cf. Entry).
  */
-// v3 : replis MusicBrainz et YouTube. Les lignes v2 gardaient des `null`.
-const COVERS_KEY = (anilistId: number) => `themecovers:v3:al${anilistId}`;
 /** Au-delà, on rend ce qu'on a et le studio redemande la suite. Court
  *  exprès : la PREMIÈRE vague de pochettes s'affiche au bout de ~5 s au plus,
  *  au lieu d'attendre qu'un anime à vingt-cinq génériques soit fini. */
@@ -85,7 +84,9 @@ async function coverFor(song: string, artists: string[]): Promise<string | null>
     const hits = (await search(q)).filter((h) => sameArtist(h) && h.album?.cover_medium);
     if (hits.length) {
       hits.sort((a, b) => score(b) - score(a));
-      return hits[0].album.cover_medium ?? null;
+      /* 120 px : la vignette s'affiche à 40 (80 sur écran dense). Même motif
+         d'URL que `cover_medium` (250x250-…), en plus léger. */
+      return hits[0].album.cover_medium?.replace("/250x250-", "/120x120-") ?? null;
     }
     if (bare(song) === song) break;
   }
@@ -133,7 +134,7 @@ async function appleCover(song: string, artist: string | undefined): Promise<str
       .filter((x) => x.s > 0)
       .sort((a, b) => b.s - a.s)[0];
     /* 100 px de base ; le motif de l'URL donne la taille voulue. */
-    if (best) return best.h.artworkUrl100!.replace("100x100bb", "250x250bb");
+    if (best) return best.h.artworkUrl100!.replace("100x100bb", "120x120bb");
   }
   return null;
 }
@@ -238,11 +239,6 @@ async function backfillArtists(anilistId: number, themes: Theme[]): Promise<Them
   });
 }
 
-/** Ce que Turso garde : les pochettes, et les morceaux dont la cascade est
- *  allée au bout (`tried`) — un anime à vingt-cinq génériques se résout en
- *  plusieurs appels, chacun reprenant où le précédent s'est arrêté. */
-type Entry = { covers: Record<string, string | null>; tried: string[] };
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
   const anilistId = Number(req.query.id) || null;
@@ -269,7 +265,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const started = Date.now();
-  const timeLeft = () => BUDGET_MS - (Date.now() - started);
+  /* Le PREMIER appel d'un anime rend vite (2,5 s) ce que Deezer trouve tout
+     de suite ; les suivants, déjà repris, ont le budget entier. */
+  const budget = entry ? BUDGET_MS : 2500;
+  const timeLeft = () => budget - (Date.now() - started);
 
   const todo = themes.filter((th) => !tried.has(th.slug));
   /* Sans titre, rien à chercher : l'affiche de l'anime. */
@@ -327,7 +326,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let next = 0;
   await Promise.all(
     Array.from({ length: 4 }, async () => {
-      while (next < jobs.length && timeLeft() > 2000) await run(jobs[next++]);
+      /* La première vague (un morceau par file) part TOUJOURS : chercher
+         les artistes manquants peut avoir mangé le budget d'un premier appel,
+         qui rendait alors zéro pochette (Naruto, 16/10/2026). */
+      while (next < jobs.length && (next < 4 || timeLeft() > Math.min(2000, budget / 2))) await run(jobs[next++]);
     }),
   );
 

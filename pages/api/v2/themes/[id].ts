@@ -3,6 +3,7 @@ import { themesForAnime, type Theme } from "@/lib/animethemes/themes";
 import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import { resolvedVideoIds } from "@/lib/db/opedYoutube";
 import { THEMES_KEY } from "@/lib/animethemes/themesKey";
+import { COVERS_KEY, type CoversEntry } from "@/lib/animethemes/coversKey";
 
 /**
  * OP/ED themes proxy — powers the info-page "Opening / Ending" dropdown.
@@ -77,12 +78,28 @@ export default async function handler(
       ? "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800"
       : "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400";
 
+  /**
+   * The covers the studio's Music menu would ask /api/v2/theme-covers for,
+   * when that route has already finished this anime: one indexed read, and
+   * the menu opens on ONE request instead of two. `coversDone` = every theme
+   * was searched; otherwise the client still calls the covers route for the
+   * rest. Never folded into the cached themes payload (it changes on its own
+   * schedule), and it doesn't lengthen the CDN ceiling either.
+   */
+  const withCovers = async (themes: Theme[]) => {
+    if (!anilistId || !themes.length) return {};
+    const entry = await seasonCacheGet<CoversEntry>(COVERS_KEY(anilistId));
+    if (!entry) return {};
+    const tried = new Set(entry.tried);
+    return { covers: entry.covers, coversDone: themes.every((t) => tried.has(t.slug)) };
+  };
+
   const cacheKey = THEMES_KEY(anilistId, malId);
   const cached = await seasonCacheGet<Theme[]>(cacheKey);
   if (cached) {
-    const out = await withVideoIds(cached);
+    const [out, covers] = await Promise.all([withVideoIds(cached), withCovers(cached)]);
     res.setHeader("Cache-Control", cacheFor(out.resolved));
-    return res.status(200).json({ themes: out.themes });
+    return res.status(200).json({ themes: out.themes, ...covers });
   }
 
   let themes: Theme[] = [];
@@ -101,7 +118,7 @@ export default async function handler(
   // the upstream on every page view).
   await seasonCacheSet(cacheKey, themes);
 
-  const out = await withVideoIds(themes);
+  const [out, covers] = await Promise.all([withVideoIds(themes), withCovers(themes)]);
   res.setHeader(
     "Cache-Control",
     themes.length
@@ -110,5 +127,5 @@ export default async function handler(
         // a newly-added anime picks up its themes within a day.
         "public, max-age=3600, s-maxage=3600",
   );
-  return res.status(200).json({ themes: out.themes });
+  return res.status(200).json({ themes: out.themes, ...covers });
 }
