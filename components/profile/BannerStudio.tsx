@@ -707,6 +707,18 @@ export default function BannerStudio({
   /** Le lecteur de musique posé SUR la barre du bas, à la place des menus —
       comme le rail de la vidéo (`barVideo`). */
   const [barMusic, setBarMusic] = useState(false);
+  /* La copie de la barre reste montée le temps qu'elle sorte (500 ms), puis
+     disparaît : deux lecteurs montés, et le champ du lien (autoFocus)
+     prenait le focus dans celui qu'on ne voit pas. */
+  const [barMusicMounted, setBarMusicMounted] = useState(false);
+  useEffect(() => {
+    if (barMusic) {
+      setBarMusicMounted(true);
+      return;
+    }
+    const id = window.setTimeout(() => setBarMusicMounted(false), 520);
+    return () => window.clearTimeout(id);
+  }, [barMusic]);
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [len, setLen] = useState(0);
@@ -4373,8 +4385,8 @@ export default function BannerStudio({
             }`}
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
-              {/* Toujours rendu : il doit être là pendant qu'il glisse. */}
-              {musicPlayer}
+              {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
+              {barMusic || barMusicMounted ? musicPlayer : null}
             </div>
             <button
               type="button"
