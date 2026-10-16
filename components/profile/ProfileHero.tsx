@@ -431,7 +431,7 @@ export default function ProfileHero({
                celle de l'avatar (`--as-av`), bornée. */
             "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:shrink-0 md:content-around md:gap-x-8 md:self-stretch"
           : "gap-y-3 as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
-      } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
+      } ${showcase ? "md:mb-1 md:ml-auto md:shrink-0" : ""}`}
     >
       {stats.map((s) => (
         <div key={s.key} className="flex items-baseline gap-2 px-5">
@@ -486,7 +486,7 @@ export default function ProfileHero({
           TAILLE DU PSEUDO (15 % de sa police, `--as-nm` compris) : fixe, un
           petit pseudo passait sous l'avatar (16/10/2026). */}
       <div
-        className={`min-w-0 pb-1 ${medallion ? "flex-1" : ""} ${
+        className={`min-w-0 pb-1 ${medallion || showcase ? "flex-1" : ""} ${
           centered
             ? `-mt-[calc(0.15*1.875rem*var(--as-nm,1))] flex flex-col items-center ${
                 showcase
@@ -649,10 +649,16 @@ export default function ProfileHero({
          `gap-6` d'à côté les décollait trop (16/10/2026). À côté (bandeau),
          pseudo, badges et ligne d'identité sont centrés sur la hauteur de
          l'avatar : calés en bas avec la marge de la ligne, ils flottaient
-         au-dessus de lui (16/10/2026). */
+         au-dessus de lui (16/10/2026). En vitrine, calés en bas, et les
+         chiffres À DROITE sur la même ligne (`md:flex-nowrap`) : ils passaient
+         dessous dès que le pseudo et les badges prenaient de la place. */
       className={`mx-auto flex w-full max-w-screen-xl px-4 ${
-        centered ? "flex-col items-center gap-0 text-center" : "items-center gap-4 md:gap-6"
-      } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
+        centered
+          ? "flex-col items-center gap-0 text-center"
+          : showcase
+            ? "items-end gap-4 md:gap-6"
+            : "items-center gap-4 md:gap-6"
+      } ${showcase ? "flex-wrap pb-14 md:flex-nowrap md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
     </div>
