@@ -4376,8 +4376,8 @@ export default function BannerStudio({
               sortent par la droite ; il ne reste d'eux que la flèche. */}
           <div
             aria-hidden={!showVideo}
-            className={`absolute inset-0 flex items-stretch transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showVideo ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"
+            className={`absolute inset-0 flex items-stretch transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showVideo ? "translate-x-0" : "pointer-events-none -translate-x-full"
             }`}
           >
             {videoBar}
@@ -4394,8 +4394,11 @@ export default function BannerStudio({
           </div>
           <div
             aria-hidden={!showMusic}
-            className={`absolute inset-0 flex items-stretch transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showMusic ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0"
+            /* Sans fondu : les deux couches glissent bord à bord, l'une pousse
+               l'autre. Le fondu laissait les menus quasi invisibles les 150
+               premières ms du retour — ils semblaient à la traîne (mesuré). */
+            className={`absolute inset-0 flex items-stretch transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showMusic ? "translate-x-0" : "pointer-events-none -translate-x-full"
             }`}
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
@@ -4415,8 +4418,8 @@ export default function BannerStudio({
           </div>
           <div
             aria-hidden={showVideo || showMusic}
-            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showVideo || showMusic ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
+            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+              showVideo || showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
             }`}
           >
             <SceneBox
