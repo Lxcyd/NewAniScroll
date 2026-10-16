@@ -21,10 +21,7 @@ import {
   ArrowUpIcon,
   ArrowUturnLeftIcon,
   ArrowsUpDownIcon,
-  Bars3BottomLeftIcon,
-  Bars3Icon,
   Bars4Icon,
-  BuildingStorefrontIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -45,7 +42,6 @@ import {
   Squares2X2Icon,
   SwatchIcon,
   TrophyIcon,
-  UserCircleIcon,
   ViewColumnsIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
@@ -188,17 +184,10 @@ type Props = {
   earned?: Record<string, number> | null;
 };
 
-/** L'icône de chaque agencement — la forme du haut de profil qu'il produit. */
-const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
-  band: Bars3BottomLeftIcon,
-  center: Bars3Icon,
-  medallion: UserCircleIcon,
-  column: ViewColumnsIcon,
-  /* Une devanture de boutique, la vitrine au sens propre (16/10/2026). Les
-     flèches d'agrandissement disaient « plein écran » au sens d'une vidéo, et
-     un écran d'ordinateur ne disait rien du tout. */
-  showcase: BuildingStorefrontIcon,
-};
+/** L'icône de l'agencement : UNE pour tous (16/10/2026). Une par agencement
+    (lignes, cercle, colonnes, devanture…) ne se lisait jamais comme la forme
+    qu'elle voulait évoquer ; le nom écrit à côté suffit à les distinguer. */
+const LayoutIcon = ViewColumnsIcon;
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   color: SwatchIcon,
@@ -2630,7 +2619,7 @@ export default function BannerStudio({
     !scope || scope === "music"
       ? SpeakerWaveIcon
       : scope === "layout"
-        ? LAYOUT_ICON[draft.layout ?? "band"]
+        ? LayoutIcon
         : scope === "frame"
           ? FrameIcon
           : scope === "badges"
@@ -3733,10 +3722,7 @@ export default function BannerStudio({
                 onClick={() => openScope("layout")}
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
-                {(() => {
-                  const Icon = LAYOUT_ICON[draft.layout ?? "band"];
-                  return <Icon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />;
-                })()}
+                <LayoutIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
                 <span className="truncate font-outfit text-[13.5px] font-bold">
                   {t(`profile.studioLayout_${draft.layout ?? "band"}`)}
                 </span>
