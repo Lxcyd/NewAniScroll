@@ -78,35 +78,44 @@ export default function ProfileAside({
             {name}
           </h1>
           <FeaturedBadges ids={badges} earned={earned} size={Math.round(44 * (badgeScale / 100))} className="mt-3 justify-center gap-2" />
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
-            {tag ? (
-              <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
-                #{tag}
-              </span>
-            ) : null}
-            {anilistName ? (
-              <a
-                href={`https://anilist.co/user/${anilistName}`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-md bg-[#02a9ff]/20 px-2 py-1 font-bold text-[#5ac8ff] ring-1 ring-[#02a9ff]/30 transition-colors hover:bg-[#02a9ff]/30"
-              >
-                AniList · {anilistName}
-              </a>
-            ) : null}
-          </div>
-          {createdAt ? (
-            <p className="mt-2.5 text-[11px] text-white/45">
-              {/* Formatée contre la langue ACTIVE, en UTC — mêmes raisons, et le
-                  même prix quand on l'oublie, que dans ProfileHero. */}
-              {t("profile.memberSince", {
-                date: new Date(createdAt).toLocaleDateString(i18n.language, {
-                  month: "long",
-                  year: "numeric",
-                  timeZone: "UTC",
-                }),
-              })}
-            </p>
+          {/* LA LIGNE D'IDENTITÉ, la même que dans l'en-tête (ProfileHero) :
+              le logo AniList en lien, l'identifiant, la date d'arrivée —
+              chacun dans sa petite boîte (16/10/2026). Sans fond flou à
+              elles : la colonne en est déjà une. */}
+          {tag || anilistName || createdAt ? (
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
+              {anilistName ? (
+                <a
+                  href={`https://anilist.co/user/${anilistName}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={`AniList · ${anilistName}`}
+                  aria-label={`AniList · ${anilistName}`}
+                  className="mr-1 grid h-[1.6rem] w-[1.6rem] shrink-0 place-items-center rounded-full bg-[#152232] ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="https://anilist.co/img/icons/icon.svg" alt="" className="h-4 w-4" />
+                </a>
+              ) : null}
+              {tag ? (
+                <span className="rounded-md bg-black/40 px-2 py-1 font-mono text-white/60 ring-1 ring-white/10">
+                  #{tag}
+                </span>
+              ) : null}
+              {createdAt ? (
+                <span className="rounded-md bg-black/40 px-2 py-1 text-white/65 ring-1 ring-white/10">
+                  {/* Formatée contre la langue ACTIVE, en UTC — mêmes raisons,
+                      et le même prix quand on l'oublie, que dans ProfileHero. */}
+                  {t("profile.memberSince", {
+                    date: new Date(createdAt).toLocaleDateString(i18n.language, {
+                      month: "long",
+                      year: "numeric",
+                      timeZone: "UTC",
+                    }),
+                  })}
+                </span>
+              ) : null}
+            </div>
           ) : null}
           {subtitle ? <p className="mt-1 text-xs text-white/50">{subtitle}</p> : null}
         </div>
