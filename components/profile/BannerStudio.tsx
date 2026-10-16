@@ -3793,7 +3793,7 @@ export default function BannerStudio({
                 );
               })}
             </SceneBox>
-            <SceneBox label={t("profile.studioKind_layout")} active={barScope === "layout"}>
+            <SceneBox label={t("profile.studioKind_layout")} active={barScope === "layout"} onOpen={() => openScope("layout")}>
               <button
                 type="button"
                 onClick={() => openScope("layout")}
@@ -3806,7 +3806,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioFrameSection")} active={barScope === "frame"}>
+            <SceneBox label={t("profile.studioFrameSection")} active={barScope === "frame"} onOpen={() => openScope("frame")}>
               <button
                 type="button"
                 onClick={() => openScope("frame")}
@@ -3831,7 +3831,7 @@ export default function BannerStudio({
               ) : null}
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_badges")} active={barScope === "badges"}>
+            <SceneBox label={t("profile.studioKind_badges")} active={barScope === "badges"} onOpen={() => openScope("badges")}>
               <button
                 type="button"
                 onClick={() => openScope("badges")}
@@ -3845,7 +3845,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_music")} active={barScope === "music"} grow>
+            <SceneBox label={t("profile.studioKind_music")} active={barScope === "music"} grow onOpen={() => openScope("music")}>
               {/* Deux commandes, pas une : la pochette lance et arrête, le
                   texte ouvre le menu (un bouton dans un bouton n'existe pas). */}
               {draft.music ? (
@@ -4580,11 +4580,15 @@ function SceneBox({
   grow,
   fit,
   extra,
+  onOpen,
   children,
 }: {
   label: string;
   /** Son menu est celui ouvert à gauche : le compartiment s'allume. */
   active?: boolean;
+  /** Ouvre son menu : TOUT le compartiment est cliquable, pas seulement le
+      texte. Les commandes à lui (croix, lecture, curseur) gardent leur clic. */
+  onOpen?: () => void;
   grow?: boolean;
   /** À la largeur de son contenu (la rangée des huit fonds). */
   fit?: boolean;
@@ -4617,9 +4621,16 @@ function SceneBox({
   }, [active]);
   return (
     <div
+      onClick={
+        onOpen
+          ? (e) => {
+              if (!(e.target as HTMLElement).closest("button, input, a")) onOpen();
+            }
+          : undefined
+      }
       className={`relative flex min-w-0 flex-col justify-center gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
-      } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
+      } ${onOpen ? "cursor-pointer" : ""} ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
       <span
         ref={line}
