@@ -80,7 +80,7 @@ export default function ProfileAside({
           <FeaturedBadges ids={badges} earned={earned} size={Math.round(44 * (badgeScale / 100))} className="mt-3 justify-center gap-2" />
           {/* LA LIGNE D'IDENTITÉ, la même que dans l'en-tête (ProfileHero) :
               le logo AniList en lien et l'identifiant À DROITE, chacun dans sa
-              petite boîte (16/10/2026) ; la date d'arrivée reste dessous. Sans
+              petite boîte (16/10/2026) ; la date d'arrivée dessous, dans sa boîte aussi. Sans
               fond flou à elles : la colonne en est déjà une. */}
           {tag || anilistName ? (
             <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-[11px]">
@@ -105,7 +105,7 @@ export default function ProfileAside({
             </div>
           ) : null}
           {createdAt ? (
-            <p className="mt-2.5 text-[11px] text-white/45">
+            <p className="mt-1.5 inline-block rounded-md bg-black/40 px-2 py-1 text-[11px] text-white/65 ring-1 ring-white/10">
               {/* Formatée contre la langue ACTIVE, en UTC — mêmes raisons, et le
                   même prix quand on l'oublie, que dans ProfileHero. */}
               {t("profile.memberSince", {
