@@ -422,23 +422,28 @@ export default function ProfileHero({
      objets. */
   const statLine = (
     <dl
-      className={`grid grid-cols-2 gap-y-3 ${
+      className={`grid grid-cols-2 ${
         medallion
-          ? /* Dans le médaillon, en 2 × 2 à droite de l'identité (16/10/2026). */
-            "w-full py-1 md:ml-auto md:w-auto md:self-center"
-          : "as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
+          ? /* Dans le médaillon, en 2 × 2 à droite de l'identité, en grand et
+               aéré (16/10/2026). */
+            "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:gap-x-6 md:self-center"
+          : "gap-y-3 as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
       } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
       {stats.map((s) => (
         <div key={s.key} className="flex items-baseline gap-2 px-5">
           <dd
-            className={`font-outfit text-xl font-bold leading-none ${
+            className={`font-outfit font-bold leading-none ${
               s.accent ? "text-action" : "text-white"
-            } ${showcase ? "md:text-2xl" : ""}`}
+            } ${medallion ? "text-3xl md:text-[2.75rem]" : "text-xl"} ${showcase ? "md:text-2xl" : ""}`}
           >
             {s.value}
           </dd>
-          <dt className="text-[10px] font-bold uppercase tracking-wider text-white/60">
+          <dt
+            className={`font-bold uppercase tracking-wider text-white/60 ${
+              medallion ? "text-xs md:text-sm" : "text-[10px]"
+            }`}
+          >
             {s.label}
           </dt>
         </div>
