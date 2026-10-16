@@ -513,9 +513,9 @@ export default function ProfileHero({
             SUR UN APLAT DE COULEUR, pas d'ombre du tout : le contraste y est
             choisi et connu, elle n'a rien à corriger (les aplats ont déjà leur
             voile allégé, `.as-page-scrim-tint`). */}
-        <div
-          className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${centered ? "justify-center" : ""}`}
-        >
+        {/* Les badges mis en avant passent SOUS le pseudo (16/10/2026) : à côté,
+            ils se disputaient sa ligne. */}
+        <div className={`flex flex-col gap-2 ${centered ? "items-center" : "items-start"}`}>
         <h1
           className={`min-w-0 break-words font-outfit text-[length:calc(1.875rem*var(--as-nm,1))] font-bold leading-tight ${
             showcase
@@ -526,15 +526,13 @@ export default function ProfileHero({
         >
           {name}
         </h1>
-        {/* Les badges mis en avant, À CÔTÉ du pseudo : sur sa ligne, et sous
-            lui quand le pseudo prend toute la largeur (téléphone). */}
-        {/* Centrés sur la hauteur du pseudo ; leur taille a son propre
-            réglage dans le menu Badges du studio (`badgeScale`). */}
+        {/* Leur taille a son propre réglage dans le menu Badges du studio
+            (`badgeScale`). */}
         <FeaturedBadges
           ids={banner.badges}
           earned={earned}
           size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
-          className={`gap-2 self-center ${centered ? "justify-center" : ""}`}
+          className={`gap-2 ${centered ? "justify-center" : ""}`}
         />
         </div>
         {/* LA LIGNE D'IDENTITÉ : le logo AniList (lien vers le profil AniList),
@@ -553,7 +551,10 @@ export default function ProfileHero({
               rel="noreferrer"
               title={`AniList · ${anilistName}`}
               aria-label={`AniList · ${anilistName}`}
-              className="grid h-[1.6rem] w-[1.6rem] shrink-0 place-items-center rounded-full bg-[#152232] ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110"
+              /* Aligné à gauche, un rond PARAÎT en retrait sous la première lettre
+                 du pseudo : ses bords fuient en haut et en bas. Il
+                 déborde donc un peu de la colonne (correction optique). */
+              className={`grid h-[1.6rem] w-[1.6rem] shrink-0 place-items-center rounded-full bg-[#152232] ${centered ? "" : "-ml-[3px]"} ring-1 ring-[#02a9ff]/30 transition-transform hover:scale-110`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="https://anilist.co/img/icons/icon.svg" alt="" className="h-4 w-4" />
