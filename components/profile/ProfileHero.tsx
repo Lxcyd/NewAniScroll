@@ -796,8 +796,11 @@ export default function ProfileHero({
           asPage ? "as-hero-band" : "as-hero-band-slim"
         }`}
         /* `svh` : la hauteur de l'écran barre d'adresse comprise, sinon sur un
-           téléphone le bas de l'identité passe sous la barre au chargement. */
-        style={showcase ? { height: "100svh" } : bandStyle}
+           téléphone le bas de l'identité passe sous la barre au chargement.
+           MOINS 6,5 rem : les onglets dépassent en bas du premier écran et
+           disent qu'il y a une suite — ils remplacent le chevron, retiré le
+           16/10/2026. */
+        style={showcase ? { height: "calc(100svh - 6.5rem)" } : bandStyle}
       >
         {!asPage && banner.url ? (
           <PlateBackground
