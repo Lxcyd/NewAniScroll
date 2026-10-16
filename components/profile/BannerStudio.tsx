@@ -4527,7 +4527,7 @@ function SceneBox({
     >
       {/* Le liseré du haut dit « ce menu est ouvert à gauche » d'un coup d'œil,
           même quand le compartiment n'a pas de bouton rose à lui. */}
-      {active ? <span className="absolute inset-x-0 top-0 h-[2px] bg-action" /> : null}
+      {active ? <span className="as-line-in absolute inset-x-0 top-0 h-[2px] bg-action" /> : null}
       <span className="flex items-center justify-between gap-2">
         <span
           className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
