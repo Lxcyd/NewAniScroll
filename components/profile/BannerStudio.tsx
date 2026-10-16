@@ -1050,9 +1050,12 @@ export default function BannerStudio({
     };
   }, [open, listedAnimeId, scope]);
 
-  /* La pochette de chaque générique (Deezer, via /api/v2/theme-covers). Une
-     requête à part, lancée une fois les thèmes là : la liste n'attend jamais les
-     images, et la note reste en place tant qu'une pochette manque. */
+  /* La pochette de chaque générique (/api/v2/theme-covers). Une requête à
+     part, lancée une fois les thèmes là : la liste n'attend jamais les images,
+     et la note reste en place tant qu'une pochette manque. Un anime à
+     vingt-cinq génériques se résout en plusieurs fois : tant que la réponse est
+     `partial`, on redemande la suite (6 fois au plus), et les pochettes
+     arrivent par vagues. */
   useEffect(() => {
     if (!open || listedAnimeId == null || !themes.length) return;
     if (scope !== "oped" && scope !== "music") return;
@@ -1062,17 +1065,29 @@ export default function BannerStudio({
       return;
     }
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     setThemeCovers({});
-    fetch(`/api/v2/theme-covers/${listedAnimeId}?v=2`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (!alive || !json?.covers) return;
-        coverCache.current.set(listedAnimeId, json.covers);
-        setThemeCovers(json.covers);
-      })
-      .catch(() => {});
+    const ask = (round: number) =>
+      fetch(`/api/v2/theme-covers/${listedAnimeId}?v=3`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (!alive || !json?.covers) return;
+          const partial = !!json.partial && round < 6;
+          /* Partielle : seulement les pochettes trouvées. Un `null` y veut dire
+             « pas encore cherché », et l'affiche de repli s'afficherait trop
+             tôt. */
+          const covers: Record<string, string | null> = partial
+            ? Object.fromEntries(Object.entries(json.covers as Record<string, string | null>).filter(([, v]) => v))
+            : json.covers;
+          setThemeCovers(covers);
+          if (partial) timer = setTimeout(() => ask(round + 1), 400);
+          else coverCache.current.set(listedAnimeId, covers);
+        })
+        .catch(() => {});
+    void ask(1);
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
   }, [open, listedAnimeId, scope, themes]);
 
@@ -2322,7 +2337,13 @@ export default function BannerStudio({
               .filter(Boolean)
               .join(" · "),
             icon: MusicalNoteIcon,
-            thumb: themeCovers[th.slug] ?? null,
+            /* Rien trouvé nulle part (la route a répondu `null`) : l'affiche
+               de l'anime, pour qu'aucune ligne ne reste sans image. Pas avant
+               la réponse — l'affiche clignoterait avant la vraie pochette. */
+            thumb:
+              th.slug in themeCovers
+                ? (themeCovers[th.slug] ?? (meta ?? listedAnime)?.cover ?? null)
+                : null,
             square: true,
             disabled: !url,
             selected:

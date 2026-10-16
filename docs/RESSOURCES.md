@@ -123,7 +123,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [AnimeThemes](https://animethemes.moe) | OP/ED en video/audio (WebM/OGG), sequences, versions ; references du detecteur | ✅ [lib/animethemes/, tools/opening-detector-v2/refs/] |
 | [AniSkip](https://aniskip.com) | Bornes OP/ED communautaires par MAL id + episode | ✅ [lib/context/watchPageProvider.js] |
 | [anime-skip](https://anime-skip.com) | Bornes communautaires (GraphQL, 🔑 client id) | ✅ [lib/skip/providers.ts] |
-| [AnisongDB](https://anisongdb.com) | Base AMQ : chaque OP/ED/insert, artistes, liens audio | ⏳ — API JSON publique (a verifier) |
+| [AnisongDB](https://anisongdb.com) | Base AMQ : chaque OP/ED/insert, artistes, liens audio | ✅ [pages/api/v2/theme-covers/[id].ts] — `POST /api/mal_ids_request {mal_ids:[…]}` en 0,2 s, sans cle (liste complete : /openapi.json) ; comble les artistes absents d'AnimeThemes (la moitie de Naruto) |
 | [AnimeSongs.org](https://www.animesongs.org) | Paroles, credits | ⏳ |
 | [Aniplaylist](https://aniplaylist.com) | Liens Spotify / Apple Music / YouTube des OP/ED | ⏳ — « ecouter l'OP sur Spotify » |
 | [anison.info](http://anison.info) | Base japonaise exhaustive des anisongs | ⏳ |
@@ -131,6 +131,8 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [Spotify Web API](https://developer.spotify.com) | Lecture d'extraits, pochettes | ⏳ 🔑 |
 | [Deezer API](https://developers.deezer.com/api) | Pochettes des OP/ED (recherche libre « titre artiste », `album.cover_medium` 250 px) ; sans cle, 50 req / 5 s | ✅ [pages/api/v2/theme-covers/[id].ts] — le filtre strict `artist:"…" track:"…"` rate les titres a mention (« Produced by HYDE ») |
 | [iTunes Search API](https://performance-partners.apple.com/search-api) | Pochettes, repli de Deezer : le store `country=jp` a les singles anisong absents de Deezer (XX:me), en titres japonais ; `artworkUrl100` redimensionnable (`250x250bb`) ; sans cle, ~20 req / min | ✅ [pages/api/v2/theme-covers/[id].ts, lib/animethemes/kanaRomaji.ts] — titres compares apres kana → romaji |
+| [MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API) + [Cover Art Archive](https://coverartarchive.org) | Editions CD absentes des plateformes (« Ending Collection ») et leur pochette | ✅ [pages/api/v2/theme-covers/[id].ts] — 1 req/s par IP, User-Agent identifie obligatoire ; une edition sur trois a une pochette (404 sinon), essayer les suivantes puis le release-group |
+| [Jikan](https://jikan.moe) `/anime/{id}/themes` | OP/ED avec artistes (« "Titre" by Artiste (eps …) ») | ❌ pour les pochettes : ne repondait plus du tout le 16/10/2026, AnisongDB fait mieux |
 
 ### Detection audio (si on revoit le detecteur)
 | Outil | Usage |
