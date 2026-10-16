@@ -269,6 +269,8 @@ type Row = {
   /** Pastille de nature — OP en accent, ED en bleu, comme sur la fiche anime. */
   chip?: { text: string; op: boolean } | null;
   thumb?: string | null;
+  /** Vignette carrée (pochette d'un générique) plutôt qu'en paysage. */
+  square?: boolean;
   color?: string | null;
   icon?: typeof PhotoIcon;
   disabled?: boolean;
@@ -593,6 +595,9 @@ export default function BannerStudio({
      le mémo des sections : la file de préchargement le lit après le rendu. */
   const aPrecharger = useRef<{ id: number | null; urls: string[] }>({ id: null, urls: [] });
   const themeCache = useRef(new Map<number, ThemeRow[]>());
+  /** Pochette par slug (« OP1 » → URL Deezer, ou null), par anime. */
+  const [themeCovers, setThemeCovers] = useState<Record<string, string | null>>({});
+  const coverCache = useRef(new Map<number, Record<string, string | null>>());
   /* L'anime dont on liste les musiques, tel qu'on l'AFFICHE. Il ne vient pas
      toujours de `animes` : le sélecteur de saison peut mener sur une saison que
      l'utilisateur n'a pas dans sa liste, et cette saison a quand même une
@@ -1044,6 +1049,32 @@ export default function BannerStudio({
       alive = false;
     };
   }, [open, listedAnimeId, scope]);
+
+  /* La pochette de chaque générique (Deezer, via /api/v2/theme-covers). Une
+     requête à part, lancée une fois les thèmes là : la liste n'attend jamais les
+     images, et la note reste en place tant qu'une pochette manque. */
+  useEffect(() => {
+    if (!open || listedAnimeId == null || !themes.length) return;
+    if (scope !== "oped" && scope !== "music") return;
+    const hit = coverCache.current.get(listedAnimeId);
+    if (hit) {
+      setThemeCovers(hit);
+      return;
+    }
+    let alive = true;
+    setThemeCovers({});
+    fetch(`/api/v2/theme-covers/${listedAnimeId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!alive || !json?.covers) return;
+        coverCache.current.set(listedAnimeId, json.covers);
+        setThemeCovers(json.covers);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open, listedAnimeId, scope, themes]);
 
   const patch = useCallback(
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
@@ -2291,6 +2322,8 @@ export default function BannerStudio({
               .filter(Boolean)
               .join(" · "),
             icon: MusicalNoteIcon,
+            thumb: themeCovers[th.slug] ?? null,
+            square: true,
             disabled: !url,
             selected:
               scope === "music" ? draft.music?.url === url : draft.url === url,
@@ -2303,7 +2336,9 @@ export default function BannerStudio({
                           title: label,
                           artist,
                           slug: th.slug.toUpperCase(),
-                          cover: (meta ?? listedAnime)?.cover ?? null,
+                          /* La pochette du morceau quand Deezer l'a, sinon
+                             l'affiche de l'anime. */
+                          cover: themeCovers[th.slug] ?? (meta ?? listedAnime)?.cover ?? null,
                           /* Un morceau qu'on vient de choisir est entier : le
                              découpage se fait ensuite, aux poignées. */
                           from: null,
@@ -2410,7 +2445,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, frameBudget, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, frameBudget, themeCovers, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -3389,7 +3424,7 @@ export default function BannerStudio({
                             {row.thumb ? (
                               <span
                                 className={`relative shrink-0 overflow-hidden rounded-md bg-black/50 ${
-                                  row.cover ? "h-14 w-10" : "h-9 w-16"
+                                  row.square ? "h-10 w-10" : row.cover ? "h-14 w-10" : "h-9 w-16"
                                 }`}
                               >
                                 <Image src={row.thumb} alt="" fill sizes="64px" className="object-cover" />
