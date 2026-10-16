@@ -202,7 +202,9 @@ const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   wall: RectangleGroupIcon,
   banner: PhotoIcon,
   anim: SparklesIcon,
-  image: Squares2X2Icon,
+  /* Une image, pas une grille : c'est l'icône du groupe « Fond » du dock
+     (image, bannière, mur), le premier choix qu'on y fait (16/10/2026). */
+  image: PhotoIcon,
   video: FilmIcon,
   oped: MusicalNoteIcon,
   clip: ScissorsIcon,
