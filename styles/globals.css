@@ -76,19 +76,6 @@ html.tab-hidden *::after {
   --as-pop-from: 0.9;
   animation: as-pop-in 0.35s ease both;
 }
-
-/* Liseré du compartiment ouvert dans la barre du studio (BannerStudio,
-   SceneBox) : il se deploie depuis le centre. Pas de repli reduced-motion —
-   un trait de 2 px qui s'etire ne fait pas bouger la page, et le poste de Luc
-   repond `reduce` : un repli rendrait l'animation invisible chez lui. */
-@keyframes as-line-in {
-  from { transform: scaleX(0); opacity: 0.4; }
-  to   { transform: none; opacity: 1; }
-}
-.as-line-in {
-  animation: as-line-in 0.32s cubic-bezier(0.3, 0.7, 0.2, 1) both;
-}
-
 /* Hover preview popup (components/shared/HoverPreview) — Hayase's `load-in`,
    same 0.3s ease, same 1.2rem rise and 0.95 scale. Ours is portalled and
    already positioned in px, so there is no -50% translate to carry through. */

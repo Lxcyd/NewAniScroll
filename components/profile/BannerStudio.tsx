@@ -2480,6 +2480,38 @@ export default function BannerStudio({
   const videoKey =
     draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
   const [barVideo, setBarVideo] = useState(false);
+
+  /* Le liseré du menu ouvert : UN trait pour toute la rangée, qui glisse d'un
+     compartiment à l'autre (SceneBox marque le sien `data-scene-active`). À sa
+     première apparition il se pose sans glisser depuis le bord gauche ; un
+     redimensionnement le recale sans animation. */
+  const sceneRowRef = useRef<HTMLDivElement>(null);
+  const sceneLineRef = useRef<HTMLSpanElement>(null);
+  useBeforePaint(() => {
+    const row = sceneRowRef.current;
+    const line = sceneLineRef.current;
+    if (!row || !line) return;
+    const place = (slide: boolean) => {
+      const box = row.querySelector<HTMLElement>("[data-scene-active]");
+      if (!box) {
+        line.style.opacity = "0";
+        return;
+      }
+      line.style.transition = slide && line.style.opacity === "1" ? "" : "opacity .2s";
+      line.style.transform = `translateX(${box.offsetLeft}px)`;
+      line.style.width = `${box.offsetWidth}px`;
+      line.style.opacity = "1";
+    };
+    place(true);
+    let width = row.offsetWidth;
+    const ro = new ResizeObserver(() => {
+      if (row.offsetWidth === width) return;
+      width = row.offsetWidth;
+      place(false);
+    });
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, [scope, barVideo]);
   const lastVideo = useRef(videoKey);
   useEffect(() => {
     if (videoKey && videoKey !== lastVideo.current) setBarVideo(true);
@@ -3682,11 +3714,17 @@ export default function BannerStudio({
             </button>
           </div>
           <div
+            ref={sceneRowRef}
             aria-hidden={showVideo}
-            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+            className={`relative flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
               showVideo ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
             }`}
           >
+            <span
+              ref={sceneLineRef}
+              aria-hidden
+              className="pointer-events-none absolute left-0 top-0 z-[1] h-[2px] bg-action opacity-0 transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+            />
             <SceneBox
               label={t("profile.studioBackground")}
               active={DRESSING_KINDS.some((k) => k.id === scope)}
@@ -4521,13 +4559,13 @@ function SceneBox({
 }) {
   return (
     <div
+      data-scene-active={active || undefined}
       className={`relative flex min-w-0 flex-col justify-center gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
-      {/* Le liseré du haut dit « ce menu est ouvert à gauche » d'un coup d'œil,
-          même quand le compartiment n'a pas de bouton rose à lui. */}
-      {active ? <span className="as-line-in absolute inset-x-0 top-0 h-[2px] bg-action" /> : null}
+      {/* Le liseré du haut (« ce menu est ouvert ») est tracé par la rangée,
+          qui le fait glisser jusqu'ici : voir sceneLineRef. */}
       <span className="flex items-center justify-between gap-2">
         <span
           className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
