@@ -405,14 +405,10 @@ export default function Profile({
             gauche du contenu : les widgets occupent alors la place à sa droite,
             et continuent sous elle en défilant, la colonne restant collée en
             haut. En dessous de `lg` la colonne repasse au-dessus du contenu —
-            deux colonnes sur un téléphone n'en font qu'une, étroite.
-            À partir de `lg`, la colonne est au BORD GAUCHE de la page et le
-            contenu reste CENTRÉ comme dans les autres agencements : une grille
-            à trois pistes, la troisième vide et de la largeur de la colonne,
-            fait le contrepoids (16/10/2026). */}
+            deux colonnes sur un téléphone n'en font qu'une, étroite. */}
         <div
-          className={`w-full px-4 pb-16 pt-10 ${
-            asideLayout ? "flex flex-col gap-6 lg:grid lg:grid-cols-[18rem_minmax(0,1fr)_18rem] lg:items-start" : "mx-auto max-w-screen-xl"
+          className={`mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10 ${
+            asideLayout ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""
           }`}
         >
         {asideLayout ? (
@@ -433,7 +429,7 @@ export default function Profile({
             />
           </div>
         ) : null}
-        <div className={asideLayout ? "mx-auto w-full min-w-0 max-w-screen-xl" : "contents"}>
+        <div className={asideLayout ? "min-w-0 flex-1" : "contents"}>
         <div ref={tabsRef} className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <ProfileTabs
             tabs={[

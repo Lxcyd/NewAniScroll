@@ -183,13 +183,10 @@ export default function LocalProfile() {
           pour toute la page, papier peint compris. */}
       <div className="relative z-10">
         <div
-          className={`w-full px-4 pb-16 pt-10 ${
+          className={`mx-auto w-full max-w-screen-lg px-4 pb-16 pt-10 ${
             /* Agencement « column » : l'identité quitte le bandeau pour une
-               colonne collante au bord gauche, le contenu reste centré (la
-               troisième piste, vide, fait le contrepoids — cf. [user].tsx). */
-            banner.layout === "column"
-              ? "flex flex-col gap-6 lg:grid lg:grid-cols-[18rem_minmax(0,1fr)_18rem] lg:items-start"
-              : "mx-auto max-w-screen-lg"
+               colonne collante à gauche, le contenu passe à sa droite. */
+            banner.layout === "column" ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""
           }`}
         >
           {banner.layout === "column" ? (
@@ -208,7 +205,7 @@ export default function LocalProfile() {
               />
             </div>
           ) : null}
-          <div className={banner.layout === "column" ? "mx-auto w-full min-w-0 max-w-screen-lg" : "contents"}>
+          <div className={banner.layout === "column" ? "min-w-0 flex-1" : "contents"}>
           {streak > 0 ? (
             <div
               className="mb-6 inline-flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2 ring-1 ring-white/10"
