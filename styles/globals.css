@@ -2454,9 +2454,11 @@ html.as-scene-resizing * {
    n'y a plus que la couleur de page, la même que celle du pied.
    LA MARGE EST EN PIXELS D'ÉCRAN (÷ zoom). 2 px de mise en page ne valaient
    que 1,6 px à 80 % : une colonne de papier peint non assombri perçait au
-   bord gauche du cadre (16/10/2026), et pire encore aux petits zooms. */
+   bord gauche du cadre (16/10/2026), et pire encore aux petits zooms. 3 px
+   d'écran, essayés ensuite, laissaient une bande sombre visible entre le
+   liseré et les affiches du mur, en haut et à gauche : 2 px, entre les deux. */
 .as-scene-screen.is-fixed .as-page-plate {
-  clip-path: inset(calc(3px / var(--as-scene-zoom, 1)) round calc(17px / var(--as-scene-zoom, 1)));
+  clip-path: inset(calc(2px / var(--as-scene-zoom, 1)) round calc(18px / var(--as-scene-zoom, 1)));
 }
 .as-scene-screen.is-shrunk,
 .as-stage.is-shrunk {
