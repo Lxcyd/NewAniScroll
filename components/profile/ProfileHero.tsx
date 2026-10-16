@@ -555,9 +555,10 @@ export default function ProfileHero({
         {tag || anilistName || createdAt ? (
         /* `mb-8` : posée à ras du bas de l'en-tête, la ligne paraissait
            tomber trop bas, et `mb-2` la laissait encore collée aux widgets
-           (16/10/2026). Pas dans le médaillon : la plaque centre son contenu
-           sur l'avatar, et une marge sous la ligne le décentrait. */
-        <div className={`mt-2.5 flex ${medallion ? "" : "mb-8 md:mb-10"} ${centered ? "justify-center" : ""}`}>
+           (16/10/2026). En centré seulement : à côté de l'avatar (bandeau,
+           médaillon), le bloc est centré sur lui, et une marge sous la ligne
+           le faisait remonter au-dessus. */
+        <div className={`mt-2.5 flex ${centered ? "mb-8 justify-center md:mb-10" : ""}`}>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           {anilistName ? (
             <a
@@ -645,9 +646,12 @@ export default function ProfileHero({
   ) : (
     <div
       /* Centré, l'écart est VERTICAL, entre l'avatar et le pseudo : le
-         `gap-6` d'à côté les décollait trop (16/10/2026). */
+         `gap-6` d'à côté les décollait trop (16/10/2026). À côté (bandeau),
+         pseudo, badges et ligne d'identité sont centrés sur la hauteur de
+         l'avatar : calés en bas avec la marge de la ligne, ils flottaient
+         au-dessus de lui (16/10/2026). */
       className={`mx-auto flex w-full max-w-screen-xl px-4 ${
-        centered ? "flex-col items-center gap-0 text-center" : "items-end gap-4 md:gap-6"
+        centered ? "flex-col items-center gap-0 text-center" : "items-center gap-4 md:gap-6"
       } ${showcase ? "flex-wrap pb-14 md:pb-16" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
