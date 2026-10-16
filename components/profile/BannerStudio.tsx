@@ -184,10 +184,17 @@ type Props = {
   earned?: Record<string, number> | null;
 };
 
-/** L'icône de l'agencement : UNE pour tous (16/10/2026). Une par agencement
+/** L'icône de l'agencement : UNE pour tous (16/10/2026), quatre tuiles
+    (Material Symbols « grid_view », choisie par Luc). Une par agencement
     (lignes, cercle, colonnes, devanture…) ne se lisait jamais comme la forme
     qu'elle voulait évoquer ; le nom écrit à côté suffit à les distinguer. */
-const LayoutIcon = ViewColumnsIcon;
+function LayoutIcon({ className }: { className?: string; strokeWidth?: number }) {
+  return (
+    <svg viewBox="0 -960 960 960" fill="currentColor" className={className} aria-hidden>
+      <path d="M200-520q-33 0-56.5-23.5T120-600v-160q0-33 23.5-56.5T200-840h160q33 0 56.5 23.5T440-760v160q0 33-23.5 56.5T360-520H200Zm0 400q-33 0-56.5-23.5T120-200v-160q0-33 23.5-56.5T200-440h160q33 0 56.5 23.5T440-360v160q0 33-23.5 56.5T360-120H200Zm400-400q-33 0-56.5-23.5T520-600v-160q0-33 23.5-56.5T600-840h160q33 0 56.5 23.5T840-760v160q0 33-23.5 56.5T760-520H600Zm0 400q-33 0-56.5-23.5T520-200v-160q0-33 23.5-56.5T600-440h160q33 0 56.5 23.5T840-360v160q0 33-23.5 56.5T760-120H600ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160Zm0 400h160v-160H600v160Zm-400 0h160v-160H200v160Zm400-400Zm0 240Zm-240 0Zm0-240Z" />
+    </svg>
+  );
+}
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
   color: SwatchIcon,
