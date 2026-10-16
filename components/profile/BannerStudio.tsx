@@ -4621,15 +4621,13 @@ function SceneBox({
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
-      <span
-        ref={line}
-        aria-hidden
-        className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
-      />
       <span className="flex items-center justify-between gap-2">
+        {/* Allumé, l'intitulé passe en 800 : en rose saturé, le lissage
+            sous-pixel de Windows n'allume presque que le sous-pixel rouge, et
+            le même 700 que les intitulés gris paraissait plus maigre. */}
         <span
-          className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
-            active ? "text-action" : "text-white/40"
+          className={`font-karla text-[10.5px] uppercase tracking-[.12em] ${
+            active ? "font-extrabold text-action" : "font-bold text-white/40"
           }`}
         >
           {label}
@@ -4637,6 +4635,14 @@ function SceneBox({
         {extra}
       </span>
       <div className={`flex min-w-0 items-center ${fit ? "gap-1" : "gap-2.5"}`}>{children}</div>
+      {/* Peint EN DERNIER (fin du bloc, z-10) : pendant son glissement, Chrome
+          sortait sur un calque à part tout ce qui se peignait au-dessus de lui,
+          et le texte y perdait son lissage sous-pixel. */}
+      <span
+        ref={line}
+        aria-hidden
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
+      />
     </div>
   );
 }
