@@ -151,13 +151,19 @@ export function sceneGeometry(
       },
     };
   }
-  const menuLeft = W * 0.015;
-  const gap = W * 0.015;
+  /* EN PIXELS ENTIERS, et l'écart PAIR : la poignée (4 px, centrée dans
+     l'écart, `.as-scene-split::after`) tombait sinon à cheval sur deux pixels
+     — 28,5 px d'écart à 1900 px de large — et son trait, étalé par
+     l'anticrénelage, paraissait décentré (16/10/2026). */
+  const menuLeft = Math.round(W * 0.015);
+  const gap = 2 * Math.round(W * 0.0075);
   /* La largeur du menu se règle à la poignée entre lui et le cadre
      (`menuWidth`). Bornée des deux côtés : le menu garde de quoi lire une
      ligne, le cadre au moins 35 % de la fenêtre. */
   const menuMax = Math.max(MENU_MIN, W - menuLeft - gap - W * 0.02 - W * 0.35);
-  const menuW = Math.min(menuMax, Math.max(MENU_MIN, menuWidth ?? Math.min(440, W * 0.24)));
+  const menuW = Math.round(
+    Math.min(menuMax, Math.max(MENU_MIN, menuWidth ?? Math.min(440, W * 0.24))),
+  );
   const zoneLeft = menuLeft + menuW + gap;
   const zoneRight = W * 0.02;
   /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. */
