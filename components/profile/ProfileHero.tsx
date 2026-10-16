@@ -4,7 +4,6 @@ import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ChevronDownIcon,
   PhotoIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
@@ -651,14 +650,16 @@ export default function ProfileHero({
          l'avatar : calés en bas avec la marge de la ligne, ils flottaient
          au-dessus de lui (16/10/2026). En vitrine, calés en bas, et les
          chiffres À DROITE sur la même ligne (`md:flex-nowrap`) : ils passaient
-         dessous dès que le pseudo et les badges prenaient de la place. */
+         dessous dès que le pseudo et les badges prenaient de la place. Plus
+         de chevron sous elle (retiré le 16/10/2026), d'où une marge du bas
+         ramenée de 64 à 32 px : le tout descend vers le bas de l'écran. */
       className={`mx-auto flex w-full max-w-screen-xl px-4 ${
         centered
           ? "flex-col items-center gap-0 text-center"
           : showcase
             ? "items-end gap-4 md:gap-6"
             : "items-center gap-4 md:gap-6"
-      } ${showcase ? "flex-wrap pb-14 md:flex-nowrap md:pb-16" : "pb-5 md:pb-7"}`}
+      } ${showcase ? "flex-wrap pb-6 md:flex-nowrap md:pb-8" : "pb-5 md:pb-7"}`}
     >
       {identityBody}
     </div>
@@ -878,14 +879,6 @@ export default function ProfileHero({
             qui n'est possible qu'en le rendant sous elle. */}
         {onArtwork && !asColumn && !medallion ? (
           <div className="absolute inset-x-0 bottom-0 z-10">{identity}</div>
-        ) : null}
-        {/* La vitrine cache tout le reste sous la ligne de flottaison : le
-            chevron dit qu'il y a une suite. */}
-        {showcase ? (
-          <ChevronDownIcon
-            aria-hidden
-            className="pointer-events-none absolute bottom-4 left-1/2 z-10 h-6 w-6 -translate-x-1/2 text-white/60"
-          />
         ) : null}
       </div>
 
