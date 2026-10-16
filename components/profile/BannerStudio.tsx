@@ -2957,10 +2957,9 @@ export default function BannerStudio({
   const videoKey =
     draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
   const [barVideo, setBarVideo] = useState(false);
-  /* Rouvrir un menu ramène les menus sur la barre : le lecteur posé dessus
-     cède sa place. */
+  /* Un autre menu que Musique ramène les menus sur la barre. */
   useEffect(() => {
-    if (scope) setBarMusic(false);
+    if (scope && scope !== "music") setBarMusic(false);
   }, [scope]);
   const lastVideo = useRef(videoKey);
   useEffect(() => {
@@ -4178,7 +4177,8 @@ export default function BannerStudio({
                   rail et finit sur le titre surlignait le texte au passage, et
                   le curseur d'interdiction du glisser-déposer apparaissait
                   par-dessus. */}
-              {scope === "music" && draft.music ? (
+              {/* Posé sur la barre, le lecteur n'est plus ici : un seul à la fois. */}
+              {scope === "music" && draft.music && !barMusic ? (
                 <div className="flex select-none items-center gap-3 border-t border-white/[0.07] bg-black/25 px-4 py-3">
                   {musicPlayer}
                   {/* La flèche de droite pose ce lecteur SUR la barre du bas,
@@ -4186,15 +4186,14 @@ export default function BannerStudio({
                       écoute et on règle les bornes en regardant le profil. */}
                   <button
                     type="button"
-                    onClick={() => {
-                      setBarMusic(true);
-                      setScope(null);
-                    }}
+                    /* Le menu RESTE ouvert dans sa colonne : le fermer vidait
+                       la colonne et perdait l'anime ouvert (16/10/2026). */
+                    onClick={() => setBarMusic(true)}
                     aria-label={t("profile.studioMusicToBar")}
                     title={t("profile.studioMusicToBar")}
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/55 transition-colors hover:bg-white/10 hover:text-white"
                   >
-                    <ChevronRightIcon className="h-4 w-4 rotate-90" strokeWidth={2.2} />
+                    <ChevronRightIcon className="h-4 w-4" strokeWidth={2.2} />
                   </button>
                 </div>
               ) : null}
