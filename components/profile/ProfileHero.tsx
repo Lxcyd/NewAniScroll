@@ -526,13 +526,15 @@ export default function ProfileHero({
             quand le pseudo prend toute la largeur (téléphone). */}
         <div
           className={
-            centered ? "flex flex-col items-center gap-2" : "flex flex-wrap items-center gap-x-4 gap-y-2"
+            centered
+              ? "flex flex-col items-center gap-2"
+              : `flex flex-wrap items-center gap-x-4 gap-y-2 ${showcase ? "md:flex-nowrap" : ""}`
           }
         >
         <h1
           className={`min-w-0 break-words font-outfit text-[length:calc(1.875rem*var(--as-nm,1))] font-bold leading-tight ${
             showcase
-              ? "md:text-[length:calc(3.75rem*var(--as-nm,1))]"
+              ? "md:shrink-0 md:text-[length:calc(3.75rem*var(--as-nm,1))]"
               : "md:text-[length:calc(3rem*var(--as-nm,1))]"
           }`}
           style={flat ? undefined : { textShadow: "0 1px 2px rgba(0,0,0,0.7)" }}
@@ -540,12 +542,15 @@ export default function ProfileHero({
           {name}
         </h1>
         {/* À côté, centrés sur la hauteur du pseudo ; leur taille a son
-            propre réglage dans le menu Badges du studio (`badgeScale`). */}
+            propre réglage dans le menu Badges du studio (`badgeScale`).
+            En vitrine, ils ne passent JAMAIS sous le pseudo (`md:flex-nowrap`) :
+            faute de place, ils débordent à droite, au-dessus des chiffres
+            calés en bas (16/10/2026). */}
         <FeaturedBadges
           ids={banner.badges}
           earned={earned}
           size={Math.round(56 * ((banner.badgeScale ?? 100) / 100))}
-          className={`gap-2 ${centered ? "justify-center" : "self-center"}`}
+          className={`gap-2 ${centered ? "justify-center" : "self-center"} ${showcase ? "md:shrink-0" : ""}`}
         />
         </div>
         {/* LA LIGNE D'IDENTITÉ : le logo AniList (lien vers le profil AniList),
