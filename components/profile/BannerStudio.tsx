@@ -508,6 +508,8 @@ export default function BannerStudio({
   /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
      contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
   const [tabVise, setTabVise] = useState<PaletteScope | null>(null);
+  /** Le menu VISÉ depuis la barre du bas : le liseré y va tout de suite. */
+  const [barVise, setBarVise] = useState<PaletteScope | null>(null);
   /* LA LIGNE DU CURSEUR NE S'ALLUME QU'AU CLAVIER. Le curseur vaut 0 par
      défaut, et la souris ne le déplace plus (le survol est en CSS) : la
      première ligne restait allumée comme si on la survolait (15/10/2026). Les
@@ -537,6 +539,19 @@ export default function BannerStudio({
   }, [frameSortOpen]);
   /** Cases par ligne : moins = plus grandes. */
   const [frameCols, setFrameCols] = useState(4);
+  /* LES CADRES SE MONTENT PAR LOTS. 688 cases d'un coup figeaient l'onglet
+     au clic ; on monte un écran, puis le reste par paquets dans les temps
+     morts (transition : un clic ou une frappe passe devant). */
+  const FRAME_FIRST = 48;
+  const [frameBudget, setFrameBudget] = useState(FRAME_FIRST);
+  const frameTotal = frames?.reduce((n, c) => n + c.frames.length, 0) ?? 0;
+  useEffect(() => {
+    setFrameBudget(FRAME_FIRST);
+  }, [scope, query, frameSort, frameSeed]);
+  useEffect(() => {
+    if (scope !== "frame" || !frameTotal || frameBudget >= frameTotal) return;
+    return whenIdle(() => startTransition(() => setFrameBudget((b) => b + 120)), 300);
+  }, [scope, frameTotal, frameBudget]);
   /** La densité du menu Badges, au bouton de la galerie : 1 = un par ligne
       (en liste), 2 = 3, 3 = 5. */
   const [badgeDens, setBadgeDens] = useState<Densite>(2);
@@ -907,19 +922,26 @@ export default function BannerStudio({
   /* Les cadres : une seule requête, au premier passage sur l'onglet. La réponse
      est la même pour tout le monde et cachée au bord (/api/v2/avatar-frames),
      et la table se met à jour seule chaque nuit avec la boutique Discord. */
+  /* Demandée dès l'ouverture du studio, dans un temps mort : l'onglet trouve
+     le catalogue prêt au lieu d'attendre le réseau au clic. Visé tout de suite
+     (clic dans la barre), la requête part sans attendre. Une seule fois. */
+  const framesAsked = useRef(false);
   useEffect(() => {
-    if (!open || scope !== "frame" || frames) return;
-    let alive = true;
-    fetch("/api/v2/avatar-frames")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (alive) setFrames(Array.isArray(d?.collections) ? d.collections : []);
-      })
-      .catch(() => alive && setFrames([]));
-    return () => {
-      alive = false;
+    if (!open || frames || framesAsked.current) return;
+    const go = () => {
+      if (framesAsked.current) return;
+      framesAsked.current = true;
+      fetch("/api/v2/avatar-frames")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setFrames(Array.isArray(d?.collections) ? d.collections : []))
+        .catch(() => setFrames([]));
     };
-  }, [open, scope, frames]);
+    if (scope === "frame" || barVise === "frame") {
+      go();
+      return;
+    }
+    return whenIdle(go, 2000);
+  }, [open, scope, barVise, frames]);
 
   useEffect(() => {
     if (!open || listedAnimeId == null) return;
@@ -1092,15 +1114,21 @@ export default function BannerStudio({
   }, [wantPlay, draft.music?.url]);
 
   const openScope = useCallback((s: PaletteScope) => {
-    setScope(s);
+    /* La barre réagit au clic (`barVise`, urgent) ; le menu lui-même se prépare
+       en arrière-plan. Monter les 688 cases des cadres bloquait le clic, le
+       liseré et la barre le temps du rendu. */
+    setBarVise(s);
     writeLastScope(s);
     setMini(false);
-    setQuery("");
-    setCursor(0);
-    /* Un onglet à deux écrans s'ouvre TOUJOURS sur la liste des animés :
-       rouvrir un menu et tomber sur le titre d'avant, c'est se demander où est
-       passée la liste. */
-    setPick(null);
+    startTransition(() => {
+      setScope(s);
+      setQuery("");
+      setCursor(0);
+      /* Un onglet à deux écrans s'ouvre TOUJOURS sur la liste des animés :
+         rouvrir un menu et tomber sur le titre d'avant, c'est se demander où
+         est passée la liste. */
+      setPick(null);
+    });
     requestAnimationFrame(() => search.current?.focus());
   }, []);
 
@@ -1193,8 +1221,11 @@ export default function BannerStudio({
             }`}
           >
             <span className="relative h-[58%] w-[58%] overflow-hidden rounded-full bg-primary">
+              {/* Un <img> nu et non un <Image> Next : la même URL ×688, chargée
+                  une fois par le navigateur, sans 688 composants à monter. */}
               {identity.avatar ? (
-                <Image src={identity.avatar} alt="" fill sizes="64px" className="object-cover" />
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={identity.avatar} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
               ) : null}
             </span>
             {/* La case « aucun cadre » n'a plus de croix : l'avatar nu dit déjà
@@ -1223,6 +1254,14 @@ export default function BannerStudio({
         </div>
       );
       if (!q) out.push({ title: t("profile.studioFrameNone"), rows: [], node: grid(tile(null, t("profile.studioFrameNone"))) });
+      /* Le lot monté jusqu'ici (cf. frameBudget) : les sections suivantes
+         arrivent aux prochains temps morts. */
+      let left = frameBudget;
+      const take = <T,>(list: T[]) => {
+        const kept = list.slice(0, Math.max(0, left));
+        left -= kept.length;
+        return kept;
+      };
       const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
       if (frameSort === "name" || frameSort === "name_desc" || frameSort === "random") {
         /* À plat : on cherche un cadre précis sans savoir sa collection, ou on
@@ -1230,7 +1269,7 @@ export default function BannerStudio({
         const all = frames.flatMap((c) => (match(c.name) ? c.frames : c.frames.filter((f) => match(f.name))));
         if (frameSort === "random") all.sort((a, b) => shuffleKey(a.asset, frameSeed) - shuffleKey(b.asset, frameSeed));
         else all.sort((a, b) => (frameSort === "name" ? byName(a, b) : byName(b, a)));
-        if (all.length) out.push({ title: t("profile.studioFrameAll"), rows: [], node: grid(all.map((f) => tile(f.asset, f.name))) });
+        if (all.length) out.push({ title: t("profile.studioFrameAll"), rows: [], node: grid(take(all).map((f) => tile(f.asset, f.name))) });
       } else {
         /* La table range les collections de la plus récente à la plus ancienne. */
         const cols =
@@ -1244,7 +1283,8 @@ export default function BannerStudio({
         for (const c of cols) {
           const hit = match(c.name) ? c.frames : c.frames.filter((f) => match(f.name));
           if (!hit.length) continue;
-          out.push({ title: c.name, rows: [], node: grid(hit.map((f) => tile(f.asset, f.name))) });
+          if (left <= 0) break;
+          out.push({ title: c.name, rows: [], node: grid(take(hit).map((f) => tile(f.asset, f.name))) });
         }
       }
       if (!out.length) out.push({ title: t("profile.studioNoResult"), rows: [], node: <span /> });
@@ -2370,7 +2410,7 @@ export default function BannerStudio({
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
+      accent, patch, t, frames, frameBudget, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
@@ -2436,6 +2476,10 @@ export default function BannerStudio({
   useEffect(() => {
     if (tabVise && tabVise === scope) setTabVise(null);
   }, [tabVise, scope]);
+  useEffect(() => {
+    if (barVise && barVise === scope) setBarVise(null);
+  }, [barVise, scope]);
+  const barScope = barVise ?? scope;
 
   /* ── Clavier ─────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -2480,41 +2524,6 @@ export default function BannerStudio({
   const videoKey =
     draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
   const [barVideo, setBarVideo] = useState(false);
-
-  /* Le liseré du menu ouvert : UN trait pour toute la rangée, qui glisse d'un
-     compartiment à l'autre (SceneBox marque le sien `data-scene-active`). À sa
-     première apparition il se pose sans glisser depuis le bord gauche ; un
-     redimensionnement le recale sans animation. */
-  const sceneRowRef = useRef<HTMLDivElement>(null);
-  const sceneLineRef = useRef<HTMLSpanElement>(null);
-  useBeforePaint(() => {
-    const row = sceneRowRef.current;
-    const line = sceneLineRef.current;
-    if (!row || !line) return;
-    const place = (slide: boolean) => {
-      const box = row.querySelector<HTMLElement>("[data-scene-active]");
-      if (!box) {
-        line.style.opacity = "0";
-        return;
-      }
-      line.style.transition = slide && line.style.opacity === "1" ? "" : "opacity .2s";
-      /* Tout passe par `transform` : c'est le compositeur qui fait glisser le
-         trait, et le rendu du menu qui s'ouvre (grille des cadres, images) ne
-         peut plus le faire bégayer — une transition de `width` tourne sur le
-         fil principal, celui que ce rendu occupe. */
-      line.style.transform = `translateX(${box.offsetLeft}px) scaleX(${box.offsetWidth / row.offsetWidth})`;
-      line.style.opacity = "1";
-    };
-    place(true);
-    let width = row.offsetWidth;
-    const ro = new ResizeObserver(() => {
-      if (row.offsetWidth === width) return;
-      width = row.offsetWidth;
-      place(false);
-    });
-    ro.observe(row);
-    return () => ro.disconnect();
-  }, [scope, barVideo]);
   const lastVideo = useRef(videoKey);
   useEffect(() => {
     if (videoKey && videoKey !== lastVideo.current) setBarVideo(true);
@@ -3171,7 +3180,20 @@ export default function BannerStudio({
                         </p>
                       ) : null}
                       {s.node ? (
-                        <div className={`px-1 pb-1 ${s.grow && inColumn ? `flex flex-1 flex-col ${s.fill ? "min-h-0" : ""}` : ""}`}>
+                        /* Cadres : hors écran, une collection n'est ni mise en page
+                           ni peinte (`content-visibility`), elle ne coûte qu'à
+                           l'approche. Pas ailleurs : le confinement rogne ce qui
+                           déborde (glisser-déposer des badges). `pt-[3px]` garde
+                           l'anneau de la case choisie hors de la rognure. */
+                        <div
+                          className={`px-1 pb-1 ${
+                            s.grow && inColumn
+                              ? `flex flex-1 flex-col ${s.fill ? "min-h-0" : ""}`
+                              : scope === "frame"
+                                ? "pt-[3px] [contain-intrinsic-size:auto_240px] [content-visibility:auto]"
+                                : ""
+                          }`}
+                        >
                           {s.node}
                         </div>
                       ) : null}
@@ -3717,20 +3739,14 @@ export default function BannerStudio({
             </button>
           </div>
           <div
-            ref={sceneRowRef}
             aria-hidden={showVideo}
-            className={`relative flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-[transform,opacity] duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
               showVideo ? "pointer-events-none translate-x-full opacity-0" : "translate-x-0 opacity-100"
             }`}
           >
-            <span
-              ref={sceneLineRef}
-              aria-hidden
-              className="pointer-events-none absolute left-0 top-0 z-[1] h-[2px] w-full origin-left bg-action opacity-0 transition-[transform,opacity] duration-300 will-change-transform ease-[cubic-bezier(.3,.7,.2,1)]"
-            />
             <SceneBox
               label={t("profile.studioBackground")}
-              active={DRESSING_KINDS.some((k) => k.id === scope)}
+              active={DRESSING_KINDS.some((k) => k.id === barScope)}
               fit
             >
               {DOCK_GROUPS.map((kinds) => {
@@ -3777,7 +3793,7 @@ export default function BannerStudio({
                 );
               })}
             </SceneBox>
-            <SceneBox label={t("profile.studioKind_layout")} active={scope === "layout"}>
+            <SceneBox label={t("profile.studioKind_layout")} active={barScope === "layout"}>
               <button
                 type="button"
                 onClick={() => openScope("layout")}
@@ -3790,7 +3806,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioFrameSection")} active={scope === "frame"}>
+            <SceneBox label={t("profile.studioFrameSection")} active={barScope === "frame"}>
               <button
                 type="button"
                 onClick={() => openScope("frame")}
@@ -3815,7 +3831,7 @@ export default function BannerStudio({
               ) : null}
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_badges")} active={scope === "badges"}>
+            <SceneBox label={t("profile.studioKind_badges")} active={barScope === "badges"}>
               <button
                 type="button"
                 onClick={() => openScope("badges")}
@@ -3829,7 +3845,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_music")} active={scope === "music"} grow>
+            <SceneBox label={t("profile.studioKind_music")} active={barScope === "music"} grow>
               {/* Deux commandes, pas une : la pochette lance et arrête, le
                   texte ouvre le menu (un bouton dans un bouton n'existe pas). */}
               {draft.music ? (
@@ -4537,6 +4553,21 @@ function StudioRange({
   );
 }
 
+/** `fn` au prochain temps mort (au plus tard après `timeout` ms) ; rend
+ *  l'annulation. Safari n'a pas `requestIdleCallback` : repli sur un délai. */
+function whenIdle(fn: () => void, timeout: number): () => void {
+  if ("requestIdleCallback" in window) {
+    const id = window.requestIdleCallback(fn, { timeout });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, Math.min(timeout, 200));
+  return () => clearTimeout(id);
+}
+
+/** Le dernier liseré allumé de la barre, d'où part le suivant. Une seule
+ *  barre de studio existe à la fois. */
+let lastSceneLine: HTMLSpanElement | null = null;
+
 /**
  * Un compartiment de la barre du bas de la scène : un intitulé, puis la
  * commande. Tous à la même hauteur dans une seule barre — c'est ce qui rend la
@@ -4560,15 +4591,41 @@ function SceneBox({
   extra?: ReactNode;
   children: ReactNode;
 }) {
+  /* Le liseré du haut dit « ce menu est ouvert » d'un coup d'œil. Chaque
+     compartiment porte le sien (toujours monté, donc toujours à sa largeur
+     exacte) ; à l'allumage il part de la place du précédent (FLIP) : les deux
+     rectangles sont lus dans le même repère, et l'animation ne touche que
+     `transform`, que le compositeur joue même pendant le rendu du menu. */
+  const line = useRef<HTMLSpanElement>(null);
+  useBeforePaint(() => {
+    const el = line.current;
+    if (!active || !el) return;
+    const prev = lastSceneLine;
+    lastSceneLine = el;
+    if (prev && prev !== el && prev.isConnected) {
+      const a = prev.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      if (b.width > 0) {
+        el.animate(
+          [{ transform: `translateX(${a.left - b.left}px) scaleX(${a.width / b.width})` }, { transform: "none" }],
+          { duration: 320, easing: "cubic-bezier(.3,.7,.2,1)" },
+        );
+        return;
+      }
+    }
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+  }, [active]);
   return (
     <div
-      data-scene-active={active || undefined}
       className={`relative flex min-w-0 flex-col justify-center gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
-      {/* Le liseré du haut (« ce menu est ouvert ») est tracé par la rangée,
-          qui le fait glisser jusqu'ici : voir sceneLineRef. */}
+      <span
+        ref={line}
+        aria-hidden
+        className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
+      />
       <span className="flex items-center justify-between gap-2">
         <span
           className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
