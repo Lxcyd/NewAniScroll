@@ -426,7 +426,7 @@ export default function ProfileHero({
         medallion
           ? /* Dans le médaillon, en 2 × 2 à droite de l'identité, en grand et
                aéré (16/10/2026). */
-            "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:gap-x-6 md:self-center"
+            "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:shrink-0 md:gap-x-6 md:self-center"
           : "gap-y-3 as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
       } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
@@ -483,7 +483,7 @@ export default function ProfileHero({
           TAILLE DU PSEUDO (15 % de sa police, `--as-nm` compris) : fixe, un
           petit pseudo passait sous l'avatar (16/10/2026). */}
       <div
-        className={`min-w-0 pb-1 ${
+        className={`min-w-0 pb-1 ${medallion ? "flex-1" : ""} ${
           centered
             ? `-mt-[calc(0.15*1.875rem*var(--as-nm,1))] flex flex-col items-center ${
                 showcase
@@ -632,7 +632,10 @@ export default function ProfileHero({
      le haut dans la première version, 15/10/2026). */
   const identity = medallion ? (
     <div className="mx-auto w-full max-w-screen-xl px-4 pb-5 md:pb-7">
-      <div className="as-stat-card flex flex-wrap items-center gap-x-6 gap-y-4 rounded-3xl p-5 ring-1 ring-white/10 md:px-7 md:py-6">
+      {/* `md:flex-nowrap` : les chiffres restent À DROITE de l'identité, ils
+          ne passent plus à la ligne quand la plaque est étroite (16/10/2026) —
+          c'est le pseudo qui revient à la ligne. */}
+      <div className="as-stat-card flex flex-wrap items-center gap-x-6 gap-y-4 rounded-3xl p-5 ring-1 ring-white/10 md:flex-nowrap md:px-7 md:py-6">
         {identityBody}
       </div>
     </div>
