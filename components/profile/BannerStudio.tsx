@@ -4966,7 +4966,12 @@ function SceneBox({
             }
           : undefined
       }
-      className={`relative flex min-w-0 flex-col justify-center gap-1.5 px-4 py-2 transition-colors ${
+      /* Les intitulés sont TOUS en haut, à la même hauteur (16/10/2026) :
+         centrée, chaque case posait le sien selon la taille de son contenu, et
+         FOND, MUSIQUE et FLOU ne tombaient pas sur la même ligne. L'en-tête a
+         une hauteur fixe (la pastille « 0 px » du flou le grandissait) et le
+         contenu se centre dans ce qui reste. */
+      className={`relative flex min-w-0 flex-col justify-start gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${onOpen ? "cursor-pointer" : ""} ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
@@ -4975,7 +4980,7 @@ function SceneBox({
         aria-hidden
         className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
       />
-      <span className="flex items-center justify-between gap-2">
+      <span className="flex h-4 items-center justify-between gap-2">
         <span
           className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
             active ? "text-action" : "text-white/40"
@@ -4985,7 +4990,7 @@ function SceneBox({
         </span>
         {extra}
       </span>
-      <div className={`flex min-w-0 items-center ${fit ? "gap-1" : "gap-2.5"}`}>{children}</div>
+      <div className={`flex min-w-0 flex-1 items-center ${fit ? "gap-1" : "gap-2.5"}`}>{children}</div>
     </div>
   );
 }

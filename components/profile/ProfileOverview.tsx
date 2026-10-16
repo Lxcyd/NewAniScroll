@@ -698,22 +698,9 @@ export default function ProfileOverview({
         </div>
       ) : null}
 
-      {editing ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-action/35 bg-action/[0.07] px-4 py-3">
-          <p className="font-karla text-xs text-white/60">{t("profile.widgets.hint")}</p>
-          <button
-            type="button"
-            onClick={() => {
-              save(null);
-              setLayout(defaultLayout(isOwner));
-            }}
-            className="rounded-full bg-white/5 px-3 py-1.5 font-karla text-[11px] font-bold text-white/60 ring-1 ring-white/10 transition-colors hover:text-white hover:ring-white/30"
-          >
-            {t("profile.widgets.reset")}
-          </button>
-        </div>
-      ) : null}
-
+      {/* Plus de bandeau « Mode réorganisation » au-dessus de la grille
+          (retiré le 16/10/2026) : la grille en édition se lit d'elle-même, et
+          « Réinitialiser » vit dans la bibliothèque de blocs. */}
       <WidgetGrid
         layout={layout}
         onLayout={commit}
