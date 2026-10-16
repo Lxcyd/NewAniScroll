@@ -1198,6 +1198,7 @@
     "studioVideoPause": "Pause trailer",
     "studioMusicFull": "Full version on your profile",
     "studioMusicCount": "{{count}} themes",
+    "studioMusicNoneHere": "No known themes for this anime",
     "studioSeason": "Season",
     "studioMusicFade": "Fade",
     "studioMusicFadeHint": "Fade in and out of the excerpt, so the loop doesn't snap",

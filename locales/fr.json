@@ -1198,6 +1198,7 @@
     "studioVideoPause": "Mettre la bande-annonce en pause",
     "studioMusicFull": "Version complète sur le profil",
     "studioMusicCount": "{{count}} génériques",
+    "studioMusicNoneHere": "Aucun générique connu pour cet anime",
     "studioSeason": "Saison",
     "studioMusicFade": "Fondu",
     "studioMusicFadeHint": "Fondu à l'entrée et à la sortie de l'extrait, pour que la boucle ne claque pas",

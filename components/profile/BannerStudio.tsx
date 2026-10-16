@@ -596,7 +596,10 @@ export default function BannerStudio({
   const aPrecharger = useRef<{ id: number | null; urls: string[] }>({ id: null, urls: [] });
   const themeCache = useRef(new Map<number, ThemeRow[]>());
   /** Pochette par slug (« OP1 » → URL Deezer, ou null), par anime. */
-  const [themeCovers, setThemeCovers] = useState<Record<string, string | null>>({});
+  const [coverState, setCoverState] = useState<{ id: number | null; covers: Record<string, string | null> }>({
+    id: null,
+    covers: {},
+  });
   const coverCache = useRef(new Map<number, Record<string, string | null>>());
   /* L'anime dont on liste les musiques, tel qu'on l'AFFICHE. Il ne vient pas
      toujours de `animes` : le sélecteur de saison peut mener sur une saison que
@@ -701,16 +704,6 @@ export default function BannerStudio({
   const fold = (s: string) =>
     s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
 
-  /* En mode musique, taper un nom d'anime liste SES musiques directement, sans
-     l'étape « basculer puis regarder ». Le reste des modes garde la bascule
-     explicite : là on choisit une illustration, on ne cherche pas un titre. */
-  const searchedAnime = useMemo(() => {
-    if (scope !== "music") return null;
-    const q = fold(query);
-    if (q.length < 3) return null;
-    return animes.find((a) => fold(a.title).includes(q)) ?? null;
-  }, [scope, query, animes]);
-
   /* CHERCHER HORS DE SA LISTE (14/10/2026). Les onglets Image et Bannière ne
      proposaient que les animés de la liste : impossible de poser une
      illustration d'un titre qu'on n'a pas noté. Dès trois lettres, la frappe
@@ -722,7 +715,7 @@ export default function BannerStudio({
   const vus = useRef(new Map<number, StudioAnime>());
   useEffect(() => {
     const q = query.trim();
-    if ((scope !== "image" && scope !== "banner") || fold(q).length < 3) {
+    if ((scope !== "image" && scope !== "banner" && scope !== "music") || fold(q).length < 3) {
       setFound([]);
       return;
     }
@@ -822,11 +815,16 @@ export default function BannerStudio({
     const el = box.querySelector<HTMLElement>(`[data-anchor="${a.key}"]`);
     if (el) box.scrollTop += el.getBoundingClientRect().top - a.top;
   });
-  const twoScreens = scope === "video" || scope === "banner" || scope === "image";
+  /* Musique y est depuis le 16/10/2026 : même accordéon que Image — la liste
+     des animés (et la recherche AniList), un anime ouvert déplie ses
+     génériques sous sa ligne. */
+  const twoScreens = scope === "video" || scope === "banner" || scope === "image" || scope === "music";
 
   const listedAnime = twoScreens
-    ? (meta?.mediaId === pick ? meta : animes.find((a) => a.mediaId === pick)) ?? null
-    : searchedAnime ?? currentAnime;
+    ? (meta?.mediaId === pick
+        ? meta
+        : animes.find((a) => a.mediaId === pick) ?? (pick != null ? vus.current.get(pick) : undefined)) ?? null
+    : currentAnime;
   const listedAnimeId = twoScreens ? pick : listedAnime?.mediaId ?? animeId;
 
   /* TOUTE la galerie de l'anime ouvert, et pas seulement les formats larges :
@@ -1061,12 +1059,12 @@ export default function BannerStudio({
     if (scope !== "oped" && scope !== "music") return;
     const hit = coverCache.current.get(listedAnimeId);
     if (hit) {
-      setThemeCovers(hit);
+      setCoverState({ id: listedAnimeId, covers: hit });
       return;
     }
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    setThemeCovers({});
+    setCoverState({ id: listedAnimeId, covers: {} });
     const ask = (round: number) =>
       fetch(`/api/v2/theme-covers/${listedAnimeId}?v=3`)
         .then((r) => (r.ok ? r.json() : null))
@@ -1079,7 +1077,7 @@ export default function BannerStudio({
           const covers: Record<string, string | null> = partial
             ? Object.fromEntries(Object.entries(json.covers as Record<string, string | null>).filter(([, v]) => v))
             : json.covers;
-          setThemeCovers(covers);
+          setCoverState({ id: listedAnimeId, covers });
           if (partial) timer = setTimeout(() => ask(round + 1), 400);
           else coverCache.current.set(listedAnimeId, covers);
         })
@@ -2310,13 +2308,20 @@ export default function BannerStudio({
     }
 
     if (scope === "oped" || scope === "music") {
-      const rows: Row[] = themes
-        /* Quand la requête DÉSIGNE l'anime, elle ne doit pas filtrer ses
-           pistes : « chainsawman » ne figure dans aucun titre de chanson, et
-           filtrer dessus viderait la liste qu'on vient d'aller chercher. */
+      /* Musique : les génériques de l'anime OUVERT, lus dans le cache par son
+         id — `themes` garde ceux du précédent jusqu'à l'arrivée des nouveaux,
+         et ils s'afficheraient sous le mauvais titre (même piège que `art`). */
+      const liste = scope === "music" ? (pick != null ? themeCache.current.get(pick) ?? null : null) : themes;
+      /* Les pochettes de CET anime seulement : l'état garde celles du
+         précédent le temps d'une requête, et « OP1 » est un slug commun. */
+      const themeCovers = coverState.id === listedAnimeId ? coverState.covers : {};
+      const rows: Row[] = (liste ?? [])
+        /* En Musique la frappe cherche un ANIME : elle ne filtre pas les
+           pistes de celui qu'on ouvre — « chainsawman » ne figure dans aucun
+           titre de chanson, et la liste se viderait. */
         .filter(
           (th) =>
-            !!searchedAnime ||
+            scope === "music" ||
             match(`${th.slug} ${th.song || ""} ${th.artists.join(" ")}`),
         )
         .map((th) => {
@@ -2342,7 +2347,7 @@ export default function BannerStudio({
                la réponse — l'affiche clignoterait avant la vraie pochette. */
             thumb:
               th.slug in themeCovers
-                ? (themeCovers[th.slug] ?? (meta ?? listedAnime)?.cover ?? null)
+                ? (themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
                 : null,
             square: true,
             disabled: !url,
@@ -2359,7 +2364,7 @@ export default function BannerStudio({
                           slug: th.slug.toUpperCase(),
                           /* La pochette du morceau quand Deezer l'a, sinon
                              l'affiche de l'anime. */
-                          cover: themeCovers[th.slug] ?? (meta ?? listedAnime)?.cover ?? null,
+                          cover: themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null,
                           /* Un morceau qu'on vient de choisir est entier : le
                              découpage se fait ensuite, aux poignées. */
                           from: null,
@@ -2392,16 +2397,128 @@ export default function BannerStudio({
               : undefined,
           };
         });
-      if (scope === "music" && draft.music) {
-        rows.unshift({
-          key: "no-music",
-          label: t("profile.studioMusicOff"),
-          hint: null,
-          icon: SpeakerWaveIcon,
-          disabled: false,
-          selected: false,
-          run: () => patch({ music: null }),
-        });
+      if (scope === "music") {
+        /* EN ACCORDÉON, COMME IMAGE (16/10/2026) : ta liste, puis ce
+           qu'AniList trouve en plus dès trois lettres ; l'anime ouvert déplie
+           ses génériques sous sa ligne, avec leurs pochettes. Il n'y avait
+           avant qu'UN anime à la fois, et l'atteindre demandait de taper son
+           nom exact. */
+        if (draft.music)
+          out.push({
+            title: "",
+            rows: [
+              {
+                key: "no-music",
+                label: t("profile.studioMusicOff"),
+                hint: draft.music.title,
+                icon: SpeakerWaveIcon,
+                run: () => patch({ music: null }),
+              },
+            ],
+          });
+        const ouvert = pick == null ? null : artRoot ?? pick;
+        const dansListe = new Set(animes.map((a) => a.mediaId));
+        const tous = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+        const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
+        const ouvertAilleurs =
+          ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
+            ? vus.current.get(ouvert)
+            : undefined;
+        tous.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
+        const ligne = (a: StudioAnime): Row => {
+          /* Le compte une fois les génériques connus (déjà ouvert une fois). */
+          const n = themeCache.current.get(a.mediaId)?.length;
+          return {
+            key: `anime-music-${a.mediaId}`,
+            label: a.title,
+            hint:
+              n === 0
+                ? t("profile.studioMusicNoneHere")
+                : n != null
+                  ? t("profile.studioMusicCount", { count: n })
+                  : dansListe.has(a.mediaId)
+                    ? null
+                    : t("profile.studioNotInList"),
+            thumb: a.cover ?? null,
+            cover: true,
+            dim: n === 0,
+            expand: false,
+            run: () => {
+              holdAnchor(`anime-music-${a.mediaId}`);
+              setPick(a.mediaId);
+              setArtRoot(a.mediaId);
+              setCursor(0);
+            },
+          };
+        };
+        const at = ouvert == null ? -1 : tous.findIndex((a) => a.mediaId === ouvert);
+        const gal: Section[] = [];
+        if (pick != null) {
+          gal.push({
+            title: "",
+            rows: [],
+            node: (
+              <AnimeHead
+                anime={meta?.mediaId === pick ? meta : listedAnime}
+                count={liste?.length ?? 0}
+                seasons={seasons}
+                current={pick}
+                onPick={(id) => {
+                  setPick(id);
+                  setCursor(0);
+                }}
+                anchor={`anime-music-${ouvert}`}
+                onClose={() => {
+                  holdAnchor(`anime-music-${ouvert}`);
+                  setPick(null);
+                  setCursor(0);
+                }}
+                t={t}
+              />
+            ),
+          });
+          if (liste == null)
+            /* Les génériques sont en route : des lignes qui attendent, plutôt
+               qu'un « aucun générique » qui mentirait une seconde. */
+            gal.push({
+              title: "",
+              rows: [],
+              node: (
+                <div className="grid gap-2 px-2 pb-2">
+                  {Array.from({ length: 4 }, (_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="h-10 w-10 animate-pulse rounded-md bg-white/[0.06]" />
+                      <div className="h-3 flex-1 animate-pulse rounded bg-white/[0.05]" />
+                    </div>
+                  ))}
+                </div>
+              ),
+            });
+          else
+            gal.push({
+              title: "",
+              rows: rows.length
+                ? rows
+                : [
+                    {
+                      key: "no-theme",
+                      label: t("profile.studioMusicNoneHere"),
+                      icon: MusicalNoteIcon,
+                      disabled: true,
+                    },
+                  ],
+            });
+        }
+        for (const s of gal) s.panel = true;
+        const titre = t("profile.studioKind_music");
+        if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
+        else
+          out.push(
+            { title: titre, rows: tous.slice(0, at).map(ligne) },
+            ...gal,
+            { title: "", rows: tous.slice(at + 1).map(ligne) },
+          );
+        return out.filter((s) => s.rows.length > 0 || s.node);
       }
       /* L'anime se présente en TÊTE DE LISTE, avec son affiche, son titre et
          ses saisons — au lieu du seul intitulé en petites capitales qui tenait
@@ -2465,8 +2582,8 @@ export default function BannerStudio({
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
-      searchedAnime, listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
-      accent, patch, t, frames, frameBudget, themeCovers, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
+      listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
+      accent, patch, t, frames, frameBudget, coverState, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, prefetchArt, densite,
       entries]);
 
