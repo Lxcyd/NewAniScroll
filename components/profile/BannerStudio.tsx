@@ -24,10 +24,10 @@ import {
   Bars3BottomLeftIcon,
   Bars3Icon,
   Bars4Icon,
+  BuildingStorefrontIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ComputerDesktopIcon,
   FilmIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
@@ -194,9 +194,10 @@ const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
   center: Bars3Icon,
   medallion: UserCircleIcon,
   column: ViewColumnsIcon,
-  /* Un écran : le fond le prend tout entier. Les flèches d'agrandissement
-     disaient « plein écran » au sens d'une vidéo, pas d'un profil (16/10/2026). */
-  showcase: ComputerDesktopIcon,
+  /* Une devanture de boutique, la vitrine au sens propre (16/10/2026). Les
+     flèches d'agrandissement disaient « plein écran » au sens d'une vidéo, et
+     un écran d'ordinateur ne disait rien du tout. */
+  showcase: BuildingStorefrontIcon,
 };
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
