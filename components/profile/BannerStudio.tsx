@@ -1063,7 +1063,7 @@ export default function BannerStudio({
     }
     let alive = true;
     setThemeCovers({});
-    fetch(`/api/v2/theme-covers/${listedAnimeId}`)
+    fetch(`/api/v2/theme-covers/${listedAnimeId}?v=2`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive || !json?.covers) return;

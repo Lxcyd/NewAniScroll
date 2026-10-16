@@ -130,6 +130,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [VGMdb](https://vgmdb.net) | OST, albums, catalogues | ⏳ (API non officielle vgmdb.info) |
 | [Spotify Web API](https://developer.spotify.com) | Lecture d'extraits, pochettes | ⏳ 🔑 |
 | [Deezer API](https://developers.deezer.com/api) | Pochettes des OP/ED (recherche libre « titre artiste », `album.cover_medium` 250 px) ; sans cle, 50 req / 5 s | ✅ [pages/api/v2/theme-covers/[id].ts] — le filtre strict `artist:"…" track:"…"` rate les titres a mention (« Produced by HYDE ») |
+| [iTunes Search API](https://performance-partners.apple.com/search-api) | Pochettes, repli de Deezer : le store `country=jp` a les singles anisong absents de Deezer (XX:me), en titres japonais ; `artworkUrl100` redimensionnable (`250x250bb`) ; sans cle, ~20 req / min | ✅ [pages/api/v2/theme-covers/[id].ts, lib/animethemes/kanaRomaji.ts] — titres compares apres kana → romaji |
 
 ### Detection audio (si on revoit le detecteur)
 | Outil | Usage |

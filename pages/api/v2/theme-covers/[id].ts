@@ -2,13 +2,15 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { themesForAnime, type Theme } from "@/lib/animethemes/themes";
 import { THEMES_KEY } from "@/lib/animethemes/themesKey";
 import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
+import { kanaToRomaji, phonetic } from "@/lib/animethemes/kanaRomaji";
 
 /**
  * LA POCHETTE DE CHAQUE GÉNÉRIQUE — le menu Musique du studio de profil.
  *
  *   GET /api/v2/theme-covers/{anilistId}  →  { covers: { [slug]: url | null } }
  *
- * Deezer (API publique, sans clé) cherché par titre + artiste. La route prend
+ * Deezer (API publique, sans clé) cherché par titre + artiste, puis Apple
+ * Music en repli (cf. appleCover). La route prend
  * l'ID DE L'ANIME, jamais du texte libre : les clés de cache restent bornées et
  * elle ne peut pas servir de relais vers Deezer. Les thèmes sont relus dans le
  * cache de /api/v2/themes (même clé).
@@ -22,7 +24,8 @@ import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
  * Caches : Turso une semaine (season_cache), CDN une semaine. Une réponse sans
  * aucune pochette (Deezer en panne, ou rien de trouvé) n'est gardée qu'une heure.
  */
-const COVERS_KEY = (anilistId: number) => `themecovers:v1:al${anilistId}`;
+// v2 : repli Apple Music. Les lignes v1 gardaient des `null` qu'il trouve.
+const COVERS_KEY = (anilistId: number) => `themecovers:v2:al${anilistId}`;
 const DEEZER = "https://api.deezer.com/search";
 
 type Hit = { title: string; artist: { name: string }; album: { cover_medium?: string } };
@@ -75,6 +78,52 @@ async function coverFor(song: string, artists: string[]): Promise<string | null>
       return hits[0].album.cover_medium ?? null;
     }
     if (bare(song) === song) break;
+  }
+  return appleCover(song, artists[0]);
+}
+
+/* REPLI : LE CATALOGUE JAPONAIS D'APPLE MUSIC (iTunes Search, sans clé).
+   Deezer n'a pas tout — aucun des six endings de XX:me (DARLING in the FRANXX,
+   16/10/2026) — et Apple les a, mais en titres japonais (トリカゴ, 真夏のセツナ).
+   Le titre est donc comparé après passage des kana en romaji, sur une clé
+   phonétique lâche (« Darling » = ダーリン). Un mot du titre voulu (3 lettres
+   ou plus) doit se retrouver dans celui d'Apple, et l'artiste doit concorder :
+   sans quoi on garde la note plutôt qu'une pochette au hasard. Deux requêtes au
+   plus : « titre artiste », puis le répertoire de l'artiste. */
+type AppleHit = { trackName?: string; artistName?: string; artworkUrl100?: string };
+const appleFlat = (s: string) =>
+  phonetic(kanaToRomaji(s.normalize("NFKC").toLowerCase()).replace(/[^\p{L}\p{N}]+/gu, ""));
+const latinWords = (s: string) =>
+  new Set(s.normalize("NFKC").toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ").filter(Boolean));
+
+async function appleCover(song: string, artist: string | undefined): Promise<string | null> {
+  if (!artist) return null;
+  const who = appleFlat(artist);
+  const want = latinWords(song);
+  const score = (title: string) => {
+    const flat = appleFlat(title);
+    let s = 0;
+    for (const w of want) if (w.length >= 3 && !VERSION.has(w) && flat.includes(phonetic(w))) s += w.length;
+    for (const w of latinWords(title)) if (VERSION.has(w) && !want.has(w)) s -= 10;
+    return s;
+  };
+  for (const [term, limit] of [[`${song} ${artist}`, 10], [artist, 50]] as const) {
+    const r = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&country=jp&limit=${limit}`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (!r.ok) throw new Error(`itunes ${r.status}`);
+    const hits: AppleHit[] = (await r.json())?.results ?? [];
+    const best = hits
+      .filter((h) => {
+        const a = appleFlat(h.artistName ?? "");
+        return !!a && !!who && (a.includes(who) || who.includes(a)) && h.artworkUrl100 && h.trackName;
+      })
+      .map((h) => ({ h, s: score(h.trackName!) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)[0];
+    /* 100 px de base ; le motif de l'URL donne la taille voulue. */
+    if (best) return best.h.artworkUrl100!.replace("100x100bb", "250x250bb");
   }
   return null;
 }
