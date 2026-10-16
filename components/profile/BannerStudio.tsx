@@ -4394,12 +4394,14 @@ export default function BannerStudio({
           </div>
           <div
             aria-hidden={!showMusic}
-            /* Sans fondu : les deux couches glissent bord à bord, l'une pousse
-               l'autre. Le fondu laissait les menus quasi invisibles les 150
-               premières ms du retour — ils semblaient à la traîne (mesuré). */
-            className={`absolute inset-0 flex items-stretch transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showMusic ? "translate-x-0" : "pointer-events-none -translate-x-full"
-            }`}
+            /* Le lecteur NE BOUGE PAS : il est sous les menus, qui glissent
+               vers la droite pour le découvrir et reviennent le recouvrir —
+               comme dans le menu Musique. Quand il glissait lui aussi, on
+               voyait deux lecteurs en route et les menus avaient l'air à la
+               traîne derrière le sien (16/10/2026). */
+            className={`absolute inset-0 flex items-stretch ${
+              showMusic ? "" : "pointer-events-none"
+            } ${barMusic || barMusicMounted ? "" : "invisible"}`}
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
               {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
@@ -4418,7 +4420,8 @@ export default function BannerStudio({
           </div>
           <div
             aria-hidden={showVideo || showMusic}
-            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+            /* Opaque et au-dessus : c'est lui qui recouvre le lecteur posé. */
+            className={`relative z-10 flex h-full w-full items-stretch divide-x divide-white/[0.08] bg-[#15161d] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
               showVideo || showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
             }`}
           >
