@@ -67,11 +67,16 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const cb = useRef({ onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError });
   cb.current = { onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError };
 
+  /* PRÊT ≠ CHARGÉ. L'iframe finit de charger avant que le lecteur qu'elle
+     contient écoute : une commande envoyée entre les deux est perdue — c'est
+     ainsi que le volume réglé se perdait et que YouTube jouait à 100
+     (16/10/2026). La file ne se vide qu'au premier message du lecteur. */
   const post = useCallback((func: string, args: unknown[] = []) => {
     const msg = JSON.stringify({ event: "command", func, args });
     if (loaded.current) frame.current?.contentWindow?.postMessage(msg, ORIGIN);
     else queue.current.push(msg);
   }, []);
+  const pctWanted = () => Math.round(s.current.volume * 100);
 
   const now = () => {
     const st = s.current;
@@ -114,6 +119,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         setVol(v);
       },
       play() {
+        /* Le volume AVANT le son : sans lui, le premier instant part à 100. */
+        s.current.sent = pctWanted();
+        post("setVolume", [s.current.sent]);
         post("unMute");
         post("playVideo");
         return Promise.resolve();
@@ -142,6 +150,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         return;
       }
       const st = s.current;
+      if (!loaded.current) {
+        loaded.current = true;
+        const w = frame.current?.contentWindow;
+        for (const m of queue.current) w?.postMessage(m, ORIGIN);
+        queue.current = [];
+      }
       if (data?.event === "onError") {
         cb.current.onError?.();
         return;
@@ -152,6 +166,16 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         st.duration = info.duration;
         cb.current.onDuration?.(info.duration);
       }
+      /* Le lecteur dit son volume : s'il n'est pas le nôtre (commande perdue,
+         ou YouTube qui reprend le sien au démarrage), on le lui redonne. */
+      if (info && typeof info.volume === "number") {
+        const want = pctWanted();
+        if (Math.abs(info.volume - want) > 1) {
+          st.sent = want;
+          post("setVolume", [want]);
+        }
+      }
+      if (info && info.muted === true && st.volume > 0 && st.playing) post("unMute");
       if (info && typeof info.currentTime === "number") {
         st.t = info.currentTime;
         st.at = performance.now();
@@ -223,17 +247,17 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       allow="autoplay; encrypted-media"
       title="YouTube"
       onLoad={() => {
-        loaded.current = true;
-        const w = frame.current?.contentWindow;
-        if (!w) return;
         /* L'embed ne parle qu'après un `listening`, et peut rater celui
-           envoyé pendant son démarrage : on le répète un peu. */
+           envoyé pendant son démarrage : on le répète jusqu'à ce qu'il
+           réponde (c'est sa réponse qui vide la file, plus haut). */
         const listen = JSON.stringify({ event: "listening", id: 1, channel: "widget" });
-        w.postMessage(listen, ORIGIN);
-        window.setTimeout(() => frame.current?.contentWindow?.postMessage(listen, ORIGIN), 400);
-        window.setTimeout(() => frame.current?.contentWindow?.postMessage(listen, ORIGIN), 1200);
-        for (const m of queue.current) w.postMessage(m, ORIGIN);
-        queue.current = [];
+        let n = 0;
+        const again = () => {
+          if (loaded.current || n++ > 20) return;
+          frame.current?.contentWindow?.postMessage(listen, ORIGIN);
+          window.setTimeout(again, 250);
+        };
+        again();
       }}
       className={className}
     />
