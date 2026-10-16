@@ -2638,7 +2638,10 @@ export default function BannerStudio({
         const ligne = (a: StudioAnime): Row => {
           /* Le compte exact une fois les génériques ouverts, sinon celui de
              la requête groupée. */
-          const n = themeCache.current.get(a.mediaId)?.length ?? musicCounts[a.mediaId];
+          const g = themeCache.current.get(a.mediaId)?.length ?? musicCounts[a.mediaId];
+          /* Des « songs » et non des génériques (16/10/2026) : la
+             bande-annonce compte, puisqu'elle se prend comme les autres. */
+          const n = g == null ? g : g + (a.trailer ? 1 : 0);
           return {
             key: `anime-music-${a.mediaId}`,
             label: a.title,
@@ -2672,7 +2675,10 @@ export default function BannerStudio({
             node: (
               <AnimeHead
                 anime={meta?.mediaId === pick ? meta : listedAnime}
-                count={liste?.length ?? 0}
+                count={
+                  (liste?.length ?? 0) +
+                  ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)
+                }
                 seasons={seasons}
                 current={pick}
                 onPick={(id) => {
