@@ -425,8 +425,11 @@ export default function ProfileHero({
       className={`grid grid-cols-2 ${
         medallion
           ? /* Dans le médaillon, en 2 × 2 à droite de l'identité, en grand et
-               aéré (16/10/2026). */
-            "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:shrink-0 md:gap-x-6 md:self-center"
+               aéré (16/10/2026). À partir de `md`, le bloc prend TOUTE la
+               hauteur de la plaque (`self-stretch`) et ses deux lignes s'y
+               répartissent (`content-around`) ; la taille des chiffres suit
+               celle de l'avatar (`--as-av`), bornée. */
+            "w-full gap-x-4 gap-y-6 py-1 md:ml-auto md:w-auto md:shrink-0 md:content-around md:gap-x-8 md:self-stretch"
           : "gap-y-3 as-stat-card rounded-2xl py-3 ring-1 ring-white/10 sm:grid-cols-4 sm:divide-x sm:divide-white/10"
       } ${showcase ? "md:mb-1 md:ml-auto" : ""}`}
     >
@@ -435,13 +438,13 @@ export default function ProfileHero({
           <dd
             className={`font-outfit font-bold leading-none ${
               s.accent ? "text-action" : "text-white"
-            } ${medallion ? "text-3xl md:text-[2.75rem]" : "text-xl"} ${showcase ? "md:text-2xl" : ""}`}
+            } ${medallion ? "text-3xl md:text-[length:clamp(2.5rem,calc(3rem*var(--as-av,1)),4.5rem)]" : "text-xl"} ${showcase ? "md:text-2xl" : ""}`}
           >
             {s.value}
           </dd>
           <dt
             className={`font-bold uppercase tracking-wider text-white/60 ${
-              medallion ? "text-xs md:text-sm" : "text-[10px]"
+              medallion ? "text-xs md:text-[length:clamp(0.8rem,calc(0.9rem*var(--as-av,1)),1.15rem)]" : "text-[10px]"
             }`}
           >
             {s.label}
