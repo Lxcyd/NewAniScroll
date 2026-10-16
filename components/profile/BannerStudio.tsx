@@ -20,7 +20,6 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   ArrowUturnLeftIcon,
-  ArrowsPointingOutIcon,
   ArrowsUpDownIcon,
   Bars3BottomLeftIcon,
   Bars3Icon,
@@ -28,6 +27,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ComputerDesktopIcon,
   FilmIcon,
   FunnelIcon,
   MagnifyingGlassIcon,
@@ -194,7 +194,9 @@ const LAYOUT_ICON: Record<HeroLayout, typeof PhotoIcon> = {
   center: Bars3Icon,
   medallion: UserCircleIcon,
   column: ViewColumnsIcon,
-  showcase: ArrowsPointingOutIcon,
+  /* Un écran : le fond le prend tout entier. Les flèches d'agrandissement
+     disaient « plein écran » au sens d'une vidéo, pas d'un profil (16/10/2026). */
+  showcase: ComputerDesktopIcon,
 };
 
 const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
