@@ -1165,7 +1165,19 @@ export default function BannerStudio({
        sort toute la collection. Retour anticipé : les sections d'animés qui
        suivent n'ont rien à faire dans cet onglet. */
     if (scope === "frame") {
-      if (!frames) return [{ title: t("profile.studioFrameLoading"), rows: [], node: <span /> }];
+      if (!frames)
+        return [
+          {
+            title: "",
+            rows: [],
+            node: (
+              <div role="status" className="flex flex-col items-center gap-3 py-10 font-karla text-[12px] font-bold text-white/45">
+                <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-action" />
+                {t("profile.studioFrameLoading")}
+              </div>
+            ),
+          },
+        ];
       const tile = (asset: string | null, label: string) => {
         const on = (draft.frame ?? null) === asset;
         return (
@@ -4515,7 +4527,7 @@ function SceneBox({
     >
       {/* Le liseré du haut dit « ce menu est ouvert à gauche » d'un coup d'œil,
           même quand le compartiment n'a pas de bouton rose à lui. */}
-      {active ? <span className="absolute inset-x-3 top-0 h-[2px] rounded-full bg-action" /> : null}
+      {active ? <span className="absolute inset-x-0 top-0 h-[2px] bg-action" /> : null}
       <span className="flex items-center justify-between gap-2">
         <span
           className={`font-karla text-[10.5px] font-bold uppercase tracking-[.12em] ${
