@@ -1,5 +1,7 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { MdPause, MdPlayArrow } from "react-icons/md";
 import { fadeGain } from "@/lib/profile/dressing";
+import HoverVolume from "@/components/shared/HoverVolume";
 
 /**
  * Ce que le studio et le profil demandent à un lecteur de musique : le
@@ -39,10 +41,19 @@ type Props = {
    */
   clip?: { from: number | null; to: number | null; fade: number; volume?: number } | null;
   /**
-   * La petite case (17/10/2026) : la vidéo seule, qui se met en pause au clic,
-   * et une lumière d'ambiance derrière. Sans elle, l'iframe nue.
+   * La petite case, habillée comme l'aperçu au survol (17/10/2026) : lecture
+   * au centre et volume en haut à droite, qui apparaissent quand la main
+   * bouge ; une lumière d'ambiance derrière. Sans elle, l'iframe nue.
    */
-  card?: { playing: boolean; onToggle: () => void } | null;
+  card?: {
+    playing: boolean;
+    muted: boolean;
+    volume: number;
+    onToggle: () => void;
+    onMuted: (m: boolean) => void;
+    onVolume: (v: number) => void;
+    fallback?: number;
+  } | null;
 };
 
 /**
@@ -315,6 +326,22 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => cancelAnimationFrame(raf);
   }, [hasClip, from, to, fade, base, post, setVol]);
 
+  /* Les commandes de la case : là quand la main bouge, parties après 1,8 s
+     d'immobilité — comme l'aperçu au survol. À l'arrêt, elles restent. */
+  const [awake, setAwake] = useState(false);
+  const sleep = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wake = () => {
+    setAwake(true);
+    if (sleep.current) clearTimeout(sleep.current);
+    sleep.current = setTimeout(() => setAwake(false), 1800);
+  };
+  useEffect(
+    () => () => {
+      if (sleep.current) clearTimeout(sleep.current);
+    },
+    [],
+  );
+
   const player = (
     <iframe
       key={videoId}
@@ -357,6 +384,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     />
   );
   if (!card) return player;
+  const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div className={`relative isolate ${className ?? ""}`}>
       {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
@@ -370,17 +398,34 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
         className="pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover opacity-70 blur-[34px]"
       />
-      {/* Rien par-dessus : la case seule. Un clic la met en pause ou la
-         relance — le calque bloque aussi l'habillage YouTube. Pas de liseré :
-         sur une image claire il se lisait comme un bord bleu. */}
-      <div className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl">
+      <div
+        /* Pas de liseré : sur une image claire il se lisait comme un bord bleu. */
+        className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl"
+        onPointerMove={wake}
+        onPointerEnter={wake}
+      >
         {player}
-        <button
-          type="button"
-          onClick={card.onToggle}
-          aria-label={card.playing ? "Pause" : "Play"}
-          className="absolute inset-0 cursor-pointer"
-        />
+        {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
+        <div className="absolute inset-0 grid place-items-center">
+          <button
+            type="button"
+            onClick={card.onToggle}
+            aria-label={card.playing ? "Pause" : "Play"}
+            className={`as-preview-videobtn h-11 w-11 ${chrome}`}
+          >
+            {card.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
+          </button>
+        </div>
+        <div className={`absolute right-2 top-2 ${chrome}`}>
+          <HoverVolume
+            muted={card.muted}
+            volume={card.volume}
+            onMuted={card.onMuted}
+            onVolume={card.onVolume}
+            fallback={card.fallback}
+            placement="down"
+          />
+        </div>
       </div>
     </div>
   );

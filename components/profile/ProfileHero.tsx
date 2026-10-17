@@ -770,8 +770,13 @@ export default function ProfileHero({
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             card={{
               playing: sound,
+              muted: vol === 0,
+              volume: vol > 0 ? vol : PROFILE_DEFAULT_VOLUME,
               /* Arrêter ici, c'est couper le son du profil : la case part. */
               onToggle: () => setSound((x) => !x),
+              onMuted: (m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME),
+              onVolume: changeVol,
+              fallback: PROFILE_DEFAULT_VOLUME,
             }}
             onError={() => setSound(false)}
           />
@@ -886,7 +891,9 @@ export default function ProfileHero({
               {t("profile.bannerFrom", { title: banner.title })}
             </Link>
           ) : null}
-          {hasSound ? (
+          {/* Pas pendant l'édition (17/10/2026) : le lecteur du studio joue
+              déjà la musique, et cette icône en doublait la commande. */}
+          {hasSound && !studio ? (
             /* Une icône seule, le volume des aperçus au survol (16/10/2026) :
                clic = couper / rétablir, survol = rail vertical. Le titre du
                morceau reste dans l'infobulle. */
