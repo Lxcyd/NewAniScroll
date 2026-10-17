@@ -155,17 +155,23 @@ html.tab-hidden *::after {
 .as-preview-voltrack {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
 }
-/* L'égaliseur de la case musique du profil (YouTubeMusic). Rien que du
-   transform : composité, aucun calcul de page. Volontairement HORS de
+/* Le vinyle de la case musique du profil (YouTubeMusic) : sillons, reflet,
+   rotation. Rien que du transform, composité. Volontairement HORS de
    prefers-reduced-motion : le Chrome de Luc répond « reduce » et le témoin de
    lecture disparaissait. */
-@keyframes as-eq {
-  0%, 100% { transform: scaleY(var(--lo, 0.3)); }
-  50% { transform: scaleY(1); }
+@keyframes as-vinyl-spin {
+  to { transform: rotate(360deg); }
 }
-.as-eq-bar {
-  transform-origin: bottom;
-  animation: as-eq var(--d, 0.9s) ease-in-out var(--dl, 0s) infinite;
+/* Les sillons tournent (on le voit à l'étiquette, la pochette au centre) ;
+   le reflet, lui, reste en place, comme sous une vraie lampe. */
+.as-vinyl {
+  position: relative;
+  background: repeating-radial-gradient(circle, #121214 0 2px, #1c1c20 2px 3.5px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(255, 255, 255, 0.04);
+  animation: as-vinyl-spin 3.6s linear infinite;
+}
+.as-vinyl-sheen {
+  background: conic-gradient(from 30deg, rgba(255, 255, 255, 0) 0deg, rgba(255, 255, 255, 0.14) 40deg, rgba(255, 255, 255, 0) 80deg, rgba(255, 255, 255, 0) 180deg, rgba(255, 255, 255, 0.1) 220deg, rgba(255, 255, 255, 0) 260deg);
 }
 
 /* The glow belongs to the VIDEO, not to the card. This box IS the video's box

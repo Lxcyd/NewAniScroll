@@ -56,9 +56,8 @@ if [ -n "$ANISCROLL_FORCE_BUILD" ]; then
   exit 1
 fi
 
-# Chemins qui ne changent RIEN au site servi. `worker-ytaudio/` se deploie par
-# wrangler, chez Cloudflare, jamais par Vercel.
-INERTES='^(devlog/|changelog/|tools/|scripts/|worker-ytaudio/|\.github/|\.githooks/|[^/]*\.md$)'
+# Chemins qui ne changent RIEN au site servi.
+INERTES='^(devlog/|changelog/|tools/|scripts/|\.github/|\.githooks/|[^/]*\.md$)'
 
 # Comparer au DERNIER DEPLOIEMENT, pas au commit precedent : un push de
 # plusieurs commits dont le dernier ne touche qu'au devlog aurait sinon annule

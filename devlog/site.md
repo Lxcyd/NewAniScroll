@@ -6,7 +6,7 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
-## 2026-10-17 — Case musique du profil : petit carré, égaliseur, copie analysée
+## 2026-10-17 — Case musique du profil : petit carré, vinyle (égaliseur retiré)
 
 La case YouTube du profil (`YouTubeMusic`, `card.minimizable`) : grande
 (240 px) 5 s à l'arrivée, puis carré de 48 px aux bords arrondis ; le survol
@@ -16,18 +16,26 @@ plus la souris (`pointer-events-none`), sinon le survol du petit carré
 n'était vu qu'en retard. Deux lumières (grande, petite) qui suivent la case en
 transform + fondu ; jamais de flou animé.
 
-Égaliseur de 8 barres au pied de la case, en grand comme en petit, caché en
-pause. Le son d'une iframe d'un autre site est HORS D'ATTEINTE d'une page
-(recherche dans `docs/RESSOURCES.md` : seules les extensions et la capture
-d'onglet y arrivent). Luc a choisi la copie : `worker-ytaudio/`
-(yta.aniscroll.com) ressuscite l'extracteur InnerTube des trailers supprimé
-par ba65900b, sert le format 18 avec CORS et cache d'edge ; `lib/profile/
-musicAnalyser.ts` le lit sans l'entendre (gain nul), calé sur l'horloge
-YouTube, et pilote les barres. Repli : animation CSS propre au morceau
-(pause, muet, fondu). Pas sur téléphone ni en économie de données (10-20 Mo).
+Témoin de lecture : un VINYLE qui sort de derrière la pochette et tourne en
+lecture, se range et s'arrête en pause, réduit avec la case. Il remplace un
+égaliseur de 8 barres, retiré parce qu'il promettait de suivre le son.
 
-**Pas encore déployé ni mesuré** : le Worker attend `wrangler deploy`, la
-variable `NEXT_PUBLIC_YTA_BASE` attend les deux comptes Vercel.
+**Ce qui a été essayé puis retiré le même jour, pour ne pas le refaire :**
+- le son d'une iframe d'un autre site est hors d'atteinte d'une page ; seules
+  les extensions et la capture d'onglet (fenêtre à chaque visite) y arrivent ;
+- une COPIE servie par un Worker (`worker-ytaudio/`, l'extracteur InnerTube
+  des trailers ressuscité, `lib/profile/musicAnalyser.ts` + `AnalyserNode`) :
+  déployée, puis refusée en bloc par YouTube (`LOGIN_REQUIRED` sur deux
+  morceaux, deux clients, avec et sans identité). YouTube juge l'ADRESSE de
+  datacenter, pas le volume. Worker supprimé, variable retirée ;
+- une ESTIMATION tempo (Deezer) + structure (paroles synchronisées LRCLIB) :
+  mesurée sur 69 génériques AnimeThemes, 25 % seulement ont l'un des deux.
+  Non construite.
+
+Détail des sources dans `docs/RESSOURCES.md` (section égaliseur).
+Piège en route : une variable passée à `vercel env add` par un tube
+PowerShell reçoit un BOM en tête (adresse invalide, échec muet).
+
 ## 2026-10-13 — Studio : fonds à motifs sur la plaque de couleur
 
 Treize motifs (`lib/profile/patterns.ts`), retenus par Luc parmi les 100 d'un

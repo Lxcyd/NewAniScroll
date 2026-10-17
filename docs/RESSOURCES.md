@@ -152,7 +152,9 @@ Le son d'une iframe YouTube est hors d'atteinte d'une page : aucune lib ne le li
 | [web-audio-beat-detector](https://github.com/chrisguttandin/web-audio-beat-detector), [@audio/beat](https://github.com/audiojs/beat), [beatdetect.js](https://github.com/arthurbeaulieu/beatdetect.js) | ⏳ BPM + premier temps (+ liste des temps pour @audio/beat) depuis un AudioBuffer : utile si on a l'audio (fichier AnimeThemes, ou outil hors ligne) |
 | librosa (ci-dessus) | ❌ rejete par Luc (outil local trop lourd) |
 | Piped / Invidious (copie du son) | ❌ mort : 1 instance sur 12 repond, 10/10 refus a froid (devlog/preview.md, 14/08) |
-| **Notre Worker** `worker-ytaudio/` (yta.aniscroll.com) | ✅ voie retenue le 17/10 : l'extracteur InnerTube des trailers (supprime en 08/2026) ressuscite ; format 18 relaye avec CORS et cache d'edge, analyse par `AnalyserNode` dans [lib/profile/musicAnalyser.ts] ; rationne a froid, puis servi du cache |
+| Notre Worker `worker-ytaudio/` (copie analysee) | ❌ essaye le 17/10 puis RETIRE : l'extracteur InnerTube des trailers ressuscite, refuse en bloc (`LOGIN_REQUIRED`, 2 morceaux, 2 clients, avec et sans identite) — YouTube juge l'ADRESSE (datacenter), pas le volume |
+| Estimation tempo (Deezer `bpm`) + structure (LRCLIB, paroles synchronisees, CORS ouvert) | ❌ mesure le 17/10 sur 69 generiques AnimeThemes : paroles 19 %, tempo 9 %, l'un des deux 25 % ; titres romaji, niche |
+| Voies restantes, non retenues | recuperation depuis une connexion DOMESTIQUE (PC de Luc) stockee dans R2 ; partage d'onglet `getDisplayMedia` (fenetre a chaque visite) ; cookies d'un compte ; proxy residentiel payant |
 
 ### Chapitres des releases (bornes gratuites)
 | Source | Ce qu'il apporte |

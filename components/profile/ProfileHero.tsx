@@ -802,12 +802,9 @@ export default function ProfileHero({
           lecteur officiel qui sert le morceau et sa publicité, laquelle paie la
           licence. Le masquer pour n'en garder que le son reviendrait à
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
-          demandent les conditions de l'API.
-          Depuis le 17/10/2026, une COPIE du morceau (worker-ytaudio/) est lue
-          sans être entendue, pour l'égaliseur en direct de la case : choix de
-          Luc, en connaissance de cause. Le lecteur officiel reste la seule
-          source audible ; la case, elle, se réduit hors survol (choix de Luc
-          aussi), sous les 200 px. */}
+          demandent les conditions de l'API. Depuis le 17/10/2026, la case se
+          réduit hors survol sous les 200 px : choix de Luc, en connaissance
+          de cause. */}
       {/* Pas dans le studio : il a sa propre case, la musique jouerait deux fois. */}
       {viaYouTube && banner.music?.videoId && !studio ? (
         /* TOUJOURS LÀ (17/10/2026), en pause tant qu'on ne l'a pas lancée :
