@@ -210,6 +210,22 @@ export default function Hero({
     return null;
   })();
 
+  /* L'HEURE, quand AniList la connaît (17/10/2026) : `airingAt` est un instant
+     exact, `startDate` seulement un jour. Posée APRÈS le montage, dans le
+     fuseau du visiteur — calculée au rendu serveur, elle serait celle du
+     fuseau de Vercel, et l'hydratation la contredirait. */
+  const [airTime, setAirTime] = useState<string | null>(null);
+  const airingAtSec = isNotYetReleased ? info.nextAiringEpisode?.airingAt : null;
+  useEffect(() => {
+    if (!airingAtSec) {
+      setAirTime(null);
+      return;
+    }
+    setAirTime(
+      new Date(airingAtSec * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    );
+  }, [airingAtSec]);
+
   /* ── Clearart cycle ─────────────────────────────────────────────────
      When SSR shipped multiple clearart, expose a queue: each click on
      the title art advances to the next image (wrapping). We use a
@@ -490,7 +506,10 @@ export default function Hero({
                 comingSoonLine ? (
                   <div style={{ display: "flex", flexDirection: "column", textAlign: "left" }}>
                     <div style={hStyles.watchLabel}>{watchLabel}</div>
-                    <div style={hStyles.watchEp}>{comingSoonLine}</div>
+                    <div style={hStyles.watchEp}>
+                      {comingSoonLine}
+                      {airTime ? ` · ${airTime}` : ""}
+                    </div>
                   </div>
                 ) : (
                   <div style={hStyles.watchSingleLabel}>{watchLabel}</div>
