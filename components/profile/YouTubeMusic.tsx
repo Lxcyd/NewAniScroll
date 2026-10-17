@@ -482,8 +482,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div
-      className={`relative isolate transition-[width,height] duration-300 ${className ?? ""}`}
-      style={folded ? { width: MINI, height: MINI } : undefined}
+      /* En TRANSFORM, pas en width/height : animer la taille remettait en page
+         à chaque image une iframe 200 fois plus grande (saccades, 17/10/2026).
+         La boîte garde ses 200 px ; la carte graphique la réduit vers le coin
+         bas droit. */
+      className={`relative isolate transition-transform duration-300 ease-out will-change-transform ${className ?? ""}`}
+      style={canMini ? { transform: folded ? `scale(${MINI / 200})` : "none", transformOrigin: "100% 100%" } : undefined}
       onPointerEnter={canMini ? grow : undefined}
       onPointerLeave={canMini ? () => shrinkIn(600) : undefined}
     >
@@ -496,11 +500,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover opacity-70 blur-[34px] ${folded ? "hidden" : ""}`}
+        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover blur-[34px] transition-opacity duration-300 ${folded ? "opacity-0" : "opacity-70"}`}
       />
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu. */
-        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl ${folded ? "rounded-lg" : "rounded-xl"}`}
+        /* Réduit, le rayon est réduit avec : 40 px ici font ~10 px à l'écran. */
+        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[border-radius] duration-300 ${folded ? "rounded-[40px]" : "rounded-xl"}`}
         onPointerMove={() => wake()}
         onPointerEnter={() => wake()}
       >
