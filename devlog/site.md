@@ -6,7 +6,7 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
-## 2026-10-17 — Case musique du profil : petit carré, vinyle (égaliseur retiré)
+## 2026-10-17 — Case musique du profil : petit carré, égaliseur
 
 La case YouTube du profil (`YouTubeMusic`, `card.minimizable`) : grande
 (240 px) 5 s à l'arrivée, puis carré de 48 px aux bords arrondis ; le survol
@@ -16,9 +16,10 @@ plus la souris (`pointer-events-none`), sinon le survol du petit carré
 n'était vu qu'en retard. Deux lumières (grande, petite) qui suivent la case en
 transform + fondu ; jamais de flou animé.
 
-Témoin de lecture : un VINYLE qui sort de derrière la pochette et tourne en
-lecture, se range et s'arrête en pause, réduit avec la case. Il remplace un
-égaliseur de 8 barres, retiré parce qu'il promettait de suivre le son.
+Témoin de lecture : 8 barres au pied de la case, resserrées, chacune avec
+quatre hauteurs et sa durée tirées du morceau (motif qui ne se répète pas).
+Elles ne suivent PAS le son. Un vinyle a été essayé à la place, puis Luc a
+gardé les barres.
 
 **Ce qui a été essayé puis retiré le même jour, pour ne pas le refaire :**
 - le son d'une iframe d'un autre site est hors d'atteinte d'une page ; seules

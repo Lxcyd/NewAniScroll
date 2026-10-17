@@ -78,6 +78,25 @@ const MINI = 48;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
+/** Huit barres d'égaliseur propres à un morceau, tirées de son identifiant
+    pour que deux profils ne dansent pas pareil. Chacune a quatre hauteurs
+    (de 15 à 100 %) parcourues dans sa propre durée, sans tempo commun : des
+    durées sans rapport entre elles font un ensemble qui ne se répète pas. */
+function eqBars(videoId: string) {
+  let h = 2166136261;
+  for (let i = 0; i < videoId.length; i++) h = Math.imul(h ^ videoId.charCodeAt(i), 16777619);
+  const rnd = () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+  return Array.from({ length: 8 }, () => ({
+    h: Array.from({ length: 4 }, () => +(0.15 + rnd() * 0.85).toFixed(2)),
+    d: +(0.9 + rnd() * 1.3).toFixed(2),
+    dl: +(rnd() * 2).toFixed(2),
+  }));
+}
+
 /**
  * La version COMPLÈTE d'un générique (ou la bande-annonce), jouée par le
  * lecteur YouTube officiel et pilotée comme un <audio>.
@@ -385,6 +404,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const base = clip?.volume ?? 1;
   const hasClip = !!clip;
   loop.current = { on: hasClip, from };
+  /* L'égaliseur suit le fondu : écrit à même le style (pas d'état React à
+     chaque image), et seulement quand il bouge d'un vingtième. */
+  const eqRef = useRef<HTMLDivElement | null>(null);
+  const eqFade = useRef(-1);
   useEffect(() => {
     if (!hasClip) return;
     let raf = 0;
@@ -398,7 +421,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           st.at = performance.now();
           post("seekTo", [from, true]);
         }
-        setVol(base * fadeGain(t, from, end || 0, fade));
+        const g = fadeGain(t, from, end || 0, fade);
+        setVol(base * g);
+        const q = Math.round(g * 20) / 20;
+        if (eqRef.current && q !== eqFade.current) {
+          eqFade.current = q;
+          eqRef.current.style.setProperty("--eq-fade", String(q));
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -526,7 +555,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         /* En TRANSFORM, pas en width/height : animer la taille remettait en
            page à chaque image une iframe 200 fois plus grande (saccades,
            17/10/2026). La boîte garde sa taille (CARD) ; la carte graphique la
-           réduit vers le coin bas droit, vinyle compris. */
+           réduit vers le coin bas droit. */
         className="relative h-full w-full transition-transform duration-300 ease-out will-change-transform"
         style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
@@ -536,35 +565,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         }}
         onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
       >
-      {canMini ? (
-        /* LE VINYLE (17/10/2026), à la place de l'égaliseur. Des barres qui
-           dansent promettent de suivre le son, et le son d'une iframe d'un
-           autre site est hors d'atteinte : elles mentaient (essais du jour
-           consignés dans devlog/site.md). Un disque qui sort de sa pochette et
-           tourne dit « c'est d'ici que vient la musique » sans rien promettre :
-           il sort et tourne en lecture, se range et s'arrête en pause. Dessiné
-           à la taille de la grande case, il rapetisse avec elle. */
-        <div
-          aria-hidden
-          className="pointer-events-none absolute left-0 top-1/2 transition-transform duration-500 ease-out"
-          style={{
-            width: CARD * 0.88,
-            height: CARD * 0.88,
-            marginTop: -CARD * 0.44,
-            transform: card.playing ? "translateX(-42%)" : "translateX(0)",
-          }}
-        >
-          <div className="as-vinyl h-full w-full rounded-full" style={{ animationPlayState: card.playing ? "running" : "paused" }}>
-            <img
-              alt=""
-              src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-              className="absolute left-1/2 top-1/2 h-[34%] w-[34%] -translate-x-1/2 -translate-y-1/2 rounded-full object-cover"
-            />
-            <span className="absolute left-1/2 top-1/2 h-[4%] w-[4%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-black" />
-          </div>
-          <div className="as-vinyl-sheen absolute inset-0 rounded-full" />
-        </div>
-      ) : null}
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
            Réduite, le rayon l'est avec la case : 40 px ici font ~10 px à
@@ -582,6 +582,44 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
             className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
         )}
+        {canMini && started ? (
+          /* LE TÉMOIN DE LECTURE (17/10/2026) : huit barres au pied de la
+             case, en grand comme en petit (la case réduite les réduit avec
+             elle). Elles ne suivent PAS le son : celui d'une iframe d'un autre
+             site est hors d'atteinte (copie analysée et estimation essayées
+             puis retirées, devlog/site.md). Elles suivent ce qu'on sait : la
+             pause les cache, le muet les couche, le fondu les baisse. Chaque
+             barre a ses quatre hauteurs et sa durée, tirées de l'identifiant
+             du morceau : le motif ne se répète pas à l'œil. */
+          <div
+            className={`pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
+          >
+            <div
+              ref={eqRef}
+              className="absolute inset-x-0 bottom-3 flex h-7 items-end justify-center gap-2.5 transition-transform duration-200"
+              style={{
+                transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing && !card.muted ? 1 : 0.15}))`,
+                transformOrigin: "bottom",
+              }}
+            >
+              {eqBars(videoId).map((b, i) => (
+                <i
+                  key={i}
+                  className="as-eq-bar block h-full w-3 rounded-sm bg-white/90"
+                  style={{
+                    ["--h1" as string]: b.h[0],
+                    ["--h2" as string]: b.h[1],
+                    ["--h3" as string]: b.h[2],
+                    ["--h4" as string]: b.h[3],
+                    ["--d" as string]: `${b.d}s`,
+                    ["--dl" as string]: `${-b.dl}s`,
+                    animationPlayState: card.playing ? "running" : "paused",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
         {folded ? null : (
         <>
         {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
