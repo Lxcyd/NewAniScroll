@@ -524,16 +524,24 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          recalculé à chaque image — la case faisait ramer le studio. C'est
          maintenant la vignette publiée par YouTube, floutée UNE fois : le
          repli de l'aperçu au survol en économie de données (TrailerAmbient).
-         Réduite à part de la case : elle suit le petit carré (son centre est à
-         88 % de la grande), un peu plus large que lui et plus pâle — deux fois
-         sa taille, elle mangeait le coin (17/10/2026). */}
+         Le petit carré a SA lumière, à sa taille : la grande réduite au zoom
+         laissait un voile gris dans le coin (17/10/2026). On passe de l'une à
+         l'autre en fondu d'opacité, sans jamais animer de flou. */}
       <img
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-40" : "opacity-70"}`}
-        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${(MINI * 1.35) / 200})` : "scale(1.1)" }}
+        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover blur-[34px] transition-opacity duration-200 ${folded ? "opacity-0" : "opacity-70"}`}
       />
+      {canMini ? (
+        <img
+          aria-hidden
+          alt=""
+          src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
+          className={`pointer-events-none absolute -bottom-2 -right-2 -z-10 object-cover blur-[12px] transition-opacity duration-300 ${folded ? "opacity-60" : "opacity-0"}`}
+          style={{ width: MINI + 16, height: MINI + 16 }}
+        />
+      ) : null}
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
            En TRANSFORM, pas en width/height : animer la taille remettait en
