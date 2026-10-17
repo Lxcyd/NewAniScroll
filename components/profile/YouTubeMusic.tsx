@@ -34,6 +34,8 @@ type Props = {
   onTime?: (s: number) => void;
   /** La vidéo refuse l'embed ou n'existe plus. */
   onError?: () => void;
+  /** Le navigateur a refusé le son : la lecture continue, MUETTE. */
+  onBrowserMute?: () => void;
   /**
    * Le profil confie la boucle au lecteur : bornes, fondu, volume. Le studio
    * ne le passe pas — il tient déjà sa propre boucle d'animation, la même que
@@ -75,7 +77,7 @@ type Props = {
  * trop tard.
  */
 const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
-  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, clip, card },
+  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, onBrowserMute, clip, card },
   ref,
 ) {
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -83,6 +85,16 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const queue = useRef<string[]>([]);
   const s = useRef({ t: 0, at: 0, playing: false, duration: 0, volume: 1, sent: -1 });
   const loop = useRef({ on: false, from: 0 });
+  const onBrowserMuteRef = useRef(onBrowserMute);
+  onBrowserMuteRef.current = onBrowserMute;
+  /* La case montre la vignette tant que la vidéo n'a jamais joué : réduit
+     ×200, le lecteur ne montre qu'un carré noir avant la lecture. */
+  const [started, setStarted] = useState(false);
+  const startedFor = useRef(videoId);
+  if (startedFor.current !== videoId) {
+    startedFor.current = videoId;
+    if (started) setStarted(false);
+  }
   /* On a demandé la lecture ; `autoMuted` = relancée muette faute d'avoir pu
      partir avec le son (voir `play`). */
   const wanted = useRef(false);
@@ -261,6 +273,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           }
           if (!was) cb.current.onPlay?.();
           cb.current.onPlaying?.();
+          setStarted(true);
         } else if (state === 3) {
           cb.current.onWaiting?.();
         } else if (state === 2 && wanted.current && performance.now() - unmutedAt.current < 1000) {
@@ -270,6 +283,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           forcedMute.current = true;
           post("mute");
           post("playVideo");
+          onBrowserMuteRef.current?.();
         } else if (state === 2 || state === 0) {
           st.t = now();
           st.playing = false;
@@ -405,6 +419,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         onPointerEnter={wake}
       >
         {player}
+        {started ? null : (
+          <img
+            alt=""
+            src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          />
+        )}
         {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
         <div className="absolute inset-0 grid place-items-center">
           <button

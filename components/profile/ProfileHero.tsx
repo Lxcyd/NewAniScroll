@@ -20,6 +20,7 @@ import { useScene } from "@/components/profile/ProfileStage";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
+const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -320,6 +321,19 @@ export default function ProfileHero({
     } catch {}
   };
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+  /* LECTURE AUTO PAR DÉFAUT (17/10/2026) — sauf si le visiteur a mis en pause
+     une fois : ce choix est retenu sur l'appareil, et vaut jusqu'à ce qu'il
+     relance. Un navigateur refuse souvent le son sans geste : la case joue
+     alors muette (`browserMuted`), et son icône de volume le rétablit. */
+  const [browserMuted, setBrowserMuted] = useState(false);
+  useEffect(() => {
+    if (!banner.music?.videoId || studio) return;
+    let auto = true;
+    try {
+      auto = localStorage.getItem(PROFILE_AUTOPLAY_KEY) !== "0";
+    } catch {}
+    if (auto) setSound(true);
+  }, [banner.music?.videoId, studio]);
 
   /* Deux façons de jouer la musique, et la meilleure gagne quand elle existe.
      L'audio d'AnimeThemes est le rip du générique — 90 s, d'où le `loop`
@@ -752,7 +766,8 @@ export default function ProfileHero({
           licence. Le masquer pour n'en garder que le son reviendrait à
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
           demandent les conditions de l'API. */}
-      {viaYouTube && banner.music?.videoId ? (
+      {/* Pas dans le studio : il a sa propre case, la musique jouerait deux fois. */}
+      {viaYouTube && banner.music?.videoId && !studio ? (
         /* TOUJOURS LÀ (17/10/2026), en pause tant qu'on ne l'a pas lancée :
            c'est elle qui démarre la musique, l'icône du haut est partie.
            La petite case, habillée comme l'aperçu au survol :
@@ -767,15 +782,31 @@ export default function ProfileHero({
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             card={{
               playing: sound,
-              muted: vol === 0,
+              muted: vol === 0 || browserMuted,
               volume: vol > 0 ? vol : PROFILE_DEFAULT_VOLUME,
-              /* Arrêter ici, c'est couper le son du profil : la case part. */
-              onToggle: () => setSound((x) => !x),
-              onMuted: (m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME),
+              /* Le choix est retenu : en pause, le profil ne repart plus seul. */
+              onToggle: () =>
+                setSound((x) => {
+                  try {
+                    localStorage.setItem(PROFILE_AUTOPLAY_KEY, x ? "0" : "1");
+                  } catch {}
+                  return !x;
+                }),
+              onMuted: (m) => {
+                if (!m && browserMuted) {
+                  /* Un clic ici EST le geste qui manquait : le son passe. */
+                  setBrowserMuted(false);
+                  void yt.current?.play();
+                  if (vol === 0) changeVol(PROFILE_DEFAULT_VOLUME);
+                  return;
+                }
+                changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME);
+              },
               onVolume: changeVol,
               fallback: PROFILE_DEFAULT_VOLUME,
             }}
             onError={() => setSound(false)}
+            onBrowserMute={() => setBrowserMuted(true)}
           />
         </div>
       ) : null}
