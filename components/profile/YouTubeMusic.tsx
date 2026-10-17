@@ -114,6 +114,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const reportedMuted = useRef(false);
   /** Le lecteur a chargé (état 3) depuis la demande de lecture. */
   const buffered = useRef(false);
+  /** Le dernier état rapporté, et l'attente qui juge un « non démarré ». */
+  const lastState = useRef<number | null>(null);
+  const stuck = useRef(0);
   const cb = useRef({ onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError });
   cb.current = { onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError };
 
@@ -293,6 +296,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         cb.current.onTime?.(info.currentTime);
       }
       if (typeof state === "number") {
+        lastState.current = state;
         const was = st.playing;
         if (state === 1) {
           st.playing = true;
@@ -304,9 +308,17 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           buffered.current = true;
           cb.current.onWaiting?.();
         } else if (state === -1 && wanted.current && buffered.current && !st.playing && !forcedMute.current) {
-          /* Chargée puis revenue à « non démarrée » : la signature d'un refus
-             de lecture avec le son, quand `onAutoplayBlocked` ne vient pas. */
-          blocked();
+          /* Chargée puis revenue à « non démarrée » : PEUT-ÊTRE un refus du son
+             — ou juste YouTube qui charge (sur un vrai réseau il repasse par
+             là avant de jouer, et on coupait le son pour rien, 17/10/2026).
+             Le lecteur d'épisodes ne passe en muet que sur un refus EXPLICITE
+             (`NotAllowedError`) ; YouTube n'en donne pas, donc on attend : un
+             refus RESTE à « non démarrée », un chargement en ressort. */
+          if (stuck.current) window.clearTimeout(stuck.current);
+          stuck.current = window.setTimeout(() => {
+            stuck.current = 0;
+            if (lastState.current === -1 && wanted.current && !s.current.playing) blocked();
+          }, 2500);
         } else if (state === 2 && wanted.current && performance.now() - unmutedAt.current < 1000) {
           /* Pause imposée au retour du son : on joue muet plutôt que de
              rester arrêté (le geste suivant le rétablit). */
