@@ -37,7 +37,8 @@ type Props = {
   /** Le navigateur a refusé le son : la lecture continue, MUETTE. */
   onBrowserMute?: () => void;
   /**
-   * Part SEUL, dès le chargement (`autoplay=1` dans l'adresse), comme une
+   * Part SEUL et MUET, dès le chargement (`autoplay=1&mute=1` dans l'adresse ;
+   * le son est tenté ensuite, voir plus bas), comme une
    * <video autoplay> : YouTube commence à charger le flux pendant qu'il
    * s'initialise, au lieu d'attendre notre `playVideo` après `onReady`. Mesuré
    * au CDP le 17/10/2026 : lecture 0,2-0,3 s après « prêt », contre 0,6 s.
@@ -104,27 +105,30 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     if (started) setStarted(false);
   }
   /*
-   * LE SON, COMME LE LECTEUR D'ÉPISODES (17/10/2026). On démarre DIRECTEMENT
-   * avec le son : sur un site qu'on fréquente, Chrome le permet sans clic. Ce
-   * qu'il interdit, c'est de RENDRE le son à une vidéo partie muette — et c'est
-   * ce que faisait l'ancien repli (muet au bout de 1,2 s, puis `unMute`) :
-   * « Unmuting failed… the user didn't interact », la musique en pause. On ne
-   * passe donc en muet QUE si YouTube dit que le navigateur a refusé
-   * (`onAutoplayBlocked`, ou sa signature : retour à « non démarré » après le
-   * chargement). Le son revient alors au premier geste (voir ProfileHero).
+   * LE SON, EXACTEMENT COMME LE LECTEUR D'ÉPISODES (UniversalPlayer, « Autoplay »,
+   * 17/10/2026). Chrome n'accorde le son sans clic qu'aux sites où l'on a déjà
+   * beaucoup écouté (score d'engagement, par site : chez Luc aniscroll.com l'a,
+   * localhost ne l'a pas). Personne ne peut le forcer. Donc :
+   *   1. départ MUET (`autoplay=1&mute=1`) — toujours permis, tout de suite ;
+   *   2. dès qu'il joue, on tente le son (`unMute`) — il tient sur un site
+   *      de confiance ;
+   *   3. refusé, Chrome met en pause aussitôt : on repart muet, et le son
+   *      revient au premier geste sur la page (ProfileHero).
+   * Pendant le muet imposé, AUCUNE commande de volume : le `setVolume` de
+   * YouTube rend le son, chaque appel était un refus de plus (« Unmuting
+   * failed » ×17, le fondu en envoyant un par image).
    */
   const wanted = useRef(!!autoStart);
   /** Le dernier `unMute` envoyé : une pause dans la seconde = refus du navigateur. */
   const unmutedAt = useRef(0);
-  /** Muet imposé par le navigateur : plus de `unMute` sans un nouveau `play`. */
+  /** Muet imposé par le navigateur : plus de son sans un geste. */
   const forcedMute = useRef(false);
+  /** Parti muet de lui-même, le son reste à tenter à la première image. */
+  const soundPending = useRef(!!autoStart);
   /** Ce que le lecteur dit de son propre son. */
   const reportedMuted = useRef(false);
-  /** Le lecteur a chargé (état 3) depuis la demande de lecture. */
-  const buffered = useRef(false);
-  /** Le dernier état rapporté, et l'attente qui juge un « non démarré ». */
-  const lastState = useRef<number | null>(null);
-  const stuck = useRef(0);
+  /** Aucune commande de volume tant que le son n'est pas acquis. */
+  const holdVol = () => forcedMute.current || soundPending.current;
   const cb = useRef({ onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError });
   cb.current = { onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError };
 
@@ -156,6 +160,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       const st = s.current;
       st.volume = Math.min(1, Math.max(0, v));
       const pct = Math.round(st.volume * 100);
+      if (holdVol()) {
+        st.sent = -1;
+        return;
+      }
       if (pct === st.sent) return;
       st.sent = pct;
       post("setVolume", [pct]);
@@ -187,19 +195,22 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         setVol(v);
       },
       play() {
-        /* Le volume AVANT le son : sans lui, le premier instant part à 100. */
-        s.current.sent = pctWanted();
-        post("setVolume", [s.current.sent]);
-        /* `unMute` seulement s'il est muet (refus d'avant, rendu par un geste) :
-           jamais par réflexe, c'est lui que Chrome refuse sans clic. */
-        if (reportedMuted.current || forcedMute.current) {
-          post("unMute");
-          unmutedAt.current = performance.now();
+        wanted.current = true;
+        /* Départ muet encore en cours : c'est la première image qui tentera
+           le son (étape 2), pas cet appel. */
+        if (!soundPending.current) {
+          /* Le volume AVANT le son : sans lui, le premier instant part à 100.
+             Après un refus, cet appel vient d'un geste (ProfileHero) : le son
+             est permis. */
+          s.current.sent = pctWanted();
+          post("setVolume", [s.current.sent]);
+          if (reportedMuted.current || forcedMute.current) {
+            post("unMute");
+            unmutedAt.current = performance.now();
+          }
+          forcedMute.current = false;
         }
         post("playVideo");
-        wanted.current = true;
-        forcedMute.current = false;
-        buffered.current = false;
         return Promise.resolve();
       },
       pause() {
@@ -232,18 +243,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => window.clearTimeout(timer);
   }, [videoId]);
 
-  /** Dans 2,5 s, toujours « non démarrée » (-1 ou 5) alors qu'on veut jouer :
-      c'est un refus, pas un chargement — un chargement passe par 3. */
-  const armStuck = () => {
-    if (forcedMute.current) return;
-    if (stuck.current) window.clearTimeout(stuck.current);
-    stuck.current = window.setTimeout(() => {
-      stuck.current = 0;
-      const st = lastState.current;
-      if ((st === -1 || st === 5) && wanted.current && !s.current.playing) blocked();
-    }, 2500);
-  };
-
   /** Le navigateur refuse le son : on joue muet, et on le dit. */
   const blocked = () => {
     if (forcedMute.current) return;
@@ -265,8 +264,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     queue.current = [];
     wanted.current = !!autoStart;
     forcedMute.current = false;
+    soundPending.current = !!autoStart;
     reportedMuted.current = false;
-    buffered.current = false;
     s.current = { ...s.current, t: 0, at: performance.now(), playing: false, duration: 0, sent: -1 };
   }
 
@@ -292,10 +291,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         const w = frame.current?.contentWindow;
         for (const m of queue.current) w?.postMessage(m, ORIGIN);
         queue.current = [];
-        /* Partie seule (`autoplay=1`) et refusée, la vidéo ne charge même
-           pas : « non démarrée » d'un bout à l'autre, sans le 3 qu'attend la
-           garde ci-dessous (relevé au CDP, 17/10/2026). Même verdict. */
-        if (wanted.current) armStuck();
       }
       if (data?.event === "onError") {
         cb.current.onError?.();
@@ -313,7 +308,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       }
       /* Le lecteur dit son volume : s'il n'est pas le nôtre (commande perdue,
          ou YouTube qui reprend le sien au démarrage), on le lui redonne. */
-      if (info && typeof info.volume === "number") {
+      if (info && typeof info.volume === "number" && !holdVol() && info.muted !== true) {
         const want = pctWanted();
         if (Math.abs(info.volume - want) > 1) {
           st.sent = want;
@@ -327,7 +322,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         cb.current.onTime?.(info.currentTime);
       }
       if (typeof state === "number") {
-        lastState.current = state;
         const was = st.playing;
         if (state === 1) {
           st.playing = true;
@@ -335,20 +329,21 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           if (!was) cb.current.onPlay?.();
           cb.current.onPlaying?.();
           setStarted(true);
+          /* Étape 2 : il joue (muet) — on tente le son, au bon niveau. */
+          if (soundPending.current) {
+            soundPending.current = false;
+            if (wanted.current) {
+              st.sent = pctWanted();
+              post("setVolume", [st.sent]);
+              post("unMute");
+              unmutedAt.current = performance.now();
+            }
+          }
         } else if (state === 3) {
-          buffered.current = true;
           cb.current.onWaiting?.();
-        } else if (state === -1 && wanted.current && buffered.current && !st.playing && !forcedMute.current) {
-          /* Chargée puis revenue à « non démarrée » : PEUT-ÊTRE un refus du son
-             — ou juste YouTube qui charge (sur un vrai réseau il repasse par
-             là avant de jouer, et on coupait le son pour rien, 17/10/2026).
-             Le lecteur d'épisodes ne passe en muet que sur un refus EXPLICITE
-             (`NotAllowedError`) ; YouTube n'en donne pas, donc on attend : un
-             refus RESTE à « non démarrée », un chargement en ressort. */
-          armStuck();
         } else if (state === 2 && wanted.current && performance.now() - unmutedAt.current < 1000) {
-          /* Pause imposée au retour du son : on joue muet plutôt que de
-             rester arrêté (le geste suivant le rétablit). */
+          /* Étape 3 : pause imposée au retour du son = refus. On repart muet
+             plutôt que de rester arrêté (le geste suivant rend le son). */
           unmutedAt.current = 0;
           blocked();
         } else if (state === 2 || state === 0) {
@@ -420,7 +415,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     <iframe
       key={videoId}
       ref={frame}
-      src={`${ORIGIN}/embed/${videoId}?enablejsapi=1${autoStart ? "&autoplay=1" : ""}&controls=0&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
+      src={`${ORIGIN}/embed/${videoId}?enablejsapi=1${autoStart ? "&autoplay=1&mute=1" : ""}&controls=0&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
       allow="autoplay; encrypted-media"
       title="YouTube"
       /* En case, le geste de l'aperçu au survol (TrailerStage, SCALE et
