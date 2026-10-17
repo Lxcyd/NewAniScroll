@@ -21,6 +21,17 @@ import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic
 
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
 const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
+/* Le même choix, en cookie : le serveur doit le connaître pour rendre le
+   lecteur avec ou sans `autoplay` (voir YouTubeMusic, `autoStart`). */
+export const PROFILE_AUTOPLAY_COOKIE = "as_profile_autoplay";
+const rememberAutoplay = (on: boolean) => {
+  try {
+    localStorage.setItem(PROFILE_AUTOPLAY_KEY, on ? "1" : "0");
+  } catch {}
+  try {
+    document.cookie = `${PROFILE_AUTOPLAY_COOKIE}=${on ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+  } catch {}
+};
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -180,6 +191,8 @@ type Props = {
   entries?: ProfileEntry[];
   /** Les badges obtenus (id → date) : filtre ceux mis en avant. */
   earned?: Record<string, number> | null;
+  /** Lu du cookie au rendu serveur : la musique ne part pas seule. */
+  musicPaused?: boolean;
 };
 
 export default function ProfileHero({
@@ -196,6 +209,7 @@ export default function ProfileHero({
   studio,
   entries,
   earned,
+  musicPaused,
 }: Props) {
   const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
@@ -349,10 +363,12 @@ export default function ProfileHero({
   }, [browserMuted]);
   useEffect(() => {
     if (!banner.music?.videoId || studio) return;
-    let auto = true;
+    let auto = !musicPaused;
     try {
-      auto = localStorage.getItem(PROFILE_AUTOPLAY_KEY) !== "0";
+      auto = auto && localStorage.getItem(PROFILE_AUTOPLAY_KEY) !== "0";
     } catch {}
+    /* Une pause d'avant le cookie : on le pose, la visite suivante est juste. */
+    if (!auto && !musicPaused) rememberAutoplay(false);
     if (auto) setSound(true);
   }, [banner.music?.videoId, studio]);
 
@@ -797,6 +813,7 @@ export default function ProfileHero({
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
         <div className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
+            autoStart={!musicPaused}
             ref={yt}
             videoId={banner.music.videoId}
             className="h-[200px] w-[200px]"
@@ -813,9 +830,7 @@ export default function ProfileHero({
               onToggle: () => {
                 if (browserMuted || performance.now() - wokeAt.current < 600) return;
                 setSound((x) => {
-                  try {
-                    localStorage.setItem(PROFILE_AUTOPLAY_KEY, x ? "0" : "1");
-                  } catch {}
+                  rememberAutoplay(!x);
                   return !x;
                 });
               },

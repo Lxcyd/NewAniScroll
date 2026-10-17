@@ -37,6 +37,14 @@ type Props = {
   /** Le navigateur a refusé le son : la lecture continue, MUETTE. */
   onBrowserMute?: () => void;
   /**
+   * Part SEUL, dès le chargement (`autoplay=1` dans l'adresse), comme une
+   * <video autoplay> : YouTube commence à charger le flux pendant qu'il
+   * s'initialise, au lieu d'attendre notre `playVideo` après `onReady`. Mesuré
+   * au CDP le 17/10/2026 : lecture 0,2-0,3 s après « prêt », contre 0,6 s.
+   * Dans l'adresse, donc décidé au rendu serveur : le profil le lit du cookie.
+   */
+  autoStart?: boolean;
+  /**
    * Le profil confie la boucle au lecteur : bornes, fondu, volume. Le studio
    * ne le passe pas — il tient déjà sa propre boucle d'animation, la même que
    * pour le fichier d'AnimeThemes, à travers la poignée.
@@ -77,7 +85,7 @@ type Props = {
  * trop tard.
  */
 const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
-  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, onBrowserMute, clip, card },
+  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, onBrowserMute, autoStart, clip, card },
   ref,
 ) {
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -105,7 +113,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
    * (`onAutoplayBlocked`, ou sa signature : retour à « non démarré » après le
    * chargement). Le son revient alors au premier geste (voir ProfileHero).
    */
-  const wanted = useRef(false);
+  const wanted = useRef(!!autoStart);
   /** Le dernier `unMute` envoyé : une pause dans la seconde = refus du navigateur. */
   const unmutedAt = useRef(0);
   /** Muet imposé par le navigateur : plus de `unMute` sans un nouveau `play`. */
@@ -127,7 +135,14 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const post = useCallback((func: string, args: unknown[] = []) => {
     const msg = JSON.stringify({ event: "command", func, args });
     if (loaded.current) frame.current?.contentWindow?.postMessage(msg, ORIGIN);
-    else queue.current.push(msg);
+    else {
+      /* Lecture et pause en attente : seule la DERNIÈRE compte. Le profil
+         envoie `pause` au premier rendu puis `play` : rejouées toutes deux à
+         « prêt », la pause coupait la lecture auto déjà partie (1, 2, 3, 1). */
+      if (func === "playVideo" || func === "pauseVideo")
+        queue.current = queue.current.filter((m) => !/"func":"(playVideo|pauseVideo)"/.test(m));
+      queue.current.push(msg);
+    }
   }, []);
   const pctWanted = () => Math.round(s.current.volume * 100);
 
@@ -217,6 +232,18 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => window.clearTimeout(timer);
   }, [videoId]);
 
+  /** Dans 2,5 s, toujours « non démarrée » (-1 ou 5) alors qu'on veut jouer :
+      c'est un refus, pas un chargement — un chargement passe par 3. */
+  const armStuck = () => {
+    if (forcedMute.current) return;
+    if (stuck.current) window.clearTimeout(stuck.current);
+    stuck.current = window.setTimeout(() => {
+      stuck.current = 0;
+      const st = lastState.current;
+      if ((st === -1 || st === 5) && wanted.current && !s.current.playing) blocked();
+    }, 2500);
+  };
+
   /** Le navigateur refuse le son : on joue muet, et on le dit. */
   const blocked = () => {
     if (forcedMute.current) return;
@@ -236,7 +263,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     lastId.current = videoId;
     loaded.current = false;
     queue.current = [];
-    wanted.current = false;
+    wanted.current = !!autoStart;
     forcedMute.current = false;
     reportedMuted.current = false;
     buffered.current = false;
@@ -265,6 +292,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         const w = frame.current?.contentWindow;
         for (const m of queue.current) w?.postMessage(m, ORIGIN);
         queue.current = [];
+        /* Partie seule (`autoplay=1`) et refusée, la vidéo ne charge même
+           pas : « non démarrée » d'un bout à l'autre, sans le 3 qu'attend la
+           garde ci-dessous (relevé au CDP, 17/10/2026). Même verdict. */
+        if (wanted.current) armStuck();
       }
       if (data?.event === "onError") {
         cb.current.onError?.();
@@ -314,11 +345,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
              Le lecteur d'épisodes ne passe en muet que sur un refus EXPLICITE
              (`NotAllowedError`) ; YouTube n'en donne pas, donc on attend : un
              refus RESTE à « non démarrée », un chargement en ressort. */
-          if (stuck.current) window.clearTimeout(stuck.current);
-          stuck.current = window.setTimeout(() => {
-            stuck.current = 0;
-            if (lastState.current === -1 && wanted.current && !s.current.playing) blocked();
-          }, 2500);
+          armStuck();
         } else if (state === 2 && wanted.current && performance.now() - unmutedAt.current < 1000) {
           /* Pause imposée au retour du son : on joue muet plutôt que de
              rester arrêté (le geste suivant le rétablit). */
@@ -393,7 +420,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     <iframe
       key={videoId}
       ref={frame}
-      src={`${ORIGIN}/embed/${videoId}?enablejsapi=1&controls=0&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
+      src={`${ORIGIN}/embed/${videoId}?enablejsapi=1${autoStart ? "&autoplay=1" : ""}&controls=0&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
       allow="autoplay; encrypted-media"
       title="YouTube"
       /* En case, le geste de l'aperçu au survol (TrailerStage, SCALE et

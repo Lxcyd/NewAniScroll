@@ -130,7 +130,12 @@ type Props = {
   /** Set when the profile is private and the viewer isn't its owner. */
   isPrivate?: boolean;
   viewedName?: string;
+  /** Le visiteur a mis la musique du profil en pause une fois (cookie) : le
+   *  lecteur YouTube est alors rendu SANS `autoplay`. */
+  musicPaused?: boolean;
 };
+
+import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
 
 export default function Profile({
   identity,
@@ -147,6 +152,7 @@ export default function Profile({
   badges,
   isPrivate,
   viewedName,
+  musicPaused,
 }: Props) {
   const { t } = useTranslation();
 
@@ -378,6 +384,7 @@ export default function Profile({
         isOwner={isOwner}
         onEditBanner={openEditor}
         studio={picker ? studioBridge : null}
+        musicPaused={musicPaused}
       />
 
       {/* relative z-10: the wallpaper an illustration is worn as is a z-0 layer
@@ -1175,6 +1182,7 @@ export async function getServerSideProps(context: any) {
       activity,
       streak,
       badges,
+      musicPaused: context.req?.cookies?.[PROFILE_AUTOPLAY_COOKIE] === "0",
     },
   };
 }
