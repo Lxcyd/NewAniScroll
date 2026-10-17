@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { MdPause, MdPlayArrow } from "react-icons/md";
 import { fadeGain } from "@/lib/profile/dressing";
 import HoverVolume from "@/components/shared/HoverVolume";
+import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
 
 /**
  * Ce que le studio et le profil demandent à un lecteur de musique : le
@@ -78,46 +79,8 @@ const MINI = 48;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
-/**
- * Les rôles des dix barres, des basses (gauche) aux aigus (droite), comme un
- * vrai égaliseur — idée reprise du repli « Procedural BPM DSP » de
- * pill-player (17/10/2026), qui ne lit pas non plus le son de YouTube :
- *   kick  : frappe sur chaque temps, retombe vite ;
- *   wave  : vague lente des graves, sur deux temps ;
- *   snare : caisse claire, sur le 2e temps de chaque paire ;
- *   hat   : charleston, un coup par demi-temps ;
- *   air   : frémissement des aigus, irrégulier, au demi-temps.
- */
-const EQ_ROLES = ["kick", "kick", "wave", "wave", "snare", "snare", "snare", "hat", "hat", "air"] as const;
-const EQ_BEATS = { kick: 1, wave: 2, snare: 2, hat: 0.5, air: 0.5 } as const;
-
-/** Les dix barres propres à un morceau, tirées de son identifiant pour que
-    deux profils ne dansent pas pareil : un battement commun (0,42-0,56 s,
-    ~105-140 BPM), et par barre son plafond, son plancher et un décalage
-    calé sur la grille du quart de temps (jamais hors rythme). */
-function eqBars(videoId: string) {
-  let h = 2166136261;
-  for (let i = 0; i < videoId.length; i++) h = Math.imul(h ^ videoId.charCodeAt(i), 16777619);
-  const rnd = () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    return ((h ^= h >>> 16) >>> 0) / 4294967296;
-  };
-  const beat = 0.42 + rnd() * 0.14;
-  return EQ_ROLES.map((role) => {
-    const d = beat * EQ_BEATS[role];
-    /* Les frappes (kick, snare) partent ensemble, sur le temps ; les autres
-       se décalent d'un nombre entier de quarts de temps. */
-    const steps = role === "kick" || role === "snare" ? 0 : Math.floor(rnd() * 4);
-    return {
-      role,
-      hi: +(0.75 + rnd() * 0.25).toFixed(2),
-      lo: +(0.12 + rnd() * 0.2).toFixed(2),
-      d: +d.toFixed(3),
-      dl: +((steps * beat) / 4).toFixed(3),
-    };
-  });
-}
+/** Le nombre de barres de l'égaliseur (mouvement : lib/profile/eqMotion). */
+const EQ_BARS = 10;
 
 /**
  * La version COMPLÈTE d'un générique (ou la bande-annonce), jouée par le
@@ -430,11 +393,32 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
      chaque image), et seulement quand il bouge d'un vingtième. */
   const eqRef = useRef<HTMLDivElement | null>(null);
   const eqFade = useRef(-1);
+  /* Les barres elles-mêmes : hauteurs écrites à même le style à chaque image
+     de lecture (dix `transform`, composités), voix refaite au changement de
+     morceau. Rien n'est calculé en pause : les barres y sont cachées. */
+  const eqBarEls = useRef<(HTMLElement | null)[]>([]);
+  const eqLevelsBuf = useRef(new Float32Array(EQ_BARS));
+  const eqVoiceRef = useRef<{ id: string; v: EqVoice } | null>(null);
+  const videoIdRef = useRef(videoId);
+  videoIdRef.current = videoId;
   useEffect(() => {
     if (!hasClip) return;
     let raf = 0;
+    let last = performance.now();
     const tick = () => {
+      const frame = performance.now();
+      const dt = Math.min(0.1, (frame - last) / 1000);
+      last = frame;
       const st = s.current;
+      if (st.playing && eqRef.current) {
+        const id = videoIdRef.current;
+        if (eqVoiceRef.current?.id !== id) eqVoiceRef.current = { id, v: eqVoice(id, EQ_BARS) };
+        const lv = eqLevelsBuf.current;
+        eqLevels(eqVoiceRef.current.v, now(), dt, lv);
+        eqBarEls.current.forEach((b, i) => {
+          if (b) b.style.transform = `scaleY(${lv[i].toFixed(3)})`;
+        });
+      }
       const end = to > from ? to : st.duration;
       if (st.playing) {
         const t = now();
@@ -610,9 +594,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
              elle). Elles ne suivent PAS le son : celui d'une iframe d'un autre
              site est hors d'atteinte (copie analysée et estimation essayées
              puis retirées, devlog/site.md). Elles suivent ce qu'on sait : la
-             pause les cache, le muet les couche, le fondu les baisse. Chaque
-             barre a ses quatre hauteurs et sa durée, tirées de l'identifiant
-             du morceau : le motif ne se répète pas à l'œil. */
+             pause les cache, le muet les couche, le fondu les baisse. Leur
+             mouvement est calculé à chaque image (lib/profile/eqMotion), calé
+             sur le temps du lecteur. */
           <div
             className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
           >
@@ -624,17 +608,14 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
                 transformOrigin: "bottom",
               }}
             >
-              {eqBars(videoId).map((b, i) => (
+              {Array.from({ length: EQ_BARS }, (_, i) => (
                 <i
                   key={i}
-                  className={`as-eq-bar as-eq-${b.role} block h-full w-3 rounded-sm bg-white/90`}
-                  style={{
-                    ["--hi" as string]: b.hi,
-                    ["--lo" as string]: b.lo,
-                    ["--d" as string]: `${b.d}s`,
-                    ["--dl" as string]: `${-b.dl}s`,
-                    animationPlayState: card.playing ? "running" : "paused",
+                  ref={(el) => {
+                    eqBarEls.current[i] = el;
                   }}
+                  className="block h-full w-3 origin-bottom rounded-sm bg-white/90"
+                  style={{ transform: "scaleY(0.2)" }}
                 />
               ))}
             </div>

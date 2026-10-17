@@ -21,6 +21,16 @@ quatre hauteurs et sa durée tirées du morceau (motif qui ne se répète pas).
 Elles ne suivent PAS le son. Un vinyle a été essayé à la place, puis Luc a
 gardé les barres.
 
+Mouvement : d'abord des animations CSS par rôle (idée de pill-player, qui
+ne lit pas non plus YouTube). Vu image par image, c'était faux : les barres
+d'un même rôle bougeaient d'un bloc et la caisse claire creusait un trou au
+milieu. Remplacé par un calcul à chaque image (`lib/profile/eqMotion.ts`),
+calé sur le temps du lecteur : battement du morceau, grosse caisse / caisse
+claire / charleston reçues par chaque barre selon sa place (cloches larges :
+voisines liées, jamais en bloc), fond qui baisse vers les aigus, bruit lent
+par barre, énergie sur ~16 temps, montée vite et retombée douce. Banc :
+un film de 30 images à 0,08 s rendu en Chrome sans tête, avant de pousser.
+
 **Ce qui a été essayé puis retiré le même jour, pour ne pas le refaire :**
 - le son d'une iframe d'un autre site est hors d'atteinte d'une page ; seules
   les extensions et la capture d'onglet (fenêtre à chaque visite) y arrivent ;
