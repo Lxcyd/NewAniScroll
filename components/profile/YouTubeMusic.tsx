@@ -18,9 +18,11 @@ export type MusicMedia = {
 };
 
 const ORIGIN = "https://www.youtube-nocookie.com";
-/* Les valeurs de TrailerStage (SCALE, OVERSCAN), mesurées là-bas. */
+/* Le SCALE de TrailerStage. Pas d'OVERSCAN ici (17/10/2026) : ses 12 % de
+   débord zoomaient l'image au passage vignette → lecteur. Même cadrage que
+   la vignette (16:9 à hauteur pleine, côtés rognés). */
 const YT_SCALE = 200;
-const YT_OVERSCAN = 1.12;
+const YT_OVERSCAN = 1;
 
 type Props = {
   videoId: string;
@@ -422,7 +424,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          OVERSCAN) : le lecteur est rendu 200 fois plus grand puis réduit
          d'autant. Son habillage (titre, logo, gros ▶), dimensionné en pixels,
          devient microscopique ; l'image, elle, remplit le carré — 16:9 à
-         hauteur pleine, côtés rognés, et 12 % de débord contre les bandes. */
+         hauteur pleine, côtés rognés, sans débord. */
       className={card ? "absolute" : className}
       style={
         card
