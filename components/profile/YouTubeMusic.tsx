@@ -192,6 +192,28 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     [post, setVol],
   );
 
+  /*
+   * LA POIGNÉE DE MAIN NE DÉPEND PLUS DE `onLoad` (17/10/2026). Le profil est
+   * rendu côté serveur : l'iframe est dans le HTML et finit souvent de charger
+   * AVANT que React n'hydrate la page — son `load` est passé, le gestionnaire
+   * `onLoad` ne part jamais, aucun `listening` n'est envoyé, le lecteur ne nous
+   * parle pas et la lecture attend pour toujours. Selon la course, ça marchait
+   * ou pas : le « rien au clic sur ▶ ». Comme TrailerStage, on répète le
+   * `listening` sur un minuteur dès le montage, jusqu'à la réponse.
+   */
+  useEffect(() => {
+    const listen = JSON.stringify({ event: "listening", id: 1, channel: "widget" });
+    const t0 = Date.now();
+    let timer = 0;
+    const again = () => {
+      if (loaded.current || Date.now() - t0 > 60_000) return;
+      frame.current?.contentWindow?.postMessage(listen, ORIGIN);
+      timer = window.setTimeout(again, Date.now() - t0 < 5000 ? 250 : 1000);
+    };
+    again();
+    return () => window.clearTimeout(timer);
+  }, [videoId]);
+
   /** Le navigateur refuse le son : on joue muet, et on le dit. */
   const blocked = () => {
     if (forcedMute.current) return;
@@ -362,22 +384,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       src={`${ORIGIN}/embed/${videoId}?enablejsapi=1&controls=0&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
       allow="autoplay; encrypted-media"
       title="YouTube"
-      onLoad={() => {
-        /* L'embed ne parle qu'après un `listening`, et peut rater celui
-           envoyé pendant son démarrage : on le répète jusqu'à ce qu'il
-           réponde (c'est sa réponse qui vide la file, plus haut). */
-        const listen = JSON.stringify({ event: "listening", id: 1, channel: "widget" });
-        /* Jusqu'à ce qu'il réponde, et une minute au plus. Plafonné à 5 s,
-           un lecteur lent à démarrer (profil lourd, réseau réel) ne recevait
-           plus rien : la file n'était jamais vidée, rien ne jouait. */
-        const t0 = Date.now();
-        const again = () => {
-          if (loaded.current || Date.now() - t0 > 60_000) return;
-          frame.current?.contentWindow?.postMessage(listen, ORIGIN);
-          window.setTimeout(again, Date.now() - t0 < 5000 ? 250 : 1000);
-        };
-        again();
-      }}
       /* En case, le geste de l'aperçu au survol (TrailerStage, SCALE et
          OVERSCAN) : le lecteur est rendu 200 fois plus grand puis réduit
          d'autant. Son habillage (titre, logo, gros ▶), dimensionné en pixels,
