@@ -703,7 +703,9 @@ export default function BannerStudio({
     /* Les inserts (et les OP/ED qu'AnimeThemes n'a pas) viennent d'AnisongDB,
        en parallèle (18/10/2026). Strict par identifiant et dédoublonné côté
        serveur ; ici, un OP/ED déjà donné par AnimeThemes n'est pas repris. */
-    const extra = fetch(`/api/v2/anisongs/${id}`)
+    /* `?v=` : à monter avec la forme de la réponse. Sans lui, le navigateur
+       resservait la v1 (24 h de max-age), sans pochettes ni tri (18/10/2026). */
+    const extra = fetch(`/api/v2/anisongs/${id}?v=2`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => (Array.isArray(json?.songs) ? (json.songs as ThemeRow[]) : []))
       .catch(() => [] as ThemeRow[]);
