@@ -95,28 +95,25 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     startedFor.current = videoId;
     if (started) setStarted(false);
   }
-  /* On a demandé la lecture ; `autoMuted` = relancée muette faute d'avoir pu
-     partir avec le son (voir `play`). */
+  /*
+   * LE SON, COMME LE LECTEUR D'ÉPISODES (17/10/2026). On démarre DIRECTEMENT
+   * avec le son : sur un site qu'on fréquente, Chrome le permet sans clic. Ce
+   * qu'il interdit, c'est de RENDRE le son à une vidéo partie muette — et c'est
+   * ce que faisait l'ancien repli (muet au bout de 1,2 s, puis `unMute`) :
+   * « Unmuting failed… the user didn't interact », la musique en pause. On ne
+   * passe donc en muet QUE si YouTube dit que le navigateur a refusé
+   * (`onAutoplayBlocked`, ou sa signature : retour à « non démarré » après le
+   * chargement). Le son revient alors au premier geste (voir ProfileHero).
+   */
   const wanted = useRef(false);
-  const autoMuted = useRef(false);
-  const retry = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Quand on a rendu le son après un départ muet : si YouTube met en pause
-      dans la seconde, c'est qu'il refuse le son — on repart muet. */
+  /** Le dernier `unMute` envoyé : une pause dans la seconde = refus du navigateur. */
   const unmutedAt = useRef(0);
-  /** Muet imposé : on ne rend plus le son tout seul jusqu'au prochain `play`. */
+  /** Muet imposé par le navigateur : plus de `unMute` sans un nouveau `play`. */
   const forcedMute = useRef(false);
-  /** Depuis quand le lecteur est muet malgré nous (0 = il ne l'est pas). */
-  const mutedSince = useRef(0);
-  const armRetry = () => {
-    if (retry.current) clearTimeout(retry.current);
-    retry.current = setTimeout(() => {
-      if (!wanted.current || s.current.playing) return;
-      autoMuted.current = true;
-      const w = frame.current?.contentWindow;
-      w?.postMessage(JSON.stringify({ event: "command", func: "mute", args: [] }), ORIGIN);
-      w?.postMessage(JSON.stringify({ event: "command", func: "playVideo", args: [] }), ORIGIN);
-    }, 1200);
-  };
+  /** Ce que le lecteur dit de son propre son. */
+  const reportedMuted = useRef(false);
+  /** Le lecteur a chargé (état 3) depuis la demande de lecture. */
+  const buffered = useRef(false);
   const cb = useRef({ onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError });
   cb.current = { onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError };
 
@@ -175,18 +172,16 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         /* Le volume AVANT le son : sans lui, le premier instant part à 100. */
         s.current.sent = pctWanted();
         post("setVolume", [s.current.sent]);
-        post("unMute");
-        unmutedAt.current = performance.now();
+        /* `unMute` seulement s'il est muet (refus d'avant, rendu par un geste) :
+           jamais par réflexe, c'est lui que Chrome refuse sans clic. */
+        if (reportedMuted.current || forcedMute.current) {
+          post("unMute");
+          unmutedAt.current = performance.now();
+        }
         post("playVideo");
-        /* LE MORCEAU NE PARTAIT PAS TOUJOURS (17/10/2026) : le navigateur
-           refuse parfois à l'iframe de démarrer avec le son, et le lecteur
-           restait sur son gros bouton ▶. Muet, la lecture est toujours
-           permise : on relance muet, et le son revient dès qu'il joue. */
         wanted.current = true;
         forcedMute.current = false;
-        /* Le délai court depuis que le lecteur est PRÊT : armé avant, il
-           tombait dans la même rafale que l'ordre refusé, et se perdait. */
-        if (loaded.current) armRetry();
+        buffered.current = false;
         return Promise.resolve();
       },
       pause() {
@@ -196,6 +191,15 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     }),
     [post, setVol],
   );
+
+  /** Le navigateur refuse le son : on joue muet, et on le dit. */
+  const blocked = () => {
+    if (forcedMute.current) return;
+    forcedMute.current = true;
+    post("mute");
+    post("playVideo");
+    onBrowserMuteRef.current?.();
+  };
 
   /* Nouvelle vidéo : tout ce qu'on savait de l'ancienne est faux. Remis à
      zéro AU RENDU qui change d'identifiant, pas dans un effet : en dev, React
@@ -208,7 +212,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     loaded.current = false;
     queue.current = [];
     wanted.current = false;
-    autoMuted.current = false;
+    forcedMute.current = false;
+    reportedMuted.current = false;
+    buffered.current = false;
     s.current = { ...s.current, t: 0, at: performance.now(), playing: false, duration: 0, sent: -1 };
   }
 
@@ -234,10 +240,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         const w = frame.current?.contentWindow;
         for (const m of queue.current) w?.postMessage(m, ORIGIN);
         queue.current = [];
-        if (wanted.current) armRetry();
       }
       if (data?.event === "onError") {
         cb.current.onError?.();
+        return;
+      }
+      if (data?.event === "onAutoplayBlocked") {
+        blocked();
         return;
       }
       const info = data?.event === "infoDelivery" || data?.event === "initialDelivery" ? data.info : null;
@@ -255,23 +264,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           post("setVolume", [want]);
         }
       }
-      /* Muet alors qu'on veut du son : on le redemande. S'il est toujours
-         muet une seconde après, c'est le navigateur qui refuse SANS mettre en
-         pause — on le dit (icône coupée) au lieu de réclamer en boucle. */
-      if (info && info.muted === true && st.volume > 0 && st.playing && !forcedMute.current && !autoMuted.current) {
-        const t = performance.now();
-        if (!mutedSince.current) {
-          mutedSince.current = t;
-          unmutedAt.current = t;
-          post("unMute");
-        } else if (t - mutedSince.current > 1000) {
-          mutedSince.current = 0;
-          forcedMute.current = true;
-          onBrowserMuteRef.current?.();
-        }
-      } else if (info && info.muted === false) {
-        mutedSince.current = 0;
-      }
+      if (info && typeof info.muted === "boolean") reportedMuted.current = info.muted;
       if (info && typeof info.currentTime === "number") {
         st.t = info.currentTime;
         st.at = performance.now();
@@ -282,26 +275,21 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         if (state === 1) {
           st.playing = true;
           st.at = performance.now();
-          if (autoMuted.current) {
-            autoMuted.current = false;
-            if (st.volume > 0) {
-              unmutedAt.current = performance.now();
-              post("unMute");
-            }
-          }
           if (!was) cb.current.onPlay?.();
           cb.current.onPlaying?.();
           setStarted(true);
         } else if (state === 3) {
+          buffered.current = true;
           cb.current.onWaiting?.();
+        } else if (state === -1 && wanted.current && buffered.current && !st.playing && !forcedMute.current) {
+          /* Chargée puis revenue à « non démarrée » : la signature d'un refus
+             de lecture avec le son, quand `onAutoplayBlocked` ne vient pas. */
+          blocked();
         } else if (state === 2 && wanted.current && performance.now() - unmutedAt.current < 1000) {
-          /* Pause imposée par le navigateur au retour du son : on joue muet
-             plutôt que de rester arrêté (l'icône de volume le rétablit). */
+          /* Pause imposée au retour du son : on joue muet plutôt que de
+             rester arrêté (le geste suivant le rétablit). */
           unmutedAt.current = 0;
-          forcedMute.current = true;
-          post("mute");
-          post("playVideo");
-          onBrowserMuteRef.current?.();
+          blocked();
         } else if (state === 2 || state === 0) {
           st.t = now();
           st.playing = false;
@@ -321,13 +309,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [post]);
-
-  useEffect(
-    () => () => {
-      if (retry.current) clearTimeout(retry.current);
-    },
-    [],
-  );
 
   /* La boucle de l'extrait et son fondu, pour le profil. Même calcul que le
      studio (`fadeGain`), pour que ce qu'on a réglé soit ce qu'on entend. */
