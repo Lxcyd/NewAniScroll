@@ -770,13 +770,8 @@ export default function ProfileHero({
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             card={{
               playing: sound,
-              muted: vol === 0,
-              volume: vol > 0 ? vol : PROFILE_DEFAULT_VOLUME,
               /* Arrêter ici, c'est couper le son du profil : la case part. */
               onToggle: () => setSound((x) => !x),
-              onMuted: (m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME),
-              onVolume: changeVol,
-              fallback: PROFILE_DEFAULT_VOLUME,
             }}
             onError={() => setSound(false)}
           />

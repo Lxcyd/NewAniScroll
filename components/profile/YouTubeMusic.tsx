@@ -1,7 +1,5 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { MdPause, MdPlayArrow } from "react-icons/md";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from "react";
 import { fadeGain } from "@/lib/profile/dressing";
-import HoverVolume from "@/components/shared/HoverVolume";
 
 /**
  * Ce que le studio et le profil demandent à un lecteur de musique : le
@@ -41,19 +39,10 @@ type Props = {
    */
   clip?: { from: number | null; to: number | null; fade: number; volume?: number } | null;
   /**
-   * La petite case, habillée comme l'aperçu au survol (17/10/2026) : lecture
-   * au centre et volume en haut à droite, qui apparaissent quand la main
-   * bouge ; une lumière d'ambiance derrière. Sans elle, l'iframe nue.
+   * La petite case (17/10/2026) : la vidéo seule, qui se met en pause au clic,
+   * et une lumière d'ambiance derrière. Sans elle, l'iframe nue.
    */
-  card?: {
-    playing: boolean;
-    muted: boolean;
-    volume: number;
-    onToggle: () => void;
-    onMuted: (m: boolean) => void;
-    onVolume: (v: number) => void;
-    fallback?: number;
-  } | null;
+  card?: { playing: boolean; onToggle: () => void } | null;
 };
 
 /**
@@ -83,17 +72,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const queue = useRef<string[]>([]);
   const s = useRef({ t: 0, at: 0, playing: false, duration: 0, volume: 1, sent: -1 });
   const loop = useRef({ on: false, from: 0 });
-  /* La lumière d'ambiance : une copie MUETTE du lecteur, floutée derrière la
-     case — la technique de TrailerStage (« glow »). Elle suit les commandes
-     de lecture et se recale toutes les trois secondes. */
-  const glowFrame = useRef<HTMLIFrameElement | null>(null);
-  const glowReady = useRef(false);
-  const glowQueue = useRef<string[]>([]);
-  const postGlow = useCallback((func: string, args: unknown[] = []) => {
-    const msg = JSON.stringify({ event: "command", func, args });
-    if (glowReady.current) glowFrame.current?.contentWindow?.postMessage(msg, ORIGIN);
-    else glowQueue.current.push(msg);
-  }, []);
   /* On a demandé la lecture ; `autoMuted` = relancée muette faute d'avoir pu
      partir avec le son (voir `play`). */
   const wanted = useRef(false);
@@ -158,7 +136,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         s.current.t = v;
         s.current.at = performance.now();
         post("seekTo", [v, true]);
-        postGlow("seekTo", [v, true]);
       },
       get duration() {
         return s.current.duration;
@@ -175,8 +152,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         post("setVolume", [s.current.sent]);
         post("unMute");
         post("playVideo");
-        postGlow("mute");
-        postGlow("playVideo");
         /* LE MORCEAU NE PARTAIT PAS TOUJOURS (17/10/2026) : le navigateur
            refuse parfois à l'iframe de démarrer avec le son, et le lecteur
            restait sur son gros bouton ▶. Muet, la lecture est toujours
@@ -191,10 +166,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       pause() {
         wanted.current = false;
         post("pauseVideo");
-        postGlow("pauseVideo");
       },
     }),
-    [post, postGlow, setVol],
+    [post, setVol],
   );
 
   /* Nouvelle vidéo : tout ce qu'on savait de l'ancienne est faux. Remis à
@@ -207,8 +181,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     lastId.current = videoId;
     loaded.current = false;
     queue.current = [];
-    glowReady.current = false;
-    glowQueue.current = [];
     wanted.current = false;
     autoMuted.current = false;
     s.current = { ...s.current, t: 0, at: performance.now(), playing: false, duration: 0, sent: -1 };
@@ -217,7 +189,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (e.origin !== ORIGIN) return;
-      /* La copie d'ambiance ne sert qu'à dire qu'elle est prête. */
       let data: any;
       try {
         data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
@@ -230,14 +201,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          — le morceau qui ne se lançait pas une fois sur deux (relevé au CDP,
          17/10/2026). */
       const ready = data?.event === "onReady" || data?.event === "infoDelivery" || data?.event === "onStateChange";
-      if (glowFrame.current && e.source === glowFrame.current.contentWindow) {
-        if (ready && !glowReady.current) {
-          glowReady.current = true;
-          for (const m of glowQueue.current) glowFrame.current.contentWindow?.postMessage(m, ORIGIN);
-          glowQueue.current = [];
-        }
-        return;
-      }
       if (e.source !== frame.current?.contentWindow) return;
       const st = s.current;
       if (ready && !loaded.current) {
@@ -307,8 +270,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
             if (loop.current.on) {
               post("seekTo", [loop.current.from, true]);
               post("playVideo");
-              postGlow("seekTo", [loop.current.from, true]);
-              postGlow("playVideo");
             }
           }
         }
@@ -316,18 +277,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [post, postGlow]);
+  }, [post]);
 
-  /* La copie d'ambiance dérive : on la recale sur le lecteur. */
-  const hasGlow = !!card;
-  useEffect(() => {
-    if (!hasGlow) return;
-    const id = window.setInterval(() => {
-      if (s.current.playing) postGlow("seekTo", [now() + 0.15, true]);
-    }, 3000);
-    return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasGlow, postGlow]);
   useEffect(
     () => () => {
       if (retry.current) clearTimeout(retry.current);
@@ -355,7 +306,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           st.t = from;
           st.at = performance.now();
           post("seekTo", [from, true]);
-          postGlow("seekTo", [from, true]);
         }
         setVol(base * fadeGain(t, from, end || 0, fade));
       }
@@ -363,23 +313,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [hasClip, from, to, fade, base, post, postGlow, setVol]);
-
-  /* Les commandes de la case : là quand la main bouge, parties après 1,8 s
-     d'immobilité — comme l'aperçu au survol. À l'arrêt, elles restent. */
-  const [awake, setAwake] = useState(false);
-  const sleep = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wake = () => {
-    setAwake(true);
-    if (sleep.current) clearTimeout(sleep.current);
-    sleep.current = setTimeout(() => setAwake(false), 1800);
-  };
-  useEffect(
-    () => () => {
-      if (sleep.current) clearTimeout(sleep.current);
-    },
-    [],
-  );
+  }, [hasClip, from, to, fade, base, post, setVol]);
 
   const player = (
     <iframe
@@ -423,58 +357,30 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     />
   );
   if (!card) return player;
-  const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div className={`relative isolate ${className ?? ""}`}>
-      {/* La lumière : la copie muette, agrandie et floutée, hors de la case. */}
-      <div aria-hidden className="pointer-events-none absolute -inset-3 -z-10 opacity-80 blur-[34px]">
-        <iframe
-          key={`glow-${videoId}`}
-          ref={glowFrame}
-          tabIndex={-1}
-          src={`${ORIGIN}/embed/${videoId}?enablejsapi=1&controls=0&mute=1&playsinline=1&rel=0&iv_load_policy=3&disablekb=1&fs=0&start=${Math.floor(from)}`}
-          allow="autoplay; encrypted-media"
-          title=""
-          onLoad={() => {
-            const listen = JSON.stringify({ event: "listening", id: 2, channel: "widget" });
-            let n = 0;
-            const again = () => {
-              if (glowReady.current || n++ > 20) return;
-              glowFrame.current?.contentWindow?.postMessage(listen, ORIGIN);
-              window.setTimeout(again, 250);
-            };
-            again();
-          }}
-          className="h-full w-full scale-125"
-        />
-      </div>
-      <div
-        className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl ring-1 ring-white/15"
-        onPointerMove={wake}
-        onPointerEnter={wake}
-      >
+      {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
+         de la vidéo, floutée à 34 px : deux décodeurs YouTube et un flou
+         recalculé à chaque image — la case faisait ramer le studio. C'est
+         maintenant la vignette publiée par YouTube, floutée UNE fois : le
+         repli de l'aperçu au survol en économie de données (TrailerAmbient). */}
+      <img
+        aria-hidden
+        alt=""
+        src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
+        className="pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover opacity-70 blur-[34px]"
+      />
+      {/* Rien par-dessus : la case seule. Un clic la met en pause ou la
+         relance — le calque bloque aussi l'habillage YouTube. Pas de liseré :
+         sur une image claire il se lisait comme un bord bleu. */}
+      <div className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl">
         {player}
-        {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
-        <div className="absolute inset-0 grid place-items-center">
-          <button
-            type="button"
-            onClick={card.onToggle}
-            aria-label={card.playing ? "Pause" : "Play"}
-            className={`as-preview-videobtn h-11 w-11 ${chrome}`}
-          >
-            {card.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
-          </button>
-        </div>
-        <div className={`absolute right-2 top-2 ${chrome}`}>
-          <HoverVolume
-            muted={card.muted}
-            volume={card.volume}
-            onMuted={card.onMuted}
-            onVolume={card.onVolume}
-            fallback={card.fallback}
-            placement="down"
-          />
-        </div>
+        <button
+          type="button"
+          onClick={card.onToggle}
+          aria-label={card.playing ? "Pause" : "Play"}
+          className="absolute inset-0 cursor-pointer"
+        />
       </div>
     </div>
   );

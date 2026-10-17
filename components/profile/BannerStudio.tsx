@@ -4312,27 +4312,12 @@ export default function BannerStudio({
             className="h-[200px] w-[200px]"
             card={{
               playing,
-              muted: vol === 0,
-              volume: vol > 0 ? vol : lastVol.current,
               onToggle: () => {
                 const el = preview.current;
                 if (!el) return;
                 if (el.paused) void el.play();
                 else el.pause();
               },
-              onMuted: (m) =>
-                setVol((v) => {
-                  if (m) {
-                    if (v > 0) lastVol.current = v;
-                    return 0;
-                  }
-                  return lastVol.current || PREVIEW_DEFAULT_VOLUME;
-                }),
-              onVolume: (v) => {
-                if (v > 0) lastVol.current = v;
-                setVol(v);
-              },
-              fallback: PREVIEW_DEFAULT_VOLUME,
             }}
             onPlay={() => {
               setPlaying(true);
