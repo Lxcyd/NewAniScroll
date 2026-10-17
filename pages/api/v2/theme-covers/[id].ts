@@ -5,6 +5,7 @@ import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import { kanaToRomaji, phonetic } from "@/lib/animethemes/kanaRomaji";
 import { resolvedVideoIds } from "@/lib/db/opedYoutube";
 import { COVERS_KEY, type CoversEntry as Entry } from "@/lib/animethemes/coversKey";
+import { bare, deezerTrack, norm, VERSION } from "@/lib/music/deezer";
 
 /**
  * LA POCHETTE DE CHAQUE GÉNÉRIQUE — le menu Musique du studio de profil.
@@ -20,11 +21,8 @@ import { COVERS_KEY, type CoversEntry as Entry } from "@/lib/animethemes/coversK
  * elle ne peut pas servir de relais vers Deezer. Les thèmes sont relus dans le
  * cache de /api/v2/themes (même clé).
  *
- * LA RECHERCHE EST LIBRE (« titre artiste »), pas `artist:"…" track:"…"` : le
- * filtre strict ne trouve rien dès que le titre AnimeThemes porte une mention
- * (« KISS OF DEATH (Produced by HYDE) », 16/10/2026). On filtre ensuite sur
- * l'ARTISTE — sans lui, une pochette fausse vaut moins que pas de pochette — et
- * on garde le titre le plus proche (la version remix a sa propre pochette).
+ * La recherche Deezer et ses règles (filtre sur l'artiste, mots de version)
+ * vivent dans lib/music/deezer.ts, partagé avec /api/v2/anisongs.
  *
  * Caches : Turso une semaine (season_cache), CDN une semaine. Une réponse
  * PARTIELLE (budget de 5 s épuisé, service en panne) n'est jamais mise en cache
@@ -35,61 +33,10 @@ import { COVERS_KEY, type CoversEntry as Entry } from "@/lib/animethemes/coversK
  *  exprès : la PREMIÈRE vague de pochettes s'affiche au bout de ~5 s au plus,
  *  au lieu d'attendre qu'un anime à vingt-cinq génériques soit fini. */
 const BUDGET_MS = 5000;
-const DEEZER = "https://api.deezer.com/search";
-
-type Hit = { title: string; artist: { name: string }; album: { cover_medium?: string } };
-
-const norm = (s: string) =>
-  s
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-const words = (s: string) => new Set(norm(s).split(" ").filter(Boolean));
-const VERSION = new Set(["remix", "ver", "version", "tv", "size", "instrumental", "acoustic", "live", "cover", "karaoke", "edit", "mix"]);
-
-/** Le titre sans ses mentions entre parenthèses ou crochets. */
-const bare = (s: string) => s.replace(/[([【].*?[)\]】]/g, " ").replace(/\s+/g, " ").trim();
-
-async function search(q: string): Promise<Hit[]> {
-  const r = await fetch(`${DEEZER}?q=${encodeURIComponent(q)}&limit=10`, {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!r.ok) throw new Error(`deezer ${r.status}`);
-  const d = await r.json();
-  return Array.isArray(d?.data) ? d.data : [];
-}
-
+/** Deezer d'abord (lib/music/deezer.ts), puis les replis ci-dessous. */
 async function coverFor(song: string, artists: string[]): Promise<string | null> {
-  const names = artists.map(norm).filter(Boolean);
-  if (!names.length) return null;
-  const sameArtist = (h: Hit) => {
-    const a = norm(h.artist?.name ?? "");
-    return !!a && names.some((n) => a.includes(n) || n.includes(a));
-  };
-  const want = words(song);
-  /* Mots communs entre le titre voulu et celui de Deezer, moins les mots en
-     trop — et un mot de VERSION en trop (remix, ver., tv size…) pèse lourd :
-     sans lui, « KISS OF DEATH (Produced by HYDE) » prenait la pochette du remix,
-     plus riche en mots communs que l'original « Kiss of Death » (16/10/2026). */
-  const score = (h: Hit) => {
-    const got = words(h.title);
-    let s = 0;
-    for (const w of want) if (got.has(w)) s += 2;
-    for (const w of got) if (!want.has(w)) s -= VERSION.has(w) ? 10 : 1;
-    return s;
-  };
-  for (const q of [`${song} ${artists[0]}`, `${bare(song)} ${artists[0]}`]) {
-    const hits = (await search(q)).filter((h) => sameArtist(h) && h.album?.cover_medium);
-    if (hits.length) {
-      hits.sort((a, b) => score(b) - score(a));
-      /* 120 px : la vignette s'affiche à 40 (80 sur écran dense). Même motif
-         d'URL que `cover_medium` (250x250-…), en plus léger. */
-      return hits[0].album.cover_medium?.replace("/250x250-", "/120x120-") ?? null;
-    }
-    if (bare(song) === song) break;
-  }
+  const t = await deezerTrack(song, artists);
+  if (t?.cover) return t.cover;
   return appleCover(song, artists[0]);
 }
 

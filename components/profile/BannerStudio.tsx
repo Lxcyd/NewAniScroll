@@ -530,9 +530,12 @@ function FrameIcon({ className }: { className?: string; strokeWidth?: number }) 
 
 type ThemeRow = {
   slug: string;
-  /** `ins` : un insert, venu d'AnisongDB (/api/v2/anisongs). */
+  /** `ins` : une autre musique de l'anime, venue d'AnisongDB (/api/v2/anisongs). */
   kind: "op" | "ed" | "ins";
   song: string | null;
+  /** Pochette Deezer jointe par /api/v2/anisongs ; les OP/ED d'AnimeThemes
+      passent par /api/v2/theme-covers. */
+  cover?: string | null;
   artists: string[];
   /* `episodes` est du texte libre côté AnimeThemes ("1-13", "2, 5") : on
      l'affiche tel quel, il situe un ED parmi douze. */
@@ -1405,7 +1408,7 @@ export default function BannerStudio({
       const th = liste.find((x) =>
         [x.videoNc?.url, x.video?.url, x.videoNc?.audio, x.video?.audio].includes(m.url),
       );
-      const cover = th ? covers[th.slug] : null;
+      const cover = th ? (th.cover ?? covers[th.slug]) : null;
       return cover && cover !== m.cover ? { ...d, music: { ...m, cover } } : d;
     });
   }, [coverState]);
@@ -2640,10 +2643,11 @@ export default function BannerStudio({
             /* Le slug quitte la ligne de détail pour devenir une pastille de
                couleur — c'est ainsi que la fiche anime distingue un opening
                d'un ending, et le studio n'a aucune raison de le dire autrement. */
-            /* INS en violet : ni opening (accent), ni ending (bleu), ni TRL (vert). */
+            /* SONG en violet : ni opening (accent), ni ending (bleu), ni TRL
+               (vert). « INS » (insert) ne parlait à personne (18/10/2026). */
             chip:
               th.kind === "ins"
-                ? { text: "INS", op: false, color: "#c084fc" }
+                ? { text: "SONG", op: false, color: "#c084fc" }
                 : { text: th.slug.toUpperCase(), op: th.kind === "op" },
             hint: [artist, episodes ? t("profile.studioMusicEpisodes", { episodes }) : null]
               .filter(Boolean)
@@ -2653,9 +2657,12 @@ export default function BannerStudio({
                de l'anime, pour qu'aucune ligne ne reste sans image. Pas avant
                la réponse — l'affiche clignoterait avant la vraie pochette. */
             thumb:
-              th.slug in themeCovers
+              th.cover ??
+              (th.slug in themeCovers
                 ? (themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
-                : null,
+                : th.kind === "ins"
+                  ? ((meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
+                  : null),
             square: true,
             disabled: !url,
             selected:
@@ -2678,10 +2685,10 @@ export default function BannerStudio({
                           url: th.videoNc?.audio || th.video?.audio || url,
                           title: label,
                           artist,
-                          slug: th.slug.toUpperCase(),
+                          slug: th.kind === "ins" ? "SONG" : th.slug.toUpperCase(),
                           /* La pochette du morceau quand Deezer l'a, sinon
                              l'affiche de l'anime. */
-                          cover: themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null,
+                          cover: th.cover ?? themeCovers[th.slug] ?? (meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null,
                           /* Un morceau qu'on vient de choisir est entier : le
                              découpage se fait ensuite, aux poignées. */
                           from: null,
