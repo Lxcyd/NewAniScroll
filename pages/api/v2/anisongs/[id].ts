@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getTursoClient } from "@/lib/db/turso";
 import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
-import { deezerTrack } from "@/lib/music/deezer";
+import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
 
 /**
  * Les musiques d'un anime selon AnisongDB (anisongdb.com) — openings, endings
@@ -37,7 +37,7 @@ import { deezerTrack } from "@/lib/music/deezer";
 
 const API = "https://anisongdb.com/api/mal_ids_request";
 const AUDIO = "https://naedist.animemusicquiz.com/";
-const KEY = (id: number) => `anisongs:v2:al${id}`;
+const KEY = (id: number) => `anisongs:v3:al${id}`;
 /** Au-delà, on rend ce qu'on a, sans le garder (l'appel suivant recommence). */
 const BUDGET_MS = 8000;
 
@@ -83,6 +83,27 @@ function pick(anilistId: number, raw: Raw[]): Raw[] {
   );
 }
 
+/**
+ * UNE CASSE NORMALE (18/10/2026). AnisongDB écrit presque tout en capitales
+ * (« I REALLY WANT TO STAY AT YOUR HOUSE », « RAT BOY »). Un texte déjà en
+ * casse mixte est gardé tel quel ; sinon chaque mot prend une majuscule
+ * initiale, sauf « feat. » et les sigles à points (P.A.F.F.).
+ */
+function recase(s: string): string {
+  if (s !== s.toUpperCase()) return s;
+  return s
+    .toLowerCase()
+    .replace(/[\p{L}\p{N}][\p{L}\p{N}'’.]*/gu, (w) => {
+      if (/^feat\.?$|^ft\.?$/.test(w)) return w;
+      if (/^(\p{L}\.){2,}$/u.test(w)) return w.toUpperCase();
+      return w[0].toUpperCase() + w.slice(1);
+    });
+}
+
+/** L'orthographe de Deezer quand c'est le même texte, sinon `recase`. */
+const spell = (mine: string, theirs: string | undefined) =>
+  theirs && dzNorm(theirs) === dzNorm(mine) ? theirs : recase(mine);
+
 /** Les noms à chercher : l'artiste sans ses « feat. », barres et parenthèses. */
 const who = (a: string) =>
   a
@@ -91,7 +112,8 @@ const who = (a: string) =>
     .filter(Boolean);
 
 /** Les lignes finales, dans l'ordre : OP, ED, puis le reste par popularité. */
-function order(found: { s: Raw; rank: number | null; cover: string | null }[]): AnisongRow[] {
+type Found = { s: Raw; rank: number | null; cover: string | null; title?: string; artist?: string };
+function order(found: Found[]): AnisongRow[] {
   const num = (s: Raw) => Number(/\d+/.exec(s.songType ?? "")?.[0] ?? 0);
   const typed = (k: string) => found.filter((f) => (f.s.songType ?? "").startsWith(k)).sort((a, b) => num(a.s) - num(b.s));
   const rest = found
@@ -106,7 +128,7 @@ function order(found: { s: Raw; rank: number | null; cover: string | null }[]): 
             : (b.s.songDifficulty ?? 0) - (a.s.songDifficulty ?? 0),
     );
   let ins = 0;
-  return [...typed("Opening"), ...typed("Ending"), ...rest].map(({ s, cover }) => {
+  return [...typed("Opening"), ...typed("Ending"), ...rest].map(({ s, cover, title, artist }) => {
     const type = s.songType ?? "";
     const kind: AnisongRow["kind"] = type.startsWith("Opening") ? "op" : type.startsWith("Ending") ? "ed" : "ins";
     const slug = kind === "ins" ? `IN${++ins}` : `${kind.toUpperCase()}${num(s)}`;
@@ -114,8 +136,8 @@ function order(found: { s: Raw; rank: number | null; cover: string | null }[]): 
     return {
       slug,
       kind,
-      song: s.songName ?? null,
-      artists: s.songArtist ? [s.songArtist] : [],
+      song: s.songName ? spell(s.songName, title) : null,
+      artists: s.songArtist ? [spell(s.songArtist, artist)] : [],
       cover,
       video: { url, audio: url, episodes: null },
       videoNc: null,
@@ -126,7 +148,7 @@ function order(found: { s: Raw; rank: number | null; cover: string | null }[]): 
 /** Pochette et popularité de chaque morceau, quatre à la fois, dans le budget.
     `complete` faux si Deezer a manqué un seul morceau : rien n'est gardé. */
 async function withDeezer(list: Raw[]) {
-  const out = list.map((s) => ({ s, rank: null as number | null, cover: null as string | null }));
+  const out: Found[] = list.map((s) => ({ s, rank: null, cover: null }));
   const end = Date.now() + BUDGET_MS;
   let complete = true;
   let next = 0;
@@ -141,6 +163,8 @@ async function withDeezer(list: Raw[]) {
         const t = await deezerTrack(f.s.songName ?? "", who(f.s.songArtist ?? ""));
         f.rank = t?.rank ?? null;
         f.cover = t?.cover ?? null;
+        f.title = t?.title;
+        f.artist = t?.artist;
       } catch {
         complete = false;
       }

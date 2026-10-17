@@ -43,7 +43,7 @@ async function search(q: string): Promise<Hit[]> {
 export async function deezerTrack(
   song: string,
   artists: string[],
-): Promise<{ cover: string | null; rank: number | null } | null> {
+): Promise<{ cover: string | null; rank: number | null; title: string; artist: string } | null> {
   const names = artists.map(norm).filter(Boolean);
   if (!names.length) return null;
   const sameArtist = (h: Hit) => {
@@ -72,6 +72,10 @@ export async function deezerTrack(
            d'URL que `cover_medium` (250x250-…), en plus léger. */
         cover: h.album?.cover_medium?.replace("/250x250-", "/120x120-") ?? null,
         rank: typeof h.rank === "number" ? h.rank : null,
+        /* L'orthographe de Deezer : sert à rendre leur casse aux titres écrits
+           tout en majuscules ailleurs (AnisongDB). */
+        title: h.title,
+        artist: h.artist?.name ?? "",
       };
     }
     if (bare(song) === song) break;
