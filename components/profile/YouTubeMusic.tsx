@@ -59,6 +59,12 @@ type Props = {
    * bouge ; une lumière d'ambiance derrière. Sans elle, l'iframe nue.
    */
   card?: MusicCardControls | null;
+  /**
+   * La pochette du morceau : elle couvre la case à la place de la vidéo
+   * (17/10/2026, choix de Luc : un générique n'a pas de vidéo à montrer, seule
+   * la bande-annonce garde son image). Le lecteur joue dessous, invisible.
+   */
+  cover?: string | null;
 };
 
 /**
@@ -80,7 +86,7 @@ type Props = {
  * trop tard.
  */
 const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
-  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, onBrowserMute, autoStart, clip, card },
+  { videoId, className, onPlay, onPause, onEnded, onWaiting, onPlaying, onDuration, onTime, onError, onBrowserMute, autoStart, clip, card, cover },
   ref,
 ) {
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -440,14 +446,14 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       /* `mqdefault` : 16:9 sans bandes (`hqdefault` est un 4:3 aux bandes
          noires incrustées). Elle couvre la case tant que la vidéo n'a jamais
          joué : réduit ×200, le lecteur ne montre qu'un carré noir avant. */
-      art={thumb}
-      showArt={!started}
+      art={cover || thumb}
+      showArt={!!cover || !started}
       started={started}
       eqKey={videoId}
       clock={now}
       live={() => s.current.playing}
       gain={() => (hasClip ? gainNow.current : 1)}
-      frames={frames}
+      frames={cover ? null : frames}
       progress={() => (s.current.duration > 0 ? now() / s.current.duration : null)}
     >
       {player}

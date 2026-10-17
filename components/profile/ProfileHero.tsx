@@ -839,7 +839,8 @@ export default function ProfileHero({
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
           demandent les conditions de l'API. Depuis le 17/10/2026, la case se
           réduit hors survol sous les 200 px : choix de Luc, en connaissance
-          de cause. */}
+          de cause. Et un générique y montre sa pochette par-dessus le lecteur
+          (17/10/2026, même choix) : seule la bande-annonce garde sa vidéo. */}
       {/* Pas dans le studio : il a sa propre case, la musique jouerait deux fois. */}
       {viaYouTube && banner.music?.videoId && !studio ? (
         /* TOUJOURS LÀ (17/10/2026), en pause tant qu'on ne l'a pas lancée :
@@ -854,6 +855,8 @@ export default function ProfileHero({
             ref={yt}
             videoId={banner.music.videoId}
             className="h-[240px] w-[240px]"
+            /* Un générique montre sa pochette ; la bande-annonce, sa vidéo. */
+            cover={banner.music.slug !== "TRL" ? banner.music.cover : null}
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             card={{
               playing: sound,
