@@ -1213,7 +1213,9 @@ export default function BannerStudio({
     for (const id of ids) musicCountsAsked.add(id);
     for (let i = 0; i < ids.length; i += 100) {
       const lot = ids.slice(i, i + 100);
-      fetch(`/api/v2/theme-counts?ids=${lot.sort((a, b) => a - b).join(",")}`)
+      /* `&v=2` : les comptes incluent les musiques d'AnisongDB (18/10/2026) ;
+         sans lui, le navigateur resservait ceux d'avant (une heure). */
+      fetch(`/api/v2/theme-counts?ids=${lot.sort((a, b) => a - b).join(",")}&v=2`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => {
           const c: Record<number, number> = d?.counts ?? {};

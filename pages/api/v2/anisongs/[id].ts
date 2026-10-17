@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getTursoClient } from "@/lib/db/turso";
+import { fetchByMal, malIdsOf, pickSongs, type AnisongRaw } from "@/lib/music/anisongdb";
 import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
 import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
 
@@ -35,7 +35,6 @@ import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
  * passe à l'écran), comme le fichier d'AnimeThemes : pas la version complète.
  */
 
-const API = "https://anisongdb.com/api/mal_ids_request";
 const AUDIO = "https://naedist.animemusicquiz.com/";
 const KEY = (id: number) => `anisongs:v3:al${id}`;
 /** Au-delà, on rend ce qu'on a, sans le garder (l'appel suivant recommence). */
@@ -52,36 +51,7 @@ export type AnisongRow = {
   videoNc: null;
 };
 
-type Raw = {
-  linked_ids?: { anilist?: number | null } | null;
-  songType?: string;
-  songName?: string;
-  songArtist?: string;
-  songLength?: number | null;
-  songDifficulty?: number | null;
-  isDub?: boolean;
-  isRebroadcast?: boolean;
-  audio?: string | null;
-};
-
-const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-
-/** Les morceaux de CET anime, sans doublages, rediffusions ni doublons. */
-function pick(anilistId: number, raw: Raw[]): Raw[] {
-  const kept = new Map<string, Raw>();
-  for (const s of raw) {
-    if (s.linked_ids?.anilist !== anilistId || s.isDub || s.isRebroadcast) continue;
-    /* Le nom du fichier part dans une adresse : forme stricte. */
-    if (!s.audio || !/^[\w-]+\.mp3$/.test(s.audio) || !s.songName) continue;
-    const type = s.songType ?? "";
-    const k = `${type.startsWith("Insert") ? "ins" : type}|${norm(s.songName)}|${norm(s.songArtist ?? "")}`;
-    const had = kept.get(k);
-    if (!had || (s.songLength ?? 0) > (had.songLength ?? 0)) kept.set(k, s);
-  }
-  return [...kept.values()].filter(
-    (s) => /^(Opening|Ending)\s+\d+/.test(s.songType ?? "") || (s.songType ?? "").startsWith("Insert"),
-  );
-}
+type Raw = AnisongRaw;
 
 /**
  * UNE CASSE NORMALE (18/10/2026). AnisongDB écrit presque tout en capitales
@@ -174,18 +144,6 @@ async function withDeezer(list: Raw[]) {
   return { found: out, complete };
 }
 
-async function malIdOf(anilistId: number): Promise<number | null> {
-  const db = getTursoClient();
-  if (!db) return null;
-  try {
-    const r = await db.execute({ sql: "SELECT id_mal FROM anime WHERE id = ? LIMIT 1", args: [anilistId] });
-    const v = Number((r.rows[0] as any)?.id_mal);
-    return Number.isFinite(v) && v > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
   const anilistId = Number(req.query.id);
@@ -197,7 +155,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ songs: cached });
   }
 
-  const malId = await malIdOf(anilistId);
+  const malId = (await malIdsOf([anilistId])).get(anilistId);
   if (!malId) {
     res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
     return res.status(200).json({ songs: [] });
@@ -205,15 +163,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let raw: Raw[];
   try {
-    const r = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ mal_ids: [malId] }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const json = await r.json();
-    raw = Array.isArray(json) ? json : [];
+    raw = await fetchByMal([malId]);
   } catch (e: any) {
     /* Une panne n'est pas « aucune musique » : rien n'est retenu. */
     console.warn(`[anisongs] ${anilistId}:`, e?.message);
@@ -221,7 +171,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ songs: [] });
   }
 
-  const { found, complete } = await withDeezer(pick(anilistId, raw));
+  const { found, complete } = await withDeezer(pickSongs(anilistId, raw));
   const songs = order(found);
   if (!complete) {
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
