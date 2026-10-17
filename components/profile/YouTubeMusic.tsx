@@ -469,12 +469,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const grow = () => {
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);
-    setSnug(false);
   };
-  /* Le grand rayon du petit carré n'est posé qu'une fois la réduction FINIE :
-     animer `border-radius` sur une boîte qui rogne l'iframe la redessinait à
-     chaque image. */
-  const [snug, setSnug] = useState(false);
   useEffect(() => {
     if (!canMini) return;
     shrinkIn(5000);
@@ -549,8 +544,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
            page à chaque image une iframe 200 fois plus grande (saccades,
            17/10/2026). La boîte garde ses 200 px ; la carte graphique la
            réduit vers le coin bas droit. Réduite, son rayon l'est avec :
-           40 px ici font ~10 px à l'écran. */
-        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-transform duration-300 ease-out will-change-transform ${folded && snug ? "rounded-[40px]" : "rounded-xl"}`}
+           40 px ici font ~10 px à l'écran. Le rayon glisse PENDANT la
+           réduction, même durée, même courbe : posé à la fin, il sautait
+           (17/10/2026). */
+        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
         style={canMini ? { transform: folded ? `scale(${MINI / 200})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
         onPointerEnter={() => {
@@ -558,9 +555,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           if (canMini) grow();
         }}
         onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
-        onTransitionEnd={(e) => {
-          if (e.target === e.currentTarget && e.propertyName === "transform" && folded) setSnug(true);
-        }}
       >
         {player}
         {started ? null : (
