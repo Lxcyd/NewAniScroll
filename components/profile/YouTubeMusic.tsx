@@ -397,15 +397,24 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => cancelAnimationFrame(raf);
   }, [hasClip, from, to, fade, base, post, setVol]);
 
-  /* Les commandes de la case : là quand la main bouge, parties après 1,8 s
-     d'immobilité — comme l'aperçu au survol. À l'arrêt, elles restent. */
+  /* Les commandes de la case : là quand la main bouge, parties après 3 s
+     d'immobilité. À l'arrêt, elles restent. La PREMIÈRE fois qu'elle joue,
+     elles restent 5 s même sans la main (17/10/2026 : on doit les voir avant
+     qu'elles partent). */
   const [awake, setAwake] = useState(false);
   const sleep = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wake = () => {
+  const wake = (ms = 3000) => {
     setAwake(true);
     if (sleep.current) clearTimeout(sleep.current);
-    sleep.current = setTimeout(() => setAwake(false), 1800);
+    sleep.current = setTimeout(() => setAwake(false), ms);
   };
+  const greeted = useRef(false);
+  const cardPlaying = !!card?.playing;
+  useEffect(() => {
+    if (!cardPlaying || greeted.current) return;
+    greeted.current = true;
+    wake(5000);
+  }, [cardPlaying]);
   useEffect(
     () => () => {
       if (sleep.current) clearTimeout(sleep.current);
@@ -459,8 +468,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu. */
         className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl"
-        onPointerMove={wake}
-        onPointerEnter={wake}
+        onPointerMove={() => wake()}
+        onPointerEnter={() => wake()}
       >
         {player}
         {started ? null : (
