@@ -105,6 +105,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const unmutedAt = useRef(0);
   /** Muet imposé : on ne rend plus le son tout seul jusqu'au prochain `play`. */
   const forcedMute = useRef(false);
+  /** Depuis quand le lecteur est muet malgré nous (0 = il ne l'est pas). */
+  const mutedSince = useRef(0);
   const armRetry = () => {
     if (retry.current) clearTimeout(retry.current);
     retry.current = setTimeout(() => {
@@ -252,8 +254,22 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           post("setVolume", [want]);
         }
       }
-      if (info && info.muted === true && st.volume > 0 && st.playing && !forcedMute.current && !autoMuted.current)
-        post("unMute");
+      /* Muet alors qu'on veut du son : on le redemande. S'il est toujours
+         muet une seconde après, c'est le navigateur qui refuse SANS mettre en
+         pause — on le dit (icône coupée) au lieu de réclamer en boucle. */
+      if (info && info.muted === true && st.volume > 0 && st.playing && !forcedMute.current && !autoMuted.current) {
+        const t = performance.now();
+        if (!mutedSince.current) {
+          mutedSince.current = t;
+          post("unMute");
+        } else if (t - mutedSince.current > 1000) {
+          mutedSince.current = 0;
+          forcedMute.current = true;
+          onBrowserMuteRef.current?.();
+        }
+      } else if (info && info.muted === false) {
+        mutedSince.current = 0;
+      }
       if (info && typeof info.currentTime === "number") {
         st.t = info.currentTime;
         st.at = performance.now();
@@ -368,11 +384,14 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
            envoyé pendant son démarrage : on le répète jusqu'à ce qu'il
            réponde (c'est sa réponse qui vide la file, plus haut). */
         const listen = JSON.stringify({ event: "listening", id: 1, channel: "widget" });
-        let n = 0;
+        /* Jusqu'à ce qu'il réponde, et une minute au plus. Plafonné à 5 s,
+           un lecteur lent à démarrer (profil lourd, réseau réel) ne recevait
+           plus rien : la file n'était jamais vidée, rien ne jouait. */
+        const t0 = Date.now();
         const again = () => {
-          if (loaded.current || n++ > 20) return;
+          if (loaded.current || Date.now() - t0 > 60_000) return;
           frame.current?.contentWindow?.postMessage(listen, ORIGIN);
-          window.setTimeout(again, 250);
+          window.setTimeout(again, Date.now() - t0 < 5000 ? 250 : 1000);
         };
         again();
       }}
@@ -422,7 +441,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         {started ? null : (
           <img
             alt=""
-            src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+            /* `mqdefault` : 16:9 sans bandes (`hqdefault` est un 4:3 aux
+               bandes noires incrustées). */
+            src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
             className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
         )}
