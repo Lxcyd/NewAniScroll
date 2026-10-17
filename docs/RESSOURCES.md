@@ -123,9 +123,9 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [AnimeThemes](https://animethemes.moe) | OP/ED en video/audio (WebM/OGG), sequences, versions ; references du detecteur | ✅ [lib/animethemes/, tools/opening-detector-v2/refs/] |
 | [AniSkip](https://aniskip.com) | Bornes OP/ED communautaires par MAL id + episode | ✅ [lib/context/watchPageProvider.js] |
 | [anime-skip](https://anime-skip.com) | Bornes communautaires (GraphQL, 🔑 client id) | ✅ [lib/skip/providers.ts] |
-| [AnisongDB](https://anisongdb.com) | Base AMQ : chaque OP/ED/insert, artistes, liens audio | ✅ [pages/api/v2/theme-covers/[id].ts] — `POST /api/mal_ids_request {mal_ids:[…]}` en 0,2 s, sans cle (liste complete : /openapi.json) ; comble les artistes absents d'AnimeThemes (la moitie de Naruto) |
+| [AnisongDB](https://anisongdb.com) | Base AMQ : chaque OP/ED/insert, artistes, liens audio | ✅ [pages/api/v2/theme-covers/[id].ts] — `POST /api/mal_ids_request {mal_ids:[…]}` en 0,2 s, sans cle (liste complete : /openapi.json) ; comble les artistes absents d'AnimeThemes (la moitie de Naruto). Depuis le 18/10/2026 aussi la source des INSERTS du studio [pages/api/v2/anisongs/[id].ts] : filtre strict sur `linked_ids.anilist`, doublages/rediffusions ecartes ; audio = coupe diffusee, servie par naedist.animemusicquiz.com (CORS ouvert) |
 | [AnimeSongs.org](https://www.animesongs.org) | Paroles, credits | ⏳ |
-| [Aniplaylist](https://aniplaylist.com) | Liens Spotify / Apple Music / YouTube des OP/ED | ⏳ — « ecouter l'OP sur Spotify » |
+| [Aniplaylist](https://aniplaylist.com) | Liens Spotify / Apple Music / YouTube des OP/ED | ❌ 18/10/2026 pour les inserts : pas d'API, cle Algolia (`songs_prod`) restreinte par referer ; AnisongDB retenu. Odesli (song.link) : API publique fermee (401 PUBLIC_API_ACCESS_DEPRECATED) |
 | [anison.info](http://anison.info) | Base japonaise exhaustive des anisongs | ⏳ |
 | [VGMdb](https://vgmdb.net) | OST, albums, catalogues | ⏳ (API non officielle vgmdb.info) |
 | [Spotify Web API](https://developer.spotify.com) | Lecture d'extraits, pochettes | ⏳ 🔑 |

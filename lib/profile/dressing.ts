@@ -320,10 +320,15 @@ export function isHexColor(v: unknown): v is string {
  * Même raison que la liste blanche des images (lib/profile/banner.ts) : la
  * valeur est écrite par le propriétaire puis servie à tous les visiteurs de son
  * profil, donc sans liste ce serait un `<video src>` arbitraire sur une page
- * publique. AnimeThemes est le seul hôte pour l'instant — c'est de là que
- * viennent les openings et les endings (lib/animethemes/themes.ts).
+ * publique. AnimeThemes donne les openings et les endings
+ * (lib/animethemes/themes.ts), AnisongDB les inserts (/api/v2/anisongs).
  */
-const ALLOWED_MEDIA_HOSTS = ["v.animethemes.moe", "a.animethemes.moe"];
+const ALLOWED_MEDIA_HOSTS = [
+  "v.animethemes.moe",
+  "a.animethemes.moe",
+  /* Les fichiers d'AnisongDB (inserts compris), servis par AMQ : 18/10/2026. */
+  "naedist.animemusicquiz.com",
+];
 
 export function isAllowedMediaUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length > 500) return false;

@@ -415,7 +415,8 @@ function writeLastScope(s: PaletteScope) {
    pochettes d'un anime ne bougent pas d'un jour à l'autre : rouvrir le studio,
    ou un anime déjà vu, ne refait plus aucune requête. Sept jours, cent
    cinquante animés au plus (les plus anciens sortent). */
-const MUSIC_KEY = "as-music-cache-v1";
+/* v2 (18/10/2026) : les listes portent les inserts d'AnisongDB. */
+const MUSIC_KEY = "as-music-cache-v2";
 const MUSIC_TTL = 7 * 24 * 3600 * 1000;
 type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
 function readMusicStore(): MusicStore {
@@ -529,7 +530,8 @@ function FrameIcon({ className }: { className?: string; strokeWidth?: number }) 
 
 type ThemeRow = {
   slug: string;
-  kind: "op" | "ed";
+  /** `ins` : un insert, venu d'AnisongDB (/api/v2/anisongs). */
+  kind: "op" | "ed" | "ins";
   song: string | null;
   artists: string[];
   /* `episodes` est du texte libre côté AnimeThemes ("1-13", "2, 5") : on
@@ -693,12 +695,20 @@ export default function BannerStudio({
     if (hit) return Promise.resolve(hit);
     const going = themesInflight.current.get(id);
     if (going) return going;
-    const p = fetch(`/api/v2/themes/${id}?v=4`)
+    /* Les inserts (et les OP/ED qu'AnimeThemes n'a pas) viennent d'AnisongDB,
+       en parallèle (18/10/2026). Strict par identifiant et dédoublonné côté
+       serveur ; ici, un OP/ED déjà donné par AnimeThemes n'est pas repris. */
+    const extra = fetch(`/api/v2/anisongs/${id}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
+      .then((json) => (Array.isArray(json?.songs) ? (json.songs as ThemeRow[]) : []))
+      .catch(() => [] as ThemeRow[]);
+    const p = Promise.all([fetch(`/api/v2/themes/${id}?v=4`).then((r) => (r.ok ? r.json() : null)), extra])
+      .then(([json, more]) => {
         /* Une panne n'est pas « aucun générique » : rien n'est retenu. */
         if (!json) return [] as ThemeRow[];
-        const list: ThemeRow[] = Array.isArray(json.themes) ? json.themes : [];
+        const base: ThemeRow[] = Array.isArray(json.themes) ? json.themes : [];
+        const have = new Set(base.map((x) => x.slug.toUpperCase()));
+        const list = [...base, ...more.filter((x) => !have.has(x.slug.toUpperCase()))];
         if (json.coversDone && json.covers) remember(id, { t: list, c: json.covers });
         else remember(id, { t: list });
         return list;
@@ -2630,7 +2640,11 @@ export default function BannerStudio({
             /* Le slug quitte la ligne de détail pour devenir une pastille de
                couleur — c'est ainsi que la fiche anime distingue un opening
                d'un ending, et le studio n'a aucune raison de le dire autrement. */
-            chip: { text: th.slug.toUpperCase(), op: th.kind === "op" },
+            /* INS en violet : ni opening (accent), ni ending (bleu), ni TRL (vert). */
+            chip:
+              th.kind === "ins"
+                ? { text: "INS", op: false, color: "#c084fc" }
+                : { text: th.slug.toUpperCase(), op: th.kind === "op" },
             hint: [artist, episodes ? t("profile.studioMusicEpisodes", { episodes }) : null]
               .filter(Boolean)
               .join(" · "),
