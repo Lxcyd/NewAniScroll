@@ -71,7 +71,12 @@ type Props = {
   } | null;
 };
 
+/** La case du profil, grande (17/10/2026 : 240 px, un peu plus que le
+    minimum de 200 de YouTube) ; réduite, le petit carré. */
+export const CARD = 240;
 const MINI = 48;
+/** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
+const SHIFT = (CARD - MINI) / 2;
 
 /** Huit barres d'égaliseur propres à un morceau : vitesses, décalages et
     creux tirés de l'identifiant de la vidéo, pour que deux profils ne dansent
@@ -530,7 +535,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
         className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-0" : "opacity-70"}`}
-        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${MINI / 200})` : "scale(1.1)" }}
+        style={{ transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "scale(1.1)" }}
       />
       {canMini ? (
         <img
@@ -542,7 +547,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           style={{
             width: MINI + 8,
             height: MINI + 8,
-            transform: folded ? "none" : `translate(${-0.38 * 200}px, ${-0.38 * 200}px) scale(${200 / (MINI + 8)})`,
+            transform: folded ? "none" : `translate(${-SHIFT}px, ${-SHIFT}px) scale(${CARD / (MINI + 8)})`,
           }}
         />
       ) : null}
@@ -550,13 +555,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
            En TRANSFORM, pas en width/height : animer la taille remettait en
            page à chaque image une iframe 200 fois plus grande (saccades,
-           17/10/2026). La boîte garde ses 200 px ; la carte graphique la
+           17/10/2026). La boîte garde sa taille (CARD) ; la carte graphique la
            réduit vers le coin bas droit. Réduite, son rayon l'est avec :
            40 px ici font ~10 px à l'écran. Le rayon glisse PENDANT la
            réduction, même durée, même courbe : posé à la fin, il sautait
            (17/10/2026). */
         className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
-        style={canMini ? { transform: folded ? `scale(${MINI / 200})` : "none", transformOrigin: "100% 100%" } : undefined}
+        style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
         onPointerEnter={() => {
           wake();

@@ -816,7 +816,7 @@ export default function ProfileHero({
             autoStart={!musicPaused}
             ref={yt}
             videoId={banner.music.videoId}
-            className="h-[200px] w-[200px]"
+            className="h-[240px] w-[240px]"
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
             card={{
               playing: sound,
