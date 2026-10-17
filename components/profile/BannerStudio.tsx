@@ -4300,11 +4300,22 @@ export default function BannerStudio({
            d'ambiance, lecture au centre, volume en haut à droite (17/10/2026,
            la bande-annonce y revient aussi). Visible dès qu'elle a joué une
            fois ; avant, effacée sans être démontée, pour ne pas recharger.
-           Au-dessus du zoom du cadre, qu'elle recouvrait. */
+           Au-dessus du zoom du cadre, qu'elle recouvrait.
+           DANS LE CADRE (17/10/2026) : la scène est l'écran du visiteur, la
+           case doit y être où le profil la met. Accrochée au bord de la
+           fenêtre, elle débordait du cadre, et le petit carré se retrouvait
+           dehors. Elle s'ancre donc au coin bas droit du cadre, au-dessus des
+           commandes de zoom (.as-scene-zoom : 14 px du bord, ~36 px de haut),
+           et prend l'échelle de la scène. */
         <div
-          className={`fixed bottom-[184px] right-6 z-[10004] transition-opacity ${
+          className={`fixed z-[10004] origin-bottom-right transition-opacity ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
+          style={{
+            right: "calc(var(--as-scene-frame-right) + 14px)",
+            bottom: "calc(100vh - var(--as-scene-frame-bottom) + 64px)",
+            transform: "scale(var(--as-scene-zoom, 1))",
+          }}
         >
           <YouTubeMusic
             ref={preview}
