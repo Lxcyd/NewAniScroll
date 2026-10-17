@@ -716,8 +716,6 @@ export default function BannerStudio({
   const [meta, setMeta] = useState<StudioAnime | null>(null);
   const metaCache = useRef(new Map<number, StudioAnime>());
   /** Les autres saisons de la même franchise, pour le menu déroulant. */
-  const [seasons, setSeasons] = useState<Array<{ id: number; label: string }>>([]);
-  const seasonCache = useRef(new Map<number, Array<{ id: number; label: string }>>());
 
   /* L'écoute, dans le menu Musique. Elle ne sert qu'à choisir : le lecteur vit
      avec le menu et s'arrête en même temps que lui, puisqu'il en est retiré du
@@ -1300,37 +1298,6 @@ export default function BannerStudio({
     };
   }, [open, scope, listedAnimeId, animes]);
 
-  /* Les saisons de la franchise — la même liste, au même point d'entrée, que le
-     sélecteur de saison de la page de visionnage. */
-  useEffect(() => {
-    if (!open || listedAnimeId == null) return;
-    if (scope !== "oped" && scope !== "music" && scope !== "video") return;
-    const hit = seasonCache.current.get(listedAnimeId);
-    if (hit) {
-      setSeasons(hit);
-      return;
-    }
-    let alive = true;
-    fetch(`/api/v2/seasons/${listedAnimeId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((list) => {
-        if (!alive || !Array.isArray(list)) return;
-        const rows = list
-          .filter((s) => Number.isFinite(s?.id) && s?.label)
-          .map((s) => ({ id: Number(s.id), label: String(s.label) }));
-        /* Le cache est posé sur l'anime DEMANDÉ comme sur chacune des saisons
-           trouvées : la liste est la même pour toute la franchise, donc passer
-           d'une saison à l'autre ne redemande rien. */
-        seasonCache.current.set(listedAnimeId, rows);
-        for (const r of rows) seasonCache.current.set(r.id, rows);
-        setSeasons(rows);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [open, scope, listedAnimeId]);
-
   /* Openings et endings — AnimeThemes, via le proxy que la fiche anime utilise
      déjà pour son menu OP/ED. */
   useEffect(() => {
@@ -1412,6 +1379,26 @@ export default function BannerStudio({
     (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
     [],
   );
+
+  /* LA POCHETTE RATTRAPÉE (17/10/2026). Un morceau choisi avant l'arrivée des
+     pochettes garde l'affiche de l'anime (le repli du clic), et la case, le
+     pied du menu et la barre montraient une autre image que la liste. Dès que
+     la liste de CET anime a la sienne, le morceau la prend. */
+  useEffect(() => {
+    const { id, covers } = coverState;
+    if (id == null) return;
+    const liste = themeCache.current.get(id);
+    if (!liste) return;
+    setDraft((d) => {
+      const m = d.music;
+      if (!m?.url) return d;
+      const th = liste.find((x) =>
+        [x.videoNc?.url, x.video?.url, x.videoNc?.audio, x.video?.audio].includes(m.url),
+      );
+      const cover = th ? covers[th.slug] : null;
+      return cover && cover !== m.cover ? { ...d, music: { ...m, cover } } : d;
+    });
+  }, [coverState]);
 
   /* Le volume est posé sur l'élément et non sur la source : il survit donc au
      changement de morceau, comme dans n'importe quel lecteur. */
@@ -2343,13 +2330,6 @@ export default function BannerStudio({
               anime={cible}
               count={total}
               countKey="profile.studioArtCount"
-              seasons={seasons}
-              current={pick}
-              onPick={(id) => {
-                setPick(id);
-                setArtAll(false);
-                setCursor(0);
-              }}
               anchor={`anime-art-${ouvert}`}
               onClose={() => {
                 holdAnchor(`anime-art-${ouvert}`);
@@ -2612,12 +2592,6 @@ export default function BannerStudio({
               anime={picked}
               count={trailer ? 1 : 0}
               countKey="profile.studioVideoCount"
-              seasons={seasons}
-              current={pick}
-              onPick={(id) => {
-                setPick(id);
-                setCursor(0);
-              }}
               t={t}
             />
           ),
@@ -2787,12 +2761,6 @@ export default function BannerStudio({
                   (liste?.length ?? 0) +
                   ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)
                 }
-                seasons={seasons}
-                current={pick}
-                onPick={(id) => {
-                  setPick(id);
-                  setCursor(0);
-                }}
                 anchor={`anime-music-${ouvert}`}
                 onClose={() => {
                   holdAnchor(`anime-music-${ouvert}`);
@@ -2901,13 +2869,6 @@ export default function BannerStudio({
           <AnimeHead
             anime={meta ?? listedAnime}
             count={themes.length}
-            seasons={seasons}
-            current={listedAnimeId}
-            onPick={(id) => {
-              setAnimeId(id);
-              setQuery("");
-              setCursor(0);
-            }}
             t={t}
           />
         ),
@@ -2952,7 +2913,7 @@ export default function BannerStudio({
     return out.filter((s) => s.rows.length > 0 || s.node);
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
-      listedAnime, listedAnimeId, meta, seasons, pick, fadeSec, draft,
+      listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
       entries]);
@@ -5632,22 +5593,14 @@ function TrimRail({
 }
 
 /**
- * L'en-tête de la liste des génériques : l'affiche, le titre, le compte, et le
- * passage d'une saison à l'autre.
- *
- * Le menu déroulant est un `<select>` natif et non une liste construite à la
- * main. Une franchise dépasse rarement six saisons, la palette a déjà sa
- * navigation au clavier, et une liste maison aurait demandé son propre piège à
- * clics extérieurs, son propre focus et sa propre gestion des flèches — pour
- * arriver au comportement que le navigateur donne gratuitement.
+ * L'en-tête de la liste des génériques : l'affiche, le titre, le compte.
+ * Le menu des saisons qui y était a été retiré le 17/10/2026 (choix de Luc) :
+ * chaque saison est déjà sa propre ligne de la liste.
  */
 function AnimeHead({
   anime,
   count,
   countKey = "profile.studioMusicCount",
-  seasons,
-  current,
-  onPick,
   onClose,
   anchor,
   t,
@@ -5656,9 +5609,6 @@ function AnimeHead({
   count: number;
   /** Ce que le compte nomme : des génériques, ou des vidéos. */
   countKey?: string;
-  seasons: Array<{ id: number; label: string }>;
-  current: number | null;
-  onPick: (id: number) => void;
   /** En accordéon : l'en-tête est la ligne ouverte, et un clic la replie. */
   onClose?: () => void;
   /** Le repère que le studio retrouve pour garder la ligne sous le pointeur. */
@@ -5695,22 +5645,6 @@ function AnimeHead({
       ) : (
         ident
       )}
-      {/* Une saison unique n'a pas de menu : un sélecteur à une entrée annonce
-          un choix qui n'existe pas. */}
-      {seasons.length > 1 ? (
-        <select
-          value={current ?? ""}
-          onChange={(e) => onPick(Number(e.target.value))}
-          aria-label={t("profile.studioSeason")}
-          className="max-w-[10rem] shrink-0 cursor-pointer truncate rounded-full bg-white/[0.08] px-3 py-1.5 font-karla text-[12px] font-bold text-white/80 outline-none ring-1 ring-white/10 hover:bg-white/[0.12]"
-        >
-          {seasons.map((s) => (
-            <option key={s.id} value={s.id} className="bg-[#15161d] text-white">
-              {s.label}
-            </option>
-          ))}
-        </select>
-      ) : null}
       {onClose ? (
         <button
           type="button"
