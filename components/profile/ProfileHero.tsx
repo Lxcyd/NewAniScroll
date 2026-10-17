@@ -758,27 +758,28 @@ export default function ProfileHero({
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
           demandent les conditions de l'API. */}
       {viaYouTube && sound && banner.music?.videoId ? (
-        <div
-          /* La bande-annonce prise comme musique (`url` vide) ne joue que son
-             son : la carte reste montée mais invisible (16/10/2026). */
-          className={`fixed bottom-4 right-4 z-40 overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15 ${
-            banner.music.url ? "" : "pointer-events-none opacity-0"
-          }`}
-        >
-          {/* Les bornes et le fondu réglés au studio valent aussi pour la
-              version YouTube depuis le 16/10/2026 : le lecteur est piloté
-              (YouTubeMusic), il n'est plus la scène muette des aperçus. */}
+        /* La petite case, habillée comme l'aperçu au survol (17/10/2026) :
+           lumière d'ambiance, lecture au centre, volume en haut à droite. La
+           bande-annonce y est aussi, comme les autres. Les bornes et le fondu
+           du studio valent pour elle (YouTubeMusic pilote le lecteur). */
+        <div className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
             ref={yt}
             videoId={banner.music.videoId}
-            className="block h-[200px] w-[200px]"
+            className="h-[200px] w-[200px]"
             clip={{ from: banner.music.from, to: banner.music.to, fade: banner.music.fade ?? 0, volume: vol }}
+            card={{
+              playing: sound,
+              muted: vol === 0,
+              volume: vol > 0 ? vol : PROFILE_DEFAULT_VOLUME,
+              /* Arrêter ici, c'est couper le son du profil : la case part. */
+              onToggle: () => setSound((x) => !x),
+              onMuted: (m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME),
+              onVolume: changeVol,
+              fallback: PROFILE_DEFAULT_VOLUME,
+            }}
             onError={() => setSound(false)}
           />
-          <p className="max-w-[200px] truncate px-2.5 py-1.5 text-[11px] text-white/80">
-            {banner.music.title}
-            {banner.music.artist ? ` — ${banner.music.artist}` : ""}
-          </p>
         </div>
       ) : null}
       {asPage ? portal(

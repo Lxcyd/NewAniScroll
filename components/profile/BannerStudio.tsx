@@ -725,6 +725,9 @@ export default function BannerStudio({
   /** Le lecteur de musique posé SUR la barre du bas, à la place des menus —
       comme le rail de la vidéo (`barVideo`). */
   const [barMusic, setBarMusic] = useState(false);
+  /** La case YouTube a déjà joué ce morceau : elle reste là, même en pause. */
+  const [ytShown, setYtShown] = useState(false);
+  useEffect(() => setYtShown(false), [draft.music?.videoId]);
   /* La copie de la barre reste montée le temps qu'elle sorte (500 ms), puis
      disparaît : deux lecteurs montés, et le champ du lien (autoFocus)
      prenait le focus dans celui qu'on ne voit pas. */
@@ -4292,23 +4295,49 @@ export default function BannerStudio({
           serveur avant de reprendre. Un générique pèse ~2 Mo — chargé une fois,
           il ne fait plus jamais attendre. */}
       {draft.music?.videoId ? (
-        /* La vidéo YouTube (version complète, lien collé, bande-annonce). Le
-           lecteur officiel reste VISIBLE tant qu'il joue — même règle que sur
-           le profil (voir YouTubeMusic) ; à l'arrêt il s'efface, sans être
-           démonté pour ne pas recharger. */
+        /* La vidéo YouTube (version complète, lien collé, bande-annonce),
+           dans la petite case habillée comme l'aperçu au survol : lumière
+           d'ambiance, lecture au centre, volume en haut à droite (17/10/2026,
+           la bande-annonce y revient aussi). Visible dès qu'elle a joué une
+           fois ; avant, effacée sans être démontée, pour ne pas recharger.
+           Au-dessus du zoom du cadre, qu'elle recouvrait. */
         <div
-          className={`pointer-events-auto fixed bottom-[124px] right-4 z-[10004] overflow-hidden rounded-xl bg-black/80 shadow-2xl ring-1 ring-white/15 transition-opacity ${
-            /* La bande-annonce ne joue QUE son son, comme un générique
-               (demande de Luc, 16/10/2026) : pas de carte vidéo pour elle.
-               Elle se reconnaît à son `url` vide. */
-            (playing || buffering) && draft.music.url ? "opacity-100" : "pointer-events-none opacity-0"
+          className={`fixed bottom-[184px] right-6 z-[10004] transition-opacity ${
+            playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
           <YouTubeMusic
             ref={preview}
             videoId={draft.music.videoId}
-            className="block h-[200px] w-[200px]"
-            onPlay={() => setPlaying(true)}
+            className="h-[200px] w-[200px]"
+            card={{
+              playing,
+              muted: vol === 0,
+              volume: vol > 0 ? vol : lastVol.current,
+              onToggle: () => {
+                const el = preview.current;
+                if (!el) return;
+                if (el.paused) void el.play();
+                else el.pause();
+              },
+              onMuted: (m) =>
+                setVol((v) => {
+                  if (m) {
+                    if (v > 0) lastVol.current = v;
+                    return 0;
+                  }
+                  return lastVol.current || PREVIEW_DEFAULT_VOLUME;
+                }),
+              onVolume: (v) => {
+                if (v > 0) lastVol.current = v;
+                setVol(v);
+              },
+              fallback: PREVIEW_DEFAULT_VOLUME,
+            }}
+            onPlay={() => {
+              setPlaying(true);
+              setYtShown(true);
+            }}
             onPause={() => setPlaying(false)}
             onEnded={() => setPlaying(false)}
             onWaiting={() => setBuffering(true)}
