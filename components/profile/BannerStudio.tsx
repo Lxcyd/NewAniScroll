@@ -415,8 +415,10 @@ function writeLastScope(s: PaletteScope) {
    pochettes d'un anime ne bougent pas d'un jour à l'autre : rouvrir le studio,
    ou un anime déjà vu, ne refait plus aucune requête. Sept jours, cent
    cinquante animés au plus (les plus anciens sortent). */
-/* v2 (18/10/2026) : les listes portent les inserts d'AnisongDB. */
-const MUSIC_KEY = "as-music-cache-v2";
+/* v2 (18/10/2026) : les listes portent les musiques d'AnisongDB ; v3 le même
+   jour : avec leur pochette et triées par popularité. À CHANGER dès que la
+   forme ou l'ordre des listes change, sinon l'ancienne revient sept jours. */
+const MUSIC_KEY = "as-music-cache-v3";
 const MUSIC_TTL = 7 * 24 * 3600 * 1000;
 type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
 function readMusicStore(): MusicStore {
