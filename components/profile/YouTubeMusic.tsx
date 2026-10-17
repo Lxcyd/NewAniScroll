@@ -578,7 +578,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
              d'un autre domaine) ; elles suivent ce qu'on sait : la pause les
              fige, le muet les couche, le fondu les baisse, et chaque morceau
              a son propre jeu de vitesses (tiré de son identifiant). */
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/60 to-transparent">
+          <div
+            className={`pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
+          >
             <div
               ref={eqRef}
               className="absolute inset-x-4 bottom-3 flex h-7 items-end justify-between transition-transform duration-200"
