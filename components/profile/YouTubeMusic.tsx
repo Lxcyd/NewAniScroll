@@ -538,8 +538,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           aria-hidden
           alt=""
           src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-          className={`pointer-events-none absolute -bottom-2 -right-2 -z-10 object-cover blur-[12px] transition-opacity duration-300 ${folded ? "opacity-60" : "opacity-0"}`}
-          style={{ width: MINI + 16, height: MINI + 16 }}
+          /* À peine visible (17/10/2026) : 4 px de débord, 8 px de flou. */
+          className={`pointer-events-none absolute -bottom-1 -right-1 -z-10 object-cover blur-[8px] transition-opacity duration-300 ${folded ? "opacity-30" : "opacity-0"}`}
+          style={{ width: MINI + 8, height: MINI + 8 }}
         />
       ) : null}
       <div
