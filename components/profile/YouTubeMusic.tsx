@@ -595,11 +595,11 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
              barre a ses quatre hauteurs et sa durée, tirées de l'identifiant
              du morceau : le motif ne se répète pas à l'œil. */
           <div
-            className={`pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
+            className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
           >
             <div
               ref={eqRef}
-              className="absolute inset-x-0 bottom-3 flex h-7 items-end justify-center gap-2.5 transition-transform duration-200"
+              className="absolute inset-x-0 bottom-3 flex h-10 items-end justify-center gap-2.5 transition-transform duration-200"
               style={{
                 transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing && !card.muted ? 1 : 0.15}))`,
                 transformOrigin: "bottom",
