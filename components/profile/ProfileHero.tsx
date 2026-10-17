@@ -18,7 +18,6 @@ import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useScene } from "@/components/profile/ProfileStage";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
-import HoverVolume from "@/components/shared/HoverVolume";
 
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
@@ -305,7 +304,7 @@ export default function ProfileHero({
   const audio = useRef<HTMLAudioElement | null>(null);
   const [sound, setSound] = useState(false);
   /* Le niveau du son du profil — musique, version YouTube, fond vidéo —,
-     réglé au rail de l'icône (HoverVolume, le même que les aperçus au
+     réglé au rail de la case YouTube (HoverVolume, le même que les aperçus au
      survol) et retenu sur l'appareil, à part de celui des aperçus. */
   const [vol, setVol] = useState(PROFILE_DEFAULT_VOLUME);
   useEffect(() => {
@@ -320,10 +319,6 @@ export default function ProfileHero({
       localStorage.setItem(PROFILE_VOLUME_KEY, String(v));
     } catch {}
   };
-  /* Une bande-annonce ne compte PAS comme une source de son : elle est jouée
-     muette et le reste (voir PlateBackground). Un bouton de son qui ne
-     débloquerait rien vaut moins que pas de bouton du tout. */
-  const hasSound = !!banner.music || (video && !!banner.url);
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
 
   /* Deux façons de jouer la musique, et la meilleure gagne quand elle existe.
@@ -757,8 +752,10 @@ export default function ProfileHero({
           licence. Le masquer pour n'en garder que le son reviendrait à
           contourner ce que l'écoute gratuite finance. 200 px est le minimum que
           demandent les conditions de l'API. */}
-      {viaYouTube && sound && banner.music?.videoId ? (
-        /* La petite case, habillée comme l'aperçu au survol (17/10/2026) :
+      {viaYouTube && banner.music?.videoId ? (
+        /* TOUJOURS LÀ (17/10/2026), en pause tant qu'on ne l'a pas lancée :
+           c'est elle qui démarre la musique, l'icône du haut est partie.
+           La petite case, habillée comme l'aperçu au survol :
            lumière d'ambiance, lecture au centre, volume en haut à droite. La
            bande-annonce y est aussi, comme les autres. Les bornes et le fondu
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
@@ -891,26 +888,8 @@ export default function ProfileHero({
               {t("profile.bannerFrom", { title: banner.title })}
             </Link>
           ) : null}
-          {/* Pas pendant l'édition (17/10/2026) : le lecteur du studio joue
-              déjà la musique, et cette icône en doublait la commande. */}
-          {hasSound && !studio ? (
-            /* Une icône seule, le volume des aperçus au survol (16/10/2026) :
-               clic = couper / rétablir, survol = rail vertical. Le titre du
-               morceau reste dans l'infobulle. */
-            <HoverVolume
-              muted={!sound}
-              volume={vol}
-              onMuted={(m) => setSound(!m)}
-              onVolume={changeVol}
-              placement="down"
-              fallback={PROFILE_DEFAULT_VOLUME}
-              label={
-                banner.music
-                  ? `${banner.music.title}${banner.music.artist ? ` — ${banner.music.artist}` : ""}`
-                  : t("profile.playSound")
-              }
-            />
-          ) : null}
+          {/* Plus d'icône de son ici (17/10/2026) : la musique YouTube se
+              lance depuis sa case, en bas à droite, toujours affichée. */}
           {isOwner && onEditBanner ? (
             <button
               type="button"
