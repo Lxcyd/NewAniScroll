@@ -90,9 +90,30 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
   const onPause = () => {
     playing = false;
   };
+  /* Un 404 du Worker veut presque toujours dire « YouTube refuse NOTRE adresse
+     en ce moment » (rationnement mesuré en 08/2026 : 1/6 à froid, 4/6 après
+     30 s), pas « ce morceau n'existe pas ». Le Worker réessaie de son côté
+     (warmLater) ; on redemande donc deux fois, espacé, avant d'abandonner. Le
+     paramètre `r` contourne le 404 gardé par le navigateur ; le cache du
+     Worker, lui, ne regarde que le chemin. */
+  const RETRY_MS = [25000, 60000];
+  let retries = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  const onError = (e: Event) => {
+    if (state === "failed" || retries >= RETRY_MS.length || !BASE) return fail(e);
+    const wait = RETRY_MS[retries++];
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (state === "failed") return;
+      el.src = `${BASE}/a/${videoId}.mp4?r=${retries}`;
+      if (wantPlay) tryPlay();
+    }, wait);
+  };
   el.addEventListener("playing", onPlaying);
   el.addEventListener("pause", onPause);
-  el.addEventListener("error", fail);
+  el.addEventListener("error", onError);
 
   /* L'AudioContext naît suspendu tant que la page n'a pas eu de geste (sauf
      sur un site où Chrome a le score d'engagement). Le premier geste le
@@ -135,7 +156,9 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
     el.play().catch((e: unknown) => {
       // Refus d'autoplay : on attend le premier geste, ce n'est pas un échec.
       if ((e as DOMException)?.name === "NotAllowedError") blocked = true;
-      else if ((e as DOMException)?.name !== "AbortError") fail(e);
+      // Source refusée (404 du Worker) : c'est l'événement `error` qui décide,
+      // nouvelle tentative comprise.
+      else if (!["AbortError", "NotSupportedError"].includes((e as DOMException)?.name)) fail(e);
     });
     if (!timeout) timeout = setTimeout(() => !blocked && !playing && fail("rien après 12 s"), START_TIMEOUT_MS);
   }
@@ -143,11 +166,13 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
   function cleanup() {
     if (timeout) clearTimeout(timeout);
     timeout = null;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
     window.removeEventListener("pointerdown", onGesture);
     window.removeEventListener("keydown", onGesture);
     el.removeEventListener("playing", onPlaying);
     el.removeEventListener("pause", onPause);
-    el.removeEventListener("error", fail);
+    el.removeEventListener("error", onError);
     el.pause();
     el.removeAttribute("src");
     el.load();
@@ -169,7 +194,7 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
       }
       // Rien n'est téléchargé avant la première lecture réelle.
       if (state === "idle") build();
-      if (el.paused && !blocked) tryPlay();
+      if (el.paused && !blocked && !retryTimer && !el.error) tryPlay();
       if (el.readyState >= 1 && Math.abs(el.currentTime - t) > DRIFT_S) {
         const now = performance.now();
         if (now - lastSeek > SEEK_EVERY_MS) {
