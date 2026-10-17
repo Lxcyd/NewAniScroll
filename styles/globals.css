@@ -155,21 +155,52 @@ html.tab-hidden *::after {
 .as-preview-voltrack {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
 }
-/* L'égaliseur de la case musique du profil (YouTubeMusic). Quatre hauteurs
-   par barre (--h1..--h4, tirées du morceau), parcourues à pas irréguliers.
-   Rien que du transform : composité, aucun calcul de page. Volontairement
-   HORS de prefers-reduced-motion : le Chrome de Luc répond « reduce » et le
-   témoin de lecture disparaissait. */
-@keyframes as-eq {
-  0%, 100% { transform: scaleY(var(--h1, 0.3)); }
-  22% { transform: scaleY(var(--h2, 0.8)); }
-  47% { transform: scaleY(var(--h3, 0.4)); }
-  71% { transform: scaleY(var(--h4, 1)); }
-}
+/* L'égaliseur de la case musique du profil (YouTubeMusic). Une barre = un
+   rôle (voir EQ_ROLES) : la forme du mouvement dit la bande, la durée vient
+   du battement du morceau (--d), le plafond et le plancher de la barre
+   (--hi, --lo). Rien que du transform : composité, aucun calcul de page.
+   Volontairement HORS de prefers-reduced-motion : le Chrome de Luc répond
+   « reduce » et le témoin de lecture disparaissait. */
 .as-eq-bar {
   transform-origin: bottom;
-  animation: as-eq var(--d, 1.2s) ease-in-out var(--dl, 0s) infinite;
+  animation-duration: var(--d, 0.5s);
+  animation-delay: var(--dl, 0s);
+  animation-iteration-count: infinite;
 }
+/* Frappe au début du temps, retombée rapide. */
+@keyframes as-eq-kick {
+  0% { transform: scaleY(var(--hi, 1)); }
+  15% { transform: scaleY(calc(var(--hi, 1) * 0.8)); }
+  55%, 100% { transform: scaleY(var(--lo, 0.2)); }
+}
+.as-eq-kick { animation-name: as-eq-kick; animation-timing-function: ease-out; }
+/* Vague lente, sur deux temps. */
+@keyframes as-eq-wave {
+  0%, 100% { transform: scaleY(calc(var(--lo, 0.2) + 0.15)); }
+  50% { transform: scaleY(var(--hi, 1)); }
+}
+.as-eq-wave { animation-name: as-eq-wave; animation-timing-function: ease-in-out; }
+/* Caisse claire : rien sur le 1er temps, frappe sur le 2e. */
+@keyframes as-eq-snare {
+  0%, 46% { transform: scaleY(var(--lo, 0.2)); }
+  50% { transform: scaleY(var(--hi, 1)); }
+  80%, 100% { transform: scaleY(calc(var(--lo, 0.2) + 0.1)); }
+}
+.as-eq-snare { animation-name: as-eq-snare; animation-timing-function: ease-out; }
+/* Charleston : petit coup sec par demi-temps. */
+@keyframes as-eq-hat {
+  0% { transform: scaleY(calc(var(--hi, 1) * 0.85)); }
+  60%, 100% { transform: scaleY(calc(var(--lo, 0.2) + 0.2)); }
+}
+.as-eq-hat { animation-name: as-eq-hat; animation-timing-function: ease-out; }
+/* Aigus : frémissement irrégulier. */
+@keyframes as-eq-air {
+  0%, 100% { transform: scaleY(calc(var(--lo, 0.2) + 0.25)); }
+  30% { transform: scaleY(calc(var(--hi, 1) * 0.7)); }
+  55% { transform: scaleY(calc(var(--lo, 0.2) + 0.1)); }
+  80% { transform: scaleY(calc(var(--hi, 1) * 0.55)); }
+}
+.as-eq-air { animation-name: as-eq-air; animation-timing-function: linear; }
 
 /* The glow belongs to the VIDEO, not to the card. This box IS the video's box
    (the card's top 45%), cut open on three sides: `clip-path` with negative

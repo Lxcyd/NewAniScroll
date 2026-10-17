@@ -78,12 +78,23 @@ const MINI = 48;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
-/** Dix barres d'égaliseur propres à un morceau, tirées de son identifiant
-    pour que deux profils ne dansent pas pareil. Chacune a quatre hauteurs
-    (de 15 à 100 %). Un battement commun par morceau (0,42-0,56 s, soit
-    ~105-140 BPM), et chaque barre fait son tour en 1, 1,5 ou 2 battements :
-    vif et rythmé (à 0,9-2,2 s sans tempo commun, c'était trop lent), mais
-    les barres ne tombent jamais toutes ensemble. */
+/**
+ * Les rôles des dix barres, des basses (gauche) aux aigus (droite), comme un
+ * vrai égaliseur — idée reprise du repli « Procedural BPM DSP » de
+ * pill-player (17/10/2026), qui ne lit pas non plus le son de YouTube :
+ *   kick  : frappe sur chaque temps, retombe vite ;
+ *   wave  : vague lente des graves, sur deux temps ;
+ *   snare : caisse claire, sur le 2e temps de chaque paire ;
+ *   hat   : charleston, un coup par demi-temps ;
+ *   air   : frémissement des aigus, irrégulier, au demi-temps.
+ */
+const EQ_ROLES = ["kick", "kick", "wave", "wave", "snare", "snare", "snare", "hat", "hat", "air"] as const;
+const EQ_BEATS = { kick: 1, wave: 2, snare: 2, hat: 0.5, air: 0.5 } as const;
+
+/** Les dix barres propres à un morceau, tirées de son identifiant pour que
+    deux profils ne dansent pas pareil : un battement commun (0,42-0,56 s,
+    ~105-140 BPM), et par barre son plafond, son plancher et un décalage
+    calé sur la grille du quart de temps (jamais hors rythme). */
 function eqBars(videoId: string) {
   let h = 2166136261;
   for (let i = 0; i < videoId.length; i++) h = Math.imul(h ^ videoId.charCodeAt(i), 16777619);
@@ -93,11 +104,19 @@ function eqBars(videoId: string) {
     return ((h ^= h >>> 16) >>> 0) / 4294967296;
   };
   const beat = 0.42 + rnd() * 0.14;
-  return Array.from({ length: 10 }, () => ({
-    h: Array.from({ length: 4 }, () => +(0.15 + rnd() * 0.85).toFixed(2)),
-    d: +(beat * [1, 1, 1.5, 2][Math.floor(rnd() * 4)]).toFixed(3),
-    dl: +(rnd() * beat * 2).toFixed(3),
-  }));
+  return EQ_ROLES.map((role) => {
+    const d = beat * EQ_BEATS[role];
+    /* Les frappes (kick, snare) partent ensemble, sur le temps ; les autres
+       se décalent d'un nombre entier de quarts de temps. */
+    const steps = role === "kick" || role === "snare" ? 0 : Math.floor(rnd() * 4);
+    return {
+      role,
+      hi: +(0.75 + rnd() * 0.25).toFixed(2),
+      lo: +(0.12 + rnd() * 0.2).toFixed(2),
+      d: +d.toFixed(3),
+      dl: +((steps * beat) / 4).toFixed(3),
+    };
+  });
 }
 
 /**
@@ -608,12 +627,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
               {eqBars(videoId).map((b, i) => (
                 <i
                   key={i}
-                  className="as-eq-bar block h-full w-3 rounded-sm bg-white/90"
+                  className={`as-eq-bar as-eq-${b.role} block h-full w-3 rounded-sm bg-white/90`}
                   style={{
-                    ["--h1" as string]: b.h[0],
-                    ["--h2" as string]: b.h[1],
-                    ["--h3" as string]: b.h[2],
-                    ["--h4" as string]: b.h[3],
+                    ["--hi" as string]: b.hi,
+                    ["--lo" as string]: b.lo,
                     ["--d" as string]: `${b.d}s`,
                     ["--dl" as string]: `${-b.dl}s`,
                     animationPlayState: card.playing ? "running" : "paused",
