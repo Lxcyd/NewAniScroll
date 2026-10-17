@@ -440,7 +440,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const grow = () => {
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);
+    setSnug(false);
   };
+  /* Le grand rayon du petit carré n'est posé qu'une fois la réduction FINIE :
+     animer `border-radius` sur une boîte qui rogne l'iframe la redessinait à
+     chaque image. */
+  const [snug, setSnug] = useState(false);
   useEffect(() => {
     if (!canMini) return;
     shrinkIn(5000);
@@ -462,7 +467,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          d'autant. Son habillage (titre, logo, gros ▶), dimensionné en pixels,
          devient microscopique ; l'image, elle, remplit le carré — 16:9 à
          hauteur pleine, côtés rognés, sans débord. */
-      className={card ? "absolute" : className}
+      /* En case, la souris ne doit jamais entrer dans l'iframe : ses
+         mouvements y restent, et le survol de la case n'était vu qu'en
+         retard (le petit carré tardait à grandir). */
+      className={card ? "pointer-events-none absolute" : className}
       style={
         card
           ? {
@@ -481,33 +489,40 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   if (!card) return player;
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
-    <div
-      /* En TRANSFORM, pas en width/height : animer la taille remettait en page
-         à chaque image une iframe 200 fois plus grande (saccades, 17/10/2026).
-         La boîte garde ses 200 px ; la carte graphique la réduit vers le coin
-         bas droit. */
-      className={`relative isolate transition-transform duration-300 ease-out will-change-transform ${className ?? ""}`}
-      style={canMini ? { transform: folded ? `scale(${MINI / 200})` : "none", transformOrigin: "100% 100%" } : undefined}
-      onPointerEnter={canMini ? grow : undefined}
-      onPointerLeave={canMini ? () => shrinkIn(600) : undefined}
-    >
+    <div className={`relative isolate ${className ?? ""}`}>
       {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
          de la vidéo, floutée à 34 px : deux décodeurs YouTube et un flou
          recalculé à chaque image — la case faisait ramer le studio. C'est
          maintenant la vignette publiée par YouTube, floutée UNE fois : le
-         repli de l'aperçu au survol en économie de données (TrailerAmbient). */}
+         repli de l'aperçu au survol en économie de données (TrailerAmbient).
+         Réduite à part de la case : elle suit le petit carré (son centre est à
+         88 % de la grande) mais reste deux fois plus large que lui, sinon il
+         n'en restait qu'un liseré. */}
       <img
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover blur-[34px] transition-opacity duration-300 ${folded ? "opacity-0" : "opacity-70"}`}
+        className="pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover opacity-70 blur-[34px] transition-transform duration-300 ease-out will-change-transform"
+        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${(MINI * 2) / 200})` : "scale(1.1)" }}
       />
       <div
-        /* Pas de liseré : sur une image claire il se lisait comme un bord bleu. */
-        /* Réduit, le rayon est réduit avec : 40 px ici font ~10 px à l'écran. */
-        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[border-radius] duration-300 ${folded ? "rounded-[40px]" : "rounded-xl"}`}
+        /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
+           En TRANSFORM, pas en width/height : animer la taille remettait en
+           page à chaque image une iframe 200 fois plus grande (saccades,
+           17/10/2026). La boîte garde ses 200 px ; la carte graphique la
+           réduit vers le coin bas droit. Réduite, son rayon l'est avec :
+           40 px ici font ~10 px à l'écran. */
+        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-transform duration-300 ease-out will-change-transform ${folded && snug ? "rounded-[40px]" : "rounded-xl"}`}
+        style={canMini ? { transform: folded ? `scale(${MINI / 200})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
-        onPointerEnter={() => wake()}
+        onPointerEnter={() => {
+          wake();
+          if (canMini) grow();
+        }}
+        onPointerLeave={canMini ? () => shrinkIn(600) : undefined}
+        onTransitionEnd={(e) => {
+          if (e.target === e.currentTarget && e.propertyName === "transform" && folded) setSnug(true);
+        }}
       >
         {player}
         {started ? null : (
