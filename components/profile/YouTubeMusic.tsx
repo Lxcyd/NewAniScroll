@@ -1,5 +1,6 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fadeGain } from "@/lib/profile/dressing";
+import { storyboardFrames } from "@/lib/preview/trailerBars";
 import MusicCard, { type MusicCardControls } from "@/components/profile/MusicCard";
 
 /**
@@ -396,6 +397,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => cancelAnimationFrame(raf);
   }, [hasClip, from, to, fade, base, post, setVol]);
 
+  /* La lumière de la case glisse entre ces trois images (même tableau d'un
+     rendu à l'autre : TrailerAmbient refait sa boucle quand il change). */
+  const frames = useMemo(() => storyboardFrames(videoId), [videoId]);
   const player = (
     <iframe
       key={videoId}
@@ -443,6 +447,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       clock={now}
       live={() => s.current.playing}
       gain={() => (hasClip ? gainNow.current : 1)}
+      frames={frames}
+      progress={() => (s.current.duration > 0 ? now() / s.current.duration : null)}
     >
       {player}
     </MusicCard>

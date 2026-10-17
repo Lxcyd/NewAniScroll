@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
+import TrailerAmbient from "@/components/shared/HoverPreview/TrailerAmbient";
 
 /** Ce que le profil et le studio règlent sur la case : commandes et petit carré. */
 export type MusicCardControls = {
@@ -31,6 +32,10 @@ type Props = MusicCardControls & {
   live?: () => boolean;
   /** Le gain du fondu de l'extrait, 0-1 : l'égaliseur le suit. */
   gain?: () => number;
+  /** Les images publiées de la vidéo (storyboardFrames) : la lumière glisse de l'une à l'autre. */
+  frames?: string[] | null;
+  /** Où en est le morceau, 0-1 (null tant qu'on ne sait pas). */
+  progress?: () => number | null;
   className?: string;
   /** Le média visible sous l'image (le lecteur YouTube), rogné à la case. */
   children?: ReactNode;
@@ -39,7 +44,7 @@ type Props = MusicCardControls & {
 /** La case, grande (17/10/2026 : 240 px, un peu plus que le minimum de 200
     de YouTube) ; réduite, le petit carré. */
 export const CARD = 240;
-const MINI = 64;
+const MINI = 72;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
@@ -62,6 +67,8 @@ export default function MusicCard({
   clock,
   live,
   gain,
+  frames,
+  progress,
   className,
   children,
   ...card
@@ -141,7 +148,7 @@ export default function MusicCard({
   );
 
   /* LE PETIT CARRÉ (17/10/2026, choix de Luc) : grande 5 s à l'arrivée, puis
-     elle se tasse en carré de 64 px (48 avant le 17/10 au soir, trop petit) aux bords arrondis ; le survol la rend
+     elle se tasse en carré de 72 px (48 puis 64 le 17/10, trop petit) aux bords arrondis ; le survol la rend
      grande, la quitter la retasse. Pas de bouton. La musique ne s'arrête
      jamais : c'est le même lecteur, seule la boîte change de taille. */
   const [mini, setMini] = useState(false);
@@ -170,27 +177,50 @@ export default function MusicCard({
   }, [canMini, started]);
   const folded = canMini && mini;
 
+  /* La position de la lumière entre les images de la vidéo : relue deux fois
+     par seconde, elle n'achète qu'une couleur, pas un mouvement. */
+  const [glowAt, setGlowAt] = useState<number | null>(null);
+  const progressFn = useRef(progress);
+  progressFn.current = progress;
+  const hasFrames = !!frames?.length;
+  useEffect(() => {
+    if (!hasFrames || !card.playing) return;
+    const read = () => {
+      const p = progressFn.current?.();
+      /* YouTube prend ses trois images vers 25, 50 et 75 % : on s'étale
+         entre la première et la dernière. */
+      setGlowAt(p == null ? null : Math.min(1, Math.max(0, (p - 0.25) / 0.5)));
+    };
+    read();
+    const t = setInterval(read, 500);
+    return () => clearInterval(t);
+  }, [hasFrames, card.playing]);
+
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div className={`relative isolate ${className ?? ""}`}>
       {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
          de la vidéo, floutée à 34 px : deux décodeurs YouTube et un flou
-         recalculé à chaque image — la case faisait ramer le studio. C'est
-         maintenant l'image de la case, floutée UNE fois : le repli de l'aperçu
-         au survol en économie de données (TrailerAmbient).
+         recalculé à chaque image — la case faisait ramer le studio. Puis une
+         seule image floutée, trop terne. C'est maintenant la lumière de
+         l'aperçu au survol en économie de données (TrailerAmbient) : la pile
+         de copies qui s'étale autour de la case, et pour YouTube la couleur
+         qui glisse entre les trois images publiées de la vidéo.
          Le petit carré a SA lumière, à sa taille : la grande réduite au zoom
          laissait un voile gris dans le coin (17/10/2026). On passe de l'une à
          l'autre en fondu d'opacité, sans jamais animer de flou. Et chacune
          SUIT la case pendant qu'elle change de taille (même durée, même
          courbe, en transform) : la grande se replie vers le coin en
          s'éteignant, la petite part de la taille de la grande. */}
-      <img
-        aria-hidden
-        alt=""
-        src={art}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-0" : "opacity-70"}`}
-        style={{ transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "scale(1.1)" }}
-      />
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 transition-[transform,opacity] duration-300 ease-out will-change-transform"
+        style={{
+          opacity: folded ? 0 : 1,
+          transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "none",
+        }}
+      >
+        <TrailerAmbient banner={art} playing={card.playing} frames={frames} progress={glowAt} />
+      </div>
       {canMini ? (
         <img
           aria-hidden
