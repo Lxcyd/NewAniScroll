@@ -18,6 +18,7 @@ import type { MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useScene } from "@/components/profile/ProfileStage";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
+import MusicCard from "@/components/profile/MusicCard";
 
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
 const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
@@ -335,6 +336,9 @@ export default function ProfileHero({
     } catch {}
   };
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+  /** Le fichier d'AnimeThemes a déjà joué : sa case montre l'égaliseur. */
+  const [audioStarted, setAudioStarted] = useState(false);
+  useEffect(() => setAudioStarted(false), [banner.music?.url]);
   /* LECTURE AUTO PAR DÉFAUT (17/10/2026) — sauf si le visiteur a mis en pause
      une fois : ce choix est retenu sur l'appareil, et vaut jusqu'à ce qu'il
      relance. Un navigateur refuse souvent le son sans geste : la case joue
@@ -783,6 +787,7 @@ export default function ProfileHero({
           loop={!(banner.music.to && banner.music.to > (banner.music.from ?? 0))}
           preload="none"
           onPlay={(e) => {
+            setAudioStarted(true);
             const el = e.currentTarget;
             const f = banner.music?.from ?? 0;
             const to = banner.music?.to ?? 0;
@@ -795,6 +800,36 @@ export default function ProfileHero({
             if (to > f && el.currentTime > to) el.currentTime = f;
           }}
         />
+      ) : null}
+      {/* SA CASE (17/10/2026) : le fichier d'AnimeThemes n'avait rien à
+          l'écran pour se lancer ni se couper. La même que la version YouTube,
+          sa pochette à la place du lecteur. Jamais de lecture auto : le
+          visiteur la lance d'ici. */}
+      {banner.music && !viaYouTube && !studio ? (
+        <div className="fixed bottom-6 right-6 z-40">
+          <MusicCard
+            className="h-[240px] w-[240px]"
+            art={banner.music.cover || banner.url || ""}
+            showArt
+            started={audioStarted}
+            eqKey={banner.music.url}
+            clock={() => audio.current?.currentTime ?? 0}
+            live={() => !!audio.current && !audio.current.paused}
+            gain={() => {
+              const el = audio.current;
+              if (!el || !(fade > 0)) return 1;
+              return fadeGain(el.currentTime, banner.music?.from ?? 0, banner.music?.to || el.duration || 0, fade);
+            }}
+            playing={sound}
+            muted={vol === 0}
+            volume={vol > 0 ? vol : PROFILE_DEFAULT_VOLUME}
+            onToggle={() => setSound((x) => !x)}
+            onMuted={(m) => changeVol(m ? 0 : PROFILE_DEFAULT_VOLUME)}
+            onVolume={changeVol}
+            fallback={PROFILE_DEFAULT_VOLUME}
+            minimizable
+          />
+        </div>
       ) : null}
 
       {/* Le lecteur YouTube de la musique.

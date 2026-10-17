@@ -66,6 +66,7 @@ import {
 import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
+import MusicCard from "@/components/profile/MusicCard";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
@@ -240,6 +241,14 @@ const HATCH =
 /** Le fondu qu'on pose quand on active la bascule — plus court, on entend encore
     le raccord ; plus long, il mange le refrain d'un extrait de vingt secondes. */
 const DEFAULT_FADE = 1.5;
+
+/** La case musique dans la scène : 24 px du coin bas droit du cadre, comme
+    sur le profil (`bottom-6 right-6`), à l'échelle de la scène. */
+const musicCardAnchor = {
+  right: "calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1))",
+  bottom: "calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1))",
+  transform: "scale(var(--as-scene-zoom, 1))",
+} as const;
 
 /**
  * La position de lecture telle que le studio l'AFFICHE, au dixième de seconde.
@@ -727,7 +736,7 @@ export default function BannerStudio({
   const [barMusic, setBarMusic] = useState(false);
   /** La case YouTube a déjà joué ce morceau : elle reste là, même en pause. */
   const [ytShown, setYtShown] = useState(false);
-  useEffect(() => setYtShown(false), [draft.music?.videoId]);
+  useEffect(() => setYtShown(false), [draft.music?.videoId, draft.music?.url]);
   /* La copie de la barre reste montée le temps qu'elle sorte (500 ms), puis
      disparaît : deux lecteurs montés, et le champ du lien (autoFocus)
      prenait le focus dans celui qu'on ne voit pas. */
@@ -4311,11 +4320,7 @@ export default function BannerStudio({
           className={`fixed z-[10004] origin-bottom-right transition-opacity ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
-          style={{
-            right: "calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1))",
-            bottom: "calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1))",
-            transform: "scale(var(--as-scene-zoom, 1))",
-          }}
+          style={musicCardAnchor}
         >
           <YouTubeMusic
             ref={preview}
@@ -4370,6 +4375,7 @@ export default function BannerStudio({
           />
         </div>
       ) : draft.music ? (
+        <>
         <audio
           ref={(el) => {
             preview.current = el;
@@ -4380,7 +4386,10 @@ export default function BannerStudio({
             if (url && e.currentTarget.src !== url) e.currentTarget.src = url;
           }}
           preload="auto"
-          onPlay={() => setPlaying(true)}
+          onPlay={() => {
+            setPlaying(true);
+            setYtShown(true);
+          }}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
           onWaiting={() => setBuffering(true)}
@@ -4396,6 +4405,49 @@ export default function BannerStudio({
             setBuf(b.length && el.duration ? b.end(b.length - 1) / el.duration : 0);
           }}
         />
+        {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
+            place, la pochette à la place du lecteur. */}
+        <div
+          className={`fixed z-[10004] origin-bottom-right transition-opacity ${
+            playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+          }`}
+          style={musicCardAnchor}
+        >
+          <MusicCard
+            className="h-[240px] w-[240px]"
+            art={draft.music.cover || draft.url || ""}
+            showArt
+            started={ytShown}
+            eqKey={draft.music.url}
+            clock={() => preview.current?.currentTime ?? 0}
+            live={() => !!preview.current && !preview.current.paused}
+            playing={playing}
+            muted={vol === 0}
+            volume={vol > 0 ? vol : lastVol.current}
+            onToggle={() => {
+              const el = preview.current;
+              if (!el) return;
+              if (el.paused) void el.play();
+              else el.pause();
+            }}
+            onMuted={(m) =>
+              setVol((v) => {
+                if (m) {
+                  if (v > 0) lastVol.current = v;
+                  return 0;
+                }
+                return lastVol.current || PREVIEW_DEFAULT_VOLUME;
+              })
+            }
+            onVolume={(v) => {
+              if (v > 0) lastVol.current = v;
+              setVol(v);
+            }}
+            fallback={PREVIEW_DEFAULT_VOLUME}
+            minimizable
+          />
+        </div>
+        </>
       ) : null}
 
       {/* ── La scène ──────────────────────────────────────────────────────

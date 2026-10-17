@@ -1,8 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { MdPause, MdPlayArrow } from "react-icons/md";
 import { fadeGain } from "@/lib/profile/dressing";
-import HoverVolume from "@/components/shared/HoverVolume";
-import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
+import MusicCard, { type MusicCardControls } from "@/components/profile/MusicCard";
 
 /**
  * Ce que le studio et le profil demandent à un lecteur de musique : le
@@ -59,28 +57,8 @@ type Props = {
    * au centre et volume en haut à droite, qui apparaissent quand la main
    * bouge ; une lumière d'ambiance derrière. Sans elle, l'iframe nue.
    */
-  card?: {
-    playing: boolean;
-    muted: boolean;
-    volume: number;
-    onToggle: () => void;
-    onMuted: (m: boolean) => void;
-    onVolume: (v: number) => void;
-    fallback?: number;
-    /** Se tasse en petit carré hors survol, avec l'égaliseur (profil et studio). */
-    minimizable?: boolean;
-  } | null;
+  card?: MusicCardControls | null;
 };
-
-/** La case du profil, grande (17/10/2026 : 240 px, un peu plus que le
-    minimum de 200 de YouTube) ; réduite, le petit carré. */
-export const CARD = 240;
-const MINI = 48;
-/** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
-const SHIFT = (CARD - MINI) / 2;
-
-/** Le nombre de barres de l'égaliseur (mouvement : lib/profile/eqMotion). */
-const EQ_BARS = 10;
 
 /**
  * La version COMPLÈTE d'un générique (ou la bande-annonce), jouée par le
@@ -389,24 +367,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const base = clip?.volume ?? 1;
   const hasClip = !!clip;
   loop.current = { on: hasClip, from };
-  /* L'égaliseur suit le fondu : écrit à même le style (pas d'état React à
-     chaque image), et seulement quand il bouge d'un vingtième. */
-  const eqRef = useRef<HTMLDivElement | null>(null);
-  const eqFade = useRef(-1);
-  /* Les barres elles-mêmes : hauteurs écrites à même le style à chaque image
-     de lecture (dix `transform`, composités), voix refaite au changement de
-     morceau. Rien n'est calculé en pause : les barres y sont cachées. */
-  const eqBarEls = useRef<(HTMLElement | null)[]>([]);
-  const eqLevelsBuf = useRef(new Float32Array(EQ_BARS));
-  const eqVoiceRef = useRef<{ id: string; v: EqVoice } | null>(null);
-  const videoIdRef = useRef(videoId);
-  videoIdRef.current = videoId;
-  /* La boucle tourne pour l'extrait (profil) OU pour l'égaliseur de la case
-     réduite : le studio ne passe pas `clip` (il tient sa propre boucle), et
-     sans ce second motif ses barres restaient immobiles (17/10/2026). */
-  const eqOn = !!card?.minimizable;
+  /** Le gain du fondu à l'instant : l'égaliseur de la case le suit. */
+  const gainNow = useRef(1);
   useEffect(() => {
-    if (!hasClip && !eqOn) return;
+    if (!hasClip) return;
     let raf = 0;
     let last = performance.now();
     const tick = () => {
@@ -414,15 +378,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       const dt = Math.min(0.1, (frame - last) / 1000);
       last = frame;
       const st = s.current;
-      if (st.playing && eqRef.current) {
-        const id = videoIdRef.current;
-        if (eqVoiceRef.current?.id !== id) eqVoiceRef.current = { id, v: eqVoice(id, EQ_BARS) };
-        const lv = eqLevelsBuf.current;
-        eqLevels(eqVoiceRef.current.v, now(), dt, lv);
-        eqBarEls.current.forEach((b, i) => {
-          if (b) b.style.transform = `scaleY(${lv[i].toFixed(3)})`;
-        });
-      }
       const end = to > from ? to : st.duration;
       if (hasClip && st.playing) {
         const t = now();
@@ -433,73 +388,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         }
         const g = fadeGain(t, from, end || 0, fade);
         setVol(base * g);
-        const q = Math.round(g * 20) / 20;
-        if (eqRef.current && q !== eqFade.current) {
-          eqFade.current = q;
-          eqRef.current.style.setProperty("--eq-fade", String(q));
-        }
+        gainNow.current = g;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [hasClip, eqOn, from, to, fade, base, post, setVol]);
-
-  /* Les commandes de la case : là quand la main bouge, parties après 3 s
-     d'immobilité. À l'arrêt, elles restent. La PREMIÈRE fois qu'elle joue,
-     elles restent 5 s même sans la main (17/10/2026 : on doit les voir avant
-     qu'elles partent). */
-  const [awake, setAwake] = useState(false);
-  const sleep = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wake = (ms = 3000) => {
-    setAwake(true);
-    if (sleep.current) clearTimeout(sleep.current);
-    sleep.current = setTimeout(() => setAwake(false), ms);
-  };
-  const greeted = useRef(false);
-  const cardPlaying = !!card?.playing;
-  useEffect(() => {
-    if (!cardPlaying || greeted.current) return;
-    greeted.current = true;
-    wake(5000);
-  }, [cardPlaying]);
-  useEffect(
-    () => () => {
-      if (sleep.current) clearTimeout(sleep.current);
-    },
-    [],
-  );
-
-  /* LE PETIT CARRÉ (17/10/2026, choix de Luc) : grande 5 s à l'arrivée, puis
-     elle se tasse en carré de 48 px aux bords arrondis ; le survol la rend
-     grande, la quitter la retasse. Pas de bouton. La musique ne s'arrête
-     jamais : c'est la même iframe, seule la boîte change de taille. */
-  const canMini = !!card?.minimizable;
-  const [mini, setMini] = useState(false);
-  const shrinkAt = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shrinkIn = (ms: number) => {
-    if (shrinkAt.current) clearTimeout(shrinkAt.current);
-    shrinkAt.current = setTimeout(() => setMini(true), ms);
-  };
-  const grow = () => {
-    if (shrinkAt.current) clearTimeout(shrinkAt.current);
-    setMini(false);
-  };
-  /* Les 5 s comptent à partir de la PREMIÈRE lecture, pas du montage : dans le
-     studio la case est montée invisible bien avant qu'on lance un morceau, et
-     elle apparaissait déjà réduite. Un nouveau morceau la rend grande 5 s. */
-  useEffect(() => {
-    if (!canMini) return;
-    if (!started) {
-      setMini(false);
-      return;
-    }
-    shrinkIn(5000);
-    return () => {
-      if (shrinkAt.current) clearTimeout(shrinkAt.current);
-    };
-  }, [canMini, started]);
-  const folded = canMini && mini;
+  }, [hasClip, from, to, fade, base, post, setVol]);
 
   const player = (
     <iframe
@@ -533,133 +428,24 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     />
   );
   if (!card) return player;
-  const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
+  const thumb = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
   return (
-    <div className={`relative isolate ${className ?? ""}`}>
-      {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
-         de la vidéo, floutée à 34 px : deux décodeurs YouTube et un flou
-         recalculé à chaque image — la case faisait ramer le studio. C'est
-         maintenant la vignette publiée par YouTube, floutée UNE fois : le
-         repli de l'aperçu au survol en économie de données (TrailerAmbient).
-         Le petit carré a SA lumière, à sa taille : la grande réduite au zoom
-         laissait un voile gris dans le coin (17/10/2026). On passe de l'une à
-         l'autre en fondu d'opacité, sans jamais animer de flou. Et chacune
-         SUIT la case pendant qu'elle change de taille (même durée, même
-         courbe, en transform) : la grande se replie vers le coin en
-         s'éteignant, la petite part de la taille de la grande. */}
-      <img
-        aria-hidden
-        alt=""
-        src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-0" : "opacity-70"}`}
-        style={{ transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "scale(1.1)" }}
-      />
-      {canMini ? (
-        <img
-          aria-hidden
-          alt=""
-          src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-          /* À peine visible (17/10/2026) : 4 px de débord, 8 px de flou. */
-          className={`pointer-events-none absolute -bottom-1 -right-1 -z-10 object-cover blur-[8px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-30" : "opacity-0"}`}
-          style={{
-            width: MINI + 8,
-            height: MINI + 8,
-            transform: folded ? "none" : `translate(${-SHIFT}px, ${-SHIFT}px) scale(${CARD / (MINI + 8)})`,
-          }}
-        />
-      ) : null}
-      <div
-        /* En TRANSFORM, pas en width/height : animer la taille remettait en
-           page à chaque image une iframe 200 fois plus grande (saccades,
-           17/10/2026). La boîte garde sa taille (CARD) ; la carte graphique la
-           réduit vers le coin bas droit. */
-        className="relative h-full w-full transition-transform duration-300 ease-out will-change-transform"
-        style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
-        onPointerMove={() => wake()}
-        onPointerEnter={() => {
-          wake();
-          if (canMini) grow();
-        }}
-        onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
-      >
-      <div
-        /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
-           Réduite, le rayon l'est avec la case : 40 px ici font ~10 px à
-           l'écran. Il glisse PENDANT la réduction, même durée, même courbe :
-           posé à la fin, il sautait (17/10/2026). */
-        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[border-radius] duration-300 ease-out ${folded ? "rounded-[40px]" : "rounded-xl"}`}
-      >
-        {player}
-        {started ? null : (
-          <img
-            alt=""
-            /* `mqdefault` : 16:9 sans bandes (`hqdefault` est un 4:3 aux
-               bandes noires incrustées). */
-            src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-          />
-        )}
-        {canMini && started ? (
-          /* LE TÉMOIN DE LECTURE (17/10/2026) : dix barres au pied de la
-             case, en grand comme en petit (la case réduite les réduit avec
-             elle). Elles ne suivent PAS le son : celui d'une iframe d'un autre
-             site est hors d'atteinte (copie analysée et estimation essayées
-             puis retirées, devlog/site.md). Elles suivent ce qu'on sait : la
-             pause les cache, le muet les couche, le fondu les baisse. Leur
-             mouvement est calculé à chaque image (lib/profile/eqMotion), calé
-             sur le temps du lecteur. */
-          <div
-            className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
-          >
-            <div
-              ref={eqRef}
-              className="absolute inset-x-0 bottom-3 flex h-10 items-end justify-center gap-2.5 transition-transform duration-200"
-              style={{
-                transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing && !card.muted ? 1 : 0.15}))`,
-                transformOrigin: "bottom",
-              }}
-            >
-              {Array.from({ length: EQ_BARS }, (_, i) => (
-                <i
-                  key={i}
-                  ref={(el) => {
-                    eqBarEls.current[i] = el;
-                  }}
-                  className="block h-full w-3 origin-bottom rounded-sm bg-white/90"
-                  style={{ transform: "scaleY(0.2)" }}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {folded ? null : (
-        <>
-        {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
-        <div className="absolute inset-0 grid place-items-center">
-          <button
-            type="button"
-            onClick={card.onToggle}
-            aria-label={card.playing ? "Pause" : "Play"}
-            className={`as-preview-videobtn h-11 w-11 ${chrome}`}
-          >
-            {card.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
-          </button>
-        </div>
-        <div className={`absolute right-2 top-2 ${chrome}`}>
-          <HoverVolume
-            muted={card.muted}
-            volume={card.volume}
-            onMuted={card.onMuted}
-            onVolume={card.onVolume}
-            fallback={card.fallback}
-            placement="down"
-          />
-        </div>
-        </>
-        )}
-      </div>
-      </div>
-    </div>
+    <MusicCard
+      {...card}
+      className={className}
+      /* `mqdefault` : 16:9 sans bandes (`hqdefault` est un 4:3 aux bandes
+         noires incrustées). Elle couvre la case tant que la vidéo n'a jamais
+         joué : réduit ×200, le lecteur ne montre qu'un carré noir avant. */
+      art={thumb}
+      showArt={!started}
+      started={started}
+      eqKey={videoId}
+      clock={now}
+      live={() => s.current.playing}
+      gain={() => (hasClip ? gainNow.current : 1)}
+    >
+      {player}
+    </MusicCard>
   );
 });
 
