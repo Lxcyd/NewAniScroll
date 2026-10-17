@@ -36,7 +36,10 @@ import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
  */
 
 const AUDIO = "https://naedist.animemusicquiz.com/";
-const KEY = (id: number) => `anisongs:v3:al${id}`;
+/* v4 : les v3 calculées le 18/10/2026 pendant que pickSongs écartait les
+   inserts (filtre `!== null` au lieu de `!== undefined`) étaient sans eux ;
+   v5 : casse des titres que Deezer écrit lui-même en capitales. */
+const KEY = (id: number) => `anisongs:v5:al${id}`;
 /** Au-delà, on rend ce qu'on a, sans le garder (l'appel suivant recommence). */
 const BUDGET_MS = 8000;
 
@@ -70,9 +73,10 @@ function recase(s: string): string {
     });
 }
 
-/** L'orthographe de Deezer quand c'est le même texte, sinon `recase`. */
+/** L'orthographe de Deezer quand c'est le même texte (et pas lui-même tout
+    en capitales : « EVERYTHING IS CHANGING »), sinon `recase`. */
 const spell = (mine: string, theirs: string | undefined) =>
-  theirs && dzNorm(theirs) === dzNorm(mine) ? theirs : recase(mine);
+  theirs && theirs !== theirs.toUpperCase() && dzNorm(theirs) === dzNorm(mine) ? theirs : recase(mine);
 
 /** Les noms à chercher : l'artiste sans ses « feat. », barres et parenthèses. */
 const who = (a: string) =>

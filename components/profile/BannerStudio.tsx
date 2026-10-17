@@ -420,7 +420,7 @@ function writeLastScope(s: PaletteScope) {
    enregistré la réponse périmée du navigateur, cf. `?v=` plus bas ; v5 :
    casse normale). À CHANGER, avec le `?v=` d'/api/v2/anisongs, dès que la
    forme ou l'ordre des listes change, sinon l'ancienne revient sept jours. */
-const MUSIC_KEY = "as-music-cache-v5";
+const MUSIC_KEY = "as-music-cache-v7";
 const MUSIC_TTL = 7 * 24 * 3600 * 1000;
 type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
 function readMusicStore(): MusicStore {
@@ -707,7 +707,7 @@ export default function BannerStudio({
        serveur ; ici, un OP/ED déjà donné par AnimeThemes n'est pas repris. */
     /* `?v=` : à monter avec la forme de la réponse. Sans lui, le navigateur
        resservait la v1 (24 h de max-age), sans pochettes ni tri (18/10/2026). */
-    const extra = fetch(`/api/v2/anisongs/${id}?v=3`)
+    const extra = fetch(`/api/v2/anisongs/${id}?v=5`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => (Array.isArray(json?.songs) ? (json.songs as ThemeRow[]) : []))
       .catch(() => [] as ThemeRow[]);
