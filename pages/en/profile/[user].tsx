@@ -297,7 +297,7 @@ export default function Profile({
         <Head>
           <title>{viewedName ? `${viewedName} • AniScroll` : "AniScroll"}</title>
         </Head>
-        <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
+        <Navbar withNav shrink bgHover scrollP={110} paddingY={"py-1"} />
         <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
           <div className="mb-5 rounded-2xl bg-white/5 p-5 ring-1 ring-white/10">
             <svg
@@ -366,7 +366,7 @@ export default function Profile({
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
 
-      <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
+      <Navbar withNav shrink bgHover scrollP={110} paddingY={"py-1"} />
 
       {/* En édition, tout le profil recule dans un cadre et le studio range
           ses outils autour (ProfileStage). Réduit, il reprend sa taille. */}

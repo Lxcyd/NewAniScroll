@@ -846,6 +846,7 @@ export default function ProfileHero({
               },
               onVolume: changeVol,
               fallback: PROFILE_DEFAULT_VOLUME,
+              minimizable: true,
             }}
             onError={() => setSound(false)}
             onBrowserMute={() => setBrowserMuted(true)}

@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { MdPause, MdPlayArrow } from "react-icons/md";
+import { MdPause, MdPlayArrow, MdRemove } from "react-icons/md";
 import { fadeGain } from "@/lib/profile/dressing";
 import HoverVolume from "@/components/shared/HoverVolume";
 
@@ -66,8 +66,13 @@ type Props = {
     onMuted: (m: boolean) => void;
     onVolume: (v: number) => void;
     fallback?: number;
+    /** Un « – » replie la case en disque (le profil, pas le studio). */
+    minimizable?: boolean;
   } | null;
 };
+
+const MINI = 48;
+const MINI_KEY = "as-music-mini";
 
 /**
  * La version COMPLÈTE d'un générique (ou la bande-annonce), jouée par le
@@ -422,6 +427,26 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     [],
   );
 
+  /* LE DISQUE (17/10/2026, n° 4 des pistes de la carte) : un « – » replie la
+     case en disque de 48 px à la pochette. Replier ne met PAS en pause, choix
+     de Luc : l'iframe reste montée sous la pochette et la musique continue.
+     Retenu par visiteur (localStorage), lu après l'hydratation. */
+  const [mini, setMini] = useState(false);
+  const canMini = !!card?.minimizable;
+  useEffect(() => {
+    if (!canMini) return;
+    try {
+      setMini(localStorage.getItem(MINI_KEY) === "1");
+    } catch {}
+  }, [canMini]);
+  const fold = (m: boolean) => {
+    setMini(m);
+    try {
+      localStorage.setItem(MINI_KEY, m ? "1" : "0");
+    } catch {}
+  };
+  const folded = canMini && mini;
+
   const player = (
     <iframe
       key={videoId}
@@ -453,7 +478,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   if (!card) return player;
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
-    <div className={`relative isolate ${className ?? ""}`}>
+    <div
+      className={`relative isolate transition-[width,height] duration-300 ${className ?? ""}`}
+      style={folded ? { width: MINI, height: MINI } : undefined}
+    >
       {/* LA LUMIÈRE, SANS SECOND LECTEUR (17/10/2026). C'était une copie muette
          de la vidéo, floutée à 34 px : deux décodeurs YouTube et un flou
          recalculé à chaque image — la case faisait ramer le studio. C'est
@@ -463,16 +491,30 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className="pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover opacity-70 blur-[34px]"
+        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover opacity-70 blur-[34px] ${folded ? "hidden" : ""}`}
       />
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu. */
-        className="relative h-full w-full overflow-hidden rounded-xl bg-black shadow-2xl"
+        className={`relative h-full w-full overflow-hidden bg-black shadow-2xl ${folded ? "rounded-full" : "rounded-xl"}`}
         onPointerMove={() => wake()}
         onPointerEnter={() => wake()}
       >
         {player}
-        {started ? null : (
+        {folded ? (
+          <button
+            type="button"
+            onClick={() => fold(false)}
+            aria-label="Agrandir la musique"
+            className="absolute inset-0 rounded-full"
+          >
+            <img
+              alt=""
+              src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
+              className="pointer-events-none h-full w-full object-cover"
+            />
+          </button>
+        ) : null}
+        {started || folded ? null : (
           <img
             alt=""
             /* `mqdefault` : 16:9 sans bandes (`hqdefault` est un 4:3 aux
@@ -481,6 +523,18 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
             className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
         )}
+        {folded ? null : (
+        <>
+        {canMini ? (
+          <button
+            type="button"
+            onClick={() => fold(true)}
+            aria-label="Réduire la musique"
+            className={`as-preview-videobtn absolute left-2 top-2 grid h-7 w-7 place-items-center ${chrome}`}
+          >
+            <MdRemove size={18} />
+          </button>
+        ) : null}
         {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}
         <div className="absolute inset-0 grid place-items-center">
           <button
@@ -502,6 +556,8 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
             placement="down"
           />
         </div>
+        </>
+        )}
       </div>
     </div>
   );

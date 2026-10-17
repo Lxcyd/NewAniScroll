@@ -36,7 +36,7 @@ export default function MyOwnProfile() {
       <Head>
         <meta name="robots" content="noindex" />
       </Head>
-      <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />
+      <Navbar withNav shrink bgHover scrollP={110} paddingY={"py-1"} />
     </>
   );
 }
