@@ -521,12 +521,16 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          repli de l'aperçu au survol en économie de données (TrailerAmbient).
          Le petit carré a SA lumière, à sa taille : la grande réduite au zoom
          laissait un voile gris dans le coin (17/10/2026). On passe de l'une à
-         l'autre en fondu d'opacité, sans jamais animer de flou. */}
+         l'autre en fondu d'opacité, sans jamais animer de flou. Et chacune
+         SUIT la case pendant qu'elle change de taille (même durée, même
+         courbe, en transform) : la grande se replie vers le coin en
+         s'éteignant, la petite part de la taille de la grande. */}
       <img
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] scale-110 object-cover blur-[34px] transition-opacity duration-200 ${folded ? "opacity-0" : "opacity-70"}`}
+        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-0" : "opacity-70"}`}
+        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${MINI / 200})` : "scale(1.1)" }}
       />
       {canMini ? (
         <img
@@ -534,8 +538,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           alt=""
           src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
           /* À peine visible (17/10/2026) : 4 px de débord, 8 px de flou. */
-          className={`pointer-events-none absolute -bottom-1 -right-1 -z-10 object-cover blur-[8px] transition-opacity duration-300 ${folded ? "opacity-30" : "opacity-0"}`}
-          style={{ width: MINI + 8, height: MINI + 8 }}
+          className={`pointer-events-none absolute -bottom-1 -right-1 -z-10 object-cover blur-[8px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-30" : "opacity-0"}`}
+          style={{
+            width: MINI + 8,
+            height: MINI + 8,
+            transform: folded ? "none" : `translate(${-0.38 * 200}px, ${-0.38 * 200}px) scale(${200 / (MINI + 8)})`,
+          }}
         />
       ) : null}
       <div
