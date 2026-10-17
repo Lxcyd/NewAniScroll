@@ -4309,8 +4309,11 @@ export default function BannerStudio({
           <YouTubeMusic
             ref={preview}
             videoId={draft.music.videoId}
-            className="h-[200px] w-[200px]"
+            /* Même case que le profil (17/10/2026) : 240 px, petit carré hors
+               survol, égaliseur. */
+            className="h-[240px] w-[240px]"
             card={{
+              minimizable: true,
               playing,
               muted: vol === 0,
               volume: vol > 0 ? vol : lastVol.current,

@@ -67,7 +67,7 @@ type Props = {
     onMuted: (m: boolean) => void;
     onVolume: (v: number) => void;
     fallback?: number;
-    /** Se tasse en petit carré hors survol (le profil, pas le studio). */
+    /** Se tasse en petit carré hors survol, avec l'égaliseur (profil et studio). */
     minimizable?: boolean;
   } | null;
 };
@@ -401,8 +401,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const eqVoiceRef = useRef<{ id: string; v: EqVoice } | null>(null);
   const videoIdRef = useRef(videoId);
   videoIdRef.current = videoId;
+  /* La boucle tourne pour l'extrait (profil) OU pour l'égaliseur de la case
+     réduite : le studio ne passe pas `clip` (il tient sa propre boucle), et
+     sans ce second motif ses barres restaient immobiles (17/10/2026). */
+  const eqOn = !!card?.minimizable;
   useEffect(() => {
-    if (!hasClip) return;
+    if (!hasClip && !eqOn) return;
     let raf = 0;
     let last = performance.now();
     const tick = () => {
@@ -420,7 +424,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         });
       }
       const end = to > from ? to : st.duration;
-      if (st.playing) {
+      if (hasClip && st.playing) {
         const t = now();
         if (to > from && t >= to) {
           st.t = from;
@@ -439,7 +443,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [hasClip, from, to, fade, base, post, setVol]);
+  }, [hasClip, eqOn, from, to, fade, base, post, setVol]);
 
   /* Les commandes de la case : là quand la main bouge, parties après 3 s
      d'immobilité. À l'arrêt, elles restent. La PREMIÈRE fois qu'elle joue,
@@ -481,13 +485,20 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);
   };
+  /* Les 5 s comptent à partir de la PREMIÈRE lecture, pas du montage : dans le
+     studio la case est montée invisible bien avant qu'on lance un morceau, et
+     elle apparaissait déjà réduite. Un nouveau morceau la rend grande 5 s. */
   useEffect(() => {
     if (!canMini) return;
+    if (!started) {
+      setMini(false);
+      return;
+    }
     shrinkIn(5000);
     return () => {
       if (shrinkAt.current) clearTimeout(shrinkAt.current);
     };
-  }, [canMini]);
+  }, [canMini, started]);
   const folded = canMini && mini;
 
   const player = (
