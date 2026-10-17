@@ -142,6 +142,14 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [audfprint](https://github.com/dpwe/audfprint), [Panako](https://github.com/JorenSix/Panako), [Olaf](https://github.com/JorenSix/Olaf) | Empreintes robustes au changement de vitesse / hauteur (doublages a 1001/1000) |
 | [librosa](https://librosa.org), [Essentia](https://essentia.upf.edu) | Analyse audio Python (onsets, chroma) |
 
+### Egaliseur de la case musique du profil (cherche le 17/10/2026)
+Le son d'une iframe YouTube est hors d'atteinte d'une page : aucune lib ne le lit en direct.
+| Outil | Verdict |
+| --- | --- |
+| [Wave.js](https://github.com/foobar404/Wave.js), [webvs](https://github.com/azeem/webvs), [wauv](https://github.com/godiagonal/wauv) | ❌ en direct : ne lisent qu'un `<audio>` a nous ou un flux micro/ecran |
+| [Turn Off the Lights](https://www.turnoffthelights.com) | ❌ visualiseur YouTube, mais extension navigateur (acces privilegie) |
+| librosa (ci-dessus) | ⏳ voie retenue si on la fait : enveloppe d'energie par bandes calculee HORS LIGNE, rejouee calee sur le temps du lecteur |
+
 ### Chapitres des releases (bornes gratuites)
 | Source | Ce qu'il apporte |
 | --- | --- |
