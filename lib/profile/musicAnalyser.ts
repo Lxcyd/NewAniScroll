@@ -15,7 +15,10 @@
  * l'aura depuis le cache.
  */
 
-const BASE = process.env.NEXT_PUBLIC_YTA_BASE;
+/* `trim` : la première valeur posée sur Vercel commençait par un BOM (une
+   valeur passée par un tube PowerShell), l'adresse était invalide et
+   l'analyse échouait sans bruit (17/10/2026). `trim` retire aussi U+FEFF. */
+const BASE = process.env.NEXT_PUBLIC_YTA_BASE?.trim().replace(/\/+$/, "");
 
 export type AnalyserState = "idle" | "loading" | "live" | "failed";
 
@@ -69,9 +72,13 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
   el.crossOrigin = "anonymous";
   el.preload = "none";
 
-  const fail = () => {
+  /* Un seul avertissement, lisible dans la console : sans lui, un échec ne
+     se voyait qu'à l'animation de repli, et rien ne disait pourquoi. */
+  const fail = (why: unknown) => {
     if (state === "failed") return;
     state = "failed";
+    const detail = why instanceof Event ? `média (code ${el.error?.code ?? "?"})` : String(why);
+    console.warn(`[musique] égaliseur en direct indisponible, animation de repli : ${detail}`, el.src);
     cleanup();
   };
 
@@ -128,9 +135,9 @@ export function createMusicAnalyser(videoId: string, bars: number): MusicAnalyse
     el.play().catch((e: unknown) => {
       // Refus d'autoplay : on attend le premier geste, ce n'est pas un échec.
       if ((e as DOMException)?.name === "NotAllowedError") blocked = true;
-      else if ((e as DOMException)?.name !== "AbortError") fail();
+      else if ((e as DOMException)?.name !== "AbortError") fail(e);
     });
-    if (!timeout) timeout = setTimeout(() => !blocked && !playing && fail(), START_TIMEOUT_MS);
+    if (!timeout) timeout = setTimeout(() => !blocked && !playing && fail("rien après 12 s"), START_TIMEOUT_MS);
   }
 
   function cleanup() {
