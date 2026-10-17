@@ -326,6 +326,23 @@ export default function ProfileHero({
      relance. Un navigateur refuse souvent le son sans geste : la case joue
      alors muette (`browserMuted`), et son icône de volume le rétablit. */
   const [browserMuted, setBrowserMuted] = useState(false);
+  /* Le son revient au PREMIER geste sur la page, où qu'il soit : c'est ce que
+     le navigateur attendait (« Unmuting failed … the user didn't interact »).
+     Sans ça il fallait viser l'icône de la case. */
+  useEffect(() => {
+    if (!browserMuted) return;
+    const wake = () => {
+      setBrowserMuted(false);
+      void yt.current?.play();
+    };
+    const opts = { once: true, capture: true } as const;
+    window.addEventListener("pointerdown", wake, opts);
+    window.addEventListener("keydown", wake, opts);
+    return () => {
+      window.removeEventListener("pointerdown", wake, opts);
+      window.removeEventListener("keydown", wake, opts);
+    };
+  }, [browserMuted]);
   useEffect(() => {
     if (!banner.music?.videoId || studio) return;
     let auto = true;

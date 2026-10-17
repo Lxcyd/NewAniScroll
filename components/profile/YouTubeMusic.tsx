@@ -176,6 +176,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         s.current.sent = pctWanted();
         post("setVolume", [s.current.sent]);
         post("unMute");
+        unmutedAt.current = performance.now();
         post("playVideo");
         /* LE MORCEAU NE PARTAIT PAS TOUJOURS (17/10/2026) : le navigateur
            refuse parfois à l'iframe de démarrer avec le son, et le lecteur
@@ -261,6 +262,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         const t = performance.now();
         if (!mutedSince.current) {
           mutedSince.current = t;
+          unmutedAt.current = t;
           post("unMute");
         } else if (t - mutedSince.current > 1000) {
           mutedSince.current = 0;
