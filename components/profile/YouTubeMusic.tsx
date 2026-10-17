@@ -78,10 +78,12 @@ const MINI = 48;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
-/** Huit barres d'égaliseur propres à un morceau, tirées de son identifiant
+/** Dix barres d'égaliseur propres à un morceau, tirées de son identifiant
     pour que deux profils ne dansent pas pareil. Chacune a quatre hauteurs
-    (de 15 à 100 %) parcourues dans sa propre durée, sans tempo commun : des
-    durées sans rapport entre elles font un ensemble qui ne se répète pas. */
+    (de 15 à 100 %). Un battement commun par morceau (0,42-0,56 s, soit
+    ~105-140 BPM), et chaque barre fait son tour en 1, 1,5 ou 2 battements :
+    vif et rythmé (à 0,9-2,2 s sans tempo commun, c'était trop lent), mais
+    les barres ne tombent jamais toutes ensemble. */
 function eqBars(videoId: string) {
   let h = 2166136261;
   for (let i = 0; i < videoId.length; i++) h = Math.imul(h ^ videoId.charCodeAt(i), 16777619);
@@ -90,10 +92,11 @@ function eqBars(videoId: string) {
     h = Math.imul(h ^ (h >>> 13), 3266489909);
     return ((h ^= h >>> 16) >>> 0) / 4294967296;
   };
-  return Array.from({ length: 8 }, () => ({
+  const beat = 0.42 + rnd() * 0.14;
+  return Array.from({ length: 10 }, () => ({
     h: Array.from({ length: 4 }, () => +(0.15 + rnd() * 0.85).toFixed(2)),
-    d: +(0.9 + rnd() * 1.3).toFixed(2),
-    dl: +(rnd() * 2).toFixed(2),
+    d: +(beat * [1, 1, 1.5, 2][Math.floor(rnd() * 4)]).toFixed(3),
+    dl: +(rnd() * beat * 2).toFixed(3),
   }));
 }
 
@@ -583,7 +586,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           />
         )}
         {canMini && started ? (
-          /* LE TÉMOIN DE LECTURE (17/10/2026) : huit barres au pied de la
+          /* LE TÉMOIN DE LECTURE (17/10/2026) : dix barres au pied de la
              case, en grand comme en petit (la case réduite les réduit avec
              elle). Elles ne suivent PAS le son : celui d'une iframe d'un autre
              site est hors d'atteinte (copie analysée et estimation essayées
