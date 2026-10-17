@@ -73,6 +73,25 @@ type Props = {
 
 const MINI = 48;
 
+/** Huit barres d'égaliseur propres à un morceau : vitesses, décalages et
+    creux tirés de l'identifiant de la vidéo, pour que deux profils ne dansent
+    pas pareil. Un tempo commun par morceau, varié par barre. */
+function eqBars(videoId: string) {
+  let h = 2166136261;
+  for (let i = 0; i < videoId.length; i++) h = Math.imul(h ^ videoId.charCodeAt(i), 16777619);
+  const rnd = () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    return ((h ^= h >>> 16) >>> 0) / 4294967296;
+  };
+  const tempo = 0.55 + rnd() * 0.45;
+  return Array.from({ length: 8 }, () => ({
+    d: +(tempo * (0.8 + rnd() * 0.7)).toFixed(2),
+    dl: +(rnd() * 1.2).toFixed(2),
+    lo: +(0.15 + rnd() * 0.3).toFixed(2),
+  }));
+}
+
 /**
  * La version COMPLÈTE d'un générique (ou la bande-annonce), jouée par le
  * lecteur YouTube officiel et pilotée comme un <audio>.
@@ -380,6 +399,10 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
   const base = clip?.volume ?? 1;
   const hasClip = !!clip;
   loop.current = { on: hasClip, from };
+  /* L'égaliseur suit le fondu : écrit à même le style (pas d'état React à
+     chaque image), et seulement quand il bouge d'un vingtième. */
+  const eqRef = useRef<HTMLDivElement | null>(null);
+  const eqFade = useRef(-1);
   useEffect(() => {
     if (!hasClip) return;
     let raf = 0;
@@ -393,7 +416,13 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           st.at = performance.now();
           post("seekTo", [from, true]);
         }
-        setVol(base * fadeGain(t, from, end || 0, fade));
+        const g = fadeGain(t, from, end || 0, fade);
+        setVol(base * g);
+        const q = Math.round(g * 20) / 20;
+        if (eqRef.current && q !== eqFade.current) {
+          eqFade.current = q;
+          eqRef.current.style.setProperty("--eq-fade", String(q));
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -496,14 +525,14 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          maintenant la vignette publiée par YouTube, floutée UNE fois : le
          repli de l'aperçu au survol en économie de données (TrailerAmbient).
          Réduite à part de la case : elle suit le petit carré (son centre est à
-         88 % de la grande) mais reste deux fois plus large que lui, sinon il
-         n'en restait qu'un liseré. */}
+         88 % de la grande), un peu plus large que lui et plus pâle — deux fois
+         sa taille, elle mangeait le coin (17/10/2026). */}
       <img
         aria-hidden
         alt=""
         src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`}
-        className="pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover opacity-70 blur-[34px] transition-transform duration-300 ease-out will-change-transform"
-        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${(MINI * 2) / 200})` : "scale(1.1)" }}
+        className={`pointer-events-none absolute -inset-3 -z-10 h-[calc(100%+1.5rem)] w-[calc(100%+1.5rem)] object-cover blur-[34px] transition-[transform,opacity] duration-300 ease-out will-change-transform ${folded ? "opacity-40" : "opacity-70"}`}
+        style={{ transform: folded ? `translate(${0.38 * 200}px, ${0.38 * 200}px) scale(${(MINI * 1.35) / 200})` : "scale(1.1)" }}
       />
       <div
         /* Pas de liseré : sur une image claire il se lisait comme un bord bleu.
@@ -519,7 +548,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
           wake();
           if (canMini) grow();
         }}
-        onPointerLeave={canMini ? () => shrinkIn(600) : undefined}
+        onPointerLeave={canMini ? () => shrinkIn(0) : undefined}
         onTransitionEnd={(e) => {
           if (e.target === e.currentTarget && e.propertyName === "transform" && folded) setSnug(true);
         }}
@@ -534,6 +563,37 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
             className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
         )}
+        {canMini && started ? (
+          /* LE TÉMOIN DE LECTURE (n° 2 des pistes, 17/10/2026) : huit barres au
+             pied de la case, en grand comme en petit (la case réduite les
+             réduit avec elle). Le son lui-même est hors d'atteinte (iframe
+             d'un autre domaine) ; elles suivent ce qu'on sait : la pause les
+             fige, le muet les couche, le fondu les baisse, et chaque morceau
+             a son propre jeu de vitesses (tiré de son identifiant). */
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/60 to-transparent">
+            <div
+              ref={eqRef}
+              className="absolute inset-x-4 bottom-3 flex h-7 items-end justify-between transition-transform duration-200"
+              style={{
+                transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing && !card.muted ? 1 : 0.15}))`,
+                transformOrigin: "bottom",
+              }}
+            >
+              {eqBars(videoId).map((b, i) => (
+                <i
+                  key={i}
+                  className="as-eq-bar block h-full w-3 rounded-sm bg-white/90"
+                  style={{
+                    ["--d" as string]: `${b.d}s`,
+                    ["--dl" as string]: `${-b.dl}s`,
+                    ["--lo" as string]: b.lo,
+                    animationPlayState: card.playing ? "running" : "paused",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
         {folded ? null : (
         <>
         {/* Au-dessus de l'iframe : la case se pilote par ses propres commandes. */}

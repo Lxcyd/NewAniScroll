@@ -155,6 +155,18 @@ html.tab-hidden *::after {
 .as-preview-voltrack {
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.85));
 }
+/* L'égaliseur de la case musique du profil (YouTubeMusic). Rien que du
+   transform : composité, aucun calcul de page. Volontairement HORS de
+   prefers-reduced-motion : le Chrome de Luc répond « reduce » et le témoin de
+   lecture disparaissait. */
+@keyframes as-eq {
+  0%, 100% { transform: scaleY(var(--lo, 0.3)); }
+  50% { transform: scaleY(1); }
+}
+.as-eq-bar {
+  transform-origin: bottom;
+  animation: as-eq var(--d, 0.9s) ease-in-out var(--dl, 0s) infinite;
+}
 
 /* The glow belongs to the VIDEO, not to the card. This box IS the video's box
    (the card's top 45%), cut open on three sides: `clip-path` with negative
