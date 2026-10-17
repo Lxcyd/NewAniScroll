@@ -4304,16 +4304,16 @@ export default function BannerStudio({
            DANS LE CADRE (17/10/2026) : la scène est l'écran du visiteur, la
            case doit y être où le profil la met. Accrochée au bord de la
            fenêtre, elle débordait du cadre, et le petit carré se retrouvait
-           dehors. Elle s'ancre donc au coin bas droit du cadre, au-dessus des
-           commandes de zoom (.as-scene-zoom : 14 px du bord, ~36 px de haut),
-           et prend l'échelle de la scène. */
+           dehors. Elle s'ancre donc au coin bas droit du cadre, à l'échelle de
+           la scène : 24 px du coin comme sur le profil (`bottom-6 right-6`),
+           eux aussi à l'échelle. */
         <div
           className={`fixed z-[10004] origin-bottom-right transition-opacity ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
           style={{
-            right: "calc(var(--as-scene-frame-right) + 14px)",
-            bottom: "calc(100vh - var(--as-scene-frame-bottom) + 64px)",
+            right: "calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1))",
+            bottom: "calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1))",
             transform: "scale(var(--as-scene-zoom, 1))",
           }}
         >

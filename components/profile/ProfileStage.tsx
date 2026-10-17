@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowPathIcon, MinusIcon, PlusIcon } from "@heroicons/react/24/outline";
 
 /**
  * LA SCÈNE : le profil qui recule quand on le personnalise.
@@ -56,16 +55,6 @@ const GUTTER_W = 12;
 const BOTTOM_BAR = 78;
 /** Le menu de gauche ne descend pas sous cette largeur à la poignée. */
 const MENU_MIN = 280;
-/** Le zoom choisi, retenu sur l'appareil (absent = « Ajuster »). */
-const ZOOM_KEY = "as-scene-zoom";
-function readZoom(): number | null {
-  try {
-    const n = Number(localStorage.getItem(ZOOM_KEY));
-    return Number.isFinite(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
 /** La largeur choisie à la poignée, retenue sur l'appareil. */
 const MENU_KEY = "as-scene-menu-w";
 function readMenuWidth(): number | null {
@@ -76,11 +65,6 @@ function readMenuWidth(): number | null {
     return null;
   }
 }
-
-/** Zoom du profil dans le cadre : bornes et pas des boutons − / +. */
-export const ZOOM_MIN = 0.4;
-export const ZOOM_MAX = 1.25;
-export const ZOOM_STEP = 0.1;
 
 /**
  * Où se pose le cadre une fois glissé à droite, et où se posent les outils
@@ -98,10 +82,11 @@ export const ZOOM_STEP = 0.1;
  * second temps la forme de la ZONE — `zone / zoom` en pixels de mise en page —
  * puis est réduite au zoom, l'origine en haut à gauche.
  *
- * LE ZOOM en découle : c'est l'échelle du profil dans le cadre, comme le zoom
- * du navigateur. `null` = « Ajuster » : zoneW / W, où le profil garde la
- * largeur de mise en page de la fenêtre — et où le glissement ne change donc
- * pas la largeur de la scène, seulement sa hauteur.
+ * LE ZOOM en découle : zoneW / W, où le profil garde la largeur de mise en
+ * page de la fenêtre — et où le glissement ne change donc pas la largeur de la
+ * scène, seulement sa hauteur. (Un zoom réglable, boutons − / + et
+ * Ctrl + molette, a existé du 10/10 au 17/10/2026 ; retiré à la demande de
+ * Luc.)
  *
  * Premier temps (recul centré) : même origine en haut à gauche, la translation
  * fait le centrage — une seule origine pour les deux temps, sans quoi le cadre
@@ -114,7 +99,6 @@ export function sceneGeometry(
   W: number,
   H: number,
   menuWidth?: number | null,
-  zoom?: number | null,
 ): { vars: Record<string, string>; fit: number; zoom: number } {
   const px = (n: number) => `${Math.round(n * 100) / 100}px`;
   const num = (n: number) => String(Math.round(n * 10000) / 10000);
@@ -171,7 +155,7 @@ export function sceneGeometry(
   const zoneW = W - zoneLeft - zoneRight;
   const zoneH = H - top - bottom;
   const fit = zoneW / W;
-  const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom ?? fit));
+  const z = fit;
   return {
     fit,
     zoom: z,
@@ -274,76 +258,19 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
      une largeur plancher, et le cadre finissait sous le menu au lieu d'être à
      1,5 vw de lui. Une seule source, plus d'écart possible. */
   const split = useRef<HTMLDivElement | null>(null);
-  /** Ce que les commandes de zoom affichent, et ce qu'elles déclenchent. */
-  const [zoomView, setZoomView] = useState<{ pct: number; fit: boolean }>({ pct: 100, fit: true });
-  const zoomApi = useRef<{ step: (dir: 1 | -1) => void; fit: () => void } | null>(null);
   useLayoutEffect(() => {
     if (!fixed) return;
     const html = document.documentElement;
     let menuW = readMenuWidth();
-    /** Le zoom choisi, ou null pour « Ajuster » (cf. sceneGeometry). */
-    let zoom = readZoom();
     const apply = () => {
       const W = html.clientWidth;
       const H = html.clientHeight;
-      const g = sceneGeometry(W, H, menuW, zoom);
+      const g = sceneGeometry(W, H, menuW);
       for (const [k, v] of Object.entries(g.vars)) html.style.setProperty(k, v);
-      setZoomView({ pct: Math.round(g.zoom * 100), fit: zoom == null });
       return g;
     };
     apply();
     window.addEventListener("resize", apply);
-
-    /* ── Le zoom ──────────────────────────────────────────────────────────
-       Changer le zoom change la largeur de mise en page de la scène : le
-       profil se remet en page, comme au zoom du navigateur. Sans transition
-       (le contenu se remet en page d'un coup, une échelle qui glisserait par
-       là-dessus se lirait comme un raté), et en gardant l'endroit qu'on
-       lisait : la part défilée est conservée. */
-    const el = stage.current;
-    const setZoom = (next: number | null) => {
-      const before = el && el.scrollHeight > el.clientHeight
-        ? el.scrollTop / (el.scrollHeight - el.clientHeight)
-        : 0;
-      zoom = next == null ? null : Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next * 100) / 100));
-      html.classList.add("as-scene-resizing");
-      apply();
-      if (el) el.scrollTop = before * Math.max(0, el.scrollHeight - el.clientHeight);
-      requestAnimationFrame(() => {
-        html.classList.remove("as-scene-resizing");
-        el?.dispatchEvent(new Event("transitionend")); // recale le pouce
-      });
-      try {
-        if (zoom == null) localStorage.removeItem(ZOOM_KEY);
-        else localStorage.setItem(ZOOM_KEY, String(zoom));
-      } catch {
-        /* stockage refusé : le zoom vaut pour cette édition */
-      }
-    };
-    const current = () => apply().zoom;
-    zoomApi.current = {
-      step: (dir) => setZoom(current() + dir * ZOOM_STEP),
-      fit: () => setZoom(null),
-    };
-    /* Ctrl + molette sur le cadre : le zoom du PROFIL, pas celui du navigateur
-       (qui grossirait aussi le menu et les barres). Écouteur non passif, pour
-       pouvoir empêcher le zoom du navigateur. */
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      setZoom(current() + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
-    };
-    /* Ctrl + 0 / Ctrl + − / Ctrl + = : mêmes gestes qu'au navigateur. */
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || !html.classList.contains("as-scene-docked")) return;
-      if (e.key === "0") setZoom(null);
-      else if (e.key === "-" || e.key === "_") setZoom(current() - ZOOM_STEP);
-      else if (e.key === "=" || e.key === "+") setZoom(current() + ZOOM_STEP);
-      else return;
-      e.preventDefault();
-    };
-    el?.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("keydown", onKey);
 
     /* ── La poignée entre le menu et le cadre ───────────────────────────
        Tirer élargit l'un et rétrécit l'autre. Le cadre suit EN DIRECT, sans
@@ -403,9 +330,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     handle?.addEventListener("dblclick", onReset);
     return () => {
       window.removeEventListener("resize", apply);
-      el?.removeEventListener("wheel", onWheel);
-      window.removeEventListener("keydown", onKey);
-      zoomApi.current = null;
       handle?.removeEventListener("pointerdown", onDown);
       handle?.removeEventListener("pointermove", onMove);
       handle?.removeEventListener("pointerup", onUp);
@@ -598,41 +522,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
         <>
           <div ref={gutter} aria-hidden className="as-scene-gutter">
             <div ref={thumb} className="as-scene-thumb" />
-          </div>
-          {/* Le zoom, dans le coin bas droit du cadre (choix O5) : on règle la
-              taille du profil là où on la regarde. */}
-          <div className="as-scene-zoom" role="group" aria-label="Zoom du profil">
-            <button
-              type="button"
-              onClick={() => zoomApi.current?.step(-1)}
-              disabled={zoomView.pct <= Math.round(ZOOM_MIN * 100)}
-              aria-label="Dézoomer"
-              title="Dézoomer (Ctrl + molette)"
-            >
-              <MinusIcon className="h-4 w-4" strokeWidth={2} />
-            </button>
-            <span className="as-scene-zoom-pct" aria-live="polite">
-              {zoomView.pct} %
-            </span>
-            <button
-              type="button"
-              onClick={() => zoomApi.current?.step(1)}
-              disabled={zoomView.pct >= Math.round(ZOOM_MAX * 100)}
-              aria-label="Zoomer"
-              title="Zoomer (Ctrl + molette)"
-            >
-              <PlusIcon className="h-4 w-4" strokeWidth={2} />
-            </button>
-            <span aria-hidden className="as-scene-zoom-sep" />
-            <button
-              type="button"
-              onClick={() => zoomApi.current?.fit()}
-              disabled={zoomView.fit}
-              aria-label="Réinitialiser le zoom"
-              title="Réinitialiser : le profil reprend sa largeur habituelle (Ctrl + 0)"
-            >
-              <ArrowPathIcon className="h-4 w-4" strokeWidth={2} />
-            </button>
           </div>
           <div
             ref={split}
