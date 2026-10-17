@@ -1,6 +1,5 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { fadeGain } from "@/lib/profile/dressing";
-import { storyboardFrames } from "@/lib/preview/trailerBars";
 import MusicCard, { type MusicCardControls } from "@/components/profile/MusicCard";
 
 /**
@@ -60,9 +59,9 @@ type Props = {
    */
   card?: MusicCardControls | null;
   /**
-   * La pochette du morceau : elle couvre la case à la place de la vidéo
-   * (17/10/2026, choix de Luc : un générique n'a pas de vidéo à montrer, seule
-   * la bande-annonce garde son image). Le lecteur joue dessous, invisible.
+   * L'image du morceau (pochette, ou vignette de la bande-annonce) : elle
+   * couvre la case, JAMAIS la vidéo (17/10/2026, choix de Luc). Le lecteur
+   * joue dessous, invisible. Sans elle, la vignette YouTube.
    */
   cover?: string | null;
 };
@@ -403,9 +402,6 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     return () => cancelAnimationFrame(raf);
   }, [hasClip, from, to, fade, base, post, setVol]);
 
-  /* La lumière de la case glisse entre ces trois images (même tableau d'un
-     rendu à l'autre : TrailerAmbient refait sa boucle quand il change). */
-  const frames = useMemo(() => storyboardFrames(videoId), [videoId]);
   const player = (
     <iframe
       key={videoId}
@@ -447,14 +443,12 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
          noires incrustées). Elle couvre la case tant que la vidéo n'a jamais
          joué : réduit ×200, le lecteur ne montre qu'un carré noir avant. */
       art={cover || thumb}
-      showArt={!!cover || !started}
+      showArt
       started={started}
       eqKey={videoId}
       clock={now}
       live={() => s.current.playing}
       gain={() => (hasClip ? gainNow.current : 1)}
-      frames={cover ? null : frames}
-      progress={() => (s.current.duration > 0 ? now() / s.current.duration : null)}
     >
       {player}
     </MusicCard>

@@ -20,7 +20,7 @@ export type MusicCardControls = {
 type Props = MusicCardControls & {
   /** L'image de la case : vignette YouTube ou pochette de l'anime. Elle fait aussi la lumière. */
   art: string;
-  /** L'image couvre la case (avant la lecture YouTube ; toujours pour un fichier audio). */
+  /** L'image couvre la case : toujours, depuis que la vidéo n'y paraît plus (17/10/2026). */
   showArt: boolean;
   /** Le morceau a déjà joué : l'égaliseur paraît, les 5 s avant réduction commencent. */
   started: boolean;
@@ -32,10 +32,6 @@ type Props = MusicCardControls & {
   live?: () => boolean;
   /** Le gain du fondu de l'extrait, 0-1 : l'égaliseur le suit. */
   gain?: () => number;
-  /** Les images publiées de la vidéo (storyboardFrames) : la lumière glisse de l'une à l'autre. */
-  frames?: string[] | null;
-  /** Où en est le morceau, 0-1 (null tant qu'on ne sait pas). */
-  progress?: () => number | null;
   className?: string;
   /** Le média visible sous l'image (le lecteur YouTube), rogné à la case. */
   children?: ReactNode;
@@ -67,8 +63,6 @@ export default function MusicCard({
   clock,
   live,
   gain,
-  frames,
-  progress,
   className,
   children,
   ...card
@@ -177,25 +171,6 @@ export default function MusicCard({
   }, [canMini, started]);
   const folded = canMini && mini;
 
-  /* La position de la lumière entre les images de la vidéo : relue deux fois
-     par seconde, elle n'achète qu'une couleur, pas un mouvement. */
-  const [glowAt, setGlowAt] = useState<number | null>(null);
-  const progressFn = useRef(progress);
-  progressFn.current = progress;
-  const hasFrames = !!frames?.length;
-  useEffect(() => {
-    if (!hasFrames || !card.playing) return;
-    const read = () => {
-      const p = progressFn.current?.();
-      /* YouTube prend ses trois images vers 25, 50 et 75 % : on s'étale
-         entre la première et la dernière. */
-      setGlowAt(p == null ? null : Math.min(1, Math.max(0, (p - 0.25) / 0.5)));
-    };
-    read();
-    const t = setInterval(read, 500);
-    return () => clearInterval(t);
-  }, [hasFrames, card.playing]);
-
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
   return (
     <div className={`relative isolate ${className ?? ""}`}>
@@ -204,8 +179,7 @@ export default function MusicCard({
          recalculé à chaque image — la case faisait ramer le studio. Puis une
          seule image floutée, trop terne. C'est maintenant la lumière de
          l'aperçu au survol en économie de données (TrailerAmbient) : la pile
-         de copies qui s'étale autour de la case, et pour YouTube la couleur
-         qui glisse entre les trois images publiées de la vidéo.
+         de copies qui s'étale autour de la case, prise de son image.
          Le petit carré a SA lumière, à sa taille : la grande réduite au zoom
          laissait un voile gris dans le coin (17/10/2026). On passe de l'une à
          l'autre en fondu d'opacité, sans jamais animer de flou. Et chacune
@@ -219,7 +193,10 @@ export default function MusicCard({
           transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "none",
         }}
       >
-        <TrailerAmbient banner={art} playing={card.playing} frames={frames} progress={glowAt} />
+        {/* `playing` toujours faux : elle ne peint son image qu'à l'arrêt, et
+            une lecture partie seule au montage l'aurait laissée éteinte. Il n'y
+            a pas de vidéo à suivre ici. */}
+        <TrailerAmbient banner={art} playing={false} />
       </div>
       {canMini ? (
         <img

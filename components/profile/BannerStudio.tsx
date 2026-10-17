@@ -4328,8 +4328,8 @@ export default function BannerStudio({
             /* Même case que le profil (17/10/2026) : 240 px, petit carré hors
                survol, égaliseur. */
             className="h-[240px] w-[240px]"
-            /* Un générique montre sa pochette ; la bande-annonce, sa vidéo. */
-            cover={draft.music.slug !== "TRL" ? draft.music.cover : null}
+            /* L'image du morceau, jamais la vidéo. */
+            cover={draft.music.cover}
             card={{
               minimizable: true,
               playing,
