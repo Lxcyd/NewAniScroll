@@ -6,6 +6,28 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-17 — Case musique du profil : petit carré, égaliseur, copie analysée
+
+La case YouTube du profil (`YouTubeMusic`, `card.minimizable`) : grande
+(240 px) 5 s à l'arrivée, puis carré de 48 px aux bords arrondis ; le survol
+la rend grande. Tout en `transform` : animer width/height remettait en page
+à chaque image une iframe 200 fois plus grande (saccades). L'iframe ne capte
+plus la souris (`pointer-events-none`), sinon le survol du petit carré
+n'était vu qu'en retard. Deux lumières (grande, petite) qui suivent la case en
+transform + fondu ; jamais de flou animé.
+
+Égaliseur de 8 barres au pied de la case, en grand comme en petit, caché en
+pause. Le son d'une iframe d'un autre site est HORS D'ATTEINTE d'une page
+(recherche dans `docs/RESSOURCES.md` : seules les extensions et la capture
+d'onglet y arrivent). Luc a choisi la copie : `worker-ytaudio/`
+(yta.aniscroll.com) ressuscite l'extracteur InnerTube des trailers supprimé
+par ba65900b, sert le format 18 avec CORS et cache d'edge ; `lib/profile/
+musicAnalyser.ts` le lit sans l'entendre (gain nul), calé sur l'horloge
+YouTube, et pilote les barres. Repli : animation CSS propre au morceau
+(pause, muet, fondu). Pas sur téléphone ni en économie de données (10-20 Mo).
+
+**Pas encore déployé ni mesuré** : le Worker attend `wrangler deploy`, la
+variable `NEXT_PUBLIC_YTA_BASE` attend les deux comptes Vercel.
 ## 2026-10-13 — Studio : fonds à motifs sur la plaque de couleur
 
 Treize motifs (`lib/profile/patterns.ts`), retenus par Luc parmi les 100 d'un

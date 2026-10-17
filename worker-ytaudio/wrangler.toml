@@ -1,0 +1,18 @@
+name = "aniscroll-ytaudio"
+main = "src/index.js"
+compatibility_date = "2025-10-01"
+
+# La copie analysée de la musique du profil (voir src/resolve.js).
+# Séparé de `worker/` (proxy des épisodes, en prod) : un déploiement raté ici ne
+# touche pas aux épisodes. Même compte Cloudflare, donc même pot de 100k
+# requêtes/jour (Workers Free) ; la bande passante, elle, n'est pas comptée.
+#
+# Domaine personnalisé OBLIGATOIRE : le cache d'edge (caches.default) est sans
+# effet sur *.workers.dev, et tout le modèle de coût repose sur lui — un morceau
+# n'est demandé à YouTube qu'une fois par colo, puis servi depuis le cache.
+# `wrangler deploy` crée yta.aniscroll.com et son DNS (zone déjà sur Cloudflare).
+# NEXT_PUBLIC_YTA_BASE (Vercel, les DEUX comptes) doit pointer dessus.
+routes = [{ pattern = "yta.aniscroll.com", custom_domain = true }]
+
+[observability]
+enabled = true

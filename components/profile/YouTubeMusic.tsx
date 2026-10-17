@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { MdPause, MdPlayArrow } from "react-icons/md";
 import { fadeGain } from "@/lib/profile/dressing";
 import HoverVolume from "@/components/shared/HoverVolume";
+import { createMusicAnalyser, musicAnalyserAllowed, type MusicAnalyser } from "@/lib/profile/musicAnalyser";
 
 /**
  * Ce que le studio et le profil demandent à un lecteur de musique : le
@@ -78,6 +79,8 @@ const MINI = 48;
 /** Du centre de la grande case au centre du petit carré, calé au coin bas droit. */
 const SHIFT = (CARD - MINI) / 2;
 
+const EQ_BARS = 8;
+
 /** Huit barres d'égaliseur propres à un morceau : vitesses, décalages et
     creux tirés de l'identifiant de la vidéo, pour que deux profils ne dansent
     pas pareil. Un tempo commun par morceau, varié par barre. */
@@ -90,7 +93,7 @@ function eqBars(videoId: string) {
     return ((h ^= h >>> 16) >>> 0) / 4294967296;
   };
   const tempo = 0.55 + rnd() * 0.45;
-  return Array.from({ length: 8 }, () => ({
+  return Array.from({ length: EQ_BARS }, () => ({
     d: +(tempo * (0.8 + rnd() * 0.7)).toFixed(2),
     dl: +(rnd() * 1.2).toFixed(2),
     lo: +(0.15 + rnd() * 0.3).toFixed(2),
@@ -408,10 +411,36 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
      chaque image), et seulement quand il bouge d'un vingtième. */
   const eqRef = useRef<HTMLDivElement | null>(null);
   const eqFade = useRef(-1);
+  /* Le direct (lib/profile/musicAnalyser) : les barres sont pilotées une à
+     une par l'analyse quand elle tourne, l'animation CSS reprend sinon. */
+  const analyser = useRef<MusicAnalyser | null>(null);
+  const barEls = useRef<(HTMLElement | null)[]>([]);
+  const eqLive = useRef(false);
+  const eqLevels = useRef(new Float32Array(EQ_BARS));
   useEffect(() => {
     if (!hasClip) return;
     let raf = 0;
+    const drive = () => {
+      const an = analyser.current;
+      if (!an) return;
+      an.sync(now(), s.current.playing);
+      const live = an.levels(eqLevels.current);
+      if (live !== eqLive.current) {
+        eqLive.current = live;
+        for (const b of barEls.current) {
+          if (!b) continue;
+          b.style.animation = live ? "none" : "";
+          if (!live) b.style.transform = "";
+        }
+      }
+      if (live) {
+        barEls.current.forEach((b, i) => {
+          if (b) b.style.transform = `scaleY(${(0.08 + 0.92 * eqLevels.current[i]).toFixed(3)})`;
+        });
+      }
+    };
     const tick = () => {
+      drive();
       const st = s.current;
       const end = to > from ? to : st.duration;
       if (st.playing) {
@@ -483,6 +512,23 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
     };
   }, [canMini]);
   const folded = canMini && mini;
+
+  /* L'analyse naît à la première lecture réelle et meurt avec le morceau. */
+  useEffect(() => {
+    if (!canMini || !started || !musicAnalyserAllowed()) return;
+    const an = createMusicAnalyser(videoId, EQ_BARS);
+    analyser.current = an;
+    return () => {
+      an.dispose();
+      analyser.current = null;
+      eqLive.current = false;
+      for (const b of barEls.current) {
+        if (!b) continue;
+        b.style.animation = "";
+        b.style.transform = "";
+      }
+    };
+  }, [canMini, started, videoId]);
 
   const player = (
     <iframe
@@ -600,6 +646,9 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
               {eqBars(videoId).map((b, i) => (
                 <i
                   key={i}
+                  ref={(el) => {
+                    barEls.current[i] = el;
+                  }}
                   className="as-eq-bar block h-full w-3 rounded-sm bg-white/90"
                   style={{
                     ["--d" as string]: `${b.d}s`,

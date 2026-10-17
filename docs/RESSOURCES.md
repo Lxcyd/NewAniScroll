@@ -150,7 +150,9 @@ Le son d'une iframe YouTube est hors d'atteinte d'une page : aucune lib ne le li
 | [Turn Off the Lights](https://www.turnoffthelights.com), Lumyvox | ❌ visualiseur YouTube, mais extension navigateur (acces privilegie) |
 | [ravetab](https://github.com/mpopv/ravetab), [music-visualizer](https://jasperbernaers.com/music-visualizer/) | ❌ pour un visiteur : capture d'onglet `getDisplayMedia`, fenetre « partager » a chaque visite |
 | [web-audio-beat-detector](https://github.com/chrisguttandin/web-audio-beat-detector), [@audio/beat](https://github.com/audiojs/beat), [beatdetect.js](https://github.com/arthurbeaulieu/beatdetect.js) | ⏳ BPM + premier temps (+ liste des temps pour @audio/beat) depuis un AudioBuffer : utile si on a l'audio (fichier AnimeThemes, ou outil hors ligne) |
-| librosa (ci-dessus) | ⏳ voie retenue si on la fait : enveloppe d'energie par bandes calculee HORS LIGNE, rejouee calee sur le temps du lecteur |
+| librosa (ci-dessus) | ❌ rejete par Luc (outil local trop lourd) |
+| Piped / Invidious (copie du son) | ❌ mort : 1 instance sur 12 repond, 10/10 refus a froid (devlog/preview.md, 14/08) |
+| **Notre Worker** `worker-ytaudio/` (yta.aniscroll.com) | ✅ voie retenue le 17/10 : l'extracteur InnerTube des trailers (supprime en 08/2026) ressuscite ; format 18 relaye avec CORS et cache d'edge, analyse par `AnalyserNode` dans [lib/profile/musicAnalyser.ts] ; rationne a froid, puis servi du cache |
 
 ### Chapitres des releases (bornes gratuites)
 | Source | Ce qu'il apporte |

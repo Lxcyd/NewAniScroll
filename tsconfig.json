@@ -47,6 +47,7 @@
     "**/node_modules",
     ".next",
     "worker",
+    "worker-ytaudio",
     "tools",
     "graphify-out",
     "public"
