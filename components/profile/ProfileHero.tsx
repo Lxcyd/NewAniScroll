@@ -326,12 +326,16 @@ export default function ProfileHero({
      relance. Un navigateur refuse souvent le son sans geste : la case joue
      alors muette (`browserMuted`), et son icône de volume le rétablit. */
   const [browserMuted, setBrowserMuted] = useState(false);
+  /** L'instant du geste qui a rendu le son : le clic qui le porte ne doit
+      pas, en plus, mettre en pause la case sur laquelle il tombe. */
+  const wokeAt = useRef(0);
   /* Le son revient au PREMIER geste sur la page, où qu'il soit : c'est ce que
      le navigateur attendait (« Unmuting failed … the user didn't interact »).
      Sans ça il fallait viser l'icône de la case. */
   useEffect(() => {
     if (!browserMuted) return;
     const wake = () => {
+      wokeAt.current = performance.now();
       setBrowserMuted(false);
       void yt.current?.play();
     };
@@ -802,13 +806,19 @@ export default function ProfileHero({
               muted: vol === 0 || browserMuted,
               volume: vol > 0 ? vol : PROFILE_DEFAULT_VOLUME,
               /* Le choix est retenu : en pause, le profil ne repart plus seul. */
-              onToggle: () =>
+              /* Muette par le navigateur, la case ne se met PAS en pause au
+                 clic : ce clic sert à rendre le son. Et seule une vraie pause,
+                 son audible, est retenue — cliquer pour avoir le son
+                 enregistrait « pas de lecture auto » (17/10/2026). */
+              onToggle: () => {
+                if (browserMuted || performance.now() - wokeAt.current < 600) return;
                 setSound((x) => {
                   try {
                     localStorage.setItem(PROFILE_AUTOPLAY_KEY, x ? "0" : "1");
                   } catch {}
                   return !x;
-                }),
+                });
+              },
               onMuted: (m) => {
                 if (!m && browserMuted) {
                   /* Un clic ici EST le geste qui manquait : le son passe. */
