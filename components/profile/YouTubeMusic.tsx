@@ -18,6 +18,9 @@ export type MusicMedia = {
 };
 
 const ORIGIN = "https://www.youtube-nocookie.com";
+/* Les valeurs de TrailerStage (SCALE, OVERSCAN), mesurées là-bas. */
+const YT_SCALE = 200;
+const YT_OVERSCAN = 1.12;
 
 type Props = {
   videoId: string;
@@ -398,9 +401,25 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
         };
         again();
       }}
-      /* En case : l'image REMPLIT le carré, comme l'aperçu au survol — une
-         vidéo 16:9 à hauteur pleine, centrée, les côtés rognés. */
-      className={card ? "absolute left-1/2 top-0 h-full w-[178%] max-w-none -translate-x-1/2" : className}
+      /* En case, le geste de l'aperçu au survol (TrailerStage, SCALE et
+         OVERSCAN) : le lecteur est rendu 200 fois plus grand puis réduit
+         d'autant. Son habillage (titre, logo, gros ▶), dimensionné en pixels,
+         devient microscopique ; l'image, elle, remplit le carré — 16:9 à
+         hauteur pleine, côtés rognés, et 12 % de débord contre les bandes. */
+      className={card ? "absolute" : className}
+      style={
+        card
+          ? {
+              border: 0,
+              width: `${YT_SCALE * (16 / 9) * YT_OVERSCAN * 100}%`,
+              height: `${YT_SCALE * YT_OVERSCAN * 100}%`,
+              left: `${(-((16 / 9) * YT_OVERSCAN - 1) / 2) * 100}%`,
+              top: `${(-(YT_OVERSCAN - 1) / 2) * 100}%`,
+              transform: `scale(${1 / YT_SCALE})`,
+              transformOrigin: "0 0",
+            }
+          : undefined
+      }
     />
   );
   if (!card) return player;
