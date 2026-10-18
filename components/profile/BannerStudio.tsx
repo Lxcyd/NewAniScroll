@@ -892,8 +892,6 @@ export default function BannerStudio({
     if (!menuPendingRef.current) setAtNow(v);
   }, []);
   const [len, setLen] = useState(0);
-  /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
-  const [buf, setBuf] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
   const [buffering, setBuffering] = useState(false);
   /**
@@ -1531,10 +1529,9 @@ export default function BannerStudio({
     const el = preview.current;
     if (!el || !wantPlay) return;
     setWantPlay(false);
-    /* Le rail appartient au nouveau morceau : garder la position et la mémoire
-       tampon du précédent, c'est afficher une seconde de mensonge. */
+    /* Le rail appartient au nouveau morceau : garder la position du
+       précédent, c'est afficher une seconde de mensonge. */
     setAt(0);
-    setBuf(0);
     el.currentTime = draft.music?.from ?? 0;
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url, draft.music?.videoId]);
@@ -3582,7 +3579,6 @@ export default function BannerStudio({
                         from={from}
                         to={to}
                         at={at}
-                        buf={buf}
                         onSeek={seek}
                         onTrim={setTrim}
                         onGrab={grabTrim}
@@ -4452,12 +4448,7 @@ export default function BannerStudio({
             onEnded={() => setPlaying(false)}
             onWaiting={() => setBuffering(true)}
             onPlaying={() => setBuffering(false)}
-            onDuration={(d) => {
-              setLen(d);
-              /* Le lecteur ne dit pas ce qu'il a chargé : tout le rail est
-                 « prêt », YouTube rattrape les sauts tout seul. */
-              setBuf(1);
-            }}
+            onDuration={(d) => setLen(d)}
             onTime={(x) => setAt(x)}
             onError={() => {
               setPlaying(false);
@@ -4490,11 +4481,6 @@ export default function BannerStudio({
           /* Le suivi fin appartient à la boucle d'animation ci-dessus ; celui-ci
              ne sert qu'à l'arrêt, où il n'y a pas de boucle qui tourne. */
           onTimeUpdate={(e) => setAt(e.currentTarget.currentTime)}
-          onProgress={(e) => {
-            const el = e.currentTarget;
-            const b = el.buffered;
-            setBuf(b.length && el.duration ? b.end(b.length - 1) / el.duration : 0);
-          }}
         />
         {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
             place, la pochette à la place du lecteur. */}
@@ -5570,7 +5556,6 @@ function TrimRail({
   from,
   to,
   at,
-  buf = 0,
   onSeek,
   onTrim,
   onGrab,
@@ -5582,8 +5567,6 @@ function TrimRail({
   to: number;
   /** Où en est la lecture. */
   at: number;
-  /** La part déjà chargée, 0 à 1 — un lecteur YouTube ne la dit pas : 0. */
-  buf?: number;
   /** Une fraction du rail, 0 à 1. */
   onSeek: (ratio: number) => void;
   onTrim: (edge: "from" | "to", seconds: number) => void;
@@ -5636,16 +5619,10 @@ function TrimRail({
       }}
       className="relative h-2 flex-1 cursor-pointer touch-none rounded-full bg-white/[0.09]"
     >
-      <span
-        className="absolute inset-y-0 left-0 rounded-full bg-white/[0.14]"
-        style={{ width: `${buf * 100}%` }}
-      />
       {/* Ce qui NE SERA PAS joué part en hachures : une zone simplement plus
           sombre se confond avec un rail vide, alors qu'une rayure dit « écarté »
-          sans légende. Elles se posent sur le gris clair de la mémoire tampon,
-          TOUJOURS, et non sur ce qui est réellement chargé : le bord du tampon y
-          dessinait une marche, c'est-à-dire un chargement à moitié fait dans une
-          zone qui ne sera jamais jouée. */}
+          sans légende. Plus de mémoire tampon dessinée (18/10/2026, Luc) : son
+          bord coupait le gris de l'extrait en deux teintes. Le fond est uni. */}
       {from > 0 ? (
         <span
           className="absolute inset-y-0 left-0 rounded-l-full bg-white/[0.14]"
