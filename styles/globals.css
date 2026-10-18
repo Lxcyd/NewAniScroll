@@ -4536,22 +4536,15 @@ html.as-scene-leave .as-navbar {
   animation: as-nudge 1.6s ease-in-out infinite;
 }
 
-/* La carte musique du studio (BannerStudio, `as-mf`) suit SA largeur : le menu
-   se règle de 280 à 440 px. Sa HAUTEUR, elle, ne bouge jamais (celle de la
-   barre du bas, l'animation de l'une à l'autre en dépend) : étroite, elle se
-   resserre sur sa ligne au lieu de passer à la ligne (18/10/2026).
-   Moins de 400 px : sans les temps du rail. Moins de 340 px : sans le filet,
-   pochette plus petite, réglages serrés. */
-@container (max-width: 400px) {
-  .as-mf-time { display: none; }
-}
+/* La carte musique du studio (BannerStudio, `as-mf`) suit SA largeur, mesurée
+   en JS (`data-size`) : des requêtes de conteneur dérangeaient le curseur du
+   volume, en position fixe. Sa HAUTEUR ne bouge jamais (celle de la barre du
+   bas, l'animation de l'une à l'autre en dépend) : étroite, elle se resserre
+   sur sa ligne (18/10/2026). */
+.as-mf:is([data-size="sm"], [data-size="xs"]) .as-mf-time { display: none; }
+.as-mf[data-size="xs"] { gap: 8px; }
+.as-mf[data-size="xs"] .as-mf-sep { display: none; }
+.as-mf[data-size="xs"] .as-mf-cover { width: 36px; height: 36px; }
+.as-mf[data-size="xs"] .as-mf-set button { letter-spacing: .02em; }
 /* Étendue sur la barre du bas : un peu d'air de part et d'autre du filet. */
-@container (min-width: 600px) {
-  .as-mf-sep { margin-inline: 10px; }
-}
-@container (max-width: 340px) {
-  .as-mf { gap: 8px; }
-  .as-mf-sep { display: none; }
-  .as-mf-cover { width: 36px; height: 36px; }
-  .as-mf-set button { letter-spacing: .02em; }
-}
+.as-mf[data-size="lg"] .as-mf-sep { margin-inline: 10px; }

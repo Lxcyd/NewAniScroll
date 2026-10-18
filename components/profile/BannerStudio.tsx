@@ -3466,11 +3466,26 @@ export default function BannerStudio({
 
   /* Le lecteur de musique — pochette, titre, version, rail des bornes, fondu,
      volume. Le même au pied du menu Musique et posé sur la barre du bas. */
+  /* LA LARGEUR DE LA CARTE, MESURÉE (18/10/2026). Des requêtes de conteneur
+     CSS le faisaient, mais `container-type` rend le conteneur référent des
+     éléments `fixed` : le curseur du volume (HoverVolume) se plaçait mal. Un
+     ResizeObserver pose `data-size` (xs < 250 px, sm < 310, lg ≥ 500), lu par
+     globals.css. Une instance par copie de la carte (menu, barre). */
+  const mfObs = useRef(new WeakMap<HTMLElement, ResizeObserver>());
+  const mfSize = useCallback((el: HTMLDivElement | null) => {
+    if (!el || mfObs.current.has(el) || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => {
+      const w = e.contentRect.width;
+      el.dataset.size = w < 250 ? "xs" : w < 310 ? "sm" : w >= 500 ? "lg" : "md";
+    });
+    ro.observe(el);
+    mfObs.current.set(el, ro);
+  }, []);
   const musicPlayer = draft.music ? (
     /* `as-mf` : la carte suit SA largeur (globals.css, requêtes de conteneur) —
        le menu se règle jusqu'à 280 px, où la colonne des réglages écrasait le
        titre et la barre (18/10/2026). */
-    <div className="as-mf flex min-w-0 flex-1 items-center gap-3">
+    <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
                       rose posée à côté qui doublait la mise. */}
@@ -4332,7 +4347,7 @@ export default function BannerStudio({
                   /* La hauteur EXACTE de la barre du bas : le passage de l'une
                      à l'autre est une animation, une carte plus haute la cassait
                      (18/10/2026). Étroite, la carte se resserre (`as-mf`). */
-                  style={{ ...(barH ? { height: barH } : null), containerType: "inline-size" }}
+                  style={barH ? { height: barH } : undefined}
                   className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 ${barH ? "" : "py-3"} ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
@@ -4603,12 +4618,7 @@ export default function BannerStudio({
               showMusic ? "translate-x-0" : "pointer-events-none -translate-x-full"
             }`}
           >
-            <div
-              /* Conteneur de la carte (`as-mf`) : étendue ici, ses réglages
-                 prennent un peu plus d'air (globals.css). */
-              style={{ containerType: "inline-size" }}
-              className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-4"
-            >
+            <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-4">
               {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
               {barMusic || barMusicMounted ? musicPlayer : null}
             </div>
