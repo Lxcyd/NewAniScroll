@@ -4545,6 +4545,10 @@ html.as-scene-leave .as-navbar {
 @container (max-width: 400px) {
   .as-mf-time { display: none; }
 }
+/* Étendue sur la barre du bas : un peu d'air de part et d'autre du filet. */
+@container (min-width: 600px) {
+  .as-mf-sep { margin-inline: 10px; }
+}
 @container (max-width: 340px) {
   .as-mf { gap: 8px; }
   .as-mf-sep { display: none; }

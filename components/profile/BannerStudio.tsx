@@ -4603,7 +4603,12 @@ export default function BannerStudio({
               showMusic ? "translate-x-0" : "pointer-events-none -translate-x-full"
             }`}
           >
-            <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-3">
+            <div
+              /* Conteneur de la carte (`as-mf`) : étendue ici, ses réglages
+                 prennent un peu plus d'air (globals.css). */
+              style={{ containerType: "inline-size" }}
+              className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-4"
+            >
               {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
               {barMusic || barMusicMounted ? musicPlayer : null}
             </div>
