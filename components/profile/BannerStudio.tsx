@@ -696,6 +696,13 @@ export default function BannerStudio({
      porte aussi les pochettes quand /api/v2/theme-covers a déjà fini cet anime
      (`coversDone`) : on les range, et la seconde requête n'a pas lieu. */
   const themesInflight = useRef(new Map<number, Promise<ThemeRow[]>>());
+  /* LES OP/ED SANS ATTENDRE (18/10/2026). AnimeThemes répond vite, AnisongDB
+     plus lentement (une recherche Deezer par musique) : la liste partielle
+     s'affiche dès la première réponse, et les autres musiques arrivent à la
+     place gardée pour elles. MÉMOIRE SEULEMENT : jamais dans `themeCache` (le
+     nombre de la ligne d'anime le lit) ni dans le stockage. */
+  const themeBase = useRef(new Map<number, ThemeRow[]>());
+  const [baseTick, setBaseTick] = useState(0);
   const loadThemes = useCallback((id: number): Promise<ThemeRow[]> => {
     store();
     const hit = themeCache.current.get(id);
@@ -714,8 +721,17 @@ export default function BannerStudio({
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => (Array.isArray(json?.songs) && !json.partial ? (json.songs as ThemeRow[]) : null))
       .catch(() => null);
-    const p = Promise.all([fetch(`/api/v2/themes/${id}?v=4`).then((r) => (r.ok ? r.json() : null)), extra])
+    const main = fetch(`/api/v2/themes/${id}?v=4`).then((r) => (r.ok ? r.json() : null));
+    main
+      .then((json) => {
+        if (!Array.isArray(json?.themes) || themeCache.current.has(id)) return;
+        themeBase.current.set(id, json.themes);
+        setBaseTick((n) => n + 1);
+      })
+      .catch(() => {});
+    const p = Promise.all([main, extra])
       .then(([json, more]) => {
+        themeBase.current.delete(id);
         /* Une panne n'est pas « aucun générique » : rien n'est retenu. */
         if (!json) return [] as ThemeRow[];
         const base: ThemeRow[] = Array.isArray(json.themes) ? json.themes : [];
@@ -2633,7 +2649,14 @@ export default function BannerStudio({
       /* Musique : les génériques de l'anime OUVERT, lus dans le cache par son
          id — `themes` garde ceux du précédent jusqu'à l'arrivée des nouveaux,
          et ils s'afficheraient sous le mauvais titre (même piège que `art`). */
-      const liste = scope === "music" ? (pick != null ? themeCache.current.get(pick) ?? null : null) : themes;
+      const fini = scope === "music" && pick != null ? themeCache.current.get(pick) : undefined;
+      const liste =
+        scope === "music" ? (pick != null ? (fini ?? themeBase.current.get(pick) ?? null) : null) : themes;
+      /* Les OP/ED sont là, les autres musiques en route (themeBase). */
+      const enRoute = scope === "music" && fini == null && liste != null;
+      /* Le nombre attendu : celui de la ligne d'anime, tant que la liste n'est
+         pas complète — il ne bouge pas pendant le chargement. */
+      const attendu = pick != null ? (fini?.length ?? musicCounts[pick] ?? liste?.length ?? 0) : 0;
       /* Les pochettes de CET anime seulement : l'état garde celles du
          précédent le temps d'une requête, et « OP1 » est un slug commun. */
       const themeCovers = coverState.id === listedAnimeId ? coverState.covers : {};
@@ -2794,10 +2817,7 @@ export default function BannerStudio({
             node: (
               <AnimeHead
                 anime={meta?.mediaId === pick ? meta : listedAnime}
-                count={
-                  (liste?.length ?? 0) +
-                  ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)
-                }
+                count={attendu + ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)}
                 anchor={`anime-music-${ouvert}`}
                 onClose={() => {
                   holdAnchor(`anime-music-${ouvert}`);
@@ -2852,24 +2872,33 @@ export default function BannerStudio({
                 },
               ],
             });
-          if (liste == null)
-            /* Les génériques sont en route : des lignes qui attendent, plutôt
-               qu'un « aucun générique » qui mentirait une seconde. */
-            gal.push({
-              title: "",
-              rows: [],
-              node: (
-                <div className="grid gap-2 px-2 pb-2">
-                  {Array.from({ length: 4 }, (_, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="h-10 w-10 animate-pulse rounded-md bg-white/[0.06]" />
-                      <div className="h-3 flex-1 animate-pulse rounded bg-white/[0.05]" />
+          /* Des lignes qui attendent, à la hauteur des vraies : plutôt qu'un
+             « aucun générique » qui mentirait une seconde, et pour que la liste
+             ne grandisse pas sous la main quand les musiques arrivent. */
+          const fantomes = (n: number) => ({
+            title: "",
+            rows: [] as Row[],
+            node: (
+              <div aria-hidden>
+                {Array.from({ length: n }, (_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                    <div className="h-10 w-10 shrink-0 animate-pulse rounded-md bg-white/[0.06]" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 w-2/5 animate-pulse rounded bg-white/[0.06]" />
+                      <div className="h-2.5 w-1/4 animate-pulse rounded bg-white/[0.04]" />
                     </div>
-                  ))}
-                </div>
-              ),
-            });
-          else
+                  </div>
+                ))}
+              </div>
+            ),
+          });
+          if (liste == null) gal.push(fantomes(Math.min(12, attendu || 4)));
+          else if (enRoute) {
+            if (rows.length) gal.push({ title: "", rows });
+            /* Le compte groupé inconnu : trois, à défaut de mieux. */
+            const reste = pick != null && musicCounts[pick] != null ? attendu - rows.length : 3;
+            if (reste > 0) gal.push(fantomes(Math.min(12, reste)));
+          } else
             gal.push({
               title: "",
               rows: rows.length
@@ -2953,7 +2982,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries]);
+      entries, baseTick]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à

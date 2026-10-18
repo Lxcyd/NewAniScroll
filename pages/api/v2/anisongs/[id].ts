@@ -119,7 +119,9 @@ function order(found: Found[]): AnisongRow[] {
   });
 }
 
-/** Pochette et popularité de chaque morceau, quatre à la fois, dans le budget.
+/** Pochette et popularité de chaque morceau, DIX à la fois (Deezer tolère
+    ~50 requêtes / 5 s par IP : 18 morceaux tiennent en deux vagues, ~0,5 s au
+    lieu de ~2 s à quatre, 18/10/2026), dans le budget.
     `complete` faux si Deezer a manqué un seul morceau : rien n'est gardé. */
 async function withDeezer(list: Raw[]) {
   const out: Found[] = list.map((s) => ({ s, rank: null, cover: null }));
@@ -144,7 +146,7 @@ async function withDeezer(list: Raw[]) {
       }
     }
   };
-  await Promise.all([worker(), worker(), worker(), worker()]);
+  await Promise.all(Array.from({ length: 10 }, worker));
   return { found: out, complete };
 }
 
@@ -153,13 +155,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const anilistId = Number(req.query.id);
   if (!Number.isInteger(anilistId) || anilistId <= 0) return res.status(400).json({ error: "id" });
 
-  const cached = await seasonCacheGet<AnisongRow[]>(KEY(anilistId));
+  /* Les deux lectures Turso en même temps : à froid, la seconde ne s'ajoute
+     plus à la première. */
+  const [cached, malIds] = await Promise.all([
+    seasonCacheGet<AnisongRow[]>(KEY(anilistId)),
+    malIdsOf([anilistId]),
+  ]);
   if (cached) {
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800");
     return res.status(200).json({ songs: cached });
   }
 
-  const malId = (await malIdsOf([anilistId])).get(anilistId);
+  const malId = malIds.get(anilistId);
   if (!malId) {
     res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
     return res.status(200).json({ songs: [] });
