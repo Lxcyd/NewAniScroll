@@ -3556,7 +3556,7 @@ export default function BannerStudio({
                         lui, attraper une poignée aurait aussi fait sauter le
                         son à cet endroit. */}
                     <div className="mt-2 flex items-center gap-1.5">
-                      <span className="w-7 shrink-0 text-right font-mono text-[10px] text-white/40">
+                      <span className="w-7 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
                       <TrimRail
@@ -3580,8 +3580,8 @@ export default function BannerStudio({
                       réglages, rangés en colonne — Fondu et volume en haut,
                       TV / Complète dessous, un peu plus grand. */}
                   <span aria-hidden className="w-px shrink-0 self-stretch bg-white/[0.08]" />
-                  <div className="flex shrink-0 flex-col items-end gap-1.5">
-                    <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                    <div className="flex items-center justify-between gap-2">
                       {/* Le fondu, en une seule bascule et non deux : « entrée »
                           et « sortie » séparés, c'est deux réglages pour un seul
                           geste — on veut que la boucle ne claque pas, pas régler
@@ -3651,7 +3651,9 @@ export default function BannerStudio({
                         sans version connue ouvre directement le champ du
                         lien. */}
                     {tvUrl ? (
-                      <div className="flex h-7 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
+                      /* `w-0 min-w-full` : la bascule prend la largeur de la
+                         ligne Fondu + volume sans jamais l'élargir. */
+                      <div className="flex h-7 w-0 min-w-full shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
                         {([false, true] as const).map((full) => {
                           const on = full === !!draft.music?.videoId;
                           return (
@@ -3665,7 +3667,7 @@ export default function BannerStudio({
                               }}
                               aria-pressed={on}
                               title={full ? t("profile.studioMusicFull") : undefined}
-                              className={`h-6 rounded-full px-3 font-karla text-[11px] font-bold uppercase tracking-[.06em] transition-colors ${
+                              className={`h-6 flex-auto rounded-full px-1.5 font-karla text-[10.5px] font-bold uppercase tracking-[.05em] transition-colors ${
                                 on ? "bg-action text-white" : "text-white/45 hover:text-white"
                               }`}
                             >
