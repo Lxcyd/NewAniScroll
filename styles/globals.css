@@ -4537,14 +4537,17 @@ html.as-scene-leave .as-navbar {
 }
 
 /* La carte musique du studio (BannerStudio, `as-mf`) suit SA largeur : le menu
-   se règle de 280 à 440 px. Moins de 400 px : sans les temps du rail. Moins de
-   340 px : les réglages (Fondu, volume, TV / Complète) passent sur une seconde
-   ligne, au lieu d'écraser le titre et la barre (18/10/2026). */
+   se règle de 280 à 440 px. Sa HAUTEUR, elle, ne bouge jamais (celle de la
+   barre du bas, l'animation de l'une à l'autre en dépend) : étroite, elle se
+   resserre sur sa ligne au lieu de passer à la ligne (18/10/2026).
+   Moins de 400 px : sans les temps du rail. Moins de 340 px : sans le filet,
+   pochette plus petite, réglages serrés. */
 @container (max-width: 400px) {
   .as-mf-time { display: none; }
 }
 @container (max-width: 340px) {
-  .as-mf { padding-block: 12px; }
+  .as-mf { gap: 8px; }
   .as-mf-sep { display: none; }
-  .as-mf-set { flex-basis: 100%; flex-direction: row; align-items: center; justify-content: space-between; }
+  .as-mf-cover { width: 36px; height: 36px; }
+  .as-mf-set button { letter-spacing: .02em; }
 }

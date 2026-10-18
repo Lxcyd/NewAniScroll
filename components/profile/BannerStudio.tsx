@@ -3395,7 +3395,7 @@ export default function BannerStudio({
           vPlaying ? remote.current?.pause() : remote.current?.play()
         }
         aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
-        className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+        className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
       >
         {trailerAnime?.cover ? (
           <Image src={trailerAnime.cover} alt="" fill sizes="44px" className="object-cover" />
@@ -3470,7 +3470,7 @@ export default function BannerStudio({
     /* `as-mf` : la carte suit SA largeur (globals.css, requêtes de conteneur) —
        le menu se règle jusqu'à 280 px, où la colonne des réglages écrasait le
        titre et la barre (18/10/2026). */
-    <div className="as-mf flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="as-mf flex min-w-0 flex-1 items-center gap-3">
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
                       rose posée à côté qui doublait la mise. */}
@@ -3485,7 +3485,7 @@ export default function BannerStudio({
                       } else el.pause();
                     }}
                     aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                    className="group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+                    className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
                   >
                     {draft.music.cover ? (
                       <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
@@ -4329,9 +4329,10 @@ export default function BannerStudio({
                   /* La teinte des cartes du Mur d'animés (`card`, blanc à 3 %),
                      rendue OPAQUE (#1c1d24 sur le fond du panneau) puisque la
                      liste passe dessous (16/10/2026). */
-                  /* Hauteur MINIMALE de la barre du bas : étroite, la carte
-                     passe ses réglages sur une seconde ligne (`as-mf`). */
-                  style={{ ...(barH ? { minHeight: barH } : null), containerType: "inline-size" }}
+                  /* La hauteur EXACTE de la barre du bas : le passage de l'une
+                     à l'autre est une animation, une carte plus haute la cassait
+                     (18/10/2026). Étroite, la carte se resserre (`as-mf`). */
+                  style={{ ...(barH ? { height: barH } : null), containerType: "inline-size" }}
                   className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 ${barH ? "" : "py-3"} ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
