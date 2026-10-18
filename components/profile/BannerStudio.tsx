@@ -3467,7 +3467,10 @@ export default function BannerStudio({
   /* Le lecteur de musique — pochette, titre, version, rail des bornes, fondu,
      volume. Le même au pied du menu Musique et posé sur la barre du bas. */
   const musicPlayer = draft.music ? (
-    <>
+    /* `as-mf` : la carte suit SA largeur (globals.css, requêtes de conteneur) —
+       le menu se règle jusqu'à 280 px, où la colonne des réglages écrasait le
+       titre et la barre (18/10/2026). */
+    <div className="as-mf flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
                   {/* La pochette EST le bouton, comme dans un lecteur de
                       musique : l'image porte le triangle, au lieu d'une pastille
                       rose posée à côté qui doublait la mise. */}
@@ -3556,7 +3559,7 @@ export default function BannerStudio({
                         lui, attraper une poignée aurait aussi fait sauter le
                         son à cet endroit. */}
                     <div className="mt-2 flex items-center gap-1.5">
-                      <span className="w-7 shrink-0 font-mono text-[10px] text-white/40">
+                      <span className="as-mf-time w-7 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
                       <TrimRail
@@ -3570,7 +3573,7 @@ export default function BannerStudio({
                         onGrab={grabTrim}
                         t={t}
                       />
-                      <span className="w-7 shrink-0 font-mono text-[10px] text-white/40">
+                      <span className="as-mf-time shrink-0 font-mono text-[10px] text-white/40">
                         {clock(len)}
                       </span>
                     </div>
@@ -3579,8 +3582,8 @@ export default function BannerStudio({
                       un filet sépare la lecture (pochette, titre, rail) des
                       réglages, rangés en colonne — Fondu et volume en haut,
                       TV / Complète dessous, un peu plus grand. */}
-                  <span aria-hidden className="w-px shrink-0 self-stretch bg-white/[0.08]" />
-                  <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+                  <span aria-hidden className="as-mf-sep w-px shrink-0 self-stretch bg-white/[0.08]" />
+                  <div className="as-mf-set flex shrink-0 flex-col items-stretch gap-1.5">
                     <div className="flex items-center justify-between gap-2">
                       {/* Le fondu, en une seule bascule et non deux : « entrée »
                           et « sortie » séparés, c'est deux réglages pour un seul
@@ -3644,6 +3647,9 @@ export default function BannerStudio({
                         placement="up"
                         fallback={PREVIEW_DEFAULT_VOLUME}
                         label={t("profile.studioMusicVolume")}
+                        /* Le dessin du haut-parleur au bord de la colonne, pas
+                           le bouton rond qui le porte. */
+                        className="-mr-1"
                       />
                     </div>
                     {/* Version TV / complète : seulement pour un générique
@@ -3651,9 +3657,9 @@ export default function BannerStudio({
                         sans version connue ouvre directement le champ du
                         lien. */}
                     {tvUrl ? (
-                      /* `w-0 min-w-full` : la bascule prend la largeur de la
-                         ligne Fondu + volume sans jamais l'élargir. */
-                      <div className="flex h-7 w-0 min-w-full shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
+                      /* Même largeur que la ligne Fondu + volume : la colonne
+                         étire les deux (`items-stretch`), le volume part au bord. */
+                      <div className="flex h-7 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
                         {([false, true] as const).map((full) => {
                           const on = full === !!draft.music?.videoId;
                           return (
@@ -3678,7 +3684,7 @@ export default function BannerStudio({
                       </div>
                     ) : null}
                   </div>
-    </>
+    </div>
   ) : null;
   const showMusic = barMusic && !!musicPlayer && !showVideo;
 
@@ -4323,7 +4329,9 @@ export default function BannerStudio({
                   /* La teinte des cartes du Mur d'animés (`card`, blanc à 3 %),
                      rendue OPAQUE (#1c1d24 sur le fond du panneau) puisque la
                      liste passe dessous (16/10/2026). */
-                  style={barH ? { height: barH } : undefined}
+                  /* Hauteur MINIMALE de la barre du bas : étroite, la carte
+                     passe ses réglages sur une seconde ligne (`as-mf`). */
+                  style={{ ...(barH ? { minHeight: barH } : null), containerType: "inline-size" }}
                   className={`absolute inset-x-0 bottom-0 z-20 flex select-none items-center gap-3 border-t border-white/[0.07] bg-[#1c1d24] px-4 ${barH ? "" : "py-3"} ${
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
