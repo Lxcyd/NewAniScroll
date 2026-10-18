@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
   type ReactNode,
 } from "react";
 
@@ -861,7 +862,20 @@ export default function BannerStudio({
     return () => window.clearTimeout(id);
   }, [barMusic]);
   const [playing, setPlaying] = useState(false);
-  const [at, setAt] = useState(0);
+  /* LE MENU PASSE AVANT LE RAIL (18/10/2026). Changer de menu se prépare en
+     transition (rendu lourd : 686 animés, 688 cadres) ; or pendant une lecture
+     la position du morceau ET celle de la vidéo de fond s'écrivent ici dix fois
+     par seconde, en mises à jour urgentes. Chacune interrompait la transition,
+     qui repartait de zéro et ne finissait jamais : l'onglet changeait, le menu
+     restait sur l'ancien (« le mur d'animés reste sur les images »). Le temps
+     qu'un menu se prépare, les rails ne s'écrivent plus. */
+  const [menuPending, startMenu] = useTransition();
+  const menuPendingRef = useRef(false);
+  menuPendingRef.current = menuPending;
+  const [at, setAtNow] = useState(0);
+  const setAt = useCallback((v: number) => {
+    if (!menuPendingRef.current) setAtNow(v);
+  }, []);
   const [len, setLen] = useState(0);
   /** Ce qui est déjà chargé, 0 à 1 : la part du rail où sauter est instantané. */
   const [buf, setBuf] = useState(0);
@@ -892,6 +906,8 @@ export default function BannerStudio({
   const [vPlaying, setVPlaying] = useState(false);
   const onVideoProgress = useCallback(
     (at: number, duration: number, playing: boolean) => {
+      /* Voir `menuPending` : la position suivante arrive dans un instant. */
+      if (menuPendingRef.current) return;
       setVAt(railTime(at));
       setVLen(duration);
       setVPlaying(playing);
@@ -1515,7 +1531,7 @@ export default function BannerStudio({
     setBarVise(s);
     writeLastScope(s);
     setMini(false);
-    startTransition(() => {
+    startMenu(() => {
       setScope(s);
       setQuery("");
       setCursor(0);
@@ -3851,7 +3867,7 @@ export default function BannerStudio({
                           if ((tabVise ?? scope) === k) return;
                           setTabVise(k);
                           writeLastScope(k);
-                          startTransition(() => {
+                          startMenu(() => {
                             setScope(k);
                             setCursor(0);
                             if (k === "video" || k === "oped") setPick(null);
