@@ -3747,45 +3747,63 @@ export default function BannerStudio({
                       e.preventDefault();
                       applyLink();
                     }}
-                    className="flex min-w-0 flex-1 items-center gap-2"
+                    className="flex min-w-0 flex-1 flex-col gap-2"
                   >
-                    <LinkIcon className="h-5 w-5 shrink-0 text-white/45" />
-                    <input
-                      autoFocus
-                      value={ytLink}
-                      onChange={(e) => {
-                        setYtLink(e.target.value);
-                        setYtBad(false);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          e.stopPropagation();
+                    {/* Un titre qui dit ce qu'on est en train de faire, un champ
+                        qui ressemble à un champ, et une ligne d'aide qui devient
+                        l'erreur (18/10/2026 : « plus clair »). */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
                           setYtLink(null);
-                        }
-                      }}
-                      placeholder={t("profile.studioMusicLinkPh")}
-                      aria-invalid={ytBad}
-                      className={`min-w-0 flex-1 bg-transparent font-karla text-[15px] outline-none placeholder:text-white/35 ${
-                        ytBad ? "text-red-300" : "text-white"
+                          setYtBad(false);
+                        }}
+                        aria-label={t("profile.studioMusicLinkCancel")}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                      >
+                        <ChevronLeftIcon className="h-4 w-4" strokeWidth={2.2} />
+                      </button>
+                      <h2 className="min-w-0 flex-1 truncate font-outfit text-[15px] font-bold text-white">
+                        {t("profile.studioMusicLinkTitle")}
+                      </h2>
+                    </div>
+                    <div
+                      className={`flex items-center gap-2 rounded-xl bg-white/[0.06] py-1.5 pl-3 pr-1.5 ring-1 transition-colors ${
+                        ytBad ? "ring-red-400/70" : "ring-white/10 focus-within:ring-action/60"
                       }`}
-                    />
-                    <button
-                      type="submit"
-                      className="h-7 shrink-0 rounded-full bg-action px-3 font-karla text-[11px] font-bold text-white"
                     >
-                      {t("profile.studioMusicLinkOk")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setYtLink(null);
-                        setYtBad(false);
-                      }}
-                      aria-label={t("profile.studioMusicLinkCancel")}
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:text-white"
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
+                      <LinkIcon className={`h-4 w-4 shrink-0 ${ytBad ? "text-red-300" : "text-white/45"}`} />
+                      <input
+                        autoFocus
+                        value={ytLink}
+                        onChange={(e) => {
+                          setYtLink(e.target.value);
+                          setYtBad(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            e.stopPropagation();
+                            setYtLink(null);
+                            setYtBad(false);
+                          }
+                        }}
+                        placeholder="https://www.youtube.com/watch?v=…"
+                        aria-label={t("profile.studioMusicLinkPh")}
+                        aria-invalid={ytBad}
+                        className="min-w-0 flex-1 bg-transparent font-karla text-[14px] text-white outline-none placeholder:text-white/25"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!ytLink.trim()}
+                        className="h-7 shrink-0 rounded-lg bg-action px-3 font-karla text-[11px] font-bold text-white transition-opacity disabled:opacity-40"
+                      >
+                        {t("profile.studioMusicLinkOk")}
+                      </button>
+                    </div>
+                    <p className={`px-1 font-karla text-[11.5px] ${ytBad ? "text-red-300" : "text-white/40"}`}>
+                      {t(ytBad ? "profile.studioMusicLinkBad" : "profile.studioMusicLinkHint")}
+                    </p>
                   </form>
                 ) : searchable ? (
                   <>
