@@ -861,6 +861,21 @@ export default function BannerStudio({
     const id = window.setTimeout(() => setBarMusicMounted(false), 520);
     return () => window.clearTimeout(id);
   }, [barMusic]);
+  /* LA LARGEUR DE LA CARTE, MESURÉE (18/10/2026). Des requêtes de conteneur
+     CSS le faisaient, mais `container-type` rend le conteneur référent des
+     éléments `fixed` : le curseur du volume (HoverVolume) se plaçait mal. Un
+     ResizeObserver pose `data-size` (xs < 250 px, sm < 310, lg ≥ 500), lu par
+     globals.css. Une instance par copie de la carte (menu, barre). */
+  const mfObs = useRef(new WeakMap<HTMLElement, ResizeObserver>());
+  const mfSize = useCallback((el: HTMLDivElement | null) => {
+    if (!el || mfObs.current.has(el) || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => {
+      const w = e.contentRect.width;
+      el.dataset.size = w < 250 ? "xs" : w < 310 ? "sm" : w >= 500 ? "lg" : "md";
+    });
+    ro.observe(el);
+    mfObs.current.set(el, ro);
+  }, []);
   const [playing, setPlaying] = useState(false);
   /* LE MENU PASSE AVANT LE RAIL (18/10/2026). Changer de menu se prépare en
      transition (rendu lourd : 686 animés, 688 cadres) ; or pendant une lecture
@@ -3466,21 +3481,6 @@ export default function BannerStudio({
 
   /* Le lecteur de musique — pochette, titre, version, rail des bornes, fondu,
      volume. Le même au pied du menu Musique et posé sur la barre du bas. */
-  /* LA LARGEUR DE LA CARTE, MESURÉE (18/10/2026). Des requêtes de conteneur
-     CSS le faisaient, mais `container-type` rend le conteneur référent des
-     éléments `fixed` : le curseur du volume (HoverVolume) se plaçait mal. Un
-     ResizeObserver pose `data-size` (xs < 250 px, sm < 310, lg ≥ 500), lu par
-     globals.css. Une instance par copie de la carte (menu, barre). */
-  const mfObs = useRef(new WeakMap<HTMLElement, ResizeObserver>());
-  const mfSize = useCallback((el: HTMLDivElement | null) => {
-    if (!el || mfObs.current.has(el) || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([e]) => {
-      const w = e.contentRect.width;
-      el.dataset.size = w < 250 ? "xs" : w < 310 ? "sm" : w >= 500 ? "lg" : "md";
-    });
-    ro.observe(el);
-    mfObs.current.set(el, ro);
-  }, []);
   const musicPlayer = draft.music ? (
     /* `as-mf` : la carte suit SA largeur (globals.css, requêtes de conteneur) —
        le menu se règle jusqu'à 280 px, où la colonne des réglages écrasait le
