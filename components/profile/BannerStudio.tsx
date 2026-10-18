@@ -3546,35 +3546,6 @@ export default function BannerStudio({
                       <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
                         {draft.music.title}
                       </p>
-                      {/* Version TV / complète : seulement pour un générique
-                          (la bande-annonce n'a que sa vidéo). « Complète »
-                          sans version connue ouvre directement le champ du
-                          lien. */}
-                      {tvUrl ? (
-                        <div className="flex h-6 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
-                          {([false, true] as const).map((full) => {
-                            const on = full === !!draft.music?.videoId;
-                            return (
-                              <button
-                                key={String(full)}
-                                type="button"
-                                onClick={() => {
-                                  if (on) return;
-                                  if (full && !fullId) setYtLink("");
-                                  else setSource(full);
-                                }}
-                                aria-pressed={on}
-                                title={full ? t("profile.studioMusicFull") : undefined}
-                                className={`h-5 rounded-full px-2.5 font-karla text-[10.5px] font-bold uppercase tracking-[.06em] transition-colors ${
-                                  on ? "bg-action text-white" : "text-white/45 hover:text-white"
-                                }`}
-                              >
-                                {t(full ? "profile.studioMusicSrcFull" : "profile.studioMusicSrcTv")}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
                     </div>
                     )}
                     {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
@@ -3584,8 +3555,8 @@ export default function BannerStudio({
                         poignée déplace la borne — d'où le `data-grab` : sans
                         lui, attraper une poignée aurait aussi fait sauter le
                         son à cet endroit. */}
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span className="w-7 shrink-0 text-right font-mono text-[10px] text-white/40">
                         {clock(at)}
                       </span>
                       <TrimRail
@@ -3599,10 +3570,18 @@ export default function BannerStudio({
                         onGrab={grabTrim}
                         t={t}
                       />
-                      <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+                      <span className="w-7 shrink-0 font-mono text-[10px] text-white/40">
                         {clock(len)}
                       </span>
-
+                    </div>
+                  </div>
+                  {/* LES RÉGLAGES À PART (18/10/2026, choix de Luc sur planche) :
+                      un filet sépare la lecture (pochette, titre, rail) des
+                      réglages, rangés en colonne — Fondu et volume en haut,
+                      TV / Complète dessous, un peu plus grand. */}
+                  <span aria-hidden className="w-px shrink-0 self-stretch bg-white/[0.08]" />
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <div className="flex items-center gap-1">
                       {/* Le fondu, en une seule bascule et non deux : « entrée »
                           et « sortie » séparés, c'est deux réglages pour un seul
                           geste — on veut que la boucle ne claque pas, pas régler
@@ -3619,14 +3598,26 @@ export default function BannerStudio({
                             },
                           })
                         }
-                        aria-pressed={fadeSec > 0}
+                        role="switch"
+                        aria-checked={fadeSec > 0}
                         title={t("profile.studioMusicFadeHint")}
-                        className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
-                          fadeSec > 0
-                            ? "bg-action/20 text-white ring-action/50"
-                            : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+                        /* Un interrupteur avec son texte, plus un bouton qui
+                           ressemblait à TV / Complète (18/10/2026). */
+                        className={`flex h-6 shrink-0 items-center gap-1.5 font-karla text-[11px] font-bold transition-colors ${
+                          fadeSec > 0 ? "text-white" : "text-white/45 hover:text-white"
                         }`}
                       >
+                        <span
+                          className={`relative h-[15px] w-[26px] shrink-0 rounded-full transition-colors ${
+                            fadeSec > 0 ? "bg-action" : "bg-white/[0.16]"
+                          }`}
+                        >
+                          <span
+                            className={`absolute left-[2px] top-[2px] h-[11px] w-[11px] rounded-full bg-white transition-transform ${
+                              fadeSec > 0 ? "translate-x-[11px]" : ""
+                            }`}
+                          />
+                        </span>
                         {t("profile.studioMusicFade")}
                       </button>
 
@@ -3655,6 +3646,35 @@ export default function BannerStudio({
                         label={t("profile.studioMusicVolume")}
                       />
                     </div>
+                    {/* Version TV / complète : seulement pour un générique
+                        (la bande-annonce n'a que sa vidéo). « Complète »
+                        sans version connue ouvre directement le champ du
+                        lien. */}
+                    {tvUrl ? (
+                      <div className="flex h-7 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
+                        {([false, true] as const).map((full) => {
+                          const on = full === !!draft.music?.videoId;
+                          return (
+                            <button
+                              key={String(full)}
+                              type="button"
+                              onClick={() => {
+                                if (on) return;
+                                if (full && !fullId) setYtLink("");
+                                else setSource(full);
+                              }}
+                              aria-pressed={on}
+                              title={full ? t("profile.studioMusicFull") : undefined}
+                              className={`h-6 rounded-full px-3 font-karla text-[11px] font-bold uppercase tracking-[.06em] transition-colors ${
+                                on ? "bg-action text-white" : "text-white/45 hover:text-white"
+                              }`}
+                            >
+                              {t(full ? "profile.studioMusicSrcFull" : "profile.studioMusicSrcTv")}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
     </>
   ) : null;
