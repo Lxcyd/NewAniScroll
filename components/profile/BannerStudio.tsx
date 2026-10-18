@@ -46,6 +46,7 @@ import {
   ChevronRightIcon,
   FilmIcon,
   FunnelIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
   MinusIcon,
   MusicalNoteIcon,
@@ -3189,19 +3190,45 @@ export default function BannerStudio({
     setLen(0);
     setWantPlay(true);
   };
-  /** Un lien YouTube collé (watch, youtu.be, shorts, embed) ou l'identifiant nu. */
+  /** UNE MUSIQUE PAR LIEN YOUTUBE (18/10/2026, choix de Luc) : le bouton du
+      haut du menu Musique, et non plus un champ dans le pied du lecteur. Un
+      lien collé (watch, youtu.be, shorts, embed) ou l'identifiant nu devient
+      un morceau à part entière, comme la bande-annonce ; son titre et sa
+      chaîne arrivent ensuite par l'oEmbed de YouTube (CORS ouvert). */
   const applyLink = () => {
     const raw = (ytLink ?? "").trim();
     const m =
       /(?:[?&]v=|youtu\.be\/|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/.exec(raw) ??
       /^([A-Za-z0-9_-]{11})$/.exec(raw);
-    if (!m || !draft.music) {
+    if (!m) {
       setYtBad(true);
       return;
     }
     const id = m[1];
-    if (tvUrl) setFullFor((f) => ({ ...f, [tvUrl]: id }));
-    patch({ music: { ...draft.music, videoId: id, from: null, to: null } });
+    patch({
+      music: {
+        url: "",
+        title: "YouTube",
+        artist: null,
+        slug: "SONG",
+        cover: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+        from: null,
+        to: null,
+        fade: fadeSec,
+        videoId: id,
+      },
+    });
+    void fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((o: { title?: string; author_name?: string } | null) => {
+        if (!o?.title) return;
+        setDraft((d) =>
+          d.music && !d.music.url && d.music.videoId === id
+            ? { ...d, music: { ...d.music, title: o.title!, artist: o.author_name ?? null } }
+            : d,
+        );
+      })
+      .catch(() => {});
     setYtLink(null);
     setYtBad(false);
     setAt(0);
@@ -3513,56 +3540,11 @@ export default function BannerStudio({
                     </span>
                   </button>
                   <div className="min-w-0 flex-1">
-                    {ytLink !== null ? (
-                      /* Coller sa propre version : le résolveur peut ne pas
-                         l'avoir trouvée, ou avoir pris la mauvaise. */
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          applyLink();
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <input
-                          autoFocus
-                          value={ytLink}
-                          onChange={(e) => {
-                            setYtLink(e.target.value);
-                            setYtBad(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              e.stopPropagation();
-                              setYtLink(null);
-                            }
-                          }}
-                          placeholder={t("profile.studioMusicLinkPh")}
-                          className={`h-7 min-w-0 flex-1 rounded-md bg-white/[0.07] px-2.5 font-karla text-[12px] text-white outline-none ring-1 placeholder:text-white/30 ${
-                            ytBad ? "ring-red-400/70" : "ring-white/10 focus:ring-action/60"
-                          }`}
-                        />
-                        <button
-                          type="submit"
-                          className="h-7 shrink-0 rounded-md bg-action px-3 font-karla text-[11px] font-bold text-white"
-                        >
-                          {t("profile.studioMusicLinkOk")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setYtLink(null)}
-                          aria-label={t("profile.studioMusicLinkCancel")}
-                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white/45 hover:text-white"
-                        >
-                          <XMarkIcon className="h-4 w-4" />
-                        </button>
-                      </form>
-                    ) : (
                     <div className="flex min-w-0 items-center gap-2">
                       <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
                         {draft.music.title}
                       </p>
                     </div>
-                    )}
                     {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
                         Les deux poignées jaunes bornent ce qui sera joué sur le
                         profil ; entre elles, le rose dit où en est l'écoute.
@@ -3664,10 +3646,10 @@ export default function BannerStudio({
                       />
                     </div>
                     {/* Version TV / complète : seulement pour un générique
-                        (la bande-annonce n'a que sa vidéo). « Complète »
-                        sans version connue ouvre directement le champ du
-                        lien. */}
-                    {tvUrl ? (
+                        dont la version complète est CONNUE (18/10/2026) ;
+                        sinon Fondu et volume restent seuls, centrés sur la
+                        hauteur de la carte. */}
+                    {tvUrl && fullId ? (
                       /* Même largeur que la ligne Fondu + volume : la colonne
                          étire les deux (`items-stretch`), le volume part au bord. */
                       <div className="flex h-7 shrink-0 items-center rounded-full bg-white/[0.07] p-0.5 ring-1 ring-white/[0.06]">
@@ -3678,9 +3660,7 @@ export default function BannerStudio({
                               key={String(full)}
                               type="button"
                               onClick={() => {
-                                if (on) return;
-                                if (full && !fullId) setYtLink("");
-                                else setSource(full);
+                                if (!on) setSource(full);
                               }}
                               aria-pressed={on}
                               title={full ? t("profile.studioMusicFull") : undefined}
@@ -3759,7 +3739,55 @@ export default function BannerStudio({
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
                     ne filtrerait rien. */}
-                {searchable ? (
+                {scope === "music" && ytLink !== null ? (
+                  /* Le lien YouTube prend la place de la recherche, le temps
+                     de le coller (18/10/2026). */
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      applyLink();
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                  >
+                    <LinkIcon className="h-5 w-5 shrink-0 text-white/45" />
+                    <input
+                      autoFocus
+                      value={ytLink}
+                      onChange={(e) => {
+                        setYtLink(e.target.value);
+                        setYtBad(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setYtLink(null);
+                        }
+                      }}
+                      placeholder={t("profile.studioMusicLinkPh")}
+                      aria-invalid={ytBad}
+                      className={`min-w-0 flex-1 bg-transparent font-karla text-[15px] outline-none placeholder:text-white/35 ${
+                        ytBad ? "text-red-300" : "text-white"
+                      }`}
+                    />
+                    <button
+                      type="submit"
+                      className="h-7 shrink-0 rounded-full bg-action px-3 font-karla text-[11px] font-bold text-white"
+                    >
+                      {t("profile.studioMusicLinkOk")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setYtLink(null);
+                        setYtBad(false);
+                      }}
+                      aria-label={t("profile.studioMusicLinkCancel")}
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:text-white"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                    </button>
+                  </form>
+                ) : searchable ? (
                   <>
                     <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-white/45" />
                     {/* Plus de pastille du menu (rose) avant le champ : la
@@ -3777,6 +3805,17 @@ export default function BannerStudio({
                       )}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
+                    {scope === "music" ? (
+                      <button
+                        type="button"
+                        onClick={() => setYtLink("")}
+                        title={t("profile.studioMusicLink")}
+                        className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-white/[0.06] pl-2.5 pr-3 font-karla text-[11px] font-bold text-white/80 ring-1 ring-white/10 transition-colors hover:text-white"
+                      >
+                        <LinkIcon className="h-3.5 w-3.5" />
+                        {t("profile.studioMusicLinkBtn")}
+                      </button>
+                    ) : null}
                     {/* Les réglages de la grille des cadres : le tri, et la
                         taille des cases (− = plus de cases par ligne, donc plus
                         petites ; + = moins de cases, plus grandes). */}
