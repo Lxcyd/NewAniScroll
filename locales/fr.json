@@ -1087,7 +1087,7 @@
     "studioWallListsN_one": "{{count}} liste",
     "studioWallListsN_other": "{{count}} listes",
     "studioKind_video": "Vidéo",
-    "studioKind_oped": "Intro / Outro",
+    "studioKind_oped": "Clips",
     "studioKind_clip": "Clip d'anime",
     "studioKind_upload": "Import perso",
     "studioKind_layout": "Agencement",

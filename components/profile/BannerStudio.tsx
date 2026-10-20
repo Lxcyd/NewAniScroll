@@ -3331,7 +3331,7 @@ export default function BannerStudio({
 
   /* Changer de FAMILLE de menu ramène les menus sur la barre : le lecteur
      posé dessus (musique, ou vidéo depuis le 21/10/2026) appartient à son
-     menu. Vidéo et Intro / Outro sont une seule famille, ils partagent la
+     menu. Vidéo et Clips sont une seule famille, ils partagent la
      carte. */
   const footGroup = scope === "music" ? "music" : scope === "video" || scope === "oped" ? "video" : null;
   useEffect(() => {
@@ -3410,7 +3410,7 @@ export default function BannerStudio({
     }
     const id = m[1];
     const oembed = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;
-    /* UNE VIDÉO DE FOND PAR LIEN (21/10/2026) : dans Vidéo et Intro / Outro,
+    /* UNE VIDÉO DE FOND PAR LIEN (21/10/2026) : dans Vidéo et Clips,
        le lien devient le fond, joué comme une bande-annonce (même lecteur
        YouTube, mêmes bornes). Son titre arrive par l'oEmbed. */
     if (scope !== "music") {
@@ -3709,7 +3709,7 @@ export default function BannerStudio({
               ? `EP${draft.episode.n}`
               : draft.trailerId
                 ? "TRL"
-                : t("profile.studioKind_oped")}
+                : "OP / ED"}
           </span>
         </div>
         <div className="mt-2 flex items-center gap-1.5">
@@ -4970,7 +4970,7 @@ export default function BannerStudio({
                         on
                           ? (scope as DressingKind)
                           : draft.kind && kinds.includes(draft.kind)
-                            ? /* Une bande-annonce se choisit dans Intro / Outro. */
+                            ? /* Une bande-annonce se choisit dans Clips. */
                               draft.trailerId && kinds.includes("oped")
                               ? "oped"
                               : draft.kind
