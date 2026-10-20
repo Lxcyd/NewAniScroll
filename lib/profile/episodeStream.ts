@@ -63,10 +63,14 @@ const ask = (aniId: number, n: number, server: string) => {
   });
 };
 
-/** Un lecteur sondé : `ok`, `absent` (verdict), ou `retry` après un second
-    essai — un hoquet ne l'écarte pas de l'anime. */
+/** Un lecteur sondé : `ok`, `absent` (verdict), ou `retry` après trois
+    essais — un hoquet ne l'écarte pas de l'anime. */
 async function probe(aniId: number, n: number, server: string): Promise<"ok" | "absent" | "retry"> {
-  for (let k = 0; k < 2; k++) {
+  /* Trois essais, à 1,5 s puis 4 s : Frembed rate parfois deux fois de suite
+     puis répond (21/10/2026). Les lecteurs déjà confirmés sont proposés
+     pendant ce temps (`onUpdate`), seul le petit rond tourne plus longtemps. */
+  const PAUSES = [1500, 4000];
+  for (let k = 0; k <= PAUSES.length; k++) {
     try {
       const out = await ask(aniId, n, server);
       if (out.kind === "ok") return playable(out.data) ? "ok" : "absent";
@@ -74,7 +78,7 @@ async function probe(aniId: number, n: number, server: string): Promise<"ok" | "
     } catch {
       /* réseau : comme un hoquet */
     }
-    if (k === 0) await new Promise((r) => setTimeout(r, 1500));
+    if (k < PAUSES.length) await new Promise((r) => setTimeout(r, PAUSES[k]));
   }
   return "retry";
 }
