@@ -1216,6 +1216,8 @@
     "studioMusicLinkBad": "This doesn't look like a YouTube video link.",
     "studioMusicLinkHint": "Paste a video link (youtube.com, youtu.be or shorts). It will play as your profile music.",
     "studioMusicLinkTitle": "Add a song from YouTube",
+    "studioVideoLinkTitle": "Add a YouTube video",
+    "studioVideoLinkHint": "Paste a video link (youtube.com, youtu.be or shorts). It will loop behind your profile, trimmable like a trailer.",
     "studioMusicLinkCancel": "Cancel",
     "studioMusicToBar": "Dock the player on the bar",
     "studioMusicFade": "Fade",

@@ -3409,6 +3409,34 @@ export default function BannerStudio({
       return;
     }
     const id = m[1];
+    const oembed = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;
+    /* UNE VIDÉO DE FOND PAR LIEN (21/10/2026) : dans Vidéo et Intro / Outro,
+       le lien devient le fond, joué comme une bande-annonce (même lecteur
+       YouTube, mêmes bornes). Son titre arrive par l'oEmbed. */
+    if (scope !== "music") {
+      patch({
+        kind: "video" as const,
+        url: null,
+        trailerId: id,
+        episode: null,
+        videoFrom: null,
+        videoTo: null,
+        color: null,
+        source: null,
+        animeId: null,
+        title: "YouTube",
+      });
+      void fetch(oembed)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((o: { title?: string } | null) => {
+          if (!o?.title) return;
+          setDraft((d) => (d.trailerId === id ? { ...d, title: o.title! } : d));
+        })
+        .catch(() => {});
+      setYtLink(null);
+      setYtBad(false);
+      return;
+    }
     patch({
       music: {
         url: "",
@@ -3993,7 +4021,7 @@ export default function BannerStudio({
                 {/* L'onglet Couleur n'a rien à chercher : ses couleurs tiennent
                     toutes à l'écran. Il porte donc son titre, pas un champ qui
                     ne filtrerait rien. */}
-                {scope === "music" && ytLink !== null ? (
+                {(scope === "music" || scope === "video" || scope === "oped") && ytLink !== null ? (
                   /* Le lien YouTube prend la place de la recherche, le temps
                      de le coller (18/10/2026). */
                   <form
@@ -4019,7 +4047,7 @@ export default function BannerStudio({
                         <ChevronLeftIcon className="h-4 w-4" strokeWidth={2.2} />
                       </button>
                       <h2 className="min-w-0 flex-1 truncate font-outfit text-[15px] font-bold text-white">
-                        {t("profile.studioMusicLinkTitle")}
+                        {t(scope === "music" ? "profile.studioMusicLinkTitle" : "profile.studioVideoLinkTitle")}
                       </h2>
                     </div>
                     <div
@@ -4056,7 +4084,7 @@ export default function BannerStudio({
                       </button>
                     </div>
                     <p className={`px-1 font-karla text-[11.5px] ${ytBad ? "text-red-300" : "text-white/40"}`}>
-                      {t(ytBad ? "profile.studioMusicLinkBad" : "profile.studioMusicLinkHint")}
+                      {t(ytBad ? "profile.studioMusicLinkBad" : scope === "music" ? "profile.studioMusicLinkHint" : "profile.studioVideoLinkHint")}
                     </p>
                   </form>
                 ) : searchable ? (
@@ -4077,7 +4105,7 @@ export default function BannerStudio({
                       )}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
                     />
-                    {scope === "music" ? (
+                    {scope === "music" || scope === "video" || scope === "oped" ? (
                       <button
                         type="button"
                         onClick={() => setYtLink("")}

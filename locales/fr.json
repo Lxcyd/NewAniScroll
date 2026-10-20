@@ -1216,6 +1216,8 @@
     "studioMusicLinkBad": "Ce lien ne ressemble pas à une vidéo YouTube.",
     "studioMusicLinkHint": "Colle le lien d'une vidéo (youtube.com, youtu.be ou shorts). Elle sera jouée comme musique du profil.",
     "studioMusicLinkTitle": "Ajouter une musique YouTube",
+    "studioVideoLinkTitle": "Ajouter une vidéo YouTube",
+    "studioVideoLinkHint": "Colle le lien d'une vidéo (youtube.com, youtu.be ou shorts). Elle tournera en fond du profil, découpable comme une bande-annonce.",
     "studioMusicLinkCancel": "Annuler",
     "studioMusicToBar": "Poser le lecteur sur la barre",
     "studioMusicFade": "Fondu",
