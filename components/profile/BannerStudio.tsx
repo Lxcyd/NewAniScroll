@@ -992,7 +992,7 @@ export default function BannerStudio({
   const vus = useRef(new Map<number, StudioAnime>());
   useEffect(() => {
     const q = query.trim();
-    if ((scope !== "image" && scope !== "banner" && scope !== "music") || fold(q).length < 3) {
+    if ((scope !== "image" && scope !== "banner" && scope !== "music" && scope !== "video") || fold(q).length < 3) {
       setFound([]);
       return;
     }
@@ -3238,28 +3238,14 @@ export default function BannerStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, scope, flat, cursor, onClose, openScope]);
 
-  /* La barre du bas bascule sur le rail de la vidéo dès qu'on en CHOISIT une :
-     les menus glissent hors du bandeau, une flèche à droite les rappelle. Le
-     choix seul déclenche la bascule — rouvrir le studio sur une vidéo déjà
-     portée laisse les menus en place. */
-  const videoKey =
-    draft.kind === "video" || isVideoKind(draft.kind)
-      ? draft.trailerId ||
-        draft.url ||
-        /* Un épisode aussi (20/10/2026) ; changer de LECTEUR ne rebascule pas. */
-        (draft.episode ? `ep:${draft.animeId}:${draft.episode.n}` : "")
-      : "";
-  const [barVideo, setBarVideo] = useState(false);
-  /* Un autre menu que Musique ramène les menus sur la barre. */
+  /* Changer de FAMILLE de menu ramène les menus sur la barre : le lecteur
+     posé dessus (musique, ou vidéo depuis le 21/10/2026) appartient à son
+     menu. Vidéo et Intro / Outro sont une seule famille, ils partagent la
+     carte. */
+  const footGroup = scope === "music" ? "music" : scope === "video" || scope === "oped" ? "video" : null;
   useEffect(() => {
-    if (scope && scope !== "music") setBarMusic(false);
-  }, [scope]);
-  const lastVideo = useRef(videoKey);
-  useEffect(() => {
-    if (videoKey && videoKey !== lastVideo.current) setBarVideo(true);
-    if (!videoKey) setBarVideo(false);
-    lastVideo.current = videoKey;
-  }, [videoKey]);
+    setBarMusic(false);
+  }, [footGroup]);
 
   if (!open) return null;
 
@@ -3553,9 +3539,14 @@ export default function BannerStudio({
 
       Il vit dans la BARRE DU BAS, sous le cadre où la vidéo tourne :
       choisir une vidéo y pousse les menus hors du bandeau (10/10). */
+  /* LA CARTE DE LA VIDÉO, SUR LE MODÈLE DE CELLE DE LA MUSIQUE (21/10/2026,
+     demande de Luc) : au pied du menu par défaut, posée sur la barre du bas à
+     la demande — même mécanique (`barMusic`), même dessin (`as-mf`) :
+     pochette-bouton, titre et rail à gauche, un filet, les réglages en
+     colonne à droite (Fondu, puis le lecteur d'un épisode). */
   const videoBar =
     (scope === "video" || scope === "oped") && videoDraft ? (
-    <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-2">
+    <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
       <button
         type="button"
         onClick={() =>
@@ -3576,16 +3567,21 @@ export default function BannerStudio({
         </span>
       </button>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-outfit text-[13px] font-bold text-white">
-          {draft.title || t("profile.artTrailer")}
-          <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+        {/* La puce HORS du titre tronqué : dedans, elle partait avec lui. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 truncate font-outfit text-[13px] font-bold text-white">
+            {draft.title || t("profile.artTrailer")}
+          </p>
+          <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
             {draft.episode
-              ? t("profile.studioEpisodeN", { n: draft.episode.n })
-              : t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
+              ? `EP${draft.episode.n}`
+              : draft.trailerId
+                ? "TRL"
+                : t("profile.studioKind_oped")}
           </span>
-        </p>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="w-9 shrink-0 text-right font-mono text-[10px] text-white/40">
+        </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="as-mf-time w-9 shrink-0 font-mono text-[10px] text-white/40">
             {clock(vAt)}
           </span>
           <TrimRail
@@ -3598,54 +3594,60 @@ export default function BannerStudio({
             onGrab={grabVTrim}
             t={t}
           />
-          <span className="w-9 shrink-0 font-mono text-[10px] text-white/40">
+          <span className="as-mf-time shrink-0 font-mono text-[10px] text-white/40">
             {clock(vLen)}
           </span>
-
-          {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont
-              CET épisode, avec leur langue entre crochets. */}
-          {draft.episode ? (
-            <ServerMenu
-              value={draft.episode.server}
-              ids={epServers?.key === `${draft.animeId}:${draft.episode.n}` ? epServers.ids : []}
-              done={epServers?.key === `${draft.animeId}:${draft.episode.n}` && epServers.done}
-              onPick={(server) => {
-                lastServer.current = server;
-                if (draft.episode) patch({ episode: { ...draft.episode, server } });
-              }}
-              t={t}
-            />
-          ) : null}
-          {/* Le fondu AU NOIR, à la reprise de la boucle. Même
-              bascule que celle de la musique, et même défaut d'une
-              seconde et demie une fois allumée — sauf qu'ici elle
-              naît allumée : un fond qui reboucle sous les yeux de
-              qui lit la page saute à chaque tour, et la coupe
-              franche y est la gêne plutôt que l'exception. */}
-          <button
-            type="button"
-            onClick={() =>
-              patch({
-                videoFade: clampFade(
-                  (draft.videoFade ?? 0) > 0 ? 0 : DEFAULT_VIDEO_FADE,
-                ),
-              })
-            }
-            aria-pressed={(draft.videoFade ?? 0) > 0}
-            title={t("profile.studioVideoFadeHint")}
-            className={`h-6 shrink-0 rounded-full px-2.5 font-karla text-[11px] font-bold uppercase tracking-[.06em] ring-1 transition-colors ${
-              (draft.videoFade ?? 0) > 0
-                ? "bg-action/20 text-white ring-action/50"
-                : "bg-white/[0.07] text-white/45 ring-white/[0.06] hover:text-white"
+        </div>
+      </div>
+      <span aria-hidden className="as-mf-sep w-px shrink-0 self-stretch bg-white/[0.08]" />
+      <div className="as-mf-set flex shrink-0 flex-col items-stretch justify-center gap-1.5">
+        {/* Le fondu AU NOIR, à la reprise de la boucle : la même bascule que
+            celle de la musique, sauf qu'ici elle naît allumée — un fond qui
+            reboucle sous les yeux de qui lit la page saute à chaque tour. */}
+        <button
+          type="button"
+          onClick={() =>
+            patch({
+              videoFade: clampFade((draft.videoFade ?? 0) > 0 ? 0 : DEFAULT_VIDEO_FADE),
+            })
+          }
+          role="switch"
+          aria-checked={(draft.videoFade ?? 0) > 0}
+          title={t("profile.studioVideoFadeHint")}
+          className={`flex h-6 shrink-0 items-center gap-1.5 font-karla text-[11px] font-bold transition-colors ${
+            (draft.videoFade ?? 0) > 0 ? "text-white" : "text-white/45 hover:text-white"
+          }`}
+        >
+          <span
+            className={`relative h-[15px] w-[26px] shrink-0 rounded-full transition-colors ${
+              (draft.videoFade ?? 0) > 0 ? "bg-action" : "bg-white/[0.16]"
             }`}
           >
-            {t("profile.studioMusicFade")}
-          </button>
-        </div>
+            <span
+              className={`absolute left-[2px] top-[2px] h-[11px] w-[11px] rounded-full bg-white transition-transform ${
+                (draft.videoFade ?? 0) > 0 ? "translate-x-[11px]" : ""
+              }`}
+            />
+          </span>
+          {t("profile.studioMusicFade")}
+        </button>
+        {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
+            épisode, avec leur langue entre crochets. */}
+        {draft.episode ? (
+          <ServerMenu
+            value={draft.episode.server}
+            ids={epServers?.key === `${draft.animeId}:${draft.episode.n}` ? epServers.ids : []}
+            done={epServers?.key === `${draft.animeId}:${draft.episode.n}` && epServers.done}
+            onPick={(server) => {
+              lastServer.current = server;
+              if (draft.episode) patch({ episode: { ...draft.episode, server } });
+            }}
+            t={t}
+          />
+        ) : null}
       </div>
     </div>
     ) : null;
-  const showVideo = barVideo && !!videoBar;
 
   /* Le lecteur de musique — pochette, titre, version, rail des bornes, fondu,
      volume. Le même au pied du menu Musique et posé sur la barre du bas. */
@@ -3821,7 +3823,11 @@ export default function BannerStudio({
                   </div>
     </div>
   ) : null;
-  const showMusic = barMusic && !!musicPlayer && !showVideo;
+  /* La carte du menu ouvert, au pied de la colonne ou sur la barre. La
+     vidéo n'envahit plus la barre d'office (21/10/2026, Luc) : comme la
+     musique, elle vit au pied du menu et se pose sur la barre à la demande. */
+  const footPlayer = scope === "music" ? musicPlayer : videoBar;
+  const showMusic = barMusic && !!footPlayer;
 
   return (
     <>
@@ -4195,7 +4201,7 @@ export default function BannerStudio({
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
                 /* La place du lecteur de musique posé par-dessus le bas. */
-                style={scope === "music" && draft.music && footSpace && !barMusic ? { marginBottom: footH } : undefined}
+                style={footPlayer && footSpace && !barMusic ? { marginBottom: footH } : undefined}
               >
                 {loading && flat.length === 0 ? (
                   <div className="space-y-1.5 p-1">
@@ -4529,7 +4535,7 @@ export default function BannerStudio({
                  pas de hauteur qui se referme (demande de Luc, 16/10/2026).
                  Fond opaque, sinon la liste se lirait à travers. La marge du
                  bas de la liste (`footH`) n'existe que tant qu'il est là. */}
-              {scope === "music" && draft.music ? (
+              {footPlayer ? (
                 <div
                   aria-hidden={barMusic}
                   ref={(el) => {
@@ -4549,7 +4555,7 @@ export default function BannerStudio({
                     barMusic ? "pointer-events-none translate-x-[110%]" : "translate-x-0"
                   }`}
                 >
-                  {musicPlayer}
+                  {footPlayer}
                   {/* La flèche de droite pose ce lecteur SUR la barre du bas,
                       à la place des menus (comme le rail de la vidéo) : on
                       écoute et on règle les bornes en regardant le profil. */}
@@ -4777,26 +4783,6 @@ export default function BannerStudio({
           {/* Hauteur imposée par la scène (BOTTOM_BAR) : le bas du bandeau tombe
               au même niveau que le bas de la colonne de gauche (22 px). */}
           <div className="pointer-events-auto relative h-full w-full overflow-hidden rounded-2xl bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.5)] ring-1 ring-white/10">
-          {/* Le rail de la vidéo entre par la gauche pendant que les menus
-              sortent par la droite ; il ne reste d'eux que la flèche. */}
-          <div
-            aria-hidden={!showVideo}
-            className={`absolute inset-0 flex items-stretch transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showVideo ? "translate-x-0" : "pointer-events-none -translate-x-full"
-            }`}
-          >
-            {videoBar}
-            <button
-              type="button"
-              onClick={() => setBarVideo(false)}
-              tabIndex={showVideo ? 0 : -1}
-              title={t("profile.studioShowMenus")}
-              aria-label={t("profile.studioShowMenus")}
-              className="grid w-12 shrink-0 place-items-center border-l border-white/[0.08] text-white/55 transition-colors hover:bg-white/[0.06] hover:text-white"
-            >
-              <ChevronLeftIcon className="h-5 w-5" strokeWidth={2} />
-            </button>
-          </div>
           <div
             ref={barLayerEl}
             aria-hidden={!showMusic}
@@ -4807,7 +4793,7 @@ export default function BannerStudio({
           >
             <div className="flex h-full min-w-0 flex-1 select-none items-center gap-3 pl-4 pr-4">
               {/* Rendu aussi pendant qu'il glisse vers la sortie. */}
-              {barMusic || barMusicMounted ? musicPlayer : null}
+              {barMusic || barMusicMounted ? footPlayer : null}
             </div>
             <button
               type="button"
@@ -4822,9 +4808,9 @@ export default function BannerStudio({
           </div>
           <div
             ref={menusEl}
-            aria-hidden={showVideo || showMusic}
+            aria-hidden={showMusic}
             className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
-              showVideo || showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
+              showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
             }`}
           >
             <SceneBox
@@ -4845,19 +4831,16 @@ export default function BannerStudio({
                     key={id}
                     type="button"
                     onClick={() => {
-                      /* Rappuyer sur le fond vidéo ouvert ramène son rail. */
-                      if (on && videoBar) setBarVideo(true);
                       /* Le groupe s'ouvre sur l'onglet du fond porté s'il en
                          fait partie, sinon sur le premier ; ouvert, il revient
                          à la liste de son onglet. */
-                      else
-                        openScope(
-                          on
-                            ? (scope as DressingKind)
-                            : draft.kind && kinds.includes(draft.kind)
-                              ? draft.kind
-                              : id,
-                        );
+                      openScope(
+                        on
+                          ? (scope as DressingKind)
+                          : draft.kind && kinds.includes(draft.kind)
+                            ? draft.kind
+                            : id,
+                      );
                     }}
                     title={t(`profile.studioKind_${id}`)}
                     aria-label={t(`profile.studioKind_${id}`)}
