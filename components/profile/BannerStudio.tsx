@@ -33,6 +33,7 @@ function dockEase(x: number): number {
   return by((lo + hi) / 2);
 }
 import { useTranslation } from "react-i18next";
+import { createPortal } from "react-dom";
 import {
   AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
@@ -1121,6 +1122,17 @@ export default function BannerStudio({
   useEffect(() => {
     if (scope === "video" && pick != null) loadEpisodes(pick);
   }, [scope, pick, loadEpisodes]);
+  /* Au survol, après 150 ms seulement, comme les illustrations : balayer la
+     liste du pointeur ne doit pas coûter une invocation par ligne traversée
+     (quota Fluid, 21/10/2026). */
+  const epSurvol = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverEpisodes = useCallback(
+    (id: number | null) => {
+      if (epSurvol.current) clearTimeout(epSurvol.current);
+      epSurvol.current = id == null ? null : setTimeout(() => loadEpisodes(id), 150);
+    },
+    [loadEpisodes],
+  );
 
   /* Les lecteurs qui ont l'épisode choisi, pour le menu de la barre. Le lecteur
      posé au clic n'est qu'une supposition (le dernier choisi) : s'il n'a pas
@@ -2652,9 +2664,7 @@ export default function BannerStudio({
           thumb: a.cover ?? null,
           cover: true,
           selected: draft.kind === "video" && draft.animeId === a.mediaId && (!!draft.trailerId || !!draft.episode),
-          hover: (on) => {
-            if (on) loadEpisodes(a.mediaId);
-          },
+          hover: (on) => hoverEpisodes(on ? a.mediaId : null),
           expand: false,
           run: () => {
             holdAnchor(`anime-video-${a.mediaId}`);
@@ -3123,7 +3133,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, loadEpisodes]);
+      entries, baseTick, epTick, hoverEpisodes]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -5988,8 +5998,9 @@ function Suite({
 /**
  * LE LECTEUR D'UN ÉPISODE EN FOND (20/10/2026). Seuls les lecteurs qui ont
  * l'épisode sont proposés, chacun avec sa langue entre crochets
- * (« Ansembed [VOSTFR] »). La liste s'ouvre VERS LE HAUT et en position fixe :
- * la barre du bas la rognerait sinon.
+ * (« Ansembed [VOSTFR] »). La liste s'ouvre VERS LE HAUT, rendue dans <body> :
+ * la barre du bas glisse par `transform`, et un ancêtre transformé devient le
+ * repère d'une position fixe — la liste partait hors de l'écran (21/10/2026).
  */
 function ServerMenu({
   value,
@@ -6049,7 +6060,8 @@ function ServerMenu({
           <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${box ? "" : "rotate-180"}`} />
         ) : null}
       </button>
-      {box && has ? (
+      {box && has
+        ? createPortal(
         <ul
           ref={list}
           role="listbox"
@@ -6076,8 +6088,10 @@ function ServerMenu({
               </button>
             </li>
           ))}
-        </ul>
-      ) : null}
+        </ul>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

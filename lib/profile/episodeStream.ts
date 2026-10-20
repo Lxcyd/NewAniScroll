@@ -82,6 +82,14 @@ export function fetchEpisodes(aniId: number): Promise<StudioEpisode[]> {
  * `failed` dit les lecteurs écartés, pour remplacer sans attendre la fin un
  * lecteur supposé qui n'a pas l'épisode.
  */
+/* LES LECTEURS D'UN ANIME, appris au premier épisode sondé (21/10/2026,
+   quota Fluid). Un hôte qui a un épisode d'une série a presque toujours les
+   autres, et un hôte qui ne l'a pas n'a presque jamais le suivant : passer
+   d'un épisode à l'autre ne sonde plus que les lecteurs déjà vus vivants —
+   deux ou trois appels à /api/v2/source au lieu de sept, et plus de lecture de
+   l'instantané. Tant de cette session seulement. */
+const hostsOf = new Map<number, Set<string>>();
+
 export async function availableServers(
   aniId: number,
   n: number,
@@ -94,6 +102,25 @@ export async function availableServers(
     if (!signal?.aborted)
       onUpdate(LISTED.filter((s) => ok.has(s.id)).map((s) => s.id), new Set(failed), done);
   };
+  const known = hostsOf.get(aniId);
+  if (known?.size) {
+    for (const s of LISTED) if (!known.has(s.id)) failed.add(s.id);
+    await Promise.all(
+      [...known].map(async (id) => {
+        try {
+          const out = await ask(aniId, n, id);
+          if (out.kind === "ok" && playable(out.data)) ok.add(id);
+          else failed.add(id);
+        } catch {
+          failed.add(id);
+        }
+        emit(false);
+      }),
+    );
+    /* Aucun des lecteurs connus n'a CET épisode : on sonde tout, une fois. */
+    if (ok.size || signal?.aborted) return emit(true);
+    failed.clear();
+  }
   await Promise.all(
     (["sub", "dub"] as const).map(async (sub) => {
       try {
@@ -121,6 +148,7 @@ export async function availableServers(
       emit(false);
     }),
   );
+  if (ok.size && !signal?.aborted) hostsOf.set(aniId, new Set(ok));
   emit(true);
 }
 
