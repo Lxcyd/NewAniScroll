@@ -10,9 +10,9 @@ Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
 Le menu Vidéo passe en accordéon comme Image : un anime ouvert déplie sa bande-annonce puis tous ses épisodes (/api/v2/episode). Un épisode choisi se découpe au rail de la barre, et un menu Lecteur ne propose que les lecteurs qui ont l'épisode, langue entre crochets ([VOSTFR], [VF], [MULTI]).
 
-RIEN N'EST STOCKÉ EN URL : un flux d'épisode est un HLS signé qui expire en 1-4 h, et celui de Vidmoly/Ansembed ne vaut que pour l'IP qui l'a obtenu. Le profil garde  +  (), et chaque visiteur résout le flux au chargement ( : , extraction navigateur pour Vidmoly/Ansembed), lu par hls.js dans , muet.
+RIEN N'EST STOCKÉ EN URL : un flux d'épisode est un HLS signé qui expire en 1-4 h, et celui de Vidmoly/Ansembed ne vaut que pour l'IP qui l'a obtenu. Le profil garde `episode: {n, server}` + `animeId` (`lib/profile/dressing.ts`), et chaque visiteur résout le flux au chargement (`lib/profile/episodeStream.ts` : `/api/v2/source`, extraction navigateur pour Vidmoly/Ansembed), lu par hls.js dans `PlateBackground`, muet.
 
-Coût accepté par Luc : 1 appel  par visite d'un profil à épisode, ~27 ms de Fluid CPU (mesure du 22/09) — ~5,6 % des 4 h à 1 000 visites/jour. Vérifié en local : Frieren ép. 1, Frembed (direct) et Megaplay (proxy) lus par hls.js, saut au début de l'extrait compris.
+Coût accepté par Luc : 1 appel `/api/v2/source` par visite d'un profil à épisode, ~27 ms de Fluid CPU (mesure du 22/09) — ~5,6 % des 4 h à 1 000 visites/jour. Vérifié en local : Frieren ép. 1, Frembed (direct) et Megaplay (proxy) lus par hls.js, saut au début de l'extrait compris.
 
 ## 2026-10-17 — Case musique du profil : petit carré, égaliseur
 
