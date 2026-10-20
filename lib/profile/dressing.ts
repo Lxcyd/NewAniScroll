@@ -160,6 +160,8 @@ export function isHeroLayout(v: unknown): v is HeroLayout {
   return typeof v === "string" && (HERO_LAYOUTS as string[]).includes(v);
 }
 
+export type DressingEpisode = { n: number; server: string };
+
 export type Dressing = {
   kind: DressingKind;
   /** Image ou vidéo de fond. `null` pour un fond de couleur. */
@@ -189,6 +191,13 @@ export type Dressing = {
    * la licence. La liste blanche d'hôtes de `url` reste donc ce qu'elle est.
    */
   trailerId: string | null;
+  /**
+   * UN ÉPISODE porté en fond (kind « video », 20/10/2026) : son numéro et le
+   * lecteur choisi (id de lib/servers.js), l'anime étant `animeId`. Pas d'URL :
+   * le flux d'un épisode expire et ne vaut parfois que pour une IP, chaque
+   * visiteur le retrouve donc au chargement (lib/profile/episodeStream.ts).
+   */
+  episode: DressingEpisode | null;
   /**
    * Les bornes du FOND VIDÉO, en secondes — bande-annonce comme générique.
    * Mêmes règles que celles de la musique (`DressingMusic.from`), et pour la
@@ -347,9 +356,18 @@ export function isAllowedMediaUrl(url: unknown): url is string {
  * le studio retombait sur la plaque automatique au lieu du mur choisi.
  */
 export function hasOwnPlate(
-  d: Pick<Dressing, "url" | "color" | "trailerId" | "kind"> | null | undefined,
+  d: (Pick<Dressing, "url" | "color" | "trailerId" | "kind"> & { episode?: DressingEpisode | null }) | null | undefined,
 ): boolean {
-  return !!d && !!(d.url || d.color || d.trailerId || d.kind === "wall");
+  return !!d && !!(d.url || d.color || d.trailerId || d.episode || d.kind === "wall");
+}
+
+/** Un épisode stocké, relu à la FORME : son lecteur part dans une URL d'API. */
+function episodeOf(raw: any): DressingEpisode | null {
+  const n = Number(raw?.n);
+  const server = typeof raw?.server === "string" ? raw.server : "";
+  return Number.isInteger(n) && n > 0 && n < 10000 && /^[a-z0-9-]{1,40}$/.test(server)
+    ? { n, server }
+    : null;
 }
 
 export function isVideoKind(kind: DressingKind | null | undefined): boolean {
@@ -463,7 +481,11 @@ export function normalizeDressing(raw: unknown): Dressing | null {
      elle dans ce garde-fou, tout l'habillage — musique et agencement compris —
      serait jeté à la relecture d'un profil qui porte un trailer. */
   const trailerId = youtubeId(obj.trailerId);
-  if (!url && !color && !trailerId && kind !== "wall") return null;
+  const animeId = Number(obj.animeId);
+  const animeOk = Number.isFinite(animeId) && animeId > 0;
+  /* Un épisode n'a de sens qu'avec son anime, et seulement en fond vidéo. */
+  const episode = kind === "video" && !trailerId && animeOk ? episodeOf(obj.episode) : null;
+  if (!url && !color && !trailerId && !episode && kind !== "wall") return null;
 
   const rawMusic = obj.music;
   const musicUrl = rawMusic ? str(rawMusic.url, 500) : null;
@@ -484,13 +506,12 @@ export function normalizeDressing(raw: unknown): Dressing | null {
       }
     : null;
 
-  const animeId = Number(obj.animeId);
   /* Les bornes ne se gardent qu'avec la vidéo qu'elles découpent : sinon un
      fond changé pour une image laisserait derrière lui un extrait qui
      réapparaîtrait à la prochaine vidéo choisie.
      `trailerFrom`/`trailerTo` sont l'orthographe des tout premiers profils
      découpés (08/09/2026), quand seule la bande-annonce l'était. */
-  const hasVideo = isVideoKind(kind) && (!!url || !!trailerId);
+  const hasVideo = isVideoKind(kind) && (!!url || !!trailerId || !!episode);
   const videoTrim = hasVideo
     ? trim(obj.videoFrom ?? obj.trailerFrom, obj.videoTo ?? obj.trailerTo)
     : { from: null, to: null };
@@ -503,10 +524,11 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     patternZoom: clampPatternZoom(obj.patternZoom),
     patternAnim: obj.patternAnim === true,
     patternSpeed: clampPatternSpeed(obj.patternSpeed),
-    animeId: Number.isFinite(animeId) && animeId > 0 ? animeId : null,
+    animeId: animeOk ? animeId : null,
     title: str(obj.title, 300),
     source: SOURCES.has(obj.source) ? obj.source : null,
     trailerId: kind === "video" ? trailerId : null,
+    episode,
     videoFrom: videoTrim.from,
     videoTo: videoTrim.to,
     /* Le fondu vaut une seconde tant que personne ne l'a réglé — un `0` écrit,
@@ -544,6 +566,7 @@ export function emptyDressing(): Dressing {
     title: null,
     source: null,
     trailerId: null,
+    episode: null,
     videoFrom: null,
     videoTo: null,
     videoFade: DEFAULT_VIDEO_FADE,

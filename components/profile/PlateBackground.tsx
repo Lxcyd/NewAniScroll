@@ -1,6 +1,7 @@
 import Image from "next/image";
-import { useEffect, useRef, type CSSProperties, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { resolveEpisodeStream, type EpisodeStream } from "@/lib/profile/episodeStream";
 import { defaultWall } from "@/lib/profile/wall";
 import AnimeWall from "@/components/profile/AnimeWall";
 import {
@@ -104,6 +105,9 @@ type Props = {
   dressing: Pick<Dressing, "kind" | "url" | "color"> & {
     source?: Dressing["source"];
     trailerId?: Dressing["trailerId"];
+    /** Un épisode en fond, et son anime (lib/profile/episodeStream). */
+    episode?: Dressing["episode"];
+    animeId?: Dressing["animeId"];
     videoFrom?: Dressing["videoFrom"];
     videoTo?: Dressing["videoTo"];
     videoFade?: Dressing["videoFade"];
@@ -197,15 +201,68 @@ export default function PlateBackground({
      lecture ne réessaie pas tout seul. On le repose sur l'élément, puis on
      relance — un échec (autoplay refusé) n'a rien à corriger ici, le bouton du
      profil s'en charge. */
+  /* ── Un épisode en fond (20/10/2026) ─────────────────────────────────────
+     Son flux se retrouve à chaque chargement (il expire, et ne vaut parfois
+     que pour l'IP du visiteur), puis se lit par hls.js — un `<video>` de
+     Chrome ou Firefox ne lit pas le HLS seul. Muet comme la bande-annonce :
+     c'est la musique du profil qui a le droit de parler. */
+  const episode = dressing.kind === "video" && !dressing.trailerId ? dressing.episode ?? null : null;
+  const epKey = episode && dressing.animeId ? `${dressing.animeId}:${episode.n}:${episode.server}` : null;
+  const [epStream, setEpStream] = useState<{ key: string; s: EpisodeStream | null } | null>(null);
+  useEffect(() => {
+    if (!epKey || !episode || !dressing.animeId) return;
+    const ac = new AbortController();
+    let got: EpisodeStream | null = null;
+    resolveEpisodeStream(dressing.animeId, episode, ac.signal)
+      .catch(() => null)
+      .then((s) => {
+        got = s;
+        if (ac.signal.aborted) s?.revoke?.();
+        else setEpStream({ key: epKey, s });
+      });
+    return () => {
+      ac.abort();
+      got?.revoke?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `epKey` résume l'épisode
+  }, [epKey]);
+  const ep = epKey && epStream?.key === epKey ? epStream.s : null;
+  const src = dressing.url ?? ep?.url ?? null;
+
+  useEffect(() => {
+    const el = video.current;
+    if (!el || !ep?.hls) return;
+    let hls: { destroy: () => void } | null = null;
+    let dead = false;
+    void import("hls.js").then(({ default: Hls }) => {
+      if (dead) return;
+      if (Hls.isSupported()) {
+        const h = new Hls({
+          /* Un fond n'a pas besoin de plus que sa taille à l'écran. */
+          capLevelToPlayerSize: true,
+          startPosition: bounds.current.from || -1,
+        });
+        h.loadSource(ep.url);
+        h.attachMedia(el);
+        hls = h;
+      } else el.src = ep.url; /* Safari lit le HLS lui-même */
+      void el.play().catch(() => {});
+    });
+    return () => {
+      dead = true;
+      hls?.destroy();
+    };
+  }, [ep]);
+
   useEffect(() => {
     const el = video.current;
     if (!el) return;
-    el.muted = !unmuted;
+    el.muted = !unmuted || !!episode;
     void el.play().catch(() => {});
-  }, [unmuted, dressing.url]);
+  }, [unmuted, src, !!episode]);
   useEffect(() => {
     if (video.current) video.current.volume = Math.min(1, Math.max(0, volume));
-  }, [volume, dressing.url]);
+  }, [volume, src]);
 
   /* ── L'extrait de la bande-annonce ───────────────────────────────────────
      La boucle est tenue ICI, à la main, et non par les paramètres `start` et
@@ -317,7 +374,7 @@ export default function PlateBackground({
      Le voile est écrit directement sur le nœud. C'est le même raisonnement que
      la boucle du studio : passer par un état React ferait rendre la page
      soixante fois par seconde pour animer une seule valeur. */
-  const fileVideo = !trailerId && !!dressing.url && isVideoKind(dressing.kind);
+  const fileVideo = !trailerId && !!src && isVideoKind(dressing.kind);
   useEffect(() => {
     if (!trailerId && !fileVideo) return;
     let raf = 0;
@@ -371,7 +428,7 @@ export default function PlateBackground({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [trailerId, fileVideo, dressing.url]);
+  }, [trailerId, fileVideo, src]);
 
   /* Un fichier vidéo se pilote directement : pas de messages, pas d'attente. */
   useEffect(() => {
@@ -505,14 +562,17 @@ export default function PlateBackground({
     );
   }
 
-  if (!dressing.url) return null;
+  /* Un épisode dont le flux se cherche encore, ou qu'aucun lecteur ne sert :
+     un fond noir plutôt que rien, la page derrière ne doit pas percer. */
+  if (!src) return episode ? <div className="absolute inset-0 bg-black" /> : null;
 
   if (isVideoKind(dressing.kind)) {
     return (
       <div className="absolute inset-0 overflow-hidden">
         <video
           ref={video}
-          src={dressing.url}
+          /* Un HLS est attaché par hls.js, pas par l'attribut. */
+          src={ep?.hls ? undefined : src}
           autoPlay
           loop
           playsInline
@@ -544,7 +604,7 @@ export default function PlateBackground({
         />
       )}
       <Image
-        src={dressing.url}
+        src={src}
         alt=""
         fill
         priority={priority}

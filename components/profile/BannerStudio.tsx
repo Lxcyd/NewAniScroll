@@ -71,6 +71,8 @@ import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import MusicCard from "@/components/profile/MusicCard";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
+import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
+import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
@@ -1100,6 +1102,55 @@ export default function BannerStudio({
         : animes.find((a) => a.mediaId === pick) ?? (pick != null ? vus.current.get(pick) : undefined)) ?? null
     : currentAnime;
   const listedAnimeId = twoScreens ? pick : listedAnime?.mediaId ?? animeId;
+
+  /* ── Les épisodes du menu Vidéo (20/10/2026) ─────────────────────────────
+     L'anime ouvert déplie ses épisodes sous sa ligne, comme Image ses
+     illustrations. `null` en cache = la route a échoué. */
+  const epCache = useRef(new Map<number, StudioEpisode[] | null>());
+  const [epTick, setEpTick] = useState(0);
+  useEffect(() => {
+    if (scope !== "video" || pick == null || epCache.current.has(pick)) return;
+    const id = pick;
+    const ac = new AbortController();
+    fetchEpisodes(id, ac.signal)
+      .then((list) => epCache.current.set(id, list))
+      .catch(() => {
+        if (!ac.signal.aborted) epCache.current.set(id, null);
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setEpTick((n) => n + 1);
+      });
+    return () => ac.abort();
+  }, [scope, pick]);
+
+  /* Les lecteurs qui ont l'épisode choisi, pour le menu de la barre. Le lecteur
+     posé au clic n'est qu'une supposition (le dernier choisi) : s'il n'a pas
+     l'épisode, le premier lecteur disponible le remplace. */
+  const lastServer = useRef<string>(DEFAULT_SERVER_ID);
+  const [epServers, setEpServers] = useState<{ key: string; ids: string[] | null } | null>(null);
+  const epAnime = draft.kind === "video" && draft.episode ? draft.animeId : null;
+  const epN = epAnime != null ? draft.episode?.n ?? null : null;
+  useEffect(() => {
+    if (epAnime == null || epN == null) return;
+    const key = `${epAnime}:${epN}`;
+    const ac = new AbortController();
+    setEpServers({ key, ids: null });
+    availableServers(epAnime, epN, ac.signal)
+      .then((ids) => {
+        if (ac.signal.aborted) return;
+        setEpServers({ key, ids });
+        setDraft((d) => {
+          const e = d.episode;
+          if (!e || d.animeId !== epAnime || e.n !== epN || !ids.length || ids.includes(e.server)) return d;
+          const server = ids.includes(lastServer.current) ? lastServer.current : ids[0];
+          return { ...d, episode: { ...e, server } };
+        });
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) setEpServers({ key, ids: [] });
+      });
+    return () => ac.abort();
+  }, [epAnime, epN]);
 
   /* TOUTE la galerie de l'anime ouvert, et pas seulement les formats larges :
      ce sont les deux memes points d'entree que l'onglet Illustrations de la
@@ -2565,113 +2616,166 @@ export default function BannerStudio({
         );
     }
 
-    /* ── Les bandes-annonces ──────────────────────────────────────────────
-       Elles arrivent avec la liste (une ligne de plus dans la requête AniList
-       déjà faite), donc cette section ne coûte aucune requête non plus. Tous
-       les titres qui en ont une sont proposés — c'est la seule source de fond
-       animé qui existe aujourd'hui pour n'importe quel anime, là où les
-       génériques dépendent de la couverture d'AnimeThemes. */
     if (scope === "video") {
-      /* DEUX ÉCRANS, et c'est délibéré : on choisit d'abord un ANIME, puis une
-         de ses vidéos. Le raccourci — une ligne par anime qui applique
-         directement sa bande-annonce — ne tenait que tant qu'il n'y avait
-         qu'une vidéo par titre ; il n'aurait plus de place le jour où un titre
-         en a deux, et il ne laissait pas atteindre les saisons absentes de la
-         liste, que le sélecteur de saison de l'écran suivant, lui, atteint. */
-      if (pick == null) {
-        const rows = animes
-          .filter((a) => a.trailer && match(a.title))
-          .map((a) => ({
-            key: `anime-video-${a.mediaId}`,
-            label: a.title,
-            hint: t("profile.studioSeeVideos"),
-            thumb: a.cover ?? null,
-            selected: draft.animeId === a.mediaId && !!draft.trailerId,
-            run: () => {
-              setPick(a.mediaId);
-              setQuery("");
-              setCursor(0);
-            },
-          }));
-        /* Une liste locale ne porte pas de bandes-annonces : elle n'a jamais vu
-           AniList. Le dire vaut mieux qu'un panneau vide, qui se lit comme une
-           panne. */
-        out.push({
-          title: t("profile.studioTrailers"),
-          rows: rows.length
-            ? rows
-            : [
-                {
-                  key: "no-trailer",
-                  label: t("profile.studioNoTrailer"),
-                  hint: t("profile.studioNoTrailerHint"),
-                  icon: FilmIcon,
-                  disabled: true,
-                },
-              ],
-        });
-      } else {
+      /* EN ACCORDÉON, COMME IMAGE (20/10/2026, demande de Luc) : la liste des
+         animés reste à l'écran, celui qu'on ouvre déplie sous sa ligne sa
+         bande-annonce puis TOUS ses épisodes. Choisir un épisode le pose en
+         fond ; ses bornes se règlent ensuite au rail de la barre, et son
+         lecteur au menu qui l'accompagne. Il n'y avait avant que la
+         bande-annonce, sur deux écrans. */
+      const ouvert = pick == null ? null : artRoot ?? pick;
+      const dansListe = new Set(animes.map((a) => a.mediaId));
+      const tous = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+      const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
+      const ouvertAilleurs =
+        ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
+          ? vus.current.get(ouvert)
+          : undefined;
+      tous.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
+      const ligne = (a: StudioAnime): Row => {
+        const eps = epCache.current.get(a.mediaId);
+        const n = eps ? eps.length + (a.trailer ? 1 : 0) : null;
+        return {
+          key: `anime-video-${a.mediaId}`,
+          label: a.title,
+          hint:
+            n != null
+              ? t("profile.studioVideoCount", { count: n })
+              : dansListe.has(a.mediaId)
+                ? t("profile.studioSeeVideos")
+                : t("profile.studioNotInList"),
+          thumb: a.cover ?? null,
+          cover: true,
+          selected: draft.kind === "video" && draft.animeId === a.mediaId && (!!draft.trailerId || !!draft.episode),
+          expand: false,
+          run: () => {
+            holdAnchor(`anime-video-${a.mediaId}`);
+            setPick(a.mediaId);
+            setArtRoot(a.mediaId);
+            setCursor(0);
+          },
+        };
+      };
+      const at = ouvert == null ? -1 : tous.findIndex((a) => a.mediaId === ouvert);
+      const gal: Section[] = [];
+      if (pick != null) {
         const picked = listedAnime;
         const trailer = picked?.trailer ?? null;
-        const rows: Row[] = [
-          {
-            key: "video-back",
-            label: t("profile.studioAllAnimes"),
-            icon: ArrowUturnLeftIcon,
-            run: () => {
-              setPick(null);
-              setQuery("");
-              setCursor(0);
-            },
-          },
-        ];
-        rows.push(
-          trailer
-            ? {
-                key: `trailer-${trailer}`,
-                label: t("profile.artTrailer"),
-                hint: picked?.title ?? null,
-                icon: FilmIcon,
-                selected: draft.trailerId === trailer,
-                run: () =>
-                  patch({
-                    kind: "video" as const,
-                    /* Pas d'`url` : une bande-annonce se joue par son lecteur
-                       YouTube, jamais comme un fichier (cf. `trailerId`). */
-                    url: null,
-                    trailerId: trailer,
-                    /* Une vidéo qu'on vient de choisir est entière : le
-                       découpage se fait ensuite, aux poignées — et les bornes
-                       de la précédente n'ont aucun sens sur celle-ci. */
-                    videoFrom: null,
-                    videoTo: null,
-                    color: null,
-                    source: null,
-                    animeId: picked?.mediaId ?? null,
-                    title: picked?.title ?? null,
-                  }),
-              }
-            : {
+        const eps = epCache.current.get(pick);
+        gal.push({
+          title: "",
+          rows: [],
+          node: (
+            <AnimeHead
+              anime={picked}
+              count={(eps?.length ?? 0) + (trailer ? 1 : 0)}
+              countKey="profile.studioVideoCount"
+              anchor={`anime-video-${ouvert}`}
+              onClose={() => {
+                holdAnchor(`anime-video-${ouvert}`);
+                setPick(null);
+                setCursor(0);
+              }}
+              t={t}
+            />
+          ),
+        });
+        const rows: Row[] = [];
+        if (trailer)
+          rows.push({
+            key: `trailer-${trailer}`,
+            label: t("profile.artTrailer"),
+            /* TRL en vert, comme dans le menu Musique. */
+            chip: { text: "TRL", op: false, color: "#4ade80" },
+            hint: picked?.title ?? null,
+            thumb: `https://i.ytimg.com/vi/${trailer}/mqdefault.jpg`,
+            selected: draft.trailerId === trailer,
+            run: () =>
+              patch({
+                kind: "video" as const,
+                /* Pas d'`url` : une bande-annonce se joue par son lecteur
+                   YouTube, jamais comme un fichier (cf. `trailerId`). */
+                url: null,
+                trailerId: trailer,
+                episode: null,
+                /* Une vidéo qu'on vient de choisir est entière : le découpage
+                   se fait ensuite, aux poignées. */
+                videoFrom: null,
+                videoTo: null,
+                color: null,
+                source: null,
+                animeId: picked?.mediaId ?? null,
+                title: picked?.title ?? null,
+              }),
+          });
+        for (const e of eps ?? [])
+          rows.push({
+            key: `episode-${pick}-${e.n}`,
+            label: e.title || t("profile.studioEpisodeN", { n: e.n }),
+            chip: { text: `EP${e.n}`, op: false },
+            hint: e.title ? t("profile.studioEpisodeN", { n: e.n }) : null,
+            thumb: e.img ?? picked?.cover ?? null,
+            square: false,
+            selected: draft.animeId === pick && draft.episode?.n === e.n,
+            run: () =>
+              patch({
+                kind: "video" as const,
+                url: null,
+                trailerId: null,
+                /* Le dernier lecteur choisi, en supposition : l'effet des
+                   lecteurs le corrige s'il n'a pas cet épisode. */
+                episode: { n: e.n, server: lastServer.current },
+                videoFrom: null,
+                videoTo: null,
+                color: null,
+                source: null,
+                animeId: picked?.mediaId ?? pick,
+                title: picked?.title ?? null,
+              }),
+          });
+        if (rows.length) gal.push({ title: "", rows });
+        if (eps === undefined)
+          /* Les épisodes sont en route : des lignes qui attendent. */
+          gal.push({
+            title: "",
+            rows: [],
+            node: (
+              <div aria-hidden>
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+                    <div className="h-10 w-16 shrink-0 animate-pulse rounded-md bg-white/[0.06]" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 w-2/5 animate-pulse rounded bg-white/[0.06]" />
+                      <div className="h-2.5 w-1/4 animate-pulse rounded bg-white/[0.04]" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ),
+          });
+        else if (!rows.length)
+          gal.push({
+            title: "",
+            rows: [
+              {
                 key: "no-video",
                 label: t("profile.studioNoVideoHere"),
                 hint: t("profile.studioNoVideoHereHint"),
                 icon: FilmIcon,
                 disabled: true,
               },
-        );
-        out.push({
-          title: "",
-          node: (
-            <AnimeHead
-              anime={picked}
-              count={trailer ? 1 : 0}
-              countKey="profile.studioVideoCount"
-              t={t}
-            />
-          ),
-          rows,
-        });
+            ],
+          });
       }
+      for (const s of gal) s.panel = true;
+      const titre = t("profile.studioTrailers");
+      if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
+      else
+        out.push(
+          { title: titre, rows: tous.slice(0, at).map(ligne) },
+          ...gal,
+          { title: "", rows: tous.slice(at + 1).map(ligne) },
+        );
     }
 
     if (scope === "oped" || scope === "music") {
@@ -3011,7 +3115,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick]);
+      entries, baseTick, epTick]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3272,7 +3376,8 @@ export default function BannerStudio({
      bande-annonce YouTube et le générique d'AnimeThemes. La durée ne vient pas
      de nous mais du lecteur — tant qu'il n'a rien dit, le rail n'a pas
      d'échelle et ne se dessine pas. */
-  const videoDraft = !!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url);
+  const videoDraft =
+    !!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url) || (draft.kind === "video" && !!draft.episode);
   const vFrom = draft.videoFrom ?? 0;
   const vTo = draft.videoTo ?? vLen;
 
@@ -3451,7 +3556,9 @@ export default function BannerStudio({
         <p className="truncate font-outfit text-[13px] font-bold text-white">
           {draft.title || t("profile.artTrailer")}
           <span className="ml-2 rounded bg-white/[0.08] px-1.5 py-0.5 align-middle font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
-            {t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
+            {draft.episode
+              ? t("profile.studioEpisodeN", { n: draft.episode.n })
+              : t(draft.trailerId ? "profile.artTrailer" : "profile.studioKind_oped")}
           </span>
         </p>
         <div className="mt-2 flex items-center gap-2">
@@ -3472,6 +3579,19 @@ export default function BannerStudio({
             {clock(vLen)}
           </span>
 
+          {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont
+              CET épisode, avec leur langue entre crochets. */}
+          {draft.episode ? (
+            <ServerMenu
+              value={draft.episode.server}
+              ids={epServers?.key === `${draft.animeId}:${draft.episode.n}` ? epServers.ids : null}
+              onPick={(server) => {
+                lastServer.current = server;
+                if (draft.episode) patch({ episode: { ...draft.episode, server } });
+              }}
+              t={t}
+            />
+          ) : null}
           {/* Le fondu AU NOIR, à la reprise de la boucle. Même
               bascule que celle de la musique, et même défaut d'une
               seconde et demie une fois allumée — sauf qu'ici elle
@@ -5849,4 +5969,96 @@ function Suite({
     return () => io.disconnect();
   }, [onVisible, root]);
   return <div ref={ref} aria-hidden className="h-px w-full" />;
+}
+
+/**
+ * LE LECTEUR D'UN ÉPISODE EN FOND (20/10/2026). Seuls les lecteurs qui ont
+ * l'épisode sont proposés, chacun avec sa langue entre crochets
+ * (« Ansembed [VOSTFR] »). La liste s'ouvre VERS LE HAUT et en position fixe :
+ * la barre du bas la rognerait sinon.
+ */
+function ServerMenu({
+  value,
+  ids,
+  onPick,
+  t,
+}: {
+  value: string;
+  /** `null` : la recherche des lecteurs est en cours. */
+  ids: string[] | null;
+  onPick: (id: string) => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+}) {
+  const [box, setBox] = useState<DOMRect | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    if (!box) return;
+    const outside = (e: MouseEvent) => {
+      const n = e.target as Node;
+      if (!btn.current?.contains(n) && !list.current?.contains(n)) setBox(null);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBox(null);
+    };
+    document.addEventListener("mousedown", outside);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [box]);
+
+  const none = ids != null && ids.length === 0;
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        disabled={!ids || none}
+        aria-haspopup="listbox"
+        aria-expanded={!!box}
+        title={t("profile.studioServer")}
+        onClick={() => setBox((b) => (b ? null : btn.current?.getBoundingClientRect() ?? null))}
+        className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-white/[0.07] pl-2.5 pr-1.5 font-karla text-[11px] font-bold text-white/80 ring-1 ring-white/[0.06] transition-colors hover:text-white disabled:opacity-60"
+      >
+        {ids == null ? (
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/25 border-t-white/80" />
+        ) : null}
+        {none ? t("profile.studioServerNone") : ids == null ? t("profile.studioServerSearching") : serverLabel(value)}
+        {ids && !none ? (
+          <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${box ? "" : "rotate-180"}`} />
+        ) : null}
+      </button>
+      {box && ids?.length ? (
+        <ul
+          ref={list}
+          role="listbox"
+          aria-label={t("profile.studioServer")}
+          style={{ position: "fixed", left: box.left, bottom: window.innerHeight - box.top + 6 }}
+          className="pointer-events-auto z-[10010] min-w-[11rem] rounded-xl bg-[#14141c] p-1 shadow-xl ring-1 ring-white/10"
+        >
+          {ids.map((id) => (
+            <li key={id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={id === value}
+                onClick={() => {
+                  onPick(id);
+                  setBox(null);
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-left font-karla text-[12px] font-bold transition-colors ${
+                  id === value ? "bg-action/20 text-white" : "text-white/65 hover:bg-white/[0.06] hover:text-white"
+                }`}
+              >
+                {serverLabel(id)}
+                {id === value ? <CheckIcon className="h-3.5 w-3.5 text-action" /> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
 }

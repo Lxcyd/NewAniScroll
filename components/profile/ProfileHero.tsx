@@ -70,6 +70,8 @@ export type HeroBanner = {
   blur?: number | null;
   /** Bande-annonce YouTube portée en fond (kind « video »). */
   trailerId?: Dressing["trailerId"];
+  /** Un épisode porté en fond (kind « video »), résolu à l'affichage. */
+  episode?: Dressing["episode"];
   /** Le découpage du fond vidéo, et le fondu au noir de sa boucle. */
   videoFrom?: Dressing["videoFrom"];
   videoTo?: Dressing["videoTo"];
@@ -109,7 +111,7 @@ export type StudioBridge = {
  * boutons de son pour un même morceau se marcheraient dessus.
  */
 export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
-  const own = draft.url || draft.color || draft.trailerId || draft.kind === "wall";
+  const own = draft.url || draft.color || draft.trailerId || draft.episode || draft.kind === "wall";
   return {
     ...(own
       ? draft
@@ -234,7 +236,7 @@ export default function ProfileHero({
   const video = isVideoKind(banner.kind);
   /* Une bande-annonce est un fond d'écran comme une vidéo : elle n'a ni fichier
      ni proportions à mesurer, elle remplit la fenêtre. */
-  const trailer = banner.kind === "video" && !!banner.trailerId;
+  const trailer = banner.kind === "video" && (!!banner.trailerId || !!banner.episode);
   const flat = banner.kind === "color" && !!banner.color;
   /* Le mur d'animés : un fond d'écran sans fichier, fait des affiches de la
      liste que la page tient déjà (lib/profile/wall.ts). */
@@ -913,6 +915,8 @@ export default function ProfileHero({
               wall: banner.wall ?? null,
               source: banner.source ?? null,
               trailerId: banner.trailerId ?? null,
+              episode: banner.episode ?? null,
+              animeId: banner.animeId ?? null,
               /* Le découpage et le fondu voyagent avec le fond : c'est le
                  plateau qui tient la boucle, ici comme dans le studio. */
               videoFrom: banner.videoFrom ?? null,

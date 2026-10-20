@@ -206,6 +206,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Pages, saisons, relations & sources de donnees — [`devlog/site.md`](devlog/site.md)
 
+- 2026-10-20 — Studio : un épisode en fond de profil (accordéon des épisodes, menu Lecteur [VOSTFR]/[VF]/[MULTI], flux résolu par chaque visiteur)
 - 2026-10-17 — Case musique du profil : petit carré au survol, égaliseur décoratif ; copie analysée et estimation essayées puis retirées
 - 2026-09-24 (suite 12) — Détail d'un badge : grille des cases (années, A-Z, genres, tags, lecteurs, studios) avec les manquantes et les anime de chaque case, liste des anime pour les seuils ; vérifié égal à `measure` dans check-catalog
 - 2026-09-24 (suite 13) — Pas de bouton Détail sur un badge à un seul anime non obtenu (Pépite méconnue)

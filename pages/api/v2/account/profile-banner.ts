@@ -45,7 +45,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
        la seule chose qui parte ensuite dans l'iframe. */
     /* Un mur d'animés non plus : il ne stocke qu'un filtre, ses affiches sont
        relues dans la liste du profil (lib/profile/wall.ts). */
-    if (dressing.kind !== "color" && dressing.kind !== "wall" && !dressing.trailerId) {
+    /* Un épisode non plus : il ne stocke qu'un numéro et un id de lecteur,
+       validés à la forme ; le flux est résolu par chaque visiteur. */
+    if (dressing.kind !== "color" && dressing.kind !== "wall" && !dressing.trailerId && !dressing.episode) {
       const ok = isVideoKind(dressing.kind)
         ? isAllowedMediaUrl(dressing.url)
         : isAllowedBannerUrl(dressing.url);
