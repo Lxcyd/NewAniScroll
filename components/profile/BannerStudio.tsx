@@ -841,7 +841,11 @@ export default function BannerStudio({
     const frames = (f: (o: number) => number) =>
       Array.from({ length: N + 1 }, (_, k) => ({ transform: `translateX(${f(at(k)).toFixed(1)}px)` }));
     const opts: KeyframeAnimationOptions = { duration: 500, easing: "linear", fill: "backwards" };
-    layer.animate(frames((o) => o), opts);
+    slidingRef.current = true;
+    const glisse = layer.animate(frames((o) => o), opts);
+    glisse.onfinish = glisse.oncancel = () => {
+      slidingRef.current = false;
+    };
     menus.animate(frames((o) => o + W), opts);
     if (foot && panel) foot.animate(frames((o) => o + W), opts);
   }, [barMusic]);
@@ -891,9 +895,14 @@ export default function BannerStudio({
   const [menuPending, startMenu] = useTransition();
   const menuPendingRef = useRef(false);
   menuPendingRef.current = menuPending;
+  /* PENDANT QUE LA CARTE GLISSE (pied du menu ↔ barre, 500 ms), les rails ne
+     s'écrivent plus non plus : chaque position rendait tout le studio, et ses
+     deux copies de la carte, au milieu de l'animation — elle saccadait
+     (21/10/2026). La position reprend à l'arrivée. */
+  const slidingRef = useRef(false);
   const [at, setAtNow] = useState(0);
   const setAt = useCallback((v: number) => {
-    if (!menuPendingRef.current) setAtNow(v);
+    if (!menuPendingRef.current && !slidingRef.current) setAtNow(v);
   }, []);
   const [len, setLen] = useState(0);
   /** Le fichier a repris la main sur la lecture — on attend des données. */
@@ -923,8 +932,9 @@ export default function BannerStudio({
   const [vPlaying, setVPlaying] = useState(false);
   const onVideoProgress = useCallback(
     (at: number, duration: number, playing: boolean) => {
-      /* Voir `menuPending` : la position suivante arrive dans un instant. */
-      if (menuPendingRef.current) return;
+      /* Voir `menuPending` et `slidingRef` : la position suivante arrive dans
+         un instant. */
+      if (menuPendingRef.current || slidingRef.current) return;
       setVAt(railTime(at));
       setVLen(duration);
       setVPlaying(playing);
@@ -3544,6 +3554,16 @@ export default function BannerStudio({
      la demande — même mécanique (`barMusic`), même dessin (`as-mf`) :
      pochette-bouton, titre et rail à gauche, un filet, les réglages en
      colonne à droite (Fondu, puis le lecteur d'un épisode). */
+  /* La vignette de l'ÉPISODE dans le carré (21/10/2026), celle de sa ligne
+     dans la liste ; la miniature YouTube pour une bande-annonce ; l'affiche
+     de l'anime sinon. */
+  const videoThumb =
+    (draft.episode && draft.animeId != null
+      ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.img
+      : null) ??
+    (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
+    trailerAnime?.cover ??
+    null;
   const videoBar =
     (scope === "video" || scope === "oped") && videoDraft ? (
     <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
@@ -3555,8 +3575,11 @@ export default function BannerStudio({
         aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
         className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
       >
-        {trailerAnime?.cover ? (
-          <Image src={trailerAnime.cover} alt="" fill sizes="44px" className="object-cover" />
+        {videoThumb ? (
+          /* Un <img> : les vignettes d'épisode viennent de domaines (TMDB,
+             Crunchyroll, ani.zip) que next/image ne connaît pas tous. */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={videoThumb} alt="" className="absolute inset-0 h-full w-full object-cover" />
         ) : null}
         <span className="absolute inset-0 grid place-items-center bg-black/45 text-white transition-colors group-hover:bg-black/60">
           {vPlaying ? (
@@ -3572,7 +3595,7 @@ export default function BannerStudio({
           <p className="min-w-0 truncate font-outfit text-[13px] font-bold text-white">
             {draft.title || t("profile.artTrailer")}
           </p>
-          <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+          <span className="as-mf-chip shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
             {draft.episode
               ? `EP${draft.episode.n}`
               : draft.trailerId

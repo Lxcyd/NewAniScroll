@@ -52,10 +52,32 @@ function once<T>(key: string, run: () => Promise<T>): Promise<T> {
   return p;
 }
 
-const ask = (aniId: number, n: number, server: string) =>
-  once(`src:${aniId}:${n}:${server}`, () =>
-    requestSource({ server, aniId, episode: n, sub: subOf(server) }),
-  );
+/* Un HOQUET (`retry` : hôte lent, 503, réseau) n'est pas une réponse : il
+   n'est pas gardé, la question suivante repart. Frembed met parfois 16 s à
+   échouer, puis répond au coup d'après (21/10/2026). */
+const ask = (aniId: number, n: number, server: string) => {
+  const key = `src:${aniId}:${n}:${server}`;
+  return once(key, () => requestSource({ server, aniId, episode: n, sub: subOf(server) })).then((out) => {
+    if (out.kind === "retry") memo.delete(key);
+    return out;
+  });
+};
+
+/** Un lecteur sondé : `ok`, `absent` (verdict), ou `retry` après un second
+    essai — un hoquet ne l'écarte pas de l'anime. */
+async function probe(aniId: number, n: number, server: string): Promise<"ok" | "absent" | "retry"> {
+  for (let k = 0; k < 2; k++) {
+    try {
+      const out = await ask(aniId, n, server);
+      if (out.kind === "ok") return playable(out.data) ? "ok" : "absent";
+      if (out.kind === "absent") return "absent";
+    } catch {
+      /* réseau : comme un hoquet */
+    }
+    if (k === 0) await new Promise((r) => setTimeout(r, 1500));
+  }
+  return "retry";
+}
 
 /** Les épisodes d'un anime, par la route de la fiche (cachée 30 j). Partagé :
     le survol d'une ligne le lance d'avance, le clic le reprend. */
@@ -107,13 +129,8 @@ export async function availableServers(
     for (const s of LISTED) if (!known.has(s.id)) failed.add(s.id);
     await Promise.all(
       [...known].map(async (id) => {
-        try {
-          const out = await ask(aniId, n, id);
-          if (out.kind === "ok" && playable(out.data)) ok.add(id);
-          else failed.add(id);
-        } catch {
-          failed.add(id);
-        }
+        if ((await probe(aniId, n, id)) === "ok") ok.add(id);
+        else failed.add(id);
         emit(false);
       }),
     );
@@ -136,19 +153,19 @@ export async function availableServers(
   );
   if (ok.size) emit(false);
   const unknown = LISTED.filter((s) => !ok.has(s.id) && !failed.has(s.id));
+  /* Les lecteurs à garder pour la suite de l'anime : ceux qui ont répondu ET
+     ceux qui n'ont fait que hoqueter — seul un verdict d'absence écarte. */
+  const keep = new Set<string>();
   await Promise.all(
     unknown.map(async (s) => {
-      try {
-        const out = await ask(aniId, n, s.id);
-        if (out.kind === "ok" && playable(out.data)) ok.add(s.id);
-        else failed.add(s.id);
-      } catch {
-        failed.add(s.id);
-      }
+      const v = await probe(aniId, n, s.id);
+      if (v === "ok") ok.add(s.id);
+      else failed.add(s.id);
+      if (v !== "absent") keep.add(s.id);
       emit(false);
     }),
   );
-  if (ok.size && !signal?.aborted) hostsOf.set(aniId, new Set(ok));
+  if (ok.size && !signal?.aborted) hostsOf.set(aniId, new Set([...ok, ...keep]));
   emit(true);
 }
 

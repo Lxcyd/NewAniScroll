@@ -4542,6 +4542,9 @@ html.as-scene-leave .as-navbar {
    bas, l'animation de l'une à l'autre en dépend) : étroite, elle se resserre
    sur sa ligne (18/10/2026). */
 .as-mf:is([data-size="sm"], [data-size="xs"]) .as-mf-time { display: none; }
+/* La puce EP cède sa place au titre : étroit, le titre tombait à « D… »
+   (21/10/2026) ; la liste coche déjà l'épisode choisi. */
+.as-mf:is([data-size="sm"], [data-size="xs"]) .as-mf-chip { display: none; }
 .as-mf[data-size="xs"] { gap: 8px; }
 .as-mf[data-size="xs"] .as-mf-sep { display: none; }
 .as-mf[data-size="xs"] .as-mf-cover { width: 36px; height: 36px; }
