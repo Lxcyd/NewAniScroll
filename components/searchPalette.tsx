@@ -17,6 +17,28 @@ import { useTranslation } from "react-i18next";
 
 type SearchType = "ANIME" | "MANGA";
 
+/** What was typed, in pink inside each suggestion; the rest of the title stays
+    white. Case-insensitive, every occurrence. */
+function highlight(text: string, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return text;
+  const low = text.toLowerCase();
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  for (let j = low.indexOf(q); j !== -1; j = low.indexOf(q, i)) {
+    if (j > i) out.push(text.slice(i, j));
+    out.push(
+      <span key={j} className="text-action">
+        {text.slice(j, j + q.length)}
+      </span>,
+    );
+    i = j + q.length;
+  }
+  if (!out.length) return text;
+  out.push(text.slice(i));
+  return out;
+}
+
 export interface DataTypes {
   id: number;
   title: Title;
@@ -362,7 +384,7 @@ export default function SearchPalette() {
                                 </div>
                                 <div className="flex flex-col w-full h-full">
                                   <h3 className="font-karla font-semibold">
-                                    {pickTitle(i.title, titlePref)}
+                                    {highlight(pickTitle(i.title, titlePref) ?? "", query)}
                                   </h3>
                                   <p className="text-sm text-white/50">
                                     {[i.startDate?.year || null, getFormat(i.format)]
