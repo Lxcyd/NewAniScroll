@@ -85,9 +85,9 @@ async function probe(aniId: number, n: number, server: string): Promise<"ok" | "
 
 /** Les épisodes d'un anime, par la route de la fiche (cachée 30 j). Partagé :
     le survol d'une ligne le lance d'avance, le clic le reprend. */
-export function fetchEpisodes(aniId: number): Promise<StudioEpisode[]> {
+export function fetchEpisodes(aniId: number, releasing = false): Promise<StudioEpisode[]> {
   return once(`eps:${aniId}`, async () => {
-    const r = await fetch(`/api/v2/episode/${aniId}?releasing=false`);
+    const r = await fetch(`/api/v2/episode/${aniId}?releasing=${releasing}`);
     if (!r.ok) throw new Error(`episode ${r.status}`);
     const payload = await r.json();
     if (!Array.isArray(payload)) return [];

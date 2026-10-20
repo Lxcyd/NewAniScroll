@@ -172,6 +172,10 @@ const STUDIO_SEARCH = `query ($search: String) {
       id
       title { userPreferred english romaji }
       coverImage { medium }
+      trailer { id site }
+      episodes
+      status
+      nextAiringEpisode { episode }
     }
   }
 }`;
@@ -182,7 +186,57 @@ export type StudioAnime = {
   cover?: string | null;
   /** Identifiant YouTube de la bande-annonce, quand AniList en connaît une. */
   trailer?: string | null;
+  /** Les épisodes PARUS, quand on les connaît (AniList : `episodes`, ou
+      `nextAiringEpisode − 1` pour un anime en cours), et s'il est en cours. */
+  aired?: number | null;
+  airing?: boolean;
 };
+
+/** Ce qu'AniList dit des épisodes d'un anime : parus, et en cours ou non. */
+type Airing = { episodes?: number | null; status?: string | null; nextAiringEpisode?: { episode?: number } | null };
+export const airedOf = (m: Airing): { aired: number | null; airing: boolean } => {
+  const airing = m.status === "RELEASING";
+  const next = m.nextAiringEpisode?.episode;
+  return { aired: airing ? (next ? next - 1 : null) : m.episodes ?? null, airing };
+};
+
+/* Les épisodes parus des animes de la liste, demandés à AniList par paquets
+   de 50 (21/10/2026) : la ligne dit « 25 vidéos » avant d'être ouverte. En
+   direct depuis le navigateur — aucune fonction Vercel —, une fois par
+   session. */
+const AIRED = new Map<number, { aired: number | null; airing: boolean }>();
+const AIRED_QUERY = `query ($ids: [Int]) {
+  Page(perPage: 50) {
+    media(id_in: $ids, type: ANIME) { id episodes status nextAiringEpisode { episode } }
+  }
+}`;
+let airedRun: Promise<void> | null = null;
+function loadAired(ids: number[], onBatch: () => void): Promise<void> {
+  if (airedRun) return airedRun;
+  airedRun = (async () => {
+    const todo = ids.filter((id) => !AIRED.has(id));
+    for (let i = 0; i < todo.length; i += 50) {
+      try {
+        const r = await fetch("https://graphql.anilist.co/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: AIRED_QUERY, variables: { ids: todo.slice(i, i + 50) } }),
+        });
+        if (r.status === 429) break; /* AniList limite : on s'arrête là, sans insister */
+        const json = r.ok ? await r.json() : null;
+        for (const m of json?.data?.Page?.media ?? []) AIRED.set(m.id, airedOf(m));
+        onBatch();
+      } catch {
+        break;
+      }
+      /* Un paquet toutes les 700 ms : bien sous la limite d'AniList. */
+      await new Promise((res) => setTimeout(res, 700));
+    }
+  })().finally(() => {
+    airedRun = null;
+  });
+  return airedRun;
+}
 
 type Props = {
   open: boolean;
@@ -1016,16 +1070,27 @@ export default function BannerStudio({
         .then((r) => (r.ok ? r.json() : null))
         .then((json) => {
           if (!alive) return;
-          const media: Array<{
-            id: number;
-            title?: { userPreferred?: string; english?: string; romaji?: string };
-            coverImage?: { medium?: string };
-          }> = json?.data?.Page?.media ?? [];
-          const out = media.map((m) => ({
-            mediaId: m.id,
-            title: m.title?.userPreferred || m.title?.english || m.title?.romaji || `#${m.id}`,
-            cover: m.coverImage?.medium ?? null,
-          }));
+          const media: Array<
+            Airing & {
+              id: number;
+              title?: { userPreferred?: string; english?: string; romaji?: string };
+              coverImage?: { medium?: string };
+              trailer?: { id?: string; site?: string } | null;
+            }
+          > = json?.data?.Page?.media ?? [];
+          const out = media.map((m) => {
+            const a = airedOf(m);
+            AIRED.set(m.id, a);
+            return {
+              mediaId: m.id,
+              title: m.title?.userPreferred || m.title?.english || m.title?.romaji || `#${m.id}`,
+              cover: m.coverImage?.medium ?? null,
+              /* La bande-annonce d'un titre HORS de la liste : sans elle, le
+                 menu Vidéo ne la proposait pas (21/10/2026). */
+              trailer: m.trailer?.site === "youtube" ? m.trailer.id ?? null : null,
+              ...a,
+            };
+          });
           for (const a of out) vus.current.set(a.mediaId, a);
           setFound(out);
         })
@@ -1124,7 +1189,9 @@ export default function BannerStudio({
      (lib/profile/episodeStream), survol et clic n'en font qu'une. */
   const loadEpisodes = useCallback((id: number) => {
     if (epCache.current.has(id)) return;
-    fetchEpisodes(id)
+    /* Un anime EN COURS demande la liste fraîche (cache court côté route) :
+       l'épisode de la semaine doit y être. */
+    fetchEpisodes(id, AIRED.get(id)?.airing ?? false)
       .then((list) => epCache.current.set(id, list))
       .catch(() => epCache.current.set(id, null))
       .finally(() => setEpTick((n) => n + 1));
@@ -1132,6 +1199,14 @@ export default function BannerStudio({
   useEffect(() => {
     if (scope === "video" && pick != null) loadEpisodes(pick);
   }, [scope, pick, loadEpisodes]);
+  /* Les épisodes parus de toute la liste, dès l'ouverture du menu Vidéo. */
+  useEffect(() => {
+    if (scope !== "video") return;
+    void loadAired(
+      animes.map((a) => a.mediaId),
+      () => setEpTick((n) => n + 1),
+    );
+  }, [scope, animes]);
   /* Au survol, après 150 ms seulement, comme les illustrations : balayer la
      liste du pointeur ne doit pas coûter une invocation par ligne traversée
      (quota Fluid, 21/10/2026). */
@@ -2660,8 +2735,12 @@ export default function BannerStudio({
           : undefined;
       tous.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
       const ligne = (a: StudioAnime): Row => {
+        /* La liste réelle une fois ouverte ; avant, les épisodes PARUS selon
+           AniList (`AIRED`) — le compte est donc là sans rien ouvrir. */
         const eps = epCache.current.get(a.mediaId);
-        const n = eps ? eps.length + (a.trailer ? 1 : 0) : null;
+        const aired = AIRED.get(a.mediaId)?.aired ?? a.aired ?? null;
+        const tr = a.trailer ? 1 : 0;
+        const n = eps ? eps.length + tr : aired != null ? aired + tr : null;
         return {
           key: `anime-video-${a.mediaId}`,
           label: a.title,
