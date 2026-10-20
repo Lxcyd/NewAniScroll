@@ -5,7 +5,6 @@ import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  PhotoIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
 } from "@heroicons/react/24/outline";
@@ -1021,7 +1020,7 @@ export default function ProfileHero({
               title={t("profile.changeBanner")}
               className="inline-flex items-center justify-center rounded-full bg-black/45 p-2 text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-action hover:text-white hover:ring-action"
             >
-              <PhotoIcon className="h-[1.05rem] w-[1.05rem]" />
+              <PaletteIcon className="h-[1.05rem] w-[1.05rem]" />
             </button>
           ) : null}
         </div>
@@ -1072,5 +1071,19 @@ export default function ProfileHero({
           wallpaper, at the one spot the wallpaper is meant to keep going. */}
       </header>
     </div>
+  );
+}
+
+/**
+ * L'ICÔNE DU STUDIO : une palette, et non plus une image (21/10/2026, choix de
+ * Luc) — le bouton ouvre la personnalisation de tout le profil (fond,
+ * agencement, cadre, badges, musique), pas seulement son image. Tracé Material
+ * Symbols « palette », dans la couleur du texte du bouton.
+ */
+function PaletteIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden className={className}>
+      <path d="M480-80q-82 0-155-31.5t-127.5-86Q143-252 111.5-325T80-480q0-83 32.5-156t88-127Q256-817 330-848.5T488-880q80 0 151 27.5t124.5 76q53.5 48.5 85 115T880-518q0 115-70 176.5T640-280h-74q-9 0-12.5 5t-3.5 11q0 12 15 34.5t15 51.5q0 50-27.5 74T480-80Zm0-400Zm-177 23q17-17 17-43t-17-43q-17-17-43-17t-43 17q-17 17-17 43t17 43q17 17 43 17t43-17Zm120-160q17-17 17-43t-17-43q-17-17-43-17t-43 17q-17 17-17 43t17 43q17 17 43 17t43-17Zm200 0q17-17 17-43t-17-43q-17-17-43-17t-43 17q-17 17-17 43t17 43q17 17 43 17t43-17Zm120 160q17-17 17-43t-17-43q-17-17-43-17t-43 17q-17 17-17 43t17 43q17 17 43 17t43-17ZM480-160q9 0 14.5-5t5.5-13q0-14-15-33t-15-57q0-42 29-67t71-25h70q66 0 113-38.5T800-518q0-121-92.5-201.5T488-800q-136 0-232 93t-96 227q0 133 93.5 226.5T480-160Z" />
+    </svg>
   );
 }
