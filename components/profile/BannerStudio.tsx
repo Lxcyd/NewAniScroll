@@ -166,6 +166,20 @@ import type { BannerOption, ProfileEntry } from "@/lib/profile/types";
 
 /** La recherche d'animés du studio chez AniList : le strict nécessaire pour
     une ligne (titre, affiche). Le reste vient de la fiche quand on l'ouvre. */
+type CustomVideo = { id: string; title: string };
+const CUSTOM_KEY = "as-studio-custom-videos";
+const CUSTOM_MAX = 24;
+function readCustomVideos(): CustomVideo[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
+    return Array.isArray(raw)
+      ? raw.filter((v) => typeof v?.id === "string" && /^[A-Za-z0-9_-]{11}$/.test(v.id)).map((v) => ({ id: v.id, title: String(v.title || "YouTube") }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 const STUDIO_SEARCH = `query ($search: String) {
   Page(perPage: 12) {
     media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
@@ -372,6 +386,8 @@ type Row = {
   /** Survol prolongé : précharge ce que le clic ouvrira (`null` à la sortie). */
   hover?: (on: boolean) => void;
   run?: () => void;
+  /** Une croix au survol, qui retire la ligne (vidéos ajoutées à la main). */
+  remove?: () => void;
 };
 
 /** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
@@ -831,6 +847,23 @@ export default function BannerStudio({
   /** Le champ « lien YouTube » du pied : ouvert ou non, et ce qu'on y tape. */
   const [ytLink, setYtLink] = useState<string | null>(null);
   const [ytBad, setYtBad] = useState(false);
+  /* LES VIDÉOS AJOUTÉES À LA MAIN (21/10/2026, demande de Luc) : chaque lien
+     YouTube collé dans Vidéo ou Génériques rejoint une section à lui, pour y
+     revenir sans le recoller. Gardées dans CE navigateur — c'est une
+     commodité du studio ; le fond choisi, lui, part avec le profil. */
+  const [customVideos, setCustomVideos] = useState<CustomVideo[]>([]);
+  useEffect(() => setCustomVideos(readCustomVideos()), []);
+  const saveCustomVideos = useCallback((next: (l: CustomVideo[]) => CustomVideo[]) => {
+    setCustomVideos((l) => {
+      const out = next(l).slice(0, CUSTOM_MAX);
+      try {
+        localStorage.setItem(CUSTOM_KEY, JSON.stringify(out));
+      } catch {
+        /* stockage refusé : la liste vit le temps de la session */
+      }
+      return out;
+    });
+  }, []);
   /** Le lecteur de musique posé SUR la barre du bas, à la place des menus —
       comme le rail de la vidéo (`barVideo`). */
   const [barMusic, setBarMusic] = useState(false);
@@ -1720,6 +1753,37 @@ export default function BannerStudio({
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
+
+    /* « Mes vidéos » : les liens YouTube collés à la main, en tête de Vidéo et
+       de Génériques — les deux menus où le bouton du lien les ajoute. */
+    if ((scope === "video" || scope === "oped") && customVideos.length) {
+      const rows = customVideos
+        .filter((v) => match(v.title))
+        .map(
+          (v): Row => ({
+            key: `custom-video-${v.id}`,
+            label: v.title,
+            chip: { text: "YT", op: false, color: "#f87171" },
+            thumb: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`,
+            selected: draft.trailerId === v.id,
+            run: () =>
+              patch({
+                kind: "video" as const,
+                url: null,
+                trailerId: v.id,
+                episode: null,
+                videoFrom: null,
+                videoTo: null,
+                color: null,
+                source: null,
+                animeId: null,
+                title: v.title,
+              }),
+            remove: () => saveCustomVideos((l) => l.filter((x) => x.id !== v.id)),
+          }),
+        );
+      if (rows.length) out.push({ title: t("profile.studioCustomVideos"), rows });
+    }
 
     /* ── Le mur d'animés ───────────────────────────────────────────────────
        Un seul bloc de réglages : ce qu'on y met (listes, notes) et comment ça
@@ -3224,7 +3288,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3331,7 +3395,7 @@ export default function BannerStudio({
 
   /* Changer de FAMILLE de menu ramène les menus sur la barre : le lecteur
      posé dessus (musique, ou vidéo depuis le 21/10/2026) appartient à son
-     menu. Vidéo et Clips sont une seule famille, ils partagent la
+     menu. Vidéo et Génériques sont une seule famille, ils partagent la
      carte. */
   const footGroup = scope === "music" ? "music" : scope === "video" || scope === "oped" ? "video" : null;
   useEffect(() => {
@@ -3410,7 +3474,7 @@ export default function BannerStudio({
     }
     const id = m[1];
     const oembed = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${id}`)}`;
-    /* UNE VIDÉO DE FOND PAR LIEN (21/10/2026) : dans Vidéo et Clips,
+    /* UNE VIDÉO DE FOND PAR LIEN (21/10/2026) : dans Vidéo et Génériques,
        le lien devient le fond, joué comme une bande-annonce (même lecteur
        YouTube, mêmes bornes). Son titre arrive par l'oEmbed. */
     if (scope !== "music") {
@@ -3424,13 +3488,15 @@ export default function BannerStudio({
         color: null,
         source: null,
         animeId: null,
-        title: "YouTube",
+        title: customVideos.find((v) => v.id === id)?.title ?? "YouTube",
       });
+      saveCustomVideos((l) => [l.find((v) => v.id === id) ?? { id, title: "YouTube" }, ...l.filter((v) => v.id !== id)]);
       void fetch(oembed)
         .then((r) => (r.ok ? r.json() : null))
         .then((o: { title?: string } | null) => {
           if (!o?.title) return;
           setDraft((d) => (d.trailerId === id ? { ...d, title: o.title! } : d));
+          saveCustomVideos((l) => l.map((v) => (v.id === id ? { ...v, title: o.title! } : v)));
         })
         .catch(() => {});
       setYtLink(null);
@@ -4642,6 +4708,22 @@ export default function BannerStudio({
                                 </span>
                               ) : null}
                             </span>
+                            {row.remove ? (
+                              /* Un <span> et non un <button> : la ligne en est
+                                 déjà un, et on n'imbrique pas deux boutons. */
+                              <span
+                                role="button"
+                                aria-label={t("profile.studioCustomRemove")}
+                                title={t("profile.studioCustomRemove")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  row.remove!();
+                                }}
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                              >
+                                <XMarkIcon className="h-4 w-4" />
+                              </span>
+                            ) : null}
                             {row.selected ? (
                               <CheckIcon className="h-[1.15rem] w-[1.15rem] shrink-0 text-action" />
                             ) : null}
@@ -4970,7 +5052,7 @@ export default function BannerStudio({
                         on
                           ? (scope as DressingKind)
                           : draft.kind && kinds.includes(draft.kind)
-                            ? /* Une bande-annonce se choisit dans Clips. */
+                            ? /* Une bande-annonce se choisit dans Génériques. */
                               draft.trailerId && kinds.includes("oped")
                               ? "oped"
                               : draft.kind
