@@ -1003,7 +1003,9 @@ export default function ProfileHero({
               href={animeHref(banner.animeId, clickTarget)}
               className="rounded-full bg-black/45 px-3 py-1.5 text-[11px] font-medium text-white/75 ring-1 ring-white/10 backdrop-blur-md transition-colors hover:bg-black/70 hover:text-white"
             >
-              {t("profile.bannerFrom", { title: banner.title })}
+              {banner.kind === "video" && banner.episode
+                ? t("profile.episodeFrom", { title: banner.title, n: banner.episode.n })
+                : t("profile.bannerFrom", { title: banner.title })}
             </Link>
           ) : null}
           {/* Plus d'icône de son ici (17/10/2026) : la musique YouTube se

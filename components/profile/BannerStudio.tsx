@@ -1108,47 +1108,52 @@ export default function BannerStudio({
      illustrations. `null` en cache = la route a échoué. */
   const epCache = useRef(new Map<number, StudioEpisode[] | null>());
   const [epTick, setEpTick] = useState(0);
-  useEffect(() => {
-    if (scope !== "video" || pick == null || epCache.current.has(pick)) return;
-    const id = pick;
-    const ac = new AbortController();
-    fetchEpisodes(id, ac.signal)
+  /* Lancé au SURVOL d'une ligne, comme les illustrations (`prefetchArt`) :
+     au clic, la liste est souvent déjà là. La requête est partagée
+     (lib/profile/episodeStream), survol et clic n'en font qu'une. */
+  const loadEpisodes = useCallback((id: number) => {
+    if (epCache.current.has(id)) return;
+    fetchEpisodes(id)
       .then((list) => epCache.current.set(id, list))
-      .catch(() => {
-        if (!ac.signal.aborted) epCache.current.set(id, null);
-      })
-      .finally(() => {
-        if (!ac.signal.aborted) setEpTick((n) => n + 1);
-      });
-    return () => ac.abort();
-  }, [scope, pick]);
+      .catch(() => epCache.current.set(id, null))
+      .finally(() => setEpTick((n) => n + 1));
+  }, []);
+  useEffect(() => {
+    if (scope === "video" && pick != null) loadEpisodes(pick);
+  }, [scope, pick, loadEpisodes]);
 
   /* Les lecteurs qui ont l'épisode choisi, pour le menu de la barre. Le lecteur
      posé au clic n'est qu'une supposition (le dernier choisi) : s'il n'a pas
      l'épisode, le premier lecteur disponible le remplace. */
   const lastServer = useRef<string>(DEFAULT_SERVER_ID);
-  const [epServers, setEpServers] = useState<{ key: string; ids: string[] | null } | null>(null);
+  const [epServers, setEpServers] = useState<{ key: string; ids: string[]; done: boolean } | null>(null);
   const epAnime = draft.kind === "video" && draft.episode ? draft.animeId : null;
   const epN = epAnime != null ? draft.episode?.n ?? null : null;
   useEffect(() => {
     if (epAnime == null || epN == null) return;
     const key = `${epAnime}:${epN}`;
     const ac = new AbortController();
-    setEpServers({ key, ids: null });
-    availableServers(epAnime, epN, ac.signal)
-      .then((ids) => {
-        if (ac.signal.aborted) return;
-        setEpServers({ key, ids });
+    setEpServers({ key, ids: [], done: false });
+    /* Le menu se remplit lecteur par lecteur. Le lecteur supposé est remplacé
+       DÈS qu'on le sait sans l'épisode et qu'un autre l'a — pas à la fin des
+       sept sondes. */
+    void availableServers(
+      epAnime,
+      epN,
+      (ids, failed, done) => {
+        setEpServers({ key, ids, done });
         setDraft((d) => {
           const e = d.episode;
           if (!e || d.animeId !== epAnime || e.n !== epN || !ids.length || ids.includes(e.server)) return d;
+          if (!failed.has(e.server) && !done) return d;
           const server = ids.includes(lastServer.current) ? lastServer.current : ids[0];
           return { ...d, episode: { ...e, server } };
         });
-      })
-      .catch(() => {
-        if (!ac.signal.aborted) setEpServers({ key, ids: [] });
-      });
+      },
+      ac.signal,
+    ).catch(() => {
+      if (!ac.signal.aborted) setEpServers({ key, ids: [], done: true });
+    });
     return () => ac.abort();
   }, [epAnime, epN]);
 
@@ -2647,6 +2652,9 @@ export default function BannerStudio({
           thumb: a.cover ?? null,
           cover: true,
           selected: draft.kind === "video" && draft.animeId === a.mediaId && (!!draft.trailerId || !!draft.episode),
+          hover: (on) => {
+            if (on) loadEpisodes(a.mediaId);
+          },
           expand: false,
           run: () => {
             holdAnchor(`anime-video-${a.mediaId}`);
@@ -3115,7 +3123,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick]);
+      entries, baseTick, epTick, loadEpisodes]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3225,7 +3233,12 @@ export default function BannerStudio({
      choix seul déclenche la bascule — rouvrir le studio sur une vidéo déjà
      portée laisse les menus en place. */
   const videoKey =
-    draft.kind === "video" || isVideoKind(draft.kind) ? draft.trailerId || draft.url || "" : "";
+    draft.kind === "video" || isVideoKind(draft.kind)
+      ? draft.trailerId ||
+        draft.url ||
+        /* Un épisode aussi (20/10/2026) ; changer de LECTEUR ne rebascule pas. */
+        (draft.episode ? `ep:${draft.animeId}:${draft.episode.n}` : "")
+      : "";
   const [barVideo, setBarVideo] = useState(false);
   /* Un autre menu que Musique ramène les menus sur la barre. */
   useEffect(() => {
@@ -3584,7 +3597,8 @@ export default function BannerStudio({
           {draft.episode ? (
             <ServerMenu
               value={draft.episode.server}
-              ids={epServers?.key === `${draft.animeId}:${draft.episode.n}` ? epServers.ids : null}
+              ids={epServers?.key === `${draft.animeId}:${draft.episode.n}` ? epServers.ids : []}
+              done={epServers?.key === `${draft.animeId}:${draft.episode.n}` && epServers.done}
               onPick={(server) => {
                 lastServer.current = server;
                 if (draft.episode) patch({ episode: { ...draft.episode, server } });
@@ -5980,12 +5994,15 @@ function Suite({
 function ServerMenu({
   value,
   ids,
+  done,
   onPick,
   t,
 }: {
   value: string;
-  /** `null` : la recherche des lecteurs est en cours. */
-  ids: string[] | null;
+  /** Les lecteurs confirmés jusqu'ici. */
+  ids: string[];
+  /** Toutes les sondes ont répondu. */
+  done: boolean;
   onPick: (id: string) => void;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
@@ -6009,28 +6026,30 @@ function ServerMenu({
     };
   }, [box]);
 
-  const none = ids != null && ids.length === 0;
+  const none = done && ids.length === 0;
+  const has = ids.length > 0;
   return (
     <>
       <button
         ref={btn}
         type="button"
-        disabled={!ids || none}
+        disabled={!has}
         aria-haspopup="listbox"
         aria-expanded={!!box}
         title={t("profile.studioServer")}
         onClick={() => setBox((b) => (b ? null : btn.current?.getBoundingClientRect() ?? null))}
         className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-white/[0.07] pl-2.5 pr-1.5 font-karla text-[11px] font-bold text-white/80 ring-1 ring-white/[0.06] transition-colors hover:text-white disabled:opacity-60"
       >
-        {ids == null ? (
+        {!done ? (
+          /* Les sondes continuent : d'autres lecteurs peuvent encore s'ajouter. */
           <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/25 border-t-white/80" />
         ) : null}
-        {none ? t("profile.studioServerNone") : ids == null ? t("profile.studioServerSearching") : serverLabel(value)}
-        {ids && !none ? (
+        {none ? t("profile.studioServerNone") : !has ? t("profile.studioServerSearching") : serverLabel(value)}
+        {has ? (
           <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${box ? "" : "rotate-180"}`} />
         ) : null}
       </button>
-      {box && ids?.length ? (
+      {box && has ? (
         <ul
           ref={list}
           role="listbox"

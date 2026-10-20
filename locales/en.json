@@ -830,6 +830,7 @@
     "myProfile": "My profile",
     "localOnly": "Local profile — this list lives on this device only.",
     "bannerFrom": "Banner — {{title}}",
+    "episodeFrom": "Episode {{n}} — {{title}}",
     "changeBanner": "Change banner",
     "pickBanner": "Choose your banner",
     "pickBannerHint": "Pick an artwork, then confirm. Left alone, your profile follows your favourite anime on its own.",

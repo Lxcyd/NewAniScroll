@@ -34,27 +34,66 @@ export function serverLabel(id: string): string {
 const subOf = (id: string): "sub" | "dub" =>
   LISTED.find((x) => x.id === id)?.lang === "vf" ? "dub" : "sub";
 
-/** Les épisodes d'un anime, par la route de la fiche (cachée 30 j). */
-export async function fetchEpisodes(aniId: number, signal?: AbortSignal): Promise<StudioEpisode[]> {
-  const r = await fetch(`/api/v2/episode/${aniId}?releasing=false`, { signal });
-  if (!r.ok) throw new Error(`episode ${r.status}`);
-  const payload = await r.json();
-  if (!Array.isArray(payload)) return [];
-  const provider = payload.find((p: any) => p?.providerId === "megaplay") || payload[0];
-  return (provider?.episodes || [])
-    .filter((e: any) => Number.isFinite(Number(e?.number)))
-    .map((e: any) => ({ n: Number(e.number), title: e.title || null, img: e.img || null }));
+/* UNE SEULE REQUÊTE PAR QUESTION (20/10/2026, « optimise »). Le studio sonde
+   un lecteur pour son menu au moment même où le fond le résout pour jouer :
+   deux appels identiques à /api/v2/source, que le cache du navigateur ne
+   fusionne pas tant que le premier n'a pas répondu. Les promesses en vol sont
+   partagées, et gardées deux minutes (le flux, lui, vit 1 à 4 h). */
+const MEMO_MS = 2 * 60 * 1000;
+const memo = new Map<string, { at: number; p: Promise<any> }>();
+function once<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < MEMO_MS) return hit.p;
+  const p = run().catch((e) => {
+    memo.delete(key);
+    throw e;
+  });
+  memo.set(key, { at: Date.now(), p });
+  return p;
+}
+
+const ask = (aniId: number, n: number, server: string) =>
+  once(`src:${aniId}:${n}:${server}`, () =>
+    requestSource({ server, aniId, episode: n, sub: subOf(server) }),
+  );
+
+/** Les épisodes d'un anime, par la route de la fiche (cachée 30 j). Partagé :
+    le survol d'une ligne le lance d'avance, le clic le reprend. */
+export function fetchEpisodes(aniId: number): Promise<StudioEpisode[]> {
+  return once(`eps:${aniId}`, async () => {
+    const r = await fetch(`/api/v2/episode/${aniId}?releasing=false`);
+    if (!r.ok) throw new Error(`episode ${r.status}`);
+    const payload = await r.json();
+    if (!Array.isArray(payload)) return [];
+    const provider = payload.find((p: any) => p?.providerId === "megaplay") || payload[0];
+    return (provider?.episodes || [])
+      .filter((e: any) => Number.isFinite(Number(e?.number)))
+      .map((e: any) => ({ n: Number(e.number), title: e.title || null, img: e.img || null }));
+  });
 }
 
 /**
- * Les lecteurs qui ont CET épisode. L'instantané de la page de lecture
- * (/api/v2/availability) d'abord, qui ne coûte qu'une lecture Redis ; à
- * défaut, une sonde par lecteur — le studio seul la paie, une fois par
- * épisode ouvert.
+ * Les lecteurs qui ont CET épisode, AU FIL DE L'EAU : `onUpdate` reçoit la
+ * liste à chaque lecteur confirmé, puis `done` à la fin. On n'attend plus le
+ * plus lent — Frembed met parfois 16 s à échouer — pour proposer les autres.
+ *
+ * L'instantané de la page de lecture (/api/v2/availability) d'abord, une
+ * lecture Redis ; à défaut, une sonde par lecteur, que le studio seul paie.
+ * `failed` dit les lecteurs écartés, pour remplacer sans attendre la fin un
+ * lecteur supposé qui n'a pas l'épisode.
  */
-export async function availableServers(aniId: number, n: number, signal?: AbortSignal): Promise<string[]> {
+export async function availableServers(
+  aniId: number,
+  n: number,
+  onUpdate: (ids: string[], failed: Set<string>, done: boolean) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   const ok = new Set<string>();
-  const absent = new Set<string>();
+  const failed = new Set<string>();
+  const emit = (done: boolean) => {
+    if (!signal?.aborted)
+      onUpdate(LISTED.filter((s) => ok.has(s.id)).map((s) => s.id), new Set(failed), done);
+  };
   await Promise.all(
     (["sub", "dub"] as const).map(async (sub) => {
       try {
@@ -62,25 +101,27 @@ export async function availableServers(aniId: number, n: number, signal?: AbortS
         if (!r.ok) return;
         const d = await r.json();
         for (const s of d?.servers ?? []) if (subOf(s) === sub) ok.add(s);
-        for (const s of d?.absent ?? []) if (subOf(s) === sub) absent.add(s);
+        for (const s of d?.absent ?? []) if (subOf(s) === sub) failed.add(s);
       } catch {
         /* sans instantané : on sonde */
       }
     }),
   );
-  const unknown = LISTED.filter((s) => !ok.has(s.id) && !absent.has(s.id));
+  if (ok.size) emit(false);
+  const unknown = LISTED.filter((s) => !ok.has(s.id) && !failed.has(s.id));
   await Promise.all(
     unknown.map(async (s) => {
       try {
-        const out = await requestSource({ server: s.id, aniId, episode: n, sub: subOf(s.id), probe: true }, { signal });
+        const out = await ask(aniId, n, s.id);
         if (out.kind === "ok" && playable(out.data)) ok.add(s.id);
+        else failed.add(s.id);
       } catch {
-        /* abandon ou réseau : le lecteur n'est pas proposé */
+        failed.add(s.id);
       }
+      emit(false);
     }),
   );
-  /* Dans l'ordre de la liste des lecteurs (lib/servers.js). */
-  return LISTED.filter((s) => ok.has(s.id)).map((s) => s.id);
+  emit(true);
 }
 
 /** Une réponse jouable dans un `<video>` : un flux, ou une extraction à faire. */
@@ -92,17 +133,36 @@ function playable(data: any): boolean {
 
 export type EpisodeStream = { url: string; hls: boolean; revoke?: () => void };
 
-/** Le flux à jouer, ou null (épisode absent, lecteur mort, iframe seule). */
+/**
+ * Le flux du lecteur choisi ; s'il est mort pour cet épisode, `fallback` essaie
+ * les autres lecteurs de la MÊME langue, un par un. Le profil d'un visiteur ne
+ * doit pas rester noir parce qu'un hôte est tombé depuis l'enregistrement ; le
+ * studio, lui, montre le lecteur qu'on a choisi et rien d'autre.
+ */
 export async function resolveEpisodeStream(
   aniId: number,
   ep: { n: number; server: string },
   signal?: AbortSignal,
+  fallback = false,
 ): Promise<EpisodeStream | null> {
-  const out = await requestSource(
-    { server: ep.server, aniId, episode: ep.n, sub: subOf(ep.server) },
-    { signal },
-  );
-  if (out.kind !== "ok") return null;
+  const first = await resolveOne(aniId, ep, signal);
+  if (first || !fallback || signal?.aborted) return first;
+  const lang = LISTED.find((x) => x.id === ep.server)?.lang;
+  for (const s of LISTED.filter((x) => x.id !== ep.server && x.lang === lang)) {
+    const got = await resolveOne(aniId, { n: ep.n, server: s.id }, signal);
+    if (got || signal?.aborted) return got;
+  }
+  return null;
+}
+
+/** Le flux à jouer, ou null (épisode absent, lecteur mort, iframe seule). */
+async function resolveOne(
+  aniId: number,
+  ep: { n: number; server: string },
+  signal?: AbortSignal,
+): Promise<EpisodeStream | null> {
+  const out = await ask(aniId, ep.n, ep.server);
+  if (signal?.aborted || out.kind !== "ok") return null;
   const data = out.data;
   const ce = data?.clientExtract;
   if (ce?.type === "vidmoly" || ce?.type === "vidmoly-multipart") {

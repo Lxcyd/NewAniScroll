@@ -213,7 +213,9 @@ export default function PlateBackground({
     if (!epKey || !episode || !dressing.animeId) return;
     const ac = new AbortController();
     let got: EpisodeStream | null = null;
-    resolveEpisodeStream(dressing.animeId, episode, ac.signal)
+    /* Hors du studio (pas de télécommande), un lecteur mort cède sa place à
+       un autre de la même langue. */
+    resolveEpisodeStream(dressing.animeId, episode, ac.signal, !videoRemote)
       .catch(() => null)
       .then((s) => {
         got = s;
@@ -241,6 +243,11 @@ export default function PlateBackground({
           /* Un fond n'a pas besoin de plus que sa taille à l'écran. */
           capLevelToPlayerSize: true,
           startPosition: bounds.current.from || -1,
+          /* Un fond tourne sur un extrait : vingt secondes d'avance suffisent,
+             inutile de télécharger l'épisode entier pendant qu'on lit la page. */
+          maxBufferLength: 20,
+          maxMaxBufferLength: 30,
+          startFragPrefetch: true,
         });
         h.loadSource(ep.url);
         h.attachMedia(el);
