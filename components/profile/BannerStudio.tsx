@@ -292,6 +292,28 @@ const clock = (s: number) =>
     ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`
     : "0:00";
 
+/** Ce qu'on a tapé, en rose dans chaque proposition (20/10/2026) : « the pro »
+    sort en rose partout où il apparaît, le reste du titre en blanc. */
+function surligne(text: string, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return text;
+  const low = text.toLowerCase();
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  for (let j = low.indexOf(q); j !== -1; j = low.indexOf(q, i)) {
+    if (j > i) out.push(text.slice(i, j));
+    out.push(
+      <span key={j} className="text-action">
+        {text.slice(j, j + q.length)}
+      </span>,
+    );
+    i = j + q.length;
+  }
+  if (!out.length) return text;
+  out.push(text.slice(i));
+  return out;
+}
+
 /** Une entrée de la palette. `run` est ce que ⏎ ou le clic déclenche. */
 type Row = {
   key: string;
@@ -4351,7 +4373,7 @@ export default function BannerStudio({
                                   </span>
                                 ) : null}
                                 <span className="truncate font-outfit text-[14px] font-bold text-white/90">
-                                  {row.label}
+                                  {surligne(row.label, searchable ? query : "")}
                                 </span>
                               </span>
                               {row.hint ? (
