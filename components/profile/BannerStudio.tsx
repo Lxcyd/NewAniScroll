@@ -2739,8 +2739,7 @@ export default function BannerStudio({
            AniList (`AIRED`) — le compte est donc là sans rien ouvrir. */
         const eps = epCache.current.get(a.mediaId);
         const aired = AIRED.get(a.mediaId)?.aired ?? a.aired ?? null;
-        const tr = a.trailer ? 1 : 0;
-        const n = eps ? eps.length + tr : aired != null ? aired + tr : null;
+        const n = eps ? eps.length : aired;
         return {
           key: `anime-video-${a.mediaId}`,
           label: a.title,
@@ -2752,7 +2751,7 @@ export default function BannerStudio({
                 : t("profile.studioNotInList"),
           thumb: a.cover ?? null,
           cover: true,
-          selected: draft.kind === "video" && draft.animeId === a.mediaId && (!!draft.trailerId || !!draft.episode),
+          selected: draft.kind === "video" && draft.animeId === a.mediaId && !!draft.episode,
           hover: (on) => hoverEpisodes(on ? a.mediaId : null),
           expand: false,
           run: () => {
@@ -2767,7 +2766,6 @@ export default function BannerStudio({
       const gal: Section[] = [];
       if (pick != null) {
         const picked = listedAnime;
-        const trailer = picked?.trailer ?? null;
         const eps = epCache.current.get(pick);
         gal.push({
           title: "",
@@ -2775,7 +2773,7 @@ export default function BannerStudio({
           node: (
             <AnimeHead
               anime={picked}
-              count={(eps?.length ?? 0) + (trailer ? 1 : 0)}
+              count={eps?.length ?? 0}
               countKey="profile.studioVideoCount"
               anchor={`anime-video-${ouvert}`}
               onClose={() => {
@@ -2788,33 +2786,6 @@ export default function BannerStudio({
           ),
         });
         const rows: Row[] = [];
-        if (trailer)
-          rows.push({
-            key: `trailer-${trailer}`,
-            label: t("profile.artTrailer"),
-            /* TRL en vert, comme dans le menu Musique. */
-            chip: { text: "TRL", op: false, color: "#4ade80" },
-            hint: picked?.title ?? null,
-            thumb: `https://i.ytimg.com/vi/${trailer}/mqdefault.jpg`,
-            selected: draft.trailerId === trailer,
-            run: () =>
-              patch({
-                kind: "video" as const,
-                /* Pas d'`url` : une bande-annonce se joue par son lecteur
-                   YouTube, jamais comme un fichier (cf. `trailerId`). */
-                url: null,
-                trailerId: trailer,
-                episode: null,
-                /* Une vidéo qu'on vient de choisir est entière : le découpage
-                   se fait ensuite, aux poignées. */
-                videoFrom: null,
-                videoTo: null,
-                color: null,
-                source: null,
-                animeId: picked?.mediaId ?? null,
-                title: picked?.title ?? null,
-              }),
-          });
         for (const e of eps ?? [])
           rows.push({
             key: `episode-${pick}-${e.n}`,
@@ -3169,16 +3140,47 @@ export default function BannerStudio({
          ce rôle. Trois choses qu'on cherchait ailleurs y sont réunies : de quel
          anime on parle, combien il a de génériques, et comment atteindre ceux
          d'une autre saison sans repasser par la recherche. */
+      /* LA BANDE-ANNONCE EST ICI, en tête des génériques (21/10/2026, Luc) :
+         c'est une vidéo de l'anime au même titre qu'un opening. Le menu Vidéo
+         ne garde que les épisodes. */
+      const vu = meta ?? listedAnime;
+      const pv = vu?.trailer ?? null;
+      const trailerRow: Row | null = pv
+        ? {
+            key: `oped-trailer-${pv}`,
+            label: t("profile.artTrailer"),
+            chip: { text: "TRL", op: false, color: "#4ade80" },
+            hint: vu?.title ?? null,
+            thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
+            square: true,
+            selected: draft.trailerId === pv,
+            run: () =>
+              patch({
+                kind: "video" as const,
+                /* Pas d'`url` : une bande-annonce se joue par son lecteur
+                   YouTube, jamais comme un fichier (cf. `trailerId`). */
+                url: null,
+                trailerId: pv,
+                episode: null,
+                videoFrom: null,
+                videoTo: null,
+                color: null,
+                source: null,
+                animeId: vu?.mediaId ?? null,
+                title: vu?.title ?? null,
+              }),
+          }
+        : null;
       out.push({
         title: "",
         node: (
           <AnimeHead
-            anime={meta ?? listedAnime}
-            count={themes.length}
+            anime={vu}
+            count={themes.length + (pv ? 1 : 0)}
             t={t}
           />
         ),
-        rows,
+        rows: trailerRow ? [trailerRow, ...rows] : rows,
       });
     }
 
@@ -4940,7 +4942,10 @@ export default function BannerStudio({
                         on
                           ? (scope as DressingKind)
                           : draft.kind && kinds.includes(draft.kind)
-                            ? draft.kind
+                            ? /* Une bande-annonce se choisit dans Intro / Outro. */
+                              draft.trailerId && kinds.includes("oped")
+                              ? "oped"
+                              : draft.kind
                             : id,
                       );
                     }}
