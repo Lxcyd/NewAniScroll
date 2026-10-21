@@ -1203,7 +1203,10 @@ export default function BannerStudio({
   /* Musique y est depuis le 16/10/2026 : même accordéon que Image — la liste
      des animés (et la recherche AniList), un anime ouvert déplie ses
      génériques sous sa ligne. */
-  const twoScreens = scope === "video" || scope === "banner" || scope === "image" || scope === "music";
+  /* Génériques aussi depuis le 21/10/2026 : le même accordéon que Vidéo, son
+     voisin d'onglet — passer de l'un à l'autre perdait le cadre de l'anime ouvert. */
+  const twoScreens =
+    scope === "video" || scope === "oped" || scope === "banner" || scope === "image" || scope === "music";
 
   const listedAnime = twoScreens
     ? (meta?.mediaId === pick
@@ -1445,7 +1448,7 @@ export default function BannerStudio({
      comme les génériques eux-mêmes. */
   const [musicCounts, setMusicCounts] = useState<Record<number, number>>(() => ({ ...musicCountsSeen }));
   useEffect(() => {
-    if (!open || (scope !== "music" && barVise !== "music")) return;
+    if (!open || (scope !== "music" && scope !== "oped" && barVise !== "music")) return;
     const ids = [...animes, ...found]
       .map((a) => a.mediaId)
       .filter((id) => !(id in musicCountsSeen) && !musicCountsAsked.has(id) && !themeCache.current.has(id));
@@ -1472,7 +1475,7 @@ export default function BannerStudio({
     }
   }, [open, scope, barVise, animes, found]);
   useEffect(() => {
-    if (!open || scope !== "music" || pick == null || pick in notAired) return;
+    if (!open || (scope !== "music" && scope !== "oped") || pick == null || pick in notAired) return;
     if (themeCache.current.get(pick)?.length !== 0) return;
     let alive = true;
     const id = pick;
@@ -2924,26 +2927,20 @@ export default function BannerStudio({
       /* Musique : les génériques de l'anime OUVERT, lus dans le cache par son
          id — `themes` garde ceux du précédent jusqu'à l'arrivée des nouveaux,
          et ils s'afficheraient sous le mauvais titre (même piège que `art`). */
-      const fini = scope === "music" && pick != null ? themeCache.current.get(pick) : undefined;
-      const liste =
-        scope === "music" ? (pick != null ? (fini ?? themeBase.current.get(pick) ?? null) : null) : themes;
+      const fini = pick != null ? themeCache.current.get(pick) : undefined;
+      const liste = pick != null ? (fini ?? themeBase.current.get(pick) ?? null) : null;
       /* Les OP/ED sont là, les autres musiques en route (themeBase). */
-      const enRoute = scope === "music" && fini == null && liste != null;
+      const enRoute = fini == null && liste != null;
       /* Le nombre attendu : celui de la ligne d'anime, tant que la liste n'est
          pas complète — il ne bouge pas pendant le chargement. */
       const attendu = pick != null ? (fini?.length ?? musicCounts[pick] ?? liste?.length ?? 0) : 0;
       /* Les pochettes de CET anime seulement : l'état garde celles du
          précédent le temps d'une requête, et « OP1 » est un slug commun. */
       const themeCovers = coverState.id === listedAnimeId ? coverState.covers : {};
+      /* La frappe cherche un ANIME : elle ne filtre pas les pistes de celui
+         qu'on ouvre — « chainsawman » ne figure dans aucun titre de chanson,
+         et la liste se viderait. */
       const rows: Row[] = (liste ?? [])
-        /* En Musique la frappe cherche un ANIME : elle ne filtre pas les
-           pistes de celui qu'on ouvre — « chainsawman » ne figure dans aucun
-           titre de chanson, et la liste se viderait. */
-        .filter(
-          (th) =>
-            scope === "music" ||
-            match(`${th.slug} ${th.song || ""} ${th.artists.join(" ")}`),
-        )
         .map((th) => {
           const url = th.videoNc?.url || th.video?.url || null;
           const label = th.song || th.slug;
@@ -3029,13 +3026,14 @@ export default function BannerStudio({
                         videoTo: null,
                         color: null,
                         source: null,
-                        animeId: currentAnime?.mediaId ?? null,
-                        title: currentAnime?.title ?? null,
+                        animeId: listedAnime?.mediaId ?? pick,
+                        title: listedAnime?.title ?? null,
                       })
               : undefined,
           };
         });
-      if (scope === "music") {
+      {
+        /* Génériques suit le même accordéon depuis le 21/10/2026. */
         /* EN ACCORDÉON, COMME IMAGE (16/10/2026) : ta liste, puis ce
            qu'AniList trouve en plus dès trois lettres ; l'anime ouvert déplie
            ses génériques sous sa ligne, avec leurs pochettes. Il n'y avait
@@ -3060,8 +3058,9 @@ export default function BannerStudio({
              bande-annonce compte, puisqu'elle se prend comme les autres. */
           const n = g == null ? g : g + (a.trailer ? 1 : 0);
           return {
-            key: `anime-music-${a.mediaId}`,
+            key: `anime-${scope}-${a.mediaId}`,
             label: a.title,
+            selected: scope === "oped" && draft.animeId === a.mediaId && (draft.kind === "oped" || !!draft.trailerId),
             hint:
               n === 0
                 ? t("profile.studioMusicNoneHere")
@@ -3076,7 +3075,7 @@ export default function BannerStudio({
             hover: (on) => prefetchMusic(on ? a.mediaId : null),
             expand: false,
             run: () => {
-              holdAnchor(`anime-music-${a.mediaId}`);
+              holdAnchor(`anime-${scope}-${a.mediaId}`);
               setPick(a.mediaId);
               setArtRoot(a.mediaId);
               setCursor(0);
@@ -3093,9 +3092,9 @@ export default function BannerStudio({
               <AnimeHead
                 anime={meta?.mediaId === pick ? meta : listedAnime}
                 count={attendu + ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)}
-                anchor={`anime-music-${ouvert}`}
+                anchor={`anime-${scope}-${ouvert}`}
                 onClose={() => {
-                  holdAnchor(`anime-music-${ouvert}`);
+                  holdAnchor(`anime-${scope}-${ouvert}`);
                   setPick(null);
                   setCursor(0);
                 }}
@@ -3108,7 +3107,40 @@ export default function BannerStudio({
              c'est souvent le seul son d'un titre pas encore diffusé. */
           const vu = meta?.mediaId === pick ? meta : listedAnime;
           const pv = vu?.trailer ?? null;
-          if (pv)
+          /* LA BANDE-ANNONCE EST AUSSI EN TÊTE DES GÉNÉRIQUES (21/10/2026, Luc) :
+             c'est une vidéo de l'anime au même titre qu'un opening. Le menu
+             Vidéo ne garde que les épisodes. */
+          if (pv && scope === "oped")
+            gal.push({
+              title: "",
+              rows: [
+                {
+                  key: `oped-trailer-${pv}`,
+                  label: t("profile.artTrailer"),
+                  chip: { text: "TRL", op: false, color: "#4ade80" },
+                  hint: vu?.title ?? null,
+                  thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
+                  square: true,
+                  selected: draft.trailerId === pv,
+                  run: () =>
+                    patch({
+                      kind: "video" as const,
+                      /* Pas d'`url` : une bande-annonce se joue par son lecteur
+                         YouTube, jamais comme un fichier (cf. `trailerId`). */
+                      url: null,
+                      trailerId: pv,
+                      episode: null,
+                      videoFrom: null,
+                      videoTo: null,
+                      color: null,
+                      source: null,
+                      animeId: vu?.mediaId ?? null,
+                      title: vu?.title ?? null,
+                    }),
+                },
+              ],
+            });
+          else if (pv)
             gal.push({
               title: "",
               rows: [
@@ -3189,7 +3221,7 @@ export default function BannerStudio({
             });
         }
         for (const s of gal) s.panel = true;
-        const titre = t("profile.studioKind_music");
+        const titre = t(`profile.studioKind_${scope}`);
         if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
         else
           out.push(
@@ -3199,53 +3231,6 @@ export default function BannerStudio({
           );
         return out.filter((s) => s.rows.length > 0 || s.node);
       }
-      /* L'anime se présente en TÊTE DE LISTE, avec son affiche, son titre et
-         ses saisons — au lieu du seul intitulé en petites capitales qui tenait
-         ce rôle. Trois choses qu'on cherchait ailleurs y sont réunies : de quel
-         anime on parle, combien il a de génériques, et comment atteindre ceux
-         d'une autre saison sans repasser par la recherche. */
-      /* LA BANDE-ANNONCE EST ICI, en tête des génériques (21/10/2026, Luc) :
-         c'est une vidéo de l'anime au même titre qu'un opening. Le menu Vidéo
-         ne garde que les épisodes. */
-      const vu = meta ?? listedAnime;
-      const pv = vu?.trailer ?? null;
-      const trailerRow: Row | null = pv
-        ? {
-            key: `oped-trailer-${pv}`,
-            label: t("profile.artTrailer"),
-            chip: { text: "TRL", op: false, color: "#4ade80" },
-            hint: vu?.title ?? null,
-            thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
-            square: true,
-            selected: draft.trailerId === pv,
-            run: () =>
-              patch({
-                kind: "video" as const,
-                /* Pas d'`url` : une bande-annonce se joue par son lecteur
-                   YouTube, jamais comme un fichier (cf. `trailerId`). */
-                url: null,
-                trailerId: pv,
-                episode: null,
-                videoFrom: null,
-                videoTo: null,
-                color: null,
-                source: null,
-                animeId: vu?.mediaId ?? null,
-                title: vu?.title ?? null,
-              }),
-          }
-        : null;
-      out.push({
-        title: "",
-        node: (
-          <AnimeHead
-            anime={vu}
-            count={themes.length + (pv ? 1 : 0)}
-            t={t}
-          />
-        ),
-        rows: trailerRow ? [trailerRow, ...rows] : rows,
-      });
     }
 
     /* La recherche traverse les types : c'est ce que la palette apporte de plus
@@ -4314,7 +4299,6 @@ export default function BannerStudio({
                           startMenu(() => {
                             setScope(k);
                             setCursor(0);
-                            if (k === "video" || k === "oped") setPick(null);
                           });
                         }}
                         className={`relative min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors duration-300 group ${
