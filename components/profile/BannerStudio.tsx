@@ -3250,7 +3250,9 @@ export default function BannerStudio({
                 : th.kind === "ins"
                   ? ((meta?.mediaId === listedAnimeId ? meta : listedAnime)?.cover ?? null)
                   : null),
-            square: true,
+            /* Génériques en rectangle, comme les épisodes de Vidéo
+               (21/10/2026) ; Musique garde ses pochettes carrées. */
+            square: scope === "music",
             disabled: !url,
             selected:
               scope === "music"
@@ -3409,7 +3411,6 @@ export default function BannerStudio({
                   chip: { text: "TRL", op: false, color: "#4ade80" },
                   hint: vu?.title ?? null,
                   thumb: `https://i.ytimg.com/vi/${pv}/mqdefault.jpg`,
-                  square: true,
                   selected: draft.trailerId === pv,
                   run: () =>
                     patch({
