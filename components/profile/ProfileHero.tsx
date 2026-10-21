@@ -15,20 +15,17 @@ import { useScene } from "@/components/profile/ProfileStage";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import MusicCard from "@/components/profile/MusicCard";
 
-const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
-const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
-const BG_PAUSED_KEY = "aniscroll:profile:bg-paused";
-/* Le même choix, en cookie : le serveur doit le connaître pour rendre le
-   lecteur avec ou sans `autoplay` (voir YouTubeMusic, `autoStart`). */
-export const PROFILE_AUTOPLAY_COOKIE = "as_profile_autoplay";
-const rememberAutoplay = (on: boolean) => {
-  try {
-    localStorage.setItem(PROFILE_AUTOPLAY_KEY, on ? "1" : "0");
-  } catch {}
-  try {
-    document.cookie = `${PROFILE_AUTOPLAY_COOKIE}=${on ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
-  } catch {}
-};
+/* Pause, muet, volume et lecture auto : partagés avec le studio
+   (lib/profile/playback). */
+import {
+  readAutoplay,
+  readProfileVolume,
+  rememberAutoplay,
+  useBgMuted,
+  useBgPaused,
+  writeProfileVolume,
+} from "@/lib/profile/playback";
+export { PROFILE_AUTOPLAY_COOKIE } from "@/lib/profile/playback";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -246,19 +243,9 @@ export default function ProfileHero({
   /* LE FOND VIDÉO SE MET EN PAUSE (21/10/2026, Luc) : il tournait sans fin
      sous les yeux de qui lit la page. Le choix est celui du VISITEUR, gardé
      dans son navigateur pour tous les profils. */
-  const [bgPaused, setBgPaused] = useState(false);
-  useEffect(() => {
-    try {
-      setBgPaused(localStorage.getItem(BG_PAUSED_KEY) === "1");
-    } catch {}
-  }, []);
-  const toggleBg = () =>
-    setBgPaused((p) => {
-      try {
-        localStorage.setItem(BG_PAUSED_KEY, p ? "0" : "1");
-      } catch {}
-      return !p;
-    });
+  /* Partagé avec le studio : une pause posée ici y vaut aussi. */
+  const [bgPaused, setBgPaused] = useBgPaused();
+  const toggleBg = () => setBgPaused((p) => !p);
   /* Le mur d'animés : un fond d'écran sans fichier, fait des affiches de la
      liste que la page tient déjà (lib/profile/wall.ts). */
   const wall = banner.kind === "wall";
@@ -347,16 +334,12 @@ export default function ProfileHero({
      survol) et retenu sur l'appareil, à part de celui des aperçus. */
   const [vol, setVol] = useState(PROFILE_DEFAULT_VOLUME);
   useEffect(() => {
-    try {
-      const v = parseFloat(localStorage.getItem(PROFILE_VOLUME_KEY) ?? "");
-      if (Number.isFinite(v)) setVol(Math.min(1, Math.max(0, v)));
-    } catch {}
+    const v = readProfileVolume();
+    if (v != null) setVol(v);
   }, []);
   const changeVol = (v: number) => {
     setVol(v);
-    try {
-      localStorage.setItem(PROFILE_VOLUME_KEY, String(v));
-    } catch {}
+    writeProfileVolume(v);
   };
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
 
@@ -384,8 +367,8 @@ export default function ProfileHero({
       window.removeEventListener("keydown", wake, opts);
     };
   }, [studio, videoVol, vidAwake]);
-  /** Le visiteur a coupé le son de la vidéo (bouton du bas à gauche). */
-  const [vidMuted, setVidMuted] = useState(false);
+  /** Le visiteur a coupé le son de la vidéo (sa case) — partagé avec le studio. */
+  const [vidMuted, setVidMuted] = useBgMuted();
   /** Le niveau choisi par le VISITEUR à la case ; sinon celui du propriétaire. */
   const [visitorVol, setVisitorVol] = useState<number | null>(null);
   const videoAudible = videoVol > 0 && !vidMuted && (!!studio || vidAwake);
@@ -420,10 +403,7 @@ export default function ProfileHero({
   }, [browserMuted]);
   useEffect(() => {
     if (!banner.music?.videoId || studio) return;
-    let auto = !musicPaused;
-    try {
-      auto = auto && localStorage.getItem(PROFILE_AUTOPLAY_KEY) !== "0";
-    } catch {}
+    const auto = !musicPaused && readAutoplay();
     /* Une pause d'avant le cookie : on le pose, la visite suivante est juste. */
     if (!auto && !musicPaused) rememberAutoplay(false);
     if (auto) setSound(true);
@@ -1023,8 +1003,8 @@ export default function ProfileHero({
             volume={visitorVol ?? videoVol}
             priority
             videoRemote={studio?.remote}
-            /* Le studio pilote sa vidéo lui-même (son rail, sa pochette). */
-            paused={!studio && bgPaused}
+            /* La même pause sur le profil et dans le studio (lib/profile/playback). */
+            paused={bgPaused}
             onVideoProgress={
               studio ? (at, d, playing) => studio.progress.current?.(at, d, playing) : undefined
             }
@@ -1063,7 +1043,7 @@ export default function ProfileHero({
             }}
             contain={!!ratio}
             priority
-            paused={!studio && bgPaused}
+            paused={bgPaused}
           />
         ) : null}
         {!banner.url && !flat && !trailer && !wall ? (

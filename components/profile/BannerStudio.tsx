@@ -123,6 +123,14 @@ import {
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
+  readProfileVolume,
+  rememberAutoplay,
+  resumeVideo,
+  useBgMuted,
+  useBgPaused,
+  writeProfileVolume,
+} from "@/lib/profile/playback";
+import {
   DEFAULT_VIDEO_FADE,
   DEFAULT_VIDEO_VOLUME,
   DRESSING_KINDS,
@@ -1232,6 +1240,17 @@ export default function BannerStudio({
    * non comme une annonce.
    */
   const [vol, setVol] = useState(PREVIEW_DEFAULT_VOLUME);
+  /* LE VOLUME DE LA MUSIQUE EST CELUI DU PROFIL (21/10/2026, Luc) : coupé ou
+     baissé sur le profil, il l'est ici, et l'inverse (lib/profile/playback). */
+  const volRead = useRef(false);
+  useEffect(() => {
+    const v = readProfileVolume();
+    if (v != null) setVol(v);
+    volRead.current = true;
+  }, []);
+  useEffect(() => {
+    if (volRead.current) writeProfileVolume(vol);
+  }, [vol]);
   const lastVol = useRef(PREVIEW_DEFAULT_VOLUME);
   /** Le dernier son de vidéo audible, rendu quand on la remet. */
   const lastVideoVol = useRef(DEFAULT_VIDEO_VOLUME);
@@ -1274,11 +1293,28 @@ export default function BannerStudio({
     const id = window.setInterval(hold, 300);
     return () => {
       window.clearInterval(id);
-      remote.current?.play();
+      /* Sauf un fond que le visiteur avait mis en pause : il le reste. */
+      if (!bgPausedRef.current) remote.current?.play();
       if (draft.music) setWantPlay(true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- à la fermeture seulement
   }, [soundTip]);
+
+  /* LA PAUSE ET LE MUET DU PROFIL VALENT ICI (21/10/2026, Luc) : un fond mis
+     en pause ou coupé sur le profil le reste dans le menu d'édition, et
+     inversement (lib/profile/playback). */
+  const [bgPaused, setBgPaused] = useBgPaused();
+  const bgPausedRef = useRef(bgPaused);
+  bgPausedRef.current = bgPaused;
+  const [bgMuted, setBgMuted] = useBgMuted();
+  /** Lecture / pause du fond, par l'état partagé que le fond écoute. */
+  const toggleVideo = () => {
+    if (vPlaying) setBgPaused(true);
+    else {
+      setBgPaused(false);
+      remote.current?.play();
+    }
+  };
   /* UNE AUTRE VIDÉO REPART DE ZÉRO (21/10/2026, Luc) : le rail gardait la
      position de la précédente (0:15) le temps que la nouvelle se charge, et
      on croyait qu'elle commençait au même endroit. Même chose pour la
@@ -3851,9 +3887,17 @@ export default function BannerStudio({
   const finish = () => {
     /* L'image de la case vidéo du profil, figée ici : c'est le studio qui
        connaît la vignette de l'épisode (cf. `videoCover`). */
-    if (changed && hasOwnPlate(shown))
+    if (changed && hasOwnPlate(shown)) {
+      /* UN NOUVEAU FOND OU UNE NOUVELLE MUSIQUE REPART (21/10/2026, Luc) :
+         la pause et le muet posés sur l'ancien ne valent pas pour lui. */
+      const before = value ?? emptyDressing();
+      const fond = (d: Dressing) =>
+        `${d.kind}|${d.url}|${d.trailerId}|${d.animeId}|${d.episode?.n}|${d.episode?.server}`;
+      if (fond(before) !== fond(shown)) resumeVideo();
+      if (`${before.music?.url}|${before.music?.videoId}` !== `${shown.music?.url}|${shown.music?.videoId}`)
+        rememberAutoplay(true);
       onApply(videoDraft ? { ...shown, videoCover: videoThumb } : { ...shown, videoCover: null });
-    else onClose();
+    } else onClose();
   };
 
   let index = -1;
@@ -4057,7 +4101,8 @@ export default function BannerStudio({
       remote.current?.seek(p);
       setVAt(p);
     }
-    remote.current?.play();
+    /* Un fond en pause reste en pause : on a réglé une borne, pas relancé. */
+    if (!bgPaused) remote.current?.play();
   };
   const grabTrim = (edge: "from" | "to", held: boolean) => {
     const el = preview.current;
@@ -4260,9 +4305,7 @@ export default function BannerStudio({
     <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
       <button
         type="button"
-        onClick={() =>
-          vPlaying ? remote.current?.pause() : remote.current?.play()
-        }
+        onClick={toggleVideo}
         aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
         className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
       >
@@ -4354,15 +4397,15 @@ export default function BannerStudio({
             muet par défaut. Une musique choisie le fait taire — le titre le
             dit au survol. */}
         <HoverVolume
-          muted={(draft.videoVolume ?? 0) === 0}
+          muted={(draft.videoVolume ?? 0) === 0 || bgMuted}
           volume={(draft.videoVolume ?? 0) > 0 ? draft.videoVolume : lastVideoVol.current}
           onMuted={(m) => {
-            if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
+            /* Coupé sur le profil : rétablir le son ne fait que lever ce muet. */ if (!m && bgMuted) { setBgMuted(false); if (draft.videoVolume > 0) return; } if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
             patch({ videoVolume: m ? 0 : lastVideoVol.current || DEFAULT_VIDEO_VOLUME });
           }}
           onVolume={(v) => {
             if (v > 0) lastVideoVol.current = v;
-            patch({ videoVolume: clampVolume(v) });
+            if (v > 0 && bgMuted) setBgMuted(false); patch({ videoVolume: clampVolume(v) });
           }}
           placement="up"
           fallback={DEFAULT_VIDEO_VOLUME}
@@ -4373,16 +4416,6 @@ export default function BannerStudio({
           })}
           className={`-mr-1 ${draft.music ? "opacity-50" : ""}`}
         />
-        {/* Revoir la fenêtre « la musique passe en premier » à volonté. */}
-        <button
-          type="button"
-          onClick={() => setSoundTip(true)}
-          aria-label={t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
-          title={t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
-          className="grid h-5 w-5 shrink-0 place-items-center rounded-full font-outfit text-[11px] font-bold text-white/40 ring-1 ring-white/20 transition-colors hover:text-white hover:ring-white/50"
-        >
-          i
-        </button>
         </div>
         {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
             épisode, avec leur langue entre crochets. */}
@@ -5599,16 +5632,16 @@ export default function BannerStudio({
             clock={() => vAt}
             live={() => vPlaying && (draft.videoVolume ?? 0) > 0}
             playing={vPlaying}
-            muted={(draft.videoVolume ?? 0) === 0}
+            muted={(draft.videoVolume ?? 0) === 0 || bgMuted}
             volume={(draft.videoVolume ?? 0) > 0 ? draft.videoVolume : lastVideoVol.current}
-            onToggle={() => (vPlaying ? remote.current?.pause() : remote.current?.play())}
+            onToggle={toggleVideo}
             onMuted={(m) => {
-              if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
+              /* Coupé sur le profil : rétablir le son ne fait que lever ce muet. */ if (!m && bgMuted) { setBgMuted(false); if (draft.videoVolume > 0) return; } if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
               patch({ videoVolume: m ? 0 : lastVideoVol.current || DEFAULT_VIDEO_VOLUME });
             }}
             onVolume={(v) => {
               if (v > 0) lastVideoVol.current = v;
-              patch({ videoVolume: clampVolume(v) });
+              if (v > 0 && bgMuted) setBgMuted(false); patch({ videoVolume: clampVolume(v) });
             }}
             fallback={DEFAULT_VIDEO_VOLUME}
             minimizable
