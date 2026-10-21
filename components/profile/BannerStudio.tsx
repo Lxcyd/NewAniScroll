@@ -198,8 +198,10 @@ type VideoSnap = Pick<
 >;
 type Presets = {
   music: { id: string; music: DressingMusic }[];
-  /** `label` : le titre de l'épisode, que le choix lui-même ne garde pas. */
-  video: { id: string; thumb: string | null; label?: string | null; v: VideoSnap }[];
+  /** `label` : le titre de l'épisode, que le choix lui-même ne garde pas.
+      `tab` : l'onglet où il a été gardé — Vidéo et Génériques ont chacun les
+      leurs (21/10/2026). */
+  video: { id: string; thumb: string | null; label?: string | null; tab?: "video" | "oped"; v: VideoSnap }[];
 };
 const PRESET_KEY = "as-studio-presets";
 const PRESET_MAX = 30;
@@ -226,6 +228,15 @@ const videoSnap = (d: Dressing): VideoSnap => ({
   title: d.title,
   source: d.source,
 });
+/** L'onglet d'un preset vidéo ; ceux d'avant le champ `tab` se rangent par
+    nature : un épisode dans Vidéo, le reste dans Génériques. */
+const presetTab = (p: Presets["video"][0]) => p.tab ?? (p.v.episode ? "video" : "oped");
+/** Un preset porté garde SEUL la coche : la ligne d'épisode ou de générique
+    qu'il reprend ne se coche plus en double plus bas. */
+const presetFirst = (list: Section[]): Section[] =>
+  list.some((s) => s.rows.some((r) => r.pink && r.selected))
+    ? list.map((s) => ({ ...s, rows: s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)) }))
+    : list;
 /** Deux choix sont le même preset quand tout ce qu'il garde est égal. */
 const sameSnap = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const span = (from: number | null, to: number | null) =>
@@ -441,6 +452,8 @@ type Row = {
   remove?: () => void;
   /** L'intitulé de la croix de `remove` (« Mes vidéos » par défaut). */
   removeLabel?: string;
+  /** Choisie, la ligne se teinte de rose (les presets). */
+  pink?: boolean;
 };
 
 /** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
@@ -1871,6 +1884,7 @@ export default function BannerStudio({
             thumb: p.music.cover,
             square: true,
             selected: sameSnap(draft.music, p.music),
+            pink: true,
             run: () => {
               patch({ music: { ...p.music } });
               setAt(0);
@@ -1886,7 +1900,7 @@ export default function BannerStudio({
     if ((scope === "video" || scope === "oped") && presets.video.length) {
       const cur = videoSnap(draft);
       const rows = presets.video
-        .filter((p) => match(p.v.title ?? ""))
+        .filter((p) => presetTab(p) === scope && match(`${p.label ?? ""} ${p.v.title ?? ""}`))
         .map(
           (p): Row => ({
             key: `preset-video-${p.id}`,
@@ -1903,6 +1917,7 @@ export default function BannerStudio({
             icon: FilmIcon,
             thumb: p.thumb,
             selected: sameSnap(cur, p.v),
+            pink: true,
             run: () => patch({ ...p.v, color: null }),
             remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
             removeLabel: t("profile.studioPresetRemove"),
@@ -3383,7 +3398,7 @@ export default function BannerStudio({
             ...gal,
             { title: "", rows: tous.slice(at + 1).map(ligne) },
           );
-        return out.filter((s) => s.rows.length > 0 || s.node || s.fold);
+        return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold));
       }
     }
 
@@ -3421,7 +3436,7 @@ export default function BannerStudio({
       }));
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
-    return out.filter((s) => s.rows.length > 0 || s.node || s.fold);
+    return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold));
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
@@ -3883,7 +3898,8 @@ export default function BannerStudio({
   /* Le bouton « garder en preset » des deux cartes : un clic garde le choix
      tel qu'il est (bornes, fondu), un second le retire. */
   const curVideo = videoSnap(draft);
-  const videoSaved = presets.video.find((p) => sameSnap(p.v, curVideo));
+  const videoTab = scope === "oped" ? "oped" : "video";
+  const videoSaved = presets.video.find((p) => presetTab(p) === videoTab && sameSnap(p.v, curVideo));
   const musicSaved = draft.music ? presets.music.find((p) => sameSnap(p.music, draft.music)) : undefined;
   const toggleVideoPreset = () =>
     savePresets((s) =>
@@ -3895,6 +3911,7 @@ export default function BannerStudio({
               {
                 id: `${Date.now()}`,
                 thumb: videoThumb,
+                tab: videoTab,
                 label: draft.episode
                   ? (draft.animeId != null
                       ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.title
@@ -4846,6 +4863,14 @@ export default function BannerStudio({
                                  après l'autre (21/10/2026) ; plafonné à 12
                                  pour qu'une longue liste ne traîne pas. */
                               ...(s.panel ? { ["--i" as string]: Math.min(rang, 12) } : {}),
+                              /* Un preset porté se teinte de rose, comme le
+                                 cadre de l'animé ouvert. */
+                              ...(row.pink && row.selected
+                                ? {
+                                    background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+                                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} 45%, transparent)`,
+                                  }
+                                : {}),
                             }}
                             className={`${s.panel ? "as-row-in " : ""}group flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${
                               row.cover ? "py-2" : "py-2.5"
