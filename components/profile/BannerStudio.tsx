@@ -1058,7 +1058,8 @@ export default function BannerStudio({
   /* LE CONCEPT DU SON, EXPLIQUÉ UNE FOIS (21/10/2026, Luc) : la première
      fois qu'une vidéo a du son ET qu'une musique est choisie, une fenêtre dit
      que la musique passe avant. Retenu dans ce navigateur. */
-  const SOUND_TIP_KEY = "as-studio-sound-tip";
+  /* `-v2` : texte raccourci, la fenêtre se remontre une fois (21/10/2026). */
+  const SOUND_TIP_KEY = "as-studio-sound-tip-v2";
   const [soundTip, setSoundTip] = useState(false);
   const videoSounds =
     (draft.videoVolume ?? 0) > 0 &&
