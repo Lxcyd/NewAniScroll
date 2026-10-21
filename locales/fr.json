@@ -1226,6 +1226,7 @@
     "studioPresets": "Mes presets",
     "studioPresetEdit": "Modifier",
     "studioVideoVolume": "Son de la vidéo",
+    "studioMusicRemove": "Retirer la musique",
     "studioVideoVolumeMusic": "Son de la vidéo — coupé tant qu'une musique est choisie",
     "studioVideoMutedByMusic": "Muette : musique choisie",
     "studioVideoMutedByMusicHint": "La musique du profil passe avant le son de la vidéo. Cliquer pour retirer la musique.",

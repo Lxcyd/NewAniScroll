@@ -5748,6 +5748,21 @@ export default function BannerStudio({
                   </span>
                 ) : null}
               </button>
+              {/* Retirer la musique sans rouvrir son menu, comme le cadre. */}
+              {draft.music ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    preview.current?.pause();
+                    patch({ music: null });
+                  }}
+                  title={t("profile.studioMusicRemove", { defaultValue: "Retirer la musique" })}
+                  aria-label={t("profile.studioMusicRemove", { defaultValue: "Retirer la musique" })}
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              ) : null}
             </SceneBox>
 
             {/* Le curseur du flou reprend `as-range`, celui des réglages de
