@@ -47,10 +47,8 @@ export function useScene(): Scene {
 const DURATION = 500;
 /** Écart du pouce aux bords haut et bas du cadre, en pixels écran. */
 const THUMB_INSET = 12;
-/** Écart entre le bord droit du cadre et la gouttière du pouce (dedans). */
-const THUMB_GAP = 4;
-/** Largeur de la gouttière (la zone saisissable), cf. `.as-scene-gutter`. */
-const GUTTER_W = 12;
+/* La gouttière : 12 px de large, à 4 px du bord droit du cadre (dedans) —
+   en CSS, `.as-scene-gutter`. */
 /** Hauteur de la barre des réglages (BannerStudio, `min-h-[4.75rem]` + bords). */
 const BOTTOM_BAR = 78;
 /** Le menu de gauche ne descend pas sous cette largeur à la poignée. */
@@ -425,28 +423,28 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       const r = el.getBoundingClientRect();
       const { scrollTop, scrollHeight, clientHeight } = el;
       const room = Math.max(0, scrollHeight - clientHeight);
-      const track = Math.max(0, r.height - 2 * THUMB_INSET);
+      /* La gouttière a la hauteur du cadre ARRIVÉ (globals.css) : c'est elle,
+         pas le rectangle en plein mouvement, qui donne la course. */
+      const track = Math.max(0, gu.clientHeight || r.height - 2 * THUMB_INSET);
       const h = room ? Math.max(40, (clientHeight / scrollHeight) * track) : 0;
       const top = room ? (scrollTop / room) * (track - h) : 0;
       return { r, room, track, h, top };
     };
+    /* LA GOUTTIÈRE SUIT LE CADRE EN CSS (22/10/2026, Luc : « la barre ne suit
+       pas l'animation »). Elle était recalée ici à la fin de chaque
+       transition : pendant le glissement elle restait où le recul l'avait
+       laissée, dans le cadre. Sa place et sa hauteur sont maintenant écrites
+       en CSS sur les classes de la scène (`.as-scene-gutter`, globals.css),
+       et sa translation s'anime sur le compositeur avec le cadre — le fil
+       principal est bloqué pendant que le studio se rend. Ici, seulement le
+       pouce dans la gouttière, et rien à faire défiler = pas de gouttière. */
     const place = () => {
-      const { r, room, h, top } = geometry();
-      /* Rien à faire défiler, ou cadre encore plein écran : pas de pouce. Il
-         est DANS le cadre, contre son bord droit (demande du 10/10 : la
-         marge le faisait lire comme un objet à part). */
-      const visible = room > 0 && r.width < window.innerWidth - 1;
-      gu.style.display = visible ? "block" : "none";
-      if (!visible) return;
-      gu.style.transform = `translate(${r.right - THUMB_GAP - GUTTER_W}px, ${r.top + THUMB_INSET}px)`;
-      gu.style.height = `${r.height - 2 * THUMB_INSET}px`;
+      const { room, h, top } = geometry();
+      gu.style.visibility = room > 0 ? "" : "hidden";
+      if (!room) return;
       th.style.height = `${h}px`;
       th.style.transform = `translateY(${top}px)`;
     };
-    /* Pas de suivi image par image pendant les transitions : le pouce est
-       invisible à ce moment-là, et une mesure par image coûtait au moment le
-       plus chargé. Il se recale à la fin de chaque transition du cadre
-       (`transitionend`, plus bas). */
 
     const flash = () => {
       th.classList.add("is-on");
@@ -500,6 +498,7 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     el.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", place);
     el.addEventListener("transitionend", place);
+    place();
     gu.addEventListener("pointerdown", onDown);
     gu.addEventListener("pointermove", onMove);
     gu.addEventListener("pointerup", onUp);
@@ -518,7 +517,6 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       gu.removeEventListener("pointerleave", onLeave);
       cancelAnimationFrame(raf);
       clearTimeout(hide);
-      gu.style.display = "none";
       th.classList.remove("is-on", "is-held");
     };
   }, [fixed]);

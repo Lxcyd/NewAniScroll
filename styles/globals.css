@@ -2373,6 +2373,39 @@ html.as-scene-resizing * {
   cursor: pointer;
   touch-action: none;
 }
+/* ELLE SUIT LE CADRE PAR UNE TRANSFORMATION (22/10/2026), comme la case
+   musique (`.as-scene-follow`) : même durée, même courbe, mêmes classes de
+   <html>, donc sur le compositeur pendant que le studio bloque le fil
+   principal. À 4 px du bord droit intérieur du cadre (12 + 4 = 16 px),
+   12 px sous son haut et au-dessus de son bas. La hauteur, elle, se pose
+   d'un coup sur celle du cadre arrivé. Plein écran (avant le recul) : rien. */
+html.as-scene-shrunk .as-scene-gutter {
+  display: block;
+  transform: translate(
+    calc(var(--as-scene-s1-x) + var(--as-scene-s) * var(--as-scene-W) - 16px),
+    calc(var(--as-scene-s1-y) + 12px)
+  );
+  height: calc(var(--as-scene-s) * var(--as-scene-H) - 24px);
+  transition: transform 0.5s var(--as-scene-ease);
+}
+html.as-scene-docked .as-scene-gutter {
+  transform: translate(
+    calc(var(--as-scene-W) - var(--as-scene-frame-right) - 16px),
+    calc(var(--as-scene-dock-y) + 12px)
+  );
+  height: calc(var(--as-scene-frame-bottom) - var(--as-scene-dock-y) - 24px);
+  transition-duration: 0.45s;
+}
+html.as-scene-resizing .as-scene-gutter {
+  transition: none;
+}
+/* Elle paraît avec le recul : elle part du bord de l'écran plein, là où est
+   le cadre à cet instant. */
+@starting-style {
+  html.as-scene-shrunk .as-scene-gutter {
+    transform: translate(calc(var(--as-scene-W) - 16px), 12px);
+  }
+}
 /* Fin, contre le bord intérieur droit du cadre ; il s'élargit un peu sous la
    souris pour se saisir, sans jamais redevenir une barre. */
 .as-scene-thumb {

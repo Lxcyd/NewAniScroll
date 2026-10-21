@@ -52,6 +52,7 @@ const EQ_BARS = 10;
  * sur un écran dense) ; les pochettes rangées avec la musique sont petites :
  *   — Apple Music : 120×120 (theme-covers) → on demande 600×600 ;
  *   — Deezer : 120×120 → 600×600 ;
+ *   — TMDB (image d'épisode du fond vidéo) : w780 → w1280 / originale ;
  *   — Cover Art Archive : `front-250` → `front-500` ;
  *   — YouTube : `mqdefault` 320×180, rogné au carré = 180 px étirés → la HD
  *     (`maxresdefault`), puis `hq720`.
@@ -64,7 +65,11 @@ const APPLE_ART = /^(https:\/\/[\w.-]+\.mzstatic\.com\/.+\/)\d+x\d+bb\.(jpg|png|
 /* Deezer : `…/cover/<hash>/120x120-000000-80-0-0.jpg` (la pochette du profil de
    Luc, 22/10/2026) — la taille est dans le nom, jusqu'à 1000. */
 const DEEZER_ART = /^(https:\/\/cdn-images\.dzcdn\.net\/images\/cover\/[0-9a-f]+\/)\d+x\d+(-.+\.jpg)$/;
-const CAA_ART =/^(https:\/\/coverartarchive\.org\/release(?:-group)?\/[\w-]+\/front)-\d+$/;
+/* TMDB : l'image d'un épisode porté en fond (`videoCover`, w780 chez Luc le
+   22/10/2026). Un 16:9 rogné au carré n'en garde que 440 px : on demande la
+   w1280, puis l'originale. */
+const TMDB_ART = /^(https:\/\/image\.tmdb\.org\/t\/p\/)w\d+(\/[\w-]+\.(?:jpg|png|webp))$/;
+const CAA_ART = /^(https:\/\/coverartarchive\.org\/release(?:-group)?\/[\w-]+\/front)-\d+$/;
 function hiResCandidates(art: string): string[] {
   const yt = YT_THUMB.exec(art);
   if (yt) {
@@ -77,6 +82,8 @@ function hiResCandidates(art: string): string[] {
   if (caa) return [`${caa[1]}-500`, art];
   const dz = DEEZER_ART.exec(art);
   if (dz) return [`${dz[1]}600x600${dz[2]}`, art];
+  const tm = TMDB_ART.exec(art);
+  if (tm) return [`${tm[1]}w1280${tm[2]}`, `${tm[1]}original${tm[2]}`, art];
   return [art];
 }
 function useHiResArt(art: string) {

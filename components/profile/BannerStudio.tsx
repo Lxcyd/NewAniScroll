@@ -66,14 +66,21 @@ import {
   TrophyIcon,
   ViewColumnsIcon,
   XMarkIcon,
+  CheckIcon as CheckOutlineIcon,
 } from "@heroicons/react/24/outline";
 import {
   BookmarkIcon as BookmarkSolidIcon,
-  CheckIcon,
   HeartIcon,
   PauseIcon,
   PlayIcon,
 } from "@heroicons/react/24/solid";
+
+/* LES COCHES DU STUDIO, UN PEU PLUS ÉPAISSES (22/10/2026, Luc) : la coche
+   pleine d'Heroicons est un trait fin, pixelisé à 12-18 px. Le contour, en
+   trait de 2,75, se lit net à ces tailles. */
+const CheckIcon = (props: React.ComponentProps<typeof CheckOutlineIcon>) => (
+  <CheckOutlineIcon strokeWidth={2.75} {...props} />
+);
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import MusicCard from "@/components/profile/MusicCard";
@@ -1278,11 +1285,13 @@ export default function BannerStudio({
     exitPlay.current = null;
     /* REPART DU DÉBUT à chaque passage profil ↔ studio (22/10/2026, Luc) :
        la musique depuis sa borne de départ, le fond vidéo aussi. */
-    remote.current?.seek(value?.videoFrom ?? 0);
+    /* SAUF EN PAUSE (22/10/2026, Luc) : une vidéo arrêtée garde son image —
+       ramenée au début, elle montrait un écran noir à 0:00. */
+    if (!bgPausedRef.current) remote.current?.seek(value?.videoFrom ?? 0);
     if (profileMusicNow().playing && value?.music) setWantPlay(true);
     return () => {
       if (value?.music || exitPlay.current) rememberAutoplay(exitPlay.current ?? playingRef.current);
-      remote.current?.seek(vFromNow.current);
+      if (!bgPausedRef.current) remote.current?.seek(vFromNow.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture et à la fermeture
   }, [open]);
