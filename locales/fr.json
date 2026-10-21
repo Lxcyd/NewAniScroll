@@ -1222,6 +1222,8 @@
     "studioCustomVideos": "Mes vidéos",
     "studioCustomRemove": "Retirer de mes vidéos",
     "studioPresets": "Mes presets",
+    "studioPresetCount_one": "{{count}} preset",
+    "studioPresetCount_other": "{{count}} presets",
     "studioPresetSave": "Garder en preset (avec les bornes)",
     "studioPresetRemove": "Retirer des presets",
     "studioVideoLinkHint": "Colle le lien d'une vidéo (youtube.com, youtu.be ou shorts). Elle tournera en fond du profil, découpable comme une bande-annonce.",

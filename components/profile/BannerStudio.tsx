@@ -239,10 +239,10 @@ const presetTab = (p: Presets["video"][0]) => p.tab ?? (p.v.episode ? "video" : 
    l'autre onglet : le cadre passe alors au gris. */
 const presetFirst = (list: Section[], forget?: () => void): Section[] => {
   const preset = list.some((s) => s.rows.some((r) => r.pink && r.selected));
-  const inPanel = list.some((s) => s.panel && s.rows.some((r) => r.selected));
+  const inPanel = list.some((s) => s.panel && !s.calm && s.rows.some((r) => r.selected));
   return list.map((s) => ({
     ...s,
-    muted: s.panel && (preset || !inPanel),
+    muted: s.panel && (s.calm || preset || !inPanel),
     rows: s.rows.map((r) => {
       let o = preset && !r.pink && r.selected ? { ...r, selected: false } : r;
       /* Une ligne qui CHOISIT (pas un preset, pas un animé qui s'ouvre)
@@ -486,6 +486,8 @@ type Section = {
   heading?: boolean;
   /** Cadre `panel` en gris : un preset porté a déjà le rose. */
   muted?: boolean;
+  /** Le cadre de « Mes presets » : toujours gris, et compté à part. */
+  calm?: boolean;
   /** L'intitulé se replie : un clic montre ou cache les lignes (Mes presets). */
   fold?: { open: boolean; toggle: () => void; count: number };
   /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
@@ -1947,11 +1949,29 @@ export default function BannerStudio({
         : scope === "video" || scope === "oped"
           ? () => setActivePreset((a) => ({ ...a, video: null }))
           : undefined;
-    const presetSection = (rows: Row[]): Section => ({
-      title: t("profile.studioPresets", "Mes presets"),
-      rows: presetsOpen ? rows : [],
-      fold: { open: presetsOpen, toggle: togglePresets, count: rows.length },
-    });
+    /* UN VRAI MENU, COMME UN ANIMÉ (21/10/2026, Luc) : replié, une ligne à
+       chevron ; ouvert, un en-tête et ses presets dans un cadre. Le cadre
+       reste gris (`calm`) : le preset porté a déjà le rose. */
+    const presetSection = (rows: Row[]): Section[] => {
+      const head: Section = {
+        title: "",
+        rows: [],
+        node: (
+          <PresetHead
+            open={presetsOpen}
+            count={rows.length}
+            onToggle={togglePresets}
+            t={t}
+          />
+        ),
+      };
+      return presetsOpen
+        ? [
+            { ...head, panel: true, calm: true },
+            { title: "", rows, panel: true, calm: true },
+          ]
+        : [head];
+    };
     if (scope === "music" && presets.music.length) {
       const rows = presets.music
         .filter((p) => match(`${p.music.title} ${p.music.artist ?? ""}`))
@@ -1983,7 +2003,7 @@ export default function BannerStudio({
             removeLabel: t("profile.studioPresetRemove"),
           }),
         );
-      if (rows.length) out.push(presetSection(rows));
+      if (rows.length) out.push(...presetSection(rows));
     }
     if ((scope === "video" || scope === "oped") && presets.video.length) {
       const cur = videoSnap(draft);
@@ -2019,7 +2039,7 @@ export default function BannerStudio({
             removeLabel: t("profile.studioPresetRemove"),
           };
         });
-      if (rows.length) out.push(presetSection(rows));
+      if (rows.length) out.push(...presetSection(rows));
     }
 
     /* « Mes vidéos » : les liens YouTube collés à la main, en tête de Vidéo et
@@ -4769,7 +4789,7 @@ export default function BannerStudio({
                     <div
                       /* Les sections de l'animé ouvert changent de clé avec
                          lui : elles se remontent, et rejouent leur entrée. */
-                      key={s.panel ? `ouvert-${pick}-${i}` : s.title || `sec-${i}`}
+                      key={s.panel ? `ouvert-${s.calm ? "presets" : pick}-${i}` : s.title || `sec-${i}`}
                       /* Pas de `min-h-0` : le sélecteur ne doit jamais être
                          comprimé sous sa hauteur utile — s'il manque de la
                          place, la colonne défile au lieu de tout tasser. */
@@ -6487,6 +6507,46 @@ function TrimRail({
  * Le menu des saisons qui y était a été retiré le 17/10/2026 (choix de Luc) :
  * chaque saison est déjà sa propre ligne de la liste.
  */
+/** L'en-tête de « Mes presets », dessiné comme un animé : ligne à chevron
+    repliée, carte à chevron ouvert dépliée. */
+function PresetHead({
+  open,
+  count,
+  onToggle,
+  t,
+}: {
+  open: boolean;
+  count: number;
+  onToggle: () => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+        open ? "bg-white/[0.04]" : "hover:bg-white/[0.09]"
+      }`}
+    >
+      <span className="grid h-14 w-10 shrink-0 place-items-center rounded-md bg-action/15 text-action ring-1 ring-action/25">
+        <BookmarkSolidIcon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-outfit text-[15px] font-bold text-white">
+          {t("profile.studioPresets")}
+        </span>
+        <span className="mt-0.5 block font-karla text-[12px] text-white/40">
+          {t("profile.studioPresetCount", { count })}
+        </span>
+      </span>
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors group-hover:text-white">
+        <ChevronRightIcon className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} strokeWidth={2.2} />
+      </span>
+    </button>
+  );
+}
+
 function AnimeHead({
   anime,
   count,
