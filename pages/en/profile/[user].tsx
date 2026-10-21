@@ -41,7 +41,7 @@ import {
   localListFromCloudPayload,
   statsFromEntries,
 } from "@/lib/profile/sources";
-import { bannerCandidates, rankCandidates } from "@/lib/profile/favorite";
+import { bannerCandidates, rankCandidates, studioOrder } from "@/lib/profile/favorite";
 import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
@@ -168,28 +168,23 @@ export default function Profile({
      charge utile, là où renvoyer un `topAnimes` complet l'aurait dupliquée. */
   const studioAnimes: StudioAnime[] = useMemo(() => {
     if (!isOwner) return [];
-    const vus = new Set(topAnimes.map((a) => a.mediaId));
-    /* LE RESTE DANS L'ORDRE DES PRÉFÉRENCES (21/10/2026) : la note donnée, puis
-       favori, puis revisionnages — le classement de la bannière, mais sur TOUTE
-       la liste. Celui-ci ne garde que les titres finis ; le reste suivait
-       l'ordre brut de la liste, et une liste surtout « En cours » se lisait
-       au hasard (musique, vidéo). */
-    const reste = rankCandidates(
-      entries.map((e) => ({ e, mediaId: e.mediaId, score: e.score, favourite: !!e.favourite, repeat: e.repeat || 0 })),
-    )
-      .map((c) => c.e)
-      .filter((e) => !vus.has(e.mediaId))
-      .map((e) => ({
+    /* TOUTE LA LISTE DANS L'ORDRE DES PRÉFÉRENCES (21/10/2026, règle de Luc :
+       favori > revisionnages > note > statut, cf. `studioOrder`). Plus les
+       douze candidats à la bannière en tête, ni l'ordre brut de la liste —
+       celui des derniers regardés. Les titres que le classement a résolus
+       (`known`) restent repris. */
+    const nom = new Map(topAnimes.map((a) => [a.mediaId, a.title]));
+    const titre = (e: (typeof entries)[number]) =>
+      nom.get(e.mediaId) || e.title?.english || e.title?.romaji || e.title?.userPreferred || `#${e.mediaId}`;
+    return studioOrder(entries, titre).map((e) => ({
         mediaId: e.mediaId,
-        title:
-          e.title?.english || e.title?.romaji || e.title?.userPreferred || `#${e.mediaId}`,
+        title: titre(e),
         cover: e.cover ?? null,
         trailer: e.trailer ?? null,
         /* Le nombre d'épisodes que la liste connaît : le compte du menu Vidéo
            quand AniList ne répond pas (21/10/2026). */
         aired: e.total ?? null,
       }));
-    return [...topAnimes, ...reste];
   }, [isOwner, topAnimes, entries]);
 
   /* ── LES DEUX COMPTEURS DE LA PAGE N'EN FONT PLUS QU'UN ─────────────────────

@@ -118,3 +118,36 @@ export function tiedHead<T extends FavoriteCandidate>(
 export function pickFavorite<T extends FavoriteCandidate>(list: T[]): T | null {
   return rankCandidates(list)[0] ?? null;
 }
+
+/**
+ * L'ORDRE DE LA LISTE DU STUDIO (21/10/2026, règle de Luc) : les animés qu'on
+ * préfère d'abord, jamais les derniers regardés. Favori, puis les
+ * revisionnages, puis la note donnée, puis le statut (fini avant en cours, en pause,
+ * prévu, abandonné) ; à égalité, les épisodes vus, puis le titre — un ordre
+ * stable d'un chargement à l'autre.
+ *
+ * Distinct de `rankCandidates`, qui choisit une BANNIÈRE et ne regarde que les
+ * titres finis, note en tête : ici on range toute la liste pour la parcourir.
+ */
+const STATUS_RANK: Record<string, number> = {
+  COMPLETED: 0,
+  REPEATING: 0,
+  CURRENT: 1,
+  PAUSED: 2,
+  PLANNING: 3,
+  DROPPED: 4,
+};
+export function studioOrder<T extends Pick<ProfileEntry, "mediaId" | "favourite" | "score" | "repeat" | "status" | "progress">>(
+  entries: T[],
+  titleOf: (e: T) => string,
+): T[] {
+  return entries.slice().sort(
+    (a, b) =>
+      Number(!!b.favourite) - Number(!!a.favourite) ||
+      (b.repeat || 0) - (a.repeat || 0) ||
+      (b.score ?? -1) - (a.score ?? -1) ||
+      (STATUS_RANK[a.status || ""] ?? 5) - (STATUS_RANK[b.status || ""] ?? 5) ||
+      (b.progress || 0) - (a.progress || 0) ||
+      titleOf(a).localeCompare(titleOf(b)),
+  );
+}

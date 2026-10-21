@@ -30,9 +30,8 @@ import { useLocalList } from "@/lib/list/localList";
 import { useStreak } from "@/lib/stats/streak";
 import { useGuestIdentity, guestTag } from "@/lib/prefs/guestIdentity";
 import { entriesFromLocalEntries, statsFromEntries } from "@/lib/profile/sources";
-import { rankCandidates } from "@/lib/profile/favorite";
+import { studioOrder } from "@/lib/profile/favorite";
 import {
-  candidatesOf,
   readPinnedBanner,
   useProfileBanner,
   writePinnedBanner,
@@ -116,32 +115,15 @@ export default function LocalProfile() {
     setCompact(false);
   }
 
-  /* Les douze meilleurs candidats à la bannière EN TÊTE, puis toute la liste.
-     Le classement sert à choisir une illustration, et douze suffisent pour ça ;
-     la recherche musique, elle, doit pouvoir atteindre n'importe quel titre de
-     la liste, sans quoi chercher un anime au-delà des douze ne renvoie rien. */
+  /* Toute la liste, dans l'ordre des préférences (21/10/2026, règle de Luc :
+     favori > revisionnages > note > statut, cf. `studioOrder`) — la recherche
+     du studio doit pouvoir atteindre n'importe quel titre. */
   const topAnimes: StudioAnime[] = useMemo(() => {
-    const classes = rankCandidates(candidatesOf(entries))
-      .slice(0, 12)
-      .map((c) => c.mediaId);
-    const rang = new Map(classes.map((id, i) => [id, i]));
-    /* Puis TOUTE la liste dans l'ordre des préférences (note, favori,
-       revisionnages), et non plus dans l'ordre brut (21/10/2026). */
-    const pref = new Map(
-      rankCandidates(
-        entries.map((e) => ({ mediaId: e.mediaId, score: e.score, favourite: !!e.favourite, repeat: e.repeat || 0 })),
-      ).map((c, i) => [c.mediaId, i]),
-    );
-    return entries
-      .slice()
-      .sort(
-        (a, b) =>
-          (rang.get(a.mediaId) ?? Infinity) - (rang.get(b.mediaId) ?? Infinity) ||
-          pref.get(a.mediaId)! - pref.get(b.mediaId)!,
-      )
+    const titre = (e: (typeof entries)[number]) => e.title?.english || e.title?.romaji || `#${e.mediaId}`;
+    return studioOrder(entries, titre)
       .map((e) => ({
         mediaId: e.mediaId,
-        title: e.title?.english || e.title?.romaji || `#${e.mediaId}`,
+        title: titre(e),
         cover: e.cover ?? null,
         /* Le nombre d'épisodes que la liste connaît : le compte du menu Vidéo
            quand AniList ne répond pas (21/10/2026). */
