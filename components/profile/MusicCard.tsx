@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { MdPause, MdPlayArrow } from "react-icons/md";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { eqLevels, eqVoice, type EqVoice } from "@/lib/profile/eqMotion";
@@ -48,6 +48,48 @@ const SHIFT = (CARD - MINI) / 2;
 const EQ_BARS = 10;
 
 /**
+ * UNE IMAGE NETTE DANS LA CASE (22/10/2026, Luc). La case fait 240 px (plus
+ * sur un écran dense) ; les pochettes rangées avec la musique sont petites :
+ *   — Apple Music : 120×120 (theme-covers) → on demande 600×600 ;
+ *   — Cover Art Archive : `front-250` → `front-500` ;
+ *   — YouTube : `mqdefault` 320×180, rogné au carré = 180 px étirés → la HD
+ *     (`maxresdefault`), puis `hq720`.
+ * L'adresse rangée reste en dernier recours. Une vignette YouTube absente
+ * répond par une image grise de 120×90 (404, mais image valide : pas
+ * d'`error`) — c'est sa largeur qui la trahit.
+ */
+const YT_THUMB = /^https:\/\/i\.ytimg\.com\/vi\/([\w-]{11})\/(?:mq|hq|sd|maxres)default\.jpg$/;
+const APPLE_ART = /^(https:\/\/[\w.-]+\.mzstatic\.com\/.+\/)\d+x\d+bb\.(jpg|png|webp)$/;
+const CAA_ART = /^(https:\/\/coverartarchive\.org\/release(?:-group)?\/[\w-]+\/front)-\d+$/;
+function hiResCandidates(art: string): string[] {
+  const yt = YT_THUMB.exec(art);
+  if (yt) {
+    const base = `https://i.ytimg.com/vi/${yt[1]}`;
+    return [`${base}/maxresdefault.jpg`, `${base}/hq720.jpg`, art];
+  }
+  const ap = APPLE_ART.exec(art);
+  if (ap) return [`${ap[1]}600x600bb.${ap[2]}`, art];
+  const caa = CAA_ART.exec(art);
+  if (caa) return [`${caa[1]}-500`, art];
+  return [art];
+}
+function useHiResArt(art: string) {
+  const list = useMemo(() => hiResCandidates(art), [art]);
+  const [i, setI] = useState(0);
+  useEffect(() => setI(0), [list]);
+  const next = () => setI((k) => Math.min(k + 1, list.length - 1));
+  return {
+    src: list[Math.min(i, list.length - 1)],
+    onLoad: (e: SyntheticEvent<HTMLImageElement>) => {
+      if (e.currentTarget.naturalWidth <= 120 && i < list.length - 1) next();
+    },
+    onError: () => {
+      if (i < list.length - 1) next();
+    },
+  };
+}
+
+/**
  * LA CASE MUSIQUE, en bas à droite du profil et de la scène du studio : la
  * même pour la version YouTube (le lecteur officiel, passé en `children`) et
  * pour le fichier d'AnimeThemes, qui n'a que sa pochette (17/10/2026 : sans
@@ -67,6 +109,7 @@ export default function MusicCard({
   children,
   ...card
 }: Props) {
+  const hiArt = useHiResArt(art);
   /* Les dernières fonctions, lues par la boucle sans la relancer. */
   const fn = useRef({ clock, live, gain });
   fn.current = { clock, live, gain };
@@ -247,7 +290,9 @@ export default function MusicCard({
           {showArt ? (
             <img
               alt=""
-              src={art}
+              src={hiArt.src}
+              onLoad={hiArt.onLoad}
+              onError={hiArt.onError}
               className="pointer-events-none absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
