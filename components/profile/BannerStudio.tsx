@@ -42,6 +42,7 @@ import {
   ArrowUturnLeftIcon,
   ArrowsUpDownIcon,
   Bars4Icon,
+  BookmarkIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -66,7 +67,13 @@ import {
   ViewColumnsIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import { CheckIcon, HeartIcon, PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
+import {
+  BookmarkIcon as BookmarkSolidIcon,
+  CheckIcon,
+  HeartIcon,
+  PauseIcon,
+  PlayIcon,
+} from "@heroicons/react/24/solid";
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import MusicCard from "@/components/profile/MusicCard";
@@ -133,6 +140,7 @@ import {
   pleineTaille,
   type Dressing,
   type DressingKind,
+  type DressingMusic,
   type HeroLayout,
 } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileEntry } from "@/lib/profile/types";
@@ -180,7 +188,49 @@ function readCustomVideos(): CustomVideo[] {
   }
 }
 
-const STUDIO_SEARCH = `query ($search: String) {
+/* LES PRESETS (21/10/2026, demande de Luc) : un choix de musique ou de fond
+   vidéo gardé AVEC ses bornes et son fondu, pour changer vite sans tout
+   redécouper. Dans CE navigateur, comme « Mes vidéos » : une commodité du
+   studio ; ce qui est porté part avec le profil. */
+type VideoSnap = Pick<
+  Dressing,
+  "kind" | "url" | "trailerId" | "episode" | "videoFrom" | "videoTo" | "videoFade" | "animeId" | "title" | "source"
+>;
+type Presets = {
+  music: { id: string; music: DressingMusic }[];
+  video: { id: string; thumb: string | null; v: VideoSnap }[];
+};
+const PRESET_KEY = "as-studio-presets";
+const PRESET_MAX = 30;
+function readPresets(): Presets {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRESET_KEY) || "{}");
+    return {
+      music: Array.isArray(raw.music) ? raw.music.filter((p: Presets["music"][0]) => p?.id && p.music) : [],
+      video: Array.isArray(raw.video) ? raw.video.filter((p: Presets["video"][0]) => p?.id && p.v) : [],
+    };
+  } catch {
+    return { music: [], video: [] };
+  }
+}
+const videoSnap = (d: Dressing): VideoSnap => ({
+  kind: d.kind,
+  url: d.url,
+  trailerId: d.trailerId,
+  episode: d.episode,
+  videoFrom: d.videoFrom,
+  videoTo: d.videoTo,
+  videoFade: d.videoFade,
+  animeId: d.animeId,
+  title: d.title,
+  source: d.source,
+});
+/** Deux choix sont le même preset quand tout ce qu'il garde est égal. */
+const sameSnap = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const span = (from: number | null, to: number | null) =>
+  from == null && to == null ? null : `${clock(from ?? 0)} → ${to == null ? "…" : clock(to)}`;
+
+const STUDIO_SEARCH =`query ($search: String) {
   Page(perPage: 12) {
     media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: false) {
       id
@@ -388,6 +438,8 @@ type Row = {
   run?: () => void;
   /** Une croix au survol, qui retire la ligne (vidéos ajoutées à la main). */
   remove?: () => void;
+  /** L'intitulé de la croix de `remove` (« Mes vidéos » par défaut). */
+  removeLabel?: string;
 };
 
 /** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
@@ -860,6 +912,20 @@ export default function BannerStudio({
         localStorage.setItem(CUSTOM_KEY, JSON.stringify(out));
       } catch {
         /* stockage refusé : la liste vit le temps de la session */
+      }
+      return out;
+    });
+  }, []);
+  const [presets, setPresets] = useState<Presets>({ music: [], video: [] });
+  useEffect(() => setPresets(readPresets()), []);
+  const savePresets = useCallback((next: (p: Presets) => Presets) => {
+    setPresets((p) => {
+      const n = next(p);
+      const out = { music: n.music.slice(0, PRESET_MAX), video: n.video.slice(0, PRESET_MAX) };
+      try {
+        localStorage.setItem(PRESET_KEY, JSON.stringify(out));
+      } catch {
+        /* stockage refusé : les presets vivent le temps de la session */
       }
       return out;
     });
@@ -1756,6 +1822,64 @@ export default function BannerStudio({
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
+
+    /* « Mes presets » : en tête, un clic remet le morceau ou le fond AVEC ses
+       bornes et son fondu. */
+    if (scope === "music" && presets.music.length) {
+      const rows = presets.music
+        .filter((p) => match(`${p.music.title} ${p.music.artist ?? ""}`))
+        .map(
+          (p): Row => ({
+            key: `preset-music-${p.id}`,
+            label: p.music.title,
+            chip: p.music.slug
+              ? p.music.slug === "TRL"
+                ? { text: "TRL", op: false, color: "#4ade80" }
+                : p.music.slug === "SONG"
+                  ? { text: "SONG", op: false, color: "#c084fc" }
+                  : { text: p.music.slug, op: p.music.slug.startsWith("OP") }
+              : undefined,
+            hint: [span(p.music.from, p.music.to), p.music.artist].filter(Boolean).join(" · ") || null,
+            icon: MusicalNoteIcon,
+            thumb: p.music.cover,
+            square: true,
+            selected: sameSnap(draft.music, p.music),
+            run: () => {
+              patch({ music: { ...p.music } });
+              setAt(0);
+              setLen(0);
+              setWantPlay(true);
+            },
+            remove: () => savePresets((s) => ({ ...s, music: s.music.filter((x) => x.id !== p.id) })),
+            removeLabel: t("profile.studioPresetRemove"),
+          }),
+        );
+      if (rows.length) out.push({ title: t("profile.studioPresets"), rows });
+    }
+    if ((scope === "video" || scope === "oped") && presets.video.length) {
+      const cur = videoSnap(draft);
+      const rows = presets.video
+        .filter((p) => match(p.v.title ?? ""))
+        .map(
+          (p): Row => ({
+            key: `preset-video-${p.id}`,
+            label: p.v.title || "YouTube",
+            chip: p.v.episode
+              ? { text: `EP${p.v.episode.n}`, op: false }
+              : p.v.trailerId
+                ? { text: "TRL", op: false, color: "#4ade80" }
+                : { text: "OP / ED", op: true },
+            hint: span(p.v.videoFrom, p.v.videoTo),
+            icon: FilmIcon,
+            thumb: p.thumb,
+            selected: sameSnap(cur, p.v),
+            run: () => patch({ ...p.v, color: null }),
+            remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
+            removeLabel: t("profile.studioPresetRemove"),
+          }),
+        );
+      if (rows.length) out.push({ title: t("profile.studioPresets"), rows });
+    }
 
     /* « Mes vidéos » : les liens YouTube collés à la main, en tête de Vidéo et
        de Génériques — les deux menus où le bouton du lien les ajoute. */
@@ -3273,7 +3397,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3726,6 +3850,38 @@ export default function BannerStudio({
     (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
     trailerAnime?.cover ??
     null;
+  /* Le bouton « garder en preset » des deux cartes : un clic garde le choix
+     tel qu'il est (bornes, fondu), un second le retire. */
+  const curVideo = videoSnap(draft);
+  const videoSaved = presets.video.find((p) => sameSnap(p.v, curVideo));
+  const musicSaved = draft.music ? presets.music.find((p) => sameSnap(p.music, draft.music)) : undefined;
+  const toggleVideoPreset = () =>
+    savePresets((s) =>
+      videoSaved
+        ? { ...s, video: s.video.filter((x) => x.id !== videoSaved.id) }
+        : { ...s, video: [{ id: `${Date.now()}`, thumb: videoThumb, v: curVideo }, ...s.video] },
+    );
+  const toggleMusicPreset = () =>
+    draft.music &&
+    savePresets((s) =>
+      musicSaved
+        ? { ...s, music: s.music.filter((x) => x.id !== musicSaved.id) }
+        : { ...s, music: [{ id: `${Date.now()}`, music: { ...draft.music! } }, ...s.music] },
+    );
+  const presetButton = (saved: boolean, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={saved}
+      aria-label={t(saved ? "profile.studioPresetRemove" : "profile.studioPresetSave")}
+      title={t(saved ? "profile.studioPresetRemove" : "profile.studioPresetSave")}
+      className={`grid h-6 w-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/10 ${
+        saved ? "text-action" : "text-white/45 hover:text-white"
+      }`}
+    >
+      {saved ? <BookmarkSolidIcon className="h-4 w-4" /> : <BookmarkIcon className="h-4 w-4" strokeWidth={2} />}
+    </button>
+  );
   const videoBar =
     (scope === "video" || scope === "oped") && videoDraft ? (
     <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
@@ -3764,6 +3920,8 @@ export default function BannerStudio({
                 ? "TRL"
                 : "OP / ED"}
           </span>
+          <span className="flex-1" />
+          {presetButton(!!videoSaved, toggleVideoPreset)}
         </div>
         <div className="mt-2 flex items-center gap-1.5">
           <span className="as-mf-time w-9 shrink-0 font-mono text-[10px] text-white/40">
@@ -3875,6 +4033,7 @@ export default function BannerStudio({
                       <p className="min-w-0 flex-1 truncate font-outfit text-[13px] font-bold text-white">
                         {draft.music.title}
                       </p>
+                      {presetButton(!!musicSaved, toggleMusicPreset)}
                     </div>
                     {/* Le rail découpe l'extrait AUTANT qu'il montre la lecture.
                         Les deux poignées jaunes bornent ce qui sera joué sur le
@@ -4704,8 +4863,8 @@ export default function BannerStudio({
                                  déjà un, et on n'imbrique pas deux boutons. */
                               <span
                                 role="button"
-                                aria-label={t("profile.studioCustomRemove")}
-                                title={t("profile.studioCustomRemove")}
+                                aria-label={row.removeLabel ?? t("profile.studioCustomRemove")}
+                                title={row.removeLabel ?? t("profile.studioCustomRemove")}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   row.remove!();
