@@ -233,14 +233,19 @@ const videoSnap = (d: Dressing): VideoSnap => ({
 const presetTab = (p: Presets["video"][0]) => p.tab ?? (p.v.episode ? "video" : "oped");
 /** Un preset porté garde SEUL la coche : la ligne d'épisode ou de générique
     qu'il reprend ne se coche plus en double plus bas. */
-const presetFirst = (list: Section[]): Section[] =>
-  list.some((s) => s.rows.some((r) => r.pink && r.selected))
-    ? list.map((s) => ({
-        ...s,
-        muted: s.panel,
-        rows: s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)),
-      }))
-    : list;
+/* Et LE ROSE DIT « CHOISI » (21/10/2026) : le cadre de l'animé ouvert n'est
+   rose que si l'une de ses lignes est le choix en cours. En passant de Vidéo
+   à Génériques, l'animé reste ouvert, mais ce qu'on porte peut venir de
+   l'autre onglet : le cadre passe alors au gris. */
+const presetFirst = (list: Section[]): Section[] => {
+  const preset = list.some((s) => s.rows.some((r) => r.pink && r.selected));
+  const inPanel = list.some((s) => s.panel && s.rows.some((r) => r.selected));
+  return list.map((s) => ({
+    ...s,
+    muted: s.panel && (preset || !inPanel),
+    rows: preset ? s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)) : s.rows,
+  }));
+};
 /** Deux choix sont le même preset quand tout ce qu'il garde est égal. */
 const sameSnap = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const span = (from: number | null, to: number | null) =>
