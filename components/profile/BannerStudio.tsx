@@ -2077,7 +2077,8 @@ export default function BannerStudio({
                   setLen(0);
                   setWantPlay(true);
                 },
-            remove: () => savePresets((s) => ({ ...s, music: s.music.filter((x) => x.id !== p.id) })),
+            /* La croix seulement en mode édition (21/10/2026). */
+            remove: presetEdit ? () => savePresets((s) => ({ ...s, music: s.music.filter((x) => x.id !== p.id) })) : undefined,
             removeLabel: t("profile.studioPresetRemove"),
           }),
         );
@@ -2130,7 +2131,7 @@ export default function BannerStudio({
                   setActivePreset((a) => ({ ...a, video: p.id }));
                   patch({ ...p.v, color: null });
                 },
-            remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
+            remove: presetEdit ? () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })) : undefined,
             removeLabel: t("profile.studioPresetRemove"),
           };
         });
@@ -4333,6 +4334,21 @@ export default function BannerStudio({
           className={`-mr-1 ${draft.music ? "opacity-50" : ""}`}
         />
         </div>
+        {/* DIT, ET NON PLUS SEULEMENT GRISÉ (21/10/2026) : sous une musique
+            la vidéo se tait, et rien ne l'indiquait hors du survol — on
+            montait le volume sans rien entendre. Un clic retire la musique. */}
+        {draft.music && (draft.videoVolume ?? 0) > 0 ? (
+          <button
+            type="button"
+            onClick={() => patch({ music: null })}
+            title={t("profile.studioVideoMutedByMusicHint", {
+              defaultValue: "La musique du profil passe avant le son de la vidéo. Cliquer pour retirer la musique.",
+            })}
+            className="truncate rounded-md bg-white/[0.06] px-2 py-1 text-left font-karla text-[10.5px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            {t("profile.studioVideoMutedByMusic", { defaultValue: "Muette : musique choisie" })}
+          </button>
+        ) : null}
         {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
             épisode, avec leur langue entre crochets. */}
         {draft.episode ? (
