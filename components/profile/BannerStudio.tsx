@@ -4373,6 +4373,16 @@ export default function BannerStudio({
           })}
           className={`-mr-1 ${draft.music ? "opacity-50" : ""}`}
         />
+        {/* Revoir la fenêtre « la musique passe en premier » à volonté. */}
+        <button
+          type="button"
+          onClick={() => setSoundTip(true)}
+          aria-label={t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
+          title={t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
+          className="grid h-5 w-5 shrink-0 place-items-center rounded-full font-outfit text-[11px] font-bold text-white/40 ring-1 ring-white/20 transition-colors hover:text-white hover:ring-white/50"
+        >
+          i
+        </button>
         </div>
         {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
             épisode, avec leur langue entre crochets. */}
