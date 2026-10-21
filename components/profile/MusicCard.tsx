@@ -51,6 +51,7 @@ const EQ_BARS = 10;
  * UNE IMAGE NETTE DANS LA CASE (22/10/2026, Luc). La case fait 240 px (plus
  * sur un écran dense) ; les pochettes rangées avec la musique sont petites :
  *   — Apple Music : 120×120 (theme-covers) → on demande 600×600 ;
+ *   — Deezer : 120×120 → 600×600 ;
  *   — Cover Art Archive : `front-250` → `front-500` ;
  *   — YouTube : `mqdefault` 320×180, rogné au carré = 180 px étirés → la HD
  *     (`maxresdefault`), puis `hq720`.
@@ -60,7 +61,10 @@ const EQ_BARS = 10;
  */
 const YT_THUMB = /^https:\/\/i\.ytimg\.com\/vi\/([\w-]{11})\/(?:mq|hq|sd|maxres)default\.jpg$/;
 const APPLE_ART = /^(https:\/\/[\w.-]+\.mzstatic\.com\/.+\/)\d+x\d+bb\.(jpg|png|webp)$/;
-const CAA_ART = /^(https:\/\/coverartarchive\.org\/release(?:-group)?\/[\w-]+\/front)-\d+$/;
+/* Deezer : `…/cover/<hash>/120x120-000000-80-0-0.jpg` (la pochette du profil de
+   Luc, 22/10/2026) — la taille est dans le nom, jusqu'à 1000. */
+const DEEZER_ART = /^(https:\/\/cdn-images\.dzcdn\.net\/images\/cover\/[0-9a-f]+\/)\d+x\d+(-.+\.jpg)$/;
+const CAA_ART =/^(https:\/\/coverartarchive\.org\/release(?:-group)?\/[\w-]+\/front)-\d+$/;
 function hiResCandidates(art: string): string[] {
   const yt = YT_THUMB.exec(art);
   if (yt) {
@@ -71,6 +75,8 @@ function hiResCandidates(art: string): string[] {
   if (ap) return [`${ap[1]}600x600bb.${ap[2]}`, art];
   const caa = CAA_ART.exec(art);
   if (caa) return [`${caa[1]}-500`, art];
+  const dz = DEEZER_ART.exec(art);
+  if (dz) return [`${dz[1]}600x600${dz[2]}`, art];
   return [art];
 }
 function useHiResArt(art: string) {
