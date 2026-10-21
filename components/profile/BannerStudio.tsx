@@ -6529,9 +6529,7 @@ function PresetHead({
         open ? "bg-white/[0.04]" : "hover:bg-white/[0.09]"
       }`}
     >
-      <span className="grid h-14 w-10 shrink-0 place-items-center rounded-md bg-white/[0.08] text-white">
-        <BookmarkSolidIcon className="h-5 w-5" />
-      </span>
+      <BookmarkSolidIcon className="h-5 w-5 shrink-0 text-white" />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-outfit text-[15px] font-bold text-white">
           {t("profile.studioPresets", { defaultValue: "Mes presets" })}
