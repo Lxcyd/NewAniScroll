@@ -1009,7 +1009,8 @@ export default function ProfileHero({
           ) : null}
           {/* Plus d'icône de son ici (17/10/2026) : la musique YouTube se
               lance depuis sa case, en bas à droite, toujours affichée. */}
-          {isOwner && onEditBanner ? (
+          {/* Caché pendant l'édition (21/10/2026) : le studio est déjà ouvert. */}
+          {isOwner && onEditBanner && !studio ? (
             <button
               type="button"
               onClick={onEditBanner}
