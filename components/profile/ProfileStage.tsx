@@ -213,6 +213,14 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
      directement à l'arrivée. Sortie : on agrandit, et c'est à la fin de la
      transition seulement qu'on rend la page au flux. */
   useLayoutEffect(() => {
+    /* LA FIN DU MOUVEMENT, publiée pour ce qui doit l'attendre — la case
+       musique ne grandit qu'une fois le cadre posé (MusicCard). Entrée : deux
+       images, le recul, puis le glissement (~1 s) ; sortie : un seul temps. */
+    if (fixed !== scene) {
+      document.documentElement.dataset.sceneSettle = String(
+        performance.now() + (scene ? 2 * DURATION + 50 : DURATION + 50),
+      );
+    }
     if (scene) {
       if (!fixed) {
         scroll.current = window.scrollY;

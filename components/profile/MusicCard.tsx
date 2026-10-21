@@ -145,7 +145,12 @@ export default function MusicCard({
      elle se tasse en carré de 72 px (48 puis 64 le 17/10, trop petit) aux bords arrondis ; le survol la rend
      grande, la quitter la retasse. Pas de bouton. La musique ne s'arrête
      jamais : c'est le même lecteur, seule la boîte change de taille. */
-  const [mini, setMini] = useState(false);
+  /* PETITE PAR DÉFAUT, GRANDE QUAND ÇA JOUE (22/10/2026, Luc) : la case ne
+     grandit que quand la lecture part — jamais en pause —, reste grande 5 s,
+     puis se retasse. Pendant le passage profil ↔ studio elle attend que le
+     cadre soit posé (`sceneSettle`, ProfileStage) : grandir pendant qu'il
+     bouge brouillait les deux mouvements. Un nouveau morceau refait de même. */
+  const [mini, setMini] = useState(canMini);
   const shrinkAt = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shrinkIn = (ms: number) => {
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
@@ -155,20 +160,25 @@ export default function MusicCard({
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);
   };
-  /* Les 5 s comptent à partir de la PREMIÈRE lecture, pas du montage : dans le
-     studio la case est montée invisible bien avant qu'on lance un morceau, et
-     elle apparaissait déjà réduite. Un nouveau morceau la rend grande 5 s. */
   useEffect(() => {
-    if (!canMini) return;
-    if (!started) {
-      setMini(false);
-      return;
-    }
-    shrinkIn(5000);
-    return () => {
+    if (!canMini || !card.playing) return;
+    const settle = Number(document.documentElement.dataset.sceneSettle) || 0;
+    const t = setTimeout(
+      () => {
+        grow();
+        shrinkIn(5000);
+      },
+      Math.max(0, settle - performance.now()),
+    );
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- grow/shrinkIn sont stables en pratique
+  }, [canMini, card.playing, eqKey]);
+  useEffect(
+    () => () => {
       if (shrinkAt.current) clearTimeout(shrinkAt.current);
-    };
-  }, [canMini, started]);
+    },
+    [],
+  );
   const folded = canMini && mini;
 
   const chrome = `transition-opacity duration-200 ${awake || !card.playing ? "opacity-100" : "pointer-events-none opacity-0"}`;
