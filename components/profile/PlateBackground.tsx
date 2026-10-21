@@ -482,6 +482,22 @@ export default function PlateBackground({
     return () => cancelAnimationFrame(raf);
   }, [trailerId, fileVideo, src]);
 
+  /* EN SORTANT DU STUDIO, UNE VIDÉO QUI JOUE REPART DU DÉBUT (22/10/2026,
+     Luc) ; en pause, elle garde son image. C'est ici et pas dans le studio :
+     à la fermeture, la télécommande est reprise (effets ci-dessus/dessous)
+     AVANT que le studio ne s'en serve, et son « retour au début » tombait
+     dans le vide. */
+  const hadRemote = useRef(!!videoRemote);
+  useEffect(() => {
+    const had = hadRemote.current;
+    hadRemote.current = !!videoRemote;
+    if (!had || videoRemote || pausedRef.current) return;
+    const from = bounds.current.from;
+    if (video.current) video.current.currentTime = from;
+    post.current("seekTo", [from, true]);
+    said.current = { at: from, wall: performance.now(), playing: said.current.playing };
+  }, [videoRemote]);
+
   /* Un fichier vidéo se pilote directement : pas de messages, pas d'attente. */
   useEffect(() => {
     if (!fileVideo || !videoRemote) return;

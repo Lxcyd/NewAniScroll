@@ -66,7 +66,6 @@ import {
   TrophyIcon,
   ViewColumnsIcon,
   XMarkIcon,
-  CheckIcon as CheckOutlineIcon,
 } from "@heroicons/react/24/outline";
 import {
   BookmarkIcon as BookmarkSolidIcon,
@@ -75,11 +74,13 @@ import {
   PlayIcon,
 } from "@heroicons/react/24/solid";
 
-/* LES COCHES DU STUDIO, UN PEU PLUS ÉPAISSES (22/10/2026, Luc) : la coche
-   pleine d'Heroicons est un trait fin, pixelisé à 12-18 px. Le contour, en
-   trait de 2,75, se lit net à ces tailles. */
-const CheckIcon = (props: React.ComponentProps<typeof CheckOutlineIcon>) => (
-  <CheckOutlineIcon strokeWidth={2.75} {...props} />
+/* LES COCHES DU STUDIO (22/10/2026, Luc) : la coche d'Heroicons, pleine puis
+   en contour épaissi, restait pixelisée à 12-18 px. C'est la coche arrondie
+   de Material Symbols que Luc a fournie : une forme pleine aux bouts ronds. */
+const CheckIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden className={className}>
+    <path d="m382-354 339-339q12-12 28-12t28 12q12 12 12 28.5T777-636L410-268q-12 12-28 12t-28-12L182-440q-12-12-11.5-28.5T183-497q12-12 28.5-12t28.5 12l142 143Z" />
+  </svg>
 );
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
@@ -1278,8 +1279,6 @@ export default function BannerStudio({
     if (late > 0 && late < 500) el.style.setProperty("--as-follow-late", `${-Math.round(late)}ms`);
   }, []);
   const exitPlay = useRef<boolean | null>(null);
-  const vFromNow = useRef(0);
-  vFromNow.current = draft.videoFrom ?? 0;
   useEffect(() => {
     if (!open) return;
     exitPlay.current = null;
@@ -1291,7 +1290,8 @@ export default function BannerStudio({
     if (profileMusicNow().playing && value?.music) setWantPlay(true);
     return () => {
       if (value?.music || exitPlay.current) rememberAutoplay(exitPlay.current ?? playingRef.current);
-      if (!bgPausedRef.current) remote.current?.seek(vFromNow.current);
+      /* Le retour au début en sortant est fait par le fond lui-même
+         (PlateBackground) : ici la télécommande est déjà reprise. */
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture et à la fermeture
   }, [open]);
