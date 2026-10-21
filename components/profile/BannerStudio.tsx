@@ -700,6 +700,12 @@ type ThemeRow = {
   youtubeId?: string | null;
 };
 
+/** Une piste qui a une VIDÉO (AnimeThemes, .webm) et pas seulement un mp3
+    d'AnisongDB : la seule qu'on puisse poser en fond. */
+const hasVideo = (th: ThemeRow) =>
+  th.kind !== "ins" &&
+  [th.videoNc?.url, th.video?.url].some((u) => !!u && !/\.(mp3|ogg|m4a|opus)(\?|$)/i.test(u));
+
 /** Les comptes de génériques déjà reçus, et ceux en route : pour la session. */
 const musicCountsSeen: Record<number, number> = {};
 const musicCountsAsked = new Set<number>();
@@ -3104,18 +3110,29 @@ export default function BannerStudio({
          et ils s'afficheraient sous le mauvais titre (même piège que `art`). */
       const fini = pick != null ? themeCache.current.get(pick) : undefined;
       const liste = pick != null ? (fini ?? themeBase.current.get(pick) ?? null) : null;
-      /* Les OP/ED sont là, les autres musiques en route (themeBase). */
-      const enRoute = fini == null && liste != null;
+      /* GÉNÉRIQUES = DES VIDÉOS (21/10/2026, Luc) : seules les pistes qui ont
+         une vidéo y figurent. Les musiques d'AnisongDB (SONG, et les OP/ED
+         qu'AnimeThemes n'a pas) ne portent qu'un mp3 : en fond, un écran noir. */
+      const vid = scope === "oped";
+      const montrable = vid ? (liste ?? []).filter(hasVideo) : (liste ?? []);
+      /* Les OP/ED sont là, les autres musiques en route (themeBase). Les
+         vidéos, elles, viennent toutes d'AnimeThemes : rien d'autre à attendre. */
+      const enRoute = !vid && fini == null && liste != null;
       /* Le nombre attendu : celui de la ligne d'anime, tant que la liste n'est
          pas complète — il ne bouge pas pendant le chargement. */
-      const attendu = pick != null ? (fini?.length ?? musicCounts[pick] ?? liste?.length ?? 0) : 0;
+      const attendu =
+        pick == null
+          ? 0
+          : vid
+            ? montrable.length
+            : (fini?.length ?? musicCounts[pick] ?? liste?.length ?? 0);
       /* Les pochettes de CET anime seulement : l'état garde celles du
          précédent le temps d'une requête, et « OP1 » est un slug commun. */
       const themeCovers = coverState.id === listedAnimeId ? coverState.covers : {};
       /* La frappe cherche un ANIME : elle ne filtre pas les pistes de celui
          qu'on ouvre — « chainsawman » ne figure dans aucun titre de chanson,
          et la liste se viderait. */
-      const rows: Row[] = (liste ?? [])
+      const rows: Row[] = montrable
         .map((th) => {
           const url = th.videoNc?.url || th.video?.url || null;
           const label = th.song || th.slug;
@@ -3194,6 +3211,11 @@ export default function BannerStudio({
                     : patch({
                         kind: "oped" as const,
                         url,
+                        /* La bande-annonce ou l'épisode d'avant cèdent la
+                           place : sans cela le trailer restait joué, et deux
+                           lignes étaient cochées. */
+                        trailerId: null,
+                        episode: null,
                         /* Entier, comme une bande-annonce qu'on vient de
                            choisir : les bornes du générique précédent n'ont
                            aucun sens sur celui-ci. */
@@ -3228,7 +3250,11 @@ export default function BannerStudio({
         const ligne = (a: StudioAnime): Row => {
           /* Le compte exact une fois les génériques ouverts, sinon celui de
              la requête groupée. */
-          const g = themeCache.current.get(a.mediaId)?.length ?? musicCounts[a.mediaId];
+          /* En Génériques, les seules vidéos — inconnues tant que l'anime
+             n'a pas été chargé (le compte groupé mêle les mp3). */
+          const g = vid
+            ? (themeCache.current.get(a.mediaId) ?? themeBase.current.get(a.mediaId))?.filter(hasVideo).length
+            : (themeCache.current.get(a.mediaId)?.length ?? musicCounts[a.mediaId]);
           /* Des « songs » et non des génériques (16/10/2026) : la
              bande-annonce compte, puisqu'elle se prend comme les autres. */
           const n = g == null ? g : g + (a.trailer ? 1 : 0);
@@ -3240,7 +3266,7 @@ export default function BannerStudio({
               n === 0
                 ? t("profile.studioMusicNoneHere")
                 : n != null
-                  ? t("profile.studioMusicCount", { count: n })
+                  ? t(vid ? "profile.studioVideoCount" : "profile.studioMusicCount", { count: n })
                   : dansListe.has(a.mediaId)
                     ? null
                     : t("profile.studioNotInList"),
@@ -3267,6 +3293,7 @@ export default function BannerStudio({
               <AnimeHead
                 anime={meta?.mediaId === pick ? meta : listedAnime}
                 count={attendu + ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)}
+                countKey={vid ? "profile.studioVideoCount" : undefined}
                 anchor={`anime-${scope}-${ouvert}`}
                 onClose={() => {
                   holdAnchor(`anime-${scope}-${ouvert}`);
