@@ -4008,11 +4008,22 @@ export default function BannerStudio({
   /* La vignette de l'ÉPISODE dans le carré (21/10/2026), celle de sa ligne
      dans la liste ; la miniature YouTube pour une bande-annonce ; l'affiche
      de l'anime sinon. */
+  const opedCover = () => {
+    if (draft.episode || draft.trailerId) return null;
+    const th = themeOf(draft.url);
+    if (!th) return null;
+    const covers =
+      (draft.animeId != null ? coverCache.current.get(draft.animeId) : undefined) ??
+      (coverState.id === draft.animeId ? coverState.covers : undefined);
+    return th.cover ?? covers?.[th.slug] ?? null;
+  };
   const videoThumb =
     (draft.episode && draft.animeId != null
       ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.img
       : null) ??
     (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
+    /* Un générique : SA pochette, celle de sa ligne dans la liste. */
+    opedCover() ??
     trailerAnime?.cover ??
     null;
   /* Le bouton « garder en preset » des deux cartes : un clic garde le choix
