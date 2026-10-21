@@ -237,13 +237,22 @@ const presetTab = (p: Presets["video"][0]) => p.tab ?? (p.v.episode ? "video" : 
    rose que si l'une de ses lignes est le choix en cours. En passant de Vidéo
    à Génériques, l'animé reste ouvert, mais ce qu'on porte peut venir de
    l'autre onglet : le cadre passe alors au gris. */
-const presetFirst = (list: Section[]): Section[] => {
+const presetFirst = (list: Section[], forget?: () => void): Section[] => {
   const preset = list.some((s) => s.rows.some((r) => r.pink && r.selected));
   const inPanel = list.some((s) => s.panel && s.rows.some((r) => r.selected));
   return list.map((s) => ({
     ...s,
     muted: s.panel && (preset || !inPanel),
-    rows: preset ? s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)) : s.rows,
+    rows: s.rows.map((r) => {
+      let o = preset && !r.pink && r.selected ? { ...r, selected: false } : r;
+      /* Une ligne qui CHOISIT (pas un preset, pas un animé qui s'ouvre)
+         oublie le preset en cours, à la souris comme au clavier. */
+      if (forget && !r.pink && !r.cover && r.run) {
+        const run = r.run;
+        o = { ...o, run: () => (forget(), run()) };
+      }
+      return o;
+    }),
   }));
 };
 /** Deux choix sont le même preset quand tout ce qu'il garde est égal. */
@@ -472,6 +481,9 @@ type Section = {
   title: string;
   rows: Row[];
   node?: ReactNode;
+  /** L'intitulé reste même sans ligne : l'animé ouvert est le premier de la
+      liste, et « Musique » / « Génériques » disparaissait au-dessus de lui. */
+  heading?: boolean;
   /** Cadre `panel` en gris : un preset porté a déjà le rose. */
   muted?: boolean;
   /** L'intitulé se replie : un clic montre ou cache les lignes (Mes presets). */
@@ -950,6 +962,14 @@ export default function BannerStudio({
     });
   }, []);
   const [presets, setPresets] = useState<Presets>({ music: [], video: [] });
+  /* LE PRESET CLIQUÉ, et non celui qui se trouve égal au choix (21/10/2026) :
+     reprendre la bande-annonce dans la liste recochait son preset, et deux
+     presets d'une même vidéo se cochaient ensemble. Choisir une ligne qui
+     n'est pas un preset l'oublie. */
+  const [activePreset, setActivePreset] = useState<{ music: string | null; video: string | null }>({
+    music: null,
+    video: null,
+  });
   useEffect(() => setPresets(readPresets()), []);
   const savePresets = useCallback((next: (p: Presets) => Presets) => {
     setPresets((p) => {
@@ -1877,6 +1897,12 @@ export default function BannerStudio({
 
     /* « Mes presets » : en tête, un clic remet le morceau ou le fond AVEC ses
        bornes et son fondu. La section se replie à son intitulé. */
+    const forgetPreset =
+      scope === "music"
+        ? () => setActivePreset((a) => ({ ...a, music: null }))
+        : scope === "video" || scope === "oped"
+          ? () => setActivePreset((a) => ({ ...a, video: null }))
+          : undefined;
     const presetSection = (rows: Row[]): Section => ({
       title: t("profile.studioPresets", "Mes presets"),
       rows: presetsOpen ? rows : [],
@@ -1900,9 +1926,10 @@ export default function BannerStudio({
             icon: MusicalNoteIcon,
             thumb: p.music.cover,
             square: true,
-            selected: sameSnap(draft.music, p.music),
+            selected: activePreset.music === p.id && sameSnap(draft.music, p.music),
             pink: true,
             run: () => {
+              setActivePreset((a) => ({ ...a, music: p.id }));
               patch({ music: { ...p.music } });
               setAt(0);
               setLen(0);
@@ -1933,9 +1960,12 @@ export default function BannerStudio({
               [p.label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
-            selected: sameSnap(cur, p.v),
+            selected: activePreset.video === p.id && sameSnap(cur, p.v),
             pink: true,
-            run: () => patch({ ...p.v, color: null }),
+            run: () => {
+              setActivePreset((a) => ({ ...a, video: p.id }));
+              patch({ ...p.v, color: null });
+            },
             remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
             removeLabel: t("profile.studioPresetRemove"),
           }),
@@ -2965,7 +2995,7 @@ export default function BannerStudio({
       if (at < 0) out.push(...gal, { title: titre, rows: liste.map(ligne) });
       else
         out.push(
-          { title: titre, rows: liste.slice(0, at).map(ligne) },
+          { title: titre, rows: liste.slice(0, at).map(ligne), heading: true },
           ...gal,
           { title: "", rows: liste.slice(at + 1).map(ligne) },
         );
@@ -3103,7 +3133,7 @@ export default function BannerStudio({
       if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
       else
         out.push(
-          { title: titre, rows: tous.slice(0, at).map(ligne) },
+          { title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
           ...gal,
           { title: "", rows: tous.slice(at + 1).map(ligne) },
         );
@@ -3432,11 +3462,11 @@ export default function BannerStudio({
         if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
         else
           out.push(
-            { title: titre, rows: tous.slice(0, at).map(ligne) },
+            { title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
             ...gal,
             { title: "", rows: tous.slice(at + 1).map(ligne) },
           );
-        return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold));
+        return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold || s.heading), forgetPreset);
       }
     }
 
@@ -3474,13 +3504,13 @@ export default function BannerStudio({
       }));
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
-    return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold));
+    return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold || s.heading), forgetPreset);
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3937,9 +3967,15 @@ export default function BannerStudio({
      tel qu'il est (bornes, fondu), un second le retire. */
   const curVideo = videoSnap(draft);
   const videoTab = scope === "oped" ? "oped" : "video";
-  const videoSaved = presets.video.find((p) => presetTab(p) === videoTab && sameSnap(p.v, curVideo));
-  const musicSaved = draft.music ? presets.music.find((p) => sameSnap(p.music, draft.music)) : undefined;
-  const toggleVideoPreset = () =>
+  const videoSaved = presets.video.find(
+    (p) => p.id === activePreset.video && presetTab(p) === videoTab && sameSnap(p.v, curVideo),
+  );
+  const musicSaved = draft.music
+    ? presets.music.find((p) => p.id === activePreset.music && sameSnap(p.music, draft.music))
+    : undefined;
+  const toggleVideoPreset = () => {
+    const id = `${Date.now()}`;
+    setActivePreset((a) => ({ ...a, video: videoSaved ? null : id }));
     savePresets((s) =>
       videoSaved
         ? { ...s, video: s.video.filter((x) => x.id !== videoSaved.id) }
@@ -3947,7 +3983,7 @@ export default function BannerStudio({
             ...s,
             video: [
               {
-                id: `${Date.now()}`,
+                id,
                 thumb: videoThumb,
                 tab: videoTab,
                 label: draft.episode
@@ -3961,13 +3997,17 @@ export default function BannerStudio({
             ],
           },
     );
-  const toggleMusicPreset = () =>
-    draft.music &&
+  };
+  const toggleMusicPreset = () => {
+    if (!draft.music) return;
+    const id = `${Date.now()}`;
+    setActivePreset((a) => ({ ...a, music: musicSaved ? null : id }));
     savePresets((s) =>
       musicSaved
         ? { ...s, music: s.music.filter((x) => x.id !== musicSaved.id) }
-        : { ...s, music: [{ id: `${Date.now()}`, music: { ...draft.music! } }, ...s.music] },
+        : { ...s, music: [{ id, music: { ...draft.music! } }, ...s.music] },
     );
+  };
   const presetButton = (saved: boolean, onClick: () => void) => (
     <button
       type="button"
