@@ -3333,6 +3333,19 @@ export default function BannerStudio({
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
 
+  /* Le sens de l'entrée de la liste : depuis la droite si l'onglet cliqué est
+     à droite du précédent, depuis la gauche sinon ; un simple fondu hors des
+     onglets (menu ouvert depuis la barre). */
+  const prevScope = useRef(scope);
+  const tabDx = useRef(0);
+  if (prevScope.current !== scope) {
+    const g = scope ? groupOf(scope) : null;
+    const a = g && prevScope.current ? g.indexOf(prevScope.current as DressingKind) : -1;
+    const b = g && scope ? g.indexOf(scope as DressingKind) : -1;
+    tabDx.current = a >= 0 && b >= 0 ? (b > a ? 18 : -18) : 0;
+    prevScope.current = scope;
+  }
+
   useEffect(() => setCursor(0), [scope, query, animeId]);
   useEffect(() => {
     if (tabVise && tabVise === scope) setTabVise(null);
@@ -4396,7 +4409,14 @@ export default function BannerStudio({
                     {t("profile.studioNoResult")}
                   </p>
                 ) : (
-                  sections.map((s, i) => (
+                  /* Changer d'onglet remonte la liste, qui glisse depuis le
+                     côté de l'onglet cliqué (21/10/2026). */
+                  <div
+                    key={scope}
+                    className={`as-tab-in ${inColumn ? "flex min-h-0 flex-1 flex-col" : ""}`}
+                    style={{ "--as-tab-dx": `${tabDx.current}px` } as React.CSSProperties}
+                  >
+                  {sections.map((s, i) => (
                     <div
                       /* Les sections de l'animé ouvert changent de clé avec
                          lui : elles se remontent, et rejouent leur entrée. */
@@ -4718,7 +4738,8 @@ export default function BannerStudio({
                         );
                       })}
                     </div>
-                  ))
+                  ))}
+                  </div>
                 )}
               </div>
 

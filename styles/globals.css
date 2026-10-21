@@ -4516,6 +4516,18 @@ html.as-scene-leave .as-navbar {
 .as-acc-in {
   animation: as-acc-in 0.28s cubic-bezier(0.3, 0.7, 0.2, 1) backwards;
 }
+/* La liste du studio entre du côté de l'onglet cliqué (Vidéo ↔ Génériques).
+   PAS de garde `prefers-reduced-motion` : ce poste répond `reduce` (cf. plus
+   bas, `as-tile-in`) ; court, sans rebond, déclenché par un clic. */
+@keyframes as-tab-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--as-tab-dx, 0px));
+  }
+}
+.as-tab-in {
+  animation: as-tab-in 0.3s cubic-bezier(0.3, 0.7, 0.2, 1) backwards;
+}
 /* Le libellé du fondu entre après les tuiles, et sa flèche invite au clic. */
 /* Il DESCEND à sa place : il montre la direction où la grille se déroule. */
 @keyframes as-fondu-in {
