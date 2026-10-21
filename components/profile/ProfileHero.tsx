@@ -21,13 +21,13 @@ import {
   readAutoplay,
   readProfileVolume,
   noteProfileMusic,
-  noteProfileMusicAt,
   rememberAutoplay,
   useBgMuted,
   useBgPaused,
   writeProfileVolume,
 } from "@/lib/profile/playback";
 export { PROFILE_AUTOPLAY_COOKIE } from "@/lib/profile/playback";
+import { useFollowFrame } from "@/lib/profile/followFrame";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -412,6 +412,16 @@ export default function ProfileHero({
   const [cookiePaused, setCookiePaused] = useState(!!musicPaused);
   const studioSeen = useRef(false);
   const soundRetried = useRef(false);
+  /* Au retour du studio, la case en bas à droite rentre avec le cadre
+     (lib/profile/followFrame) le temps du retour, puis reprend sa place. */
+  const [following, setFollowing] = useState(false);
+  useEffect(() => {
+    if (studio || !studioSeen.current) return;
+    setFollowing(true);
+    const id = window.setTimeout(() => setFollowing(false), 1500);
+    return () => window.clearTimeout(id);
+  }, [studio]);
+  const followFrame = useFollowFrame(following);
   if (studio) studioSeen.current = true;
   /* AU RETOUR DU STUDIO, LE GESTE A DÉJÀ EU LIEU (22/10/2026) : on vient d'y
      cliquer « Enregistrer ». Sans ça le fond vidéo repartait muet, en
@@ -434,6 +444,8 @@ export default function ProfileHero({
     if (studioSeen.current && banner.music) {
       const on = readAutoplay();
       setSound(on);
+      /* Depuis le début, comme en entrant dans le studio. */
+      if (audio.current) audio.current.currentTime = banner.music.from ?? 0;
       if (on) {
         if (banner.music.videoId) void yt.current?.play();
         else void audio.current?.play().catch(() => setSound(false));
@@ -869,7 +881,6 @@ export default function ProfileHero({
             const f = banner.music?.from ?? 0;
             const to = banner.music?.to ?? 0;
             if (to > f && el.currentTime > to) el.currentTime = f;
-            noteProfileMusicAt(el.currentTime);
           }}
         />
       ) : null}
@@ -878,7 +889,7 @@ export default function ProfileHero({
           sa pochette à la place du lecteur. Jamais de lecture auto : le
           visiteur la lance d'ici. */}
       {banner.music && !viaYouTube && !studio ? (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={banner.music.cover || banner.url || ""}
@@ -909,7 +920,7 @@ export default function ProfileHero({
           petit carré hors survol. Seulement sans musique : celle-ci a déjà sa
           case, et la vidéo se tait sous elle. Hors studio : il a la sienne. */}
       {(trailer || (video && !!banner.url)) && !studio && !banner.music ? (
-        <div className="fixed bottom-6 right-6 z-40">
+        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={
@@ -964,7 +975,7 @@ export default function ProfileHero({
            lumière d'ambiance, lecture au centre, volume en haut à droite. La
            bande-annonce y est aussi, comme les autres. Les bornes et le fondu
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
-        <div className="fixed bottom-6 right-6 z-40">
+        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
             /* Remonté au retour du studio : pas de départ muet d'office, c'est
                l'effet du retour (`setSound`) qui relance — ou non, selon ce
@@ -1007,7 +1018,6 @@ export default function ProfileHero({
               minimizable: true,
             }}
             onError={() => setSound(false)}
-            onTime={noteProfileMusicAt}
             onBrowserMute={() => {
               /* Refus du son alors qu'on a déjà cliqué sur la page (retour du
                  studio) : une seconde tentative, une seule, avant d'attendre

@@ -131,6 +131,7 @@ import {
   useBgPaused,
   writeProfileVolume,
 } from "@/lib/profile/playback";
+import { useFollowFrame } from "@/lib/profile/followFrame";
 import {
   DEFAULT_VIDEO_FADE,
   DEFAULT_VIDEO_VOLUME,
@@ -1251,66 +1252,29 @@ export default function BannerStudio({
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
   const [wantPlay, setWantPlay] = useState(false);
-  /* LA MUSIQUE QUI JOUAIT SUR LE PROFIL CONTINUE ICI (22/10/2026, Luc), là
-     où elle en était ; en pause sur le profil, elle reste en pause. */
-  const resumeAt = useRef<number | null>(null);
+  /* LA MUSIQUE QUI JOUAIT SUR LE PROFIL JOUE ICI (22/10/2026, Luc), depuis
+     le début ; en pause sur le profil, elle reste en pause. */
   /* EN SORTANT (22/10/2026, Luc) : la musique repart seulement si on l'a
      changée et enregistrée (`exitPlay`, posé par `finish`) ; sinon le profil
      la reprend dans l'état où le studio la laisse. */
   const playingRef = useRef(false);
   playingRef.current = playing;
 
-  /* LA CASE EN BAS À DROITE COLLE AU CADRE (22/10/2026, Luc) : à chaque
-     image, 24 px de son coin bas droit, à son échelle — pendant le recul, le
-     glissement, le retour et la poignée. Des transitions CSS sur les
-     variables de la scène sautaient d'un temps à l'autre au lieu de suivre. */
-  const cardEl = useRef<HTMLDivElement | null>(null);
-  const followFrame = useCallback((el: HTMLDivElement | null) => {
-    cardEl.current = el;
-  }, []);
-  useEffect(() => {
-    if (!open) return;
-    let raf = 0;
-    let last = "";
-    let lastEl: HTMLDivElement | null = null;
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      const el = cardEl.current;
-      if (!el) return;
-      if (el !== lastEl) {
-        lastEl = el;
-        last = "";
-      }
-      const fr = document.querySelector<HTMLElement>(".as-scene-screen.is-fixed");
-      if (!fr || !fr.offsetWidth) return;
-      const r = fr.getBoundingClientRect();
-      const z = r.width / fr.offsetWidth;
-      const vw = document.documentElement.clientWidth;
-      const vh = document.documentElement.clientHeight;
-      const right = Math.round((vw - r.right + 24 * z) * 10) / 10;
-      const bottom = Math.round((vh - r.bottom + 24 * z) * 10) / 10;
-      const zz = Math.round(z * 1000) / 1000;
-      const key = `${right}|${bottom}|${zz}`;
-      if (key === last) return;
-      last = key;
-      el.style.right = `${right}px`;
-      el.style.bottom = `${bottom}px`;
-      el.style.transform = `scale(${zz})`;
-    };
-    tick();
-    return () => cancelAnimationFrame(raf);
-  }, [open]);
+  /* La case en bas à droite colle au cadre (lib/profile/followFrame). */
+  const followFrame = useFollowFrame(open);
   const exitPlay = useRef<boolean | null>(null);
+  const vFromNow = useRef(0);
+  vFromNow.current = draft.videoFrom ?? 0;
   useEffect(() => {
     if (!open) return;
     exitPlay.current = null;
-    const was = profileMusicNow();
-    if (was.playing && value?.music) {
-      resumeAt.current = was.at;
-      setWantPlay(true);
-    }
+    /* REPART DU DÉBUT à chaque passage profil ↔ studio (22/10/2026, Luc) :
+       la musique depuis sa borne de départ, le fond vidéo aussi. */
+    remote.current?.seek(value?.videoFrom ?? 0);
+    if (profileMusicNow().playing && value?.music) setWantPlay(true);
     return () => {
       if (value?.music || exitPlay.current) rememberAutoplay(exitPlay.current ?? playingRef.current);
+      remote.current?.seek(vFromNow.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture et à la fermeture
   }, [open]);
@@ -2088,13 +2052,8 @@ export default function BannerStudio({
     setWantPlay(false);
     /* Le rail appartient au nouveau morceau : garder la position du
        précédent, c'est afficher une seconde de mensonge. */
-    const from = draft.music?.from ?? 0;
-    const at = resumeAt.current;
-    resumeAt.current = null;
-    const to = draft.music?.to;
-    const start = at != null && at >= from && (!to || at < to) ? at : from;
-    setAt(start);
-    el.currentTime = start;
+    setAt(0);
+    el.currentTime = draft.music?.from ?? 0;
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url, draft.music?.videoId]);
 
@@ -5560,9 +5519,10 @@ export default function BannerStudio({
            la scène : 24 px du coin comme sur le profil (`bottom-6 right-6`),
            eux aussi à l'échelle. */
         <div
-          ref={followFrame} className={`as-scene-card fixed z-[10004] origin-bottom-right ${
-            playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-          }`}
+          ref={followFrame}
+          /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
+             du profil au studio avec le cadre, au lieu de disparaître. */
+          className="as-scene-card pointer-events-auto fixed z-[10004] origin-bottom-right"
         >
           <YouTubeMusic
             ref={preview}
@@ -5642,9 +5602,10 @@ export default function BannerStudio({
         {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
             place, la pochette à la place du lecteur. */}
         <div
-          ref={followFrame} className={`as-scene-card fixed z-[10004] origin-bottom-right ${
-            playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-          }`}
+          ref={followFrame}
+          /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
+             du profil au studio avec le cadre, au lieu de disparaître. */
+          className="as-scene-card pointer-events-auto fixed z-[10004] origin-bottom-right"
         >
           <MusicCard
             className="h-[240px] w-[240px]"

@@ -96,17 +96,14 @@ export const useBgPaused = () => useFlag(paused);
 export const useBgMuted = () => useFlag(muted);
 
 /* ── La musique du profil, passée au studio (22/10/2026, Luc) ─────────────
-   Elle jouait sur le profil : elle continue dans le menu d'édition, au même
-   endroit. Rien n'est gardé au-delà de la page. */
-const handoff: { playing: boolean; at: number | null } = { playing: false, at: null };
+   Elle jouait sur le profil : elle joue dans le menu d'édition (depuis le
+   début). Rien n'est gardé au-delà de la page. */
+const handoff = { playing: false };
 export function noteProfileMusic(playing: boolean): void {
   handoff.playing = playing;
 }
-export function noteProfileMusicAt(at: number): void {
-  handoff.at = at;
-}
-/** La musique jouait-elle sur le profil, et où en était-elle. */
-export function profileMusicNow(): { playing: boolean; at: number | null } {
+/** La musique jouait-elle sur le profil. */
+export function profileMusicNow(): { playing: boolean } {
   return { ...handoff };
 }
 
