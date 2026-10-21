@@ -236,7 +236,10 @@ export default function PlateBackground({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `epKey` résume l'épisode
   }, [epKey]);
   const ep = epKey && epStream?.key === epKey ? epStream.s : null;
-  const src = dressing.url ?? ep?.url ?? null;
+  /* UN ÉPISODE PASSE AVANT un `url` resté d'un choix précédent : un
+     brouillon portait EP2 et le fichier de l'ED1 à la fois, et le fond jouait
+     l'ED1 — l'épisode 2 « ne se lançait jamais » (21/10/2026). */
+  const src = episode ? (ep?.url ?? null) : (dressing.url ?? null);
 
   useEffect(() => {
     const el = video.current;
@@ -295,6 +298,10 @@ export default function PlateBackground({
   useEffect(() => {
     if (!trailerId) return;
     duration.current = 0;
+    /* La position de la bande-annonce précédente ne vaut rien pour celle-ci :
+       sans cette remise à zéro, la nouvelle s'annonçait au temps de
+       l'ancienne jusqu'à son premier message. */
+    said.current = { at: bounds.current.from, wall: performance.now(), playing: false };
     const loaded = () => loadedFor.current === trailerId;
 
     post.current = (func: string, args: unknown[] = []) => {

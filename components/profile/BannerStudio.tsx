@@ -230,7 +230,13 @@ function readPresets(): Presets {
     const raw = JSON.parse(localStorage.getItem(PRESET_KEY) || "{}");
     return {
       music: Array.isArray(raw.music) ? raw.music.filter((p: Presets["music"][0]) => p?.id && p.music) : [],
-      video: Array.isArray(raw.video) ? raw.video.filter((p: Presets["video"][0]) => p?.id && p.v) : [],
+      video: Array.isArray(raw.video)
+        ? raw.video
+            .filter((p: Presets["video"][0]) => p?.id && p.v)
+            /* Un preset d'épisode a pu garder le fichier d'un générique
+               choisi avant lui (21/10/2026) : l'épisode gagne. */
+            .map((p: Presets["video"][0]) => (p.v.episode && p.v.url ? { ...p, v: { ...p.v, url: null } } : p))
+        : [],
     };
   } catch {
     return { music: [], video: [] };
@@ -1236,6 +1242,21 @@ export default function BannerStudio({
     },
     [],
   );
+  /* UNE AUTRE VIDÉO REPART DE ZÉRO (21/10/2026, Luc) : le rail gardait la
+     position de la précédente (0:15) le temps que la nouvelle se charge, et
+     on croyait qu'elle commençait au même endroit. Même chose pour la
+     musique. */
+  const videoIdentity = `${draft.kind}|${draft.url}|${draft.trailerId}|${draft.animeId}|${draft.episode?.n}|${draft.episode?.server}`;
+  useEffect(() => {
+    setVAt(0);
+    setVLen(0);
+    setVPlaying(false);
+  }, [videoIdentity]);
+  const musicIdentity = `${draft.music?.url}|${draft.music?.videoId}`;
+  useEffect(() => {
+    setAtNow(0);
+    setLen(0);
+  }, [musicIdentity]);
   useEffect(() => {
     if (!bridge) return;
     bridge.progress.current = onVideoProgress;
@@ -1848,7 +1869,16 @@ export default function BannerStudio({
   }, [open, listedAnimeId, scope]);
 
   const patch = useCallback(
-    (next: Partial<Dressing>) => setDraft((d) => ({ ...d, ...next })),
+    (next: Partial<Dressing>) =>
+      setDraft((d) => {
+        const n = { ...d, ...next };
+        /* Un épisode et un fichier ne vont jamais ensemble : le plus récent
+           gagne (un EP2 portait encore le fichier de l'ED1, qui jouait à sa
+           place). */
+        if (next.episode) n.url = null;
+        else if (next.url) n.episode = null;
+        return n;
+      }),
     [],
   );
 

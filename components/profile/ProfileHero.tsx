@@ -225,7 +225,9 @@ export default function ProfileHero({
   /* The navbar floats transparent over this plate, and a profile's artwork is
      picked by its owner — nothing stops it being a white one. Same measurement
      the info page's hero declares (lib/color/navContrast.ts). */
-  useNavBackdrop(banner.url);
+  /* Une IMAGE seulement : un fichier vidéo n'a pas de pixels à mesurer, et
+     la route répondait 500 à chaque générique porté. */
+  useNavBackdrop(isVideoKind(banner.kind) ? null : banner.url);
 
   /* An illustration is worn as the page's WALLPAPER — fixed to the window, the
      profile scrolling over it. A banner-shaped strip stays a strip: it was

@@ -535,7 +535,9 @@ export function normalizeDressing(raw: unknown): Dressing | null {
 
   return {
     kind,
-    url: kind === "color" || kind === "wall" ? null : url,
+    /* Un épisode n'a pas d'URL : un fichier resté d'un choix précédent
+       serait joué à sa place. */
+    url: kind === "color" || kind === "wall" || episode ? null : url,
     color: kind === "color" ? color : null,
     pattern: kind === "color" && isPatternId(obj.pattern) ? obj.pattern : null,
     patternZoom: clampPatternZoom(obj.patternZoom),
