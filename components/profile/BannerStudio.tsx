@@ -2071,7 +2071,11 @@ export default function BannerStudio({
                   ? { text: th.slug.toUpperCase(), op: th.kind === "op" }
                   : { text: "OP / ED", op: true },
             hint:
-              [label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
+              /* L'anime dessous dès que le titre n'est pas déjà lui —
+                 titre d'épisode, de morceau, ou nom donné au preset. */
+              [(p.name || label) && p.name !== p.v.title ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)]
+                .filter(Boolean)
+                .join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
             selected: activePreset.video === p.id,
