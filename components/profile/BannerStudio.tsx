@@ -3332,20 +3332,6 @@ export default function BannerStudio({
   }, [sections, pick, scope, wallHasMore, wallLoading, wallpapers.length, facette]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
-
-  /* Le sens de l'entrée de la liste : depuis la droite si l'onglet cliqué est
-     à droite du précédent, depuis la gauche sinon ; un simple fondu hors des
-     onglets (menu ouvert depuis la barre). */
-  const prevScope = useRef(scope);
-  const tabDx = useRef(0);
-  if (prevScope.current !== scope) {
-    const g = scope ? groupOf(scope) : null;
-    const a = g && prevScope.current ? g.indexOf(prevScope.current as DressingKind) : -1;
-    const b = g && scope ? g.indexOf(scope as DressingKind) : -1;
-    tabDx.current = a >= 0 && b >= 0 ? (b > a ? 18 : -18) : 0;
-    prevScope.current = scope;
-  }
-
   useEffect(() => setCursor(0), [scope, query, animeId]);
   useEffect(() => {
     if (tabVise && tabVise === scope) setTabVise(null);
@@ -3425,6 +3411,9 @@ export default function BannerStudio({
   };
 
   let index = -1;
+  /* Le rang d'une ligne dans le cadre de l'animé ouvert, toutes sections
+     confondues : la cascade de leur entrée. */
+  let rang = -1;
 
   /* ── L'extrait ──────────────────────────────────────────────────────
      Sans découpe, l'extrait vaut tout le fichier : les bornes ne sont écrites
@@ -4409,14 +4398,7 @@ export default function BannerStudio({
                     {t("profile.studioNoResult")}
                   </p>
                 ) : (
-                  /* Changer d'onglet remonte la liste, qui glisse depuis le
-                     côté de l'onglet cliqué (21/10/2026). */
-                  <div
-                    key={scope}
-                    className={`as-tab-in ${inColumn ? "flex min-h-0 flex-1 flex-col" : ""}`}
-                    style={{ "--as-tab-dx": `${tabDx.current}px` } as React.CSSProperties}
-                  >
-                  {sections.map((s, i) => (
+                  sections.map((s, i) => (
                     <div
                       /* Les sections de l'animé ouvert changent de clé avec
                          lui : elles se remontent, et rejouent leur entrée. */
@@ -4615,6 +4597,7 @@ export default function BannerStudio({
                       ) : null}
                       {s.grid ? null : s.rows.map((row) => {
                         index += 1;
+                        if (s.panel) rang += 1;
                         const active = clavier && index === cursor;
                         const Icon = row.icon;
                         return (
@@ -4641,8 +4624,12 @@ export default function BannerStudio({
                                  en faisaient 88, et la liste raccourcissait
                                  en défilant. */
                               containIntrinsicSize: row.cover ? "auto 56px" : "auto 40px",
+                              /* Les lignes de l'animé ouvert entrent l'une
+                                 après l'autre (21/10/2026) ; plafonné à 12
+                                 pour qu'une longue liste ne traîne pas. */
+                              ...(s.panel ? { ["--i" as string]: Math.min(rang, 12) } : {}),
                             }}
-                            className={`group flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${
+                            className={`${s.panel ? "as-row-in " : ""}group flex w-full items-center gap-3 rounded-xl px-3 text-left transition-colors ${
                               row.cover ? "py-2" : "py-2.5"
                             } ${row.dim ? "opacity-40 grayscale" : ""} ${
                               row.disabled
@@ -4738,8 +4725,7 @@ export default function BannerStudio({
                         );
                       })}
                     </div>
-                  ))}
-                  </div>
+                  ))
                 )}
               </div>
 
