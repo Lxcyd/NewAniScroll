@@ -198,7 +198,8 @@ type VideoSnap = Pick<
 >;
 type Presets = {
   music: { id: string; music: DressingMusic }[];
-  video: { id: string; thumb: string | null; v: VideoSnap }[];
+  /** `label` : le titre de l'épisode, que le choix lui-même ne garde pas. */
+  video: { id: string; thumb: string | null; label?: string | null; v: VideoSnap }[];
 };
 const PRESET_KEY = "as-studio-presets";
 const PRESET_MAX = 30;
@@ -449,6 +450,8 @@ type Section = {
   title: string;
   rows: Row[];
   node?: ReactNode;
+  /** L'intitulé se replie : un clic montre ou cache les lignes (Mes presets). */
+  fold?: { open: boolean; toggle: () => void; count: number };
   /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
       couleur) : le menu est rempli, sans barre de défilement. */
   grow?: boolean;
@@ -928,6 +931,25 @@ export default function BannerStudio({
         /* stockage refusé : les presets vivent le temps de la session */
       }
       return out;
+    });
+  }, []);
+  /* Ouverte ou repliée, « Mes presets » le reste d'une visite à l'autre. */
+  const [presetsOpen, setPresetsOpen] = useState(true);
+  useEffect(() => {
+    try {
+      setPresetsOpen(localStorage.getItem(PRESET_KEY + "-open") !== "0");
+    } catch {
+      /* stockage refusé : ouverte */
+    }
+  }, []);
+  const togglePresets = useCallback(() => {
+    setPresetsOpen((o) => {
+      try {
+        localStorage.setItem(PRESET_KEY + "-open", o ? "0" : "1");
+      } catch {
+        /* stockage refusé : le choix vit le temps de la session */
+      }
+      return !o;
     });
   }, []);
   /** Le lecteur de musique posé SUR la barre du bas, à la place des menus —
@@ -1824,7 +1846,12 @@ export default function BannerStudio({
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
 
     /* « Mes presets » : en tête, un clic remet le morceau ou le fond AVEC ses
-       bornes et son fondu. */
+       bornes et son fondu. La section se replie à son intitulé. */
+    const presetSection = (rows: Row[]): Section => ({
+      title: t("profile.studioPresets", "Mes presets"),
+      rows: presetsOpen ? rows : [],
+      fold: { open: presetsOpen, toggle: togglePresets, count: rows.length },
+    });
     if (scope === "music" && presets.music.length) {
       const rows = presets.music
         .filter((p) => match(`${p.music.title} ${p.music.artist ?? ""}`))
@@ -1854,7 +1881,7 @@ export default function BannerStudio({
             removeLabel: t("profile.studioPresetRemove"),
           }),
         );
-      if (rows.length) out.push({ title: t("profile.studioPresets"), rows });
+      if (rows.length) out.push(presetSection(rows));
     }
     if ((scope === "video" || scope === "oped") && presets.video.length) {
       const cur = videoSnap(draft);
@@ -1863,13 +1890,16 @@ export default function BannerStudio({
         .map(
           (p): Row => ({
             key: `preset-video-${p.id}`,
-            label: p.v.title || "YouTube",
+            /* Un épisode se nomme par SON titre, l'anime passe dessous :
+               deux épisodes d'un même titre se lisaient pareil. */
+            label: p.label || p.v.title || "YouTube",
             chip: p.v.episode
               ? { text: `EP${p.v.episode.n}`, op: false }
               : p.v.trailerId
                 ? { text: "TRL", op: false, color: "#4ade80" }
                 : { text: "OP / ED", op: true },
-            hint: span(p.v.videoFrom, p.v.videoTo),
+            hint:
+              [p.label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
             selected: sameSnap(cur, p.v),
@@ -1878,7 +1908,7 @@ export default function BannerStudio({
             removeLabel: t("profile.studioPresetRemove"),
           }),
         );
-      if (rows.length) out.push({ title: t("profile.studioPresets"), rows });
+      if (rows.length) out.push(presetSection(rows));
     }
 
     /* « Mes vidéos » : les liens YouTube collés à la main, en tête de Vidéo et
@@ -3353,7 +3383,7 @@ export default function BannerStudio({
             ...gal,
             { title: "", rows: tous.slice(at + 1).map(ligne) },
           );
-        return out.filter((s) => s.rows.length > 0 || s.node);
+        return out.filter((s) => s.rows.length > 0 || s.node || s.fold);
       }
     }
 
@@ -3391,13 +3421,13 @@ export default function BannerStudio({
       }));
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
-    return out.filter((s) => s.rows.length > 0 || s.node);
+    return out.filter((s) => s.rows.length > 0 || s.node || s.fold);
   }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -3859,7 +3889,22 @@ export default function BannerStudio({
     savePresets((s) =>
       videoSaved
         ? { ...s, video: s.video.filter((x) => x.id !== videoSaved.id) }
-        : { ...s, video: [{ id: `${Date.now()}`, thumb: videoThumb, v: curVideo }, ...s.video] },
+        : {
+            ...s,
+            video: [
+              {
+                id: `${Date.now()}`,
+                thumb: videoThumb,
+                label: draft.episode
+                  ? (draft.animeId != null
+                      ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.title
+                      : null) || t("profile.studioEpisodeN", { n: draft.episode.n })
+                  : null,
+                v: curVideo,
+              },
+              ...s.video,
+            ],
+          },
     );
   const toggleMusicPreset = () =>
     draft.music &&
@@ -4589,7 +4634,21 @@ export default function BannerStudio({
                       {/* Un bloc peut porter son propre intitulé (le sélecteur de
                           couleur nomme lui-même ses deux moitiés) : on ne lui en
                           impose pas un second. */}
-                      {s.title ? (
+                      {s.fold ? (
+                        <button
+                          type="button"
+                          onClick={s.fold.toggle}
+                          aria-expanded={s.fold.open}
+                          className="flex w-full items-center gap-1.5 px-3 pb-1.5 pt-3 text-left font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35 transition-colors hover:text-white/70"
+                        >
+                          {s.title}
+                          <span className="font-mono tracking-normal text-white/25">{s.fold.count}</span>
+                          <ChevronDownIcon
+                            className={`ml-auto h-3.5 w-3.5 transition-transform duration-200 ${s.fold.open ? "" : "-rotate-90"}`}
+                            strokeWidth={2.4}
+                          />
+                        </button>
+                      ) : s.title ? (
                         <p className="px-3 pb-1.5 pt-3 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                           {s.title}
                         </p>
