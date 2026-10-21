@@ -54,7 +54,14 @@ async function main() {
       snapshot.census = await censusKeyspace(rest);
       console.log(`  → DBSIZE ${snapshot.census.dbsize}, scanned ${snapshot.census.scanned}`);
     } catch (e) {
-      snapshot.census = { error: e.message };
+      /* LE QUOTA ÉPUISÉ EST UNE MESURE, pas une panne (21/10/2026) : Upstash
+         refuse toute commande, recensement compris, une fois le plafond du
+         mois atteint. C'est précisément ce que ce moniteur existe pour dire —
+         il l'écrit en tête du rapport au lieu de tomber faute de données. */
+      const m = /max requests limit exceeded\. Limit: (\d+), Usage: (\d+)/.exec(e.message);
+      snapshot.census = m
+        ? { exhausted: true, limit: Number(m[1]), usage: Number(m[2]) }
+        : { error: e.message };
       console.warn(`  ! census failed: ${e.message}`);
     }
   } else {

@@ -95,6 +95,10 @@ export function renderReport(snapshot, prev) {
   L.push("## Redis keyspace census (where the load comes from)");
   if (c?.error) {
     L.push(`> _skipped: ${c.error}_`);
+  } else if (c?.exhausted) {
+    L.push(
+      `> **QUOTA ÉPUISÉ** — ${fmt(c.usage)} / ${fmt(c.limit)} commandes ce mois : Upstash refuse tout, recensement compris. Le cache du site est mort jusqu'au 1er.`,
+    );
   } else if (c) {
     const total = c.scanned || 1;
     L.push(
@@ -165,6 +169,11 @@ function buildFlags(snapshot, prev) {
   }
   // Keyspace growth anomalies
   const c = snapshot.census;
+  if (c?.exhausted) {
+    flags.push(
+      `**Upstash a atteint son plafond mensuel** (${fmt(c.usage)} / ${fmt(c.limit)}) → toutes les commandes Redis échouent, le cache est mort et le Fluid CPU de Vercel monte jusqu'au 1er du mois.`,
+    );
+  }
   const pc = prev?.census?.buckets;
   if (c?.buckets && pc) {
     for (const [k, v] of Object.entries(c.buckets)) {
@@ -187,9 +196,11 @@ export function appendHistory(historyPath, snapshot) {
     (s && !s.error
       ? `Upstash today ${fmt(s.today)} (proj ${s.projectedCapPct ?? "—"}% cap), `
       : "") +
-    (c && !c.error
-      ? `DBSIZE ${fmt(c.dbsize)}${top ? `, top prefix \`${top[0]}:\` ${fmt(top[1])}` : ""}`
-      : "");
+    (c?.exhausted
+      ? `QUOTA ÉPUISÉ ${fmt(c.usage)}/${fmt(c.limit)}`
+      : c && !c.error
+        ? `DBSIZE ${fmt(c.dbsize)}${top ? `, top prefix \`${top[0]}:\` ${fmt(top[1])}` : ""}`
+        : "");
   let prevBody = "";
   if (existsSync(historyPath)) prevBody = readFileSync(historyPath, "utf8");
   else prevBody = "# Usage Monitor — history\n\n";
