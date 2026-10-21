@@ -1055,6 +1055,24 @@ export default function BannerStudio({
     if (meme) savePresets((s) => ({ ...s, music: s.music.map((x) => (x.id === id ? { ...x, music: { ...cur } } : x)) }));
     else setActivePreset((a) => ({ ...a, music: null }));
   }, [draft.music, activePreset.music, presets.music, savePresets]);
+  /* LE CONCEPT DU SON, EXPLIQUÉ UNE FOIS (21/10/2026, Luc) : la première
+     fois qu'une vidéo a du son ET qu'une musique est choisie, une fenêtre dit
+     que la musique passe avant. Retenu dans ce navigateur. */
+  const SOUND_TIP_KEY = "as-studio-sound-tip";
+  const [soundTip, setSoundTip] = useState(false);
+  const videoSounds =
+    (draft.videoVolume ?? 0) > 0 &&
+    (!!draft.trailerId || (isVideoKind(draft.kind) && !!draft.url) || (draft.kind === "video" && !!draft.episode));
+  useEffect(() => {
+    if (!open || !videoSounds || !draft.music) return;
+    try {
+      if (localStorage.getItem(SOUND_TIP_KEY)) return;
+      localStorage.setItem(SOUND_TIP_KEY, "1");
+    } catch {
+      return;
+    }
+    setSoundTip(true);
+  }, [open, videoSounds, !!draft.music]);
   /** Le mode édition de « Mes presets » : renommer, supprimer. */
   const [presetEdit, setPresetEdit] = useState(false);
   /* Ouverte ou repliée, « Mes presets » le reste d'une visite à l'autre. */
@@ -3812,7 +3830,10 @@ export default function BannerStudio({
      silence maintenant qu'on les règle directement sur le profil. */
   const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
   const finish = () => {
-    if (changed && hasOwnPlate(shown)) onApply(shown);
+    /* L'image de la case vidéo du profil, figée ici : c'est le studio qui
+       connaît la vignette de l'épisode (cf. `videoCover`). */
+    if (changed && hasOwnPlate(shown))
+      onApply(videoDraft ? { ...shown, videoCover: videoThumb } : { ...shown, videoCover: null });
     else onClose();
   };
 
@@ -4543,6 +4564,34 @@ export default function BannerStudio({
         navigation. Le conteneur couvre la fenêtre mais ne capte RIEN : le
         profil reste cliquable, ses widgets déplaçables. */}
     <div className="pointer-events-none fixed inset-0 z-[10003] overflow-hidden text-white">
+      {soundTip ? (
+        <div className="pointer-events-auto absolute inset-0 z-[60] grid place-items-center bg-black/55 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal
+            aria-labelledby="as-sound-tip"
+            className="as-pop-card w-full max-w-sm rounded-2xl bg-[#15161d] p-5 shadow-[0_28px_70px_rgba(0,0,0,.75)] ring-1 ring-white/10"
+          >
+            <h2 id="as-sound-tip" className="font-outfit text-[17px] font-bold text-white">
+              {t("profile.studioSoundTipTitle", { defaultValue: "La musique passe en premier" })}
+            </h2>
+            <p className="mt-2 font-karla text-[13.5px] leading-relaxed text-white/65">
+              {t("profile.studioSoundTipBody", {
+                defaultValue:
+                  "Ton profil peut jouer une musique, le son de sa vidéo de fond, ou rien. Quand une musique est choisie, c'est elle qu'on entend : la vidéo continue, mais muette. Pour entendre la vidéo, retire la musique avec la croix de la barre du bas.",
+              })}
+            </p>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setSoundTip(false)}
+              className="mt-4 w-full rounded-full bg-action py-2 font-karla text-[13px] font-bold text-white transition-colors hover:bg-action/85"
+            >
+              {t("profile.studioSoundTipOk", { defaultValue: "Compris" })}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {/* ── La palette, ancrée sur le bouton cliqué ───────────────────── */}
       {scope ? (
         <>

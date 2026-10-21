@@ -4,11 +4,6 @@ import FramedAvatar from "@/components/profile/FramedAvatar";
 import FeaturedBadges from "@/components/profile/FeaturedBadges";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  SpeakerWaveIcon,
-  SpeakerXMarkIcon,
-} from "@heroicons/react/24/outline";
-import { PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
@@ -79,6 +74,8 @@ export type HeroBanner = {
   videoFade?: Dressing["videoFade"];
   /** Le son du fond vidéo (0 = muet) ; une musique le fait taire. */
   videoVolume?: Dressing["videoVolume"];
+  /** L'image de la case du fond vidéo, figée par le studio. */
+  videoCover?: Dressing["videoCover"];
   /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
   layout?: Dressing["layout"] | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
@@ -389,6 +386,8 @@ export default function ProfileHero({
   }, [studio, videoVol, vidAwake]);
   /** Le visiteur a coupé le son de la vidéo (bouton du bas à gauche). */
   const [vidMuted, setVidMuted] = useState(false);
+  /** Le niveau choisi par le VISITEUR à la case ; sinon celui du propriétaire. */
+  const [visitorVol, setVisitorVol] = useState<number | null>(null);
   const videoAudible = videoVol > 0 && !vidMuted && (!!studio || vidAwake);
   /** Le fichier d'AnimeThemes a déjà joué : sa case montre l'égaliseur. */
   const [audioStarted, setAudioStarted] = useState(false);
@@ -886,41 +885,46 @@ export default function ProfileHero({
         </div>
       ) : null}
 
-      {/* La pause du fond vidéo, en bas à gauche — la musique tient le coin
-          droit. Hors studio : il a son propre lecteur. */}
-      {(trailer || (video && !!banner.url)) && !studio ? (
-        <div className="fixed bottom-6 left-6 z-40 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleBg}
-            aria-pressed={bgPaused}
-            aria-label={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
-            title={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
-            className="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
-          >
-            {bgPaused ? <PlayIcon className="ml-0.5 h-4 w-4" /> : <PauseIcon className="h-4 w-4" />}
-          </button>
-          {/* Le son de la vidéo, quand son propriétaire lui en a donné. */}
-          {videoVol > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (performance.now() - vidWokeAt.current < 600) return;
-                setVidAwake(true);
-                setVidMuted((m) => !m);
-              }}
-              aria-pressed={!videoAudible}
-              aria-label={t(videoAudible ? "profile.bgMute" : "profile.bgUnmute", {
-                defaultValue: videoAudible ? "Couper le son du fond" : "Activer le son du fond",
-              })}
-              title={t(videoAudible ? "profile.bgMute" : "profile.bgUnmute", {
-                defaultValue: videoAudible ? "Couper le son du fond" : "Activer le son du fond",
-              })}
-              className="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
-            >
-              {videoAudible ? <SpeakerWaveIcon className="h-4 w-4" /> : <SpeakerXMarkIcon className="h-4 w-4" />}
-            </button>
-          ) : null}
+      {/* LA CASE DU FOND VIDÉO (21/10/2026, Luc) : la même que celle de la
+          musique, au même coin — lecture au centre, volume en haut à droite,
+          petit carré hors survol. Seulement sans musique : celle-ci a déjà sa
+          case, et la vidéo se tait sous elle. Hors studio : il a la sienne. */}
+      {(trailer || (video && !!banner.url)) && !studio && !banner.music ? (
+        <div className="fixed bottom-6 right-6 z-40">
+          <MusicCard
+            className="h-[240px] w-[240px]"
+            art={
+              banner.videoCover ||
+              (banner.trailerId ? `https://i.ytimg.com/vi/${banner.trailerId}/hqdefault.jpg` : "") ||
+              /* Rien à montrer : un pixel transparent plutôt qu'une image cassée. */
+              "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+            }
+            showArt
+            started={!bgPaused}
+            eqKey={banner.trailerId || banner.url || `${banner.animeId}:${banner.episode?.n}`}
+            clock={() => performance.now() / 1000}
+            live={() => !bgPaused && videoAudible}
+            playing={!bgPaused}
+            muted={!videoAudible}
+            volume={visitorVol || (videoVol > 0 ? videoVol : PROFILE_DEFAULT_VOLUME)}
+            onToggle={toggleBg}
+            onMuted={(m) => {
+              /* Le clic qui vient de donner le son ne le recoupe pas. */
+              if (performance.now() - vidWokeAt.current < 600) return;
+              /* Une vidéo que son propriétaire a voulue muette le reste. */
+              if (videoVol === 0) return;
+              setVidAwake(true);
+              setVidMuted(m);
+            }}
+            onVolume={(v) => {
+              if (videoVol === 0) return;
+              setVidAwake(true);
+              setVidMuted(v === 0);
+              setVisitorVol(v);
+            }}
+            fallback={PROFILE_DEFAULT_VOLUME}
+            minimizable
+          />
         </div>
       ) : null}
 
@@ -1016,7 +1020,7 @@ export default function ProfileHero({
             fallback={cover}
             wallCovers={covers}
             unmuted={videoAudible}
-            volume={videoVol}
+            volume={visitorVol ?? videoVol}
             priority
             videoRemote={studio?.remote}
             /* Le studio pilote sa vidéo lui-même (son rail, sa pochette). */

@@ -240,6 +240,13 @@ export type Dressing = {
    * en a une, la vidéo se tait, quel que soit ce réglage.
    */
   videoVolume: number;
+  /**
+   * L'image de la case du fond vidéo, en bas à droite du profil (21/10/2026) :
+   * la vignette de l'épisode, de la bande-annonce ou la pochette du
+   * générique, figée par le studio à l'enregistrement — le profil ne la
+   * retrouverait pas seul (un épisode n'a pas d'image sans requête).
+   */
+  videoCover: string | null;
   /** Musique du profil. Prioritaire sur la bande-son d'une vidéo de fond. */
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
@@ -559,6 +566,8 @@ export function normalizeDressing(raw: unknown): Dressing | null {
         : clampFade(obj.videoFade)
       : 0,
     videoVolume: hasVideo ? clampVolume(obj.videoVolume) : 0,
+    /* Une adresse https seulement, comme la pochette d'une musique. */
+    videoCover: hasVideo && /^https:\/\//.test(str(obj.videoCover, 500) ?? "") ? str(obj.videoCover, 500) : null,
     music,
     blur: clampBlur(obj.blur),
     wall: kind === "wall" ? normalizeWall(obj.wall) : null,
@@ -591,6 +600,7 @@ export function emptyDressing(): Dressing {
     videoTo: null,
     videoFade: DEFAULT_VIDEO_FADE,
     videoVolume: 0,
+    videoCover: null,
     music: null,
     blur: 0,
     wall: null,
