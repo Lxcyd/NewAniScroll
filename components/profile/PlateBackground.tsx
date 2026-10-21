@@ -142,6 +142,8 @@ type Props = {
   onVideoProgress?: (at: number, duration: number, playing: boolean) => void;
   /** Rempli d'une télécommande tant qu'une vidéo est à l'écran. */
   videoRemote?: MutableRefObject<TrailerRemote | null>;
+  /** Le visiteur a mis le fond vidéo en pause (bouton du profil). */
+  paused?: boolean;
 };
 
 export default function PlateBackground({
@@ -155,8 +157,13 @@ export default function PlateBackground({
   onVideoProgress,
   videoRemote,
   wallCovers,
+  paused = false,
 }: Props) {
   const video = useRef<HTMLVideoElement | null>(null);
+  /* Lu par les lancements automatiques (chargement, hls, son) : un fond mis
+     en pause ne repart pas tout seul. */
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const frame = useRef<HTMLIFrameElement | null>(null);
   /* Le cadre existe avant d'avoir chargé, et son `contentWindow` est alors
      encore `about:blank` sur NOTRE origine : lui poster un message adressé à
@@ -253,7 +260,7 @@ export default function PlateBackground({
         h.attachMedia(el);
         hls = h;
       } else el.src = ep.url; /* Safari lit le HLS lui-même */
-      void el.play().catch(() => {});
+      if (!pausedRef.current) void el.play().catch(() => {});
     });
     return () => {
       dead = true;
@@ -265,7 +272,7 @@ export default function PlateBackground({
     const el = video.current;
     if (!el) return;
     el.muted = !unmuted || !!episode;
-    void el.play().catch(() => {});
+    if (!pausedRef.current) void el.play().catch(() => {});
   }, [unmuted, src, !!episode]);
   useEffect(() => {
     if (video.current) video.current.volume = Math.min(1, Math.max(0, volume));
@@ -334,6 +341,9 @@ export default function PlateBackground({
         wall: performance.now(),
         playing: state === undefined ? said.current.playing : state === 1,
       };
+      /* L'embed démarre seul (`autoplay=1`) : en pause, on l'arrête dès
+         qu'il dit jouer. */
+      if (pausedRef.current && said.current.playing) post.current("pauseVideo");
 
       const { from, to } = bounds.current;
       /* Deux sorties à rattraper : la fin de l'extrait, et le retour à zéro que
@@ -353,6 +363,16 @@ export default function PlateBackground({
       post.current = () => {};
     };
   }, [trailerId]);
+
+  /* La pause du visiteur, sur les deux sortes de lecteur. */
+  useEffect(() => {
+    const el = video.current;
+    if (el) {
+      if (paused) el.pause();
+      else void el.play().catch(() => {});
+    }
+    post.current(paused ? "pauseVideo" : "playVideo");
+  }, [paused]);
 
   /* La télécommande du studio, à part : la donner ou la reprendre ne doit
      jamais toucher à l'abonnement du lecteur. */
@@ -580,7 +600,7 @@ export default function PlateBackground({
           ref={video}
           /* Un HLS est attaché par hls.js, pas par l'attribut. */
           src={ep?.hls ? undefined : src}
-          autoPlay
+          autoPlay={!paused}
           loop
           playsInline
           muted={!unmuted}

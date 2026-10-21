@@ -8,6 +8,7 @@ import {
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
 } from "@heroicons/react/24/outline";
+import { PauseIcon, PlayIcon } from "@heroicons/react/24/solid";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import { watchTime } from "@/lib/profile/sources";
@@ -21,6 +22,7 @@ import MusicCard from "@/components/profile/MusicCard";
 
 const PROFILE_VOLUME_KEY = "aniscroll:profile:volume";
 const PROFILE_AUTOPLAY_KEY = "aniscroll:profile:autoplay";
+const BG_PAUSED_KEY = "aniscroll:profile:bg-paused";
 /* Le même choix, en cookie : le serveur doit le connaître pour rendre le
    lecteur avec ou sans `autoplay` (voir YouTubeMusic, `autoStart`). */
 export const PROFILE_AUTOPLAY_COOKIE = "as_profile_autoplay";
@@ -237,6 +239,22 @@ export default function ProfileHero({
      ni proportions à mesurer, elle remplit la fenêtre. */
   const trailer = banner.kind === "video" && (!!banner.trailerId || !!banner.episode);
   const flat = banner.kind === "color" && !!banner.color;
+  /* LE FOND VIDÉO SE MET EN PAUSE (21/10/2026, Luc) : il tournait sans fin
+     sous les yeux de qui lit la page. Le choix est celui du VISITEUR, gardé
+     dans son navigateur pour tous les profils. */
+  const [bgPaused, setBgPaused] = useState(false);
+  useEffect(() => {
+    try {
+      setBgPaused(localStorage.getItem(BG_PAUSED_KEY) === "1");
+    } catch {}
+  }, []);
+  const toggleBg = () =>
+    setBgPaused((p) => {
+      try {
+        localStorage.setItem(BG_PAUSED_KEY, p ? "0" : "1");
+      } catch {}
+      return !p;
+    });
   /* Le mur d'animés : un fond d'écran sans fichier, fait des affiches de la
      liste que la page tient déjà (lib/profile/wall.ts). */
   const wall = banner.kind === "wall";
@@ -833,6 +851,21 @@ export default function ProfileHero({
         </div>
       ) : null}
 
+      {/* La pause du fond vidéo, en bas à gauche — la musique tient le coin
+          droit. Hors studio : il a son propre lecteur. */}
+      {(trailer || (video && !!banner.url)) && !studio ? (
+        <button
+          type="button"
+          onClick={toggleBg}
+          aria-pressed={bgPaused}
+          aria-label={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
+          title={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
+          className="fixed bottom-6 left-6 z-40 grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
+        >
+          {bgPaused ? <PlayIcon className="ml-0.5 h-4 w-4" /> : <PauseIcon className="h-4 w-4" />}
+        </button>
+      ) : null}
+
       {/* Le lecteur YouTube de la musique.
           Il RESTE VISIBLE, et c'est la condition de sa légitimité : c'est le
           lecteur officiel qui sert le morceau et sa publicité, laquelle paie la
@@ -928,6 +961,8 @@ export default function ProfileHero({
             volume={vol}
             priority
             videoRemote={studio?.remote}
+            /* Le studio pilote sa vidéo lui-même (son rail, sa pochette). */
+            paused={!studio && bgPaused}
             onVideoProgress={
               studio ? (at, d, playing) => studio.progress.current?.(at, d, playing) : undefined
             }
@@ -966,6 +1001,7 @@ export default function ProfileHero({
             }}
             contain={!!ratio}
             priority
+            paused={!studio && bgPaused}
           />
         ) : null}
         {!banner.url && !flat && !trailer && !wall ? (

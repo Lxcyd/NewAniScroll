@@ -874,6 +874,15 @@ export default function BannerStudio({
      place gardée pour elles. MÉMOIRE SEULEMENT : jamais dans `themeCache` (le
      nombre de la ligne d'anime le lit) ni dans le stockage. */
   const themeBase = useRef(new Map<number, ThemeRow[]>());
+  /** Le générique dont `url` est la vidéo : un fond « oped » ne garde que
+      l'URL, et c'est son slug (OP1, ED2) et son titre qu'on veut lire. */
+  const themeOf = useCallback((url: string | null | undefined): ThemeRow | null => {
+    if (!url) return null;
+    for (const m of [themeCache.current, themeBase.current])
+      for (const list of m.values())
+        for (const th of list) if (th.videoNc?.url === url || th.video?.url === url) return th;
+    return null;
+  }, []);
   const [baseTick, setBaseTick] = useState(0);
   const loadThemes = useCallback((id: number): Promise<ThemeRow[]> => {
     store();
@@ -1980,19 +1989,24 @@ export default function BannerStudio({
       const cur = videoSnap(draft);
       const rows = presets.video
         .filter((p) => presetTab(p) === scope && match(`${p.label ?? ""} ${p.v.title ?? ""}`))
-        .map(
-          (p): Row => ({
+        .map((p): Row => {
+          /* Un générique se nomme par son morceau, avec SON slug (OP1, ED1). */
+          const th = !p.v.episode && !p.v.trailerId ? themeOf(p.v.url) : null;
+          const label = p.label || th?.song || null;
+          return {
             key: `preset-video-${p.id}`,
             /* Un épisode se nomme par SON titre, l'anime passe dessous :
                deux épisodes d'un même titre se lisaient pareil. */
-            label: p.label || p.v.title || "YouTube",
+            label: label || p.v.title || "YouTube",
             chip: p.v.episode
               ? { text: `EP${p.v.episode.n}`, op: false }
               : p.v.trailerId
                 ? { text: "TRL", op: false, color: "#4ade80" }
-                : { text: "OP / ED", op: true },
+                : th
+                  ? { text: th.slug.toUpperCase(), op: th.kind === "op" }
+                  : { text: "OP / ED", op: true },
             hint:
-              [p.label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
+              [label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
             selected: activePreset.video === p.id,
@@ -2003,8 +2017,8 @@ export default function BannerStudio({
             },
             remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
             removeLabel: t("profile.studioPresetRemove"),
-          }),
-        );
+          };
+        });
       if (rows.length) out.push(presetSection(rows));
     }
 
@@ -3548,7 +3562,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -4028,7 +4042,9 @@ export default function BannerStudio({
                   ? (draft.animeId != null
                       ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.title
                       : null) || t("profile.studioEpisodeN", { n: draft.episode.n })
-                  : null,
+                  : !draft.trailerId
+                    ? (themeOf(draft.url)?.song ?? null)
+                    : null,
                 v: curVideo,
               },
               ...s.video,
@@ -4089,14 +4105,16 @@ export default function BannerStudio({
         {/* La puce HORS du titre tronqué : dedans, elle partait avec lui. */}
         <div className="flex min-w-0 items-center gap-2">
           <p className="min-w-0 truncate font-outfit text-[13px] font-bold text-white">
-            {draft.title || t("profile.artTrailer")}
+            {(!draft.episode && !draft.trailerId ? themeOf(draft.url)?.song : null) ||
+              draft.title ||
+              t("profile.artTrailer")}
           </p>
           <span className="as-mf-chip shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
             {draft.episode
               ? `EP${draft.episode.n}`
               : draft.trailerId
                 ? "TRL"
-                : "OP / ED"}
+                : (themeOf(draft.url)?.slug.toUpperCase() ?? "OP / ED")}
           </span>
           <span className="flex-1" />
           {presetButton(!!videoSaved, toggleVideoPreset)}
