@@ -6529,7 +6529,7 @@ function PresetHead({
         open ? "bg-white/[0.04]" : "hover:bg-white/[0.09]"
       }`}
     >
-      <BookmarkSolidIcon className="h-5 w-5 shrink-0 text-white" />
+      <BookmarkIcon className="h-5 w-5 shrink-0 text-white" strokeWidth={2} />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-outfit text-[15px] font-bold text-white">
           {t("profile.studioPresets", { defaultValue: "Mes presets" })}
