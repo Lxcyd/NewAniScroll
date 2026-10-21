@@ -125,16 +125,27 @@ export default function LocalProfile() {
       .slice(0, 12)
       .map((c) => c.mediaId);
     const rang = new Map(classes.map((id, i) => [id, i]));
+    /* Puis TOUTE la liste dans l'ordre des préférences (note, favori,
+       revisionnages), et non plus dans l'ordre brut (21/10/2026). */
+    const pref = new Map(
+      rankCandidates(
+        entries.map((e) => ({ mediaId: e.mediaId, score: e.score, favourite: !!e.favourite, repeat: e.repeat || 0 })),
+      ).map((c, i) => [c.mediaId, i]),
+    );
     return entries
       .slice()
       .sort(
         (a, b) =>
-          (rang.get(a.mediaId) ?? Infinity) - (rang.get(b.mediaId) ?? Infinity),
+          (rang.get(a.mediaId) ?? Infinity) - (rang.get(b.mediaId) ?? Infinity) ||
+          pref.get(a.mediaId)! - pref.get(b.mediaId)!,
       )
       .map((e) => ({
         mediaId: e.mediaId,
         title: e.title?.english || e.title?.romaji || `#${e.mediaId}`,
         cover: e.cover ?? null,
+        /* Le nombre d'épisodes que la liste connaît : le compte du menu Vidéo
+           quand AniList ne répond pas (21/10/2026). */
+        aired: e.total ?? null,
       }));
   }, [entries]);
 

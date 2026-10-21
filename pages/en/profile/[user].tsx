@@ -169,7 +169,15 @@ export default function Profile({
   const studioAnimes: StudioAnime[] = useMemo(() => {
     if (!isOwner) return [];
     const vus = new Set(topAnimes.map((a) => a.mediaId));
-    const reste = entries
+    /* LE RESTE DANS L'ORDRE DES PRÉFÉRENCES (21/10/2026) : la note donnée, puis
+       favori, puis revisionnages — le classement de la bannière, mais sur TOUTE
+       la liste. Celui-ci ne garde que les titres finis ; le reste suivait
+       l'ordre brut de la liste, et une liste surtout « En cours » se lisait
+       au hasard (musique, vidéo). */
+    const reste = rankCandidates(
+      entries.map((e) => ({ e, mediaId: e.mediaId, score: e.score, favourite: !!e.favourite, repeat: e.repeat || 0 })),
+    )
+      .map((c) => c.e)
       .filter((e) => !vus.has(e.mediaId))
       .map((e) => ({
         mediaId: e.mediaId,
@@ -177,6 +185,9 @@ export default function Profile({
           e.title?.english || e.title?.romaji || e.title?.userPreferred || `#${e.mediaId}`,
         cover: e.cover ?? null,
         trailer: e.trailer ?? null,
+        /* Le nombre d'épisodes que la liste connaît : le compte du menu Vidéo
+           quand AniList ne répond pas (21/10/2026). */
+        aired: e.total ?? null,
       }));
     return [...topAnimes, ...reste];
   }, [isOwner, topAnimes, entries]);
@@ -1143,6 +1154,7 @@ export async function getServerSideProps(context: any) {
               `#${c.mediaId}`,
             cover: entry.cover ?? null,
             trailer: entry.trailer ?? null,
+            aired: entry.total ?? null,
           };
         })
     : [];
