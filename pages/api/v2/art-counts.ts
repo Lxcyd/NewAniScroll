@@ -23,7 +23,11 @@ import { countCachedTmdbArtworks } from "@/lib/tmdb/artworksCache";
  * Les ids sont triés et bornés pour que la même liste retombe sur la même clé
  * d'edge.
  */
-const MAX = 40;
+/* 200 et non plus 40 (22/10/2026) : trois requêtes SQL quel que soit le
+   nombre d'ids, donc un lot plus gros ne coûte presque rien de plus — et une
+   liste de 800 animés passe en ~6 appels au lieu de 20 (chacun, à froid, une
+   invocation de fonction). */
+const MAX = 200;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const ids = [

@@ -455,6 +455,32 @@ const railTime = (s: number) => Math.round(s * 10) / 10;
 let ART_TYPES: Record<number, Record<string, number>> = {};
 const ART_DEMANDES = new Set<number>();
 
+/**
+ * DES LOTS QUI NE BOUGENT PAS (22/10/2026). Les routes groupées (art-counts,
+ * theme-counts) sont cachées au bord PAR ADRESSE. Découpée par position (40
+ * premiers, 40 suivants…), une liste où l'on ajoute un seul animé décalait
+ * TOUS les lots : chaque adresse changeait, chaque appel retombait sur une
+ * fonction Vercel. Ici, un id tombe dans le seau `id % K`, K une puissance
+ * de deux fixée par la taille de la liste (≈ un lot plein par seau) : un
+ * ajout ne change que son seau, et K ne double qu'au doublement de la liste.
+ * Un seau qui déborde est coupé en lots de `max`. (Des tranches par numéro
+ * d'id, essayées d'abord, faisaient 59 lots pour 800 animés : les ids
+ * AniList s'étalent de 1 à 190 000.)
+ */
+function stableBatches(ids: number[], max: number): number[][] {
+  const uniq = [...new Set(ids)];
+  let k = 1;
+  while (k * max < uniq.length) k *= 2;
+  const seaux: number[][] = Array.from({ length: k }, () => []);
+  for (const id of uniq) seaux[id % k].push(id);
+  const lots: number[][] = [];
+  for (const s of seaux) {
+    s.sort((a, b) => a - b);
+    for (let i = 0; i < s.length; i += max) lots.push(s.slice(i, i + max));
+  }
+  return lots;
+}
+
 /* LA VIGNETTE D'UNE TUILE fanart.tv. Le proxy sert l'image entière
    (1920×1080, ~115 Ko) et, sous `/preview/`, une réduction de 200×112
    (4,7 Ko) : trop petite pour la tuile, elle tient lieu de fond flou le temps
@@ -517,6 +543,9 @@ type Row = {
     sélecteur de couleur n'est pas une ligne qu'on parcourt aux flèches, mais il
     appartient bien à l'onglet Couleur. */
 type Section = {
+  /** La clé de rendu, quand deux menus partagent la même liste (Vidéo et
+      Génériques) : sans elle, le titre en tient lieu et tout se remonte. */
+  id?: string;
   title: string;
   rows: Row[];
   node?: ReactNode;
@@ -1482,25 +1511,34 @@ export default function BannerStudio({
      du studio, pas au passage sur l'onglet : la réponse est là quand on y
      arrive. Gardés au niveau du module, un studio rouvert les a d'emblée. */
   const [artTypes, setArtTypes] = useState(ART_TYPES);
+  /* SEULEMENT DANS IMAGE ET BANNIÈRE (22/10/2026) : demandés à l'ouverture
+     du studio, ces comptes partaient pour tout le monde — 20 appels pour une
+     liste de 800, menu Vidéo compris, et chacun relançait le rendu des 800
+     lignes. Maintenant : quand l'un des deux menus qui les affichent est
+     ouvert, en lots STABLES (`stableBatches`, cache du bord), et un seul rendu
+     à l'arrivée du dernier lot. */
   useEffect(() => {
-    if (!open) return;
+    if (!open || (scope !== "banner" && scope !== "image")) return;
     const ids = [...animes, ...found]
       .map((a) => a.mediaId)
       .filter((id) => !ART_DEMANDES.has(id));
     if (!ids.length) return;
     for (const id of ids) ART_DEMANDES.add(id);
-    const tri = [...new Set(ids)].sort((a, b) => a - b);
-    // La route borne à 40 ids par appel.
-    for (let i = 0; i < tri.length; i += 40)
-      fetch(`/api/v2/art-counts?ids=${tri.slice(i, i + 40).join(",")}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((json) => {
-          if (!json?.counts) return;
-          ART_TYPES = { ...ART_TYPES, ...json.counts };
-          setArtTypes(ART_TYPES);
-        })
-        .catch(() => {});
-  }, [open, animes, found]);
+    // La route borne à 200 ids par appel.
+    void Promise.all(
+      stableBatches(ids, 200).map((lot) =>
+        fetch(`/api/v2/art-counts?ids=${lot.join(",")}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json) => (json?.counts ?? null) as typeof ART_TYPES | null)
+          .catch(() => null),
+      ),
+    ).then((parts) => {
+      const got = Object.assign({}, ...parts.filter(Boolean));
+      if (!Object.keys(got).length) return;
+      ART_TYPES = { ...ART_TYPES, ...got };
+      setArtTypes(ART_TYPES);
+    });
+  }, [open, scope, animes, found]);
 
   /* L'anime OUVERT, dans les onglets qui se parcourent en deux écrans —
      Vidéo, Bannière et Image. `null` : on est encore devant la liste des
@@ -1793,25 +1831,30 @@ export default function BannerStudio({
       .filter((id) => !(id in musicCountsSeen) && !musicCountsAsked.has(id) && !themeCache.current.has(id));
     if (!ids.length) return;
     for (const id of ids) musicCountsAsked.add(id);
-    for (let i = 0; i < ids.length; i += 100) {
-      const lot = ids.slice(i, i + 100);
-      /* `&v=2` : les comptes incluent les musiques d'AnisongDB (18/10/2026) ;
-         sans lui, le navigateur resservait ceux d'avant (une heure). */
-      fetch(`/api/v2/theme-counts?ids=${lot.sort((a, b) => a - b).join(",")}&v=2`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          const c: Record<number, number> = d?.counts ?? {};
-          if (!Object.keys(c).length) {
+    /* Lots STABLES et un seul rendu à la fin (22/10/2026) : voir les comptes
+       d'illustrations plus haut — même mal, même remède. */
+    void Promise.all(
+      stableBatches(ids, 100).map((lot) =>
+        /* `&v=2` : les comptes incluent les musiques d'AnisongDB (18/10/2026) ;
+           sans lui, le navigateur resservait ceux d'avant (une heure). */
+        fetch(`/api/v2/theme-counts?ids=${lot.join(",")}&v=2`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            const c: Record<number, number> = d?.counts ?? {};
+            if (!Object.keys(c).length) for (const id of lot) musicCountsAsked.delete(id);
+            return c;
+          })
+          .catch(() => {
             for (const id of lot) musicCountsAsked.delete(id);
-            return;
-          }
-          Object.assign(musicCountsSeen, c);
-          setMusicCounts((m) => ({ ...m, ...c }));
-        })
-        .catch(() => {
-          for (const id of lot) musicCountsAsked.delete(id);
-        });
-    }
+            return {} as Record<number, number>;
+          }),
+      ),
+    ).then((parts) => {
+      const c: Record<number, number> = Object.assign({}, ...parts);
+      if (!Object.keys(c).length) return;
+      Object.assign(musicCountsSeen, c);
+      setMusicCounts((m) => ({ ...m, ...c }));
+    });
   }, [open, scope, barVise, animes, found]);
   useEffect(() => {
     if (!open || (scope !== "music" && scope !== "oped") || pick == null || pick in notAired) return;
@@ -3299,7 +3342,7 @@ export default function BannerStudio({
         const aired = AIRED.get(a.mediaId)?.aired ?? a.aired ?? null;
         const n = eps ? eps.length : aired;
         return {
-          key: `anime-video-${a.mediaId}`,
+          key: `anime-vlist-${a.mediaId}`,
           label: a.title,
           hint:
             n != null
@@ -3313,7 +3356,7 @@ export default function BannerStudio({
           hover: (on) => hoverEpisodes(on ? a.mediaId : null),
           expand: false,
           run: () => {
-            holdAnchor(`anime-video-${a.mediaId}`);
+            holdAnchor(`anime-vlist-${a.mediaId}`);
             setPick(a.mediaId);
             setArtRoot(a.mediaId);
             setCursor(0);
@@ -3333,9 +3376,9 @@ export default function BannerStudio({
               anime={picked}
               count={eps?.length ?? 0}
               countKey="profile.studioVideoCount"
-              anchor={`anime-video-${ouvert}`}
+              anchor={`anime-vlist-${ouvert}`}
               onClose={() => {
-                holdAnchor(`anime-video-${ouvert}`);
+                holdAnchor(`anime-vlist-${ouvert}`);
                 setPick(null);
                 setCursor(0);
               }}
@@ -3405,12 +3448,12 @@ export default function BannerStudio({
       }
       for (const s of gal) s.panel = true;
       const titre = t("profile.studioTrailers");
-      if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
+      if (at < 0) out.push(...gal, { id: "vlist", title: titre, rows: tous.map(ligne) });
       else
         out.push(
-          { title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
+          { id: "vlist", title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
           ...gal,
-          { title: "", rows: tous.slice(at + 1).map(ligne) },
+          { id: "vlist-suite", title: "", rows: tous.slice(at + 1).map(ligne) },
         );
     }
 
@@ -3574,7 +3617,7 @@ export default function BannerStudio({
              bande-annonce compte, puisqu'elle se prend comme les autres. */
           const n = g == null ? g : g + (a.trailer ? 1 : 0);
           return {
-            key: `anime-${scope}-${a.mediaId}`,
+            key: `anime-${vid ? "vlist" : scope}-${a.mediaId}`,
             label: a.title,
             selected: scope === "oped" && draft.animeId === a.mediaId && (draft.kind === "oped" || !!draft.trailerId),
             hint:
@@ -3591,7 +3634,7 @@ export default function BannerStudio({
             hover: (on) => prefetchMusic(on ? a.mediaId : null),
             expand: false,
             run: () => {
-              holdAnchor(`anime-${scope}-${a.mediaId}`);
+              holdAnchor(`anime-${vid ? "vlist" : scope}-${a.mediaId}`);
               setPick(a.mediaId);
               setArtRoot(a.mediaId);
               setCursor(0);
@@ -3609,9 +3652,9 @@ export default function BannerStudio({
                 anime={meta?.mediaId === pick ? meta : listedAnime}
                 count={attendu + ((meta?.mediaId === pick ? meta : listedAnime)?.trailer ? 1 : 0)}
                 countKey={vid ? "profile.studioVideoCount" : undefined}
-                anchor={`anime-${scope}-${ouvert}`}
+                anchor={`anime-${vid ? "vlist" : scope}-${ouvert}`}
                 onClose={() => {
-                  holdAnchor(`anime-${scope}-${ouvert}`);
+                  holdAnchor(`anime-${vid ? "vlist" : scope}-${ouvert}`);
                   setPick(null);
                   setCursor(0);
                 }}
@@ -3738,12 +3781,16 @@ export default function BannerStudio({
         }
         for (const s of gal) s.panel = true;
         const titre = t(`profile.studioKind_${scope}`);
-        if (at < 0) out.push(...gal, { title: titre, rows: tous.map(ligne) });
+        /* Génériques reprend la liste de Vidéo (mêmes `id`, mêmes clés de
+           ligne) : React met à jour les ~700 lignes au lieu de les détruire et
+           de les recréer à chaque changement d'onglet (mesuré, 22/10/2026). */
+        const lid = vid ? "vlist" : undefined;
+        if (at < 0) out.push(...gal, { id: lid, title: titre, rows: tous.map(ligne) });
         else
           out.push(
-            { title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
+            { id: lid, title: titre, rows: tous.slice(0, at).map(ligne), heading: true },
             ...gal,
-            { title: "", rows: tous.slice(at + 1).map(ligne) },
+            { id: lid && `${lid}-suite`, title: "", rows: tous.slice(at + 1).map(ligne) },
           );
         return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold || s.heading), forgetPreset);
       }
@@ -5073,7 +5120,7 @@ export default function BannerStudio({
                     <div
                       /* Les sections de l'animé ouvert changent de clé avec
                          lui : elles se remontent, et rejouent leur entrée. */
-                      key={s.panel ? `ouvert-${s.calm ? "presets" : pick}-${i}` : s.title || `sec-${i}`}
+                      key={s.panel ? `ouvert-${s.calm ? "presets" : pick}-${i}` : s.id || s.title || `sec-${i}`}
                       /* Pas de `min-h-0` : le sélecteur ne doit jamais être
                          comprimé sous sa hauteur utile — s'il manque de la
                          place, la colonne défile au lieu de tout tasser. */
