@@ -1254,13 +1254,66 @@ export default function BannerStudio({
   /* LA MUSIQUE QUI JOUAIT SUR LE PROFIL CONTINUE ICI (22/10/2026, Luc), là
      où elle en était ; en pause sur le profil, elle reste en pause. */
   const resumeAt = useRef<number | null>(null);
-  useEffect(() => {
-    const was = profileMusicNow();
-    if (!was.playing || !draft.music) return;
-    resumeAt.current = was.at;
-    setWantPlay(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture seulement
+  /* EN SORTANT (22/10/2026, Luc) : la musique repart seulement si on l'a
+     changée et enregistrée (`exitPlay`, posé par `finish`) ; sinon le profil
+     la reprend dans l'état où le studio la laisse. */
+  const playingRef = useRef(false);
+  playingRef.current = playing;
+
+  /* LA CASE EN BAS À DROITE COLLE AU CADRE (22/10/2026, Luc) : à chaque
+     image, 24 px de son coin bas droit, à son échelle — pendant le recul, le
+     glissement, le retour et la poignée. Des transitions CSS sur les
+     variables de la scène sautaient d'un temps à l'autre au lieu de suivre. */
+  const cardEl = useRef<HTMLDivElement | null>(null);
+  const followFrame = useCallback((el: HTMLDivElement | null) => {
+    cardEl.current = el;
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    let raf = 0;
+    let last = "";
+    let lastEl: HTMLDivElement | null = null;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const el = cardEl.current;
+      if (!el) return;
+      if (el !== lastEl) {
+        lastEl = el;
+        last = "";
+      }
+      const fr = document.querySelector<HTMLElement>(".as-scene-screen.is-fixed");
+      if (!fr || !fr.offsetWidth) return;
+      const r = fr.getBoundingClientRect();
+      const z = r.width / fr.offsetWidth;
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
+      const right = Math.round((vw - r.right + 24 * z) * 10) / 10;
+      const bottom = Math.round((vh - r.bottom + 24 * z) * 10) / 10;
+      const zz = Math.round(z * 1000) / 1000;
+      const key = `${right}|${bottom}|${zz}`;
+      if (key === last) return;
+      last = key;
+      el.style.right = `${right}px`;
+      el.style.bottom = `${bottom}px`;
+      el.style.transform = `scale(${zz})`;
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+  const exitPlay = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    exitPlay.current = null;
+    const was = profileMusicNow();
+    if (was.playing && value?.music) {
+      resumeAt.current = was.at;
+      setWantPlay(true);
+    }
+    return () => {
+      if (value?.music || exitPlay.current) rememberAutoplay(exitPlay.current ?? playingRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture et à la fermeture
+  }, [open]);
 
   /* ── La bande-annonce ────────────────────────────────────────────────────
      Elle se découpe comme un morceau, et sur le MÊME aperçu : ce qui joue en
@@ -3893,11 +3946,15 @@ export default function BannerStudio({
      silence maintenant qu'on les règle directement sur le profil. */
   const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
   const finish = () => {
-    /* ENREGISTRER RELANCE LA LECTURE (22/10/2026, Luc) : une pause posée dans
-       le studio, ou venue du profil, ne survit pas à l'enregistrement — fond
-       et musique repartent. Un nouveau fond perd aussi le muet de l'ancien. */
-    setBgPaused(false);
-    rememberAutoplay(true);
+    /* UNE NOUVELLE MUSIQUE ENREGISTRÉE REPART (22/10/2026, Luc) ; la même
+       garde l'état où on l'a laissée (voir `exitPlay`). Un nouveau fond
+       repart aussi, avec son son (`resumeVideo`) ; le même reste comme il
+       est. */
+    {
+      const b = value ?? emptyDressing();
+      if (draft.music && `${b.music?.url}|${b.music?.videoId}` !== `${draft.music.url}|${draft.music.videoId}`)
+        exitPlay.current = true;
+    }
     /* L'image de la case vidéo du profil, figée ici : c'est le studio qui
        connaît la vignette de l'épisode (cf. `videoCover`). */
     if (changed && hasOwnPlate(shown)) {
@@ -5503,7 +5560,7 @@ export default function BannerStudio({
            la scène : 24 px du coin comme sur le profil (`bottom-6 right-6`),
            eux aussi à l'échelle. */
         <div
-          className={`as-scene-card fixed z-[10004] origin-bottom-right ${
+          ref={followFrame} className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
@@ -5585,7 +5642,7 @@ export default function BannerStudio({
         {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
             place, la pochette à la place du lecteur. */}
         <div
-          className={`as-scene-card fixed z-[10004] origin-bottom-right ${
+          ref={followFrame} className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
         >
@@ -5629,7 +5686,7 @@ export default function BannerStudio({
            musique, la vidéo a la sienne, au même coin. Le volume est celui
            qu'on enregistre (`videoVolume`), le même que le curseur de la
            carte vidéo. */
-        <div className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto">
+        <div ref={followFrame} className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}

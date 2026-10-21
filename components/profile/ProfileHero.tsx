@@ -428,6 +428,18 @@ export default function ProfileHero({
     if (studio) return;
     const was = cookiePaused && !studioSeen.current;
     if (!was && cookiePaused) setCookiePaused(!readAutoplay());
+    /* RETOUR DU STUDIO : la musique est dans l'état où il l'a laissée (en
+       lecture, en pause, ou relancée si on l'a changée). Les lecteurs viennent
+       d'être remontés : `sound` peut ne pas changer, on les relance à la main. */
+    if (studioSeen.current && banner.music) {
+      const on = readAutoplay();
+      setSound(on);
+      if (on) {
+        if (banner.music.videoId) void yt.current?.play();
+        else void audio.current?.play().catch(() => setSound(false));
+      }
+      return;
+    }
     if (!banner.music?.videoId) return;
     const auto = !was && readAutoplay();
     /* Une pause d'avant le cookie : on le pose, la visite suivante est juste. */
@@ -954,7 +966,10 @@ export default function ProfileHero({
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
         <div className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
-            autoStart={!cookiePaused}
+            /* Remonté au retour du studio : pas de départ muet d'office, c'est
+               l'effet du retour (`setSound`) qui relance — ou non, selon ce
+               que le studio a laissé. Le geste a déjà eu lieu. */
+            autoStart={studioSeen.current ? false : !cookiePaused}
             ref={yt}
             videoId={banner.music.videoId}
             className="h-[240px] w-[240px]"

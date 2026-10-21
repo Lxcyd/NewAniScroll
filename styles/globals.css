@@ -2530,40 +2530,14 @@ html:not(.as-scene-docked) .as-scene-ui-bottom {
   opacity: 0;
   pointer-events: none;
 }
-/* LA CASE MUSIQUE / VIDÉO DU STUDIO SUIT LE CADRE (22/10/2026) : 24 px de
-   son coin bas droit, comme sur le profil (`bottom-6 right-6`), à l'échelle
-   de la scène. Les variables sautent d'un coup à chaque temps ; la case
-   glisse donc avec le cadre, même durée, même courbe — et part de sa place
-   sur le profil plein écran (@starting-style), comme le cadre. */
+/* LA CASE MUSIQUE / VIDÉO DU STUDIO : 24 px du coin bas droit du cadre, comme
+   sur le profil (`bottom-6 right-6`), à l'échelle de la scène. BannerStudio
+   la recale à chaque image sur le cadre réel (`followFrame`) ; ceci n'est que
+   la place de départ, avant la première image. */
 .as-scene-card {
-  right: calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1));
-  bottom: calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1));
-  transform: scale(var(--as-scene-zoom, 1));
-  transition:
-    right 0.5s var(--as-scene-ease),
-    bottom 0.5s var(--as-scene-ease),
-    transform 0.5s var(--as-scene-ease),
-    opacity 0.15s ease;
-}
-html.as-scene-docked .as-scene-card {
-  transition-duration: 0.45s, 0.45s, 0.45s, 0.15s;
-}
-/* Premier temps (recul centré) : les variables `frame-*` décrivent déjà le
-   cadre glissé ; la case suit le cadre CENTRÉ, de marges égales (s1). */
-html:not(.as-scene-docked) .as-scene-card {
-  right: calc(var(--as-scene-s1-x) + 24px * var(--as-scene-s));
-  bottom: calc(var(--as-scene-s1-y) + 24px * var(--as-scene-s));
-  transform: scale(var(--as-scene-s));
-}
-@starting-style {
-  .as-scene-card {
-    right: 24px;
-    bottom: 24px;
-    transform: none;
-  }
-}
-html.as-scene-resizing .as-scene-card {
-  transition: none;
+  right: 24px;
+  bottom: 24px;
+  transition: opacity 0.15s ease;
 }
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
 /* Au retour, la navbar était cachée par l'écran de la scène et surgissait à
