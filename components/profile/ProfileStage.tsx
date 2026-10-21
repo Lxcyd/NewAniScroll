@@ -144,12 +144,14 @@ export function sceneGeometry(
   /* La largeur du menu se règle à la poignée entre lui et le cadre
      (`menuWidth`). Bornée des deux côtés : le menu garde de quoi lire une
      ligne, le cadre au moins 35 % de la fenêtre. */
-  const menuMax = Math.max(MENU_MIN, W - menuLeft - gap - W * 0.02 - W * 0.35);
+  const menuMax = Math.max(MENU_MIN, W - menuLeft - gap - menuLeft - W * 0.35);
   const menuW = Math.round(
     Math.min(menuMax, Math.max(MENU_MIN, menuWidth ?? Math.min(440, W * 0.24))),
   );
   const zoneLeft = menuLeft + menuW + gap;
-  const zoneRight = W * 0.02;
+  /* La même marge qu'à gauche du menu : 2 % ici contre 1,5 % là-bas laissait
+     la page décentrée (21/10/2026). */
+  const zoneRight = menuLeft;
   /* La barre du bas (~78 px) + 14 px d'écart au cadre + 22 px au bord. */
   const bottom = BOTTOM_BAR + 14 + 22;
   const zoneW = W - zoneLeft - zoneRight;
