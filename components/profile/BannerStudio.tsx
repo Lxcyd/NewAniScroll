@@ -6529,15 +6529,17 @@ function PresetHead({
         open ? "bg-white/[0.04]" : "hover:bg-white/[0.09]"
       }`}
     >
-      <span className="grid h-14 w-10 shrink-0 place-items-center rounded-md bg-action/15 text-action ring-1 ring-action/25">
+      <span className="grid h-14 w-10 shrink-0 place-items-center rounded-md bg-white/[0.08] text-white">
         <BookmarkSolidIcon className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-outfit text-[15px] font-bold text-white">
-          {t("profile.studioPresets")}
+          {t("profile.studioPresets", { defaultValue: "Mes presets" })}
         </span>
         <span className="mt-0.5 block font-karla text-[12px] text-white/40">
-          {t("profile.studioPresetCount", { count })}
+          {/* Le texte par défaut : une page ouverte avant l'ajout de la clé
+              affichait la clé brute. */}
+          {t("profile.studioPresetCount", { count, defaultValue: `${count} preset${count > 1 ? "s" : ""}` })}
         </span>
       </span>
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors group-hover:text-white">
