@@ -2548,6 +2548,13 @@ html:not(.as-scene-docked) .as-scene-ui-bottom {
 html.as-scene-docked .as-scene-card {
   transition-duration: 0.45s, 0.45s, 0.45s, 0.15s;
 }
+/* Premier temps (recul centré) : les variables `frame-*` décrivent déjà le
+   cadre glissé ; la case suit le cadre CENTRÉ, de marges égales (s1). */
+html:not(.as-scene-docked) .as-scene-card {
+  right: calc(var(--as-scene-s1-x) + 24px * var(--as-scene-s));
+  bottom: calc(var(--as-scene-s1-y) + 24px * var(--as-scene-s));
+  transform: scale(var(--as-scene-s));
+}
 @starting-style {
   .as-scene-card {
     right: 24px;
