@@ -52,6 +52,7 @@ import {
   MagnifyingGlassIcon,
   MinusIcon,
   MusicalNoteIcon,
+  PencilIcon,
   PlusIcon,
   PhotoIcon,
   QueueListIcon,
@@ -197,11 +198,19 @@ type VideoSnap = Pick<
   "kind" | "url" | "trailerId" | "episode" | "videoFrom" | "videoTo" | "videoFade" | "animeId" | "title" | "source"
 >;
 type Presets = {
-  music: { id: string; music: DressingMusic }[];
+  /** `name` : le nom donné au preset en mode édition (sinon son titre). */
+  music: { id: string; name?: string | null; music: DressingMusic }[];
   /** `label` : le titre de l'épisode, que le choix lui-même ne garde pas.
       `tab` : l'onglet où il a été gardé — Vidéo et Génériques ont chacun les
       leurs (21/10/2026). */
-  video: { id: string; thumb: string | null; label?: string | null; tab?: "video" | "oped"; v: VideoSnap }[];
+  video: {
+    id: string;
+    thumb: string | null;
+    label?: string | null;
+    name?: string | null;
+    tab?: "video" | "oped";
+    v: VideoSnap;
+  }[];
 };
 const PRESET_KEY = "as-studio-presets";
 const PRESET_MAX = 30;
@@ -472,6 +481,9 @@ type Row = {
   removeLabel?: string;
   /** Choisie, la ligne se teinte de rose (les presets). */
   pink?: boolean;
+  /** Mode édition des presets : le titre devient un champ (cadre en
+      pointillés, comme le nom d'un widget) et la croix reste visible. */
+  rename?: { value: string; placeholder: string; onChange: (v: string) => void };
 };
 
 /** Une section liste des `rows`, OU porte un bloc à elle (`node`) : le
@@ -1025,6 +1037,8 @@ export default function BannerStudio({
     if (meme) savePresets((s) => ({ ...s, music: s.music.map((x) => (x.id === id ? { ...x, music: { ...cur } } : x)) }));
     else setActivePreset((a) => ({ ...a, music: null }));
   }, [draft.music, activePreset.music, presets.music, savePresets]);
+  /** Le mode édition de « Mes presets » : renommer, supprimer. */
+  const [presetEdit, setPresetEdit] = useState(false);
   /* Ouverte ou repliée, « Mes presets » le reste d'une visite à l'autre. */
   const [presetsOpen, setPresetsOpen] = useState(true);
   useEffect(() => {
@@ -1960,7 +1974,13 @@ export default function BannerStudio({
           <PresetHead
             open={presetsOpen}
             count={rows.length}
-            onToggle={togglePresets}
+            onToggle={() => {
+              /* Replier referme aussi l'édition. */
+              setPresetEdit(false);
+              togglePresets();
+            }}
+            editing={presetEdit}
+            onEdit={() => setPresetEdit((e) => !e)}
             t={t}
           />
         ),
@@ -1974,11 +1994,22 @@ export default function BannerStudio({
     };
     if (scope === "music" && presets.music.length) {
       const rows = presets.music
-        .filter((p) => match(`${p.music.title} ${p.music.artist ?? ""}`))
+        .filter((p) => match(`${p.name ?? ""} ${p.music.title} ${p.music.artist ?? ""}`))
         .map(
           (p): Row => ({
             key: `preset-music-${p.id}`,
-            label: p.music.title,
+            label: p.name || p.music.title,
+            rename: presetEdit
+              ? {
+                  value: p.name ?? "",
+                  placeholder: p.music.title,
+                  onChange: (v) =>
+                    savePresets((s) => ({
+                      ...s,
+                      music: s.music.map((x) => (x.id === p.id ? { ...x, name: v || null } : x)),
+                    })),
+                }
+              : undefined,
             chip: p.music.slug
               ? p.music.slug === "TRL"
                 ? { text: "TRL", op: false, color: "#4ade80" }
@@ -1992,13 +2023,16 @@ export default function BannerStudio({
             square: true,
             selected: activePreset.music === p.id,
             pink: true,
-            run: () => {
-              setActivePreset((a) => ({ ...a, music: p.id }));
-              patch({ music: { ...p.music } });
-              setAt(0);
-              setLen(0);
-              setWantPlay(true);
-            },
+            /* En édition, cliquer une ligne ne la porte pas. */
+            run: presetEdit
+              ? undefined
+              : () => {
+                  setActivePreset((a) => ({ ...a, music: p.id }));
+                  patch({ music: { ...p.music } });
+                  setAt(0);
+                  setLen(0);
+                  setWantPlay(true);
+                },
             remove: () => savePresets((s) => ({ ...s, music: s.music.filter((x) => x.id !== p.id) })),
             removeLabel: t("profile.studioPresetRemove"),
           }),
@@ -2008,7 +2042,7 @@ export default function BannerStudio({
     if ((scope === "video" || scope === "oped") && presets.video.length) {
       const cur = videoSnap(draft);
       const rows = presets.video
-        .filter((p) => presetTab(p) === scope && match(`${p.label ?? ""} ${p.v.title ?? ""}`))
+        .filter((p) => presetTab(p) === scope && match(`${p.name ?? ""} ${p.label ?? ""} ${p.v.title ?? ""}`))
         .map((p): Row => {
           /* Un générique se nomme par son morceau, avec SON slug (OP1, ED1). */
           const th = !p.v.episode && !p.v.trailerId ? themeOf(p.v.url) : null;
@@ -2017,7 +2051,18 @@ export default function BannerStudio({
             key: `preset-video-${p.id}`,
             /* Un épisode se nomme par SON titre, l'anime passe dessous :
                deux épisodes d'un même titre se lisaient pareil. */
-            label: label || p.v.title || "YouTube",
+            label: p.name || label || p.v.title || "YouTube",
+            rename: presetEdit
+              ? {
+                  value: p.name ?? "",
+                  placeholder: label || p.v.title || "YouTube",
+                  onChange: (v) =>
+                    savePresets((s) => ({
+                      ...s,
+                      video: s.video.map((x) => (x.id === p.id ? { ...x, name: v || null } : x)),
+                    })),
+                }
+              : undefined,
             chip: p.v.episode
               ? { text: `EP${p.v.episode.n}`, op: false }
               : p.v.trailerId
@@ -2031,10 +2076,12 @@ export default function BannerStudio({
             thumb: p.thumb,
             selected: activePreset.video === p.id,
             pink: true,
-            run: () => {
-              setActivePreset((a) => ({ ...a, video: p.id }));
-              patch({ ...p.v, color: null });
-            },
+            run: presetEdit
+              ? undefined
+              : () => {
+                  setActivePreset((a) => ({ ...a, video: p.id }));
+                  patch({ ...p.v, color: null });
+                },
             remove: () => savePresets((s) => ({ ...s, video: s.video.filter((x) => x.id !== p.id) })),
             removeLabel: t("profile.studioPresetRemove"),
           };
@@ -3583,7 +3630,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf, presetEdit]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -5005,8 +5052,11 @@ export default function BannerStudio({
                         if (s.panel) rang += 1;
                         const active = clavier && index === cursor;
                         const Icon = row.icon;
+                        /* En édition, la ligne porte un champ : un <div>, on
+                           n'écrit pas dans un bouton. */
+                        const Line = (row.rename ? "div" : "button") as "button";
                         return (
-                          <button
+                          <Line
                             key={row.key}
                             data-anchor={row.key}
                             type="button"
@@ -5102,9 +5152,28 @@ export default function BannerStudio({
                                     {row.chip.text}
                                   </span>
                                 ) : null}
-                                <span className="truncate font-outfit text-[14px] font-bold text-white/90">
-                                  {row.label}
-                                </span>
+                                {row.rename ? (
+                                  /* Le cadre en pointillés du nom d'un widget
+                                     (WidgetGrid) : vidé, le titre d'origine
+                                     revient. */
+                                  <input
+                                    value={row.rename.value}
+                                    onChange={(e) => row.rename!.onChange(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                                      e.stopPropagation();
+                                    }}
+                                    placeholder={row.rename.placeholder}
+                                    maxLength={60}
+                                    aria-label={t("profile.studioPresetRename", { defaultValue: "Renommer le preset" })}
+                                    size={Math.max(6, (row.rename.value || row.rename.placeholder).length)}
+                                    className="[field-sizing:content] w-auto min-w-0 max-w-full rounded-md border border-dashed border-white/25 bg-transparent px-2 py-0.5 font-outfit text-[14px] font-bold text-white outline-none transition-colors placeholder:text-white/45 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
+                                  />
+                                ) : (
+                                  <span className="truncate font-outfit text-[14px] font-bold text-white/90">
+                                    {row.label}
+                                  </span>
+                                )}
                               </span>
                               {row.hint ? (
                                 <span className="block truncate font-karla text-[12px] text-white/40">
@@ -5123,7 +5192,10 @@ export default function BannerStudio({
                                   e.stopPropagation();
                                   row.remove!();
                                 }}
-                                className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/40 opacity-0 transition hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                                className={`grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-full transition hover:bg-white/10 hover:text-white ${
+                                  /* En édition, la croix est là sans survol. */
+                                  row.rename ? "text-white/60" : "text-white/40 opacity-0 group-hover:opacity-100"
+                                }`}
                               >
                                 <XMarkIcon className="h-4 w-4" />
                               </span>
@@ -5134,7 +5206,7 @@ export default function BannerStudio({
                             {row.expand === false ? (
                               <ChevronRightIcon className="h-4 w-4 shrink-0 text-white/35 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-white/60" strokeWidth={2.2} />
                             ) : null}
-                          </button>
+                          </Line>
                         );
                       })}
                     </div>
@@ -6513,37 +6585,73 @@ function PresetHead({
   open,
   count,
   onToggle,
+  editing,
+  onEdit,
   t,
 }: {
   open: boolean;
   count: number;
   onToggle: () => void;
+  editing: boolean;
+  onEdit: () => void;
   t: (k: string, o?: Record<string, unknown>) => string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
+    <div
+      className={`group flex w-full items-center gap-1 rounded-xl px-3 py-2.5 transition-colors ${
         open ? "bg-white/[0.04]" : "hover:bg-white/[0.09]"
       }`}
     >
-      <BookmarkIcon className="h-5 w-5 shrink-0 text-white" strokeWidth={2} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-outfit text-[15px] font-bold text-white">
-          {t("profile.studioPresets", { defaultValue: "Mes presets" })}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <BookmarkIcon className="h-5 w-5 shrink-0 text-white" strokeWidth={2} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-outfit text-[15px] font-bold text-white">
+            {t("profile.studioPresets", { defaultValue: "Mes presets" })}
+          </span>
+          <span className="mt-0.5 block font-karla text-[12px] text-white/40">
+            {/* Le texte par défaut : une page ouverte avant l'ajout de la clé
+                affichait la clé brute. */}
+            {t("profile.studioPresetCount", { count, defaultValue: `${count} preset${count > 1 ? "s" : ""}` })}
+          </span>
         </span>
-        <span className="mt-0.5 block font-karla text-[12px] text-white/40">
-          {/* Le texte par défaut : une page ouverte avant l'ajout de la clé
-              affichait la clé brute. */}
-          {t("profile.studioPresetCount", { count, defaultValue: `${count} preset${count > 1 ? "s" : ""}` })}
-        </span>
-      </span>
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors group-hover:text-white">
+      </button>
+      {/* Modifier : renommer et supprimer les presets. Seulement déplié. */}
+      {open ? (
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-pressed={editing}
+          title={t(editing ? "profile.studioPresetEditDone" : "profile.studioPresetEdit", {
+            defaultValue: editing ? "Terminer" : "Modifier",
+          })}
+          className={`grid h-7 shrink-0 place-items-center rounded-full transition-colors ${
+            editing
+              ? "bg-action px-3 font-karla text-[11px] font-bold text-white hover:bg-action/85"
+              : "w-7 text-white/50 hover:bg-white/10 hover:text-white"
+          }`}
+        >
+          {editing ? (
+            t("profile.studioPresetEditDone", { defaultValue: "Terminer" })
+          ) : (
+            <PencilIcon className="h-4 w-4" strokeWidth={2} />
+          )}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onToggle}
+        tabIndex={-1}
+        aria-hidden
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:text-white"
+      >
         <ChevronRightIcon className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} strokeWidth={2.2} />
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
