@@ -1228,7 +1228,7 @@
     "studioVideoVolume": "Son de la vidéo",
     "studioMusicRemove": "Retirer la musique",
     "studioSoundTipTitle": "La musique passe en premier",
-    "studioSoundTipBody": "Ton profil peut jouer une musique, le son de sa vidéo de fond, ou rien. Quand une musique est choisie, c'est elle qu'on entend : la vidéo continue, mais muette. Pour entendre la vidéo, retire la musique avec la croix de la barre du bas.",
+    "studioSoundTipBody": "Avec une musique, la vidéo joue sans son. Retire la musique pour l'entendre.",
     "studioSoundTipOk": "Compris",
     "studioVideoVolumeMusic": "Son de la vidéo — coupé tant qu'une musique est choisie",
     "studioVideoMutedByMusic": "Muette : musique choisie",

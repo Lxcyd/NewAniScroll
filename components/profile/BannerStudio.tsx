@@ -1260,6 +1260,24 @@ export default function BannerStudio({
     },
     [],
   );
+  /* RIEN NE JOUE PENDANT LA FENÊTRE DU SON (21/10/2026, Luc) : vidéo et
+     musique attendent qu'on l'ait fermée, puis partent. La boucle tient la
+     pause : un lecteur qui démarre pendant ce temps est arrêté. */
+  useEffect(() => {
+    if (!soundTip) return;
+    const hold = () => {
+      remote.current?.pause();
+      preview.current?.pause();
+    };
+    hold();
+    const id = window.setInterval(hold, 300);
+    return () => {
+      window.clearInterval(id);
+      remote.current?.play();
+      if (draft.music) setWantPlay(true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- à la fermeture seulement
+  }, [soundTip]);
   /* UNE AUTRE VIDÉO REPART DE ZÉRO (21/10/2026, Luc) : le rail gardait la
      position de la précédente (0:15) le temps que la nouvelle se charge, et
      on croyait qu'elle commençait au même endroit. Même chose pour la
@@ -4577,8 +4595,7 @@ export default function BannerStudio({
             </h2>
             <p className="mt-2 font-karla text-[13.5px] leading-relaxed text-white/65">
               {t("profile.studioSoundTipBody", {
-                defaultValue:
-                  "Ton profil peut jouer une musique, le son de sa vidéo de fond, ou rien. Quand une musique est choisie, c'est elle qu'on entend : la vidéo continue, mais muette. Pour entendre la vidéo, retire la musique avec la croix de la barre du bas.",
+                defaultValue: "Avec une musique, la vidéo joue sans son. Retire la musique pour l'entendre.",
               })}
             </p>
             <button
@@ -5556,6 +5573,36 @@ export default function BannerStudio({
           />
         </div>
         </>
+      ) : videoDraft ? (
+        /* LA CASE DU FOND VIDÉO, comme sur le profil (21/10/2026) : sans
+           musique, la vidéo a la sienne, au même coin. Le volume est celui
+           qu'on enregistre (`videoVolume`), le même que le curseur de la
+           carte vidéo. */
+        <div className="fixed z-[10004] origin-bottom-right pointer-events-auto" style={musicCardAnchor}>
+          <MusicCard
+            className="h-[240px] w-[240px]"
+            art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}
+            showArt
+            started={vPlaying}
+            eqKey={videoIdentity}
+            clock={() => vAt}
+            live={() => vPlaying && (draft.videoVolume ?? 0) > 0}
+            playing={vPlaying}
+            muted={(draft.videoVolume ?? 0) === 0}
+            volume={(draft.videoVolume ?? 0) > 0 ? draft.videoVolume : lastVideoVol.current}
+            onToggle={() => (vPlaying ? remote.current?.pause() : remote.current?.play())}
+            onMuted={(m) => {
+              if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
+              patch({ videoVolume: m ? 0 : lastVideoVol.current || DEFAULT_VIDEO_VOLUME });
+            }}
+            onVolume={(v) => {
+              if (v > 0) lastVideoVol.current = v;
+              patch({ videoVolume: clampVolume(v) });
+            }}
+            fallback={DEFAULT_VIDEO_VOLUME}
+            minimizable
+          />
+        </div>
       ) : null}
 
       {/* ── La scène ──────────────────────────────────────────────────────

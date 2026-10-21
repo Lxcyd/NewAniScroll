@@ -1228,7 +1228,7 @@
     "studioVideoVolume": "Video sound",
     "studioMusicRemove": "Remove the music",
     "studioSoundTipTitle": "Music comes first",
-    "studioSoundTipBody": "Your profile can play a music track, the sound of its background video, or nothing. When a track is chosen, that's what visitors hear: the video keeps playing, muted. To hear the video, remove the music with the cross in the bottom bar.",
+    "studioSoundTipBody": "With a music track, the video plays without sound. Remove the music to hear it.",
     "studioSoundTipOk": "Got it",
     "studioVideoVolumeMusic": "Video sound — muted while a music track is chosen",
     "studioVideoMutedByMusic": "Muted: music chosen",
