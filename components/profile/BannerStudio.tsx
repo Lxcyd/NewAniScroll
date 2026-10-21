@@ -983,6 +983,37 @@ export default function BannerStudio({
       return out;
     });
   }, []);
+  /* UN PRESET CLIQUÉ SE MODIFIE (21/10/2026, Luc) : bornes, fondu, lecteur
+     d'un épisode, version TV ou complète — tout réglage fait ensuite s'écrit
+     dans le preset. Passer à une AUTRE vidéo ou un autre morceau (lien collé,
+     autre onglet…) l'oublie au lieu de l'écraser. */
+  useEffect(() => {
+    const id = activePreset.video;
+    if (!id) return;
+    const p = presets.video.find((x) => x.id === id);
+    const cur = videoSnap(draft);
+    if (p && sameSnap(cur, p.v)) return;
+    const meme =
+      p &&
+      cur.kind === p.v.kind &&
+      cur.url === p.v.url &&
+      cur.trailerId === p.v.trailerId &&
+      cur.animeId === p.v.animeId &&
+      cur.episode?.n === p.v.episode?.n;
+    if (meme) savePresets((s) => ({ ...s, video: s.video.map((x) => (x.id === id ? { ...x, v: cur } : x)) }));
+    else setActivePreset((a) => ({ ...a, video: null }));
+  }, [draft, activePreset.video, presets.video, savePresets]);
+  useEffect(() => {
+    const id = activePreset.music;
+    if (!id) return;
+    const p = presets.music.find((x) => x.id === id);
+    const cur = draft.music;
+    if (p && sameSnap(cur, p.music)) return;
+    /* Le même morceau : même fichier, ou même vidéo quand il n'a que YouTube. */
+    const meme = p && cur && (cur.url ? cur.url === p.music.url : cur.videoId === p.music.videoId);
+    if (meme) savePresets((s) => ({ ...s, music: s.music.map((x) => (x.id === id ? { ...x, music: { ...cur } } : x)) }));
+    else setActivePreset((a) => ({ ...a, music: null }));
+  }, [draft.music, activePreset.music, presets.music, savePresets]);
   /* Ouverte ou repliée, « Mes presets » le reste d'une visite à l'autre. */
   const [presetsOpen, setPresetsOpen] = useState(true);
   useEffect(() => {
@@ -1897,6 +1928,10 @@ export default function BannerStudio({
 
     /* « Mes presets » : en tête, un clic remet le morceau ou le fond AVEC ses
        bornes et son fondu. La section se replie à son intitulé. */
+    /** Un preset de musique est porté : les lignes du morceau ne le retirent pas. */
+    const musicPresetOn = presets.music.some(
+      (p) => p.id === activePreset.music,
+    );
     const forgetPreset =
       scope === "music"
         ? () => setActivePreset((a) => ({ ...a, music: null }))
@@ -1926,7 +1961,7 @@ export default function BannerStudio({
             icon: MusicalNoteIcon,
             thumb: p.music.cover,
             square: true,
-            selected: activePreset.music === p.id && sameSnap(draft.music, p.music),
+            selected: activePreset.music === p.id,
             pink: true,
             run: () => {
               setActivePreset((a) => ({ ...a, music: p.id }));
@@ -1960,7 +1995,7 @@ export default function BannerStudio({
               [p.label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
-            selected: activePreset.video === p.id && sameSnap(cur, p.v),
+            selected: activePreset.video === p.id,
             pink: true,
             run: () => {
               setActivePreset((a) => ({ ...a, video: p.id }));
@@ -3210,6 +3245,9 @@ export default function BannerStudio({
                 : draft.url === url,
             run: url
               ? () =>
+                  /* Un preset porté garde la coche : la ligne du morceau,
+                     décochée, se reprend au clic au lieu de le retirer. */
+                  !musicPresetOn &&
                   scope === "music" &&
                   !!draft.music?.url &&
                   [url, th.videoNc?.audio, th.video?.audio].includes(draft.music.url)
@@ -3392,7 +3430,7 @@ export default function BannerStudio({
                   square: true,
                   selected: !draft.music?.url && draft.music?.videoId === pv,
                   run: () => {
-                    if (!draft.music?.url && draft.music?.videoId === pv) {
+                    if (!musicPresetOn && !draft.music?.url && draft.music?.videoId === pv) {
                       patch({ music: null });
                       return;
                     }
@@ -3968,10 +4006,10 @@ export default function BannerStudio({
   const curVideo = videoSnap(draft);
   const videoTab = scope === "oped" ? "oped" : "video";
   const videoSaved = presets.video.find(
-    (p) => p.id === activePreset.video && presetTab(p) === videoTab && sameSnap(p.v, curVideo),
+    (p) => p.id === activePreset.video && presetTab(p) === videoTab,
   );
   const musicSaved = draft.music
-    ? presets.music.find((p) => p.id === activePreset.music && sameSnap(p.music, draft.music))
+    ? presets.music.find((p) => p.id === activePreset.music)
     : undefined;
   const toggleVideoPreset = () => {
     const id = `${Date.now()}`;
