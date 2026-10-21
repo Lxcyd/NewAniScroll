@@ -834,6 +834,8 @@
     "changeBanner": "Changer la bannière",
     "bgPause": "Mettre le fond en pause",
     "bgPlay": "Relancer le fond",
+    "bgMute": "Couper le son du fond",
+    "bgUnmute": "Activer le son du fond",
     "pickBanner": "Choisir sa bannière",
     "pickBannerHint": "Choisissez une illustration, puis confirmez. Sans choix, le profil suit tout seul votre anime préféré.",
     "pickBannerEmpty": "Ajoutez un anime à votre liste et ses illustrations apparaîtront ici.",

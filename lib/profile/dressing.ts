@@ -108,6 +108,16 @@ export const MAX_FADE = 5;
     seconde : de quoi effacer le raccord sans que la page clignote. */
 export const DEFAULT_VIDEO_FADE = 1;
 
+/** Le son d'une vidéo qu'on vient de rendre audible : la moitié. */
+export const DEFAULT_VIDEO_VOLUME = 0.5;
+
+/** Un volume de 0 à 1, au centième ; tout le reste vaut muet. */
+export function clampVolume(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(1, Math.round(n * 100) / 100);
+}
+
 export function clampFade(v: unknown): number {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return 0;
@@ -223,6 +233,13 @@ export type Dressing = {
    * franche y est la gêne, pas l'exception.
    */
   videoFade: number;
+  /**
+   * LE SON DU FOND VIDÉO, de 0 à 1 (21/10/2026, Luc). `0` = muet, le défaut.
+   * Quatre profils possibles : vidéo seule muette, vidéo avec son propre son,
+   * musique sur une vidéo, musique sans vidéo. LA MUSIQUE GAGNE : dès qu'il y
+   * en a une, la vidéo se tait, quel que soit ce réglage.
+   */
+  videoVolume: number;
   /** Musique du profil. Prioritaire sur la bande-son d'une vidéo de fond. */
   music: DressingMusic | null;
   /** Flou derrière les widgets, en pixels. */
@@ -539,6 +556,7 @@ export function normalizeDressing(raw: unknown): Dressing | null {
         ? DEFAULT_VIDEO_FADE
         : clampFade(obj.videoFade)
       : 0,
+    videoVolume: hasVideo ? clampVolume(obj.videoVolume) : 0,
     music,
     blur: clampBlur(obj.blur),
     wall: kind === "wall" ? normalizeWall(obj.wall) : null,
@@ -570,6 +588,7 @@ export function emptyDressing(): Dressing {
     videoFrom: null,
     videoTo: null,
     videoFade: DEFAULT_VIDEO_FADE,
+    videoVolume: 0,
     music: null,
     blur: 0,
     wall: null,

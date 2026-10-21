@@ -77,6 +77,8 @@ export type HeroBanner = {
   videoFrom?: Dressing["videoFrom"];
   videoTo?: Dressing["videoTo"];
   videoFade?: Dressing["videoFade"];
+  /** Le son du fond vidéo (0 = muet) ; une musique le fait taire. */
+  videoVolume?: Dressing["videoVolume"];
   /** Agencement du haut de profil. Absent : « band », l'agencement d'origine. */
   layout?: Dressing["layout"] | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
@@ -127,6 +129,9 @@ export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
           badgeScale: draft.badgeScale,
         }),
     music: null,
+    /* Le studio joue la musique lui-même (d'où `music: null`) : la règle
+       « la musique gagne » se pose donc ici, sur le brouillon. */
+    videoVolume: draft.music ? 0 : draft.videoVolume,
   };
 }
 
@@ -355,6 +360,34 @@ export default function ProfileHero({
     } catch {}
   };
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+
+  /* ── Le son du FOND VIDÉO (21/10/2026) ─────────────────────────────────
+     Réglé au studio (`videoVolume`), muet par défaut, et TOUJOURS muet sous
+     une musique. Le navigateur refuse le son sans geste : la vidéo part
+     muette, et prend son son au premier geste sur la page — pas besoin de
+     viser un bouton. Dans le studio, on est déjà en train de cliquer. */
+  const videoVol = banner.music ? 0 : Math.min(1, Math.max(0, banner.videoVolume ?? 0));
+  const [vidAwake, setVidAwake] = useState(false);
+  /** L'instant du geste qui a donné le son : le clic qui le porte, s'il
+      tombe sur le haut-parleur, ne doit pas le recouper aussitôt. */
+  const vidWokeAt = useRef(0);
+  useEffect(() => {
+    if (studio || videoVol === 0 || vidAwake) return;
+    const wake = () => {
+      vidWokeAt.current = performance.now();
+      setVidAwake(true);
+    };
+    const opts = { once: true, capture: true } as const;
+    window.addEventListener("pointerdown", wake, opts);
+    window.addEventListener("keydown", wake, opts);
+    return () => {
+      window.removeEventListener("pointerdown", wake, opts);
+      window.removeEventListener("keydown", wake, opts);
+    };
+  }, [studio, videoVol, vidAwake]);
+  /** Le visiteur a coupé le son de la vidéo (bouton du bas à gauche). */
+  const [vidMuted, setVidMuted] = useState(false);
+  const videoAudible = videoVol > 0 && !vidMuted && (!!studio || vidAwake);
   /** Le fichier d'AnimeThemes a déjà joué : sa case montre l'égaliseur. */
   const [audioStarted, setAudioStarted] = useState(false);
   useEffect(() => setAudioStarted(false), [banner.music?.url]);
@@ -854,16 +887,39 @@ export default function ProfileHero({
       {/* La pause du fond vidéo, en bas à gauche — la musique tient le coin
           droit. Hors studio : il a son propre lecteur. */}
       {(trailer || (video && !!banner.url)) && !studio ? (
-        <button
-          type="button"
-          onClick={toggleBg}
-          aria-pressed={bgPaused}
-          aria-label={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
-          title={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
-          className="fixed bottom-6 left-6 z-40 grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
-        >
-          {bgPaused ? <PlayIcon className="ml-0.5 h-4 w-4" /> : <PauseIcon className="h-4 w-4" />}
-        </button>
+        <div className="fixed bottom-6 left-6 z-40 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleBg}
+            aria-pressed={bgPaused}
+            aria-label={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
+            title={t(bgPaused ? "profile.bgPlay" : "profile.bgPause")}
+            className="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
+          >
+            {bgPaused ? <PlayIcon className="ml-0.5 h-4 w-4" /> : <PauseIcon className="h-4 w-4" />}
+          </button>
+          {/* Le son de la vidéo, quand son propriétaire lui en a donné. */}
+          {videoVol > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (performance.now() - vidWokeAt.current < 600) return;
+                setVidAwake(true);
+                setVidMuted((m) => !m);
+              }}
+              aria-pressed={!videoAudible}
+              aria-label={t(videoAudible ? "profile.bgMute" : "profile.bgUnmute", {
+                defaultValue: videoAudible ? "Couper le son du fond" : "Activer le son du fond",
+              })}
+              title={t(videoAudible ? "profile.bgMute" : "profile.bgUnmute", {
+                defaultValue: videoAudible ? "Couper le son du fond" : "Activer le son du fond",
+              })}
+              className="grid h-10 w-10 place-items-center rounded-full bg-black/55 text-white/80 ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/75 hover:text-white"
+            >
+              {videoAudible ? <SpeakerWaveIcon className="h-4 w-4" /> : <SpeakerXMarkIcon className="h-4 w-4" />}
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Le lecteur YouTube de la musique.
@@ -957,8 +1013,8 @@ export default function ProfileHero({
             }}
             fallback={cover}
             wallCovers={covers}
-            unmuted={sound && !banner.music}
-            volume={vol}
+            unmuted={videoAudible}
+            volume={videoVol}
             priority
             videoRemote={studio?.remote}
             /* Le studio pilote sa vidéo lui-même (son rail, sa pochette). */

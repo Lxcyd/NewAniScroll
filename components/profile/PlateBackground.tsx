@@ -271,7 +271,9 @@ export default function PlateBackground({
   useEffect(() => {
     const el = video.current;
     if (!el) return;
-    el.muted = !unmuted || !!episode;
+    /* Un épisode peut parler depuis le 21/10/2026 : c'est le profil qui
+       décide (`unmuted`), musique d'abord. */
+    el.muted = !unmuted;
     if (!pausedRef.current) void el.play().catch(() => {});
   }, [unmuted, src, !!episode]);
   useEffect(() => {
@@ -311,6 +313,10 @@ export default function PlateBackground({
         JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
         YT_ORIGIN,
       );
+      /* Le son, redit à chaque battement : le lecteur charge muet
+         (`mute=1`, seule façon de démarrer seul) et ignore une commande
+         reçue pendant qu'il démarre. */
+      applySound.current();
     };
     const ping = window.setInterval(subscribe, 800);
 
@@ -363,6 +369,18 @@ export default function PlateBackground({
       post.current = () => {};
     };
   }, [trailerId]);
+
+  /* Le son de la bande-annonce : `unMute` + `setVolume`, ou `mute`. */
+  const applySound = useRef<() => void>(() => {});
+  applySound.current = () => {
+    if (unmuted) {
+      post.current("unMute");
+      post.current("setVolume", [Math.round(Math.min(1, Math.max(0, volume)) * 100)]);
+    } else post.current("mute");
+  };
+  useEffect(() => {
+    applySound.current();
+  }, [unmuted, volume, trailerId]);
 
   /* La pause du visiteur, sur les deux sortes de lecteur. */
   useEffect(() => {

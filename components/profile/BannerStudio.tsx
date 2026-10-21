@@ -124,6 +124,7 @@ import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
   DEFAULT_VIDEO_FADE,
+  DEFAULT_VIDEO_VOLUME,
   DRESSING_KINDS,
   HERO_LAYOUTS,
   MAX_BLUR,
@@ -132,6 +133,7 @@ import {
   clampScale,
   clampBlur,
   clampFade,
+  clampVolume,
   emptyDressing,
   fadeGain,
   hasOwnPlate,
@@ -194,7 +196,17 @@ function readCustomVideos(): CustomVideo[] {
    studio ; ce qui est porté part avec le profil. */
 type VideoSnap = Pick<
   Dressing,
-  "kind" | "url" | "trailerId" | "episode" | "videoFrom" | "videoTo" | "videoFade" | "animeId" | "title" | "source"
+  | "kind"
+  | "url"
+  | "trailerId"
+  | "episode"
+  | "videoFrom"
+  | "videoTo"
+  | "videoFade"
+  | "videoVolume"
+  | "animeId"
+  | "title"
+  | "source"
 >;
 type Presets = {
   /** `name` : le nom donné au preset en mode édition (sinon son titre). */
@@ -232,6 +244,7 @@ const videoSnap = (d: Dressing): VideoSnap => ({
   videoFrom: d.videoFrom,
   videoTo: d.videoTo,
   videoFade: d.videoFade,
+  videoVolume: d.videoVolume ?? 0,
   animeId: d.animeId,
   title: d.title,
   source: d.source,
@@ -1195,6 +1208,8 @@ export default function BannerStudio({
    */
   const [vol, setVol] = useState(PREVIEW_DEFAULT_VOLUME);
   const lastVol = useRef(PREVIEW_DEFAULT_VOLUME);
+  /** Le dernier son de vidéo audible, rendu quand on la remet. */
+  const lastVideoVol = useRef(DEFAULT_VIDEO_VOLUME);
   /* Cliquer une piste doit la faire entendre — mais la source ne change qu'au
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
@@ -4233,6 +4248,7 @@ export default function BannerStudio({
       </div>
       <span aria-hidden className="as-mf-sep w-px shrink-0 self-stretch bg-white/[0.08]" />
       <div className="as-mf-set flex shrink-0 flex-col items-stretch justify-center gap-1.5">
+        <div className="flex items-center justify-between gap-2">
         {/* Le fondu AU NOIR, à la reprise de la boucle : la même bascule que
             celle de la musique, sauf qu'ici elle naît allumée — un fond qui
             reboucle sous les yeux de qui lit la page saute à chaque tour. */}
@@ -4263,6 +4279,30 @@ export default function BannerStudio({
           </span>
           {t("profile.studioMusicFade")}
         </button>
+        {/* LE SON DE LA VIDÉO (21/10/2026, Luc), enregistré avec le profil :
+            muet par défaut. Une musique choisie le fait taire — le titre le
+            dit au survol. */}
+        <HoverVolume
+          muted={(draft.videoVolume ?? 0) === 0}
+          volume={(draft.videoVolume ?? 0) > 0 ? draft.videoVolume : lastVideoVol.current}
+          onMuted={(m) => {
+            if (m && draft.videoVolume > 0) lastVideoVol.current = draft.videoVolume;
+            patch({ videoVolume: m ? 0 : lastVideoVol.current || DEFAULT_VIDEO_VOLUME });
+          }}
+          onVolume={(v) => {
+            if (v > 0) lastVideoVol.current = v;
+            patch({ videoVolume: clampVolume(v) });
+          }}
+          placement="up"
+          fallback={DEFAULT_VIDEO_VOLUME}
+          label={t(draft.music ? "profile.studioVideoVolumeMusic" : "profile.studioVideoVolume", {
+            defaultValue: draft.music
+              ? "Son de la vidéo — coupé tant qu'une musique est choisie"
+              : "Son de la vidéo",
+          })}
+          className={`-mr-1 ${draft.music ? "opacity-50" : ""}`}
+        />
+        </div>
         {/* Le lecteur de l'épisode (20/10/2026) : seulement ceux qui ont CET
             épisode, avec leur langue entre crochets. */}
         {draft.episode ? (
