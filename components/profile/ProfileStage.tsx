@@ -350,8 +350,19 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
   useLayoutEffect(() => {
     const html = document.documentElement;
     html.classList.toggle("as-scene-docked", shrunk && docked);
+    /* Le premier temps, pour la case en bas à droite du studio
+       (`.as-scene-follow`, globals.css) : elle suit le cadre en transition. */
+    if (shrunk && !html.classList.contains("as-scene-shrunk")) {
+      /* L'instant du départ : une case montée en retard (le studio met ~0,1 s
+         à se rendre) rattrape le cadre au lieu de partir après lui. */
+      html.dataset.sceneShrunkAt = String(performance.now());
+    }
+    html.classList.toggle("as-scene-shrunk", shrunk);
   }, [shrunk, docked]);
-  useLayoutEffect(() => () => document.documentElement.classList.remove("as-scene-docked"), []);
+  useLayoutEffect(
+    () => () => document.documentElement.classList.remove("as-scene-docked", "as-scene-shrunk"),
+    [],
+  );
 
   const mounted = useRef(false);
   useLayoutEffect(() => {

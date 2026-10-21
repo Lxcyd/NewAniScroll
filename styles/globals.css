@@ -2530,14 +2530,55 @@ html:not(.as-scene-docked) .as-scene-ui-bottom {
   opacity: 0;
   pointer-events: none;
 }
-/* LA CASE MUSIQUE / VIDÉO DU STUDIO : 24 px du coin bas droit du cadre, comme
-   sur le profil (`bottom-6 right-6`), à l'échelle de la scène. BannerStudio
-   la recale à chaque image sur le cadre réel (`followFrame`) ; ceci n'est que
-   la place de départ, avant la première image. */
-.as-scene-card {
-  right: 24px;
-  bottom: 24px;
-  transition: opacity 0.15s ease;
+/* LA CASE MUSIQUE / VIDÉO DU STUDIO SUIT LE CADRE (22/10/2026) : 24 px de son
+   coin bas droit, comme sur le profil (`bottom-6 right-6`), à l'échelle de la
+   scène.
+   PAR UNE TRANSFORMATION, et rien d'autre : le cadre glisse sur le
+   compositeur, et pendant ce temps le studio monte ses menus — le fil
+   principal est bloqué 0,3 à 0,8 s (mesuré au CDP). Une case recalée en
+   JavaScript, ou animée sur `right`/`bottom`, restait figée puis sautait. Une
+   transition de `transform` tourne à côté du cadre, même durée, même courbe,
+   sur les mêmes classes de <html> (ProfileStage) : le coin bas droit du cadre
+   et celui de la case avancent du même pas. */
+.as-scene-follow {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  transform-origin: 100% 100%;
+  transform: translate(-24px, -24px);
+  transition: transform 0.5s var(--as-scene-ease);
+}
+html.as-scene-shrunk .as-scene-follow {
+  transform: translate(
+      calc(-1 * (var(--as-scene-s1-x) + 24px * var(--as-scene-s))),
+      calc(-1 * (var(--as-scene-s1-y) + 24px * var(--as-scene-s)))
+    )
+    scale(var(--as-scene-s));
+}
+html.as-scene-docked .as-scene-follow {
+  transform: translate(
+      calc(-1 * (var(--as-scene-frame-right) + 24px * var(--as-scene-zoom))),
+      calc(var(--as-scene-frame-bottom) - var(--as-scene-H) - 24px * var(--as-scene-zoom))
+    )
+    scale(var(--as-scene-zoom));
+  transition-duration: 0.45s;
+}
+html.as-scene-resizing .as-scene-follow {
+  transition: none;
+}
+/* Le studio monte sa case quand le recul est déjà parti (~0,1 s, le temps de
+   son rendu) : sans point de départ, elle apparaissait d'emblée à l'arrivée.
+   Elle part du coin de l'écran, là où était celle du profil, et sa
+   transition démarre DANS LE PASSÉ (délai négatif = le temps déjà écoulé,
+   posé par BannerStudio) : elle est tout de suite où en est le cadre. Le
+   délai ne vaut que pour le recul ; le glissement part avec le cadre. */
+html.as-scene-shrunk:not(.as-scene-docked) .as-scene-follow {
+  transition-delay: var(--as-follow-late, 0ms);
+}
+@starting-style {
+  html:not(.as-scene-docked) .as-scene-follow {
+    transform: translate(-24px, -24px);
+  }
 }
 .as-scene-pill { animation: as-scene-from-bottom 0.35s var(--as-scene-ease) both; }
 /* Au retour, la navbar était cachée par l'écran de la scène et surgissait à

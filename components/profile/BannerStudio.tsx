@@ -131,7 +131,6 @@ import {
   useBgPaused,
   writeProfileVolume,
 } from "@/lib/profile/playback";
-import { useFollowFrame } from "@/lib/profile/followFrame";
 import {
   DEFAULT_VIDEO_FADE,
   DEFAULT_VIDEO_VOLUME,
@@ -1260,8 +1259,17 @@ export default function BannerStudio({
   const playingRef = useRef(false);
   playingRef.current = playing;
 
-  /* La case en bas à droite colle au cadre (lib/profile/followFrame). */
-  const followFrame = useFollowFrame(open);
+  /* La case en bas à droite suit le cadre en CSS (`.as-scene-follow`) ;
+     montée après le départ du recul, elle rattrape le temps perdu (mesuré au
+     CDP le 22/10/2026 : ~90 ms de retard, visibles tout le recul). */
+  const catchUp = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const html = document.documentElement;
+    const at = Number(html.dataset.sceneShrunkAt);
+    if (!(at > 0) || !html.classList.contains("as-scene-shrunk") || html.classList.contains("as-scene-docked")) return;
+    const late = performance.now() - at;
+    if (late > 0 && late < 500) el.style.setProperty("--as-follow-late", `${-Math.round(late)}ms`);
+  }, []);
   const exitPlay = useRef<boolean | null>(null);
   const vFromNow = useRef(0);
   vFromNow.current = draft.videoFrom ?? 0;
@@ -5519,10 +5527,10 @@ export default function BannerStudio({
            la scène : 24 px du coin comme sur le profil (`bottom-6 right-6`),
            eux aussi à l'échelle. */
         <div
-          ref={followFrame}
           /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
              du profil au studio avec le cadre, au lieu de disparaître. */
-          className="as-scene-card pointer-events-auto fixed z-[10004] origin-bottom-right"
+          ref={catchUp}
+          className="as-scene-follow pointer-events-auto z-[10004]"
         >
           <YouTubeMusic
             ref={preview}
@@ -5602,10 +5610,10 @@ export default function BannerStudio({
         {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
             place, la pochette à la place du lecteur. */}
         <div
-          ref={followFrame}
           /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
              du profil au studio avec le cadre, au lieu de disparaître. */
-          className="as-scene-card pointer-events-auto fixed z-[10004] origin-bottom-right"
+          ref={catchUp}
+          className="as-scene-follow pointer-events-auto z-[10004]"
         >
           <MusicCard
             className="h-[240px] w-[240px]"
@@ -5647,7 +5655,8 @@ export default function BannerStudio({
            musique, la vidéo a la sienne, au même coin. Le volume est celui
            qu'on enregistre (`videoVolume`), le même que le curseur de la
            carte vidéo. */
-        <div ref={followFrame} className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto">
+        <div ref={catchUp}
+          className="as-scene-follow pointer-events-auto z-[10004]">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}

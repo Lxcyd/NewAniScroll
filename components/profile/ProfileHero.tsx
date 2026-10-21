@@ -27,7 +27,7 @@ import {
   writeProfileVolume,
 } from "@/lib/profile/playback";
 export { PROFILE_AUTOPLAY_COOKIE } from "@/lib/profile/playback";
-import { useFollowFrame } from "@/lib/profile/followFrame";
+import { useSceneScrollFix } from "@/lib/profile/sceneCard";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -412,17 +412,29 @@ export default function ProfileHero({
   const [cookiePaused, setCookiePaused] = useState(!!musicPaused);
   const studioSeen = useRef(false);
   const soundRetried = useRef(false);
-  /* Au retour du studio, la case en bas à droite rentre avec le cadre
-     (lib/profile/followFrame) le temps du retour, puis reprend sa place. */
-  const [following, setFollowing] = useState(false);
-  useEffect(() => {
-    if (studio || !studioSeen.current) return;
-    setFollowing(true);
-    const id = window.setTimeout(() => setFollowing(false), 1500);
-    return () => window.clearTimeout(id);
-  }, [studio]);
-  const followFrame = useFollowFrame(following);
   if (studio) studioSeen.current = true;
+  /* LA CASE EN BAS À DROITE ET LA SCÈNE (22/10/2026, mesuré au CDP). La case
+     du profil vit DANS le cadre, sous sa transformation : elle recule et
+     revient avec lui d'elle-même. Deux retouches :
+     — en entrant, elle reste le temps que le studio monte la sienne (~0,1 s),
+       sinon le coin restait vide pendant le premier recul ;
+     — dans le cadre, `fixed` se place par rapport à la scène, qui défile :
+       on la décale du défilement de la scène (`sceneCard`). */
+  const [lingering, setLingering] = useState(false);
+  /* Un état, pas une ref : en mode strict le premier rendu est jeté, une ref
+     mise à jour dedans faisait rater le passage (mesuré). */
+  const [wasStudio, setWasStudio] = useState(!!studio);
+  if (!!studio !== wasStudio) {
+    setWasStudio(!!studio);
+    if (studio) setLingering(true);
+  }
+  useEffect(() => {
+    if (!lingering) return;
+    const id = window.setTimeout(() => setLingering(false), 300);
+    return () => window.clearTimeout(id);
+  }, [lingering]);
+  const showCard = !studio || lingering;
+  const sceneCard = useSceneScrollFix();
   /* AU RETOUR DU STUDIO, LE GESTE A DÉJÀ EU LIEU (22/10/2026) : on vient d'y
      cliquer « Enregistrer ». Sans ça le fond vidéo repartait muet, en
      attendant un clic de plus sur la page, et le volume réglé là-bas restait
@@ -888,8 +900,8 @@ export default function ProfileHero({
           l'écran pour se lancer ni se couper. La même que la version YouTube,
           sa pochette à la place du lecteur. Jamais de lecture auto : le
           visiteur la lance d'ici. */}
-      {banner.music && !viaYouTube && !studio ? (
-        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
+      {banner.music && !viaYouTube && showCard ? (
+        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={banner.music.cover || banner.url || ""}
@@ -919,8 +931,8 @@ export default function ProfileHero({
           musique, au même coin — lecture au centre, volume en haut à droite,
           petit carré hors survol. Seulement sans musique : celle-ci a déjà sa
           case, et la vidéo se tait sous elle. Hors studio : il a la sienne. */}
-      {(trailer || (video && !!banner.url)) && !studio && !banner.music ? (
-        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
+      {(trailer || (video && !!banner.url)) && showCard && !banner.music ? (
+        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={
@@ -968,14 +980,14 @@ export default function ProfileHero({
           de cause. Et la case montre l'image du morceau par-dessus le lecteur,
           jamais la vidéo (17/10/2026, même choix). */}
       {/* Pas dans le studio : il a sa propre case, la musique jouerait deux fois. */}
-      {viaYouTube && banner.music?.videoId && !studio ? (
+      {viaYouTube && banner.music?.videoId && showCard ? (
         /* TOUJOURS LÀ (17/10/2026), en pause tant qu'on ne l'a pas lancée :
            c'est elle qui démarre la musique, l'icône du haut est partie.
            La petite case, habillée comme l'aperçu au survol :
            lumière d'ambiance, lecture au centre, volume en haut à droite. La
            bande-annonce y est aussi, comme les autres. Les bornes et le fondu
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
-        <div ref={followFrame} className="fixed bottom-6 right-6 z-40">
+        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
             /* Remonté au retour du studio : pas de départ muet d'office, c'est
                l'effet du retour (`setSound`) qui relance — ou non, selon ce
