@@ -401,11 +401,19 @@ export default function ProfileHero({
       window.removeEventListener("keydown", wake, opts);
     };
   }, [browserMuted]);
+  /* La pause lue dans le cookie au chargement. Le studio la réécrit en
+     enregistrant (il relance la lecture) : au retour, le navigateur fait foi. */
+  const [cookiePaused, setCookiePaused] = useState(!!musicPaused);
+  const studioSeen = useRef(false);
+  if (studio) studioSeen.current = true;
   useEffect(() => {
-    if (!banner.music?.videoId || studio) return;
-    const auto = !musicPaused && readAutoplay();
+    if (studio) return;
+    const was = cookiePaused && !studioSeen.current;
+    if (!was && cookiePaused) setCookiePaused(!readAutoplay());
+    if (!banner.music?.videoId) return;
+    const auto = !was && readAutoplay();
     /* Une pause d'avant le cookie : on le pose, la visite suivante est juste. */
-    if (!auto && !musicPaused) rememberAutoplay(false);
+    if (!auto && !was) rememberAutoplay(false);
     if (auto) setSound(true);
   }, [banner.music?.videoId, studio]);
 
@@ -927,7 +935,7 @@ export default function ProfileHero({
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
         <div className="fixed bottom-6 right-6 z-40">
           <YouTubeMusic
-            autoStart={!musicPaused}
+            autoStart={!cookiePaused}
             ref={yt}
             videoId={banner.music.videoId}
             className="h-[240px] w-[240px]"

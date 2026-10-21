@@ -3885,17 +3885,18 @@ export default function BannerStudio({
      silence maintenant qu'on les règle directement sur le profil. */
   const changed = JSON.stringify(draft) !== JSON.stringify(value ?? emptyDressing());
   const finish = () => {
+    /* ENREGISTRER RELANCE LA LECTURE (22/10/2026, Luc) : une pause posée dans
+       le studio, ou venue du profil, ne survit pas à l'enregistrement — fond
+       et musique repartent. Un nouveau fond perd aussi le muet de l'ancien. */
+    setBgPaused(false);
+    rememberAutoplay(true);
     /* L'image de la case vidéo du profil, figée ici : c'est le studio qui
        connaît la vignette de l'épisode (cf. `videoCover`). */
     if (changed && hasOwnPlate(shown)) {
-      /* UN NOUVEAU FOND OU UNE NOUVELLE MUSIQUE REPART (21/10/2026, Luc) :
-         la pause et le muet posés sur l'ancien ne valent pas pour lui. */
       const before = value ?? emptyDressing();
       const fond = (d: Dressing) =>
         `${d.kind}|${d.url}|${d.trailerId}|${d.animeId}|${d.episode?.n}|${d.episode?.server}`;
       if (fond(before) !== fond(shown)) resumeVideo();
-      if (`${before.music?.url}|${before.music?.videoId}` !== `${shown.music?.url}|${shown.music?.videoId}`)
-        rememberAutoplay(true);
       onApply(videoDraft ? { ...shown, videoCover: videoThumb } : { ...shown, videoCover: null });
     } else onClose();
   };
