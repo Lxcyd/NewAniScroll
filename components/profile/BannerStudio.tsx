@@ -2009,8 +2009,6 @@ export default function BannerStudio({
               [label ? p.v.title : null, span(p.v.videoFrom, p.v.videoTo)].filter(Boolean).join(" · ") || null,
             icon: FilmIcon,
             thumb: p.thumb,
-            /* Carrées comme les pistes du menu (21/10/2026). */
-            square: true,
             selected: activePreset.video === p.id,
             pink: true,
             run: () => {
@@ -2035,7 +2033,6 @@ export default function BannerStudio({
             label: v.title,
             chip: { text: "YT", op: false, color: "#f87171" },
             thumb: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`,
-            square: true,
             selected: draft.trailerId === v.id,
             run: () =>
               patch({
