@@ -146,7 +146,7 @@ export default function MusicCard({
      grande, la quitter la retasse. Pas de bouton. La musique ne s'arrête
      jamais : c'est le même lecteur, seule la boîte change de taille. */
   /* PETITE PAR DÉFAUT, GRANDE QUAND ÇA JOUE (22/10/2026, Luc) : la case ne
-     grandit que quand la lecture part — jamais en pause —, reste grande 5 s,
+     grandit que quand la lecture part — jamais en pause —, reste grande 3 s,
      puis se retasse. Pendant le passage profil ↔ studio elle attend que le
      cadre soit posé (`sceneSettle`, ProfileStage) : grandir pendant qu'il
      bouge brouillait les deux mouvements. Un nouveau morceau refait de même. */
@@ -166,7 +166,7 @@ export default function MusicCard({
     const t = setTimeout(
       () => {
         grow();
-        shrinkIn(5000);
+        shrinkIn(3000);
       },
       Math.max(0, settle - performance.now()),
     );
