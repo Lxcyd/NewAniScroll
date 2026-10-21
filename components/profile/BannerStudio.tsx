@@ -4095,6 +4095,17 @@ export default function BannerStudio({
     (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
     /* Un générique : SA pochette, celle de sa ligne dans la liste. */
     opedCover() ??
+    /* La vignette gardée par un preset de la même vidéo : un preset porté
+       sans que l'anime ait été ouvert n'a pas ses épisodes en mémoire, et la
+       carte montrait l'affiche (21/10/2026). */
+    (presets.video.find((p) => p.id === activePreset.video)?.thumb ??
+      presets.video.find(
+        (p) =>
+          p.v.animeId === draft.animeId &&
+          (draft.episode
+            ? p.v.episode?.n === draft.episode.n
+            : p.v.url === draft.url && p.v.trailerId === draft.trailerId),
+      )?.thumb) ??
     trailerAnime?.cover ??
     null;
   /* Le bouton « garder en preset » des deux cartes : un clic garde le choix
