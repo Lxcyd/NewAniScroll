@@ -235,7 +235,11 @@ const presetTab = (p: Presets["video"][0]) => p.tab ?? (p.v.episode ? "video" : 
     qu'il reprend ne se coche plus en double plus bas. */
 const presetFirst = (list: Section[]): Section[] =>
   list.some((s) => s.rows.some((r) => r.pink && r.selected))
-    ? list.map((s) => ({ ...s, rows: s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)) }))
+    ? list.map((s) => ({
+        ...s,
+        muted: s.panel,
+        rows: s.rows.map((r) => (!r.pink && r.selected ? { ...r, selected: false } : r)),
+      }))
     : list;
 /** Deux choix sont le même preset quand tout ce qu'il garde est égal. */
 const sameSnap = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -463,6 +467,8 @@ type Section = {
   title: string;
   rows: Row[];
   node?: ReactNode;
+  /** Cadre `panel` en gris : un preset porté a déjà le rose. */
+  muted?: boolean;
   /** L'intitulé se replie : un clic montre ou cache les lignes (Mes presets). */
   fold?: { open: boolean; toggle: () => void; count: number };
   /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
@@ -4641,10 +4647,14 @@ export default function BannerStudio({
                       }
                       style={
                         s.panel
-                          ? {
-                              borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
-                              background: `color-mix(in srgb, ${accent} 7%, transparent)`,
-                            }
+                          ? /* Un preset porté a le rose : le cadre de l'animé
+                               ouvert passe au gris, un seul rose à l'écran. */
+                            s.muted
+                            ? { borderColor: "rgba(255,255,255,.08)", background: "rgba(255,255,255,.02)" }
+                            : {
+                                borderColor: `color-mix(in srgb, ${accent} 40%, transparent)`,
+                                background: `color-mix(in srgb, ${accent} 7%, transparent)`,
+                              }
                           : undefined
                       }
                     >
