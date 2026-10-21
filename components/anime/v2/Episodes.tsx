@@ -23,6 +23,7 @@ import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
 import FilmsPanel from "./FilmsPanel";
 import { useFanarts } from "@/lib/hooks/useFanarts";
 import { getPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
+import { airedAhead, checkAiredAhead, subscribeAiredAhead } from "@/lib/watch/airedAhead";
 import { useTranslation } from "react-i18next";
 import ViewModeIcon from "@/components/shared/ViewModeIcon";
 
@@ -222,6 +223,17 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [filter, setFilter] = useState("");
+
+  /* Les episodes deja en ligne avant la date AniList (lib/watch/airedAhead) :
+     la liste se redessine quand une preuve arrive — celle de la page de
+     lecture, gardee une semaine, ou l'instantane de disponibilite du PROCHAIN
+     episode, demande ici une fois (cache au bord). `classifyEp` la lit. */
+  const [, setAiredTick] = useState(0);
+  useEffect(() => subscribeAiredAhead(() => setAiredTick((n) => n + 1)), []);
+  const nextEp = Number(info?.nextAiringEpisode?.episode);
+  useEffect(() => {
+    if (info?.id && Number.isFinite(nextEp)) checkAiredAhead(info.id, nextEp);
+  }, [info?.id, nextEp]);
 
   /* The page's own anime IS one of the franchise's bonus films — e.g. viewing
      Attack on Titan ~Chronicle~ (a whole-franchise digest) on its own page. It
@@ -759,9 +771,14 @@ function classifyEp(
   }
   const watched = progress >= ep.number;
   const current = progress === ep.number - 1;
-  const locked =
-    info.nextAiringEpisode?.episode != null &&
-    ep.number >= info.nextAiringEpisode.episode;
+  /* Comme la page de lecture (components/watch/secondary/episodeLists) : un
+     episode qu'un lecteur a DEJA n'attend pas la date AniList — Steel Ball
+     Run ep 5 se lisait sur la page de lecture et restait « Pas encore sorti »
+     ici (21/10/2026). Meme borne : un episode au plus au-dela du calendrier. */
+  const next = info.nextAiringEpisode?.episode;
+  const borne =
+    next != null ? Math.max(next, Math.min(airedAhead(info.id), next + 1) + 1) : null;
+  const locked = borne != null && ep.number >= borne;
   return { watched, current, locked };
 }
 
