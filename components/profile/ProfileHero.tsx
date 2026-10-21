@@ -405,7 +405,19 @@ export default function ProfileHero({
      enregistrant (il relance la lecture) : au retour, le navigateur fait foi. */
   const [cookiePaused, setCookiePaused] = useState(!!musicPaused);
   const studioSeen = useRef(false);
+  const soundRetried = useRef(false);
   if (studio) studioSeen.current = true;
+  /* AU RETOUR DU STUDIO, LE GESTE A DÉJÀ EU LIEU (22/10/2026) : on vient d'y
+     cliquer « Enregistrer ». Sans ça le fond vidéo repartait muet, en
+     attendant un clic de plus sur la page, et le volume réglé là-bas restait
+     celui d'avant. */
+  useEffect(() => {
+    if (studio || !studioSeen.current) return;
+    setVidAwake(true);
+    vidWokeAt.current = performance.now();
+    const v = readProfileVolume();
+    if (v != null) setVol(v);
+  }, [studio]);
   useEffect(() => {
     if (studio) return;
     const was = cookiePaused && !studioSeen.current;
@@ -973,7 +985,17 @@ export default function ProfileHero({
               minimizable: true,
             }}
             onError={() => setSound(false)}
-            onBrowserMute={() => setBrowserMuted(true)}
+            onBrowserMute={() => {
+              /* Refus du son alors qu'on a déjà cliqué sur la page (retour du
+                 studio) : une seconde tentative, une seule, avant d'attendre
+                 un geste. */
+              if (studioSeen.current && !soundRetried.current && navigator.userActivation?.hasBeenActive) {
+                soundRetried.current = true;
+                window.setTimeout(() => void yt.current?.play(), 300);
+                return;
+              }
+              setBrowserMuted(true);
+            }}
           />
         </div>
       ) : null}

@@ -5495,7 +5495,7 @@ export default function BannerStudio({
            la scène : 24 px du coin comme sur le profil (`bottom-6 right-6`),
            eux aussi à l'échelle. */
         <div
-          className={`fixed z-[10004] origin-bottom-right transition-opacity ${
+          className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
           style={musicCardAnchor}
@@ -5578,7 +5578,7 @@ export default function BannerStudio({
         {/* SA CASE (17/10/2026) : la même que la version YouTube, à la même
             place, la pochette à la place du lecteur. */}
         <div
-          className={`fixed z-[10004] origin-bottom-right transition-opacity ${
+          className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
           style={musicCardAnchor}
@@ -5623,7 +5623,7 @@ export default function BannerStudio({
            musique, la vidéo a la sienne, au même coin. Le volume est celui
            qu'on enregistre (`videoVolume`), le même que le curseur de la
            carte vidéo. */
-        <div className="fixed z-[10004] origin-bottom-right pointer-events-auto" style={musicCardAnchor}>
+        <div className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto" style={musicCardAnchor}>
           <MusicCard
             className="h-[240px] w-[240px]"
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}
