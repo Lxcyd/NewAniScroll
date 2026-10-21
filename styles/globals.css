@@ -2530,20 +2530,30 @@ html:not(.as-scene-docked) .as-scene-ui-bottom {
   opacity: 0;
   pointer-events: none;
 }
-/* LA CASE MUSIQUE / VIDÉO DU STUDIO SUIT LE CADRE (22/10/2026) : ancrée à son
-   coin bas droit par les variables de la scène, qui sautent d'un coup à la
-   géométrie finale. Elle glisse donc avec le cadre (même durée, même courbe)
-   et n'apparaît qu'une fois le glissement lancé, comme le menu. */
+/* LA CASE MUSIQUE / VIDÉO DU STUDIO SUIT LE CADRE (22/10/2026) : 24 px de
+   son coin bas droit, comme sur le profil (`bottom-6 right-6`), à l'échelle
+   de la scène. Les variables sautent d'un coup à chaque temps ; la case
+   glisse donc avec le cadre, même durée, même courbe — et part de sa place
+   sur le profil plein écran (@starting-style), comme le cadre. */
 .as-scene-card {
+  right: calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1));
+  bottom: calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1));
+  transform: scale(var(--as-scene-zoom, 1));
   transition:
-    right 0.45s var(--as-scene-ease),
-    bottom 0.45s var(--as-scene-ease),
-    transform 0.45s var(--as-scene-ease),
-    opacity 0.25s ease;
+    right 0.5s var(--as-scene-ease),
+    bottom 0.5s var(--as-scene-ease),
+    transform 0.5s var(--as-scene-ease),
+    opacity 0.15s ease;
 }
-html:not(.as-scene-docked) .as-scene-card {
-  opacity: 0;
-  pointer-events: none;
+html.as-scene-docked .as-scene-card {
+  transition-duration: 0.45s, 0.45s, 0.45s, 0.15s;
+}
+@starting-style {
+  .as-scene-card {
+    right: 24px;
+    bottom: 24px;
+    transform: none;
+  }
 }
 html.as-scene-resizing .as-scene-card {
   transition: none;

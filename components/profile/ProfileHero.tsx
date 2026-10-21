@@ -20,6 +20,8 @@ import MusicCard from "@/components/profile/MusicCard";
 import {
   readAutoplay,
   readProfileVolume,
+  noteProfileMusic,
+  noteProfileMusicAt,
   rememberAutoplay,
   useBgMuted,
   useBgPaused,
@@ -342,6 +344,10 @@ export default function ProfileHero({
     writeProfileVolume(v);
   };
   useEffect(() => setSound(false), [banner.url, banner.music?.url]);
+  /* Le studio reprend la musique là où le profil la laisse (lib/profile/playback). */
+  useEffect(() => {
+    if (!studio) noteProfileMusic(sound);
+  }, [sound, studio]);
 
   /* ── Le son du FOND VIDÉO (21/10/2026) ─────────────────────────────────
      Réglé au studio (`videoVolume`), muet par défaut, et TOUJOURS muet sous
@@ -851,6 +857,7 @@ export default function ProfileHero({
             const f = banner.music?.from ?? 0;
             const to = banner.music?.to ?? 0;
             if (to > f && el.currentTime > to) el.currentTime = f;
+            noteProfileMusicAt(el.currentTime);
           }}
         />
       ) : null}
@@ -985,6 +992,7 @@ export default function ProfileHero({
               minimizable: true,
             }}
             onError={() => setSound(false)}
+            onTime={noteProfileMusicAt}
             onBrowserMute={() => {
               /* Refus du son alors qu'on a déjà cliqué sur la page (retour du
                  studio) : une seconde tentative, une seule, avant d'attendre

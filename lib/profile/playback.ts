@@ -95,6 +95,21 @@ export const useBgPaused = () => useFlag(paused);
 /** Le son du fond vidéo coupé par le visiteur, sur le profil comme dans le studio. */
 export const useBgMuted = () => useFlag(muted);
 
+/* ── La musique du profil, passée au studio (22/10/2026, Luc) ─────────────
+   Elle jouait sur le profil : elle continue dans le menu d'édition, au même
+   endroit. Rien n'est gardé au-delà de la page. */
+const handoff: { playing: boolean; at: number | null } = { playing: false, at: null };
+export function noteProfileMusic(playing: boolean): void {
+  handoff.playing = playing;
+}
+export function noteProfileMusicAt(at: number): void {
+  handoff.at = at;
+}
+/** La musique jouait-elle sur le profil, et où en était-elle. */
+export function profileMusicNow(): { playing: boolean; at: number | null } {
+  return { ...handoff };
+}
+
 /** Un nouveau fond vient d'être enregistré : il repart, avec son son. */
 export function resumeVideo(): void {
   write(paused, false);

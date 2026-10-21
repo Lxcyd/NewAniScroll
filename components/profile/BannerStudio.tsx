@@ -123,6 +123,7 @@ import {
 import { ACCENT_PRESETS, useAccent } from "@/lib/prefs/accentColor";
 import { PREVIEW_DEFAULT_VOLUME } from "@/lib/prefs/previewVolume";
 import {
+  profileMusicNow,
   readProfileVolume,
   rememberAutoplay,
   resumeVideo,
@@ -429,14 +430,6 @@ const HATCH =
 /** Le fondu qu'on pose quand on active la bascule — plus court, on entend encore
     le raccord ; plus long, il mange le refrain d'un extrait de vingt secondes. */
 const DEFAULT_FADE = 1.5;
-
-/** La case musique dans la scène : 24 px du coin bas droit du cadre, comme
-    sur le profil (`bottom-6 right-6`), à l'échelle de la scène. */
-const musicCardAnchor = {
-  right: "calc(var(--as-scene-frame-right) + 24px * var(--as-scene-zoom, 1))",
-  bottom: "calc(100vh - var(--as-scene-frame-bottom) + 24px * var(--as-scene-zoom, 1))",
-  transform: "scale(var(--as-scene-zoom, 1))",
-} as const;
 
 /**
  * La position de lecture telle que le studio l'AFFICHE, au dixième de seconde.
@@ -1258,6 +1251,16 @@ export default function BannerStudio({
      rendu suivant, d'où le drapeau plutôt qu'un `play()` immédiat sur l'ancien
      fichier. */
   const [wantPlay, setWantPlay] = useState(false);
+  /* LA MUSIQUE QUI JOUAIT SUR LE PROFIL CONTINUE ICI (22/10/2026, Luc), là
+     où elle en était ; en pause sur le profil, elle reste en pause. */
+  const resumeAt = useRef<number | null>(null);
+  useEffect(() => {
+    const was = profileMusicNow();
+    if (!was.playing || !draft.music) return;
+    resumeAt.current = was.at;
+    setWantPlay(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture seulement
+  }, []);
 
   /* ── La bande-annonce ────────────────────────────────────────────────────
      Elle se découpe comme un morceau, et sur le MÊME aperçu : ce qui joue en
@@ -2032,8 +2035,13 @@ export default function BannerStudio({
     setWantPlay(false);
     /* Le rail appartient au nouveau morceau : garder la position du
        précédent, c'est afficher une seconde de mensonge. */
-    setAt(0);
-    el.currentTime = draft.music?.from ?? 0;
+    const from = draft.music?.from ?? 0;
+    const at = resumeAt.current;
+    resumeAt.current = null;
+    const to = draft.music?.to;
+    const start = at != null && at >= from && (!to || at < to) ? at : from;
+    setAt(start);
+    el.currentTime = start;
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url, draft.music?.videoId]);
 
@@ -5498,7 +5506,6 @@ export default function BannerStudio({
           className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
-          style={musicCardAnchor}
         >
           <YouTubeMusic
             ref={preview}
@@ -5581,7 +5588,6 @@ export default function BannerStudio({
           className={`as-scene-card fixed z-[10004] origin-bottom-right ${
             playing || buffering || ytShown ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
           }`}
-          style={musicCardAnchor}
         >
           <MusicCard
             className="h-[240px] w-[240px]"
@@ -5623,7 +5629,7 @@ export default function BannerStudio({
            musique, la vidéo a la sienne, au même coin. Le volume est celui
            qu'on enregistre (`videoVolume`), le même que le curseur de la
            carte vidéo. */
-        <div className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto" style={musicCardAnchor}>
+        <div className="as-scene-card fixed z-[10004] origin-bottom-right pointer-events-auto">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}
