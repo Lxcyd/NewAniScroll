@@ -537,8 +537,25 @@ function HeroBanner({
   const bg = active.bannerImage || active.coverImage?.extraLarge || null;
   const accent = active.coverImage?.color || "#E94560";
 
+  /* Telephone : la meme vitrine, pas une autre. Elle etait `hidden lg:block`,
+     l'accueil mobile commencait directement aux rangees. Tout ce qui l'adapte
+     porte un prefixe `max-lg:` (le PC ne change pas), et un balayage du doigt
+     passe au titre suivant / precedent — les fleches du rail sont lg-only. */
+  const mobileBg = active.coverImage?.extraLarge || active.bannerImage || null;
+  const swipe = { x: 0, y: 0 };
   return (
-    <div className="hidden lg:block relative w-full overflow-hidden">
+    <div
+      className="relative w-full overflow-hidden"
+      onTouchStart={(e) => {
+        swipe.x = e.touches[0].clientX;
+        swipe.y = e.touches[0].clientY;
+      }}
+      onTouchEnd={(e) => {
+        const dx = e.changedTouches[0].clientX - swipe.x;
+        const dy = e.changedTouches[0].clientY - swipe.y;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) (dx < 0 ? next : prev)();
+      }}
+    >
       {/* Height is tied to the VIEWPORT, not to an aspect ratio, and that is the
           whole point: the fold has to land between the "Recently Watched"
           heading and its first row of cards. A fixed 780px box couldn't promise
@@ -559,7 +576,7 @@ function HeroBanner({
 
           NOT measured in a browser: the 3rem comes from the heading's own
           type scale. If the cards still show, this is the number to raise. */}
-      <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] w-full">
+      <div className="relative h-[calc(100svh-3rem)] max-h-[900px] min-h-[520px] max-lg:h-[min(74svh,620px)] max-lg:min-h-[460px] w-full">
         {/* Background banner. Keyed on the entry id so React swaps the
             <img> cleanly; framer-motion cross-fades + slow Ken-Burns zoom. */}
         {/* initial={false}: the slide present at first render is drawn at
@@ -599,10 +616,24 @@ function HeroBanner({
                       // @ts-expect-error fetchPriority not in the link typings
                       fetchpriority="high"
                     />
+                    {mobileBg && (
+                      <link
+                        rel="preload"
+                        as="image"
+                        href={mobileBg}
+                        media="(max-width: 1023px)"
+                        // @ts-expect-error fetchPriority not in the link typings
+                        fetchpriority="high"
+                      />
+                    )}
                   </Head>
                 )}
                 <picture>
                   <source media="(min-width: 1024px)" srcSet={bg} />
+                  {/* Telephone : la POCHETTE (portrait). La banniere, 4,75:1,
+                      recadree dans un ecran en hauteur n'en montrait qu'un
+                      morceau flou. */}
+                  {mobileBg && <source media="(max-width: 1023px)" srcSet={mobileBg} />}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
@@ -623,7 +654,7 @@ function HeroBanner({
 
         {/* Cinematic gradients. Left fade boosts text contrast on the
             logo + CTA stack. */}
-        <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/55 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/55 to-transparent max-lg:hidden" />
         {/* Tall bottom fade — the seam-killer. Uses EXPLICIT primary
             (#0c0d10) colour stops, not pure black, so it melts into the
             identically-coloured page below with no visible line. The
@@ -672,7 +703,7 @@ function HeroBanner({
               (`text-lg` → 1.75rem). If this still reads unevenly, the value to
               tune is this one, and the reason it isn't a round number is the
               half-leading above. */}
-          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8">
+          <div className="flex w-full xl:w-[60%] lg:w-[65%] flex-col justify-end gap-8 pt-16 pb-2 pl-[7%] pr-8 max-lg:gap-4 max-lg:px-4 max-lg:pb-1">
             <AnimatePresence mode="wait" custom={dir} initial={false}>
               <m.div
                 key={`stack-${active.id}`}
@@ -710,10 +741,10 @@ function HeroBanner({
                     // @ts-expect-error fetchPriority not in lib.dom yet
                     fetchpriority={idx === 0 ? "high" : undefined}
                     decoding="async"
-                    className="h-auto w-auto max-h-[200px] max-w-[68%] object-contain object-left drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
+                    className="h-auto w-auto max-h-[200px] max-w-[68%] max-lg:max-h-[110px] max-lg:max-w-[82%] object-contain object-left drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
                   />
                 ) : (
-                  <h1 className="font-outfit font-extrabold text-white text-5xl xl:text-6xl leading-[1.05] max-w-[85%] drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]">
+                  <h1 className="font-outfit font-extrabold text-white text-5xl xl:text-6xl max-lg:text-3xl leading-[1.05] max-w-[85%] drop-shadow-[0_4px_16px_rgba(0,0,0,0.7)]">
                     {title}
                   </h1>
                 )}
@@ -734,7 +765,7 @@ function HeroBanner({
                 </div>
 
                 {/* Description (2 lines) */}
-                <p className="font-roboto font-light text-base xl:text-lg line-clamp-2 max-w-[88%] text-white/80">
+                <p className="font-roboto font-light text-base xl:text-lg max-lg:text-sm line-clamp-2 max-w-[88%] max-lg:max-w-full text-white/80">
                   {localizedDescription}
                 </p>
 
@@ -748,12 +779,12 @@ function HeroBanner({
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => onPlay(active.id)}
-                      className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-action/90 hover:scale-[1.03]"
+                      className="inline-flex items-center gap-2 rounded-full bg-action px-7 py-3 max-lg:px-5 font-karla font-semibold text-white text-sm tracking-wider shadow-lg shadow-action/40 outline-none focus:outline-none focus-visible:outline-none transition-all hover:bg-action/90 hover:scale-[1.03]"
                     >
                       <svg
                         viewBox="0 0 24 24"
                         fill="currentColor"
-                        className="h-8 w-8"
+                        className="h-8 w-8 max-lg:h-6 max-lg:w-6"
                       >
                         <path d="M8 5v14l11-7z" />
                       </svg>
@@ -761,12 +792,12 @@ function HeroBanner({
                     </button>
                     <Link
                       href={`/en/anime/${active.id}`}
-                      className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 font-karla font-semibold text-white text-sm tracking-wider border border-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
+                      className="inline-flex items-center gap-2 rounded-full bg-white/10 px-7 py-3 max-lg:px-5 font-karla font-semibold text-white text-sm tracking-wider border border-white/15 backdrop-blur-sm outline-none focus:outline-none focus-visible:outline-none transition-colors hover:bg-white/20"
                     >
                       <svg
                         viewBox="0 0 24 24"
                         fill="currentColor"
-                        className="h-8 w-8"
+                        className="h-8 w-8 max-lg:h-6 max-lg:w-6"
                       >
                         <path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z" />
                       </svg>
@@ -794,7 +825,7 @@ function HeroBanner({
                     type="button"
                     aria-label={`Go to trending ${i + 1}`}
                     onClick={() => go(i, i > idx ? 1 : -1)}
-                    className={`relative h-1.5 w-12 overflow-hidden rounded-full transition-all ${
+                    className={`relative h-1.5 w-12 max-lg:w-7 overflow-hidden rounded-full transition-all ${
                       isActive ? "bg-white/20" : "bg-white/30 hover:bg-white/50"
                     }`}
                   >
