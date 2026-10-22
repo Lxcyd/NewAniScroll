@@ -170,7 +170,7 @@ export default function Details({
     //    s'empilent en un ruban illisible au bord droit. C'est ce qu'on voyait
     //    sur un film le 30/08/2026.
     <div
-      className={`relative z-10 flex flex-wrap gap-5 font-karla lg:grid lg:items-stretch lg:gap-x-7 lg:gap-y-4 ${
+      className={`as-watch-details relative z-10 flex flex-wrap gap-5 max-sm:gap-x-4 max-sm:gap-y-3 font-karla lg:grid lg:items-stretch lg:gap-x-7 lg:gap-y-4 ${
         confined
           ? "lg:grid-cols-[190px_minmax(0,1fr)_19rem]"
           : "lg:grid-cols-[190px_minmax(0,calc(var(--player-col)_-_190px_-_3.5rem))_minmax(0,1fr)]"
@@ -182,7 +182,7 @@ export default function Details({
           portrait cover (it reads as a banner) and the blown-up flex item
           pushes the rest of the card over the episode column. */}
       <div
-        className="h-[190px] w-[132px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:h-full lg:w-full"
+        className="h-[190px] w-[132px] max-sm:h-[138px] max-sm:w-[96px] shrink-0 overflow-hidden rounded-poster shadow-poster lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:h-full lg:w-full"
       >
         {info ? (
           <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
@@ -200,7 +200,11 @@ export default function Details({
       </div>
 
 
-      <div className="flex min-w-0 grow basis-[300px] flex-col gap-3 lg:col-start-2 lg:row-start-1 lg:basis-auto">
+      {/* Telephone (< 640 px) : `contents` — le titre se range a cote de la
+          pochette, stats et genres passent dessous en pleine largeur
+          (styles/mobile.css, .as-watch-info). Avant, ce bloc exigeait 300 px et
+          tombait sous une pochette restee seule sur sa ligne. */}
+      <div className="as-watch-info flex min-w-0 grow basis-[300px] flex-col gap-3 max-sm:contents lg:col-start-2 lg:row-start-1 lg:basis-auto">
         {title}
 
         {/* Stat blocks, identical to the info page's hero (Hero.tsx): same

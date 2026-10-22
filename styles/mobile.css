@@ -81,6 +81,54 @@
   }
 }
 
+/* ── Page de visionnage : pochette + infos (components/watch/primary/details.tsx)
+   Le bloc d'infos est en `display: contents` sous 640 px : ses enfants
+   deviennent des elements de la rangee. Le titre prend la place a cote de la
+   pochette, le reste passe a la ligne. */
+@media (max-width: 639px) {
+  .as-watch-info > :first-child {
+    flex: 1 1 0;
+    min-width: 0;
+    align-self: center;
+  }
+  .as-watch-info > :not(:first-child) {
+    flex-basis: 100%;
+  }
+  /* Les trois stats (note, favoris, episodes) sur une ligne : 22 px de chiffres
+     et 20 px d'ecart en demandaient ~400 pour 358 de large. */
+  .as-watch-info > :nth-child(2) {
+    column-gap: 12px !important;
+  }
+  .as-watch-info > :nth-child(2) svg {
+    width: 18px;
+    height: 18px;
+  }
+  .as-watch-info > :nth-child(2) [class*="text-[22px]"] {
+    font-size: 18px !important;
+  }
+}
+
+/* ── Lecteur : « Passer l'intro » / « Episode suivant » (SkipOverlay.tsx)
+   576 px = le seuil du petit format de Vidstack (cf. globals.css). */
+@media (max-width: 576px) {
+  .as-skip-stack {
+    right: 10px !important;
+  }
+  .as-skip-stack[data-controls="on"] {
+    bottom: 54px !important;
+  }
+  .as-skip-stack[data-controls="off"] {
+    bottom: 10px !important;
+  }
+  .as-skip-stack .aniscroll-skip-btn,
+  .as-skip-stack .aniscroll-next-btn {
+    min-height: 40px;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+    font-size: 13px !important;
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

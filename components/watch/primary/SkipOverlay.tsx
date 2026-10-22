@@ -547,6 +547,11 @@ export default function SkipOverlay({
 
   const buttonStack = active || showNext ? (
     <div
+      /* Prises pour styles/mobile.css : sur le petit format de Vidstack les
+         commandes du bas sont plus basses, et les 92 px du PC plantaient le
+         bouton au milieu de l'image, sur le gros bouton lecture. */
+      className="as-skip-stack"
+      data-controls={controlsVisible ? "on" : "off"}
       style={{
         position: "absolute",
         right: 24,
