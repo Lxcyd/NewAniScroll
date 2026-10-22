@@ -68,6 +68,21 @@ const envoie = (method, params = {}) =>
 
 await envoie("Page.enable");
 await envoie("Runtime.enable");
+/* BLOQUER : motifs d'URL refusés au navigateur (séparés par des virgules), ex.
+   BLOQUER='*\/api/v2/admin/*'. Pour regarder une mise en page sans déclencher
+   les requêtes qu'elle ferait — les routes admin lisent anime_fanarts, la
+   table qui a coûté 80 % du quota Turso d'octobre (CLAUDE.md). */
+if (process.env.BLOQUER) {
+  await envoie("Network.enable");
+  await envoie("Network.setBlockedURLs", { urls: process.env.BLOQUER.split(",") });
+}
+/* COOKIE : « nom=valeur » posé sur l'hôte testé avant le chargement (une
+   session locale, cf. tools/browser-check/session-locale.mjs). */
+if (process.env.COOKIE) {
+  const [name, ...rest] = process.env.COOKIE.split("=");
+  await envoie("Network.enable");
+  await envoie("Network.setCookie", { name, value: rest.join("="), url: base });
+}
 if (BUREAU) {
   await envoie("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
 } else {

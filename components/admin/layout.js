@@ -38,9 +38,9 @@ export default function AdminLayout({ children, page, setPage }) {
   }, []);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden">
-      <div className="absolute flex flex-col gap-5 top-0 left-0 py-2 bg-secondary w-[14rem] h-full">
-        <div className="flex flex-col px-3 gap-2">
+    <div className="relative w-screen h-screen overflow-hidden max-md:flex max-md:flex-col">
+      <div className="absolute flex flex-col gap-5 top-0 left-0 py-2 bg-secondary w-[14rem] h-full max-md:static max-md:w-full max-md:h-auto max-md:gap-2 max-md:shrink-0">
+        <div className="flex flex-col px-3 gap-2 max-md:flex-row max-md:items-center max-md:justify-between">
           {/* Back to the public site — gives admins a way out of the
               dashboard without typing /en in the URL bar. */}
           <Link
@@ -50,16 +50,16 @@ export default function AdminLayout({ children, page, setPage }) {
             <ArrowLeftIcon className="w-4 h-4" />
             Back to site
           </Link>
-          <p className="text-sm font-light text-action font-outfit">AniScroll</p>
-          <h1 className="text-2xl font-bold text-white">
-            Admin <br />
+          <p className="text-sm font-light text-action font-outfit max-md:hidden">AniScroll</p>
+          <h1 className="text-2xl font-bold text-white max-md:text-base">
+            Admin <br className="max-md:hidden" />
             Dashboard
           </h1>
         </div>
-        <div className="flex flex-col px-1">
+        <div className="flex flex-col px-1 max-md:flex-row max-md:gap-1 max-md:overflow-x-auto max-md:px-2 max-md:scrollbar-hide">
           {Navigation.map((item) => {
             const active = item.page != null && page === item.page;
-            const className = `flex items-center gap-2 p-2 group ${
+            const className = `flex items-center gap-2 p-2 max-md:shrink-0 max-md:whitespace-nowrap max-md:min-h-[40px] group ${
               active ? "bg-image/50" : "text-txt"
             } hover:bg-image rounded transition-colors duration-200 ease-in-out`;
             const iconWrap = (
@@ -97,7 +97,7 @@ export default function AdminLayout({ children, page, setPage }) {
           })}
         </div>
       </div>
-      <div className="ml-[14rem] overflow-x-hidden overflow-y-auto h-full">
+      <div className="ml-[14rem] overflow-x-hidden overflow-y-auto h-full max-md:ml-0 max-md:h-auto max-md:min-h-0 max-md:flex-1">
         {children}
       </div>
     </div>
