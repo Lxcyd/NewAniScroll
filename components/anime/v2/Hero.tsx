@@ -11,20 +11,14 @@ import {
   prettyStatus,
   statusLabel as statusLabelI18n,
   listLabel,
-  slugifyTitle,
   SeasonInfo,
   TitleImage,
 } from "./helpers";
 import { notify } from "@/lib/notifications/noticeStore";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
-import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import { useTranslation } from "react-i18next";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
-import { preloadPlayerCode } from "@/lib/watch/playerCode";
-import { getPlannedServer, getPrefetchedSource, sourceKey } from "@/lib/watch/sourcePrefetch";
-import { preconnectOrigin } from "@/lib/watch/streamUrl";
-import { warmVidmolyClient } from "@/lib/clientVidmoly";
+import { watchCta, warmWatchPath } from "@/lib/anime/watchCta";
 import { useFanartSrc, fanartSrcNow, onFanartError } from "@/lib/images/fanartFallback";
 import { useNavBackdrop } from "@/lib/color/navContrast";
 import QueueButton from "./QueueButton";
@@ -110,105 +104,22 @@ export default function Hero({
   // wrong label then flip once AniList answers.
   const listDisplay = statusResolved ? listLabel(t, list) : "…";
 
-  // Not-yet-released anime: episode 1 doesn't exist yet so a Watch
-  // button would lead to a 404. Surface "Coming Soon" with the air date
-  // when we have it instead, and a disabled-looking CTA pointing to a
-  // "plan to watch" action.
-  const isNotYetReleased = info.status === "NOT_YET_RELEASED";
-
-  // CTA copy: "REWATCH" if the user already finished the anime,
-  // "COMING SOON" if it hasn't aired, "WATCH NOW" otherwise.
-  const isCompleted = statusLabel === "COMPLETED";
-  const watchLabel = isNotYetReleased
-    ? t("anime.comingSoonCta")
-    : isCompleted
-    ? t("anime.rewatchCta")
-    : t("anime.watchNowCta");
-
-  // Resume target:
-  //   - not yet released → no playable episode, button is a no-op link
-  //     back to the same page (Hero is the entry point already; clicking
-  //     just shouldn't navigate elsewhere)
-  //   - completed → restart from EP 1 (rewatching means the start, not
-  //     progress+1 which would be EP <total+1> and 404 anyway)
-  //   - otherwise → respect the parent-computed watchUrl (progress+1)
-  const epNum = isCompleted ? 1 : parseEpNumFromWatchUrl(watchUrl) ?? 1;
-  // Human-readable anime slug for the second path segment (was "megaplay").
-  // The watch route treats this segment as cosmetic, so it's safe as a slug.
-  const watchSlug = slugifyTitle(info?.title) || "watch";
-  /* Le `?id=` est cosmetique, mais il nomme un hote : l'ecrire en dur a laisse
-     ici `megaplay`, retire de lib/servers.js le 08/09/2026. Il vient donc de
-     DEFAULT_SERVER_ID, comme partout ailleurs (lib/prefs/clickTarget.ts). */
-  const epUn = `/en/anime/watch/${info.id}/${watchSlug}?id=${DEFAULT_SERVER_ID}-${info.id}-1&num=1`;
-  const watchHref = isNotYetReleased ? "#" : isCompleted ? epUn : watchUrl || epUn;
-
-  // ── Intent-based prefetch ──────────────────────────────────────────────
-  // Warm the entire playback path the instant the user shows intent to watch
-  // (hover / pointer-down on the button) — earlier than the page-level idle
-  // prefetch, and exactly when it matters. By the time the click navigates,
-  // the route + player chunk + episode list + source are already in flight or
-  // cached, so the player boxes appear with little to no wait. Idempotent.
+  /* Libelle, cible et prechauffage du bouton « Regarder » : lib/anime/watchCta.ts,
+     partage avec la fiche mobile. Pas encore sorti -> « Bientot » + date (un
+     episode 1 n'existe pas encore : 404) ; termine -> reprise a l'episode 1 ;
+     sinon la reprise calculee par la page (progression + 1). Le prechauffage
+     (route, code du lecteur, liste des episodes, embed du lecteur prevu) part
+     au survol ou a l'appui : la personne est a un clic de la lecture. */
+  const cta = watchCta(info, watchUrl, statusLabel, t);
+  const { isNotYetReleased, isCompleted, epNum, comingSoonLine } = cta;
+  const watchLabel = cta.label;
+  const watchHref = cta.href;
   const warmedRef = useRef(false);
   const warmWatch = () => {
-    if (warmedRef.current || isNotYetReleased || !info?.id) return;
+    if (warmedRef.current) return;
     warmedRef.current = true;
-    // Cheap, local warm-ups only: the Next.js route, the player JS chunk, and
-    // the episode list. These cost no upstream/worker calls and make the watch
-    // page paint instantly on click.
-    try {
-      router.prefetch(watchHref);
-    } catch {}
-    preloadPlayerCode();
-    /* Et on RELANCE l'extraction de l'embed du lecteur prevu : son jeton est
-       lie a l'IP et a l'instant, donc celle qu'a lancee la page info se perime
-       (60 s, cf. clientVidmoly). Au survol de « Regarder », la personne est a
-       un clic de la lecture : c'est le moment de l'avoir fraiche. Cote
-       navigateur uniquement — aucun appel a nous. */
-    try {
-      const srv = getPlannedServer(info.id);
-      if (srv) {
-        const data = getPrefetchedSource(sourceKey(info.id, epNum, srv, "sub"));
-        const ce = data?.clientExtract;
-        if (ce?.type === "vidmoly" && ce.embedUrl) {
-          preconnectOrigin(ce.embedUrl);
-          warmVidmolyClient(ce.embedUrl);
-        }
-      }
-    } catch {}
-    void prefetchEpisodeList(info.id, {
-      releasing: (info as any)?.status === "RELEASING",
-      priority: "high",
-    });
-    // NOTE: we deliberately no longer pre-resolve the video source here
-    // (resolveSource/warmStream). That spent a worker round-trip + extraction
-    // on a play that might never happen, on every hover of the watch button.
-    // With player_map (persistent verified resolution) + the per-episode
-    // availability cache, the watch page resolves the source fast on its own,
-    // so the speculative info-page warm no longer earns its cost.
+    warmWatchPath(info, cta, router);
   };
-
-  // For coming-soon anime, build a friendly air-date string from
-  // nextAiringEpisode.airingAt (epoch seconds) or fall back to
-  // startDate. Returns null when no date is known — the button then
-  // collapses to a single large "COMING SOON" instead of showing
-  // a placeholder like "TBA".
-  const comingSoonLine = (() => {
-    if (!isNotYetReleased) return null;
-    const airingAt = info.nextAiringEpisode?.airingAt;
-    if (airingAt) {
-      const d = new Date(airingAt * 1000);
-      const month = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][d.getMonth()];
-      return `${month} ${d.getDate()}, ${d.getFullYear()}`;
-    }
-    const sd = info.startDate;
-    if (sd?.year) {
-      const month = sd.month
-        ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][sd.month - 1]
-        : null;
-      return month ? `${month} ${sd.year}` : String(sd.year);
-    }
-    return null;
-  })();
 
   /* L'HEURE, quand AniList la connaît (17/10/2026) : `airingAt` est un instant
      exact, `startDate` seulement un jour. Posée APRÈS le montage, dans le
@@ -820,12 +731,6 @@ export default function Hero({
       </div>
     </section>
   );
-}
-
-function parseEpNumFromWatchUrl(u: string | undefined): number | null {
-  if (!u) return null;
-  const m = u.match(/[?&]num=(\d+)/);
-  return m ? Number(m[1]) : null;
 }
 
 const hStyles: Record<string, CSSProperties> = {

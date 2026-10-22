@@ -60,6 +60,9 @@ import { coverUrl } from "@/lib/images/cover";
 import { youtubeTrailerId } from "@/lib/preview/trailerId";
 import tokenStyles from "../styles.module.css";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
+import { watchCta, warmWatchPath } from "@/lib/anime/watchCta";
+import { notify } from "@/lib/notifications/noticeStore";
+import { useRouter } from "next/router";
 
 type Props = {
   info: AniListInfoTypes;
@@ -265,8 +268,28 @@ function MHero({
     .map((e: any) => e.node?.name)
     .filter(Boolean)
     .slice(0, 2);
-  const nextEp = progress + 1;
-  const totalEp = info.episodes || info.nextAiringEpisode?.episode || 0;
+  // Bouton « Regarder » : meme logique que le PC (lib/anime/watchCta.ts).
+  const router = useRouter();
+  const cta = watchCta(info, watchUrl, statusLabel, t);
+  const warmed = useRef(false);
+  const warm = () => {
+    if (warmed.current) return;
+    warmed.current = true;
+    warmWatchPath(info, cta, router);
+  };
+  // Episodes, comme le PC (Hero.tsx) : « 7/12 » en cours de diffusion, « 1102+ »
+  // pour une serie sans fin connue.
+  const airedSoFar = info.nextAiringEpisode?.episode
+    ? Math.max(0, info.nextAiringEpisode.episode - 1)
+    : null;
+  const epLabel =
+    info.status === "RELEASING" && airedSoFar != null
+      ? info.episodes
+        ? `${airedSoFar}/${info.episodes}`
+        : `${airedSoFar}+`
+      : info.episodes
+      ? `${info.episodes}`
+      : "?";
 
   return (
     <section style={{ position: "relative" }}>
@@ -357,7 +380,7 @@ function MHero({
                 <span style={{ fontSize: 10.5, color: "#8a8fa3" }}>/10</span>
               </>
             }
-            label={ratingRank ? `RATED #${ratingRank}` : "RATED"}
+            label={ratingRank ? t("anime.rated", { rank: ratingRank }) : t("anime.average")}
           />
           <Divider />
           <Stat
@@ -369,7 +392,7 @@ function MHero({
                 </span>
               </>
             }
-            label="FAVOURITES"
+            label="FAVORITES"
           />
           <Divider />
           <Stat
@@ -380,11 +403,11 @@ function MHero({
                   <path d="m10 9 5 3-5 3z" fill="currentColor" />
                 </svg>
                 <span style={{ fontSize: 16, fontWeight: 700 }}>
-                  {totalEp || "?"}
+                  {epLabel}
                 </span>
               </>
             }
-            label={info.duration ? `EP · ${info.duration}min` : "EP"}
+            label={`${info.duration ? `EP · ${info.duration}min` : "EP"} · ${statusLabelI18n(t, info.status || null)}`}
           />
         </div>
 
@@ -468,10 +491,17 @@ function MHero({
               gap: 10,
             }}
           >
-            {watchUrl && (
+            {(watchUrl || cta.isNotYetReleased || cta.isCompleted) && (
               <Link
-                href={watchUrl}
+                href={cta.href}
+                onPointerDown={warm}
+                onClick={(e) => {
+                  // Rien a lire avant la diffusion : le bouton annonce la date.
+                  if (cta.isNotYetReleased) e.preventDefault();
+                }}
+                aria-disabled={cta.isNotYetReleased || undefined}
                 style={{
+                  ...(cta.isNotYetReleased ? { filter: "saturate(0.55)", cursor: "default" } : null),
                   display: "flex",
                   alignItems: "center",
                   gap: 12,
@@ -519,7 +549,9 @@ function MHero({
                       opacity: 0.9,
                     }}
                   >
-                    {progress > 0 ? t("anime.resumeCta") : t("anime.watchNowCta")}
+                    {cta.isNotYetReleased || cta.isCompleted || progress <= 0
+                      ? cta.label
+                      : t("anime.resumeCta")}
                   </div>
                   <div
                     style={{
@@ -530,8 +562,9 @@ function MHero({
                       textOverflow: "ellipsis",
                     }}
                   >
-                    {seasonInfo.number ? `S${seasonInfo.number} · ` : ""}EP{" "}
-                    {String(nextEp).padStart(2, "0")}
+                    {cta.isNotYetReleased
+                      ? cta.comingSoonLine || "—"
+                      : `${seasonInfo.number ? `S${seasonInfo.number} · ` : ""}EP ${String(cta.epNum).padStart(2, "0")}`}
                   </div>
                 </div>
               </Link>
@@ -683,6 +716,7 @@ function MActions({
                 .catch(() => {});
             } else if (typeof navigator !== "undefined" && navigator.clipboard) {
               navigator.clipboard.writeText(location.href);
+              notify.success(t("anime.linkCopied"));
             }
           }}
           style={{
