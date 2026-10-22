@@ -245,7 +245,9 @@ export default function SearchPalette() {
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4  text-center">
+          {/* Telephone : calee en HAUT. Centree, le clavier qui monte a la
+              saisie recouvrait la liste des resultats. */}
+          <div className="flex min-h-full items-center justify-center p-4  text-center max-md:items-start max-md:pt-[max(16px,env(safe-area-inset-top))]">
             <Transition.Child
               as={Fragment}
               enter="ease-out duration-200"
@@ -267,7 +269,8 @@ export default function SearchPalette() {
                   }}
                 >
                   <div className="flex justify-between py-1 font-karla">
-                    <div className="flex items-center px-2 gap-2">
+                    {/* Raccourci clavier : rien a dire a un ecran tactile. */}
+                    <div className="flex items-center px-2 gap-2 [@media(hover:none)]:hidden">
                       <p>{t("search.quickAccess")}</p>
                       <div className="bg-secondary text-white text-xs font-bold px-2 py-1 rounded-md">
                         <span>CTRL</span>
@@ -277,7 +280,7 @@ export default function SearchPalette() {
                         <span>S</span>
                       </div>
                     </div>
-                    <div className="flex gap-1 items-center">
+                    <div className="flex gap-1 items-center ml-auto">
                       <Menu
                         as="div"
                         className="relative inline-block text-left"
