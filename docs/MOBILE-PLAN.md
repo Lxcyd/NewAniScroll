@@ -81,10 +81,42 @@ la comparaison PC à chaque fois.
 | 7 | Performance mobile | Poids JS par page, tailles d'images servies au téléphone, coût de l'ambilight et des animations. Pas de nouvelle requête réseau facturée (quotas Vercel et Turso). |
 | 8 | Recette | Audit complet à 390×844, 360×780 et en paysage ; comparaison PC complète ; essai sur un vrai téléphone ; merge `mobile` → `dev` et un seul push. |
 
-## Grille de parité (à remplir à l'étape 0, cocher au fil des étapes)
+## Grille de parité — état au 22/10/2026 (branche `mobile`)
 
-| Page | Fonction PC | Sur mobile aujourd'hui | Cible |
-|---|---|---|---|
-| Fiche anime | Graphe des relations dans la page | Cartes + plein écran | Graphe vertical dans la page |
-| Fiche anime | Onglet dans l'URL (`#episodes`) | Ignoré | Comme sur PC |
-| … | … | … | … |
+✅ fait et vérifié en émulation (390×844, 360×780, paysage 844×390) ;
+📱 reste à confirmer sur un vrai téléphone.
+
+| Page | Fonction PC absente ou cassée sur mobile | Ce qui a été fait |
+|---|---|---|
+| Partout | Menu au survol de l'avatar (Admin, Langue, Créer un compte, Saison, Discord) | ✅ panneau du compte à l'appui |
+| Partout | Bouton menu flottant qui couvrait le contenu ; aucune navigation sur paramètres, ma liste, découvrir, profil | ✅ barre d'onglets du bas, montée par la Navbar |
+| Partout | Aperçu au survol des jaquettes | ✅ appui long 📱 |
+| Recherche | Palette centrée sous le clavier, « Ctrl+S » au doigt | ✅ calée en haut |
+| Accueil | Vitrine des tendances masquée (`hidden lg:block`) | ✅ vitrine mobile (pochette, balayage) |
+| Accueil | Retard d'un anime en cours au survol | ✅ visible au doigt |
+| Fiche anime | Graphe des relations (cartes à la place) | ✅ graphe dans la page ; plein écran replié ; glisser/pincer 📱 |
+| Fiche anime | Onglet dans l'URL | ✅ |
+| Fiche anime | Tags limités, sans spoilers ni descriptions ; sites externes limités | ✅ tous, bouton spoilers, description au toucher |
+| Fiche anime | Variables du design absentes (bordures blanches des onglets partagés), accent du thème ignoré | ✅ |
+| Fiche anime | Pas encore sorti → 404 ; terminé → épisode 29/28 | ✅ logique partagée `lib/anime/watchCta.ts` |
+| Visionnage | Pochette seule sur sa ligne, « Passer l'intro » sur le bouton lecture | ✅ |
+| Visionnage | Paysage : lecteur plus haut que l'écran | ✅ borné par la hauteur, barre d'onglets masquée |
+| Visionnage | Stats, capture, lien horodaté, rotation : clavier seulement | ✅ dans Réglages au doigt 📱 |
+| Regarder ensemble | En-tête flouté par l'ambilight ; modération de l'hôte au survol | ✅ |
+| Paramètres | Sommaire masqué | ✅ barre de sections |
+| Paramètres | Interrupteurs et curseurs trop petits | ✅ zones d'appui agrandies |
+| Profil | Nom sous la barre du haut ; onglets qui débordent ; widgets à 77 px | ✅ ; widgets sur une colonne en lecture |
+| Studio | Inutilisable (panneau sur le profil, Enregistrer coupé) | ✅ studio empilé ; widgets à l'appui long 📱 |
+| Admin | Barre latérale de la moitié de l'écran | ✅ en-tête + navigation qui défile |
+
+### Restes connus, hors périmètre ou à décider par Luc
+
+- Ambilight du lecteur : ~15 canvas sur téléphone, actif par défaut — le
+  couper par défaut sur mobile ? (choix produit, pas fait).
+- L'apercu à l'appui long charge son code sur tout téléphone (une requête de
+  chunk par visiteur et par déploiement).
+- Bugs PC repérés en passant, non corrigés (la branche ne touche pas au PC) :
+  le plein écran du graphe des relations perd les variables du design (puces
+  sans bordure) ; le Markdown du changelog coupe les puces aux retours à la
+  ligne ; `/admin` planterait pour un admin SANS AniList (`session.user.token`
+  vaut `undefined`, non sérialisable).
