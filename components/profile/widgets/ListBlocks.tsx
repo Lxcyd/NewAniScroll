@@ -873,7 +873,8 @@ export function ScoresBlock({
                 flux, il aurait raccourci la barre à l'instant du survol — la
                 colonne se serait mise à bouger sous le curseur. */}
             <span
-              className="pointer-events-none absolute inset-x-0 -translate-y-1 whitespace-nowrap text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+              className="pointer-events-none absolute inset-x-0 -translate-y-1 whitespace-nowrap text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+              /* Au doigt, pas de survol : les comptes restent affichés. */
               style={{ bottom: `${(n / top) * 100}%` }}
             >
               {n}

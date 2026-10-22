@@ -5478,7 +5478,8 @@ export default function BannerStudio({
                                 }}
                                 className={`grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-full transition hover:bg-white/10 hover:text-white ${
                                   /* En édition, la croix est là sans survol. */
-                                  row.rename ? "text-white/60" : "text-white/40 opacity-0 group-hover:opacity-100"
+                                  /* Au doigt, sans survol : toujours visible. */
+                                  row.rename ? "text-white/60" : "text-white/40 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
                                 }`}
                               >
                                 <XMarkIcon className="h-4 w-4" />
