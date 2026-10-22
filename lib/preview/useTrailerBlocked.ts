@@ -55,6 +55,11 @@ export function useTrailerBlocked(id: string | null): boolean {
 
   useEffect(() => {
     if (!id || trailerStatus(id) !== "unknown") return;
+    /* Pas sur telephone : un lecteur YouTube cache de plus, pendant 9 s, sur
+       chaque fiche, c'est de la memoire que Safari iOS fait payer par un
+       rechargement de page (crashs signales le 22/10). Le pire evite ici est
+       un bouton qui mene a une video bloquee. */
+    if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return;
 
     let frame: HTMLIFrameElement | null = null;
     let handshake: ReturnType<typeof setInterval> | null = null;
