@@ -85,12 +85,19 @@ export async function loadFanarts(
     : ["safe", "safe-skipped", "manual-safe"];
   const placeholders = labels.map(() => "?").join(",");
 
+  /* LE `+` DEVANT `nsfw_label` EST VOULU (22/10/2026), ici et dans
+     countFanartsByType. Sans lui SQLite choisissait l'index des étiquettes
+     (idx_fanart_label / idx_fanart_classifier) plutôt que celui de l'anime :
+     il lisait TOUTES les images « sûres » de la table (~120 000 lignes) pour
+     en garder quelques dizaines. 283 M de lignes lues sur la base fanarts du
+     14 au 21/10, 80 % du quota Turso du mois. Le `+` interdit l'index sur
+     cette colonne ; EXPLAIN QUERY PLAN doit dire `USING INDEX … (anime_id=?)`. */
   try {
     const r = await db.execute({
       sql: `SELECT type, url, language, likes, season, nsfw_label, nsfw_score
               FROM anime_fanarts
              WHERE anime_id = ?
-               AND nsfw_label IN (${placeholders})
+               AND +nsfw_label IN (${placeholders})
                AND likes >= ?
              ORDER BY type, likes DESC`,
       args: [animeId, ...labels, minLikes],
@@ -138,7 +145,7 @@ export async function countFanartsByType(
       sql: `SELECT anime_id, type, language
               FROM anime_fanarts
              WHERE anime_id IN (${ids.map(() => "?").join(",")})
-               AND nsfw_label IN ('safe', 'safe-skipped', 'manual-safe')`,
+               AND +nsfw_label IN ('safe', 'safe-skipped', 'manual-safe')`,
       args: ids,
     });
     for (const row of r.rows) {
