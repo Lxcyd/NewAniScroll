@@ -148,6 +148,15 @@
   }
 }
 
+/* ── Parametres : barre de sections (pages/en/settings.tsx, SettingsNavMobile)
+   Une section atteinte par la barre s'arrete sous la barre du haut (64) ET
+   sous la barre de sections (~52), pas a 96 px comme sur PC. */
+@media (max-width: 767px) {
+  body:has(.as-settings-bar) section[id] {
+    scroll-margin-top: 128px;
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

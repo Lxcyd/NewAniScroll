@@ -356,6 +356,41 @@ function SettingsNav({
   );
 }
 
+/* Le meme sommaire, en barre horizontale sous la barre du haut (< md, la ou le
+   rail de gauche est masque). La page compte une quinzaine de sections : sans
+   lui, un telephone n'avait que le defilement pour aller aux Notifications.
+   La puce active suit la section a l'ecran (meme `active` que le rail) et se
+   ramene dans la barre quand elle en sort. */
+function SettingsNavMobile({ sections, active }: { sections: SectionDef[]; active: string }) {
+  const { t } = useTranslation();
+  const barRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const chip = barRef.current?.querySelector<HTMLElement>(`[data-sec="${active}"]`);
+    chip?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }, [active]);
+  return (
+    <div
+      ref={barRef}
+      className="as-settings-bar md:hidden fixed left-0 right-0 top-[64px] z-[800] flex gap-2 overflow-x-auto scrollbar-hide border-b border-white/10 bg-[#0c0d10] px-4 py-2"
+    >
+      {sections.map(({ id, labelKey, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          data-sec={id}
+          onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 min-h-[36px] text-[13px] font-medium ring-1 transition-colors ${
+            active === id ? "bg-action/15 text-action ring-action/40" : "text-white/70 ring-white/10"
+          }`}
+        >
+          <Icon className="h-4 w-4" />
+          {t(labelKey)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Settings() {
   /* « Reglages » : simplement ouvrir cette page. `recordFlag` n'ecrit que la
      premiere fois, donc les visites suivantes ne coutent rien -- ni ecriture,
@@ -769,6 +804,7 @@ export default function Settings() {
       {/* Fixed full-height left rail (desktop). Out of normal flow, so the
           content below is pushed right by a matching margin. */}
       <SettingsNav sections={navSections} active={activeSection} />
+      <SettingsNavMobile sections={navSections} active={activeSection} />
 
       <div className="as-fade-in min-h-screen py-16 md:py-0">
         <div className="max-w-screen-md w-full mx-auto px-4 pt-28 pb-10">

@@ -181,7 +181,13 @@ for (const chemin of chemins) {
   // Captures ecran par ecran (une pleine page de 6000 px est illisible une
   // fois reduite). TRANCHES limite le nombre d'ecrans par page.
   const hauteur = r?.hauteur || H;
-  const tranches = Math.min(Math.ceil(hauteur / H), Number(process.env.TRANCHES || 6));
+  // VUE=1 : l'ecran tel qu'on le voit (apres un defilement, avec les elements
+  // fixes a leur place), au lieu du document decoupe depuis le haut.
+  if (process.env.VUE === "1") {
+    const cap = await envoie("Page.captureScreenshot", { format: "png" });
+    if (cap.result?.data) writeFileSync(join(sortie, `${slug}-vue.png`), Buffer.from(cap.result.data, "base64"));
+  }
+  const tranches = process.env.VUE === "1" ? 0 : Math.min(Math.ceil(hauteur / H), Number(process.env.TRANCHES || 6));
   for (let i = 0; i < tranches; i++) {
     const cap = await envoie("Page.captureScreenshot", {
       format: "png", captureBeyondViewport: true,

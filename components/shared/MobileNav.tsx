@@ -70,7 +70,7 @@ export default function MobileNav(_props: MobileNavProps) {
   return (
     <nav
       aria-label="Navigation"
-      className={`as-tabbar ${path.startsWith("/en/anime/watch") ? "as-tabbar-watch " : ""}fixed bottom-0 left-0 right-0 z-[900] lg:hidden border-t border-white/10 bg-[#17171f]/95 backdrop-blur-md`}
+      className={`as-tabbar ${path.startsWith("/en/anime/watch") ? "as-tabbar-watch " : ""}fixed bottom-0 left-0 right-0 z-[900] lg:hidden border-t border-white/10 bg-[#17171f]`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="mx-auto flex h-[60px] max-w-[560px] items-stretch justify-around px-1">
