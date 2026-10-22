@@ -169,6 +169,64 @@
   }
 }
 
+/* ── Studio du profil sur telephone en hauteur (BannerStudio + ProfileStage)
+   La geometrie empilee vient de `sceneGeometry` (ProfileStage.tsx, branche
+   W < 768 && H > W) : profil en haut, menu ouvert dessous, barre des reglages
+   en bas. Les conteneurs du studio sont places en classes Tailwind qui lisent
+   les variables du bureau ; ici on les recale sur la pile. */
+@media (max-width: 767px) and (orientation: portrait) {
+  /* Le menu ouvert : sous le profil, au-dessus de la barre. */
+  .as-scene-ui-left {
+    top: var(--as-scene-menu-top) !important;
+    bottom: var(--as-scene-menu-bottom) !important;
+  }
+  /* La barre des reglages : collee en bas, a sa hauteur propre. */
+  .as-scene-ui-bottom {
+    top: auto !important;
+    height: calc(78px + 0.875rem);
+  }
+  /* Ses cases (Fond, Agencement, Cadre, Badges, Musique, Flou…) ne tiennent pas
+     a 370 px : elles gardent leur largeur et la rangee defile. */
+  .as-scene-menus {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .as-scene-menus::-webkit-scrollbar {
+    display: none;
+  }
+  .as-scene-menus > .as-scene-box:not(.flex-none) {
+    flex: 0 0 auto;
+    min-width: 132px;
+  }
+  /* La barre de titre : les boutons d'abord, le titre et la note se taisent. */
+  .as-scene-ui-top h2,
+  .as-scene-ui-top > span.truncate {
+    display: none;
+  }
+  .as-scene-ui-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* L'appui long qui attrape un widget (WidgetGrid, `touchArm`) ne doit ni
+   selectionner son texte ni ouvrir le menu natif. */
+@media (hover: none) and (pointer: coarse) {
+  .as-widget-edit {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* ── Profil : la bande du haut (ProfileHero, `.as-hero-band-slim`) ─────────
+   170 px au plancher, et l'identite (avatar 6 rem, nom, mention) posee en bas
+   en mesure ~150 : son haut passait sous la barre du site (64 px). */
+@media (max-width: 639px) {
+  :root {
+    --as-hero-slim: clamp(240px, 21vw, 46vh);
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

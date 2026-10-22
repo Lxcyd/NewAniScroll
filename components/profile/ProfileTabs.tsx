@@ -65,7 +65,9 @@ export default function ProfileTabs({
        était la seule à laisser l'illustration nette derrière son texte. */
     <div
       ref={barRef}
-      className="as-stat-card flex w-max items-center gap-1 rounded-full p-[5px] ring-1 ring-white/[0.07]"
+      /* Telephone : jamais plus large que l'ecran ; s'il le faut, la rangee
+         defile (la pilule, enfant de la barre, defile avec elle). */
+      className="as-stat-card flex w-max max-sm:max-w-full max-sm:overflow-x-auto max-sm:scrollbar-hide items-center gap-1 rounded-full p-[5px] ring-1 ring-white/[0.07]"
     >
       {pill ? (
         <span
@@ -93,7 +95,7 @@ export default function ProfileTabs({
             type="button"
             onClick={() => onChange(tab.key)}
             aria-current={on ? "page" : undefined}
-            className={`relative rounded-full px-4 py-2 font-karla text-[13px] font-bold transition-colors duration-300 sm:px-[18px] ${
+            className={`relative shrink-0 rounded-full px-4 max-sm:px-3 py-2 font-karla text-[13px] font-bold transition-colors duration-300 sm:px-[18px] ${
               on
                 ? /* Son propre fond seulement tant que la pilule n'est pas posée. */
                   `text-white ${pill ? "" : "bg-action shadow-glow"}`

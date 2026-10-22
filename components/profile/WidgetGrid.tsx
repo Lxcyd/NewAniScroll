@@ -330,21 +330,82 @@ export default function WidgetGrid({
     };
   }, [drag, onMove, endDrag]);
 
+  /* AU DOIGT, ATTRAPER UN BLOC DEMANDE UN APPUI LONG.
+     Toute la carte est la poignée ; à la souris c'est sans ambiguïté, mais au
+     doigt les blocs couvrent tout l'aperçu, et un doigt posé dessus ne pouvait
+     plus faire défiler le profil jusqu'aux blocs du bas. Un glisser direct
+     défile donc (`touch-action: pan-y`), et un appui immobile de ~0,3 s attrape
+     le bloc ; ensuite le défilement est bloqué tant qu'on le tient (écouteur
+     `touchmove` non passif, posé dès l'édition pour être là au premier
+     contact). La souris garde le glisser immédiat. */
+  const touchArm = useRef<{ id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const disarm = () => {
+    if (touchArm.current) clearTimeout(touchArm.current.timer);
+    touchArm.current = null;
+  };
+  useEffect(() => {
+    if (!editing) return;
+    const host = hostRef.current;
+    if (!host) return;
+    const block = (e: TouchEvent) => {
+      if (dragRef.current) e.preventDefault();
+    };
+    const onMoveArm = (e: PointerEvent) => {
+      const a = touchArm.current;
+      if (a && Math.hypot(e.clientX - a.x, e.clientY - a.y) > 8) disarm();
+    };
+    host.addEventListener("touchmove", block, { passive: false });
+    window.addEventListener("pointermove", onMoveArm);
+    window.addEventListener("pointerup", disarm);
+    window.addEventListener("pointercancel", disarm);
+    return () => {
+      disarm();
+      host.removeEventListener("touchmove", block);
+      window.removeEventListener("pointermove", onMoveArm);
+      window.removeEventListener("pointerup", disarm);
+      window.removeEventListener("pointercancel", disarm);
+    };
+  }, [editing]);
+
   function startDrag(id: string, mode: Drag["mode"], e: React.PointerEvent) {
     if (!editing || e.button !== 0) return;
     const it = layout.find((o) => o.i === id);
     if (!it) return;
+    if (mode === "move" && e.pointerType === "touch") {
+      // Pas de preventDefault ni de stopPropagation : si le doigt bouge avant
+      // l'échéance, c'est un défilement, et il doit rester possible.
+      disarm();
+      const x = e.clientX;
+      const y = e.clientY;
+      touchArm.current = {
+        id,
+        x,
+        y,
+        timer: setTimeout(() => {
+          touchArm.current = null;
+          navigator.vibrate?.(10);
+          beginDrag(id, mode, x, y);
+        }, 300),
+      };
+      return;
+    }
     e.preventDefault();
     /* Attraper une carte referme le panneau. L'écouteur `window` ci-dessus ne
        peut pas s'en charger : ce `stopPropagation`-ci coupe aussi l'événement
        natif, donc il ne remonte jamais jusqu'à lui. */
     e.stopPropagation();
+    beginDrag(id, mode, e.clientX, e.clientY);
+  }
+
+  function beginDrag(id: string, mode: Drag["mode"], sx: number, sy: number) {
+    const it = layoutRef.current.find((o) => o.i === id);
+    if (!it) return;
     setSettings(null);
     const started: Drag = {
       id,
       mode,
-      sx: e.clientX,
-      sy: e.clientY,
+      sx,
+      sy,
       k: (() => {
         const host = hostRef.current;
         const k = host && host.offsetWidth ? host.getBoundingClientRect().width / host.offsetWidth : 1;
@@ -361,10 +422,29 @@ export default function WidgetGrid({
   }
 
   const rows = rowCount(layout);
-  const height = Math.max(
-    0,
-    rows * (ROW + GAP) - GAP + (editing ? ROW * 0.5 : 0),
-  );
+  /* TELEPHONE, EN LECTURE : UNE COLONNE. Quatre colonnes dans ~360 px, ce sont
+     des blocs de 77 px — titres tronqués, contenus écrasés. Hors édition et
+     sous 600 px, les blocs s'empilent dans l'ordre de lecture de la grille
+     (ligne, puis colonne), chacun sur toute la largeur et à sa hauteur. La
+     disposition enregistrée n'est pas touchée : en édition (le studio) on range
+     la vraie grille, celle que voient les visiteurs sur PC. */
+  const stacked = !editing && width > 0 && width < 600;
+  const stackRects = new Map<string, { left: number; top: number; width: number; height: number }>();
+  let stackH = 0;
+  if (stacked) {
+    for (const it of layout.slice().sort((a, b) => a.y - b.y || a.x - b.x)) {
+      const h = it.h * ROW + (it.h - 1) * GAP;
+      stackRects.set(it.i, { left: 0, top: stackH, width, height: h });
+      stackH += h + GAP;
+    }
+    stackH = Math.max(0, stackH - GAP);
+  }
+  const height = stacked
+    ? stackH
+    : Math.max(
+        0,
+        rows * (ROW + GAP) - GAP + (editing ? ROW * 0.5 : 0),
+      );
   const dragged = drag ? layout.find((o) => o.i === drag.id) : null;
 
   /* Ce que le bloc tenu sous le curseur mesure À L'INSTANT, avant arrondi.
@@ -374,6 +454,8 @@ export default function WidgetGrid({
      disposition a déjà sauté à la case suivante, s'en servir ferait rebondir le
      bloc à chaque franchissement. */
   function livePixels(it: GridItem) {
+    const s = stackRects.get(it.i);
+    if (s) return s;
     const rect = pixelRect(it, width || 1);
     if (!drag || drag.id !== it.i) return rect;
     const start = pixelRect(
@@ -468,8 +550,9 @@ export default function WidgetGrid({
                  mais on ne le montre pas : la premiere image visible est deja
                  la bonne. */
               visibility: width ? undefined : "hidden",
-              // Sans quoi un glissement au doigt fait défiler la page.
-              touchAction: editing ? "none" : undefined,
+              /* Au doigt : un glisser vertical défile l'aperçu, un appui long
+                 attrape le bloc (cf. `touchArm`). Sans effet à la souris. */
+              touchAction: editing ? "pan-y" : undefined,
             }}
           >
             <header

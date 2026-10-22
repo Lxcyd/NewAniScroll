@@ -112,6 +112,43 @@ export function sceneGeometry(
     "--as-scene-s1-y": px(firstTop),
     "--as-scene-top": px(top),
   };
+  /* TELEPHONE EN HAUTEUR (< 768 px, plus haut que large) : pas de colonne a
+     cote du cadre, on EMPILE. En haut la barre de titre, puis le profil sur
+     toute la largeur (~38 % de la hauteur, il defile dans son cadre), puis le
+     menu ouvert, puis la barre des reglages collee en bas. Le menu et la barre
+     lisent `--as-scene-menu-top` / `--as-scene-menu-bottom` (styles/mobile.css).
+     Le profil garde sa largeur de mise en page de telephone : zoom = zoneW / W,
+     presque 1, il reste lisible. */
+  if (W < 768 && H > W) {
+    const m = 10;
+    const phoneTop = 56;
+    const zoneW = W - 2 * m;
+    const zoneH = Math.round(H * 0.38);
+    const z = zoneW / W;
+    const barBottom = 22 + BOTTOM_BAR + 10;
+    return {
+      fit: z,
+      zoom: z,
+      vars: {
+        ...common,
+        "--as-scene-top": px(phoneTop),
+        "--as-scene-zoom": num(z),
+        "--as-scene-dock-x": px(m),
+        "--as-scene-dock-y": px(phoneTop),
+        "--as-scene-dock-w": px(zoneW / z),
+        "--as-scene-dock-h": px(zoneH / z),
+        "--as-scene-menu-left": px(m),
+        "--as-scene-menu-w": px(zoneW),
+        "--as-scene-gap": px(m),
+        "--as-scene-menu-from": "0px",
+        "--as-scene-menu-top": px(phoneTop + zoneH + m),
+        "--as-scene-menu-bottom": px(barBottom),
+        "--as-scene-frame-left": px(m),
+        "--as-scene-frame-right": px(m),
+        "--as-scene-frame-bottom": px(phoneTop + zoneH),
+      },
+    };
+  }
   if (W < 1024) {
     return {
       fit: first,

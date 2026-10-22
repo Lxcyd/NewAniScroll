@@ -5814,7 +5814,8 @@ export default function BannerStudio({
           <div
             ref={menusEl}
             aria-hidden={showMusic}
-            className={`flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
+            /* `as-scene-menus` : sur telephone la rangee defile (mobile.css). */
+            className={`as-scene-menus flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
               showMusic ? "pointer-events-none translate-x-full" : "translate-x-0"
             }`}
           >
@@ -6722,7 +6723,7 @@ function SceneBox({
          FOND, MUSIQUE et FLOU ne tombaient pas sur la même ligne. L'en-tête a
          une hauteur fixe (la pastille « 0 px » du flou le grandissait) et le
          contenu se centre dans ce qui reste. */
-      className={`relative flex min-w-0 flex-col justify-start gap-1.5 px-4 py-2 transition-colors ${
+      className={`as-scene-box relative flex min-w-0 flex-col justify-start gap-1.5 px-4 py-2 transition-colors ${
         fit ? "flex-none" : grow ? "flex-[1.6]" : "flex-1"
       } ${onOpen ? "cursor-pointer" : ""} ${active ? "bg-action/[0.13]" : "hover:bg-white/[0.04]"}`}
     >
