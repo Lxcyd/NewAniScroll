@@ -259,6 +259,19 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
   const [lockBusy, setLockBusy] = useState(false);
   const composerRef = useRef<ChatComposerHandle | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+  /* Avatar ouvert au doigt : son nom et, pour l'hote, le menu de moderation.
+     A la souris les deux viennent au survol (group-hover) ; un ecran tactile
+     ne survole pas, et l'hote ne pouvait ni exclure ni rendre muet. */
+  const [openMember, setOpenMember] = useState<string | null>(null);
+  const membersRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!openMember) return;
+    const onDown = (e: PointerEvent) => {
+      if (!membersRef.current?.contains(e.target as Node)) setOpenMember(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [openMember]);
 
   const toggleLock = () => {
     if (lockBusy) return;
@@ -368,23 +381,34 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
       </div>
 
       {/* Members — rendered in join order (oldest first / leftmost). */}
-      <div className="flex flex-wrap items-start gap-3 border-b border-white/10 px-4 py-3">
+      <div ref={membersRef} className="flex flex-wrap items-start gap-3 border-b border-white/10 px-4 py-3">
         {members.length === 0 && (
           <span className="text-xs text-white/50">{t("party.waiting")}</span>
         )}
         {members.map((m) => {
           const canModerate = isHost && m.userId !== myId;
           const isMe = m.userId === myId;
+          const opened = openMember === m.userId;
           return (
-            <div key={m.userId} className="group relative flex flex-col items-center">
+            <div
+              key={m.userId}
+              className="group relative flex flex-col items-center"
+              onClick={(e) => {
+                // Un appui DANS le menu (exclure, rendre muet…) ne le referme pas
+                // avant que l'action parte.
+                if ((e.target as Element).closest("[data-member-menu]")) return;
+                setOpenMember((cur) => (cur === m.userId ? null : m.userId));
+              }}
+            >
               {/* Custom tooltip ABOVE the avatar (native title shows below). High
                   z so it sits over every other panel element. */}
-              <span className="pointer-events-none absolute -top-7 left-1/2 z-[100] hidden -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block">
+              <span className={`pointer-events-none absolute -top-7 left-1/2 z-[100] -translate-x-1/2 whitespace-nowrap rounded bg-black/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg group-hover:block ${opened ? "block" : "hidden"}`}>
                 {m.name}
               </span>
-              {/* Host moderation menu — appears on HOVER, directly under the avatar. */}
+              {/* Host moderation menu — on HOVER (mouse) or on TAP (opened),
+                  directly under the avatar. */}
               {canModerate && (
-                <div className="absolute left-1/2 top-7 z-[90] hidden w-max min-w-[150px] -translate-x-1/2 pt-1 group-hover:block">
+                <div data-member-menu className={`absolute left-1/2 top-7 z-[90] w-max min-w-[150px] -translate-x-1/2 pt-1 group-hover:block ${opened ? "block" : "hidden"}`}>
                   <MemberMenu
                     member={m}
                     transferHost={transferHost}
@@ -400,7 +424,8 @@ function ActiveRoom({ party, onClose }: { party: PartyContext; onClose?: () => v
                   (phone asleep / tab backgrounded) is kept but dimmed — they
                   stay in the room until they leave/are removed. */}
               <div
-                className={`relative h-7 w-7 transition-opacity ${
+                /* 28 px de dessin, mais une cible de 40 au doigt. */
+                className={`relative h-7 w-7 cursor-pointer transition-opacity before:absolute before:-inset-1.5 before:content-[''] ${
                   m.online === false ? "opacity-40" : ""
                 }`}
                 title={m.online === false ? t("party.offline") : undefined}

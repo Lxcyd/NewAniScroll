@@ -13,6 +13,25 @@
 /* ── Barre d'onglets du bas (components/shared/MobileNav.tsx) ─────────────
    La page garde sa fin visible : on lui ajoute en bas la hauteur de la barre
    (60 px) + la zone sure de l'iPhone. */
+/* Telephone COUCHE sur la page de visionnage : 60 px de barre sur 390 de haut,
+   un sixieme de l'ecran, et c'est la que l'on regarde. La barre s'efface (le
+   reste du site la garde : Decouvrir, Programme, la recherche n'ont pas
+   d'autre entree en paysage). */
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .as-tabbar-watch {
+    display: none !important;
+  }
+  body.has-tabbar:has(.as-tabbar-watch) {
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+  /* Le lecteur tient dans la hauteur, comme sur PC (--player-col, page de
+     visionnage) : cale sur la largeur, un 16:9 de 844 px faisait 475 de haut
+     pour 390 d'ecran. 72 px = la barre du haut et un peu d'air. */
+  #primary > :first-child {
+    width: min(100%, calc((100dvh - 72px) * 16 / 9)) !important;
+    margin-inline: auto;
+  }
+}
 @media (max-width: 1023px) {
   body.has-tabbar {
     padding-bottom: calc(60px + env(safe-area-inset-bottom));

@@ -3154,7 +3154,11 @@ export default function Watch({
          d'episodes, du temps ou elle le suivait dans la meme colonne. La liste
          est descendue d'une rangee ; cette marge ne separait donc plus rien et
          empechait le panneau d'aller jusqu'au bas de la barre de serveurs. */
-      <div className="mb-4 lg:mb-0 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+      /* `max-lg:relative max-lg:z-10` : sur telephone le panneau est juste sous
+         le lecteur, la ou s'etale le halo de l'ambilight (des canvas plus larges
+         que l'ecran, sans pointeur) — il passait par-dessus et floutait
+         l'en-tete. La fiche (details.tsx) est en z-10 pour la meme raison. */
+      <div className="mb-4 max-lg:relative max-lg:z-10 lg:mb-0 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
         <div className="h-[60vh] max-h-[520px] lg:h-full lg:max-h-none lg:min-h-0 lg:flex-1">
           <WatchPartyPanel
             party={party}

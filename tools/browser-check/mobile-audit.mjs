@@ -171,6 +171,12 @@ for (const chemin of chemins) {
     });
     await dors(400);
   }
+  // SONDE : une expression JS dont le resultat (JSON) est imprime — pour lire
+  // une position, un style calcule, plutot que de deviner sur une capture.
+  if (process.env.SONDE) {
+    const s = await envoie("Runtime.evaluate", { expression: process.env.SONDE, returnByValue: true });
+    console.log("   sonde →", JSON.stringify(s.result?.result?.value ?? s.result?.exceptionDetails?.text));
+  }
   const r = (await envoie("Runtime.evaluate", { expression: releve, returnByValue: true })).result?.result?.value;
   // Captures ecran par ecran (une pleine page de 6000 px est illisible une
   // fois reduite). TRANCHES limite le nombre d'ecrans par page.

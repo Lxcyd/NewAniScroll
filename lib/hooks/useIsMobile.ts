@@ -14,7 +14,10 @@ import { useEffect, useState } from "react";
  * The threshold matches the breakpoint the rest of the V2 design uses
  * for stack-vs-grid layout decisions (Tailwind's `md`: 768 px).
  */
-const MOBILE_QUERY = "(max-width: 768px)";
+/* Plus un telephone COUCHE : 844 px de large mais 390 de haut, la mise en page
+   PC (hero de 600 px, colonnes) n'y tient pas. `pointer: coarse` laisse hors
+   du coup une fenetre de PC simplement basse. */
+const MOBILE_QUERY = "(max-width: 768px), (max-height: 500px) and (pointer: coarse)";
 
 function detectFromUA(ua: string | undefined | null): boolean {
   if (!ua) return false;
