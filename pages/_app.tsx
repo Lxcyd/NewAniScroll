@@ -304,8 +304,11 @@ function HoverPreviewGate() {
   const [pointer, setPointer] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    /* Et l'ecran tactile, depuis l'apercu a l'appui long (HoverPreviewProvider,
+       `touchMode`). Le chunk n'est charge qu'ici, apres l'hydratation. */
+    const touch = window.matchMedia("(hover: none) and (pointer: coarse)");
     const apply = () => {
-      if (mq.matches) setPointer(true);
+      if (mq.matches || touch.matches) setPointer(true);
     };
     apply();
     mq.addEventListener?.("change", apply);

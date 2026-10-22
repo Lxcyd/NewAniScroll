@@ -510,7 +510,12 @@ export default function Content({
                             {checkProgress(progress) && (
                               <div
                                 onClick={() => handleAlert(String(anime.id))}
-                                className="group-hover:visible invisible absolute top-0 bg-black bg-opacity-20 w-full h-full z-20 text-center"
+                                /* Tactile : pas de survol pour reveler le retard ;
+                                   il reste affiche tant qu'il n'a pas ete vu (le
+                                   meme appui qui efface la pastille l'efface). */
+                                className={`group-hover:visible invisible absolute top-0 bg-black bg-opacity-20 w-full h-full z-20 text-center ${
+                                  !clicked?.hasOwnProperty(anime.id) ? "[@media(hover:none)]:visible" : ""
+                                }`}
                               >
                                 <h1 className="text-[12px] lg:text-sm pt-28 lg:pt-44 font-bold opacity-100">
                                   {checkProgress(progress)}

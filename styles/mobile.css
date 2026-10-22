@@ -157,6 +157,18 @@
   }
 }
 
+/* ── Apercu a l'appui long (HoverPreviewProvider, `touchMode`) ─────────────
+   L'appui long d'une jaquette ouvre notre apercu, pas le menu natif « ouvrir
+   le lien / enregistrer l'image » d'iOS, ni une selection de texte. */
+@media (hover: none) and (pointer: coarse) {
+  [data-anime-preview],
+  [data-anime-preview] img {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

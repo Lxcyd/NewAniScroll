@@ -92,9 +92,13 @@ export default function PreviewCard({
   id,
   rect,
   subscribeRect,
+  touch = false,
 }: {
   id: number;
   rect: AnchorRect;
+  /** Ouverte par un appui long (ecran tactile) : centree, a l'echelle d'un
+   *  telephone, toujours entre les barres du haut et du bas. */
+  touch?: boolean;
   /**
    * Register for the anchor's position while the page scrolls. See the provider:
    * the updates arrive outside React so that a scroll moves this card without
@@ -217,12 +221,29 @@ export default function PreviewCard({
    * is then antialiased against whatever sits behind it, and a half-covered row
    * of pixels along the top of the picture reads as a one-pixel outline.
    */
-  const placeAt = (r: AnchorRect) => ({
-    left: Math.round(
-      Math.max(EDGE_GAP, Math.min(r.left + r.width / 2 - WIDTH / 2, window.innerWidth - WIDTH - EDGE_GAP)),
-    ),
-    top: Math.round(r.top + r.height / 2 - HEIGHT / 2),
-  });
+  /* Au doigt : 364 px ne tiennent pas sur un ecran de 360, et une carte centree
+     sur une jaquette du haut de page passait sous la barre du haut (celle du bas
+     cache le bas). On la reduit a l'ecran et on la garde entre les deux. */
+  const touchScale = touch && typeof window !== "undefined"
+    ? Math.min(1, (window.innerWidth - 24) / WIDTH)
+    : 1;
+  const placeAt = (r: AnchorRect) =>
+    touch
+      ? {
+          left: Math.round((window.innerWidth - WIDTH * touchScale) / 2),
+          top: Math.round(
+            Math.max(
+              72,
+              Math.min(r.top + r.height / 2 - (HEIGHT * touchScale) / 2, window.innerHeight - HEIGHT * touchScale - 72),
+            ),
+          ),
+        }
+      : {
+          left: Math.round(
+            Math.max(EDGE_GAP, Math.min(r.left + r.width / 2 - WIDTH / 2, window.innerWidth - WIDTH - EDGE_GAP)),
+          ),
+          top: Math.round(r.top + r.height / 2 - HEIGHT / 2),
+        };
   useLayoutEffect(() => {
     const p = placeAt(rect);
     posRef.current = p;
@@ -443,10 +464,13 @@ export default function PreviewCard({
     <div
       ref={cardRef}
       data-preview-popup=""
-      className="as-preview-root fixed z-[80]"
+      className={`as-preview-root fixed ${touch ? "z-[950]" : "z-[80]"}`}
       style={{
         width: WIDTH,
         height: HEIGHT,
+        ...(touch && touchScale < 1
+          ? { transform: `scale(${touchScale})`, transformOrigin: "0 0" }
+          : null),
         // The live position, so a render triggered while the page scrolls
         // paints where the card actually is rather than where it opened.
         top: posRef.current?.top ?? pos?.top ?? 0,

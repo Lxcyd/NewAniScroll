@@ -429,6 +429,124 @@ export default function HoverPreviewProvider() {
     // rebound when it changes or the old value keeps arming the card.
   }, [enabled, prefs.delay]);
 
+  /**
+   * AU DOIGT : un appui long ouvre l'apercu.
+   *
+   * Le survol n'existe pas sur un ecran tactile, et l'apercu (bande-annonce,
+   * synopsis, ajout a la liste) etait donc tout simplement absent du telephone.
+   * Le geste tactile qui veut dire « montre-m'en plus sans y aller » est l'appui
+   * long — c'est aussi celui des menus contextuels natifs, qu'on neutralise sur
+   * les jaquettes (styles/mobile.css, -webkit-touch-callout).
+   *
+   * Chemin entierement separe de celui de la souris ci-dessus : rien de ce qui
+   * suit ne tourne quand `hover: hover` est vrai.
+   */
+  const [touchMode, setTouchMode] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
+    const apply = () => setTouchMode(prefs.enabled && mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [prefs.enabled]);
+
+  useEffect(() => {
+    if (!touchMode) return;
+    const LONG_MS = 480;
+    const SLOP = 10;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let start: { x: number; y: number } | null = null;
+    /** L'appui long vient d'ouvrir une carte : le `click` qui suit le
+     *  relachement ne doit PAS suivre le lien de la jaquette. */
+    let swallowClick = false;
+
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      start = null;
+    };
+    const anchorAt = (target: EventTarget | null): HTMLElement | null => {
+      const node = target as Element | null;
+      if (!node || typeof node.closest !== "function") return null;
+      return node.closest(`[${PREVIEW_ATTR}]`) as HTMLElement | null;
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      const node = e.target as Element | null;
+      if (node?.closest?.("[data-preview-popup]")) return;
+      // Un appui hors de la carte ouverte la ferme (sauf dialogue de la carte).
+      if (openRef.current && !isPreviewLocked()) setOpen(null);
+      const el = anchorAt(e.target);
+      if (!el || e.touches.length !== 1) return cancel();
+      start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      const id = Number(el.getAttribute(PREVIEW_ATTR));
+      if (Number.isFinite(id) && id > 0) void fetchPreview(id);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        if (!el.isConnected) return;
+        const rect = rectOf(el);
+        if (!rect.width || !rect.height || !(id > 0)) return;
+        swallowClick = true;
+        navigator.vibrate?.(10);
+        setOpen({ id, el, rect });
+      }, LONG_MS);
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!start) return;
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - start.x, t.clientY - start.y) > SLOP) cancel();
+    };
+    const onClick = (e: MouseEvent) => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    // Le menu « Ouvrir le lien / Enregistrer l'image » d'Android sur appui long.
+    const onContextMenu = (e: Event) => {
+      if (anchorAt(e.target)) e.preventDefault();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(null);
+    };
+    let raf = 0;
+    const onScroll = () => {
+      if (raf || !openRef.current) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const live = openRef.current;
+        if (!live) return;
+        if (!live.el.isConnected) return setOpen(null);
+        live.rect = rectOf(live.el);
+        rectListener.current?.(live.rect);
+      });
+    };
+    const unsubscribe = onPreviewUnlocked(() => setOpen(null));
+
+    document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    document.addEventListener("touchmove", onTouchMove, { capture: true, passive: true });
+    document.addEventListener("touchend", cancel, true);
+    document.addEventListener("touchcancel", cancel, true);
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("contextmenu", onContextMenu, true);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      cancel();
+      unsubscribe();
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchmove", onTouchMove, true);
+      document.removeEventListener("touchend", cancel, true);
+      document.removeEventListener("touchcancel", cancel, true);
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("contextmenu", onContextMenu, true);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [touchMode]);
+
   // A popup surviving into the next page would float over unrelated content.
   useEffect(() => {
     const hide = () => setOpen(null);
@@ -436,7 +554,7 @@ export default function HoverPreviewProvider() {
     return () => router.events.off("routeChangeStart", hide);
   }, [router]);
 
-  if (!enabled || typeof document === "undefined") return null;
+  if ((!enabled && !touchMode) || typeof document === "undefined") return null;
 
   return createPortal(
     <>
@@ -459,6 +577,7 @@ export default function HoverPreviewProvider() {
           id={open.id}
           rect={open.rect}
           subscribeRect={subscribeRect}
+          touch={touchMode}
         />
       )}
     </>,
