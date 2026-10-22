@@ -227,6 +227,24 @@
   }
 }
 
+/* ── Cibles tactiles, sans changer le dessin ───────────────────────────────
+   Un interrupteur de 44×24 et un curseur de 16 px de haut se ratent au doigt.
+   La zone d'appui grandit (pseudo-element invisible, hauteur du curseur), pas
+   ce qu'on voit. Doigt seulement. */
+@media (pointer: coarse) {
+  button[role="switch"] {
+    position: relative;
+  }
+  button[role="switch"]::before {
+    content: "";
+    position: absolute;
+    inset: -10px -4px;
+  }
+  input[type="range"] {
+    min-height: 32px;
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

@@ -105,7 +105,7 @@ export default function AccountSheet({ open, onClose, onAuth }: Props) {
         {session && (
           <button
             type="button"
-            className={`${ITEM} mt-1 border-t border-white/10 rounded-none text-action`}
+            className={`${ITEM} mt-1 border-t border-white/10 rounded-none !text-action`}
             onClick={() => signOut({ redirect: true })}
           >
             {t("nav.signOut")}
