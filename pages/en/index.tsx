@@ -22,7 +22,6 @@ import Schedule from "@/components/home/schedule";
 import getUpcomingAnime, { UPCOMING_CACHE_KEY } from "@/lib/anilist/getUpcomingAnime";
 
 import GetMedia from "@/lib/anilist/getMedia";
-import MobileNav from "@/components/shared/MobileNav";
 import { getGreetingKey } from "@/utils/getGreetings";
 import { redis } from "@/lib/redis";
 import { Navbar } from "@/components/shared/NavBar";
@@ -1232,7 +1231,6 @@ export default function Home({
         />
         <meta name="twitter:image" content="/logo.png" />
       </Head>
-      <MobileNav hideProfile={true} />
 
       <Navbar withNav={true} home={true} />
       <div className="h-auto w-screen bg-primary text-[#dbdcdd] pt-16 lg:pt-0">

@@ -1,263 +1,105 @@
-import { SparklesIcon } from "@heroicons/react/20/solid";
+import { SparklesIcon as SparklesSolid } from "@heroicons/react/24/solid";
 import {
   CalendarIcon,
   HomeIcon,
   MagnifyingGlassIcon,
+  SparklesIcon,
+  BookmarkIcon,
 } from "@heroicons/react/24/outline";
-import { UserIcon } from "@heroicons/react/24/solid";
-import { pickAvatar } from "@/lib/auth/avatar";
+import {
+  CalendarIcon as CalendarSolid,
+  HomeIcon as HomeSolid,
+  BookmarkIcon as BookmarkSolid,
+} from "@heroicons/react/24/solid";
 import { useSearch } from "@/lib/context/isOpenState";
 import { profileHref } from "@/lib/profile/href";
-import { signOut, useSession } from "next-auth/react";
-import dynamic from "next/dynamic";
-import Image from "next/image";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/router";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 type MobileNavProps = {
+  /** Garde pour compatibilite : l'avatar a quitte cette barre (il est dans la
+   *  barre du haut, avec son menu en panneau — AccountSheet). */
   hideProfile?: boolean;
 };
 
-/* Same as the desktop nav: the form only loads when someone asks to sign in. */
-const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), {
-  ssr: false,
-});
+/**
+ * Barre d'onglets du bas, telephone et tablette (< lg, la ou la barre du haut
+ * cache ses liens). Remplace l'ancien bouton « menu » flottant : il fallait un
+ * appui de plus pour tout, et le bouton couvrait le bas a droite de chaque page.
+ *
+ * Montee par <Navbar> sur toutes les pages qui en ont une, et directement par
+ * les rares pages qui n'ont pas de barre du haut (CatalogGrid, recent…) — une
+ * page ne doit donc pas monter les deux. `owner` compte les instances pour que
+ * la classe de <body> ne tombe qu'au demontage de la derniere.
+ *
+ * La page garde sa place : la classe `has-tabbar` sur <body> lui ajoute en bas
+ * la hauteur de la barre + la zone sure (styles/globals.css).
+ */
+let owner = 0;
 
-export default function MobileNav({ hideProfile = false }: MobileNavProps) {
-  const { data: sessions }: { data: any } = useSession();
+export default function MobileNav(_props: MobileNavProps) {
+  const { data: session }: { data: any } = useSession();
   const { t } = useTranslation();
-  const [isVisible, setIsVisible] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-
-  /* La palette de recherche. Sur ordinateur elle s'ouvre au Ctrl+S ou par la
-     barre du haut ; sur téléphone il n'y avait AUCUN moyen de l'atteindre —
-     l'icône prévue dans <NavBar> porte `hidden` et ne s'est jamais affichée.
-     Elle entre donc ici, dans le seul menu que le téléphone ait.
-
-     `useSearch()` peut rendre `undefined` : <MobileNav> est monté par des pages
-     d'erreur qui, selon le moment où elles rendent, sont hors du fournisseur.
-     On ne fait pas tomber la barre de navigation entière pour un bouton. */
+  const router = useRouter();
+  // `useSearch()` peut rendre `undefined` : <MobileNav> est monte par des pages
+  // d'erreur hors du fournisseur. On ne fait pas tomber la barre pour un bouton.
   const search = useSearch();
 
-  const avatarUrl = pickAvatar(sessions?.user);
+  useEffect(() => {
+    owner++;
+    document.body.classList.add("has-tabbar");
+    return () => {
+      owner--;
+      if (owner <= 0) document.body.classList.remove("has-tabbar");
+    };
+  }, []);
 
-  const handleShowClick = () => {
-    setIsVisible(true);
-  };
+  const path = router?.asPath?.split(/[?#]/)[0] || "";
+  const listHref = session ? profileHref(session.user) : "/en/my-list";
+  const tabs = [
+    { href: "/en", label: t("nav.home"), Icon: HomeIcon, IconOn: HomeSolid, on: path === "/en" || path === "/en/" || path === "/" },
+    { href: "/en/discover", label: t("nav.discover"), Icon: SparklesIcon, IconOn: SparklesSolid, on: path.startsWith("/en/discover") },
+    { href: null, label: t("nav.search"), Icon: MagnifyingGlassIcon, IconOn: MagnifyingGlassIcon, on: path.startsWith("/en/search") },
+    { href: "/en/schedule", label: t("nav.schedule"), Icon: CalendarIcon, IconOn: CalendarSolid, on: path.startsWith("/en/schedule") },
+    { href: listHref, label: t("nav.myList"), Icon: BookmarkIcon, IconOn: BookmarkSolid, on: path.startsWith("/en/my-list") || path.startsWith("/en/profile") },
+  ];
 
-  const handleHideClick = () => {
-    setIsVisible(false);
-  };
   return (
-    <>
-      {/* NAVBAR */}
-      <div className="z-[1000]">
-        {!isVisible && (
-          <button
-            onClick={handleShowClick}
-            className="fixed bottom-[30px] right-[20px] z-[100] flex h-[51px] w-[50px] cursor-pointer items-center justify-center rounded-[8px] bg-[#17171f] shadow-lg border border-[#E94560]/40 outline-none focus:outline-none focus-visible:outline-none lg:hidden"
-            id="bars"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-[42px] w-[61.5px] text-action"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
-
-      {/* Mobile Menu */}
-      <div
-        className={`transition-all duration-150 subpixel-antialiased z-[500]`}
-      >
-        {/* An AniScroll account has no AniList avatar: `src` would be
-            undefined, next/image throws, and the whole bar disappears. Fall
-            back to the generic icon. Where the button GOES is decided in one
-            place for every surface (lib/profile/href.ts). */}
-        {isVisible && sessions && !hideProfile && (
-          <Link
-            href={profileHref(sessions?.user)}
-            className="fixed lg:hidden bottom-[100px] w-[60px] h-[60px] flex items-center justify-center right-[20px] rounded-full z-50 bg-[#17171f]"
-          >
-            {avatarUrl ? (
-              <Image
-                src={avatarUrl}
-                alt="user avatar"
-                width={60}
-                height={60}
-                className="object-cover w-[60px] h-[60px] rounded-full"
-              />
-            ) : (
-              <UserIcon className="w-8 h-8 text-white/70" />
-            )}
-          </Link>
-        )}
-        {isVisible && (
-          /* Six entrées au lieu de cinq : la barre ne tient plus à sa largeur
-             naturelle sur un téléphone étroit. Elle s'étire donc entre les deux
-             bords (`left`/`right`), reste plafonnée à 420 px et collée à droite
-             par `ml-auto` — la position qu'elle avait toujours sur les écrans
-             où elle tenait. */
-          <div className="fixed bottom-[30px] left-[20px] right-[20px] z-[500] ml-auto flex h-[51px] max-w-[420px] items-center justify-between gap-4 rounded-[8px] px-4 text-[11px] bg-[#17171f] shadow-lg lg:hidden">
-            {/* `scrollbar-hide` + `shrink-0` sur chaque entrée : sur un
-                téléphone très étroit, six entrées ne tiennent pas, et le choix
-                est entre des libellés qui passent à la ligne — la barre grandit
-                et casse — et un défilement horizontal. Le défilement gagne :
-                rien ne se déforme, et « Rechercher » est de toute façon la
-                première, donc visible sans défiler. */}
-            <div className="flex flex-1 items-center justify-between gap-3 overflow-x-auto scrollbar-hide">
-              <button
-                type="button"
-                onClick={() => search?.setIsOpen(true)}
-                className="group flex shrink-0 flex-col items-center gap-[1px] whitespace-nowrap"
-              >
-                <MagnifyingGlassIcon className="w-6 h-6 group-hover:text-action" />
-                <span className="font-karla font-bold text-white/60 group-hover:text-action">
-                  {t("nav.search")}
-                </span>
-              </button>
-              <button className="group flex shrink-0 flex-col items-center whitespace-nowrap">
-                <Link href="/en/">
-                  <HomeIcon className="w-6 h-6 group-hover:text-action" />
+    <nav
+      aria-label="Navigation"
+      className="as-tabbar fixed bottom-0 left-0 right-0 z-[900] lg:hidden border-t border-white/10 bg-[#17171f]/95 backdrop-blur-md"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <ul className="mx-auto flex h-[60px] max-w-[560px] items-stretch justify-around px-1">
+        {tabs.map(({ href, label, Icon, IconOn, on }) => {
+          const I = on ? IconOn : Icon;
+          const inner = (
+            <>
+              <I className="h-6 w-6" aria-hidden />
+              <span className="max-w-full truncate font-karla text-[11px] font-semibold leading-none">{label}</span>
+            </>
+          );
+          const cls = `flex h-full w-full flex-col items-center justify-center gap-1 transition-colors ${
+            on ? "text-action" : "text-white/60 active:text-white"
+          }`;
+          return (
+            <li key={label} className="flex min-w-0 flex-1">
+              {href ? (
+                <Link href={href} className={cls} aria-current={on ? "page" : undefined}>
+                  {inner}
                 </Link>
-                <Link
-                  href="/en/"
-                  className="font-karla font-bold text-white/60 group-hover:text-action"
-                >
-                  home
-                </Link>
-              </button>
-              <button className="group flex shrink-0 flex-col items-center gap-[1px] whitespace-nowrap">
-                <Link href="/en/schedule">
-                  <CalendarIcon className="w-6 h-6 group-hover:text-action" />
-                </Link>
-                <Link
-                  href="/en/schedule"
-                  className="font-karla font-bold text-white/60 group-hover:text-action"
-                >
-                  {t("nav.schedule")}
-                </Link>
-              </button>
-              <button className="group flex shrink-0 gap-[1px] flex-col items-center whitespace-nowrap">
-                <Link href="/en/discover">
-                  <SparklesIcon className="w-6 h-6 group-hover:text-action" />
-                </Link>
-
-                <Link
-                  href="/en/discover"
-                  className="font-karla font-bold text-white/60 group-hover:text-action"
-                >
-                  {t("nav.discover")}
-                </Link>
-              </button>
-              <button className="group flex shrink-0 gap-[1px] flex-col items-center whitespace-nowrap">
-                <Link href="/en/settings">
-                  {/* gear icon */}
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                    className="w-6 h-6 group-hover:text-action"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a6.759 6.759 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"
-                    />
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                    />
-                  </svg>
-                </Link>
-                <Link
-                  href="/en/settings"
-                  className="font-karla font-bold text-white/60 group-hover:text-action"
-                >
-                  settings
-                </Link>
-              </button>
-              {sessions ? (
-                <button
-                  onClick={() => signOut({ redirect: true })}
-                  className="group flex shrink-0 gap-[1.5px] flex-col items-center whitespace-nowrap"
-                >
-                  <div>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 96 960 960"
-                      className="group-hover:fill-action w-6 h-6 fill-txt"
-                    >
-                      <path d="M186.666 936q-27 0-46.833-19.833T120 869.334V282.666q0-27 19.833-46.833T186.666 216H474v66.666H186.666v586.668H474V936H186.666zm470.668-176.667l-47-48 102-102H370v-66.666h341.001l-102-102 46.999-48 184 184-182.666 182.666z"></path>
-                    </svg>
-                  </div>
-                  <h1 className="font-karla font-bold text-white/60 group-hover:text-action">
-                    logout
-                  </h1>
-                </button>
               ) : (
-                <button
-                  onClick={() => setAuthOpen(true)}
-                  className="group flex shrink-0 gap-[1.5px] flex-col items-center whitespace-nowrap"
-                >
-                  <div>
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 96 960 960"
-                      className="group-hover:fill-action w-6 h-6 fill-txt mr-2"
-                    >
-                      <path d="M486 936v-66.666h287.334V282.666H486V216h287.334q27 0 46.833 19.833T840 282.666v586.668q0 27-19.833 46.833T773.334 936H486zm-78.666-176.667l-47-48 102-102H120v-66.666h341l-102-102 47-48 184 184-182.666 182.666z"></path>
-                    </svg>
-                  </div>
-                  <h1 className="font-karla font-bold text-white/60 group-hover:text-action">
-                    login
-                  </h1>
+                <button type="button" className={cls} onClick={() => search?.setIsOpen(true)}>
+                  {inner}
                 </button>
               )}
-            </div>
-            <button onClick={handleHideClick}>
-              <svg
-                width="20"
-                height="21"
-                className="fill-action"
-                viewBox="0 0 20 21"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <rect
-                  x="2.44043"
-                  y="0.941467"
-                  width="23.5842"
-                  height="3.45134"
-                  rx="1.72567"
-                  transform="rotate(45 2.44043 0.941467)"
-                />
-                <rect
-                  x="19.1172"
-                  y="3.38196"
-                  width="23.5842"
-                  height="3.45134"
-                  rx="1.72567"
-                  transform="rotate(135 19.1172 3.38196)"
-                />
-              </svg>
-            </button>
-          </div>
-        )}
-      </div>
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
-    </>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }

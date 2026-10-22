@@ -1,4 +1,3 @@
-import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,7 +9,6 @@ export default function RemovedPage() {
   return (
     <>
       <Navbar />
-      <MobileNav hideProfile />
       <div className="flex flex-col items-center justify-center h-dvh font-karla">
         <div className="flex-col flex-center container space-y-2">
           <div className="h-24 w-24 lg:h-32 lg:w-32 text-white">

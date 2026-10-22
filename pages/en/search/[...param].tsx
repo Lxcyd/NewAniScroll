@@ -23,7 +23,6 @@ import InputSelect from "@/components/search/dropdown/inputSelect";
 import { Cog6ToothIcon, TrashIcon } from "@heroicons/react/20/solid";
 import useDebounce from "@/lib/hooks/useDebounce";
 import { Navbar } from "@/components/shared/NavBar";
-import MobileNav from "@/components/shared/MobileNav";
 import SearchByImage, {
   TraceMoeResultTypes,
 } from "@/components/search/searchByImage";
@@ -359,7 +358,6 @@ export default function Card({
         shrink={true}
         paddingY="py-1 lg:py-3"
       />
-      <MobileNav hideProfile={true} />
       <main className="w-screen min-h-screen z-40 py-14 lg:py-24">
         <div className="max-w-screen-xl flex flex-col gap-3 mx-auto">
           <div className="w-full flex justify-between items-end gap-2 my-3 lg:gap-10 px-5 xl:px-0 relative">

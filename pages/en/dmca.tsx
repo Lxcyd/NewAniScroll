@@ -1,6 +1,5 @@
 import Footer from "@/components/shared/footer";
 import { Navbar } from "@/components/shared/NavBar";
-import MobileNav from "@/components/shared/MobileNav";
 import Head from "next/head";
 import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
@@ -26,12 +25,11 @@ export default function DMCA() {
           content="AniScroll respects copyright. Read our DMCA process and project status."
         />
         <meta property="og:image" content="/logo.png" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
 
       <Navbar withNav scrollP={5} shrink />
-      <MobileNav hideProfile />
 
       <main className="min-h-screen w-full pt-[80px] pb-20">
         <div className="mx-auto w-[90%] lg:w-[70%] max-w-3xl flex flex-col gap-10">

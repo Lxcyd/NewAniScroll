@@ -19,7 +19,7 @@ export default function About() {
               enthusiasts all around the world."
         />
         <meta name="about" content="About this web" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />

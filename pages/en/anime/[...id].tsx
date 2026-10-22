@@ -21,7 +21,6 @@ import { useAniList } from "@/lib/anilist/useAnilist";
 import { useTranslation } from "react-i18next";
 import Footer from "@/components/shared/footer";
 import { mediaInfoQuery } from "@/lib/graphql/query";
-import MobileNav from "@/components/shared/MobileNav";
 
 import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
@@ -874,7 +873,6 @@ export default function Info({
         />
       )}
 
-      <MobileNav hideProfile={true} />
 
       <main>
         {isMobile ? (

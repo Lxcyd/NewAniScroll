@@ -83,7 +83,6 @@ import { markComplete, getProgress, isCompleted, getResumeTime } from "@/lib/wat
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
-import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
 import { useSession } from "next-auth/react";
 import { useListStatus } from "@/lib/list/useListStatus";
@@ -3306,7 +3305,6 @@ export default function Watch({
           shrink={true}
           paddingY={`py-2 ${theaterMode ? "" : "lg:py-4"}`}
         />
-        <MobileNav hideProfile={true} />
 
         <div className={`mx-auto pt-16 ${theaterMode ? "lg:pt-16" : "lg:pt-20"}`}>
 

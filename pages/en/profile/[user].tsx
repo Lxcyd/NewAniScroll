@@ -368,7 +368,7 @@ export default function Profile({
             n'y voit pas un commentaire et l'AFFICHE — « Lucyd <!-- --> •
             AniScroll » dans l'onglet, jusqu'à ce que React reprenne la main. */}
         <title>{`${identity.name} • AniScroll`}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
 

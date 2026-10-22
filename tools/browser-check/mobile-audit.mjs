@@ -28,13 +28,17 @@ if (!base || !sortie || !chemins.length) {
 }
 mkdirSync(sortie, { recursive: true });
 
-const W = Number(process.env.MOBILE_W || 390);
-const H = Number(process.env.MOBILE_H || 844);
+// BUREAU=1 : meme passage en PC (1440x900, souris, UA Chrome) — sert de
+// reference pour verifier qu'un changement mobile ne touche pas le PC.
+const BUREAU = process.env.BUREAU === "1";
+const W = Number(process.env.MOBILE_W || (BUREAU ? 1440 : 390));
+const H = Number(process.env.MOBILE_H || (BUREAU ? 900 : 844));
 const ATTENTE = Number(process.env.ATTENTE_MS || 6000);
 const UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
 const CHROME = process.env.CHROME_PATH || "C:/Program Files/Google/Chrome/Application/chrome.exe";
-const PORT = Number(process.env.CDP_PORT || 9356);
+// Port tire au hasard : le Chrome d'un passage precedent peut le tenir encore.
+const PORT = Number(process.env.CDP_PORT || 9400 + Math.floor(Math.random() * 500));
 
 const profil = mkdtempSync(join(tmpdir(), "aniscroll-mobile-"));
 const chrome = spawn(
@@ -64,10 +68,26 @@ const envoie = (method, params = {}) =>
 
 await envoie("Page.enable");
 await envoie("Runtime.enable");
-await envoie("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: true });
-await envoie("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
-await envoie("Emulation.setUserAgentOverride", { userAgent: UA, platform: "iPhone" });
-await envoie("Emulation.setEmitTouchEventsForMouse", { enabled: true, configuration: "mobile" });
+if (BUREAU) {
+  await envoie("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
+} else {
+  await envoie("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: true });
+  await envoie("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await envoie("Emulation.setUserAgentOverride", { userAgent: UA, platform: "iPhone" });
+  await envoie("Emulation.setEmitTouchEventsForMouse", { enabled: true, configuration: "mobile" });
+}
+// Captures comparables d'un passage a l'autre : animations et transitions
+// sautent a leur etat final (figer a 0 laisserait les fondus a opacite 0).
+await envoie("Page.addScriptToEvaluateOnNewDocument", {
+  source: `addEventListener("DOMContentLoaded", () => {
+    const s = document.createElement("style");
+    s.textContent = "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important;caret-color:transparent!important}"
+      // Bruit connu, masque pour que deux captures se comparent : les toasts
+      // (« Probleme de connexion » en local) et ce que MASQUER ajoute.
+      + ${JSON.stringify([".ip-toast-anchor", ...(process.env.MASQUER ? [process.env.MASQUER] : [])].join(","))} + "{visibility:hidden!important}";
+    document.head.appendChild(s);
+  });`,
+});
 
 const releve = `(() => {
   const vw = innerWidth;
@@ -140,6 +160,12 @@ for (const chemin of chemins) {
     expression: `[...document.querySelectorAll("button")].find((b) => /^Compris/.test(b.innerText.trim()))?.click()`,
   });
   await dors(600);
+  // ACTION : une expression JS jouee apres le chargement (ouvrir un menu,
+  // changer d'onglet…), ex. ACTION='document.querySelector("nav button[title]").click()'
+  if (process.env.ACTION) {
+    await envoie("Runtime.evaluate", { expression: process.env.ACTION });
+    await dors(Number(process.env.ACTION_MS || 1500));
+  }
   const r = (await envoie("Runtime.evaluate", { expression: releve, returnByValue: true })).result?.result?.value;
   // Captures ecran par ecran (une pleine page de 6000 px est illisible une
   // fois reduite). TRANCHES limite le nombre d'ecrans par page.

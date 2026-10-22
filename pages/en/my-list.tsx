@@ -66,7 +66,7 @@ export default function MyList() {
         {/* Une seule expression : deux enfants texte se retrouvent séparés par
             un `<!-- -->` visible dans l'onglet (cf. pages/en/profile/[user]). */}
         <title>{`${t("nav.myList")} • AniScroll`}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav toTop shrink bgHover scrollP={110} paddingY={"py-1"} />

@@ -16,6 +16,7 @@ import ChangelogButton from "./ChangelogButton";
 import ReportButton from "./ReportButton";
 import NotificationBell from "./NotificationBell";
 import LanguageToggle from "./LanguageToggle";
+import MobileNav from "./MobileNav";
 import { isAdminName } from "@/lib/auth/isAdmin";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { useNavOnLight } from "@/lib/color/navContrast";
@@ -32,6 +33,15 @@ const TOP_BUTTON_AT = 180;
 const AuthModal = dynamic(() => import("@/components/auth/AuthModal"), {
   ssr: false,
 });
+
+/* Le menu de l'avatar en panneau, pour le tactile : charge au premier appui. */
+const AccountSheet = dynamic(() => import("./mobile/AccountSheet"), { ssr: false });
+
+/* Ecran tactile ou etroit : le menu de l'avatar ne peut pas s'ouvrir au survol,
+   un appui ouvre donc le panneau au lieu de mener au profil. Lu au moment de
+   l'appui (pas de rendu different serveur/client). Le PC a souris n'est pas
+   concerne : il garde le survol et le clic vers le profil. */
+const TOUCH_MENU = "(hover: none), (max-width: 767px)";
 
 const getScrollPosition = (el: Window | Element = window) => {
   if (el instanceof Window) {
@@ -77,6 +87,9 @@ export function Navbar({
   const [pastTopButton, setPastTopButton] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authView, setAuthView] = useState<"signin" | "signup">("signin");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const touchMenu = () =>
+    typeof window !== "undefined" && window.matchMedia(TOUCH_MENU).matches;
 
   const openAuth = (view: "signin" | "signup") => {
     setAuthView(view);
@@ -330,7 +343,9 @@ export function Navbar({
                 /* `nav-chrome` = "recolour me when the navbar sits on light
                    artwork" (styles/globals.css). Same marker on the bell /
                    report / changelog buttons, which live in their own files. */
-                className="nav-chrome flex-center w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                /* Sous 640 px il passe dans le panneau du compte (AccountSheet) :
+                   la barre n'a pas la place pour cinq icones et l'avatar. */
+                className="nav-chrome flex-center max-sm:!hidden w-9 h-9 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -359,7 +374,9 @@ export function Navbar({
               {session ? (
                 <button
                   type="button"
-                  onClick={() => router.push(profileTarget)}
+                  onClick={() =>
+                    touchMenu() ? setSheetOpen(true) : router.push(profileTarget)
+                  }
                   className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
                   title={t("nav.profile")}
                 >
@@ -378,7 +395,9 @@ export function Navbar({
               ) : (
                 <button
                   type="button"
-                  onClick={() => openAuth("signin")}
+                  onClick={() =>
+                    touchMenu() ? setSheetOpen(true) : openAuth("signin")
+                  }
                   title={t("nav.signIn")}
                   className={`w-10 h-10 rounded-full overflow-hidden shrink-0 ${
                     onLight ? "bg-black/10 text-black/70" : "bg-white/30"
@@ -459,6 +478,12 @@ export function Navbar({
         initialView={authView}
         onClose={() => setAuthOpen(false)}
       />
+      {sheetOpen && (
+        <AccountSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onAuth={openAuth} />
+      )}
+      {/* Barre d'onglets du bas (< lg) — montee ici pour toutes les pages qui
+          ont une barre du haut ; invisible sur PC (lg:hidden). */}
+      <MobileNav />
       {toTop && (
         <button
           type="button"
@@ -472,7 +497,7 @@ export function Navbar({
             pastTopButton
               ? "-translate-x-6 opacity-100"
               : "translate-x-[100%] opacity-0"
-          } transform transition-all duration-300 ease-in-out fixed bottom-24 lg:bottom-14 right-0 z-[500]`}
+          } as-above-tabbar transform transition-all duration-300 ease-in-out fixed bottom-24 lg:bottom-14 right-0 z-[500]`}
         >
           <ArrowUpCircleIcon className="w-10 h-10 text-white" />
         </button>

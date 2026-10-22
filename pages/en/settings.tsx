@@ -723,7 +723,7 @@ export default function Settings() {
           name="description"
           content="Customize how AniScroll looks and which language anime titles appear in."
         />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <link rel="icon" type="image/png" href="/logo.png" />
       </Head>
       <Navbar withNav={true} scrollP={5} shrink={true} />

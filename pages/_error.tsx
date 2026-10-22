@@ -1,4 +1,3 @@
-import MobileNav from "@/components/shared/MobileNav";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import Head from "next/head";
@@ -11,7 +10,6 @@ function Error({ statusCode }: any) {
         <title>An Error Has Occurred</title>
       </Head>
       <Navbar withNav shrink />
-      <MobileNav hideProfile />
       <div className="w-screen h-screen flex-center flex-col gap-5">
         <div className="relative text-3xl">(╯°□°）╯︵ ┻━┻</div>
         <div className="flex items-center gap-2 text-xl">

@@ -1,6 +1,10 @@
 import "@/lib/fonts";
 import "../styles/globals.css";
 import "react-loading-skeleton/dist/skeleton.css";
+/* Tout le CSS propre au telephone, dans son fichier (cf. docs/MOBILE-PLAN.md) :
+   chaque regle y est sous une media query mobile, le PC ne le lit pas. */
+import "../styles/mobile.css";
+import Head from "next/head";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
@@ -738,6 +742,12 @@ export default function App({
 
   return (
     <>
+      {/* `viewport-fit=cover` : sans lui l'iPhone ne donne jamais ses zones
+          sures (encoche, barre d'accueil) et `env(safe-area-inset-*)` vaut 0.
+          Les pages qui posent leur propre balise viewport ont la meme valeur. */}
+      <Head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+      </Head>
       {/* Le SDK Google Cast n'est plus charge ici, sur TOUTES les pages : le
           lecteur (UniversalPlayer) l'injecte lui-meme a son montage, seul
           endroit ou le bouton Chromecast existe. Deux scripts tiers de moins

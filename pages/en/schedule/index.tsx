@@ -18,7 +18,6 @@ import {
 } from "@/utils/schedulesUtils";
 
 import { scheduleQuery } from "@/lib/graphql/query";
-import MobileNav from "@/components/shared/MobileNav";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { previewAnchor } from "@/lib/preview/anchor";
@@ -320,7 +319,6 @@ export default function Schedule({ schedule }: any) {
           content="AniScroll is a website where you can find all the information about your favorite anime and manga."
         />
       </Head>
-      <MobileNav hideProfile={true} />
       <Navbar scrollP={10} toTop={true} />
       <div className="w-screen">
         <div className="flex flex-col mx-auto my-10 w-full mt-16 lg:mt-24 max-w-screen-2xl gap-10">

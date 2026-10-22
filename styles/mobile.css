@@ -1,0 +1,40 @@
+/*
+ * CSS propre au telephone et a la tablette.
+ *
+ * REGLE : chaque regle de ce fichier vit sous une media query qui exclut le PC
+ * (largeur < 1024 px, ou pointeur tactile). Le PC ne doit pas changer d'un
+ * pixel — c'est verifie a chaque etape par tools/browser-check/compare-captures.mjs
+ * contre des captures de reference. Voir docs/MOBILE-PLAN.md.
+ *
+ * Fichier separe de globals.css (4300 lignes, tres remanie sur dev) pour que la
+ * fusion de la branche mobile ne se batte pas avec lui.
+ */
+
+/* ── Barre d'onglets du bas (components/shared/MobileNav.tsx) ─────────────
+   La page garde sa fin visible : on lui ajoute en bas la hauteur de la barre
+   (60 px) + la zone sure de l'iPhone. */
+@media (max-width: 1023px) {
+  body.has-tabbar {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  }
+  /* Les boutons flottants (retour en haut, etc.) remontent au-dessus d'elle. */
+  body.has-tabbar .as-above-tabbar {
+    bottom: calc(76px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+/* ── Barre du haut ────────────────────────────────────────────────────────
+   Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
+   passe sous l'encoche. En navigateur ces valeurs valent 0. */
+@media (max-width: 1023px) {
+  .as-navbar {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  /* Cibles tactiles : 40 px minimum pour les icones de la barre. */
+  .as-navbar .nav-chrome {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
