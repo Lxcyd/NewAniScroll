@@ -46,7 +46,7 @@ export default function DangerConfirmModal({
     <div
       role="alertdialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-[100] max-lg:z-[10000] flex items-center justify-center bg-black/70 px-4"
     >
       <div className="w-full max-w-sm rounded-xl bg-secondary ring-1 ring-white/10 p-6">
         <h3 className="text-lg font-semibold mb-2">{title}</h3>

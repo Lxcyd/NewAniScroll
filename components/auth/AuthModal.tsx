@@ -148,7 +148,7 @@ export default function AuthModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-[100] max-lg:z-[10000] flex items-center justify-center bg-black/70 px-4"
       onClick={close}
     >
       <div

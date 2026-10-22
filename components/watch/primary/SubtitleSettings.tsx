@@ -148,7 +148,7 @@ export default function SubtitleSettings({
 
   const panel = (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-[100] max-lg:z-[10000] flex items-center justify-center bg-black/70 p-4"
       onClick={onClose}
     >
       <div

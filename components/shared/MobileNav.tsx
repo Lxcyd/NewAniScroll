@@ -58,6 +58,13 @@ export default function MobileNav(_props: MobileNavProps) {
   }, []);
 
   const path = router?.asPath?.split(/[?#]/)[0] || "";
+  const onWatch = path.startsWith("/en/anime/watch");
+  // Classe sur <body> plutot qu'un `body:has(.as-tabbar-watch)` en CSS : sous
+  // Safari, un :has() sur body revalide la page entiere a chaque mutation.
+  useEffect(() => {
+    document.body.classList.toggle("tabbar-watch", onWatch);
+    return () => document.body.classList.remove("tabbar-watch");
+  }, [onWatch]);
   const listHref = session ? profileHref(session.user) : "/en/my-list";
   const tabs = [
     { href: "/en", label: t("nav.home"), Icon: HomeIcon, IconOn: HomeSolid, on: path === "/en" || path === "/en/" || path === "/" },

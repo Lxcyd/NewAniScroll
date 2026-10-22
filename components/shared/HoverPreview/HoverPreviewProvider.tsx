@@ -480,13 +480,16 @@ export default function HoverPreviewProvider() {
       if (!el || e.touches.length !== 1) return cancel();
       start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       const id = Number(el.getAttribute(PREVIEW_ATTR));
-      if (Number.isFinite(id) && id > 0) void fetchPreview(id);
+      // Rien n'est charge au simple toucher : la plupart des touchers sur une
+      // jaquette sont des defilements, et chacun lancait une requete, le
+      // decodage d'une banniere de 1900 px et le demarrage du lecteur YouTube.
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
         if (!el.isConnected) return;
         const rect = rectOf(el);
         if (!rect.width || !rect.height || !(id > 0)) return;
+        void fetchPreview(id);
         swallowClick = true;
         navigator.vibrate?.(10);
         setOpen({ id, el, rect });

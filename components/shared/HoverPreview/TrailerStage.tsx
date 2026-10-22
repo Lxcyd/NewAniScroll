@@ -352,6 +352,18 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
    * costs three 4 KB JPEGs it has already fetched to measure the black bars.
    */
   const dataSaver = useDataSaver();
+  /**
+   * Telephone (apercu a l'appui long). Deux choses n'y ont pas leur place :
+   *  - le demarrage a vide du lecteur : il partait des qu'un doigt touchait une
+   *    jaquette, donc a chaque defilement, et un lecteur YouTube cache coute
+   *    cher en memoire a Safari iOS (rechargements de page signales le 22/10) ;
+   *  - la copie floutee (34 px sur une video) : un deuxieme decodeur et un
+   *    flou anime, ce que le GPU d'un telephone paie le plus cher.
+   */
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    setTouch(window.matchMedia("(hover: none) and (pointer: coarse)").matches);
+  }, []);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -629,6 +641,7 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
    */
   useEffect(() => {
     if (bootId !== null) return;
+    if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return;
     let release: (() => void) | null = null;
     const claim = () => {
       release = onFirstTrailer((id) => setBootId((cur) => cur ?? id));
@@ -1448,7 +1461,7 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
        * carries it, and is cut short below the picture — light off a screen does
        * not wrap round to backlight the text under it.
        */}
-      {!dataSaver && (
+      {!dataSaver && !touch && (
         <div
           className="pointer-events-none fixed z-[79]"
           aria-hidden

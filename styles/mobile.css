@@ -21,7 +21,7 @@
   .as-tabbar-watch {
     display: none !important;
   }
-  body.has-tabbar:has(.as-tabbar-watch) {
+  body.has-tabbar.tabbar-watch {
     padding-bottom: env(safe-area-inset-bottom) !important;
   }
   /* Le lecteur tient dans la hauteur, comme sur PC (--player-col, page de
@@ -30,6 +30,15 @@
   #primary > :first-child {
     width: min(100%, calc((100dvh - 72px) * 16 / 9)) !important;
     margin-inline: auto;
+  }
+}
+/* Les fenetres passent AU-DESSUS des deux barres (haut z-9999, bas z-900).
+   Sur PC elles sont centrees et petites ; sur telephone, l'editeur de liste
+   (z-6969, panneau qui monte du bas) avait son haut sous la barre du site.
+   Les autres fenetres prennent `max-lg:z-[10000]` dans leur propre classe. */
+@media (max-width: 1023px) {
+  .list-editor-overlay {
+    z-index: 10000 !important;
   }
 }
 @media (max-width: 1023px) {
@@ -145,15 +154,6 @@
     padding-top: 8px !important;
     padding-bottom: 8px !important;
     font-size: 13px !important;
-  }
-}
-
-/* ── Parametres : barre de sections (pages/en/settings.tsx, SettingsNavMobile)
-   Une section atteinte par la barre s'arrete sous la barre du haut (64) ET
-   sous la barre de sections (~52), pas a 96 px comme sur PC. */
-@media (max-width: 767px) {
-  body:has(.as-settings-bar) section[id] {
-    scroll-margin-top: 128px;
   }
 }
 

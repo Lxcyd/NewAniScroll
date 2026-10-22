@@ -114,7 +114,9 @@ export default function PreviewCard({
    * by reading the same preference rather than by passing a flag through the
    * stage store, which would have to travel outside React to get here.
    */
-  const liveGlow = !useDataSaver();
+  const dataSaver = useDataSaver();
+  // Au doigt, pas de copie floutee du lecteur (cf. TrailerStage, `touch`).
+  const liveGlow = !dataSaver && !touch;
   const { data: session } = useSession();
   const token = (session as any)?.user?.token ?? null;
   const titlePref = useTitlePref();

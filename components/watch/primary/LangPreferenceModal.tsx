@@ -245,7 +245,7 @@ export default function LangPreferenceModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+    <div className="fixed inset-0 z-[100] max-lg:z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
       <div className="w-full max-w-2xl rounded-card bg-as-card ring-1 ring-white/10 shadow-poster p-6 sm:p-7">
         <h3 className="font-outfit text-lg font-semibold leading-tight">
           {t("player.langPref.title")}

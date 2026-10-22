@@ -818,7 +818,7 @@ export default function Settings() {
           <AccountSection />
 
           {/* ── Language (anime titles + interface) ──────────────── */}
-          <section id="language" className="pb-10 scroll-mt-24">
+          <section id="language" className="pb-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.language.title")}</h2>
             <p className="text-white/60 text-sm mb-6">{t("settings.language.desc")}</p>
 
@@ -856,7 +856,7 @@ export default function Settings() {
           </section>
 
           {/* ── Browsing (click target, spoilers) ────────────────── */}
-          <section id="browsing" className="py-10 scroll-mt-24">
+          <section id="browsing" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.browsing.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.browsing.desc")}</p>
 
@@ -929,7 +929,7 @@ export default function Settings() {
           </section>
 
           {/* ── Video player ─────────────────────────────────────── */}
-          <section id="player" className="py-10 scroll-mt-24">
+          <section id="player" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.player.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.player.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -1121,7 +1121,7 @@ export default function Settings() {
           </section>
 
           {/* ── Notifications ────────────────────────────────────── */}
-          <section id="notifications" className="py-10 scroll-mt-24">
+          <section id="notifications" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.notif.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.notif.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -1160,7 +1160,7 @@ export default function Settings() {
 
               Un second interrupteur coupait le carillon du badge ; le carillon
               a été abandonné le 23/09 et il est parti avec. */}
-          <section id="badges" className="py-10 scroll-mt-24">
+          <section id="badges" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.badges.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.badges.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -1175,7 +1175,7 @@ export default function Settings() {
           </section>
 
           {/* ── Theme (accent colour) ────────────────────────────── */}
-          <section id="theme" className="py-10 scroll-mt-24">
+          <section id="theme" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.theme.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.theme.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4">
@@ -1243,7 +1243,7 @@ export default function Settings() {
           </section>
 
           {/* ── AniList synchronisation ──────────────────────────── */}
-          <section id="sync" className="py-10 scroll-mt-24">
+          <section id="sync" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.sync.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.sync.desc")}</p>
 
@@ -1438,7 +1438,7 @@ export default function Settings() {
 
           {/* ── Profile visibility (logged-in only) ──────────────── */}
           {isLoggedIn && (
-            <section id="profile" className="py-10 scroll-mt-24">
+            <section id="profile" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
               <h2 className="text-xl font-semibold mb-1">{t("settings.profile.title")}</h2>
               <p className="text-white/60 text-sm mb-4">{t("settings.profile.desc")}</p>
               <div className="rounded-xl bg-white/5 ring-1 ring-white/10 px-4 divide-y divide-white/5">
@@ -1455,7 +1455,7 @@ export default function Settings() {
           )}
 
           {/* ── My list (local) ──────────────────────────────────── */}
-          <section id="list" className="py-10 scroll-mt-24">
+          <section id="list" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.list.title")}</h2>
             <p className="text-white/60 text-sm mb-4">
               {t("settings.list.desc", { count: localList.length })}
@@ -1545,7 +1545,7 @@ export default function Settings() {
           </section>
 
           {/* ── Advanced (maintenance) ────────────────────────────── */}
-          <section id="advanced" className="py-10 scroll-mt-24">
+          <section id="advanced" className="py-10 scroll-mt-24 max-md:scroll-mt-32">
             <h2 className="text-xl font-semibold mb-1">{t("settings.advanced.title")}</h2>
             <p className="text-white/60 text-sm mb-4">{t("settings.advanced.desc")}</p>
             <div className="rounded-xl bg-white/5 ring-1 ring-white/10 divide-y divide-white/5">

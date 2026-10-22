@@ -75,7 +75,7 @@ export default function RateModal({ toggle, setToggle, session }: Props) {
     <div
       aria-hidden={!toggle}
       onClick={close}
-      className={`fixed inset-0 z-[120] flex items-center justify-center px-4 transition-opacity duration-300 ${
+      className={`fixed inset-0 z-[120] max-lg:z-[10000] flex items-center justify-center px-4 transition-opacity duration-300 ${
         toggle ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
       style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
