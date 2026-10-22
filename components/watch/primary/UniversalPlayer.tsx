@@ -2331,6 +2331,18 @@ export default function UniversalPlayer({
   // "stats for nerds" panel are both toggled from the settings menu / hotkeys.
   const [shortcutEditorOpen, setShortcutEditorOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  /* Ecran tactile sans souris : pas de clavier non plus, en pratique. Les
+     actions qui n'existent qu'en raccourci (stats, capture, lien horodate,
+     rotation) passent alors dans le menu Reglages, et l'editeur de raccourcis en
+     sort. Lu apres le montage (le serveur n'en sait rien). */
+  const [touchUi, setTouchUi] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
+    const update = () => setTouchUi(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
 
   // Real shape of the decoded video, once metadata says what it is. Null until
   // then — and null also means "close enough to 16/9 to not bother" — so 16/9
@@ -7301,13 +7313,43 @@ export default function UniversalPlayer({
             {automationMenuRow}
             {/* No stats row here — the video-stats overlay is reachable via its
                 keyboard shortcut (toggleStats), not a menu toggle (per request). */}
-            {/* Opens the visual keyboard shortcut editor overlay. */}
-            <SettingsActionRow
-              label={t("shortcuts.configure")}
-              onClick={() => setShortcutEditorOpen(true)}
-              // Material "keyboard" icon.
-              iconPath="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
-            />
+            {touchUi ? (
+              /* Tactile : les actions que le PC n'offre qu'au clavier. */
+              <>
+                <SettingsActionRow
+                  label={t("shortcuts.actions.toggleStats")}
+                  onClick={() => runAction("toggleStats")}
+                  // Material "query_stats".
+                  iconPath="M19.88 18.47c.44-.7.7-1.51.7-2.39 0-2.49-2.01-4.5-4.5-4.5s-4.5 2.01-4.5 4.5 2.01 4.5 4.49 4.5c.88 0 1.7-.26 2.39-.7L21.58 23 23 21.58l-3.12-3.11zm-3.8.11c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5zM3 13h3v8H3zm5-4h3v12H8zm5 .5h3v2.39c-1.15.25-2.17.84-2.96 1.66H13V9.5zM18 3h3v7.47c-.86-.6-1.88-.96-3-.96V3z"
+                />
+                <SettingsActionRow
+                  label={t("shortcuts.actions.screenshot")}
+                  onClick={() => runAction("screenshot")}
+                  // Material "photo_camera".
+                  iconPath="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
+                />
+                <SettingsActionRow
+                  label={t("shortcuts.actions.copyTimestamp")}
+                  onClick={() => runAction("copyTimestamp")}
+                  // Material "link".
+                  iconPath="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+                />
+                <SettingsActionRow
+                  label={t("shortcuts.actions.rotate")}
+                  onClick={() => runAction("rotate")}
+                  // Material "rotate_right".
+                  iconPath="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"
+                />
+              </>
+            ) : (
+              /* Opens the visual keyboard shortcut editor overlay. */
+              <SettingsActionRow
+                label={t("shortcuts.configure")}
+                onClick={() => setShortcutEditorOpen(true)}
+                // Material "keyboard" icon.
+                iconPath="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
+              />
+            )}
           </>
         ),
         settingsHostRef.current,
