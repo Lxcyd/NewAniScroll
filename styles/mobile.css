@@ -23,6 +23,64 @@
   }
 }
 
+/* ── Graphe des relations (components/anime/v2/RelationsGraph.tsx) ───────
+   Sur PC : titre, filtres, ✕ sur UNE ligne. Sur telephone, cette ligne sortait
+   de l'ecran (puces coupees, ✕ invisible). On la replie : titre + ✕ en haut,
+   filtres dessous, alignes a gauche sur toute la largeur. Pas de defilement
+   horizontal : il couperait les menus Relations / Formats qui tombent dessous.
+   Les styles du composant sont en ligne, d'ou les !important. */
+@media (max-width: 767px) {
+  /* Le plein ecran est porte dans <body>, hors de `.tokens` (styles.module.css
+     de la fiche) : ses puces perdaient bordure et fond. Memes valeurs. */
+  .as-graph-overlay {
+    --bg-2: #161924;
+    --bg-3: #1d2030;
+    --line: #252938;
+    --line-2: #2f3447;
+    --txt-0: #f4f5f8;
+    --txt-1: #c4c8d4;
+    --txt-2: #8a8fa3;
+    --txt-3: #5e6478;
+  }
+  .as-graph-header {
+    flex-wrap: wrap !important;
+    row-gap: 10px;
+    column-gap: 8px;
+  }
+  .as-graph-header-open {
+    padding: max(12px, env(safe-area-inset-top)) 12px 12px !important;
+  }
+  .as-graph-title {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal !important;
+  }
+  .as-graph-close {
+    order: 2;
+    width: 40px !important;
+    height: 40px !important;
+  }
+  .as-graph-filters {
+    order: 3;
+    flex: 1 1 100% !important;
+    justify-content: flex-start !important;
+  }
+  .as-graph-filters button {
+    min-height: 34px;
+  }
+  .as-graph-search {
+    flex: 1 1 100%;
+    margin-right: 0 !important;
+    min-height: 38px;
+  }
+  .as-graph-search input {
+    width: 100% !important;
+    /* 16 px : en dessous, Safari zoome la page a la saisie. */
+    font-size: 16px !important;
+  }
+}
+
 /* ── Barre du haut ────────────────────────────────────────────────────────
    Zones sures : en mode application (ajoutee a l'ecran d'accueil) la barre
    passe sous l'encoche. En navigateur ces valeurs valent 0. */

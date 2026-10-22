@@ -1506,6 +1506,10 @@ export default function RelationsGraph({
 
   /** Drag a single card. A drag must not also count as a click. */
   const onNodePointerDown = (e: React.PointerEvent, id: number) => {
+    // Au doigt, une carte ne se deplace pas : les cartes couvrent le plateau, et
+    // le doigt pose dessus veut le faire glisser (ou, dans la page, la faire
+    // defiler). L'evenement remonte donc au plateau.
+    if (e.pointerType === "touch") return;
     e.stopPropagation();
     const m = moved.get(id);
     nodeDrag.current = {
@@ -1684,7 +1688,53 @@ export default function RelationsGraph({
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [openMenu]);
 
+  /**
+   * Au doigt.
+   *
+   * Dans la page (plateau integre, pas en plein ecran), un doigt appartient a la
+   * PAGE : il la fait defiler (`touch-action: pan-y`) et un appui ouvre une
+   * carte. Prendre le doigt pour deplacer le plateau piegeait le defilement des
+   * qu'on posait le pouce sur le graphe — 380 px de page qui ne defilent plus.
+   * Pour explorer : ⤢, le plein ecran, ou un doigt deplace et deux doigts
+   * zooment (pincement ancre entre les deux doigts, comme la molette l'est sur
+   * le curseur).
+   *
+   * Tout ce qui suit ne concerne que `pointerType === "touch"` : la souris garde
+   * exactement son chemin.
+   */
+  const touchPts = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d0: number; s0: number; bx: number; by: number; s: number } | null>(null);
+  /** Un glisser au doigt vient de deplacer le plateau : l'appui qui le termine
+   *  n'ouvre pas la carte sous le doigt. */
+  const touchPanned = useRef(false);
+  const pinchGeom = () => {
+    const [a, b] = Array.from(touchPts.current.values());
+    const r = canvasRef.current?.getBoundingClientRect();
+    return {
+      d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      mx: (a.x + b.x) / 2 - (r?.left ?? 0),
+      my: (a.y + b.y) / 2 - (r?.top ?? 0),
+    };
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      if (embedded && !open) return; // le doigt est a la page
+      touchPanned.current = false;
+      touchPts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPts.current.size === 2) {
+        // Deuxieme doigt : on passe du glisser au pincement. Le point du
+        // plateau sous le milieu des doigts est celui qui ne bougera pas.
+        const g = pinchGeom();
+        const s = scaleRef.current;
+        const o = liveOffset.current;
+        pinch.current = { d0: g.d, s0: s, bx: (g.mx - o.x) / s, by: (g.my - o.y) / s, s };
+        drag.current = null;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        return;
+      }
+      if (touchPts.current.size > 2) return;
+    }
     // Touching the board dismisses an open filter menu, the way a menu anywhere
     // else closes when you click past it.
     setOpenMenu(null);
@@ -1698,6 +1748,23 @@ export default function RelationsGraph({
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch" && touchPts.current.has(e.pointerId)) {
+      touchPts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const p = pinch.current;
+      if (p && touchPts.current.size >= 2) {
+        const g = pinchGeom();
+        const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, p.s0 * (g.d / p.d0)));
+        const next = { x: g.mx - p.bx * s, y: g.my - p.by * s };
+        p.s = s;
+        liveOffset.current = next;
+        touchPanned.current = true;
+        if (boardRef.current) boardRef.current.style.transform = boardTransform(next, s);
+        return;
+      }
+      if (drag.current && Math.hypot(e.clientX - drag.current.x, e.clientY - drag.current.y) > 8) {
+        touchPanned.current = true;
+      }
+    }
     if (!drag.current) return;
     const next = {
       x: drag.current.ox + (e.clientX - drag.current.x),
@@ -1708,7 +1775,21 @@ export default function RelationsGraph({
     // whole of what a pan changes — see boardRef.
     if (boardRef.current) boardRef.current.style.transform = boardTransform(next, scale);
   };
-  const onPointerUp = () => {
+  const onPointerUp = (e?: React.PointerEvent) => {
+    if (e?.pointerType === "touch" && touchPts.current.delete(e.pointerId)) {
+      const p = pinch.current;
+      if (p) {
+        // Fin du pincement : on publie l'echelle et la position atteintes. Le
+        // doigt qui reste ne reprend pas un glisser (il sauterait).
+        pinch.current = null;
+        drag.current = null;
+        touchedView.current = true;
+        setScale(p.s);
+        setOffset(liveOffset.current);
+        setDragging(false);
+        return;
+      }
+    }
     const panned = !!drag.current;
     drag.current = null;
     setDragging(false);
@@ -1879,8 +1960,10 @@ export default function RelationsGraph({
               onClick={(ev: React.MouseEvent) => {
                 // Nothing to navigate to, so nothing to guard or announce.
                 if (n.manga) return;
-                // A card that was just dragged must not navigate.
-                if (nodeDrag.current?.moved) {
+                // A card that was just dragged must not navigate — nor one the
+                // finger only crossed while sliding or pinching the board.
+                if (nodeDrag.current?.moved || touchPanned.current) {
+                  touchPanned.current = false;
                   ev.preventDefault();
                   ev.stopPropagation();
                   return;
@@ -2050,12 +2133,18 @@ export default function RelationsGraph({
   /** Title, search and filters. The expanded view only — the preview is a
    *  window onto the board, not a place to run a query from. */
   const header = (
-    <div style={{ ...gStyles.header, ...(open ? null : gStyles.headerEmbedded) }}>
+    /* Les classes `as-graph-*` ne portent aucun style sur PC : elles servent
+       de prises a styles/mobile.css, qui replie cette ligne sur un telephone
+       (les styles en ligne ne connaissent pas les media queries). */
+    <div
+      className={open ? "as-graph-header as-graph-header-open" : "as-graph-header"}
+      style={{ ...gStyles.header, ...(open ? null : gStyles.headerEmbedded) }}
+    >
         {/* In the page the section's own heading takes the left, and the
             controls are pushed to the right of it — one line, not two. */}
         {!open && heading}
         {open && (
-        <span style={gStyles.title}>
+        <span className="as-graph-title" style={gStyles.title}>
           {t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
           {walking && (
             <span style={gStyles.walking}>
@@ -2065,7 +2154,7 @@ export default function RelationsGraph({
         </span>
         )}
 
-        <div style={{ ...gStyles.filters, ...(open ? null : gStyles.filtersEmbedded) }}>
+        <div className="as-graph-filters" style={{ ...gStyles.filters, ...(open ? null : gStyles.filtersEmbedded) }}>
           {/* The overlay says this next to its title; in the page the row is
               all there is, so it says it here. */}
           {!open && walking && (
@@ -2073,7 +2162,7 @@ export default function RelationsGraph({
               {t("anime.graphWalking", { defaultValue: "still loading…" })}
             </span>
           )}
-          <label style={gStyles.searchBox}>
+          <label className="as-graph-search" style={gStyles.searchBox}>
             <Icon d={ICON.search} size={13} />
             <input
               value={query}
@@ -2176,6 +2265,7 @@ export default function RelationsGraph({
           onClick={onClose}
           aria-label={t("anime.relationsGraphClose", { defaultValue: "Close" })}
           title={t("anime.relationsGraphClose", { defaultValue: "Close" })}
+          className="as-graph-close"
           style={gStyles.closeBtn}
         >
           <Icon d={ICON.close} size={16} />
@@ -2202,6 +2292,9 @@ export default function RelationsGraph({
              annonce pour marcher. */
           cursor: dragging ? "grabbing" : armed ? "grab" : "default",
           ...(embedded && !open ? gStyles.canvasEmbedded : null),
+          // Dans la page, un doigt fait defiler la page (cf. onPointerDown).
+          // Sans effet a la souris.
+          ...(embedded && !open ? { touchAction: "pan-y" } : null),
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2324,6 +2417,7 @@ export default function RelationsGraph({
       role="dialog"
       aria-modal="true"
       aria-label={t("anime.relationsGraphTitle", { defaultValue: "Franchise timeline" })}
+      className="as-graph-overlay"
       style={gStyles.overlay}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();

@@ -52,14 +52,14 @@ import {
   preloadTabBodies,
 } from "../lazyTabs";
 import QueueButton from "../QueueButton";
-import Related from "../Related";
 import dynamic from "next/dynamic";
-import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
-/* Rendered only as the full-screen overlay behind "View timeline": loaded on
-   the first open, then kept mounted (pan / zoom survive a close + reopen). */
+/* Le graphe (et dagre) dans son propre chunk : il ne dessine rien avant le
+   montage, inutile de le mettre dans le premier chargement de la page. */
 const RelationsGraph = dynamic(() => import("../RelationsGraph"), { ssr: false });
 import { coverUrl } from "@/lib/images/cover";
 import { youtubeTrailerId } from "@/lib/preview/trailerId";
+import tokenStyles from "../styles.module.css";
+import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
 type Props = {
   info: AniListInfoTypes;
@@ -80,6 +80,7 @@ type Props = {
 };
 
 type TabId = "overview" | "episodes" | "scores" | "characters" | "artworks";
+const VALID_TABS: TabId[] = ["overview", "episodes", "scores", "characters", "artworks"];
 
 export default function InfoPageMobile({
   info,
@@ -98,8 +99,30 @@ export default function InfoPageMobile({
 }: Props) {
   const titlePref = useTitlePref();
   const title = pickTitle(info.title, titlePref) || "Anime";
-  const [tab, setTab] = useState<TabId>("overview");
+  const [tab, setTabState] = useState<TabId>("overview");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  /* L'onglet suit l'URL, comme sur PC (Tabs.tsx) : `#episodes` partage ouvre
+     les episodes, recharger garde l'onglet, precedent/suivant aussi. Lu apres
+     le montage (le serveur n'a pas le hash). */
+  useEffect(() => {
+    const sync = () => {
+      const h = window.location.hash.replace(/^#/, "") as TabId;
+      setTabState(VALID_TABS.includes(h) ? h : "overview");
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, [info.id]);
+  const setTab = (next: TabId) => {
+    setTabState(next);
+    const hash = next === "overview" ? "" : `#${next}`;
+    replaceUrlPreservingState(window.location.pathname + window.location.search + hash);
+  };
 
   /* `characters` is stripped from the SSR payload; the SSR ships this count
      instead so the badge is right without the rows. */
@@ -120,7 +143,11 @@ export default function InfoPageMobile({
   const artCount = fanartsMeta?.total || 0;
 
   return (
-    <div style={S.root}>
+    /* `styles.tokens` : les variables de couleur du design (--accent, --line,
+       --bg-2…). Les corps d'onglets partages avec le PC (Episodes, ScoresTab,
+       CharactersTab, Artworks, RelationsGraph) les lisent, et sans elles leurs
+       bordures tombaient sur currentColor (blanc) et leurs fonds a rien. */
+    <div className={tokenStyles.tokens} style={S.root}>
       {/* No mobile top bar here: the shared <Navbar> (z-[9999]) already
           renders the logo / nav / avatar across the top on this page, so a
           second sticky bar only poked its back button out from behind the
@@ -451,10 +478,10 @@ function MHero({
                   padding: "12px 14px",
                   borderRadius: 11,
                   background:
-                    "linear-gradient(135deg, #ff3b5c 0%, #e8294b 100%)",
+                    "linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 88%, #000) 100%)",
                   color: "white",
                   boxShadow:
-                    "0 12px 30px -10px rgba(255,59,92,0.7), inset 0 1px 0 rgba(255,255,255,0.2)",
+                    "0 12px 30px -10px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,0.2)",
                   textDecoration: "none",
                   minWidth: 0,
                 }}
@@ -736,7 +763,7 @@ function MTabs({
               fontWeight: 600,
               color: active ? "#f4f5f8" : "#8a8fa3",
               borderBottom: "2px solid",
-              borderColor: active ? "#ff3b5c" : "transparent",
+              borderColor: active ? "var(--accent)" : "transparent",
               marginBottom: -1,
               whiteSpace: "nowrap",
               background: "none",
@@ -752,8 +779,8 @@ function MTabs({
                   padding: "1px 6px",
                   borderRadius: 4,
                   fontFamily: "ui-monospace, monospace",
-                  background: active ? "rgba(255,59,92,0.12)" : "#1d2030",
-                  color: active ? "#ff7a91" : "#5e6478",
+                  background: active ? "var(--accent-soft)" : "#1d2030",
+                  color: active ? "var(--accent-2)" : "#5e6478",
                 }}
               >
                 {t.count}
@@ -777,7 +804,6 @@ function MOverview({
   const { t, i18n } = useTranslation();
   const [exp, setExp] = useState(false);
   const [graphOpen, setGraphOpen] = useState(false);
-  const graphEverOpened = useMountedOnce(graphOpen);
   // MAL's synopsis stands in only when AniList has none (see withMalMeta).
   const description = useTranslatedText(
     stripHtml(info.description || "") || info.malMeta?.synopsis || "",
@@ -807,10 +833,18 @@ function MOverview({
     ...malDetails(info, t, i18n.language),
   ].filter(([, v]) => !!v) as Array<[string, string]>;
 
-  const tags = (info.tags || [])
-    .filter((t: any) => !t.isMediaSpoiler && !t.isGeneralSpoiler)
-    .sort((a: any, b: any) => (b.rank || 0) - (a.rank || 0))
-    .slice(0, 8);
+  /* Tous les tags, comme sur PC : spoilers derriere le meme bouton (en tete et
+     en couleur une fois montres), et une liste repliee a 8 qu'on deplie. */
+  const [spoilers, setSpoilers] = useState(false);
+  const [allTags, setAllTags] = useState(false);
+  const isSpoiler = (x: any) => x.isMediaSpoiler || x.isGeneralSpoiler;
+  const hasSpoilers = (info.tags || []).some(isSpoiler);
+  const byRank = (a: any, b: any) => (b.rank || 0) - (a.rank || 0);
+  const tagsFull = [
+    ...(spoilers ? (info.tags || []).filter(isSpoiler).sort(byRank) : []),
+    ...(info.tags || []).filter((x: any) => !isSpoiler(x)).sort(byRank),
+  ];
+  const tags = allTags ? tagsFull : tagsFull.slice(0, 8);
 
   const externalLinks = (info as any).externalLinks || [];
   const trailer = info.trailer;
@@ -862,7 +896,7 @@ function MOverview({
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "#ff3b5c",
+              color: "var(--accent)",
               padding: "6px 0 0",
               display: "flex",
               alignItems: "center",
@@ -887,58 +921,26 @@ function MOverview({
         </section>
       )}
 
-      {/* Relations. Same component as desktop — sorting + scroll behaviour
-          come from Related.tsx so changes stay in one place. The padding
-          tweak below pulls the kicker back to the page edge while letting
-          the cards bleed past it horizontally (which gives the "more
-          content scrolls off the right" affordance for free). */}
       {(Array.isArray(info.relations?.edges) && info.relations.edges.length > 0) ||
       (seasonList && seasonList.length > 1) ? (
-        <section style={{ marginLeft: -16, marginRight: -16 }}>
-          <div
-            style={{
-              ...S.kicker,
-              paddingLeft: 16,
-              paddingRight: 16,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>RELATIONS</span>
-            <button
-              type="button"
-              onClick={() => setGraphOpen(true)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "4px 9px",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--txt-2)",
-                background: "var(--bg-2)",
-                border: "1px solid var(--line)",
-                borderRadius: 8,
-              }}
-            >
-              {t("anime.relationsMap", { defaultValue: "View timeline" })}
-            </button>
-          </div>
-          <div style={{ paddingLeft: 16, paddingRight: 16 }}>
-            <Related
-              relations={info.relations?.edges || []}
-              seasonList={seasonList}
-              currentId={info.id}
-            />
-          </div>
-          {graphEverOpened && (
-            <RelationsGraph
-              open={graphOpen}
-              onClose={() => setGraphOpen(false)}
-              currentId={info.id}
-            />
-          )}
+        /* Le graphe de la franchise DANS la page, comme sur PC (Overview.tsx) —
+           il remplace le carrousel de cartes qui listait les voisins directs
+           sans ordre. Au doigt : un doigt fait defiler la page, un appui ouvre
+           une carte, ⤢ passe en plein ecran ou l'on deplace et pince a volonte
+           (cf. les gestes tactiles de RelationsGraph). */
+        <section>
+          <RelationsGraph
+            embedded
+            heading={
+              <div style={{ ...S.kicker, marginBottom: 0 }}>
+                {t("anime.sectionRelations")}
+              </div>
+            }
+            open={graphOpen}
+            onExpand={() => setGraphOpen(true)}
+            onClose={() => setGraphOpen(false)}
+            currentId={info.id}
+          />
         </section>
       ) : null}
 
@@ -1031,7 +1033,31 @@ function MOverview({
 
       {tags.length > 0 && (
         <section>
-          <div style={S.kicker}>{t("anime.sectionTags")}</div>
+          <div style={{ ...S.kicker, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>{t("anime.sectionTags")}</span>
+            {hasSpoilers && (
+              <button
+                type="button"
+                onClick={() => setSpoilers((v) => !v)}
+                aria-pressed={spoilers}
+                style={{
+                  padding: "8px 11px",
+                  margin: "-8px 0",
+                  borderRadius: 8,
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  background: spoilers ? "var(--accent-soft)" : "var(--bg-2)",
+                  border: spoilers
+                    ? "1px solid color-mix(in srgb, var(--accent) 40%, transparent)"
+                    : "1px solid var(--line)",
+                  color: spoilers ? "var(--accent)" : "var(--txt-2)",
+                }}
+              >
+                {spoilers ? t("anime.hideSpoilers") : t("anime.showSpoilers")}
+              </button>
+            )}
+          </div>
           <div
             style={{
               background: "#161924",
@@ -1044,14 +1070,14 @@ function MOverview({
             }}
           >
             {tags.map((tag: any) => (
+              <MTagRow key={tag.name} desc={tag.description}>
               <div
-                key={tag.name}
                 style={{ display: "flex", alignItems: "center", gap: 10 }}
               >
                 <span
                   style={{
                     fontSize: 11.5,
-                    color: "#c4c8d4",
+                    color: isSpoiler(tag) ? "var(--accent)" : "#c4c8d4",
                     flex: "0 0 110px",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -1074,7 +1100,7 @@ function MOverview({
                       height: "100%",
                       width: `${tag.rank || 0}%`,
                       background:
-                        "linear-gradient(90deg, #ff3b5c, #ff7a91)",
+                        "linear-gradient(90deg, var(--accent), var(--accent-2))",
                       borderRadius: 3,
                     }}
                   />
@@ -1091,7 +1117,25 @@ function MOverview({
                   {tag.rank || 0}%
                 </span>
               </div>
+              </MTagRow>
             ))}
+            {tagsFull.length > 8 && (
+              <button
+                type="button"
+                onClick={() => setAllTags((v) => !v)}
+                style={{
+                  alignSelf: "flex-start",
+                  minHeight: 40,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: "var(--accent)",
+                }}
+              >
+                {allTags
+                  ? t("common.showLess")
+                  : `${t("common.showMore")} (${tagsFull.length - 8})`}
+              </button>
+            )}
           </div>
         </section>
       )}
@@ -1102,7 +1146,7 @@ function MOverview({
           <div
             style={{ display: "flex", flexDirection: "column", gap: 7 }}
           >
-            {externalLinks.slice(0, 6).map((s: any) => {
+            {externalLinks.map((s: any) => {
               const color = s.color || "#4a8fff";
               return (
                 <a
@@ -1340,10 +1384,10 @@ function MTrailer({
             width: 54,
             height: 54,
             borderRadius: 28,
-            background: "rgba(255,59,92,0.95)",
+            background: "color-mix(in srgb, var(--accent) 95%, transparent)",
             display: "grid",
             placeItems: "center",
-            boxShadow: "0 12px 30px rgba(255,59,92,0.4)",
+            boxShadow: "0 12px 30px color-mix(in srgb, var(--accent) 40%, transparent)",
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="white" style={{ marginLeft: 2 }}>
@@ -1555,6 +1599,29 @@ function Heart({ fill = "#ff3b5c" }: { fill?: string }) {
   );
 }
 
+/* Une ligne de tag. Sur PC sa description est une infobulle au survol ; au
+   doigt, un appui la deplie sous la ligne (et un second la replie). */
+function MTagRow({ desc, children }: { desc?: string | null; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (!desc) return <>{children}</>;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      onClick={() => setOpen((v) => !v)}
+      style={{ cursor: "pointer" }}
+    >
+      {children}
+      {open && (
+        <div style={{ fontSize: 12, lineHeight: 1.5, color: "#8a8fa3", padding: "6px 0 2px" }}>
+          {desc}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── styles ──────────────────────────────────────────────── */
 const S: Record<string, React.CSSProperties> = {
   root: {
@@ -1586,9 +1653,9 @@ const S: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     padding: "3px 9px",
     borderRadius: 999,
-    background: "rgba(255,59,92,0.12)",
-    border: "1px solid rgba(255,59,92,0.35)",
-    color: "#ff7a91",
+    background: "var(--accent-soft)",
+    border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+    color: "var(--accent-2)",
     fontSize: 10.5,
     fontWeight: 600,
   },

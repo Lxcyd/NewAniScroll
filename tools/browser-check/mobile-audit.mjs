@@ -165,6 +165,11 @@ for (const chemin of chemins) {
   if (process.env.ACTION) {
     await envoie("Runtime.evaluate", { expression: process.env.ACTION });
     await dors(Number(process.env.ACTION_MS || 1500));
+    // « Nouveautes » peut s'ouvrir apres le premier passage : la refermer encore.
+    await envoie("Runtime.evaluate", {
+      expression: `[...document.querySelectorAll("button")].find((b) => /^Compris/.test(b.innerText.trim()))?.click()`,
+    });
+    await dors(400);
   }
   const r = (await envoie("Runtime.evaluate", { expression: releve, returnByValue: true })).result?.result?.value;
   // Captures ecran par ecran (une pleine page de 6000 px est illisible une
