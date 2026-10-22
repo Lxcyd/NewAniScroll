@@ -24,6 +24,8 @@ import {
 } from "./lib/env.mjs";
 import { censusKeyspace, fetchUpstashStats } from "./lib/upstash.mjs";
 import { collectVercel } from "./lib/vercel.mjs";
+import { collectTurso } from "./lib/turso.mjs";
+import { loadEnv as loadTursoEnv } from "../turso/lib.mjs";
 import {
   loadPreviousSnapshot,
   writeSnapshot,
@@ -44,6 +46,7 @@ async function main() {
     census: null,
     upstashStats: null,
     vercel: null,
+    turso: null,
   };
 
   // 1. Keyspace census (the money shot — needs only REDIS_URL).
@@ -91,6 +94,18 @@ async function main() {
     snapshot.vercel = await collectVercel(vercel);
   } else {
     console.log("• vercel: skipped (no VERCEL_TOKEN)");
+  }
+
+  // 4. Turso rows read per database (platform API — optional).
+  loadTursoEnv();
+  try {
+    console.log("• turso: fetching usage…");
+    snapshot.turso = await collectTurso();
+    if (snapshot.turso) console.log(`  → ${snapshot.turso.usedPct}% used, projected ${snapshot.turso.projectedPct}%`);
+    else console.log("  → skipped (no TURSO_API_TOKEN)");
+  } catch (e) {
+    snapshot.turso = { error: e.message };
+    console.warn(`  ! turso failed: ${e.message}`);
   }
 
   // Persist + report.

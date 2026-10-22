@@ -60,6 +60,28 @@ deploiement repart avec un cache d'edge vide.
 - L'upgrade Pro, seule action qui relance un compte deja en pause : le Fluid
   CPU deja consomme ne redescend qu'au 1er du mois.
 
+## Turso : 500 M de lignes lues par mois, pour TOUT le monde
+
+Plan `starter` : 500 M de lignes lues par periode (du 1er au 1er), toutes bases
+confondues — prod, dev ET local lisent les memes bases. Du 14 au 21/10/2026 une
+seule requete qui avait perdu son index (`anime_fanarts`, cf. le `+` de
+[lib/db/fanarts.ts](lib/db/fanarts.ts)) a lu 283 M de lignes : 80 % du mois.
+
+- **Script ponctuel sur tout le catalogue** (audit, verification, backfill) :
+  mesurer d'abord son cout sur ~10 titres avec `queryCost` de
+  [tools/turso/lib.mjs](tools/turso/lib.mjs) (le `rows_read` exact que Turso
+  facture), extrapoler. **Au-dessus de 20 M, ne pas le lancer** sans l'accord
+  de l'utilisateur — ou le decouper sur plusieurs jours. (Le 03/10 un controle
+  de player_map a lu 93 M de lignes en une journee.)
+- **Nouvelle requete chaude** : l'ajouter a
+  [tools/turso/query-cost.mjs](tools/turso/query-cost.mjs) avec un plafond. Le
+  workflow `query-cost.yml` la mesure a chaque push sur dev qui touche aux
+  requetes. Un plan « juste » ne suffit pas : `EXPLAIN QUERY PLAN` peut dire
+  le bon index et la requete en prendre un autre avec d'autres arguments.
+- **Usage par base et par jour** : `TURSO_API_TOKEN` (dans `.env`) +
+  `databaseUsage` de tools/turso/lib.mjs ; le rapport quotidien
+  (tools/usage-monitor) leve un drapeau au-dessus de 10 M/jour pour une base.
+
 ## Lecteurs : une seule source, `lib/lecteurs.json`
 
 Une decision de l'utilisateur sur un lecteur (mort, retire, rallume) s'ecrit

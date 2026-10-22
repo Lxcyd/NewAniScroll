@@ -8,6 +8,7 @@ import {
   mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
+import { renderTurso, tursoFlags } from "./turso.mjs";
 
 export function ensureDir(dir) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -129,6 +130,9 @@ export function renderReport(snapshot, prev) {
   }
   L.push("");
 
+  // ── Turso rows read (per database, quota projection) ──────────────────────
+  L.push(...renderTurso(snapshot.turso));
+
   // ── Vercel deployments (correlate spikes with releases) ───────────────────
   const v = snapshot.vercel;
   L.push("## Vercel — recent deployments");
@@ -174,6 +178,7 @@ function buildFlags(snapshot, prev) {
       `**Upstash a atteint son plafond mensuel** (${fmt(c.usage)} / ${fmt(c.limit)}) → toutes les commandes Redis échouent, le cache est mort et le Fluid CPU de Vercel monte jusqu'au 1er du mois.`,
     );
   }
+  flags.push(...tursoFlags(snapshot.turso));
   const pc = prev?.census?.buckets;
   if (c?.buckets && pc) {
     for (const [k, v] of Object.entries(c.buckets)) {
@@ -200,7 +205,10 @@ export function appendHistory(historyPath, snapshot) {
       ? `QUOTA ÉPUISÉ ${fmt(c.usage)}/${fmt(c.limit)}`
       : c && !c.error
         ? `DBSIZE ${fmt(c.dbsize)}${top ? `, top prefix \`${top[0]}:\` ${fmt(top[1])}` : ""}`
-        : "");
+        : "") +
+    (snapshot.turso && !snapshot.turso.error
+      ? `, Turso ${snapshot.turso.usedPct}% (proj ${snapshot.turso.projectedPct}%)`
+      : "");
   let prevBody = "";
   if (existsSync(historyPath)) prevBody = readFileSync(historyPath, "utf8");
   else prevBody = "# Usage Monitor — history\n\n";

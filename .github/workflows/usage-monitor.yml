@@ -53,6 +53,8 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          # Turso : lignes lues par base, quota et projection (tools/turso/lib.mjs).
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
         run: node tools/usage-monitor/collect.mjs
 
       - name: Commit snapshot + reports

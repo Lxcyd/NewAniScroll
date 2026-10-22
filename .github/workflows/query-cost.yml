@@ -1,0 +1,43 @@
+name: Turso query cost
+
+# Mesure le coût réel (rows_read) des requêtes chaudes et échoue au-dessus du
+# plafond de chacune — tools/turso/query-cost.mjs.
+#
+# Né du 22/10/2026 : une requête qui avait perdu son index a lu 283 M de lignes
+# en une semaine (80 % du quota Turso du mois) sans qu'aucun test ne bouge. Le
+# code était juste, le plan d'exécution non : seule une MESURE le voit.
+#
+# Sur dev aussi, et pas seulement à la release : dev lit les MÊMES bases que la
+# prod, donc une régression y coûte déjà le quota de tout le monde.
+# ~71 000 lignes lues par exécution (0,014 % du quota mensuel).
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "lib/db/**"
+      - "lib/tmdb/**"
+      - "lib/fribb/**"
+      - "lib/wallhaven/**"
+      - "pages/api/**"
+      - "tools/turso/**"
+      - ".github/workflows/query-cost.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  query-cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Coût des requêtes chaudes
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+        run: node tools/turso/query-cost.mjs
