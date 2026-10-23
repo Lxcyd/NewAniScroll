@@ -172,6 +172,13 @@ function buildEpisodeList(
   ];
 }
 
+/** Au moins un episode dans la liste (sub ou dub), quelle que soit l'enveloppe. */
+function hasEpisodes(data: any[]): boolean {
+  return Array.isArray(data) && data.some(
+    (i) => i?.episodes?.sub?.length || i?.episodes?.dub?.length || (Array.isArray(i?.episodes) && i.episodes.length),
+  );
+}
+
 function filterData(data: any[], type: "sub" | "dub") {
   const filteredData = data.map((item) => {
     if (item?.map === true) {
@@ -298,7 +305,10 @@ export default async function handler(
       cached = await redis.get(EPISODE_CACHE_KEY(id));
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (!parsed || parsed.length === 0) {
+        /* L'enveloppe n'est jamais vide (un fournisseur, zero episode) : c'est
+           son contenu qu'il faut regarder. Evince aussi les listes vides deja
+           ecrites avant le correctif (Firefly Wedding, 24/10/2026). */
+        if (!parsed || !hasEpisodes(parsed)) {
           await redis.del(EPISODE_CACHE_KEY(id));
           cached = null;
         }
@@ -426,9 +436,19 @@ export default async function handler(
      from a stale Turso row with no stills. Reading the lifetime off it is how a
      knowingly-incomplete list ended up cached for thirty days. */
   if (fromFallback) cacheTime = 5 * 60;
+  /* Meme regle pour un anime pas encore termine : la duree se lit sur le statut
+     AniList, pas sur `releasing`. Une page ouverte AVANT la diffusion envoie
+     `releasing=false`, et la liste vide d'un anime pas encore sorti partait en
+     cache pour trente jours — Firefly Wedding sans episode alors que trois
+     etaient sortis (24/10/2026). */
+  if (media.status && media.status !== "FINISHED" && media.status !== "CANCELLED") {
+    cacheTime = Math.min(cacheTime, 60 * 60 * 3);
+  }
+  const listed = hasEpisodes(rawData);
 
-  // Cache
-  if (redis && cacheTime !== null && rawData.length > 0) {
+  // Cache — jamais une liste vide : elle ne sert qu'a masquer les premiers
+  // episodes quand ils sortent.
+  if (redis && cacheTime !== null && listed) {
     await redis.set(
       EPISODE_CACHE_KEY(id),
       JSON.stringify(rawData),
@@ -456,13 +476,13 @@ export default async function handler(
     "CDN-Cache-Control",
     fromFallback
       ? "public, s-maxage=300, stale-while-revalidate=600"
-      : rawData.length > 0
+      : listed
         ? // Same window as the cache-hit branch. This list was just written to
           // Redis for 30 days (finished show): the next edge refresh would read
           // back exactly this, so expiring the edge copy after 30 min only
           // bought an invocation + a Redis GET.
           `public, s-maxage=${edgeSmaxage}, stale-while-revalidate=86400`
-        : "public, s-maxage=1800, stale-while-revalidate=86400",
+        : "public, s-maxage=300, stale-while-revalidate=600",
   );
   return res.status(200).json(data.filter((i) => i.episodes.length > 0));
 }
