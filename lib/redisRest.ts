@@ -221,6 +221,58 @@ function soft<A extends any[], R>(
   };
 }
 
+/* ── LA MEMOIRE DE REPLI ───────────────────────────────────────────────────
+ *
+ * Quand Upstash ne repond plus (disjoncteur ouvert — typiquement le quota
+ * mensuel atteint, comme le 23/10/2026), TOUS les caches du site tombaient a
+ * zero : chaque rendu recalculait la fiche anime, l'accueil, le planning... Un
+ * cache mort rend le site lent, et c'est exactement ce qui se mesurait.
+ *
+ * Les lectures et ecritures SIMPLES (get / mget / set avec ou sans duree / del)
+ * passent donc, pendant la panne, par une memoire bornee du processus : une
+ * lambda tiede, et le serveur local, retrouvent ce qu'ils ont eux-memes calcule.
+ * Rien ne change quand Upstash repond : la memoire n'est ni lue ni ecrite.
+ *
+ * Ce qui reste HORS de ce repli, volontairement : `SET NX/XX` (des verrous —
+ * pretendre en tenir un serait faux, cf. FALLBACKS), compteurs, ensembles,
+ * listes, hachages. Ils gardent leur valeur de panne d'avant. */
+const MEM_MAX_ENTRIES = 1000;
+/** ~32 Mo de texte au plus (2 octets par caractere UTF-16). Les plus anciennes
+ *  entrees sautent d'abord. Une valeur plus grosse que le quart du budget n'est
+ *  pas gardee du tout. */
+const MEM_MAX_CHARS = 16_000_000;
+const mem = new Map<string, { v: string; exp: number }>();
+let memChars = 0;
+
+function memDelete(key: string): void {
+  const e = mem.get(key);
+  if (!e) return;
+  memChars -= e.v.length;
+  mem.delete(key);
+}
+
+function memGet(key: string): string | null {
+  const e = mem.get(key);
+  if (!e) return null;
+  if (e.exp && Date.now() > e.exp) {
+    memDelete(key);
+    return null;
+  }
+  return e.v;
+}
+
+function memSet(key: string, value: unknown, opts: Record<string, any>): void {
+  const v = String(value);
+  memDelete(key);
+  if (v.length > MEM_MAX_CHARS / 4) return;
+  const ttlMs = opts.ex ? opts.ex * 1000 : opts.px ? Number(opts.px) : 0;
+  mem.set(key, { v, exp: ttlMs > 0 ? Date.now() + ttlMs : 0 });
+  memChars += v.length;
+  while (mem.size > MEM_MAX_ENTRIES || memChars > MEM_MAX_CHARS) {
+    memDelete(mem.keys().next().value as string);
+  }
+}
+
 /** Translate an ioredis `set(k, v, "EX", n, "NX")` varargs tail into the
  *  Upstash options object. Supports EX/PX (ttl) and NX/XX (conditional). */
 function setOpts(args: any[]): Record<string, any> {
@@ -367,10 +419,18 @@ export function createRestRedis(): IoRedisish | null {
    * tout le monde à la fois. Les appelants qui ont besoin de la nuance lisent
    * `redisAvailable()` — cf. son commentaire. */
   const FALLBACKS: Record<string, (...a: any[]) => any> = {
-    get: () => null,
-    set: () => null,
-    del: () => 0,
-    mget: (...keys: string[]) => keys.map(() => null),
+    get: (k: string) => memGet(k),
+    set: (k: string, v: unknown, ...args: any[]) => {
+      const opts = setOpts(args);
+      // Un verrou (NX/XX) n'est jamais simule : `null`, comme avant.
+      if (!opts.nx && !opts.xx) memSet(k, v, opts);
+      return null;
+    },
+    del: (...keys: string[]) => {
+      for (const k of keys) memDelete(k);
+      return 0;
+    },
+    mget: (...keys: string[]) => keys.map((k) => memGet(k)),
     keys: () => [],
     exists: () => 0,
     expire: () => 0,
