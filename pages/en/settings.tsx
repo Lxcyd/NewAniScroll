@@ -38,7 +38,6 @@ import {
 } from "@/lib/prefs/previewPrefs";
 import { useServerPref, setServerPref } from "@/lib/prefs/serverPref";
 import SERVERS from "@/lib/servers";
-import LangPreferenceModal from "@/components/watch/primary/LangPreferenceModal";
 import { useLangPrefEnabled, setLangPrefEnabled } from "@/lib/prefs/langPref";
 import {
   useServerPerfEnabled,
@@ -50,23 +49,14 @@ import { clearAllProgress } from "@/lib/watch/progress";
 import { pushKinds } from "@/lib/list/cloudSync";
 import { restoreDefaultSettings } from "@/lib/prefs/resetSettings";
 import { useAccent, setAccent, ACCENT_PRESETS, DEFAULT_ACCENT } from "@/lib/prefs/accentColor";
-import {
-  downloadExportXml,
-  importFromJson,
-  importFromAniListUsername,
-  importFromMalXml,
-  readFileText,
-  ImportResult,
-} from "@/lib/list/importExport";
+/* L'import/export de liste et le moteur de synchro ne servent qu'au clic d'un
+   bouton : charges a ce moment-la (`await import(...)` dans les gestionnaires),
+   ils ne pesent plus sur l'ouverture de la page. */
+import type { ImportResult } from "@/lib/list/importExport";
+const importExport = () => import("@/lib/list/importExport");
+const syncEngine = () => import("@/lib/list/syncEngine");
 import { useLocalList, clearLocalList } from "@/lib/list/localList";
-import {
-  fullSyncFromAniList,
-  fullSyncToAniList,
-  runAutoPauseSweep,
-} from "@/lib/list/syncEngine";
-import SyncDirectionModal, {
-  type SyncDirection,
-} from "@/components/shared/SyncDirectionModal";
+import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useEffect, useRef, useState } from "react";
 import {
   LanguageIcon,
@@ -83,10 +73,25 @@ import {
 } from "@heroicons/react/24/outline";
 import AccountSection from "@/components/auth/AccountSection";
 import ColorPicker from "@/components/shared/ColorPicker";
-import DangerConfirmModal from "@/components/shared/DangerConfirmModal";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useTranslation } from "react-i18next";
 import { notify } from "@/lib/notifications/noticeStore";
+
+/* Trois dialogues qui rendent `null` tant qu'ils sont fermes (`if (!open)
+   return null`) : la page statique a le meme HTML, et leur code arrive apres
+   l'hydratation au lieu de la retarder. */
+const SyncDirectionModal = dynamic(
+  () => import("@/components/shared/SyncDirectionModal"),
+  { ssr: false },
+);
+const DangerConfirmModal = dynamic(
+  () => import("@/components/shared/DangerConfirmModal"),
+  { ssr: false },
+);
+const LangPreferenceModal = dynamic(
+  () => import("@/components/watch/primary/LangPreferenceModal"),
+  { ssr: false },
+);
 
 // The visual keyboard shortcut editor is a heavy, rarely-opened overlay —
 // load it on demand (client-only) so it never weighs down the settings bundle.
@@ -529,7 +534,9 @@ export default function Settings() {
     return () => {
       if (pendingAutoPauseSweep.current) {
         pendingAutoPauseSweep.current = false;
-        runAutoPauseSweep().catch(() => {});
+        syncEngine()
+          .then((m) => m.runAutoPauseSweep())
+          .catch(() => {});
       }
     };
   }, []);
@@ -615,6 +622,7 @@ export default function Settings() {
   const runPull = async (replace = false) => {
     setSyncing(true);
     try {
+      const { fullSyncFromAniList, runAutoPauseSweep } = await syncEngine();
       const r = await fullSyncFromAniList({ replace });
       if (r.ok) {
         notify.success(t("settings.sync.synced", { count: r.count }));
@@ -641,6 +649,8 @@ export default function Settings() {
     setSyncPrefs({ enabled: true, directionChosen: true });
     setSyncing(true);
     try {
+      const { fullSyncFromAniList, fullSyncToAniList, runAutoPauseSweep } =
+        await syncEngine();
       const r =
         direction === "fromAniList"
           ? await fullSyncFromAniList({ replace: true })
@@ -680,6 +690,7 @@ export default function Settings() {
     setBusy(true);
     setMalProgress(null);
     try {
+      const { downloadExportXml } = await importExport();
       const r = await downloadExportXml((done, total) =>
         setMalProgress({ done, total }),
       );
@@ -711,6 +722,8 @@ export default function Settings() {
     setBusy(true);
     setMalProgress(null);
     try {
+      const { readFileText, importFromMalXml, importFromJson } =
+        await importExport();
       const text = await readFileText(file);
       const isXml =
         file.name.toLowerCase().endsWith(".xml") ||
@@ -737,6 +750,7 @@ export default function Settings() {
     if (!aniUsername.trim()) return;
     setBusy(true);
     try {
+      const { importFromAniListUsername } = await importExport();
       reportResult(await importFromAniListUsername(aniUsername, importMode));
     } catch (e: any) {
       notify.error(
