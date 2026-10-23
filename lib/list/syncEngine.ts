@@ -16,7 +16,7 @@
  * that lookup when the sync master toggle is actually on.
  */
 
-import { getSession } from "next-auth/react";
+import { currentSession } from "@/lib/auth/clientSession";
 import { getSyncPrefs, SyncPrefs } from "@/lib/prefs/syncPrefs";
 import {
   getLocalList,
@@ -53,7 +53,8 @@ async function getAniListSession(
 ): Promise<AniSession> {
   if (!prefs.enabled && !allowDisabled) return null;
   try {
-    const s = (await getSession()) as AniSession;
+    // La session deja recue par le provider : pas de second /api/auth/session.
+    const s = (await currentSession()) as AniSession;
     return s?.user?.token ? s : null;
   } catch {
     return null;

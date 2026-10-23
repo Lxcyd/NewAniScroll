@@ -37,6 +37,13 @@ export default function AnilistHealthBanner() {
   // it cleanly when the failure cause changes (e.g. user comes back online
   // but the server still reports AniList down).
   const shownRef = useRef<null | "anilist" | "network">(null);
+  /* `t` change d'identite quand la langue bascule (en -> fr, juste apres
+     l'affichage, cf. I18nProvider). Dans les dependances de l'effet, cela
+     relancait tout — donc un second appel a la route de sante — sur chaque page
+     de chaque visiteur francophone. Lu par reference : les toasts gardent la
+     langue courante au moment ou ils s'affichent. */
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +57,7 @@ export default function AnilistHealthBanner() {
 
     const showAnilistDown = (message: string | null) => {
       if (shownRef.current === "anilist") return;
+      const t = tRef.current;
       notify.error(t("health.anilistDown"), {
         id: TOAST_ID,
         description:
@@ -61,6 +69,7 @@ export default function AnilistHealthBanner() {
 
     const showNetworkIssue = () => {
       if (shownRef.current === "network") return;
+      const t = tRef.current;
       notify.error(t("health.connectionIssue"), {
         id: TOAST_ID,
         description: t("health.connectionIssueDesc"),
@@ -168,7 +177,7 @@ export default function AnilistHealthBanner() {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, [t]);
+  }, []);
 
   return null;
 }

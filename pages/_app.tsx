@@ -9,6 +9,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import NextNProgress from "nextjs-progressbar";
 import { SessionProvider, useSession } from "next-auth/react";
+import { publishSession } from "@/lib/auth/clientSession";
 import { SkeletonTheme } from "react-loading-skeleton";
 import { SearchProvider, useSearch } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
@@ -92,6 +93,18 @@ function SearchPaletteMount() {
 const WORKER_BASE =
   (process.env.NEXT_PUBLIC_PROXY_BASE as string | undefined) ||
   "https://proxy.aniscroll.com";
+
+/**
+ * Rend la session du provider lisible hors de React (lib/auth/clientSession) :
+ * la synchro AniList de fond la lit la au lieu de refaire `/api/auth/session`.
+ */
+function SessionBridge() {
+  const { data, status } = useSession();
+  useEffect(() => {
+    publishSession(status, data);
+  }, [status, data]);
+  return null;
+}
 
 /**
  * First-login sync bootstrap. Lives INSIDE <SessionProvider> so it can read the
@@ -788,6 +801,7 @@ export default function App({
                 <EpisodeTransitionOverlay />
                 <ChangeLogs />
                 <AnilistHealthBanner />
+                <SessionBridge />
                 <SyncBootstrap />
                 <CloudSyncBootstrap />
                 <BadgesBootstrap />
