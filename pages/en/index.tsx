@@ -984,24 +984,28 @@ export default function Home({
   const userSession: SessionTypes = sessions?.user;
   const { t } = useTranslation();
 
+  /* UNE requete AniList au lieu de trois. Il y avait un appel filtre sur
+     CURRENT, un sur PLANNING et un sans filtre — or le troisieme contient deja
+     les deux autres : AniList range chaque statut dans sa propre liste
+     (`status` de la liste), triee pareil (UPDATED_TIME_DESC). Les deux lectures
+     plus bas cherchent la liste par son statut, elles voient donc les memes
+     entrees. Deux allers-retours de moins par accueil connecte, sur le quota
+     AniList du visiteur (90 req/min par IP). */
   const {
-    anime: currentAnime,
+    anime: release,
     recommendations,
-    loading: currentLoading,
+    loading: releaseLoading,
   }: {
     anime: CurrentMediaTypes[];
     recommendations: CurrentMediaTypes[];
     loading: boolean;
   } = GetMedia(sessions, {
-    stats: "CURRENT",
     // Only this call feeds a carousel from the recommendations page.
     withRecs: true,
   });
-  const { anime: plan, loading: planLoading }: { anime: CurrentMediaTypes[]; loading: boolean } =
-    GetMedia(sessions, {
-      stats: "PLANNING",
-    });
-  const { anime: release, loading: releaseLoading } = GetMedia(sessions);
+  const currentAnime = release;
+  const currentLoading = releaseLoading;
+  const planLoading = releaseLoading;
 
   const router = useRouter();
 
@@ -1202,8 +1206,9 @@ export default function Home({
         .map(({ media }) => media)
         .filter((media) => media);
 
-      const planned = plan?.[0]?.entries
-        .map(({ media }) => media)
+      const planned = currentAnime
+        .find((item) => item.status === "PLANNING")
+        ?.entries.map(({ media }) => media)
         .filter((media) => media);
 
       if (listAnime) {
@@ -1216,7 +1221,7 @@ export default function Home({
     userData();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userSession?.name, currentAnime, plan]);
+  }, [userSession?.name, currentAnime]);
 
   function removeHtmlTags(text: string): string {
     return text?.replace(/<[^>]+>/g, "");
