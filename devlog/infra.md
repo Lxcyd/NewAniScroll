@@ -6,6 +6,24 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-23 (nuit) — Serveur local sous Turbopack
+
+`npm run dev` = `next dev --turbo -p 3123` (`dev:webpack` garde l'ancien). Mesure
+a `.next` vide, memes 7 pages : pret 8,2 -> 4,5 s, premiere page 21 -> 11 s,
+anime 5,2 -> 2,7 s, les 7 pages 33 -> 18 s ; recompilations plus rapides aussi.
+Memes avertissements serveur qu'avec webpack, hydratation propre (accueil,
+anime, lecture, my-list, parametres, decouvrir), rendu verifie a l'oeil. Le
+build de prod reste webpack (next build), rien ne change en ligne. Turbopack
+REFUSE un `node_modules` en jonction : il ne tourne pas dans une copie isolee.
+
+Au passage : la barre mobile comparait le chemin a `/en/...` sans normaliser
+`/fr` — en francais, aucun onglet surligne, barre « lecture » jamais appliquee,
+et alerte d'hydratation (`strokeLinecap`) sur les pages statiques.
+
+Le mode strict de React (dev seulement) double encore quelques appels legers
+(`session`, `anilist-health`, `server-perf`, `relations/tree`) : garde, c'est
+lui qui attrape les effets sans nettoyage.
+
 ## 2026-10-23 (soir) — « Le chargement est extremement long » : le rendu HORS cache
 
 Mesure d'abord. Servie par le cache d'edge, une page arrive en 0,09 s (dev) et
