@@ -954,6 +954,29 @@ function appendPreloadHeader(res: any, url: string): void {
    in normal dev/prod. Logs to one line per request so it's easy to grep
    and doesn't drown the terminal. */
 const PROFILE_SSR = process.env.PROFILE_SSR === "1";
+/**
+ * La ligne Turso a-t-elle ete ecrite par CETTE page (mediaInfoQuery) ?
+ *
+ * `anime.data` est ecrit par trois requetes differentes et fusionne en surface
+ * (lib/db/anime.ts, upsertAnime) : une ecriture de la page de lecture remplace
+ * `tags`, `recommendations` et `studios` par sa version, qui n'a pas les
+ * sous-champs que la page affiche. On verifie donc ces sous-champs-la, pas un
+ * indicateur de premier niveau qui survivrait a la fusion.
+ */
+function hasInfoShape(d: any): boolean {
+  if (!d || typeof d !== "object") return false;
+  for (const k of ["siteUrl", "tags", "studios", "relations", "recommendations", "rankings", "externalLinks"]) {
+    if (!(k in d)) return false;
+  }
+  if (!d.coverImage || !(d.title?.userPreferred || d.title?.romaji || d.title?.english)) return false;
+  if (Array.isArray(d.tags) && d.tags.length && !("isGeneralSpoiler" in (d.tags[0] ?? {}))) return false;
+  const rec = d.recommendations?.nodes?.find((n: any) => n?.mediaRecommendation)?.mediaRecommendation;
+  if (rec && !("averageScore" in rec && "seasonYear" in rec)) return false;
+  const studio = d.studios?.edges?.[0]?.node;
+  if (studio && !("siteUrl" in studio)) return false;
+  return true;
+}
+
 function makeTimer() {
   const t0 = Date.now();
   const marks: Array<[string, number]> = [];
@@ -1209,7 +1232,32 @@ export async function getServerSideProps(ctx: any) {
 
   let data: any = null;
   const simulateDown = process.env.ANILIST_SIMULATE_DOWN === "1";
+
+  /* LA COPIE TURSO AVANT ANILIST (23/10/2026), comme la page de lecture depuis
+     le 01/10. Mesure sur un rendu hors cache : AniList 330-580 ms, une ligne
+     Turso lue par cle primaire ~50-100 ms. Prise seulement FRAICHE
+     (`expires_at` : 1 h pour une serie en cours, 30 j terminee) et seulement
+     si elle a la FORME de cette page (`hasInfoShape`) : la meme ligne est aussi
+     ecrite par la page de lecture et getMediaMeta, avec une requete qui n'a ni
+     les tags spoilers, ni les notes des recommandations. Lue une seule fois :
+     elle sert aussi de repli si AniList echoue, plus bas. */
+  let copie: Awaited<ReturnType<typeof getCachedAnime>> = null;
   try {
+    copie = await getCachedAnime(animeIdNum);
+  } catch (e: any) {
+    console.warn(`[anime SSR] DB read failed:`, e?.message);
+  }
+  timer.mark("turso");
+  const fromTurso = !!(copie && !copie.isStale && hasInfoShape(copie.data));
+  if (fromTurso) {
+    /* Ce que la ligne porte en plus, venu des autres requetes (FULL_MEDIA_QUERY)
+       et que mediaInfoQuery ne demande pas : retire, sinon ~6 Ko de plus dans le
+       HTML (streamingEpisodes) et une page qui differerait de celle d'AniList. */
+    const { streamingEpisodes, trending, updatedAt, ...rest } = copie!.data;
+    data = rest;
+  }
+
+  if (!data) try {
     if (simulateDown) throw new Error("simulated AniList outage");
     const resp = await anilistFetch({
       /* PAS DE CACHE DE REPONSE ICI (16/09/2026, jour ou le quota Upstash a
@@ -1240,17 +1288,12 @@ export async function getServerSideProps(ctx: any) {
   let fromFallback = false;
 
   if (data) {
-    primeMediaCache(animeIdNum, data);
-  } else {
-    try {
-      const cached = await getCachedAnime(animeIdNum);
-      if (cached?.data) {
-        data = cached.data;
-        fromFallback = true;
-      }
-    } catch (e: any) {
-      console.warn(`[anime SSR] DB fallback failed:`, e?.message);
-    }
+    // Une copie Turso n'est pas reecrite dans Turso : elle en vient.
+    if (!fromTurso) primeMediaCache(animeIdNum, data);
+  } else if (copie?.data) {
+    // AniList muet : la copie, meme perimee, plutot qu'une 404.
+    data = copie.data;
+    fromFallback = true;
   }
   timer.mark("dbFallback");
 
