@@ -4,7 +4,7 @@ import { getExtractor, VIDMOLY_HOST_RE, ouvreEncMegaplay } from "@/lib/extractor
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
 import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
-import { getFribbEntry } from "@/lib/fribb/fribbMap";
+import { getFribbEntry, lookupFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
 import { resolveSeasonChain } from "@/lib/anilist/seasonChain";
 import { isRecapTitle } from "@/lib/anilist/seasonDetection";
@@ -626,8 +626,10 @@ async function getFrembedStream(serverKey, aniId, episode) {
   // 10 min and published into the 6h availability snapshot — the chip vanishing
   // for everyone over a blip. A second look separates them: a missing mapping
   // is a static fact that answers null twice, a hiccup usually doesn't.
-  let fribb = await getFribbEntry(Number(aniId));
-  if (!fribb) fribb = await getFribbEntry(Number(aniId));
+  // `lookupFribbEntry` dit desormais lequel des deux : la seconde lecture n'est
+  // faite que sur une ERREUR, plus pour chaque anime sans correspondance.
+  const first = await lookupFribbEntry(Number(aniId));
+  const fribb = first.ok ? first.entry : await getFribbEntry(Number(aniId));
 
   // FILMS. Frembed catalogues them under the TMDB *movie* id, on a `type=movie`
   // route with no season/episode coordinates — a different index entirely, and

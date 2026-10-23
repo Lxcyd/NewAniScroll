@@ -47,20 +47,48 @@ function rowToEntry(row: any): FribbEntry {
 }
 
 /** Fribb entry for one AniList id, or null if absent / DB disabled. */
-export async function getFribbEntry(
+/* LES REPONSES, GARDEES UNE HEURE EN MEMOIRE DU PROCESSUS.
+   `fribb_map` est une table statique, rechargee une fois par semaine
+   (refresh-fribb.yml), et lue a l'unite depuis une dizaine d'endroits — la
+   resolution des saisons parcourt chaque membre d'une franchise, TMDB et
+   /api/v2/source relisent les memes lignes. Une lambda tiede et le serveur
+   local repondent donc de memoire. Seules les reponses REUSSIES sont gardees
+   (une ligne, ou « pas de ligne ») : une erreur Turso ne doit jamais se
+   figer en « pas de correspondance ». */
+const MEMO_TTL_MS = 60 * 60 * 1000;
+const MEMO_MAX = 5000;
+const memo = new Map<number, { at: number; entry: FribbEntry | null }>();
+
+/**
+ * Comme `getFribbEntry`, mais dit si la base a REPONDU : `ok: false` est une
+ * erreur (transitoire), `ok: true, entry: null` une absence de correspondance.
+ */
+export async function lookupFribbEntry(
   anilistId: number
-): Promise<FribbEntry | null> {
+): Promise<{ ok: boolean; entry: FribbEntry | null }> {
+  const hit = memo.get(anilistId);
+  if (hit && Date.now() - hit.at < MEMO_TTL_MS) return { ok: true, entry: hit.entry };
   const db = getTursoClient();
-  if (!db) return null;
+  if (!db) return { ok: false, entry: null };
   try {
     const r = await db.execute({
       sql: "SELECT * FROM fribb_map WHERE anilist_id = ? LIMIT 1",
       args: [anilistId],
     });
-    return r.rows.length ? rowToEntry(r.rows[0]) : null;
+    const entry = r.rows.length ? rowToEntry(r.rows[0]) : null;
+    memo.delete(anilistId);
+    memo.set(anilistId, { at: Date.now(), entry });
+    if (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value as number);
+    return { ok: true, entry };
   } catch {
-    return null;
+    return { ok: false, entry: null };
   }
+}
+
+export async function getFribbEntry(
+  anilistId: number
+): Promise<FribbEntry | null> {
+  return (await lookupFribbEntry(anilistId)).entry;
 }
 
 /** Every Fribb entry sharing a TMDB *tv* id — i.e. the same franchise as far
