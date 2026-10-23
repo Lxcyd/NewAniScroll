@@ -118,6 +118,26 @@ function accountClaims(user: UserRecord) {
   };
 }
 
+/**
+ * L'utilisateur de session d'un compte AniScroll, quelle que soit la porte
+ * d'entree (mot de passe ou lien de confirmation) : ses claims, et la moitie
+ * AniList du compte quand il est lie. Les deux fournisseurs recopiaient ce bloc.
+ */
+async function accountSessionUser(user: UserRecord) {
+  const anilist = user.anilistId
+    ? await getAnilistSession(user.id)
+    : { token: null, lists: [] };
+
+  return {
+    ...accountClaims(user),
+    id: user.anilistId ? String(user.anilistId) : user.id,
+    name: user.anilistName || user.username,
+    image: pickAvatar(user),
+    token: anilist.token ?? undefined,
+    list: anilist.lists,
+  } as any;
+}
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
@@ -152,18 +172,7 @@ export const authOptions: NextAuthOptions = {
            AniList access token, and the sync panel — which reads exactly that
            — announced "Not connected" under an account the settings showed as
            linked. */
-        const anilist = user.anilistId
-          ? await getAnilistSession(user.id)
-          : { token: null, lists: [] };
-
-        return {
-          ...accountClaims(user),
-          id: user.anilistId ? String(user.anilistId) : user.id,
-          name: user.anilistName || user.username,
-          image: pickAvatar(user),
-          token: anilist.token ?? undefined,
-          list: anilist.lists,
-        } as any;
+        return accountSessionUser(user);
       },
     }),
     /**
@@ -199,18 +208,7 @@ export const authOptions: NextAuthOptions = {
         if (!user || user.status === "disabled") return null;
         void touchLastSeen(user.id);
 
-        const anilist = user.anilistId
-          ? await getAnilistSession(user.id)
-          : { token: null, lists: [] };
-
-        return {
-          ...accountClaims(user),
-          id: user.anilistId ? String(user.anilistId) : user.id,
-          name: user.anilistName || user.username,
-          image: pickAvatar(user),
-          token: anilist.token ?? undefined,
-          list: anilist.lists,
-        } as any;
+        return accountSessionUser(user);
       },
     }),
     {

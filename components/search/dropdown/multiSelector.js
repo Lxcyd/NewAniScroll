@@ -4,6 +4,42 @@ import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 import React from "react";
 import { useTranslation } from "react-i18next";
 
+/* Une ligne de la liste (genre ou tag) : les deux listes la dessinaient a
+   l'identique, a la couleur du survol pres. */
+function SelectorOption({ item, activeText }) {
+  return (
+    <Combobox.Option
+      className={({ active }) =>
+        `relative cursor-pointer select-none py-2 px-2 ml-2 mr-1 rounded-md ${
+          active ? `bg-white/5 ${activeText}` : "text-gray-300"
+        }`
+      }
+      value={item}
+    >
+      {({ selected, active }) => (
+        <React.Fragment>
+          <span
+            className={`block truncate ${
+              selected ? "font-medium text-white" : "font-normal"
+            }`}
+          >
+            {item.name}
+          </span>
+          {selected ? (
+            <span
+              className={`absolute inset-y-0 right-0 flex items-center pl-3 pr-1 ${
+                active ? "text-white" : "text-action"
+              }`}
+            >
+              <CheckIcon className="h-5 w-5" aria-hidden="true" />
+            </span>
+          ) : null}
+        </React.Fragment>
+      )}
+    </Combobox.Option>
+  );
+}
+
 export default function MultiSelector({
   data,
   other,
@@ -80,41 +116,7 @@ export default function MultiSelector({
                 </span>
                 <div>
                   {filteredMain.map((item) => (
-                    <Combobox.Option
-                      key={item.value}
-                      className={({ active }) =>
-                        `relative cursor-pointer select-none py-2 px-2 ml-2 mr-1 rounded-md ${
-                          active ? "bg-white/5 text-action" : "text-gray-300"
-                        }`
-                      }
-                      value={item}
-                    >
-                      {({ selected, active }) => (
-                        <React.Fragment>
-                          <span
-                            className={`block truncate ${
-                              selected
-                                ? "font-medium text-white"
-                                : "font-normal"
-                            }`}
-                          >
-                            {item.name}
-                          </span>
-                          {selected ? (
-                            <span
-                              className={`absolute inset-y-0 right-0 flex items-center pl-3 pr-1 ${
-                                active ? "text-white" : "text-action"
-                              }`}
-                            >
-                              <CheckIcon
-                                className="h-5 w-5"
-                                aria-hidden="true"
-                              />
-                            </span>
-                          ) : null}
-                        </React.Fragment>
-                      )}
-                    </Combobox.Option>
+                    <SelectorOption key={item.value} item={item} activeText="text-action" />
                   ))}
                 </div>
                 <span className="px-3 font-karla font-bold text-sm text-gray-200">
@@ -122,41 +124,7 @@ export default function MultiSelector({
                 </span>
                 <div>
                   {filteredOther.map((item) => (
-                    <Combobox.Option
-                      key={item.value}
-                      className={({ active }) =>
-                        `relative cursor-pointer select-none py-2 px-2 ml-2 mr-1 rounded-md ${
-                          active ? "bg-white/5 text-white" : "text-gray-300"
-                        }`
-                      }
-                      value={item}
-                    >
-                      {({ selected, active }) => (
-                        <React.Fragment>
-                          <span
-                            className={`block truncate ${
-                              selected
-                                ? "font-medium text-white"
-                                : "font-normal"
-                            }`}
-                          >
-                            {item.name}
-                          </span>
-                          {selected ? (
-                            <span
-                              className={`absolute inset-y-0 right-0 flex items-center pl-3 pr-1 ${
-                                active ? "text-white" : "text-action"
-                              }`}
-                            >
-                              <CheckIcon
-                                className="h-5 w-5"
-                                aria-hidden="true"
-                              />
-                            </span>
-                          ) : null}
-                        </React.Fragment>
-                      )}
-                    </Combobox.Option>
+                    <SelectorOption key={item.value} item={item} activeText="text-white" />
                   ))}
                 </div>
               </div>

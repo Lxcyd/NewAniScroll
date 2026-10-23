@@ -25,6 +25,7 @@
  */
 
 import SERVERS from "@/lib/servers";
+import { readStore, writeStore, putRecent } from "./animeKeyedStore";
 
 const KEY = "aniscroll:animeServer";
 /** Plafond du nombre de series memorisees (les plus anciennes sautent). */
@@ -32,24 +33,8 @@ const MAX = 200;
 
 type Store = Record<string, string>;
 
-function read(): Store {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? (parsed as Store) : {};
-  } catch {
-    return {};
-  }
-}
-
-function write(store: Store): void {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(store));
-  } catch {
-    /* best-effort (quota, mode prive) */
-  }
-}
+const read = (): Store => readStore<string>(KEY);
+const write = (store: Store): void => writeStore(KEY, store);
 
 const trouve = (id: string) =>
   (SERVERS as { id: string; lecteurExterne?: boolean }[]).find((s) => s.id === id);
@@ -83,14 +68,7 @@ export function setAnimeServer(
   if (typeof window === "undefined" || aniId == null || !serverId) return;
   const store = read();
   const key = String(aniId);
-  // Re-inserer en fin d'objet : l'ordre des cles JSON est l'ordre d'insertion,
-  // c'est ce qui fait office d'anciennete pour l'elagage ci-dessous.
-  delete store[key];
-  store[key] = serverId;
-  const keys = Object.keys(store);
-  for (const old of keys.slice(0, Math.max(0, keys.length - MAX))) {
-    delete store[old];
-  }
+  putRecent(store, key, serverId, MAX);
   write(store);
 }
 

@@ -93,6 +93,37 @@ export default function RecentlyWatched() {
     fetchData();
   }, [sessions?.user?.name, remove]);
 
+  /* Retire l'entree de l'historique de CET appareil (artplayer_settings) : par
+     id d'episode, puis toutes celles de l'anime. Commun aux deux cas — compte
+     connecte ou non —, qui recopiaient ce bloc a l'identique. */
+  const removeLocal = (id, aniId) => {
+    if (id) {
+      const artplayerSettings =
+        JSON.parse(localStorage.getItem("artplayer_settings")) || {};
+      if (artplayerSettings[id]) {
+        delete artplayerSettings[id];
+        localStorage.setItem(
+          "artplayer_settings",
+          JSON.stringify(artplayerSettings)
+        );
+        touchHistory();
+      }
+    }
+    if (aniId) {
+      const currentData =
+        JSON.parse(localStorage.getItem("artplayer_settings")) || {};
+      const updatedData = {};
+      for (const key in currentData) {
+        const item = currentData[key];
+        if (item.aniId !== aniId) {
+          updatedData[key] = item;
+        }
+      }
+      localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
+      touchHistory();
+    }
+  };
+
   const removeItem = async (id, aniId) => {
     if (sessions?.user?.name) {
       // remove from database
@@ -109,35 +140,7 @@ export default function RecentlyWatched() {
       });
       const data = await res.json();
 
-      if (id) {
-        // remove from local storage
-        const artplayerSettings =
-          JSON.parse(localStorage.getItem("artplayer_settings")) || {};
-        if (artplayerSettings[id]) {
-          delete artplayerSettings[id];
-          localStorage.setItem(
-            "artplayer_settings",
-            JSON.stringify(artplayerSettings)
-          );
-          touchHistory();
-        }
-      }
-      if (aniId) {
-        const currentData =
-          JSON.parse(localStorage.getItem("artplayer_settings")) || {};
-
-        const updatedData = {};
-
-        for (const key in currentData) {
-          const item = currentData[key];
-          if (item.aniId !== aniId) {
-            updatedData[key] = item;
-          }
-        }
-
-        localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
-        touchHistory();
-      }
+      removeLocal(id, aniId);
 
       // update client
       setRemoved(id || aniId);
@@ -148,40 +151,8 @@ export default function RecentlyWatched() {
         });
       }
     } else {
-      if (id) {
-        // remove from local storage
-        const artplayerSettings =
-          JSON.parse(localStorage.getItem("artplayer_settings")) || {};
-        if (artplayerSettings[id]) {
-          delete artplayerSettings[id];
-          localStorage.setItem(
-            "artplayer_settings",
-            JSON.stringify(artplayerSettings)
-          );
-          touchHistory();
-        }
-        setRemoved(id);
-      }
-      if (aniId) {
-        const currentData =
-          JSON.parse(localStorage.getItem("artplayer_settings")) || {};
-
-        // Create a new object to store the updated data
-        const updatedData = {};
-
-        // Iterate through the current data and copy items with different aniId to the updated object
-        for (const key in currentData) {
-          const item = currentData[key];
-          if (item.aniId !== aniId) {
-            updatedData[key] = item;
-          }
-        }
-
-        // Update localStorage with the filtered data
-        localStorage.setItem("artplayer_settings", JSON.stringify(updatedData));
-        touchHistory();
-        setRemoved(aniId);
-      }
+      removeLocal(id, aniId);
+      if (aniId || id) setRemoved(aniId || id);
     }
   };
 
