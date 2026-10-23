@@ -10,13 +10,19 @@ import ProfileHero, {
   type HeroBanner,
   type StudioBridge,
 } from "@/components/profile/ProfileHero";
-import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
+import type { ListFocus } from "@/components/profile/ProfileList";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import ProfileAside from "@/components/profile/ProfileAside";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStage from "@/components/profile/ProfileStage";
-import ProfileStatsPanel from "@/components/profile/ProfileStats";
-import ProfileBadges from "@/components/profile/ProfileBadges";
+/* Liste, Stats, Badges : hors du chunk d'entree, precharges au repos (cf.
+   components/profile/lazyTabs.ts). */
+import {
+  ProfileBadges,
+  ProfileList,
+  ProfileStatsPanel,
+  preloadProfileTabs,
+} from "@/components/profile/lazyTabs";
 import { useBadgeState } from "@/lib/badges/store";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import dynamic from "next/dynamic";
@@ -60,6 +66,7 @@ export default function LocalProfile() {
      `#badges`) pour qu'un rechargement retombe au bon endroit. Meme module que
      le profil d'un compte : lib/profile/tabHash.ts. */
   const [tab, setTab] = useState("overview");
+  useEffect(() => preloadProfileTabs(), []);
   /* Restauration, et elle N'ECRIT RIEN : la notification de badge arrive avec
      un `#badge-<id>` que ProfileBadges doit encore lire pour surligner le bon
      jeton — le remplacer par `#badges` lui ferait perdre sa cible.

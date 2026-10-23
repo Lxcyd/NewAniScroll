@@ -18,7 +18,7 @@ import ProfileHero, {
   type HeroBanner,
   type StudioBridge,
 } from "@/components/profile/ProfileHero";
-import ProfileList, { type ListFocus } from "@/components/profile/ProfileList";
+import type { ListFocus } from "@/components/profile/ProfileList";
 import ProfileAside from "@/components/profile/ProfileAside";
 import dynamic from "next/dynamic";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
@@ -49,7 +49,14 @@ import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid
 import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
-import ProfileBadges from "@/components/profile/ProfileBadges";
+/* Liste, Stats, Badges : hors du chunk d'entree, precharges au repos (cf.
+   components/profile/lazyTabs.ts). */
+import {
+  ProfileBadges,
+  ProfileList,
+  ProfileStatsPanel,
+  preloadProfileTabs,
+} from "@/components/profile/lazyTabs";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import {
   mergeBadgeState,
@@ -61,7 +68,6 @@ import { noteListCounter } from "@/lib/badges/facts";
 import { silenceNextEvaluation } from "@/lib/badges/evaluate";
 import ProfileOverview from "@/components/profile/ProfileOverview";
 import ProfileStage from "@/components/profile/ProfileStage";
-import ProfileStatsPanel from "@/components/profile/ProfileStats";
 import type {
   ProfileCharacter,
   ProfileEntry,
@@ -239,6 +245,7 @@ export default function Profile({
      qui ne coûte rien côté client. Le fragment, lui, ne voyage pas jusqu'au
      serveur. Voir lib/profile/tabHash.ts. */
   const [tab, setTab] = useState("overview");
+  useEffect(() => preloadProfileTabs(), []);
   /* Restauration, et elle N'ÉCRIT RIEN : la notification de badge arrive avec
      un `#badge-<id>` (lib/badges/reveal.ts) que ProfileBadges doit encore lire
      pour surligner le bon jeton. Réécrire l'adresse ici le remplacerait par
