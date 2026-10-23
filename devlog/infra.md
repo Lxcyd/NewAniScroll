@@ -6,6 +6,58 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-23 — Passe d'optimisation page par page : doublons d'appels, poids des pages
+
+Demande de Luc : « grosse opti sur tout le site, page par page, sans rien
+casser ». Tout est commite en LOCAL sur `dev`, rien n'est pousse.
+
+**Etat de depart mesure.** Turso 403 M / 500 M lignes au 23/10 (fanarts revenu
+a ~0 depuis le `+nsfw_label` du 22/10 ; la base cache lit 0 la nuit et jusqu'a
+1,3 M/h pendant les sessions de travail). Prod : ~725 requetes CDN en 12 h,
+dont 312 redirections de `/` — le cout vient du developpement, pas des
+visiteurs. **Upstash `lucky-anchovy` a 500 000 / 500 000** (`.env` local + dev,
+et le secret GitHub du moniteur ; la prod a ses propres variables, valeur
+illisible). Doublons de code (jscpd) : 0,2 %.
+
+**Instruments.** Build de production dans un worktree a part (le `.next` du
+serveur local de Luc n'est pas touche), source maps pour attribuer les octets
+des chunks, `next start` sur :3199 + `hydration-check.mjs` en francais, et un
+compteur de requetes CDP par ouverture de page (une visite, jamais de boucle).
+
+**Doublons d'appels trouves — tous des effets qui se rejouaient :**
+- `/api/auth/session` x2 par chargement, sur TOUTES les pages et pour TOUS les
+  visiteurs : la synchro AniList de fond (`_app`, au repos) appelait
+  `getSession()`, qui refait toujours l'aller-retour. Elle lit maintenant la
+  session deja recue par le provider (`lib/auth/clientSession.ts`).
+- `/api/v2/anilist-health` x2 et `/api/v2/discover/1` x2 pour un visiteur
+  francophone : `t` dans les dependances, et `t` change au passage en francais.
+- `/w/track` x2 sur toute page STATIQUE : l'effet depend de `router`, dont
+  l'identite change quand la page devient prete, et la memoire de
+  dedoublonnage repartait a zero. Les visites de ces pages etaient comptees
+  deux fois.
+- Accueil connecte : trois requetes AniList pour la liste (CURRENT, PLANNING,
+  tout) quand la troisieme contient les deux autres.
+
+**Poids.** Planning : la requete ramenait une fiche complete par diffusion,
+tout serialise dans la page — HTML 382 -> 62 Ko (90 -> 17 Ko gzip). Premier
+chargement JS : page anime 230 -> 225 Ko (mise en page telephone en chunk, SSR
+garde), my-list 288 -> 269, profil 292 -> 283 (onglets secondaires en
+`lazyWithPreload`), parametres 224 -> 214, admin 184 -> 170.
+
+**Corrections au passage.** Le planning s'arretait sur une page VIDE (une
+requete AniList de trop) et mettait en cache jusqu'a minuit une semaine
+amputee si AniList refusait une page au milieu. `art-counts` (~69 000 lignes
+par lot de 200, sans edge en local) garde ses comptes 30 min par anime — les
+comptes vides ne sont jamais gardes, une panne Turso ressemblant a « aucune
+image ».
+
+**Laisse en l'etat, volontairement.** Recherche statique (le prechauffage des
+pages du menu lit son `_next/data`) ; `Episodes.tsx` refait un fetch deja en
+cache navigateur au passage en francais ; logo du hero sans fanarts quand TMDB
+en a un (gain de lignes infime, un aller-retour de plus) ; le prechargement des
+apercus au survol (20 `/api/v2/preview` par page de catalogue, presque tous
+MISS vu le trafic) est un choix d'UX, pose a Luc.
+
 ## 2026-10-02 — Minutages OP/ED : zero requete Turso par episode
 
 Luc, avant de passer le detecteur v2 sur le catalogue : « eviter de faire 46
