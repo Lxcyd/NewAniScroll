@@ -14,7 +14,7 @@ import { SkeletonTheme } from "react-loading-skeleton";
 import { SearchProvider, useSearch } from "@/lib/context/isOpenState";
 import { WatchPageProvider } from "@/lib/context/watchPageProvider";
 import I18nProvider from "@/lib/i18n/I18nProvider";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { unixTimestampToRelativeTime } from "@/utils/getTimes";
 import { asCssVars, BRAND } from "@/lib/theme";
 import { applyAccent, getAccent } from "@/lib/prefs/accentColor";
@@ -507,6 +507,14 @@ export default function App({
       .catch(() => {});
   }, []);
 
+  /* Hors de l'effet ci-dessous, et c'est voulu : l'effet depend de `router`,
+     dont l'identite change quand une page STATIQUE devient prete (Next la
+     remplace apres l'hydratation). L'effet se relancait, avec une memoire de
+     dedoublonnage remise a zero, et renvoyait la meme visite : mesure le
+     23/10/2026, deux POST /w/track identiques sur /en/anime/popular, recent,
+     my-list, manga... — chaque visite d'une page statique comptee deux fois. */
+  const lastTrackedPath = useRef<string | null>(null);
+
   // Lightweight pageview analytics — fires on every route change. The
   // visitor_id is a stable random token kept in localStorage so we can
   // count unique visitors without identifying anyone. Fully fire-and-
@@ -530,13 +538,12 @@ export default function App({
     // multiple times for shallow-route updates (slug rewrites, query-only
     // changes) — without this guard we'd ship 3-5 duplicate analytics POSTs
     // per real navigation.
-    let lastPath: string | null = null;
     const send = (path: string) => {
       // Normalise: strip the hash + collapse double slashes so /foo and
       // /foo#bar both count as one visit.
       const norm = (path || "/").split("#")[0].replace(/\/+/g, "/");
-      if (norm === lastPath) return;
-      lastPath = norm;
+      if (norm === lastTrackedPath.current) return;
+      lastTrackedPath.current = norm;
       try {
         // Offloaded to the Cloudflare Worker (/w/track) so a per-navigation ping
         // no longer invokes a Vercel function. The Worker writes to the same
