@@ -1,11 +1,14 @@
 import AdminDashboard from "@/components/admin/dashboard";
 import AdminLayout from "@/components/admin/layout";
-import AppendMeta from "@/components/admin/meta/AppendMeta";
-import MetadataEditor from "@/components/admin/meta/MetadataEditor";
-import AdminReports from "@/components/admin/reports";
-import UsersCard from "@/components/admin/dashboard/UsersCard";
-import AuditCard from "@/components/admin/dashboard/AuditCard";
-import SystemCard from "@/components/admin/dashboard/SystemCard";
+import dynamic from "next/dynamic";
+/* Les onglets 2 a 6 : charges au clic. Le rendu serveur ne montre jamais que le
+   tableau de bord (page 1), donc rien ne change a l'arrivee. */
+const AppendMeta = dynamic(() => import("@/components/admin/meta/AppendMeta"));
+const MetadataEditor = dynamic(() => import("@/components/admin/meta/MetadataEditor"));
+const AdminReports = dynamic(() => import("@/components/admin/reports"));
+const UsersCard = dynamic(() => import("@/components/admin/dashboard/UsersCard"));
+const AuditCard = dynamic(() => import("@/components/admin/dashboard/AuditCard"));
+const SystemCard = dynamic(() => import("@/components/admin/dashboard/SystemCard"));
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
