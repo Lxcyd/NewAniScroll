@@ -67,6 +67,15 @@ export default function Discover() {
   }, []);
 
   // ── Data loading ──
+  /* `t` et la langue lus au moment de l'appel, hors des dependances : le
+     passage en francais juste apres l'affichage (cf. I18nProvider) recreait
+     `loadPage`, et l'effet ci-dessous rechargeait la page 1 — deux
+     /api/v2/discover/1 par visite francophone. Le second ne prechargeait meme
+     rien : ses cartes etaient deja dans `seenIds`, donc `fresh` etait vide. Le
+     comportement visible est inchange (page 1 traduite au fil de l'affichage,
+     pages suivantes prechargees). */
+  const tRef = useRef(t);
+  tRef.current = t;
   const loadPage = useCallback(
     async (pageNum: number) => {
       setLoading(true);
@@ -87,12 +96,13 @@ export default function Discover() {
         );
       } catch (e) {
         console.error(e);
-        notify.error(t("discover.failedToLoad"));
+        notify.error(tRef.current("discover.failedToLoad"));
       } finally {
         setLoading(false);
       }
     },
-    [t, i18n.language]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   useEffect(() => {
