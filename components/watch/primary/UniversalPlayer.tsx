@@ -3839,20 +3839,12 @@ export default function UniversalPlayer({
     }
   }, [subMenuOpen]);
 
-  // ── Keep controls visible in fullscreen on touch devices ──
-  // Exiting is done by re-tapping the fullscreen button. If Vidstack's idle
-  // auto-hide hides the bar (after ~2s), the first tap only re-reveals it and
-  // the exit tap is lost — the user gets stuck (no Escape key on a phone).
-  // Pinning the controls visible keeps the button reachable. Desktop keeps the
-  // normal auto-hide: Escape always works there.
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !isFullscreen || !isTouch) return;
-    try { (player as any).controls?.pause?.(); } catch {}
-    return () => {
-      try { (player as any).controls?.resume?.(); } catch {}
-    };
-  }, [isFullscreen, isTouch]);
+  /* PLUS D'ÉPINGLAGE DES COMMANDES EN PLEIN ÉCRAN TACTILE (24/10/2026, Luc).
+     Un `controls.pause()` les gardait affichées pour que le bouton de sortie
+     reste joignable — résultat : sur téléphone, la barre, les réglages et toute
+     l'interface ne disparaissaient JAMAIS par-dessus l'épisode. Le geste de
+     YouTube suffit : un toucher fait revenir la barre, le suivant (dans les
+     ~2 s) sort du plein écran. */
 
   // ── Keep controls visible while hovering custom buttons ──
   // Vidstack auto-hides its controls after ~2 s of mouse inactivity. Our
@@ -7356,9 +7348,8 @@ export default function UniversalPlayer({
       )}
 
       {/* No exit cross: the fullscreen button itself toggles pseudo-fullscreen
-          off. To make that reliable we keep the control bar from auto-hiding
-          while in pseudo-fullscreen (see the controls.pause() effect), so the
-          fullscreen button is always visible and a single tap exits. */}
+          off. The bar auto-hides like everywhere else (24/10/2026): a first tap
+          brings it back, a second one on the button exits. */}
 
       {/* Hover preview — actual video frame at the cursor position on the
           scrubber. DISABLED for noCors direct streams (sendvid, sibnet cvn):
