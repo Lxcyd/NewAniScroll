@@ -53,6 +53,51 @@ function localTitle(e: LocalEntry, titlePref: TitlePref): string {
   return pickTitle(e.title ?? null, titlePref);
 }
 
+/* ── LES TROIS CACHES SURVIVENT AU RECHARGEMENT DE L'ONGLET ─────────────────
+   Ils ne vivaient qu'en memoire du module : chaque rechargement, chaque
+   navigation complete relancait jusqu'a trois requetes AniList (diffusions,
+   suites, themes) depuis la cloche de la barre de navigation — sur le quota
+   AniList du visiteur, 90 requetes/min par IP, que le reste du site consomme
+   aussi. Recopies dans `sessionStorage` : meme portee qu'avant (« pour la
+   session » de l'onglet), memes durees de validite, seules les reponses
+   reussies y entrent. Stockage refuse (navigation privee, quota) : on retombe
+   sur le seul cache memoire, comme avant. */
+const SESSION_KEY = "aniscroll:notifCache:v1";
+
+function persistCaches(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        airing: airingCache
+          ? { key: airingCache.key, at: airingCache.at, data: [...airingCache.data] }
+          : null,
+        sequels: [...sequelCache],
+        themes: [...themesCache],
+      }),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+function restoreCaches(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const v = JSON.parse(raw);
+    if (v?.airing && typeof v.airing.key === "string" && Array.isArray(v.airing.data)) {
+      airingCache = { key: v.airing.key, at: Number(v.airing.at) || 0, data: new Map(v.airing.data) };
+    }
+    if (Array.isArray(v?.sequels)) for (const [id, seq] of v.sequels) sequelCache.set(Number(id), seq);
+    if (Array.isArray(v?.themes)) for (const [id, th] of v.themes) themesCache.set(Number(id), th);
+  } catch {
+    /* illisible : on repart a vide */
+  }
+}
+
 // Module-level cache so navigating between pages (each remounts the NavBar
 // bell) doesn't re-hit AniList every time. Keyed by the sorted id set; 15-min
 // TTL — airing data changes at most a few times a day.
@@ -107,6 +152,7 @@ async function fetchAiring(ids: number[]): Promise<Map<number, AiringInfo>> {
     // Only cache a real (successful) response so a transient failure isn't
     // remembered for 15 min.
     airingCache = { key, at: Date.now(), data: out };
+    persistCaches();
   } catch {
     /* offline / AniList down — new-episode notifs just won't appear */
   }
@@ -187,6 +233,7 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
               : null,
           );
         }
+        persistCaches();
       }
     } catch {
       /* offline — next-season notifs just won't appear */
@@ -200,6 +247,9 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
  *  resume recommender). Cached like airing. */
 type Themes = { genres: string[]; tags: string[] };
 const themesCache = new Map<number, Themes>();
+
+// Les trois caches sont declares : on les remplit depuis la session (cf. SESSION_KEY).
+restoreCaches();
 
 async function fetchThemes(ids: number[]): Promise<Map<number, Themes>> {
   const out = new Map<number, Themes>();
@@ -236,6 +286,7 @@ async function fetchThemes(ids: number[]): Promise<Map<number, Themes>> {
             : [],
         });
       }
+      persistCaches();
     }
   } catch {
     /* offline — recommender just falls back to "most recently dropped" */
