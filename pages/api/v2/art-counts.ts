@@ -29,6 +29,22 @@ import { countCachedTmdbArtworks } from "@/lib/tmdb/artworksCache";
    invocation de fonction). */
 const MAX = 200;
 
+/* LE MEME COMPTE, GARDE 30 MIN PAR ANIME dans la memoire du processus.
+   Les trois comptages sont independants d'un anime a l'autre : n'interroger que
+   les ids absents rend exactement le meme resultat par id. Mesure du 23/10/2026
+   (tools/turso/query-cost.mjs) : ~69 000 lignes Turso par lot de 200 animes,
+   dont 57 000 pour Wallhaven. En prod le cache d'edge (6 h) repond avant ; mais
+   le serveur local n'a pas d'edge, et chaque ouverture du studio relisait tout
+   — sur le quota Turso partage par prod, dev ET local. 30 min : les images
+   arrivent par le robot quotidien, et l'edge tolere deja bien plus.
+
+   SEULS LES COMPTES NON VIDES SONT GARDES. Les trois lectures avalent leurs
+   erreurs et rendent `{}` : une panne Turso ressemble a « aucune image ». Un
+   anime sans image ne coute presque rien a relire ; une panne, elle, ne doit
+   jamais rester en memoire. */
+const MEMO_TTL_MS = 30 * 60 * 1000;
+const memo = new Map<number, { at: number; types: Record<string, number> }>();
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const ids = [
     ...new Set(
@@ -42,19 +58,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .slice(0, MAX);
   if (!ids.length) return res.status(400).json({ error: "Missing `ids`" });
 
-  const [fanarts, tmdb, wall] = await Promise.all([
-    countFanartsByType(ids),
-    countCachedTmdbArtworks(ids),
-    compterToutParAnime(ids),
-  ]);
+  const now = Date.now();
+  const fresh: Record<number, Record<string, number>> = {};
+  const missing = ids.filter((id) => {
+    const m = memo.get(id);
+    return !m || now - m.at > MEMO_TTL_MS;
+  });
+
+  if (missing.length) {
+    const [fanarts, tmdb, wall] = await Promise.all([
+      countFanartsByType(missing),
+      countCachedTmdbArtworks(missing),
+      compterToutParAnime(missing),
+    ]);
+    for (const id of missing) {
+      const types: Record<string, number> = { ...fanarts[id] };
+      for (const [t, n] of Object.entries(tmdb[id] ?? {})) types[t] = (types[t] || 0) + n;
+      if (wall[id]) types.wallpaper = wall[id];
+      fresh[id] = types;
+      memo.delete(id);
+      if (Object.keys(types).length) memo.set(id, { at: now, types });
+    }
+    /* Borne : un processus qui vit longtemps ne doit pas accumuler tout le
+       catalogue. Les plus anciennes entrees (ordre d'insertion) sautent. */
+    if (memo.size > 5000) {
+      for (const key of [...memo.keys()].slice(0, memo.size - 5000)) memo.delete(key);
+    }
+  }
 
   const counts: Record<number, Record<string, number>> = {};
-  for (const id of ids) {
-    const types: Record<string, number> = { ...fanarts[id] };
-    for (const [t, n] of Object.entries(tmdb[id] ?? {})) types[t] = (types[t] || 0) + n;
-    if (wall[id]) types.wallpaper = wall[id];
-    counts[id] = types;
-  }
+  for (const id of ids) counts[id] = { ...(fresh[id] ?? memo.get(id)?.types ?? {}) };
 
   res.setHeader("Cache-Control", "public, max-age=300");
   res.setHeader("CDN-Cache-Control", "public, s-maxage=21600, stale-while-revalidate=86400");
