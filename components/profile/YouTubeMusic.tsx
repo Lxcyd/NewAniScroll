@@ -417,7 +417,7 @@ const YouTubeMusic = forwardRef<MusicMedia, Props>(function YouTubeMusic(
       /* En case, la souris ne doit jamais entrer dans l'iframe : ses
          mouvements y restent, et le survol de la case n'était vu qu'en
          retard (le petit carré tardait à grandir). */
-      className={card ? "pointer-events-none absolute" : className}
+      className={card ? "as-yt-x200-wide pointer-events-none absolute" : className}
       style={
         card
           ? {

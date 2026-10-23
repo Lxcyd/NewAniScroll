@@ -260,3 +260,31 @@
     min-height: 40px;
   }
 }
+
+/* ── Lecteurs YouTube « x200 » du profil (PlateBackground, YouTubeMusic) ────
+   Pour cacher l'habillage de YouTube, l'iframe est montee a 200 fois la taille
+   de sa boite puis reduite d'autant. Sur iPhone, une bande de 390 px devenait
+   une iframe de ~78 000 px de large : Safari tentait de la rendre et YouTube
+   choisissait sa qualite maximale. La page se figeait puis l'onglet etait
+   tue et recharge, a l'ouverture de tout profil a fond video (23/10/2026, Luc,
+   iPhone/Safari ; reproduit sur l'ancien deploiement aussi).
+
+   EN CSS ET NON EN JS : l'iframe est dans le HTML du serveur, l'iPhone la
+   charge avant toute hydratation. Facteur 1 sur ecran tactile : l'iframe a la
+   taille de sa boite. Mesure en emulation iPhone : 300 000 px -> 1 500 px de
+   large. L'habillage n'y gagne rien de visible : la boite 16:9 du fond deborde
+   deja de ~550 px de chaque cote d'un ecran portrait, la ou YouTube dessine
+   titre et logo. Le PC garde le x200, inchange. Les `left`/`top` du lecteur de
+   musique ne dependent pas du facteur (OVERSCAN = 1). */
+@media (hover: none) and (pointer: coarse) {
+  .as-yt-x200 {
+    width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+  }
+  .as-yt-x200-wide {
+    width: 177.778% !important;
+    height: 100% !important;
+    transform: none !important;
+  }
+}

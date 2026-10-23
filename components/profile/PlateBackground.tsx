@@ -611,6 +611,9 @@ export default function PlateBackground({
                monté ×200 en a précisément besoin. */
             allow="autoplay; encrypted-media; compute-pressure"
             frameBorder="0"
+            /* Ecran tactile : facteur 1 au lieu de 200, en CSS (styles/mobile.css,
+               `.as-yt-x200`) — cf. la regle la-bas. */
+            className="as-yt-x200"
             style={{
               position: "absolute",
               border: 0,
