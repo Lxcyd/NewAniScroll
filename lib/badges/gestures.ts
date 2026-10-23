@@ -9,7 +9,7 @@
  * qu'il a trouvé. Rien n'interroge le réseau, rien ne tourne en boucle.
  */
 
-import { recordFlag } from "./facts";
+import { getFacts, recordFlag } from "./facts";
 
 /* ── La séquence ────────────────────────────────────────────────────────────
    Le Konami code, sur `event.code` et non `event.key` : sur un clavier AZERTY
@@ -62,6 +62,9 @@ function watchDevtools(): () => void {
     window.outerWidth - window.innerWidth > GAP ||
     window.outerHeight - window.innerHeight > GAP;
 
+  /* Deja note : `recordFlag` n'ecrirait plus rien, inutile de sonder la
+     fenetre toutes les 1,5 s pendant deux minutes sur chaque page. */
+  if (getFacts().flags.devtools != null) return () => {};
   if (open()) {
     recordFlag("devtools");
     return () => {};
