@@ -4,7 +4,8 @@
   "private": true,
   "founder": "Factiven",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbo -p 3123",
+    "dev:webpack": "next dev -p 3123",
     "build": "npx prisma migrate deploy && npx prisma generate && next build",
     "export": "next build && next export",
     "start": "next start",
