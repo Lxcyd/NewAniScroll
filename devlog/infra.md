@@ -51,6 +51,18 @@ par lot de 200, sans edge en local) garde ses comptes 30 min par anime — les
 comptes vides ne sont jamais gardes, une panne Turso ressemblant a « aucune
 image ».
 
+**Logique (2e passe, meme jour).** Evaluation des badges ~2x plus rapide a
+resultat IDENTIQUE — verifie contre l'ancienne version sur 6 jeux synthetiques
+(0 a 20 000 episodes, horodatages faux/futurs/minuit pile, genres absents ou en
+double) et sur la mesure des 176 badges : un `find` quadratique par seance
+remplace par un index, une `Date` par horodatage au lieu de trois, comptes
+genre/tag et couverture du vocabulaire (~400 tags x entrees x tags) indexes une
+fois. `fribb_map` (statique, hebdo) gardee 1 h en memoire, et `/source` ne la
+relit plus deux fois pour chaque anime sans correspondance — `lookupFribbEntry`
+distingue « absent » d'« erreur ». Cloche : les caches AniList survivent au
+rechargement (sessionStorage). `advanceProgress` lisait la table de progression
+une fois par episode. Sondage devtools coupe quand le badge est acquis.
+
 **Laisse en l'etat, volontairement.** Recherche statique (le prechauffage des
 pages du menu lit son `_next/data`) ; `Episodes.tsx` refait un fetch deja en
 cache navigateur au passage en francais ; logo du hero sans fanarts quand TMDB
