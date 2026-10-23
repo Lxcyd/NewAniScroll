@@ -6,6 +6,27 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-23 (nuit, 2) — Le profil qui fige puis recharge sur iPhone
+
+Signale par Luc apres le push : sur iPhone/Safari, ouvrir un profil fige la
+page puis Safari la recharge, instantanement. Present AUSSI sur le
+deploiement de la veille (bisect par les deux URL de deploiement), et sans etre
+connecte. Introuvable sous Chrome comme sous WebKit Windows (Playwright) : pas
+de boucle, la page repond. C'etait la memoire d'iOS.
+
+Cause : le fond video YouTube (PlateBackground) et la musique (YouTubeMusic)
+montent leur iframe a x200 de leur boite pour rendre l'habillage YouTube
+microscopique. Sur telephone la boite 16:9 du fond fait deja ~1 500 x 844 px
+(elle deborde pour couvrir la hauteur) : l'iframe faisait ~300 000 px de large,
+et YouTube choisissait sa qualite maximale. L'iframe est dans le HTML serveur,
+d'ou le gel AVANT toute hydratation. Correctif en CSS (styles/mobile.css,
+`.as-yt-x200`, `(hover: none) and (pointer: coarse)`) : facteur 1, l'iframe a
+la taille de sa boite ; titre et logo YouTube tombent dans les ~550 px rognes
+de chaque cote. PC inchange (x200 mesure). Confirme par Luc sur iPhone.
+
+TrailerStage (apercus) utilise le meme x200 mais ne demarre plus sur ecran
+tactile depuis le 22/10 (e55b0c62) — meme famille de cause.
+
 ## 2026-10-23 (nuit) — Serveur local sous Turbopack
 
 `npm run dev` = `next dev --turbo -p 3123` (`dev:webpack` garde l'ancien). Mesure
