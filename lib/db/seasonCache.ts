@@ -79,8 +79,15 @@ export async function seasonCacheGetEntry<T>(
   }
 }
 
-/** Upsert a cached value. Non-fatal on error (cache is an optimization). */
-export async function seasonCacheSet(key: string, value: unknown): Promise<void> {
+/** Upsert a cached value. Non-fatal on error (cache is an optimization).
+ *  `updatedAt` (epoch secondes) : pour dater une valeur autrement que
+ *  maintenant — cf. lib/jikan/animeMeta.ts, qui reecrit une valeur perimee de
+ *  facon a ne retenter la source qu'apres un delai. */
+export async function seasonCacheSet(
+  key: string,
+  value: unknown,
+  updatedAt: number = Math.floor(Date.now() / 1000),
+): Promise<void> {
   const db = getTursoClient();
   if (!db) return;
   await ensureTable();
@@ -91,7 +98,7 @@ export async function seasonCacheSet(key: string, value: unknown): Promise<void>
             ON CONFLICT(cache_key) DO UPDATE SET
               value = excluded.value,
               updated_at = excluded.updated_at`,
-      args: [key, JSON.stringify(value), Math.floor(Date.now() / 1000)],
+      args: [key, JSON.stringify(value), updatedAt],
     });
   } catch {
     /* non-fatal */
