@@ -341,7 +341,40 @@ export default function Card({
     setImageSearch(updatedImageSearch);
   };
 
-  // console.log({ loading, data });
+  /* Genres, format, saison, annee : le meme jeu de filtres dans la barre PC et
+     dans le panneau mobile (roue dentee). Ecrit une fois, rendu aux deux
+     endroits — les deux copies avaient deja commence a diverger d'indentation. */
+  const filterControls = (
+    <>
+      <MultiSelector
+        data={genreOptions}
+        other={tagsOption}
+        selected={genre}
+        setSelected={setGenre}
+        label={t("search.genres")}
+        inputRef={inputRef}
+      />
+      <SingleSelector
+        data={index === 0 ? animeFormatOptions : mangaFormatOptions}
+        selected={format}
+        setSelected={setFormat}
+        label={t("search.format")}
+      />
+      <SingleSelector
+        data={seasonOptions}
+        selected={season}
+        setSelected={setSeason}
+        label={t("search.season")}
+      />
+      <SingleSelector
+        data={yearOptions}
+        selected={year}
+        setSelected={setYear}
+        label={t("search.year")}
+      />
+    </>
+  );
+
 
   return (
     <>
@@ -372,43 +405,7 @@ export default function Card({
                 selected={type}
                 setSelected={setSelectedType}
               />
-              {/* GENRES */}
-              <MultiSelector
-                data={genreOptions}
-                other={tagsOption}
-                selected={genre}
-                setSelected={setGenre}
-                label={t("search.genres")}
-                inputRef={inputRef}
-              />
-              {/* SORT */}
-              {/* <SingleSelector
-                data={sortOptions}
-                selected={sort}
-                setSelected={setSelectedSort}
-                label={t("search.sort")}
-              /> */}
-              {/* FORMAT */}
-              <SingleSelector
-                data={index === 0 ? animeFormatOptions : mangaFormatOptions}
-                selected={format}
-                setSelected={setFormat}
-                label={t("search.format")}
-              />
-              {/* SEASON */}
-              <SingleSelector
-                data={seasonOptions}
-                selected={season}
-                setSelected={setSeason}
-                label={t("search.season")}
-              />
-              {/* YEAR */}
-              <SingleSelector
-                data={yearOptions}
-                selected={year}
-                setSelected={setYear}
-                label={t("search.year")}
-              />
+              {filterControls}
             </div>
             <div className="w-full lg:hidden">
               <InputSelect
@@ -442,43 +439,7 @@ export default function Card({
           {isVisible && (
             <div className="lg:hidden w-full flex justify-center z-40">
               <div className="grid grid-cols-2 grid-rows-2 place-items-center w-full px-5 z-30 gap-4">
-                {/* GENRES */}
-                <MultiSelector
-                  data={genreOptions}
-                  other={tagsOption}
-                  selected={genre}
-                  setSelected={setGenre}
-                  label={t("search.genres")}
-                  inputRef={inputRef}
-                />
-                {/* SORT */}
-                {/* <SingleSelector
-                data={sortOptions}
-                selected={sort}
-                setSelected={setSelectedSort}
-                label={t("search.sort")}
-              /> */}
-                {/* FORMAT */}
-                <SingleSelector
-                  data={index === 0 ? animeFormatOptions : mangaFormatOptions}
-                  selected={format}
-                  setSelected={setFormat}
-                  label={t("search.format")}
-                />
-                {/* SEASON */}
-                <SingleSelector
-                  data={seasonOptions}
-                  selected={season}
-                  setSelected={setSeason}
-                  label={t("search.season")}
-                />
-                {/* YEAR */}
-                <SingleSelector
-                  data={yearOptions}
-                  selected={year}
-                  setSelected={setYear}
-                  label={t("search.year")}
-                />
+                {filterControls}
               </div>
             </div>
           )}
