@@ -256,6 +256,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Infra, cout, cache & releases — [`devlog/infra.md`](devlog/infra.md)
 
+- 2026-10-23 (soir) — **Rendu hors cache 5-10x plus rapide** : Jikan muet bloquait 2,5-3 s chaque page anime (valeur perimee jamais remarquee) ; copie Turso avant AniList ; liste des retraits hors de Postgres a froid ; repli memoire quand Upstash est epuise
 - 2026-10-23 — **Passe d'optimisation page par page** : doublons `/api/auth/session` (toutes les pages), `anilist-health` et `discover/1` (visiteurs FR), `/w/track` (pages statiques comptees deux fois), 3 -> 1 requete AniList sur l'accueil ; planning 382 -> 62 Ko ; chunks anime/profil/my-list/parametres/admin alleges ; `art-counts` en memoire ; **Upstash a 500 000/500 000** (local + dev)
 - 2026-10-02 — **Minutages OP/ED : zero requete Turso par episode** : ils voyagent dans l'appel saison `/api/v2/runtimes` (un `db.batch`), la route `/api/v2/skip` ne lit plus de base (participatif seul) ; index `(mal_id, lang, host)` ; schema unique + migration passee ; table VIDE, **import suspendu a la release** (la prod ne sait pas lire l'horloge `pts`)
 

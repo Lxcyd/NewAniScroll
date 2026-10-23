@@ -6,6 +6,41 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-23 (soir) — « Le chargement est extremement long » : le rendu HORS cache
+
+Mesure d'abord. Servie par le cache d'edge, une page arrive en 0,09 s (dev) et
+s'affiche en ~0,7 s. HORS cache — le cas courant avec peu de trafic, et apres
+chaque deploiement — le document mettait 2,4 a 5 s. Rendu instrumente maillon
+par maillon (copie isolee, `PROFILE_SSR=1`) :
+
+- **Jikan : 2,5-3 s sur CHAQUE page anime.** Jikan ne repondait plus (15 s
+  sans reponse) ; les valeurs MAL avaient ~30 jours, donc perimees ; un echec
+  avec une ancienne valeur en main n'ecrivait RIEN — la marque « retry » ne se
+  posait que sans valeur — et chaque rendu attendait le delai complet.
+  Desormais : valeur perimee servie tout de suite, rafraichie apres la reponse
+  (`waitUntil`), redatee pour 10 min si Jikan est muet ; disjoncteur de 2 min.
+- **AniList 0,33-0,58 s** a chaque rendu hors cache de la page anime : la copie
+  Turso est lue d'abord quand elle est fraiche ET a la forme de cette page
+  (`hasInfoShape` : la ligne est aussi ecrite, et fusionnee en surface, par la
+  page de lecture et getMediaMeta, sans tags spoilers ni notes de
+  recommandations). Props verifiees identiques a celles d'AniList sur 3 titres
+  (seul l'ordre de rotation des clearart differe — il est tire au hasard).
+- **Postgres a froid 0,86-1,6 s** sur la page de lecture, pour lire la liste
+  des titres retires — VIDE. Copie dans `season_cache` (Turso, deja ouvert par
+  la page), rafraichie depuis Postgres apres la reponse passe 10 min.
+- **Upstash a 500 000/500 000** : tous les caches a zero, chaque rendu
+  recalculait tout. Repli memoire du processus dans `lib/redisRest.ts` pour
+  get/mget/set/del simples (borne 1 000 entrees / ~32 Mo) ; `SET NX`,
+  compteurs, ensembles gardent leur valeur de panne.
+
+Resultats (rendu hors cache, build de prod local) : page anime 2,9-3,7 s ->
+0,45-0,68 s, puis 0,13-0,22 s avec la copie Turso ; planning 1,17 s -> 0,01 s
+au passage suivant ; lecture a froid ~1,6 s -> ~0,5 s. Serveur local de Luc
+(`next dev`) au second passage : 3,6-5,2 s -> 0,02-0,1 s. La premiere visite
+d'une page en `next dev` reste a 1,4-2,8 s : c'est la compilation a la demande.
+Turbopack non valide (refuse le `node_modules` en jonction de la copie
+isolee) — a essayer dans le depot meme, serveur arrete.
+
 ## 2026-10-23 — Passe d'optimisation page par page : doublons d'appels, poids des pages
 
 Demande de Luc : « grosse opti sur tout le site, page par page, sans rien
