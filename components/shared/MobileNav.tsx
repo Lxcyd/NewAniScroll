@@ -57,7 +57,12 @@ export default function MobileNav(_props: MobileNavProps) {
     };
   }, []);
 
-  const path = router?.asPath?.split(/[?#]/)[0] || "";
+  /* Le prefixe de langue ramene a /en : les adresses /fr/... sont reecrites vers
+     l'arbre /en (next.config.js), et toutes les comparaisons ci-dessous visent
+     /en. Sans ca, sur une adresse francaise, aucun onglet n'etait surligne, la
+     barre « lecture » ne s'appliquait pas, et une page statique (rendue en /en
+     au build) ne s'hydratait pas avec le meme onglet que le serveur. */
+  const path = (router?.asPath?.split(/[?#]/)[0] || "").replace(/^\/fr(?=\/|$)/, "/en");
   const onWatch = path.startsWith("/en/anime/watch");
   // Classe sur <body> plutot qu'un `body:has(.as-tabbar-watch)` en CSS : sous
   // Safari, un :has() sur body revalide la page entiere a chaque mutation.
