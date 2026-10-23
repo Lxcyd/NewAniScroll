@@ -340,12 +340,20 @@ function CloudSyncBootstrap() {
     let cancelled = false;
 
     (async () => {
-      // Loaded lazily: a signed-out visitor never pays for this chunk.
-      const cloud = await import("@/lib/list/cloudSync");
+      /* Deconnecte : `forget()` ne fait qu'effacer cette cle. Sans elle il n'y a
+         rien a oublier, et le chunk (cloudSync + listes, file, historique,
+         badges) n'est pas telecharge — c'est le cas de tout visiteur anonyme.
+         La cle est recopiee de REV_KEY (lib/list/cloudSync.ts). */
       if (!uid) {
-        cloud.forget();
+        try {
+          if (!localStorage.getItem("aniscroll:cloudRev")) return;
+        } catch {
+          return;
+        }
+        (await import("@/lib/list/cloudSync")).forget();
         return;
       }
+      const cloud = await import("@/lib/list/cloudSync");
       try {
         const result = await cloud.pullAll();
         if (cancelled) return;
