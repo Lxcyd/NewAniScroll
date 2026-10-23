@@ -56,6 +56,45 @@ const isAired = (timestamp: number | null) => {
   return timestamp <= currentTime;
 };
 
+/* Ce que la page lit d'une diffusion, et rien d'autre (cf. le rendu plus bas :
+   `s.id`, `s.episode`, `s.airingAt`, et de `s.media` l'id, le type, le titre et
+   l'affiche). Applique a la frontiere des props ET avant l'ecriture Redis : un
+   blob ecrit par un deploiement precedent, avec la fiche complete, ressort
+   allege lui aussi. */
+function slimSchedule(byDay: Record<string, any[]>): Record<string, any[]> {
+  const out: Record<string, any[]> = {};
+  for (const [dayName, list] of Object.entries(byDay)) {
+    out[dayName] = (Array.isArray(list) ? list : []).map((s: any) => {
+      const m = s?.media;
+      return {
+        id: s?.id ?? null,
+        episode: s?.episode ?? null,
+        airingAt: s?.airingAt ?? null,
+        media: m
+          ? {
+              id: m.id ?? null,
+              type: m.type ?? null,
+              title: m.title
+                ? {
+                    romaji: m.title.romaji ?? null,
+                    native: m.title.native ?? null,
+                    english: m.title.english ?? null,
+                  }
+                : null,
+              coverImage: m.coverImage
+                ? {
+                    extraLarge: m.coverImage.extraLarge ?? null,
+                    ...(m.coverImage.large ? { large: m.coverImage.large } : {}),
+                  }
+                : null,
+            }
+          : null,
+      };
+    });
+  }
+  return out;
+}
+
 const safeParse = (raw: string): any => {
   try {
     return JSON.parse(raw);
@@ -108,8 +147,7 @@ export async function getServerSideProps(ctx: any) {
   if (cachedParsed && Object.keys(cachedParsed).length > 0) {
     return {
       props: {
-        schedule: cachedParsed
-        // today: todaySchedule,
+        schedule: slimSchedule(cachedParsed)
       }
     };
   } else {
@@ -122,6 +160,11 @@ export async function getServerSideProps(ctx: any) {
 
     let page = 1;
     const airingSchedules = [];
+    /* Vrai seulement si la semaine a ete lue JUSQU'AU BOUT. Une page refusee
+       au milieu (429, panne, limiteur) laissait une semaine amputee que la suite
+       mettait en cache jusqu'a minuit (Redis) et une heure au bord : le planning
+       restait incomplet toute la journee sans que rien ne le signale. */
+    let complete = false;
 
     // A week is 5-7 pages. The cap is a safety net, never reached in normal
     // operation: an AniList that kept answering with non-empty pages (a bug on
@@ -137,13 +180,18 @@ export async function getServerSideProps(ctx: any) {
         // per-page copy behind it was 5-7 SETs per miss that nothing read.
         cacheSuccess: false,
       });
-      const schedules = json?.data?.Page?.airingSchedules;
-
-      if (!schedules || schedules.length === 0) {
-        break; // No more data to fetch (or AniList unavailable)
-      }
-
+      const pg = json?.data?.Page;
+      if (!pg) break; // AniList indisponible : semaine incomplete
+      const schedules = Array.isArray(pg.airingSchedules) ? pg.airingSchedules : [];
       airingSchedules.push(...schedules);
+      /* `hasNextPage: false` arrete ici — la boucle demandait jusque-la une page
+         VIDE de plus pour conclure, soit une requete AniList de trop par
+         reconstruction. Absent (reponse inattendue), on continue comme avant :
+         seule une page vide termine. */
+      if (schedules.length === 0 || pg.pageInfo?.hasNextPage === false) {
+        complete = true;
+        break;
+      }
       page++;
     }
 
@@ -173,24 +221,25 @@ export async function getServerSideProps(ctx: any) {
     // every later visit read the empty cache and rendered nothing. By skipping
     // the write when empty we let the next request retry AniList instead.
     const hasData = Object.keys(scheduleByDay).length > 0;
+    const slim = slimSchedule(scheduleByDay);
     /* An empty schedule must not sit at the EDGE for an hour either. Skipping
        the Redis write (below) protected the Redis blob but not the CDN copy,
        and the CDN is what actually answers visitors: during the 02/09/2026
        AniList outage an empty page was served for a full hour per edge region,
        then re-rendered empty, indefinitely. Shortening the edge TTL is the same
        decision as skipping the write, applied to the layer that serves. */
-    if (!hasData) {
+    if (!hasData || !complete) {
       ctx?.res?.setHeader?.(
         "CDN-Cache-Control",
         "public, s-maxage=120, stale-while-revalidate=300",
       );
     }
-    if (redis && hasData) {
+    if (redis && hasData && complete) {
       // Best-effort cache write — a failing Redis must not crash SSR.
       await redis
         .set(
           "new_schedule",
-          JSON.stringify(scheduleByDay),
+          JSON.stringify(slim),
           "EX",
           timeUntilMidnightJapan
         )
@@ -199,8 +248,7 @@ export async function getServerSideProps(ctx: any) {
 
     return {
       props: {
-        schedule: scheduleByDay
-        // today: todaySchedule,
+        schedule: slim
       }
     };
   }
