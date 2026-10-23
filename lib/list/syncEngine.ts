@@ -29,7 +29,7 @@ import {
 import { todayFuzzy, Status, FuzzyDate } from "./types";
 import { saveMediaListEntry } from "./anilistPush";
 import { patchListEntry, peekListEntry } from "@/lib/anilist/userListCache";
-import { getProgress, isCompleted } from "@/lib/watch/progress";
+import { isCompleted, readProgressMap } from "@/lib/watch/progress";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -424,8 +424,13 @@ function advanceProgress(aniId: number, current: number, episode: number): numbe
   // Rattrapage normal (episode suivant, ou re-visionnage d'un episode deja
   // compte) : rien a verifier.
   if (episode <= current + 1) return Math.max(current, episode);
+  /* La table lue UNE fois : `getProgress` la relisait et la re-parsait a
+     chaque episode — jusqu'a des centaines de fois pour un saut dans une longue
+     serie, sur une table qui couvre tous les animes de l'appareil. Meme cle
+     que progress.ts (`${aniId}:${episode}`). */
+  const map = readProgressMap();
   let n = current;
-  while (n < episode && isCompleted(getProgress(aniId, n + 1))) n++;
+  while (n < episode && isCompleted(map[`${aniId}:${n + 1}`])) n++;
   return n;
 }
 

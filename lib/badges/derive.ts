@@ -17,8 +17,8 @@ import { BY_ID, MAIN, type BadgeDef } from "./catalog";
 import { isCompleted, type ProgressEntry } from "../watch/progress";
 import type { LocalEntry, LocalListMap } from "../list/localList";
 import {
-  bestWindow, clusters, currentRun, dayKey, longestRun, hourOf,
-  inHourWindow, isMidnightSharp, isWeekend, monthDay, sane,
+  bestWindow, clusters, currentRun, dayKey, longestRun, isWeekend, monthDay,
+  sane,
 } from "./localtime";
 import type { Facts } from "./facts";
 
@@ -201,7 +201,27 @@ export function derive(s: Snapshot): Derived {
   }
 
   const stamps = watched.map((w) => w.at).filter((t) => t > 0).sort((a, b) => a - b);
-  const days = new Set(stamps.map((t) => dayKey(t)));
+
+  /* UN SEUL `new Date` PAR HORODATAGE. Le jour, l'heure et « minuit pile » en
+     creaient chacun le leur, sur des milliers d'horodatages a chaque passage de
+     l'evaluateur (chaque page, chaque episode termine). Memes accesseurs locaux
+     que lib/badges/localtime.ts (dayKey, hourOf, isMidnightSharp). */
+  const days = new Set<string>();
+  const hours = new Set<number>();
+  let midnight = false;
+  for (const t of stamps) {
+    const d = new Date(t);
+    days.add(dayKey(d));
+    const h = d.getHours();
+    hours.add(h);
+    if (h === 0 && d.getMinutes() === 0) midnight = true;
+  }
+
+  /* La duree du premier episode trouve a chaque horodatage — ce que
+     `watched.find((w) => w.at === …)` rendait, mais en un seul balayage : le
+     `find` reparcourait toute la table pour CHAQUE seance (quadratique). */
+  const minutesAt = new Map<number, number>();
+  for (const w of watched) if (!minutesAt.has(w.at)) minutesAt.set(w.at, w.minutes);
 
   /* Les séances : une grappe d'activité, pas une date (une soirée qui passe
      minuit reste une soirée — cf. lib/badges/localtime.ts). */
@@ -215,7 +235,7 @@ export function derive(s: Snapshot): Derived {
        durée du dernier : sans ce dernier terme, six épisodes de 24 min lancés
        toutes les 24 min compteraient 2 h 00 au lieu de 2 h 24. */
     const span = (run[run.length - 1] - run[0]) / 3_600_000;
-    const tailMinutes = watched.find((w) => w.at === run[run.length - 1])?.minutes ?? 0;
+    const tailMinutes = minutesAt.get(run[run.length - 1]) ?? 0;
     const hours = span + tailMinutes / 60;
     if (hours > longestSession) longestSession = hours;
     /* Un « marathon de week-end » doit se tenir sur le week-end : on exige que
@@ -225,8 +245,6 @@ export function derive(s: Snapshot): Derived {
       longestWeekendSession = hours;
     }
   }
-
-  const hours = new Set(stamps.map((t) => hourOf(t)));
 
   /* ── La liste ───────────────────────────────────────────────────────────── */
   const entries = Object.values(s.list);
@@ -324,10 +342,30 @@ export function derive(s: Snapshot): Derived {
   const hasStudio = has((e) => e.studio);
   const hasPop = has((e) => e.popularity);
 
+  /* Combien d'entrees terminees portent chaque genre / tag : UN balayage,
+     construit au premier besoin, au lieu d'un `filter` de toute la liste par
+     badge interroge. Une entree compte une fois par nom, meme si son tableau
+     le repete — exactement ce que comptait `filter(includes)`. Sert aussi a
+     `genresCovered` / `tagsCovered`, qui croisaient chaque nom du vocabulaire
+     (~400 tags AniList) avec chaque entree et chacun de ses tags. */
+  const tally = (pick: (e: LocalEntry) => string[] | undefined | null) => {
+    const counts = new Map<string, number>();
+    for (const e of completed) {
+      const names = pick(e);
+      if (!names?.length) continue;
+      for (const n of new Set(names)) counts.set(n, (counts.get(n) ?? 0) + 1);
+    }
+    return counts;
+  };
+  let genreTally: Map<string, number> | null = null;
+  let tagTally: Map<string, number> | null = null;
+  const genreCounts = () => (genreTally ??= tally((e) => e.genres));
+  const tagCounts = () => (tagTally ??= tally((e) => e.tags));
+
   const countGenre = (name: string) =>
-    !hasGenres ? null : completed.filter((e) => e.genres?.includes(name)).length;
+    !hasGenres ? null : genreCounts().get(name) ?? 0;
   const countTag = (name: string) =>
-    !hasTags ? null : completed.filter((e) => e.tags?.includes(name)).length;
+    !hasTags ? null : tagCounts().get(name) ?? 0;
 
   const studioCounts = new Map<string, number>();
   for (const e of completed) {
@@ -361,6 +399,7 @@ export function derive(s: Snapshot): Derived {
     return true;
   });
 
+  let onDate: Map<string, Set<number>> | null = null;
   return {
     now,
     episodes: episodeCount,
@@ -377,19 +416,30 @@ export function derive(s: Snapshot): Derived {
     biggestNight,
     longestSession,
     longestWeekendSession,
+    /* Les deux formes ne dependent que de l'HEURE locale (cf. inHourWindow) :
+       l'ensemble des heures deja calcule suffit, y compris pour une fenetre
+       qui traverse minuit. */
     inHours: (from, to) =>
       from <= to
         ? [...hours].some((h) => h >= from && h < to)
-        : stamps.some((t) => inHourWindow(t, from, to)),
-    midnight: stamps.some((t) => isMidnightSharp(t)),
+        : [...hours].some((h) => h >= from || h < to),
+    midnight,
+    /* Index « mois-jour -> animes » construit au premier appel, puis relu :
+       chaque badge de date reconvertissait toutes les dates. L'ordre des ids
+       est celui de la premiere rencontre, comme avant. */
     animeOnDate: (month, day) => {
-      const ids = new Set<number>();
-      for (const w of watched) {
-        if (!w.at) continue;
-        const md = monthDay(w.at);
-        if (md.month === month && md.day === day) ids.add(w.aniId);
+      if (!onDate) {
+        onDate = new Map();
+        for (const w of watched) {
+          if (!w.at) continue;
+          const md = monthDay(w.at);
+          const k = `${md.month}-${md.day}`;
+          let set = onDate.get(k);
+          if (!set) onDate.set(k, (set = new Set()));
+          set.add(w.aniId);
+        }
       }
-      return [...ids];
+      return [...(onDate.get(`${month}-${day}`) ?? [])];
     },
 
     entries,
@@ -462,10 +512,10 @@ export function derive(s: Snapshot): Derived {
     longestTitle,
     genresCovered: !s.vocab || !hasGenres
       ? null
-      : s.vocab.genres.filter((g) => completed.some((e) => e.genres?.includes(g))).length,
+      : s.vocab.genres.filter((g) => genreCounts().has(g)).length,
     tagsCovered: !s.vocab || !hasTags
       ? null
-      : s.vocab.tags.filter((g) => completed.some((e) => e.tags?.includes(g))).length,
+      : s.vocab.tags.filter((g) => tagCounts().has(g)).length,
     vocabGenres: s.vocab ? s.vocab.genres.length : null,
     vocabTags: s.vocab ? s.vocab.tags.length : null,
     franchiseOf: (minSeasons) =>
