@@ -43,7 +43,14 @@ import { Navbar } from "@/components/shared/NavBar";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import InfoPage from "@/components/anime/v2/InfoPage";
 import { relationsTreeUrl } from "@/lib/anilist/franchiseTreeVersion";
-import InfoPageMobile from "@/components/anime/v2/mobile/InfoPageMobile";
+/* La mise en page telephone dans son propre chunk (~27 Ko bruts, 29 % du chunk
+   de la page) : un PC ne la telechargeait que pour ne jamais la rendre. Le rendu
+   serveur est GARDE (pas de `ssr: false`) : quand le serveur la rend pour un
+   telephone, Next ecrit son chunk dans le HTML et attend qu'il soit la avant
+   d'hydrater — meme page, meme premier affichage. */
+const InfoPageMobile = dynamic(
+  () => import("@/components/anime/v2/mobile/InfoPageMobile"),
+);
 import { useIsMobile } from "@/lib/hooks/useIsMobile";
 import { pickTitleImage, collectArtworks, slugifyTitle, SeasonInfo, TitleImage } from "@/components/anime/v2/helpers";
 import { getTmdbAnimeImages } from "@/lib/tmdb/animeImages";
@@ -1027,7 +1034,7 @@ export async function getServerSideProps(ctx: any) {
       }`
     : "https://aniscroll.com";
 
-  let API_URI;
+  let API_URI: string | null;
   API_URI = process.env.API_URI || null;
   if (API_URI && API_URI.endsWith("/")) {
     API_URI = API_URI.slice(0, -1);
@@ -1109,19 +1116,32 @@ export async function getServerSideProps(ctx: any) {
        parsedCache.info.title?.romaji ||
        parsedCache.info.title?.english);
 
-  if (parsedCache?.info && cacheUsable) {
-    const { info, color } = parsedCache;
-
-    // The cover URL is already in the cached `info`, so tell the browser to
-    // start fetching it RIGHT NOW via a Link: header — long before
-    // getServerSideProps finishes. Adds ~0ms to the response and shaves
-    // ~200-500ms off image arrival when the SSR awaits downstream work below.
+  /**
+   * Everything after the AniList payload is known — identical whether it came
+   * out of Redis or was just fetched, so it is written once.
+   *
+   * The season walkers (slowest, id-only — the payload is already primed into
+   * the media cache on a miss) start immediately; fanarts + TMDB run alongside
+   * and resolve first so the title image is picked while the walkers finish.
+   * `resolveHeroBanner` rides in the last wave rather than ahead of it: it only
+   * needs `tmdb.backdrop`, and getServerSideProps does not flush headers early
+   * anyway, so a separate await would only add a serial round-trip to every
+   * edge-cache MISS of the busiest page.
+   *
+   * `pending` is anything that must finish before the response (the Redis write
+   * on a miss) without delaying the reads.
+   */
+  const finishProps = async (
+    info: any,
+    color: any,
+    label: string,
+    pending: Promise<unknown> = Promise.resolve(),
+  ) => {
+    // The cover URL is already in `info`: a Link: preload header lets the
+    // browser start on it long before the HTML arrives.
     const coverUrl = info?.coverImage?.extraLarge || info?.coverImage?.large;
     if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
 
-    // The season walkers are the slowest part and need nothing but the id:
-    // start them now, so they run under the fanarts/TMDB reads instead of
-    // after them.
     const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
       () => ({ number: null, total: null }),
     );
@@ -1129,11 +1149,8 @@ export async function getServerSideProps(ctx: any) {
     const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(() => [] as FilmVariant[]);
     const malMetaP = getMalMeta(info?.idMal).catch(() => null);
 
-    // Resolve fanarts first so we can ALSO emit a preload header for
-    // the clearart before we await the (slower) season-chain walk.
-    // Single-row Turso read, typically <50ms. TMDB rides along: warm it is
-    // also one Turso row, and when TMDB_API_KEY is unset it returns without
-    // touching anything, so this costs nothing in that case.
+    // Single-row Turso reads, typically <50 ms. When TMDB_API_KEY is unset
+    // getTmdbAnimeImages returns without touching anything.
     const [fanarts, tmdb] = await Promise.all([
       loadFanarts(animeIdNum).catch(() => null),
       getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
@@ -1141,33 +1158,27 @@ export async function getServerSideProps(ctx: any) {
     timer.mark("fanarts");
     const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
     const fanartsMeta = toFanartsMeta(fanarts);
-    // No clearart preload header — see the <link> note above: the <img> may
-    // swap to assets.fanart.tv on proxy error, leaving a proxy-URL preload
-    // unconsumed ("preloaded but not used"). preconnect handles the latency.
+    // No clearart preload header: the <img> may swap to assets.fanart.tv on
+    // proxy error, leaving a proxy-URL preload unconsumed ("preloaded but not
+    // used"). preconnect handles the latency.
 
-    // Now wait on the slower stuff in parallel. `resolveHeroBanner` rides in
-    // this batch rather than ahead of it: it only needs `tmdb.backdrop`, which
-    // the wave above already produced, and awaiting it on its own added a
-    // third serial round-trip (its bannerSize verdict is a Turso read) to
-    // every edge-cache MISS on the site's busiest page. It used to sit here to
-    // emit its preload header "early", but getServerSideProps does not flush
-    // headers before the response — they all go out together either way, so
-    // the split bought latency and no earlier bytes.
     const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
       resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
       seasonInfoP,
       seasonListP,
       bonusFilmsP,
       malMetaP,
+      pending,
     ]);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
-    timer.end(`cache-hit id=${id?.[0]}`);
+    timer.end(label);
+
     return {
       props: {
-        /* Shallow copy, never a mutation: `info` came straight out of the
-           Redis blob and the same object is handed back to other readers of
-           that cache. Writing the TMDB URL onto it would leak a TMDB backdrop
-           into the shared AniList payload for 30 days. */
+        /* Shallow copy, never a mutation: `info` is the shared AniList blob
+           (straight out of Redis, or what was just written there). Writing the
+           TMDB URL onto it would leak a TMDB backdrop into that payload for 30
+           days. */
         info: withMalMeta(
           stripCharacters(heroBanner ? { ...info, bannerImage: heroBanner } : info),
           malMeta,
@@ -1180,8 +1191,8 @@ export async function getServerSideProps(ctx: any) {
         seasonInfo,
         seasonList,
         bonusFilms,
-        // Per-user fields hydrate client-side now (see component) so this
-        // SSR payload stays identical for everyone → edge-cacheable.
+        // Per-user fields hydrate client-side (see the component) so this SSR
+        // payload stays identical for everyone → edge-cacheable.
         initialFav: false,
         initialStatusLabel: null,
         initialProgress: 0,
@@ -1189,6 +1200,11 @@ export async function getServerSideProps(ctx: any) {
         baseUrl,
       },
     };
+  };
+
+  if (parsedCache?.info && cacheUsable) {
+    const { info, color } = parsedCache;
+    return finishProps(info, color, `cache-hit id=${id?.[0]}`);
   }
 
   let data: any = null;
@@ -1266,28 +1282,8 @@ export async function getServerSideProps(ctx: any) {
     color: textColor,
   };
 
-  // The cover URL is now known — push it into a Link: header so the browser
-  // can start downloading while we await the rest.
-  const coverUrl = data?.coverImage?.extraLarge || data?.coverImage?.large;
-  if (coverUrl) appendPreloadHeader(ctx.res, coverUrl);
-
-  // Everything below is independent of everything else once `data` is known,
-  // and it used to run as four serial waits (fanarts → hero banner → redis.set
-  // → season walkers) on every edge MISS of the busiest page. Now: the walkers
-  // (slowest, id-only — `data` is already primed into the media cache) and the
-  // Redis write start immediately; fanarts → hero banner run alongside.
-  const seasonInfoP = resolveSeasonChain(animeIdNum).catch(
-    () => ({ number: null, total: null })
-  );
-  const seasonListP = resolveSeasonList(animeIdNum).catch(
-    () => [] as SeasonEntry[]
-  );
-  const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(
-    () => [] as FilmVariant[]
-  );
-  const malMetaP = getMalMeta(data?.idMal).catch(() => null);
-  // Still awaited below (with the walkers) so the write can't be cut off when
-  // the response returns — it just no longer delays anything else.
+  // Still awaited with the rest (inside finishProps) so the write can't be cut
+  // off when the response returns — it just no longer delays anything else.
   const cacheWriteP = redis
     ? redis
         .set(cacheKey, JSON.stringify({ info: data, color }), "EX", cacheTime)
@@ -1296,54 +1292,9 @@ export async function getServerSideProps(ctx: any) {
         })
     : Promise.resolve();
 
-  // Resolve fanarts ahead of the slower walker work so we can emit the
-  // clearart preload header before the response body is sent. TMDB rides
-  // along — see the cache-hit path above for why the banner preload waits.
-  const [fanarts, tmdb] = await Promise.all([
-    loadFanarts(animeIdNum).catch(() => null),
-    getTmdbAnimeImages(animeIdNum).catch(() => ({ backdrop: null, logo: null })),
-  ]);
-  timer.mark("fanarts");
-  const initialTitleImage = pickTitleImage(fanarts, tmdb.logo);
-  const fanartsMeta = toFanartsMeta(fanarts);
-  // No clearart preload header — the <img> may swap to assets.fanart.tv on
-  // proxy error, which would leave a proxy-URL preload unconsumed.
-
-  const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
-    resolveHeroBanner(data?.bannerImage, tmdb.backdrop).catch(() => null),
-    seasonInfoP,
-    seasonListP,
-    bonusFilmsP,
-    malMetaP,
-    cacheWriteP,
-  ]);
-  if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
-  timer.end(`cache-miss id=${id?.[0]}`);
-
-  return {
-    props: {
-      /* Shallow copy — `data` is what redis.set just persisted as the shared
-         AniList blob above, and it must stay free of TMDB URLs. */
-      info: withMalMeta(
-        stripCharacters(heroBanner ? { ...data, bannerImage: heroBanner } : data),
-        malMeta,
-      ),
-      color,
-      api: API_URI,
-      chapterNotFound: chapterNotFound || null,
-      fanartsMeta,
-      initialTitleImage,
-      seasonInfo,
-      seasonList,
-      bonusFilms,
-      // Per-user fields hydrate client-side (see component) → cacheable SSR.
-      initialFav: false,
-      initialStatusLabel: null,
-      initialProgress: 0,
-      initialUA,
-      baseUrl,
-    },
-  };
+  /* `data` is what redis.set just persisted as the shared AniList blob, and
+     finishProps only ever spreads it — it stays free of TMDB URLs. */
+  return finishProps(data, color, `cache-miss id=${id?.[0]}`, cacheWriteP);
 }
 
 function getBrightness(hexColor: { match: (arg0: RegExp) => any[] } | null) {
