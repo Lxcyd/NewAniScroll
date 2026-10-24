@@ -239,12 +239,18 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
     return el("div",{class:"line" + (v ? " done" : "")}, labels, meta, why, verdict, fix, sheet);
   }
 
-  function table(kind, list){
+  function table(kind, list, mal, ep){
     list.sort((a,b)=> a.lang.localeCompare(b.lang) || (a.start ?? 1e9) - (b.start ?? 1e9));
+    // « Rien à vérifier » ne veut pas dire « pas de générique » : dire combien
+    // de lignes existent, validées par Claude, et où les voir.
+    const ok = cells.filter(c => c.mal === mal && c.ep === ep && c.kind === kind && !needsLuc(c)).length;
+    const vide = filter !== "todo" ? "Aucune ligne."
+      : ok ? "Rien à vérifier : " + ok + " ligne" + (ok>1?"s":"") + " validée" + (ok>1?"s":"") + " par Claude (voir « Tout »)."
+      : "Rien à vérifier.";
     return el("div",{class:"tbl"},
       el("div",{class:"tbl-head"}, el("span",{class:"kind " + kind, text:kind.toUpperCase()}),
         el("span",{class:"muted", text: list.length ? list.length + " ligne" + (list.length>1?"s":"") : ""})),
-      ...(list.length ? list.map(line) : [el("div",{class:"tbl-empty", text: filter === "todo" ? "Rien à vérifier." : "Aucune ligne."})]));
+      ...(list.length ? list.map(line) : [el("div",{class:"tbl-empty", text: vide})]));
   }
 
   function render(){
@@ -270,7 +276,7 @@ details img{margin-top:8px;border-radius:6px;border:1px solid var(--line);width:
         const list = eps.get(ep);
         return el("div",{class:"ep"},
           el("div",{class:"ep-head"}, el("h3",{text:"Épisode " + ep}), ep === f.lastEp ? el("span",{class:"tag", text:"dernier"}) : null),
-          el("div",{class:"pair"}, table("op", list.filter(c => c.kind === "op")), table("ed", list.filter(c => c.kind === "ed"))));
+          el("div",{class:"pair"}, table("op", list.filter(c => c.kind === "op"), mal, ep), table("ed", list.filter(c => c.kind === "ed"), mal, ep)));
       });
       out.push(el("section",{class:"anime"},
         el("div",{class:"anime-head"}, el("h2",{text:f.title}), el("span",{class:"tag", text:f.group})),

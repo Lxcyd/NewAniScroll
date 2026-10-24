@@ -51,7 +51,8 @@ jobs:
     # the outer guard: airing window + discovery + that budget, with room for a
     # slow AniList. It must stay comfortably above the script's own budget, or
     # the process is killed mid-batch and a healthy run reads as a failure.
-    timeout-minutes: 45
+    # + le relevé des personnages (25 min max), après la fiche.
+    timeout-minutes: 75
 
     steps:
       - uses: actions/checkout@v5
@@ -76,3 +77,15 @@ jobs:
             ${{ inputs.skip_ttl       == true && '--skip-ttl'       || '' }} \
             ${{ inputs.skip_discovery == true && '--skip-discovery' || '' }} \
             ${{ inputs.max_ttl_rows   != ''   && format('--max-ttl-rows={0}', inputs.max_ttl_rows) || '' }}
+
+      # TOUS les personnages de chaque anime (anime_characters) : les jamais
+      # relevés (dont ceux que la découverte vient d'ajouter), puis les expirés
+      # — 1 jour en cours de diffusion, 14 jours terminés. Chaque relevé
+      # remplace la liste entière : un personnage ajouté sur AniList arrive.
+      # Lancé même si la fiche a échoué : les deux sont indépendants.
+      - name: Run character refresh
+        if: always()
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node scripts/cache/refresh-characters.mjs --max-minutes=25

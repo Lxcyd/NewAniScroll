@@ -55,3 +55,7 @@ tsconfig.tsbuildinfo
 # Migration / one-shot script logs
 migration.log
 .vercel
+
+# Fonds animés : copie LOCALE pour le serveur de dev (lib/profile/fonds.ts).
+# En prod ils vivent sur Cloudflare Pages (fonds.aniscroll.com) — jamais dans un déploiement.
+public/fonds/

@@ -17,6 +17,8 @@ import {
   type FuzzyDate,
 } from "@/lib/list/types";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
+import { clearSent, isRetryable, queueFavourite, queueSave } from "@/lib/list/anilistOutbox";
+import { deleteMediaListEntry } from "@/lib/list/anilistPush";
 /* La couleur d'une liste personnalisée vit avec les autres couleurs de listes
    depuis que le menu déroulant des réglages de widget peint les mêmes
    pastilles : deux hachages parallèles auraient fini par diverger. */
@@ -165,7 +167,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
   // correct on the first paint instead of animating up from 0 when the modal
   // opens. We then refresh from a full per-entry query (the cache omits a couple
   // of fields the editor uses) to pick up anything stale.
+  /* L'anime était-il dans la liste à l'ouverture ? Lu par `deleteEntry`, qui
+     passe APRÈS le retrait optimiste du cache : on ne peut plus l'y demander.
+     Sert quand l'id d'entrée manque (liste servie depuis une copie pendant une
+     panne d'AniList). */
+  const wasListed = useRef(false);
   const seedFromEntry = useCallback((e: Partial<UserListEntry> | null | undefined) => {
+    wasListed.current = !!(e && (e.status || e.id));
     if (e && (e.status || e.id)) {
       setEntryId(typeof e.id === "number" ? e.id : null);
       setStatus((e.status as Status) ?? null);
@@ -326,8 +334,10 @@ const ListEditor: React.FC<ListEditorProps> = ({
     const next = !favorited;
     setFavorited(next); // optimistic
     onFavouriteChange?.(next); // keep the info-page heart in sync immediately
+    let status: number | null = null;
+    let json: any = null;
     try {
-      await fetch("https://graphql.anilist.co/", {
+      const res = await fetch("https://graphql.anilist.co/", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -337,7 +347,17 @@ const ListEditor: React.FC<ListEditorProps> = ({
           variables: isAnime ? { animeId } : { mangaId: animeId },
         }),
       });
+      status = res.status;
+      json = await res.json().catch(() => null);
+      if (!json?.data?.ToggleFavourite) throw new Error("rejected");
     } catch {
+      /* AniList en panne : l'état voulu est gardé et rejoué à son retour
+         (lib/list/anilistOutbox). Refus définitif : on revient en arrière. */
+      if (isAnime && isRetryable(json?.data ? 200 : status, json)) {
+        queueFavourite(animeId, next);
+        notify.success(t("listEditor.queued"));
+        return;
+      }
       setFavorited(!next); // revert on failure
       onFavouriteChange?.(!next);
     }
@@ -346,23 +366,15 @@ const ListEditor: React.FC<ListEditorProps> = ({
   // Delete the user's entry for this media (used by "Remove from list" and by
   // saving with status = "Not in list"). No-op when the anime isn't on the
   // list. Returns true on success.
+  /* Un échec passager (AniList en panne) range la suppression dans la file,
+     rejouée à son retour — l'anime reste retiré ici en attendant. Sans id
+     d'entrée connu mais avec une entrée en cache, la suppression attend aussi :
+     l'id sera retrouvé au rejeu. */
   const deleteEntry = async (): Promise<boolean> => {
     const token = session?.user?.token;
-    if (!token || !entryId) return true; // nothing to delete
-    try {
-      const res = await fetch("https://graphql.anilist.co/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          query: `mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }`,
-          variables: { id: entryId },
-        }),
-      });
-      const json = await res.json();
-      return !!json?.data?.DeleteMediaListEntry?.deleted;
-    } catch {
-      return false;
-    }
+    if (!token) return true;
+    if (!entryId && !wasListed.current) return true; // nothing to delete
+    return deleteMediaListEntry(token, animeId, entryId || null);
   };
 
   const handleRemove = async () => {
@@ -495,6 +507,26 @@ const ListEditor: React.FC<ListEditorProps> = ({
     notify.success(t("listEditor.saved"));
     close();
 
+    /* Ce qui est envoyé, tel que la file d'envoi le rangera si AniList ne
+       répond pas (lib/list/anilistOutbox) : rejoué à son retour, avec les
+       priorités de la synchro. */
+    const outboxFields = {
+      status,
+      score: score || null,
+      progress,
+      repeat: rewatches,
+      private: isPrivate,
+      hiddenFromStatusLists: hideFromLists,
+      notes: notes || null,
+      startedAt,
+      completedAt,
+      customLists,
+    };
+    const queueIt = () => {
+      queueSave(animeId, outboxFields);
+      notify.success(t("listEditor.queued"));
+    };
+
     // Background mutation — fire-and-forget. We still patch the cache with the
     // authoritative server response (entry id, etc.) when it returns.
     fetch("https://graphql.anilist.co/", {
@@ -533,8 +565,12 @@ const ListEditor: React.FC<ListEditorProps> = ({
         },
       }),
     })
-      .then(async (res) => ({ ok: res.ok, status: res.status, json: await res.json() }))
-      .then(({ status: httpStatus, json }) => {
+      .then(async (res) => ({
+        ok: res.ok,
+        status: res.status,
+        json: await res.json().catch(() => null),
+      }))
+      .then(({ ok: httpOk, status: httpStatus, json }) => {
         const saved = json?.data?.SaveMediaListEntry;
         if (!saved) {
           /* DIRE LEQUEL DES DEUX ÉCHECS C'EST. Un « une erreur est survenue »
@@ -544,9 +580,14 @@ const ListEditor: React.FC<ListEditorProps> = ({
              « Invalid token » quand l'autorisation est morte. */
           const why = String(json?.errors?.[0]?.message || "");
           const expired = httpStatus === 401 || /invalid token|unauthor/i.test(why);
-          notify.error(t(expired ? "listEditor.anilistExpired" : "listEditor.error"));
+          // Expiré OU en panne : gardé dans la file, rejoué plus tard.
+          if (isRetryable(httpOk ? 200 : httpStatus, json)) queueSave(animeId, outboxFields);
+          if (expired) notify.error(t("listEditor.anilistExpired"));
+          else if (isRetryable(httpOk ? 200 : httpStatus, json)) notify.success(t("listEditor.queued"));
+          else notify.error(t("listEditor.error"));
           return;
         }
+        clearSent(animeId, "all");
         // Reconcile the cache with the server's authoritative record.
         if (userName) {
           const cl =
@@ -584,7 +625,8 @@ const ListEditor: React.FC<ListEditorProps> = ({
           completedAt: saved.completedAt || null,
         });
       })
-      .catch(() => notify.error(t("listEditor.error")));
+      // Réseau coupé ou AniList injoignable : dans la file.
+      .catch(queueIt);
   };
 
   const statusLabel = (s: Status): string => {

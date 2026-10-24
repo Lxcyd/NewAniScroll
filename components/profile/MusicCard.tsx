@@ -33,6 +33,9 @@ type Props = MusicCardControls & {
   /** Le gain du fondu de l'extrait, 0-1 : l'égaliseur le suit. */
   gain?: () => number;
   className?: string;
+  /** La vidéo n'a pas de piste son (un fond animé muet) : ni égaliseur ni
+      volume, il n'y a rien à écouter (24/10/2026, Luc). */
+  silent?: boolean;
   /** Le média visible sous l'image (le lecteur YouTube), rogné à la case. */
   children?: ReactNode;
 };
@@ -46,6 +49,14 @@ const SHIFT = (CARD - MINI) / 2;
 
 /** Le nombre de barres de l'égaliseur (mouvement : lib/profile/eqMotion). */
 const EQ_BARS = 10;
+
+/** La case grandit d'elle-même UNE fois par arrivée sur le profil : au
+    chargement, puis à chaque retour du studio (`data-profile-enter`, posé par
+    ProfileStage) — une boucle du morceau ne la refait pas grandir (23/10/2026,
+    Luc). Le survol, lui, la fait toujours grandir. Gardé hors du composant :
+    la case peut être remontée au passage. */
+let grewFor: string | null = null;
+const arrival = () => document.documentElement.dataset.profileEnter ?? "load";
 
 /**
  * UNE IMAGE NETTE DANS LA CASE (22/10/2026, Luc). La case fait 240 px (plus
@@ -119,6 +130,7 @@ export default function MusicCard({
   live,
   gain,
   className,
+  silent = false,
   children,
   ...card
 }: Props) {
@@ -141,7 +153,7 @@ export default function MusicCard({
   const eqLevelsBuf = useRef(new Float32Array(EQ_BARS));
   const eqVoiceRef = useRef<{ id: string; v: EqVoice } | null>(null);
   const canMini = !!card.minimizable;
-  const eqOn = canMini && started;
+  const eqOn = canMini && started && !silent;
   useEffect(() => {
     if (!eqOn) return;
     let raf = 0;
@@ -216,11 +228,20 @@ export default function MusicCard({
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);
   };
+  const [enterTick, setEnterTick] = useState(0);
   useEffect(() => {
-    if (!canMini || !card.playing) return;
+    const on = () => setEnterTick((n) => n + 1);
+    window.addEventListener("as-profile-enter", on);
+    return () => window.removeEventListener("as-profile-enter", on);
+  }, []);
+  useEffect(() => {
+    if (!canMini || !card.playing || grewFor === arrival()) return;
     const settle = Number(document.documentElement.dataset.sceneSettle) || 0;
     const t = setTimeout(
       () => {
+        /* Marqué ici, pas avant le minuteur : un effet rejoué (React en dev)
+           l'annule et ne doit pas perdre l'agrandissement. */
+        grewFor = arrival();
         grow();
         shrinkIn(3000);
       },
@@ -228,7 +249,7 @@ export default function MusicCard({
     );
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- grow/shrinkIn sont stables en pratique
-  }, [canMini, card.playing, eqKey]);
+  }, [canMini, card.playing, eqKey, enterTick]);
   useEffect(
     () => () => {
       if (shrinkAt.current) clearTimeout(shrinkAt.current);
@@ -317,15 +338,16 @@ export default function MusicCard({
                puis retirées, devlog/site.md). Elles suivent ce qu'on sait : la
                pause les cache, le muet les couche, le fondu les baisse. Leur
                mouvement est calculé à chaque image (lib/profile/eqMotion), calé
-               sur le temps du lecteur. */
+               sur le temps du lecteur. En muet, elles disparaissent (23/10/2026,
+               Luc : couchées, elles se lisaient encore comme une lecture). */
             <div
-              className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing ? "opacity-100" : "opacity-0"}`}
+              className={`pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent transition-opacity duration-200 ${card.playing && !card.muted ? "opacity-100" : "opacity-0"}`}
             >
               <div
                 ref={eqRef}
                 className="absolute inset-x-0 bottom-3 flex h-10 items-end justify-center gap-2.5 transition-transform duration-200"
                 style={{
-                  transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing && !card.muted ? 1 : 0.15}))`,
+                  transform: `scaleY(calc(var(--eq-fade, 1) * ${card.playing ? 1 : 0.15}))`,
                   transformOrigin: "bottom",
                 }}
               >
@@ -355,16 +377,18 @@ export default function MusicCard({
                   {card.playing ? <MdPause size={28} /> : <MdPlayArrow size={28} />}
                 </button>
               </div>
-              <div className={`absolute right-2 top-2 ${chrome}`}>
-                <HoverVolume
-                  muted={card.muted}
-                  volume={card.volume}
-                  onMuted={card.onMuted}
-                  onVolume={card.onVolume}
-                  fallback={card.fallback}
-                  placement="down"
-                />
-              </div>
+              {silent ? null : (
+                <div className={`absolute right-2 top-2 ${chrome}`}>
+                  <HoverVolume
+                    muted={card.muted}
+                    volume={card.volume}
+                    onMuted={card.onMuted}
+                    onVolume={card.onVolume}
+                    fallback={card.fallback}
+                    placement="down"
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

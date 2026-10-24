@@ -8,7 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
-  useTransition,
+  memo,
   type ReactNode,
 } from "react";
 
@@ -35,11 +35,9 @@ function dockEase(x: number): number {
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import {
-  AdjustmentsHorizontalIcon,
   ArrowUpTrayIcon,
   ArrowDownIcon,
   ArrowUpIcon,
-  ArrowUturnLeftIcon,
   ArrowsUpDownIcon,
   Bars4Icon,
   BookmarkIcon,
@@ -60,11 +58,10 @@ import {
   ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
-  SpeakerXMarkIcon,
   Squares2X2Icon,
   SwatchIcon,
   TrophyIcon,
-  ViewColumnsIcon,
+  UserCircleIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
 import {
@@ -90,7 +87,7 @@ import HoverVolume from "@/components/shared/HoverVolume";
 import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import type { StudioBridge } from "@/components/profile/ProfileHero";
-import { FrameTileImage } from "@/components/profile/FramedAvatar";
+import { FrameTileImage, cropStyle } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
@@ -160,9 +157,13 @@ import {
   type Dressing,
   type DressingKind,
   type DressingMusic,
-  type HeroLayout,
 } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileEntry } from "@/lib/profile/types";
+import { FONDS, fondsParAnime, isFondMuet } from "@/lib/profile/fonds";
+import { animeCharsCached, animeCharsDone, loadAnimeChars, loadCharCounts, loadFavouriteChars, searchChars, type AvatarChar } from "@/lib/profile/avatarChoices";
+import AvatarCropper from "@/components/profile/AvatarCropper";
+import { notify } from "@/lib/notifications/noticeStore";
+import { MAX_IMPORTS, fileToAvatar, readImports, writeImports, type AvatarImport } from "@/lib/profile/avatarImport";
 
 /**
  * Le studio : l'écran plein où l'on habille son profil.
@@ -237,6 +238,9 @@ type Presets = {
     label?: string | null;
     name?: string | null;
     tab?: "video" | "oped";
+    /** Le slug du générique (OP1, ED2…), gardé avec lui : sans, la puce
+        attendait que les génériques de l'anime soient chargés (23/10/2026). */
+    slug?: string | null;
     v: VideoSnap;
   }[];
 };
@@ -387,7 +391,7 @@ type Props = {
   auto: { url: string | null; source: BannerOption["source"] | null; title: string | null };
   /** `stats` : les quatre chiffres du haut de profil, déjà formatés — les
       vignettes d'agencement les écrivent à leur place. */
-  identity: { name: string; avatar: string | null; stats?: string[] };
+  identity: { name: string; avatar: string | null; stats?: string[]; /** Le compte AniList : ses personnages favoris (onglet Avatar). */ anilistName?: string | null };
   /** `null` dépingle et rend le profil à son anime préféré. */
   onApply: (value: Dressing | null) => void;
   /** Le brouillon, à chaque changement : la page le montre en direct. */
@@ -414,7 +418,9 @@ function LayoutIcon({ className }: { className?: string; strokeWidth?: number })
   );
 }
 
-const KIND_ICON: Record<DressingKind, typeof PhotoIcon> = {
+const KIND_ICON: Record<DressingKind | "fonds", typeof PhotoIcon> = {
+  /* L'onglet des fonds animés : des boucles, comme une bannière animée. */
+  fonds: SparklesIcon,
   color: SwatchIcon,
   wall: RectangleGroupIcon,
   banner: PhotoIcon,
@@ -467,6 +473,9 @@ const ART_DEMANDES = new Set<number>();
  * d'id, essayées d'abord, faisaient 59 lots pour 800 animés : les ids
  * AniList s'étalent de 1 à 190 000.)
  */
+/* Les comptes de personnages déjà demandés (menu Avatar), pour la session. */
+const CHAR_DEMANDES = new Set<number>();
+
 function stableBatches(ids: number[], max: number): number[][] {
   const uniq = [...new Set(ids)];
   let k = 1;
@@ -513,6 +522,9 @@ type Row = {
   /** Pastille de nature — OP en accent, ED en bleu, comme sur la fiche anime. */
   chip?: { text: string; op: boolean; color?: string } | null;
   thumb?: string | null;
+  /** Grille : un aperçu flou minuscule (data: URL), en fond de tuile le temps
+      que `thumb` arrive (les fonds animés). */
+  placeholder?: string | null;
   /** Vignette carrée (pochette d'un générique) plutôt qu'en paysage. */
   square?: boolean;
   color?: string | null;
@@ -557,7 +569,14 @@ type Section = {
   /** Le cadre de « Mes presets » : toujours gris, et compté à part. */
   calm?: boolean;
   /** L'intitulé se replie : un clic montre ou cache les lignes (Mes presets). */
-  fold?: { open: boolean; toggle: () => void; count: number };
+  fold?: {
+    open: boolean;
+    toggle: () => void;
+    /** Le compte de l'en-tête : un nombre, ou « 3/10 » quand il y a un plafond. */
+    count?: number | string;
+    /** Le crayon de l'en-tête (renommer, supprimer), comme Mes presets. */
+    edit?: { on: boolean; toggle: () => void };
+  };
   /** Le bloc prend toute la hauteur que la colonne laisse (le sélecteur de
       couleur) : le menu est rempli, sans barre de défilement. */
   grow?: boolean;
@@ -588,7 +607,9 @@ type Section = {
 };
 
 /** Ce que la palette montre : un type de fond, ou la musique. */
-type PaletteScope = DressingKind | "music" | "layout" | "frame" | "badges";
+/* `fonds` : un ONGLET du groupe Vidéo, pas une nature de fond — ce qu'il pose
+   est une vidéo (`kind: "video"` + l'URL du fond, lib/profile/fonds.ts). */
+type PaletteScope = DressingKind | "music" | "layout" | "frame" | "avatar" | "badges" | "fonds";
 
 /** Les tris de la grille des cadres. Les quatre premiers gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
@@ -613,23 +634,32 @@ function shuffleKey(asset: string, seed: number): number {
    appareil. Une commodité : sans stockage, on retombe sur Image. */
 const LAST_SCOPE_KEY = "as-studio-scope";
 const SCOPES: PaletteScope[] = [
-  "color", "banner", "image", "wall", "video", "oped", "upload",
-  "music", "layout", "frame", "badges",
+  "color", "banner", "image", "wall", "video", "oped", "fonds", "upload",
+  "music", "layout", "frame", "avatar", "badges",
 ];
 
 /** Le dock regroupe les fonds de même nature : un bouton par groupe, et un
     onglet par fond dans l'en-tête du menu quand le groupe en compte plusieurs.
     Le bouton porte le nom et l'icône du premier. */
-const DOCK_GROUPS: DressingKind[][] = [
+const DOCK_GROUPS: (DressingKind | "fonds")[][] = [
   ["color"],
   /* Le mur d'animés à côté des images : c'est un fond fixe lui aussi, fait
      d'affiches au lieu d'une illustration. */
   ["image", "banner", "wall"],
-  ["video", "oped"],
+  /* Les fonds animés, troisième onglet de Vidéo (23/10/2026, Luc). */
+  ["video", "oped", "fonds"],
   ["upload"],
 ];
 const groupOf = (k: PaletteScope | null) =>
-  DOCK_GROUPS.find((g) => g.includes(k as DressingKind)) ?? null;
+  DOCK_GROUPS.find((g) => g.includes(k as DressingKind | "fonds")) ?? null;
+/** AVATAR ET CADRE, UN SEUL MENU À DEUX ONGLETS (24/10/2026, Luc) : comme
+    Image | Bannière | Mur, mais hors du bloc Fond. */
+const AVATAR_GROUP: PaletteScope[] = ["avatar", "frame"];
+/** Le groupe d'onglets d'un menu : ceux du dock, plus Avatar | Cadre. */
+const tabGroupOf = (k: PaletteScope | null): PaletteScope[] | null =>
+  groupOf(k) ?? (k && AVATAR_GROUP.includes(k) ? AVATAR_GROUP : null);
+/** Le fond porté est-il un fond animé (son onglet, plutôt que Vidéo) ? */
+const isFondUrl = (url: string | null | undefined) => !!url && FONDS.some((f) => f.url === url);
 function readLastScope(): PaletteScope {
   try {
     const v = localStorage.getItem(LAST_SCOPE_KEY) as PaletteScope | null;
@@ -656,14 +686,19 @@ function writeLastScope(s: PaletteScope) {
    enregistré la réponse périmée du navigateur, cf. `?v=` plus bas ; v5 :
    casse normale). À CHANGER, avec le `?v=` d'/api/v2/anisongs, dès que la
    forme ou l'ordre des listes change, sinon l'ancienne revient sept jours. */
-const MUSIC_KEY = "as-music-cache-v8";
-const MUSIC_TTL = 7 * 24 * 3600 * 1000;
+/* v9 + UN JOUR (24/10/2026) : les listes portent les morceaux d'AniPlaylist,
+   relevés chaque jour — sept jours de cache cachaient ceux du jour. */
+const MUSIC_KEY = "as-music-cache-v9";
+const MUSIC_TTL = 24 * 3600 * 1000;
 type MusicStore = Record<string, { t?: ThemeRow[]; c?: Record<string, string | null>; at: number }>;
 function readMusicStore(): MusicStore {
   try {
     const raw = JSON.parse(localStorage.getItem(MUSIC_KEY) || "{}") as MusicStore;
     const now = Date.now();
-    for (const k of Object.keys(raw)) if (!(now - raw[k].at < MUSIC_TTL)) delete raw[k];
+    /* Une liste VIDE gardée par une version d'avant n'est pas relue : cf.
+       `remember` (Cyberpunk: Edgerunners 2, 24/10/2026). */
+    for (const k of Object.keys(raw))
+      if (!(now - raw[k].at < MUSIC_TTL) || (Array.isArray(raw[k].t) && !raw[k].t!.length)) delete raw[k];
     return raw;
   } catch {
     return {};
@@ -755,7 +790,7 @@ const LIGNE_ICON: Record<TailleLigne, typeof PhotoIcon> = {
   2: QueueListIcon,
   3: RectangleStackIcon,
 };
-const FRAME_COLS_MIN = 3;
+const FRAME_COLS_MIN = 1;
 const FRAME_COLS_MAX = 10;
 
 /** L'icône du cadre d'avatar : un portrait dans des coins de cadrage (Material
@@ -797,6 +832,78 @@ const hasVideo = (th: ThemeRow) =>
 const musicCountsSeen: Record<number, number> = {};
 const musicCountsAsked = new Set<number>();
 
+/**
+ * LES ONGLETS D'UN GROUPE (Image | Bannière | Mur, Vidéo | Génériques | Custom).
+ *
+ * À part du studio (23/10/2026) : l'onglet VISÉ — celui où la pastille glisse
+ * dès le clic, pendant que le menu se prépare en transition — était un état du
+ * studio entier, et le poser redessinait tout, liste de ~700 animés comprise,
+ * avant que la pastille ne bouge (50 à 70 ms mesurés au CDP). Ici le clic ne
+ * redessine que ces quelques boutons ; le studio, lui, change de menu en
+ * transition (`onPick`).
+ */
+const ScopeTabs = memo(function ScopeTabs({
+  group,
+  scope,
+  onPick,
+  labels,
+}: {
+  group: PaletteScope[];
+  scope: PaletteScope;
+  onPick: (k: PaletteScope) => void;
+  labels: string[];
+}) {
+  const [vise, setVise] = useState<PaletteScope | null>(null);
+  // Le menu visé est arrivé : la pastille suit de nouveau le vrai menu.
+  useEffect(() => {
+    setVise((v) => (v === scope ? null : v));
+  }, [scope]);
+  const actif = vise ?? scope;
+  return (
+    <div
+      role="tablist"
+      className="relative flex min-w-0 flex-1 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]"
+    >
+      {/* LA PASTILLE GLISSE d'un onglet à l'autre au lieu de sauter. Transition
+          simple, sans condition `prefers-reduced-motion` : ce poste répond
+          `reduce`, et ce n'est qu'un déplacement court. */}
+      <span
+        aria-hidden
+        className="absolute bottom-1 left-1 top-1 rounded-lg bg-white/[0.1] transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
+        style={{
+          width: `calc((100% - 0.5rem - ${(group.length - 1) * 0.25}rem) / ${group.length})`,
+          transform: `translateX(calc(${Math.max(0, group.indexOf(actif as PaletteScope))} * (100% + 0.25rem)))`,
+        }}
+      />
+      {group.map((k, i) => (
+        <button
+          key={k}
+          type="button"
+          role="tab"
+          aria-selected={actif === k}
+          onClick={() => {
+            if (actif === k) return;
+            setVise(k);
+            onPick(k);
+          }}
+          className={`relative min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors duration-300 group ${
+            actif === k ? "text-white" : "text-white/40 hover:text-white/75"
+          }`}
+        >
+          {/* Le libellé actif grossit d'un cheveu en s'allumant. */}
+          <span
+            className={`inline-block transition-transform duration-300 ${
+              actif === k ? "scale-105" : "scale-100"
+            } group-active:scale-95`}
+          >
+            {labels[i]}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+});
+
 export default function BannerStudio({
   open,
   onClose,
@@ -820,7 +927,8 @@ export default function BannerStudio({
   const [cursor, setCursor] = useState(0);
   /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
      contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
-  const [tabVise, setTabVise] = useState<PaletteScope | null>(null);
+  /* L'onglet VISÉ (la pastille qui glisse au clic) vit dans <ScopeTabs> : le
+     tenir ici redessinait tout le studio pour déplacer une pastille. */
   /** Le menu VISÉ depuis la barre du bas : le liseré y va tout de suite. */
   const [barVise, setBarVise] = useState<PaletteScope | null>(null);
   /* LA LIGNE DU CURSEUR NE S'ALLUME QU'AU CLAVIER. Le curseur vaut 0 par
@@ -928,6 +1036,12 @@ export default function BannerStudio({
   const remember = useCallback((id: number, part: { t?: ThemeRow[]; c?: Record<string, string | null> }) => {
     if (part.t) themeCache.current.set(id, part.t);
     if (part.c) coverCache.current.set(id, part.c);
+    /* « AUCUN GÉNÉRIQUE » NE SE GARDE PAS SEPT JOURS (24/10/2026, Luc) :
+       Cyberpunk: Edgerunners 2, ouvert le jour de sa sortie, avant
+       qu'AnimeThemes n'ajoute ses trois thèmes, restait vide une semaine dans
+       ce navigateur. Un vide reste en mémoire pour la session, jamais dans le
+       stockage. */
+    if (part.t && !part.t.length) return;
     const st = store();
     st[id] = { ...st[id], ...part, at: Date.now() };
     if (persistTimer.current) clearTimeout(persistTimer.current);
@@ -968,7 +1082,7 @@ export default function BannerStudio({
     /* `null` = panne ou réponse partielle : la liste s'affiche sans elles,
        mais N'EST PAS gardée — sinon une seule panne (ou un serveur en train de
        recompiler) effaçait ces musiques pour sept jours (18/10/2026). */
-    const extra = fetch(`/api/v2/anisongs/${id}?v=5`)
+    const extra = fetch(`/api/v2/anisongs/${id}?v=6`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => (Array.isArray(json?.songs) && !json.partial ? (json.songs as ThemeRow[]) : null))
       .catch(() => null);
@@ -1062,6 +1176,25 @@ export default function BannerStudio({
       return out;
     });
   }, []);
+  /* Les presets de générique gardés avant le champ `slug` : on charge les
+     génériques de leur anime une fois, et on y écrit le slug trouvé. */
+  useEffect(() => {
+    const missing = presets.video.filter(
+      (p) => p.slug === undefined && !p.v.episode && !p.v.trailerId && p.v.url && p.v.animeId != null,
+    );
+    for (const id of new Set(missing.map((p) => p.v.animeId as number)))
+      loadThemes(id).then((list) =>
+        /* Liste vide = panne possible : on ne fige rien, on retentera. */
+        list.length === 0 ? undefined : savePresets((s) => ({
+          ...s,
+          video: s.video.map((x) =>
+            x.slug === undefined && x.v.animeId === id
+              ? { ...x, slug: list.find((th) => th.videoNc?.url === x.v.url || th.video?.url === x.v.url)?.slug ?? null }
+              : x,
+          ),
+        })),
+      );
+  }, [presets.video, loadThemes, savePresets]);
   /* UN PRESET CLIQUÉ SE MODIFIE (21/10/2026, Luc) : bornes, fondu, lecteur
      d'un épisode, version TV ou complète — tout réglage fait ensuite s'écrit
      dans le preset. Passer à une AUTRE vidéo ou un autre morceau (lien collé,
@@ -1248,9 +1381,18 @@ export default function BannerStudio({
      qui repartait de zéro et ne finissait jamais : l'onglet changeait, le menu
      restait sur l'ancien (« le mur d'animés reste sur les images »). Le temps
      qu'un menu se prépare, les rails ne s'écrivent plus. */
-  const [menuPending, startMenu] = useTransition();
+  /* `startTransition` NU, et non `useTransition` (23/10/2026) : ce dernier
+     passe `isPending` à vrai par un rendu URGENT de tout le studio au moment
+     du clic — 50 à 70 ms où la pastille de l'onglet restait figée, à
+     redessiner les ~700 lignes de la liste qu'on quitte. On ne s'en servait
+     que pour cette ref : elle est tenue à la main, vraie du clic jusqu'au
+     rendu du nouveau menu (effet sur `scope`), avec un filet de 2 s. */
   const menuPendingRef = useRef(false);
-  menuPendingRef.current = menuPending;
+  const startMenu = useCallback((fn: () => void) => {
+    menuPendingRef.current = true;
+    window.setTimeout(() => (menuPendingRef.current = false), 2000);
+    startTransition(fn);
+  }, []);
   /* PENDANT QUE LA CARTE GLISSE (pied du menu ↔ barre, 500 ms), les rails ne
      s'écrivent plus non plus : chaque position rendait tout le studio, et ses
      deux copies de la carte, au milieu de l'animation — elle saccadait
@@ -1386,10 +1528,18 @@ export default function BannerStudio({
      on croyait qu'elle commençait au même endroit. Même chose pour la
      musique. */
   const videoIdentity = `${draft.kind}|${draft.url}|${draft.trailerId}|${draft.animeId}|${draft.episode?.n}|${draft.episode?.server}`;
+  const firstVideo = useRef(true);
   useEffect(() => {
     setVAt(0);
     setVLen(0);
     setVPlaying(false);
+    /* CHOISIR UN FOND, C'EST VOULOIR LE VOIR (24/10/2026, Luc) : une pause
+       gardée du profil (`bg-paused`) figeait chaque fond essayé au studio —
+       « les vidéos ne se jouent pas ». À l'ouverture la pause tient ; un
+       autre fond choisi la lève (le muet, lui, reste). */
+    if (firstVideo.current) firstVideo.current = false;
+    else if (bgPausedRef.current) setBgPaused(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- au changement de vidéo seulement
   }, [videoIdentity]);
   const musicIdentity = `${draft.music?.url}|${draft.music?.videoId}`;
   useEffect(() => {
@@ -1457,7 +1607,7 @@ export default function BannerStudio({
   const vus = useRef(new Map<number, StudioAnime>());
   useEffect(() => {
     const q = query.trim();
-    if ((scope !== "image" && scope !== "banner" && scope !== "music" && scope !== "video") || fold(q).length < 3) {
+    if ((scope !== "image" && scope !== "banner" && scope !== "music" && scope !== "video" && scope !== "avatar") || fold(q).length < 3) {
       setFound([]);
       return;
     }
@@ -1837,7 +1987,7 @@ export default function BannerStudio({
       stableBatches(ids, 100).map((lot) =>
         /* `&v=2` : les comptes incluent les musiques d'AnisongDB (18/10/2026) ;
            sans lui, le navigateur resservait ceux d'avant (une heure). */
-        fetch(`/api/v2/theme-counts?ids=${lot.join(",")}&v=2`)
+        fetch(`/api/v2/theme-counts?ids=${lot.join(",")}&v=3`)
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => {
             const c: Record<number, number> = d?.counts ?? {};
@@ -1904,7 +2054,7 @@ export default function BannerStudio({
     /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
        en-tête porte la même affiche et le même sélecteur de saison, et une
        saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
-    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "badges" || scope === "wall" || !scope) return;
+    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "avatar" || scope === "badges" || scope === "wall" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
@@ -2021,6 +2171,30 @@ export default function BannerStudio({
     };
   }, [open, listedAnimeId, scope]);
 
+  /* LES VIGNETTES DE CUSTOM PARTENT DÈS L'OUVERTURE DU GROUPE VIDÉO, au repos :
+     46 × ~8 Ko. Le temps de cliquer sur l'onglet, elles sont en cache et la
+     grille s'affiche d'un coup au lieu de se remplir tuile par tuile. Une fois
+     par session (PRECHARGEES). */
+  useEffect(() => {
+    if (scope !== "video" && scope !== "oped" && scope !== "fonds") return;
+    const go = () => {
+      for (const f of FONDS) {
+        if (PRECHARGEES.has(f.thumb)) continue;
+        PRECHARGEES.add(f.thumb);
+        const img = new window.Image();
+        img.decoding = "async";
+        img.src = f.thumb;
+      }
+    };
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === "function") {
+      const id = ric(go, { timeout: 1500 });
+      return () => (window as any).cancelIdleCallback?.(id);
+    }
+    const tid = window.setTimeout(go, 300);
+    return () => window.clearTimeout(tid);
+  }, [scope]);
+
   const patch = useCallback(
     (next: Partial<Dressing>) =>
       setDraft((d) => {
@@ -2063,12 +2237,6 @@ export default function BannerStudio({
 
   /** La durée du fondu de l'extrait, en secondes — 0 quand la coupe est franche. */
   const fadeSec = draft.music?.fade ?? 0;
-
-  /** La position d'un clic sur un rail, 0 à 1. */
-  const railAt = (e: React.PointerEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-  };
 
   /**
    * La boucle de l'extrait, tenue à l'image près.
@@ -2141,6 +2309,126 @@ export default function BannerStudio({
   const statsKey = identity.stats?.join("\u0001") ?? "";
 
   /* ── Ce que la palette liste ─────────────────────────────────────────── */
+  /* ── L'ONGLET AVATAR (24/10/2026, Luc) : l'image d'avatar du profil, prise
+     parmi les personnages AniList — tes favoris, ceux d'un anime qu'on déplie
+     (accordéon, comme Image), ou une recherche par nom —, puis cadrée dans
+     l'éditeur en tête du menu. Tout part du navigateur (lib/profile/avatarChoices). */
+  const [avFav, setAvFav] = useState<AvatarChar[] | null>(null);
+  const [avHits, setAvHits] = useState<{ q: string; chars: AvatarChar[] } | null>(null);
+  /** L'anime déplié de l'accordéon, et un compteur qui annonce l'arrivée de ses personnages. */
+  const [avOpen, setAvOpen] = useState<number | null>(null);
+  const [avTick, setAvTick] = useState(0);
+  /** Les nombres de personnages de toute la liste, lus dans notre copie (Turso). */
+  const [avCounts, setAvCounts] = useState<Record<number, number>>({});
+  /** Cases par ligne des grilles de personnages (boutons − / + de l'en-tête). */
+  const [avCols, setAvCols] = useState(4);
+  /** Les sections repliables de l'onglet : favoris et imports. */
+  const [avFavOpen, setAvFavOpen] = useState(true);
+  const [avImpOpen, setAvImpOpen] = useState(true);
+  const [avDefOpen, setAvDefOpen] = useState(true);
+  const [avImpEdit, setAvImpEdit] = useState(false);
+  /* LES IMPORTS (24/10/2026) : réduits dans le navigateur (lib/profile/avatarImport),
+     gardés dans CE navigateur ; celui qu'on porte part avec le profil. */
+  const [avImports, setAvImports] = useState<AvatarImport[]>([]);
+  useEffect(() => setAvImports(readImports()), []);
+  const [avImporting, setAvImporting] = useState(false);
+  const avFile = useRef<HTMLInputElement | null>(null);
+  /* La liste à jour, lue par l'import (une fonction créée une seule fois). */
+  const avImportsRef = useRef(avImports);
+  avImportsRef.current = avImports;
+  const onAvFile = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      setAvImporting(true);
+      try {
+        const url = await fileToAvatar(file);
+        setAvImpOpen(true);
+        /* LA MÊME IMAGE DEUX FOIS (24/10/2026, Luc) : elle n'est pas
+           réimportée — le message le dit, et c'est l'import déjà là qu'on
+           porte, au lieu d'un clic qui ne faisait rien en silence. */
+        if (avImportsRef.current.some((x) => x.url === url)) {
+          notify.error(t("profile.studioAvatarImportDup"));
+        } else {
+          /* Son nom : celui du fichier, sans l'extension (renommable au crayon). */
+          const name = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 40) || undefined;
+          setAvImports((l) => writeImports([{ id: String(Date.now()), url, name }, ...l]));
+        }
+        const known = avImportsRef.current.find((x) => x.url === url);
+        patch({
+          avatar: url,
+          avatarCrop: null,
+          avatarName: known ? known.name ?? null : file.name.replace(/\.[^.]+$/, "").trim().slice(0, 40) || null,
+        });
+      } catch (e) {
+        notify.error(
+          t((e as Error)?.message === "type" ? "profile.studioAvatarImportType" : "profile.studioAvatarImportFail"),
+        );
+      } finally {
+        setAvImporting(false);
+        if (avFile.current) avFile.current.value = "";
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `patch` et `t` sont stables pour ce qu'on en fait
+    [],
+  );
+  const avChars = useCallback((id: number) => {
+    if (animeCharsDone(id)) return;
+    /* Chaque lot arrivé se montre : la grille s'allonge. */
+    void loadAnimeChars(id, () => setAvTick((n) => n + 1));
+  }, []);
+  /* Au survol, après 150 ms : balayer la liste ne doit pas tout demander. */
+  const avSurvol = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avHover = useCallback(
+    (id: number | null) => {
+      if (avSurvol.current) clearTimeout(avSurvol.current);
+      if (id != null) avSurvol.current = setTimeout(() => avChars(id), 150);
+    },
+    [avChars],
+  );
+  /* LES COMPTEURS, COMME CEUX DES ILLUSTRATIONS (24/10/2026, Luc) : lus dans
+     notre copie des personnages (anime_characters), 200 animes par appel, en
+     lots stables pour le cache du bord, un seul rendu à la fin. */
+  useEffect(() => {
+    if (!open || scope !== "avatar") return;
+    /* Les portraits viennent du CDN d'AniList : la connexion (DNS + TLS) s'ouvre
+       dès l'onglet, pas à la première image. */
+    if (!document.querySelector('link[data-as-preconnect="anilist"]')) {
+      const l = document.createElement("link");
+      l.rel = "preconnect";
+      l.href = "https://s4.anilist.co";
+      l.dataset.asPreconnect = "anilist";
+      document.head.appendChild(l);
+    }
+    const ids = [...animes, ...found].map((a) => a.mediaId).filter((id) => !CHAR_DEMANDES.has(id));
+    if (!ids.length) return;
+    for (const id of ids) CHAR_DEMANDES.add(id);
+    void Promise.all(stableBatches(ids, 200).map(loadCharCounts)).then((parts) => {
+      const got = Object.assign({}, ...parts);
+      if (Object.keys(got).length) setAvCounts((c) => ({ ...c, ...got }));
+    });
+  }, [open, scope, animes, found]);
+  useEffect(() => {
+    if (!open || scope !== "avatar" || avFav != null) return;
+    if (identity.anilistName) void loadFavouriteChars(identity.anilistName).then(setAvFav);
+    else setAvFav([]);
+  }, [open, scope, avFav, identity.anilistName]);
+  useEffect(() => {
+    if (scope !== "avatar") return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setAvHits(null);
+      return;
+    }
+    /* Une requête par pause de frappe, pas par lettre. */
+    const id = window.setTimeout(() => void searchChars(q).then((chars) => setAvHits({ q, chars })), 350);
+    return () => window.clearTimeout(id);
+  }, [scope, query]);
+
+  const lastAvatarTab = useRef<"avatar" | "frame">("avatar");
+  useEffect(() => {
+    if (scope === "avatar" || scope === "frame") lastAvatarTab.current = scope;
+  }, [scope]);
+
   const sections: Section[] = useMemo(() => {
     if (!scope) return [];
     const q = query.trim().toLowerCase();
@@ -2157,7 +2445,7 @@ export default function BannerStudio({
     const forgetPreset =
       scope === "music"
         ? () => setActivePreset((a) => ({ ...a, music: null }))
-        : scope === "video" || scope === "oped"
+        : scope === "video" || scope === "oped" || scope === "fonds"
           ? () => setActivePreset((a) => ({ ...a, video: null }))
           : undefined;
     /* UN VRAI MENU, COMME UN ANIMÉ (21/10/2026, Luc) : replié, une ligne à
@@ -2238,7 +2526,6 @@ export default function BannerStudio({
       if (rows.length) out.push(...presetSection(rows));
     }
     if ((scope === "video" || scope === "oped") && presets.video.length) {
-      const cur = videoSnap(draft);
       const rows = presets.video
         .filter((p) => presetTab(p) === scope && match(`${p.name ?? ""} ${p.label ?? ""} ${p.v.title ?? ""}`))
         .map((p): Row => {
@@ -2267,7 +2554,9 @@ export default function BannerStudio({
                 ? { text: "TRL", op: false, color: "#4ade80" }
                 : th
                   ? { text: th.slug.toUpperCase(), op: th.kind === "op" }
-                  : { text: "OP / ED", op: true },
+                  : p.slug
+                    ? { text: p.slug.toUpperCase(), op: /^OP/i.test(p.slug) }
+                    : null,
             hint:
               /* L'anime dessous dès que le titre n'est pas déjà lui —
                  titre d'épisode, de morceau, ou nom donné au preset. */
@@ -2401,9 +2690,9 @@ export default function BannerStudio({
             <span className="relative h-[58%] w-[58%] overflow-hidden rounded-full bg-primary">
               {/* Un <img> nu et non un <Image> Next : la même URL ×688, chargée
                   une fois par le navigateur, sans 688 composants à monter. */}
-              {identity.avatar ? (
+              {draft.avatar || identity.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={identity.avatar} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
+                <img src={draft.avatar || identity.avatar!} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full object-cover" style={cropStyle(draft.avatarCrop)} />
               ) : null}
             </span>
             {/* La case « aucun cadre » n'a plus de croix : l'avatar nu dit déjà
@@ -2474,6 +2763,281 @@ export default function BannerStudio({
        rareté (menu au-dessus de la grille), cherchables par leur nom, et posés au glisser-déposer sur trois
        places — l'ordre dans lequel ils s'alignent à côté du pseudo. Le clic
        reste un raccourci (cf. BadgePicker). */
+    if (scope === "avatar") {
+      /* Changer d'image remet le cadrage à zéro : celui d'un autre portrait
+         ne vaudrait rien pour celui-ci. */
+      /* Le nom suit l'image : la case Avatar du dock l'affiche. */
+      const choose = (url: string | null, name: string | null) => {
+        if ((draft.avatar ?? null) !== url) patch({ avatar: url, avatarCrop: null, avatarName: url ? name : null });
+      };
+      const tile = (url: string | null, label: string, key: string, remove?: () => void, thumb?: string) => {
+        const on = (draft.avatar ?? null) === url;
+        /* La vignette légère (100 px) tant que les cases sont petites ; la
+           grande image à 3 cases ou moins par ligne, où elle se verrait floue. */
+        const src = (thumb && avCols >= 4 ? thumb : url) ?? identity.avatar;
+        return (
+          /* `content-visibility` : One Piece, c'est 811 cases — le navigateur
+             ne met en page et ne peint que celles qui sont à l'écran. */
+          <div key={key} className="group/tile relative [contain-intrinsic-size:auto_120px] [content-visibility:auto]">
+          <button
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={on}
+            onClick={() => choose(url, label)}
+            /* Contours `ring-inset` : la case porte `content-visibility`, qui
+               rogne ce qui dépasse — un anneau extérieur perdait ses coins. */
+            className={`group/av relative flex w-full flex-col items-center gap-1.5 rounded-xl px-1 pb-2 pt-2.5 transition-colors ${
+              on ? "bg-action/20 ring-2 ring-inset ring-action" : "bg-white/[0.04] ring-1 ring-inset ring-white/10 hover:bg-white/[0.08]"
+            }`}
+          >
+            <span className="relative aspect-square w-[78%] overflow-hidden rounded-full bg-primary">
+              {src ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={src}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full object-cover object-[50%_20%] transition-transform duration-300 group-hover/av:scale-[1.06]"
+                />
+              ) : null}
+            </span>
+            {avCols <= 6 ? (
+              <span className="w-full truncate px-0.5 text-center font-karla text-[11px] font-bold text-white/70">{label}</span>
+            ) : null}
+          </button>
+          {remove ? (
+            <button
+              type="button"
+              onClick={remove}
+              title={t("profile.studioAvatarImportRemove")}
+              aria-label={t("profile.studioAvatarImportRemove")}
+              className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/70 text-white/80 opacity-0 ring-1 ring-white/15 transition-opacity hover:text-white focus-visible:opacity-100 group-hover/tile:opacity-100"
+            >
+              <XMarkIcon className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+          </div>
+        );
+      };
+      const grid = (children: ReactNode) => (
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${avCols}, minmax(0, 1fr))` }}>
+          {children}
+        </div>
+      );
+      const charTiles = (list: AvatarChar[]) => grid(list.map((c) => tile(c.image, c.name, `av-${c.id}`, undefined, c.thumb)));
+      const wait = (title: string): Section => ({
+        title,
+        rows: [],
+        node: grid(
+          Array.from({ length: avCols }, (_, i) => (
+            <div key={i} className="aspect-[4/5] animate-pulse rounded-xl bg-white/[0.05]" />
+          )),
+        ),
+      });
+
+      /* (L'éditeur de cadrage est hors de la liste, fixe au-dessus : cf. le
+         rendu du menu, « L'ÉDITEUR RESTE EN PLACE ».) */
+
+      /* Les personnages : trouvés par la recherche, sinon tes favoris. */
+      if (q.length >= 2) {
+        if (!avHits || avHits.q.toLowerCase() !== q) out.push(wait(t("profile.studioAvatarResults")));
+        else if (avHits.chars.length)
+          out.push({ title: t("profile.studioAvatarResults"), rows: [], node: charTiles(avHits.chars) });
+      } else {
+        /* L'avatar du compte, dans sa catégorie. */
+        out.push({
+          title: t("profile.studioAvatarDefault"),
+          rows: [],
+          /* Pas de compte : il n'y en a jamais qu'un (24/10/2026, Luc). */
+          fold: { open: avDefOpen, toggle: () => setAvDefOpen((o) => !o) },
+          node: avDefOpen ? grid(tile(null, t("profile.studioAvatarDefault"), "av-default")) : undefined,
+        });
+        /* Les imports : la première case importe, les suivantes se portent. */
+        const avFull = avImports.length >= MAX_IMPORTS;
+        /* En édition : un champ pour le nom, une croix pour supprimer. */
+        const impEditTile = (im: AvatarImport) => (
+          <div
+            key={`imp-${im.id}`}
+            className="relative flex flex-col items-center gap-1.5 rounded-xl bg-white/[0.04] px-1.5 pb-2 pt-2.5 ring-1 ring-white/10"
+          >
+            <span className="relative aspect-square w-[78%] overflow-hidden rounded-full bg-primary">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={im.url} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-[50%_20%]" />
+            </span>
+            <input
+              value={im.name ?? ""}
+              placeholder={t("profile.studioAvatarImported")}
+              maxLength={40}
+              aria-label={t("profile.studioAvatarImportRename")}
+              onChange={(e) => {
+                const v = e.target.value;
+                setAvImports((l) => writeImports(l.map((x) => (x.id === im.id ? { ...x, name: v || undefined } : x))));
+                if (draft.avatar === im.url) patch({ avatarName: v.trim() || null });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                e.stopPropagation();
+              }}
+              className="w-full min-w-0 rounded-md border border-dashed border-white/25 bg-transparent px-1.5 py-0.5 text-center font-karla text-[11px] font-bold text-white outline-none transition-colors placeholder:text-white/40 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setAvImports((l) => writeImports(l.filter((x) => x.id !== im.id)));
+                if (draft.avatar === im.url) patch({ avatar: null, avatarCrop: null, avatarName: null });
+              }}
+              title={t("profile.studioAvatarImportRemove")}
+              aria-label={t("profile.studioAvatarImportRemove")}
+              className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-red-500/90 text-white shadow ring-1 ring-black/30 transition-colors hover:bg-red-500"
+            >
+              <XMarkIcon className="h-3.5 w-3.5" strokeWidth={2.4} />
+            </button>
+          </div>
+        );
+        const importTile = (
+          <div key="imp-new" className="flex flex-col">
+            <button
+              type="button"
+              onClick={() => avFile.current?.click()}
+              disabled={avImporting || avFull}
+              title={avFull ? t("profile.studioAvatarImportFull", { max: MAX_IMPORTS }) : undefined}
+              className="group/imp flex w-full flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/20 px-1 pb-2 pt-2.5 text-white/55 transition-colors enabled:hover:border-action/70 enabled:hover:bg-action/[0.06] enabled:hover:text-white disabled:opacity-40"
+            >
+              <span className="grid aspect-square w-[78%] place-items-center rounded-full bg-white/[0.04] transition-colors group-hover/imp:bg-action/15">
+                {avImporting ? (
+                  <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-action" />
+                ) : (
+                  <PlusIcon className="h-7 w-7" strokeWidth={1.6} />
+                )}
+              </span>
+              {avCols <= 6 ? (
+                <span className="w-full truncate px-0.5 text-center font-karla text-[11px] font-bold">
+                  {avFull ? t("profile.studioAvatarImportFull", { max: MAX_IMPORTS }) : t("profile.studioAvatarImport")}
+                </span>
+              ) : null}
+            </button>
+          </div>
+        );
+        out.push({
+          title: t("profile.studioAvatarImports"),
+          rows: [],
+          fold: {
+            open: avImpOpen,
+            toggle: () => {
+              /* Replier referme aussi l'édition, comme Mes presets. */
+              setAvImpEdit(false);
+              setAvImpOpen((o) => !o);
+            },
+            count: `${avImports.length}/${MAX_IMPORTS}`,
+            edit: avImports.length ? { on: avImpEdit, toggle: () => setAvImpEdit((e) => !e) } : undefined,
+          },
+          node: avImpOpen ? (
+            <>
+              {grid([
+                importTile,
+                ...avImports.map((im) =>
+                  avImpEdit
+                    ? impEditTile(im)
+                    : tile(im.url, im.name || t("profile.studioAvatarImported"), `imp-${im.id}`),
+                ),
+              ])}
+            </>
+          ) : undefined,
+        });
+        if (avFav == null) out.push(wait(t("profile.studioAvatarFavourites")));
+        else if (avFav.length)
+          out.push({
+            title: t("profile.studioAvatarFavourites"),
+            rows: [],
+            fold: { open: avFavOpen, toggle: () => setAvFavOpen((o) => !o), count: avFav.length },
+            node: avFavOpen ? charTiles(avFav) : undefined,
+          });
+      }
+
+      /* 3. Les animes, en accordéon : ta liste filtrée par la recherche, puis
+         ceux qu'AniList trouve hors d'elle. L'anime ouvert reste, même quand
+         la recherche ne le trouve plus. */
+      const dansListe = new Set(animes.map((a) => a.mediaId));
+      const liste = animes.filter((a) => match(a.title) || a.mediaId === avOpen);
+      const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
+      const ouvertAilleurs =
+        avOpen != null && !dansListe.has(avOpen) && !ailleurs.some((a) => a.mediaId === avOpen)
+          ? vus.current.get(avOpen)
+          : undefined;
+      liste.push(...(ouvertAilleurs ? [ouvertAilleurs] : []), ...ailleurs);
+      const ligne = (a: StudioAnime): Row => {
+        /* Le nombre : celui de notre copie, sinon celui qui monte à chaque lot
+           arrivé d'AniList (survol ou ouverture). */
+        const n = animeCharsDone(a.mediaId)
+          ? animeCharsCached(a.mediaId)?.length
+          : avCounts[a.mediaId] ?? animeCharsCached(a.mediaId)?.length;
+        return {
+          key: `anime-av-${a.mediaId}`,
+          label: a.title,
+          hint:
+            n != null
+              ? t("profile.studioAvatarCount", { count: n })
+              : dansListe.has(a.mediaId)
+                ? null
+                : t("profile.studioNotInList"),
+          thumb: a.cover ?? null,
+          cover: true,
+          dim: n === 0,
+          hover: (on) => avHover(on ? a.mediaId : null),
+          expand: false,
+          run: () => {
+            holdAnchor(`anime-av-${a.mediaId}`);
+            setAvOpen(a.mediaId);
+            avChars(a.mediaId);
+            setCursor(0);
+          },
+        };
+      };
+      const at = avOpen == null ? -1 : liste.findIndex((a) => a.mediaId === avOpen);
+      const gal: Section[] = [];
+      if (avOpen != null) {
+        const list = animeCharsCached(avOpen);
+        gal.push({
+          title: "",
+          rows: [],
+          node: (
+            <AnimeHead
+              anime={liste[at] ?? vus.current.get(avOpen) ?? null}
+              count={list?.length ?? 0}
+              countKey="profile.studioAvatarCount"
+              anchor={`anime-av-${avOpen}`}
+              onClose={() => {
+                holdAnchor(`anime-av-${avOpen}`);
+                setAvOpen(null);
+                setCursor(0);
+              }}
+              t={t}
+            />
+          ),
+        });
+        if (list == null) gal.push(wait(""));
+        else if (list.length) gal.push({ title: "", rows: [], node: charTiles(list) });
+        else
+          gal.push({
+            title: "",
+            rows: [{ key: "no-char", label: t("profile.studioAvatarNoChars"), icon: UserCircleIcon, disabled: true }],
+          });
+        for (const g of gal) g.panel = true;
+      }
+      const titre = t("profile.studioAvatarFromAnimes");
+      if (at < 0) out.push(...gal, { title: titre, rows: liste.map(ligne) });
+      else
+        out.push(
+          { title: titre, rows: liste.slice(0, at).map(ligne), heading: true },
+          ...gal,
+          { title: "", rows: liste.slice(at + 1).map(ligne) },
+        );
+      return out;
+    }
+
     if (scope === "badges") {
       const chosen = (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]);
       const nameOf = (id: string) => t(`badges.${id}.name`);
@@ -3457,6 +4021,49 @@ export default function BannerStudio({
         );
     }
 
+    /* ── LES FONDS ANIMÉS, SON ONGLET (23/10/2026, Luc) ─────────────────────
+       Des boucles prêtes à porter, une grille de tuiles 16/9 par anime (la
+       même que les illustrations : elles se choisissent à l'œil). La recherche
+       passe par l'anime ET le titre. Fichiers sur notre bucket R2
+       (lib/profile/fonds.ts). Ce qu'on choisit est une vidéo comme une autre
+       (`kind: "video"`) : bornes, fondu et volume se règlent au pied. */
+    if (scope === "fonds") {
+      const groupes = fondsParAnime()
+        .map((g) => ({ ...g, fonds: g.fonds.filter((f) => match(`${f.anime} ${f.title}`)) }))
+        .filter((g) => g.fonds.length);
+      for (const g of groupes)
+        out.push({
+          id: `fonds-${g.anime}`,
+          title: g.anime,
+          grid: true,
+          rows: g.fonds.map(
+            (f): Row => ({
+              key: `fond-${f.id}`,
+              /* Pas de `hint` : il s'inscrivait SUR la vignette (24/10/2026,
+                 Luc). Le titre reste en infobulle (`label`) et dans la recherche. */
+              label: f.title,
+              thumb: f.thumb,
+              placeholder: f.lqip,
+              selected: draft.kind === "video" && draft.url === f.url,
+              run: () =>
+                patch({
+                  kind: "video" as const,
+                  url: f.url,
+                  trailerId: null,
+                  episode: null,
+                  videoFrom: null,
+                  videoTo: null,
+                  color: null,
+                  source: null,
+                  animeId: f.anilistId,
+                  title: `${f.anime} — ${f.title}`,
+                }),
+            }),
+          ),
+        });
+      return out;
+    }
+
     if (scope === "oped" || scope === "music") {
       /* Musique : les génériques de l'anime OUVERT, lus dans le cache par son
          id — `themes` garde ceux du précédent jusqu'à l'arrivée des nouveaux,
@@ -3836,6 +4443,7 @@ export default function BannerStudio({
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
+      avFav, avHits, avOpen, avTick, avCounts, avCols, avChars, avHover, avFavOpen, avImpOpen, avDefOpen, avImpEdit, avImports, avImporting, onAvFile,
       entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf, presetEdit]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
@@ -3896,9 +4504,10 @@ export default function BannerStudio({
 
   const flat = useMemo(() => sections.flatMap((s) => s.rows), [sections]);
   useEffect(() => setCursor(0), [scope, query, animeId]);
+  // Le nouveau menu est rendu : les rails peuvent de nouveau s'écrire.
   useEffect(() => {
-    if (tabVise && tabVise === scope) setTabVise(null);
-  }, [tabVise, scope]);
+    menuPendingRef.current = false;
+  }, [scope]);
   useEffect(() => {
     if (barVise && barVise === scope) setBarVise(null);
   }, [barVise, scope]);
@@ -3944,7 +4553,22 @@ export default function BannerStudio({
      posé dessus (musique, ou vidéo depuis le 21/10/2026) appartient à son
      menu. Vidéo et Génériques sont une seule famille, ils partagent la
      carte. */
-  const footGroup = scope === "music" ? "music" : scope === "video" || scope === "oped" ? "video" : null;
+  const footGroup =
+    scope === "music" ? "music" : scope === "video" || scope === "oped" || scope === "fonds" ? "video" : null;
+  /** Le bouton de taille de grille s'affiche sur les onglets qui ont une grille. */
+  const densiteVisible = ["image", "banner", "fonds"].includes(scope ?? "");
+  /* Stable : <ScopeTabs> est mémoïsé, une nouvelle fonction à chaque rendu le
+     redessinerait pour rien. */
+  const pickTab = useCallback(
+    (k: PaletteScope) => {
+      writeLastScope(k);
+      startMenu(() => {
+        setScope(k);
+        setCursor(0);
+      });
+    },
+    [startMenu],
+  );
   useEffect(() => {
     setBarMusic(false);
   }, [footGroup]);
@@ -3999,7 +4623,6 @@ export default function BannerStudio({
      dans le brouillon qu'à partir du moment où on y a touché. */
   const from = draft.music?.from ?? 0;
   const to = draft.music?.to ?? len;
-  const pct = (s: number) => (len ? Math.min(100, Math.max(0, (s / len) * 100)) : 0);
 
   /* ── La source : version TV ou version complète ─────────────────────
      Un générique a deux sources possibles : le rip d'AnimeThemes (90 s, la
@@ -4224,6 +4847,8 @@ export default function BannerStudio({
         ? LayoutIcon
         : scope === "frame"
           ? FrameIcon
+          : scope === "avatar"
+            ? UserCircleIcon
           : scope === "badges"
             ? TrophyIcon
             : KIND_ICON[scope];
@@ -4315,6 +4940,8 @@ export default function BannerStudio({
     (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
     /* Un générique : SA pochette, celle de sa ligne dans la liste. */
     opedCover() ??
+    /* Un fond animé : son image d'aperçu, rangée à côté de la vidéo. */
+    (draft.url ? FONDS.find((f) => f.url === draft.url)?.poster : null) ??
     /* La vignette gardée par un preset de la même vidéo : un preset porté
        sans que l'anime ait été ouvert n'a pas ses épisodes en mémoire, et la
        carte montrait l'affiche (21/10/2026). */
@@ -4351,6 +4978,7 @@ export default function BannerStudio({
                 id,
                 thumb: videoThumb,
                 tab: videoTab,
+                slug: draft.episode || draft.trailerId ? null : (themeOf(draft.url)?.slug ?? null),
                 label: draft.episode
                   ? (draft.animeId != null
                       ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.title
@@ -4390,7 +5018,7 @@ export default function BannerStudio({
     </button>
   );
   const videoBar =
-    (scope === "video" || scope === "oped") && videoDraft ? (
+    (scope === "video" || scope === "oped" || scope === "fonds") && videoDraft ? (
     <div ref={mfSize} className="as-mf flex min-w-0 flex-1 items-center gap-3">
       <button
         type="button"
@@ -4420,13 +5048,20 @@ export default function BannerStudio({
               draft.title ||
               t("profile.artTrailer")}
           </p>
-          <span className="as-mf-chip shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
-            {draft.episode
+          {(() => {
+            /* Jamais « OP / ED » : le slug du générique, ou rien tant qu'il
+               n'est pas connu (23/10/2026, Luc). */
+            const chip = draft.episode
               ? `EP${draft.episode.n}`
               : draft.trailerId
                 ? "TRL"
-                : (themeOf(draft.url)?.slug.toUpperCase() ?? "OP / ED")}
-          </span>
+                : (themeOf(draft.url)?.slug ?? videoSaved?.slug ?? null)?.toUpperCase();
+            return chip ? (
+              <span className="as-mf-chip shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 font-karla text-[10px] font-bold uppercase tracking-[.08em] text-white/45">
+                {chip}
+              </span>
+            ) : null;
+          })()}
           <span className="flex-1" />
           {presetButton(!!videoSaved, toggleVideoPreset)}
         </div>
@@ -4783,7 +5418,7 @@ export default function BannerStudio({
                   ? "flex flex-col bg-[#15161d]"
                   : galerieOuverte
                     ? "max-w-6xl"
-                    : scope === "frame"
+                    : scope === "frame" || scope === "avatar"
                       ? "max-w-5xl"
                       : "max-w-3xl"
               }`}
@@ -4870,6 +5505,8 @@ export default function BannerStudio({
                       placeholder={t(
                         scope === "frame"
                           ? "profile.studioFrameSearch"
+                          : scope === "avatar"
+                            ? "profile.studioAvatarSearch"
                           : scope === "badges"
                             ? "profile.studioBadgesSearch"
                             : "profile.studioSearch",
@@ -4958,6 +5595,32 @@ export default function BannerStudio({
                         </button>
                       </div>
                     ) : null}
+                    {/* La taille des cases de personnages, comme les cadres :
+                        − = plus de cases par ligne, + = plus grandes. */}
+                    {scope === "avatar" ? (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameSmaller")}
+                          aria-label={t("profile.studioFrameSmaller")}
+                          disabled={avCols >= 8}
+                          onClick={() => setAvCols((c) => Math.min(8, c + 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <MinusIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title={t("profile.studioFrameBigger")}
+                          aria-label={t("profile.studioFrameBigger")}
+                          disabled={avCols <= 1}
+                          onClick={() => setAvCols((c) => Math.max(1, c - 1))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-white/[0.06] text-white/70 ring-1 ring-white/10 transition-colors hover:text-white disabled:opacity-30"
+                        >
+                          <PlusIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -4985,74 +5648,41 @@ export default function BannerStudio({
                   sélecteur pleine largeur. Changer d'onglet garde la recherche
                   et l'animé choisi : ses images et ses bannières sont la même
                   galerie. */}
-              {(groupOf(scope)?.length ?? 0) > 1 ? (
+              {(tabGroupOf(scope)?.length ?? 0) > 1 ? (
                 /* `pb-2.5` : un espace fixe entre les onglets et la grille, qui
                    ne part pas au défilement (le padding du défileur, lui, s'en
                    va avec la première rangée). */
                 <div className="flex items-center gap-2 px-2.5 pb-2.5 pt-2.5">
-                  <div
-                    role="tablist"
-                    className="relative flex min-w-0 flex-1 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/[0.06]"
-                  >
-                    {/* LA PASTILLE GLISSE d'un onglet à l'autre au lieu de
-                        sauter. Transition simple, sans condition
-                        `prefers-reduced-motion` : ce poste répond `reduce`, et
-                        ce n'est qu'un déplacement court. */}
-                    <span
-                      aria-hidden
-                      className="absolute bottom-1 left-1 top-1 rounded-lg bg-white/[0.1] transition-transform duration-300 ease-[cubic-bezier(.3,.7,.2,1)]"
-                      style={{
-                        width: `calc((100% - 0.5rem - ${(groupOf(scope)!.length - 1) * 0.25}rem) / ${groupOf(scope)!.length})`,
-                        transform: `translateX(calc(${Math.max(0, groupOf(scope)!.indexOf((tabVise ?? scope) as DressingKind))} * (100% + 0.25rem)))`,
-                      }}
-                    />
-                    {groupOf(scope)!.map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        role="tab"
-                        aria-selected={(tabVise ?? scope) === k}
-                        onClick={() => {
-                          if ((tabVise ?? scope) === k) return;
-                          setTabVise(k);
-                          writeLastScope(k);
-                          startMenu(() => {
-                            setScope(k);
-                            setCursor(0);
-                          });
-                        }}
-                        className={`relative min-w-0 flex-1 truncate rounded-lg py-1.5 font-karla text-[12px] font-bold transition-colors duration-300 group ${
-                          (tabVise ?? scope) === k ? "text-white" : "text-white/40 hover:text-white/75"
-                        }`}
-                      >
-                        {/* Le libellé actif grossit d'un cheveu en s'allumant. */}
-                        <span
-                          className={`inline-block transition-transform duration-300 ${
-                            (tabVise ?? scope) === k ? "scale-105" : "scale-100"
-                          } group-active:scale-95`}
-                        >
-                          {t(`profile.studioKind_${k}`)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {groupOf(scope)?.includes("image") ? (
+                  <ScopeTabs
+                    group={tabGroupOf(scope)!}
+                    scope={scope as PaletteScope}
+                    onPick={pickTab}
+                    labels={tabGroupOf(scope)!.map((k) =>
+                      k === "avatar"
+                        ? t("profile.studioAvatarSection")
+                        : k === "frame"
+                          ? t("profile.studioFrameTab")
+                          : t(`profile.studioKind_${k}`),
+                    )}
+                  />
+                  {groupOf(scope)?.includes("image") || groupOf(scope)?.includes("fonds") ? (
                     /* Trois états en un bouton : 1 → 2 → 3 → 1. L'icône montre
                        la grille affichée MAINTENANT, et tourne en changeant.
-                       Il reste MONTÉ dans tout le groupe et se replie sur le
-                       Mur d'animés, qui n'a pas de grille : il glisse et
-                       s'efface au lieu de disparaître d'un coup (la largeur
-                       et la marge rattrapent l'écart du `gap-2`). */
+                       Il reste MONTÉ dans tout le groupe et se replie sur les
+                       onglets sans grille (Mur d'animés ; Vidéo et Génériques
+                       dans le groupe Vidéo, où seul Custom en a une — 23/10/2026)
+                       : il glisse et s'efface au lieu de disparaître d'un coup
+                       (la largeur et la marge rattrapent l'écart du `gap-2`). */
                     <span
-                      aria-hidden={!((tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner")}
+                      aria-hidden={!densiteVisible}
                       className={`grid shrink-0 place-items-center overflow-hidden transition-[width,margin,opacity,transform] duration-300 ease-[cubic-bezier(.3,.7,.2,1)] ${
-                        (tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner"
+                        densiteVisible
                           ? "ml-0 w-[2.35rem] scale-100 opacity-100"
                           : "pointer-events-none -ml-2 w-0 scale-75 opacity-0"
                       }`}
                     >
                     <button
-                      tabIndex={(tabVise ?? scope) === "image" || (tabVise ?? scope) === "banner" ? 0 : -1}
+                      tabIndex={densiteVisible ? 0 : -1}
                       type="button"
                       onClick={() => {
                         const d = (densite === 3 ? 1 : densite + 1) as Densite;
@@ -5091,6 +5721,28 @@ export default function BannerStudio({
                     </button>
                     </span>
                   ) : null}
+                </div>
+              ) : null}
+
+              {/* L'ÉDITEUR RESTE EN PLACE (24/10/2026, Luc) : le cadrage de
+                  l'avatar au-dessus de la liste, qui défile seule dessous —
+                  on cadre en parcourant les personnages. */}
+              {scope === "avatar" ? (
+                <div className="shrink-0 px-2.5 pb-2.5">
+                  <AvatarCropper
+                    src={draft.avatar || identity.avatar}
+                    name={identity.name}
+                    crop={draft.avatarCrop ?? null}
+                    onCrop={(c) => patch({ avatarCrop: c })}
+                    t={t}
+                  />
+                  <input
+                    ref={avFile}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                    className="hidden"
+                    onChange={(e) => void onAvFile(e.target.files?.[0])}
+                  />
                 </div>
               ) : null}
 
@@ -5153,19 +5805,53 @@ export default function BannerStudio({
                           couleur nomme lui-même ses deux moitiés) : on ne lui en
                           impose pas un second. */}
                       {s.fold ? (
+                        <div className="flex items-center gap-1 pr-2">
                         <button
                           type="button"
                           onClick={s.fold.toggle}
                           aria-expanded={s.fold.open}
-                          className="flex w-full items-center gap-1.5 px-3 pb-1.5 pt-3 text-left font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35 transition-colors hover:text-white/70"
+                          className="flex min-w-0 flex-1 items-center gap-1.5 px-3 pb-1.5 pt-3 text-left font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35 transition-colors hover:text-white/70"
                         >
                           {s.title}
-                          <span className="font-mono tracking-normal text-white/25">{s.fold.count}</span>
+                          {s.fold.count != null ? <span className="font-mono tracking-normal text-white/25">{s.fold.count}</span> : null}
+                        </button>
+                        {/* Le crayon AVANT le chevron (24/10/2026, Luc) : le
+                            chevron reste au bout, à la même place partout. */}
+                        {s.fold.edit && s.fold.open ? (
+                          <button
+                            type="button"
+                            onClick={s.fold.edit.toggle}
+                            aria-pressed={s.fold.edit.on}
+                            title={t(s.fold.edit.on ? "profile.studioPresetEditDone" : "profile.studioPresetEdit")}
+                            className={`mt-1.5 grid h-7 shrink-0 place-items-center rounded-full transition-colors ${
+                              s.fold.edit.on
+                                ? "bg-action px-3 font-karla text-[11px] font-bold text-white hover:bg-action/85"
+                                : "w-7 text-white/50 hover:bg-white/10 hover:text-white"
+                            }`}
+                          >
+                            {s.fold.edit.on ? (
+                              t("profile.studioPresetEditDone")
+                            ) : (
+                              /* Le crayon de Mes presets (Material Symbols). */
+                              <svg viewBox="0 -960 960 960" className="h-4 w-4" fill="currentColor" aria-hidden>
+                                <path d="M200-200h57l391-391-57-57-391 391v57Zm-40 80q-17 0-28.5-11.5T120-160v-97q0-16 6-30.5t17-25.5l505-504q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L313-143q-11 11-25.5 17t-30.5 6h-97Zm600-584-56-56 56 56Zm-141 85-28-29 57 57-29-28Z" />
+                              </svg>
+                            )}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={s.fold.toggle}
+                          aria-expanded={s.fold.open}
+                          aria-label={s.title}
+                          className="mt-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/35 transition-colors hover:text-white/70"
+                        >
                           <ChevronDownIcon
-                            className={`ml-auto h-3.5 w-3.5 transition-transform duration-200 ${s.fold.open ? "" : "-rotate-90"}`}
+                            className={`h-3.5 w-3.5 transition-transform duration-200 ${s.fold.open ? "" : "-rotate-90"}`}
                             strokeWidth={2.4}
                           />
                         </button>
+                        </div>
                       ) : s.title ? (
                         <p className="px-3 pb-1.5 pt-3 font-karla text-[11px] font-bold uppercase tracking-[.12em] text-white/35">
                           {s.title}
@@ -5181,7 +5867,7 @@ export default function BannerStudio({
                           className={`px-1 pb-1 ${
                             s.grow && inColumn
                               ? `flex flex-1 flex-col ${s.fill ? "min-h-0" : ""}`
-                              : scope === "frame"
+                              : scope === "frame" || scope === "avatar"
                                 ? "pt-[3px] [contain-intrinsic-size:auto_240px] [content-visibility:auto]"
                                 : ""
                           }`}
@@ -5242,7 +5928,9 @@ export default function BannerStudio({
                                   ["--i" as string]: Math.min(j % 24, 8),
                                   ...(apercu
                                     ? { backgroundImage: `url("${apercu}")`, backgroundSize: "contain", backgroundPosition: "center", backgroundRepeat: "no-repeat" }
-                                    : {}),
+                                    : row.placeholder
+                                      ? { backgroundImage: `url("${row.placeholder}")`, backgroundSize: "cover", backgroundPosition: "center" }
+                                      : {}),
                                 }}
                                 /* La tuile prend le FORMAT de ce qu'elle
                                    montre : 1000×185 pour une bande — la mesure
@@ -5719,6 +6407,7 @@ export default function BannerStudio({
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}
             showArt
             started={vPlaying}
+            silent={isFondMuet(draft.url)}
             eqKey={videoIdentity}
             clock={() => vAt}
             live={() => vPlaying && (draft.videoVolume ?? 0) > 0}
@@ -5822,7 +6511,10 @@ export default function BannerStudio({
           >
             <SceneBox
               label={t("profile.studioBackground")}
-              active={DRESSING_KINDS.some((k) => k.id === barScope)}
+              /* Par les groupes du dock, pas par DRESSING_KINDS : l'onglet
+                 Custom (« fonds ») n'est pas une sorte de fond et laissait
+                 le bloc éteint (24/10/2026, Luc). */
+              active={groupOf(barScope) != null}
               fit
             >
               {DOCK_GROUPS.map((kinds) => {
@@ -5845,10 +6537,13 @@ export default function BannerStudio({
                         on
                           ? (scope as DressingKind)
                           : draft.kind && kinds.includes(draft.kind)
-                            ? /* Une bande-annonce se choisit dans Génériques. */
+                            ? /* Une bande-annonce se choisit dans Génériques,
+                                 un fond animé dans Fonds. */
                               draft.trailerId && kinds.includes("oped")
                               ? "oped"
-                              : draft.kind
+                              : isFondUrl(draft.url) && kinds.includes("fonds")
+                                ? "fonds"
+                                : draft.kind
                             : id,
                       );
                     }}
@@ -5882,29 +6577,39 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioFrameSection")} active={barScope === "frame"} onOpen={() => openScope("frame")}>
+            {/* Avatar et cadre : un bouton, deux onglets dans le menu. Il rouvre
+                le dernier des deux qu'on a ouvert. */}
+            <SceneBox label={t("profile.studioAvatarSection")} active={barScope === "avatar" || barScope === "frame"} onOpen={() => openScope(lastAvatarTab.current)}>
               <button
                 type="button"
-                onClick={() => openScope("frame")}
+                onClick={() => openScope(lastAvatarTab.current)}
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
-                <FrameIcon className="h-6 w-6 shrink-0 text-white/75" />
-                <span className="truncate font-outfit text-[13.5px] font-bold">
-                  {draft.frame ? t("profile.studioFrameOn") : t("profile.studioFrameNone")}
+                {/* LA VERSION 4 (24/10/2026, Luc) : l'avatar porté, son nom, et
+                    l'état du cadre dessous — comme la pochette et le titre de
+                    MUSIQUE. */}
+                {draft.avatar || identity.avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={draft.avatar || identity.avatar!}
+                    alt=""
+                    className="h-9 w-9 shrink-0 rounded-full object-cover object-[50%_20%]"
+                    style={cropStyle(draft.avatarCrop)}
+                  />
+                ) : (
+                  <UserCircleIcon className="h-9 w-9 shrink-0 text-white/75" strokeWidth={1.4} />
+                )}
+                <span className="flex min-w-0 flex-col leading-[1.15]">
+                  <span className="truncate font-outfit text-[13.5px] font-bold">
+                    {draft.avatar
+                      ? draft.avatarName || t("profile.studioAvatarCustom")
+                      : t("profile.studioAvatarDefault")}
+                  </span>
+                  <span className="truncate font-karla text-[11px] font-medium text-white/50">
+                    {t(draft.frame ? "profile.studioFrameOn" : "profile.studioFrameOff")}
+                  </span>
                 </span>
               </button>
-              {/* Retirer le cadre sans rouvrir sa grille. */}
-              {draft.frame ? (
-                <button
-                  type="button"
-                  onClick={() => patch({ frame: null })}
-                  title={t("profile.studioFrameRemove")}
-                  aria-label={t("profile.studioFrameRemove")}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              ) : null}
             </SceneBox>
 
             <SceneBox label={t("profile.studioKind_badges")} active={barScope === "badges"} onOpen={() => openScope("badges")}>

@@ -126,6 +126,10 @@ export default function CharactersTab({ info }: Props) {
                 <img
                   src={e.node.image.large}
                   alt={e.node.name.full}
+                  /* Tous les personnages depuis anime_characters (One Piece :
+                     819) : seuls ceux qu'on voit se chargent. */
+                  loading="lazy"
+                  decoding="async"
                   style={{
                     width: "100%",
                     height: "100%",
@@ -172,6 +176,10 @@ const cStyles: Record<string, CSSProperties> = {
     gap: 10,
   },
   card: {
+    /* Toute la distribution (One Piece : 819 cartes) : seules celles à l'écran
+       sont mises en page et peintes. */
+    contentVisibility: "auto",
+    containIntrinsicSize: "auto 260px",
     background: "var(--bg-2)",
     border: "1px solid var(--line)",
     borderRadius: 10,

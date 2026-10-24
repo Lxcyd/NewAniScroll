@@ -255,6 +255,12 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       document.documentElement.dataset.sceneSettle = String(
         performance.now() + (scene ? 2 * DURATION + 50 : DURATION + 50),
       );
+      /* Retour au profil = comme un rechargement pour la case musique : elle
+         regrandit une fois (23/10/2026, Luc). */
+      if (!scene) {
+        document.documentElement.dataset.profileEnter = String(performance.now());
+        window.dispatchEvent(new Event("as-profile-enter"));
+      }
     }
     if (scene) {
       if (!fixed) {

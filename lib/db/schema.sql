@@ -54,6 +54,25 @@ CREATE VIRTUAL TABLE IF NOT EXISTS anime_fts USING fts5(
   tokenize='unicode61 remove_diacritics 2'
 );
 
+-- ─────────────────────────────────────────────────────────────────────────
+-- anime_characters — TOUS les personnages d'un anime (24/10/2026). La fiche
+-- (`anime.data`) n'en a que 25, le plafond d'une page AniList. Remplie et
+-- rafraîchie par scripts/cache/refresh-characters.mjs (chaque relevé remplace
+-- la liste entière), lue par lib/db/animeCharacters.ts : onglet Personnages et
+-- menu Avatar du studio. `data` = JSON compact [{i, n, r, f}] (cf. le script).
+-- Une ligne vide avec complete = 0 = « inconnu d'AniList », pas « zéro ».
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS anime_characters (
+  ani_id      INTEGER PRIMARY KEY,           -- AniList id
+  total       INTEGER NOT NULL,              -- tous les personnages
+  with_image  INTEGER NOT NULL,              -- ceux qui ont une vraie image (avatars)
+  complete    INTEGER NOT NULL,              -- 0 si plafonné ou inconnu
+  data        TEXT    NOT NULL,
+  fetched_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL               -- 1 j RELEASING … 14 j FINISHED (±20 %)
+);
+CREATE INDEX IF NOT EXISTS idx_anime_characters_expires ON anime_characters(expires_at);
+
 -- Bootstrap & cron progress markers (so we can resume scrapes mid-run)
 CREATE TABLE IF NOT EXISTS scrape_state (
   key       TEXT PRIMARY KEY,

@@ -92,9 +92,14 @@ const emptyFuzzy = (d?: FuzzyDate | null): FuzzyDate | null =>
  * (fullSyncToAniList). Returns null on any failure (network / GraphQL errors)
  * so callers can bail without clobbering local state.
  */
+/** Ce que le rejeu de la file doit savoir d'une entrée AniList et que la liste
+ *  locale ne garde pas : son id (pour la supprimer) et sa date de modification. */
+type RemoteMeta = { entryId: number; updatedAtMs: number };
+
 async function fetchAniListListMap(
   token: string,
   userName: string,
+  meta?: Map<number, RemoteMeta>,
 ): Promise<Map<number, LocalEntry> | null> {
   const res = await fetch(ENDPOINT, {
     method: "POST",
@@ -106,7 +111,7 @@ async function fetchAniListListMap(
       query: `query ($userName: String) {
         MediaListCollection(userName: $userName, type: ANIME) {
           lists { entries {
-            status score(format: POINT_10_DECIMAL) progress repeat updatedAt
+            id status score(format: POINT_10_DECIMAL) progress repeat updatedAt
             startedAt { year month day } completedAt { year month day } notes
             media { id episodes title { english romaji native userPreferred } coverImage { large } }
           } }
@@ -125,6 +130,10 @@ async function fetchAniListListMap(
     for (const e of list?.entries || []) {
       const mediaId = Number(e?.media?.id);
       if (!Number.isFinite(mediaId)) continue;
+      meta?.set(mediaId, {
+        entryId: Number(e.id) || 0,
+        updatedAtMs: typeof e.updatedAt === "number" && e.updatedAt > 0 ? e.updatedAt * 1000 : 0,
+      });
       byId.set(mediaId, {
         mediaId,
         status: (e.status as Status) ?? null,
@@ -150,6 +159,149 @@ async function fetchAniListListMap(
   return byId;
 }
 
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const LIVE_STATUSES = new Set<string | null>([null, "PLANNING", "PAUSED", "DROPPED"]);
+
+/**
+ * LE REJEU DE LA FILE D'ENVOI, AU RETOUR D'ANILIST (23/10/2026).
+ *
+ * Appelé avec la liste AniList qu'on vient de lire, AVANT que le miroir ne
+ * l'applique localement. Les priorités sont celles de la synchro :
+ *
+ *   - ÉPISODES : une avancée faite sur le site monte dès qu'AniList est
+ *     derrière, même s'il a bougé depuis (c'est ce que fait déjà le miroir avec
+ *     `reconcileEntry` : on ne perd jamais un épisode vu). Le statut qui VA
+ *     AVEC (« En cours » au premier épisode, « Terminé » au dernier) monte avec
+ *     elle, sans jamais rétrograder un « Terminé » d'AniList.
+ *   - LE RESTE (statut choisi à la main, note, dates, notes, listes) : il monte
+ *     seulement si AniList n'a pas été modifié APRÈS le geste. Sinon, c'est
+ *     AniList qui a le dernier mot, et le miroir le redescend.
+ *   - SUPPRESSION : faite seulement si AniList n'a pas été retouché depuis.
+ *   - Les gestes de LISTE ne sont rejoués que synchro allumée (le réglage
+ *     maître, comme pour tout envoi) ; les favoris, eux, comme avant, dès que le
+ *     compte est lié.
+ *
+ * `byId` est mis à jour avec ce qu'AniList a enregistré, pour que le miroir qui
+ * suit reparte du bon état. Rend `false` si AniList refuse encore (la file
+ * reste, on réessaiera).
+ */
+async function flushOutbox(
+  token: string,
+  prefs: SyncPrefs,
+  byId: Map<number, LocalEntry>,
+  meta: Map<number, RemoteMeta>,
+): Promise<boolean> {
+  const outbox = await import("./anilistOutbox");
+  const push = await import("./anilistPush");
+
+  if (prefs.enabled) {
+    for (const op of outbox.pendingOps()) {
+      const remote = byId.get(op.mediaId);
+      const m = meta.get(op.mediaId);
+      const remoteNewer = !!m && m.updatedAtMs > op.at;
+
+      if (op.kind === "delete") {
+        if (!remote || !m?.entryId || remoteNewer) {
+          outbox.clearSent(op.mediaId, "all");
+          continue;
+        }
+        const r = await push.sendDelete(token, m.entryId);
+        if (r.ok) {
+          byId.delete(op.mediaId);
+          meta.delete(op.mediaId);
+          outbox.clearSent(op.mediaId, "all");
+        } else if ((r as any).retryable) return false;
+        else outbox.clearSent(op.mediaId, "all");
+        await pause(700);
+        continue;
+      }
+
+      const f = op.fields;
+      const payload: Parameters<typeof push.sendSave>[1] = { mediaId: op.mediaId };
+      const remoteProgress = remote?.progress ?? 0;
+      const ahead = typeof f.progress === "number" && f.progress > remoteProgress;
+      if (typeof f.progress === "number" && (ahead || !remoteNewer)) payload.progress = f.progress;
+      if (f.status !== undefined) {
+        const wentForward =
+          ahead &&
+          (f.status === "COMPLETED" || (f.status === "CURRENT" && LIVE_STATUSES.has(remote?.status ?? null)));
+        if (!remoteNewer || wentForward) payload.status = f.status;
+      }
+      if (!remoteNewer) {
+        for (const k of [
+          "score",
+          "repeat",
+          "notes",
+          "startedAt",
+          "completedAt",
+          "private",
+          "hiddenFromStatusLists",
+          "customLists",
+        ] as const)
+          if (f[k] !== undefined) (payload as any)[k] = f[k];
+      } else if (payload.status === "COMPLETED" && f.completedAt) {
+        payload.completedAt = f.completedAt;
+      } else if (payload.status === "CURRENT" && f.startedAt && !remote?.startedAt) {
+        payload.startedAt = f.startedAt;
+      }
+      if (Object.keys(payload).length === 1) {
+        // Rien qui l'emporte sur AniList : le geste est caduc.
+        outbox.clearSent(op.mediaId, "all");
+        continue;
+      }
+      const r = await push.sendSave(token, payload);
+      if (r.ok) {
+        outbox.clearSent(op.mediaId, "all");
+        const base = remote ?? local(op.mediaId);
+        if (base)
+          byId.set(op.mediaId, {
+            ...base,
+            ...(payload as any),
+            status: r.saved.status,
+            score: r.saved.score && r.saved.score > 0 ? r.saved.score : null,
+            progress: r.saved.progress,
+          });
+        meta.set(op.mediaId, { entryId: r.saved.id, updatedAtMs: Date.now() });
+      } else if (r.retryable) {
+        return false;
+      } else {
+        outbox.clearSent(op.mediaId, "all");
+      }
+      await pause(700);
+    }
+  }
+
+  const favs = outbox.pendingFavourites();
+  if (favs.length) {
+    const { loadFavourites, toggleFavourite } = await import("@/lib/anilist/favouritesCache");
+    // L'état RÉEL d'AniList (sans les bascules en attente), puis seulement ce qui diffère.
+    const current = await loadFavourites(token, { force: true });
+    if (!current) return false;
+    for (const fav of favs) {
+      if (current.has(fav.mediaId) !== fav.want) {
+        const now = await toggleFavourite(fav.mediaId, token, { queue: false });
+        if (now !== fav.want) return false;
+        await pause(700);
+      }
+      outbox.clearFavourite(fav.mediaId);
+    }
+  }
+  return true;
+}
+
+function local(mediaId: number): LocalEntry | undefined {
+  return getLocalList()[mediaId];
+}
+
+/** Les entrées locales qu'une modification EN ATTENTE protège du miroir. */
+async function pendingIds(): Promise<{ saves: Set<number>; deletes: Set<number> }> {
+  const { pendingOps } = await import("./anilistOutbox");
+  const saves = new Set<number>();
+  const deletes = new Set<number>();
+  for (const op of pendingOps()) (op.kind === "delete" ? deletes : saves).add(op.mediaId);
+  return { saves, deletes };
+}
+
 export async function fullSyncFromAniList(
   { replace = false, merge = false }: { replace?: boolean; merge?: boolean } = {},
 ): Promise<{ ok: boolean; count: number }> {
@@ -160,8 +312,16 @@ export async function fullSyncFromAniList(
   if (!token || !userName) return { ok: false, count: 0 };
 
   try {
-    const byId = await fetchAniListListMap(token, userName);
+    const meta = new Map<number, RemoteMeta>();
+    const byId = await fetchAniListListMap(token, userName, meta);
     if (!byId) return { ok: false, count: 0 };
+    /* AniList répond : on lui renvoie d'abord ce qui attendait (la file), puis
+       le miroir applique le résultat. Un rejeu interrompu (AniList refuse
+       encore) laisse la file, et le miroir ci-dessous la protège. Sur un
+       remplacement voulu (« AniList écrase cet appareil »), rien n'est rejoué :
+       c'est le choix de l'utilisateur. */
+    if (!replace && byId.size) await flushOutbox(token, prefs, byId, meta).catch(() => false);
+    const pending = replace ? { saves: new Set<number>(), deletes: new Set<number>() } : await pendingIds();
     /* ── UNE LISTE VIDE N'EST PAS UNE LISTE, C'EST UNE PANNE ─────────
      *
      * Les deux branches ci-dessous finissent par `importEntries(…, "replace")`,
@@ -217,7 +377,13 @@ export async function fullSyncFromAniList(
      * garde toute entrée locale plus récente (règle `updatedAt` dans
      * `importEntries`), et ne supprime jamais rien. */
     if (merge) {
-      const count = importEntries(Array.from(byId.values()), "merge");
+      // Une modification encore en attente d'envoi n'est pas écrasée par AniList.
+      const count = importEntries(
+        Array.from(byId.values()).filter(
+          (e) => !pending.saves.has(e.mediaId) && !pending.deletes.has(e.mediaId),
+        ),
+        "merge",
+      );
       return { ok: true, count };
     }
 
@@ -236,10 +402,19 @@ export async function fullSyncFromAniList(
     const localNow = getLocalList();
     const resolved: LocalEntry[] = [];
     for (const remote of Array.from(byId.values())) {
+      // Supprimé ici, suppression pas encore envoyée : il reste absent.
+      if (pending.deletes.has(remote.mediaId)) continue;
       const local = localNow[remote.mediaId];
-      resolved.push(local ? reconcileEntry(local, remote) : remote);
+      // Modifié ici, pas encore envoyé : la version locale tient jusqu'au rejeu.
+      if (local && pending.saves.has(remote.mediaId)) resolved.push(local);
+      else resolved.push(local ? reconcileEntry(local, remote) : remote);
     }
-    // NOTE: local-only entries are intentionally NOT carried over — see above.
+    // NOTE: local-only entries are intentionally NOT carried over — see above —
+    // SAUF celles qu'une modification en attente porte (ajoutées pendant une
+    // panne : AniList ne les a pas encore reçues).
+    for (const id of Array.from(pending.saves)) {
+      if (!byId.has(id) && localNow[id]) resolved.push(localNow[id]);
+    }
     const count = importEntries(resolved, "replace");
     return { ok: true, count };
   } catch {

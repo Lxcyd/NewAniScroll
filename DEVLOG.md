@@ -293,5 +293,6 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Comptes, identite & sauvegarde — [`devlog/comptes.md`](devlog/comptes.md)
 
+- 2026-10-23 — **Panne AniList sans perte** : copie durable du compte (profil identique pendant une panne de toute durée), file d'envoi vers AniList rejouée à son retour avec les priorités de la synchro, cache de liste/favoris qui garde la dernière copie ; sauvegarde de la liste allégée du cache d'œuvre (frôlait 1 Mo, figée à 11 titres)
 - 2026-09-02 — « AniList ne synchronise plus » : une réponse 200 vide était écrite par-dessus la liste locale (et le pull tourne à chaque chargement de page)
 - 2026-08-30 — Trois etats d'identite, et l'invite qui n'existe pas en base

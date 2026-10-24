@@ -19,6 +19,11 @@ import {
  * touched; the client compares them (lib/list/cloudSync.ts) and only asks the
  * user to arbitrate when the same category moved on both sides.
  */
+/* Plusieurs catégories partent dans UNE requête (liste, historique, réglages…) :
+   chacune est bornée à MAX_PAYLOAD_BYTES par putData, mais leur somme pouvait
+   dépasser le 1 Mo par défaut de Next, et tout l'envoi tombait en 413. */
+export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const user = await requireUser(req, res);
   if (!user) return;

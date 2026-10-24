@@ -1,6 +1,20 @@
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { frameAnimUrl, frameThumbUrl, frameUrl } from "@/lib/profile/frames";
+import { AVATAR_FOCUS_Y, type AvatarCrop } from "@/lib/profile/dressing";
+
+/** Le style qui cadre une photo dans son rond : le point visé et le zoom, en
+    pourcentages — donc le même cadrage à toute taille d'avatar. */
+export function cropStyle(crop: AvatarCrop | null | undefined): CSSProperties {
+  const x = crop?.x ?? 50;
+  const y = crop?.y ?? AVATAR_FOCUS_Y;
+  const z = (crop?.zoom ?? 100) / 100;
+  return {
+    objectPosition: `${x}% ${y}%`,
+    transform: z !== 1 ? `scale(${z})` : undefined,
+    transformOrigin: `${x}% ${y}%`,
+  };
+}
 
 /**
  * La source animée d'un cadre, dans l'ordre du plus léger au plus lourd :
@@ -138,10 +152,13 @@ export default function FramedAvatar({
   textClass = "text-3xl",
   px = 160,
   priority,
+  crop,
 }: {
   src?: string | null;
   name: string;
   frame?: string | null;
+  /** Le cadrage de la photo (studio, onglet Avatar), ou le cadrage par défaut. */
+  crop?: AvatarCrop | null;
   /** Taille de l'avatar SANS l'anneau, p. ex. « h-24 w-24 md:h-36 md:w-36 ». */
   sizeClass: string;
   textClass?: string;
@@ -171,14 +188,19 @@ export default function FramedAvatar({
           trop grand, puis écrasé, et la photo débordait de l'anneau. */}
       <div className="relative">
         {src ? (
-          <Image
-            src={src}
-            alt={name}
-            width={px}
-            height={px}
-            priority={priority}
-            className={`${sizeClass} rounded-full object-cover`}
-          />
+          /* Le rond rogne : la photo zoomée déborde dedans, pas dehors. */
+          <div className={`${sizeClass} overflow-hidden rounded-full`}>
+            <Image
+              src={src}
+              alt={name}
+              /* Zoomée, la photo doit tenir sa netteté. */
+              width={crop && crop.zoom > 150 ? Math.min(640, px * 2) : px}
+              height={crop && crop.zoom > 150 ? Math.min(640, px * 2) : px}
+              priority={priority}
+              className="h-full w-full object-cover"
+              style={cropStyle(crop)}
+            />
+          </div>
         ) : (
           <div
             className={`${sizeClass} ${textClass} flex items-center justify-center rounded-full bg-primary font-bold text-white/80`}

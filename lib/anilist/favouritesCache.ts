@@ -49,9 +49,14 @@ function announce() {
   window.dispatchEvent(new CustomEvent(FAVOURITES_EVENT));
 }
 
+/* La copie vit dans `localStorage` (23/10/2026), plus `sessionStorage` : elle
+   doit survivre à la fermeture de l'onglet pour servir pendant une panne
+   d'AniList. Le TTL ne dit que quand RE-DEMANDER ; une copie périmée reste
+   servie si AniList ne répond pas. Préfixe `aniscroll.` (point) : hors de la
+   catégorie `prefs` de la sauvegarde du compte. */
 function readSession(): { ids: number[]; ts: number } | null {
   try {
-    const raw = sessionStorage.getItem(SS_KEY);
+    const raw = localStorage.getItem(SS_KEY) ?? sessionStorage.getItem(SS_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed?.ids) ? parsed : null;
@@ -63,7 +68,7 @@ function readSession(): { ids: number[]; ts: number } | null {
 function writeSession(set: Set<number>): void {
   try {
     // Array.from, not spread: the project targets ES5 downlevel.
-    sessionStorage.setItem(SS_KEY, JSON.stringify({ ids: Array.from(set), ts: Date.now() }));
+    localStorage.setItem(SS_KEY, JSON.stringify({ ids: Array.from(set), ts: Date.now() }));
   } catch {
     /* full / disabled — the in-memory Set still works */
   }
@@ -78,43 +83,66 @@ async function anilist(token: string, query: string, variables: Record<string, u
   return res.json();
 }
 
-/** Load (or reuse) the favourites Set. Concurrent callers share one fetch. */
-export function loadFavourites(token: string): Promise<Set<number>> {
-  if (ids && Date.now() - loadedAt < TTL_MS) return Promise.resolve(ids);
-  if (inFlight) return inFlight;
+/** Load (or reuse) the favourites Set. Concurrent callers share one fetch.
+ *  `force` : relit AniList même avec une copie fraîche (rejeu de la file). Rend
+ *  `null` seulement quand `force` est demandé et qu'AniList n'a pas répondu. */
+export function loadFavourites(token: string): Promise<Set<number>>;
+export function loadFavourites(token: string, opts: { force: true }): Promise<Set<number> | null>;
+export function loadFavourites(token: string, opts?: { force?: boolean }): Promise<Set<number> | null> {
+  const force = !!opts?.force;
+  if (!force && ids && Date.now() - loadedAt < TTL_MS) return Promise.resolve(ids);
+  if (inFlight && !force) return inFlight;
 
   const fromSession = readSession();
-  if (fromSession && Date.now() - fromSession.ts < TTL_MS) {
+  if (!force && fromSession && Date.now() - fromSession.ts < TTL_MS) {
     ids = new Set(fromSession.ids);
     loadedAt = fromSession.ts;
     announce();
     return Promise.resolve(ids);
   }
 
-  inFlight = (async () => {
+  const run = (async () => {
     const set = new Set<number>();
+    let ok = false;
     try {
       // Favourites are paginated at 25; a big list is a handful of calls, once.
       for (let page = 1; page <= 20; page++) {
         const json = await anilist(token, LIST_QUERY, { page });
         const block = json?.data?.Viewer?.favourites?.anime;
+        if (!block) throw new Error("anilist");
         for (const n of block?.nodes ?? []) if (n?.id) set.add(Number(n.id));
         if (!block?.pageInfo?.hasNextPage) break;
+      }
+      ok = true;
+      /* Les favoris basculés pendant une panne et pas encore envoyés gardent
+         l'état voulu : sinon le cœur se viderait (ou se remplirait) à la
+         relecture, avant même le rejeu. */
+      /* Pas en `force` : c'est le rejeu, qui a besoin de l'état RÉEL d'AniList
+         pour savoir quoi basculer. */
+      if (!force) {
+        const { pendingFavourites } = await import("@/lib/list/anilistOutbox");
+        for (const f of pendingFavourites()) f.want ? set.add(f.mediaId) : set.delete(f.mediaId);
       }
       ids = set;
       loadedAt = Date.now();
       writeSession(set);
     } catch {
-      // Leave `ids` null so the next mount retries rather than showing every
-      // heart as empty forever.
+      /* AniList muet : la dernière copie connue, même périmée, plutôt que des
+         cœurs tous vides. Sans copie, `ids` reste null et la prochaine
+         ouverture réessaie. */
+      if (!ids && fromSession) {
+        ids = new Set(fromSession.ids);
+        loadedAt = 0; // périmée : on redemandera à la prochaine occasion
+      }
     } finally {
-      inFlight = null;
+      if (!force) inFlight = null;
     }
     announce();
+    if (force) return ok ? set : null;
     return ids ?? set;
   })();
-
-  return inFlight;
+  if (!force) inFlight = run as Promise<Set<number>>;
+  return run;
 }
 
 /** Synchronous read. `false` while the list hasn't loaded yet. */
@@ -126,7 +154,12 @@ export function isFavourite(mediaId: number): boolean {
  * Flip the favourite state. Optimistic: the heart fills immediately and reverts
  * only if AniList rejects the mutation.
  */
-export async function toggleFavourite(mediaId: number, token: string): Promise<boolean> {
+export async function toggleFavourite(
+  mediaId: number,
+  token: string,
+  opts: { queue?: boolean } = {},
+): Promise<boolean> {
+  const queue = opts.queue !== false;
   const set = ids ?? new Set<number>();
   ids = set;
   const next = !set.has(mediaId);
@@ -135,16 +168,33 @@ export async function toggleFavourite(mediaId: number, token: string): Promise<b
   writeSession(set);
   announce();
 
+  const outbox = await import("@/lib/list/anilistOutbox");
+  let status: number | null = null;
+  let json: any = null;
   try {
-    const json = await anilist(token, TOGGLE_MUTATION, { animeId: mediaId });
-    if (json?.errors?.length) throw new Error("rejected");
+    const res = await fetch(ANILIST, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ query: TOGGLE_MUTATION, variables: { animeId: mediaId } }),
+    });
+    status = res.status;
+    json = await res.json().catch(() => null);
+    if (!json?.data?.ToggleFavourite) throw new Error("rejected");
   } catch {
+    /* AniList en panne : le cœur GARDE l'état voulu, rangé dans la file et
+       rejoué à son retour (un état, pas une bascule). Refus définitif, ou
+       rejeu lui-même : on revient en arrière comme avant. */
+    if (queue && outbox.isRetryable(json?.data ? 200 : status, json)) {
+      outbox.queueFavourite(mediaId, next);
+      return next;
+    }
     if (next) set.delete(mediaId);
     else set.add(mediaId);
     writeSession(set);
     announce();
     return !next;
   }
+  outbox.clearFavourite(mediaId);
   return next;
 }
 

@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { themesForAnime, type Theme } from "@/lib/animethemes/themes";
-import { seasonCacheGet, seasonCacheSet } from "@/lib/db/seasonCache";
+import { seasonCacheGet, seasonCacheGetEntry, seasonCacheSet } from "@/lib/db/seasonCache";
 import { resolvedVideoIds } from "@/lib/db/opedYoutube";
 import { THEMES_KEY } from "@/lib/animethemes/themesKey";
 import { COVERS_KEY, type CoversEntry } from "@/lib/animethemes/coversKey";
@@ -94,8 +94,18 @@ export default async function handler(
     return { covers: entry.covers, coversDone: themes.every((t) => tried.has(t.slug)) };
   };
 
+  /* UNE LISTE VIDE N'EST PAS UN FAIT STABLE (24/10/2026, Luc : « les musiques
+     ne chargent pas » sur Cyberpunk: Edgerunners 2). Sorti le 20/10, l'anime
+     avait été demandé avant qu'AnimeThemes n'ajoute ses trois thèmes : le vide
+     restait servi une semaine (le TTL de season_cache). Un vide se redemande
+     donc au bout de 6 h ; une liste pleine garde sa semaine. Même piège que la
+     liste d'épisodes vide de Firefly Wedding (71a928f1). */
+  const EMPTY_TTL = 6 * 3600;
+  const WEEK = 7 * 24 * 3600;
   const cacheKey = THEMES_KEY(anilistId, malId);
-  const cached = await seasonCacheGet<Theme[]>(cacheKey);
+  const entry = await seasonCacheGetEntry<Theme[]>(cacheKey);
+  const cached =
+    entry && entry.ageSeconds <= (entry.value?.length ? WEEK : EMPTY_TTL) ? entry.value : null;
   if (cached) {
     const [out, covers] = await Promise.all([withVideoIds(cached), withCovers(cached)]);
     res.setHeader("Cache-Control", cacheFor(out.resolved));

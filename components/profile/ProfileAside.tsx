@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import FramedAvatar from "./FramedAvatar";
+import type { AvatarCrop } from "@/lib/profile/dressing";
 import FeaturedBadges from "./FeaturedBadges";
 
 import type { HeroStat } from "./ProfileHero";
@@ -31,6 +32,7 @@ export default function ProfileAside({
   stats,
   subtitle,
   frame,
+  avatarCrop,
   avatarScale = 100,
   nameScale = 100,
   badges,
@@ -50,6 +52,8 @@ export default function ProfileAside({
   avatar?: string | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
   frame?: string | null;
+  /** Le cadrage de la photo d'avatar (studio). */
+  avatarCrop?: AvatarCrop | null;
   anilistName?: string | null;
   createdAt?: number | null;
   stats: HeroStat[];
@@ -67,6 +71,7 @@ export default function ProfileAside({
           src={avatar}
           name={name}
           frame={frame}
+          crop={avatarCrop}
           priority
           px={256}
           sizeClass="h-[calc(7rem*var(--as-av,1))] w-[calc(7rem*var(--as-av,1))]"

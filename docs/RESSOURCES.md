@@ -125,7 +125,7 @@ droits, DMCA deja vu) · 🔑 cle / compte requis · 🐢 limite de debit severe
 | [anime-skip](https://anime-skip.com) | Bornes communautaires (GraphQL, 🔑 client id) | ✅ [lib/skip/providers.ts] |
 | [AnisongDB](https://anisongdb.com) | Base AMQ : chaque OP/ED/insert, artistes, liens audio | ✅ [pages/api/v2/theme-covers/[id].ts] — `POST /api/mal_ids_request {mal_ids:[…]}` en 0,2 s, sans cle (liste complete : /openapi.json) ; comble les artistes absents d'AnimeThemes (la moitie de Naruto). Depuis le 18/10/2026 aussi la source des INSERTS du studio [pages/api/v2/anisongs/[id].ts] : filtre strict sur `linked_ids.anilist`, doublages/rediffusions ecartes ; audio = coupe diffusee, servie par naedist.animemusicquiz.com (CORS ouvert) |
 | [AnimeSongs.org](https://www.animesongs.org) | Paroles, credits | ⏳ |
-| [Aniplaylist](https://aniplaylist.com) | Liens Spotify / Apple Music / YouTube des OP/ED | ❌ 18/10/2026 pour les inserts : pas d'API, cle Algolia (`songs_prod`) restreinte par referer ; AnisongDB retenu. Odesli (song.link) : API publique fermee (401 PUBLIC_API_ACCESS_DEPRECATED) |
+| [Aniplaylist](https://aniplaylist.com) | Inserts, OP/ED, liens Spotify / Apple / Deezer / YouTube, extrait Apple 30 s | ✅ 24/10/2026 [scripts/music/aniplaylist-sync.mjs] : pas d'API et cle Algolia restreinte par referer, donc lu dans un Chrome headless comme un visiteur (robots.txt tout autorise), releve quotidien dans `aniplaylist_songs` (workflow sync-aniplaylist), fusionne par /api/v2/anisongs. A les nouveautes des leur sortie (Cyberpunk: Edgerunners 2 : 26 morceaux, AnisongDB 0). La saison d'un morceau est celle de SA sortie, pas du debut de l'anime. Odesli (song.link) : API publique fermee (401 PUBLIC_API_ACCESS_DEPRECATED) |
 | [anison.info](http://anison.info) | Base japonaise exhaustive des anisongs | ⏳ |
 | [VGMdb](https://vgmdb.net) | OST, albums, catalogues | ⏳ (API non officielle vgmdb.info) |
 | [Spotify Web API](https://developer.spotify.com) | Lecture d'extraits, pochettes | ⏳ 🔑 |
@@ -248,7 +248,11 @@ VO+VA dans un meme fichier, chapitres MKV, sous-titres sur `vault-*.fallencdn.to
 | --- | --- | --- |
 | Vercel (Hobby, 2 comptes) | Site prod + dev | ✅ — quotas : voir CLAUDE.md |
 | Cloudflare Workers / KV / DNS | Proxy video `proxy.aniscroll.com`, cache edge | ✅ |
-| Cloudflare R2 | Stockage objets sans frais de sortie (images, cadres, archives) | ⏳ |
+| Cloudflare R2 | Stockage objets sans frais de sortie (images, cadres, archives) | ❌ exige une carte bancaire même en gratuit (24/10/2026) — remplacé par Cloudflare Pages pour les fonds |
+| Cloudflare Pages | Hébergement statique gratuit sans carte, bande passante illimitée, 25 Mio/fichier | ✅ projet `aniscroll-fonds` → `fonds.aniscroll.com` : les fonds animés du studio (24/10/2026) [lib/profile/fonds.ts, scripts/fonds/deploy-pages.mjs] |
+| [anilay.com/store](https://anilay.com/store) | Boutique de fonds vidéo de profil (webm + affiches) ; API publique `api.anilay.com/api/v1/store/items?category=profile` (243 articles) | 🧪 46 boucles reprises dans les fonds animés (23/10/2026) — ⚖️ extraits d'anime et fan-arts |
+| [motionbgs.com](https://motionbgs.com) | ~9 700 fonds animés (« live wallpapers »), tags par anime ; `/dl/4k/<id>` direct, aperçu `media/<id>/<nom>.960x540.mp4` | 🧪 fonds Custom (24/10/2026) — surtout des images fixes animées : trier au score de mouvement — ⚖️ fan-arts |
+| [moewalls.com](https://moewalls.com) | ~5 000 fonds animés anime (catégorie anime, 313 pages) ; aperçu `wp-content/uploads/preview/<année>/<nom>-preview.webm`, téléchargement `go.moewalls.com/download.php?video=<data-url du bouton>` | 🧪 fonds Custom (24/10/2026) — ⚖️ fan-arts et extraits |
 | [Upstash Redis](https://upstash.com) | Cache + etat W2G ; Free 500 K cmd/mois | ✅ — dev et prod PARTAGENT une base (a separer) |
 | [Turso](https://turso.tech) | SQLite distribue : player_map, skips, fanarts, runtimes | ✅ |
 | Postgres (Prisma) | Comptes, donnees utilisateur | ✅ |

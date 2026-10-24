@@ -249,15 +249,48 @@ export default function PlateBackground({
     void import("hls.js").then(({ default: Hls }) => {
       if (dead) return;
       if (Hls.isSupported()) {
+        /* QUALITÉ MAX, ET L'EXTRAIT SEUL (22/10/2026, Luc). L'adaptatif
+           partait du plus bas niveau et n'avait jamais le temps de monter sur
+           une boucle de quelques secondes : le fond restait flou. On force le
+           meilleur niveau, et comme on connaît les bornes, on charge
+           [from, to] d'un coup puis on coupe le téléchargement — la boucle
+           rejoue ce qui est déjà en mémoire. */
+        const { from, to } = bounds.current;
+        const span = to > from ? to - from : 0;
         const h = new Hls({
-          /* Un fond n'a pas besoin de plus que sa taille à l'écran. */
-          capLevelToPlayerSize: true,
-          startPosition: bounds.current.from || -1,
-          /* Un fond tourne sur un extrait : vingt secondes d'avance suffisent,
-             inutile de télécharger l'épisode entier pendant qu'on lit la page. */
-          maxBufferLength: 20,
-          maxMaxBufferLength: 30,
+          startPosition: from || -1,
+          maxBufferLength: span ? span + 5 : 20,
+          maxMaxBufferLength: span ? span + 10 : 30,
+          backBufferLength: Infinity,
           startFragPrefetch: true,
+        });
+        /* Les niveaux sont triés par débit croissant : le dernier est le meilleur. */
+        h.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (h.levels.length) h.loadLevel = h.levels.length - 1;
+        });
+        let stopped = false;
+        h.on(Hls.Events.FRAG_BUFFERED, (_e, { frag }) => {
+          const end = bounds.current.to;
+          if (frag.type === "main" && end > bounds.current.from && frag.start + frag.duration >= end + 1) {
+            h.stopLoad();
+            stopped = true;
+          }
+        });
+        /* Une borne déplacée au studio, ou un saut hors de ce qu'on a gardé :
+           le téléchargement reprend là où on est. */
+        const resume = () => {
+          if (!stopped) return;
+          const t = el.currentTime;
+          const b = el.buffered;
+          for (let i = 0; i < b.length; i++) if (t >= b.start(i) && t < b.end(i) - 0.5) return;
+          stopped = false;
+          h.startLoad(t);
+        };
+        el.addEventListener("seeking", resume);
+        el.addEventListener("waiting", resume);
+        h.on(Hls.Events.DESTROYING, () => {
+          el.removeEventListener("seeking", resume);
+          el.removeEventListener("waiting", resume);
         });
         h.loadSource(ep.url);
         h.attachMedia(el);

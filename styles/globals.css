@@ -3323,6 +3323,120 @@ html.as-scene-leave .as-navbar {
    la ligne de boutons elle-même : c'est sa largeur qui manque, pas celle de
    la carte (la vignette en prend une part variable). Doublée pour passer
    devant les tailles de `.as-widget-btn` posées par les requêtes `widget`. */
+/* « REPRENDRE LA LECTURE » : L'ENTRÉE (23/10/2026, Luc).
+   L'image se pose la première — elle part un peu zoomée, floue et transparente,
+   et se règle en 0,7 s sur une courbe qui freine fort à la fin (on la voit
+   « atterrir »). Le titre, la ligne d'épisode et les boutons montent ensuite de
+   10 px, chacun 70 ms après le précédent (`animation-delay` posé dans
+   DeviceBlocks.tsx). Tout en `transform`/`opacity`/`filter` : le compositeur,
+   jamais la mise en page.
+   Au survol, l'image avance lentement : la carte « respire » sous la main.
+   MOINS D'ANIMATIONS : un simple fondu, sans mouvement ni flou. Pas de
+   suppression totale — chez Luc, Chrome demande `reduce` (cf. mémoire du poste),
+   et l'entrée disparaîtrait sans qu'il l'ait choisi. */
+@keyframes as-resume-art-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes as-resume-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes as-resume-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.as-resume-in .as-resume-art {
+  animation: as-resume-art-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.as-resume-in .as-resume-line {
+  animation: as-resume-line-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.as-resume-img {
+  transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.group:hover .as-resume-img {
+  transform: scale(1.045);
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-resume-in .as-resume-art,
+  .as-resume-in .as-resume-line {
+    animation-name: as-resume-fade;
+  }
+  .group:hover .as-resume-img {
+    transform: none;
+  }
+}
+/* CÔTE À CÔTE, LE TEXTE SUIT LA HAUTEUR DU BLOC (23/10/2026, Luc).
+   Les paliers communs (`min-height: 300px` plus haut) laissaient un 4×2 de
+   ~290 px de contenu avec le titre et les pilules de la plus petite taille, à
+   côté d'une vignette de toute la hauteur. Ici tout est en `cqh` du conteneur
+   `widget`, borné : rien ne change en 2×1, tout grandit avec la vignette.
+   Spécificité 0,3,0 au plus : la réduction des pilules sur une ligne étroite
+   (`.as-resume-actions .as-widget-btn.as-widget-btn`, 0,3,0, plus bas) garde
+   le dernier mot. Pas en 2×2 empilé : le texte y vit sous l'image. */
+/* Deuxième passe, « vraiment plus gros » (Luc) : un 4×2 (~300 px de contenu)
+   donne un titre de ~45 px, des pilules de ~57 px et un bouton de lecture de
+   ~90 px ; un 2×1 ne bouge presque pas (les planchers tiennent). */
+.as-resume-in:not(.as-resume-stacked) .as-widget-lead {
+  font-size: clamp(1.125rem, 15cqh, 3.5rem);
+  line-height: 1.1;
+}
+.as-resume-in:not(.as-resume-stacked) .as-widget-sub {
+  font-size: clamp(0.8125rem, 6.5cqh, 1.375rem);
+  margin-top: clamp(0.375rem, 3cqh, 1rem);
+}
+.as-resume-in:not(.as-resume-stacked) .as-resume-actions {
+  margin-top: clamp(0.75rem, 7cqh, 2rem);
+  gap: clamp(0.375rem, 3.5cqh, 1rem);
+}
+.as-resume-in:not(.as-resume-stacked) .as-widget-btn {
+  height: clamp(2.25rem, 19cqh, 4rem);
+  /* 7cqh et pas plus : avec la vignette en vrai 16/9, la colonne de texte d'un
+     4×2 tombe à ~350 px, et les deux pilules doivent y tenir côte à côte. */
+  padding-inline: clamp(1rem, 7cqh, 1.75rem);
+  font-size: clamp(0.75rem, 6.2cqh, 1.3rem);
+  gap: clamp(0.375rem, 2.5cqh, 0.75rem);
+}
+.as-resume-in:not(.as-resume-stacked) .as-widget-btn svg {
+  width: clamp(0.875rem, 7cqh, 1.6rem);
+  height: clamp(0.875rem, 7cqh, 1.6rem);
+}
+.as-resume-in:not(.as-resume-stacked) .as-widget-play {
+  width: clamp(2.75rem, 30cqh, 6.5rem);
+  height: clamp(2.75rem, 30cqh, 6.5rem);
+}
+.as-resume-in:not(.as-resume-stacked) .as-widget-play svg {
+  width: 45%;
+  height: 45%;
+}
+
+/* Disposition empilée (2×2) trop basse : l'image garde sa place, la ligne
+   d'épisode s'efface avant que le titre ou les boutons ne soient coupés. */
+@container widget (max-height: 230px) {
+  .as-resume-stacked .as-resume-sub {
+    display: none;
+  }
+}
+
 .as-resume-actions {
   container-type: inline-size;
 }

@@ -45,9 +45,13 @@ function entriesToMap(entries: UserListEntry[]): ListMap {
   return m;
 }
 
+/* `localStorage` depuis le 23/10/2026 (et non plus `sessionStorage`) : la copie
+   doit survivre à la fermeture de l'onglet pour servir pendant une panne
+   d'AniList. Le TTL ne dit que quand redemander. Préfixe `aniscroll.` (point) :
+   hors de la catégorie `prefs` de la sauvegarde du compte. */
 function readSession(userName: string): { map: ListMap; ts: number } | null {
   try {
-    const raw = sessionStorage.getItem(SS_KEY(userName));
+    const raw = localStorage.getItem(SS_KEY(userName)) ?? sessionStorage.getItem(SS_KEY(userName));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.entries)) return null;
@@ -59,7 +63,7 @@ function readSession(userName: string): { map: ListMap; ts: number } | null {
 
 function writeSession(userName: string, entries: UserListEntry[]): void {
   try {
-    sessionStorage.setItem(SS_KEY(userName), JSON.stringify({ entries, ts: Date.now() }));
+    localStorage.setItem(SS_KEY(userName), JSON.stringify({ entries, ts: Date.now() }));
   } catch {
     /* sessionStorage full / disabled — in-memory cache still works */
   }
@@ -125,6 +129,47 @@ function parseCollection(json: any): UserListEntry[] {
 }
 
 /**
+ * AniList ne répond pas : la DERNIÈRE liste connue, même périmée, plutôt qu'une
+ * liste vide (23/10/2026). Une liste vide faisait afficher « Ajouter à la liste »
+ * sur chaque fiche pendant toute la panne. À défaut de copie, le miroir local
+ * (lib/list/localList), qui suit AniList quand la synchro est allumée.
+ */
+function lastKnown(userName: string): ListMap {
+  const mem = memCache.get(userName);
+  if (mem) return mem.map;
+  const ss = readSession(userName);
+  if (ss) {
+    // ts conservé : périmée, elle sera redemandée au prochain appel.
+    memCache.set(userName, ss);
+    return ss.map;
+  }
+  const map: ListMap = new Map();
+  try {
+    const local = JSON.parse(localStorage.getItem("aniscroll:localList") || "{}");
+    for (const e of Object.values(local) as any[]) {
+      if (!Number.isFinite(e?.mediaId)) continue;
+      map.set(e.mediaId, {
+        id: 0,
+        mediaId: e.mediaId,
+        status: e.status ?? null,
+        score: typeof e.score === "number" ? e.score : null,
+        progress: Number(e.progress) || 0,
+        repeat: Number(e.repeat) || 0,
+        private: false,
+        hiddenFromStatusLists: false,
+        notes: e.notes ?? null,
+        startedAt: e.startedAt ?? null,
+        completedAt: e.completedAt ?? null,
+        customLists: [],
+      });
+    }
+  } catch {
+    /* rien de lisible : liste vide, comme avant */
+  }
+  return map;
+}
+
+/**
  * Resolve the user's list map, using cache when fresh. `force` bypasses the
  * cache (used after a mutation to refresh). Never throws — returns an empty
  * map on failure so callers degrade to "nothing in list".
@@ -159,15 +204,19 @@ export async function getUserList(
         },
         body: JSON.stringify({ query: LIST_QUERY, variables: { userName } }),
       });
-      if (!res.ok) return memCache.get(userName)?.map || new Map();
+      if (!res.ok) return lastKnown(userName);
       const json = await res.json();
+      /* Un 200 sans collection (erreur GraphQL, AniList qui vacille) n'est pas
+         une liste vide : l'écrire effaçait la copie et annonçait « pas dans la
+         liste » partout. */
+      if (!json?.data?.MediaListCollection) return lastKnown(userName);
       const entries = parseCollection(json);
       const map = entriesToMap(entries);
       memCache.set(userName, { map, ts: Date.now() });
       writeSession(userName, entries);
       return map;
     } catch {
-      return memCache.get(userName)?.map || new Map();
+      return lastKnown(userName);
     } finally {
       inflight.delete(userName);
     }
@@ -233,6 +282,7 @@ export function clearUserList(userName: string): void {
   memCache.delete(userName);
   inflight.delete(userName);
   try {
+    localStorage.removeItem(SS_KEY(userName));
     sessionStorage.removeItem(SS_KEY(userName));
   } catch {}
 }

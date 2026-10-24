@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchByMal, malIdsOf, pickSongs, songSlug } from "@/lib/music/anisongdb";
+import { aplSongsOf } from "@/lib/db/aniplaylistSongs";
+import { sameTitle, titleKey } from "@/lib/music/titleKey";
 
 /**
  * Le nombre de génériques de plusieurs animés d'un coup — la ligne de chaque
@@ -62,19 +64,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
     let complete = true;
+    /* Les titres déjà comptés (AnisongDB), pour ne pas compter deux fois un
+       morceau qu'AniPlaylist a aussi. */
+    const titles = new Map<number, Set<string>>();
     try {
       const mal = await malIdsOf(ids);
       const raw = await fetchByMal([...new Set(mal.values())]);
       for (const id of mal.keys()) {
         const have = slugs.get(id) ?? new Set<string>();
+        const seen = new Set<string>();
         for (const s of pickSongs(id, raw)) {
+          seen.add(titleKey(s.songName));
           const slug = songSlug(s);
           if (slug === null || (slug && !have.has(slug))) counts[id]++;
         }
+        titles.set(id, seen);
       }
     } catch (e: any) {
       console.warn("[theme-counts] anisongdb", e?.message);
       complete = false;
+    }
+    /* AniPlaylist (24/10/2026) — la même règle que /api/v2/anisongs : un
+       morceau dont le titre est déjà là n'est pas recompté. Faute des titres
+       d'AnimeThemes ici, ses OP/ED ne comptent qu'au-delà du nombre d'OP/ED
+       qu'AnimeThemes a déjà. */
+    const apl = await aplSongsOf(ids);
+    for (const [id, list] of apl) {
+      const seen = titles.get(id) ?? new Set<string>();
+      const fresh = list.filter((x) => {
+        const k = titleKey(x.t);
+        return ![...seen].some((y) => sameTitle(k, y));
+      });
+      const at = slugs.get(id) ?? new Set<string>();
+      for (const k of ["op", "ed"] as const) {
+        const theirs = fresh.filter((x) => x.k === k).length;
+        const ours = [...at].filter((s) => s.startsWith(k.toUpperCase())).length;
+        counts[id] += Math.max(0, theirs - ours);
+      }
+      counts[id] += fresh.filter((x) => x.k === "ins").length;
     }
     res.setHeader(
       "Cache-Control",

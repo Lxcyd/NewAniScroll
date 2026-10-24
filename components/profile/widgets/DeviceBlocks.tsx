@@ -215,8 +215,11 @@ export function ResumeBlock({
      lib/profile/blocks.ts). Allumée par défaut. */
   ambient = true,
   totals,
+  stacked = false,
 }: ActivityProps & {
   ambient?: boolean;
+  /** Bloc en 2×2 ou 3×2 : l'image en haut, le texte dessous. Sinon, côte à côte. */
+  stacked?: boolean;
   /** Nombre d'épisodes par `mediaId`, tiré de la liste — `null` si inconnu. */
   totals?: Map<number, number | null>;
 } = {}) {
@@ -277,13 +280,33 @@ export function ResumeBlock({
   const href = row.href;
 
   /* LE BLOC TIENT DE 1×2 À 2×4 (hauteur × largeur, cf. lib/profile/blocks.ts),
-     donc rien ici n'est en pixels fixes. La vignette tire sa largeur de la
-     hauteur offerte (16/9), plafonnée pour ne pas manger la colonne de texte ;
-     le titre va jusqu'à TROIS lignes au lieu d'être coupé — dans la plus petite
-     taille c'est le cas courant, et un titre tronqué n'est pas reconnaissable. */
+     donc rien ici n'est en pixels fixes.
+     — Côte à côte (toutes les tailles sauf 2×2) : la vignette tire sa largeur
+       de la hauteur offerte (16/9), plafonnée pour ne pas manger la colonne de
+       texte ; le titre va jusqu'à TROIS lignes — dans la plus petite taille
+       c'est le cas courant, et un titre tronqué n'est pas reconnaissable.
+     — Empilé (2×2, 23/10/2026, Luc) : l'image en pleine largeur prend toute la
+       hauteur que le texte laisse (`flex-1 min-h-0`), le texte dessous.
+     L'ENTRÉE (`as-resume-in`, globals.css) : l'image se pose en dézoomant, le
+     texte monte ensuite, ligne par ligne. La `key` la rejoue quand l'épisode
+     proposé change ET quand le bloc change de disposition — c'est la transition
+     d'une forme à l'autre au redimensionnement. */
   return (
-    <div className="flex h-full min-w-0 items-center gap-4">
-      <div className="relative aspect-video h-full w-auto max-w-[48%] shrink-0">
+    <div
+      key={`${row.aniId}-${row.episode}-${stacked ? "s" : "r"}`}
+      className={`as-resume-in flex h-full min-w-0 ${
+        stacked ? "as-resume-stacked flex-col gap-3" : "items-center gap-4"
+      }`}
+    >
+      <div
+        className={`as-resume-art relative ${
+          /* 60 % et non plus 48 % : en 4×2 le plafond rognait la vignette en
+             presque-carré (420×290) alors que la place permettait un vrai
+             16/9 (~515×290). Les tailles d'une rangée n'atteignent jamais ce
+             plafond. */
+          stacked ? "min-h-0 w-full flex-1" : "aspect-video h-full w-auto max-w-[60%] shrink-0"
+        }`}
+      >
         {/* LA LUMIÈRE D'AMBIANCE.
             Même principe que le lecteur et que la carte de survol (cf.
             TrailerAmbient) : des copies concentriques de la vignette, chacune
@@ -324,7 +347,7 @@ export function ResumeBlock({
                 {/* Même src et même `sizes` que la vignette : c'est la même URL
                     optimisée, donc le cache du navigateur, pas un téléchargement
                     de plus par calque. */}
-                <Image src={art} alt="" fill sizes="320px" className="object-cover" />
+                <Image src={art} alt="" fill sizes={stacked ? "640px" : "320px"} className="object-cover" />
               </div>
             ))}
           </div>
@@ -334,7 +357,13 @@ export function ResumeBlock({
           href={href}
           className="group absolute inset-0 overflow-hidden rounded-2xl bg-as-card"
         >
-          {art ? <Image src={art} alt="" fill sizes="320px" className="object-cover" /> : null}
+          {/* Pleine largeur du bloc désormais : 640 px, pas 320, ou l'image
+              arrive floue sur un bloc de 4 de large. Au survol, elle avance
+              doucement (`as-resume-img`). */}
+          {art ? (
+            <Image src={art} alt="" fill sizes={stacked ? "640px" : "320px"} className="as-resume-img object-cover" />
+          ) : null}
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/45 to-transparent" />
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="as-widget-play flex h-11 w-11 items-center justify-center rounded-full bg-action shadow-glow transition-transform duration-200 group-hover:scale-110">
               {/* LE TRIANGLE DU LECTEUR, au trait près : celui du bouton de
@@ -360,13 +389,24 @@ export function ResumeBlock({
       {/* `relative z-10` : le halo est en position absolue, et un élément
           positionné se peint PAR-DESSUS le contenu non positionné qui le suit.
           Sans ça la lueur voilait le titre et les boutons. */}
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center">
-        <Link href={href} className="min-w-0">
-          <h3 className="as-widget-lead line-clamp-3 font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action">
+      <div
+        className={`relative z-10 flex min-w-0 flex-col ${stacked ? "shrink-0" : "flex-1 justify-center"}`}
+      >
+        <Link href={href} className="as-resume-line min-w-0" style={{ animationDelay: "120ms" }}>
+          <h3
+            className={`as-widget-lead font-outfit text-lg font-bold leading-snug text-white transition-colors hover:text-action ${
+              stacked ? "line-clamp-2" : "line-clamp-3"
+            }`}
+          >
             {rowTitle(row, remoteTitle)}
           </h3>
         </Link>
-        <p className="as-widget-sub mt-1.5 line-clamp-1 font-karla text-[13px] text-white/50">
+        <p
+          className={`as-resume-line as-resume-sub as-widget-sub line-clamp-1 font-karla text-[13px] text-white/50 ${
+            stacked ? "mt-1" : "mt-1.5"
+          }`}
+          style={{ animationDelay: "190ms" }}
+        >
           {season != null
             ? t("profile.blocks.resume.seasonEp", { season, episode: row.episode })
             : t("profile.blocks.resume.ep", { episode: row.episode })}
@@ -389,7 +429,12 @@ export function ResumeBlock({
             (hauteur fixe, `overflow-hidden`) le coupait à moitié (15/10/2026).
             Trop étroite, les deux pilules rapetissent, libellés gardés —
             `.as-resume-actions`, une requête sur la largeur de cette ligne. */}
-        <div className="as-resume-actions mt-3 flex flex-nowrap items-center gap-1.5">
+        <div
+          className={`as-resume-line as-resume-actions flex flex-nowrap items-center gap-1.5 ${
+            stacked ? "mt-2.5" : "mt-3"
+          }`}
+          style={{ animationDelay: "260ms" }}
+        >
           <Link
             href={href}
             className="as-widget-btn inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-action px-4 font-outfit text-xs font-bold leading-none tracking-wide text-white shadow-glow outline-none transition-transform hover:scale-105 focus:outline-none focus-visible:outline-none"

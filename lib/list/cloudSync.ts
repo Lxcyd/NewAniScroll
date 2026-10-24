@@ -110,6 +110,10 @@ const PREFS_EXCLUDED = new Set<string>([
      sans rien préserver. */
   "aniscroll:badgeVocab",
   "aniscroll:badgeMetaDone",
+  /* La file d'envoi vers AniList est propre à l'appareil : recopiée sur un
+     autre, elle y serait rejouée une seconde fois, potentiellement après que
+     celui-ci l'a déjà vidée (lib/list/anilistOutbox.ts). */
+  "aniscroll:anilistOutbox",
 ]);
 
 function isPrefsKey(key: string): boolean {
@@ -133,13 +137,61 @@ function keysFor(kind: DataKind): string[] {
   return kind === "prefs" ? prefsKeys() : KEYS[kind] ?? [];
 }
 
+/**
+ * LA LISTE PART SANS SON CACHE D'ŒUVRE (23/10/2026).
+ *
+ * Le rattrapage des badges (lib/badges/metaBackfill.ts) range dans chaque entrée
+ * les tags, les relations et la popularité de l'anime : ~600 octets sur ~1,1 Ko
+ * par entrée. Pour une liste AniList de 686 titres, la catégorie frôlait le
+ * plafond d'1 Mo (MAX_PAYLOAD_BYTES) — refusée, la sauvegarde du compte restait
+ * figée sur une vieille liste de 11 titres, celle que le profil sert quand
+ * AniList tombe. Ce sont des données d'œuvre, que l'appareil retrouve tout seul :
+ * on ne les envoie pas, et on garde celles de l'appareil à la réception.
+ */
+const LIST_KEY = "aniscroll:localList";
+const LIST_CACHE_FIELDS = ["tags", "relIds", "popularity"] as const;
+
+function slimList(raw: string): string {
+  try {
+    const map = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+    const out: Record<string, Record<string, unknown>> = {};
+    for (const [id, e] of Object.entries(map)) {
+      const copy = { ...e };
+      for (const f of LIST_CACHE_FIELDS) delete copy[f];
+      out[id] = copy;
+    }
+    return JSON.stringify(out);
+  } catch {
+    return raw;
+  }
+}
+
+/** La liste reçue, avec le cache d'œuvre que CET appareil avait déjà. */
+function withLocalCache(incoming: string): string {
+  try {
+    const local = JSON.parse(localStorage.getItem(LIST_KEY) || "{}") as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const map = JSON.parse(incoming) as Record<string, Record<string, unknown>>;
+    for (const [id, e] of Object.entries(map)) {
+      const before = local[id];
+      if (!before) continue;
+      for (const f of LIST_CACHE_FIELDS) if (e[f] === undefined && before[f] !== undefined) e[f] = before[f];
+    }
+    return JSON.stringify(map);
+  } catch {
+    return incoming;
+  }
+}
+
 /** A category's payload is the raw strings, keyed by storage key. */
 function readKind(kind: DataKind): Record<string, string> | null {
   const keys = keysFor(kind);
   const payload: Record<string, string> = {};
   for (const key of keys) {
     const value = localStorage.getItem(key);
-    if (value != null) payload[key] = value;
+    if (value != null) payload[key] = key === LIST_KEY ? slimList(value) : value;
   }
   return Object.keys(payload).length ? payload : null;
 }
@@ -149,7 +201,7 @@ function writeKind(payload: unknown): void {
   for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
     if (typeof value !== "string") continue;
     try {
-      localStorage.setItem(key, value);
+      localStorage.setItem(key, key === LIST_KEY ? withLocalCache(value) : value);
     } catch {
       /* quota — best effort */
     }
@@ -280,13 +332,29 @@ export async function pushKinds(kinds: DataKind[]): Promise<void> {
   }
   if (!Object.keys(entries).length) return;
 
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entries }),
-  });
-  if (!res.ok) return;
-  const { revs } = (await res.json()) as { revs: Record<string, number> };
+  /* Réseau coupé : `fetch` REJETTE, et `flush` appelle sans attendre (`void`) —
+     l'erreur remontait non rattrapée. Le prochain changement renverra tout. */
+  let res: Response;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entries }),
+    });
+  } catch {
+    return;
+  }
+  if (!res.ok) {
+    console.warn(`[cloudSync] sauvegarde refusée (HTTP ${res.status}) : ${kinds.join(", ")}`);
+    return;
+  }
+  const { revs, rejected } = (await res.json()) as {
+    revs: Record<string, number>;
+    rejected?: string[];
+  };
+  /* Une catégorie trop lourde était refusée EN SILENCE : l'utilisateur la
+     croyait sauvegardée. Au moins une trace. */
+  if (rejected?.length) console.warn(`[cloudSync] catégories refusées (trop lourdes ?) : ${rejected.join(", ")}`);
   writeRevs(revs ?? {});
 }
 

@@ -217,6 +217,10 @@ export async function anilistFetch(opts: FetchOpts): Promise<Json | null> {
     cacheSuccess = true,
   } = opts;
 
+  /* Simulation de panne (local) : `ANILIST_SIMULATE_DOWN=1` dans l'env du
+     serveur. Rien n'est écrit dans Redis, la panne ne fuit pas vers dev/prod. */
+  if (process.env.ANILIST_SIMULATE_DOWN) return null;
+
   const body = JSON.stringify({ query, variables });
   const dedupKey = `${authToken ? `u:${authToken.slice(0, 12)}|` : ""}${hashKey(body)}`;
   // skipCache (audit) → no Redis response cache at all.

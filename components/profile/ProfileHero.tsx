@@ -31,6 +31,7 @@ import { useSceneScrollFix } from "@/lib/profile/sceneCard";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { fondPoster, isFondMuet } from "@/lib/profile/fonds";
 import type { BannerOption, ProfileEntry, ProfileStats } from "@/lib/profile/types";
 import { defaultWall, wallCovers } from "@/lib/profile/wall";
 
@@ -79,6 +80,10 @@ export type HeroBanner = {
   layout?: Dressing["layout"] | null;
   /** Cadre d'avatar (décoration Discord), ou rien. */
   frame?: Dressing["frame"] | null;
+  /** L'image d'avatar choisie au studio, ou rien (celle du compte AniList). */
+  avatar?: Dressing["avatar"] | null;
+  /** Son cadrage dans le rond. */
+  avatarCrop?: Dressing["avatarCrop"] | null;
   /** Tailles de l'avatar et du pseudo, en % (100 = celles de l'agencement). */
   avatarScale?: number;
   nameScale?: number;
@@ -118,6 +123,8 @@ export function previewBanner(draft: Dressing, base: HeroBanner): HeroBanner {
           ...base,
           layout: draft.layout,
           frame: draft.frame,
+          avatar: draft.avatar,
+          avatarCrop: draft.avatarCrop,
           blur: draft.blur,
           avatarScale: draft.avatarScale,
           nameScale: draft.nameScale,
@@ -632,6 +639,7 @@ export default function ProfileHero({
           src={avatar}
           name={name}
           frame={banner.frame}
+          crop={banner.avatarCrop}
           priority
           /* Jusqu'à 9rem × 200 % = 288 px affichés : la version 160 px aurait
              été floue au maximum du réglage. */
@@ -938,11 +946,13 @@ export default function ProfileHero({
             art={
               banner.videoCover ||
               (banner.trailerId ? `https://i.ytimg.com/vi/${banner.trailerId}/hqdefault.jpg` : "") ||
+              fondPoster(banner.url) ||
               /* Rien à montrer : un pixel transparent plutôt qu'une image cassée. */
               "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
             }
             showArt
             started={!bgPaused}
+            silent={!banner.trailerId && isFondMuet(banner.url)}
             eqKey={banner.trailerId || banner.url || `${banner.animeId}:${banner.episode?.n}`}
             clock={() => performance.now() / 1000}
             live={() => !bgPaused && videoAudible}

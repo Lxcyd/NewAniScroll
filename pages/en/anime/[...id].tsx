@@ -25,7 +25,7 @@ import { mediaInfoQuery } from "@/lib/graphql/query";
 import { redis } from "@/lib/redis";
 import { primeMediaCache } from "@/lib/anilist/getMediaMeta";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
-import { getUserList, peekListEntry, hasUserList, patchListEntry } from "@/lib/anilist/userListCache";
+import { getUserList, peekListEntry, hasUserList } from "@/lib/anilist/userListCache";
 import { peekLocalEntry, LOCAL_LIST_EVENT } from "@/lib/list/localList";
 import { getServerPref } from "@/lib/prefs/serverPref";
 import { getEffectiveLangOrder, pickServerForLangs } from "@/lib/prefs/langPref";
@@ -34,6 +34,7 @@ import { getAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { chargeFrembedCatalog, sansFrembed } from "@/lib/watch/frembedCatalog";
 import { chargeDubCatalog, vfPossible } from "@/lib/watch/dubCatalog";
 import { getCachedAnime } from "@/lib/db/anime";
+import { totalAnimeCharacters } from "@/lib/db/animeCharacters";
 import { loadFanarts } from "@/lib/db/fanarts";
 import { getMalMeta, type MalMeta } from "@/lib/jikan/animeMeta";
 import { resolveSeasonChain, resolveSeasonList, resolveBonusFilms, SeasonEntry } from "@/lib/anilist/seasonChain";
@@ -1016,10 +1017,12 @@ function toFanartsMeta(fanarts: any): FanartsMeta | null {
    Applied at the props boundary only: the Redis blob under `anime:v6:<id>` and
    the media cache primed by primeMediaCache both keep the full object, so
    nothing downstream (the watch page, /api/v2/media) loses a field. */
-function stripCharacters(info: any): any {
-  if (!info?.characters) return info;
+function stripCharacters(info: any, total: number | null = null): any {
+  if (!info?.characters) return total != null ? { ...info, charactersCount: total } : info;
   const { characters, ...rest } = info;
-  return { ...rest, charactersCount: characters?.edges?.length ?? 0 };
+  /* TOUS les personnages (anime_characters, 24/10/2026) quand ils sont
+     relevés ; sinon les 25 de la fiche, le plafond d'une page AniList. */
+  return { ...rest, charactersCount: total ?? characters?.edges?.length ?? 0 };
 }
 
 /* MAL-only facts (French title, age rating) ride on `info` at the props
@@ -1171,6 +1174,8 @@ export async function getServerSideProps(ctx: any) {
     const seasonListP = resolveSeasonList(animeIdNum).catch(() => [] as SeasonEntry[]);
     const bonusFilmsP = resolveBonusFilms(animeIdNum).catch(() => [] as FilmVariant[]);
     const malMetaP = getMalMeta(info?.idMal).catch(() => null);
+    /* Une ligne Turso : le vrai nombre de personnages, pour le badge. */
+    const charTotalP = totalAnimeCharacters(animeIdNum);
 
     // Single-row Turso reads, typically <50 ms. When TMDB_API_KEY is unset
     // getTmdbAnimeImages returns without touching anything.
@@ -1185,12 +1190,13 @@ export async function getServerSideProps(ctx: any) {
     // proxy error, leaving a proxy-URL preload unconsumed ("preloaded but not
     // used"). preconnect handles the latency.
 
-    const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta] = await Promise.all([
+    const [heroBanner, seasonInfo, seasonList, bonusFilms, malMeta, charTotal] = await Promise.all([
       resolveHeroBanner(info?.bannerImage, tmdb.backdrop).catch(() => null),
       seasonInfoP,
       seasonListP,
       bonusFilmsP,
       malMetaP,
+      charTotalP,
       pending,
     ]);
     if (heroBanner) appendPreloadHeader(ctx.res, heroBanner);
@@ -1203,7 +1209,7 @@ export async function getServerSideProps(ctx: any) {
            TMDB URL onto it would leak a TMDB backdrop into that payload for 30
            days. */
         info: withMalMeta(
-          stripCharacters(heroBanner ? { ...info, bannerImage: heroBanner } : info),
+          stripCharacters(heroBanner ? { ...info, bannerImage: heroBanner } : info, charTotal),
           malMeta,
         ),
         color,

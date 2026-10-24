@@ -7,6 +7,51 @@ sauvegarde serveur des donnees du visiteur. Couvre `lib/auth/*`,
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-23 — Une panne d'AniList ne fait plus rien perdre
+
+**La simulation** (`ANILIST_SIMULATE_DOWN=1` ou `=long` dans l'env du serveur
+local, cf. `lib/anilist/anilistFetch.ts`). Profil `Lucyd-952364`, AniList coupé :
+**686 animés → 11**, stats 383/5 185 → 11/18, minutes, personnages (12 → 0),
+genres et bandes-annonces perdus. La copie Upstash de 24 h était illisible
+(quota local/dev à 500 000/500 000) et, en prod, ne couvre de toute façon pas une
+panne de plus d'un jour. Le profil tombait sur la sauvegarde `list` du compte,
+qui ne portait que **11 titres** (ceux vus sur le site).
+
+**Pourquoi 11.** En navigateur propre, le miroir AniList → local se remplit bien
+(686, rejoué au CDP, `/api/v2/account/sync` bloqué). Mais une entrée enrichie par
+le rattrapage des badges pèse ~1,1 Ko, dont ~500 o de tags : la liste complète
+frôle le plafond d'1 Mo de `putData`, et un envoi de plusieurs catégories passait
+la limite de corps de Next (1 Mo). Refus silencieux → la sauvegarde restait sur
+une vieille liste. Cause la plus probable, pas prouvée sur le navigateur de Luc.
+
+**Ce qui change.**
+- **Copie durable** : la `MediaListCollection` complète, gzip, rangée dans
+  `user_data` (`kind = anilist_snapshot`, HORS de `DATA_KINDS` : invisible de la
+  synchro des appareils) à chaque réponse neuve d'AniList, réécrite seulement si
+  elle change (178 Ko, rev 1 inchangée au second rendu). Lue quand AniList ET
+  Upstash n'ont rien : profil **identique** à la référence en panne longue.
+- **`putData` ne réécrit plus un contenu identique** (`WHERE payload IS NOT`) :
+  les favoris étaient à 834 révisions pour 16 favoris.
+- **Sauvegarde `list` allégée** : `tags`, `relIds`, `popularity` ne partent plus
+  (cache d'œuvre que l'appareil retrouve) et sont gardés à la réception ;
+  `sizeLimit` 4 Mo sur la route ; les catégories refusées laissent une trace.
+- **File d'envoi** (`lib/list/anilistOutbox.ts`) : toute écriture AniList qui
+  échoue pour une raison passagère (réseau, 5xx, 403 de panne, 429, jeton à
+  relier) y est rangée — éditeur de liste, épisode fini, pause auto, fusion,
+  suppression, favori (un ÉTAT, pas une bascule). Rejouée par
+  `fullSyncFromAniList` AVANT le miroir, puis toutes les 2 min / au retour du
+  réseau tant qu'elle n'est pas vide. Priorités : l'avancée d'épisodes monte dès
+  qu'AniList est derrière (avec son « En cours »/« Terminé », jamais de
+  rétrogradation) ; le reste ne monte que si AniList n'a pas bougé APRÈS le
+  geste ; ce qu'AniList a gagné redescend par le miroir ; les gestes de liste
+  suivent l'interrupteur maître. Le miroir ne touche pas une entrée en attente.
+  Testé au CDP avec mutations interceptées (8 cas, tous conformes), et AniList
+  qui refuse encore (file intacte, local protégé).
+- **Cache client** (`userListCache`, `favouritesCache`) en `localStorage`, et la
+  dernière copie (sinon le miroir local) servie si AniList ne répond pas, au lieu
+  d'une liste vide qui affichait « Ajouter à la liste » partout. Un 200 sans
+  collection n'écrase plus la copie.
+
 ## 2026-09-02 — « AniList ne synchronise plus » : le vide etait ecrit par-dessus la liste
 
 **Le signalement**, une capture des Parametres : toast VERT « 0 entrees

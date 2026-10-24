@@ -575,9 +575,14 @@ export default function ProfileOverview({
          que la dernière synchronisation et qui se met à jour PENDANT qu'on
          regarde (PROGRESS_EVENT). Servir sa propre sauvegarde au propriétaire
          lui montrerait un épisode en retard sur ce qu'il vient de lancer. */
-      case "resume":
+      case "resume": {
+        /* 2 de haut et 2 ou 3 de large : l'image passe au-dessus du texte
+           (23/10/2026, Luc). Les autres tailles (2×1…4×1, et 4×2 où la vignette
+           a la place d'être à gauche) la gardent à gauche. */
+        const item = layout?.find((o) => o.i === "resume");
         return (
           <ResumeBlock
+            stacked={item?.h === 2 && (item?.w === 2 || item?.w === 3)}
             rows={served}
             other={!isOwner}
             titles={titlesById}
@@ -585,6 +590,7 @@ export default function ProfileOverview({
             ambient={optionOn("resume", "ambient")}
           />
         );
+      }
       case "recents":
         return (
           <RecentsBlock

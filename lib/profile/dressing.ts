@@ -266,6 +266,23 @@ export type Dressing = {
    */
   frame: string | null;
   /**
+   * L'image d'avatar choisie au studio (24/10/2026, Luc) — un personnage
+   * AniList —, ou `null` pour l'avatar du compte AniList. Comme le cadre, elle
+   * n'habille que le profil.
+   */
+  avatar: string | null;
+  /**
+   * Le cadrage de l'image d'avatar dans son rond : le point visé (`x`, `y`,
+   * en % de l'image, comme `object-position`) et le zoom (100-400 %). `null` :
+   * calé en haut, sans zoom (les portraits AniList sont verticaux).
+   */
+  avatarCrop: AvatarCrop | null;
+  /**
+   * Le nom de ce qu'on porte (le personnage, ou le nom d'un import), pour la
+   * case Avatar du studio (24/10/2026). `null` avec l'avatar du compte.
+   */
+  avatarName: string | null;
+  /**
    * La taille de l'avatar et celle du pseudo, en % de la taille de
    * l'agencement (100 = inchangé). Un facteur et non une taille : chaque
    * agencement garde ses tailles par écran (téléphone, ordinateur), le
@@ -361,10 +378,17 @@ const ALLOWED_MEDIA_HOSTS = [
   "a.animethemes.moe",
   /* Les fichiers d'AnisongDB (inserts compris), servis par AMQ : 18/10/2026. */
   "naedist.animemusicquiz.com",
+  /* Les fonds animés du studio, notre projet Cloudflare Pages (lib/profile/fonds.ts) :
+     23/10/2026. Écrit en dur et non importé de fonds.ts, pour que ce module
+     reste sans dépendance (il est lu côté serveur à chaque rendu de profil). */
+  "fonds.aniscroll.com",
 ];
 
 export function isAllowedMediaUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length > 500) return false;
+  /* Les fonds animés servis en local par le serveur de dev (lib/profile/fonds.ts) :
+     jamais en production, où ils viennent de fonds.aniscroll.com. */
+  if (process.env.NODE_ENV === "development" && /^\/fonds\/[\w/.-]+\.webm$/.test(url)) return true;
   try {
     const u = new URL(url);
     return u.protocol === "https:" && ALLOWED_MEDIA_HOSTS.includes(u.hostname);
@@ -574,6 +598,16 @@ export function normalizeDressing(raw: unknown): Dressing | null {
     layout: isHeroLayout(obj.layout) ? obj.layout : "band",
     /* Validé à la FORME : seul un asset Discord exact part dans l'URL du CDN. */
     frame: isFrameAsset(obj.frame) ? obj.frame : null,
+    /* Une image servie à tous les visiteurs : les hôtes d'images d'AniList
+       seulement (personnages, avatars). */
+    avatar: isAvatarUrl(obj.avatar) ? obj.avatar : null,
+    avatarCrop: cleanAvatarCrop(obj.avatarCrop),
+    /* Du texte libre, affiché seulement dans le studio : court, sans
+       caractères de contrôle, et rien sans image. */
+    avatarName:
+      isAvatarUrl(obj.avatar) && typeof obj.avatarName === "string"
+        ? obj.avatarName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 60) || null
+        : null,
     avatarScale: clampScale(obj.avatarScale),
     nameScale: clampScale(obj.nameScale),
     badgeScale: clampScale(obj.badgeScale),
@@ -606,9 +640,49 @@ export function emptyDressing(): Dressing {
     wall: null,
     layout: "band",
     frame: null,
+    avatar: null,
+    avatarCrop: null,
+    avatarName: null,
     avatarScale: 100,
     nameScale: 100,
     badgeScale: 100,
     badges: [],
   };
 }
+
+export type AvatarCrop = { x: number; y: number; zoom: number };
+export const AVATAR_ZOOM_MIN = 100;
+export const AVATAR_ZOOM_MAX = 400;
+/**
+ * Le cadrage vertical par défaut d'un portrait, en % (`object-position`). Les
+ * images de personnages d'AniList sont des gros plans verticaux (2:3) : calé
+ * en haut, le rond montrait surtout les cheveux ; à 20 % le visage tombe au
+ * centre sur la plupart (mesuré sur 20 favoris, 24/10/2026), sans couper le
+ * haut des têtes comme à 35 %. Sans effet sur une image carrée.
+ */
+export const AVATAR_FOCUS_Y = 20;
+
+/** Un cadrage valide, ou `null` (le cadrage par défaut). */
+export function cleanAvatarCrop(v: unknown): AvatarCrop | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const n = (x: unknown, lo: number, hi: number, d: number) => {
+    const f = Number(x);
+    return Number.isFinite(f) ? Math.round(Math.min(hi, Math.max(lo, f)) * 10) / 10 : d;
+  };
+  const crop = { x: n(o.x, 0, 100, 50), y: n(o.y, 0, 100, AVATAR_FOCUS_Y), zoom: n(o.zoom, AVATAR_ZOOM_MIN, AVATAR_ZOOM_MAX, 100) };
+  return crop.x === 50 && crop.y === AVATAR_FOCUS_Y && crop.zoom === 100 ? null : crop;
+}
+
+/** Une image d'avatar acceptable : https, sur un hôte d'images d'AniList. */
+export function isAvatarUrl(url: unknown): url is string {
+  if (typeof url !== "string") return false;
+  /* Un import du studio : une data URL d'image en base64, rien d'autre (pas de
+     SVG, qui pourrait porter du script), sous `AVATAR_DATA_MAX`. */
+  if (url.startsWith("data:"))
+    return url.length <= AVATAR_DATA_MAX && /^data:image\/(webp|png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(url);
+  return url.length <= 500 && /^https:\/\/(s4\.anilist\.co|img\.anili\.st)\/[\w/.%-]+$/.test(url);
+}
+
+/** La taille maximale d'un avatar importé (data URL, ~60 Ko d'image). */
+export const AVATAR_DATA_MAX = 80_000;

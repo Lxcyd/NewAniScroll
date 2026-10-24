@@ -109,13 +109,17 @@ export async function putData(
   if (Buffer.byteLength(json, "utf8") > MAX_PAYLOAD_BYTES) return null;
 
   const now = Date.now();
+  /* `WHERE … IS NOT` : un contenu identique ne réécrit rien et ne monte pas la
+     révision. Les favoris étaient recopiés à chaque vue du profil par son
+     propriétaire — 834 révisions pour 16 favoris (23/10/2026). */
   await client.execute({
     sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
           VALUES (?, ?, ?, 1, ?)
           ON CONFLICT(user_id, kind) DO UPDATE
             SET payload = excluded.payload,
                 rev = user_data.rev + 1,
-                updated_at = excluded.updated_at`,
+                updated_at = excluded.updated_at
+          WHERE user_data.payload IS NOT excluded.payload`,
     args: [userId, kind, json, now],
   });
 
@@ -124,4 +128,53 @@ export async function putData(
     args: [userId, kind],
   });
   return Number(res.rows[0]?.rev ?? 1);
+}
+
+/* ── LA COPIE ANILIST DU COMPTE (23/10/2026) ─────────────────────────────────
+ *
+ * La liste AniList complète (MediaListCollection du profil : entrées, stats,
+ * favoris, personnages), telle qu'AniList l'a rendue la dernière fois qu'il a
+ * répondu. Elle sert le profil quand AniList est en panne, quelle qu'en soit la
+ * durée — la copie Upstash, elle, meurt au bout de 24 h ou avec le quota.
+ *
+ * Une ligne de `user_data` HORS de DATA_KINDS : `toStored` l'écarte, donc la
+ * synchro des appareils (GET /api/v2/account/sync) ne la voit jamais. Gzip +
+ * base64 (~1/8 de la taille). Écrite seulement quand elle change (même garde que
+ * putData) : une lecture de ligne, et une écriture par modification réelle.
+ */
+const SNAPSHOT_KIND = "anilist_snapshot";
+
+export async function putAnilistSnapshot(userId: string, z: string): Promise<void> {
+  const client = await db();
+  if (!client) return;
+  const payload = JSON.stringify({ at: Date.now(), z });
+  await client.execute({
+    sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
+          VALUES (?, ?, ?, 1, ?)
+          ON CONFLICT(user_id, kind) DO UPDATE
+            SET payload = excluded.payload,
+                rev = user_data.rev + 1,
+                updated_at = excluded.updated_at
+          WHERE json_extract(user_data.payload, '$.z') IS NOT ?`,
+    args: [userId, SNAPSHOT_KIND, payload, Date.now(), z],
+  });
+}
+
+export async function getAnilistSnapshot(
+  userId: string,
+): Promise<{ at: number; z: string } | null> {
+  const client = await db();
+  if (!client) return null;
+  const res = await client.execute({
+    sql: `SELECT payload FROM user_data WHERE user_id = ? AND kind = ?`,
+    args: [userId, SNAPSHOT_KIND],
+  });
+  const raw = res.rows[0]?.payload;
+  if (raw == null) return null;
+  try {
+    const p = JSON.parse(String(raw));
+    return typeof p?.z === "string" && typeof p?.at === "number" ? p : null;
+  } catch {
+    return null;
+  }
 }

@@ -34,7 +34,14 @@ import { waitUntil } from "@/lib/http/waitUntil";
 import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
-import { getData, putData, type DataKind, type StoredKind } from "@/lib/auth/userData";
+import {
+  getAnilistSnapshot,
+  getData,
+  putAnilistSnapshot,
+  putData,
+  type DataKind,
+  type StoredKind,
+} from "@/lib/auth/userData";
 import {
   entriesFromAniList,
   entriesFromLocalList,
@@ -387,7 +394,7 @@ export default function Profile({
       <ProfileHero
         name={identity.name}
         tag={identity.tag}
-        avatar={identity.avatar}
+        avatar={shownBanner.avatar || identity.avatar}
         anilistName={identity.anilistName}
         createdAt={identity.createdAt}
         banner={shownBanner}
@@ -436,8 +443,9 @@ export default function Profile({
             <ProfileAside
               name={identity.name}
               tag={identity.tag}
-              avatar={identity.avatar}
+              avatar={shownBanner.avatar || identity.avatar}
               frame={shownBanner.frame}
+              avatarCrop={shownBanner.avatarCrop}
               avatarScale={shownBanner.avatarScale}
               nameScale={shownBanner.nameScale}
               badges={shownBanner.badges}
@@ -545,6 +553,7 @@ export default function Profile({
               identity={{
                 name: identity.name,
                 avatar: identity.avatar ?? null,
+                anilistName: identity.anilistName ?? null,
                 stats: heroStats(t, stats).map((s) => s.value),
               }}
               onApply={(d) => void save(d)}
@@ -720,13 +729,10 @@ async function partageLu(name: string): Promise<{ at: number; data: any } | null
   }
 }
 
-async function partageEcrit(name: string, data: any): Promise<void> {
+async function partageEcrit(name: string, z: string): Promise<void> {
   try {
     if (!redis) return;
-    const box: ListePartagee = {
-      at: Date.now(),
-      z: gzipSync(Buffer.from(JSON.stringify(data), "utf8")).toString("base64"),
-    };
+    const box: ListePartagee = { at: Date.now(), z };
     await redis.set(partageKey(name), JSON.stringify(box), "EX", PARTAGE_TTL_S);
   } catch {
     /* L'écriture est un confort : la page est déjà rendue sans elle. */
@@ -744,12 +750,22 @@ function memoire(key: string, data: any) {
   }
 }
 
-async function cachedAniList(username: string): Promise<any | null> {
+/**
+ * `onFresh` : appelé avec chaque réponse NEUVE d'AniList (jamais avec une copie),
+ * y compris celle qui finit en arrière-plan. C'est là que la copie durable du
+ * compte est rangée (putAnilistSnapshot).
+ */
+async function cachedAniList(
+  username: string,
+  onFresh?: (z: string) => Promise<void>,
+): Promise<any | null> {
   const key = username.toLowerCase();
   const hit = listCache.get(key);
   if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.data;
 
-  const partage = await partageLu(key);
+  /* `ANILIST_SIMULATE_DOWN=long` : une panne de plus de 24 h, la copie Upstash
+     a expiré. */
+  const partage = process.env.ANILIST_SIMULATE_DOWN === "long" ? null : await partageLu(key);
   if (partage && Date.now() - partage.at < FRAIS_MS) {
     memoire(key, partage.data);
     return partage.data;
@@ -758,7 +774,9 @@ async function cachedAniList(username: string): Promise<any | null> {
   const frais = fetchAniList(username).catch(() => null).then(async (data) => {
     if (data) {
       memoire(key, data);
-      await partageEcrit(key, data);
+      // Comprimée UNE fois, pour les deux copies (Upstash 24 h, compte durable).
+      const z = gzipSync(Buffer.from(JSON.stringify(data), "utf8")).toString("base64");
+      await Promise.all([partageEcrit(key, z), onFresh?.(z).catch(() => {})]);
     }
     return data;
   });
@@ -927,14 +945,34 @@ export async function getServerSideProps(context: any) {
      réglage de visibilité et `user_data` ne dépendent que du compte : ils
      partent avec elles. */
   const settingsKey = anilistName || account?.username || null;
-  const [session, collection, viewed, stored] = await Promise.all([
+  /* La copie durable, rangée à chaque réponse NEUVE d'AniList — et seulement
+     si elle a changé (putAnilistSnapshot ne réécrit pas un contenu identique). */
+  const rangeCopie = account ? (z: string) => putAnilistSnapshot(account.id, z) : undefined;
+  const [session, collectionLive, viewed, stored] = await Promise.all([
     sessionPromise,
-    anilistName ? cachedAniList(anilistName) : null,
+    anilistName ? cachedAniList(anilistName, rangeCopie) : null,
     settingsKey ? getUser(settingsKey, false).catch(() => null) : null,
     account && kinds.length
       ? getData(account.id, kinds).catch(() => [] as StoredKind[])
       : ([] as StoredKind[]),
   ]);
+  /* AniList muet, et plus de copie Upstash (panne de plus de 24 h, ou quota
+     épuisé) : la copie durable du compte. C'est la liste TELLE QU'ANILIST LA
+     RENDAIT — stats, favoris et personnages compris —, donc le profil reste
+     identique, figé à la dernière réponse. */
+  let collection = collectionLive;
+  let staleSince: number | null = null;
+  if (account && anilistName && !collection?.user) {
+    const copie = await getAnilistSnapshot(account.id).catch(() => null);
+    if (copie) {
+      try {
+        collection = JSON.parse(gunzipSync(Buffer.from(copie.z, "base64")).toString("utf8"));
+        staleSince = copie.at;
+      } catch {
+        /* copie illisible : on retombe sur la sauvegarde de la liste */
+      }
+    }
+  }
   if (account && anilistName && !collection?.user) {
     stored.push(...(await getData(account.id, ["list", "favourites"]).catch(() => [])));
   }
@@ -980,7 +1018,7 @@ export async function getServerSideProps(context: any) {
        Seulement pour le propriétaire, seulement quand la liste est non vide (un
        zéro pendant une réponse partielle d'AniList effacerait la copie), et
        jamais en bloquant le rendu. */
-    if (isOwner && account && favIds.size) {
+    if (isOwner && account && favIds.size && staleSince == null) {
       putData(account.id, "favourites", [...favIds]).catch(() => {});
     }
     // The banner and mean score of every entry arrived with the query — keep

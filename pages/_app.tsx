@@ -729,13 +729,50 @@ export default function App({
       await fullSyncFromAniList().catch(() => {});
       await runAutoPauseSweep().catch(() => {});
     };
+    /* LA FILE D'ENVOI SE VIDE AU RETOUR D'ANILIST, pas seulement au prochain
+       chargement (lib/list/anilistOutbox) : tant qu'elle n'est pas vide, on
+       retente toutes les 2 minutes, au retour du réseau et au retour sur
+       l'onglet. File vide = aucun appel : rien ne tourne pour qui n'a rien à
+       envoyer. Les appels vont à AniList, jamais à Vercel. */
+    let busy = false;
+    const retry = async () => {
+      if (busy || document.visibilityState !== "visible") return;
+      try {
+        if (!localStorage.getItem("aniscroll:anilistOutbox")) return;
+      } catch {
+        return;
+      }
+      busy = true;
+      try {
+        const { fullSyncFromAniList } = await import("@/lib/list/syncEngine");
+        await fullSyncFromAniList({ merge: !getSyncPrefs().directionChosen }).catch(() => {});
+      } finally {
+        busy = false;
+      }
+    };
+    const every = window.setInterval(() => void retry(), 120_000);
+    const onBack = () => void retry();
+    window.addEventListener("online", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    const stopRetry = () => {
+      window.clearInterval(every);
+      window.removeEventListener("online", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
+
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === "function") {
       const id = ric(() => void run(), { timeout: 4000 });
-      return () => (window as any).cancelIdleCallback?.(id);
+      return () => {
+        (window as any).cancelIdleCallback?.(id);
+        stopRetry();
+      };
     }
     const tid = setTimeout(() => void run(), 2000);
-    return () => clearTimeout(tid);
+    return () => {
+      clearTimeout(tid);
+      stopRetry();
+    };
   }, []);
 
   /* Purge UNIQUE du cache SW `apis` d'avant le 21/09/2026. Il peut contenir des
