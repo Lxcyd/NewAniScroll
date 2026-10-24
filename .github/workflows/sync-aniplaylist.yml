@@ -1,0 +1,51 @@
+# Les musiques d'AniPlaylist (inserts, OP/ED, extraits de 30 s), relevées
+# chaque jour dans Turso (`aniplaylist_songs`) — cf. scripts/music/aniplaylist-sync.mjs.
+#
+# AniPlaylist n'a pas d'API : le script lit les pages dans un Chrome headless,
+# comme un visiteur (robots.txt : tout autorisé), une page à la fois. Les
+# animes en diffusion passent d'abord (tous les 2 jours), puis le reste du
+# catalogue par popularité, dans le budget de temps : le remplissage complet
+# se fait sur plusieurs semaines, sans rien relancer.
+#
+# Coût Turso : ~65 000 lignes lues pour la file, une écriture par anime.
+# Chrome est déjà installé sur les runners ubuntu-latest (/usr/bin/google-chrome).
+#
+# Secrets : TURSO_DATABASE_URL, TURSO_AUTH_TOKEN.
+
+name: sync-aniplaylist
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+    inputs:
+      max_minutes:
+        description: "Budget de temps du relevé (défaut 40)"
+        required: false
+        type: string
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Le script s'arrête seul à son budget (--max-minutes) ; ceci n'est que le
+    # garde-fou extérieur, au-dessus.
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Node 22 : WebSocket global, dont le script a besoin pour parler à Chrome.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+
+      - name: Run AniPlaylist sync
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/music/aniplaylist-sync.mjs --max-minutes=${{ inputs.max_minutes || '40' }}
