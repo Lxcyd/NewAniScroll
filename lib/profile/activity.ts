@@ -74,24 +74,56 @@ export function progressFromCloud(payload: unknown): ProgressMap {
  * de tout le monde serait resté à zéro sans que rien n'échoue.
  */
 export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[] {
-  return rows.map((row) => {
-    const p = map[`${row.aniId}:${row.episode}`] ?? null;
-    const pct =
-      p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
-    const minutesLeft =
-      p && p.duration > 0 ? Math.max(0, Math.round((p.duration - p.time) / 60)) : null;
-    return {
-      ...row,
-      pct,
-      minutesLeft,
-      done: isCompleted(p),
-      runFrom: runStart(map, row.aniId, row.episode),
-    };
-  });
+  const out: ActivityRow[] = [];
+  for (const row of rows) {
+    /* UNE CARTE PAR JOURNÉE. Les épisodes enchaînés le même jour tiennent sur
+       une carte (« Épisodes 1–3 ») ; un épisode vu un autre jour ouvre la sienne,
+       à sa date. L'historique ne connaît que le dernier épisode : les cartes
+       plus anciennes n'ont donc ni `watchId` (elles mènent à la fiche) ni
+       vignette d'épisode (elles prennent la couverture). */
+    let last = row.episode;
+    let first = true;
+    for (;;) {
+      const from = runStart(map, row.aniId, last);
+      const at = Number(map[`${row.aniId}:${last}`]?.updatedAt);
+      out.push(
+        decorate(
+          first
+            ? row
+            : { ...row, episode: last, watchId: null, image: null, episodeTitle: null, at },
+          map,
+          from,
+        ),
+      );
+      if (from <= 1 || !map[`${row.aniId}:${from - 1}`]) break;
+      last = from - 1;
+      first = false;
+    }
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
+
+function decorate(row: HistoryRow, map: ProgressMap, runFrom: number): ActivityRow {
+  const p = map[`${row.aniId}:${row.episode}`] ?? null;
+  const pct =
+    p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;
+  const minutesLeft =
+    p && p.duration > 0 ? Math.max(0, Math.round((p.duration - p.time) / 60)) : null;
+  return { ...row, pct, minutesLeft, done: isCompleted(p), runFrom };
+}
+
+/** Le jour local d'un épisode de la table, `null` quand il n'est pas daté. */
+function dayOf(map: ProgressMap, aniId: number, episode: number): number | null {
+  const at = Number(map[`${aniId}:${episode}`]?.updatedAt);
+  return Number.isFinite(at) && at > 0 ? startOfDay(at) : null;
 }
 
 /**
  * Jusqu'où remonte la série d'épisodes qui se termine sur celui-ci.
+ *
+ * LA SÉRIE S'ARRÊTE AU CHANGEMENT DE JOUR : l'épisode 1 vu il y a deux
+ * semaines et le 3 hier ne font pas « Épisodes 1–3 », mais deux cartes. Une
+ * entrée non datée ne coupe rien (ancienne table).
  *
  * L'HISTORIQUE NE GARDE QU'UNE LIGNE PAR ANIME — le dernier épisode ouvert.
  * Impossible d'y lire « j'ai enchaîné les six premiers ». La table de
@@ -107,8 +139,13 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
  * La boucle est bornée par sa nature : elle ne descend que vers 1.
  */
 function runStart(map: ProgressMap, aniId: number, episode: number): number {
+  const day = dayOf(map, aniId, episode);
   let first = episode;
-  while (first > 1 && map[`${aniId}:${first - 1}`]) first--;
+  while (first > 1 && map[`${aniId}:${first - 1}`]) {
+    const prev = dayOf(map, aniId, first - 1);
+    if (day != null && prev != null && prev !== day) break;
+    first--;
+  }
   return first;
 }
 
