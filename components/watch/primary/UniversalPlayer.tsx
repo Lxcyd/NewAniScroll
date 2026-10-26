@@ -2068,6 +2068,7 @@ export default function UniversalPlayer({
       const depart = startEstimate(bwKeyRef.current);
       /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
       const position = cibleDepart(serverId, aniListId, episodeNumber).at;
+      const partBas = serverId === "megaplay" || /^voiranime-vidmoly/.test(serverId || "");
       departHlsRef.current = position;
       provider.config = {
         ...provider.config,
@@ -2082,9 +2083,12 @@ export default function UniversalPlayer({
            rapides : il faisait partir hls.js en 1080p, segment de 1-3 Mo, 10 a
            25 s d'attente. On part du plus bas niveau ; l'ABR remonte des que
            la mesure le permet. */
-        ...(serverId === "megaplay" ? { startLevel: 0 } : null),
+        /* Vidmoly de voir-anime (CDN vmbox, 27/10/2026) : des segments de 20 s,
+           ~9 Mo en 1080p, dont le premier a mis 12 a 16 s a arriver. En 480p
+           il pese ~1,2 Mo : image en quelques secondes, l'ABR remonte ensuite. */
+        ...(partBas ? { startLevel: 0 } : null),
       };
-      diag("hls-config", { startPosition: position, startLevel: serverId === "megaplay" ? 0 : -1 });
+      diag("hls-config", { startPosition: position, startLevel: partBas ? 0 : -1 });
     }
   };
 
@@ -4775,6 +4779,17 @@ export default function UniversalPlayer({
         /* sans ces evenements, le tampon et la video suffisent */
       }
     };
+    /* LES OCTETS QUI ARRIVENT SONT UNE ACTIVITE (27/10/2026). Vidmoly (CDN
+       vmbox) sert des segments de 20 s, ~9 Mo en 1080p, et en livre parfois le
+       premier en plus de 10 s : aucun segment TERMINE, aucun tampon, donc
+       « calme » — et le lecteur etait declare mort en plein telechargement
+       (journal diag : calmeMs 8999, bascule vers ansembed). hls.js tient a jour
+       les octets recus du segment en cours (`stats.loaded`) : leur croissance
+       compte, et laisse aller jusqu'a PLAFOND_FLUX. Un CDN mort, lui, ne livre
+       rien et reste calme. */
+    let octetsVus = -1;
+    let fluxVu = 0;
+    const PLAFOND_FLUX = Math.max(PLAFOND, 40000);
     const veille = window.setInterval(() => {
       brancherVideo();
       brancherHls();
@@ -4783,6 +4798,16 @@ export default function UniversalPlayer({
       if (fin !== tamponVu) {
         tamponVu = fin;
         bouge();
+      }
+      try {
+        const octets = Number((hlsSuivi as any)?.streamController?.fragCurrent?.stats?.loaded) || 0;
+        if (octets > 0 && octets !== octetsVus) {
+          octetsVus = octets;
+          fluxVu = Date.now();
+          bouge();
+        }
+      } catch {
+        /* interne a hls.js : sans lui, on garde l'ancienne mesure */
       }
       const maintenant = Date.now();
       const ecoule = maintenant - debut;
@@ -4793,7 +4818,8 @@ export default function UniversalPlayer({
         !!v && v.paused && !lectureDemandee && v.readyState >= 1 && (!autoplay || autoplayRefuse);
       if (attendToucher) return;
       const calme = maintenant - activite >= CALME;
-      if (!calme && ecoule < PLAFOND) return;
+      const fluxRecent = fluxVu > 0 && maintenant - fluxVu < CALME;
+      if (!calme && ecoule < (fluxRecent ? PLAFOND_FLUX : PLAFOND)) return;
       window.clearInterval(veille);
       diag("sans-image-fin", { ...etatVideo(), calmeMs: maintenant - activite, ecouleMs: ecoule, lectureDemandee });
       onError?.("No first frame");
