@@ -30,7 +30,7 @@ export { PROFILE_AUTOPLAY_COOKIE } from "@/lib/profile/playback";
 import { useSceneScrollFix } from "@/lib/profile/sceneCard";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
-import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
+import { clampBlur, fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import { fondPoster, isFondMuet } from "@/lib/profile/fonds";
 import type { BannerOption, ProfileEntry, ProfileStats } from "@/lib/profile/types";
 import { defaultWall, wallCovers } from "@/lib/profile/wall";
@@ -307,21 +307,22 @@ export default function ProfileHero({
      La CLASSE voyage avec elle, et c'est elle qui fait exister le flou : sans
      `.as-plate-frosted`, les cartes n'ont plus aucun calque de flou, pas même
      un flou nul que le compositeur relirait à chaque image (cf. globals.css). */
-  const blur = Math.max(0, Math.min(32, banner.blur || 0));
+  const blur = clampBlur(banner.blur);
   useEffect(() => {
     const html = document.documentElement;
     const root = html.style;
-    if (!blur) {
-      root.removeProperty("--as-plate-blur");
-      root.removeProperty("--as-plate-a1");
-      root.removeProperty("--as-plate-a2");
-      html.classList.remove("as-plate-frosted");
-      return;
-    }
-    root.setProperty("--as-plate-blur", `${blur}px`);
+    /* LA MÊME TEINTE À TOUS LES NIVEAUX (25/10/2026, Luc : « on peut aller à 0
+       en gardant la même couleur ? »). Le fond translucide des cartes ne
+       dépend plus du flou ; à 0, seul le calque de flou disparaît. */
     root.setProperty("--as-plate-a1", "0.34");
     root.setProperty("--as-plate-a2", "0.2");
-    html.classList.add("as-plate-frosted");
+    if (blur) {
+      root.setProperty("--as-plate-blur", `${blur}px`);
+      html.classList.add("as-plate-frosted");
+    } else {
+      root.removeProperty("--as-plate-blur");
+      html.classList.remove("as-plate-frosted");
+    }
     return () => {
       root.removeProperty("--as-plate-blur");
       root.removeProperty("--as-plate-a1");
@@ -912,7 +913,14 @@ export default function ProfileHero({
         <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
-            art={banner.music.cover || banner.url || ""}
+            art={
+              banner.music.cover ||
+              /* Sans pochette : l'affiche du fond, jamais l'adresse d'une
+                 vidéo (une .webm dans un <img> = case noire, 24/10/2026). */
+              fondPoster(banner.url) ||
+              (isVideoKind(banner.kind) ? banner.videoCover : banner.url) ||
+              ""
+            }
             showArt
             started={audioStarted}
             eqKey={banner.music.url}

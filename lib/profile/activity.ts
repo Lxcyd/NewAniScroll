@@ -18,7 +18,7 @@
  */
 
 import { rowsFromRaw, type HistoryRow } from "./history";
-import { isCompleted, type ProgressEntry } from "../watch/progress";
+import { GLANCE_SECONDS, isCompleted, type ProgressEntry } from "../watch/progress";
 
 /** Une ligne d'historique, augmentée de son avancement. */
 export type ActivityRow = HistoryRow & {
@@ -34,9 +34,29 @@ export type ActivityRow = HistoryRow & {
    * l'épisode est 6, ce que le widget écrit « Épisodes 1–6 ».
    */
   runFrom: number;
+  /** Carte d'un jour plus ancien, reconstruite depuis la table de progression :
+   *  pas la dernière lecture de l'anime, donc rien à reprendre. */
+  older?: boolean;
+  /** Dernier épisode ouvert à peine quelques secondes (missclic) : « Vu
+   *  récemment » le tait, « Regarde en ce moment » le reprend quand même. */
+  glance?: boolean;
 };
 
 export type ProgressMap = Record<string, ProgressEntry>;
+
+/**
+ * Sous une minute RÉELLEMENT regardée, un épisode n'est pas « vu » — même
+ * « terminé » : un clic au bout de la barre le termine en 10 s. Il ne compte ni
+ * dans une série d'épisodes, ni dans la flamme. Les entrées d'avant le compteur
+ * `watched` retombent sur la position.
+ */
+const GLANCE_S = GLANCE_SECONDS;
+
+function watched(p: ProgressEntry | null | undefined): boolean {
+  if (!p) return false;
+  if (typeof p.watched === "number") return p.watched >= GLANCE_S;
+  return isCompleted(p) || Number(p.time) >= GLANCE_S;
+}
 
 /** Le JSON porté par une clé de stockage, dans le payload d'une catégorie. */
 function unwrap(payload: unknown, key: string): unknown {
@@ -81,21 +101,34 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
        à sa date. L'historique ne connaît que le dernier épisode : les cartes
        plus anciennes n'ont donc ni `watchId` (elles mènent à la fiche) ni
        vignette d'épisode (elles prennent la couverture). */
+    const key = (ep: number) => `${row.aniId}:${ep}`;
+    /* Un missclic sur le dernier épisode ouvert garde sa ligne (la reprise en a
+       besoin) mais ne s'étend à rien : les cartes repartent de l'épisode d'avant. */
+    const glance = !!map[key(row.episode)] && !watched(map[key(row.episode)]);
     let last = row.episode;
     let first = true;
     for (;;) {
-      const from = runStart(map, row.aniId, last);
-      const at = Number(map[`${row.aniId}:${last}`]?.updatedAt);
+      const from = first && glance ? last : runStart(map, row.aniId, last);
+      const at = Number(map[key(last)]?.updatedAt);
       out.push(
-        decorate(
-          first
-            ? row
-            : { ...row, episode: last, watchId: null, image: null, episodeTitle: null, at },
-          map,
-          from,
-        ),
+        first
+          ? {
+              /* La date de la PROGRESSION quand il y en a une : l'historique est
+                 re-daté à chaque ouverture, même quand l'épisode, déjà terminé,
+                 garde la sienne (cf. `rewatching`, lib/watch/progress.ts). */
+              ...decorate(at > 0 ? { ...row, at } : row, map, from),
+              ...(glance ? { glance } : {}),
+            }
+          : {
+              ...decorate(
+                { ...row, episode: last, watchId: null, image: null, episodeTitle: null, at },
+                map,
+                from,
+              ),
+              older: true,
+            },
       );
-      if (from <= 1 || !map[`${row.aniId}:${from - 1}`]) break;
+      if (from <= 1 || !watched(map[key(from - 1)])) break;
       last = from - 1;
       first = false;
     }
@@ -141,7 +174,7 @@ function dayOf(map: ProgressMap, aniId: number, episode: number): number | null 
 function runStart(map: ProgressMap, aniId: number, episode: number): number {
   const day = dayOf(map, aniId, episode);
   let first = episode;
-  while (first > 1 && map[`${aniId}:${first - 1}`]) {
+  while (first > 1 && watched(map[`${aniId}:${first - 1}`])) {
     const prev = dayOf(map, aniId, first - 1);
     if (day != null && prev != null && prev !== day) break;
     first--;
@@ -191,7 +224,8 @@ export function watchStreak(map: ProgressMap, now = Date.now()): number {
     const at = Number(e?.updatedAt);
     // La table vient d'un navigateur : une entrée sans date, ou datée de
     // n'importe quoi, ne doit pas inventer un jour de lecture.
-    if (Number.isFinite(at) && at > 0) days.add(startOfDay(at));
+    // Un missclic de dix secondes n'entretient pas la flamme.
+    if (Number.isFinite(at) && at > 0 && watched(e)) days.add(startOfDay(at));
   }
   if (!days.size) return 0;
 
@@ -205,11 +239,59 @@ export function watchStreak(map: ProgressMap, now = Date.now()): number {
   return n;
 }
 
+/**
+ * LE JOURNAL DES JOURS REGARDÉS, pour le calendrier du profil.
+ *
+ * Même source que la flamme : chaque épisode de la table porte la date de sa
+ * dernière écriture. Un épisode compte le jour où il a été vu (une minute
+ * réelle au moins, comme partout) ; revu plus tard, il passe au jour du
+ * revisionnage — la table ne garde qu'une date par épisode.
+ *
+ * La clé est le jour LOCAL « AAAA-MM-JJ ». `a` liste les animes du jour, le
+ * plus regardé d'abord, TOUS (Luc, 25/10) : la case montre le premier, les
+ * autres en anneaux autour d'elle au survol. Bornée à `maxDays` en arrière : c'est ce qui voyage dans la page
+ * d'un visiteur, et un an suffit à un calendrier qu'on feuillette mois par mois.
+ */
+export type WatchDay = { n: number; a: number[] };
+export type WatchDays = Record<string, WatchDay>;
+
+export function dayKey(ms: number): string {
+  const d = new Date(ms);
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const j = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${j}`;
+}
+
+export function watchDays(map: ProgressMap, now = Date.now(), maxDays = 400): WatchDays {
+  const since = now - maxDays * 86_400_000;
+  const per = new Map<string, Map<number, number>>();
+  for (const [k, e] of Object.entries(map || {})) {
+    const at = Number(e?.updatedAt);
+    if (!(Number.isFinite(at) && at > since && at <= now + 86_400_000) || !watched(e)) continue;
+    const aniId = Number(k.split(":")[0]);
+    if (!Number.isFinite(aniId) || aniId <= 0) continue;
+    const day = dayKey(at);
+    let byAnime = per.get(day);
+    if (!byAnime) per.set(day, (byAnime = new Map()));
+    byAnime.set(aniId, (byAnime.get(aniId) ?? 0) + 1);
+  }
+  const out: WatchDays = {};
+  per.forEach((byAnime, day) => {
+    let n = 0;
+    byAnime.forEach((c) => (n += c));
+    const a = Array.from(byAnime.entries())
+      .sort((x, y) => y[1] - x[1])
+      .map(([id]) => id);
+    out[day] = { n, a };
+  });
+  return out;
+}
+
 /** Les deux catégories dont dépend l'activité, et la série qu'elles portent. */
 export function activityFromCloud(
   payloads: { recent?: unknown; progress?: unknown },
   limit = 12,
-): { rows: ActivityRow[]; streak: number } {
+): { rows: ActivityRow[]; streak: number; days: WatchDays } {
   /* La table est déballée UNE fois et servie aux deux : les lignes en tirent
      leur avancement, la série ses jours. La reparser pour chacun coûterait un
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
@@ -221,5 +303,8 @@ export function activityFromCloud(
        trop tard sur le profil vu par un visiteur. Chez lui, la série est
        recalculée dans son navigateur, donc juste (cf. DeviceBlocks.tsx). */
     streak: watchStreak(map),
+    /* Même réserve de fuseau que la série : chez lui, le calendrier est
+       recompté dans son navigateur. */
+    days: watchDays(map),
   };
 }

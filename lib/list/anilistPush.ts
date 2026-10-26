@@ -13,6 +13,7 @@
 
 import type { Status, FuzzyDate } from "./types";
 import { clearSent, isRetryable, queueDelete, queueSave, type OutboxFields } from "./anilistOutbox";
+import { anilistWritesAllowed } from "../anilist/writeGuard";
 
 const ENDPOINT = "https://graphql.anilist.co/";
 
@@ -57,6 +58,8 @@ const FIELDS = [
 
 /** L'appel lui-même, sans file : `flushOutbox` s'en sert pour rejouer. */
 export async function sendSave(token: string, payload: SavePayload): Promise<SaveResult> {
+  // Hors prod : jamais envoyé, jamais rangé dans la file (lib/anilist/writeGuard).
+  if (!anilistWritesAllowed()) return { ok: false, retryable: false };
   const variables: Record<string, unknown> = { mediaId: payload.mediaId };
   for (const f of FIELDS) if (payload[f] !== undefined) variables[f] = payload[f];
 
@@ -107,6 +110,7 @@ export async function sendSave(token: string, payload: SavePayload): Promise<Sav
 
 /** DeleteMediaListEntry, sans file. `true` = supprimée (ou déjà absente). */
 export async function sendDelete(token: string, entryId: number): Promise<SaveResult | { ok: true }> {
+  if (!anilistWritesAllowed()) return { ok: false, retryable: false };
   let status: number | null = null;
   try {
     const res = await fetch(ENDPOINT, {
@@ -158,6 +162,7 @@ export async function deleteMediaListEntry(
   mediaId: number,
   entryId: number | null,
 ): Promise<boolean> {
+  if (!anilistWritesAllowed()) return true; // hors prod : retiré localement seulement
   if (!entryId) {
     queueDelete(mediaId);
     return true;

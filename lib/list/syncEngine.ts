@@ -28,6 +28,7 @@ import {
 } from "./localList";
 import { todayFuzzy, Status, FuzzyDate } from "./types";
 import { saveMediaListEntry } from "./anilistPush";
+import { anilistWritesAllowed } from "../anilist/writeGuard";
 import { patchListEntry, peekListEntry } from "@/lib/anilist/userListCache";
 import { isCompleted, readProgressMap } from "@/lib/watch/progress";
 
@@ -621,6 +622,18 @@ function advanceProgress(aniId: number, current: number, episode: number): numbe
  * AniList push (only when master enabled + session): mirror progress/status,
  * respecting the individual autoProgress / autoWatching toggles.
  */
+/**
+ * LES ENVOIS AUTOMATIQUES VERS ANILIST NE PARTENT QUE DE LA PROD (25/10/2026,
+ * Luc : « il m'arrive bcp de modifier mes anime par erreur » en testant sur la
+ * dev). Sur dev.aniscroll.com, localhost ou une preview, un épisode fini met à
+ * jour la liste LOCALE seulement ; AniList n'est touché que depuis
+ * aniscroll.com. Le nom d'hôte et pas NODE_ENV : la dev est un build de
+ * production (cf. serverPerf.ts).
+ */
+function autoPushAllowed(): boolean {
+  return anilistWritesAllowed(); // une seule règle : lib/anilist/writeGuard
+}
+
 export async function onEpisodeFinished(
   args: EpisodeFinishedArgs,
 ): Promise<{ completed: boolean }> {
@@ -683,7 +696,8 @@ export async function onEpisodeFinished(
   }
   upsertLocalEntry(aniId, patch);
 
-  // ── AniList push (opt-in) ──────────────────────────────────────
+  // ── AniList push (opt-in, prod only) ───────────────────────────
+  if (!autoPushAllowed()) return { completed: justCompleted };
   const session = await getAniListSession(prefs);
   if (!session?.user?.token) return { completed: justCompleted };
   const token = session.user.token;
@@ -770,7 +784,8 @@ export async function runAutoPauseSweep(): Promise<void> {
     });
   }
 
-  // Push upstream only if enabled + connected.
+  // Push upstream only if enabled + connected, and only from prod.
+  if (!autoPushAllowed()) return;
   const session = await getAniListSession(prefs);
   const token = session?.user?.token;
   const userName = session?.user?.name;

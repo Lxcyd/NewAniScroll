@@ -47,23 +47,27 @@ export function Bar({ pct, color }: { pct: number; color?: string }) {
       {/* ZÉRO, C'EST UNE PISTE VIDE. Le plancher ci-dessous existe pour qu'un
           PETIT avancement se voie ; appliqué à rien, il dessinait un bout de
           barre sous « 0 / 20 », c'est-à-dire un progrès qui n'existe pas. */}
-      {pct > 0 ? (
-        <span
-          className="block h-full rounded-full"
-          style={{
-            /* Le plancher est en `%` — 2 % de la piste — mais une piste epaisse le
-               rend ridicule : a 11 px de haut, ces 2 % dessinent une pastille
-               ECRASEE, plus haute que large, et le petit statut a l'air casse
-               plutot que petit. Le plancher est donc aussi de la hauteur de la
-               barre, ce qui en fait un disque propre. */
-            minWidth: "var(--as-bar-h, 5px)",
-            width: `${Math.max(2, Math.min(100, pct))}%`,
-            background:
-              color ||
-              "linear-gradient(90deg, var(--brand-primary, #E94560), var(--brand-secondary, #FF7F57))",
-          }}
-        />
-      ) : null}
+      {/* TOUJOURS MONTÉE, À LARGEUR NULLE QUAND IL N'Y A RIEN (25/10/2026) :
+          c'est ce qui permet à une barre de POUSSER depuis zéro — une ligne qui
+          apparaît, un réglage qui fait remonter un compte. Démontée à zéro,
+          elle réapparaissait d'un coup à sa longueur finale. */}
+      <span
+        /* La longueur s'anime : un réglage qui change les comptes fait
+           glisser les barres au lieu de les faire sauter (25/10/2026). */
+        className="block h-full rounded-full transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={{
+          /* Le plancher est en `%` — 2 % de la piste — mais une piste epaisse le
+             rend ridicule : a 11 px de haut, ces 2 % dessinent une pastille
+             ECRASEE, plus haute que large, et le petit statut a l'air casse
+             plutot que petit. Le plancher est donc aussi de la hauteur de la
+             barre, ce qui en fait un disque propre. Rien quand il n'y a rien. */
+          minWidth: pct > 0 ? "var(--as-bar-h, 5px)" : 0,
+          width: pct > 0 ? `${Math.max(2, Math.min(100, pct))}%` : "0%",
+          background:
+            color ||
+            "linear-gradient(90deg, var(--brand-primary, #E94560), var(--brand-secondary, #FF7F57))",
+        }}
+      />
     </span>
   );
 }

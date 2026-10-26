@@ -18,6 +18,7 @@ import {
 } from "@/lib/list/types";
 import { useSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { clearSent, isRetryable, queueFavourite, queueSave } from "@/lib/list/anilistOutbox";
+import { anilistWritesAllowed } from "@/lib/anilist/writeGuard";
 import { deleteMediaListEntry } from "@/lib/list/anilistPush";
 /* La couleur d'une liste personnalisée vit avec les autres couleurs de listes
    depuis que le menu déroulant des réglages de widget peint les mêmes
@@ -198,7 +199,11 @@ const ListEditor: React.FC<ListEditorProps> = ({
   // master toggle off. "Sync off" means "don't touch my AniList account" — so
   // even an explicit manual edit here stays local until they re-enable sync.
   const syncEnabled = useSyncPrefs().enabled;
-  const isLocal = !session?.user?.token || !syncEnabled;
+  /* HORS PROD, L'ÉDITEUR EST EN MODE LOCAL (25/10/2026, Luc : « j'enregistre
+     et remis à 2 auto »). Rien n'y part vers AniList (lib/anilist/writeGuard) :
+     relire AniList à l'ouverture recouvrait aussitôt ce qu'on venait
+     d'enregistrer en local. Il lit et écrit donc la liste locale seule. */
+  const isLocal = !session?.user?.token || !syncEnabled || !anilistWritesAllowed();
 
   useEffect(() => {
     if (!animeId) return;
@@ -373,6 +378,7 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const deleteEntry = async (): Promise<boolean> => {
     const token = session?.user?.token;
     if (!token) return true;
+    if (!anilistWritesAllowed()) return true; // hors prod : retiré localement seulement
     if (!entryId && !wasListed.current) return true; // nothing to delete
     return deleteMediaListEntry(token, animeId, entryId || null);
   };
@@ -526,6 +532,11 @@ const ListEditor: React.FC<ListEditorProps> = ({
       queueSave(animeId, outboxFields);
       notify.success(t("listEditor.queued"));
     };
+
+    /* Hors prod, rien ne part vers AniList (lib/anilist/writeGuard) : la liste
+       locale et le cache sont déjà à jour ci-dessus, et l'éditeur se tait au
+       lieu d'afficher une erreur d'envoi. */
+    if (!anilistWritesAllowed()) return;
 
     // Background mutation — fire-and-forget. We still patch the cache with the
     // authoritative server response (entry id, etc.) when it returns.

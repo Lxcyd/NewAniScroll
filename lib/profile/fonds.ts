@@ -60,12 +60,27 @@ export const FONDS: Fond[] = (catalogue as any[]).map((f) => ({
     Lue ici plutôt que dans `videoCover`, que la validation du profil vide
     pour une adresse relative — celles du dev local (case noire, 24/10/2026). */
 export function fondPoster(url: string | null | undefined): string | null {
-  return (url && FONDS.find((f) => f.url === url)?.poster) || null;
+  return fondOf(url)?.poster ?? null;
+}
+
+/* LE FOND D'UNE ADRESSE, quel que soit l'hôte (24/10/2026, Luc : « petit bug
+   en bas », une case musique noire avec un égaliseur). L'adresse d'un fond
+   dépend de l'endroit : `/fonds/…` en local, `https://fonds.aniscroll.com/…`
+   ailleurs. Un fond posé sur dev et revu en local ne se retrouvait pas à
+   l'adresse exacte : ni affiche (case noire), ni « muet » (barres affichées).
+   On compare donc le CHEMIN du fichier. */
+const fondPath = (url: string) =>
+  url.replace(new RegExp(`^https?://${FONDS_HOST.replace(/\./g, "\\.")}/`), "").replace(/^\/fonds\//, "");
+export function fondOf(url: string | null | undefined): Fond | null {
+  if (!url) return null;
+  const p = fondPath(url);
+  return FONDS.find((f) => fondPath(f.url) === p) ?? null;
 }
 
 /** Un fond du catalogue SANS piste son : sa case n'a ni égaliseur ni volume. */
 export function isFondMuet(url: string | null | undefined): boolean {
-  return !!url && FONDS.some((f) => f.url === url && !f.audio);
+  const f = fondOf(url);
+  return !!f && !f.audio;
 }
 
 /** Les fonds groupés par anime, dans l'ordre du catalogue (déjà trié). */

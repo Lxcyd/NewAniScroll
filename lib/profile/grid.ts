@@ -207,12 +207,17 @@ const MAX_OPTIONS = 8;
     (clé réservée `title`), d'où l'export : le champ de renommage coupe à la
     même longueur plutôt que de laisser écrire ce que le nettoyage jettera. */
 export const MAX_VALUE = 48;
+/** Une case à cocher MULTIPLE (clé `lists`, cf. `blockOptionList`) range un
+    tableau JSON de noms de listes : 48 caractères n'en tiennent que deux ou
+    trois. Toujours borné, juste plus large. */
+const MAX_LIST_VALUE = 800;
 function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   if (!s || typeof s !== "object") return null;
   const out: Record<string, boolean | string> = {};
   for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
     if (k.length > 32) continue;
-    if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= MAX_VALUE)) continue;
+    const cap = k === "lists" ? MAX_LIST_VALUE : MAX_VALUE;
+    if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= cap)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;
   }

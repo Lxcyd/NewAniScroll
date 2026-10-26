@@ -6,8 +6,8 @@ import { notify } from "@/lib/notifications/noticeStore";
 import WidgetGrid, { type BlockChrome } from "./WidgetGrid";
 import BlockLibrary from "./BlockLibrary";
 import { EmptyBlock } from "./widgets/common";
+import { CharactersBlock } from "./widgets/CharactersBlock";
 import {
-  CharactersBlock,
   FavoritesBlock,
   YearsBlock,
   GenresBlock,
@@ -17,15 +17,23 @@ import {
   StudiosBlock,
 } from "./widgets/ListBlocks";
 import { RecentsBlock, ResumeBlock } from "./widgets/DeviceBlocks";
-import { customListColor, listLabel, LIST_COLORS } from "@/components/anime/v2/helpers";
+import {
+  customListColor,
+  listLabel,
+  LIST_COLORS,
+  STATUS_TO_LIST,
+} from "@/components/anime/v2/helpers";
 import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
-import type { ActivityRow } from "@/lib/profile/activity";
+import type { ActivityRow, WatchDays } from "@/lib/profile/activity";
+import { CalendarBlock } from "./widgets/CalendarBlock";
 import {
   BLOCKS,
   DEFAULT_BLOCKS,
   blockBounds,
   blockDef,
   blockOption,
+  blockOptionList,
+  blockOptionNumber,
   blockOptionRange,
   blockOptionValue,
   blockOptions,
@@ -93,6 +101,8 @@ type Props = {
    *  navigateur : un jour de série est un jour de calendrier, donc il dépend du
    *  fuseau, et celui du serveur n'est pas le sien. */
   streak?: number | null;
+  /** Les jours de lecture DU PROPRIÉTAIRE pour le calendrier (visiteur). */
+  watchDays?: WatchDays | null;
   /** Une note cliquée dans l'histogramme. La page bascule alors sur son onglet
    *  « Ma liste », filtrée sur cette note — et sur les titres terminés quand le
    *  bloc est réglé ainsi, sans quoi la liste montrerait des titres que la
@@ -146,6 +156,7 @@ export default function ProfileOverview({
   accountLayout,
   activity,
   streak,
+  watchDays,
   onPickScore,
   editing: editingProp,
   onEditingChange,
@@ -313,6 +324,23 @@ export default function ProfileOverview({
         id === "favorites" ||
         id === "scores" ||
         (id === "recents" && optionOn("recents", "streak")),
+      /* Le crayon des personnages favoris, à côté de la roue, chez le
+         propriétaire (25/10/2026, Luc) : ajouter, retirer, réordonner. */
+      editor:
+        id === "characters" && isOwner
+          ? {
+              label: t("profile.blocks.characters.manage"),
+              node: (
+                <CharactersBlock
+                  characters={characters}
+                  showFrom={optionOn("characters", "showFrom")}
+                  size={optionValue("characters", "cardSize") as "small" | "normal" | "large"}
+                  isOwner
+                  editing
+                />
+              ),
+            }
+          : undefined,
       body: body(id),
     };
   }
@@ -327,6 +355,23 @@ export default function ProfileOverview({
   }
   function optionValue(id: string, key: string): string {
     return blockOptionValue(id, key, saved(id), customValues);
+  }
+  /** Les listes cochées de « Répartition ». Un profil qui avait allumé l'ancien
+      interrupteur `customLists` retrouve ses listes perso cochées. */
+  function statusLists(): string[] {
+    const s = saved("statuses");
+    return blockOptionList(
+      "statuses",
+      "lists",
+      s,
+      customValues,
+      s?.customLists === true ? customValues : undefined,
+    );
+  }
+  /** Toutes les cases cochées sont des listes perso : le titre le dit. */
+  function onlyCustom(): boolean {
+    const l = statusLists();
+    return l.length > 0 && l.every((v) => v.startsWith(CUSTOM_PREFIX));
   }
 
   /* Les listes personnalisées de CE profil, telles que sa liste les porte. Elles
@@ -429,6 +474,54 @@ export default function ProfileOverview({
         const [from, to] = blockOptionRange(id, o.key, saved(id));
         return { ...common, min: o.range[0], max: o.range[1], step: o.step, from, to };
       }
+      if ("slider" in o) {
+        return {
+          ...common,
+          single: {
+            min: o.slider[0],
+            max: o.slider[1],
+            value: blockOptionNumber(id, o.key, saved(id)),
+            zeroLabel: o.zero ? t(`profile.widgets.options.${o.key}Choice.${o.zero}`) : undefined,
+          },
+        };
+      }
+      if ("multi" in o) {
+        /* Les statuts dans l'ordre du site, puis les listes perso — même ordre
+           et mêmes pastilles que le menu de la vitrine. */
+        return {
+          ...common,
+          values: id === "statuses" ? statusLists() : [],
+          multi: [
+            ...o.multi.map((k) => ({
+              value: k,
+              label: listLabel(t, STATUS_TO_LIST[k] || k),
+              color: LIST_COLORS[STATUS_TO_LIST[k]],
+              group: "status",
+              groupLabel: t("profile.widgets.options.groupStatuses"),
+            })),
+            ...customLists.map((n) => ({
+              value: `${CUSTOM_PREFIX}${n}`,
+              label: n,
+              color: customListColor(n),
+              group: "custom",
+              groupLabel: t("profile.widgets.options.groupCustom"),
+            })),
+          ],
+        };
+      }
+      /* Un menu qui n'est PAS une liste (« Par ligne ») : ses choix se
+         traduisent sous `<clé>Choice.<valeur>`, sans pastille ni listes perso. */
+      if ("choices" in o && o.key !== "source") {
+        return {
+          ...common,
+          value: optionValue(id, o.key),
+          segmented: o.segmented,
+          choices: o.choices.map((c) => ({
+            value: c,
+            label: t(`profile.widgets.options.${o.key}Choice.${c}`, c),
+          })),
+        };
+      }
       return "choices" in o
         ? {
             ...common,
@@ -448,11 +541,18 @@ export default function ProfileOverview({
                     : listLabel(t, c),
                 color: c === "favourites" ? def?.color : LIST_COLORS[c],
                 heart: c === "favourites",
+                /* Les favoris seuls en tête, puis les statuts, puis les
+                   listes perso, chaque section séparée (WidgetSettings). */
+                group: c === "favourites" ? "fav" : "status",
+                groupLabel:
+                  c === "favourites" ? undefined : t("profile.widgets.options.groupStatuses"),
               })),
               ...customLists.map((n) => ({
                 value: `${CUSTOM_PREFIX}${n}`,
                 label: n,
                 color: customListColor(n),
+                group: "custom",
+                groupLabel: t("profile.widgets.options.groupCustom"),
               })),
             ],
           }
@@ -535,7 +635,7 @@ export default function ProfileOverview({
     }
     /* Le bloc ne compte plus des statuts : son nom doit le dire. Sans ça,
        « Répartition par statut » chapeautait une liste de noms inventés. */
-    if (id === "statuses" && optionOn("statuses", "customLists")) {
+    if (id === "statuses" && onlyCustom()) {
       return t("profile.blocks.statuses.titleCustom");
     }
     return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
@@ -561,7 +661,7 @@ export default function ProfileOverview({
       }
       if (!hasFavourites) return t("profile.blocks.favorites.titleTopRated");
     }
-    if (id === "statuses" && optionOn("statuses", "customLists")) {
+    if (id === "statuses" && onlyCustom()) {
       return t("profile.blocks.statuses.titleCustom");
     }
     return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
@@ -599,6 +699,7 @@ export default function ProfileOverview({
             titles={titlesById}
             streak={streak ?? 0}
             streakOn={optionOn("recents", "streak")}
+            coverArt={optionOn("recents", "coverArt")}
             editing={editing}
           />
         );
@@ -615,7 +716,7 @@ export default function ProfileOverview({
         );
       case "statuses":
         return (
-          <StatusesBlock entries={entries} custom={optionOn("statuses", "customLists")} />
+          <StatusesBlock entries={entries} lists={statusLists()} />
         );
       case "scores":
         return (
@@ -646,11 +747,36 @@ export default function ProfileOverview({
           />
         );
       case "studios":
-        return <StudiosBlock entries={entries} />;
+        return (
+          <StudiosBlock entries={entries} completedOnly={optionOn("studios", "completedOnly")} />
+        );
       case "season":
-        return <SeasonBlock entries={entries} />;
+        return (
+          <SeasonBlock
+            entries={entries}
+            rewatching={optionOn("season", "rewatching")}
+            airingFirst={optionOn("season", "airingFirst")}
+            perRow={blockOptionNumber("season", "perRow", saved("season"))}
+            size={optionValue("season", "cardSize") as "small" | "normal" | "large"}
+          />
+        );
       case "characters":
-        return <CharactersBlock characters={characters} />;
+        return (
+          <CharactersBlock
+            characters={characters}
+            showFrom={optionOn("characters", "showFrom")}
+            size={optionValue("characters", "cardSize") as "small" | "normal" | "large"}
+            isOwner={isOwner}
+          />
+        );
+      case "calendar":
+        return (
+          <CalendarBlock
+            served={isOwner ? undefined : (watchDays ?? {})}
+            entries={entries}
+            covers={optionOn("calendar", "covers")}
+          />
+        );
       default:
         // Les blocs `soon` : la mise en page est là, et le bloc dit lui-même ce
         // qui lui manque plutôt que d'afficher un chiffre inventé.
@@ -697,7 +823,7 @@ export default function ProfileOverview({
             {editing
               ? t("profile.widgets.done")
               : controlled
-                ? t("profile.studioTitle")
+                ? t("profile.studioCustomize")
                 : t("profile.widgets.rearrange")}
           </button>
           )}

@@ -1,4 +1,6 @@
 import Image from "next/image";
+import MediaThumb from "@/components/profile/MediaThumb";
+import { isVideoUpload } from "@/lib/upload/media";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { frameAnimUrl, frameThumbUrl, frameUrl } from "@/lib/profile/frames";
 import { AVATAR_FOCUS_Y, type AvatarCrop } from "@/lib/profile/dressing";
@@ -190,6 +192,11 @@ export default function FramedAvatar({
         {src ? (
           /* Le rond rogne : la photo zoomée déborde dedans, pas dehors. */
           <div className={`${sizeClass} overflow-hidden rounded-full`}>
+            {isVideoUpload(src) ? (
+              /* Un avatar VIDÉO importé au studio (lib/upload/media.ts) : muet,
+                 en boucle, cadré comme une photo. */
+              <MediaThumb src={src} alt={name} className="h-full w-full object-cover" style={cropStyle(crop)} />
+            ) : (
             <Image
               src={src}
               alt={name}
@@ -200,6 +207,7 @@ export default function FramedAvatar({
               className="h-full w-full object-cover"
               style={cropStyle(crop)}
             />
+            )}
           </div>
         ) : (
           <div

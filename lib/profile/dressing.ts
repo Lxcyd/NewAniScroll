@@ -19,6 +19,7 @@
 
 import type { BannerOption } from "./types";
 import { isFrameAsset } from "./frames";
+import { isUploadUrl, isVideoUpload } from "../upload/media";
 import {
   clampPatternSpeed,
   clampPatternZoom,
@@ -328,9 +329,10 @@ export function clampScale(v: unknown): number {
  * Les fonds que le studio propose (le dock les regroupe : DOCK_GROUPS de
  * BannerStudio).
  *
- * `ready: false` n'est pas un « à faire » décoratif : l'import attend un
- * stockage et une IA anti-NSFW qui n'existent pas encore en ligne. Le bouton
- * reste dans le dock — la palette dit alors ce qui manque.
+ * `ready: false` : le bouton reste dans le dock, la palette dit ce qui manque.
+ * L'import est ouvert depuis le 24/10/2026 (Luc) : stockage dans le KV du
+ * Worker, contrôles de format et de poids (lib/upload/media.ts). Pas de
+ * filtre anti-NSFW automatique pour l'instant — décision de Luc.
  *
  * « Bannière animée » et « Clip d'anime » ont été retirés le 13/10/2026 (aucune
  * source en vue) : le type les garde pour ne pas casser `isVideoKind`, mais
@@ -347,15 +349,21 @@ export const DRESSING_KINDS: Array<{ id: DressingKind; ready: boolean }> = [
      que le profil fait déjà. */
   { id: "video", ready: true },
   { id: "oped", ready: true },
-  { id: "upload", ready: false },
+  { id: "upload", ready: true },
 ];
 
-export const MAX_BLUR = 32;
+/** 64 px depuis le 25/10/2026 (Luc : « augmente le max du flou ») ; 32 avant. */
+export const MAX_BLUR = 64;
+/** Le flou nul est permis. « 0 est moche » (25/10/2026, Luc) visait la TEINTE :
+    sans flou, les cartes repassaient au fond sombre de 0,72. Elles gardent
+    désormais la même teinte à tous les niveaux (ProfileHero) ; 0 retire
+    seulement le flou, et son calque. */
+export const MIN_BLUR = 0;
 
 export function clampBlur(v: unknown): number {
   const n = Number(v);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(MAX_BLUR, Math.round(n)));
+  if (!Number.isFinite(n)) return MIN_BLUR;
+  return Math.max(MIN_BLUR, Math.min(MAX_BLUR, Math.round(n)));
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -386,6 +394,8 @@ const ALLOWED_MEDIA_HOSTS = [
 
 export function isAllowedMediaUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length > 500) return false;
+  /* Une vidéo importée au studio (lib/upload/media.ts) : forme exacte. */
+  if (isVideoUpload(url)) return true;
   /* Les fonds animés servis en local par le serveur de dev (lib/profile/fonds.ts) :
      jamais en production, où ils viennent de fonds.aniscroll.com. */
   if (process.env.NODE_ENV === "development" && /^\/fonds\/[\w/.-]+\.webm$/.test(url)) return true;
@@ -677,6 +687,9 @@ export function cleanAvatarCrop(v: unknown): AvatarCrop | null {
 /** Une image d'avatar acceptable : https, sur un hôte d'images d'AniList. */
 export function isAvatarUrl(url: unknown): url is string {
   if (typeof url !== "string") return false;
+  /* Un import envoyé au Worker (image, GIF ou vidéo, lib/upload/media.ts) :
+     l'adresse a la forme exacte des imports, rien d'autre ne passe. */
+  if (isUploadUrl(url)) return true;
   /* Un import du studio : une data URL d'image en base64, rien d'autre (pas de
      SVG, qui pourrait porter du script), sous `AVATAR_DATA_MAX`. */
   if (url.startsWith("data:"))

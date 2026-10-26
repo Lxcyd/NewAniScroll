@@ -228,6 +228,25 @@ aniwatchtv, megaup, embed4me, mewstream.
 Vu ailleurs : **flixcloud.cc** (reanime.to : Artplayer + hls.js, MKV « dual audio »
 VO+VA dans un meme fichier, chapitres MKV, sous-titres sur `vault-*.fallencdn.top`).
 
+**VidNest** (`vidnest.fun`, API `new.vidnest.fun`) — analyse le 25/10/2026,
+vu sur free.cine-track.fr (« VidNest VF 1080p »). Agregateur d'embeds : routes
+`/movie/<TMDB>`, `/tv/<TMDB>/<s>/<e>`, `/anime/<AniList>/<ep>/<sub|dub|hindi>`.
+Deja integre puis retire le 13/06/2026 (route anime = meme flux MegaCloud que
+megaplay). Ce qui est NOUVEAU, c'est la route **TV par TMDB**, 12 serveurs
+(`/yflix/tv`, `/ophim/tv`, `/flixhq/tv`, `/onehd/tv`…). Le serveur **Alfa**
+(`/onehd/tv/<TMDB>/<s>/<e>`) rend une piste par langue, dont **French 1080p** :
+10 animes sur 12 testes (Frieren, Solo Leveling, JJK, Dandadan, One Piece,
+Spy x Family, Chainsaw Man, Oshi no Ko, Kaiju n°8, Blue Lock ; pas Mushoku
+Tensei). Reponse `{v:2,d,n}` en AES-GCM, cle = SHA-256(`<n>|<secret du client>`),
+requete avec un nonce `_n`. Le flux reel est **vidrift.net**
+(`embed.vidrift.net/api/orion/<hash>/master.m3u8`, Referer `https://vidrift.net/`
+obligatoire, sinon 403), segments fMP4 sur `sacdn.hakunaymatata.com` (CDN de
+MovieBox). **Video HEVC (hvc1) uniquement**, 1080/720/480 : lisible seulement
+la ou le navigateur decode le HEVC. Piste audio marquee `und` (langue a
+verifier a l'oreille). ~27 langues de sous-titres via `embed.vidrift.net/api/subtitles/tv/<TMDB>/<s>/<e>/<lang>`.
+Le site VidNest injecte popunders et scripts publicitaires : passer par le flux,
+jamais par l'iframe.
+
 | Outil | Usage |
 | --- | --- |
 | [hls.js](https://github.com/video-dev/hls.js) | Lecture HLS navigateur (horloge = 1er segment charge, cf. memoire « horloge lecteur ») |

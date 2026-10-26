@@ -461,7 +461,10 @@
 .le-ep-bar-disabled { cursor: not-allowed; opacity: 0.35; }
 .list-editor-ep-fill {
   height: 100%;
-  background: var(--brand-primary);
+  /* Le BLEU ÉPISODES, pas l'accent (25/10/2026, Luc) : l'avancement en nombre
+     d'épisodes a sa couleur partout — la même que `EP_BLUE` du widget « En
+     cours de visionnage » (components/profile/widgets/ListBlocks.tsx). */
+  background: #0ea5e9;
   border-radius: 999px;
   transition: width 0.1s linear;
   pointer-events: none;

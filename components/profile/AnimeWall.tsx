@@ -145,6 +145,13 @@ export default function AnimeWall({
          est plafonné, le mur reprend sans rattraper la minute perdue. */
       const dt = last == null || !anim ? 0 : Math.min(0.1, (now - last) / 1000);
       last = now;
+      /* FIGÉ PENDANT LE DÉPLACEMENT D'UN WIDGET (`html.as-dragging`, posée par
+         WidgetGrid, 25/10/2026) : en scène, chaque pas du mur se repeint SOUS
+         les cartes floutées et refait leur flou. Il reprend au lâcher. */
+      if (document.documentElement.classList.contains("as-dragging")) {
+        if (anim) raf = requestAnimationFrame(pose);
+        return;
+      }
       let change = false;
       const next = debutsRef.current.slice();
       for (let c = 0; c < cols; c++) {

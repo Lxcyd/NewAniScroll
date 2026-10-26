@@ -130,13 +130,22 @@ export const BLOCKS: BlockDef[] = [
      fois et le défilement devient le seul moyen de voir la forme, qui est
      pourtant tout ce qu'on vient chercher. */
   { id: "years", size: [4, 1], min: [2, 1], max: [4, 2], color: "#5EC9CE", source: "list", icon: "◠" },
-  { id: "studios", size: [2, 1], color: "#FFD700", source: "list", icon: "◆" },
-  { id: "season", size: [4, 1], color: "#22c55e", source: "list", icon: "❂" },
-  { id: "characters", size: [4, 1], color: "#E94560", source: "list", icon: "☺" },
+  /* De 1×1 à 2×2 (25/10/2026, Luc) : une liste de noms n'a rien à faire sur
+     toute la largeur de la grille. */
+  { id: "studios", size: [2, 1], min: [1, 1], max: [2, 2], color: "#FFD700", source: "list", icon: "◆" },
+  // 1×2 au minimum (hauteur × largeur, 25/10/2026, Luc) : sur une colonne le
+  // titre se coupait à « Firefly Wedd… ».
+  { id: "season", size: [4, 1], min: [2, 1], max: [4, 3], color: "#22c55e", source: "list", icon: "❂" },
+  /* 1×1 à 3×4 (hauteur × largeur, 25/10/2026) : les colonnes suivent la
+     largeur de la carte, un portrait rond tient dans une seule colonne. */
+  { id: "characters", size: [4, 1], min: [1, 1], max: [4, 3], color: "#E94560", source: "list", icon: "☺" },
+  /* Le journal des jours regardés (25/10/2026, Luc), tiré de la table de
+     progression comme la flamme. Deux lignes au moins : six semaines ne
+     tiennent pas dans 230 px. Une colonne suffit, les cases rétrécissent. */
+  { id: "calendar", size: [2, 2], min: [1, 2], max: [4, 3], color: "#3B82F6", source: "device", icon: "▦" },
   // Sans source, pour l'instant — cf. l'en-tête. Chacun sait déjà ce qu'il lui
   // manque, écrit dans sa traduction `.soon`, pour que le bloc vide explique
   // lui-même pourquoi il est vide.
-  { id: "calendar", size: [2, 2], color: "#3B82F6", source: "soon", icon: "▦" },
   { id: "heatmap", size: [4, 1], color: "#E94560", source: "soon", icon: "▨" },
   { id: "binge", size: [2, 1], color: "#F59E0B", source: "soon", icon: "⏱" },
   { id: "goal", size: [2, 1], color: "#A855F7", source: "soon", icon: "◎" },
@@ -166,7 +175,7 @@ export type BlockOption =
   /** Un interrupteur. */
   | { key: string; on: boolean }
   /** Un choix dans une liste fermée. `on` absent : c'est ce qui les distingue. */
-  | { key: string; choices: readonly string[]; value: string }
+  | { key: string; choices: readonly string[]; value: string; segmented?: boolean }
   /**
    * Une PLAGE de valeurs, deux poignées sur un rail.
    *
@@ -175,7 +184,27 @@ export type BlockOption =
    * n'accepte que des booléens et des chaînes (cf. GridItem.s) n'a pas eu à
    * apprendre un troisième type pour ça.
    */
-  | { key: string; range: [number, number]; step: number; value: string };
+  | { key: string; range: [number, number]; step: number; value: string }
+  /**
+   * Des cases à cocher dans un menu. Rangé comme un tableau JSON en chaîne (le
+   * stockage ne prend que booléens et chaînes) ; `value` est le défaut.
+   */
+  | { key: string; multi: readonly string[]; value: readonly string[] }
+  /**
+   * Un curseur à UNE poignée, sur des entiers. Rangé en chaîne comme le reste.
+   * `zero`, quand il est donné, nomme la position 0 (« Auto »).
+   */
+  | { key: string; slider: [number, number]; value: number; zero?: string };
+
+/** Les six statuts, clés AniList, dans l'ordre du site. */
+export const STATUS_KEYS = [
+  "CURRENT",
+  "REPEATING",
+  "COMPLETED",
+  "PLANNING",
+  "PAUSED",
+  "DROPPED",
+] as const;
 
 /**
  * Les listes que le bloc « favoris » sait mettre en vitrine.
@@ -202,14 +231,25 @@ const OPTIONS: Record<string, BlockOption[]> = {
      défaut : elle est la récompense d'une habitude, et cachée par défaut
      personne ne la découvrirait. Éteignable parce qu'un compteur de régularité
      n'est pas une bonne nouvelle pour tout le monde. */
-  recents: [{ key: "streak", on: true }],
+  recents: [
+    { key: "streak", on: true },
+    /* La couverture de l'anime à la place de l'image de l'épisode (25/10/2026,
+       Luc). Éteint par défaut : l'image d'épisode dit OÙ on en est. */
+    { key: "coverArt", on: false },
+  ],
   /* Compter les listes personnalisées PLUTÔT QUE les statuts. Éteint par
      défaut : les statuts existent sur tous les profils, les listes inventées
      n'existent que sur certains — un défaut allumé ouvrirait le bloc sur un état
      vide chez la plupart des gens. Un interrupteur et pas un menu : les deux
      répartitions ne se mélangent pas (une entrée a UN statut, mais peut être
      dans trois listes personnalisées, donc les totaux ne se comparent pas). */
-  statuses: [{ key: "customLists", on: false }],
+  /* LES LISTES À COMPTER, cochées dans un menu (25/10/2026, Luc) : les six
+     statuts et les listes personnalisées, mélangeables. Il remplace
+     l'interrupteur `customLists` (« statuts OU listes perso »), qui reste lu
+     pour les profils qui l'avaient allumé (cf. ProfileOverview). Défaut : les
+     six statuts. Attention en mélangeant : une entrée a UN statut mais peut
+     être dans trois listes perso, donc les totaux ne s'additionnent pas. */
+  statuses: [{ key: "lists", multi: STATUS_KEYS, value: STATUS_KEYS }],
   /* Ne garder que les titres TERMINÉS — re-visionnages compris (cf. `FINISHED`,
      insights.ts). Allumé par défaut, contrairement aux autres filtres du
      profil : une note posée sur un titre qu'on regarde encore ou qu'on a
@@ -224,6 +264,37 @@ const OPTIONS: Record<string, BlockOption[]> = {
      liste d'attente est faite d'intentions — elle raconte ce qu'on croit aimer,
      pas ce qu'on a regardé. L'interrupteur rouvre le radar à toute la liste. */
   genres: [{ key: "completedOnly", on: true }],
+  /* Même filtre, même défaut (25/10/2026, Luc) : la moyenne d'un studio se
+     lit sur ce qu'on a VU de lui. */
+  studios: [{ key: "completedOnly", on: true }],
+  /* Les titres en RE-VISIONNAGE dans « En cours » : allumé, c'est ce qu'on
+     regarde en ce moment, au même titre qu'une première fois. */
+  season: [
+    /* LES DIFFUSIONS EN TÊTE (25/10/2026, Luc) : les titres dont un épisode
+       sort bientôt passent devant, du plus proche au plus lointain, avec le
+       compte à rebours sur l'affiche. Allumé par défaut. */
+    { key: "airingFirst", on: true },
+    { key: "rewatching", on: true },
+    /* Le nombre de titres par ligne (25/10/2026, Luc). « auto » suit la
+       largeur de la carte. */
+    /* Un CURSEUR, plus un menu (Luc, même jour) : 0 = Auto. */
+    /* La taille des cartes (25/10/2026, Luc) : « normal » = la carte
+       d'origine ; « small » resserre affiche, titre et barre pour en voir plus ;
+       « large » agrandit tout. En boutons segmentés, pas en menu, APRÈS le
+       nombre par ligne (Luc, même jour). */
+    { key: "perRow", slider: [0, 5], value: 0, zero: "auto" },
+    { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },
+  ],
+  /* La taille des portraits, comme « En cours » (25/10/2026), et l'anime
+     d'origine sous le nom. Pas de nombre par ligne : retiré le même jour (Luc),
+     les colonnes suivent la largeur de la carte. */
+  /* L'affiche de l'anime du jour dans chaque case ; éteint, une teinte qui
+     suit le nombre d'épisodes. */
+  calendar: [{ key: "covers", on: true }],
+  characters: [
+    { key: "showFrom", on: true },
+    { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },
+  ],
   /* Même filtre encore : la frise raconte les époques qu'on a VUES, et une
      liste d'attente pleine de sorties de l'an prochain lui collerait une pointe
      à droite qui n'est pas du visionnage.
@@ -310,6 +381,46 @@ export function blockOptionValue(
   const v = saved?.[key];
   const ok = typeof v === "string" && (def.choices.includes(v) || extra.includes(v));
   return ok ? (v as string) : def.value;
+}
+
+/** La position d'un curseur : l'entier rangé s'il est dans les bornes, sinon
+ *  le défaut. (Un ancien « auto » rangé par le menu d'avant redevient 0.) */
+export function blockOptionNumber(
+  id: string,
+  key: string,
+  saved: Record<string, boolean | string> | undefined,
+): number {
+  const def = optionDef(id, key);
+  if (!def || !("slider" in def)) return 0;
+  const n = Number(saved?.[key]);
+  return Number.isInteger(n) && n >= def.slider[0] && n <= def.slider[1] ? n : def.value;
+}
+
+/**
+ * Les cases cochées d'un menu multiple : ce qui est rangé, sinon `fallback`,
+ * sinon le défaut. Comme pour un menu simple, une valeur qui n'existe plus
+ * (liste perso supprimée) est ignorée.
+ */
+export function blockOptionList(
+  id: string,
+  key: string,
+  saved: Record<string, boolean | string> | undefined,
+  extra: readonly string[] = [],
+  fallback?: readonly string[],
+): string[] {
+  const def = optionDef(id, key);
+  if (!def || !("multi" in def)) return [];
+  const known = new Set([...def.multi, ...extra]);
+  const v = saved?.[key];
+  if (typeof v === "string") {
+    try {
+      const arr = JSON.parse(v);
+      if (Array.isArray(arr)) return arr.filter((x) => typeof x === "string" && known.has(x));
+    } catch {
+      /* valeur abîmée : le défaut */
+    }
+  }
+  return [...(fallback ?? def.value)];
 }
 
 const BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));

@@ -89,6 +89,8 @@ function BadgeTokenInner({
   const R = RARITY[rarity];
   const Icon = hidden ? SECRET_ICON : iconFor(icon);
   const scale = size / BASE;
+  /** L'échelle de l'étiquette : celle du jeton, jamais sous 7 px de texte. */
+  const tagScale = Math.max(scale, 7 / 11);
 
   /* Un badge non obtenu ne scintille pas et ne brille pas : les étoiles et le
      balayage sont la récompense, pas la promesse. */
@@ -121,9 +123,12 @@ function BadgeTokenInner({
         /* Assez d'ecart pour lire l'etat d'un coup d'oeil, pas assez pour
            eteindre la couleur. */
         opacity: unlocked ? 1 : 0.8,
-        /* Le grossissement au survol. `will-change` évite que le navigateur
-           redessine le SVG à chaque image de la transition. */
-        willChange: "transform",
+        /* PAS DE `will-change: transform` (retiré le 25/10/2026, Luc : « les
+           badges sur le profil sont un peu pixelisés »). Il posait chaque jeton
+           sur sa propre couche, rastérisée une fois : centré sur la hauteur du
+           pseudo, le jeton tombe entre deux pixels, et la couche était
+           rééchantillonnée — bords et chiffres flous. Il ne servait pas le
+           grossissement au survol, qui est sur le bouton PARENT. */
       }}
     >
       <svg
@@ -197,29 +202,39 @@ function BadgeTokenInner({
       <Icon
         size={42 * scale}
         color={ink}
-        style={{ position: "relative", marginBottom: (tag ? 13 : 0) * scale }}
+        /* L'icône remonte de ce que l'étiquette a gagné en hauteur avec son
+           plancher, pour ne pas la toucher. */
+        style={{ position: "relative", marginBottom: tag ? 13 * scale + 21 * (tagScale - scale) : 0 }}
         aria-hidden="true"
       />
 
       {tag ? (
         <div
+          /* L'ÉTIQUETTE RESTE LISIBLE EN PETIT (25/10/2026, Luc : « tu peux
+             améliorer la qualité ? »). À 56 px de jeton, son texte faisait
+             11 × 0,47 ≈ 5 px : un pâté. Elle a donc sa propre échelle, avec un
+             plancher (texte d'au moins 7 px) ; au-dessus, elle suit le jeton.
+             Et elle est centrée par les marges, plus par `translateX(-50%)` :
+             une demi-largeur fractionnaire la remettait entre deux pixels. */
           style={{
             position: "absolute",
             bottom: 14 * scale,
-            left: "50%",
-            transform: "translateX(-50%)",
-            borderRadius: 8 * scale,
+            left: 0,
+            right: 0,
+            marginInline: "auto",
+            width: "fit-content",
+            borderRadius: 8 * tagScale,
             whiteSpace: "nowrap",
             boxShadow: "0 3px 10px rgba(0,0,0,.45)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            height: 21 * scale,
-            padding: `0 ${10 * scale}px`,
+            height: Math.round(21 * tagScale),
+            padding: `0 ${Math.round(10 * tagScale)}px`,
             background: R.plaque[0],
             fontFamily: "Outfit, sans-serif",
             fontWeight: 700,
-            fontSize: 11 * scale,
+            fontSize: 11 * tagScale,
             lineHeight: 1,
             color: R.plaque[1],
           }}

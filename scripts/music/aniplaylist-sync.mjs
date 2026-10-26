@@ -20,8 +20,8 @@
  * saison : « Cyberpunk: Edgerunners » ne ramène jamais « … Edgerunners 2 ».
  *
  * LA FILE = L'ÉTAT DE LA TABLE `aniplaylist_songs` (comme refresh-characters) :
- * jamais relevé, ou expiré. En cours de diffusion → 2 jours, terminé depuis
- * moins d'un an → 7 jours, plus vieux → 60 jours. Chaque relevé REMPLACE la
+ * jamais relevé, ou expiré. En cours de diffusion → 2 jours, à venir → 14
+ * jours, terminé depuis moins d'un an → 7 jours, plus vieux → 60 jours. Chaque relevé REMPLACE la
  * liste de l'anime : une musique ajoutée sur AniPlaylist arrive au passage
  * suivant. Les animes en diffusion passent d'abord, puis le reste du
  * catalogue par popularité, dans le budget de temps.
@@ -237,12 +237,19 @@ function compact(h) {
 
 function ttl(a) {
   const year = new Date().getUTCFullYear();
+  /* À VENIR : 14 jours, pas 2 (24/10/2026). Le premier relevé l'a montré :
+     ~740 titres annoncés, presque tous sans aucune musique encore, et un
+     passage n'en traite que ~260 — redemandés tous les 2 jours, ils
+     occupaient tout le budget, et le reste du catalogue n'était jamais
+     atteint. Un générique annoncé arrive au plus tard deux semaines après. */
   const base =
-    a.status === "RELEASING" || a.status === "NOT_YET_RELEASED"
+    a.status === "RELEASING"
       ? 2 * DAY
-      : a.year && a.year >= year - 1
-        ? 7 * DAY
-        : 60 * DAY;
+      : a.status === "NOT_YET_RELEASED"
+        ? 14 * DAY
+        : a.year && a.year >= year - 1
+          ? 7 * DAY
+          : 60 * DAY;
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
@@ -269,7 +276,7 @@ async function main() {
             FROM anime a
             LEFT JOIN aniplaylist_songs p ON p.ani_id = a.id
            WHERE ${ONLY_IDS.length ? `a.id IN (${ONLY_IDS.map(() => "?").join(",")})` : `(a.type IS NULL OR a.type = 'ANIME') AND a.is_adult = 0 AND (p.ani_id IS NULL OR p.expires_at < ?)`}
-           ORDER BY (a.status IN ('RELEASING', 'NOT_YET_RELEASED')) DESC, a.popularity DESC NULLS LAST
+           ORDER BY (a.status = 'RELEASING') DESC, a.popularity DESC NULLS LAST
            LIMIT 3000`,
     args: ONLY_IDS.length ? ONLY_IDS : [now],
   });

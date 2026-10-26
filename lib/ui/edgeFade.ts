@@ -22,9 +22,6 @@ import { useCallback, useEffect } from "react";
  * même bord, et non trois imitations qui dérivent.
  */
 
-/** La longueur du dégradé. Un seul chiffre, pour que les bords soient les mêmes. */
-const FADE_PX = 36;
-
 /** La marge d'erreur : sous quelques pixels, on est au bout. */
 const EDGE_SLACK = 4;
 
@@ -45,8 +42,9 @@ export function useEdgeFade<T extends HTMLElement>(
     const left = el.scrollLeft > EDGE_SLACK;
     const right =
       el.scrollLeft + el.clientWidth < el.scrollWidth - EDGE_SLACK;
-    el.style.setProperty("--as-fade-l", left ? `${FADE_PX}px` : "0px");
-    el.style.setProperty("--as-fade-r", right ? `${FADE_PX}px` : "0px");
+    /* L'intensité de chaque bord, 0 ou 1 : globals.css l'anime en fondu. */
+    el.style.setProperty("--as-fade-l", left ? "1" : "0");
+    el.style.setProperty("--as-fade-r", right ? "1" : "0");
   }, [ref]);
 
   useEffect(() => {

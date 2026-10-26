@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WidgetOption } from "./WidgetGrid";
@@ -31,12 +31,67 @@ type Props = {
 };
 
 /** Le nom d'un réglage et sa phrase d'explication — commun à toutes les formes. */
+/**
+ * BOUTONS SEGMENTÉS (25/10/2026, Luc : « trouve une meilleure interface qu'un
+ * dropdown » pour la taille des cartes). Tous les choix visibles, un clic pour
+ * changer ; la pastille d'accent glisse sous le choix actif.
+ */
+export function Segmented({
+  label,
+  value,
+  choices,
+  onPick,
+  className = "mt-2.5",
+}: {
+  label: string;
+  value: string;
+  choices: { value: string; label: string }[];
+  onPick: (v: string) => void;
+  /** Exporté pour le switch Personnage / Anime du widget des personnages. */
+  className?: string;
+}) {
+  const idx = Math.max(0, choices.findIndex((c) => c.value === value));
+  const w = 100 / choices.length;
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={`relative flex rounded-xl bg-white/[0.06] p-1 ring-1 ring-inset ring-white/[0.08] ${className}`}
+    >
+      <span
+        aria-hidden
+        className="absolute bottom-1 top-1 rounded-lg bg-action transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={{ left: `calc(${idx * w}% + 4px - ${(idx * 8) / choices.length}px)`, width: `calc(${w}% - ${8 / choices.length}px)` }}
+      />
+      {choices.map((c) => {
+        const on = c.value === value;
+        return (
+          <button
+            key={c.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onPick(c.value)}
+            className={`relative z-[1] flex-1 rounded-lg px-2 py-1.5 font-karla text-[13px] font-bold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/40 ${
+              on ? "text-white" : "text-white/55 hover:text-white/85"
+            }`}
+          >
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Label({ label, desc }: { label: string; desc?: string }) {
   return (
     <span className="block min-w-0 flex-1">
-      <span className="block font-karla text-[13px] font-bold text-white">{label}</span>
+      {/* Corps relevés le 25/10/2026 (Luc : « illisible ») : 13 → 15 px pour le
+          nom, 11 → 13 px et 35 → 55 % de blanc pour l'explication. */}
+      <span className="block font-karla text-[15px] font-bold text-white">{label}</span>
       {desc ? (
-        <span className="mt-0.5 block font-karla text-[11px] leading-snug text-white/35">
+        <span className="mt-1 block font-karla text-[13px] leading-snug text-white/55">
           {desc}
         </span>
       ) : null}
@@ -57,7 +112,7 @@ function Label({ label, desc }: { label: string; desc?: string }) {
  * Vaut pour les réglages de TOUS les widgets, présents et à venir : c'est la
  * raison d'être de cette enveloppe plutôt que d'une classe recopiée trois fois.
  */
-const SECTION = "rounded-xl px-2.5 py-2 transition-colors hover:bg-white/[0.05]";
+const SECTION = "rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.05]";
 
 /**
  * Le menu déroulant des listes — CELUI de l'éditeur de liste.
@@ -82,7 +137,17 @@ export function Dropdown({
   label,
 }: {
   value: string;
-  choices: { value: string; label: string; color?: string; swatch?: string; glow?: string; heart?: boolean }[];
+  choices: {
+    value: string;
+    label: string;
+    color?: string;
+    swatch?: string;
+    glow?: string;
+    heart?: boolean;
+    /** La section du menu ; un changement de groupe trace une séparation. */
+    group?: string;
+    groupLabel?: string;
+  }[];
   onPick: (value: string) => void;
   className?: string;
   /** Nom accessible du bouton, quand rien autour ne dit à quoi il sert. */
@@ -205,12 +270,25 @@ export function Dropdown({
         </svg>
       </button>
       {open ? (
-        <div className="le-dd-list">
-          {choices.map((c) => (
+        /* Barre de défilement visible (`as-scroller`) et SECTIONS : quand un
+           choix change de `group`, un trait et son intitulé le séparent du
+           précédent (favoris | statuts | listes perso, 25/10/2026). Un menu
+           sans groupes (la rareté des badges) reste une seule colonne. */
+        <div className="le-dd-list as-scroller" style={{ maxHeight: 360, overflowY: "auto" }}>
+          {choices.map((c, i) => (
+            <Fragment key={c.value}>
+            {i > 0 && c.group !== choices[i - 1].group ? (
+              <div className="mt-1 border-t border-white/[0.07] px-3 pb-0.5 pt-2">
+                {c.groupLabel ? (
+                  <span className="font-karla text-[11px] font-bold uppercase tracking-wider text-white/45">
+                    {c.groupLabel}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <button
               type="button"
-              key={c.value}
-              className={`le-dd-option ${c.value === value ? "selected" : ""}`}
+              className={`le-dd-option !border-b-0 ${c.value === value ? "selected" : ""}`}
               style={
                 c.value === value && c.color
                   ? {
@@ -240,7 +318,192 @@ export function Dropdown({
                 </svg>
               ) : null}
             </button>
+            </Fragment>
           ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * LE MÊME MENU, À CASES À COCHER (25/10/2026, Luc) : choisir PLUSIEURS listes.
+ * Mêmes classes `.le-dd-*` que `Dropdown` ; un clic sur une ligne coche ou
+ * décoche sans refermer le menu, puisqu'on en coche souvent plusieurs d'affilée.
+ */
+export function MultiDropdown({
+  values,
+  choices,
+  onChange,
+  className = "mt-1.5",
+}: {
+  values: string[];
+  /** `group` / `groupLabel` : la section du menu où la ligne se range. */
+  choices: { value: string; label: string; color?: string; group?: string; groupLabel?: string }[];
+  onChange: (values: string[]) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const picked = new Set(values);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", outside);
+    window.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  /* L'ordre rangé est celui du menu, quel que soit l'ordre des clics : le bloc
+     peint ses lignes dans cet ordre-là. */
+  const toggle = (v: string) =>
+    onChange(choices.map((c) => c.value).filter((x) => (x === v ? !picked.has(x) : picked.has(x))));
+  /* Les sections, dans l'ordre où les choix arrivent. */
+  const groups: { id: string; label: string; items: typeof choices }[] = [];
+  for (const c of choices) {
+    const id = c.group ?? "";
+    let g = groups.find((x) => x.id === id);
+    if (!g) groups.push((g = { id, label: c.groupLabel ?? "", items: [] }));
+    g.items.push(c);
+  }
+
+  const shown = choices.filter((c) => picked.has(c.value));
+  const summary =
+    shown.length === 0
+      ? t("profile.widgets.options.listsNone")
+      : shown.length === 1
+        ? shown[0].label
+        : shown.length === choices.length
+          ? t("profile.widgets.options.listsAll")
+          : t("profile.widgets.options.listsCount", { count: shown.length });
+
+  const dot = (color?: string) => (
+    <span className="as-dd-mark">
+      <span
+        className="le-dd-dot"
+        style={
+          color
+            ? { background: color, boxShadow: `0 0 6px ${color}` }
+            : { background: "rgba(255,255,255,0.25)" }
+        }
+      />
+    </span>
+  );
+
+  return (
+    <div ref={boxRef} className={`le-dd-field le-dd-compact ${className}`}>
+      <button
+        type="button"
+        className="le-dd-trigger outline-none focus-visible:ring-1 focus-visible:ring-action"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {/* Les pastilles des cochées, en grappe, à la place de la pastille unique. */}
+        <span className="flex shrink-0 items-center -space-x-1">
+          {shown.slice(0, 4).map((c) => (
+            <span
+              key={c.value}
+              className="le-dd-dot ring-1 ring-[#15161d]"
+              style={{ background: c.color || "rgba(255,255,255,0.25)" }}
+            />
+          ))}
+        </span>
+        <span className="le-dd-trigger-text">{summary}</span>
+        <svg
+          className={`le-dd-chevron ${open ? "open" : ""}`}
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open ? (
+        /* DES SECTIONS, PAS UNE COLONNE (25/10/2026, Luc) : les statuts puis les
+           listes perso, chacune sous son intitulé. Aucun
+           fond de couleur sur les lignes cochées : la pastille porte la couleur
+           de la liste, la case dit si elle est cochée, et c'est assez. */
+        <div className="le-dd-list as-scroller px-1 py-1" style={{ maxHeight: 360, overflowY: "auto" }}>
+          {groups.map((g, gi) => {
+            return (
+              <div key={g.id} className={gi ? "mt-1 border-t border-white/[0.07] pt-1" : ""}>
+                <div className="px-2.5 pb-0.5 pt-1.5">
+                  <span className="font-karla text-[11px] font-bold uppercase tracking-wider text-white/45">
+                    {g.label}
+                  </span>
+                </div>
+                {g.items.map((c) => {
+                  const on = picked.has(c.value);
+                  return (
+                    <button
+                      type="button"
+                      key={c.value}
+                      role="menuitemcheckbox"
+                      aria-checked={on}
+                      onClick={() => toggle(c.value)}
+                      /* Pas le contour bleu du navigateur au clic : un liseré
+                         d'accent, au clavier seulement. */
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left font-karla text-sm outline-none transition-colors hover:bg-white/[0.05] focus-visible:ring-1 focus-visible:ring-action ${
+                        on ? "font-semibold text-white" : "text-white/50"
+                      }`}
+                    >
+                      {dot(c.color)}
+                      <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                      {/* La case : la couleur d'accent du site quand elle est
+                          cochée — celle des interrupteurs du même panneau —, un
+                          creux discret sinon. */}
+                      <span
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md transition-colors ${
+                          on
+                            ? "bg-action"
+                            : /* Un gris DONNÉ, pas un blanc translucide : sur le
+                                 fond bleu nuit du menu, le translucide virait
+                                 au bleu (25/10/2026, Luc). */
+                              "ring-[1.5px] ring-inset ring-[#4a4a4f]"
+                        }`}
+                        style={
+                          on
+                            ? {
+                                boxShadow:
+                                  "0 0 8px color-mix(in srgb, var(--brand-primary, #E94560) 45%, transparent)",
+                              }
+                            : undefined
+                        }
+                      >
+                        {on ? (
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="#fff"
+                            strokeWidth={3.5}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </div>
@@ -282,12 +545,12 @@ export function Range({
   return (
     <div className="mt-2">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+        <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[13px] font-bold text-white/80">
           {show(from)}
         </span>
         <span className="as-range relative h-4 flex-1">
           {/* Le rail, puis le segment retenu par-dessus. */}
-          <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/12" />
+          <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.16]" />
           <span
             className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
             style={{ left: `${pct(from)}%`, right: `${100 - pct(to)}%` }}
@@ -309,11 +572,57 @@ export function Range({
             onChange={(e) => onChange(from, Math.max(Number(e.target.value), from))}
           />
         </span>
-        <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+        <span className="rounded-md bg-white/[0.07] px-2 py-0.5 font-karla text-[13px] font-bold text-white/80">
           {show(to)}
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Le curseur à UNE poignée (« Titres par ligne », 25/10/2026). Même rail, même
+ * pouce et même pastille de valeur que la plage à deux poignées (`.as-range`) :
+ * un seul `<input type="range">` dans la même boîte.
+ */
+function Single({
+  min,
+  max,
+  value,
+  zeroLabel,
+  onChange,
+  label,
+}: {
+  min: number;
+  max: number;
+  value: number;
+  zeroLabel?: string;
+  onChange: (v: number) => void;
+  label: string;
+}) {
+  /* LE CURSEUR DU « FLOU » DU STUDIO, À L'IDENTIQUE (25/10/2026, Luc) : rail
+     fin, remplissage d'accent, une poignée, et le rail entier cliquable
+     (`pointerEvents: auto` en ligne, `.as-range` coupant les clics sinon). La
+     valeur s'affiche dans la pastille à droite du titre (cf. plus bas). */
+  return (
+    <span className="as-range relative mt-2.5 block h-4 w-full min-w-0">
+      <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+      <span
+        className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
+        style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+      />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{ pointerEvents: "auto" }}
+        aria-label={label}
+        aria-valuetext={value === 0 && zeroLabel ? zeroLabel : String(value)}
+      />
+    </span>
   );
 }
 
@@ -324,24 +633,24 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
     /* PAS d'`overflow-hidden` ici : le menu déroulant des listes s'ouvre en
        absolu sous son bouton et serait coupé au bord du panneau. Rien d'autre
        ne dépassait de toute façon. */
-    <div className="rounded-2xl bg-[#15161d] ring-1 ring-white/10 shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-3.5 py-2.5">
+    <div className="rounded-2xl border-2 border-[#2c2d36] bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
         {/* « Paramètres du widget », et rien d'autre — pas le nom du bloc : le
             panneau s'ouvre SUR sa carte, dont l'en-tête porte déjà ce nom à
             deux centimètres au-dessus. Le pluriel suit le nombre de paramètres
             (i18next, `settingsTitle_one` / `_other`), y compris à zéro, où le
             français comme l'anglais mettent le pluriel. C'est la formule de
             TOUS les widgets, celui-ci n'a rien de particulier. */}
-        <p className="min-w-0 truncate font-outfit text-sm font-bold text-white">
+        <p className="min-w-0 truncate font-outfit text-base font-bold text-white">
           {t("profile.widgets.settingsTitle", { count: options.length })}
         </p>
         <button
           type="button"
           onClick={onClose}
           aria-label={t("profile.library.close")}
-          className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:text-white"
+          className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:text-white"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3 w-3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3.5 w-3.5">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -368,25 +677,61 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                     blanc — assez pour se lire, pas assez pour qu'on la prenne
                     pour l'état allumé, qui reste le seul à porter la couleur. */}
                 <span
-                  className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+                  className={`relative h-[22px] w-10 shrink-0 rounded-full transition-colors ${
                     o.on ? "bg-action" : "bg-white/[0.14] ring-1 ring-inset ring-white/25"
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-transform ${
-                      o.on ? "translate-x-[16px] bg-white" : "translate-x-0.5 bg-white/70"
+                    className={`absolute top-[3px] h-4 w-4 rounded-full transition-transform ${
+                      o.on ? "translate-x-[21px] bg-white" : "translate-x-[3px] bg-white/70"
                     }`}
                   />
                 </span>
               </button>
+            ) : "single" in o ? (
+              <div key={o.key} className={SECTION}>
+                {/* La valeur en pastille À DROITE DU TITRE, comme « 10 px » sur
+                    le flou du studio. */}
+                <div className="flex items-start justify-between gap-3">
+                  <Label label={o.label} desc={o.desc} />
+                  <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+                    {o.single.value === 0 && o.single.zeroLabel
+                      ? o.single.zeroLabel
+                      : o.single.value}
+                  </span>
+                </div>
+                <Single
+                  {...o.single}
+                  label={o.label}
+                  onChange={(v) => onOption(o.key, String(v))}
+                />
+              </div>
+            ) : "multi" in o ? (
+              <div key={o.key} className={SECTION}>
+                <Label label={o.label} desc={o.desc} />
+                <MultiDropdown
+                  values={o.values}
+                  choices={o.multi}
+                  onChange={(v) => onOption(o.key, JSON.stringify(v))}
+                />
+              </div>
             ) : "choices" in o ? (
               <div key={o.key} className={SECTION}>
                 <Label label={o.label} desc={o.desc} />
-                <Dropdown
-                  value={o.value}
-                  choices={o.choices}
-                  onPick={(v) => onOption(o.key, v)}
-                />
+                {o.segmented ? (
+                  <Segmented
+                    label={o.label}
+                    value={o.value}
+                    choices={o.choices}
+                    onPick={(v) => onOption(o.key, v)}
+                  />
+                ) : (
+                  <Dropdown
+                    value={o.value}
+                    choices={o.choices}
+                    onPick={(v) => onOption(o.key, v)}
+                  />
+                )}
               </div>
             ) : (
               <div key={o.key} className={SECTION}>
@@ -403,7 +748,7 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
             ),
           )
         ) : (
-          <p className="px-2.5 py-3 text-center font-karla text-[11px] leading-relaxed text-white/35">
+          <p className="px-3 py-3 text-center font-karla text-[13px] leading-relaxed text-white/55">
             {t("profile.widgets.noOptions")}
           </p>
         )}

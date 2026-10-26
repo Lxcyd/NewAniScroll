@@ -6,22 +6,40 @@
  *
  * Les imports se gardent dans CE navigateur (« Tes imports », comme « Mes
  * vidéos ») ; celui qu'on porte part avec le profil.
+ *
+ * GIF ET VIDÉO (24/10/2026, Luc) : un canvas figerait l'animation, et ni l'un
+ * ni l'autre ne tient sous 60 Ko. Ils partent au Worker (lib/upload/client.ts)
+ * et la liste garde leur adresse d'import. Les images fixes restent ici.
  */
 import { AVATAR_DATA_MAX } from "@/lib/profile/dressing";
+import { isUploadUrl } from "@/lib/upload/media";
+import { sniffFile, uploadMedia } from "@/lib/upload/client";
 
 const KEY = "as-studio-avatar-imports";
 /** Dix au plus (24/10/2026, Luc). */
 export const MAX_IMPORTS = 10;
 /** `name` : celui qu'on lui donne au crayon, sinon rien (« Image importée »). */
-export type AvatarImport = { id: string; url: string; name?: string };
+/** `h` : l'empreinte du fichier d'origine (lib/upload/client.ts), pour refuser
+    un doublon avant de l'envoyer. */
+export type AvatarImport = { id: string; url: string; name?: string; h?: string };
 
 export function readImports(): AvatarImport[] {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || "[]");
     return Array.isArray(raw)
       ? raw
-          .filter((v) => typeof v?.id === "string" && typeof v?.url === "string" && v.url.startsWith("data:image/"))
-          .map((v) => ({ id: v.id, url: v.url, ...(typeof v.name === "string" && v.name ? { name: v.name.slice(0, 40) } : {}) }))
+          .filter(
+            (v) =>
+              typeof v?.id === "string" &&
+              typeof v?.url === "string" &&
+              (v.url.startsWith("data:image/") || isUploadUrl(v.url)),
+          )
+          .map((v) => ({
+            id: v.id,
+            url: v.url,
+            ...(typeof v.name === "string" && v.name ? { name: v.name.slice(0, 40) } : {}),
+            ...(typeof v.h === "string" && /^[0-9a-f]{16}$/.test(v.h) ? { h: v.h } : {}),
+          }))
           .slice(0, MAX_IMPORTS)
       : [];
   } catch {
@@ -37,6 +55,14 @@ export function writeImports(list: AvatarImport[]): AvatarImport[] {
     /* Stockage plein : la liste reste en mémoire pour la session. */
   }
   return out;
+}
+
+/** Un fichier choisi pour l'avatar → son adresse : data URL pour une image
+    fixe, adresse d'import pour un GIF ou une vidéo. Erreurs : cf. client.ts. */
+export async function fileToAvatarUrl(file: File): Promise<string> {
+  const s = await sniffFile(file);
+  if (s.kind === "image") return fileToAvatar(file);
+  return (await uploadMedia(file, { maxSide: 512, allow: ["gif", "video"] })).url;
 }
 
 /** Une image choisie → data URL WebP assez légère pour le profil, ou une erreur. */

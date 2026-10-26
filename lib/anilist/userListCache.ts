@@ -32,6 +32,17 @@ export type UserListEntry = {
 
 type ListMap = Map<number, UserListEntry>;
 
+/** Émis à chaque changement de la copie (enregistrement, liste rechargée) :
+ *  le profil du propriétaire s'y abonne (lib/profile/liveEntries). */
+export const USER_LIST_EVENT = "aniscroll:userlist";
+function announce(): void {
+  try {
+    window.dispatchEvent(new Event(USER_LIST_EVENT));
+  } catch {
+    /* hors navigateur */
+  }
+}
+
 const TTL_MS = 5 * 60 * 1000;
 const SS_KEY = (userName: string) => `aniscroll.userList.${userName}`;
 
@@ -214,6 +225,7 @@ export async function getUserList(
       const map = entriesToMap(entries);
       memCache.set(userName, { map, ts: Date.now() });
       writeSession(userName, entries);
+      announce();
       return map;
     } catch {
       return lastKnown(userName);
@@ -275,6 +287,7 @@ export function patchListEntry(
   else map.delete(aniId);
   memCache.set(userName, { map, ts: Date.now() });
   writeSession(userName, Array.from(map.values()));
+  announce();
 }
 
 /** Drop the cached list (e.g. on sign-out). */

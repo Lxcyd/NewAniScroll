@@ -283,10 +283,17 @@ export type StudioRank = {
  * titres qui départage — un 10 sur quinze titres vaut mieux qu'un 10 sur
  * quatre.
  */
-export function studioRanks(entries: ProfileEntry[], minTitles = 4): StudioRank[] {
+export function studioRanks(
+  entries: ProfileEntry[],
+  minTitles = 4,
+  /** Ne retenir que les titres terminés (cf. `FINISHED`) — même filtre que
+   *  les notes, les genres et les années (25/10/2026). */
+  completedOnly = false,
+): StudioRank[] {
   const acc = new Map<string, { count: number; sum: number; rated: number }>();
   for (const e of entries) {
     if (!e.studio) continue;
+    if (completedOnly && !FINISHED.has((e.status || "").toUpperCase())) continue;
     const cur = acc.get(e.studio) || { count: 0, sum: 0, rated: 0 };
     cur.count += 1;
     if (e.score && e.score > 0) {

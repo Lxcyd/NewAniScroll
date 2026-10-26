@@ -56,6 +56,8 @@ const EQ_BARS = 10;
     Luc). Le survol, lui, la fait toujours grandir. Gardé hors du composant :
     la case peut être remontée au passage. */
 let grewFor: string | null = null;
+/** La dernière case montée était-elle grande ? Lue par la suivante (profil ↔ studio). */
+let lastBig = false;
 const arrival = () => document.documentElement.dataset.profileEnter ?? "load";
 
 /**
@@ -218,12 +220,27 @@ export default function MusicCard({
      puis se retasse. Pendant le passage profil ↔ studio elle attend que le
      cadre soit posé (`sceneSettle`, ProfileStage) : grandir pendant qu'il
      bouge brouillait les deux mouvements. Un nouveau morceau refait de même. */
-  const [mini, setMini] = useState(canMini);
+  /* LA TAILLE PASSE D'UNE CASE À L'AUTRE (24/10/2026, Luc) : ouvrir le studio
+     remplace la case du profil par celle de la scène. Elle naissait petite :
+     une case grande à ce moment-là se réduisait D'UN COUP, sans animation. La
+     nouvelle reprend la taille de l'ancienne (`lastBig`, hors composant), puis
+     se tasse en douceur une fois le cadre posé. */
+  const [mini, setMini] = useState(() => canMini && !lastBig);
   const shrinkAt = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shrinkIn = (ms: number) => {
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     shrinkAt.current = setTimeout(() => setMini(true), ms);
   };
+  useEffect(() => {
+    if (canMini) lastBig = !mini;
+  }, [canMini, mini]);
+  useEffect(() => {
+    if (!canMini || mini) return;
+    /* Née grande (héritée) : elle se tasse après le passage du cadre. */
+    const settle = Number(document.documentElement.dataset.sceneSettle) || 0;
+    shrinkIn(Math.max(0, settle - performance.now()) + 1200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- au montage seulement
+  }, []);
   const grow = () => {
     if (shrinkAt.current) clearTimeout(shrinkAt.current);
     setMini(false);

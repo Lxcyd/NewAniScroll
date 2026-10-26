@@ -2282,6 +2282,39 @@ input[type="number"] {
   overflow: hidden;
   background: #0c0d10;
 }
+/* LE BORD DU CADRE PASSE PAR-DESSUS LE PROFIL (25/10/2026, Luc : « le bord
+   noir de la fenêtre doit être par-dessus les éléments de la page, pas
+   l'inverse »). Il était peint par l'écran, SOUS la scène : une carte qui
+   arrivait au bord le recouvrait. Un calque vide, posé APRÈS la scène, qui suit
+   exactement l'écran (mêmes règles is-fixed / is-shrunk / is-docked) et ne
+   peint que ce bord : 2 px d'écran couleur de page (la marge du papier peint,
+   `.as-page-plate` plus bas). Transparent aux clics. Pas de
+   clip-path sur la scène à la place : il en ferait une racine de fond, et le
+   flou des cartes ne verrait plus le papier peint. */
+.as-scene-rim {
+  display: none;
+}
+.as-scene-rim.is-fixed {
+  display: block;
+  position: fixed;
+  z-index: 10003;
+  pointer-events: none;
+  /* LE BORD ENTIER EST ICI, AU-DESSUS DU PROFIL (25/10/2026, Luc : « un trou
+     entre la bordure et le fond noir, on voit les widgets à travers »). Le
+     liseré extérieur était peint par l'ÉCRAN, SOUS le profil : celui-ci, qui
+     dépasse d'un pixel au bord du cadre selon l'arrondi de la réduction,
+     passait par-dessus. Même dessin qu'avant, déplacé ici :
+       — 2 px sombres à l'intérieur (inchangé) ;
+       — le liseré d'1 px, en couleur OPAQUE (#1a1a1d = le blanc à 8 % d'avant
+         posé sur le fond de salle), sans quoi ce qui dépasse se verrait au
+         travers ;
+       — puis 2 px du fond de salle (#060609), invisibles, qui recouvrent ce
+         qui dépasse encore. Pas de bordure en plus (Luc, même jour). */
+  box-shadow:
+    inset 0 0 0 calc(2px / var(--as-scene-zoom, 1)) #0c0d10,
+    0 0 0 1px #1a1a1d,
+    0 0 0 calc(3px / var(--as-scene-zoom, 1)) #060609;
+}
 .as-stage.is-fixed {
   position: fixed;
   z-index: 10002;
@@ -2348,6 +2381,7 @@ html.as-scene-resizing .as-scene-split::after {
    et rien ne se sélectionne au passage. */
 html.as-scene-resizing .as-stage.is-fixed,
 html.as-scene-resizing .as-scene-screen.is-fixed,
+html.as-scene-resizing .as-scene-rim.is-fixed,
 html.as-scene-resizing .as-scene-ui-left,
 html.as-scene-resizing .as-scene-ui-bottom {
   transition: none;
@@ -2462,6 +2496,7 @@ html.as-scene-resizing .as-scene-gutter {
    glissement, seule sa HAUTEUR change, et elle s'anime avec la transformation
    (pas de remise en page du profil, la largeur ne bougeant pas). */
 .as-scene-screen.is-fixed,
+.as-scene-rim.is-fixed,
 .as-stage.is-fixed {
   left: 0;
   top: 0;
@@ -2477,9 +2512,8 @@ html.as-scene-resizing .as-scene-gutter {
 /* Le liseré seul. L'ombre de 120 px qui l'accompagnait se repeignait à chaque
    image du glissement (la hauteur de l'écran s'y anime), pour un effet nul :
    noir sur le fond de salle presque noir (#060609). */
-.as-scene-screen.is-fixed {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
+/* (Le liseré a quitté l'écran pour `.as-scene-rim`, au-dessus du profil, le
+   25/10/2026 : peint ici, dessous, la scène le recouvrait.) */
 /* Le papier peint s'arrête à 2 px du bord du cadre. La scène (le profil) est
    posée PAR-DESSUS l'écran, réduite : au pixel du bord elle ne couvre qu'à
    moitié, et sous un pied de page opaque le papier peint perçait en liseré de
@@ -2494,6 +2528,7 @@ html.as-scene-resizing .as-scene-gutter {
   clip-path: inset(calc(2px / var(--as-scene-zoom, 1)) round calc(18px / var(--as-scene-zoom, 1)));
 }
 .as-scene-screen.is-shrunk,
+.as-scene-rim.is-shrunk,
 .as-stage.is-shrunk {
   transform: translate(var(--as-scene-s1-x), var(--as-scene-s1-y)) scale(var(--as-scene-s));
   /* RÉDUITS, PLUS DE `will-change`. Chrome fige la résolution d'un calque
@@ -2506,6 +2541,7 @@ html.as-scene-resizing .as-scene-gutter {
   will-change: auto;
 }
 .as-scene-screen.is-docked,
+.as-scene-rim.is-docked,
 .as-stage.is-docked {
   width: var(--as-scene-dock-w);
   height: var(--as-scene-dock-h);
@@ -2517,16 +2553,34 @@ html.as-scene-resizing .as-scene-gutter {
 }
 
 /* Les outils arrivent APRÈS le recul, chacun depuis son bord. */
-@keyframes as-scene-from-top {
-  from { opacity: 0; transform: translateY(-14px); }
-}
 @keyframes as-scene-from-left {
   from { opacity: 0; transform: translateX(-14px); }
 }
 @keyframes as-scene-from-bottom {
   from { opacity: 0; transform: translateY(14px); }
 }
-.as-scene-ui-top { animation: as-scene-from-top 0.4s var(--as-scene-ease) 0.2s both; }
+/* LE BANDEAU DU HAUT DESCEND DU BORD DE L'ÉCRAN (25/10/2026, Luc : « comme
+   s'il venait du bord haut après la fin de l'animation, comme le bandeau du
+   bas »). Même signal que la barre du bas (`as-scene-docked`), même course
+   (sa hauteur entière, donc hors de la fenêtre au départ). */
+/* Le délai ne vaut qu'à l'ENTRÉE : à la fermeture, il remonte tout de suite. */
+.as-scene-ui-top {
+  transition:
+    transform 0.35s var(--as-scene-ease),
+    opacity 0.2s ease;
+}
+/* EN MÊME TEMPS QUE LA BARRE DU BAS (25/10/2026, Luc) : même délai, même
+   durée, même courbe — les deux bandeaux arrivent ensemble. */
+html.as-scene-docked .as-scene-ui-top {
+  transition:
+    transform 0.5s var(--as-scene-ease) 0.08s,
+    opacity 0.25s ease 0.08s;
+}
+html:not(.as-scene-docked) .as-scene-ui-top {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
 /* LE MENU EST ACCROCHÉ AU BORD DU CADRE pendant le glissement, et c'est un
    calcul, pas un réglage à l'œil. Le bord gauche du cadre va de sa place
    centrée à sa place finale linéairement dans la progression de la courbe
@@ -2619,8 +2673,17 @@ html.as-scene-shrunk:not(.as-scene-docked) .as-scene-follow {
 @keyframes as-scene-nav-in {
   from { opacity: 0; transform: translateY(-8px); }
 }
+/* 0,2 s de délai (25/10/2026, Luc) : partie avec la fin du cadre, elle se
+   superposait à lui. */
 html.as-scene-leave .as-navbar {
-  animation: as-scene-nav-in 0.5s var(--as-scene-ease) both;
+  animation: as-scene-nav-in 0.5s var(--as-scene-ease) 0.2s both;
+}
+/* Et elle s'efface dès qu'on entre en édition, au lieu de rester visible
+   pendant tout le recul. */
+html.as-scene-nav-hidden .as-navbar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 /* PAS de coupure sous `prefers-reduced-motion`, délibérément : le poste de
    l'auteur répond `reduce` (cf. la mémoire « poste en reduced-motion »), et
@@ -2850,6 +2913,26 @@ html.as-scene-leave .as-navbar {
 .as-widget-edit {
   transition: background-color 0.15s ease;
 }
+/* PENDANT LE DÉPLACEMENT D'UN WIDGET (WidgetGrid, 25/10/2026) :
+   - les autres cartes ne se survolent pas (une seule classe sur le conteneur,
+     plutôt qu'une par carte, qui les refaisait toutes) ;
+   - les animations en boucle du profil se figent (`html.as-dragging`) : celles
+     qui repeignent (fond qui glisse, pastilles qui pulsent) refaisaient à
+     chaque image le flou des cartes posées dessus. Elles reprennent au lâcher,
+     là où elles s'étaient arrêtées. */
+.as-grid-dragging > section:not(.is-held) {
+  pointer-events: none;
+}
+html.as-dragging .as-pattern-scroll,
+html.as-dragging .as-airing-dot::after,
+html.as-dragging .as-dot-releasing,
+html.as-dragging .as-dot-upcoming,
+html.as-dragging .as-wall-nudge-up,
+html.as-dragging .as-wall-nudge-down,
+html.as-dragging .as-wall-nudge-alt,
+html.as-dragging .as-nudge {
+  animation-play-state: paused;
+}
 /* Un cran plus sombre que la carte au repos, pas un aplat : +0,14 d'opacité
    sur le MÊME dégradé, donc le flou et l'image restent devinables dessous.
    Le noir à 0,95 du premier jet éteignait la carte au passage de la souris. */
@@ -2909,6 +2992,65 @@ html.as-scene-leave .as-navbar {
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--as-plate-blur));
   backdrop-filter: blur(var(--as-plate-blur));
+}
+/* Les widgets de la grille : le calque rentre d'un pixel, SOUS leur liseré
+   (un `outline` rentré, cf. WidgetGrid). La grille tombe sur un demi-pixel
+   (y = 384,5 mesuré) et le calque de flou ne s'y arrondit pas du même côté que
+   le liseré : il dépassait d'un trait en haut et à gauche (24/10/2026, Luc). */
+.as-plate-frosted .as-widget.as-stat-card::before {
+  inset: 1px;
+}
+/* LE FLOU NE CHANGE PAS DE TAILLE PENDANT UN REDIMENSIONNEMENT (24/10/2026,
+   Luc : « le blur clignote et bug »). La carte suit le coin au pixel : un
+   calque à sa taille était réalloué à chaque mouvement de souris, et certaines
+   images passaient sans filtre. Le calque prend donc, le temps du geste, la
+   plus grande taille que la carte peut atteindre (posée par WidgetGrid), et
+   c'est l'arrondi de la carte (`overflow: hidden`) qui le découpe. Le couper
+   pendant le geste a été refusé : « n'enlève pas le blur ». */
+.as-plate-frosted .as-widget.is-resizing::before {
+  right: auto;
+  bottom: auto;
+  width: var(--as-frost-w);
+  height: var(--as-frost-h);
+  /* COINS CARRÉS PENDANT LE GESTE (25/10/2026, Luc) : Chrome ne découpe pas un
+     `backdrop-filter` à l'arrondi d'un ancêtre en `overflow: hidden`, seulement
+     à son rectangle. Le calque se découpe donc LUI-MÊME à la taille et à
+     l'arrondi de la carte (rentrée d'1 px, d'où 19 px). Changer la taille du
+     masque ne réalloue pas le calque : le clignotement corrigé plus haut ne
+     revient pas. */
+  /* UN MASQUE, PAS UN `clip-path` : chez Luc (Chrome, rendu GPU) le
+     `clip-path` du calque laissait les coins DROITS carrés (non reproduit en
+     headless). Un `mask-image` sur l'élément flouté est ce que les « flous
+     progressifs » utilisent partout, il est appliqué au rendu du filtre.
+     JAMAIS de `clip-path`/`mask` sur la CARTE elle-même : il en fait une
+     « racine d'arrière-plan », le calque ne voit plus que l'intérieur de la
+     carte et le flou disparaît (essayé le 25/10/2026). */
+  /* EN DÉGRADÉS, PAS EN IMAGE SVG : une image SVG se re-rastérise à chaque
+     nouvelle taille, en différé — des images passaient sans masque, donc sans
+     flou, et le clignotement était revenu (25/10/2026, Luc). Un dégradé se
+     peint dans l'image même. Le rectangle arrondi = deux bandes en croix + un
+     disque par coin. */
+  --w: calc(var(--as-card-w) - 2px);
+  --h: calc(var(--as-card-h) - 2px);
+  --r: 19px;
+  --dot: radial-gradient(circle closest-side, #000 calc(100% - 0.5px), transparent 100%);
+  --fill: linear-gradient(#000, #000);
+  -webkit-mask:
+    var(--fill) var(--r) 0 / calc(var(--w) - 2 * var(--r)) var(--h) no-repeat,
+    var(--fill) 0 var(--r) / var(--w) calc(var(--h) - 2 * var(--r)) no-repeat,
+    var(--dot) 0 0 / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) calc(var(--w) - 2 * var(--r)) 0 / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) 0 calc(var(--h) - 2 * var(--r)) / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) calc(var(--w) - 2 * var(--r)) calc(var(--h) - 2 * var(--r)) / calc(2 * var(--r))
+      calc(2 * var(--r)) no-repeat;
+  mask:
+    var(--fill) var(--r) 0 / calc(var(--w) - 2 * var(--r)) var(--h) no-repeat,
+    var(--fill) 0 var(--r) / var(--w) calc(var(--h) - 2 * var(--r)) no-repeat,
+    var(--dot) 0 0 / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) calc(var(--w) - 2 * var(--r)) 0 / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) 0 calc(var(--h) - 2 * var(--r)) / calc(2 * var(--r)) calc(2 * var(--r)) no-repeat,
+    var(--dot) calc(var(--w) - 2 * var(--r)) calc(var(--h) - 2 * var(--r)) / calc(2 * var(--r))
+      calc(2 * var(--r)) no-repeat;
 }
 
 /* ── La frise « Vus par annee de sortie » se trace en arrivant ────────────
@@ -3035,22 +3177,40 @@ html.as-scene-leave .as-navbar {
    ZERO PAR DEFAUT, et c'est ce qui rend la classe sure a poser n'importe ou :
    sans le hook, le masque est un rectangle plein et ne change rien. Une rangee
    qui n'a pas encore de JS ne s'affiche donc jamais amputee. */
+/* LE BORD ENTRE ET SORT EN FONDU (24/10/2026, Luc). Il basculait d'un coup ;
+   faire grandir sa largeur de 0 à 36 px a été essayé et refusé (« pas cette
+   animation, plutôt un fade in et out »). La largeur est donc FIXE, et ce qui
+   s'anime est l'INTENSITÉ du dégradé, de 0 (bord net) à 1 (bord estompé).
+   Déclarée par `@property` : une variable non typée ne s'anime pas. */
+@property --as-fade-l {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --as-fade-r {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
 .as-fade-x {
-  --as-fade-l: 0px;
-  --as-fade-r: 0px;
+  --as-fade-l: 0;
+  --as-fade-r: 0;
+  transition:
+    --as-fade-l 0.3s ease,
+    --as-fade-r 0.3s ease;
   -webkit-mask-image: linear-gradient(
     90deg,
-    transparent 0,
-    #000 var(--as-fade-l),
-    #000 calc(100% - var(--as-fade-r)),
-    transparent 100%
+    rgba(0, 0, 0, calc(1 - var(--as-fade-l))) 0,
+    #000 36px,
+    #000 calc(100% - 36px),
+    rgba(0, 0, 0, calc(1 - var(--as-fade-r))) 100%
   );
   mask-image: linear-gradient(
     90deg,
-    transparent 0,
-    #000 var(--as-fade-l),
-    #000 calc(100% - var(--as-fade-r)),
-    transparent 100%
+    rgba(0, 0, 0, calc(1 - var(--as-fade-l))) 0,
+    #000 36px,
+    #000 calc(100% - 36px),
+    rgba(0, 0, 0, calc(1 - var(--as-fade-r))) 100%
   );
 }
 
@@ -3153,12 +3313,9 @@ html.as-scene-leave .as-navbar {
   transform: scale(0.9);
   transition-delay: 0ms;
 }
-@media (prefers-reduced-motion: reduce) {
-  .as-fav-card {
-    transition-duration: 0.01s;
-    transition-delay: 0s;
-  }
-}
+/* (Plus coupée sous `prefers-reduced-motion: reduce` depuis le 25/10/2026 : le
+   Chrome de Luc répond `reduce`, et il ne voyait donc jamais les cartes
+   changer quand il choisissait une autre liste.) */
 
 /* LE DOUBLE CURSEUR des reglages de widget (composant Range dans
    components/profile/WidgetSettings.tsx).
@@ -3214,12 +3371,17 @@ html.as-scene-leave .as-navbar {
    le panneau de reglages fait 260 px de large la ou la fenetre d'origine en fait
    700, et ses espacements y sont a l'etroit. */
 .le-dd-compact .le-dd-trigger {
-  padding: 7px 10px;
-  font-size: 12px;
+  /* 12 → 14 px le 25/10/2026 (Luc : illisible), comme tout le panneau. */
+  padding: 9px 12px;
+  font-size: 14px;
   border-radius: 10px;
   gap: 8px;
 }
 .le-dd-compact .le-dd-list {
+  /* Bordure OPAQUE et épaisse, comme le panneau qui le porte (25/10/2026,
+     Luc) : le liseré translucide d'1 px laissait voir les widgets à travers. */
+  border: 2px solid #2c2d36;
+  background: #15161d;
   border-radius: 10px;
   max-height: 240px;
   overflow-y: auto;
@@ -3231,8 +3393,8 @@ html.as-scene-leave .as-navbar {
   max-height: none;
 }
 .le-dd-compact .le-dd-option {
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 9px 12px;
+  font-size: 14px;
   gap: 8px;
 }
 .le-dd-compact .le-dd-dot {
@@ -3532,6 +3694,19 @@ html.as-scene-leave .as-navbar {
 .as-recent-thumb {
   height: var(--as-recent-h);
   width: calc(var(--as-recent-h) * 16 / 9);
+  /* Le passage 16:9 ↔ affiche s'anime (25/10/2026, Luc). Pas sous
+     `prefers-reduced-motion: no-preference` : le Chrome de Luc répond `reduce`
+     et ne la verrait jamais. */
+  transition:
+    width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Option « Couverture de l'anime » (25/10/2026, Luc) : l'affiche est verticale,
+   au format AniList (≈ 0,7). La carte grandit en hauteur pour la montrer
+   entière au lieu de la rogner dans une boîte 16:9. */
+.as-recent-thumb.as-recent-cover {
+  height: calc(var(--as-recent-h) * 1.4);
+  width: calc(var(--as-recent-h) * 1.4 * 0.7);
 }
 /* LA PILULE DE SERIE, dans le coin de l'en-tete, et pourquoi elle se centre
    plutot que de se poser.
@@ -3700,7 +3875,9 @@ html.as-scene-leave .as-navbar {
 }
 @container widget (min-width: 360px) {
   .as-score-half {
-    display: block;
+    /* `flex` et pas `block` : c'est ce qui centre le chiffre sur sa barre
+       (cf. ScoresBlock, ListBlocks.tsx). */
+    display: flex;
   }
 }
 .as-score-bar {
@@ -4762,3 +4939,218 @@ html.as-scene-leave .as-navbar {
 .as-mf[data-size="xs"] .as-mf-set button { letter-spacing: .02em; }
 /* Étendue sur la barre du bas : un peu d'air de part et d'autre du filet. */
 .as-mf[data-size="lg"] .as-mf-sep { margin-inline: 10px; }
+
+/* « Studios classés par note » : rang, nom, nombre de titres, barre, note.
+   Le NOM peut rétrécir (`minmax(0, auto)`, il se coupe en « … ») et la BARRE
+   garde au moins 2,5rem : en `auto`, la colonne des noms refusait de
+   descendre sous le nom entier et la barre tombait à un point en 1×1
+   (25/10/2026). */
+.as-studio-list {
+  grid-template-columns: auto minmax(0, auto) auto minmax(2.5rem, 1fr) auto;
+}
+/* Le nombre de titres a deux formes : « 5 titres » quand la carte a la place,
+   « 5 » seul sinon — il reste lu, sans manger la barre (Luc, même jour). */
+.as-studio-count-short {
+  display: none;
+}
+@container widget (max-width: 359px) {
+  .as-studio-count-full {
+    display: none;
+  }
+  .as-studio-count-short {
+    display: inline;
+  }
+}
+
+/* « En cours de visionnage » : l'affiche (2:3) et les textes grandissent avec
+   la carte, aux mêmes paliers que « Vu récemment » (25/10/2026). */
+.as-season-poster {
+  height: 64px;
+  aspect-ratio: 2 / 3;
+}
+.as-season-title {
+  font-size: 13px;
+}
+.as-season-sub {
+  font-size: 11px;
+}
+@container widget (min-height: 300px) {
+  .as-season-poster {
+    height: 76px;
+  }
+  .as-season-title {
+    font-size: 14px;
+  }
+  .as-season-sub {
+    font-size: 12px;
+  }
+}
+@container widget (min-width: 940px) and (min-height: 300px) {
+  .as-season-poster {
+    height: 88px;
+  }
+  .as-season-title {
+    font-size: 15px;
+  }
+}
+/* La pastille « En diffusion » : un point fixe dont la lueur respire, de 4 à
+   8 px en 2 s — l'animation du `.status-dot.releasing` du prototype AniScroll
+   (s00295653.github.io/AniScroll, info.css), demandée par Luc le 25/10/2026,
+   dans le vert du bloc (AIRING_GREEN, ListBlocks.tsx). */
+/* LA LUEUR RESPIRE PAR SON OPACITÉ (25/10/2026) : animer le `box-shadow`
+   repeignait la pastille à chaque image, sous des cartes floutées dont le flou
+   se refaisait alors lui aussi. La petite lueur est fixe ; la grande, sur un
+   `::after`, apparaît et s'éteint — le compositeur s'en charge seul. Même
+   rendu : 4 px à 0,5 au creux, 8 px à 1 au sommet. */
+.as-airing-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 4px rgba(74, 222, 128, 0.5);
+}
+.as-airing-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 1);
+  opacity: 0;
+  animation: as-airing-pulse 2s ease-in-out infinite;
+}
+@keyframes as-airing-pulse {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Petites cartes (réglage `cardSize`) : une taille fixe, quelle que soit la
+   carte du widget — c'est le but, en voir plus. Placé APRÈS les paliers et plus
+   spécifique qu'eux, donc il l'emporte toujours. */
+.as-season-small .as-season-poster {
+  height: 48px;
+}
+.as-season-small .as-season-title {
+  font-size: 12px;
+}
+.as-season-small .as-season-sub {
+  font-size: 10.5px;
+}
+/* Grandes : nettement plus que normal (« pas assez », Luc, 25/10/2026 —
+   112 px ne se distinguait pas des 88 px du palier haut). */
+.as-season-large .as-season-poster {
+  height: 168px;
+}
+.as-season-large .as-season-title {
+  font-size: 19px;
+}
+.as-season-large .as-season-sub {
+  font-size: 14px;
+}
+
+/* ── Calendrier du mois (CalendarBlock.tsx) ─────────────────────────────── */
+.as-cal-day {
+  animation: as-cal-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes as-cal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-cal-day {
+    animation: none;
+  }
+}
+/* UNE CASE = UN CERCLE (25/10/2026, Luc). La case de grille sert de conteneur
+   à taille : le disque prend le plus petit de ses deux côtés. */
+.as-cal-cell {
+  position: relative;
+  container-type: size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.as-cal-cell:hover {
+  z-index: 30;
+}
+.as-cal-dot {
+  position: relative;
+  width: min(100cqw, 100cqh);
+  height: min(100cqw, 100cqh);
+  border-radius: 9999px;
+}
+.as-cal-main {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s;
+}
+.as-cal-cell:hover .as-cal-main {
+  transform: scale(1.1);
+}
+/* LES AUTRES ANIMES DU JOUR, dans un portail par-dessus la page (Orbit,
+   CalendarBlock.tsx) pour pouvoir sortir du widget. Chacun part du centre du
+   jour et va se poser à l'angle --a, à la distance --t (en % de sa propre
+   taille), l'un après l'autre (--d). À la fermeture, ils y retournent. */
+.as-cal-sat {
+  position: absolute;
+  overflow: hidden;
+  border-radius: 9999px;
+  pointer-events: auto;
+  box-shadow: 0 0 0 1px rgba(10, 10, 18, 0.85), 0 6px 16px rgba(0, 0, 0, 0.4);
+  transform: rotate(var(--a)) translateX(var(--t)) rotate(calc(-1 * var(--a)));
+  animation: as-cal-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) var(--d) backwards;
+  transition:
+    transform 0.22s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.18s,
+    box-shadow 0.15s;
+}
+@keyframes as-cal-pop {
+  from {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(0) rotate(calc(-1 * var(--a))) scale(0.3);
+  }
+}
+.as-cal-orbit.is-closing .as-cal-sat {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: rotate(var(--a)) translateX(0) rotate(calc(-1 * var(--a))) scale(0.3);
+}
+.as-cal-sat:hover {
+  box-shadow: 0 0 0 1.5px var(--brand-primary, #e94560), 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+.as-cal-main {
+  z-index: 2;
+}
+.as-cal-cell.is-open .as-cal-main {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 1px rgba(10, 10, 18, 0.85), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.as-cal-cell {
+  transition: opacity 0.25s;
+}
+.as-cal-grid.has-open .as-cal-cell:not(.is-open) {
+  opacity: 0.15;
+}
+/* Étroit (une colonne) : le nombre d'épisodes passe dans l'infobulle, le
+   résumé du mois aussi. */
+@container widget (max-width: 300px) {
+  .as-cal-count,
+  .as-cal-sum {
+    display: none;
+  }
+}
+/* Grand : chiffres plus lisibles. */
+@container widget (min-width: 560px) and (min-height: 400px) {
+  .as-cal-num,
+  .as-cal-count {
+    font-size: 12px;
+  }
+}

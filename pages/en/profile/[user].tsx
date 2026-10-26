@@ -49,11 +49,12 @@ import {
   statsFromEntries,
 } from "@/lib/profile/sources";
 import { bannerCandidates, rankCandidates, studioOrder } from "@/lib/profile/favorite";
+import { useOwnLiveEntries } from "@/lib/profile/liveEntries";
 import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
-import { activityFromCloud, type ActivityRow } from "@/lib/profile/activity";
+import { activityFromCloud, type ActivityRow, type WatchDays } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 /* Liste, Stats, Badges : hors du chunk d'entree, precharges au repos (cf.
@@ -83,7 +84,7 @@ import type {
 } from "@/lib/profile/types";
 
 /** Les deux blocs nourris par l'activité de lecture du propriétaire. */
-const ACTIVITY_BLOCKS = new Set(["resume", "recents"]);
+const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar"]);
 
 /** Une disposition stockée, remise en forme — `null` si elle est illisible. */
 function parseLayout(raw: string | null | undefined): GridItem[] | null {
@@ -137,6 +138,8 @@ type Props = {
   activity: ActivityRow[] | null;
   /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
   streak: number | null;
+  /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
+  watchDays?: WatchDays | null;
   /** La collection de badges du proprietaire, telle qu'elle est sauvegardee.
    *  Absente sur un profil prive, `got` vide pour un compte qui n'a rien encore. */
   badges?: BadgeState | null;
@@ -153,7 +156,7 @@ import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
 export default function Profile({
   identity,
   stats,
-  entries,
+  entries: serverEntries,
   characters,
   banner: initialBanner,
   topAnimes,
@@ -162,12 +165,16 @@ export default function Profile({
   profileLayout,
   activity,
   streak,
+  watchDays,
   badges,
   isPrivate,
   viewedName,
   musicPaused,
 }: Props) {
   const { t } = useTranslation();
+  /* Sur son propre profil, ses modifications récentes passent par-dessus la
+     copie du serveur (lib/profile/liveEntries). */
+  const entries = useOwnLiveEntries(serverEntries ?? [], !!isOwner, identity?.anilistName);
 
   /* Tout ce que le studio peut proposer, pas seulement les douze meilleurs
      candidats à la bannière.
@@ -489,6 +496,7 @@ export default function Profile({
             accountLayout={profileLayout ?? null}
             activity={activity ?? null}
             streak={streak ?? null}
+            watchDays={watchDays ?? null}
             onPickScore={openScore}
             editing={picker}
             onEditingChange={(on) => (on ? openEditor() : closeEditor())}
@@ -583,7 +591,9 @@ const ANILIST_QUERY = `
           anime(perPage: 50) { nodes { id } }
           # Les personnages favoris alimentent le bloc du même nom. Ils viennent
           # de la requête qu'on faisait déjà : aucun appel supplémentaire.
-          characters(perPage: 12) {
+          # 25 (le plafond d'AniList par page) : le bloc défile, il n'est plus
+          # limité aux douze premiers.
+          characters(perPage: 25) {
             nodes {
               id
               name { full }
@@ -608,10 +618,18 @@ const ANILIST_QUERY = `
           progress
           repeat
           score(format: POINT_10_DECIMAL)
+          # La dernière modification de l'entrée (secondes) : « En cours de
+          # visionnage » se range du plus récemment regardé au plus ancien.
+          updatedAt
           media {
             id
             title { english romaji native userPreferred }
             episodes
+            # Le prochain épisode à sortir, pour une série en cours sans total
+            # (One Piece) : « ép. 1109 / 1150+ » dans « En cours de visionnage ».
+            # airingAt : le compte à rebours des titres en diffusion, en tête
+            # du bloc quand le réglage airingFirst est allumé.
+            nextAiringEpisode { episode airingAt }
             meanScore
             bannerImage
             coverImage { large extraLarge }
@@ -708,7 +726,13 @@ const RECENTE_MS = PARTAGE_TTL_S * 1000;
  * écrites depuis le 07/09, il ne restait donc qu'un GET Upstash raté à chaque
  * absence de v2.
  */
-const partageKey = (name: string) => `anilist:list:v2:${name.toLowerCase()}`;
+/* v3 (25/10/2026) : la requête demande `nextAiringEpisode` — « ép. 1109 /
+   1180+ » sur One Piece. Une copie v2 n'en porte pas, et comme elle est
+   servie tout de suite (stale-while-revalidate) et réécrite par les
+   déploiements qui tournent encore l'ancienne requête, la carte restait sur
+   « ép. 1109 ». */
+/* v4 (même jour) : `nextAiringEpisode.airingAt`, le compte à rebours. */
+const partageKey = (name: string) => `anilist:list:v4:${name.toLowerCase()}`;
 
 /** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
 type ListePartagee = { at: number; z: string };
@@ -882,6 +906,10 @@ function compacte(e: ProfileEntry): ProfileEntry {
   if (!out.repeat) delete out.repeat;
   if (!out.customLists?.length) delete out.customLists;
   if (!out.trailer) delete out.trailer;
+  if (!out.updatedAt) delete out.updatedAt;
+  if (!out.aired) delete out.aired;
+  if (!out.nextEpisode) delete out.nextEpisode;
+  if (!out.airingAt) delete out.airingAt;
   return out;
 }
 
@@ -1156,6 +1184,10 @@ export async function getServerSideProps(context: any) {
      lecture du proprietaire, elle ne doit pas rester lisible dans
      __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
   const streak: number | null = read?.streak ?? null;
+  /* Le journal des jours, sous le même garde-fou et seulement si la grille
+     montre le calendrier : sans lui, rien ne l'afficherait. */
+  const watchDays: WatchDays | null =
+    read && profileLayout?.some((o) => o.i === "calendar") ? read.days : null;
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more
@@ -1233,6 +1265,7 @@ export async function getServerSideProps(context: any) {
       profileLayout,
       activity,
       streak,
+      watchDays,
       badges,
       musicPaused: context.req?.cookies?.[PROFILE_AUTOPLAY_COOKIE] === "0",
     },

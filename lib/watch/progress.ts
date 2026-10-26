@@ -35,9 +35,66 @@ export type ProgressEntry = {
   duration: number;
   /** Epoch ms of the last write. */
   updatedAt: number;
+  /**
+   * Secondes RÉELLEMENT regardées (25/10/2026). La position ne le dit pas : un
+   * clic au bout de la barre met `time` à la fin et l'épisode passe « terminé »
+   * après 10 s. Absent sur les entrées plus anciennes.
+   */
+  watched?: number;
 };
 
 type ProgressMap = Record<string, ProgressEntry>;
+
+/**
+ * Le temps regardé, compté en mémoire d'une remontée à l'autre. Une avance de
+ * position ne compte que si elle tient dans le temps écoulé (vitesse ×2.5 au
+ * plus) : un saut en avant n'est pas du visionnage.
+ */
+const played = new Map<string, { t: number; at: number; w: number }>();
+
+function trackPlayed(key: string, time: number): number {
+  const now = Date.now();
+  let a = played.get(key);
+  if (!a) {
+    /* Une reprise poursuit le compte ; un épisode TERMINÉ qu'on rouvre est un
+       nouveau visionnage, qui repart de zéro. */
+    const stored = readMap()[key];
+    a = { t: time, at: now, w: isCompleted(stored) ? 0 : Number(stored?.watched) || 0 };
+    played.set(key, a);
+    return a.w;
+  }
+  const d = time - a.t;
+  const elapsed = (now - a.at) / 1000;
+  if (d > 0 && d <= elapsed * 2.5 + 2) a.w += d;
+  a.t = time;
+  a.at = now;
+  return a.w;
+}
+
+/** Sous une minute réellement regardée, un épisode n'est pas « vu ». */
+export const GLANCE_SECONDS = 60;
+
+/**
+ * UN ÉPISODE TERMINÉ GARDE SA DATE ET SON STATUT quand on le rouvre (25/10/2026,
+ * Luc). Rouvrir l'épisode 2 une semaine plus tard écrasait « terminé il y a deux
+ * semaines » par « en cours, il y a une semaine », et le profil cassait la série
+ * « Épisodes 1–2 » en deux cartes.
+ *
+ * SAUF SI L'ON RECOMMENCE L'ANIME. Le revisionnage s'installe, après une minute
+ * réellement regardée, sur l'épisode 1, puis sur chaque épisode dont le
+ * précédent a été revu APRÈS lui — on refait la série dans l'ordre.
+ *
+ * Contrepartie : un épisode terminé, revu à part puis arrêté en route, ne garde
+ * pas de point de reprise.
+ */
+function rewatching(map: ProgressMap, aniId: number | string, episode: number | string, w: number) {
+  if (w < GLANCE_SECONDS) return false;
+  const ep = Number(episode);
+  if (ep <= 1) return true;
+  const self = map[progressKey(aniId, episode)];
+  const prev = map[progressKey(aniId, ep - 1)];
+  return !!prev && Number(prev.updatedAt) > Number(self?.updatedAt);
+}
 
 /**
  * Emis a CHAQUE remontee de position du lecteur, y compris celles qu'on ne
@@ -174,6 +231,7 @@ export function saveProgress(
   // ne persiste pas (les premieres secondes, la zone de fin) sont justement
   // celles ou la barre doit continuer d'avancer a l'ecran.
   emitTick({ aniId, episode, time, duration });
+  const watched = trackPlayed(progressKey(aniId, episode), time);
   if (time < MIN_SAVE_SECONDS) return;
   if (Number.isFinite(duration) && duration > 0 && time >= duration - END_THRESHOLD_SECONDS) {
     // In the end zone — let the natural-end / next-episode path mark it
@@ -181,10 +239,13 @@ export function saveProgress(
     return;
   }
   const map = readMap();
+  const prev = map[progressKey(aniId, episode)];
+  if (isCompleted(prev) && !rewatching(map, aniId, episode, watched)) return;
   map[progressKey(aniId, episode)] = {
     time,
     duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
     updatedAt: Date.now(),
+    watched: Math.round(watched),
   };
   writeMap(map);
 }
@@ -206,7 +267,25 @@ export function markComplete(
     Number.isFinite(duration) && (duration as number) > 0
       ? (duration as number)
       : map[key]?.duration || 1;
-  map[key] = { time: dur, duration: dur, updatedAt: Date.now() };
+  const watched = played.get(key)?.w ?? map[key]?.watched;
+  /* Déjà terminé : on ne le re-date qu'après un vrai revisionnage, pas sur un
+     clic au bout de la barre ni sur le passage à l'épisode suivant. */
+  const session = Number(played.get(key)?.w) || 0;
+  if (
+    isCompleted(map[key]) &&
+    !rewatching(map, aniId, episode, session) &&
+    // Revu seul mais EN ENTIER (80 % réellement regardés) : il prend la date.
+    session < dur * 0.8
+  ) {
+    emitTick({ aniId, episode, time: dur, duration: dur });
+    return;
+  }
+  map[key] = {
+    time: dur,
+    duration: dur,
+    updatedAt: Date.now(),
+    ...(watched != null ? { watched: Math.round(watched) } : {}),
+  };
   writeMap(map);
   emitTick({ aniId, episode, time: dur, duration: dur });
 }

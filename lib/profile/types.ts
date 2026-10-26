@@ -66,12 +66,24 @@ export type ProfileEntry = {
   score: number | null;
   /** Total episodes when known — drives the progress bar. */
   total: number | null;
+  /** Série EN COURS DE DIFFUSION : le dernier épisode sorti (AniList
+   *  `nextAiringEpisode.episode − 1`). Sert de borne quand `total` est inconnu
+   *  (One Piece) — « ép. 1109 / 1150+ ». Absent d'une liste locale. */
+  aired?: number | null;
+  /** Le prochain épisode à sortir et sa date (epoch ms) — AniList
+   *  `nextAiringEpisode`. Absents hors diffusion et sur une liste locale. */
+  nextEpisode?: number | null;
+  airingAt?: number | null;
   title: ProfileTitle | null;
   cover: string | null;
   /** AniList favourite. Always false for a list with no favourites. */
   favourite?: boolean;
   /** Rewatch count. */
   repeat?: number;
+  /** Dernière activité sur l'entrée, en epoch ms : `MediaList.updatedAt`
+   *  d'AniList, ou `activityAt`/`updatedAt` d'une liste locale. Range « En cours
+   *  de visionnage » du plus récent au plus ancien. */
+  updatedAt?: number | null;
   /**
    * Les listes personnalisées AniList qui contiennent cette entrée.
    *

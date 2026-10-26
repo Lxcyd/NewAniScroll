@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
@@ -237,6 +237,8 @@ export function ResumeBlock({
      Total inconnu (série en cours, anime hors liste) : on propose le suivant. */
   const row = useMemo(() => {
     for (const r of rows) {
+      // Les cartes des jours d'avant ne sont pas la dernière lecture de l'anime.
+      if (r.older) continue;
       if (!r.done) {
         if (r.pct > 0) return { ...r, href: watchHref(r) };
         continue;
@@ -476,7 +478,15 @@ export function ResumeBlock({
  * ELLE DISPARAÎT EN RÉORGANISATION : ce coin appartient alors à la roue dentée
  * et au moins, et la place lui est réservée par `endRoom` (WidgetGrid.tsx).
  */
-function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => string }) {
+function StreakBadge({
+  days,
+  t,
+  editing = false,
+}: {
+  days: number;
+  t: (k: string, o?: any) => string;
+  editing?: boolean;
+}) {
   return (
     <div
       /* LE BORD EST GRIS, PLUS ROUGE : le rouge d'accent est la couleur de ce
@@ -492,8 +502,17 @@ function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => str
          derrière et restent gris sur toutes les bannières.
 
          La taille et la hauteur viennent de `as-recent-streak` (globals.css) :
-         comme les vignettes, la pilule grandit avec le bloc. */
-      className="as-recent-streak absolute right-0 z-10 flex items-center gap-1.5 rounded-full bg-as-card px-2.5 py-1.5 ring-1 ring-[#3b3f4a]"
+         comme les vignettes, la pilule grandit avec le bloc.
+
+         PUIS UN NOIR TRANSLUCIDE (24/10/2026, Luc : « ressort un peu trop »).
+         L'aplat opaque tranchait sur des cartes devenues transparentes avec le
+         flou. Un NOIR translucide fonce ce qui passe dessous sans en prendre
+         la teinte — c'est le blanc translucide qui virait au bleu. */
+      /* EN ÉDITION, SOUS LA ROUE ET LE MOINS (25/10/2026, Luc) : même place
+         qu'en lecture, descendue de 6 px pour ne pas toucher l'icône de la
+         roue, qui est dans le coin de la carte (WidgetGrid.tsx). */
+      style={editing ? { transform: "translateY(calc(-50% + 6px))" } : undefined}
+      className={`as-recent-streak absolute right-0 z-10 flex items-center gap-1.5 rounded-full bg-black/25 px-2.5 py-1.5 ring-1 ring-black/20`}
       title={t("profile.blocks.recents.streakTitle", { count: days })}
     >
       {/* L'EMOJI PLUTÔT QU'UN CHEMIN SVG. Il est en couleurs, celles du système,
@@ -510,6 +529,9 @@ function StreakBadge({ days, t }: { days: number; t: (k: string, o?: any) => str
   );
 }
 
+/** Le nombre de lignes de « Vu récemment ». */
+const RECENTS_MAX = 10;
+
 export function RecentsBlock({
   rows: served,
   other,
@@ -519,11 +541,15 @@ export function RecentsBlock({
   streakOn = true,
   /* En réorganisation, le coin de l'en-tête appartient à la roue et au moins. */
   editing = false,
-}: ActivityProps & { streakOn?: boolean; editing?: boolean } = {}) {
+  /* La couverture de l'anime au lieu de l'image de l'épisode. */
+  coverArt = false,
+}: ActivityProps & { streakOn?: boolean; editing?: boolean; coverArt?: boolean } = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
-  const { rows, streak, loaded } = useRows(served, 12, servedStreak);
+  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak);
+  /* Un épisode ouvert quelques secondes (missclic) n'a pas de carte. */
+  const rows = useMemo(() => all.filter((r) => !r.glance), [all]);
 
   if (!loaded) return <div className="h-full" />;
   if (!rows.length)
@@ -544,12 +570,16 @@ export function RecentsBlock({
        défile la ferait couper par son `overflow`. L'enveloppe ne défile pas et
        ne sert qu'à lui donner son coin. */
     <div className="relative h-full">
-      {streakOn && !editing && streak > 0 ? <StreakBadge days={streak} t={t} /> : null}
+      {/* En édition aussi (25/10/2026, Luc), sous la roue et le moins. */}
+      {streakOn && streak > 0 ? <StreakBadge days={streak} t={t} editing={editing} /> : null}
       {/* `minmax(0,1fr)` : une colonne `auto` prend la largeur naturelle du plus
           long titre et poussait les lignes hors de la carte, coupées à droite.
           `as-scroller` rend la barre de défilement que le site masque partout. */}
       <div className="as-scroller grid h-full grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
-        {rows.map((r) => (
+        {/* Dix lignes au plus (24/10/2026, Luc), qu'elles viennent de
+            l'historique local ou du serveur. Coupé ICI et non dans `useRows` :
+            la flamme se calcule sur l'historique entier. */}
+        {rows.slice(0, RECENTS_MAX).map((r) => (
           <RecentRow
             key={`${r.aniId}:${r.episode}`}
             row={r}
@@ -557,6 +587,7 @@ export function RecentsBlock({
             t={t}
             known={titles?.get(r.aniId) ?? null}
             rowTitle={rowTitle}
+            coverArt={coverArt}
           />
         ))}
       </div>
@@ -589,7 +620,9 @@ function RecentRow({
   t,
   known,
   rowTitle,
+  coverArt = false,
 }: {
+  coverArt?: boolean;
   row: ActivityRow;
   ago: (at: number) => string;
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -608,7 +641,16 @@ function RecentRow({
      tournures qui vivent dans le romaji d'AniList. Un titre anglais traduit peut
      ne plus les porter, et on perdrait la saison en changeant de langue. */
   const season = useSeasonNumber(r.aniId, r.animeTitle);
-  const art = r.image || r.cover;
+  const art = coverArt ? r.cover || r.image : r.image || r.cover;
+  /* L'autre image n'est montée qu'au premier basculement de l'option : la
+     charger d'office doublerait les images de chaque ligne pour rien. */
+  const [toggled, setToggled] = useState(false);
+  const firstCover = useRef(coverArt);
+  useEffect(() => {
+    if (coverArt !== firstCover.current) setToggled(true);
+  }, [coverArt]);
+  const showImage = !!r.image && (toggled || art === r.image);
+  const showCover = !!r.cover && r.cover !== r.image && (toggled || art === r.cover);
   const range = r.runFrom < r.episode;
   const where = season != null
     ? range
@@ -639,11 +681,40 @@ function RecentRow({
          descend. */
       className="as-recent-row group flex min-w-0 items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
-      <div className="as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card">
+      <div
+        className={`as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card${
+          coverArt && r.cover ? " as-recent-cover" : ""
+        }`}
+      >
         {/* La vignette monte à 178 px de large dans le plus grand palier : un
             `sizes` resté à 160 px y aurait fait servir une image trop petite,
             étirée. */}
-        {art ? <Image src={art} alt="" fill sizes="220px" className="object-cover" /> : null}
+        {/* LES DEUX IMAGES SONT POSÉES, l'une sur l'autre, et l'option ne fait
+            que croiser leur opacité pendant que la vignette change de format
+            (`.as-recent-thumb`, globals.css) : un simple changement de `src`
+            sauterait d'une image à l'autre. */}
+        {showImage ? (
+          <Image
+            src={r.image!}
+            alt=""
+            fill
+            sizes="220px"
+            className={`object-cover transition-opacity duration-300 ${
+              art === r.image ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        ) : null}
+        {showCover ? (
+          <Image
+            src={r.cover!}
+            alt=""
+            fill
+            sizes="220px"
+            className={`object-cover transition-opacity duration-300 ${
+              art === r.cover ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        ) : null}
         {/* LE MÊME BOUTON QUE « Reprendre la lecture », en plus petit : la ligne
             mène elle aussi à la lecture, et sans pastille la vignette se lisait
             comme une illustration.

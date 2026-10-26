@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -45,6 +46,12 @@ export function useScene(): Scene {
 
 /** Le recul, en ms — `.as-stage.is-fixed` dans globals.css. */
 const DURATION = 500;
+/** Le départ du glissement, en ms après le début du recul. 460 ms avant le
+    25/10/2026 : « on dirait que l'anim lag » (Luc). MESURÉ image par image
+    (screencast CDP, bord du cadre) : le recul fait ~100 px jusqu'à 230 ms,
+    puis 9 px seulement entre 230 et 350 ms — immobile à l'œil. Le glissement
+    part donc à 230 ms, quand le recul entre dans sa traîne. */
+const DOCK_AT = 230;
 /** Écart du pouce aux bords haut et bas du cadre, en pixels écran. */
 const THUMB_INSET = 12;
 /* La gouttière : 12 px de large, à 4 px du bord droit du cadre (dedans) —
@@ -235,9 +242,15 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
     }
     const timer = setTimeout(() => {
       if (want.current) setDocked(true);
-    }, DURATION - 40);
+    }, DOCK_AT);
     return () => clearTimeout(timer);
   }, [shrunk]);
+  /* Quitter la page en pleine édition ne doit pas laisser la navbar cachée
+     sur tout le site. */
+  useEffect(
+    () => () => document.documentElement.classList.remove("as-scene-nav-hidden", "as-scene-leave"),
+    [],
+  );
   /** Le défilement à reprendre d'un mode à l'autre, pour que rien ne saute. */
   const scroll = useRef(0);
   const want = useRef(scene);
@@ -253,7 +266,8 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
        images, le recul, puis le glissement (~1 s) ; sortie : un seul temps. */
     if (fixed !== scene) {
       document.documentElement.dataset.sceneSettle = String(
-        performance.now() + (scene ? 2 * DURATION + 50 : DURATION + 50),
+        /* Entrée : le départ du glissement, plus ses 0,45 s. */
+        performance.now() + (scene ? DOCK_AT + 450 + 100 : DURATION + 50),
       );
       /* Retour au profil = comme un rechargement pour la case musique : elle
          regrandit une fois (23/10/2026, Luc). */
@@ -262,6 +276,11 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
         window.dispatchEvent(new Event("as-profile-enter"));
       }
     }
+    /* LA NAVBAR S'EFFACE DÈS L'ENTRÉE (25/10/2026, Luc : « elle reste trop
+       longtemps ») et ne revient qu'à la sortie, une fois le profil rendu à
+       la page (`release`, plus bas) — elle se superposait au cadre encore en
+       train de regrandir. */
+    if (scene) document.documentElement.classList.add("as-scene-nav-hidden");
     if (scene) {
       if (!fixed) {
         scroll.current = window.scrollY;
@@ -285,8 +304,9 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
          l'écran opaque pendant tout le retour, et surgissait d'un coup à la
          fin. Il entre en fondu, le temps d'une classe (globals.css). */
       const html = document.documentElement;
+      html.classList.remove("as-scene-nav-hidden");
       html.classList.add("as-scene-leave");
-      setTimeout(() => html.classList.remove("as-scene-leave"), 700);
+      setTimeout(() => html.classList.remove("as-scene-leave"), 900);
     };
     const onEnd = (e: TransitionEvent) => {
       if (e.target === el && e.propertyName === "transform") release();
@@ -580,6 +600,8 @@ export default function ProfileStage({ scene, children }: { scene: boolean; chil
       <div ref={stage} className={`as-stage${state}`}>
         {children}
       </div>
+      {/* Le bord du cadre, PAR-DESSUS la scène (globals.css, `.as-scene-rim`). */}
+      <div aria-hidden className={`as-scene-rim${state}`} />
       {fixed ? (
         <>
           <div ref={gutter} aria-hidden className="as-scene-gutter">

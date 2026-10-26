@@ -91,6 +91,8 @@ import { FrameTileImage, cropStyle } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
+import BadgeDefs from "@/components/profile/badges/BadgeDefs";
+import BadgeToken from "@/components/profile/badges/BadgeToken";
 import { BY_ID, RARITY_ORDER, type Rarity } from "@/lib/badges/catalog";
 import { RING_HUE, ringSwatch } from "@/components/profile/badges/rarity";
 import { Dropdown } from "@/components/profile/WidgetSettings";
@@ -146,6 +148,7 @@ import {
   SCALE_MIN,
   clampScale,
   clampBlur,
+  MIN_BLUR,
   clampFade,
   clampVolume,
   emptyDressing,
@@ -159,11 +162,26 @@ import {
   type DressingMusic,
 } from "@/lib/profile/dressing";
 import type { BannerOption, ProfileEntry } from "@/lib/profile/types";
-import { FONDS, fondsParAnime, isFondMuet } from "@/lib/profile/fonds";
+import { FONDS, fondOf, fondsParAnime, isFondMuet } from "@/lib/profile/fonds";
 import { animeCharsCached, animeCharsDone, loadAnimeChars, loadCharCounts, loadFavouriteChars, searchChars, type AvatarChar } from "@/lib/profile/avatarChoices";
 import AvatarCropper from "@/components/profile/AvatarCropper";
 import { notify } from "@/lib/notifications/noticeStore";
-import { MAX_IMPORTS, fileToAvatar, readImports, writeImports, type AvatarImport } from "@/lib/profile/avatarImport";
+import { MAX_IMPORTS, fileToAvatarUrl, readImports, writeImports, type AvatarImport } from "@/lib/profile/avatarImport";
+import { deleteUpload, fileHash, uploadBlob, uploadMedia, videoPoster } from "@/lib/upload/client";
+import { isVideoUpload } from "@/lib/upload/media";
+import MediaThumb from "@/components/profile/MediaThumb";
+import { readBgImports, writeBgImports, type BgImport } from "@/lib/profile/bgImport";
+
+/** Le message d'un import raté (cf. les erreurs de lib/upload/client.ts). */
+function importErrorKey(e: unknown, typeKey: string, failKey: string): string {
+  const m = (e as Error)?.message;
+  if (m === "type") return typeKey;
+  if (m === "size") return "profile.studioImportSize";
+  if (m === "auth") return "profile.studioImportAuth";
+  if (m === "quota") return "profile.studioImportQuota";
+  if (m === "space") return "profile.studioImportSpace";
+  return failKey;
+}
 
 /**
  * Le studio : l'écran plein où l'on habille son profil.
@@ -659,7 +677,7 @@ const AVATAR_GROUP: PaletteScope[] = ["avatar", "frame"];
 const tabGroupOf = (k: PaletteScope | null): PaletteScope[] | null =>
   groupOf(k) ?? (k && AVATAR_GROUP.includes(k) ? AVATAR_GROUP : null);
 /** Le fond porté est-il un fond animé (son onglet, plutôt que Vidéo) ? */
-const isFondUrl = (url: string | null | undefined) => !!url && FONDS.some((f) => f.url === url);
+const isFondUrl = (url: string | null | undefined) => !!fondOf(url);
 function readLastScope(): PaletteScope {
   try {
     const v = localStorage.getItem(LAST_SCOPE_KEY) as PaletteScope | null;
@@ -1595,6 +1613,19 @@ export default function BannerStudio({
      ponctuation, sinon un titre en deux mots ne se tape qu'avec son espace. */
   const fold = (s: string) =>
     s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
+  /* LE FILTRE DES TITRES, COMME LA BARRE DE RECHERCHE DU SITE (24/10/2026,
+     Luc) : chaque mot tapé doit COMMENCER un mot du titre. Comparer les titres
+     sans espaces faisait trouver « Insomniacs After School » à « saf »
+     (insomniac-SAF-terschool). « chainsawman » collé trouve toujours
+     « Chainsaw Man » : le titre replié COMMENCE par la frappe repliée. */
+  const words = (s: string) =>
+    s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").split(/[^a-z0-9]+/).filter(Boolean);
+  const titleMatch = (title: string, q: string) => {
+    const qw = words(q);
+    if (!qw.length) return true;
+    const tw = words(title);
+    return qw.every((w) => tw.some((t) => t.startsWith(w))) || (fold(q).length >= 3 && fold(title).startsWith(fold(q)));
+  };
 
   /* CHERCHER HORS DE SA LISTE (14/10/2026). Les onglets Image et Bannière ne
      proposaient que les animés de la liste : impossible de poser une
@@ -1612,30 +1643,43 @@ export default function BannerStudio({
       return;
     }
     let alive = true;
+    /* AniList ET notre base (24/10/2026, Luc : « fais comme la barre de
+       recherche ») : la recherche d'AniList rate les titres français et les
+       synonymes, que notre table `anime` indexe (/api/v2/search, la même
+       route que la barre du site). AniList d'abord, nos trouvailles ensuite,
+       sans doublon. */
+    type Found = Airing & {
+      id: number;
+      title?: { userPreferred?: string; english?: string; romaji?: string };
+      coverImage?: { medium?: string; large?: string };
+      trailer?: { id?: string; site?: string } | null;
+      isAdult?: boolean;
+    };
     const timer = setTimeout(() => {
-      fetch("https://graphql.anilist.co/", {
+      const ani = fetch("https://graphql.anilist.co/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: STUDIO_SEARCH, variables: { search: q } }),
       })
         .then((r) => (r.ok ? r.json() : null))
-        .then((json) => {
+        .then((json) => (json?.data?.Page?.media ?? []) as Found[])
+        .catch(() => [] as Found[]);
+      const local = fetch(`/api/v2/search?q=${encodeURIComponent(q.replace(/\s+/g, " ").toLowerCase())}&limit=8`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => ((json?.results ?? []) as Found[]).filter((m) => m?.id && m.title && !m.isAdult))
+        .catch(() => [] as Found[]);
+      Promise.all([ani, local])
+        .then(([a, l]) => {
           if (!alive) return;
-          const media: Array<
-            Airing & {
-              id: number;
-              title?: { userPreferred?: string; english?: string; romaji?: string };
-              coverImage?: { medium?: string };
-              trailer?: { id?: string; site?: string } | null;
-            }
-          > = json?.data?.Page?.media ?? [];
+          const seen = new Set(a.map((m) => m.id));
+          const media = [...a, ...l.filter((m) => !seen.has(m.id))];
           const out = media.map((m) => {
             const a = airedOf(m);
             AIRED.set(m.id, a);
             return {
               mediaId: m.id,
               title: m.title?.userPreferred || m.title?.english || m.title?.romaji || `#${m.id}`,
-              cover: m.coverImage?.medium ?? null,
+              cover: m.coverImage?.medium ?? m.coverImage?.large ?? null,
               /* La bande-annonce d'un titre HORS de la liste : sans elle, le
                  menu Vidéo ne la proposait pas (21/10/2026). */
               trailer: m.trailer?.site === "youtube" ? m.trailer.id ?? null : null,
@@ -2341,28 +2385,30 @@ export default function BannerStudio({
       if (!file) return;
       setAvImporting(true);
       try {
-        const url = await fileToAvatar(file);
+        /* L'empreinte d'abord : un GIF ou une vidéo déjà importés ne repartent
+           pas au serveur (chaque envoi y reçoit une adresse neuve). */
+        const h = await fileHash(file);
+        const twin = avImportsRef.current.find((x) => x.h === h);
+        const url = twin ? twin.url : await fileToAvatarUrl(file);
         setAvImpOpen(true);
         /* LA MÊME IMAGE DEUX FOIS (24/10/2026, Luc) : elle n'est pas
            réimportée — le message le dit, et c'est l'import déjà là qu'on
            porte, au lieu d'un clic qui ne faisait rien en silence. */
-        if (avImportsRef.current.some((x) => x.url === url)) {
+        const known = twin ?? avImportsRef.current.find((x) => x.url === url);
+        if (known) {
           notify.error(t("profile.studioAvatarImportDup"));
         } else {
           /* Son nom : celui du fichier, sans l'extension (renommable au crayon). */
           const name = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 40) || undefined;
-          setAvImports((l) => writeImports([{ id: String(Date.now()), url, name }, ...l]));
+          setAvImports((l) => writeImports([{ id: String(Date.now()), url, name, h }, ...l]));
         }
-        const known = avImportsRef.current.find((x) => x.url === url);
         patch({
           avatar: url,
           avatarCrop: null,
           avatarName: known ? known.name ?? null : file.name.replace(/\.[^.]+$/, "").trim().slice(0, 40) || null,
         });
       } catch (e) {
-        notify.error(
-          t((e as Error)?.message === "type" ? "profile.studioAvatarImportType" : "profile.studioAvatarImportFail"),
-        );
+        notify.error(t(importErrorKey(e, "profile.studioAvatarImportType", "profile.studioAvatarImportFail")));
       } finally {
         setAvImporting(false);
         if (avFile.current) avFile.current.value = "";
@@ -2370,6 +2416,88 @@ export default function BannerStudio({
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `patch` et `t` sont stables pour ce qu'on en fait
     [],
+  );
+  /* ── L'ONGLET IMPORT : LES FONDS QU'ON DÉPOSE (24/10/2026, Luc) ─────────
+     Exactement les règles des imports d'avatar — dix au plus, gardés dans ce
+     navigateur, renommables, doublon refusé — pour une image ou une vidéo,
+     envoyée au Worker (lib/upload/client.ts) puis portée en fond. */
+  const [bgImports, setBgImports] = useState<BgImport[]>([]);
+  useEffect(() => setBgImports(readBgImports()), []);
+  const [bgImporting, setBgImporting] = useState(false);
+  const [bgImpOpen, setBgImpOpen] = useState(true);
+  const [bgImpEdit, setBgImpEdit] = useState(false);
+  const bgFile = useRef<HTMLInputElement | null>(null);
+  const bgImportsRef = useRef(bgImports);
+  bgImportsRef.current = bgImports;
+  /* L'affiche d'une vidéo importée, fabriquée si elle manque (import d'avant
+     le 25/10, ou capture ratée) : une image de la vidéo, envoyée à côté. La
+     case du profil la montre (`videoThumb`, figé dans `videoCover`). */
+  const posterBusy = useRef(new Set<string>());
+  const ensurePoster = useCallback(async (im: BgImport, file?: File) => {
+    if (!isVideoUpload(im.url) || im.poster || posterBusy.current.has(im.id)) return;
+    posterBusy.current.add(im.id);
+    try {
+      const blob = await videoPoster(file ?? im.url);
+      if (!blob) return;
+      const poster = await uploadBlob(blob);
+      setBgImports((l) => writeBgImports(l.map((x) => (x.id === im.id ? { ...x, poster } : x))));
+    } catch {
+      /* Sans affiche, la case reste sans image : jamais celle d'un autre fond. */
+    } finally {
+      posterBusy.current.delete(im.id);
+    }
+  }, []);
+  /** Porter un fond importé : image → `kind: "image"`, vidéo → `kind: "video"`. */
+  const wearBg = useCallback(
+    (im: BgImport) => {
+      void ensurePoster(im);
+      patch({
+        kind: isVideoUpload(im.url) ? ("video" as const) : ("image" as const),
+        url: im.url,
+        trailerId: null,
+        episode: null,
+        videoFrom: null,
+        videoTo: null,
+        color: null,
+        source: "background",
+        animeId: null,
+        title: im.name ?? null,
+        videoCover: im.poster ?? null,
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `patch` est stable pour ce qu'on en fait
+    [ensurePoster],
+  );
+  const onBgFile = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      setBgImporting(true);
+      try {
+        const h = await fileHash(file);
+        const twin = bgImportsRef.current.find((x) => x.h === h);
+        if (twin) {
+          notify.error(t("profile.studioBgImportDup"));
+          wearBg(twin);
+          return;
+        }
+        /* 2560 px au plus grand côté : net sur un écran 1440p, sous 5 Mo. */
+        const { url } = await uploadMedia(file, { maxSide: 2560, allow: ["image", "gif", "video"] });
+        const name = file.name.replace(/\.[^.]+$/, "").trim().slice(0, 40) || undefined;
+        const im: BgImport = { id: String(Date.now()), url, name, h };
+        setBgImpOpen(true);
+        setBgImports((l) => writeBgImports([im, ...l]));
+        /* L'affiche tirée du fichier local : pas besoin de retélécharger. */
+        void ensurePoster(im, file);
+        wearBg(im);
+      } catch (e) {
+        notify.error(t(importErrorKey(e, "profile.studioBgImportType", "profile.studioBgImportFail")));
+      } finally {
+        setBgImporting(false);
+        if (bgFile.current) bgFile.current.value = "";
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` est stable pour ce qu'on en fait
+    [wearBg, ensurePoster],
   );
   const avChars = useCallback((id: number) => {
     if (animeCharsDone(id)) return;
@@ -2691,8 +2819,7 @@ export default function BannerStudio({
               {/* Un <img> nu et non un <Image> Next : la même URL ×688, chargée
                   une fois par le navigateur, sans 688 composants à monter. */}
               {draft.avatar || identity.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={draft.avatar || identity.avatar!} alt="" decoding="async" draggable={false} className="absolute inset-0 h-full w-full object-cover" style={cropStyle(draft.avatarCrop)} />
+                <MediaThumb src={draft.avatar || identity.avatar!} className="absolute inset-0 h-full w-full object-cover" style={cropStyle(draft.avatarCrop)} />
               ) : null}
             </span>
             {/* La case « aucun cadre » n'a plus de croix : l'avatar nu dit déjà
@@ -2793,13 +2920,9 @@ export default function BannerStudio({
           >
             <span className="relative aspect-square w-[78%] overflow-hidden rounded-full bg-primary">
               {src ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <MediaThumb
                   src={src}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  draggable={false}
+                  lazy
                   className="absolute inset-0 h-full w-full object-cover object-[50%_20%] transition-transform duration-300 group-hover/av:scale-[1.06]"
                 />
               ) : null}
@@ -2864,8 +2987,7 @@ export default function BannerStudio({
             className="relative flex flex-col items-center gap-1.5 rounded-xl bg-white/[0.04] px-1.5 pb-2 pt-2.5 ring-1 ring-white/10"
           >
             <span className="relative aspect-square w-[78%] overflow-hidden rounded-full bg-primary">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={im.url} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover object-[50%_20%]" />
+              <MediaThumb src={im.url} className="absolute inset-0 h-full w-full object-cover object-[50%_20%]" />
             </span>
             <input
               value={im.name ?? ""}
@@ -2888,6 +3010,9 @@ export default function BannerStudio({
               onClick={() => {
                 setAvImports((l) => writeImports(l.filter((x) => x.id !== im.id)));
                 if (draft.avatar === im.url) patch({ avatar: null, avatarCrop: null, avatarName: null });
+                /* Un GIF ou une vidéo : le fichier quitte aussi Cloudflare et
+                   rend sa place dans les 30 Mo du compte. */
+                void deleteUpload(im.url);
               }}
               title={t("profile.studioAvatarImportRemove")}
               aria-label={t("profile.studioAvatarImportRemove")}
@@ -2961,7 +3086,7 @@ export default function BannerStudio({
          ceux qu'AniList trouve hors d'elle. L'anime ouvert reste, même quand
          la recherche ne le trouve plus. */
       const dansListe = new Set(animes.map((a) => a.mediaId));
-      const liste = animes.filter((a) => match(a.title) || a.mediaId === avOpen);
+      const liste = animes.filter((a) => titleMatch(a.title, q) || a.mediaId === avOpen);
       const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
       const ouvertAilleurs =
         avOpen != null && !dansListe.has(avOpen) && !ailleurs.some((a) => a.mediaId === avOpen)
@@ -2978,11 +3103,8 @@ export default function BannerStudio({
           key: `anime-av-${a.mediaId}`,
           label: a.title,
           hint:
-            n != null
-              ? t("profile.studioAvatarCount", { count: n })
-              : dansListe.has(a.mediaId)
-                ? null
-                : t("profile.studioNotInList"),
+            /* Le nombre seul, qu'elle soit dans ta liste ou non (24/10/2026). */
+            n != null ? t("profile.studioAvatarCount", { count: n }) : null,
           thumb: a.cover ?? null,
           cover: true,
           dim: n === 0,
@@ -3279,6 +3401,133 @@ export default function BannerStudio({
       });
     }
 
+    /* ── L'onglet Import : la première case importe, les suivantes se portent
+       (même grille que les imports d'avatar, en 16/9 comme les fonds). */
+    if (scope === "upload") {
+      const full = bgImports.length >= MAX_IMPORTS;
+      const tileCls = "relative aspect-video w-full overflow-hidden rounded-xl bg-primary";
+      const importTile = (
+        <div key="bg-new" className="flex flex-col gap-1.5">
+          <input
+            ref={bgFile}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/avif,video/mp4,video/webm"
+            className="hidden"
+            onChange={(e) => void onBgFile(e.target.files?.[0])}
+          />
+          <button
+            type="button"
+            onClick={() => bgFile.current?.click()}
+            disabled={bgImporting || full}
+            title={full ? t("profile.studioAvatarImportFull", { max: MAX_IMPORTS }) : undefined}
+            className="group/imp grid aspect-video w-full place-items-center rounded-xl border border-dashed border-white/20 text-white/55 transition-colors enabled:hover:border-action/70 enabled:hover:bg-action/[0.06] enabled:hover:text-white disabled:opacity-40"
+          >
+            {bgImporting ? (
+              <span className="h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-action" />
+            ) : (
+              <PlusIcon className="h-7 w-7" strokeWidth={1.6} />
+            )}
+          </button>
+          <span className="truncate px-0.5 text-center font-karla text-[11px] font-bold text-white/55">
+            {full ? t("profile.studioAvatarImportFull", { max: MAX_IMPORTS }) : t("profile.studioBgImport")}
+          </span>
+        </div>
+      );
+      const tile = (im: BgImport) => {
+        const on = draft.url === im.url;
+        const label = im.name || t("profile.studioBgImported");
+        return bgImpEdit ? (
+          <div key={`bg-${im.id}`} className="relative flex flex-col gap-1.5">
+            <span className={tileCls}>
+              <MediaThumb src={im.poster ?? im.url} lazy className="absolute inset-0 h-full w-full object-cover" />
+            </span>
+            <input
+              value={im.name ?? ""}
+              placeholder={t("profile.studioBgImported")}
+              maxLength={40}
+              aria-label={t("profile.studioBgImportRename")}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBgImports((l) => writeBgImports(l.map((x) => (x.id === im.id ? { ...x, name: v || undefined } : x))));
+                if (on) patch({ title: v.trim() || null });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                e.stopPropagation();
+              }}
+              className="w-full min-w-0 rounded-md border border-dashed border-white/25 bg-transparent px-1.5 py-0.5 text-center font-karla text-[11px] font-bold text-white outline-none transition-colors placeholder:text-white/40 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setBgImports((l) => writeBgImports(l.filter((x) => x.id !== im.id)));
+                /* Porté : le profil retombe sur son fond automatique, au lieu
+                   de pointer un fichier qui n'existe plus. */
+                if (on) patch({ kind: "banner", url: null, source: null, animeId: null, title: null });
+                void deleteUpload(im.url);
+                if (im.poster) void deleteUpload(im.poster);
+              }}
+              title={t("profile.studioAvatarImportRemove")}
+              aria-label={t("profile.studioAvatarImportRemove")}
+              className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-red-500/90 text-white shadow ring-1 ring-black/30 transition-colors hover:bg-red-500"
+            >
+              <XMarkIcon className="h-3.5 w-3.5" strokeWidth={2.4} />
+            </button>
+          </div>
+        ) : (
+          <button
+            key={`bg-${im.id}`}
+            type="button"
+            title={label}
+            aria-label={label}
+            aria-pressed={on}
+            onClick={() => wearBg(im)}
+            className="group/bg flex flex-col gap-1.5 text-left"
+          >
+            <span className={`${tileCls} ${on ? "ring-2 ring-inset ring-action" : "ring-1 ring-inset ring-white/10"}`}>
+              <MediaThumb
+                src={im.poster ?? im.url}
+                lazy
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover/bg:scale-[1.04]"
+              />
+              {isVideoUpload(im.url) ? (
+                <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px font-karla text-[9px] font-bold uppercase tracking-wide text-white/85">
+                  {t("profile.studioBgVideo")}
+                </span>
+              ) : null}
+            </span>
+            <span className={`truncate px-0.5 text-center font-karla text-[11px] font-bold ${on ? "text-white" : "text-white/70"}`}>
+              {label}
+            </span>
+          </button>
+        );
+      };
+      out.push({
+        title: t("profile.studioAvatarImports"),
+        rows: [],
+        fold: {
+          open: bgImpOpen,
+          toggle: () => {
+            setBgImpEdit(false);
+            setBgImpOpen((o) => !o);
+          },
+          count: `${bgImports.length}/${MAX_IMPORTS}`,
+          edit: bgImports.length ? { on: bgImpEdit, toggle: () => setBgImpEdit((e) => !e) } : undefined,
+        },
+        node: bgImpOpen ? (
+          <>
+            {/* La recherche filtre les imports par leur nom ; la case
+                « Importer » reste toujours là. */}
+            <div className="grid grid-cols-2 gap-2">
+              {[importTile, ...bgImports.filter((im) => match(im.name || t("profile.studioBgImported"))).map(tile)]}
+            </div>
+            <p className="px-1 pt-2.5 font-karla text-[11px] leading-snug text-white/40">{t("profile.studioBgImportHint")}</p>
+          </>
+        ) : undefined,
+      });
+      return out;
+    }
+
     if (scope !== "music" && scope !== "layout" && !ready) {
       out.push({
         title: t(`profile.studioKind_${scope}`),
@@ -3529,7 +3778,7 @@ export default function BannerStudio({
       /* Ta liste d'abord, puis ce qu'AniList trouve en plus ; et la ligne
          ouverte reste, même quand la recherche ne la trouve plus. */
       const dansListe = new Set(animes.map((a) => a.mediaId));
-      const liste = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+      const liste = animes.filter((a) => titleMatch(a.title, q) || a.mediaId === ouvert);
       const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
       const ouvertAilleurs =
         ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
@@ -3551,9 +3800,7 @@ export default function BannerStudio({
           ? t("profile.studioNoArt")
           : n != null
             ? t("profile.studioArtCount", { count: n })
-            : dansListe.has(a.mediaId)
-              ? null
-              : t("profile.studioNotInList"),
+            : null,
         thumb: a.cover ?? null,
         cover: true,
         dim: vide,
@@ -3892,7 +4139,7 @@ export default function BannerStudio({
          bande-annonce, sur deux écrans. */
       const ouvert = pick == null ? null : artRoot ?? pick;
       const dansListe = new Set(animes.map((a) => a.mediaId));
-      const tous = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+      const tous = animes.filter((a) => titleMatch(a.title, q) || a.mediaId === ouvert);
       const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
       const ouvertAilleurs =
         ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
@@ -3909,11 +4156,7 @@ export default function BannerStudio({
           key: `anime-vlist-${a.mediaId}`,
           label: a.title,
           hint:
-            n != null
-              ? t("profile.studioVideoCount", { count: n })
-              : dansListe.has(a.mediaId)
-                ? t("profile.studioSeeVideos")
-                : t("profile.studioNotInList"),
+            n != null ? t("profile.studioVideoCount", { count: n }) : t("profile.studioSeeVideos"),
           thumb: a.cover ?? null,
           cover: true,
           selected: draft.kind === "video" && draft.animeId === a.mediaId && !!draft.episode,
@@ -4205,7 +4448,7 @@ export default function BannerStudio({
            16/10/2026) : on retire un morceau en recliquant sa ligne cochée. */
         const ouvert = pick == null ? null : artRoot ?? pick;
         const dansListe = new Set(animes.map((a) => a.mediaId));
-        const tous = animes.filter((a) => match(a.title) || a.mediaId === ouvert);
+        const tous = animes.filter((a) => titleMatch(a.title, q) || a.mediaId === ouvert);
         const ailleurs = found.filter((a) => !dansListe.has(a.mediaId));
         const ouvertAilleurs =
           ouvert != null && !dansListe.has(ouvert) && !ailleurs.some((a) => a.mediaId === ouvert)
@@ -4232,9 +4475,8 @@ export default function BannerStudio({
                 ? t("profile.studioMusicNoneHere")
                 : n != null
                   ? t(vid ? "profile.studioVideoCount" : "profile.studioMusicCount", { count: n })
-                  : dansListe.has(a.mediaId)
-                    ? null
-                    : t("profile.studioNotInList"),
+                  : /* Pas « hors de ta liste » : seulement ce qu'elle a (24/10/2026, Luc). */
+                    null,
             thumb: a.cover ?? null,
             cover: true,
             dim: n === 0,
@@ -4411,12 +4653,11 @@ export default function BannerStudio({
        sous une frappe, et jamais dans un onglet qui ne cherche pas d'anime. */
     /* Pas dans Image ni Bannière : leur accordéon liste déjà les animés
        trouvés, cette section les y montrait une seconde fois. */
-    const others = (!q || scope === "color" || scope === "image" || scope === "banner" ? [] : animes)
-      .filter(
-        (a) =>
-          a.mediaId !== listedAnimeId &&
-          (match(a.title) || (fold(query).length >= 3 && fold(a.title).includes(fold(query)))),
-      )
+    /* Ni dans Avatar, Vidéo, Génériques ni Musique (24/10/2026, Luc) : leur
+       accordéon liste déjà les animés trouvés, ta liste ET hors liste. */
+    const accordeon = ["color", "image", "banner", "avatar", "video", "oped", "music"];
+    const others = (!q || accordeon.includes(scope) ? [] : animes)
+      .filter((a) => a.mediaId !== listedAnimeId && titleMatch(a.title, q))
       .slice(0, 8)
       .map((a) => ({
         key: `anime-${a.mediaId}`,
@@ -4444,6 +4685,7 @@ export default function BannerStudio({
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
       avFav, avHits, avOpen, avTick, avCounts, avCols, avChars, avHover, avFavOpen, avImpOpen, avDefOpen, avImpEdit, avImports, avImporting, onAvFile,
+      bgImports, bgImporting, bgImpOpen, bgImpEdit, onBgFile, wearBg,
       entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf, presetEdit]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
@@ -4575,7 +4817,6 @@ export default function BannerStudio({
 
   if (!open) return null;
 
-  const pinned = !!value;
   /* Ce que l'aperçu montre : le brouillon dès qu'il a quelque chose, sinon la
      plaque automatique — pour que l'écran ne s'ouvre jamais sur du vide. */
   /* Une bande-annonce est un fond à part entière, sans `url` ni couleur : sans
@@ -4854,17 +5095,13 @@ export default function BannerStudio({
             : KIND_ICON[scope];
 
   /* Les pièces que la scène et la pilule réduite partagent. */
-  const liveBadge = (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[.12em] text-white/75 ring-1 ring-white/15">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-      {t("profile.studioLive")}
-    </span>
-  );
   const cancelButton = (
     <button
       type="button"
       onClick={onClose}
-      className="shrink-0 rounded-full bg-black/40 px-3 py-1.5 text-[11px] font-bold text-white/80 ring-1 ring-white/15 transition-colors hover:bg-black/70"
+      /* Un gris neutre, sans liseré (25/10/2026, Luc : le contour virait au
+         bleu sur la scène). Le rose reste à Enregistrer, seule action forte. */
+      className="shrink-0 rounded-full bg-white/[0.08] px-4 py-1.5 text-[11px] font-bold text-white/85 transition-colors hover:bg-white/[0.16] hover:text-white"
     >
       {t("common.cancel", { defaultValue: "Annuler" })}
     </button>
@@ -4933,15 +5170,23 @@ export default function BannerStudio({
       (coverState.id === draft.animeId ? coverState.covers : undefined);
     return th.cover ?? covers?.[th.slug] ?? null;
   };
+  /* Une vidéo IMPORTÉE n'a que son affiche (25/10/2026) : la suite de la
+     chaîne (preset actif, affiche d'anime) appartient à d'autres fonds, et la
+     case du profil montrait l'un d'eux. */
+  const uploadThumb = isVideoUpload(draft.url)
+    ? (bgImports.find((x) => x.url === draft.url)?.poster ?? draft.videoCover ?? null)
+    : undefined;
   const videoThumb =
-    (draft.episode && draft.animeId != null
+    uploadThumb !== undefined
+      ? uploadThumb
+      : (draft.episode && draft.animeId != null
       ? epCache.current.get(draft.animeId)?.find((e) => e.n === draft.episode?.n)?.img
       : null) ??
     (draft.trailerId ? `https://i.ytimg.com/vi/${draft.trailerId}/mqdefault.jpg` : null) ??
     /* Un générique : SA pochette, celle de sa ligne dans la liste. */
     opedCover() ??
     /* Un fond animé : son image d'aperçu, rangée à côté de la vidéo. */
-    (draft.url ? FONDS.find((f) => f.url === draft.url)?.poster : null) ??
+    fondOf(draft.url)?.poster ??
     /* La vignette gardée par un preset de la même vidéo : un preset porté
        sans que l'anime ait été ouvert n'a pas ses épisodes en mémoire, et la
        carte montrait l'affiche (21/10/2026). */
@@ -5509,6 +5754,8 @@ export default function BannerStudio({
                             ? "profile.studioAvatarSearch"
                           : scope === "badges"
                             ? "profile.studioBadgesSearch"
+                          : scope === "upload"
+                            ? "profile.studioBgImportSearch"
                             : "profile.studioSearch",
                       )}
                       className="min-w-0 flex-1 bg-transparent font-karla text-[15px] text-white outline-none placeholder:text-white/35"
@@ -5739,7 +5986,7 @@ export default function BannerStudio({
                   <input
                     ref={avFile}
                     type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/avif,video/mp4,video/webm"
                     className="hidden"
                     onChange={(e) => void onAvFile(e.target.files?.[0])}
                   />
@@ -6440,7 +6687,6 @@ export default function BannerStudio({
       {mini ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex justify-center px-3">
           <div className="as-scene-pill pointer-events-auto flex max-w-full items-center gap-2 rounded-full bg-[#15161d]/90 py-1.5 pl-3 pr-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.6)] ring-1 ring-white/10 backdrop-blur-xl">
-            {liveBadge}
             <span className="font-outfit text-sm font-bold">{t("profile.studioTitle")}</span>
             <span className="w-2" />
             {cancelButton}
@@ -6451,24 +6697,15 @@ export default function BannerStudio({
       ) : (
         <>
           <div className="as-scene-ui as-scene-ui-top pointer-events-auto absolute inset-x-0 top-0 z-30 flex h-[var(--as-scene-top)] items-center gap-2 pl-[var(--as-scene-menu-left)] pr-[var(--as-scene-frame-right)]">
-            {liveBadge}
-            <h2 className="font-outfit text-lg font-bold">{t("profile.studioTitle")}</h2>
-            <span className="hidden min-w-0 truncate text-xs text-white/45 md:block">
-              {draft.title || t("profile.studioDockNote")}
-            </span>
+            {/* LE TITRE SEUL (25/10/2026, Luc : « change tout et mets juste
+                Personnalisation du profil ») : plus de pastille « En direct »,
+                plus le nom du fond porté à côté. */}
+            <h2 className="font-outfit text-xl font-bold">{t("profile.studioTitle")}</h2>
             <span className="min-w-[1rem] flex-1" />
-            {pinned ? (
-              <button
-                type="button"
-                onClick={() => onApply(null)}
-                className="hidden shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold text-white/60 transition-colors hover:bg-white/10 hover:text-white sm:block"
-              >
-                {t("profile.bannerReset")}
-              </button>
-            ) : null}
+            {/* Annuler et Enregistrer, rien d'autre (25/10/2026, Luc) : « Revenir
+                à l'automatique » et la flèche de réduction sont retirés. */}
             {cancelButton}
             {saveButton}
-            {sizeToggle}
           </div>
 
           {/* LA barre du bas, sous le cadre : TOUS les menus y sont, et celui
@@ -6589,10 +6826,8 @@ export default function BannerStudio({
                     l'état du cadre dessous — comme la pochette et le titre de
                     MUSIQUE. */}
                 {draft.avatar || identity.avatar ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <MediaThumb
                     src={draft.avatar || identity.avatar!}
-                    alt=""
                     className="h-9 w-9 shrink-0 rounded-full object-cover object-[50%_20%]"
                     style={cropStyle(draft.avatarCrop)}
                   />
@@ -6618,11 +6853,43 @@ export default function BannerStudio({
                 onClick={() => openScope("badges")}
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
-                <TrophyIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
-                {/* Un libellé, pas de compteur. */}
-                <span className="truncate font-outfit text-[13.5px] font-bold">
-                  {t("profile.studioBadgesSection")}
-                </span>
+                {/* LES BADGES CHOISIS, quand il y en a (25/10/2026, Luc) : la
+                    case montre ce qui est porté, comme l'avatar et la musique.
+                    Sinon le trophée et le libellé. */}
+                {(() => {
+                  const chosen = (draft.badges ?? []).filter((id) => BY_ID[id] && earned?.[id]);
+                  if (!chosen.length)
+                    return (
+                      <>
+                        <TrophyIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
+                        <span className="truncate font-outfit text-[13.5px] font-bold">
+                          {t("profile.studioBadgesSection")}
+                        </span>
+                      </>
+                    );
+                  return (
+                    <span className="flex items-center gap-1.5">
+                      <BadgeDefs />
+                      {chosen.map((id) => (
+                        <span key={id} title={t(`badges.${id}.name`)} className="-my-[3px] shrink-0">
+                          <BadgeToken
+                            id={id}
+                            rarity={BY_ID[id].rarity}
+                            icon={BY_ID[id].icon}
+                            tag={BY_ID[id].tag}
+                            unlocked
+                            animate={false}
+                            /* 42 px de boîte pour un hexagone qui PARAÎT aussi
+                               gros que l'avatar rond de 36 px de la case voisine :
+                               l'hexagone est tracé avec une marge dans sa boîte
+                               (36 px le faisaient paraître plus petit). */
+                            size={42}
+                          />
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })()}
               </button>
             </SceneBox>
 
@@ -6708,7 +6975,11 @@ export default function BannerStudio({
               label={t("profile.studioBlur")}
               extra={
                 <span className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
-                  {draft.blur} px
+                  {/* UNE ÉCHELLE DE 0 À 32 px (25/10/2026, Luc) : celle que le
+                      curseur avait avant, gardée à l'affichage. Le flou réel
+                      vaut le double (2 à 64 px) — c'est l'échelle qui compte
+                      pour régler, pas le chiffre du filtre. */}
+                  {Math.round(draft.blur / 2)} px
                 </span>
               }
             >
@@ -6716,12 +6987,13 @@ export default function BannerStudio({
                 <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
                 <span
                   className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
-                  style={{ width: `${(draft.blur / MAX_BLUR) * 100}%` }}
+                  style={{ width: `${((draft.blur - MIN_BLUR) / (MAX_BLUR - MIN_BLUR)) * 100}%` }}
                 />
                 <input
                   type="range"
-                  min={0}
+                  min={MIN_BLUR}
                   max={MAX_BLUR}
+                  step={2}
                   value={draft.blur}
                   onChange={(e) => patch({ blur: clampBlur(e.target.value) })}
                   /* En ligne : `.as-range input[type=range]` coupe les clics

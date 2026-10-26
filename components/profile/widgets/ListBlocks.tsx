@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -8,11 +8,13 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { customListColor, listLabel, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { blockOption } from "@/lib/profile/blocks";
+import { blockOption, STATUS_KEYS } from "@/lib/profile/blocks";
 import { previewAnchor } from "@/lib/preview/anchor";
 import { useDragScroll } from "@/lib/ui/dragScroll";
 import { useEdgeFade } from "@/lib/ui/edgeFade";
+import { glideScrollBy } from "@/lib/ui/glideScroll";
 import {
+  CUSTOM_PREFIX,
   currentlyWatching,
   customListCounts,
   genreCounts,
@@ -26,7 +28,7 @@ import {
   STATUS_COLOR,
   type StatusKey,
 } from "@/lib/profile/insights";
-import type { ProfileCharacter, ProfileEntry } from "@/lib/profile/types";
+import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
 
 /**
@@ -105,10 +107,23 @@ const SHELF_MAX = 60;
  * seul endroit du site qui en a besoin, et une dépendance de plus pour quarante
  * lignes de fusion de listes serait un mauvais échange.
  */
-function useShelfTransition(shown: ProfileEntry[]) {
+function useShelfTransition(shown: ProfileEntry[], resetKey = 0) {
   const [cards, setCards] = useState<ShelfCard[]>(() =>
     shown.map((e) => ({ e, state: "enter" as const })),
   );
+  /* UNE AUTRE LISTE : la bande est remplacée d'un bloc, sans fusion. Le fondu
+     est celui de la bande entière (cf. FavoritesBlock) — replier et déplier
+     des centaines de cartes à la fois saccadait (25/10/2026, Luc).
+     PENDANT LE RENDU, PAS DANS UN EFFET : fait dans un effet, le remplacement
+     arrivait un rendu APRÈS la nouvelle `resetKey`, et `useShelfReflow`, qui
+     avait déjà consommé la sienne, faisait glisser les cartes communes aux
+     deux listes depuis leur ancienne place — « les cartes restent et se
+     déplacent ». */
+  const [seenReset, setSeenReset] = useState(resetKey);
+  if (seenReset !== resetKey) {
+    setSeenReset(resetKey);
+    setCards(shown.map((e) => ({ e, state: "in" as const })));
+  }
 
   useEffect(() => {
     setCards((prev) => {
@@ -208,12 +223,20 @@ function useShelfReflow(
      nullable, et c'est le même objet que la mesure de largeur reçoit. */
   rowRef: { current: HTMLDivElement | null },
   cards: ShelfCard[],
+  /** Change à chaque autre liste : on note les positions sans rien faire
+   *  glisser, la bande entière est déjà en train d'apparaître. */
+  resetKey = 0,
+  /** Pendant le fondu d'une liste à l'autre : aucune carte ne glisse. */
+  frozen = false,
 ) {
   const previous = useRef(new Map<number, number>());
+  const lastReset = useRef(resetKey);
 
   useIsoLayoutEffect(() => {
     const row = rowRef.current;
     if (!row) return;
+    const reset = frozen || resetKey !== lastReset.current;
+    lastReset.current = resetKey;
     const nodes = Array.from(
       row.querySelectorAll<HTMLElement>(".as-fav-card"),
     );
@@ -227,7 +250,7 @@ function useShelfReflow(
       const x = node.offsetLeft;
       now.set(id, x);
       const was = previous.current.get(id);
-      if (was != null && was !== x && node.classList.contains("is-in")) {
+      if (!reset && was != null && was !== x && node.classList.contains("is-in")) {
         movers.push({ node, dx: was - x });
       }
     }
@@ -256,7 +279,7 @@ function useShelfReflow(
         node.style.transform = "";
       }
     };
-  }, [rowRef, cards]);
+  }, [rowRef, cards, resetKey, frozen]);
 }
 
 /**
@@ -322,8 +345,60 @@ export function FavoritesBlock({
     [entries, source, lo, hi, unrated],
   );
   const { ref, onClickCapture } = useDragScroll<HTMLDivElement>();
-  const cards = useShelfTransition(shown);
-  useShelfReflow(ref, cards);
+
+  /* UNE AUTRE LISTE = UN FONDU DE LA BANDE ENTIÈRE (25/10/2026, Luc : « laggy
+     et buggé »). L'animation carte par carte replie et déplie des LARGEURS :
+     pour quelques cartes (le curseur des notes) c'est fluide, pour une liste
+     qui en remplace une autre — des centaines d'affiches — chaque image
+     recalculait la mise en page de toute la bande. Ici seule l'opacité de la
+     bande bouge, ce que le compositeur fait seul :
+       out  — l'ancienne s'efface (FADE_MS) ;
+       from — la nouvelle est posée, invisible, SANS transition, cartes
+              recréées (cf. la clé plus bas) ;
+       idle — elle apparaît. */
+  const FADE_MS = 180;
+  const [live, setLive] = useState(shown);
+  const [resetKey, setResetKey] = useState(0);
+  const [fade, setFade] = useState<"idle" | "out" | "from">("idle");
+  const lastSource = useRef(source);
+  const swapping = useRef(false);
+  const latest = useRef(shown);
+  latest.current = shown;
+  // Le reste (curseur des notes, non notés) : la bande suit, carte par carte —
+  // sauf pendant un fondu, qui prendra la dernière liste à son changement.
+  useEffect(() => {
+    // `source` pas encore pris en compte : c'est un changement de liste, que
+    // l'effet suivant traite en fondu.
+    if (!swapping.current && source === lastSource.current) setLive(shown);
+  }, [shown, source]);
+  useEffect(() => {
+    if (source === lastSource.current) return;
+    lastSource.current = source;
+    swapping.current = true;
+    setFade("out");
+    let r1 = 0;
+    let r2 = 0;
+    const timer = setTimeout(() => {
+      swapping.current = false;
+      setLive(latest.current);
+      setResetKey((k) => k + 1);
+      setFade("from");
+      if (ref.current) ref.current.scrollLeft = 0;
+      r1 = requestAnimationFrame(() => {
+        r2 = requestAnimationFrame(() => setFade("idle"));
+      });
+    }, FADE_MS);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+      // Un nouveau choix pendant le fondu : il repart de là, rien ne reste figé.
+      swapping.current = false;
+    };
+  }, [source, ref]);
+
+  const cards = useShelfTransition(live, resetKey);
+  useShelfReflow(ref, cards, resetKey, fade !== "idle");
 
   /* Les bords estompés, communs à tous les carrousels du site (cf.
      lib/ui/edgeFade.ts). Le nombre de cartes est passé en témoin : la bande
@@ -398,7 +473,9 @@ export function FavoritesBlock({
      affiche de l'écran précédent, qui dit qu'on n'a pas sauté dans le vide. */
   const nudge = (dir: number) => {
     const el = ref.current;
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: "smooth" });
+    /* Animé à la main (lib/ui/glideScroll.ts) : le `smooth` natif saute d'un
+       coup quand le système réduit les animations. */
+    if (el) glideScrollBy(el, dir * el.clientWidth * 0.8);
   };
 
   return (
@@ -408,15 +485,22 @@ export function FavoritesBlock({
           appartient à la grille et non au bloc : le bloc ne reçoit que sa boîte
           de contenu, et remonter de 38 px l'amène au milieu du titre, à droite,
           là où le carrousel les met. */}
-      {!editing ? (
-        <div className="absolute -top-[38px] right-0 z-10 flex gap-1.5">
+      {/* EN ÉDITION AUSSI, SOUS LA ROUE ET LE MOINS (25/10/2026, Luc), comme la
+          flamme de « Vu récemment » : 6 px plus bas, pour ne pas toucher la
+          roue, posée dans le coin de la carte. Le contenu est inerte en édition
+          (WidgetGrid) : les flèches reprennent la main (`!pointer-events-auto`)
+          et arrêtent le pointeur, sinon cliquer dessus attraperait la carte. */}
+        <div
+          className={`absolute ${editing ? "-top-[32px]" : "-top-[38px]"} right-0 z-10 flex gap-1.5`}
+        >
           {[-1, 1].map((dir) => (
             <button
               key={dir}
               type="button"
               onClick={() => nudge(dir)}
+              onPointerDown={editing ? (e) => e.stopPropagation() : undefined}
               aria-label={t(dir < 0 ? "anime.prev" : "anime.next")}
-              className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white"
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white !pointer-events-auto"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
                 <polyline points={dir < 0 ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />
@@ -424,7 +508,6 @@ export function FavoritesBlock({
             </button>
           ))}
         </div>
-      ) : null}
 
       <div
         ref={ref}
@@ -436,6 +519,12 @@ export function FavoritesBlock({
            classes séparées ils invitaient à en changer une sans les autres —
            ce qui est précisément l'erreur qui a laissé une bande vide en bas. */
         className="as-fav-row as-fade-x as-noscroll flex cursor-grab select-none overflow-x-auto overflow-y-hidden"
+        /* Le fondu d'une liste à l'autre (cf. `fade` plus haut). */
+        /* Un fondu, rien d'autre : pas de glissement (Luc, 25/10/2026). */
+        style={{
+          opacity: fade === "idle" ? 1 : 0,
+          transition: fade === "from" ? "none" : `opacity ${FADE_MS}ms ease`,
+        }}
       >
         {cards.map(({ e, state }, i) => (
           <Link
@@ -445,8 +534,12 @@ export function FavoritesBlock({
                comme un clignotement general au lieu du depart de deux titres.
                Avec l'anime seul, React garde les noeuds communs — donc seules
                les cartes qui arrivent s'animent, et celles qui partent restent
-               montees le temps de leur sortie (cf. useShelfTransition). */
-            key={e.mediaId}
+               montees le temps de leur sortie (cf. useShelfTransition).
+               SAUF D'UNE LISTE À L'AUTRE : `resetKey` change, TOUTES les cartes
+               sont recréées — une carte commune aux deux listes restait en
+               place puis glissait à son nouveau rang (25/10/2026, Luc : « fais
+               juste un fade out et in »). */
+            key={`${resetKey}:${e.mediaId}`}
             /* Lu par `useShelfReflow` pour reconnaître une carte d'un rendu à
                l'autre : la clé React n'est pas lisible depuis le DOM. */
             data-media-id={e.mediaId}
@@ -529,20 +622,126 @@ export function FavoritesBlock({
  * l'agrandissement partait dans le nom. Elle prend maintenant sa part de la
  * place libre, comme le nom : c'est elle qu'on lit, elle doit s'étirer.
  */
+/**
+ * LES LIGNES QUI ARRIVENT ET QUI PARTENT, pour une liste qui change (la
+ * répartition, quand on coche ou décoche une liste — 25/10/2026, Luc).
+ * Même principe que `useShelfTransition` : une ligne qui part reste montée,
+ * marquée `out`, le temps de s'effacer ; une ligne qui arrive naît `enter`
+ * (invisible, barre à zéro) et passe `in` deux images plus tard, pour que la
+ * transition ait un point de départ.
+ */
+type Presence<T> = { item: T; key: string; state: "enter" | "in" | "out" };
+/** Le fondu et le glissement d'une ligne de la répartition. */
+const ROW_TRANSITION = "opacity 0.22s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)";
+function usePresence<T>(items: T[], keyOf: (t: T) => string, outMs = 220): Presence<T>[] {
+  const [list, setList] = useState<Presence<T>[]>(() =>
+    items.map((item) => ({ item, key: keyOf(item), state: "in" as const })),
+  );
+  useEffect(() => {
+    setList((prev) => {
+      const next = items.map((item) => {
+        const key = keyOf(item);
+        const old = prev.find((p) => p.key === key && p.state !== "out");
+        return { item, key, state: old ? old.state : ("enter" as const) };
+      });
+      const keys = new Set(next.map((p) => p.key));
+      prev.forEach((p, i) => {
+        if (!keys.has(p.key)) next.splice(Math.min(i, next.length), 0, { ...p, state: "out" });
+      });
+      // Rien n'a bougé (même lignes, mêmes états, mêmes valeurs) : garder l'état.
+      const same =
+        next.length === prev.length &&
+        next.every(
+          (p, i) => p.key === prev[i].key && p.state === prev[i].state && p.item === prev[i].item,
+        );
+      return same ? prev : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+  useEffect(() => {
+    if (!list.some((p) => p.state === "enter")) return;
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() =>
+        setList((prev) => prev.map((p) => (p.state === "enter" ? { ...p, state: "in" } : p))),
+      );
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [list]);
+  useEffect(() => {
+    if (!list.some((p) => p.state === "out")) return;
+    const timer = setTimeout(
+      () => setList((prev) => prev.filter((p) => p.state !== "out")),
+      outMs,
+    );
+    return () => clearTimeout(timer);
+  }, [list, outMs]);
+  return list;
+}
+
 export function StatusesBlock({
   entries,
-  custom = false,
+  lists = [...STATUS_KEYS],
 }: {
   entries: ProfileEntry[];
-  /** Compter les listes personnalisées au lieu des statuts. */
-  custom?: boolean;
+  /**
+   * Les listes cochées dans les réglages (25/10/2026) : clés de statut
+   * (`CURRENT`…) et listes perso préfixées `custom:`. Les statuts d'abord, dans
+   * l'ordre du site, puis les listes perso, la mieux fournie d'abord.
+   */
+  lists?: string[];
 }) {
   const { t } = useTranslation();
-  const rows = useMemo(
-    () => (custom ? customListCounts(entries) : statusCounts(entries)),
-    [entries, custom],
-  );
-  if (!rows.length) {
+  const rows = useMemo(() => {
+    const want = new Set(lists);
+    const status = statusCounts(entries)
+      .filter((r) => want.has(r.key))
+      .map((r) => ({ ...r, custom: false }));
+    const mine = customListCounts(entries)
+      .filter((r) => want.has(`${CUSTOM_PREFIX}${r.key}`))
+      .map((r) => ({ ...r, custom: true }));
+    return [...status, ...mine];
+  }, [entries, lists]);
+  const custom = lists.length > 0 && lists.every((l) => l.startsWith(CUSTOM_PREFIX));
+
+  /* COCHER / DÉCOCHER S'ANIME (25/10/2026, Luc) : la ligne cochée apparaît en
+     fondu, sa barre pousse depuis zéro ; la décochée s'efface, puis disparaît,
+     et ses voisines glissent refermer la place (FLIP sur `offsetTop`). */
+  const shown = usePresence(rows, (r) => (r.custom ? `${CUSTOM_PREFIX}${r.key}` : r.key));
+  const listRef = useRef<HTMLDivElement>(null);
+  const tops = useRef(new Map<string, number>());
+  useIsoLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const moved: Array<[HTMLElement, number]> = [];
+    const now = new Map<string, number>();
+    for (const row of Array.from(list.querySelectorAll<HTMLElement>("[data-row]"))) {
+      const k = row.dataset.row!;
+      now.set(k, row.offsetTop);
+      const was = tops.current.get(k);
+      if (was != null && was !== row.offsetTop) moved.push([row, was - row.offsetTop]);
+    }
+    tops.current = now;
+    if (!moved.length) return;
+    for (const [row, dy] of moved) {
+      row.style.transition = "none";
+      row.style.transform = `translateY(${dy}px)`;
+    }
+    // Forcer le calcul de la position de départ avant de relâcher (cf. le même
+    // correctif dans « En cours de visionnage »).
+    void list.offsetWidth;
+    for (const [row] of moved) {
+      // La transition de la ligne (fondu ET glissement), pas une chaîne vide :
+      // vidée, elle effacerait aussi celle que React a posée.
+      row.style.transition = ROW_TRANSITION;
+      row.style.transform = "";
+    }
+  }, [shown]);
+
+  if (!shown.length) {
     /* Deux vides pour deux raisons différentes : une liste vide n'a rien à
        répartir, une liste bien remplie peut n'avoir aucune liste personnalisée —
        et dans ce second cas le bloc doit dire ce qui lui manque, pas laisser
@@ -555,7 +754,7 @@ export function StatusesBlock({
       />
     );
   }
-  const max = Math.max(...rows.map((r) => r.count));
+  const max = Math.max(1, ...rows.map((r) => r.count));
 
   return (
     /* DEUX BOÎTES, ET L'INTÉRIEURE A BESOIN DE SAVOIR COMBIEN DE LIGNES.
@@ -568,13 +767,25 @@ export function StatusesBlock({
        partage de hauteur — c'est ce qui laissait un grand vide sous la
        dernière. */
     <div className="as-status-wrap as-widget-scroll grid h-full overflow-y-auto pr-1.5">
-      <div className="as-status-list grid" style={{ ["--as-st-n" as string]: rows.length }}>
-        {rows.map((r) => {
-          const color = custom
+      <div
+        ref={listRef}
+        className="as-status-list grid"
+        style={{ ["--as-st-n" as string]: shown.length }}
+      >
+        {shown.map(({ item: r, key, state }) => {
+          const color = r.custom
             ? customListColor(r.key)
             : STATUS_COLOR[r.key as StatusKey] || "#6b7280";
           return (
-            <div key={r.key} className="as-status-row">
+            <div
+              key={key}
+              data-row={key}
+              className="as-status-row"
+              style={{
+                opacity: state === "in" ? 1 : 0,
+                transition: ROW_TRANSITION,
+              }}
+            >
               <span
                 className="as-status-dot rounded-full"
                 style={{ background: color, boxShadow: `0 0 10px ${color}55` }}
@@ -590,10 +801,10 @@ export function StatusesBlock({
                   soit reservee d'avance. Le plafond en `ch` est pour les listes
                   personnalisees, dont le nom n'a pas de longueur connue. */}
               <span className="max-w-[16ch] truncate text-white/70">
-                {custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
+                {r.custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
               </span>
               <span className="as-status-bar min-w-0">
-                <Bar pct={(r.count / max) * 100} color={color} />
+                <Bar pct={state === "in" ? (r.count / max) * 100 : 0} color={color} />
               </span>
               {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
                   alignée à chaque palier sans qu'on ait à la re-mesurer, puisque
@@ -662,7 +873,8 @@ function AverageBadge({
 }) {
   return (
     <div
-      className="as-score-avg absolute right-0 z-10 flex items-baseline gap-[0.22em] rounded-full bg-as-card px-2.5 py-1.5 ring-1 ring-[#3b3f4a]"
+      /* Même noir translucide que la flamme de « Vu récemment » (24/10/2026). */
+      className="as-score-avg absolute right-0 z-10 flex items-baseline gap-[0.22em] rounded-full bg-black/25 px-2.5 py-1.5 ring-1 ring-black/20"
       title={t("profile.blocks.scores.meanTitle", { count: rated })}
     >
       <span className="font-outfit font-bold leading-none text-as-score">
@@ -810,7 +1022,9 @@ export function ScoresBlock({
           {[0, ...ticks].map((v) => (
             <span
               key={v}
-              className="absolute right-0 translate-y-1/2 font-karla tabular-nums text-white/30"
+              /* L'échelle change avec le filtre : les graduations glissent avec
+                 les barres plutôt que de sauter. */
+              className="absolute right-0 translate-y-1/2 font-karla tabular-nums text-white/30 transition-[bottom] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
               style={{ bottom: `${(v / top) * 100}%` }}
             >
               {v}
@@ -826,7 +1040,7 @@ export function ScoresBlock({
             <span
               key={v}
               aria-hidden
-              className="absolute inset-x-0 border-t border-white/[0.07]"
+              className="absolute inset-x-0 border-t border-white/[0.07] transition-[bottom] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
               style={{ bottom: `${(v / top) * 100}%` }}
             />
           ))}
@@ -858,7 +1072,10 @@ export function ScoresBlock({
                  une barre de 15 px de large et de 4 % de haut — une note que
                  personne ne met — serait un jeu d'adresse. La zone sensible
                  monte donc du bas jusqu'au sommet du graphe. */
-              className={`group relative flex items-end ${clickable ? "cursor-pointer" : ""}`}
+              /* `hover:z-20` : la colonne survolée passe DEVANT ses voisines,
+                 son chiffre avec elle — sinon les colonnes peintes après
+                 recouvraient la pastille qui dépasse sur elles. */
+              className={`group relative flex items-end hover:z-20 ${clickable ? "cursor-pointer" : ""}`}
               style={{ gridRow: 1, gridColumn: i + 2 }}
               /* La colonne DIT SA NOTE, parce que l'axe n'en écrit qu'une sur
                  deux : sans ça, une barre entre le 6 et le 7 laisse le doute sur
@@ -872,8 +1089,14 @@ export function ScoresBlock({
             {/* LE COMPTE, AU-DESSUS DE SA BARRE, et en absolu : ajouté dans le
                 flux, il aurait raccourci la barre à l'instant du survol — la
                 colonne se serait mise à bouger sous le curseur. */}
+            {/* CENTRÉ SUR SA BARRE, SUR UNE PASTILLE (25/10/2026, Luc). Calé sur
+                les bords de la colonne (`inset-x-0`), un « 28 » plus large
+                qu'elle débordait d'un seul côté et chevauchait la barre
+                voisine. `left-1/2` + translation le centre quelle que soit sa
+                largeur, et `z-10` le pose sur les voisines. Sans fond : la
+                pastille noire a été retirée (Luc, même jour). */}
             <span
-              className="pointer-events-none absolute inset-x-0 -translate-y-1 whitespace-nowrap text-center font-karla font-bold tabular-nums text-white opacity-0 transition-opacity duration-150 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+              className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 -translate-y-1 whitespace-nowrap text-center font-karla font-bold tabular-nums text-white opacity-0 transition-[opacity,bottom] [transition-duration:150ms,500ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:opacity-100 [@media(hover:none)]:opacity-100"
               /* Au doigt, pas de survol : les comptes restent affichés. */
               style={{ bottom: `${(n / top) * 100}%` }}
             >
@@ -898,7 +1121,11 @@ export function ScoresBlock({
                  il est réglable (lib/prefs/accentColor.ts), et un rose écrit en
                  dur laisserait cet histogramme rose sur un profil passé au
                  bleu. */
-              className="as-score-bar w-full transition-[filter] group-hover:brightness-110"
+              /* LA HAUTEUR S'ANIME (25/10/2026, Luc) : basculer « Terminés
+                 uniquement » fait monter ou descendre chaque barre au lieu de
+                 sauter. Pas sous `prefers-reduced-motion` : le Chrome de Luc
+                 répond `reduce`. */
+              className="as-score-bar w-full transition-[height,filter] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:brightness-110"
               style={{
                 background: "var(--brand-primary, #E94560)",
                 /* UN PLANCHER EN PIXELS POUR CE QUI EXISTE, ET RIEN POUR CE QUI
@@ -935,8 +1162,17 @@ export function ScoresBlock({
           return (
             <span
               key={i}
-              className={`pt-2 text-center font-karla tabular-nums text-white/35 ${
-                whole ? "" : "as-score-half"
+              /* CENTRÉ PAR FLEX, PAS PAR `text-center` (25/10/2026, Luc). La
+                 colonne est souvent plus étroite que le chiffre (9 px en 1×1,
+                 « 10 » en fait plus) : `text-center` laisse alors déborder le
+                 texte d'un seul côté, à droite, et le chiffre glisse hors de
+                 sous sa barre. Un flex centré déborde des DEUX côtés à parts
+                 égales, donc reste dans l'axe de la barre. */
+              /* Les demi-notes n'ont PAS la classe `flex` : elle passerait
+                 devant le `display: none` de `.as-score-half`, qui les montre
+                 lui-même en flex quand la carte est assez large. */
+              className={`justify-center whitespace-nowrap pt-2 font-karla tabular-nums text-white/35 ${
+                whole ? "flex" : "as-score-half"
               }`}
               style={{ gridRow: 2, gridColumn: i + 2 }}
             >
@@ -972,6 +1208,47 @@ export function ScoresBlock({
  * grandissent avec la carte dans le même rapport, sans une seule requête de
  * conteneur.
  */
+/**
+ * DES NOMBRES QUI GLISSENT vers leur cible en 500 ms (même courbe que les
+ * barres de « Notes »). Une clé absente de l'état précédent part de 0. Le
+ * premier rendu montre la cible directement : l'animation ne sert qu'aux
+ * changements, pas à l'arrivée sur la page.
+ */
+function useTween(
+  target: Record<string, number>,
+  ms = 500,
+  /** Le point de départ d'une clé qui n'existait pas (0 par défaut). */
+  init: (key: string) => number = () => 0,
+): Record<string, number> {
+  const [live, setLive] = useState(target);
+  const liveRef = useRef(target);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const from = { ...liveRef.current };
+    const t0 = performance.now();
+    const ease = (x: number) => 1 - Math.pow(1 - x, 3);
+    let raf = 0;
+    const step = (now: number) => {
+      const k = ease(Math.min(1, (now - t0) / ms));
+      const next: Record<string, number> = {};
+      for (const key of Object.keys(target)) {
+        const a = from[key] ?? init(key);
+        next[key] = a + (target[key] - a) * k;
+      }
+      liveRef.current = next;
+      setLive(next);
+      if (k < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return live;
+}
+
 export function GenresBlock({
   entries,
   /* Le défaut vient du catalogue, pas d'un littéral : ProfileStats rend ce bloc
@@ -1005,6 +1282,20 @@ export function GenresBlock({
         .sort((a, b) => a.label.localeCompare(b.label)),
     [entries, completedOnly, t],
   );
+  /* LA FORME GLISSE D'UN RÉGLAGE À L'AUTRE (25/10/2026, Luc). Un polygone SVG
+     ne s'anime pas en CSS (`points` n'est pas une propriété), d'où une
+     interpolation en JS, PAR GENRE : la part de chaque branche et son compte. */
+  const target = useMemo(() => {
+    const max = Math.max(1, ...genres.map((g) => g.count));
+    const out: Record<string, number> = {};
+    for (const g of genres) {
+      out[`r:${g.key}`] = g.count / max;
+      out[`n:${g.key}`] = g.count;
+    }
+    return out;
+  }, [genres]);
+  const live = useTween(target);
+
   if (genres.length < 3)
     return (
       <EmptyBlock
@@ -1019,7 +1310,6 @@ export function GenresBlock({
       />
     );
 
-  const max = Math.max(...genres.map((g) => g.count));
   const n = genres.length;
   const cx = 100;
   const cy = 100;
@@ -1039,7 +1329,7 @@ export function GenresBlock({
     return [cx + Math.cos(a) * r, cy + Math.sin(a) * r] as const;
   };
   const shape = genres
-    .map((g, i) => point(i, (g.count / max) * R).join(","))
+    .map((g, i) => point(i, (live[`r:${g.key}`] ?? 0) * R).join(","))
     .join(" ");
 
   return (
@@ -1132,7 +1422,7 @@ export function GenresBlock({
               fontWeight="700"
               fontSize="9"
             >
-              {g.count}
+              {Math.round(live[`n:${g.key}`] ?? g.count)}
             </tspan>
           </text>
         );
@@ -1209,6 +1499,10 @@ export function YearsBlock({
      ouverte à gauche, la carte montrait 1998 et il fallait tirer trente ans pour
      arriver à ce mois-ci. `useLayoutEffect` place le cadrage AVANT la peinture,
      sans quoi la frise s'afficherait au début puis sauterait. */
+  /* Le cadrage sur la fin ne se fait qu'À L'OUVERTURE (`years.length` n'est
+     plus une dépendance) : refait à chaque réglage, il ramenait la frise tout à
+     droite au milieu de son animation — un des sauts signalés le 25/10/2026. */
+  const n0 = years.length;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -1219,7 +1513,99 @@ export function YearsBlock({
     ro.observe(el);
     setBox(el.clientHeight);
     return () => ro.disconnect();
-  }, [ref, years.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, n0 >= 3]);
+
+  /* LA FRISE GLISSE D'UN RÉGLAGE À L'AUTRE (25/10/2026, Luc), pour les deux
+     interrupteurs.
+
+     PENDANT L'ANIMATION, ON MONTRE LES DEUX FRISES RÉUNIES : les années d'avant
+     ET celles d'après, dans l'ordre chronologique. Une année qui part se replie
+     entre ses voisines (son abscisse va à son point d'insertion dans la
+     nouvelle frise) en tombant à zéro et en s'effaçant ; une année qui arrive
+     se déplie depuis son point d'insertion dans l'ancienne. Les abscisses
+     restent ainsi croissantes du début à la fin — plus de croisement de la
+     courbe — et rien n'apparaît ni ne disparaît d'un coup.
+
+     `snap` est mis à jour PENDANT le rendu, pas dans un effet : sinon le
+     premier rendu avec les nouvelles années n'aurait pas encore l'ancienne
+     frise, et celles qui arrivent clignoteraient à leur place finale. */
+  const [snap, setSnap] = useState<{ years: YearStat[]; prev: YearStat[] | null }>({
+    years,
+    prev: null,
+  });
+  if (snap.years !== years) setSnap({ years, prev: snap.years });
+  useEffect(() => {
+    if (!snap.prev) return;
+    const t = setTimeout(() => setSnap((s) => ({ ...s, prev: null })), 540);
+    return () => clearTimeout(t);
+  }, [snap]);
+
+  const yearOf = (v: YearStat) => Number(v.key) || Number(v.label) || 0;
+  /** L'abscisse d'une année dans une frise : la sienne si elle y est, sinon le
+   *  milieu entre les deux voisines qui l'encadrent. */
+  const posIn = (list: YearStat[], yr: number) => {
+    let k = 0;
+    while (k < list.length && yearOf(list[k]) < yr) k++;
+    if (k < list.length && yearOf(list[k]) === yr) return YEAR_STEP / 2 + k * YEAR_STEP;
+    return k * YEAR_STEP;
+  };
+  const display = useMemo(() => {
+    const now = snap.years;
+    const before = snap.prev ?? [];
+    const seen = new Map<string, { stat: YearStat; alive: boolean }>();
+    for (const v of before) seen.set(v.key, { stat: v, alive: false });
+    for (const v of now) seen.set(v.key, { stat: v, alive: true });
+    return [...seen.values()].sort((a, b) => yearOf(a.stat) - yearOf(b.stat));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap]);
+  const target = useMemo(() => {
+    const out: Record<string, number> = {
+      max: Math.max(1, ...snap.years.map((v) => v.count)),
+    };
+    for (const d of display) {
+      const yr = yearOf(d.stat);
+      out[`x:${d.stat.key}`] = posIn(snap.years, yr);
+      out[`c:${d.stat.key}`] = d.alive ? d.stat.count : 0;
+      out[`a:${d.stat.key}`] = d.alive ? 1 : 0;
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [display, snap]);
+  const live = useTween(target, 500, (k) =>
+    /* Une clé neuve : une année qui arrive part de son point d'insertion dans
+       l'ANCIENNE frise, à zéro et invisible. */
+    k.startsWith("x:") ? posIn(snap.prev ?? snap.years, Number(k.slice(2)) || 0) : 0,
+  );
+  /* Le fondu d'ouverture (`as-year-veil`) ne vaut qu'au premier affichage : une
+     année ajoutée par un réglage le rejouait — invisible une demi-seconde, puis
+     un saut. */
+  const opened = useRef(false);
+  useEffect(() => {
+    opened.current = true;
+  }, []);
+
+  /* FILET : tant que la bulle est ouverte, tout mouvement du pointeur HORS de
+     la frise la ferme. Le glisser de la frise capture le pointeur, et le
+     navigateur ne signale alors pas toujours qu'on en est sorti. */
+  const hovering = hover != null;
+  useEffect(() => {
+    if (!hovering) return;
+    const away = (e: PointerEvent) => {
+      const r = ref.current?.getBoundingClientRect();
+      if (
+        !r ||
+        e.clientX < r.left ||
+        e.clientX > r.right ||
+        e.clientY < r.top ||
+        e.clientY > r.bottom
+      )
+        setHover(null);
+    };
+    window.addEventListener("pointermove", away);
+    return () => window.removeEventListener("pointermove", away);
+  }, [hovering, ref]);
+
   /* Deux points font un segment, pas une courbe : sous trois années la figure
      ne raconte rien qu'une phrase ne dirait mieux. */
   if (years.length < 3)
@@ -1231,10 +1617,13 @@ export function YearsBlock({
       />
     );
 
-  const max = Math.max(...years.map((y) => y.count));
-  const W = years.length * YEAR_STEP;
+  const max = live.max ?? target.max;
   const H = Math.max(120, box);
-  const x = (i: number) => YEAR_STEP / 2 + i * YEAR_STEP;
+  const x = (i: number) => live[`x:${display[i].stat.key}`] ?? target[`x:${display[i].stat.key}`];
+  const alpha = (i: number) => live[`a:${display[i].stat.key}`] ?? target[`a:${display[i].stat.key}`];
+  /* La largeur suit les points EN VOL : figée à la nouvelle valeur, elle
+     couperait ceux qui glissent encore depuis plus loin. */
+  const W = Math.max(years.length * YEAR_STEP, x(display.length - 1) + YEAR_STEP / 2);
   /* Ce que la hauteur doit loger, du bas vers le haut : la barre de défilement
      (11 px, cf. `.as-scroller`), l'année, puis la courbe, puis le chiffre du
      sommet. `BASE` est la ligne de zéro, posée assez haut pour que l'étiquette
@@ -1242,7 +1631,9 @@ export function YearsBlock({
   const BASE = H - 46;
   const TOP = 22;
   const y = (c: number) => BASE - (c / max) * (BASE - TOP);
-  const pts = years.map((v, i) => [x(i), y(v.count)] as const);
+  const pts = display.map(
+    (d, i) => [x(i), y(live[`c:${d.stat.key}`] ?? target[`c:${d.stat.key}`])] as const,
+  );
   /* L'aire : la courbe refermée sur sa ligne de base. Elle ne dit rien que la
      ligne ne dise déjà — elle donne du POIDS au dessous, pour qu'on voie une
      masse qui monte et redescend plutôt qu'un fil posé dans le vide. */
@@ -1265,10 +1656,12 @@ export function YearsBlock({
       ref={ref}
       className="as-scroller flex h-full select-none items-center overflow-x-auto overflow-y-hidden"
       onMouseLeave={() => setHover(null)}
-      /* La frise glisse sous une bulle qui, elle, est ancrée à la fenêtre : sa
-         position se recalcule à chaque défilement, sinon elle resterait plantée
-         au-dessus d'une année qui n'est plus là. */
-      onScroll={() => setHover((h) => (h ? locate(h.i) : null))}
+      onPointerLeave={() => setHover(null)}
+      /* LA FRISE DÉFILE : LA BULLE SE FERME (25/10/2026, Luc). Elle suivait son
+         année, y compris hors de la carte — tirée vers la gauche, la frise
+         laissait la bulle de 2020 flotter à côté du widget. Le survol suivant
+         la rouvrira sur l'année qui est sous le pointeur. */
+      onScroll={() => setHover(null)}
     >
       <div className="relative shrink-0" style={{ width: W, height: H }}>
       <svg width={W} height={H} className="font-karla">
@@ -1301,8 +1694,12 @@ export function YearsBlock({
           pathLength={1}
           className="as-year-draw"
         />
-        {years.map((v, i) => (
-          <g key={v.key} className="as-year-veil">
+        {display.map(({ stat: v }, i) => (
+          <g
+            key={v.key}
+            className={opened.current ? undefined : "as-year-veil"}
+            opacity={alpha(i)}
+          >
             {/* LA CIBLE DU SURVOL EST LA COLONNE ENTIÈRE, pas la pastille :
                 viser un disque de quatre pixels à la souris est un exercice
                 d'adresse, et la colonne est sans ambiguïté — une abscisse
@@ -1335,7 +1732,7 @@ export function YearsBlock({
               fill={hover?.i === i ? "#fff" : "rgba(255,255,255,0.72)"}
               className="pointer-events-none"
             >
-              {v.count}
+              {Math.round(live[`c:${v.key}`] ?? target[`c:${v.key}`])}
             </text>
             <text
               x={pts[i][0]}
@@ -1353,8 +1750,8 @@ export function YearsBlock({
       </svg>
       {/* `years[hover]` peut avoir disparu entre-temps : basculer un réglage
           refait la frise pendant que la souris est encore dessus. */}
-      {hover && years[hover.i] ? (
-        <YearTip stat={years[hover.i]} x={hover.x} y={hover.y} />
+      {hover && display[hover.i]?.alive ? (
+        <YearTip stat={display[hover.i].stat} x={hover.x} y={hover.y} />
       ) : null}
       </div>
     </div>
@@ -1419,7 +1816,10 @@ function YearTip({
        geste pour le même rôle, plutôt qu'un troisième fondu maison. */
     <div
       className="pointer-events-none fixed z-[60]"
-      style={{ width: TIP, left, top: y - 18, transform: "translate(-50%, -100%)" }}
+      /* 34 px au-dessus du point, et plus 18 : à 18 la bulle couvrait le
+         chiffre de l'année survolée, posé 14 px au-dessus du point
+         (25/10/2026, Luc). */
+      style={{ width: TIP, left, top: y - 34, transform: "translate(-50%, -100%)" }}
     >
       {/* PAS DE CLÉ ICI, ET C'EST DÉLIBÉRÉ. Elle y était pour rejouer
           l'apparition à chaque changement d'année ; à l'usage, longer la frise
@@ -1427,15 +1827,18 @@ function YearTip({
           du bruit. Sans clé, React garde le même nœud : le geste ne joue qu'à
           l'ARRIVÉE sur le graphique, et glisser d'une année à l'autre ne fait
           que changer ce qui est écrit dedans. */}
-      <div className="as-stat-card as-preview-root rounded-xl px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-sm">
+      {/* FOND SOMBRE ET OPAQUE, celui du panneau de réglages (25/10/2026, Luc :
+          « plus lisible ») : la carte translucide d'avant laissait passer la
+          courbe et le papier peint sous le texte. */}
+      <div className="as-preview-root rounded-xl border border-[#2c2d36] bg-[#15161d] px-3.5 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
         <p className="mb-2 font-outfit text-[13px] font-bold text-white">
           {t("profile.blocks.years.tipTitle", { year: stat.label })}
         </p>
         <div className="grid gap-1">
           {rows.map(([label, value]) => (
             <div key={label} className="flex items-baseline justify-between gap-3">
-              <span className="font-karla text-[11px] text-white/45">{label}</span>
-              <span className="font-karla text-[12px] font-bold text-white/85">{value}</span>
+              <span className="font-karla text-[11px] text-white/60">{label}</span>
+              <span className="font-karla text-[12px] font-bold text-white">{value}</span>
             </div>
           ))}
         </div>
@@ -1472,7 +1875,9 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
   const dx: number[] = [];
   const slope: number[] = [];
   for (let i = 0; i < n - 1; i++) {
-    dx[i] = p[i + 1][0] - p[i][0];
+    /* Jamais nul : pendant l'animation de la frise, deux années peuvent passer
+       un instant à la même abscisse, et une pente infinie ferait un chemin NaN. */
+    dx[i] = p[i + 1][0] - p[i][0] || 0.001;
     slope[i] = (p[i + 1][1] - p[i][1]) / dx[i];
   }
   /** La tangente en chaque point. Aux deux bouts, celle du seul segment voisin. */
@@ -1534,31 +1939,108 @@ function smoothPath(p: readonly (readonly [number, number])[]): string {
 
 /* ── Studios ─────────────────────────────────────────────────────────── */
 
-export function StudiosBlock({ entries }: { entries: ProfileEntry[] }) {
+export function StudiosBlock({
+  entries,
+  /* Le défaut vient du catalogue : l'onglet « Statistiques » rend ce bloc sans
+     réglages et doit montrer la même chose que la grille. */
+  completedOnly = blockOption("studios", "completedOnly", undefined),
+}: {
+  entries: ProfileEntry[];
+  completedOnly?: boolean;
+}) {
   const { t } = useTranslation();
-  const ranks = useMemo(() => studioRanks(entries).slice(0, 6), [entries]);
-  if (!ranks.length) return <EmptyBlock note={t("profile.blocks.studios.empty")} />;
+  /* TOUS LES STUDIOS, plus les six premiers (25/10/2026, Luc) : la liste
+     défile, avec la barre visible du site (`as-scroller`). Le plancher de
+     quatre titres par studio reste — sans lui, un studio d'un seul titre noté
+     10 passerait premier. */
+  const ranks = useMemo(
+    () => studioRanks(entries, 4, completedOnly),
+    [entries, completedOnly],
+  );
+
+  /* LE RÉGLAGE S'ANIME PAR UN FONDU DE LA LISTE (25/10/2026, Luc). Faire
+     glisser chaque ligne vers son nouveau rang croisait les lignes les unes
+     sur les autres (« bizarre ») : le classement change presque entièrement
+     d'un réglage à l'autre. La liste s'efface donc (FADE), est remplacée, puis
+     réapparaît barres à zéro et les barres poussent jusqu'à leur note. */
+  const FADE = 160;
+  const [shownRanks, setShownRanks] = useState(ranks);
+  const [phase, setPhase] = useState<"idle" | "out" | "grow">("idle");
+  const lastRanks = useRef(ranks);
+  useEffect(() => {
+    if (lastRanks.current === ranks) return;
+    lastRanks.current = ranks;
+    setPhase("out");
+    let r1 = 0;
+    let r2 = 0;
+    const timer = setTimeout(() => {
+      setShownRanks(ranks);
+      setPhase("grow");
+      r1 = requestAnimationFrame(() => {
+        r2 = requestAnimationFrame(() => setPhase("idle"));
+      });
+    }, FADE);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, [ranks]);
+
+  if (!shownRanks.length)
+    return (
+      <EmptyBlock
+        note={t(
+          completedOnly
+            ? "profile.blocks.studios.emptyCompleted"
+            : "profile.blocks.studios.empty",
+        )}
+      />
+    );
 
   return (
-    <div className="grid h-full content-start gap-3 overflow-y-auto pr-1">
-      {ranks.map((s, i) => (
-        <div key={s.name} className="flex items-center gap-3">
-          <span className="w-4 shrink-0 font-karla text-[11px] font-bold text-white/30">
-            {i + 1}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">
+    /* LA MISE EN PAGE DE « RÉPARTITION PAR STATUT » (25/10/2026, Luc) : une
+       grille dont chaque ligne reprend les colonnes (`subgrid`). Le nom ne prend
+       que la largeur du PLUS LONG des noms (plafonnée à 16 caractères), et la
+       barre TOUT le reste — elle s'étire avec la carte au lieu de rester à
+       64 px. `overflow-x-hidden` : plus de barre de défilement en bas. */
+    <div
+      className="as-studio-list as-scroller grid h-full content-start gap-x-3 gap-y-3 overflow-y-auto overflow-x-hidden pr-1.5"
+      style={{
+        opacity: phase === "out" ? 0 : 1,
+        transition: `opacity ${FADE}ms ease`,
+      }}
+    >
+      {shownRanks.map((s, i) => (
+        <div
+          key={s.name}
+          data-studio={s.name}
+          className="col-span-full grid items-center"
+          style={{ gridTemplateColumns: "subgrid" }}
+        >
+          <span className="font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
+          <span className="max-w-[16ch] truncate text-[13px] font-semibold text-white">
             {s.name}
           </span>
-          <span className="shrink-0 font-karla text-[11px] text-white/35">
-            {t("profile.blocks.studios.titles", { count: s.count })}
+          <span className="whitespace-nowrap font-karla text-[11px] text-white/35">
+            {/* « 5 titres » quand la carte a la place, « 5 » seul sinon
+                (globals.css, `.as-studio-count-*`). */}
+            <span className="as-studio-count-full">
+              {t("profile.blocks.studios.titles", { count: s.count })}
+            </span>
+            <span className="as-studio-count-short" title={t("profile.blocks.studios.titles", { count: s.count })}>
+              {s.count}
+            </span>
           </span>
-          <span className="w-16 shrink-0">
+          <span className="min-w-0">
             <Bar
-              pct={s.score ? ((s.score - 5) / 5) * 100 : 2}
+              /* À zéro pendant la réapparition, puis à leur note : les barres
+                 poussent (cf. `phase`). */
+              pct={phase === "grow" ? 0 : s.score ? ((s.score - 5) / 5) * 100 : 2}
               color="linear-gradient(90deg,#FFD700,#b8860b)"
             />
           </span>
-          <span className="w-9 shrink-0 text-right font-karla text-[13px] font-bold text-as-score">
+          <span className="min-w-[3ch] text-right font-karla text-[13px] font-bold text-as-score">
             {s.score != null ? String(s.score).replace(".", ",") : "—"}
           </span>
         </div>
@@ -1569,80 +2051,338 @@ export function StudiosBlock({ entries }: { entries: ProfileEntry[] }) {
 
 /* ── Saison en cours ─────────────────────────────────────────────────── */
 
-export function SeasonBlock({ entries }: { entries: ProfileEntry[] }) {
+/**
+ * LA COULEUR DES ÉPISODES : le bleu de la barre d'épisodes (25/10/2026, Luc :
+ * « la couleur des ép. est le bleu »). UNIQUEMENT pour l'avancement EN NOMBRE
+ * D'ÉPISODES (ép. 22 / 24). L'avancement DANS un épisode (« Vu récemment »,
+ * « Reprendre », minutes restantes) garde l'accent — précisé par Luc le même
+ * jour.
+ */
+export const EP_BLUE = "#0ea5e9";
+
+/** Le vert « en diffusion » : pastille de l'intertitre et bandeau du compte à
+ *  rebours sur l'affiche (25/10/2026, Luc). Un cran plus clair que le vert
+ *  du bloc au catalogue (#22c55e), à sa demande. */
+export const AIRING_GREEN = "#4ade80";
+
+/**
+ * « EN COURS DE VISIONNAGE », REFAIT SUR LE MODÈLE DES AUTRES WIDGETS
+ * (25/10/2026, Luc). Ce qui a changé, et pourquoi :
+ *  - TOUS les titres en cours, plus les six premiers : la liste défile, barre
+ *    visible du site (`as-scroller`), jamais de défilement horizontal ;
+ *  - les colonnes suivent la LARGEUR DE LA CARTE (`auto-fill`, une colonne
+ *    par tranche de 15 rem) et non celle de l'écran — un bloc de 2 colonnes
+ *    sur un grand écran en avait deux, écrasées ;
+ *  - l'AFFICHE au format 2:3, à la hauteur de la ligne (`.as-season-poster`,
+ *    globals.css, grandit avec la carte), plus la vignette carrée de 38 px qui
+ *    rognait l'image ;
+ *  - un total inconnu (One Piece) n'efface plus la ligne de progression : elle
+ *    dit l'épisode atteint, et la barre reste une piste vide ;
+ *  - ce qui RESTE à voir, plutôt que de faire faire la soustraction ;
+ *  - la barre en BLEU ÉPISODES (`EP_BLUE`) ;
+ *  - un réglage : les re-visionnages, avec leur pastille, ou pas.
+ */
+export function SeasonBlock({
+  entries,
+  rewatching = blockOption("season", "rewatching", undefined),
+  /** Titres par ligne : 0 = auto (une colonne par tranche de 15 rem), ou 1 à 5. */
+  perRow = 0,
+  /** Taille des cartes (`cardSize`) : « small » resserre tout, titre sur une
+      ligne ; « large » agrandit tout (`.as-season-small/-large`, globals.css). */
+  size = "normal",
+  /** Les titres en diffusion d'abord, avec le compte à rebours (`airingFirst`). */
+  airingFirst = true,
+}: {
+  entries: ProfileEntry[];
+  rewatching?: boolean;
+  perRow?: number;
+  size?: "small" | "normal" | "large";
+  airingFirst?: boolean;
+}) {
+  const small = size === "small";
+  const large = size === "large";
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
-  const items = useMemo(() => currentlyWatching(entries, 6), [entries]);
+  /* L'HEURE, POSÉE APRÈS L'HYDRATATION et rafraîchie chaque minute : le serveur
+     n'a pas la même, et un compte à rebours rendu des deux côtés différerait. */
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const countdown = (at: number) => {
+    const s = Math.max(0, Math.round((at - now) / 1000));
+    if (s < 60) return t("profile.blocks.season.now");
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d) return t("profile.blocks.season.inD", { d, h });
+    if (h) return t("profile.blocks.season.inH", { h, m, mm: String(m).padStart(2, "0") });
+    return t("profile.blocks.season.inM", { m });
+  };
+  const watching = useMemo(
+    () =>
+      currentlyWatching(entries, Infinity)
+        .filter((e) => rewatching || (e.status || "").toUpperCase() !== "REPEATING")
+        /* STRICT (25/10/2026, Luc) : « En cours » à zéro épisode vu n'est pas
+           un visionnage — un titre ouvert par erreur ou à peine lancé (même
+           règle que les missclics écartés de « Vu récemment »). Il faut au
+           moins un épisode compté. */
+        .filter((e) => (e.progress || 0) >= 1)
+        /* DU PLUS RÉCEMMENT REGARDÉ AU PLUS ANCIEN (25/10/2026, Luc), et plus
+           du plus avancé : la dernière activité sur l'entrée. Sans date (cache
+           AniList d'avant ce champ), l'ordre précédent sert de départage. */
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+    [entries, rewatching],
+  );
+  /* LES DIFFUSIONS EN TÊTE (25/10/2026, Luc) : ce qui a un prochain épisode
+     annoncé passe devant, du plus proche au plus lointain — l'ordre de la
+     page « Airing » d'AniList. Le reste garde l'ordre du dernier regardé. */
+  const isAiring = (e: ProfileEntry) => !!(airingFirst && e.airingAt && e.nextEpisode);
+  const airing = useMemo(
+    () => watching.filter(isAiring).sort((a, b) => (a.airingAt || 0) - (b.airingAt || 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watching, airingFirst],
+  );
+  const items = useMemo(
+    () => (airing.length ? [...airing, ...watching.filter((e) => !isAiring(e))] : watching),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [watching, airing],
+  );
+  /* Les deux intertitres ne servent qu'à séparer DEUX groupes. */
+  const grouped = airing.length > 0 && airing.length < items.length;
+  /* LES CARTES GLISSENT D'UNE MISE EN PAGE À L'AUTRE (25/10/2026, Luc) :
+     changer le nombre par ligne (ou le réglage des re-visionnages) déplace et
+     redimensionne chaque carte. FLIP en position ET en taille : la boîte
+     d'avant, la nouvelle, une `transform` de l'une vers l'autre relâchée à
+     l'image suivante. Les cartes qui arrivent apparaissent en fondu. */
+  const gridRef = useRef<HTMLDivElement>(null);
+  type Box = { left: number; top: number; width: number; height: number };
+  const boxes = useRef(new Map<string, Box>());
+  useIsoLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>("[data-season]"));
+    const first = boxes.current.size === 0;
+    const now = new Map<string, Box>();
+    const moves: Array<[HTMLElement, string]> = [];
+    /* Mesurées dans le CONTENU de la liste (défilement compris), pas dans la
+       fenêtre : faire défiler entre deux réglages ne doit rien faire voler. */
+    const g = grid.getBoundingClientRect();
+    for (const card of cards) {
+      const c = card.getBoundingClientRect();
+      const r: Box = {
+        left: c.left - g.left + grid.scrollLeft,
+        top: c.top - g.top + grid.scrollTop,
+        width: c.width,
+        height: c.height,
+      };
+      const k = card.dataset.season!;
+      now.set(k, r);
+      const was = boxes.current.get(k);
+      if (was) {
+        const dx = was.left - r.left;
+        const dy = was.top - r.top;
+        const sx = was.width / r.width;
+        const sy = was.height / r.height;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01) {
+          moves.push([card, `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`]);
+        }
+      } else if (!first) {
+        card.classList.add("as-fade-in");
+      }
+    }
+    boxes.current = now;
+    if (!moves.length) return;
+    for (const [card, tf] of moves) {
+      card.style.transition = "none";
+      card.style.transformOrigin = "0 0";
+      card.style.transform = tf;
+    }
+    /* LA POSITION DE DÉPART DOIT ÊTRE CALCULÉE AVANT LE LÂCHER. Relâchées dans
+       un `requestAnimationFrame` posé depuis cet effet, les cartes l'étaient
+       AVANT la première peinture de leur position d'avant : pour le
+       navigateur, départ et arrivée tombaient dans le même calcul de style, et
+       il n'y avait rien à animer (« pas d'animation », 25/10/2026). Lire une
+       mesure force ce calcul ; on peut relâcher tout de suite après. */
+    void grid.offsetWidth;
+    for (const [card] of moves) {
+      card.style.transition = "transform 0.42s cubic-bezier(0.22, 1, 0.36, 1)";
+      card.style.transform = "";
+    }
+  }, [items, perRow, size]);
+
   if (!items.length) return <EmptyBlock note={t("profile.blocks.season.empty")} />;
 
+  const n = Number(perRow);
   return (
-    <div className="grid h-full grid-cols-1 content-start gap-2.5 overflow-y-auto pr-1 sm:grid-cols-2">
-      {items.map((e) => {
-        const pct = e.total ? Math.min(100, Math.round((e.progress / e.total) * 100)) : null;
+    <div
+      ref={gridRef}
+      className={`as-scroller grid h-full content-start overflow-y-auto overflow-x-hidden pr-1.5 ${
+        small ? "as-season-small gap-1.5" : large ? "as-season-large gap-3" : "gap-2.5"
+      }`}
+      style={{
+        gridTemplateColumns:
+          n >= 1 && n <= 5
+            ? `repeat(${n}, minmax(0, 1fr))`
+            : `repeat(auto-fill, minmax(${small ? "11rem" : large ? "26rem" : "15rem"}, 1fr))`,
+      }}
+    >
+      {items.map((e, idx) => {
+        const live = isAiring(e);
+        /* L'intertitre d'un groupe, posé devant sa première carte, sur toute
+           la largeur de la grille. */
+        const heading =
+          grouped && (idx === 0 || idx === airing.length) ? (
+            <p
+              className={`col-span-full flex items-center gap-2 font-karla text-[11px] font-bold uppercase tracking-[0.08em] text-white/45 ${
+                idx ? "mt-2" : ""
+              }`}
+            >
+              {idx === 0 ? (
+                /* Pastille VERTE « en diffusion » (25/10/2026, Luc) : un point
+                   dont la LUEUR respire (`.as-airing-dot`, globals.css), repris
+                   du prototype AniScroll. Décalée de 6 px : le bord gauche de la
+                   liste (`overflow-x: hidden`) coupait la lueur. */
+                <span className="as-airing-dot ml-1.5" />
+              ) : null}
+              {t(idx === 0 ? "profile.blocks.season.groupAiring" : "profile.blocks.season.groupWatching")}
+              {/* Le nombre de titres du groupe, juste après (26/10/2026, Luc). */}
+              <span className="text-white/30">{idx === 0 ? airing.length : items.length - airing.length}</span>
+            </p>
+          ) : null;
+        /* Sans total (série en cours, One Piece) : la borne est le dernier
+           épisode SORTI, suivi d'un « + » — la barre et le reste à voir se
+           lisent sur ce qu'on peut regarder aujourd'hui (25/10/2026, Luc). */
+        const aired = !e.total && e.aired && e.aired >= e.progress ? e.aired : null;
+        const end = e.total || aired;
+        const pct = end ? Math.min(100, (e.progress / end) * 100) : 0;
+        const left = end ? Math.max(0, end - e.progress) : null;
+        const again = (e.status || "").toUpperCase() === "REPEATING";
+        /* « À JOUR » (25/10/2026, Luc) : en diffusion, et tout ce qui est sorti
+           est vu — le prochain épisode est le seul à attendre. */
+        const upToDate = !again && live && e.progress >= (e.nextEpisode || 0) - 1;
+        const cornerTag = again
+          ? { text: t("profile.blocks.season.rewatch"), color: STATUS_COLOR.REPEATING }
+          : upToDate
+            ? { text: t("profile.blocks.season.upToDate"), color: AIRING_GREEN }
+            : null;
         return (
+          <Fragment key={e.mediaId}>
+          {heading}
           <Link
-            key={e.mediaId}
+            data-season={e.mediaId}
             href={animeHref(e.mediaId, clickTarget)}
-            className="flex items-center gap-3 rounded-2xl bg-white/[0.03] px-3 py-2.5 ring-1 ring-white/[0.06] transition-colors hover:ring-action/40"
+            className={`group relative flex min-w-0 items-center bg-white/[0.03] ring-1 ${
+              small
+                ? "gap-2 rounded-xl p-1.5"
+                : large
+                  ? "gap-5 rounded-[1.25rem] p-3"
+                  : "gap-3 rounded-2xl p-2"
+            } ring-white/[0.06] transition-colors hover:bg-white/[0.06] hover:ring-white/15`}
           >
-            {e.cover ? (
-              <Image
-                src={e.cover}
-                alt=""
-                width={38}
-                height={38}
-                className="h-[38px] w-[38px] shrink-0 rounded-[9px] object-cover"
-              />
-            ) : (
-              <span className="h-[38px] w-[38px] shrink-0 rounded-[9px] bg-white/10" />
-            )}
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-semibold text-white">
-                {pickTitle(e.title, titlePref)}
-              </span>
-              <span className="mt-0.5 block font-karla text-[11px] text-white/40">
-                {t("profile.blocks.season.progress", {
-                  progress: e.progress,
-                  total: e.total ?? "?",
-                })}
-              </span>
-              {pct !== null ? (
-                <span className="mt-2 block">
-                  <Bar pct={pct} />
+            <span
+              className={`as-season-poster relative shrink-0 overflow-hidden bg-white/10 ${
+                small ? "rounded-lg" : "rounded-xl"
+              }`}
+            >
+              {e.cover ? (
+                <Image src={e.cover} alt="" fill sizes={large ? "160px" : "80px"} className="object-cover" />
+              ) : null}
+              {/* LE PROCHAIN ÉPISODE SUR L'AFFICHE, comme la page « Airing »
+                  d'AniList : son numéro et le temps qui reste, sur un fondu
+                  sombre en bas. Les petites cartes n'ont pas la place (affiche
+                  de 32 px) : le compte à rebours y passe dans la ligne de
+                  progression. */}
+              {live && !small && now ? (
+                <span
+                  className={`absolute inset-x-0 bottom-0 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/60 to-transparent text-center font-karla leading-tight text-white ${
+                    large ? "pt-6 text-[13px]" : "pt-4 text-[10px]"
+                  }`}
+                >
+                  <span className={`font-bold ${large ? "pb-1" : "pb-0.5"}`}>
+                    {t("profile.blocks.season.nextEp", { n: e.nextEpisode })}
+                  </span>
+                  {/* LE TEMPS SUR UN BANDEAU VERT (25/10/2026, Luc — préféré à
+                      une pastille de verre, essayée le même jour). */}
+                  <span
+                    className={`w-full whitespace-nowrap font-bold text-black ${large ? "py-1" : "py-0.5"}`}
+                    style={{ background: AIRING_GREEN }}
+                  >
+                    {countdown(e.airingAt!)}
+                  </span>
                 </span>
               ) : null}
             </span>
+            {cornerTag ? (
+              /* « REVISIONNAGE », ÉTIQUETTE DE CARTE (25/10/2026, Luc — piste
+                 13 de la planche de vingt) : en petites capitales, coin haut
+                 droit, dans le cyan des re-visionnages (STATUS_COLOR). Ni sur
+                 l'affiche, ni dans la ligne de progression, qu'il coupait. */
+              <span
+                className={`pointer-events-none absolute font-karla font-bold uppercase tracking-[0.06em] ${
+                  small
+                    ? "right-2 top-1.5 text-[9px]"
+                    : large
+                      ? "right-3.5 top-3 text-[12px]"
+                      : "right-2.5 top-2 text-[10px]"
+                }`}
+                style={{ color: cornerTag.color }}
+              >
+                {cornerTag.text}
+              </span>
+            ) : null}
+            <span className="flex min-w-0 flex-1 flex-col">
+              {/* LE TITRE OCCUPE TOUJOURS DEUX LIGNES, et se cale en BAS : une
+                  ligne ou deux, la progression et la barre tombent à la même
+                  hauteur d'une carte à sa voisine (2 × leading-tight = 2,5em).
+                  Il laisse le coin à l'étiquette « Revisionnage » (`pr-20`).
+                  En petites cartes : une seule ligne. */}
+              <span
+                className={`as-season-title flex items-end ${
+                  again ? (small ? "pr-[4.5rem]" : "pr-20") : upToDate ? (small ? "pr-11" : "pr-14") : ""
+                }`}
+                style={{ minHeight: small ? undefined : "2.5em" }}
+              >
+                <span
+                  className={`font-semibold leading-tight text-white ${
+                    small ? "line-clamp-1" : "line-clamp-2"
+                  }`}
+                >
+                  {pickTitle(e.title, titlePref)}
+                </span>
+              </span>
+              <span className="as-season-sub mt-1 flex min-w-0 items-center gap-1.5 font-karla text-white/50">
+                <span className="truncate">
+                  <span className="font-bold text-white/80">
+                    {e.total
+                      ? t("profile.blocks.season.progress", { progress: e.progress, total: e.total })
+                      : aired
+                        ? t("profile.blocks.season.progressAiring", { progress: e.progress, aired })
+                        : t("profile.blocks.season.progressOpen", { progress: e.progress })}
+                  </span>
+                  {live && small && now ? (
+                    <>
+                      {" · "}
+                      <span className="font-bold" style={{ color: AIRING_GREEN }}>
+                        {t("profile.blocks.season.nextEp", { n: e.nextEpisode })} {countdown(e.airingAt!)}
+                      </span>
+                    </>
+                  ) : left != null && left > 0
+                      ? ` · ${t("profile.blocks.season.left", { count: left })}`
+                      : null}
+                </span>
+              </span>
+              <span className={`block ${small ? "mt-1.5" : large ? "mt-4" : "mt-2"}`}>
+                <Bar pct={pct} color={EP_BLUE} />
+              </span>
+            </span>
           </Link>
+          </Fragment>
         );
       })}
-    </div>
-  );
-}
-
-/* ── Personnages favoris ─────────────────────────────────────────────── */
-
-export function CharactersBlock({ characters }: { characters: ProfileCharacter[] }) {
-  const { t } = useTranslation();
-  if (!characters.length) return <EmptyBlock note={t("profile.blocks.characters.empty")} />;
-
-  return (
-    <div className="grid h-full auto-rows-min grid-cols-3 gap-3 overflow-y-auto pr-1 sm:grid-cols-6">
-      {characters.slice(0, 12).map((c) => (
-        <div key={c.id} className="grid justify-items-center gap-2 text-center">
-          <div className="w-full overflow-hidden rounded-full bg-as-card ring-2 ring-white/[0.08]" style={{ aspectRatio: "1" }}>
-            {c.image ? (
-              <Image src={c.image} alt={c.name} width={96} height={96} className="h-full w-full object-cover" />
-            ) : null}
-          </div>
-          <div className="w-full min-w-0">
-            <p className="truncate text-xs font-semibold text-white">{c.name}</p>
-            {c.from ? (
-              <p className="truncate font-karla text-[10px] text-white/35">{c.from}</p>
-            ) : null}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

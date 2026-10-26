@@ -28,6 +28,11 @@ import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
+import { installAnilistWriteGuard } from "@/lib/anilist/writeGuard";
+
+/* Hors de aniscroll.com, aucune mutation ne part vers AniList (localhost,
+   dev, previews) — posé avant tout effet, au chargement du module. */
+if (typeof window !== "undefined") installAnilistWriteGuard();
 
 /*
  * Everything below is mounted by _app on EVERY page, and none of it renders a

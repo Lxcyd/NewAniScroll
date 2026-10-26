@@ -20,6 +20,8 @@
  *   [vars] / secrets: TURSO_ADMIN_URL, TURSO_ADMIN_TOKEN  (for /w/track)
  */
 
+import { handleUpload } from "./uploads.js";
+
 function cors(extra = {}) {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -266,6 +268,10 @@ function nullableText(v) {
 export async function handleEdgeEndpoint(request, env, ctx) {
   const { pathname } = new URL(request.url);
   if (!pathname.startsWith("/w/")) return null;
+
+  /* Les imports du studio (avatar, fond) : leurs propres CORS (Authorization). */
+  const upload = await handleUpload(request, pathname, env, ctx);
+  if (upload) return upload;
 
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: cors() });

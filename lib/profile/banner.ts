@@ -22,6 +22,7 @@
 import { loadFanarts } from "@/lib/db/fanarts";
 import { isAcceptableLang } from "@/components/anime/v2/helpers";
 import type { BannerOption } from "./types";
+import { isImageUpload } from "@/lib/upload/media";
 
 export type { BannerOption } from "./types";
 export { plateMode } from "./types";
@@ -141,6 +142,8 @@ const ALLOWED_HOSTS = [
 
 export function isAllowedBannerUrl(url: unknown): url is string {
   if (typeof url !== "string" || url.length > 500) return false;
+  /* Une image importée au studio (lib/upload/media.ts) : forme exacte. */
+  if (isImageUpload(url)) return true;
   try {
     const u = new URL(url);
     return u.protocol === "https:" && ALLOWED_HOSTS.includes(u.hostname);

@@ -42,10 +42,22 @@ export function entriesFromAniList(
         progress: e.progress || 0,
         score: e.score || null,
         total: e.media?.episodes ?? null,
+        // Le dernier épisode SORTI = le prochain à sortir moins un.
+        aired:
+          e.media?.nextAiringEpisode?.episode > 1
+            ? Number(e.media.nextAiringEpisode.episode) - 1
+            : null,
+        // Le prochain épisode et sa sortie (AniList : secondes → ms).
+        nextEpisode: e.media?.nextAiringEpisode?.episode ?? null,
+        airingAt: e.media?.nextAiringEpisode?.airingAt
+          ? Number(e.media.nextAiringEpisode.airingAt) * 1000
+          : null,
         title: e.media?.title ?? null,
         cover: e.media?.coverImage?.large ?? null,
         favourite: favouriteIds.has(mediaId),
         repeat: e.repeat || 0,
+        // AniList compte en SECONDES ; tout le reste du site, en millisecondes.
+        updatedAt: e.updatedAt ? Number(e.updatedAt) * 1000 : null,
         format: e.media?.format ?? null,
         year: e.media?.startDate?.year ?? null,
         duration: e.media?.duration ?? null,
@@ -93,6 +105,9 @@ export function entriesFromLocalEntries(list: LocalEntry[]): ProfileEntry[] {
       // criterion simply never fires, it does not misfire.
       favourite: false,
       repeat: e.repeat || 0,
+      /* L'activité de VISIONNAGE d'abord : `updatedAt` est réécrit à
+         l'import ou à la synchro, `activityAt` seulement par un épisode vu. */
+      updatedAt: e.activityAt || e.updatedAt || null,
     }));
 }
 
