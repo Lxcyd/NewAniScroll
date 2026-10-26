@@ -13,6 +13,7 @@
 import SERVERS from "@/lib/servers";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { playbackUrl } from "@/lib/watch/streamUrl";
+import * as clientVidmoly from "@/lib/clientVidmoly";
 
 export type StudioEpisode = { n: number; title: string | null; img: string | null };
 
@@ -215,7 +216,9 @@ async function resolveOne(
   const data = out.data;
   const ce = data?.clientExtract;
   if (ce?.type === "vidmoly" || ce?.type === "vidmoly-multipart") {
-    const mod = await import("@/lib/clientVidmoly");
+    /* Import statique : sous Turbopack, le meme module charge aussi par
+       import() levait « module factory is not available » (27/10/2026). */
+    const mod = clientVidmoly;
     const res: any =
       ce.type === "vidmoly"
         ? await mod.extractVidmolyClient(ce.embedUrl, { signal })

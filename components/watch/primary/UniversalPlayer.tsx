@@ -96,6 +96,7 @@ import {
 import { PROXY_BASE, proxied } from "@/lib/watch/streamUrl";
 import { diag, diagSession } from "@/lib/diag";
 import { AmbilightEngine } from "./ambilightEngine";
+import * as clientVidmoly from "@/lib/clientVidmoly";
 
 // Trace logger — off by default. Set NEXT_PUBLIC_DEBUG_SOURCE=1 to surface the
 // vidmoly-fallback diagnostics. These are EXPECTED control-flow branches
@@ -4549,7 +4550,11 @@ export default function UniversalPlayer({
     }, budget);
     (async () => {
       try {
-        const mod = await import("@/lib/clientVidmoly");
+        /* Import STATIQUE (27/10/2026) : le module est deja dans la page (la page de
+           lecture l'importe), et sous Turbopack le meme module charge aussi par
+           import() levait « module factory is not available » — l'extraction
+           echouait a chaque fois en local et le lecteur tombait sur l'iframe. */
+        const mod = clientVidmoly;
         // Deja lancee par la page de lecture des la reponse de /source (cf.
         // warmVidmolyClient) : on la reprend, sous le meme delai de 6 s.
         const warm = multipart ? null : mod.takeWarmVidmoly(ce.embedUrl);
@@ -6359,7 +6364,18 @@ export default function UniversalPlayer({
       ? clientStream
       : null
     : streamData?.streams?.[0] || streamData?.sources?.[0] || null;
-  const iframeSrc = wantsClientExtract ? null : streamData?.iframe || null;
+  /* LE REPLI VIDMOLY S'OUVRE SUR voembed.net, PLUS SUR vidmoly.* (26/10/2026).
+     vidmoly.to redirige vers une arnaque au sondage (cf. finalizeAnimeSamaIframe,
+     pages/api/v2/source) : les antivirus classent la marque entière comme
+     indésirable, et ESET remplaçait le lecteur par sa page de blocage. Les liens
+     de voir-anime arrivaient ici en vidmoly.to, sans la réécriture d'anime-sama.
+     voembed.net est la marque blanche du même service — même page, même slug
+     (mesuré le 08/08/2026, cf. lib/clientVidmoly.js) — sur un autre réseau,
+     absent de ces listes. ansembed.net garde son hôte (slugs non partagés). */
+  const iframeRaw = wantsClientExtract ? null : streamData?.iframe || null;
+  const iframeSrc = iframeRaw
+    ? iframeRaw.replace(/^(https?:\/\/)(?:www\.)?vidmoly\.(?:to|biz|net)\//i, "$1voembed.net/")
+    : null;
 
   if (wantsClientExtract && clientStatus !== "ok") {
     return (
