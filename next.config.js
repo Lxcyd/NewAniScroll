@@ -305,7 +305,10 @@ const withPWA = require("next-pwa")({
   // page). Excluding them here means they load lazily, on demand, only when the
   // emoji picker actually renders them in a room.
   // 404.svg (384 Ko) : l'illustration de la page 404, pour tout le monde.
-  publicExcludes: ["!emojis/**/*", "!svg/404.svg"],
+  // fonts/ (25/10/2026) : les polices de la fiche anime (Space Grotesk,
+  // JetBrains Mono), 21 fichiers / 240 Ko — chargées par la fiche seule, à la
+  // demande, comme toutes les autres polices du site (cf. `horsPrecache`).
+  publicExcludes: ["!emojis/**/*", "!svg/404.svg", "!fonts/**/*"],
   /* Fontsource ships every subset in .woff2 AND legacy .woff: the precache
      manifest listed all 434 font files (5.6 MB) and every new visitor fetched
      them after `load`, each one a billed edge request. Since 22/09 no font is

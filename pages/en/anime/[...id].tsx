@@ -766,17 +766,15 @@ export default function Info({
           content={`${info?.description?.replace(/<[^>]+>/g, "").slice(0, 180) || ""}...`}
         />
         <meta name="twitter:image" content={ogImageUrl} />
-        {/* Fonts used by the V2 design — Inter already loaded globally;
-            Space Grotesk + JetBrains Mono are only needed on this page. */}
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-          rel="stylesheet"
-        />
+        {/* Space Grotesk + JetBrains Mono, utilisées par le design V2 de cette
+            page seulement. AUTO-HÉBERGÉES depuis le 25/10/2026
+            (public/fonts/anime-v2) à la place de Google Fonts : plus de
+            connexions tierces (googleapis + gstatic). Mêmes graisses, mêmes
+            sous-ensembles, même `swap`. Toujours une <link> du <Head> : elle
+            part quand on quitte la fiche, et la page de lecture garde son
+            repli system-ui comme avant (une feuille importée, elle, restait
+            active après la navigation — vérifié). */}
+        <link rel="stylesheet" href="/fonts/anime-v2/fonts.css" />
         {/* Open the connection to the fanart.tv CDN before the preload
             below fires. Without preconnect the browser still pays DNS +
             TCP + TLS (~200-500ms) before any byte of the clearart
