@@ -2815,7 +2815,7 @@ export default function BannerStudio({
               on ? "bg-action/20 ring-2 ring-action" : "bg-white/[0.04] ring-1 ring-white/10 hover:bg-white/[0.08]"
             }`}
           >
-            <span className="relative h-[58%] w-[58%] overflow-hidden rounded-full bg-primary">
+            <span className="relative h-[58%] w-[58%] overflow-hidden rounded-full as-clip-bg [--clip-bg:#0c0d10]">
               {/* Un <img> nu et non un <Image> Next : la même URL ×688, chargée
                   une fois par le navigateur, sans 688 composants à monter. */}
               {draft.avatar || identity.avatar ? (
@@ -5269,7 +5269,7 @@ export default function BannerStudio({
         type="button"
         onClick={toggleVideo}
         aria-label={t(vPlaying ? "profile.studioVideoPause" : "profile.studioVideoPlay")}
-        className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+        className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg as-clip-bg [--clip-bg:rgba(0,0,0,0.5)] ring-1 ring-white/10"
       >
         {videoThumb ? (
           /* Un <img> : les vignettes d'épisode viennent de domaines (TMDB,
@@ -5425,7 +5425,7 @@ export default function BannerStudio({
                       } else el.pause();
                     }}
                     aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                    className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-black/50 ring-1 ring-white/10"
+                    className="as-mf-cover group relative h-11 w-11 shrink-0 overflow-hidden rounded-lg as-clip-bg [--clip-bg:rgba(0,0,0,0.5)] ring-1 ring-white/10"
                   >
                     {draft.music.cover ? (
                       <Image src={draft.music.cover} alt="" fill sizes="44px" className="object-cover" />
@@ -6331,7 +6331,7 @@ export default function BannerStudio({
                           >
                             {row.thumb ? (
                               <span
-                                className={`relative shrink-0 overflow-hidden rounded-md bg-black/50 ${
+                                className={`relative shrink-0 overflow-hidden rounded-md as-clip-bg [--clip-bg:rgba(0,0,0,0.5)] ${
                                   row.square ? "h-10 w-10" : row.cover ? "h-14 w-10" : "h-9 w-16"
                                 }`}
                               >
@@ -6908,7 +6908,7 @@ export default function BannerStudio({
                     } else el.pause();
                   }}
                   aria-label={t(playing ? "profile.studioMusicPause" : "profile.studioMusicPlay")}
-                  className="group relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-black/50"
+                  className="group relative h-10 w-10 shrink-0 overflow-hidden rounded-xl as-clip-bg [--clip-bg:rgba(0,0,0,0.5)]"
                 >
                   {draft.music.cover ? (
                     <Image src={draft.music.cover} alt="" fill sizes="40px" className="object-cover" />
@@ -7343,7 +7343,7 @@ function WallPanel({
                         {on ? <CheckIcon className="h-3 w-3 text-white" /> : null}
                       </span>
                       <span
-                        className={`relative ${LIGNE[taille].cover} shrink-0 overflow-hidden rounded bg-white/[0.06] transition-[opacity,width,height] duration-200 ${
+                        className={`relative ${LIGNE[taille].cover} shrink-0 overflow-hidden rounded as-clip-bg [--clip-bg:rgba(255,255,255,0.06)] transition-[opacity,width,height] duration-200 ${
                           on ? "" : "opacity-35"
                         }`}
                       >
@@ -7374,7 +7374,7 @@ function WallPanel({
           >
             <div className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1">
               {shown.slice(0, 80).map((e) => (
-                <span key={e.mediaId} className="relative aspect-[2/3] overflow-hidden rounded-md bg-white/[0.06]">
+                <span key={e.mediaId} className="relative aspect-[2/3] overflow-hidden rounded-md as-clip-bg [--clip-bg:rgba(255,255,255,0.06)]">
                   {e.cover ? <Image src={e.cover} alt="" fill sizes="56px" className="object-cover" /> : null}
                 </span>
               ))}
@@ -7989,7 +7989,7 @@ function AnimeHead({
   const ident = (
     <>
       {anime.cover ? (
-        <span className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md bg-black/50">
+        <span className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md as-clip-bg [--clip-bg:rgba(0,0,0,0.5)]">
           <Image src={anime.cover} alt="" fill sizes="44px" className="object-cover" />
         </span>
       ) : null}

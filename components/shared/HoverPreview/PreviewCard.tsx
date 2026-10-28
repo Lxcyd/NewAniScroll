@@ -532,7 +532,11 @@ export default function PreviewCard({
           // The bottom of the banner fades into this, so the gradient and the
           // card have to read the same value.
           ["--as-preview-bg" as any]: SURFACE,
-          background: SURFACE,
+          /* AUCUN FOND sur la carte elle-même (28/10/2026) : le corps a le sien,
+             la bannière est couverte par l'image ou la bande-annonce. Pendant la
+             lecture, l'image passe à opacity 0 et le lecteur (TrailerStage,
+             couche à part) arrondit son propre coin : un fond sombre ici
+             réapparaissait sous ce bord lissé, en liseré noir. */
           // Drop shadow ONLY, and a tight one.
           //
           // There used to be a second shadow here in the anime's dominant
@@ -559,10 +563,10 @@ export default function PreviewCard({
             only thing this colour ever paints is the antialiased edge where the
             rounded clip meets it, and against black that edge was a visible
             dark outline. Matching the card makes the seam the card. */}
-        <div
-          className="as-preview-banner relative h-[45%] shrink-0"
-          style={{ background: SURFACE }}
-        >
+        {/* Plus de fond propre (28/10/2026) : celui de la carte, en retrait
+            d'un pixel, est derrière — un second, au bord de l'arrondi, y
+            redessinait le trait. */}
+        <div className="as-preview-banner relative h-[45%] shrink-0">
           {/* Holds the slot while the payload is in flight. The endpoint is
               prefetched 30 ms before the card mounts and edge-cached for a day,
               so on a warm id this is never seen. */}
@@ -585,7 +589,11 @@ export default function PreviewCard({
               onLoad={() => setBannerReady(true)}
               // h-full w-full, not `size-full`: Tailwind 3.3 here, `size-*` is 3.4+.
               className={`h-full w-full object-cover transition-opacity duration-300 ${
-                bannerReady && !playing ? "opacity-100" : "opacity-0"
+                /* `everPlayed`, PAS `playing` (28/10/2026) : la moindre pause
+                   (tampon, changement de qualité) rendait l'affiche SOUS le
+                   lecteur resté affiché — deux arrondis lissés empilés au même
+                   bord, le halo n'y passait plus qu'à moitié : liseré sombre. */
+                bannerReady && !(everPlayed && hideFrame !== true) ? "opacity-100" : "opacity-0"
               }`}
             />
           )}

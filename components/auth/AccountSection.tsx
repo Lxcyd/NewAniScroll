@@ -259,7 +259,7 @@ function AccountPanel({
             unconfigured host throws at render — that is what emptied the
             mobile bar once. An account with no AniList link has no picture
             at all, hence the initial. */}
-        <span className="flex-none grid place-items-center w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/10 overflow-hidden text-white/60 font-semibold">
+        <span className="flex-none grid place-items-center w-12 h-12 rounded-full as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-1 ring-white/10 overflow-hidden text-white/60 font-semibold">
           {avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={avatarUrl} alt="" className="w-full h-full object-cover" />

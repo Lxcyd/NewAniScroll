@@ -159,7 +159,7 @@ export default function MyList() {
                       />
                       {listLabel(t, label)}
                     </h2>
-                    <div className="overflow-hidden rounded-lg bg-white/[0.03] ring-1 ring-white/5">
+                    <div className="overflow-hidden rounded-lg as-clip-bg [--clip-bg:rgba(255,255,255,0.03)] ring-1 ring-white/5">
                       {g.entries.map((e) => (
                         <Link
                           key={e.mediaId}

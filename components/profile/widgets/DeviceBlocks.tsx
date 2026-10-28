@@ -357,7 +357,7 @@ export function ResumeBlock({
 
         <Link
           href={href}
-          className="group absolute inset-0 overflow-hidden rounded-2xl bg-as-card"
+          className="group absolute inset-0 overflow-hidden rounded-2xl as-clip-bg [--clip-bg:var(--surface-card,#1a1a24)]"
         >
           {/* Pleine largeur du bloc désormais : 640 px, pas 320, ou l'image
               arrive floue sur un bloc de 4 de large. Au survol, elle avance
@@ -682,7 +682,7 @@ function RecentRow({
       className="as-recent-row group flex min-w-0 items-center rounded-2xl bg-white/[0.03] p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-action/10 hover:ring-action/30"
     >
       <div
-        className={`as-recent-thumb relative shrink-0 overflow-hidden rounded-xl bg-as-card${
+        className={`as-recent-thumb relative shrink-0 overflow-hidden rounded-xl as-clip-bg [--clip-bg:var(--surface-card,#1a1a24)]${
           coverArt && r.cover ? " as-recent-cover" : ""
         }`}
       >

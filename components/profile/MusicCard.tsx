@@ -321,7 +321,9 @@ export default function MusicCard({
            page à chaque image une iframe 200 fois plus grande (saccades,
            17/10/2026). La boîte garde sa taille (CARD) ; la carte graphique la
            réduit vers le coin bas droit. */
-        className="relative h-full w-full transition-transform duration-300 ease-out will-change-transform"
+        /* L'ombre est ICI, avec l'arrondi de la case : le masque de la case
+           (ci-dessous) la couperait. */
+        className={`relative h-full w-full shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
         style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
         onPointerEnter={() => {
@@ -335,7 +337,15 @@ export default function MusicCard({
              Réduite, le rayon l'est avec la case : 40 px ici font ~10 px à
              l'écran. Il glisse PENDANT la réduction, même durée, même courbe :
              posé à la fin, il sautait (17/10/2026). */
-          className={`relative h-full w-full overflow-hidden bg-black shadow-2xl transition-[border-radius] duration-300 ease-out ${folded ? "rounded-[40px]" : "rounded-xl"}`}
+          /* LE LISERÉ SOMBRE DES COINS (28/10/2026, Luc). La case avait un fond
+             NOIR sous son image : au bord lissé de l'arrondi, ce noir passait
+             au travers, en trait foncé le long de la courbe — net dès que la
+             lumière d'ambiance éclaire le dessous (vérifié trait présent / absent
+             en ne retirant QUE ce fond). L'image couvre toujours toute la case :
+             le fond noir ne servait à rien, il est retiré. Un seul masque
+             (`clip-path`) découpe le tout. */
+          className="relative h-full w-full transition-[clip-path] duration-300 ease-out"
+          style={{ clipPath: `inset(0 round ${folded ? 40 : 12}px)` }}
         >
           {children}
           {showArt ? (

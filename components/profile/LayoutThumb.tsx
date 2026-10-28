@@ -148,7 +148,7 @@ export default function LayoutThumb({
 
   return (
     <span
-      className={`relative block w-full overflow-hidden rounded-lg bg-[#17181f] ${
+      className={`relative block w-full overflow-hidden rounded-lg as-clip-bg [--clip-bg:#17181f] ${
         fill ? "h-full" : "aspect-[16/10]"
       }`}
       style={{ containerType: "inline-size" }}

@@ -361,7 +361,7 @@ export default function FanartsByAnimePage() {
                   onClick={() => pickAnime(r)}
                   className="w-full flex items-center gap-3 p-2.5 hover:bg-white/5 text-left transition-colors"
                 >
-                  <div className="w-10 h-14 bg-black/40 rounded overflow-hidden flex-shrink-0">
+                  <div className="w-10 h-14 as-clip-bg [--clip-bg:rgba(0,0,0,0.4)] rounded overflow-hidden flex-shrink-0">
                     {r.coverImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img

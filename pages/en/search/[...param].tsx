@@ -495,7 +495,7 @@ export default function Card({
                               : animeHref(anime.id, clickTarget)
                           }
                           title={pickTitle(anime.title, titlePref)}
-                          className="block relative overflow-hidden bg-secondary hover:scale-[1.03] scale-100 transition-all cursor-pointer duration-200 ease-out rounded"
+                          className="block relative overflow-hidden as-clip-bg [--clip-bg:#212127] hover:scale-[1.03] scale-100 transition-all cursor-pointer duration-200 ease-out rounded"
                           style={{
                             paddingTop: "145%", // 2:3 aspect ratio (3/2 * 100%)
                           }}

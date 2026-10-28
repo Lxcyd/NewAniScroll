@@ -661,7 +661,7 @@ export default function Content({
                         )}
                       </div>
                       <Link
-                        className="relative w-[320px] aspect-video rounded-md overflow-hidden group bg-secondary"
+                        className="relative w-[320px] aspect-video rounded-md overflow-hidden group as-clip-bg [--clip-bg:#212127]"
                         href={`/en/anime/watch/${i.aniId}/${
                           i.provider
                         }?id=${encodeURIComponent(i.watchId)}&num=${i.episode}${

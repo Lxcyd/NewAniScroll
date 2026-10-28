@@ -1087,6 +1087,9 @@ function SubtitleMenu({
     <div
       ref={ref}
       role="menu"
+      /* Ouvert tant qu'il est monté : la découpe du lecteur se lève
+         (globals.css, `.vds-player:not(:has(.vds-menu-items[data-open]))`). */
+      data-open=""
       aria-label={t("player.subtitleTrackSelection")}
       // Tag with Vidstack's menu class + aria-hidden="false" so the
       // rest of the layer (notably SkipOverlay's auto-hide observer)

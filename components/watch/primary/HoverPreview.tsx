@@ -620,7 +620,7 @@ export default function HoverPreview({
         ref={canvasRef}
         width={320}
         height={180}
-        className="rounded-md bg-black ring-1 ring-white/20 shadow-xl"
+        className="as-clip-bg rounded-md ring-1 ring-white/20 shadow-xl"
         style={{ width: "192px", height: "108px" }}
       />
       {/* Hidden label — kept in DOM so existing code can update it without crashing */}

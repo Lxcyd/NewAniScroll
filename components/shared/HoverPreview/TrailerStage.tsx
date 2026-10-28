@@ -119,8 +119,15 @@ const OVERSCAN = 1.12;
  */
 const MAX_ZOOM = 1.6;
 
-/** The card's own top corners, which a layer drawn above it has to repeat. */
-const RADIUS = "12px 12px 0 0";
+/**
+ * The card's own top corners (12 px, bottom square), which a layer drawn above
+ * it has to repeat — en masque (cf. le style du cadre). SVG SANS taille propre :
+ * il prend celle du cadre, les pourcentages s'y résolvent et le rayon reste de
+ * 12 px quelle que soit la carte. Le second rect équarrit le bas.
+ */
+const STAGE_MASK = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg'><rect width='100%' height='100%' rx='12'/><rect y='50%' width='100%' height='50%'/></svg>",
+)}")`;
 
 /**
  * REVEAL ON PROOF, NOT ON A CLOCK — the rule that finally kills the boot frame.
@@ -1565,7 +1572,19 @@ export default function TrailerStage({ scene = "hover" }: { scene?: StageScene }
       onPointerMove={wake}
       onPointerLeave={sleep}
       style={{
-        borderRadius: RADIUS,
+        /*
+         * UN MASQUE, PAS UN CLIP (28/10/2026). L'iframe YouTube est une surface
+         * à part (OOPIF) : border-radius comme clip-path la découpent avec leur
+         * propre lissage, différent de celui du voile et du fond posés dessus.
+         * Au bord de la courbe, la vidéo couvrait moins que le voile noir et
+         * le pixel tombait SOUS le fond et la vidéo (−10 à −14 niveaux mesurés) :
+         * le liseré sombre. Un masque s'applique une fois, à l'image finale de
+         * tout le bloc — mesuré propre, aucun pixel du bord sous ses voisins.
+         */
+        WebkitMaskImage: STAGE_MASK,
+        maskImage: STAGE_MASK,
+        WebkitMaskSize: "100% 100%",
+        maskSize: "100% 100%",
         /*
          * Position and size are written by the layout effect, NOT here — React
          * would otherwise reassert them on every render and undo the follow.

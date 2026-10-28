@@ -481,7 +481,7 @@ export default function Schedule({ schedule }: any) {
                                     ? animeHref(m.id, clickTarget)
                                     : `/en/${mediaType}/${m.id}`
                                 }
-                                className={`flex bg-secondary rounded group cursor-pointer overflow-hidden ml-4`}
+                                className={`flex as-clip-bg [--clip-bg:#212127] rounded group cursor-pointer overflow-hidden ml-4`}
                               >
                                 <Image
                                   src={cover}
