@@ -32,6 +32,8 @@ export type BlockDef = {
    */
   min?: [number, number];
   max?: [number, number];
+  /** Largeur et hauteur toujours égales (cf. Bounds.square, grid.ts). */
+  square?: boolean;
   /**
    * La couleur du bloc — sa pastille d'icône dans la BIBLIOTHÈQUE, et rien
    * d'autre depuis que les en-têtes ont perdu la leur : une pastille par carte
@@ -140,13 +142,17 @@ export const BLOCKS: BlockDef[] = [
      largeur de la carte, un portrait rond tient dans une seule colonne. */
   { id: "characters", size: [4, 1], min: [1, 1], max: [4, 3], color: "#E94560", source: "list", icon: "☺" },
   /* Le journal des jours regardés (25/10/2026, Luc), tiré de la table de
-     progression comme la flamme. Deux lignes au moins : six semaines ne
-     tiennent pas dans 230 px. Une colonne suffit, les cases rétrécissent. */
-  { id: "calendar", size: [2, 2], min: [1, 2], max: [4, 3], color: "#3B82F6", source: "device", icon: "▦" },
+     progression comme la flamme. */
+  /* DEUX TAILLES SEULEMENT, 2×2 et 3×3 (28/10/2026, Luc) : un mois est un
+     carré de 7 colonnes, il n'a rien à gagner à être étiré dans un sens. */
+  { id: "calendar", size: [2, 2], min: [2, 2], max: [3, 3], square: true, color: "#3B82F6", source: "device", icon: "▦" },
+  /* Le même journal, sur douze mois (28/10/2026, Luc). Large et basse : 53
+     semaines se lisent en longueur ; sous deux colonnes, seules les semaines
+     récentes tiennent. */
+  { id: "heatmap", size: [4, 1], min: [2, 1], max: [4, 2], color: "#E94560", source: "device", icon: "▨" },
   // Sans source, pour l'instant — cf. l'en-tête. Chacun sait déjà ce qu'il lui
   // manque, écrit dans sa traduction `.soon`, pour que le bloc vide explique
   // lui-même pourquoi il est vide.
-  { id: "heatmap", size: [4, 1], color: "#E94560", source: "soon", icon: "▨" },
   { id: "binge", size: [2, 1], color: "#F59E0B", source: "soon", icon: "⏱" },
   { id: "goal", size: [2, 1], color: "#A855F7", source: "soon", icon: "◎" },
   { id: "pinned", size: [4, 1], color: "#E94560", source: "soon", icon: "❏" },
@@ -446,6 +452,7 @@ export function blockBounds(id: string): Bounds {
     minH: def.min?.[1] ?? DEFAULT_BOUNDS.minH,
     maxW: def.max?.[0] ?? DEFAULT_BOUNDS.maxW,
     maxH: def.max?.[1] ?? DEFAULT_BOUNDS.maxH,
+    ...(def.square ? { square: true } : null),
   };
 }
 

@@ -26,6 +26,7 @@ import {
 import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
 import type { ActivityRow, WatchDays } from "@/lib/profile/activity";
 import { CalendarBlock } from "./widgets/CalendarBlock";
+import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
   BLOCKS,
   DEFAULT_BLOCKS,
@@ -769,6 +770,8 @@ export default function ProfileOverview({
             isOwner={isOwner}
           />
         );
+      case "heatmap":
+        return <HeatmapBlock served={isOwner ? undefined : (watchDays ?? {})} />;
       case "calendar":
         return (
           <CalendarBlock

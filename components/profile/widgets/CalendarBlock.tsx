@@ -30,7 +30,7 @@ const MONTHS_BACK = 12;
 /** Affiches demandées à AniList, pour la session (`null` = en cours / inconnu). */
 const fetched = new Map<number, { cover: string | null; title: string } | null>();
 
-function useLocalDays(enabled: boolean): WatchDays | null {
+export function useLocalDays(enabled: boolean): WatchDays | null {
   const [days, setDays] = useState<WatchDays | null>(null);
   useEffect(() => {
     if (!enabled) return;
@@ -102,6 +102,7 @@ export function CalendarBlock({
     key: string;
     rect: { left: number; top: number; size: number };
     ids: number[];
+    main: number;
     closing: boolean;
   } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,10 +117,10 @@ export function CalendarBlock({
       closeTimer.current = setTimeout(() => setOrbit(null), 240);
     }, 160);
   }, [keep]);
-  const openOrbit = (key: string, el: HTMLElement, ids: number[]) => {
+  const openOrbit = (key: string, el: HTMLElement, ids: number[], main: number) => {
     keep();
     const r = el.getBoundingClientRect();
-    setOrbit({ key, rect: { left: r.left, top: r.top, size: r.width }, ids, closing: false });
+    setOrbit({ key, rect: { left: r.left, top: r.top, size: r.width }, ids, main, closing: false });
   };
   useEffect(() => {
     if (!orbit) return;
@@ -230,58 +231,75 @@ export function CalendarBlock({
 
   if (!days) return <div className="h-full" />;
 
+  const rows = Math.ceil((lead + inMonth) / 7);
   const arrow =
-    "flex h-7 w-7 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-25";
+    "flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.06] text-white/70 transition-colors hover:bg-white/15 hover:text-white disabled:pointer-events-none disabled:opacity-25";
 
   return (
-    <div className="as-cal flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className={arrow}
-          onClick={() => setOffset((o) => Math.max(-MONTHS_BACK, o - 1))}
-          disabled={offset <= -MONTHS_BACK}
-          aria-label={t("profile.blocks.calendar.prev")}
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
-            <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
-          </svg>
-        </button>
-        <p className="min-w-[7.5rem] text-center font-outfit text-sm font-bold capitalize text-white">
-          {monthLabel}
-        </p>
-        <button
-          type="button"
-          className={arrow}
-          onClick={() => setOffset((o) => Math.min(0, o + 1))}
-          disabled={offset >= 0}
-          aria-label={t("profile.blocks.calendar.next")}
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
-            <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
-          </svg>
-        </button>
-        <p className="as-cal-sum ml-auto truncate pl-2 font-karla text-[11px] text-white/45">
-          {watchedDays
-            ? `${t("profile.blocks.calendar.days", { count: watchedDays })} · ${t(
-                "profile.blocks.calendar.episodes",
-                { count: episodes },
-              )}`
-            : t("profile.blocks.calendar.none")}
-        </p>
+    <div className="as-cal flex h-full min-h-0 flex-col gap-3">
+      {/* L'EN-TÊTE (28/10/2026, Luc : « pas pratique ») : le mois et son bilan à
+          gauche, les commandes groupées à droite — les flèches encadraient le
+          mois et sautaient avec la longueur de son nom. */}
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0">
+          <p className="truncate font-outfit text-[15px] font-bold capitalize leading-tight text-white">
+            {monthLabel}
+          </p>
+          <p className="as-cal-sum truncate font-karla text-[11px] leading-tight text-white/45">
+            {watchedDays
+              ? `${t("profile.blocks.calendar.days", { count: watchedDays })} · ${t(
+                  "profile.blocks.calendar.episodes",
+                  { count: episodes },
+                )}`
+              : t("profile.blocks.calendar.none")}
+          </p>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            className={arrow}
+            onClick={() => setOffset((o) => Math.max(-MONTHS_BACK, o - 1))}
+            disabled={offset <= -MONTHS_BACK}
+            aria-label={t("profile.blocks.calendar.prev")}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+              <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className={arrow}
+            onClick={() => setOffset((o) => Math.min(0, o + 1))}
+            disabled={offset >= 0}
+            aria-label={t("profile.blocks.calendar.next")}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+              <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 text-center font-karla text-[10px] font-bold uppercase text-white/35">
-        {weekdays.map((w, i) => (
-          <span key={i}>{w}</span>
-        ))}
-      </div>
-
-      <div
-        key={`${year}-${month}`}
-        className={`as-cal-grid grid min-h-0 flex-1 grid-cols-7 gap-1${orbit && !orbit.closing ? " has-open" : ""}`}
-        style={{ gridTemplateRows: `repeat(${Math.ceil((lead + inMonth) / 7)}, minmax(0, 1fr))` }}
-      >
+      {/* LA GRILLE EST CARRÉE (28/10/2026, Luc) : des cases de même côté, même
+          écart en largeur et en hauteur. Leur côté est le plus grand qui fasse
+          tenir 7 colonnes et `rows` lignes dans la place offerte (unités de
+          conteneur, .as-cal-board) ; le reste se répartit autour, la grille
+          restant centrée. Les initiales des jours sont dans la même grille,
+          donc toujours alignées sur leurs colonnes. */}
+      <div className="as-cal-stage relative min-h-0 flex-1">
+        <div
+          key={`${year}-${month}`}
+          className={`as-cal-grid as-cal-board${orbit && !orbit.closing ? " has-open" : ""}`}
+          style={{ ["--rows" as any]: rows, gridTemplateRows: `var(--lab) repeat(${rows}, var(--c))` }}
+        >
+          {weekdays.map((w, i) => (
+            <span
+              key={`wd-${i}`}
+              className="self-center text-center font-karla text-[10px] font-bold uppercase text-white/35"
+            >
+              {w}
+            </span>
+          ))}
         {Array.from({ length: lead }, (_, i) => (
           <span key={`lead-${i}`} />
         ))}
@@ -321,7 +339,7 @@ export function CalendarBlock({
               }`}
               onMouseEnter={
                 others.length
-                  ? (e) => openOrbit(c.key, e.currentTarget.firstElementChild as HTMLElement, others)
+                  ? (e) => openOrbit(c.key, e.currentTarget.firstElementChild as HTMLElement, others, w.a[0])
                   : undefined
               }
               onMouseLeave={others.length ? release : undefined}
@@ -330,7 +348,7 @@ export function CalendarBlock({
                 <Link
                   href={`/en/anime/${w.a[0]}`}
                   aria-label={label}
-                  className={`as-cal-main absolute inset-0 flex items-center justify-center overflow-hidden rounded-full bg-as-card${
+                  className={`as-cal-main absolute inset-0 flex items-center justify-center overflow-hidden rounded-full as-clip-bg [--clip-bg:var(--surface-card,#1a1a24)]${
                     today ? " ring-2 ring-action" : ""
                   }`}
                 >
@@ -354,6 +372,7 @@ export function CalendarBlock({
             </span>
           );
         })}
+        </div>
       </div>
       {orbit && typeof document !== "undefined"
         ? createPortal(
@@ -372,13 +391,38 @@ function Orbit({
   onEnter,
   onLeave,
 }: {
-  orbit: { rect: { left: number; top: number; size: number }; ids: number[]; closing: boolean };
+  orbit: {
+    rect: { left: number; top: number; size: number };
+    ids: number[];
+    main: number;
+    closing: boolean;
+  };
   known: Map<number, { cover: string | null; title: string }>;
   onEnter: () => void;
   onLeave: () => void;
 }) {
   const others = orbit.ids;
   const ring = ringLayout(others.length);
+  /* LA ZONE DE SURVOL ÉPOUSE LES BULLES (28/10/2026, Luc). Un disque invisible
+     un peu plus large derrière chacune, et derrière le jour : leur réunion
+     dessine la forme de la couronne, marge comprise, et ils se chevauchent
+     assez pour combler les interstices. Un grand disque englobant (essai
+     précédent) gardait la couronne ouverte loin de toute bulle. Au centre, le
+     jour reste cliquable (le lien posé par-dessus). */
+  const D = orbit.rect.size;
+  const marge = 0.28 * D;
+  const zones = [
+    { x: D / 2, y: D / 2, r: 0.55 * D + marge },
+    ...ring.spots.slice(0, others.length).map((p) => {
+      const a = (p.a * Math.PI) / 180;
+      return {
+        x: D / 2 + Math.cos(a) * p.r * D,
+        y: D / 2 + Math.sin(a) * p.r * D,
+        r: (ring.size * D) / 2 + marge,
+      };
+    }),
+  ];
+  const actif = !orbit.closing;
   return (
     <div
       className={`as-cal-orbit${orbit.closing ? " is-closing" : ""}`}
@@ -392,6 +436,30 @@ function Orbit({
         pointerEvents: "none",
       }}
     >
+      {zones.map((z, i) => (
+        <span
+          key={`z${i}`}
+          aria-hidden
+          className="absolute rounded-full"
+          style={{
+            left: z.x - z.r,
+            top: z.y - z.r,
+            width: z.r * 2,
+            height: z.r * 2,
+            pointerEvents: actif ? "auto" : "none",
+          }}
+          onMouseEnter={onEnter}
+          onMouseLeave={onLeave}
+        />
+      ))}
+      <Link
+        href={`/en/anime/${orbit.main}`}
+        aria-hidden
+        tabIndex={-1}
+        className="absolute inset-0 z-[1] rounded-full"
+        style={{ pointerEvents: actif ? "auto" : "none" }}
+        onMouseEnter={onEnter}
+      />
       {others.map((id, k) => (
         <Link
           key={id}

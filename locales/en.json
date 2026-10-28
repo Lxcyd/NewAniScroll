@@ -1081,12 +1081,23 @@
         "days_other": "{{count}} days",
         "episodes_one": "{{count}} episode",
         "episodes_other": "{{count}} episodes",
-        "none": "Nothing watched this month"
+        "none": "Nothing watched this month",
+        "today": "Today"
       },
       "heatmap": {
         "title": "Year heatmap",
         "desc": "Twelve months of watching in one grid.",
-        "soon": "Not built yet: it can reuse the calendar's per-day log."
+        "less": "Less",
+        "more": "More",
+        "episodes_one": "{{count}} episode",
+        "episodes_other": "{{count}} episodes",
+        "activeDays_one": "{{count}} active day",
+        "activeDays_other": "{{count}} active days",
+        "best_one": "best: {{count}} day in a row",
+        "best_other": "best: {{count}} days in a row",
+        "none": "Nothing watched this year",
+        "tip": "{{date}} · {{episodes}}",
+        "nothing": "nothing watched"
       },
       "binge": {
         "title": "Longest binge",

@@ -639,6 +639,24 @@ a {
   z-index: 1;
   transition: opacity 0.25s ease-out;
 }
+/* UNE SEULE DÉCOUPE POUR TOUT LE LECTEUR (28/10/2026, Luc : liseré sombre
+   dans les coins). Chaque couche — le noir du conteneur, la vidéo, la vignette,
+   le voile dégradé des commandes — était arrondie et lissée SÉPARÉMENT : au
+   pixel du bord, chacune assombrissait ce que les autres laissaient passer, et
+   le coin finissait en fil sombre et dentelé. Les couches sont désormais
+   carrées et le lecteur entier est coupé d'un trait (`clip-path`) : un seul
+   lissage, coin net (comparé à l'image, 10×).
+   PAS PENDANT QU'UN MENU EST OUVERT : les menus vivent dans le lecteur (pour
+   le plein écran) et un grand menu sur un lecteur bas peut dépasser du cadre ;
+   la découpe le couperait. PAS EN PLEIN ÉCRAN : rien n'y est arrondi. */
+.vds-player:not([data-fullscreen]):not(:has(.vds-menu-items[data-open])) {
+  clip-path: inset(0 round var(--video-border-radius, 12px));
+}
+.vds-player [data-media-provider],
+.vds-player .vds-controls[data-visible],
+.vds-player .as-cover {
+  border-radius: 0 !important;
+}
 .vds-player[data-started] .as-cover,
 .vds-player .as-cover-off {
   opacity: 0;
@@ -2999,6 +3017,12 @@ html.as-dragging .as-nudge {
    le liseré : il dépassait d'un trait en haut et à gauche (24/10/2026, Luc). */
 .as-plate-frosted .as-widget.as-stat-card::before {
   inset: 1px;
+  /* RENTRÉ D'1 PX, ARRONDI D'1 PX DE MOINS (28/10/2026, Luc : liseré dans les
+     coins). Avec l'arrondi hérité (20 px), le coin du calque n'était pas
+     concentrique à celui de la carte : une lunule sans flou s'ouvrait entre
+     les deux dans chaque coin, et le décor NET y passait — sur un fond clair
+     et chargé, un trait plus sombre le long de l'arrondi. */
+  border-radius: 19px;
 }
 /* LE FLOU NE CHANGE PAS DE TAILLE PENDANT UN REDIMENSIONNEMENT (24/10/2026,
    Luc : « le blur clignote et bug »). La carte suit le coin au pixel : un
@@ -5070,6 +5094,25 @@ html.as-dragging .as-nudge {
     animation: none;
   }
 }
+/* La scène du calendrier : un conteneur à taille, que la grille remplit au
+   mieux en cases CARRÉES (28/10/2026). --c = le côté d'une case. */
+.as-cal-stage {
+  container-type: size;
+}
+.as-cal-board {
+  --g: clamp(4px, 1.6cqw, 10px);
+  --lab: 14px;
+  --c: min(
+    calc((100cqw - 6 * var(--g)) / 7),
+    calc((100cqh - var(--lab) - var(--rows) * var(--g)) / var(--rows))
+  );
+  display: grid;
+  grid-template-columns: repeat(7, var(--c));
+  gap: var(--g);
+  justify-content: center;
+  align-content: center;
+  height: 100%;
+}
 /* UNE CASE = UN CERCLE (25/10/2026, Luc). La case de grille sert de conteneur
    à taille : le disque prend le plus petit de ses deux côtés. */
 .as-cal-cell {
@@ -5153,4 +5196,54 @@ html.as-dragging .as-nudge {
   .as-cal-count {
     font-size: 12px;
   }
+}
+
+/* ── Heatmap de l'année (HeatmapBlock.tsx) ─────────────────────────────── */
+.as-heat-cell {
+  animation: as-heat-in 0.4s ease-out backwards;
+  transition: transform 0.12s;
+}
+.as-heat-cell:hover {
+  transform: scale(1.35);
+  z-index: 2;
+}
+@keyframes as-heat-in {
+  from {
+    opacity: 0;
+  }
+}
+/* Étroite : la légende cède la place au bilan. */
+@container widget (max-width: 520px) {
+  .as-heat-legend {
+    display: none;
+  }
+}
+
+/* ── Fond sombre en retrait d'un pixel (28/10/2026, Luc) ───────────────────
+   LE LISERÉ SOMBRE DES COINS ARRONDIS, partout sur le site. Un conteneur
+   arrondi qui découpe son contenu (`overflow: hidden`) et porte un fond sombre
+   SOUS une image ou une vidéo : le fond et l'image sont lissés séparément au
+   bord de l'arrondi, et le sombre transparaît sous l'image en trait foncé le
+   long de la courbe (vérifié en ne retirant QUE ce fond, cf. MusicCard).
+   Le fond passe donc sur un calque rentré d'1 px TOUT AUTOUR, coins compris
+   (même arrondi que la carte, donc plus en retrait encore dans la courbe) : il
+   couvre tout sauf le pixel du bord — les bandes noires, l'attente de
+   chargement restent. Un dégradé réduit de 2 px (premier essai) restait CARRÉ
+   et repassait sous la courbe des coins. Couleur par `--clip-bg` (défaut :
+   noir). Ne marche pas sur un <img> (pas de pseudo-élément). */
+.as-clip-bg {
+  background: none !important;
+  isolation: isolate;
+}
+.as-clip-bg:not(.absolute):not(.fixed):not(.sticky) {
+  position: relative;
+}
+.as-clip-bg::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--clip-bg, #000);
+  pointer-events: none;
 }

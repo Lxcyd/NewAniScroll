@@ -1081,12 +1081,23 @@
         "days_other": "{{count}} jours",
         "episodes_one": "{{count}} épisode",
         "episodes_other": "{{count}} épisodes",
-        "none": "Rien de regardé ce mois-ci"
+        "none": "Rien de regardé ce mois-ci",
+        "today": "Aujourd’hui"
       },
       "heatmap": {
         "title": "Heatmap de l'année",
         "desc": "Douze mois de visionnage en une grille.",
-        "soon": "Pas encore construit : il pourra reprendre le journal des jours du calendrier."
+        "less": "Moins",
+        "more": "Plus",
+        "episodes_one": "{{count}} épisode",
+        "episodes_other": "{{count}} épisodes",
+        "activeDays_one": "{{count}} jour actif",
+        "activeDays_other": "{{count}} jours actifs",
+        "best_one": "record : {{count}} jour d'affilée",
+        "best_other": "record : {{count}} jours d'affilée",
+        "none": "Rien de regardé cette année",
+        "tip": "{{date}} · {{episodes}}",
+        "nothing": "rien de regardé"
       },
       "binge": {
         "title": "Plus long binge",

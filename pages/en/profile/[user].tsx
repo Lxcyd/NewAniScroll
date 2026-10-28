@@ -84,7 +84,7 @@ import type {
 } from "@/lib/profile/types";
 
 /** Les deux blocs nourris par l'activité de lecture du propriétaire. */
-const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar"]);
+const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar", "heatmap"]);
 
 /** Une disposition stockée, remise en forme — `null` si elle est illisible. */
 function parseLayout(raw: string | null | undefined): GridItem[] | null {
@@ -1185,9 +1185,9 @@ export async function getServerSideProps(context: any) {
      __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
   const streak: number | null = read?.streak ?? null;
   /* Le journal des jours, sous le même garde-fou et seulement si la grille
-     montre le calendrier : sans lui, rien ne l'afficherait. */
+     montre le calendrier ou la heatmap : sans eux, rien ne l'afficherait. */
   const watchDays: WatchDays | null =
-    read && profileLayout?.some((o) => o.i === "calendar") ? read.days : null;
+    read && profileLayout?.some((o) => o.i === "calendar" || o.i === "heatmap") ? read.days : null;
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more

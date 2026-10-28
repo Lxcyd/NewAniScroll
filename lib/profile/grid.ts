@@ -44,12 +44,28 @@ export const COLS = 4;
  * curseur — sans quoi le coin laisserait tirer une taille que la disposition
  * refuserait ensuite, et le bloc sauterait au relâchement.
  */
-export type Bounds = { minW: number; minH: number; maxW: number; maxH: number };
+export type Bounds = {
+  minW: number;
+  minH: number;
+  maxW: number;
+  maxH: number;
+  /** Largeur = hauteur, toujours (28/10/2026) : le calendrier n'existe qu'en
+   *  2×2 et 3×3. Le côté est la moyenne des deux demandés, arrondie. */
+  square?: boolean;
+};
 
 export const DEFAULT_BOUNDS: Bounds = { minW: 1, minH: 1, maxW: COLS, maxH: 4 };
 
 /** Ramène une taille dans ses bornes, puis dans la grille. */
 export function clampSize(w: number, h: number, b: Bounds = DEFAULT_BOUNDS): [number, number] {
+  if (b.square) {
+    const n = Math.min(
+      COLS,
+      Math.min(b.maxW, b.maxH),
+      Math.max(b.minW, b.minH, Math.round((w + h) / 2)),
+    );
+    return [n, n];
+  }
   return [
     Math.min(COLS, Math.min(b.maxW, Math.max(b.minW, w))),
     Math.min(b.maxH, Math.max(b.minH, h)),

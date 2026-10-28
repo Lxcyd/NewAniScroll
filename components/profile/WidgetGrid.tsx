@@ -660,6 +660,16 @@ export default function WidgetGrid({
     const b = boundsOf(it.i);
     const px = (n: number) => n * cw + (n - 1) * GAP;
     const py = (n: number) => n * ROW + (n - 1) * GAP;
+    /* Bloc carré : la carte suit la DIAGONALE — le côté, en unités de grille,
+       est la moyenne des deux axes tirés, bornée. */
+    if (b.square) {
+      const uw = (start.width + offset.dx + GAP) / (cw + GAP);
+      const uh = (start.height + offset.dy + GAP) / (ROW + GAP);
+      const lo = Math.max(b.minW, b.minH);
+      const hi = Math.min(b.maxW, b.maxH, COLS - drag.x);
+      const u = Math.min(hi, Math.max(lo, (uw + uh) / 2));
+      return { ...start, width: u * (cw + GAP) - GAP, height: u * (ROW + GAP) - GAP };
+    }
     return {
       ...start,
       width: Math.min(

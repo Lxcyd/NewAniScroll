@@ -575,7 +575,7 @@ export function FavoritesBlock({
               /* `as-fav-poster` : c'est CE nœud que la mesure lit pour donner sa
                  largeur à toute la bande — sa taille ne vient que du rapport
                  2:3 et de la hauteur du widget, jamais du titre. */
-              className="as-fav-poster relative h-full overflow-hidden rounded-xl bg-as-card transition-transform duration-200 group-hover:scale-[1.03]"
+              className="as-fav-poster relative h-full overflow-hidden rounded-xl as-clip-bg [--clip-bg:var(--surface-card,#1a1a24)] transition-transform duration-200 group-hover:scale-[1.03]"
               style={{ aspectRatio: "2 / 3" }}
             >
               {e.cover ? (
@@ -2284,7 +2284,7 @@ export function SeasonBlock({
             } ring-white/[0.06] transition-colors hover:bg-white/[0.06] hover:ring-white/15`}
           >
             <span
-              className={`as-season-poster relative shrink-0 overflow-hidden bg-white/10 ${
+              className={`as-season-poster relative shrink-0 overflow-hidden as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ${
                 small ? "rounded-lg" : "rounded-xl"
               }`}
             >
