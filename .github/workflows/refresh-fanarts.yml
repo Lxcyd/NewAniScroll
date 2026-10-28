@@ -79,6 +79,16 @@ jobs:
         # Ce téléchargement vit dans les scripts du paquet, hors du contrôle des
         # `fetch-retries` de npm : la seule reprise possible est de relancer la
         # commande. 3 essais, 15 s puis 30 s.
+        #
+        # ONNXRUNTIME_NODE_INSTALL=skip (28/10/2026) : sans lui, le script
+        # d'onnxruntime-node va chercher les binaires CUDA
+        # (Microsoft.ML.OnnxRuntime.Gpu.Linux) sur NuGet, et ce paquet n'y est
+        # plus trouvé : « Failed to find specific package versions », 3 essais,
+        # job rouge. Le runner n'a pas de GPU et classify-fanarts.mjs tourne en
+        # executionProviders: ["cpu"] — le moteur CPU est inclus dans le paquet
+        # npm, rien d'autre à télécharger.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: |
           for attempt in 1 2 3; do
             if npm install --no-save onnxruntime-node@^1.25 sharp@^0.32 \
