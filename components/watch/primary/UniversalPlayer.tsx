@@ -2296,24 +2296,33 @@ export default function UniversalPlayer({
         } catch {}
         uneFamille();
       }
-      // Force Maximum Quality: pin hls.js to the top level (setting
-      // currentLevel to a fixed index disables ABR auto-switching) once the
-      // manifest's levels are known. Read the pref at setup time. When off we
-      // leave hls.js on its default `currentLevel = -1` (auto).
+      // Force Maximum Quality: pin hls.js to the top level (a fixed level
+      // disables ABR auto-switching). Not from the manifest on: the first
+      // segment still comes from the low start level (cf. hlsBandwidth, first
+      // image in seconds instead of 10-25 s on megaplay/vidmoly), and the pin
+      // lands right after it is buffered — `nextLevel`, so what is already
+      // buffered plays out instead of being flushed. When off, hls.js stays on
+      // auto (`currentLevel = -1`).
       if (hls && getPlayerPrefs().forceMaxQuality) {
+        let started = false;
         const pin = () => {
+          if (!started) return;
           try {
             const top = (hls.levels?.length ?? 0) - 1;
-            if (top >= 0) hls.currentLevel = top;
+            if (top >= 0 && (hls as any).loadLevel !== top) (hls as any).nextLevel = top;
           } catch {}
         };
+        const onFirstFrag = () => {
+          if (started) return;
+          started = true;
+          pin();
+        };
         try {
-          // Hls.Events.MANIFEST_PARSED / LEVELS_UPDATED — string literals avoid
+          // Hls.Events.FRAG_BUFFERED / LEVELS_UPDATED — string literals avoid
           // importing the enum; cast since the literal types aren't exported.
-          (hls as any).on("hlsManifestParsed", pin);
+          (hls as any).on("hlsFragBuffered", onFirstFrag);
           (hls as any).on("hlsLevelsUpdated", pin);
         } catch {}
-        pin();
       }
     }
   };
