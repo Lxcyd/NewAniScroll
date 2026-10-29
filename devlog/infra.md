@@ -6,6 +6,32 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 — Phase 1 testee sur dev.aniscroll.com (Cloudflare devant Vercel)
+
+Jeton `CF_ZONE_API_TOKEN` (zone aniscroll.com : DNS, WAF, rate limit,
+transform, cache, config rules) dans `.env`. Zone vierge avant (aucune regle,
+Bot Fight off, Tiered off, SSL Full) ; proxy/fanart-proxy/fonds deja oranges.
+
+- **Vercel retire `s-maxage`/`stale-while-revalidate` de Cache-Control** en
+  sortie (mesure : anilist-health envoie `public, s-maxage=300, swr=600`, le
+  client recoit `public`). Cloudflare aurait garde ces reponses 2 h (TTL par
+  defaut), /source compris. `CDN-Cache-Control`, lui, passe intact.
+  Correctif unique : `instrumentation.ts` recopie tout Cache-Control a
+  s-maxage dans CDN-Cache-Control (sauf si la route en pose un).
+- **Pas de Bot Fight Mode** : il vaut pour toute la zone, donc aussi le
+  Worker video proxy.aniscroll.com, sans exception possible en Free. A la
+  place, regle WAF managed_challenge : UA vide ou de script, hors /api et
+  /_next, hors bots verifies.
+- Rate limit Free accepte `http.host` dans l'expression : 20 pages
+  /xx/anime/ / 10 s / IP.
+- Cache Rule : `/_next/data/` + `/api/v2/`, edge TTL `bypass_by_default`
+  (pas d'en-tete = pas de cache). Pas de HTML.
+- Regle de transformation mobile (`__m=1`) NON posee : elle ne sert que
+  quand Cloudflare cachera le HTML (phase 4) ; le rewrite Next suffit avant.
+- Toutes les regles portent `http.host eq "dev.aniscroll.com"` ; script
+  et etat avant dans le scratchpad de la session (a versionner sous
+  tools/cloudflare si la prod suit).
+
 ## 2026-10-29 — IP client derriere le proxy Cloudflare (prerequis phase 1)
 
 Nuage orange devant Vercel : Vercel reecrit x-forwarded-for avec l'adresse
