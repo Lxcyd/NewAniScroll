@@ -6,6 +6,16 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-29 — IP client derriere le proxy Cloudflare (prerequis phase 1)
+
+Nuage orange devant Vercel : Vercel reecrit x-forwarded-for avec l'adresse
+qui lui parle, donc un bord Cloudflare — tous les visiteurs auraient partage
+une cle de rate limit (429 pour tout le monde). `getClientIp` lit
+`cf-connecting-ip` sur Vercel SEULEMENT si ce 1er x-forwarded-for tombe dans
+les plages Cloudflare (liste de cloudflare.com/ips en dur, `BlockList`) ; un
+client qui frappe Vercel en direct ne peut donc pas forger l'en-tete. Hors
+Vercel (VM), inchange. Teste : direct, via CF v4/v6, en-tete forge.
+
 ## 2026-10-29 — Phase 0 du plan de sortie de Vercel (VM Oracle + Cloudflare)
 
 Plan : doc « AniScroll — Plan de refonte infra & performance »
