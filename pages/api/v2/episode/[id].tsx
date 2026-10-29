@@ -5,6 +5,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { getCachedAnime } from "@/lib/db/anime";
 import { setEdgeErrorCache } from "@/lib/http/edgeCache";
+import { getClientIp } from "@/lib/net/clientIp";
 import { fillStillGaps } from "@/lib/tmdb/episodeStills";
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
 import {
@@ -282,7 +283,7 @@ export default async function handler(
 
   if (redis) {
     try {
-      const ipAddress: any = req.socket.remoteAddress;
+      const ipAddress = getClientIp(req) || "unknown";
       refresh
         ? await rateSuperStrict.consume(ipAddress)
         : await rateLimiterRedis.consume(ipAddress);

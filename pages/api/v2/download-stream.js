@@ -8,11 +8,14 @@
  */
 
 import { Readable } from "stream";
+import { isPublicUrl } from "@/lib/net/publicUrl";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0";
 
 async function fetchSegment(url, referer, signal) {
+  // Every URL, not just the master: a playlist can list internal addresses.
+  if (!(await isPublicUrl(url))) throw new Error("forbidden url");
   const headers = {
     "User-Agent": UA,
     Accept: "*/*",

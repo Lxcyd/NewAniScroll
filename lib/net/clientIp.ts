@@ -16,7 +16,15 @@
 
 import type { NextApiRequest } from "next";
 
-export function getClientIp(req: NextApiRequest): string | null {
+export function getClientIp(req: Pick<NextApiRequest, "headers" | "socket">): string | null {
+  // Behind Cloudflare (self-hosted, via the Tunnel) the socket is cloudflared
+  // and x-forwarded-for's first entry is whatever the client sent:
+  // cf-connecting-ip is the only trustworthy value. Never read it on Vercel,
+  // where nothing strips it and a client could rotate it to dodge rate limits.
+  if (!process.env.VERCEL) {
+    const cf = req.headers["cf-connecting-ip"];
+    if (typeof cf === "string" && cf.trim()) return cf.trim();
+  }
   const xff = req.headers["x-forwarded-for"];
   // x-forwarded-for is "client, proxy1, proxy2" — the first entry is the
   // original caller. An empty header is treated as absent, not as an IP.

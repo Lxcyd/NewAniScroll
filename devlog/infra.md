@@ -6,6 +6,38 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-29 — Phase 0 du plan de sortie de Vercel (VM Oracle + Cloudflare)
+
+Plan : doc « AniScroll — Plan de refonte infra & performance »
+(claude.ai/artifact/5pcJaE5kxnbSGgADdgvnzP). Phase 0 = correctifs qui
+tournent a l'identique sur Vercel et rendent l'auto-hebergement possible.
+Commit local, pas pousse.
+
+- **IP client** : `getClientIp` (lib/net/clientIp.ts) lit `cf-connecting-ip`
+  en premier HORS Vercel (`!process.env.VERCEL`) — derriere le Tunnel le socket
+  est cloudflared et le 1er x-forwarded-for est falsifiable. Jamais sur Vercel :
+  rien n'y retire l'en-tete, un client tournerait sa cle de rate limit.
+  `/source`, `episode/[id]`, `etc/recent`, `admin/meta` gardaient
+  `req.socket.remoteAddress` ; `auth/throttle` avait sa copie : tous passent
+  par `getClientIp`.
+- **Memos bornes** : `lib/boundedSet.js` (Map + plafond, ordre d'insertion).
+  getMediaMeta 2000, AniList.js 200, bannerSize 5000.
+- **Proxys video (SSRF)** : `lib/net/publicUrl.js`, pas une liste blanche
+  d'hotes (les CDN tournent) mais refus de tout ce qui resout vers une adresse
+  privee/interne (Redis du compose, 169.254.169.254). Piege : une regle
+  `::ffff:0:0/96` dans un `BlockList` matche TOUTES les IPv4. Verdict memoise
+  par hote 10 min (le proxy m3u8 passe a chaque segment). Reste ouvert : une
+  redirection upstream vers une IP interne n'est pas controlee.
+- **@vercel/analytics** monte seulement si `NEXT_PUBLIC_VERCEL_ENV`.
+- **warm-pages / prod-check** lisent `cf-cache-status` a defaut de
+  `x-vercel-cache`.
+- **Build** : `build` ne lance plus `prisma migrate deploy` ; `vercel-build`
+  (que Vercel prefere ; aucun des deux projets n'a de buildCommand impose,
+  verifie par API) = migrate + build ; `npm run migrate` a part.
+- **Pas fait, volontairement** : `Cloudflare-CDN-Cache-Control` — Cloudflare lit
+  deja `CDN-Cache-Control` (doc Cloudflare, cache/concepts/cdn-cache-control).
+  Cache SSR du profil : hors phase 0, a mesurer.
+
 ## 2026-10-23 (nuit, 2) — Le profil qui fige puis recharge sur iPhone
 
 Signale par Luc apres le push : sur iPhone/Safari, ouvrir un profil fige la

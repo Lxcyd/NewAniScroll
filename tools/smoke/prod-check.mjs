@@ -81,7 +81,7 @@ async function verifier(cas) {
         detail += ` · "${cas.contient}" absent`;
       }
     }
-    const cache = res.headers.get("x-vercel-cache");
+    const cache = res.headers.get("x-vercel-cache") || res.headers.get("cf-cache-status");
     if (cache) detail += ` · cache ${cache}`;
     return { ok: statutOk && corpsOk, detail, ms };
   } catch (e) {

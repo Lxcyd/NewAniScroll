@@ -42,6 +42,7 @@
  */
 
 import { getCachedJson, setCachedJson } from "@/lib/db/tmdbImagesCache";
+import { boundedSet } from "@/lib/boundedSet";
 
 const MIN_WIDTH = 1700;
 const MIN_HEIGHT = 350;
@@ -134,7 +135,7 @@ export async function isBannerLowRes(
   const key = `bannerSize:v1:${url}`;
   const cached = await getCachedJson<{ low: boolean }>(key, TTL_S);
   if (cached) {
-    memo.set(url, cached.low);
+    boundedSet(memo, url, cached.low, 5000);
     return cached.low;
   }
 
@@ -144,7 +145,7 @@ export async function isBannerLowRes(
   // Cache the measurement either way — including "we couldn't measure it", so
   // a banner served by a flaky host isn't re-probed on every render.
   await setCachedJson(key, { low, ...(size ?? {}) });
-  memo.set(url, low);
+  boundedSet(memo, url, low, 5000);
   if (low && size) {
     console.warn(
       `[banner] low-res ${size.width}x${size.height} → TMDB backdrop: ${url}`,

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev --turbo -p 3123",
     "dev:webpack": "next dev -p 3123",
-    "build": "npx prisma migrate deploy && npx prisma generate && next build",
+    "build": "npx prisma generate && next build",
+    "vercel-build": "npx prisma migrate deploy && npm run build",
+    "migrate": "npx prisma migrate deploy",
     "export": "next build && next export",
     "start": "next start",
     "type-check": "tsc",

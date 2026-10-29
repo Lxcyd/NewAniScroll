@@ -99,7 +99,8 @@ async function chauffe(chemin) {
     /* Le corps DOIT etre consomme : sans ca la connexion reste ouverte et,
        surtout, Vercel peut ne pas finir de remplir l'entree de cache. */
     await res.arrayBuffer();
-    const etat = res.headers.get("x-vercel-cache") || "?";
+    /* Vercel ou Cloudflare (auto-heberge) : chacun son en-tete. */
+    const etat = res.headers.get("x-vercel-cache") || res.headers.get("cf-cache-status") || "?";
     bilan[etat] = (bilan[etat] || 0) + 1;
     if (ms > plusLent.ms) plusLent = { url: chemin, ms };
     return `${etat.padEnd(6)} ${String(ms).padStart(5)}ms  ${chemin}`;

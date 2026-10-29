@@ -889,8 +889,9 @@ export default function App({
                       against the Hobby function quota and gives us per-page
                       visitor stats on the Vercel dashboard. Replaces / lives
                       alongside our own /api/v2/track (which is the only
-                      analytics that sees the visitor IP for moderation). */}
-                  <Analytics />
+                      analytics that sees the visitor IP for moderation).
+                      Vercel-only: self-hosted, its script 404s. */}
+                  {process.env.NEXT_PUBLIC_VERCEL_ENV && <Analytics />}
                 </div>
               </SkeletonTheme>
           </WatchPageProvider>

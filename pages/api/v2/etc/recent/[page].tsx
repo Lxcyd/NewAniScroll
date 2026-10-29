@@ -2,6 +2,7 @@ import { rateLimitStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
+import { getClientIp } from "@/lib/net/clientIp";
 
 // Fetches recently updated anime from AniList (replaces dead api.anify.tv).
 // We pull a larger recently-updated pool, then sort it by popularity so the
@@ -41,7 +42,7 @@ export default async function handler(
     // ── Rate limiting ────────────────────────────────────────
     if (redis) {
       try {
-        const ipAddress: any = req.socket.remoteAddress;
+        const ipAddress = getClientIp(req) || "unknown";
         await rateLimitStrict?.consume(ipAddress);
       } catch (error: any) {
         return res.status(429).json({

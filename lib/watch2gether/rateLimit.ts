@@ -9,7 +9,6 @@
 import type { NextApiRequest } from "next";
 import { rateLimiterRedis, rateLimitStrict, rateSuperStrict } from "@/lib/redis";
 
-/** First hop in X-Forwarded-For (the real client on Vercel), else the socket. */
 /** Re-exported for the existing callers; the implementation is shared now. */
 export { getClientIp } from "@/lib/net/clientIp";
 import { getClientIp } from "@/lib/net/clientIp";

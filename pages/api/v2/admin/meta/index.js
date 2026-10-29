@@ -1,5 +1,6 @@
 import { rateLimitStrict, redis } from "@/lib/redis";
 import { getServerSession } from "next-auth";
+import { getClientIp } from "@/lib/net/clientIp";
 import { authOptions } from "pages/api/auth/[...nextauth]";
 
 export default async function handler(req, res) {
@@ -19,7 +20,7 @@ export default async function handler(req, res) {
   try {
     if (redis) {
       try {
-        const ipAddress = req.socket.remoteAddress;
+        const ipAddress = getClientIp(req) || "unknown";
         await rateLimitStrict.consume(ipAddress);
       } catch (error) {
         return res.status(429).json({

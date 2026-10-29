@@ -1,5 +1,6 @@
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import * as cheerio from "cheerio";
+import { getClientIp } from "@/lib/net/clientIp";
 import { getExtractor, VIDMOLY_HOST_RE, ouvreEncMegaplay } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
@@ -4218,7 +4219,7 @@ export default async function handler(req, res) {
   // actually warrants protection.
   if (redis && !isInternal) {
     try {
-      const ipAddress = req.socket.remoteAddress;
+      const ipAddress = getClientIp(req) || "unknown";
       await rateLimiterRedis.consume(ipAddress);
     } catch (error) {
       // rate-limiter-flexible rejects with a RateLimiterRes (has msBeforeNext)

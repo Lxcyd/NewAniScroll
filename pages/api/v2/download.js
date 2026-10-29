@@ -18,6 +18,7 @@
  */
 
 import { Readable } from "stream";
+import { isPublicUrl } from "@/lib/net/publicUrl";
 
 export default async function handler(req, res) {
   const { url, referer, filename = "anime.mp4" } = req.query;
@@ -25,6 +26,9 @@ export default async function handler(req, res) {
 
   try {
     const targetUrl = decodeURIComponent(url);
+    if (!(await isPublicUrl(targetUrl))) {
+      return res.status(400).json({ error: "Forbidden url" });
+    }
     const targetOrigin = new URL(targetUrl).origin;
 
     // CDN referer detection — same as m3u8 proxy

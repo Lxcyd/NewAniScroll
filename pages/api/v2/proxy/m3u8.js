@@ -8,6 +8,7 @@
 
 import { Readable } from "stream";
 import { getVoeCookieFor } from "@/lib/extractors";
+import { isPublicUrl } from "@/lib/net/publicUrl";
 
 // VOE's CDN (cloudwindow-route.com) rate-limits to 1 concurrent request per
 // IP. hls.js fetches 3-6 segments in parallel by default → all but the first
@@ -58,6 +59,9 @@ export default async function handler(req, res) {
 
   try {
     const targetUrl = decodeURIComponent(url);
+    if (!(await isPublicUrl(targetUrl))) {
+      return res.status(400).json({ error: "Forbidden url" });
+    }
     const targetOrigin = new URL(targetUrl).origin;
 
     // Determine the correct Referer for CDN auth
