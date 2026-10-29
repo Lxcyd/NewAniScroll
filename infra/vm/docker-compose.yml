@@ -1,0 +1,53 @@
+# AniScroll sur la VM : Cloudflare -> cloudflared -> nginx (cache disque) -> Next.
+# Aucun port ouvert sur Internet : tout entre par le Tunnel.
+# Fichiers a cote : .env (copie du .env du projet + TUNNEL_TOKEN + SRH_TOKEN).
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/vm/Dockerfile
+      args:
+        NEXT_PUBLIC_PROXY_BASE: ${NEXT_PUBLIC_PROXY_BASE}
+        NEXT_PUBLIC_IMG_PROXY: ${NEXT_PUBLIC_IMG_PROXY}
+        NEXT_PUBLIC_ADMIN_USERNAMES: ${NEXT_PUBLIC_ADMIN_USERNAMES}
+    env_file: .env
+    environment:
+      # Redis local via SRH (meme API REST qu'Upstash) : plus de plafond mensuel.
+      UPSTASH_REDIS_REST_URL: http://srh:80
+      UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
+      NODE_OPTIONS: --max-old-space-size=3072
+    restart: unless-stopped
+    depends_on: [srh]
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
+    volumes: [redis:/data]
+    restart: unless-stopped
+
+  srh:
+    image: hiett/serverless-redis-http:latest
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${SRH_TOKEN}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    restart: unless-stopped
+    depends_on: [redis]
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-cache:/var/cache/nginx
+    restart: unless-stopped
+    depends_on: [web]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on: [nginx]
+
+volumes:
+  redis:
+  nginx-cache:

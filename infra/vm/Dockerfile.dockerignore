@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env*
+graphify-out
+devlog
+docs
+tools
+scripts
+worker
+worker-ytaudio
+infra
+**/*.log
