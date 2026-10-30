@@ -6,6 +6,28 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 — Lecture progressive essayee, eteinte par defaut
+
+Idee de Luc : « charger une toute petite partie en haute qualite, puis la
+suite pendant que ca joue » = `progressive: true` de hls.js (FetchLoader en
+flux). hls.js le REFUSE des qu'un `loader` maison est pose : le chargeur a
+memoire des manifestes (hlsPreload) passe donc en `pLoader` — a garder, c'est
+sans effet sur le reste.
+
+Ce que la mesure a montre :
+- **frembed** : une seule qualite (1080p), segments de 10 s faits d'UN seul
+  `moof`+`mdat` de 5 Mo (verifie, scratch `boxes.mjs`). Aucun navigateur ne
+  decode un mdat incomplet : rien a gagner, progressif ou non.
+- **megaplay** (MPEG-TS, 0,8 Mo / 4,6 s, servis du cache Worker a 5-8 Mo/s) :
+  3 paires au banc, aucun gain lisible, et un saut a 10,6 s une fois AVEC.
+- Le banc `player-timeline.mjs` varie du simple au decuple d'une visite a
+  l'autre (sauts 155-3837 ms sans rien changer) : une paire ne prouve rien.
+
+`HLS_PROGRESSIVE = false` ; localStorage `aniscroll:hlsProgressive` = "1"
+l'allume sur un navigateur. A rejuger sur vidmoly (TS de 20 s, ~9 Mo) et un
+megaplay froid. Le banc se presente desormais comme un Chrome de bureau (le
+WAF Cloudflare defie HeadlessChrome).
+
 ## 2026-10-02 — Lien à un minutage : viser puis vérifier, et le dire quand c'est impossible
 
 Signalé ainsi : « avec vidmoly-va, charger un épisode à un timing précis ne

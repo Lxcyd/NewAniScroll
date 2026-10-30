@@ -6,6 +6,25 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 (apres-midi) — La PROD passe derriere Cloudflare
+
+PR #21 fusionnee (backend seul : clientIp, instrumentation, workflows), prod
+deployee, puis vers 13 h :
+1. `rules.mjs dev.aniscroll.com aniscroll.com www.aniscroll.com`. Le Free
+   n'admet qu'UNE regle de rate limit : les hotes sont regroupes en
+   `http.host in {…}`.
+2. Vercel prod : `bot_protection` `challenge` -> `log` (PATCH
+   /v1/security/firewall/config, `managedRules.update`). `ai_bots` reste `deny`.
+3. DNS `aniscroll.com` + `www` proxied.
+
+Verifie par l'IP Cloudflare (`--resolve`, le DNS du poste gardait l'ancienne
+reponse) : accueil HIT 0,14 s, session DYNAMIC, curl sans UA = 403.
+Retour arriere : `proxied: false` sur les deux enregistrements, puis
+bot_protection en `challenge`.
+
+`purge-cf-cache.yml` vide puis rechauffe (warm-pages ne reagit plus aux
+deploiements ; 0,6 s entre deux pages pour la limite de 20 / 10 s).
+
 ## 2026-10-30 — Phase 4 sur dev : Cloudflare garde le HTML ; Oracle abandonne
 
 **Oracle abandonne** : ~75 essais de creation A1 en 14 h a Paris, tous

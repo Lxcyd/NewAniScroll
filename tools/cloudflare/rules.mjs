@@ -24,12 +24,13 @@ show("waf", await put("http_request_firewall_custom", each((host, h) => [{
   action: "managed_challenge",
 }])));
 
-show("ratelimit", await put("http_ratelimit", each((host, h) => [{
-  description: `${h} : 20 pages anime / 10 s / IP`,
-  expression: `(${host} and ${anime})`,
+// Le plan Free n'autorise qu'UNE regle de rate limit : tous les hotes dedans.
+show("ratelimit", await put("http_ratelimit", [{
+  description: `${HOSTS.join(", ")} : 20 pages anime / 10 s / IP`,
+  expression: `(http.host in {${HOSTS.map((h) => `"${h}"`).join(" ")}} and ${anime})`,
   action: "block",
   ratelimit: { characteristics: ["cf.colo.id", "ip.src"], period: 10, requests_per_period: 20, mitigation_timeout: 10 },
-}])));
+}]));
 
 /* La fiche anime rend une mise en page differente sur telephone, choisie par
    `?__m=1` (cf. next.config.js). Le cache Cloudflare est cle par URL : le
