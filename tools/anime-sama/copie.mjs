@@ -16,17 +16,15 @@
  *   options : --sans-vie (ne pas controler les liens), --concurrence=4,
  *             --ecrire (table Turso `as_panneau`, seulement ce qui change)
  *
- * ROTATION DES CONTROLES (avec --ecrire) : un lien deja connu n'est recontrole
- * que s'il ne l'a pas ete depuis JOURS_VIE jours ; un lien nouveau l'est tout
- * de suite. Mesure du 30/10/2026 : 1 585 fiches, ~24 requetes Worker par
- * fiche en controlant tout ; le Worker sert 3 000 a 6 000 requetes par jour
- * pour 100 000 permises.
+ * CONTROLES : trois liens temoins par saison x langue chaque nuit, les autres
+ * a tour de role (JOURS_VIE jours, budget --budget-vie par nuit), lentement et
+ * en direct — cf. le commentaire de `vie`.
  */
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { createClient } from "@libsql/client";
 
-const JOURS_VIE = 3;
+const JOURS_VIE = 14;
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => {
   const [k, v] = a.replace(/^--/, "").split("=");
@@ -34,21 +32,45 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
 }));
 const WORKER = process.env.PROXY_BASE || "https://proxy.aniscroll.com";
 const AS = "https://anime-sama.to";
-const CONC = Number(args.concurrence || 4);
+const CONC = Number(args.concurrence || 12); // fiches en cours a la fois
+// Liens hors temoins controles par nuit (le reste attend son tour).
+let budgetVie = Number(args["budget-vie"] || 4000);
 const LANGUES = ["vostfr", "vf", "vf1", "vf2"];
 
 const compteur = { requetes: 0, erreurs: 0 };
 const dors = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* UN SEUL PLAFOND pour toute la copie : au plus PARALLELES requetes en vol,
+   qu'elles lisent une fiche, une saison ou controlent un lien. Les etages
+   (fiches, saisons, liens) lancent tout ce qu'ils ont ; c'est ce plafond qui
+   regle le debit. Avant, chaque etage avait son propre « 4 a la fois » et une
+   longue serie bloquait son paquet entier : 200 fiches en 19 minutes. */
+const PARALLELES = Number(args.paralleles || 24);
+let enVol = 0;
+const attente = [];
+async function jeton() {
+  if (enVol < PARALLELES) { enVol++; return; }
+  await new Promise((r) => attente.push(r));
+}
+function rendre() {
+  const suivant = attente.shift();
+  if (suivant) suivant(); else enVol--;
+}
+
 /** Une requete par le Worker. `referer` : anime-sama exige d'etre « sur le site ». */
 async function viaWorker(url, referer = `${AS}/`) {
+  await jeton();
+  try { return await viaWorkerLibre(url, referer); } finally { rendre(); }
+}
+async function viaWorkerLibre(url, referer) {
   compteur.requetes++;
   const u = `${WORKER}/?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer)}`;
   for (let essai = 0; essai < 3; essai++) {
     try {
       const r = await fetch(u, { signal: AbortSignal.timeout(20000) });
       if (r.status === 429 || r.status >= 500) { await dors(2000 * (essai + 1)); continue; }
-      return { status: r.status, texte: r.ok ? await r.text() : "" };
+      // Le corps meme en erreur : le Worker y met le code amont (`upstream`).
+      return { status: r.status, texte: await r.text().catch(() => "") };
     } catch {
       await dors(2000 * (essai + 1));
     }
@@ -126,12 +148,63 @@ async function panneau(slug, dossier, langue) {
 }
 
 /** Vivant / mort / inconnu. Un parametre du jour contourne le cache 24 h du Worker. */
+/* ── Controle d'un lien : LENT, DIRECT, et « mort » seulement sur un 404 ──────
+   Lecon du 30/10/2026 : a 24 controles en parallele par le Worker, ansembed a
+   refuse (403 puis 503) — et le Worker rend tout refus 401/403/404/410 en
+   « 410 », que la premiere version lisait « mort ». 820 liens vivants sont
+   ainsi sortis morts sur un echantillon de 5 fiches. Desormais :
+     - au plus VIE_PARALLELES controles a la fois, VIE_ECART_MS entre deux ;
+     - en DIRECT d'abord (le visiteur aussi va chercher ansembed en direct) ;
+     - « mort » = 404 direct confirme deux fois, ou `upstream: 404` du Worker ;
+     - tout refus (403, 429, 5xx, reseau) = « inconnu », recontrole plus tard ;
+     - trois refus de suite = pause generale d'une minute. */
+const VIE_PARALLELES = Number(args["vie-paralleles"] || 3);
+const VIE_ECART_MS = Number(args["vie-ecart"] || 300);
+const UA_NAV = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+let vieEnVol = 0, prochainDepart = 0, refusDeSuite = 0, pauseJusqua = 0;
+const vieAttente = [];
+async function vieJeton() {
+  if (vieEnVol < VIE_PARALLELES) vieEnVol++;
+  else await new Promise((r) => vieAttente.push(r));
+  // Espacement global des departs, et pause apres des refus en serie.
+  const depart = Math.max(Date.now(), prochainDepart, pauseJusqua);
+  prochainDepart = depart + VIE_ECART_MS;
+  if (depart > Date.now()) await dors(depart - Date.now());
+}
+function vieRendre() {
+  const s = vieAttente.shift();
+  if (s) s(); else vieEnVol--;
+}
+async function direct(url) {
+  compteur.requetes++;
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA_NAV, Referer: `${AS}/` }, signal: AbortSignal.timeout(15000) });
+    return { status: r.status, texte: r.ok ? await r.text() : "" };
+  } catch {
+    return { status: 0, texte: "" };
+  }
+}
+const flux = (t) => /master\.m3u8|sources\s*:/.test(t);
 async function vie(url) {
-  const jour = new Date().toISOString().slice(0, 10);
-  const { status, texte } = await viaWorker(`${url}${url.includes("?") ? "&" : "?"}_=${jour}`);
-  if (status === 200 && /master\.m3u8|sources\s*:/.test(texte)) return "vivant";
-  if (status === 404 || status === 410) return "mort";
-  return `inconnu:${status}`;
+  await vieJeton();
+  try {
+    let r = await direct(url);
+    if (r.status === 200 && flux(r.texte)) { refusDeSuite = 0; return "vivant"; }
+    if (r.status === 404) {
+      await dors(2000);
+      r = await direct(url);
+      if (r.status === 404) { refusDeSuite = 0; return "mort"; }
+      if (r.status === 200 && flux(r.texte)) return "vivant";
+    }
+    // Refus ou reseau : un essai par le Worker, en lisant le VRAI code amont.
+    const w = await viaWorker(url);
+    if (w.status === 200 && flux(w.texte)) { refusDeSuite = 0; return "vivant"; }
+    if (Number(w.texte.match(/"upstream"\s*:\s*(\d+)/)?.[1]) === 404) { refusDeSuite = 0; return "mort"; }
+    if (++refusDeSuite >= 3) { pauseJusqua = Date.now() + 60000; refusDeSuite = 0; }
+    return `inconnu:${r.status}/${w.status}`;
+  } finally {
+    vieRendre();
+  }
 }
 
 async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
@@ -140,32 +213,51 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
   const estVidmoly = (u) => { try { return domaines.includes(new URL(u).hostname.replace(/^www\./, "")); } catch { return false; } };
   f.panneaux = [];
   const langues = carte && !carte.vf ? ["vostfr"] : LANGUES;
-  for (const s of f.saisons) {
-    for (const langue of langues) {
-      const listes = await panneau(slug, s.dossier, langue);
-      if (!listes) continue;
-      const nbEp = Math.max(...listes.map((l) => l.liens.length));
-      const episodes = [];
-      for (let i = 0; i < nbEp; i++) {
-        const liens = listes.map((l) => l.liens[i]).filter((u) => u && estVidmoly(u));
-        episodes.push({ ep: i + 1, liens });
-      }
-      f.panneaux.push({ dossier: s.dossier, libelle: s.libelle, langue, nbEp, episodes });
+  // Toutes les saisons x langues en parallele (le plafond global regle le debit).
+  const combinaisons = f.saisons.flatMap((s) => langues.map((langue) => ({ s, langue })));
+  const lus = await Promise.all(combinaisons.map(({ s, langue }) => panneau(slug, s.dossier, langue)));
+  combinaisons.forEach(({ s, langue }, k) => {
+    const listes = lus[k];
+    if (!listes) return;
+    const nbEp = Math.max(...listes.map((l) => l.liens.length));
+    const episodes = [];
+    for (let i = 0; i < nbEp; i++) {
+      const liens = listes.map((l) => l.liens[i]).filter((u) => u && estVidmoly(u));
+      episodes.push({ ep: i + 1, liens });
     }
-  }
+    f.panneaux.push({ dossier: s.dossier, libelle: s.libelle, langue, nbEp, episodes });
+  });
   if (!args["sans-vie"]) {
-    const limite = Date.now() - JOURS_VIE * 864e5;
-    const tous = f.panneaux.flatMap((p) => p.episodes.flatMap((e) => e.liens.map((u) => ({ e, u }))));
-    // Deja controle recemment : on reprend l'etat connu, sans requete.
+    /* QUOI CONTROLER CETTE NUIT.
+       - Trois TEMOINS par saison x langue (premier, milieu, dernier episode
+         qui a un lien) : recontroles s'ils ont plus de deux jours. Ils suffisent a
+         dire « cette saison a un lien vivant », ce que la parite demande.
+       - Les autres liens : a tour de role, s'ils ont plus de JOURS_VIE jours,
+         dans la limite du BUDGET de la nuit — tout est revu en ~2 semaines.
+       Un lien jamais controle reste « non-controle », jamais « mort ». */
+    const maintenant0 = Date.now();
     const aControler = [];
-    for (const x of tous) {
-      const c = connus.get(x.u);
-      if (c && c.vu > limite && !String(c.etat).startsWith("inconnu")) {
-        (x.e.etats ||= {})[x.u] = c.etat;
-        (x.e.vus ||= {})[x.u] = c.vu;
-      } else aControler.push(x);
+    for (const p of f.panneaux) {
+      const avecLien = p.episodes.filter((e) => e.liens.length);
+      const temoins = new Set([avecLien[0], avecLien[Math.floor(avecLien.length / 2)], avecLien.at(-1)].filter(Boolean));
+      for (const e of avecLien) {
+        for (const u of e.liens) {
+          const c = connus.get(u);
+          const age = c ? maintenant0 - c.vu : Infinity;
+          const sur = c && !String(c.etat).startsWith("inconnu") && c.etat !== "non-controle";
+          const temoin = temoins.has(e) && u === e.liens[0];
+          const aRevoir = temoin ? age > 2 * 864e5 || !sur : age > JOURS_VIE * 864e5 || !sur;
+          if (aRevoir && (temoin || budgetVie > 0)) {
+            if (!temoin) budgetVie--;
+            aControler.push({ e, u });
+          } else {
+            (e.etats ||= {})[u] = c?.etat || "non-controle";
+            (e.vus ||= {})[u] = c?.vu || 0;
+          }
+        }
+      }
     }
-    const etats = await parLots(aControler, ({ u }) => vie(u));
+    const etats = await Promise.all(aControler.map(({ u }) => vie(u)));
     const maintenant = Date.now();
     aControler.forEach(({ e, u }, k) => {
       (e.etats ||= {})[u] = etats[k];
@@ -268,52 +360,49 @@ else {
   if (args.mesure) slugs = slugs.sort(() => Math.random() - 0.5).slice(0, Number(args.mesure));
 }
 
-/* PAR PAQUETS DE 50, ecrits au fur et a mesure : une copie coupee en route
-   (session, runner, reseau) garde tout ce qu'elle a deja lu. La premiere
-   version n'ecrivait qu'a la fin et a tout perdu sur une coupure (30/10). */
-const PAQUET = 50;
-const bilan = { fiches: 0, erreurs: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, inconnus: 0 };
+const bilan = { fiches: 0, erreurs: 0, nonControles: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, inconnus: 0 };
 const toutes = [];
-let ecrites = 0;
-for (let d = 0; d < slugs.length; d += PAQUET) {
-  const fiches = await parLots(slugs.slice(d, d + PAQUET), (s) => copierFiche(s, domaines, cat.get(s), connus.liens));
-  for (const f of fiches) {
-    bilan.fiches++;
-    if (f.erreur) { bilan.erreurs++; console.log(`  ${f.slug} : ${f.erreur}`); continue; }
-    if (!f.anilist) bilan.sansAnilist++;
-    for (const p of f.panneaux || []) {
-      bilan.panneaux++;
-      bilan.episodes += p.nbEp;
-      for (const e of p.episodes) {
-        if (e.liens.length) bilan.avecVidmoly++;
-        for (const u of e.liens) {
-          bilan.liens++;
-          const st = e.etats?.[u];
-          if (st === "vivant") bilan.vivants++; else if (st === "mort") bilan.morts++; else if (st) bilan.inconnus++;
-        }
-      }
-    }
-    if (slugs.length <= 20) {
-      const resume = (f.panneaux || []).map((p) => {
-        const v = p.episodes.filter((e) => Object.values(e.etats || {}).includes("vivant")).length;
-        return `${p.dossier}/${p.langue} ${v}/${p.nbEp}`;
-      }).join(" · ");
-      console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
-    }
-  }
-  /* Contrat : des fiches lues mais sans id AniList pour la plupart, c'est leur
-     format de fiche qui a change. On s'arrete avant d'ecrire ce paquet. */
-  const lisibles = fiches.filter((f) => !f.erreur);
-  if (lisibles.length >= 20 && lisibles.filter((f) => f.anilist).length < lisibles.length / 2) {
-    console.error("CONTRAT ROMPU : moins de la moitie des fiches portent un id AniList — paquet non ecrit");
+let ecrites = 0, avecId = 0, lisibles = 0;
+/* EN CONTINU : CONC fiches en cours a tout moment, chacune ecrite des qu'elle
+   est finie. Une longue serie n'arrete plus les autres. */
+async function traiter(slug) {
+  const f = await copierFiche(slug, domaines, cat.get(slug), connus.liens);
+  bilan.fiches++;
+  if (f.erreur) { bilan.erreurs++; console.log(`  ${f.slug} : ${f.erreur}`); return; }
+  lisibles++;
+  if (f.anilist) avecId++; else bilan.sansAnilist++;
+  /* Contrat : passe 30 fiches lisibles, une majorite sans id AniList veut
+     dire que leur format de fiche a change. On s'arrete. */
+  if (lisibles >= 30 && avecId < lisibles / 2) {
+    console.error("CONTRAT ROMPU : moins de la moitie des fiches portent un id AniList — arret");
     process.exit(3);
   }
-  if (db) ecrites += await ecrire(fiches, connus.empreintes);
-  if (args.json) toutes.push(...fiches);
-  if (slugs.length > 20) {
-    console.log(`[${Math.min(d + PAQUET, slugs.length)}/${slugs.length}] ${compteur.requetes} requetes, ${ecrites} ligne(s) ecrite(s), ${Math.round((Date.now() - t0) / 1000)} s`);
+  for (const pn of f.panneaux || []) {
+    bilan.panneaux++;
+    bilan.episodes += pn.nbEp;
+    for (const e of pn.episodes) {
+      if (e.liens.length) bilan.avecVidmoly++;
+      for (const u of e.liens) {
+        bilan.liens++;
+        const st = e.etats?.[u];
+        if (st === "vivant") bilan.vivants++; else if (st === "mort") bilan.morts++; else if (st === "non-controle") bilan.nonControles++; else if (st) bilan.inconnus++;
+      }
+    }
+  }
+  if (slugs.length <= 20) {
+    const resume = (f.panneaux || []).map((pn) => {
+      const v = pn.episodes.filter((e) => Object.values(e.etats || {}).includes("vivant")).length;
+      return `${pn.dossier}/${pn.langue} ${v}/${pn.nbEp}`;
+    }).join(" · ");
+    console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
+  }
+  if (db) ecrites += await ecrire([f], connus.empreintes);
+  if (args.json) toutes.push(f);
+  if (slugs.length > 20 && bilan.fiches % 50 === 0) {
+    console.log(`[${bilan.fiches}/${slugs.length}] ${compteur.requetes} requetes, ${ecrites} ligne(s) ecrite(s), ${Math.round((Date.now() - t0) / 1000)} s`);
   }
 }
+await parLots(slugs, traiter);
 const duree = Math.round((Date.now() - t0) / 1000);
 console.log(`
 bilan ${JSON.stringify(bilan)}`);
