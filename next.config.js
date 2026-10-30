@@ -320,6 +320,9 @@ module.exports = withPWA({
   // resolve — so it wouldn't bundle the files and the routes would 404 in
   // production. Explicitly include the folder for those functions.
   experimental: {
+    // instrumentation.ts : recopie s-maxage dans CDN-Cache-Control (Vercel le
+    // retire de Cache-Control, un CDN devant Vercel ne le verrait pas).
+    instrumentationHook: true,
     outputFileTracingIncludes: {
       "/api/v2/changelog": ["./changelog/**"],
       "/api/v2/changelog-popup": ["./changelog/**"],

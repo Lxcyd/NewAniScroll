@@ -1,0 +1,68 @@
+# Vide le cache Cloudflare de l'hote juste apres un deploiement reussi.
+#
+# Cloudflare garde le HTML des pages (tools/cloudflare/rules.mjs). Un HTML garde
+# d'un ancien deploiement pointe vers des fichiers /_next/static/<hash> qui
+# n'existent plus sur le nouveau : page cassee. Le vidage par hote est permis
+# sur le plan gratuit (verifie le 30/10/2026) et ne touche ni le proxy video ni
+# l'autre site.
+#
+# Vercel ne publie l'etat `success` qu'une fois le deploiement pret ; la pause
+# laisse a l'alias le temps de basculer, sinon on viderait puis re-remplirait
+# le cache avec l'ancien HTML.
+#
+# Secret requis : CF_PURGE_TOKEN (Cache Purge seulement, cree par
+# tools/cloudflare/purge-token.mjs).
+
+name: purge-cf-cache
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Hote a vider"
+        required: true
+        default: "dev.aniscroll.com"
+
+jobs:
+  purge:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       startsWith(github.event.deployment.environment, 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Purge
+        env:
+          CF_PURGE_TOKEN: ${{ secrets.CF_PURGE_TOKEN }}
+          ENVIRONMENT: ${{ github.event.deployment.environment }}
+          INPUT_HOST: ${{ inputs.host }}
+        run: |
+          if [ -n "$INPUT_HOST" ]; then HOSTS="\"$INPUT_HOST\""
+          elif echo "$ENVIRONMENT" | grep -q "aniscroll-dev"; then HOSTS='"dev.aniscroll.com"'
+          else HOSTS='"aniscroll.com","www.aniscroll.com"'; fi
+          sleep 30
+          curl -sf -X POST "https://api.cloudflare.com/client/v4/zones/9acc1df2c93a82f0bf5e80e873185ef2/purge_cache" \
+            -H "Authorization: Bearer $CF_PURGE_TOKEN" -H "Content-Type: application/json" \
+            --data "{\"hosts\":[$HOSTS]}"
+          echo; echo "vide : $HOSTS"
+          # Le site a rechauffer : le premier hote vide.
+          SITE="https://$(echo "$HOSTS" | cut -d'"' -f2)"
+          echo "SITE=$SITE" >> "$GITHUB_ENV"
+
+      # Rechauffer APRES le vidage, jamais en meme temps (c'etait warm-pages.yml,
+      # declenche par le meme evenement : ses pages auraient ete videes dans la
+      # foulee). Avec le cache par niveaux, une page chauffee d'ici sert a tous
+      # les points de presence Cloudflare.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+      - name: Warm the pages that matter
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node scripts/cache/warm-pages.mjs --site="$SITE" --limit=40 --concurrency=1

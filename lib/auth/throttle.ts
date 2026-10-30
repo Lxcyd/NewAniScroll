@@ -10,6 +10,7 @@
 
 import { ensureUsersSchema, getUsersClient } from "../db/turso-users";
 import type { NextApiRequest } from "next";
+import { getClientIp } from "../net/clientIp";
 
 export type ThrottleResult = { ok: boolean; retryAfterMs: number };
 
@@ -71,13 +72,9 @@ export async function resetThrottle(key: string): Promise<void> {
 }
 
 /**
- * Caller IP as seen through Vercel's proxy. x-forwarded-for is a list; the
- * first entry is the client. Falls back to a constant so a missing header
+ * Caller IP (lib/net/clientIp). Falls back to a constant so a missing header
  * throttles globally rather than not at all.
  */
 export function clientIp(req: NextApiRequest): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const ip = raw?.split(",")[0]?.trim() || req.socket?.remoteAddress || "";
-  return ip || "unknown";
+  return getClientIp(req) || "unknown";
 }
