@@ -1,0 +1,48 @@
+# Chaque nuit : copie d'anime-sama (lecteurs valides seulement, liens controles)
+# puis sentinelle de parite, qui fait reverifier les ecarts.
+#
+# tools/anime-sama/copie.mjs  -> table as_panneau (ce qui change seulement)
+# tools/anime-sama/parite.mjs -> rapport + verify-player-map sur 100 ids au plus
+#
+# Budget mesure le 30/10/2026 : ~24 requetes Worker par fiche en controlant
+# tout ; avec la rotation des controles (3 jours), ~15 000 a 20 000 par nuit,
+# pour 100 000 permises (le Worker en sert 3 000 a 6 000 par jour). Aucun appel
+# a aniscroll.com par la copie ; le verificateur appelle /api/v2/source/inspect
+# sur DEV (compte Vercel separe).
+#
+# Code de sortie 3 de la copie = CONTRAT ROMPU (leur site a change de forme) :
+# le job echoue, GitHub previent par courriel.
+#
+# Secrets : TURSO_DATABASE_URL, TURSO_AUTH_TOKEN.
+
+name: anime-sama-parite
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  parite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Install only what the scripts need
+        run: npm install --no-save @libsql/client@^0.17
+      - name: Copie d'anime-sama
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node tools/anime-sama/copie.mjs --toutes --ecrire --concurrence=4
+      - name: Parite et corrections
+        if: success()
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node tools/anime-sama/parite.mjs --corriger=100 --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
