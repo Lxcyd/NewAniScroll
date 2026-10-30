@@ -213,36 +213,64 @@ async function choisirTemoin(candidats) {
   }
   return false;
 }
+/* Un blocage d'ansembed dure ~3 minutes (mesure du 30/10). On ATTEND qu'il se
+   leve — temoin reteste chaque minute — puis on reprend, au plus ATTENTE_MAX
+   minutes cumulees ; au-dela, on arrete les controles (etats connus gardes). */
+const ATTENTE_MAX = Number(args["attente-max"] || 45) * 60000;
+let attenteTotale = 0, deblocage = null, nbBlocages = 0;
+async function attendreDeblocage() {
+  if (bloque) return false;
+  deblocage ||= (async () => {
+    nbBlocages++;
+    console.error(`pause : ansembed bloque (blocage ${nbBlocages}), attente du temoin…`);
+    while (attenteTotale < ATTENTE_MAX) {
+      await dors(60000); attenteTotale += 60000;
+      temoinCache.direct = [0, false];
+      if (await temoinVivant("direct")) { console.error(`reprise apres ${Math.round(attenteTotale / 60000)} min d'attente cumulee`); return true; }
+    }
+    console.error(`BLOQUE : ${ATTENTE_MAX / 60000} min d'attente sans deblocage — controles arretes, etats connus gardes`);
+    bloque = true;
+    return false;
+  })().finally(() => { deblocage = null; });
+  return deblocage;
+}
 async function mortConfirmee(chemin) {
   if (await temoinVivant(chemin)) return true;
   // Le Worker seul bloque : ce lien reste inconnu, les controles directs continuent.
   if (chemin === "worker") return false;
-  if (!bloque) console.error(`BLOQUE : le temoin ${temoin} ne repond plus (${chemin}) — controles arretes, etats connus gardes`);
-  bloque = true;
-  return false;
+  return null; // bloque : a recontroler apres le deblocage
 }
 
 async function vie(url) {
-  if (bloque) return "inconnu:bloque";
+  for (;;) {
+    if (bloque) return "inconnu:bloque";
+    if (deblocage) await deblocage;
+    const r = await vieUneFois(url);
+    if (r !== "bloque") return r;
+    if (!(await attendreDeblocage())) return "inconnu:bloque";
+  }
+}
+async function vieUneFois(url) {
   await vieJeton();
   try {
     if (bloque) return "inconnu:bloque";
     let r = await direct(url);
-    if (r.status === 200 && flux(r.texte)) { refusDeSuite = 0; return "vivant"; }
+    if (r.status === 200 && flux(r.texte)) return "vivant";
     if (r.status === 404) {
       await dors(2000);
       r = await direct(url);
-      if (r.status === 404) return (await mortConfirmee("direct")) ? ((refusDeSuite = 0), "mort") : "inconnu:bloque";
+      if (r.status === 404) return (await mortConfirmee("direct")) ? "mort" : "bloque";
       if (r.status === 200 && flux(r.texte)) return "vivant";
     }
-    // Refus ou reseau : un essai par le Worker, en lisant le VRAI code amont.
-    const w = await viaWorker(url);
-    if (w.status === 200 && flux(w.texte)) { refusDeSuite = 0; return "vivant"; }
-    if (Number(w.texte.match(/"upstream"\s*:\s*(\d+)/)?.[1]) === 404) {
-      return (await mortConfirmee("worker")) ? ((refusDeSuite = 0), "mort") : "inconnu:bloque";
-    }
-    if (++refusDeSuite >= 3) { pauseJusqua = Date.now() + 60000; refusDeSuite = 0; }
-    return `inconnu:${r.status}/${w.status}`;
+    /* Toute autre reponse (delai depasse, 403, 429, 5xx) : la mesure du 30/10
+       montre qu'ansembed RALENTIT puis se tait apres ~150 requetes par IP en
+       quelques minutes. Temoin muet aussi = blocage : pause, puis ce lien est
+       recontrole. Temoin vivant = ce lien seul repond mal : inconnu. (Plus de
+       repli par le Worker : il se fait bloquer pareil, et c'est le navigateur
+       du visiteur, en direct, qui compte.) */
+    temoinCache.direct = [0, false];
+    if (!(await temoinVivant("direct"))) return "bloque";
+    return `inconnu:${r.status}`;
   } finally {
     vieRendre();
   }
@@ -408,8 +436,9 @@ if (!args["sans-vie"]) {
   const vivantsConnus = [...connus.liens].filter(([, c]) => c.etat === "vivant").sort((a, b) => b[1].vu - a[1].vu).slice(0, 4).map(([u]) => u);
   if (await choisirTemoin([...TEMOINS_DEFAUT, ...vivantsConnus])) console.log(`temoin : ${temoin}`);
   else {
-    bloque = true;
-    console.error("BLOQUE : aucun temoin ne repond — copie des liens SANS controle, etats connus gardes");
+    temoin = TEMOINS_DEFAUT[0];
+    if (await attendreDeblocage()) console.log(`temoin : ${temoin} (apres attente)`);
+    else console.error("BLOQUE : aucun temoin ne repond — copie des liens SANS controle, etats connus gardes");
   }
 }
 
@@ -427,6 +456,14 @@ else {
     process.exit(3);
   }
   slugs = [...cat.keys()];
+  /* --tranche=i/N : une machine par tranche, chacune avec SA propre IP (ansembed
+     limite le debit par adresse). Decoupe par empreinte du slug, stable d'une
+     machine a l'autre : chaque fiche — donc chaque ligne — a un seul ecrivain. */
+  if (args.tranche) {
+    const [i, n] = args.tranche.split("/").map(Number);
+    slugs = slugs.filter((s) => createHash("sha1").update(s).digest().readUInt32BE(0) % n === i);
+    console.log(`tranche ${i}/${n} : ${slugs.length} fiches`);
+  }
   if (args.mesure) slugs = slugs.sort(() => Math.random() - 0.5).slice(0, Number(args.mesure));
 }
 
@@ -466,7 +503,9 @@ async function traiter(slug) {
     }).join(" · ");
     console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
   }
-  if (db) ecrites += await ecrire([f], connus.empreintes, connus.vivantsAvant);
+  // En deux temps : `ecrites += await …` lit `ecrites` AVANT l'attente et perd
+  // les ecritures des fiches finies entre-temps (1 487 comptees pour 3 167).
+  if (db) { const n = await ecrire([f], connus.empreintes, connus.vivantsAvant); ecrites += n; }
   if (args.json) toutes.push(f);
   if (slugs.length > 20 && bilan.fiches % 50 === 0) {
     const s = Math.round((Date.now() - t0) / 1000);
@@ -488,7 +527,8 @@ const liste = (titre, l) => (l.length ? [`**${titre} (${l.length})**`, ...l.slic
 const recap = [
   `## Copie anime-sama — ${new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}`, "",
   ...(bloque ? ["> ⚠️ **Controles suspendus** : ansembed repond « introuvable » meme au lien temoin — notre adresse est bloquee, pas les videos. Les liens sont copies, leur etat d'avant est garde.", ""] : []),
-  `Duree ${Math.round(duree / 60)} min · ${bilan.fiches} fiches lues (${bilan.erreurs} en erreur, ${bilan.sansAnilist} sans id AniList) · ${compteur.requetes} requetes Worker`, "",
+  ...(nbBlocages ? [`Ansembed a bloque ${nbBlocages} fois ; ${Math.round(attenteTotale / 60000)} min d'attente au total.`, ""] : []),
+  `Duree ${Math.round(duree / 60)} min${args.tranche ? ` (tranche ${args.tranche})` : ""} · ${bilan.fiches} fiches lues (${bilan.erreurs} en erreur, ${bilan.sansAnilist} sans id AniList) · ${compteur.requetes} requetes Worker`, "",
   "| | |", "| --- | --: |",
   `| Saisons × langue | ${bilan.panneaux} |`,
   `| Episodes avec un lien vidmoly | ${bilan.avecVidmoly} / ${bilan.episodes} |`,
