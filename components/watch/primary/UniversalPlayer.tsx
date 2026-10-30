@@ -266,17 +266,24 @@ type Props = {
    Gain reel seulement sur les segments MPEG-TS (megaplay, vidmoly) : frembed
    livre un seul bloc fMP4 de 5 Mo par segment (verifie le 30/10), qu'aucun
    navigateur ne decode avant la fin.
-   Interrupteur : `false` ici rend exactement le comportement d'avant ; sur un
-   seul navigateur, localStorage `aniscroll:hlsProgressive` = "0" fait de meme
-   (comparaison avant/apres au banc player-timeline via SEED_LS). */
-const HLS_PROGRESSIVE = true;
+   ETEINT PAR DEFAUT apres mesure (30/10, megaplay, 3 paires au banc
+   player-timeline, segments deja en cache du Worker) : aucun gain lisible — un
+   segment de 0,8 Mo servi a 6 Mo/s arrive en 0,15 s, il n'y a rien a gagner a
+   le decoder plus tot — et un saut a 10,6 s observe une fois avec, jamais
+   sans. Reste a juger sur vidmoly (segments TS de 20 s, ~9 Mo) et sur un
+   megaplay froid, la ou le segment met des secondes a arriver.
+   Interrupteur : localStorage `aniscroll:hlsProgressive` = "1" l'allume sur un
+   navigateur, "0" l'eteint (banc : SEED_LS). */
+const HLS_PROGRESSIVE = false;
 function progressifActif(): boolean {
-  if (!HLS_PROGRESSIVE) return false;
   try {
-    return localStorage.getItem("aniscroll:hlsProgressive") !== "0";
+    const v = localStorage.getItem("aniscroll:hlsProgressive");
+    if (v === "1") return true;
+    if (v === "0") return false;
   } catch {
-    return true;
+    /* stockage indisponible : le defaut */
   }
+  return HLS_PROGRESSIVE;
 }
 
 // Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
