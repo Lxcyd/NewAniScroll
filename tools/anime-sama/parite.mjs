@@ -53,7 +53,10 @@ for (const p of panneaux) {
   const cle = `${p.slug}/${p.dossier}/${langueMap(p.langue)}`;
   if (!attendu.has(cle) || attendu.get(cle).nb_vivants < p.nb_vivants) attendu.set(cle, p);
 }
-const ecarts = [...attendu.entries()].filter(([cle]) => !servi.has(cle)).map(([, p]) => p);
+/* Ordre TIRE AU SORT : avec l'ordre de la table, chaque nuit reprenait les 100
+   memes ecarts (dont les echecs) et les autres n'etaient jamais tentes. */
+const ecarts = [...attendu.entries()].filter(([cle]) => !servi.has(cle)).map(([, p]) => p)
+  .sort(() => Math.random() - 0.5);
 
 /* ── Rattachement a un anime AniList ─────────────────────────────────────── */
 const SUITES = new Map();
@@ -61,10 +64,13 @@ async function suite(id) {
   if (SUITES.has(id)) return SUITES.get(id);
   const q = `query($id:Int){Media(id:$id,type:ANIME){relations{edges{relationType node{id format}}}}}`;
   for (let essai = 0; essai < 3; essai++) {
+    // Une coupure reseau (ECONNRESET, 30/10) ne doit pas tuer tout le rapport.
     const r = await fetch("https://graphql.anilist.co", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: q, variables: { id } }),
-    });
+      signal: AbortSignal.timeout(20000),
+    }).catch(() => null);
+    if (!r) { await dors(5000); continue; }
     if (r.status === 429) { await dors(30000); continue; }
     const j = await r.json().catch(() => null);
     const s = j?.data?.Media?.relations?.edges?.find(
