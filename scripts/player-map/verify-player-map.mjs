@@ -50,9 +50,41 @@ const SITE = (args.site || process.env.SITE_URL || "http://localhost:3000").repl
 const LIMIT = Number(args.limit || 200);
 const CONCURRENCY = Number(args.concurrency || 6);
 const DRY = !!args.dry;
-const ONLY_IDS = args.ids
-  ? new Set(String(args.ids).split(",").map(Number).filter(Boolean))
-  : null;
+/* --ids=123,456 ou --ids=123:vf,456:vostfr. La forme `id:langue` (sentinelle
+   de parite anime-sama) demande AUSSI la ligne animesama de cette langue
+   quand elle n'existe pas : avant le 30/10/2026, un anime sans aucune ligne
+   etait ignore en silence, et 184 ecarts de parite ne pouvaient jamais etre
+   corriges. */
+/* `id:langue@slug/dossier` : le panneau que la PARITE attend (la fiche
+   anime-sama affiche l'id AniList, la saison suit les SEQUEL). Si le resolveur
+   conclut a un autre panneau, on n'ecrit RIEN : essai du 30/10/2026, Major S3
+   (1842) sortait `verified` sur major/saison1 — meme nombre d'episodes, mauvais
+   contenu. Deux methodes independantes qui divergent = on ne sait pas. */
+const ID_PAIRES = args.ids
+  ? String(args.ids).split(",").map((x) => {
+    const [avantArobase, attendu] = x.split("@");
+    const [i, lang] = avantArobase.split(":");
+    return [i, lang, attendu];
+  }).filter(([i]) => Number(i))
+  : [];
+const ONLY_IDS = args.ids ? new Set(ID_PAIRES.map(([i]) => Number(i))) : null;
+const PANNEAU_ATTENDU = new Map(
+  ID_PAIRES.filter(([, l, a]) => l && a).map(([i, l, a]) => [`${Number(i)}:${l}`, a]),
+);
+// --source=animesama : ne retravailler que cette source (la parite ne sait rien de voir-anime).
+const SEULE_SOURCE = args.source ? String(args.source) : null;
+/* --imposer-alignement : quand le resolveur diverge du panneau attendu, ecrire
+   l'ALIGNEMENT (tools/anime-sama/alignement.mjs) plutot que rien. L'alignement
+   part de l'id AniList que la fiche anime-sama affiche elle-meme et ne conclut
+   que si TOUS les nombres d'episodes de la fiche tombent juste, saison apres
+   saison ; le resolveur, lui, devine par les titres (Major S3 sur saison1,
+   les « Part 2 » au decalage 0). */
+const IMPOSER = !!args["imposer-alignement"];
+function lireAttendu(a) {
+  // `!` final : fiche alignee de bout en bout (cf. `complet` dans alignement.mjs).
+  const m = String(a || "").match(/^(.+)\/([^/+!]+)(?:\+(\d+))?(!)?$/);
+  return m ? { slug: m[1], dossier: m[2], decalage: Number(m[3] || 0), complet: !!m[4] } : null;
+}
 /* Quelle liste de travail : les lignes echues (defaut), les lignes semees que
    personne n'a jamais controlees (`seed`), ou les titres que MyDubList donne
    doubles en francais et qu'on n'a jamais sondes en VF (`mydublist`). */
@@ -233,6 +265,14 @@ if (ONLY_IDS) {
     sql: `SELECT * FROM player_map WHERE ani_id IN (${ph})`,
     args: ids,
   })).rows;
+  if (SEULE_SOURCE) rows = rows.filter((r) => r.source === SEULE_SOURCE);
+  const existe = new Set(rows.map((r) => `${r.ani_id}:${r.source}:${r.lang}`));
+  for (const [i, lang] of ID_PAIRES) {
+    if (lang && !existe.has(`${Number(i)}:animesama:${lang}`)) {
+      rows.push({ ani_id: Number(i), source: "animesama", lang });
+      existe.add(`${Number(i)}:animesama:${lang}`);
+    }
+  }
 } else if (FROM === "seed") {
   /* Les lignes SEMEES : `verified` en apparence, mais estampillees par un audit
      unique et ancien, jamais passees par ce script. Elles sont lues AVANT toute
@@ -484,6 +524,26 @@ async function worker() {
     for (const lang of langs) {
       const v = inspections[lang].judged;
       if (!v) { tally["skipped:transient"] = (tally["skipped:transient"] || 0) + 1; continue; }
+      const attendu = g.source === "animesama" ? lireAttendu(PANNEAU_ATTENDU.get(`${g.aniId}:${lang}`)) : null;
+      const sansVf = (s) => String(s || "").replace(/-vf$/, "");
+      const pareil = attendu && v.status === "verified" && sansVf(v.slug) === sansVf(attendu.slug) &&
+        v.seasonDir === attendu.dossier && Number(v.epOffset || 0) === attendu.decalage;
+      if (attendu && !pareil) {
+        const dit = v.status === "verified" ? `${v.slug}/${v.seasonDir}+${v.epOffset || 0}` : `${v.status} (${v.note})`;
+        if (!IMPOSER || !attendu.complet) {
+          tally["conflit-parite"] = (tally["conflit-parite"] || 0) + 1;
+          console.log(`CONFLIT ${g.aniId} ${lang} : resolveur ${dit}, alignement ${attendu.complet ? "" : "partiel "}${attendu.slug}/${attendu.dossier}+${attendu.decalage} — rien d'ecrit`);
+          continue;
+        }
+        console.log(`ALIGNEMENT ${g.aniId} ${lang} : resolveur ${dit} -> ${attendu.slug}/${attendu.dossier}+${attendu.decalage}`);
+        inspections[lang].judged = {
+          status: "verified", note: "verify:alignement-anime-sama",
+          slug: attendu.slug, seasonDir: attendu.dossier, epOffset: attendu.decalage,
+          episodeCount: null, confidence: 1,
+        };
+      }
+      const v2 = inspections[lang].judged;
+      if (v2 !== v) Object.assign(v, v2);
       tally[v.status] = (tally[v.status] || 0) + 1;
       if (DRY) {
         const a = avant.get(`${g.aniId}:${g.source}:${lang}`) || {};

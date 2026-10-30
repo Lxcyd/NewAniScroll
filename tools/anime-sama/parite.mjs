@@ -1,22 +1,30 @@
 #!/usr/bin/env node
 /**
- * Sentinelle de parite : « anime-sama a un lien vidmoly VIVANT pour cette saison
- * et cette langue » contre « notre player_map la sert ». Lit la copie
- * (as_panneau, tools/anime-sama/copie.mjs) et player_map — aucune requete au site.
+ * Sentinelle de parite : pour chaque anime AniList qu'anime-sama propose avec un
+ * lien vidmoly VIVANT, notre player_map sert-elle EXACTEMENT ce panneau, au bon
+ * decalage d'episodes ? Lit la copie (as_panneau, tools/anime-sama/copie.mjs),
+ * player_map et AniList (par lots) — aucune requete au site.
  *
- * Chaque ecart est rattache a un anime AniList : la fiche anime-sama donne l'id
- * de l'oeuvre ; pour « Saison N », on suit N-1 aretes SEQUEL (formats TV) sur
- * AniList. Avec --corriger, ces ids passent au verificateur
- * (scripts/player-map/verify-player-map.mjs), qui re-derive avec le resolveur du
- * jour : un mauvais rattachement ne peut donc rien casser, il ne verifie juste pas.
+ * L'attente vient de l'ALIGNEMENT (tools/anime-sama/alignement.mjs) : la fiche
+ * donne l'id AniList de l'oeuvre, ses saisons se remplissent avec la chaine
+ * SEQUEL tant que les nombres d'episodes tombent juste.
  *
- *   node tools/anime-sama/parite.mjs                    rapport seul
- *   node tools/anime-sama/parite.mjs --corriger=100     + verification de 100 ids au plus
+ * Chaque attente non servie est :
+ *   - manquante : aucune ligne servie pour cet anime et cette langue ;
+ *   - contredite : une ligne `verified` sert un autre panneau ou un autre
+ *     decalage (le visiteur voit le mauvais contenu).
+ * Avec --corriger=N, N attentes (tirees au sort) passent au verificateur avec
+ * leur panneau attendu ; il n'ecrit que si le resolveur conclut pareil, ou —
+ * avec --imposer — ecrit l'alignement quand le resolveur diverge.
+ *
+ *   node tools/anime-sama/parite.mjs                         rapport seul
+ *   node tools/anime-sama/parite.mjs --corriger=100 [--imposer] [--dry]
  *   options : --site=https://dev.aniscroll.com (verificateur), --md=F (rapport)
  */
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createClient } from "@libsql/client";
+import { aligner, chaineSequel, saisonsOrdonnees } from "./alignement.mjs";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => {
   const [k, v] = a.replace(/^--/, "").split("=");
@@ -31,96 +39,122 @@ function env(nom) {
 }
 const db = createClient({ url: env("TURSO_DATABASE_URL"), authToken: env("TURSO_AUTH_TOKEN") });
 const dors = (ms) => new Promise((r) => setTimeout(r, ms));
+const langueMap = (l) => (l === "vostfr" ? "vostfr" : "vf"); // vf, vf1, vf2 -> vf
+const sansVf = (s) => String(s || "").replace(/-vf$/, "");
 
 const panneaux = (await db.execute(
-  "SELECT slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts FROM as_panneau",
+  "SELECT slug, dossier, langue, anilist_fiche, nb_ep, nb_vivants, nb_morts FROM as_panneau",
 )).rows;
-const map = (await db.execute(
-  "SELECT ani_id, lang, status, slug, season_dir FROM player_map WHERE source = 'animesama'",
+const lignesMap = (await db.execute(
+  "SELECT ani_id, lang, status, slug, season_dir, ep_offset FROM player_map WHERE source = 'animesama'",
 )).rows;
+const ligne = new Map(lignesMap.map((r) => [`${r.ani_id}:${r.lang}`, r]));
 
-// Ce que nous servons : (slug, dossier, langue de player_map).
-const servi = new Set(
-  map.filter((r) => r.status === "verified" || r.status === "heuristic")
-    .map((r) => `${r.slug}/${r.season_dir}/${r.lang}`),
-);
-const langueMap = (l) => (l === "vostfr" ? "vostfr" : "vf"); // vf, vf1, vf2 -> vf
-
-// Une langue VF peut vivre sous vf, vf1 ou vf2 : on regroupe par langue de player_map.
-const attendu = new Map(); // cle slug/dossier/lang -> panneau (le plus fourni)
-for (const p of panneaux) {
-  if (!p.nb_vivants) continue;
-  const cle = `${p.slug}/${p.dossier}/${langueMap(p.langue)}`;
-  if (!attendu.has(cle) || attendu.get(cle).nb_vivants < p.nb_vivants) attendu.set(cle, p);
-}
-/* Ordre TIRE AU SORT : avec l'ordre de la table, chaque nuit reprenait les 100
-   memes ecarts (dont les echecs) et les autres n'etaient jamais tentes. */
-const ecarts = [...attendu.entries()].filter(([cle]) => !servi.has(cle)).map(([, p]) => p)
-  .sort(() => Math.random() - 0.5);
-
-/* ── Rattachement a un anime AniList ─────────────────────────────────────── */
-const SUITES = new Map();
-async function suite(id) {
-  if (SUITES.has(id)) return SUITES.get(id);
-  const q = `query($id:Int){Media(id:$id,type:ANIME){relations{edges{relationType node{id format}}}}}`;
-  for (let essai = 0; essai < 3; essai++) {
-    // Une coupure reseau (ECONNRESET, 30/10) ne doit pas tuer tout le rapport.
-    const r = await fetch("https://graphql.anilist.co", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: q, variables: { id } }),
-      signal: AbortSignal.timeout(20000),
-    }).catch(() => null);
-    if (!r) { await dors(5000); continue; }
-    if (r.status === 429) { await dors(30000); continue; }
-    const j = await r.json().catch(() => null);
-    const s = j?.data?.Media?.relations?.edges?.find(
-      (e) => e.relationType === "SEQUEL" && ["TV", "TV_SHORT", "ONA"].includes(e.node?.format),
-    )?.node?.id || null;
-    SUITES.set(id, s);
-    await dors(1500); // AniList : 30 a 90 requetes / minute
-    return s;
+/* ── AniList par lots (50 ids par requete), niveau par niveau ───────────── */
+const MEDIA = new Map();
+async function chargerLot(ids) {
+  ids = [...new Set(ids)].filter((i) => i && !MEDIA.has(i));
+  for (let i = 0; i < ids.length; i += 50) {
+    const q = `query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id episodes status relations{edges{relationType node{id format}}}}}}`;
+    for (let essai = 0; essai < 4; essai++) {
+      // Une coupure reseau (ECONNRESET, 30/10) ne doit pas tuer tout le rapport.
+      const r = await fetch("https://graphql.anilist.co", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, variables: { ids: ids.slice(i, i + 50) } }),
+        signal: AbortSignal.timeout(30000),
+      }).catch(() => null);
+      if (!r || r.status === 429) { await dors(30000); continue; }
+      const j = await r.json().catch(() => null);
+      for (const m of j?.data?.Page?.media || []) MEDIA.set(m.id, m);
+      for (const id of ids.slice(i, i + 50)) if (!MEDIA.has(id)) MEDIA.set(id, null);
+      break;
+    }
+    await dors(2500); // AniList : 30 a 90 requetes / minute
   }
-  return null;
-}
-async function rattacher(p) {
-  const n = Number(p.dossier.match(/^saison(\d+)$/)?.[1]);
-  if (!p.anilist_fiche || !n) return null; // films, OAV, saisons speciales : rapport seul
-  let id = p.anilist_fiche;
-  for (let i = 1; i < n && id; i++) id = await suite(id);
-  return id;
 }
 
-const aCorriger = Number(args.corriger || 0);
-const lignes = [];
-const ids = new Set();
-for (const p of ecarts) {
-  const id = ids.size < aCorriger ? await rattacher(p) : null;
-  if (id) ids.add(id);
-  lignes.push(`| ${p.slug} | ${p.dossier} | ${langueMap(p.langue)} | ${p.nb_vivants}/${p.nb_ep} | ${p.anilist_fiche ?? "?"} | ${id ?? ""} |`);
+// Fiches : saisons (nb d'episodes = le panneau le plus fourni) et langues vivantes.
+const fiches = new Map();
+for (const p of panneaux) {
+  if (!p.anilist_fiche) continue;
+  const f = fiches.get(p.slug) || fiches.set(p.slug, { id: Number(p.anilist_fiche), nbEp: new Map(), vivantes: new Map() }).get(p.slug);
+  f.nbEp.set(p.dossier, Math.max(f.nbEp.get(p.dossier) || 0, Number(p.nb_ep)));
+  if (p.nb_vivants > 0) {
+    const k = `${p.dossier}/${langueMap(p.langue)}`;
+    f.vivantes.set(k, Math.max(f.vivantes.get(k) || 0, Number(p.nb_vivants)));
+  }
+}
+let frontiere = [...new Set([...fiches.values()].map((f) => f.id))];
+for (let niveau = 0; niveau < 30 && frontiere.length; niveau++) {
+  await chargerLot(frontiere);
+  frontiere = frontiere.map((id) => MEDIA.get(id)?.relations?.edges?.find((e) => e.relationType === "SEQUEL" && ["TV", "TV_SHORT", "ONA"].includes(e.node?.format))?.node?.id)
+    .filter((id) => id && !MEDIA.has(id));
 }
 
-const resume = `${attendu.size} saison(s)×langue avec un lien vidmoly vivant chez anime-sama ; ${attendu.size - ecarts.length} servie(s), ${ecarts.length} ecart(s)`;
-console.log(resume);
+/* ── Attentes ─────────────────────────────────────────────────────────────── */
+const attentes = []; // {id, lang, slug, dossier, decalage, etat, sert}
+let panneauxVivants = 0, panneauxAlignes = 0;
+for (const [slug, f] of fiches) {
+  const saisons = saisonsOrdonnees([...f.nbEp.keys()]).map((d) => ({ dossier: d, nbEp: f.nbEp.get(d) }));
+  const chaine = await chaineSequel(f.id, async (id) => MEDIA.get(id));
+  const alignees = aligner(saisons, chaine);
+  const dossiersAlignes = new Set([...alignees.values()].map((a) => a.dossier));
+  for (const k of f.vivantes.keys()) {
+    panneauxVivants++;
+    if (dossiersAlignes.has(k.split("/")[0])) panneauxAlignes++;
+  }
+  for (const [id, a] of alignees) {
+    for (const lang of ["vostfr", "vf"]) {
+      if (!f.vivantes.has(`${a.dossier}/${lang}`)) continue;
+      const r = ligne.get(`${id}:${lang}`);
+      const servie = r && (r.status === "verified" || r.status === "heuristic");
+      const exacte = servie && sansVf(r.slug) === slug && r.season_dir === a.dossier && Number(r.ep_offset || 0) === a.decalage;
+      attentes.push({
+        id, lang, slug, dossier: a.dossier, decalage: a.decalage, complet: alignees.complet,
+        etat: exacte ? "servie" : servie ? "contredite" : "manquante",
+        sert: servie ? `${r.slug}/${r.season_dir}+${r.ep_offset || 0}` : r ? r.status : "aucune ligne",
+      });
+    }
+  }
+}
+const par = (e) => attentes.filter((a) => a.etat === e);
+const resume = [
+  `${panneauxVivants} saison(s)×langue avec un lien vidmoly vivant chez anime-sama, dont ${panneauxAlignes} alignee(s) sur AniList`,
+  `${attentes.length} anime(s)×langue attendus : ${par("servie").length} servis exactement, ${par("manquante").length} manquants, ${par("contredite").length} servis sur un autre panneau ou decalage`,
+];
+resume.forEach((l) => console.log(l));
 const morts = panneaux.reduce((a, p) => a + Number(p.nb_morts || 0), 0);
 console.log(`episodes dont tous les liens vidmoly sont morts chez anime-sama : ${morts}`);
-lignes.slice(0, 30).forEach((l) => console.log(l));
 
-if (ids.size) {
-  console.log(`\nverification de ${ids.size} anime(s)…`);
+/* ── Corrections ──────────────────────────────────────────────────────────── */
+const aCorriger = Number(args.corriger || 0);
+// Ordre TIRE AU SORT : sinon chaque nuit reprend les memes cas, dont les echecs.
+const aFaire = [...par("contredite"), ...par("manquante")].sort(() => Math.random() - 0.5).slice(0, aCorriger);
+const lignesRapport = [...par("contredite"), ...par("manquante")].slice(0, 200).map((a) =>
+  `| ${a.etat} | ${a.id} | ${a.lang} | ${a.slug}/${a.dossier}+${a.decalage} | ${a.sert} |`);
+lignesRapport.slice(0, 30).forEach((l) => console.log(l));
+
+if (aFaire.length) {
+  console.log(`\nverification de ${aFaire.length} attente(s)…`);
   const r = spawnSync(process.execPath, [
     "scripts/player-map/verify-player-map.mjs",
     `--site=${args.site || "https://dev.aniscroll.com"}`,
-    `--ids=${[...ids].join(",")}`, "--concurrency=2",
+    // `id:langue@slug/dossier+decalage[!]` : le panneau attendu (cf. le verificateur) ;
+    // `!` = fiche alignee de bout en bout, seule a pouvoir contredire le resolveur.
+    `--ids=${aFaire.map((a) => `${a.id}:${a.lang}@${a.slug}/${a.dossier}+${a.decalage}${a.complet ? "!" : ""}`).join(",")}`,
+    "--source=animesama", "--concurrency=2",
+    ...(args.imposer ? ["--imposer-alignement"] : []),
+    ...(args.dry ? ["--dry"] : []),
   ], { stdio: "inherit", env: { ...process.env, TURSO_DATABASE_URL: env("TURSO_DATABASE_URL"), TURSO_AUTH_TOKEN: env("TURSO_AUTH_TOKEN") } });
   if (r.status) console.error(`verificateur : code ${r.status}`);
 }
 
 if (args.md) {
   fs.appendFileSync(args.md, [
-    "## Parite anime-sama (lecteurs valides)", "", resume, "",
+    "## Parite anime-sama (lecteurs valides)", "", ...resume.flatMap((l) => [l, ""]),
     `Episodes dont tous les liens vidmoly sont morts chez eux : ${morts}`, "",
-    "| slug | saison | langue | vivants | id fiche | id verifie |", "| --- | --- | --- | --: | --: | --: |",
-    ...lignes, "",
+    "| etat | id AniList | langue | attendu | sert aujourd'hui |", "| --- | --: | --- | --- | --- |",
+    ...lignesRapport, "",
   ].join("\n"));
 }
-process.exit(ecarts.length ? 1 : 0);
+process.exit(par("manquante").length + par("contredite").length ? 1 : 0);

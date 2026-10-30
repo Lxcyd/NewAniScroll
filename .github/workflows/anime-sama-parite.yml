@@ -2,7 +2,7 @@
 # puis sentinelle de parite, qui fait reverifier les ecarts.
 #
 # tools/anime-sama/copie.mjs  -> table as_panneau (ce qui change seulement)
-# tools/anime-sama/parite.mjs -> rapport + verify-player-map sur 100 ids au plus
+# tools/anime-sama/parite.mjs -> rapport + verify-player-map sur 400 attentes au plus
 #
 # VINGT MACHINES, une par tranche du catalogue (--tranche=i/20) : ansembed
 # ralentit puis rend « introuvable » a une IP apres ~150 controles en quelques
@@ -76,4 +76,8 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: node tools/anime-sama/parite.mjs --corriger=100 --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
+        # --imposer : une fiche alignee de bout en bout sur AniList (nombres
+        # d'episodes exacts, tools/anime-sama/alignement.mjs) l'emporte sur la
+        # devinette par titres du resolveur. Alignement partiel : on n'ecrit
+        # que si le resolveur conclut pareil.
+        run: node tools/anime-sama/parite.mjs --corriger=400 --imposer --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
