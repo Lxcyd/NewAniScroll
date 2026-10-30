@@ -2177,23 +2177,31 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const stripSeason = (t) =>
     t?.replace(/\s*(Season\s*\d+|\d+(st|nd|rd|th)\s*Season|Part\s*\d+|\d+æœŸ)\s*/gi, "").trim();
 
-  // Try searching with the title directly, plus a stripped version
-  const queries = [title];
-  const stripped = stripSeason(title);
-  if (stripped && stripped !== title) queries.push(stripped);
-
-  // Reuse the shared AniList cache (no extra request when SSR already populated it)
+  /* L'ORDRE DES RECHERCHES COMPTE : seules les MAX_RECHERCHES premieres partent.
+     Les synonymes passaient avant le romaji ; Frieren en a des coreens, thai,
+     italiens… qui remplissaient les huit places. Mesure du 30/10/2026 : les
+     recherches envoyees (« Frieren: Beyond Journey’s End », « Frieren at the
+     Funeral », « … Oltre la Fine del Viaggio », « 장송의 프리렌 ») ne rendent
+     RIEN chez anime-sama ; « Sousou no Frieren » et « Frieren », qui rendent
+     `frieren`, n'etaient jamais envoyees. D'ou : titres principaux, leurs formes
+     sans saison, leurs tetes avant les deux-points — puis seulement les
+     synonymes. */
   const media = await getMediaMeta(aniId, mediaOpts);
-  if (media) {
-    if (media.synonyms) queries.push(...media.synonyms);
-    if (media.title?.english && !queries.includes(media.title.english))
-      queries.push(media.title.english);
-    if (media.title?.romaji && !queries.includes(media.title.romaji))
-      queries.push(media.title.romaji);
-    for (const t of [media.title?.english, media.title?.romaji]) {
-      const s = stripSeason(t);
-      if (s && !queries.includes(s)) queries.push(s);
-    }
+  const stripped = stripSeason(title);
+  const tete = (q) => {
+    const head = q?.split(/\s*[:：]/)[0]?.trim();
+    return head && head.length >= 4 && head !== q ? head : null;
+  };
+  const principaux = [title, media?.title?.romaji, media?.title?.english];
+  const formes = [...principaux, ...principaux.map(stripSeason)];
+  /* Alphabet latin d'abord (un titre francais vit souvent dans les synonymes) ;
+     un synonyme coreen ou thai ne rend jamais rien chez anime-sama. */
+  const latin = (s) => /^[\p{Script=Latin}\p{N}\p{P}\p{Zs}\p{S}]+$/u.test(s || "");
+  const synonymes = [...(media?.synonyms || [])].sort((a, b) => latin(b) - latin(a));
+  const queries = [];
+  for (const q of [...formes, ...formes.map(tete), ...synonymes, ...synonymes.map(tete)]) {
+    const t = q?.trim();
+    if (t && !queries.includes(t)) queries.push(t);
   }
 
   /*
@@ -2212,12 +2220,8 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
    * season marker. The 4-character floor keeps a stray prefix ("Re:", "K:")
    * from turning into a search for nothing in particular.
    */
-  for (const q of [...queries]) {
-    const head = q?.split(/\s*[:：]/)[0]?.trim();
-    if (head && head.length >= 4 && head !== q && !queries.includes(head)) {
-      queries.push(head);
-    }
-  }
+  /* (Les tetes sont construites plus haut, dans `queries`, juste apres les
+     titres principaux.) */
 
   // Build the set of titles we'll score candidates against. We don't strip
   // here â€” we want "Hanma Baki" to match "baki" via token overlap, not via
