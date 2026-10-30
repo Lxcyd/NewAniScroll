@@ -6,6 +6,25 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 — Slug anime-sama prouve par l'id AniList de sa fiche
+
+Signale par Luc : Les Carnets de l'apothicaire S3 (AniList 195516) n'avait que
+megaplay, anime-sama porte ansembed en VOSTFR et VF. `inspect` : saison 3
+detectee, `slug: null`. La recherche d'anime-sama renvoyait bien
+`les-carnets-de-lapothicaire`, mais le score par mots valait 0 contre
+« Kusuriya no Hitorigoto 3rd Season » — et la table des candidats ne gardait
+meme pas un score nul.
+
+Chaque fiche anime-sama affiche `anilist.co/anime/<id>` (ici 161645, la S1).
+Quand le score ne retient rien, les 3 premiers slugs rendus par la recherche
+sont ouverts et acceptes si cet id est dans la chaine PREQUEL de la demande.
+`inspect` rend `anilistIdFiche` + `idProof`, que verify-player-map accepte a la
+place de la confiance par titre. Verifie sur dev : saison3, ansembed VOSTFR et
+VF, lecture 1080p sans attente.
+
+Plan de fond (copie quotidienne du catalogue, sentinelles) : doc « Plan —
+lecteurs anime-sama qui ne cassent plus ».
+
 ## 2026-10-30 — Lecture progressive essayee, eteinte par defaut
 
 Idee de Luc : « charger une toute petite partie en haute qualite, puis la
