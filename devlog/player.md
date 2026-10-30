@@ -26,6 +26,18 @@ sortait mort (820 faux morts sur 5 fiches au premier essai, tout Blood-C au seco
 - la nuit, 20 machines GitHub (`--tranche=i/20`), une IP chacune (depot public : gratuit) ;
 - un embed vidmoly.to/.net/.biz se controle sur le miroir ansembed, la ou le site le rejoue.
 
+Parite refaite le meme soir par ALIGNEMENT (`tools/anime-sama/alignement.mjs`) : la fiche donne
+l'id AniList de l'oeuvre, ses saisons se remplissent avec la chaine SEQUEL tant que les nombres
+d'episodes tombent EXACTEMENT juste — ce qui donne aussi le decalage (Spy x Family Part 2 =
+saison1+12). Compter les SEQUEL (« saison N = N-1 suites ») se trompait des qu'AniList coupe une
+saison qu'anime-sama reunit ; une tolerance d'un episode collait The Second Raid (13) sur Fumoffu
+(12). Seule une fiche alignee de bout en bout peut contredire le resolveur (`--imposer`).
+Deux defauts du verificateur trouves en route : `--ids` ignorait un anime sans aucune ligne (184
+ecarts jamais corrigeables), et rien ne l'empechait de « verifier » Major S3 sur saison1.
+Resultat : 2 012 anime x langue attendus, servis exactement 1 751 -> **1 977**. Corriges entre
+autres : Kaiju No. 8 (servait `monster`), toutes les « Part 2 » au decalage 0, Tokyo Revengers,
+Mushoku Tensei, Beastars. Restent 22 manquants et 13 contredits a alignement partiel (non touches).
+
 Visiteurs non touches : c'est leur navigateur qui lit ansembed (`lib/clientVidmoly.js`), pas le
 Worker. Recap lisible de chaque passe dans le resume du job GitHub. Le workflow vit seul sur
 `main` (le cron lit le fichier sur main) ; les scripts sont lus sur `dev`.
