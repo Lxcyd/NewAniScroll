@@ -38,6 +38,16 @@ Resultat : 2 012 anime x langue attendus, servis exactement 1 751 -> **1 977**. 
 autres : Kaiju No. 8 (servait `monster`), toutes les « Part 2 » au decalage 0, Tokyo Revengers,
 Mushoku Tensei, Beastars. Restent 22 manquants et 13 contredits a alignement partiel (non touches).
 
+Films et OAV ensuite : les MOVIE (resp. OVA seuls) de la franchise, tries par date, alignes sur
+`film`, `film2`… — ordre confirme par les titres des embeds (« Bleach Film 1 Memories of Nobody » …).
+Exclus : entrees pas encore sorties (SAO Integral Domain 2028 se posait sur `film1`), `film` + `film1`
+sur une meme fiche. Corrige le 1er film servi a la place du 2e (Card Captor Sakura, Violet Evergarden,
+Assassination Classroom). Le site, lui, DEFAISAIT une correction de saison sur trois a la premiere
+visite : sa garde de coherence (`detectSeasonNumber`, par titres) retrogradait la ligne — exemptee
+desormais pour les lignes `verify:alignement-anime-sama`. La prod (code de `main`) garde l'ancienne
+garde : elle defera ces 24 lignes a chaque visite, la parite de la nuit les remettra.
+Bilan : 2 307 anime x langue attendus, **2 274 servis exactement**.
+
 Visiteurs non touches : c'est leur navigateur qui lit ansembed (`lib/clientVidmoly.js`), pas le
 Worker. Recap lisible de chaque passe dans le resume du job GitHub. Le workflow vit seul sur
 `main` (le cron lit le fichier sur main) ; les scripts sont lus sur `dev`.
