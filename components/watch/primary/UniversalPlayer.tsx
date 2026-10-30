@@ -275,7 +275,13 @@ type Props = {
    Interrupteur : localStorage `aniscroll:hlsProgressive` = "1" l'allume sur un
    navigateur, "0" l'eteint (banc : SEED_LS). */
 const HLS_PROGRESSIVE = false;
-function progressifActif(): boolean {
+/* ALLUME pour megaplay et vidmoly (decision de Luc, 30/10) : segments MPEG-TS,
+   les seuls que le mode progressif decode avant la fin. Gain mesure sur un
+   megaplay au CDN lent (276 Ko/s) : premiere image a 4,2 s au lieu de 15,4 s.
+   frembed (un seul bloc fMP4 par segment) n'y gagnerait rien : reste eteint. */
+const PROGRESSIF_HOTES = (serverId?: string | null) =>
+  serverId === "megaplay" || /^voiranime-vidmoly/.test(serverId || "");
+function progressifActif(serverId?: string | null): boolean {
   try {
     const v = localStorage.getItem("aniscroll:hlsProgressive");
     if (v === "1") return true;
@@ -283,7 +289,7 @@ function progressifActif(): boolean {
   } catch {
     /* stockage indisponible : le defaut */
   }
-  return HLS_PROGRESSIVE;
+  return HLS_PROGRESSIVE || PROGRESSIF_HOTES(serverId);
 }
 
 // Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
@@ -2110,7 +2116,7 @@ export default function UniversalPlayer({
         ...cfg,
         renderTextTracksNatively: false,
         testBandwidth: false,
-        progressive: progressifActif(),
+        progressive: progressifActif(serverId),
         ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
         /* `pLoader` et non `loader` : il ne sert que des playlists, et un
            `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
