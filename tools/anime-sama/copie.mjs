@@ -268,38 +268,55 @@ else {
   if (args.mesure) slugs = slugs.sort(() => Math.random() - 0.5).slice(0, Number(args.mesure));
 }
 
-const fiches = await parLots(slugs, (s) => copierFiche(s, domaines, cat.get(s), connus.liens));
-const bilan = { fiches: fiches.length, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, inconnus: 0 };
-for (const f of fiches) {
-  if (f.erreur) { console.log(`  ${f.slug} : ${f.erreur}`); continue; }
-  if (!f.anilist) bilan.sansAnilist++;
-  for (const p of f.panneaux || []) {
-    bilan.panneaux++;
-    bilan.episodes += p.nbEp;
-    for (const e of p.episodes) {
-      if (e.liens.length) bilan.avecVidmoly++;
-      for (const u of e.liens) {
-        bilan.liens++;
-        const s = e.etats?.[u];
-        if (s === "vivant") bilan.vivants++; else if (s === "mort") bilan.morts++; else if (s) bilan.inconnus++;
+/* PAR PAQUETS DE 50, ecrits au fur et a mesure : une copie coupee en route
+   (session, runner, reseau) garde tout ce qu'elle a deja lu. La premiere
+   version n'ecrivait qu'a la fin et a tout perdu sur une coupure (30/10). */
+const PAQUET = 50;
+const bilan = { fiches: 0, erreurs: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, inconnus: 0 };
+const toutes = [];
+let ecrites = 0;
+for (let d = 0; d < slugs.length; d += PAQUET) {
+  const fiches = await parLots(slugs.slice(d, d + PAQUET), (s) => copierFiche(s, domaines, cat.get(s), connus.liens));
+  for (const f of fiches) {
+    bilan.fiches++;
+    if (f.erreur) { bilan.erreurs++; console.log(`  ${f.slug} : ${f.erreur}`); continue; }
+    if (!f.anilist) bilan.sansAnilist++;
+    for (const p of f.panneaux || []) {
+      bilan.panneaux++;
+      bilan.episodes += p.nbEp;
+      for (const e of p.episodes) {
+        if (e.liens.length) bilan.avecVidmoly++;
+        for (const u of e.liens) {
+          bilan.liens++;
+          const st = e.etats?.[u];
+          if (st === "vivant") bilan.vivants++; else if (st === "mort") bilan.morts++; else if (st) bilan.inconnus++;
+        }
       }
     }
+    if (slugs.length <= 20) {
+      const resume = (f.panneaux || []).map((p) => {
+        const v = p.episodes.filter((e) => Object.values(e.etats || {}).includes("vivant")).length;
+        return `${p.dossier}/${p.langue} ${v}/${p.nbEp}`;
+      }).join(" · ");
+      console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
+    }
   }
-  const resume = (f.panneaux || []).map((p) => {
-    const v = p.episodes.filter((e) => Object.values(e.etats || {}).includes("vivant")).length;
-    return `${p.dossier}/${p.langue} ${v}/${p.nbEp}`;
-  }).join(" · ");
-  console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
+  /* Contrat : des fiches lues mais sans id AniList pour la plupart, c'est leur
+     format de fiche qui a change. On s'arrete avant d'ecrire ce paquet. */
+  const lisibles = fiches.filter((f) => !f.erreur);
+  if (lisibles.length >= 20 && lisibles.filter((f) => f.anilist).length < lisibles.length / 2) {
+    console.error("CONTRAT ROMPU : moins de la moitie des fiches portent un id AniList — paquet non ecrit");
+    process.exit(3);
+  }
+  if (db) ecrites += await ecrire(fiches, connus.empreintes);
+  if (args.json) toutes.push(...fiches);
+  if (slugs.length > 20) {
+    console.log(`[${Math.min(d + PAQUET, slugs.length)}/${slugs.length}] ${compteur.requetes} requetes, ${ecrites} ligne(s) ecrite(s), ${Math.round((Date.now() - t0) / 1000)} s`);
+  }
 }
 const duree = Math.round((Date.now() - t0) / 1000);
-console.log(`\nbilan ${JSON.stringify(bilan)}`);
+console.log(`
+bilan ${JSON.stringify(bilan)}`);
 console.log(`requetes Worker : ${compteur.requetes} (erreurs ${compteur.erreurs}) en ${duree} s`);
-if (args.json) fs.writeFileSync(args.json, JSON.stringify({ le: new Date().toISOString(), domaines, fiches }, null, 1));
-/* Contrat, suite : des fiches lues mais aucune saison ni aucun id AniList,
-   c'est leur format de fiche qui a change. */
-const lisibles = fiches.filter((f) => !f.erreur);
-if (lisibles.length >= 20 && lisibles.filter((f) => f.anilist).length < lisibles.length / 2) {
-  console.error("CONTRAT ROMPU : moins de la moitie des fiches portent un id AniList — rien n'est ecrit");
-  process.exit(3);
-}
-if (db) console.log(`as_panneau : ${await ecrire(fiches, connus.empreintes)} ligne(s) ecrite(s)`);
+if (args.json) fs.writeFileSync(args.json, JSON.stringify({ le: new Date().toISOString(), domaines, fiches: toutes }, null, 1));
+if (db) console.log(`as_panneau : ${ecrites} ligne(s) ecrite(s)`);
