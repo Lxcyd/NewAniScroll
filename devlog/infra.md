@@ -6,6 +6,34 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 — Phase 4 sur dev : Cloudflare garde le HTML ; Oracle abandonne
+
+**Oracle abandonne** : ~75 essais de creation A1 en 14 h a Paris, tous
+« out of capacity » ou 429 (un ami de Luc : une semaine sans succes). Seul
+deblocage connu : passer le compte en Pay As You Go. Le gain vise (servir
+le HTML sans CPU Vercel) est obtenu gratuitement par Cloudflare ci-dessous.
+
+Mesure avant : page en cache Vercel 0,15 s ; hors cache 1-2,8 s (fonction).
+Le cache Vercel est par region et vide a chaque deploiement.
+
+- Cache Rule etendue a tout l'hote sauf les API hors /api/v2, toujours
+  `bypass_by_default` : seul ce qui porte s-maxage/CDN-Cache-Control est garde
+  (les pages SSR publiques le portent deja pour Vercel). Session et compte
+  restent DYNAMIC/BYPASS (verifie).
+- Variante mobile : regle de transformation `__m=1` sur /xx/anime/ pour les
+  memes jetons d'UA que next.config.js (sensible a la casse, `contains` : pas
+  de regex en Free), posee AVANT le cache. Verifie : iPhone -> initialUA
+  "iPhone", PC -> null, chacun HIT a 0,10-0,11 s.
+- Vidage par hote (`purge_cache {hosts}`) PERMIS en Free (verifie).
+  `purge-cf-cache.yml` vide l'hote apres chaque deploiement `success` (le
+  workflow `deployment_status` est lu a la SHA deployee : il tourne aussi pour
+  dev). Jeton `CF_PURGE_TOKEN` limite a Cache Purge (purge-token.mjs).
+- Smart Tiered Cache active (gratuit).
+- Prod : PR #21 minimale (clientIp, instrumentation, workflow) au lieu d'une
+  release de 974 commits. Apres fusion : rules.mjs avec les 3 hotes, bot
+  protection Vercel prod `challenge` -> `log` (derriere Cloudflare elle ne voit
+  que des IP de datacenter), puis nuage orange sur aniscroll.com et www.
+
 ## 2026-10-30 — Phase 1 testee sur dev.aniscroll.com (Cloudflare devant Vercel)
 
 Jeton `CF_ZONE_API_TOKEN` (zone aniscroll.com : DNS, WAF, rate limit,
