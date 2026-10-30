@@ -23,6 +23,15 @@ Ce que la mesure a montre :
 - Le banc `player-timeline.mjs` varie du simple au decuple d'une visite a
   l'autre (sauts 155-3837 ms sans rien changer) : une paire ne prouve rien.
 
+- **vidmoly** (High School DxD 11617, voiranime-vidmoly-vo, 2 paires sur
+  episodes froids) : premier segment ~1 Mo a 2-3 Mo/s (depart au plus bas
+  niveau), premiere image ~1,1 s apres `<video>` dans les deux modes ; avec,
+  l'image sort AVANT la fin du segment (20-50 ms de gain). Sauts sans ecart.
+- **megaplay FROID** (One Piece 1000/1001, CDN a 276 Ko/s) : sans, premiere
+  image a 15,4 s ; avec, 4,2 s — mais 3 attentes ensuite et des sauts de 5 a
+  15 s : quand le CDN est plus lent que le debit de la video, rien ne sauve la
+  lecture. Une seule paire, episodes differents.
+
 `HLS_PROGRESSIVE = false` ; localStorage `aniscroll:hlsProgressive` = "1"
 l'allume sur un navigateur. A rejuger sur vidmoly (TS de 20 s, ~9 Mo) et un
 megaplay froid. Le banc se presente desormais comme un Chrome de bureau (le
