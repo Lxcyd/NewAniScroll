@@ -10,8 +10,10 @@
 # a aniscroll.com par la copie ; le verificateur appelle /api/v2/source/inspect
 # sur DEV (compte Vercel separe).
 #
-# Code de sortie 3 de la copie = CONTRAT ROMPU (leur site a change de forme) :
-# le job echoue, GitHub previent par courriel.
+# Code de sortie 3 de la copie = CONTRAT ROMPU (leur site a change de forme) ;
+# code 4 = ansembed bloque l'adresse (le temoin lui-meme est « introuvable »).
+# Dans les deux cas le job echoue, GitHub previent par courriel. Le recap de la
+# copie et le rapport de parite sont dans le resume du job.
 #
 # Secrets : TURSO_DATABASE_URL, TURSO_AUTH_TOKEN.
 
@@ -39,9 +41,10 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: node tools/anime-sama/copie.mjs --toutes --ecrire --concurrence=4
+        run: node tools/anime-sama/copie.mjs --toutes --ecrire --md="$GITHUB_STEP_SUMMARY"
       - name: Parite et corrections
-        if: success()
+        # Meme si la copie a ete bloquee (code 4) : la table garde l'etat d'avant.
+        if: ${{ !cancelled() }}
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
