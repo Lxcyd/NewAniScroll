@@ -93,8 +93,10 @@ export function manifesteEnMemoire(url: string): string | null {
 }
 
 /**
- * Le `loader` a donner a hls.js : il sert depuis la memoire quand il peut, et
- * delegue tout le reste (segments compris) au chargeur d'origine. Ecrit comme
+ * Le chargeur de PLAYLISTS (`pLoader`) a donner a hls.js : il sert depuis la
+ * memoire quand il peut, et delegue le reste au chargeur d'origine. Jamais en
+ * `loader` : un chargeur de segments maison coupe la lecture progressive
+ * (cf. HLS_PROGRESSIVE dans UniversalPlayer). Ecrit comme
  * une sous-classe pour ne rien avoir a reimplementer — hls.js appelle `load`
  * avec ses propres rappels, et on se contente de repondre a sa place.
  */

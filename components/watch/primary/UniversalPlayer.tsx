@@ -253,6 +253,19 @@ type Props = {
 // the chapters-VTT blob being rebuilt on a sub-second durationchange, since
 // fixed by quantizing the duration — so the buffer cuts were unnecessary and
 // just made seeking slow. Restored here.)
+/* LECTURE PROGRESSIVE (30/10/2026). Sans elle, hls.js attend qu'un segment soit
+   ARRIVE EN ENTIER avant d'en donner le moindre octet au decodeur : 5 a 10 Mo en
+   1080p chez frembed, soit 1 s sur fibre et plusieurs en 4G avant la premiere
+   image, et autant apres chaque saut (mesure : +5 min = 2,5 s). Avec elle, le
+   segment est decode AU FIL de son telechargement (FetchLoader en flux) : la
+   lecture repart des que le debut est la, dans la meme qualite, et la suite
+   arrive pendant qu'on regarde.
+   Condition de hls.js : le chargeur des SEGMENTS doit etre le sien. Le chargeur
+   a memoire (lib/watch/hlsPreload) ne sert que des manifestes, il est donc pose
+   en `pLoader` (playlists) et non plus en `loader`.
+   Interrupteur unique : `false` ici rend exactement le comportement d'avant. */
+const HLS_PROGRESSIVE = true;
+
 // Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
 // The Worker cache absorbs repeated segment fetches, so we can buffer deep and
 // aggressively: forward seeks land in already-fetched data, and re-fetches on a
@@ -289,9 +302,7 @@ const HLS_CONFIG = {
   fragLoadingMaxRetry: 4,
   fragLoadingRetryDelay: 1000,
   fragLoadingMaxRetryTimeout: 60000,
-  // Fetch the next fragment while the current one is still being appended —
-  // keeps the buffer ahead of the playhead on a fast (cached) source.
-  progressive: false,
+  progressive: HLS_PROGRESSIVE,
   // Don't stall on tiny gaps between segments (some megaplay encodes have a few
   // ms of PTS drift at boundaries); jump them instead of buffering forever.
   maxBufferHole: 0.5,
@@ -330,6 +341,7 @@ const HLS_CONFIG_DIRECT = {
   // segment); combined with the error-recovery handler this avoids freezes.
   maxBufferHole: 1,
   nudgeMaxRetry: 10,
+  progressive: HLS_PROGRESSIVE,
 };
 
 /* Debit memorise et depart du lecteur : cf. lib/watch/hlsBandwidth.ts. */
@@ -2079,7 +2091,9 @@ export default function UniversalPlayer({
         renderTextTracksNatively: false,
         testBandwidth: false,
         ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
-        ...(loaderMemoire ? { loader: loaderMemoire } : null),
+        /* `pLoader` et non `loader` : il ne sert que des playlists, et un
+           `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
+        ...(loaderMemoire ? { pLoader: loaderMemoire } : null),
         ...(position > 0 ? { startPosition: position } : null),
         /* Megaplay : leur CDN bride chaque connexion a ~1 Mb/s. Le debit
            memorise pour « proxied » vient des AUTRES hotes du Worker, bien plus
