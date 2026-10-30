@@ -185,21 +185,62 @@ async function direct(url) {
   }
 }
 const flux = (t) => /master\.m3u8|sources\s*:/.test(t);
+
+/* ── Le TEMOIN : un 404 n'est une mort que si un lien vivant repond encore ──
+   Lecon du 30/10/2026 (bis) : apres la rafale, ansembed a BLOQUE l'IP du PC et
+   celle du Worker — sans refuser : il rend sa page « This video not found! »
+   en 404, octet pour octet celle d'un fichier supprime. Un vrai Chrome depuis
+   le PC aussi ; vu d'ailleurs (r.jina.ai), les memes liens jouaient. Toute la
+   copie serait sortie morte.
+   Donc : un lien temoin connu vivant est recontrole (par le meme chemin) avant
+   d'accepter chaque mort. Temoin introuvable lui aussi = BLOQUE : plus aucun
+   controle, et l'etat deja connu de chaque lien est garde tel quel. */
+const TEMOINS_DEFAUT = ["https://ansembed.net/embed-ejbsz9lxez75.html", "https://ansembed.net/embed-ze0dv8b88jpo.html"]; // Frieren 1, One Piece 1 (vostfr)
+let temoin = null, bloque = false;
+const temoinCache = { direct: [0, false], worker: [0, false] };
+async function temoinVivant(chemin) {
+  const [quand, ok] = temoinCache[chemin];
+  if (Date.now() - quand < 20000) return ok;
+  const r = chemin === "direct" ? await direct(temoin) : await viaWorker(temoin);
+  const vivant = r.status === 200 && flux(r.texte);
+  temoinCache[chemin] = [Date.now(), vivant];
+  return vivant;
+}
+async function choisirTemoin(candidats) {
+  for (const u of candidats) {
+    const r = await direct(u);
+    if (r.status === 200 && flux(r.texte)) { temoin = u; return true; }
+  }
+  return false;
+}
+async function mortConfirmee(chemin) {
+  if (await temoinVivant(chemin)) return true;
+  // Le Worker seul bloque : ce lien reste inconnu, les controles directs continuent.
+  if (chemin === "worker") return false;
+  if (!bloque) console.error(`BLOQUE : le temoin ${temoin} ne repond plus (${chemin}) — controles arretes, etats connus gardes`);
+  bloque = true;
+  return false;
+}
+
 async function vie(url) {
+  if (bloque) return "inconnu:bloque";
   await vieJeton();
   try {
+    if (bloque) return "inconnu:bloque";
     let r = await direct(url);
     if (r.status === 200 && flux(r.texte)) { refusDeSuite = 0; return "vivant"; }
     if (r.status === 404) {
       await dors(2000);
       r = await direct(url);
-      if (r.status === 404) { refusDeSuite = 0; return "mort"; }
+      if (r.status === 404) return (await mortConfirmee("direct")) ? ((refusDeSuite = 0), "mort") : "inconnu:bloque";
       if (r.status === 200 && flux(r.texte)) return "vivant";
     }
     // Refus ou reseau : un essai par le Worker, en lisant le VRAI code amont.
     const w = await viaWorker(url);
     if (w.status === 200 && flux(w.texte)) { refusDeSuite = 0; return "vivant"; }
-    if (Number(w.texte.match(/"upstream"\s*:\s*(\d+)/)?.[1]) === 404) { refusDeSuite = 0; return "mort"; }
+    if (Number(w.texte.match(/"upstream"\s*:\s*(\d+)/)?.[1]) === 404) {
+      return (await mortConfirmee("worker")) ? ((refusDeSuite = 0), "mort") : "inconnu:bloque";
+    }
     if (++refusDeSuite >= 3) { pauseJusqua = Date.now() + 60000; refusDeSuite = 0; }
     return `inconnu:${r.status}/${w.status}`;
   } finally {
@@ -260,6 +301,14 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
     const etats = await Promise.all(aControler.map(({ u }) => vie(u)));
     const maintenant = Date.now();
     aControler.forEach(({ e, u }, k) => {
+      /* Pas de reponse exploitable : on garde ce qu'on savait (etat ET date,
+         pour qu'il soit recontrole au prochain passage). L'inconnu n'efface rien. */
+      const c = connus.get(u);
+      if (String(etats[k]).startsWith("inconnu") && c) {
+        (e.etats ||= {})[u] = c.etat;
+        (e.vus ||= {})[u] = c.vu;
+        return;
+      }
       (e.etats ||= {})[u] = etats[k];
       (e.vus ||= {})[u] = maintenant;
     });
@@ -286,21 +335,31 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS as_panneau (
 
 /** L'etat connu de chaque lien (url -> {etat, vu}) et l'empreinte de chaque panneau. */
 async function lireConnus() {
-  const liens = new Map(), empreintes = new Map();
-  if (!db) return { liens, empreintes };
+  const liens = new Map(), empreintes = new Map(), vivantsAvant = new Map();
+  if (!db) return { liens, empreintes, vivantsAvant };
   await db.execute(SCHEMA);
-  const r = await db.execute("SELECT slug, dossier, langue, liens, empreinte FROM as_panneau");
+  const r = await db.execute("SELECT slug, dossier, langue, liens, empreinte, nb_vivants FROM as_panneau");
   for (const x of r.rows) {
     empreintes.set(`${x.slug}/${x.dossier}/${x.langue}`, x.empreinte);
+    vivantsAvant.set(`${x.slug}/${x.dossier}/${x.langue}`, Number(x.nb_vivants || 0));
     try {
       for (const lst of Object.values(JSON.parse(x.liens))) for (const [u, etat, vu] of lst) liens.set(u, { etat, vu });
     } catch { /* ligne illisible : tout sera recontrole */ }
   }
-  return { liens, empreintes };
+  return { liens, empreintes, vivantsAvant };
+}
+
+/* Ce qui a bouge depuis le passage precedent, pour le recap. */
+const changements = { nouveaux: [], perdus: [], revenus: [], plus: 0, moins: 0 };
+function noterChangement(cle, avant, apres) {
+  if (avant === undefined) { if (apres) changements.nouveaux.push(`${cle} (${apres} ep.)`); return; }
+  if (avant > 0 && apres === 0) changements.perdus.push(`${cle} (${avant} ep. avant)`);
+  else if (avant === 0 && apres > 0) changements.revenus.push(`${cle} (${apres} ep.)`);
+  if (apres > avant) changements.plus += apres - avant; else changements.moins += avant - apres;
 }
 
 /** Une ligne par panneau ; n'ecrit que si le CONTENU a change (empreinte sans les dates). */
-async function ecrire(fiches, empreintes) {
+async function ecrire(fiches, empreintes, vivantsAvant) {
   if (!db) return 0;
   const ops = [];
   for (const f of fiches) {
@@ -320,6 +379,7 @@ async function ecrire(fiches, empreintes) {
          ecrire. Un lien recontrole doit l'etre, sinon sa date de controle ne
          bougerait jamais et la rotation le reverifierait chaque nuit. */
       if (empreintes.get(cle) === empreinte && !Object.values(liens).flat().some((x) => x[2] >= DEBUT)) continue;
+      if (empreintes.get(cle) !== empreinte) noterChangement(cle, vivantsAvant.get(cle), vivants);
       ops.push({
         sql: `INSERT INTO as_panneau (slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts, liens, empreinte, maj_le)
               VALUES (?,?,?,?,?,?,?,?,?,?,?)
@@ -342,6 +402,16 @@ const connus = await lireConnus();
 const { texte: pageRef } = await viaWorker(`${AS}/catalogue/frieren/saison1/vostfr/`);
 const { domaines, depuisLeurTable } = domainesVidmoly(pageRef);
 console.log(`famille vidmoly (${depuisLeurTable ? "leur table" : "liste par defaut"}) : ${domaines.join(", ")}`);
+
+if (!args["sans-vie"]) {
+  // Temoins : des liens que la copie precedente a vus vivants, puis les defauts.
+  const vivantsConnus = [...connus.liens].filter(([, c]) => c.etat === "vivant").sort((a, b) => b[1].vu - a[1].vu).slice(0, 4).map(([u]) => u);
+  if (await choisirTemoin([...TEMOINS_DEFAUT, ...vivantsConnus])) console.log(`temoin : ${temoin}`);
+  else {
+    bloque = true;
+    console.error("BLOQUE : aucun temoin ne repond — copie des liens SANS controle, etats connus gardes");
+  }
+}
 
 let slugs;
 let cat = new Map();
@@ -396,10 +466,12 @@ async function traiter(slug) {
     }).join(" · ");
     console.log(`  ${f.slug} (AniList ${f.anilist ?? "?"}) : ${resume || "aucun panneau"}`);
   }
-  if (db) ecrites += await ecrire([f], connus.empreintes);
+  if (db) ecrites += await ecrire([f], connus.empreintes, connus.vivantsAvant);
   if (args.json) toutes.push(f);
   if (slugs.length > 20 && bilan.fiches % 50 === 0) {
-    console.log(`[${bilan.fiches}/${slugs.length}] ${compteur.requetes} requetes, ${ecrites} ligne(s) ecrite(s), ${Math.round((Date.now() - t0) / 1000)} s`);
+    const s = Math.round((Date.now() - t0) / 1000);
+    const reste = Math.round((s / bilan.fiches) * (slugs.length - bilan.fiches) / 60);
+    console.log(`[${bilan.fiches}/${slugs.length}] liens ${bilan.vivants} vivants, ${bilan.morts} morts, ${bilan.inconnus} inconnus · ${ecrites} ligne(s) ecrite(s) · ${Math.round(s / 60)} min, reste ~${reste} min`);
   }
 }
 await parLots(slugs, traiter);
@@ -409,3 +481,30 @@ bilan ${JSON.stringify(bilan)}`);
 console.log(`requetes Worker : ${compteur.requetes} (erreurs ${compteur.erreurs}) en ${duree} s`);
 if (args.json) fs.writeFileSync(args.json, JSON.stringify({ le: new Date().toISOString(), domaines, fiches: toutes }, null, 1));
 if (db) console.log(`as_panneau : ${ecrites} ligne(s) ecrite(s)`);
+
+/* ── Recap lisible (console, et --md=F : le resume du job GitHub) ─────────── */
+const pct = (a, b) => (b ? `${Math.round((a / b) * 100)} %` : "—");
+const liste = (titre, l) => (l.length ? [`**${titre} (${l.length})**`, ...l.slice(0, 25).map((x) => `- ${x}`), ...(l.length > 25 ? [`- … et ${l.length - 25} autres`] : []), ""] : []);
+const recap = [
+  `## Copie anime-sama — ${new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}`, "",
+  ...(bloque ? ["> ⚠️ **Controles suspendus** : ansembed repond « introuvable » meme au lien temoin — notre adresse est bloquee, pas les videos. Les liens sont copies, leur etat d'avant est garde.", ""] : []),
+  `Duree ${Math.round(duree / 60)} min · ${bilan.fiches} fiches lues (${bilan.erreurs} en erreur, ${bilan.sansAnilist} sans id AniList) · ${compteur.requetes} requetes Worker`, "",
+  "| | |", "| --- | --: |",
+  `| Saisons × langue | ${bilan.panneaux} |`,
+  `| Episodes avec un lien vidmoly | ${bilan.avecVidmoly} / ${bilan.episodes} |`,
+  `| Liens vivants | ${bilan.vivants} (${pct(bilan.vivants, bilan.liens)}) |`,
+  `| Liens morts (404 confirme) | ${bilan.morts} (${pct(bilan.morts, bilan.liens)}) |`,
+  `| Liens inconnus (refus, a revoir) | ${bilan.inconnus} |`,
+  `| Liens pas controles cette nuit | ${bilan.nonControles} |`,
+  `| Lignes ecrites | ${ecrites} |`, "",
+  ...(db ? [
+    `Depuis le passage precedent : +${changements.plus} episode(s) jouable(s), −${changements.moins}.`, "",
+    ...liste("Nouvelles saisons jouables", changements.nouveaux),
+    ...liste("Saisons qui n'ont plus aucun lien vivant", changements.perdus),
+    ...liste("Saisons revenues", changements.revenus),
+  ] : []),
+].join("\n");
+console.log(`\n${recap}`);
+if (args.md) fs.appendFileSync(args.md, `${recap}\n`);
+// Code 4 = bloque par ansembed : le job echoue, GitHub previent par courriel.
+if (bloque) process.exit(4);

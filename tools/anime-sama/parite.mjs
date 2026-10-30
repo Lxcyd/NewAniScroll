@@ -110,7 +110,7 @@ if (ids.size) {
 }
 
 if (args.md) {
-  fs.writeFileSync(args.md, [
+  fs.appendFileSync(args.md, [
     "## Parite anime-sama (lecteurs valides)", "", resume, "",
     `Episodes dont tous les liens vidmoly sont morts chez eux : ${morts}`, "",
     "| slug | saison | langue | vivants | id fiche | id verifie |", "| --- | --- | --- | --: | --: | --: |",
