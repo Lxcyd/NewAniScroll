@@ -2245,6 +2245,7 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   // Reject scores of 0 â€” those are unrelated catalogue entries (Baccano vs
   // Baki Hanma) that the search returned because of a fuzzy match on letters.
   const candidates = new Map(); // slug â†’ best score
+  const vus = []; // tous les slugs rendus par la recherche, dans l'ordre
   let anySearchOk = false; // did at least one query reach anime-sama and parse?
   /* EN PARALLELE. Ces recherches etaient faites l'une apres l'autre, cinq a
      douze fois, chacune sous un plafond de 5 s et sans sortie anticipee
@@ -2289,6 +2290,9 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
         if (s > best) best = s;
       }
       if (best > (candidates.get(slug) || 0)) candidates.set(slug, best);
+      /* Tous les slugs vus, score nul compris, dans l'ordre de la recherche :
+         c'est dans ceux-la que la preuve par id va chercher plus bas. */
+      if (!vus.includes(slug)) vus.push(slug);
     });
   }
 
@@ -2363,10 +2367,10 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
      appartient a la chaine des saisons de la demande. Une preuve exacte, pas
      une ressemblance — et seulement en dernier recours : un titre que le score
      resolvait deja ne coute rien de plus. */
-  if (!chosen && candidates.size) {
+  if (!chosen && vus.length) {
     try {
       const chaine = await idsDeLaChaine(aniId, mediaOpts);
-      for (const slug of [...candidates.keys()].slice(0, 3)) {
+      for (const slug of vus.slice(0, 3)) {
         const id = await anilistIdDeLaFiche(slug);
         if (id && chaine.has(id)) {
           dlog(`[anime-sama] slug ${slug} retenu par son id AniList ${id} (chaine de ${aniId})`);
