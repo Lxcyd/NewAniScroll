@@ -263,8 +263,21 @@ type Props = {
    Condition de hls.js : le chargeur des SEGMENTS doit etre le sien. Le chargeur
    a memoire (lib/watch/hlsPreload) ne sert que des manifestes, il est donc pose
    en `pLoader` (playlists) et non plus en `loader`.
-   Interrupteur unique : `false` ici rend exactement le comportement d'avant. */
+   Gain reel seulement sur les segments MPEG-TS (megaplay, vidmoly) : frembed
+   livre un seul bloc fMP4 de 5 Mo par segment (verifie le 30/10), qu'aucun
+   navigateur ne decode avant la fin.
+   Interrupteur : `false` ici rend exactement le comportement d'avant ; sur un
+   seul navigateur, localStorage `aniscroll:hlsProgressive` = "0" fait de meme
+   (comparaison avant/apres au banc player-timeline via SEED_LS). */
 const HLS_PROGRESSIVE = true;
+function progressifActif(): boolean {
+  if (!HLS_PROGRESSIVE) return false;
+  try {
+    return localStorage.getItem("aniscroll:hlsProgressive") !== "0";
+  } catch {
+    return true;
+  }
+}
 
 // Default HLS tuning — optimised for PROXIED, edge-cached sources (megaplay).
 // The Worker cache absorbs repeated segment fetches, so we can buffer deep and
@@ -2090,6 +2103,7 @@ export default function UniversalPlayer({
         ...cfg,
         renderTextTracksNatively: false,
         testBandwidth: false,
+        progressive: progressifActif(),
         ...(depart ? { abrEwmaDefaultEstimate: depart } : null),
         /* `pLoader` et non `loader` : il ne sert que des playlists, et un
            `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
