@@ -22,8 +22,16 @@ sont ouverts et acceptes si cet id est dans la chaine PREQUEL de la demande.
 place de la confiance par titre. Verifie sur dev : saison3, ansembed VOSTFR et
 VF, lecture 1080p sans attente.
 
-Plan de fond (copie quotidienne du catalogue, sentinelles) : doc « Plan —
-lecteurs anime-sama qui ne cassent plus ».
+Meme jour, Frieren (154587) : `slug: null` alors que la recherche rend
+`frieren`. Seules les 8 premieres recherches partent, et les synonymes
+(coreen, thai, italien…) passaient AVANT le romaji : aucune des recherches
+envoyees ne rendait rien. Ordre refait : titres, formes sans saison, tetes,
+puis synonymes latins d'abord. verify-player-map `--ids=154587,195516` :
+8 lignes `verified` (anime-sama ET voir-anime, toutes `absent` a tort).
+
+Decision de Luc : seuls les lecteurs valides comptent ; chez anime-sama c'est
+donc ansembed seul. Plan : doc « Plan — memes lecteurs qu'anime-sama
+(lecteurs valides) » (copie nocturne par id AniList, sentinelle de parite).
 
 ## 2026-10-30 — Lecture progressive essayee, eteinte par defaut
 
