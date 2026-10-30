@@ -225,6 +225,23 @@ vidmoly (`vidmoly.to/.net`), anime-sama (`anime-sama.to`), voir-anime
 (`voir-anime.to`), sibnet ☠️, uqload ☠️, sendvid ☠️, animepahe/kwik ☠️,
 aniwatchtv, megaup, embed4me, mewstream.
 
+**anime-sama** (`anime-sama.to`) — analyse le 30/10/2026. N'heberge rien :
+`/catalogue/<slug>/<saison>/<langue>/episodes.js` declare `eps1…epsN`, des
+tableaux d'URL d'embed tiers, et la page les pose tels quels dans une iframe
+(`setPlayerSrc`, js/contenu/videos.js). Ce fichier rend 403 sans les en-tetes
+`Sec-Fetch-*` d'un navigateur. La page declare en clair `lecteursInfos`
+(domaine -> nom, `pub` 0/1/2, `hd`, `mort`), tenue a la main. Sur 6 panneaux :
+ansembed partout ; second lecteur = VOE (domaines tournants
+`derricknationtop.com`, `megankiddifference.com`…) ou Earnvids.
+
+**Earnvids** = famille **Vidhide** (`movearnpre.com` ☠️ DNS au 30/10,
+`smoothpre.com`, `morencius.com`, `minochinos.com` -> `callistanise.com`). Le
+MEME id d'embed marche sur tous les miroirs. Script compacte `p,a,c,k,e,d` ->
+master `…acek-cdn.com/hls2/…_,l,n,h,.urlset/master.m3u8` : 480/720/1080, TS de
+10 s, `Access-Control-Allow-Origin: *` (lisible sans proxy), jeton lie a l'ASN
+de l'extracteur (`asn=`), ~300 Ko/s mesures. Extracteur `extractMovearnpre`
+deja dans lib/extractors.js (lecteur retire : le CDN bloquait le Worker).
+
 Vu ailleurs : **flixcloud.cc** (reanime.to : Artplayer + hls.js, MKV « dual audio »
 VO+VA dans un meme fichier, chapitres MKV, sous-titres sur `vault-*.fallencdn.top`).
 
