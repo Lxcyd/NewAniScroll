@@ -6,6 +6,30 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-30 (soir) — Copie d'anime-sama controlee, et ansembed qui ment en 404
+
+`tools/anime-sama/copie.mjs` copie chaque nuit, pour les seuls lecteurs valides (famille vidmoly),
+quels episodes anime-sama a, par saison x langue (table Turso `as_panneau`), en controlant chaque
+lien ; `parite.mjs` compare a `player_map` et fait reverifier 100 ecarts tires au sort.
+
+Premiere passe complete : 1 585 fiches, 3 167 saisons x langue, 58 068 liens — 57 020 vivants,
+1 042 morts, 6 « Video Processing ». Parite : 3 089 saisons jouables chez eux, 2 261 servies
+(73 %) ; un tiers des corrections aboutit, le reste sort « broken »/« absent » (a comprendre).
+
+Le piege : ansembed limite chaque IP (~150 controles en quelques minutes) et, au-dela, rend sa page
+« This video not found! » en 404 — octet pour octet celle d'un fichier supprime — puis se tait ;
+leve en ~3 min. Vu d'ailleurs (r.jina.ai) les memes liens jouaient. Sans garde, tout le catalogue
+sortait mort (820 faux morts sur 5 fiches au premier essai, tout Blood-C au second). Desormais :
+- une mort n'est acceptee que si un lien TEMOIN connu vivant repond juste apres ; temoin muet =
+  blocage : pause, temoin reteste chaque minute, puis le meme lien est recontrole ;
+- un « inconnu » n'efface jamais l'etat connu ;
+- la nuit, 20 machines GitHub (`--tranche=i/20`), une IP chacune (depot public : gratuit) ;
+- un embed vidmoly.to/.net/.biz se controle sur le miroir ansembed, la ou le site le rejoue.
+
+Visiteurs non touches : c'est leur navigateur qui lit ansembed (`lib/clientVidmoly.js`), pas le
+Worker. Recap lisible de chaque passe dans le resume du job GitHub. Le workflow vit seul sur
+`main` (le cron lit le fichier sur main) ; les scripts sont lus sur `dev`.
+
 ## 2026-10-30 — Slug anime-sama prouve par l'id AniList de sa fiche
 
 Signale par Luc : Les Carnets de l'apothicaire S3 (AniList 195516) n'avait que
