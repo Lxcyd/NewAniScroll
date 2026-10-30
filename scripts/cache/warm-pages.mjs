@@ -110,12 +110,18 @@ async function chauffe(chemin) {
   }
 }
 
+/* Cloudflare limite a 20 pages /xx/anime/ par 10 s et par IP
+   (tools/cloudflare/rules.mjs) : servies depuis son cache en ~0,1 s, 40 fiches
+   d'affilee depasseraient la limite et la fin de la passe prendrait des 429.
+   0,6 s entre deux requetes d'un ouvrier = 16 au plus par 10 s. */
+const PAUSE_MS = 600;
 const file = [...urls];
 async function ouvrier() {
   for (;;) {
     const u = file.shift();
     if (!u) return;
     console.log("  " + (await chauffe(u)));
+    await new Promise((r) => setTimeout(r, PAUSE_MS));
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, ouvrier));

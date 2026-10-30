@@ -38,7 +38,11 @@ const PORT = Number(process.env.CDP_PORT || 9359);
 const profil = mkdtempSync(join(tmpdir(), "aniscroll-cdp-"));
 const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profil}`,
   "--no-first-run", "--no-default-browser-check", "--mute-audio", "--autoplay-policy=no-user-gesture-required",
-  "--window-size=1600,900"], { stdio: "ignore" });
+  "--window-size=1600,900",
+  // Le WAF Cloudflare (tools/cloudflare/rules.mjs) defie « HeadlessChrome » :
+  // le banc se presente comme le Chrome de bureau qu'il est.
+  "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"],
+  { stdio: "ignore" });
 const dors = (ms) => new Promise((r) => setTimeout(r, ms));
 for (let i = 0; ; i++) {
   try { await fetch(`http://127.0.0.1:${PORT}/json/version`); break; }

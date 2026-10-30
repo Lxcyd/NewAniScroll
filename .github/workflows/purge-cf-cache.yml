@@ -31,7 +31,7 @@ jobs:
       (github.event.deployment_status.state == 'success' &&
        startsWith(github.event.deployment.environment, 'Production'))
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
       - name: Purge
         env:
@@ -47,3 +47,22 @@ jobs:
             -H "Authorization: Bearer $CF_PURGE_TOKEN" -H "Content-Type: application/json" \
             --data "{\"hosts\":[$HOSTS]}"
           echo; echo "vide : $HOSTS"
+          # Le site a rechauffer : le premier hote vide.
+          SITE="https://$(echo "$HOSTS" | cut -d'"' -f2)"
+          echo "SITE=$SITE" >> "$GITHUB_ENV"
+
+      # Rechauffer APRES le vidage, jamais en meme temps (c'etait warm-pages.yml,
+      # declenche par le meme evenement : ses pages auraient ete videes dans la
+      # foulee). Avec le cache par niveaux, une page chauffee d'ici sert a tous
+      # les points de presence Cloudflare.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: Install only what the script needs
+        run: npm install --no-save @libsql/client@^0.17 dotenv@^17
+      - name: Warm the pages that matter
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node scripts/cache/warm-pages.mjs --site="$SITE" --limit=40 --concurrency=1
