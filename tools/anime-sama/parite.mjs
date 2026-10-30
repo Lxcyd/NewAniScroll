@@ -24,7 +24,10 @@
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createClient } from "@libsql/client";
-import { aligner, chaineSequel, saisonsOrdonnees } from "./alignement.mjs";
+import {
+  aligner, chaineSequel, saisonsOrdonnees,
+  GENRES_HORS_SAISON, LIENS_FRANCHISE, panneauxGenre, chaineGenre,
+} from "./alignement.mjs";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => {
   const [k, v] = a.replace(/^--/, "").split("=");
@@ -55,7 +58,7 @@ const MEDIA = new Map();
 async function chargerLot(ids) {
   ids = [...new Set(ids)].filter((i) => i && !MEDIA.has(i));
   for (let i = 0; i < ids.length; i += 50) {
-    const q = `query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id episodes status relations{edges{relationType node{id format}}}}}}`;
+    const q = `query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id format episodes status startDate{year month day} relations{edges{relationType node{id format}}}}}}`;
     for (let essai = 0; essai < 4; essai++) {
       // Une coupure reseau (ECONNRESET, 30/10) ne doit pas tuer tout le rapport.
       const r = await fetch("https://graphql.anilist.co", {
@@ -91,31 +94,75 @@ for (let niveau = 0; niveau < 30 && frontiere.length; niveau++) {
     .filter((id) => id && !MEDIA.has(id));
 }
 
+// Franchises (films, OAV) : parcours des relations d'histoire, niveau par niveau.
+const franchise = new Map(); // slug -> Set(ids)
+for (const [slug, f] of fiches) {
+  if ([...f.nbEp.keys()].some((d) => GENRES_HORS_SAISON.some((g) => g.re.test(d)))) franchise.set(slug, new Set([f.id]));
+}
+frontiere = [...new Set([...franchise.values()].flatMap((s) => [...s]))];
+for (let niveau = 0; niveau < 6 && frontiere.length; niveau++) {
+  await chargerLot(frontiere);
+  const suivants = [];
+  for (const membres of franchise.values()) {
+    for (const id of [...membres]) {
+      for (const e of MEDIA.get(id)?.relations?.edges || []) {
+        if (LIENS_FRANCHISE.has(e.relationType) && !membres.has(e.node.id) && membres.size < 80) {
+          membres.add(e.node.id);
+          suivants.push(e.node.id);
+        }
+      }
+    }
+  }
+  frontiere = suivants;
+}
+await chargerLot([...franchise.values()].flatMap((s) => [...s]));
+
 /* ── Attentes ─────────────────────────────────────────────────────────────── */
-const attentes = []; // {id, lang, slug, dossier, decalage, etat, sert}
+const attentes = []; // {id, lang, slug, dossier, decalage, complet, etat, sert}
 let panneauxVivants = 0, panneauxAlignes = 0;
 for (const [slug, f] of fiches) {
-  const saisons = saisonsOrdonnees([...f.nbEp.keys()]).map((d) => ({ dossier: d, nbEp: f.nbEp.get(d) }));
+  const dossiers = [...f.nbEp.keys()];
+  const saisons = saisonsOrdonnees(dossiers).map((d) => ({ dossier: d, nbEp: f.nbEp.get(d) }));
   const chaine = await chaineSequel(f.id, async (id) => MEDIA.get(id));
   const alignees = aligner(saisons, chaine);
-  const dossiersAlignes = new Set([...alignees.values()].map((a) => a.dossier));
+  const toutes = [...alignees].map(([id, a]) => ({ id, ...a, complet: alignees.complet }));
+  // Films et OAV : seulement un alignement COMPLET (le compte exact de la franchise).
+  const membres = [...(franchise.get(slug) || [])].map((id) => MEDIA.get(id));
+  for (const g of GENRES_HORS_SAISON) {
+    const pans = panneauxGenre(dossiers, g.re).map((d) => ({ dossier: d, nbEp: f.nbEp.get(d) }));
+    if (!pans.length) continue;
+    const a = aligner(pans, chaineGenre(membres, g.formats));
+    if (a.complet) for (const [id, x] of a) toutes.push({ id, ...x, complet: true });
+  }
+  const dossiersAlignes = new Set(toutes.map((a) => a.dossier));
   for (const k of f.vivantes.keys()) {
     panneauxVivants++;
     if (dossiersAlignes.has(k.split("/")[0])) panneauxAlignes++;
   }
-  for (const [id, a] of alignees) {
+  for (const a of toutes) {
+    const id = a.id;
     for (const lang of ["vostfr", "vf"]) {
       if (!f.vivantes.has(`${a.dossier}/${lang}`)) continue;
       const r = ligne.get(`${id}:${lang}`);
       const servie = r && (r.status === "verified" || r.status === "heuristic");
       const exacte = servie && sansVf(r.slug) === slug && r.season_dir === a.dossier && Number(r.ep_offset || 0) === a.decalage;
       attentes.push({
-        id, lang, slug, dossier: a.dossier, decalage: a.decalage, complet: alignees.complet,
+        id, lang, slug, dossier: a.dossier, decalage: a.decalage, complet: a.complet,
         etat: exacte ? "servie" : servie ? "contredite" : "manquante",
         sert: servie ? `${r.slug}/${r.season_dir}+${r.ep_offset || 0}` : r ? r.status : "aucune ligne",
       });
     }
   }
+}
+/* Un meme anime attendu a DEUX endroits (un film present dans deux fiches,
+   Naruto et Boruto) : on ne choisit pas, on n'attend rien. */
+const parCle = new Map();
+for (const a of attentes) {
+  const k = `${a.id}:${a.lang}`;
+  (parCle.get(k) || parCle.set(k, new Set()).get(k)).add(`${a.slug}/${a.dossier}+${a.decalage}`);
+}
+for (let i = attentes.length - 1; i >= 0; i--) {
+  if (parCle.get(`${attentes[i].id}:${attentes[i].lang}`).size > 1) attentes.splice(i, 1);
 }
 const par = (e) => attentes.filter((a) => a.etat === e);
 const resume = [

@@ -76,6 +76,39 @@ export function aligner(saisons, chaine) {
   return out;
 }
 
+/* ── Films et OAV : meme alignement, sur la FRANCHISE triee par date ────────
+   Le panneau `film` d'anime-sama porte les films de la franchise, un par
+   episode, dans l'ordre de sortie (verifie le 30/10/2026 sur les titres des
+   embeds : « Bleach Film 1 Memories of Nobody » … « Film 4 Hell Verse »,
+   « S800E01/E02 »). `film`, `film2`… se remplissent comme des saisons.
+   OAV : les seules entrees OVA — les SPECIAL d'AniList melent mini-episodes et
+   bonus, leurs comptes ne collent presque jamais. */
+export const GENRES_HORS_SAISON = [
+  { re: /^film(\d*)$/, formats: ["MOVIE"] },
+  { re: /^oav(\d*)$/, formats: ["OVA"] },
+];
+// Les liens qui restent dans la meme histoire (pas CHARACTER, OTHER, ALTERNATIVE, SPIN_OFF).
+export const LIENS_FRANCHISE = new Set(["SEQUEL", "PREQUEL", "SIDE_STORY", "PARENT", "SUMMARY"]);
+const dateDe = (m) => (m?.startDate?.year || 9999) * 10000 + (m?.startDate?.month || 12) * 100 + (m?.startDate?.day || 31);
+
+/** Panneaux d'un genre (film, film2…) dans l'ordre. */
+export function panneauxGenre(dossiers, re) {
+  const pans = dossiers.map((d) => ({ d, m: d.match(re) })).filter((x) => x.m);
+  /* `film` ET `film1` sur la meme fiche : ordre ambigu (Sword Art Online, ou
+     `film` porte « SAO S01E01 » et `film1` « S01E02… »). On ne conclut pas. */
+  const rangs = pans.map((x) => Number(x.m[1] || 1));
+  if (new Set(rangs).size !== rangs.length) return [];
+  return pans.sort((a, b) => Number(a.m[1] || 1) - Number(b.m[1] || 1)).map((x) => x.d);
+}
+/** La chaine d'un genre : les membres de la franchise de ces formats, par date de sortie. */
+export function chaineGenre(membres, formats) {
+  return membres
+    // Pas encore sorti : ne peut pas etre chez anime-sama (SAO Integral Domain, 2028).
+    .filter((m) => m && formats.includes(m.format) && m.status !== "NOT_YET_RELEASED")
+    .sort((a, b) => dateDe(a) - dateDe(b))
+    .map((m) => ({ id: m.id, episodes: m.episodes ?? null, status: m.status ?? null }));
+}
+
 /** La chaine SEQUEL depuis `id` avec un chargeur `media(id)` -> {id, episodes, status, relations}. */
 export async function chaineSequel(id, media, max = 30) {
   const chaine = [];
@@ -84,7 +117,7 @@ export async function chaineSequel(id, media, max = 30) {
   while (cur && !vus.has(cur) && chaine.length < max) {
     vus.add(cur);
     const m = await media(cur);
-    if (!m) break;
+    if (!m || m.status === "NOT_YET_RELEASED") break; // annonce : pas chez anime-sama
     chaine.push({ id: m.id, episodes: m.episodes ?? null, status: m.status ?? null });
     cur = m.relations?.edges?.find((e) => e.relationType === "SEQUEL" && FORMATS_SUITE.includes(e.node?.format))?.node?.id ?? null;
   }

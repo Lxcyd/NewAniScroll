@@ -1145,7 +1145,17 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
       dlog(`[anime-sama] player_map ${mapRow.seasonDir} is a side-story panel — ignoring poisoned row`);
       flagPlayerMap(aniId, "animesama", langPath, `side-story dir: ${mapRow.seasonDir}`).catch(() => {});
       mapPanelCoherent = false;
-    } else if (mapRow?.seasonDir && /^saison/i.test(mapRow.seasonDir)) {
+    } else if (
+      mapRow?.seasonDir &&
+      /^saison/i.test(mapRow.seasonDir) &&
+      /* Une ligne ecrite par l'ALIGNEMENT anime-sama (tools/anime-sama/
+         alignement.mjs : id AniList affiche sur la fiche + nombres d'episodes
+         exacts sur toute la fiche) en sait plus que detectSeasonNumber, qui
+         devine par les titres. Mesure du 30/10/2026 : sur 77 corrections, la
+         garde en aurait defait 24 a la premiere visite — Tales of Zestiria
+         « S10 », Vivid Strike « S5 », Tokyo Revengers S3 « S2 ». */
+      !(mapRow.status === "verified" && (mapRow.note || "").startsWith("verify:alignement-anime-sama"))
+    ) {
       const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
       const expectedSeason = await detectSeasonNumber(aniId);
       if (dirSeason !== expectedSeason) {
