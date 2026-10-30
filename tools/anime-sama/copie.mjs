@@ -250,12 +250,19 @@ async function vie(url) {
     if (!(await attendreDeblocage())) return "inconnu:bloque";
   }
 }
-async function vieUneFois(url) {
+async function vieUneFois(urlBrut) {
+  /* Un embed vidmoly.to/.net/.biz se controle sur le miroir ansembed, meme
+     slug : c'est la que le site le rejoue (lib/clientVidmoly.js), et vidmoly.to
+     rend une page « Loading... » de verification ou ne repond pas (Mekakucity
+     Actors, 30/10). */
+  const url = urlBrut.replace(/^https?:\/\/(www\.)?vidmoly\.(to|net|biz)\//, "https://ansembed.net/");
   await vieJeton();
   try {
     if (bloque) return "inconnu:bloque";
     let r = await direct(url);
     if (r.status === 200 && flux(r.texte)) return "vivant";
+    // Encore en cours d'encodage chez eux (Shugo Chara, 30/10) : ni jouable, ni mort.
+    if (r.status === 200 && /<title>\s*Video Processing/i.test(r.texte)) return "traitement";
     if (r.status === 404) {
       await dors(2000);
       r = await direct(url);
@@ -313,7 +320,7 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
         for (const u of e.liens) {
           const c = connus.get(u);
           const age = c ? maintenant0 - c.vu : Infinity;
-          const sur = c && !String(c.etat).startsWith("inconnu") && c.etat !== "non-controle";
+          const sur = c && (c.etat === "vivant" || c.etat === "mort");
           const temoin = temoins.has(e) && u === e.liens[0];
           const aRevoir = temoin ? age > 2 * 864e5 || !sur : age > JOURS_VIE * 864e5 || !sur;
           if (aRevoir && (temoin || budgetVie > 0)) {
@@ -467,7 +474,7 @@ else {
   if (args.mesure) slugs = slugs.sort(() => Math.random() - 0.5).slice(0, Number(args.mesure));
 }
 
-const bilan = { fiches: 0, erreurs: 0, nonControles: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, inconnus: 0 };
+const bilan = { fiches: 0, erreurs: 0, nonControles: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, traitement: 0, inconnus: 0 };
 const toutes = [];
 let ecrites = 0, avecId = 0, lisibles = 0;
 /* EN CONTINU : CONC fiches en cours a tout moment, chacune ecrite des qu'elle
@@ -492,7 +499,8 @@ async function traiter(slug) {
       for (const u of e.liens) {
         bilan.liens++;
         const st = e.etats?.[u];
-        if (st === "vivant") bilan.vivants++; else if (st === "mort") bilan.morts++; else if (st === "non-controle") bilan.nonControles++; else if (st) bilan.inconnus++;
+        if (st === "vivant") bilan.vivants++; else if (st === "mort") bilan.morts++; else if (st === "non-controle") bilan.nonControles++;
+        else if (st === "traitement") bilan.traitement++; else if (st) bilan.inconnus++;
       }
     }
   }
@@ -534,6 +542,7 @@ const recap = [
   `| Episodes avec un lien vidmoly | ${bilan.avecVidmoly} / ${bilan.episodes} |`,
   `| Liens vivants | ${bilan.vivants} (${pct(bilan.vivants, bilan.liens)}) |`,
   `| Liens morts (404 confirme) | ${bilan.morts} (${pct(bilan.morts, bilan.liens)}) |`,
+  `| Liens en traitement chez eux (pas encore jouables) | ${bilan.traitement} |`,
   `| Liens inconnus (refus, a revoir) | ${bilan.inconnus} |`,
   `| Liens pas controles cette nuit | ${bilan.nonControles} |`,
   `| Lignes ecrites | ${ecrites} |`, "",
