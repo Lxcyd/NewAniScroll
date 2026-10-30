@@ -350,7 +350,12 @@ function judge(aniId, source, lang, insp, sibling, meta) {
   }
 
   const conf = slugTitleConfidence(insp.slug.replace(/-vf$/i, ""), meta?.titles || []);
-  if (conf <= 0) return { status: "broken", note: "verify:zero-title-confidence" };
+  /* Sauf PREUVE PAR ID (30/10/2026) : la fiche anime-sama affiche l'id AniList
+     de l'oeuvre, et l'inspection a verifie qu'il est dans la chaine des
+     saisons. Un slug francais sans un mot commun avec les titres AniList
+     (`les-carnets-de-lapothicaire` / « Kusuriya no Hitorigoto ») est alors
+     certain, pas suspect. */
+  if (conf <= 0 && !insp.idProof) return { status: "broken", note: "verify:zero-title-confidence" };
 
   /* Le juge exterieur. Une VF sur un titre que MyDubList ne donne pas double en
      francais signale presque toujours un slug qui pointe ailleurs — verifie une

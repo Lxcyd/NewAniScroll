@@ -2124,6 +2124,36 @@ const SLUG_TTL_S = 60 * 60;
    apparaitre sans attendre une heure. */
 const SLUG_MISS_TTL_S = 5 * 60;
 
+/** L'id AniList qu'affiche la fiche anime-sama d'un slug, ou null. */
+async function anilistIdDeLaFiche(slug) {
+  try {
+    const res = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
+    if (!res.ok) return null;
+    const m = (await res.text()).match(/anilist\.co\/anime\/(\d+)/);
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** L'anime demande et ses saisons precedentes (aretes PREQUEL, 12 sauts au
+ *  plus, garde d'annee comme le comptage des saisons). */
+async function idsDeLaChaine(aniId, mediaOpts = {}) {
+  const ids = new Set([Number(aniId)]);
+  let courant = Number(aniId);
+  for (let i = 0; i < 12 && courant; i++) {
+    const media = await getMediaMeta(courant, mediaOpts);
+    const yr = (x) => x?.seasonYear || x?.startDate?.year || null;
+    const prequel = (media?.relations?.edges || []).find(
+      (e) => e.relationType === "PREQUEL" && e.node?.id && !(yr(media) && yr(e.node) && yr(e.node) > yr(media)),
+    );
+    if (!prequel || ids.has(prequel.node.id)) break;
+    ids.add(prequel.node.id);
+    courant = prequel.node.id;
+  }
+  return ids;
+}
+
 async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
   const cacheKey = `${aniId}-${title}`;
   if (slugCache.has(cacheKey)) return slugCache.get(cacheKey);
@@ -2318,6 +2348,34 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
       chosen = slug;
       chosenScore = composite;
       chosenCouverture = couverture;
+    }
+  }
+
+  /* LA PREUVE PAR L'IDENTIFIANT (30/10/2026). Le score ci-dessus compare des
+     MOTS : il rejette tout slug francais dont aucun mot n'apparait dans les
+     titres AniList. Cas mesure : « Kusuriya no Hitorigoto 3rd Season » — la
+     recherche d'anime-sama renvoie bien `les-carnets-de-lapothicaire`, le score
+     vaut 0, la saison 3 n'avait donc aucun lecteur anime-sama alors que le site
+     en porte deux par langue.
+     Or chaque fiche anime-sama affiche le lien AniList de l'oeuvre
+     (`anilist.co/anime/<id>`, en general la saison 1). Quand le score n'a rien
+     retenu, on ouvre les premiers candidats et on accepte celui dont l'id
+     appartient a la chaine des saisons de la demande. Une preuve exacte, pas
+     une ressemblance — et seulement en dernier recours : un titre que le score
+     resolvait deja ne coute rien de plus. */
+  if (!chosen && candidates.size) {
+    try {
+      const chaine = await idsDeLaChaine(aniId, mediaOpts);
+      for (const slug of [...candidates.keys()].slice(0, 3)) {
+        const id = await anilistIdDeLaFiche(slug);
+        if (id && chaine.has(id)) {
+          dlog(`[anime-sama] slug ${slug} retenu par son id AniList ${id} (chaine de ${aniId})`);
+          chosen = slug;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn(`[anime-sama] preuve par id echouee pour ${aniId}:`, e?.message);
     }
   }
 
@@ -3598,6 +3656,12 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     const detailRes = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/`);
     if (!detailRes.ok) return out;
     const detailHtml = await detailRes.text();
+    /* La fiche porte l'id AniList de l'oeuvre : s'il est dans la chaine des
+       saisons de la demande, le slug est PROUVE, quels que soient ses mots
+       (le verificateur s'en sert a la place de la confiance par titre). */
+    const idFiche = Number(detailHtml.match(/anilist\.co\/anime\/(\d+)/)?.[1]) || null;
+    out.anilistIdFiche = idFiche;
+    out.idProof = !!idFiche && (await idsDeLaChaine(aniId, RO)).has(idFiche);
 
     const seasonMatches = [
       ...detailHtml.matchAll(/panneauAnime\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/g),
