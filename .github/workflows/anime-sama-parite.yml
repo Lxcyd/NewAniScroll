@@ -45,7 +45,8 @@ jobs:
         with:
           node-version: "22"
       - name: Install only what the scripts need
-        run: npm install --no-save @libsql/client@^0.17
+        # 3 essais : le 31/10 une tranche est morte sur un ENETUNREACH du registre npm.
+        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Copie d'anime-sama (tranche ${{ matrix.tranche }}/20)
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -71,7 +72,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install only what the scripts need
-        run: npm install --no-save @libsql/client@^0.17
+        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Parite et corrections
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
