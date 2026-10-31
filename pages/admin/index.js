@@ -9,6 +9,7 @@ const AdminReports = dynamic(() => import("@/components/admin/reports"));
 const UsersCard = dynamic(() => import("@/components/admin/dashboard/UsersCard"));
 const AuditCard = dynamic(() => import("@/components/admin/dashboard/AuditCard"));
 const SystemCard = dynamic(() => import("@/components/admin/dashboard/SystemCard"));
+const AdminStats = dynamic(() => import("@/components/admin/stats"));
 import { isAdminSession } from "@/lib/auth/isAdmin";
 import { getServerSession } from "next-auth";
 import { authOptions } from "pages/api/auth/[...nextauth]";
@@ -48,6 +49,7 @@ export default function Admin({ api }) {
         {page === 4 && <SystemCard />}
         {page === 5 && <AdminReports />}
         {page === 6 && <AuditCard />}
+        {page === 7 && <AdminStats />}
       </div>
     </AdminLayout>
   );

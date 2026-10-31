@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ChartBarIcon,
   ClipboardDocumentListIcon,
   CloudArrowUpIcon,
   Cog6ToothIcon,
@@ -18,6 +19,7 @@ import React from "react";
 //  - external links to standalone admin pages (href: string, real <Link>)
 const Navigation = [
   { name: "Dashboard",     page: 1, icon: <HomeIcon /> },
+  { name: "Statistiques",  page: 7, icon: <ChartBarIcon /> },
   { name: "Reports",       page: 5, icon: <FlagIcon /> },
   { name: "Metadata",      page: 2, icon: <CloudArrowUpIcon /> },
   { name: "Fanarts queue", href: "/admin/fanarts-review",   icon: <PhotoIcon /> },
