@@ -7,6 +7,12 @@
     "vidmoly-va": { "etat": "actif", "site": true, "lot": true },
     "sibnet":     { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "flux HS : propose ~85 % mais 3 reussites sur 483 essais du lot (07/10) ; deja HS au 08/08" },
     "uqload":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "retire du site a la demande de Luc ; 59 % de pannes au lot" },
-    "sendvid":    { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-08-31", "decide": "Luc", "raison": "sendvid.com repond 502 sur toutes ses urls" }
+    "sendvid":    { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-08-31", "decide": "Luc", "raison": "sendvid.com repond 502 sur toutes ses urls" },
+    "filemoon-va":   { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR MOON » de voir-anime (mfw09.org) : refuse tout site sauf voir-anime.to ; seul myTV (vidmoly-va) garde" },
+    "yourupload-va": { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR YU » de voir-anime : 29/30 vivants mais non retenu, seul myTV (vidmoly-va) garde" },
+    "mailru-va":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR FHD1 » de voir-anime : 22/30 vivants, non retenu, seul myTV (vidmoly-va) garde" },
+    "voe-va":        { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR VOE » de voir-anime : 11/30 vivants, deja ecarte ; seul myTV (vidmoly-va) garde" },
+    "streamtape-va": { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR Stape » de voir-anime : 6/30 vivants" },
+    "streamhide-va": { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR SB » de voir-anime : domaine streamhide.to mort (0/30)" }
   }
 }
