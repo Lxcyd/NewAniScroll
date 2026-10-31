@@ -104,6 +104,8 @@ for (const [ancre, g] of groupes) {
       attentes.push({
         id, lang: p.langue, slug: p.slug, decalage,
         etat: exacte ? "servie" : servie ? "contredite" : "manquante",
+        // Une AUTRE page : le visiteur voit peut-etre un autre anime. Meme page : seul le decalage est a confirmer.
+        autrePage: !!(servie && r.slug !== p.slug),
         sert: servie ? `${r.slug}+${r.ep_offset || 0}` : r ? r.status : "aucune ligne",
       });
     }
@@ -128,7 +130,15 @@ const morts = pages.reduce((a, p) => a + Number(p.nb_morts || 0), 0);
 console.log(`episodes dont le lien myTV est mort chez voir-anime : ${morts}`);
 
 /* ── Corrections ──────────────────────────────────────────────────────────── */
-const aFaire = [...par("contredite"), ...par("manquante")].sort(() => Math.random() - 0.5).slice(0, Number(args.corriger || 0));
+/* Priorites : d'abord les lignes qui servent une AUTRE page (le visiteur voit
+   peut-etre un autre anime, cf. Cyberpunk 2 cote anime-sama le 31/10), puis
+   les autres. Au hasard dans chaque groupe : chaque nuit ne reprend pas les memes echecs. */
+const auHasard = (l) => l.sort(() => Math.random() - 0.5);
+const aFaire = [
+  ...auHasard(attentes.filter((a) => a.autrePage)),
+  ...auHasard(attentes.filter((a) => a.etat !== "servie" && !a.autrePage)),
+].slice(0, Number(args.corriger || 0));
+console.log(`dont ${attentes.filter((a) => a.autrePage).length} servi(s) sur une AUTRE page (corriges en premier)`);
 const lignesRapport = [...par("contredite"), ...par("manquante")].slice(0, 200).map((a) =>
   `| ${a.etat} | ${a.id} | ${a.lang} | ${a.slug}+${a.decalage} | ${a.sert} |`);
 lignesRapport.slice(0, 30).forEach((l) => console.log(l));
