@@ -6,6 +6,46 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-31 — voir-anime copie comme anime-sama (myTV seul), et servi depuis la copie
+
+**Lecteurs de voir-anime** (200 episodes tires dans les sitemaps, 30 liens testes par lecteur) :
+myTV (voembed, famille vidmoly) 27/30 vivants ; MOON (mfw09 = FileMoon) refuse tout site sauf
+voir-anime.to ; YU (yourupload) 29/30 ; FHD1 (mail.ru) 22/30 ; VOE 11/30 ; Stape 6/30 ; SB
+(streamhide) domaine mort. **Luc garde myTV seul.** Doublons avec anime-sama : aucun lien commun,
+mais MEME episode, MEME source (duree identique a la milliseconde sur 5 paires), upload distinct et
+qualite parfois differente — utile comme roue de secours, pas comme second chip.
+
+**Copie** (`tools/voir-anime/copie.mjs`, table `va_page`, une ligne par page) : sitemaps (lastmod
+par page : seule une page modifiee est relue), titres AniList de la page (natif, romaji, type, date
+de debut), episodes numerotes comme les lit `buildVoiranimeEpRegex`, lien myTV de chaque page
+d'episode, controle avec la doctrine du temoin d'anime-sama. Tout en direct, sans le Worker.
+**Ancre** : voir-anime n'affiche pas d'id ; l'entree AniList de meme titre (romaji, natif, anglais
+ou synonyme) ET de meme date de debut (± 1 jour : SNK Final Season est datee la veille chez eux).
+59 pages sur 60 ancrees sur l'echantillon. La page Kimetsu 2 VF annonce Yuukaku-hen avec la date
+de Mugen Ressha-hen : pas d'ancre, plutot qu'une ancre fausse.
+
+**Parite** (`tools/voir-anime/parite.mjs`) : pages groupees par ancre (VOSTFR + VF), alignees par
+nombre d'episodes sur la chaine SEQUEL (`alignement.mjs` d'anime-sama). Decalage dans la
+numerotation de la page. SNK saison 3 : une page de 22 ep. = S3 (12) + Part 2 (10, decalage 12).
+Le verificateur accepte `id:lang@slug+decalage!` (`--source=voiranime`) et ecrit
+`verify:alignement-voir-anime`, MEME quand le resolveur est d'accord : seule cette note dit au site
+de prendre le decalage tel quel (0 compris) au lieu de le recalculer (`voiranimeChainOffset`
+ajoutait les episodes de la Part 1 a une Part 2 qui a sa propre page).
+
+**Le chip voir-anime ne sortait plus.** Voir-anime repond **503 au Worker** sur toutes ses pages
+(robots.txt passe) et refusait deja Vercel : le resolveur ne lisait plus ni la liste des episodes ni
+la page d'un episode. Le site lit desormais le lien myTV dans la copie (`lib/db/vaPage.ts`, une
+ligne par cle, cache 10 min) ; slug par `player_map`, sinon par l'ancre de la copie, qui l'emporte
+aussi sur un `absent`/`broken`. Un episode pas encore copie passe par l'ancien chemin. Effet de bord
+du blocage : le verificateur de nuit passait en `absent` les lignes dont la liste etait illisible
+(229 le 30/10, 2 468 `absent` voir-anime au total) — un slug trouve sans episodes est desormais
+« inconnu », et `warm-player-map` lit le script de dev. Les lignes d'alignement ne sont plus
+rejugees par le resolveur (`--from=due`) : elles appartiennent a la parite.
+
+Nuit : jobs `copie-va` (20 tranches) et `parite-va` apres anime-sama dans
+`anime-sama-parite.yml` (20 machines a la fois au plus chez GitHub). Lancement manuel :
+`sources=voir-anime`, `budget_va` pour tout controler d'un coup.
+
 ## 2026-10-30 (soir) — Copie d'anime-sama controlee, et ansembed qui ment en 404
 
 `tools/anime-sama/copie.mjs` copie chaque nuit, pour les seuls lecteurs valides (famille vidmoly),

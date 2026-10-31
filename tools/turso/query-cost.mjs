@@ -202,6 +202,22 @@ const CASES = [
     max: 50,
   },
   {
+    name: "page voir-anime copiee (va_page par slug)",
+    db: "cache",
+    source: ["lib/db/vaPage.ts", "FROM va_page WHERE slug = ?"],
+    sql: "SELECT slug, num_min, episodes FROM va_page WHERE slug = ?",
+    args: ["one-piece"],
+    max: 5,
+  },
+  {
+    name: "page voir-anime ancree sur un anime (va_page par ancre)",
+    db: "cache",
+    source: ["lib/db/vaPage.ts", "FROM va_page WHERE anilist = ? AND langue = ? LIMIT 2"],
+    sql: "SELECT slug FROM va_page WHERE anilist = ? AND langue = ? LIMIT 2",
+    args: [21, "vostfr"],
+    max: 5,
+  },
+  {
     name: "correspondance TMDB d'un anime (fribb_map)",
     db: "cache",
     source: ["lib/fribb/fribbMap.ts", "FROM fribb_map WHERE anilist_id = ? LIMIT 1"],

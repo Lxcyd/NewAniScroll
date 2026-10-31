@@ -4,6 +4,7 @@ import { getClientIp } from "@/lib/net/clientIp";
 import { getExtractor, VIDMOLY_HOST_RE, ouvreEncMegaplay } from "@/lib/extractors";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { getPlayerMap, getPlayerMapEntry, upsertPlayerMap, flagPlayerMap } from "@/lib/db/playerMap";
+import { getVaPage, getVaSlugParAncre, vaEpisode } from "@/lib/db/vaPage";
 import { frembedPeutAvoir } from "@/lib/db/frembedCatalog";
 import { getFribbEntry, lookupFribbEntry } from "@/lib/fribb/fribbMap";
 import { resolveSeasonNumber } from "@/lib/anilist/resolveSeason";
@@ -2771,7 +2772,11 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
     if (
       mapRow &&
       (mapRow.status === "absent" || mapRow.status === "broken") &&
-      mapRow.expiresAt > nowS
+      mapRow.expiresAt > nowS &&
+      /* Sauf si la COPIE a une page ancree sur cet anime (meme titre, meme date
+         de debut) : c'est une preuve plus forte qu'un « introuvable » du
+         verificateur, qui ne peut plus lire voir-anime depuis fin octobre. */
+      !(await getVaSlugParAncre(aniId, lang))
     ) {
       dlog(`[voiranime] player_map says ${mapRow.status} for ${aniId}/${lang} — skipping`);
       return null;
@@ -2822,6 +2827,17 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
 
     let slug = mappedSlug;
     let viaPrequelOffset = 0;
+    /* Pas de correspondance : la page que la COPIE a ancree sur cet anime (meme
+       titre et meme date de debut sur AniList, lib/db/vaPage.ts). Elle ne
+       demande aucune requete a voir-anime, qui refuse aujourd'hui le Worker. */
+    let pageAncree = null;
+    if (!slug) {
+      const s = await getVaSlugParAncre(aniId, lang);
+      if (s) {
+        pageAncree = await getVaPage(s);
+        if (pageAncree) slug = s;
+      }
+    }
     if (!slug) {
       const seasonNum = await detectSeasonNumber(aniId);
       slug = await findVoiranimeSlug(title, aniId, isVF, seasonNum);
@@ -2861,8 +2877,19 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
      * il se constate sur la page, donc il s'ecrit dans player_map.
      * Le champ existait deja et n'etait lu que par le chemin anime-sama. */
     const mappedOffset = mappedSlug ? Number(mapRow?.epOffset) || 0 : 0;
-    const chainOffset =
-      mappedOffset || viaPrequelOffset || (await voiranimeChainOffset(aniId));
+    /* Une ligne ecrite par l'ALIGNEMENT (tools/voir-anime/parite.mjs : episodes
+     * de la page comptes contre AniList) porte le decalage CONSTATE, zero
+     * compris : on ne le recalcule pas. Sinon une « Part 2 » qui a sa propre
+     * page numerotee depuis 1 se voyait ajouter les episodes de la Part 1.
+     * Les autres lignes `verified` gardent l'ancien calcul : celles du
+     * verificateur ont toujours un decalage 0 et comptent dessus. */
+    // Page ancree : l'episode 1 de l'anime est le premier de la page.
+    const chainOffset = pageAncree
+      ? pageAncree.numMin - 1
+      : mappedSlug && mapRow.status === "verified" &&
+        (mapRow.note || "").startsWith("verify:alignement-voir-anime")
+        ? mappedOffset
+        : mappedOffset || viaPrequelOffset || (await voiranimeChainOffset(aniId));
     const wantedEpisode = Number(episode) + chainOffset;
     if (chainOffset > 0) {
       dlog(`[voiranime] ${aniId} is a later part: ep ${episode} → ${wantedEpisode}`);
@@ -2897,6 +2924,27 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       ? getEpisodeParts(aniId, "voiranime", lang, episode)
       : null;
     const partRegex = partLetters ? buildVoiranimeEpPartRegex(slug) : null;
+
+    /* ── Le lien myTV lu dans la COPIE (lib/db/vaPage.ts) ──────────────────
+       Deja controle par la copie : un lien mort n'est pas propose. Un episode
+       que la copie n'a pas encore (sorti depuis la derniere nuit) passe par le
+       chemin d'avant, qui lit voir-anime en direct quand il le peut. */
+    if (!partLetters && serverDef.host.includes("voembed.net")) {
+      const page = pageAncree || (await getVaPage(slug));
+      const ep = page ? vaEpisode(page, wantedEpisode) : null;
+      if (ep) {
+        if (!ep.lien || ep.etat === "mort") {
+          dlog(`[voiranime] copie : ep ${wantedEpisode} de ${slug} ${ep.lien ? "mort" : "sans myTV"}`);
+          return null;
+        }
+        if (!(await isVidmolyEmbedAlive(ep.lien))) {
+          throw new HardAbsenceError(`vidmoly upload deleted: ${ep.lien}`);
+        }
+        dlog(`[voiranime] copie : ep ${wantedEpisode} de ${slug} -> ${ep.lien}`);
+        if (trace) trace.copie = { slug, episode: wantedEpisode, etat: ep.etat };
+        return { clientExtract: { type: "vidmoly", embedUrl: ep.lien }, iframe: ep.lien };
+      }
+    }
 
     /** The part URLs for `episode`, in playback order — or null if any is missing. */
     const collectParts = (html) => {

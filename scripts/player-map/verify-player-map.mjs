@@ -83,7 +83,10 @@ const IMPOSER = !!args["imposer-alignement"];
 function lireAttendu(a) {
   // `!` final : fiche alignee de bout en bout (cf. `complet` dans alignement.mjs).
   const m = String(a || "").match(/^(.+)\/([^/+!]+)(?:\+(\d+))?(!)?$/);
-  return m ? { slug: m[1], dossier: m[2], decalage: Number(m[3] || 0), complet: !!m[4] } : null;
+  if (m) return { slug: m[1], dossier: m[2], decalage: Number(m[3] || 0), complet: !!m[4] };
+  // voir-anime : `slug+decalage[!]`, pas de dossier (une page = une saison, une langue).
+  const v = String(a || "").match(/^([^/+!]+)(?:\+(\d+))?(!)?$/);
+  return v ? { slug: v[1], dossier: null, decalage: Number(v[2] || 0), complet: !!v[3] } : null;
 }
 /* Quelle liste de travail : les lignes echues (defaut), les lignes semees que
    personne n'a jamais controlees (`seed`), ou les titres que MyDubList donne
@@ -274,10 +277,11 @@ if (ONLY_IDS) {
   const paires = new Set(ID_PAIRES.filter(([, l]) => l).map(([i, l]) => `${Number(i)}:${l}`));
   rows = rows.filter((r) => !avecLangue.has(Number(r.ani_id)) || paires.has(`${Number(r.ani_id)}:${r.lang}`));
   const existe = new Set(rows.map((r) => `${r.ani_id}:${r.source}:${r.lang}`));
+  const sourceDemandee = SEULE_SOURCE || "animesama";
   for (const [i, lang] of ID_PAIRES) {
-    if (lang && !existe.has(`${Number(i)}:animesama:${lang}`)) {
-      rows.push({ ani_id: Number(i), source: "animesama", lang });
-      existe.add(`${Number(i)}:animesama:${lang}`);
+    if (lang && !existe.has(`${Number(i)}:${sourceDemandee}:${lang}`)) {
+      rows.push({ ani_id: Number(i), source: sourceDemandee, lang });
+      existe.add(`${Number(i)}:${sourceDemandee}:${lang}`);
     }
   }
 } else if (FROM === "seed") {
@@ -315,9 +319,13 @@ if (ONLY_IDS) {
   }
   console.log(`[verify] --from=mydublist : ${cands.length} titres candidats, ${Math.min(cands.length, LIMIT)} pris`);
 } else {
+  /* Les lignes d'ALIGNEMENT (anime-sama, voir-anime) appartiennent a la
+     parite de nuit (tools/anime-sama et tools/voir-anime, parite.mjs), qui les recontrole contre la copie :
+     le resolveur par titres n'a pas a les rejuger. */
   rows = (await db.execute({
     sql: `SELECT * FROM player_map
-           WHERE expires_at < ? OR status = 'heuristic'
+           WHERE (expires_at < ? OR status = 'heuristic')
+             AND (note IS NULL OR note NOT LIKE 'verify:alignement-%')
            ORDER BY expires_at ASC LIMIT ?`,
     args: [now, LIMIT],
   })).rows;
@@ -382,6 +390,11 @@ async function inspect(aniId, source, lang) {
 
 function judge(aniId, source, lang, insp, sibling, meta) {
   if (!insp) return null; // transient — leave the row alone
+  /* voir-anime : un slug trouve SANS liste d'episodes, c'est une page qu'on n'a
+     pas pu lire (voir-anime repond 503 au Worker depuis fin octobre 2026), pas
+     une page vide — une vraie page anime en porte toujours. Avant, chaque nuit
+     passait ces lignes en `absent` (229 le 30/10), ce qui bloquait le chip. */
+  if (source === "voiranime" && insp.slug && !insp.found) return null;
   if (!insp.found || !insp.slug) return { status: "absent", note: "verify:not-found" };
   if (source === "animesama" && !insp.chosenSeasonDir) return { status: "absent", note: "verify:no-panel" };
 
@@ -531,20 +544,35 @@ async function worker() {
     for (const lang of langs) {
       const v = inspections[lang].judged;
       if (!v) { tally["skipped:transient"] = (tally["skipped:transient"] || 0) + 1; continue; }
-      const attendu = g.source === "animesama" ? lireAttendu(PANNEAU_ATTENDU.get(`${g.aniId}:${lang}`)) : null;
+      const attendu = lireAttendu(PANNEAU_ATTENDU.get(`${g.aniId}:${lang}`));
       const sansVf = (s) => String(s || "").replace(/-vf$/, "");
-      const pareil = attendu && v.status === "verified" && sansVf(v.slug) === sansVf(attendu.slug) &&
-        v.seasonDir === attendu.dossier && Number(v.epOffset || 0) === attendu.decalage;
+      const va = g.source === "voiranime";
+      /* voir-anime : la page VF a son propre slug (`-vf`), il se compare tel
+         quel ; et l'inspection ne rend pas de decalage (le site le calcule a
+         l'execution), donc seul un attendu SANS decalage peut lui donner raison. */
+      const pareil = attendu && v.status === "verified" && (va
+        ? v.slug === attendu.slug && attendu.decalage === 0
+        : sansVf(v.slug) === sansVf(attendu.slug) && v.seasonDir === attendu.dossier && Number(v.epOffset || 0) === attendu.decalage);
+      const lu = (x) => (x.dossier ? `${x.slug}/${x.dossier}+${x.decalage}` : `${x.slug}+${x.decalage}`);
+      /* voir-anime, resolveur d'accord : on ecrit quand meme la ligne
+         d'ALIGNEMENT. Seule sa note dit au site de prendre le decalage tel quel
+         (0 compris) au lieu de le recalculer (pages/api/v2/source). */
+      if (va && attendu?.complet && pareil) {
+        inspections[lang].judged = {
+          status: "verified", note: "verify:alignement-voir-anime",
+          slug: attendu.slug, seasonDir: null, epOffset: attendu.decalage, episodeCount: null, confidence: 1,
+        };
+      }
       if (attendu && !pareil) {
-        const dit = v.status === "verified" ? `${v.slug}/${v.seasonDir}+${v.epOffset || 0}` : `${v.status} (${v.note})`;
+        const dit = v.status === "verified" ? lu({ slug: v.slug, dossier: v.seasonDir, decalage: v.epOffset || 0 }) : `${v.status} (${v.note})`;
         if (!IMPOSER || !attendu.complet) {
           tally["conflit-parite"] = (tally["conflit-parite"] || 0) + 1;
-          console.log(`CONFLIT ${g.aniId} ${lang} : resolveur ${dit}, alignement ${attendu.complet ? "" : "partiel "}${attendu.slug}/${attendu.dossier}+${attendu.decalage} — rien d'ecrit`);
+          console.log(`CONFLIT ${g.aniId} ${lang} : resolveur ${dit}, alignement ${attendu.complet ? "" : "partiel "}${lu(attendu)} — rien d'ecrit`);
           continue;
         }
-        console.log(`ALIGNEMENT ${g.aniId} ${lang} : resolveur ${dit} -> ${attendu.slug}/${attendu.dossier}+${attendu.decalage}`);
+        console.log(`ALIGNEMENT ${g.aniId} ${lang} : resolveur ${dit} -> ${lu(attendu)}`);
         inspections[lang].judged = {
-          status: "verified", note: "verify:alignement-anime-sama",
+          status: "verified", note: va ? "verify:alignement-voir-anime" : "verify:alignement-anime-sama",
           slug: attendu.slug, seasonDir: attendu.dossier, epOffset: attendu.decalage,
           episodeCount: null, confidence: 1,
         };

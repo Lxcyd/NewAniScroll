@@ -1,4 +1,4 @@
-# Chaque nuit : copie d'anime-sama (lecteurs valides seulement, liens controles)
+# Chaque nuit : copie d'anime-sama puis de voir-anime (lecteurs valides seulement, liens controles)
 # puis sentinelle de parite, qui fait reverifier les ecarts.
 #
 # tools/anime-sama/copie.mjs  -> table as_panneau (ce qui change seulement)
@@ -27,9 +27,19 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      sources:
+        description: "Quelles copies lancer"
+        type: choice
+        options: [toutes, anime-sama, voir-anime]
+        default: toutes
+      budget_va:
+        description: "voir-anime : liens hors temoins controles par tranche"
+        default: "3000"
 
 jobs:
   copie:
+    if: ${{ github.event_name == 'schedule' || inputs.sources != 'voir-anime' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -61,7 +71,7 @@ jobs:
   parite:
     needs: copie
     # Meme si une tranche a echoue : la table garde l'etat d'avant.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.sources != 'voir-anime') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -82,3 +92,58 @@ jobs:
         # devinette par titres du resolveur. Alignement partiel : on n'ecrit
         # que si le resolveur conclut pareil.
         run: node tools/anime-sama/parite.mjs --corriger=400 --imposer --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
+
+  # ── voir-anime, lecteur myTV (voembed, famille vidmoly) ─────────────────────
+  # APRES anime-sama : GitHub ne fait tourner que 20 machines a la fois. Meme
+  # doctrine : tools/voir-anime/copie.mjs (table va_page, tout en direct, aucun
+  # appel au Worker) puis tools/voir-anime/parite.mjs. Voembed est le meme
+  # reseau qu'ansembed (limite par IP), d'ou les vingt tranches.
+  copie-va:
+    needs: parite
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.sources != 'anime-sama') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        tranche: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Install only what the scripts need
+        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+      - name: Copie de voir-anime (tranche ${{ matrix.tranche }}/20)
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: >-
+          node tools/voir-anime/copie.mjs --toutes --ecrire
+          --tranche=${{ matrix.tranche }}/20 --concurrence=4 --paralleles=3
+          --budget-vie=${{ inputs.budget_va || '3000' }} --md="$GITHUB_STEP_SUMMARY"
+
+  parite-va:
+    needs: copie-va
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.sources != 'anime-sama') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Install only what the scripts need
+        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+      - name: Parite voir-anime et corrections
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        # --imposer : la page alignee sur AniList (ancre titre+date, nombres
+        # d'episodes exacts) l'emporte sur la devinette par titres du resolveur.
+        run: node tools/voir-anime/parite.mjs --corriger=400 --imposer --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
