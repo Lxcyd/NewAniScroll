@@ -1,20 +1,22 @@
-# Wallhaven : etiquetage des images deja aspirees, et increment quotidien.
+# Wallhaven : TOUTE la categorie Anime, etiquetee, attribuee aux animes par ses tags.
 #
-# tools/wallhaven/tags.mjs — une requete par image (tags -> facettes de la
-# galerie et verification de serie). ~121 000 images a faire au 31/10/2026 ;
-# Wallhaven permet 45 requetes / minute, le script en fait 40 : ~50 h de
-# travail. TROIS creneaux de 5 h 20 par jour, HORS de la nuit (03:17-08:00 UTC)
-# ou les copies anime-sama / voir-anime prennent les 20 machines que GitHub
-# accorde : ~38 000 images par jour, termine en ~3 jours. Ensuite chaque
-# creneau ne trouve plus rien a faire et s'arrete en quelques minutes.
+# Chaine (31/10/2026, cf. tools/wallhaven/socle.mjs `preparerChaine`) :
+#   1. catalogue.mjs --complet : les 88 625 images de la categorie Anime aux
+#      filtres de la galerie (3 693 pages, ~1 h 35, reprenable) ; une fois fini,
+#      les pages recentes seulement (nouveautes + favoris de moins de 30 jours).
+#   2. etiquette.mjs : une requete par image (ses tags), les plus aimees d'abord.
+#   3. attribuer.mjs : tags -> titres AniList -> franchise, dans wallhaven_image
+#      (la table que lit la galerie). Aucune requete a Wallhaven.
 #
-# tools/wallhaven/quotidien.mjs — nouveautes des titres en cours + relecture
-# des favoris recents (~9 min), au premier creneau seulement.
+# Wallhaven permet 45 requetes / minute, les scripts en font 40, une seule
+# machine a la fois (`concurrency`). TROIS creneaux de 5 h 20 par jour, HORS de
+# la nuit (03:17-08:00 UTC) ou les copies anime-sama / voir-anime prennent les
+# 20 machines que GitHub accorde. ~88 000 images a etiqueter : ~3 jours, puis
+# chaque creneau n'a plus que l'increment et s'arrete en quelques minutes.
 #
-# Cout : ~18 lignes Turso ecrites par image (l'image + ses tags bruts), soit
-# ~2,2 M au total sur 10 M d'ecritures par mois ; lectures negligeables. Depot
-# public : minutes GitHub gratuites. Jamais deux creneaux a la fois
-# (`concurrency`) : ils partagent le curseur.
+# Cout Turso : ~20 lignes ecrites par image etiquetee (l'image, ses tags, ses
+# lignes de galerie), ~2 M au total sur 10 M d'ecritures par mois ; lectures
+# ~30 000 par creneau. Depot public : minutes GitHub gratuites.
 #
 # Secrets : TURSO_DATABASE_URL / TURSO_AUTH_TOKEN, TURSO_FANARTS_*.
 
@@ -50,18 +52,28 @@ jobs:
         # package.json mis de cote le temps de l'installation (sinon npm installe
         # tout le site) puis remis : lib/wallhaven/criteres.js est un module ES.
         run: mv package.json /tmp/pkg.json; rm -f package-lock.json; ok=1; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && ok=0 && break; sleep 20; done; mv /tmp/pkg.json package.json; exit $ok
-      - name: Increment quotidien
-        if: ${{ github.event.schedule == '10 8 * * *' }}
+      - name: Catalogue
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
           TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
-        run: node tools/wallhaven/quotidien.mjs
+        run: echo "DEBUT=$(date +%s)" >> "$GITHUB_ENV" && node tools/wallhaven/catalogue.mjs --complet --minutes=110
       - name: Etiquetage
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
           TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
-        run: node tools/wallhaven/tags.mjs --minutes=${{ inputs.minutes || '320' }}
+        # Le reste du creneau, moins 15 min pour l'attribution.
+        run: |
+          RESTE=$(( ${{ inputs.minutes || '320' }} - ($(date +%s) - DEBUT) / 60 - 15 ))
+          [ "$RESTE" -gt 5 ] && node tools/wallhaven/etiquette.mjs --minutes=$RESTE || echo "creneau epuise"
+      - name: Attribution
+        if: ${{ !cancelled() }}
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+        run: node tools/wallhaven/attribuer.mjs
