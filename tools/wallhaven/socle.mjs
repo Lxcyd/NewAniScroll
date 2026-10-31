@@ -137,6 +137,71 @@ export async function ecrireCurseur(db, tache, curseur, note = null) {
   }
 }
 
+/* ── Les tables de la chaine « catalogue -> etiquette -> attribuer » ──────────
+   (31/10/2026). Avant, on cherchait anime par anime avec son titre : 34 690
+   images distinctes sur 88 625 que Wallhaven a dans la categorie Anime aux
+   filtres de la galerie — « Attack on Titan Season 2 », « Howl s Moving
+   Castle » ou « HAIKYU » ne rendaient rien. On prend maintenant TOUTE la
+   categorie, on etiquette chaque image une fois, et ce sont ses tags qui
+   disent a quels animes elle appartient. */
+export async function preparerChaine(db) {
+  await preparerProgres(db);
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS wallhaven_brut (
+      wh_id         TEXT PRIMARY KEY,
+      favorites     INTEGER NOT NULL,
+      views         INTEGER,
+      width         INTEGER NOT NULL,
+      height        INTEGER NOT NULL,
+      path          TEXT NOT NULL,
+      thumb         TEXT NOT NULL,
+      source        TEXT,
+      colors        TEXT,
+      wh_created_at TEXT,
+      fetched_at    INTEGER NOT NULL,
+      facet_type    TEXT,
+      has_character INTEGER,
+      is_scenery    INTEGER,
+      tagged_at     INTEGER,
+      attribue_at   INTEGER
+    )`);
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_whb_atag ON wallhaven_brut(tagged_at, favorites DESC)");
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_whb_attr ON wallhaven_brut(attribue_at)");
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS wallhaven_tag_def (
+      tag_id      INTEGER PRIMARY KEY,
+      name        TEXT NOT NULL,
+      alias       TEXT,
+      category    TEXT,
+      category_id INTEGER
+    )`);
+  // L'attribution relit les lignes d'une image : il faut pouvoir la trouver par son id.
+  await db.execute("CREATE INDEX IF NOT EXISTS idx_wh_whid ON wallhaven_image(wh_id)");
+}
+
+/** Un resultat de recherche Wallhaven -> les colonnes communes aux deux tables d'images. */
+export function colonnesImage(w) {
+  return {
+    wh_id: String(w.id),
+    favorites: Number(w.favorites) || 0,
+    views: Number(w.views) || 0,
+    width: Number(w.dimension_x) || 0,
+    height: Number(w.dimension_y) || 0,
+    path: String(w.path || ""),
+    thumb: String(w.thumbs?.large || w.thumbs?.original || w.thumbs?.small || ""),
+    source: w.source ? String(w.source) : null,
+    colors: JSON.stringify(w.colors || []),
+    wh_created_at: w.created_at ? String(w.created_at) : null,
+  };
+}
+
+/** --minutes=N : l'heure a laquelle s'arreter proprement (creneau GitHub Actions). */
+export function finDeCreneau(args) {
+  const a = args.find((x) => x.startsWith("--minutes="));
+  const m = a ? Number(a.slice(10)) : 0;
+  return m ? Date.now() + m * 60_000 : Infinity;
+}
+
 /* ── Parcourir le catalogue sans le charger d'un bloc ─────────────────────── */
 
 /**

@@ -6,6 +6,29 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-31 — Wallhaven : toute la categorie Anime, attribuee par les tags
+
+Etat trouve : l'aspiration du 13/09 avait tourne une fois, puis plus rien (ni tags, ni increment).
+Et elle ne trouvait que **34 690 images distinctes sur 88 625** que Wallhaven a dans la categorie
+Anime aux filtres de la galerie (SFW, paysage, >= 1920x1080) : elle cherchait anime par anime avec
+le titre anglais, et Wallhaven ne rend rien pour « Attack on Titan Season 2 », « Howl s Moving
+Castle » (apostrophe aplatie) ou « HAIKYU » (au lieu de « Haikyuu ») — 170 des 500 animes les plus
+populaires sans une image. Les 126 000 lignes de `wallhaven_image` comptaient chaque image une fois
+par membre de franchise ; l'ancien etiquetage refaisait donc la meme requete ~3,5 fois.
+
+Nouvelle chaine (workflow `wallhaven`, 3 creneaux de jour, 40 requetes/min) :
+`catalogue.mjs` (toute la categorie dans `wallhaven_brut`, 3 693 pages) -> `etiquette.mjs` (une
+requete par image, les plus aimees d'abord, rien sous 4 favoris : jamais affichable) ->
+`attribuer.mjs` (aucune requete : tags et leurs alias -> titres AniList exacts -> franchise par les
+relations SEQUEL/PREQUEL/PARENT/SIDE_STORY/SUMMARY). La galerie lit toujours `wallhaven_image` :
+rien ne change cote site. Regles fixees sur un essai de 90 images : nom complet seulement dans les
+categories qui rangent des oeuvres (Series, Anime & Manga, Movies, Games…) — `umbrella`, « looking
+back » et l'alias `pigtails` de « twintails » donnaient des animes homonymes ; la parenthese d'un
+personnage compte toujours (« Guts (Berserk) ») ; tags `(hentai)` ignores. 64 des 90 images ne
+nomment aucune serie (personnages originaux) : elles n'appartiennent a aucun anime, c'est attendu.
+Anciennes lignes de la recherche par titre : gardees si les tags confirment la serie, retirees s'ils
+la dementent. crawl/tags/quotidien.mjs marques remplaces.
+
 ## 2026-10-20 — Studio : un épisode en fond de profil
 
 Le menu Vidéo passe en accordéon comme Image : un anime ouvert déplie sa bande-annonce puis tous ses épisodes (/api/v2/episode). Un épisode choisi se découpe au rail de la barre, et un menu Lecteur ne propose que les lecteurs qui ont l'épisode, langue entre crochets ([VOSTFR], [VF], [MULTI]).

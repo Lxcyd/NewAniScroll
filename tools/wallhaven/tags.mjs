@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 /**
+ * ⛔ REMPLACE le 31/10/2026 par catalogue.mjs -> etiquette.mjs -> attribuer.mjs
+ * (workflow `wallhaven`). La recherche par titre ne trouvait que 34 690 des
+ * 88 625 images de la categorie Anime. Garde pour l'histoire ; ne plus lancer.
+ *
  * Enrichissement : va chercher les tags de chaque image et en derive les
  * facettes et la verification de serie.
  *
