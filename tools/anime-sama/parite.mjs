@@ -25,7 +25,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createClient } from "@libsql/client";
 import {
-  aligner, chaineSequel, saisonsOrdonnees,
+  aligner, chaineSequel, saisonsOrdonnees, suitesPossibles,
   GENRES_HORS_SAISON, LIENS_FRANCHISE, panneauxGenre, chaineGenre,
 } from "./alignement.mjs";
 
@@ -90,7 +90,8 @@ for (const p of panneaux) {
 let frontiere = [...new Set([...fiches.values()].map((f) => f.id))];
 for (let niveau = 0; niveau < 30 && frontiere.length; niveau++) {
   await chargerLot(frontiere);
-  frontiere = frontiere.map((id) => MEDIA.get(id)?.relations?.edges?.find((e) => e.relationType === "SEQUEL" && ["TV", "TV_SHORT", "ONA"].includes(e.node?.format))?.node?.id)
+  // Toutes les SEQUEL, pas seulement TV : un detour par un film mene a la saison suivante.
+  frontiere = [...new Set(frontiere.flatMap((id) => suitesPossibles(MEDIA.get(id))))]
     .filter((id) => id && !MEDIA.has(id));
 }
 
@@ -131,7 +132,8 @@ for (const [slug, f] of fiches) {
   for (const g of GENRES_HORS_SAISON) {
     const pans = panneauxGenre(dossiers, g.re).map((d) => ({ dossier: d, nbEp: f.nbEp.get(d) }));
     if (!pans.length) continue;
-    const a = aligner(pans, chaineGenre(membres, g.formats));
+    // Films : strict (un film ancien absent chez eux decalerait tous les suivants).
+    const a = aligner(pans, chaineGenre(membres, g.formats), { decalageAuxBouts: false });
     if (a.complet) for (const [id, x] of a) toutes.push({ id, ...x, complet: true });
   }
   const dossiersAlignes = new Set(toutes.map((a) => a.dossier));

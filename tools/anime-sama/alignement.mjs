@@ -35,12 +35,25 @@ export function saisonsOrdonnees(dossiers) {
  *   peut tomber juste par coincidence quand un cote a une saison que l'autre
  *   n'a pas (Fumoffu, absent de la chaine AniList de Full Metal Panic).
  */
-export function aligner(saisons, chaine) {
+export function aligner(saisons, chaine, { decalageAuxBouts = true } = {}) {
   const out = new Map();
   out.complet = false;
-  let alignees = 0;
+  let alignees = 0, vides = 0;
   let i = 0;
+  let rompu = false; // un compte faux (et non une chaine epuisee) a arrete l'alignement
+  let rang = -1, rangRompu = -1;
   for (const s of saisons) {
+    rang++;
+    /* Panneau VIDE (affiche par la fiche, episodes.js vide — Diabolik Lovers
+       saison1, The Outcast saison4, 31/10/2026) : il tient la place d'UNE
+       entree AniList, sans rien servir. Sans lui, tout ce qui suit glissait. */
+    if (!s.nbEp) {
+      if (i >= chaine.length) break;
+      i++;
+      vides++;
+      continue;
+    }
+    const debut = i;
     let somme = 0;
     const membres = [];
     while (i < chaine.length && somme < s.nbEp) {
@@ -49,7 +62,7 @@ export function aligner(saisons, chaine) {
       // reste — et jamais comme complement d'une saison deja entamee (Black Clover :
       // 170 ep. AniList, 171 chez eux, la suite en cours etait avalee).
       if (e.episodes == null) {
-        if (i !== chaine.length - 1 || membres.length) return out;
+        if (i !== chaine.length - 1 || membres.length) { rompu = true; rangRompu = rang; i = debut; membres.length = 0; break; }
         membres.push({ id: e.id, decalage: somme });
         somme = s.nbEp;
         i++;
@@ -59,7 +72,8 @@ export function aligner(saisons, chaine) {
       somme += e.episodes;
       i++;
     }
-    if (!membres.length) break;
+    if (rompu) break;
+    if (!membres.length) break; // chaine epuisee : anime-sama a des saisons qu'AniList n'a pas (encore)
     const derniereEnCours = chaine[i - 1]?.status === "RELEASING";
     /* Juste = EXACTEMENT. Une tolerance d'un episode faisait coller The Second
        Raid (13 ep.) sur la saison 2 de Full Metal Panic (Fumoffu, 12 ep., absent
@@ -67,12 +81,29 @@ export function aligner(saisons, chaine) {
        courantes. Seule exception : anime-sama en retard sur une entree en cours
        de diffusion. Tout autre ecart : on s'arrete, sans attente. */
     const juste = somme === s.nbEp || (somme > s.nbEp && derniereEnCours);
-    if (!juste) break;
+    if (!juste) { rompu = true; rangRompu = rang; i = debut; break; }
     for (const m of membres) out.set(m.id, { dossier: s.dossier, decalage: m.decalage });
     alignees++;
   }
   const reste = chaine.slice(i).filter((e) => e.status !== "NOT_YET_RELEASED");
-  out.complet = alignees === saisons.length && saisons.length > 0 && reste.length === 0;
+  const toutesLesSaisons = alignees + vides === saisons.length;
+  const chaineEpuisee = reste.length === 0;
+  /* COMPLET (seul cas qui peut contredire le resolveur) :
+     - toutes les saisons alignees ET la chaine epuisee ; ou, pour les saisons
+       (`decalageAuxBouts`), un seul bout qui depasse, jamais un compte faux :
+     - toutes les saisons d'anime-sama alignees, AniList a des saisons de plus
+       a la fin (pas encore mises en ligne chez eux : Fairies Album) ;
+     - toute la chaine AniList consommee, anime-sama a des saisons de plus a la
+       fin (pas encore sur AniList, ou hors chaine : ORIENT).
+     Un alignement arrete par un compte FAUX reste partiel (Full Metal Panic,
+     faux des sa saison 2) — sauf sur la DERNIERE saison d'anime-sama, qui
+     ajoute souvent des speciaux a la fin (L'Attaque des Titans saison4 : 30
+     ep. pour 16 + 12 sur AniList) : tout ce qui precede est exact. */
+  const rompuAuBout = rompu && rangRompu === saisons.length - 1;
+  out.complet = alignees > 0 && (
+    (!rompu && toutesLesSaisons && chaineEpuisee) ||
+    (decalageAuxBouts && ((!rompu && (toutesLesSaisons || chaineEpuisee)) || rompuAuBout))
+  );
   return out;
 }
 
@@ -119,7 +150,19 @@ export async function chaineSequel(id, media, max = 30) {
     const m = await media(cur);
     if (!m || m.status === "NOT_YET_RELEASED") break; // annonce : pas chez anime-sama
     chaine.push({ id: m.id, episodes: m.episodes ?? null, status: m.status ?? null });
-    cur = m.relations?.edges?.find((e) => e.relationType === "SEQUEL" && FORMATS_SUITE.includes(e.node?.format))?.node?.id ?? null;
+    cur = suiteTV(m);
+    /* Pas de suite TV directe : la suite passe parfois par un FILM (Major S4 ->
+       film -> S5). On fait ce seul detour, sans compter le film comme saison. */
+    if (!cur) {
+      const detour = m.relations?.edges?.find((e) => e.relationType === "SEQUEL" && !FORMATS_SUITE.includes(e.node?.format))?.node?.id;
+      if (detour && !vus.has(detour)) {
+        vus.add(detour);
+        cur = suiteTV(await media(detour));
+      }
+    }
   }
   return chaine;
 }
+const suiteTV = (m) => m?.relations?.edges?.find((e) => e.relationType === "SEQUEL" && FORMATS_SUITE.includes(e.node?.format))?.node?.id ?? null;
+/** Les ids qu'un parcours de chaine peut demander : suites TV et detours (pour charger par lots). */
+export const suitesPossibles = (m) => (m?.relations?.edges || []).filter((e) => e.relationType === "SEQUEL").map((e) => e.node.id);

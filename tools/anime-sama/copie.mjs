@@ -140,7 +140,10 @@ async function fiche(slug) {
 async function panneau(slug, dossier, langue) {
   const ref = `${AS}/catalogue/${slug}/${dossier}/${langue}/`;
   const { status, texte } = await viaWorker(`${ref}episodes.js`, ref);
-  if (status !== 200 || !/var\s+eps\d+/.test(texte)) return null;
+  if (status !== 200) return null;
+  /* 200 sans aucune liste (« // // // ») : le panneau existe mais est VIDE.
+     On le distingue d'une erreur : l'alignement a besoin de sa place. */
+  if (!/var\s+eps\d+/.test(texte)) return [];
   return [...texte.matchAll(/var\s+(eps\d+)\s*=\s*\[([\s\S]*?)\];/g)].map((m) => ({
     liste: m[1],
     liens: [...m[2].matchAll(/['"]([^'"]*)['"]/g)].map((x) => x[1].trim()),
@@ -292,9 +295,11 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
   // Toutes les saisons x langues en parallele (le plafond global regle le debit).
   const combinaisons = f.saisons.flatMap((s) => langues.map((langue) => ({ s, langue })));
   const lus = await Promise.all(combinaisons.map(({ s, langue }) => panneau(slug, s.dossier, langue)));
+  const videsParSaison = new Map();
   combinaisons.forEach(({ s, langue }, k) => {
     const listes = lus[k];
     if (!listes) return;
+    if (!listes.length) { videsParSaison.set(s.dossier, s); return; }
     const nbEp = Math.max(...listes.map((l) => l.liens.length));
     const episodes = [];
     for (let i = 0; i < nbEp; i++) {
@@ -303,6 +308,14 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
     }
     f.panneaux.push({ dossier: s.dossier, libelle: s.libelle, langue, nbEp, episodes });
   });
+  /* Saison affichee par la fiche mais vide dans TOUTES les langues lues
+     (Diabolik Lovers saison1, 31/10/2026) : une ligne a 0 episode, pour que
+     l'alignement sache qu'une saison tient cette place. */
+  for (const [dossier, s] of videsParSaison) {
+    if (!f.panneaux.some((p) => p.dossier === dossier)) {
+      f.panneaux.push({ dossier, libelle: s.libelle, langue: "vostfr", nbEp: 0, episodes: [] });
+    }
+  }
   if (!args["sans-vie"]) {
     /* QUOI CONTROLER CETTE NUIT.
        - Trois TEMOINS par saison x langue (premier, milieu, dernier episode

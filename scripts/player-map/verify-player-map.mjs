@@ -266,6 +266,13 @@ if (ONLY_IDS) {
     args: ids,
   })).rows;
   if (SEULE_SOURCE) rows = rows.filter((r) => r.source === SEULE_SOURCE);
+  /* Une paire `id:langue` demandee = CETTE langue seulement. Avant le
+     31/10/2026, l'autre langue de l'anime etait rejugee avec les anciennes
+     regles et retrogradee a tort (film Gintama VOSTFR : « count 4/1 » ; VF de
+     You and I S2 en cours de diffusion : « count 10/13 »). */
+  const avecLangue = new Set(ID_PAIRES.filter(([, l]) => l).map(([i]) => Number(i)));
+  const paires = new Set(ID_PAIRES.filter(([, l]) => l).map(([i, l]) => `${Number(i)}:${l}`));
+  rows = rows.filter((r) => !avecLangue.has(Number(r.ani_id)) || paires.has(`${Number(r.ani_id)}:${r.lang}`));
   const existe = new Set(rows.map((r) => `${r.ani_id}:${r.source}:${r.lang}`));
   for (const [i, lang] of ID_PAIRES) {
     if (lang && !existe.has(`${Number(i)}:animesama:${lang}`)) {

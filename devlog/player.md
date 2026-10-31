@@ -48,6 +48,21 @@ desormais pour les lignes `verify:alignement-anime-sama`. La prod (code de `main
 garde : elle defera ces 24 lignes a chaque visite, la parite de la nuit les remettra.
 Bilan : 2 307 anime x langue attendus, **2 274 servis exactement**.
 
+31/10 — les 33 restants, et deux defauts de plus :
+- le verificateur, appele pour UNE langue, rejugeait aussi l'autre avec les vieilles regles et la
+  retrogradait (film Gintama VOSTFR « count 4/1 », VF en cours de diffusion « count 10/13 ») :
+  `--ids=id:langue` ne touche plus que cette langue ;
+- la copie ignorait les panneaux VIDES (fiche qui affiche « Saison 1 », episodes.js « // // // ») :
+  Diabolik Lovers, The Outcast… glissaient d'une saison. Ils sont copies a 0 episode et tiennent
+  la place d'UNE entree AniList.
+Alignement elargi : detour par un film dans la chaine (Major S4 -> film -> S5, GitS 2nd GIG ->
+Solid State Society -> SAC_2045) ; complet aussi quand anime-sama ou AniList a des saisons de plus
+A LA FIN, ou quand seule la DERNIERE saison d'anime-sama diverge (speciaux ajoutes : SNK saison4) —
+jamais quand un compte faux tombe au milieu (Full Metal Panic). Fate/Zero 2nd Season et Initial D
+Second Stage ecrits a la main (debut de fiche exact, suite hors chaine).
+Bilan : 2 351 attendus, **2 350 servis exactement**. Le dernier (Bungou Stray Dogs VF) est une
+fausse attente : la fiche anime-sama affiche l'id du spin-off « Wan! ».
+
 Visiteurs non touches : c'est leur navigateur qui lit ansembed (`lib/clientVidmoly.js`), pas le
 Worker. Recap lisible de chaque passe dans le resume du job GitHub. Le workflow vit seul sur
 `main` (le cron lit le fichier sur main) ; les scripts sont lus sur `dev`.
