@@ -142,7 +142,28 @@ console.log(`dont ${attentes.filter((a) => a.autrePage).length} servi(s) sur une
 const lignesRapport = [...par("contredite"), ...par("manquante")].slice(0, 200).map((a) =>
   `| ${a.etat} | ${a.id} | ${a.lang} | ${a.slug}+${a.decalage} | ${a.sert} |`);
 lignesRapport.slice(0, 30).forEach((l) => console.log(l));
-if (aFaire.length) {
+/* --direct (avec --imposer) : ecrire l'alignement SANS passer par le site.
+   Avec un alignement complet et --imposer, le verificateur ecrit l'alignement
+   quoi que dise le resolveur : l'appel au site n'y change rien, il coute du CPU
+   Vercel et echoue par moments (13 sur 22 le 31/10, « transient »). La copie
+   (va_page) EST la page ; seules les attentes completes arrivent ici. */
+if (aFaire.length && args.direct && args.imposer) {
+  const t = Math.floor(Date.now() / 1000);
+  const ALGO = Number(fs.readFileSync(new URL("../../lib/db/playerMap.ts", import.meta.url), "utf8").match(/SEASON_ALGO_VERSION\s*=\s*(\d+)/)[1]);
+  let ecrites = 0;
+  for (let i = 0; i < aFaire.length && !args.dry; i += 100) {
+    await db.batch(aFaire.slice(i, i + 100).map((a) => ({
+      sql: `INSERT INTO player_map (ani_id, source, lang, status, slug, season_dir, ep_offset, episode_count, confidence, fail_count, note, algo_version, checked_at, expires_at)
+            VALUES (?, 'voiranime', ?, 'verified', ?, NULL, ?, NULL, 1, 0, 'verify:alignement-voir-anime (copie)', ?, ?, ?)
+            ON CONFLICT(ani_id, source, lang) DO UPDATE SET status = 'verified', slug = excluded.slug, season_dir = NULL,
+              ep_offset = excluded.ep_offset, episode_count = NULL, confidence = 1, fail_count = 0, note = excluded.note,
+              algo_version = excluded.algo_version, checked_at = excluded.checked_at, expires_at = excluded.expires_at`,
+      args: [a.id, a.lang, a.slug, a.decalage, ALGO, t, t + 30 * 86400],
+    })), "write");
+    ecrites += Math.min(100, aFaire.length - i);
+  }
+  console.log(`\n${args.dry ? "(dry) " : ""}${ecrites || aFaire.length} alignement(s) ecrit(s) directement depuis la copie`);
+} else if (aFaire.length) {
   console.log(`\nverification de ${aFaire.length} attente(s)…`);
   const r = spawnSync(process.execPath, [
     "scripts/player-map/verify-player-map.mjs",
