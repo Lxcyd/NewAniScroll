@@ -119,11 +119,36 @@ for (const a of attentes) {
 }
 for (let i = attentes.length - 1; i >= 0; i--) if (parCle.get(`${attentes[i].id}:${attentes[i].lang}`).size > 1) attentes.splice(i, 1);
 
+/* ── Lignes sur la page d'un AUTRE anime ──────────────────────────────────
+   Une ligne servie dont la page est ancree sur un autre id, et que l'alignement
+   n'attend pas : le visiteur voit un autre anime (« Blade » servi par Fate UBW,
+   Petit Clover par Black Clover, une suite par une page saison 1 seule ; 16
+   lignes de l'ancien verificateur par titre le 31/10). Seule exception : une
+   page FUSIONNEE (plus d'episodes que son ancre) qui porte une suite de la
+   chaine SEQUEL de son ancre — le site y calcule lui-meme le decalage. Les
+   lignes `manuel` et les pages sans ancre ne sont pas jugees. */
+const pageDe = new Map(pages.map((p) => [p.slug, p]));
+const attendue = new Set(attentes.map((a) => `${a.id}:${a.lang}@${a.slug}`));
+const intruses = [];
+for (const r of ligne.values()) {
+  if (r.status !== "verified" && r.status !== "heuristic") continue;
+  const p = pageDe.get(r.slug);
+  const proprio = Number(p?.anilist) || 0;
+  const x = Number(r.ani_id);
+  if (!proprio || proprio === x || String(r.note || "").startsWith("manuel")) continue;
+  if (attendue.has(`${x}:${r.lang}@${r.slug}`)) continue;
+  const chaine = await chaineSequel(proprio, async (id) => { await chargerLot([id]); return MEDIA.get(id); });
+  const epAncre = MEDIA.get(proprio)?.episodes;
+  const fusionnee = chaine.some((c) => c.id === x) && epAncre && Number(p.num_max) > epAncre;
+  if (!fusionnee) intruses.push({ id: x, lang: r.lang, slug: r.slug, proprio, note: r.note });
+}
+
 const par = (e) => attentes.filter((a) => a.etat === e);
 const sansAncre = pages.filter((p) => !p.anilist && Number(p.nb_vivants) > 0).length;
 const resume = [
   `${pagesVivantes} page(s) avec un lien myTV vivant et une ancre AniList, dont ${pagesAlignees} alignee(s) ; ${sansAncre} page(s) jouable(s) sans ancre ; ${groupesDoubles} ancre(s) portee(s) par deux pages de meme langue`,
   `${attentes.length} anime(s)×langue attendus : ${par("servie").length} servis exactement, ${par("manquante").length} manquants, ${par("contredite").length} servis sur une autre page ou un autre decalage`,
+  `${intruses.length} ligne(s) servie(s) sur la page d'un AUTRE anime${intruses.length && args.corriger ? " (retirees)" : ""}`,
 ];
 resume.forEach((l) => console.log(l));
 const morts = pages.reduce((a, p) => a + Number(p.nb_morts || 0), 0);
@@ -142,6 +167,19 @@ console.log(`dont ${attentes.filter((a) => a.autrePage).length} servi(s) sur une
 const lignesRapport = [...par("contredite"), ...par("manquante")].slice(0, 200).map((a) =>
   `| ${a.etat} | ${a.id} | ${a.lang} | ${a.slug}+${a.decalage} | ${a.sert} |`);
 lignesRapport.slice(0, 30).forEach((l) => console.log(l));
+const lignesIntruses = intruses.map((i) => `| intruse | ${i.id} | ${i.lang} | page de ${i.proprio} | ${i.slug} (${i.note || "-"}) |`);
+lignesIntruses.slice(0, 30).forEach((l) => console.log(l));
+/* Retrait (avec --corriger) : statut absent pour 30 jours, la note dit
+   pourquoi ; un verificateur qui la reposerait sera re-retire la nuit suivante. */
+if (intruses.length && args.corriger && !args.dry) {
+  const t = Math.floor(Date.now() / 1000);
+  for (let i = 0; i < intruses.length; i += 100) {
+    await db.batch(intruses.slice(i, i + 100).map((x) => ({
+      sql: "UPDATE player_map SET status = 'absent', note = ?, checked_at = ?, expires_at = ? WHERE ani_id = ? AND source = 'voiranime' AND lang = ?",
+      args: [`parite:page-de-${x.proprio} (servait ${x.slug})`, t, t + 30 * 86400, x.id, x.lang],
+    })), "write");
+  }
+}
 /* --direct (avec --imposer) : ecrire l'alignement SANS passer par le site.
    Avec un alignement complet et --imposer, le verificateur ecrit l'alignement
    quoi que dise le resolveur : l'appel au site n'y change rien, il coute du CPU
@@ -181,7 +219,7 @@ if (args.md) {
     "## Parite voir-anime (myTV)", "", ...resume.flatMap((l) => [l, ""]),
     `Episodes dont le lien myTV est mort chez eux : ${morts}`, "",
     "| etat | id AniList | langue | attendu | sert aujourd'hui |", "| --- | --: | --- | --- | --- |",
-    ...lignesRapport, "",
+    ...lignesRapport, ...lignesIntruses, "",
   ].join("\n"));
 }
-process.exit(par("manquante").length + par("contredite").length ? 1 : 0);
+process.exit(par("manquante").length + par("contredite").length + intruses.length ? 1 : 0);

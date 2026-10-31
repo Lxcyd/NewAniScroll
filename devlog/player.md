@@ -3622,3 +3622,13 @@ Flou par défaut passé à **20** (`AMBIENT_BLUR_DEFAULT`, demande de Luc), mini
 **Audit (tools/voir-anime/audit-ancres.mjs, candidats en cache, `--rejouer`) :** 6 328 ancres confirmees, 1 corrigee (Wave!! TV etait sur le film), 1 perdue (OVA Utawarerumono, ambigue, 0 episode vivant), 250 gagnees (Kingdom 2/3/5, 3-gatsu no Lion 2, Vampire Miyu (TV), Mushoku Tensei 3…), 172 sans ancre (series occidentales sans titre romaji, recaps absents d'AniList). Applique.
 
 **Controle independant :** anime-sama porte un vrai lien AniList ; 664 fiches au meme slug : 623 d'accord, 11 desaccords ou la page voir-anime parle d'UNE version (HxH 1999, Berserk 2016, Fruits Basket 2001…) et l'ancre est juste, la fiche anime-sama pointant la franchise.
+
+### 31/10/2026 — voir-anime : controle des lignes sur la page d'un autre anime
+
+`tools/voir-anime/parite.mjs` releve chaque nuit les lignes `voiranime` servies
+dont la page est ancree sur un AUTRE id et que l'alignement n'attend pas, et les
+retire (`--corriger`, note `parite:page-de-<id>`, 30 j). Exception : page
+fusionnee (plus d'episodes que son ancre) portant une suite de sa chaine SEQUEL ;
+`manuel` et pages sans ancre non jugees. Verifie : il retrouve exactement les 16
+lignes retirees a la main (Blade/Fate UBW, Petit Clover/Black Clover, suites sur
+pages saison 1…) et garde les 5 legitimes. Le code de sortie compte ces lignes.
