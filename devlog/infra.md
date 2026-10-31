@@ -6,6 +6,28 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-10-31 — Onglet « Statistiques » du panneau admin
+
+Demande de Luc : des stats sur tout le site, ordonnees. Onze sections dans un ordre fixe
+(vue d'ensemble, audience, comptes, catalogue, lecteurs, OP/ED, images, moderation, infra,
+automatisations, coulisses), avec sommaire collant, courbes, barres et tableaux
+(`components/admin/stats`).
+
+Rien n'est calcule a l'ouverture de la page : `tools/stats/instantane.mjs` (workflow
+`stats-site`, 06:40 UTC) ecrit chaque section dans la base admin (`site_stats`) avec son cout
+Turso MESURE, plus un resume par jour (`site_stats_jour`) pour les tendances. La page lit ~100
+lignes (`/api/v2/admin/site-stats`). Cout : ~88 000 lignes par jour, plus ~860 000 une fois par
+semaine (catalogue et images : GROUP BY sur les grosses tables), soit ~6 M par mois sur 500 M.
+Surprise de mesure : les `COUNT(*)` de toutes les tables ne coutent que ~3 300 lignes, d'ou un
+comptage exact quotidien (MAX(rowid) mentait : la cle de `anime` est l'id AniList, 219 237 pour
+22 783 lignes).
+
+Audience = Cloudflare (`user_analytics` n'est plus alimentee depuis juillet) : uniques et pages
+vues par jour sur 30 j, pays, navigateurs, codes HTTP ; sur 24 h, chemins, appareils, systemes
+(le referent n'est pas expose sur l'offre gratuite). Secrets GitHub ajoutes : `TURSO_ADMIN_*`,
+`TURSO_USERS_*`, `CF_ZONE_API_TOKEN`. Accent du site = variable CSS : `bg-action/80` ne rend
+rien (pas de canaux RGB), passer par `opacity-*`.
+
 ## 2026-10-30 (apres-midi) — La PROD passe derriere Cloudflare
 
 PR #21 fusionnee (backend seul : clientIp, instrumentation, workflows), prod
