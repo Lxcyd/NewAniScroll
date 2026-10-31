@@ -1,0 +1,58 @@
+# L'instantane des statistiques du site (onglet « Statistiques » du panneau
+# admin) : tools/stats/instantane.mjs, chaque jour.
+#
+# Cout : ~80 000 lignes Turso par jour, ~860 000 de plus une fois par semaine
+# (catalogue et images, les grosses tables) — soit ~6 M par mois sur 500 M.
+# Aucun appel a aniscroll.com : Turso, Cloudflare (analytics), Upstash, Turso
+# API et l'API GitHub (etat des autres workflows).
+#
+# Secrets : TURSO_DATABASE_URL / TURSO_AUTH_TOKEN, TURSO_FANARTS_*,
+# TURSO_ADMIN_URL / TURSO_ADMIN_TOKEN, TURSO_USERS_URL / TURSO_USERS_TOKEN,
+# CF_ZONE_API_TOKEN, TURSO_API_TOKEN, UPSTASH_*.
+
+name: stats-site
+
+on:
+  schedule:
+    - cron: "40 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tout:
+        description: "Recalculer aussi les sections hebdomadaires"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  instantane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Instantane
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+          TURSO_ADMIN_URL: ${{ secrets.TURSO_ADMIN_URL }}
+          TURSO_ADMIN_TOKEN: ${{ secrets.TURSO_ADMIN_TOKEN }}
+          TURSO_USERS_URL: ${{ secrets.TURSO_USERS_URL }}
+          TURSO_USERS_TOKEN: ${{ secrets.TURSO_USERS_TOKEN }}
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          CF_ZONE_API_TOKEN: ${{ secrets.CF_ZONE_API_TOKEN }}
+          UPSTASH_EMAIL: ${{ secrets.UPSTASH_EMAIL }}
+          UPSTASH_API_KEY: ${{ secrets.UPSTASH_API_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        # Aucune dependance : le script parle a Turso par HTTP.
+        run: node tools/stats/instantane.mjs ${{ inputs.tout && '--tout' || '' }}
