@@ -1807,3 +1807,19 @@ Le Fluid Active CPU a explosé (**6h24 / 4h**, pic isolé **1h20 le 18/07**, pui
 - Soulagement CPU **immédiat** = dépend du cycle Upstash : reset le 1er du mois, ou **pay‑as‑you‑go ~2 $/mois** en attendant. Le fix code empêche surtout la **récidive** les mois suivants.
 - **Vérifier si dev et prod partagent la même DB Upstash** (cf. cause racine) — si oui, séparer, sinon le budget prod restera pollué par les tests dev.
 - Vérifier **Upstash → Usage mensuel** (saturation ~le 18 ?) et les headers `X-Cache` / `age` sur catalog/discover/episode en prod.
+
+## 31/10/2026 — Statistiques en onglets : « Sante » d'abord ; deux pannes silencieuses trouvees
+
+**Demande :** la page de stats etait « en bordel » ; Luc veut savoir d'un coup d'oeil si quelque chose est casse, un onglet propre pour GitHub Actions, et savoir si le rafraichissement des fanarts marche.
+
+**Page (components/admin/stats) :** onglets. **Sante** = chaque controle dit ok / a surveiller / panne avec le pourquoi et un lien (`diagnostiquer`) ; pannes en tete, le reste replie par domaine. **GitHub Actions** = echecs des 7 jours avec job + etape, 20 derniers passages par workflow, workflows qui « ne tournent plus » (dernier passage > 2 x l'ecart median des passages programmes). **Donnees** = fanarts, Wallhaven, copies, player_map. Les onglets portent le nombre de points a regarder.
+
+**Instantane (tools/stats/instantane.mjs) :** section `fraicheur` (quotidienne, ~60 k lignes) ; `automatisations` enrichie ET recalculee chaque heure (cron `12 * * * *`, zero ligne Turso) ; audience avec les 5xx par adresse ; Upstash « plafond atteint » detecte.
+
+**Ce que la page a trouve des le premier jour :**
+- **Fanarts : rien n'arrivait au site depuis mai.** refresh-fanarts.yml ne passait pas `TURSO_FANARTS_*` ; le script retombait sur la base CACHE (`anime_fanarts` morte d'avant la separation). Coche verte chaque matin. 1 576 images recopiees dans la base fanarts ; le script refuse desormais de tourner sans elle, et le workflow prend le code de dev.
+- **fanart.tv `/v3/tv/latest` repond `null`** (toutes variantes d'URL) : seuls les films etaient detectes. Repli : un septieme des series revu chaque jour (`id % 7`), tout le catalogue en une semaine (~900 series, ~20 min).
+- **Audience vide en CI :** `CF_ZONE_API_TOKEN` est verrouille sur l'IP du PC. Nouveau jeton lecture seule `CF_STATS_TOKEN` (Analytics Read + Zone Read, zone aniscroll.com) + `CF_ZONE_ID`, dans .env et les secrets ; l'ancien secret GitHub retire.
+- **Upstash a son plafond mensuel (500 000 / 500 000) le 31/10** : c'est pour ca que usage-monitor echoue (20/20) — il echoue expres. Reset le 1er.
+- Les 5xx (~18 % des requetes) sont TOUS sur proxy.aniscroll.com (504/503 relayes des lecteurs) ; le site lui-meme : 0.
+- `player_map.checked_at` melange ms (vieilles lignes) et s : `max()` mentait (« 25 j »).
