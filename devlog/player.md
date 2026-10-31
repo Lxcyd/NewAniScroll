@@ -3610,3 +3610,15 @@ Flou par défaut passé à **20** (`AMBIENT_BLUR_DEFAULT`, demande de Luc), mini
 2. **Rien ne voyait une ligne servant le panneau d'un autre anime** quand son propre anime n'a pas d'attente. parite.mjs : « usurpees » = ligne verified/heuristic qui pointe EXACTEMENT (fiche, saison, decalage) le panneau attribue a un autre id. Retiree (`absent`, note `parite:panneau-de-…`, 30 j) si le proprietaire vient d'un alignement complet ou si les deux animes n'ont aucune relation AniList ; sinon signalee seulement (lien de fiche douteux : bungou-stray-dogs -> « Wan! »).
 
 **Applique :** 195539 VF corrigee ; **104 lignes retirees** (Frieren x5, Code Geass x5, Horimiya, One Piece, SNK, Working, White Album, HxEros servant Super Crooks, Heibai Wushuang servant Ookami Shoujo…) ; 5 a examiner (BSD x2, Sailor Moon x2, SAO).
+
+## 31/10/2026 — voir-anime : ancre par EMPREINTE, audit complet des 6 752 pages
+
+**Crainte de Luc :** des pages rattachees au mauvais anime AniList (rattachement par titre).
+
+**Ce que voir-anime expose :** AUCUN identifiant (ni AniList ni MAL ; API WordPress fermee, JSON-LD Yoast sans id, jaquettes chez eux). Mais son bloc de metadonnees est recopie d'AniList : Native / Romaji / English / French, type, statut, studios, nombre d'episodes, debut, fin, genres. Pieges mesures : leurs DATES sont souvent fausses de quelques jours a semaines ; leurs suites sont renommees (« X 2 » pour « X 2nd Season ») ; leur nombre d'episodes est le leur (cours fusionnes : SNK 3 = 22) ; leur type est approximatif.
+
+**tools/voir-anime/empreinte.mjs** (utilise par copie.mjs chaque nuit) : titre exact obligatoire (sinon : meme base + meme saison, ou parenthese d'homonymie AniList « (TV) », ou sous-titre — ces deux-la exigent la date au jour pres ; un titre exact passe toujours avant un approche). Preuves : debut (±1 j : 3, ±45 j : 1), episodes egaux (2), studio (2), fin (1), type (1), natif (1). Contradictions : serie de plus de 3 episodes contre film ; debut a plus de 400 j ; annee seule (AniList) a plus d'un an. Retenu : score ≥ 4, deux preuves differentes hors titre, 3 points d'avance.
+
+**Audit (tools/voir-anime/audit-ancres.mjs, candidats en cache, `--rejouer`) :** 6 328 ancres confirmees, 1 corrigee (Wave!! TV etait sur le film), 1 perdue (OVA Utawarerumono, ambigue, 0 episode vivant), 250 gagnees (Kingdom 2/3/5, 3-gatsu no Lion 2, Vampire Miyu (TV), Mushoku Tensei 3…), 172 sans ancre (series occidentales sans titre romaji, recaps absents d'AniList). Applique.
+
+**Controle independant :** anime-sama porte un vrai lien AniList ; 664 fiches au meme slug : 623 d'accord, 11 desaccords ou la page voir-anime parle d'UNE version (HxH 1999, Berserk 2016, Fruits Basket 2001…) et l'ancre est juste, la fiche anime-sama pointant la franchise.

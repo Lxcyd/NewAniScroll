@@ -27,6 +27,7 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { createClient } from "@libsql/client";
+import { lireMeta, ancrer as ancrerParEmpreinte } from "./empreinte.mjs";
 
 const JOURS_VIE = 14;
 const JOURS_ANCRE = 7; // une page sans ancre est recherchee a nouveau apres ce delai
@@ -80,24 +81,11 @@ async function catalogue() {
   return pages;
 }
 
-const MOIS = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
-/** « Start date Sep 29, 2023 » -> "2023-09-29" (null si incomplet). */
-function dateDebut(t) {
-  const m = String(t || "").match(/([A-Z][a-z]{2})\w*\s+(\d{1,2}),\s*(\d{4})/);
-  if (!m || !MOIS[m[1]]) return null;
-  return `${m[3]}-${String(MOIS[m[1]]).padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-}
-
 /** La page d'un anime : ce qu'elle dit d'AniList, et ses episodes numerotes comme le site les lit. */
 async function lirePage(slug) {
   const { status, texte } = await va(`/anime/${encodeURI(slug)}/`);
   if (status !== 200) return { erreur: `page ${status}` };
-  const meta = {};
-  for (const m of texte.matchAll(/<div class="post-content_item[^"]*">([\s\S]*?)<\/div>\s*<\/div>/g)) {
-    const t = m[1].replace(/<[^>]*>/g, " ").replace(/&#0?39;|&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-    const k = t.split(" ")[0];
-    meta[k] = t.slice(k.length).trim();
-  }
+  const meta = lireMeta(texte);
   const esc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   // = buildVoiranimeEpRegex (pages/api/v2/source/index.js) : a garder identique.
   const re = new RegExp(`href=["']${VA.replace(/\./g, "\\.")}/anime/(${esc}(?:-[a-z0-9]{1,3})?/[^"']+?-(\\d+)(?:-(?:vf|vostfr))?/)["']`, "gi");
@@ -112,10 +100,12 @@ async function lirePage(slug) {
     if (f) episodes[1] = f[1];
   }
   return {
-    romaji: meta.Romaji || null, natif: meta.Native || null, anglais: meta.English || null,
-    type: meta.Type || null, statut: meta.Status || null, debut: dateDebut(meta.Start), episodes,
+    romaji: meta.romaji, natif: meta.natif, anglais: meta.anglais,
+    type: meta.type, statut: meta.statut, debut: meta.debut, episodes,
+    // L'empreinte complete (studios, fin, nombre annonce) : le rattachement s'en sert.
+    emp: { fin: meta.fin, studios: meta.studios, nbAnnonce: meta.nbAnnonce },
     // Contrat : une page anime porte toujours ces blocs. Sans eux, le theme a change.
-    lisible: "Romaji" in meta || "Native" in meta || /thisChapterSources|wp-manga-chapter/.test(texte),
+    lisible: "Romaji" in meta.brut || "Native" in meta.brut || /thisChapterSources|wp-manga-chapter/.test(texte),
   };
 }
 
@@ -135,66 +125,11 @@ async function lienMyTV(chemin) {
   return null;
 }
 
-/* ── Ancre AniList : meme titre ET meme date de debut ─────────────────────── */
-const norm = (s) => String(s || "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-const dateAni = (d) => (d?.year && d?.month && d?.day ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}` : null);
-async function rechercherLot(termes) {
-  const vars = {}, defs = [], corps = [];
-  termes.forEach((t, i) => {
-    vars[`s${i}`] = t; defs.push(`$s${i}:String`);
-    corps.push(`a${i}:Page(perPage:10){media(search:$s${i},type:ANIME){id startDate{year month day} title{romaji native english} synonyms}}`);
-  });
-  for (let essai = 0; essai < 4; essai++) {
-    compteur.anilist++;
-    const r = await fetch("https://graphql.anilist.co", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: `query(${defs.join(",")}){${corps.join(" ")}}`, variables: vars }),
-      signal: AbortSignal.timeout(30000),
-    }).catch(() => null);
-    if (!r || r.status === 429 || r.status >= 500) { await dors(30000); continue; }
-    const j = await r.json().catch(() => null);
-    await dors(2200); // AniList : ~30 requetes / minute
-    return termes.map((_, i) => j?.data?.[`a${i}`]?.media || []);
-  }
-  return null; // AniList injoignable : on ne conclut rien
-}
-/** pages: [{slug, romaji, natif, anglais, debut}] -> Map slug -> {id|null, note} */
-async function ancrer(pages) {
-  const out = new Map();
-  const choisir = (p, candidats) => {
-    const titres = new Set([p.romaji, p.natif, p.anglais].filter(Boolean).map(norm));
-    /* Un jour d'ecart tolere : voir-anime date parfois a la veille (fuseau) —
-       SNK The Final Season, 2020-12-06 chez eux, 2020-12-07 sur AniList. */
-    const ok = candidats.filter((m) => dateAni(m.startDate) && Math.abs(Date.parse(dateAni(m.startDate)) - Date.parse(p.debut)) <= 864e5 &&
-      [m.title?.romaji, m.title?.native, m.title?.english, ...(m.synonyms || [])].some((t) => t && titres.has(norm(t))));
-    const ids = [...new Set(ok.map((m) => m.id))];
-    return ids.length === 1 ? ids[0] : ids.length > 1 ? "ambigu" : null;
-  };
-  let reste = pages.filter((p) => {
-    if (!p.debut) { out.set(p.slug, { id: null, note: "sans-date" }); return false; }
-    if (!p.romaji && !p.natif) { out.set(p.slug, { id: null, note: "sans-titre" }); return false; }
-    return true;
-  });
-  // Deux passes : par le romaji, puis par le titre natif pour ce qui reste.
-  for (const champ of ["romaji", "natif"]) {
-    const aChercher = reste.filter((p) => p[champ]);
-    const suivants = reste.filter((p) => !p[champ]);
-    for (let i = 0; i < aChercher.length; i += 10) {
-      const lot = aChercher.slice(i, i + 10);
-      const res = await rechercherLot(lot.map((p) => p[champ]));
-      lot.forEach((p, k) => {
-        if (!res) { out.set(p.slug, { id: null, note: "anilist-injoignable" }); return; }
-        const c = choisir(p, res[k]);
-        if (typeof c === "number") out.set(p.slug, { id: c, note: `titre+date (${champ})` });
-        else if (c === "ambigu") out.set(p.slug, { id: null, note: "ambigu" });
-        else suivants.push(p);
-      });
-    }
-    reste = suivants;
-  }
-  for (const p of reste) if (!out.has(p.slug)) out.set(p.slug, { id: null, note: "aucune-entree-meme-titre-et-date" });
-  return out;
-}
+/* ── Ancre AniList : par EMPREINTE (tools/voir-anime/empreinte.mjs) ──────────
+   Remplace « meme titre + meme date a 1 jour » le 31/10/2026 : leurs dates
+   sont souvent fausses de quelques jours, leurs suites renommees (« X 2 » pour
+   « X 2nd Season »). Audit complet du meme jour (audit-ancres.mjs) : 6 328
+   ancres confirmees, 1 corrigee (Wave!! TV ancree sur le film), 250 gagnees. */
 
 /* ── Controle d'un lien myTV : meme doctrine qu'anime-sama (cf. son copie.mjs) ─
    LENT, DIRECT, « mort » seulement sur un 404 confirme pendant qu'un lien
@@ -421,7 +356,7 @@ await Promise.all([...cibles].map(async ([slug, lastmod]) => {
     slug, lastmod, romaji: p.romaji, natif: p.natif, anglais: p.anglais, type: p.type, statut: p.statut, debut: p.debut,
     anilist: avant?.anilist ?? null, ancre: avant?.ancre ?? null, ancre_le: avant?.ancre_le ?? 0,
     metaChangee: !avant || avant.romaji !== p.romaji || avant.natif !== p.natif || avant.debut !== p.debut,
-    episodes, relue: true,
+    emp: p.emp, episodes, relue: true,
   });
 }));
 bilan.relues = lues;
@@ -430,8 +365,14 @@ console.log(`${pages.size} pages, ${lues} relues (${compteur.va} requetes voir-a
 /* 2. Ancres : pages nouvelles ou changees, et sans ancre depuis JOURS_ANCRE jours. */
 const aAncrer = [...pages.values()].filter((p) => p.metaChangee || (!p.anilist && Date.now() - Number(p.ancre_le || 0) > JOURS_ANCRE * 864e5));
 if (aAncrer.length) {
-  // Reutilise les titres connus pour les pages non relues.
-  const ancres = await ancrer(aAncrer);
+  // Une page non relue n'a pas son empreinte complete (studios, fin…) : on la relit.
+  for (const p of aAncrer) {
+    if (p.emp) continue;
+    const l = await lirePage(p.slug);
+    if (!l.erreur) Object.assign(p, { romaji: l.romaji, natif: l.natif, anglais: l.anglais, type: l.type, statut: l.statut, debut: l.debut, emp: l.emp });
+  }
+  const ancres = await ancrerParEmpreinte(aAncrer.map((p) => ({ slug: p.slug, romaji: p.romaji, natif: p.natif, anglais: p.anglais,
+    type: p.type, statut: p.statut, debut: p.debut, ...(p.emp || {}) })), { dors, compteur });
   for (const p of aAncrer) {
     const a = ancres.get(p.slug);
     if (a.note === "anilist-injoignable") continue;
