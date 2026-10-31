@@ -31,10 +31,12 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: dev
 
       - uses: actions/setup-node@v5
         with:
@@ -60,6 +62,10 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          # La base que LIT le site (31/10/2026 : sans elles, tout partait dans
+          # la base cache, cf. refresh-fanarts.mjs).
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN:   ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
           FANART_API_KEY:     ${{ secrets.FANART_API_KEY }}
         run: node scripts/fanarts/refresh-fanarts.mjs
 
@@ -123,6 +129,10 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          # La base que LIT le site (31/10/2026 : sans elles, tout partait dans
+          # la base cache, cf. refresh-fanarts.mjs).
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN:   ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
         # GitHub Actions runners have 4 vCPUs — match that.
         # The classifier only loops over rows where nsfw_label IS NULL, so
         # this only touches rows the refresh step just added.

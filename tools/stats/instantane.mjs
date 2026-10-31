@@ -78,11 +78,15 @@ const section = (id, cadence, fn) => SECTIONS.push({ id, cadence, fn });
 /* Audience : Cloudflare voit toutes les requetes (le site est derriere lui
    depuis le 30/10/2026). `user_analytics` n'est plus alimentee depuis juillet. */
 section("audience", "jour", async () => {
-  const tok = process.env.CF_ZONE_API_TOKEN;
-  if (!tok) return { indisponible: "CF_ZONE_API_TOKEN absent" };
+  /* CF_STATS_TOKEN : jeton en LECTURE seule (Analytics Read + Zone Read sur
+     aniscroll.com), cree le 31/10/2026. CF_ZONE_API_TOKEN, le jeton
+     d'administration, est verrouille sur l'IP du PC : depuis GitHub, Cloudflare
+     le refusait et l'audience restait vide (« zone introuvable »). */
+  const tok = process.env.CF_STATS_TOKEN || process.env.CF_ZONE_API_TOKEN;
+  if (!tok) return { indisponible: "CF_STATS_TOKEN absent" };
   const H = { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" };
-  const z = await (await fetch("https://api.cloudflare.com/client/v4/zones?name=aniscroll.com", { headers: H })).json();
-  const zone = z.result?.[0]?.id;
+  const zone = process.env.CF_ZONE_ID
+    || (await (await fetch("https://api.cloudflare.com/client/v4/zones?name=aniscroll.com", { headers: H })).json()).result?.[0]?.id;
   if (!zone) return { indisponible: "zone Cloudflare introuvable" };
   const gql = async (query) => {
     const r = await (await fetch("https://api.cloudflare.com/client/v4/graphql", { method: "POST", headers: H, body: JSON.stringify({ query }) })).json();
@@ -103,6 +107,8 @@ section("audience", "jour", async () => {
   const parJour = jours.map((d) => ({
     jour: d.dimensions.date, visiteurs: d.uniq.uniques, requetes: d.sum.requests, pages: d.sum.pageViews,
     enCache: d.sum.cachedRequests, menaces: d.sum.threats, octets: d.sum.bytes,
+    // Les reponses 5xx du jour : le premier signe qu'une page ou une API casse.
+    erreurs5xx: (d.sum.responseStatusMap || []).filter((x) => x.edgeResponseStatus >= 500).reduce((s, x) => s + x.requests, 0),
   }));
   const depuis = new Date(maintenant - J * 1000).toISOString();
   const z24 = await gql(`{viewer{zones(filter:{zoneTag:"${zone}"}){
@@ -110,6 +116,7 @@ section("audience", "jour", async () => {
     appareils: httpRequestsAdaptiveGroups(limit:10, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}", clientRequestHTTPHost:"aniscroll.com", requestSource:"eyeball"}){ count dimensions{clientDeviceType} }
     os: httpRequestsAdaptiveGroups(limit:12, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}", clientRequestHTTPHost:"aniscroll.com", requestSource:"eyeball"}){ count dimensions{userAgentOS} }
     hotes: httpRequestsAdaptiveGroups(limit:20, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}"}){ count dimensions{clientRequestHTTPHost cacheStatus} }
+    erreurs: httpRequestsAdaptiveGroups(limit:25, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}", edgeResponseStatus_geq:500}){ count dimensions{clientRequestHTTPHost clientRequestPath edgeResponseStatus} }
   }}}`);
   // Les pages par FAMILLE : /en/anime/watch/…, /en/anime/123, /api/v2/source…
   const famille = (p) => {
@@ -139,6 +146,8 @@ section("audience", "jour", async () => {
       visiteurs7j: sept.reduce((s, d) => s + d.visiteurs, 0), pages30j: tot("pages"), requetes30j: tot("requetes"),
       cache30j: tot("requetes") ? Math.round((tot("enCache") / tot("requetes")) * 100) : null,
       menaces30j: tot("menaces"), octets30j: tot("octets"),
+      // Hier (jour complet) : la part de 5xx parmi les requetes.
+      erreurs5xxHier: parJour.at(-2)?.erreurs5xx ?? null, requetesHier: parJour.at(-2)?.requetes ?? null,
     },
     parJour,
     pays: cumul("countryMap", "clientCountryName", "requests").slice(0, 20),
@@ -150,6 +159,11 @@ section("audience", "jour", async () => {
     appareils24h: z24.appareils.map((x) => ({ nom: x.dimensions.clientDeviceType, n: x.count })),
     os24h: z24.os.map((x) => ({ nom: x.dimensions.userAgentOS || "inconnu", n: x.count })),
     hotes24h: Object.values(hotes).sort((a, b) => b.n - a.n),
+    // Les 5xx des dernieres 24 h : adresse, chemin (sans la requete), code.
+    erreurs24h: z24.erreurs.map((x) => ({
+      hote: x.dimensions.clientRequestHTTPHost, chemin: x.dimensions.clientRequestPath.split("?")[0].slice(0, 120),
+      code: x.dimensions.edgeResponseStatus, n: x.count,
+    })),
   };
 });
 
@@ -244,6 +258,8 @@ section("infra", "jour", async () => {
   if (process.env.UPSTASH_REDIS_REST_URL) {
     const r = await peutManquer(fetch(`${process.env.UPSTASH_REDIS_REST_URL}/dbsize`, { headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` } }).then((x) => x.json()), null);
     if (r?.result != null) (out.upstash ||= {}).cles = r.result;
+    // Plafond mensuel atteint : Upstash refuse TOUTE commande, le cache du site est coupe (vu le 31/10/2026).
+    if (/max requests limit/i.test(String(r?.error || ""))) Object.assign((out.upstash ||= {}), { plafondAtteint: true, erreur: r.error });
   }
   return { resume: { tursoPct: out.turso?.pct ?? null, upstashProjection: out.upstash?.projection ?? null }, ...out };
 });
@@ -251,21 +267,82 @@ section("infra", "jour", async () => {
 section("automatisations", "jour", async () => {
   const repo = process.env.GITHUB_REPOSITORY || "Lxcyd/NewAniScroll";
   const H = { Accept: "application/vnd.github+json", ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) };
-  const w = await (await fetch(`https://api.github.com/repos/${repo}/actions/workflows?per_page=100`, { headers: H })).json();
+  const gh = async (p) => {
+    const r = await fetch(`https://api.github.com/repos/${repo}${p}`, { headers: H });
+    if (!r.ok) throw new Error(`GitHub ${r.status} sur ${p}`);
+    return r.json();
+  };
+  const w = await gh("/actions/workflows?per_page=100");
+  const passage = (x) => ({
+    id: x.id, quand: x.created_at, url: x.html_url, evenement: x.event, branche: x.head_branch,
+    etat: x.status === "completed" ? x.conclusion : x.status,
+    duree: x.updated_at && x.run_started_at ? Math.round((Date.parse(x.updated_at) - Date.parse(x.run_started_at)) / 1000) : null,
+  });
   const liste = [];
-  for (const wf of (w.workflows || []).filter((x) => x.state === "active")) {
-    const r = await (await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${wf.id}/runs?per_page=10&exclude_pull_requests=true`, { headers: H })).json();
-    const runs = r.workflow_runs || [];
-    const fini = runs.filter((x) => x.status === "completed");
+  for (const wf of w.workflows || []) {
+    // Les workflows de CI (push / pull request) gardent leurs passages ; les autres, tous.
+    const r = await gh(`/actions/workflows/${wf.id}/runs?per_page=20&exclude_pull_requests=true`);
+    const runs = (r.workflow_runs || []).map(passage);
+    /* Le rythme attendu : l'ecart median entre deux passages PROGRAMMES. Un
+       workflow programme dont le dernier passage date de plus de deux ecarts
+       (et d'au moins 3 h de plus) ne tourne plus — panne silencieuse. */
+    const prog = runs.filter((x) => x.evenement === "schedule").map((x) => Date.parse(x.quand));
+    const ecarts = prog.slice(0, -1).map((t, i) => (t - prog[i + 1]) / 1000).sort((a, b) => a - b);
+    const rythme = ecarts.length >= 2 ? ecarts[Math.floor(ecarts.length / 2)] : null;
+    const age = runs[0] ? (maintenant - Date.parse(runs[0].quand)) / 1000 : null;
     liste.push({
-      nom: wf.name, fichier: wf.path.split("/").pop(),
-      dernier: runs[0] ? { quand: runs[0].created_at, etat: runs[0].status === "completed" ? runs[0].conclusion : runs[0].status, url: runs[0].html_url, duree: runs[0].updated_at && runs[0].run_started_at ? Math.round((Date.parse(runs[0].updated_at) - Date.parse(runs[0].run_started_at)) / 1000) : null } : null,
-      reussis10: fini.filter((x) => x.conclusion === "success").length, finis10: fini.length,
+      nom: wf.name, fichier: wf.path.split("/").pop(), actif: wf.state === "active", etatWorkflow: wf.state,
+      rythme, enRetard: !!(wf.state === "active" && rythme && age != null && age > Math.max(2 * rythme, rythme + 3 * 3600)),
+      dernier: runs[0] || null, passages: runs,
     });
   }
+  /* Le detail des ECHECS des 7 derniers jours : quel job, quelle etape. Au
+     plus 30 passages, du plus recent au plus ancien. */
+  const echecs = liste.flatMap((wf) => wf.passages.filter((x) => x.etat === "failure" && maintenant - Date.parse(x.quand) < 7 * J * 1000).map((x) => ({ ...x, workflow: wf.nom, fichier: wf.fichier })))
+    .sort((a, b) => b.quand.localeCompare(a.quand)).slice(0, 30);
+  for (const e of echecs) {
+    const jobs = await peutManquer(gh(`/actions/runs/${e.id}/jobs?filter=latest&per_page=100`), { jobs: [] });
+    const rates = (jobs.jobs || []).filter((j) => j.conclusion === "failure");
+    e.jobs = rates.slice(0, 5).map((j) => ({ nom: j.name, etape: (j.steps || []).find((s) => s.conclusion === "failure")?.name || null, url: j.html_url }));
+    e.jobsRates = rates.length;
+    e.jobsTotal = (jobs.jobs || []).length;
+  }
   liste.sort((a, b) => String(b.dernier?.quand || "").localeCompare(String(a.dernier?.quand || "")));
-  const echecs = liste.filter((x) => x.dernier?.etat === "failure").length;
-  return { resume: { automatisationsEnEchec: echecs }, workflows: liste };
+  const enEchec = liste.filter((x) => x.actif && x.dernier?.etat === "failure").length;
+  return { resume: { automatisationsEnEchec: enEchec, echecs7j: echecs.length }, workflows: liste, echecs };
+});
+
+/* La FRAICHEUR de chaque chaine de donnees : quand a-t-elle ecrit pour la
+   derniere fois, et qu'a-t-elle ajoute. Que des lectures par index ou de
+   petites tables (~15 000 lignes). Les coches vertes de GitHub ne suffisent
+   pas : le 31/10/2026, refresh-fanarts etait vert tous les jours depuis mai et
+   n'avait rien livre au site (il ecrivait dans la mauvaise base). */
+section("fraicheur", "jour", async () => {
+  const etat = Object.fromEntries((await sql("cache", "SELECT key, value, updated_at FROM scrape_state WHERE key IN ('fanart_last_check', 'fanart_last_run')")).map((r) => [r.key, r]));
+  let bilan = null;
+  try { bilan = JSON.parse(etat.fanart_last_run?.value || "null"); } catch {}
+  const fan = await un("fanarts", "SELECT max(id) dernierId FROM anime_fanarts");
+  const fanRecent = await un("fanarts", "SELECT fetched_at FROM anime_fanarts WHERE id = ?", [fan.dernierId ?? 0]);
+  const nonClasses = await un("fanarts", "SELECT count(*) n FROM anime_fanarts WHERE nsfw_label IS NULL");
+  const fanarts = {
+    dernierPassage: bilan?.at ?? Number(etat.fanart_last_check?.value) ?? null, bilan,
+    dernierId: fan.dernierId ?? null, derniereImage: fanRecent.fetched_at ?? null, nonClasses: nonClasses.n ?? null,
+  };
+  const progres = await peutManquer(sql("fanarts", "SELECT tache, curseur, note, maj_at FROM wallhaven_progres"), []);
+  const wb = await peutManquer(un("fanarts", "SELECT count(*) n FROM wallhaven_brut"), {});
+  const wAtag = await peutManquer(un("fanarts", "SELECT count(*) n FROM wallhaven_brut WHERE tagged_at IS NULL AND favorites >= 4"), {});
+  const wAattr = await peutManquer(un("fanarts", "SELECT count(*) n FROM wallhaven_brut WHERE tagged_at > 0 AND attribue_at IS NULL"), {});
+  const wImg = await peutManquer(un("fanarts", "SELECT max(rowid) n FROM wallhaven_image"), {});
+  const wallhaven = { progres, brut: wb.n ?? null, aEtiqueter: wAtag.n ?? null, aAttribuer: wAattr.n ?? null, lignesGalerie: wImg.n ?? null };
+  const as = await peutManquer(un("cache", "SELECT max(maj_le) maj, count(*) n FROM as_panneau"), {});
+  const va = await peutManquer(un("cache", "SELECT max(maj_le) maj, count(*) n FROM va_page"), {});
+  // checked_at melange les unites : millisecondes sur les vieilles lignes, secondes depuis. On ramene tout en secondes.
+  const pm = await peutManquer(un("cache", "SELECT max(CASE WHEN checked_at > 1e11 THEN checked_at / 1000 ELSE checked_at END) maj FROM player_map"), {});
+  const animes = await un("cache", "SELECT count(*) n FROM anime WHERE expires_at < ?", [S]);
+  return {
+    resume: { fanartsDernierId: fanarts.dernierId, wallhavenBrut: wallhaven.brut, wallhavenAEtiqueter: wallhaven.aEtiqueter },
+    fanarts, wallhaven, animeSama: as, voirAnime: va, playerMap: pm, animesPerimes: animes.n ?? null,
+  };
 });
 
 /* Le nombre EXACT de lignes de chaque table. MAX(rowid) ne convient pas : la

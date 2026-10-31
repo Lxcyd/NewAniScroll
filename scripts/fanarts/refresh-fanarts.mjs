@@ -29,16 +29,29 @@ if (!KEY) { console.error("✘ FANART_API_KEY missing"); process.exit(1); }
 // Main DB holds the `anime` table (and scrape_state). Fanarts DB holds
 // `anime_fanarts`. When TURSO_FANARTS_DATABASE_URL isn't set both point
 // to the same client so deployments that haven't split yet still work.
+//
+// 31/10/2026 : PLUS de repli sur la base principale. Le workflow ne passait pas
+// TURSO_FANARTS_*, le repli ecrivait donc dans `anime_fanarts` de la base CACHE
+// (une copie morte d'avant la separation) : de mai a octobre, aucune nouvelle
+// image n'a atteint le site, avec une coche verte chaque matin.
+if (!process.env.TURSO_FANARTS_DATABASE_URL) {
+  console.error("✘ TURSO_FANARTS_DATABASE_URL missing — refusing to write fanarts anywhere else");
+  process.exit(1);
+}
 const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
-const fanartsDb = process.env.TURSO_FANARTS_DATABASE_URL
-  ? createClient({
-      url: process.env.TURSO_FANARTS_DATABASE_URL,
-      authToken: process.env.TURSO_FANARTS_AUTH_TOKEN,
-    })
-  : db;
+const fanartsDb = createClient({
+  url: process.env.TURSO_FANARTS_DATABASE_URL,
+  authToken: process.env.TURSO_FANARTS_AUTH_TOKEN,
+});
+// Bilan de chaque passage, lu par l'onglet Statistiques du panneau admin.
+const RUN_KEY = "fanart_last_run";
+// fanart.tv /v3/tv/latest repond `null` (constate du 25 au 31/10/2026, toutes
+// variantes d'URL) : sans lui, les series sont repassees par septiemes, une
+// semaine pour tout le catalogue (~900 series par jour, ~20 min).
+const TV_ROTATION = 7;
 
 const LAST_CHECK_KEY = "fanart_last_check";
 const REQUEST_DELAY_MS = 1300;
@@ -123,15 +136,17 @@ function parseAssets(data, isMovie) {
 async function upsertFanarts(animeId, rows) {
   if (rows.length === 0) return 0;
   const now = Math.floor(Date.now() / 1000);
-  await fanartsDb.batch(
+  // Les lignes VRAIMENT ajoutees (INSERT OR IGNORE : une image deja connue compte 0).
+  const res = await fanartsDb.batch(
     rows.map((r) => ({
       sql: `INSERT OR IGNORE INTO anime_fanarts
               (anime_id, type, url, fanart_id, language, likes, season, fetched_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [animeId, r.type, r.url, r.fanartId, r.language, r.likes, r.season, now],
-    }))
+    })),
+    "write"
   );
-  return rows.length;
+  return res.reduce((s, r) => s + (r.rowsAffected || 0), 0);
 }
 
 async function main() {
@@ -194,6 +209,10 @@ async function main() {
   }
   const changedTvIds = extractIds(tvLatest);
   const changedMovieIds = extractIds(movieLatest);
+  // Liste TV vide ou nulle alors que l'appel a reussi : on ne peut pas la croire.
+  const tvRotation = !latestFailed && changedTvIds.size === 0;
+  const slice = Math.floor(nowS / 86400) % TV_ROTATION;
+  if (tvRotation) console.log(`  TV /latest unusable — sweeping TV slice ${slice + 1}/${TV_ROTATION}`);
   console.log(`  Unique TV ids:    ${changedTvIds.size}`);
   console.log(`  Unique Movie ids: ${changedMovieIds.size}`);
 
@@ -213,7 +232,7 @@ async function main() {
 
     if (isMovie && tmdb && changedMovieIds.has(tmdb)) {
       toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
-    } else if (tvdb && changedTvIds.has(tvdb)) {
+    } else if (tvdb && (changedTvIds.has(tvdb) || (tvRotation && !isMovie && Number(row.id) % TV_ROTATION === slice))) {
       toRefresh.push({ id: Number(row.id), tvdb, isMovie: false });
     } else if (tmdb && changedMovieIds.has(tmdb)) {
       toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
@@ -224,7 +243,7 @@ async function main() {
   await sleep(REQUEST_DELAY_MS);
 
   const t0 = Date.now();
-  let added = 0;
+  let added = 0, errors = 0;
   for (let i = 0; i < toRefresh.length; i++) {
     const a = toRefresh[i];
     const endpoint = a.isMovie
@@ -233,11 +252,9 @@ async function main() {
     try {
       const data = await fetchFanart(endpoint);
       const assets = parseAssets(data, a.isMovie);
-      if (assets.length > 0) {
-        await upsertFanarts(a.id, assets);
-        added += assets.length;
-      }
+      if (assets.length > 0) added += await upsertFanarts(a.id, assets);
     } catch (e) {
+      errors++;
       console.error(`  ✘ ${a.id} (${endpoint.split("/").slice(-2).join("/")}): ${e.message}`);
     }
     if ((i + 1) % 25 === 0) {
@@ -247,7 +264,17 @@ async function main() {
   }
 
   const dt = Math.round((Date.now() - t0) / 1000);
-  console.log(`\n✓ Refresh done in ${Math.floor(dt / 60)}m${dt % 60}s — ${added} URL(s) added (INSERT OR IGNORE deduped)`);
+  console.log(`\n✓ Refresh done in ${Math.floor(dt / 60)}m${dt % 60}s — ${added} new image(s), ${errors} error(s)`);
+
+  const bilan = {
+    at: nowS, since, tvLatest: tvLatest == null ? null : changedTvIds.size, moviesLatest: movieLatest == null ? null : changedMovieIds.size,
+    tvRotation: tvRotation ? `${slice + 1}/${TV_ROTATION}` : null, refreshed: toRefresh.length, added, errors, latestFailed,
+  };
+  await db.execute({
+    sql: `INSERT INTO scrape_state (key, value, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    args: [RUN_KEY, JSON.stringify(bilan), nowS],
+  });
 
   /*
    * THE CURSOR ONLY MOVES OVER GROUND WE ACTUALLY COVERED.

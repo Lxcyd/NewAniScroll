@@ -8,13 +8,18 @@
 #
 # Secrets : TURSO_DATABASE_URL / TURSO_AUTH_TOKEN, TURSO_FANARTS_*,
 # TURSO_ADMIN_URL / TURSO_ADMIN_TOKEN, TURSO_USERS_URL / TURSO_USERS_TOKEN,
-# CF_ZONE_API_TOKEN, TURSO_API_TOKEN, UPSTASH_*.
+# CF_STATS_TOKEN / CF_ZONE_ID (jeton Cloudflare en lecture seule ; l'autre est
+# verrouille sur l'IP du PC), TURSO_API_TOKEN, UPSTASH_*.
+#
+# Chaque heure, en plus : la seule section « automatisations » (l'API GitHub,
+# zero ligne Turso lue) — un echec de workflow apparait dans l'heure.
 
 name: stats-site
 
 on:
   schedule:
     - cron: "40 6 * * *"
+    - cron: "12 * * * *"
   workflow_dispatch:
     inputs:
       tout:
@@ -48,11 +53,17 @@ jobs:
           TURSO_USERS_URL: ${{ secrets.TURSO_USERS_URL }}
           TURSO_USERS_TOKEN: ${{ secrets.TURSO_USERS_TOKEN }}
           TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
-          CF_ZONE_API_TOKEN: ${{ secrets.CF_ZONE_API_TOKEN }}
+          CF_STATS_TOKEN: ${{ secrets.CF_STATS_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           UPSTASH_EMAIL: ${{ secrets.UPSTASH_EMAIL }}
           UPSTASH_API_KEY: ${{ secrets.UPSTASH_API_KEY }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         # Aucune dependance : le script parle a Turso par HTTP.
-        run: node tools/stats/instantane.mjs ${{ inputs.tout && '--tout' || '' }}
+        run: |
+          if [ "${{ github.event.schedule }}" = "12 * * * *" ]; then
+            node tools/stats/instantane.mjs --sections=automatisations
+          else
+            node tools/stats/instantane.mjs ${{ inputs.tout && '--tout' || '' }}
+          fi
