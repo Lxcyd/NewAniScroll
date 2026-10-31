@@ -31,10 +31,12 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: dev
 
       - uses: actions/setup-node@v5
         with:
@@ -60,6 +62,10 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          # La base que LIT le site (31/10/2026 : sans elles, tout partait dans
+          # la base cache, cf. refresh-fanarts.mjs).
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN:   ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
           FANART_API_KEY:     ${{ secrets.FANART_API_KEY }}
         run: node scripts/fanarts/refresh-fanarts.mjs
 
@@ -79,6 +85,16 @@ jobs:
         # Ce téléchargement vit dans les scripts du paquet, hors du contrôle des
         # `fetch-retries` de npm : la seule reprise possible est de relancer la
         # commande. 3 essais, 15 s puis 30 s.
+        #
+        # ONNXRUNTIME_NODE_INSTALL=skip (28/10/2026) : sans lui, le script
+        # d'onnxruntime-node va chercher les binaires CUDA
+        # (Microsoft.ML.OnnxRuntime.Gpu.Linux) sur NuGet, et ce paquet n'y est
+        # plus trouvé : « Failed to find specific package versions », 3 essais,
+        # job rouge. Le runner n'a pas de GPU et classify-fanarts.mjs tourne en
+        # executionProviders: ["cpu"] — le moteur CPU est inclus dans le paquet
+        # npm, rien d'autre à télécharger.
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: |
           for attempt in 1 2 3; do
             if npm install --no-save onnxruntime-node@^1.25 sharp@^0.32 \
@@ -113,6 +129,10 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          # La base que LIT le site (31/10/2026 : sans elles, tout partait dans
+          # la base cache, cf. refresh-fanarts.mjs).
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN:   ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
         # GitHub Actions runners have 4 vCPUs — match that.
         # The classifier only loops over rows where nsfw_label IS NULL, so
         # this only touches rows the refresh step just added.
