@@ -1,0 +1,67 @@
+# Wallhaven : etiquetage des images deja aspirees, et increment quotidien.
+#
+# tools/wallhaven/tags.mjs — une requete par image (tags -> facettes de la
+# galerie et verification de serie). ~121 000 images a faire au 31/10/2026 ;
+# Wallhaven permet 45 requetes / minute, le script en fait 40 : ~50 h de
+# travail. TROIS creneaux de 5 h 20 par jour, HORS de la nuit (03:17-08:00 UTC)
+# ou les copies anime-sama / voir-anime prennent les 20 machines que GitHub
+# accorde : ~38 000 images par jour, termine en ~3 jours. Ensuite chaque
+# creneau ne trouve plus rien a faire et s'arrete en quelques minutes.
+#
+# tools/wallhaven/quotidien.mjs — nouveautes des titres en cours + relecture
+# des favoris recents (~9 min), au premier creneau seulement.
+#
+# Cout : ~18 lignes Turso ecrites par image (l'image + ses tags bruts), soit
+# ~2,2 M au total sur 10 M d'ecritures par mois ; lectures negligeables. Depot
+# public : minutes GitHub gratuites. Jamais deux creneaux a la fois
+# (`concurrency`) : ils partagent le curseur.
+#
+# Secrets : TURSO_DATABASE_URL / TURSO_AUTH_TOKEN, TURSO_FANARTS_*.
+
+name: wallhaven
+
+on:
+  schedule:
+    - cron: "10 8 * * *"
+    - cron: "40 13 * * *"
+    - cron: "10 19 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Duree d'etiquetage (minutes)"
+        default: "320"
+
+concurrency:
+  group: wallhaven
+  cancel-in-progress: false
+
+jobs:
+  wallhaven:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Install only what the scripts need
+        # package.json mis de cote le temps de l'installation (sinon npm installe
+        # tout le site) puis remis : lib/wallhaven/criteres.js est un module ES.
+        run: mv package.json /tmp/pkg.json; rm -f package-lock.json; ok=1; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && ok=0 && break; sleep 20; done; mv /tmp/pkg.json package.json; exit $ok
+      - name: Increment quotidien
+        if: ${{ github.event.schedule == '10 8 * * *' }}
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+        run: node tools/wallhaven/quotidien.mjs
+      - name: Etiquetage
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TURSO_FANARTS_DATABASE_URL: ${{ secrets.TURSO_FANARTS_DATABASE_URL }}
+          TURSO_FANARTS_AUTH_TOKEN: ${{ secrets.TURSO_FANARTS_AUTH_TOKEN }}
+        run: node tools/wallhaven/tags.mjs --minutes=${{ inputs.minutes || '320' }}

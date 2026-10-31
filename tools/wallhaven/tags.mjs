@@ -32,6 +32,7 @@
  *   node tools/wallhaven/tags.mjs                  # descend la liste, sans fin
  *   node tools/wallhaven/tags.mjs --limite=2000    # s'arrete apres 2000 images
  *   node tools/wallhaven/tags.mjs --anime=21       # un seul titre
+ *   node tools/wallhaven/tags.mjs --minutes=320    # s'arrete au bout de 5 h 20
  *   node tools/wallhaven/tags.mjs --profondeur=0   # TOUTES les images, pas que
  *                                                  # celles qui s'affichent
  */
@@ -54,6 +55,9 @@ const lireArg = (n) => {
   return a ? a.slice(n.length + 3) : null;
 };
 const limite = Number(lireArg("limite")) || Infinity;
+/* --minutes=N : s'arreter proprement apres N minutes (creneau GitHub Actions,
+   6 h au plus par job). Le curseur est deja a jour : la reprise est exacte. */
+const finA = Number(lireArg("minutes")) ? Date.now() + Number(lireArg("minutes")) * 60_000 : Infinity;
 const unSeul = Number(lireArg("anime")) || null;
 
 /**
@@ -107,7 +111,7 @@ let rang = depart - 1;
 
 for await (const ligne of parLots(anime, ids.slice(depart))) {
   rang++;
-  if (taguees >= limite) break;
+  if (taguees >= limite || Date.now() > finA) break;
   const id = ligne.id;
   let data;
   try { data = JSON.parse(String(ligne.data)); } catch { data = null; }
@@ -119,7 +123,7 @@ for await (const ligne of parLots(anime, ids.slice(depart))) {
   if (!aFaire.length) continue;
 
   for (const img of aFaire) {
-    if (taguees >= limite) break;
+    if (taguees >= limite || Date.now() > finA) break;
     const j = await appel(urlFiche(img.wh_id));
     /* Echec ponctuel : on laisse `tagged_at` a NULL, donc l'image reste
        affichee et sera reproposee au prochain passage. Ne jamais ecrire un
