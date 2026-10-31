@@ -28,9 +28,11 @@ function octets(n: any) {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toLocaleString("fr-FR", { maximumFractionDigits: v < 10 ? 1 : 0 })} ${u[i]}`;
 }
+/** Accepte des millisecondes ou des secondes (certaines tables datent en secondes). */
 function depuis(ms: any) {
   if (!ms) return "jamais";
-  const s = Math.round((Date.now() - Number(ms)) / 1000);
+  const t = Number(ms) < 1e12 ? Number(ms) * 1000 : Number(ms);
+  const s = Math.round((Date.now() - t) / 1000);
   if (s < 90) return "a l'instant";
   if (s < 5400) return `il y a ${Math.round(s / 60)} min`;
   if (s < 172800) return `il y a ${Math.round(s / 3600)} h`;
@@ -48,6 +50,20 @@ const pays = (() => {
   try { const d = new Intl.DisplayNames(["fr"], { type: "region" }); return (c: string) => { try { return d.of(c) || c; } catch { return c; } }; } catch { return (c: string) => c; }
 })();
 const tsDate = (v: any) => (v ? new Date(Number(v) < 1e12 ? Number(v) * 1000 : Number(v)).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
+
+/** Une colonne par mois, du premier au mois courant : un mois vide compte zero au lieu de disparaitre. */
+function parMois(l: { mois: string; n: number }[] | undefined): Ligne[] {
+  if (!l?.length) return [];
+  const m = new Map(l.filter((x) => x.mois).map((x) => [x.mois, x.n]));
+  const out: Ligne[] = [];
+  const [a, b] = l.find((x) => x.mois)!.mois.split("-").map(Number);
+  const fin = new Date();
+  for (let d = new Date(a, b - 1, 1); d <= fin; d.setMonth(d.getMonth() + 1)) {
+    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    out.push({ nom: k, n: m.get(k) || 0 });
+  }
+  return out;
+}
 
 /* ── Briques ─────────────────────────────────────────────────────────────── */
 function Carte({ titre, children, className = "", note }: { titre?: string; children: React.ReactNode; className?: string; note?: string }) {
@@ -86,19 +102,20 @@ function Etincelle({ serie }: { serie: (number | null)[] }) {
 }
 
 /** Barres horizontales triees : une seule mesure, une seule teinte, la part en clair. */
-function Barres({ lignes, max = 12, format = fmt, libelle = (x: any) => String(x), total }: { lignes: Ligne[]; max?: number; format?: (n: any) => string; libelle?: (x: any) => string; total?: number }) {
+function Barres({ lignes, max = 12, format = fmt, libelle = (x: any) => String(x), total, large = false }: { lignes: Ligne[]; max?: number; format?: (n: any) => string; libelle?: (x: any) => string; total?: number; large?: boolean }) {
   const [tout, setTout] = useState(false);
   if (!lignes?.length) return <p className="text-xs text-white/40 font-karla">Aucune donnee.</p>;
   const somme = total ?? lignes.reduce((s, l) => s + (Number(l.n) || 0), 0);
-  const haut = Math.max(...lignes.map((l) => Number(l.n) || 0)) || 1;
+  // Avec un total donne (part d'un ensemble), la barre est cette part ; sinon, relative au plus grand.
+  const haut = total ?? (Math.max(...lignes.map((l) => Number(l.n) || 0)) || 1);
   const vues = tout ? lignes : lignes.slice(0, max);
   return (
     <div className="flex flex-col gap-1.5">
       {vues.map((l) => (
-        <div key={String(l.nom)} className="group grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-2 text-xs font-karla" title={`${libelle(l.nom)} : ${format(l.n)} (${pct(l.n, somme)})`}>
+        <div key={String(l.nom)} className={`group grid ${large ? "grid-cols-[minmax(0,20rem)_1fr_auto]" : "grid-cols-[minmax(0,9rem)_1fr_auto]"} items-center gap-2 text-xs font-karla`} title={`${libelle(l.nom)} : ${format(l.n)} (${pct(l.n, somme)})`}>
           <span className="text-white/70 truncate">{libelle(l.nom)}</span>
           <span className="h-2.5 rounded-sm bg-white/5 overflow-hidden">
-            <span className="block h-full rounded-sm bg-action/80 group-hover:bg-action transition-colors" style={{ width: `${Math.max(1.5, ((Number(l.n) || 0) / haut) * 100)}%` }} />
+            <span className="block h-full rounded-sm bg-action opacity-75 group-hover:opacity-100 transition-opacity" style={{ width: `${Math.max(1.5, ((Number(l.n) || 0) / haut) * 100)}%` }} />
           </span>
           <span className="text-white tabular-nums text-right">{format(l.n)} <span className="text-white/40">{pct(l.n, somme)}</span></span>
         </div>
@@ -142,7 +159,7 @@ function Courbe({ points, format = fmt, hauteur = 160 }: { points: { x: string; 
             <text x={G - 6} y={y(g) + 4} textAnchor="end" className="fill-white/40" style={{ fontSize: 10 }}>{compact(g)}</text>
           </g>
         ))}
-        <polygon points={aire} className="fill-action/15" />
+        <polygon points={aire} fill="currentColor" fillOpacity={0.15} className="text-action" />
         <polyline points={ligne} fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" className="text-action" />
         {s && s.y != null && (
           <>
@@ -172,7 +189,7 @@ function Colonnes({ lignes, format = fmt }: { lignes: Ligne[]; format?: (n: any)
       <div className="flex items-end gap-[2px] h-32">
         {lignes.map((l) => (
           <div key={String(l.nom)} className="group relative flex-1 h-full flex items-end" title={`${l.nom} : ${format(l.n)}`}>
-            <div className="w-full rounded-t-[3px] bg-action/75 group-hover:bg-action transition-colors" style={{ height: `${Math.max(1, ((Number(l.n) || 0) / max) * 100)}%` }} />
+            <div className="w-full rounded-t-[3px] bg-action opacity-75 group-hover:opacity-100 transition-opacity" style={{ height: `${Math.max(1, ((Number(l.n) || 0) / max) * 100)}%` }} />
           </div>
         ))}
       </div>
@@ -183,8 +200,10 @@ function Colonnes({ lignes, format = fmt }: { lignes: Ligne[]; format?: (n: any)
   );
 }
 
-function Tableau({ colonnes, lignes, vide = "Aucune donnee." }: { colonnes: { titre: string; rendu: (l: any) => React.ReactNode; droite?: boolean }[]; lignes: any[]; vide?: string }) {
+function Tableau({ colonnes, lignes, vide = "Aucune donnee.", max = 1e9 }: { colonnes: { titre: string; rendu: (l: any) => React.ReactNode; droite?: boolean }[]; lignes: any[]; vide?: string; max?: number }) {
+  const [tout, setTout] = useState(false);
   if (!lignes?.length) return <p className="text-xs text-white/40 font-karla">{vide}</p>;
+  const vues = tout ? lignes : lignes.slice(0, max);
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs font-karla">
@@ -194,19 +213,32 @@ function Tableau({ colonnes, lignes, vide = "Aucune donnee." }: { colonnes: { ti
           </tr>
         </thead>
         <tbody>
-          {lignes.map((l, i) => (
+          {vues.map((l, i) => (
             <tr key={i} className="border-t border-white/5 hover:bg-white/[0.03]">
               {colonnes.map((c) => <td key={c.titre} className={`py-1.5 pr-3 text-white/85 ${c.droite ? "text-right tabular-nums" : ""}`}>{c.rendu(l)}</td>)}
             </tr>
           ))}
         </tbody>
       </table>
+      {lignes.length > max && (
+        <button type="button" onClick={() => setTout(!tout)} className="mt-2 text-[11px] text-action hover:underline">
+          {tout ? "Reduire" : `Voir les ${lignes.length} lignes`}
+        </button>
+      )}
     </div>
   );
 }
 
 /** Une jauge de quota : la part consommee, et la projection en fin de periode. */
 function Jauge({ label, part, projection, detail }: { label: string; part: number | null; projection?: number | null; detail?: React.ReactNode }) {
+  if (part == null && projection == null) {
+    return (
+      <div className="flex flex-col gap-1.5 text-xs font-karla">
+        <span className="text-white/70">{label}</span>
+        <span className="text-white/40">Non mesure dans ce calcul (identifiants absents ou API injoignable).</span>
+      </div>
+    );
+  }
   const etat = (projection ?? part ?? 0) >= 100 ? "critique" : (projection ?? part ?? 0) >= 70 ? "attention" : "ok";
   return (
     <div className="flex flex-col gap-1.5">
@@ -284,7 +316,7 @@ export default function AdminStats() {
     );
   }
 
-  const au = S("audience"), co = S("comptes"), ca = S("catalogue"), le = S("lecteurs"), op = S("oped"), im = S("images"), mo = S("moderation"), inf = S("infra"), auto = S("automatisations");
+  const au = S("audience"), co = S("comptes"), ca = S("catalogue"), le = S("lecteurs"), op = S("oped"), im = S("images"), mo = S("moderation"), inf = S("infra"), auto = S("automatisations"), tb = S("tables");
   const entete = (id: string) => {
     const src = ORDRE.find((o) => o.id === id)?.source || [];
     const sec = src.map((s) => r.sections[s]).filter(Boolean);
@@ -352,7 +384,7 @@ export default function AdminStats() {
               <Carte titre="Pays (requetes, 30 j)"><Barres lignes={au.pays} libelle={pays} /></Carte>
               <Carte titre="Navigateurs (pages vues, 30 j)"><Barres lignes={au.navigateurs} /></Carte>
               <Carte titre="Codes de reponse (30 j)"><Barres lignes={au.statuts} libelle={(c) => `HTTP ${c}`} /></Carte>
-              <Carte titre="Familles de pages (24 h, visiteurs)"><Barres lignes={au.familles24h} /></Carte>
+              <Carte titre="Familles de pages (24 h)"><Barres lignes={au.familles24h} /></Carte>
               <Carte titre="Appareils (24 h)"><Barres lignes={au.appareils24h} /></Carte>
               <Carte titre="Systemes (24 h)"><Barres lignes={au.os24h} /></Carte>
             </div>
@@ -381,7 +413,7 @@ export default function AdminStats() {
           <Tuile label="Actifs · 30 j" valeur={fmt(co.comptes?.actifs30j)} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <Carte titre="Inscriptions par mois"><Colonnes lignes={(co.inscriptions || []).map((x: any) => ({ nom: x.mois, n: x.n }))} /></Carte>
+          <Carte titre="Inscriptions par mois"><Colonnes lignes={parMois(co.inscriptions)} /></Carte>
           <Carte titre="Roles et statuts"><Barres lignes={co.roles} /></Carte>
           <Carte titre="Profils" note="Avatar : le sien ou celui d'AniList.">
             <Barres lignes={[{ nom: "avec avatar", n: co.comptes?.avecAvatar || 0 }, { nom: "avec banniere", n: co.comptes?.avecBanniere || 0 }]} total={co.comptes?.total} />
@@ -464,7 +496,7 @@ export default function AdminStats() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           <Carte titre="Qui a verifie les correspondances"><Barres lignes={(le.origines || []).map((x: any) => ({ nom: `${x.source} · ${x.origine}`, n: x.n }))} /></Carte>
-          <Carte titre="Pourquoi une source est sautee (broken / absent)" className="xl:col-span-2"><Barres lignes={le.notes} max={10} /></Carte>
+          <Carte titre="Pourquoi une source est sautee (broken / absent)" className="xl:col-span-2"><Barres lignes={le.notes} max={10} large /></Carte>
           <Carte titre="anime-sama : episodes jouables par langue"><Barres lignes={(le.animeSama?.langues || []).map((x: any) => ({ nom: x.nom, n: x.vivants }))} /></Carte>
           <Carte titre="anime-sama : par genre de panneau"><Barres lignes={(le.animeSama?.genres || []).map((x: any) => ({ nom: x.nom, n: x.vivants }))} /></Carte>
           <Carte titre="voir-anime : episodes jouables par langue"><Barres lignes={(le.voirAnime?.langues || []).map((x: any) => ({ nom: x.nom, n: x.vivants }))} /></Carte>
@@ -472,12 +504,23 @@ export default function AdminStats() {
           <Carte titre="voir-anime : ancrage AniList"><Barres lignes={le.voirAnime?.ancres} /></Carte>
           <Carte titre="Durees d'episodes par lecteur"><Barres lignes={le.runtimes} /></Carte>
         </div>
-        <Carte titre="Performance des lecteurs (moyenne glissante)" note="Mesuree par le site a chaque resolution : plus bas = plus rapide.">
+        <Carte titre="Performance des lecteurs (moyenne glissante, tous visiteurs)" note="Mesuree dans le navigateur des visiteurs (lib/watch/serverPerf.ts), un echantillon des visionnages. Demarrage, debit et seek : plus bas = mieux ; qualite : plus haut = mieux. Entre parentheses : nombre de mesures.">
           <Tableau colonnes={[
-            { titre: "Lecteur", rendu: (l) => l.nom }, { titre: "Critere", rendu: (l) => l.crit },
-            { titre: "Moyenne", rendu: (l) => (l.ewma == null ? "—" : Number(l.ewma).toLocaleString("fr-FR", { maximumFractionDigits: 0 })), droite: true },
-            { titre: "Mesures", rendu: (l) => fmt(l.n), droite: true }, { titre: "Derniere", rendu: (l) => depuis(l.updated_at), droite: true },
-          ]} lignes={le.perf} />
+            { titre: "Lecteur", rendu: (l) => l.nom },
+            ...([["t", "Demarrage", (v: number) => `${(v / 1000).toFixed(1)} s`], ["s", "Coupures / min", (v: number) => `${v.toFixed(1)} s`],
+              ["b", "20 s d'avance en", (v: number) => `${(v / 1000).toFixed(1)} s`], ["k", "Seek", (v: number) => `${(v / 1000).toFixed(1)} s`],
+              ["q", "Qualite", (v: number) => `${Math.round(v)}p`]] as const).map(([c, titre, f]) => ({
+              titre, droite: true,
+              rendu: (l: any) => (l[c] ? <span>{f(l[c].ewma)} <span className="text-white/35">({fmt(l[c].n)})</span></span> : "—"),
+            })),
+            { titre: "Derniere mesure", rendu: (l) => depuis(l.maj), droite: true },
+          ]} lignes={Object.values((le.perf || []).reduce((m: any, x: any) => {
+            const r = (m[x.nom] ||= { nom: x.nom, maj: 0, total: 0 });
+            r[x.crit] = { ewma: Number(x.ewma), n: x.n };
+            r.maj = Math.max(r.maj, Number(x.updated_at) || 0);
+            r.total += x.n;
+            return m;
+          }, {})).sort((a: any, b: any) => b.total - a.total)} />
         </Carte>
       </Bloc>
 
@@ -529,7 +572,7 @@ export default function AdminStats() {
           <Tuile label="IP bannies" valeur={fmt(mo.bans)} />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <Carte titre="Signalements par mois"><Colonnes lignes={(mo.parMois || []).map((x: any) => ({ nom: x.mois, n: x.n }))} /></Carte>
+          <Carte titre="Signalements par mois"><Colonnes lignes={parMois(mo.parMois)} /></Carte>
           <Carte titre="Par gravite"><Barres lignes={mo.gravites} /></Carte>
           <Carte titre="Actions d'administration (journal)"><Barres lignes={mo.audit} /></Carte>
         </div>
@@ -563,11 +606,11 @@ export default function AdminStats() {
             <p className="mt-3 text-xs text-white/60">Hier : {fmt(inf.upstash?.hier)} commandes · {fmt(inf.upstash?.cles)} cles en base.</p>
           </Carte>
         </div>
-        <Carte titre="Taille des tables (lignes, approximatif)" note="MAX(rowid) : une ligne lue par table ; surestime une table dont on a efface des lignes.">
+        <Carte titre="Taille des tables (lignes)" note={`Comptage exact, chaque jour (${depuis(r.sections.tables?.calculeLe)}). ${fmt(tb.resume?.lignesEnBase)} lignes au total.`}>
           <Tableau colonnes={[
             { titre: "Base", rendu: (l) => <span className="text-white/50">{l.base}</span> }, { titre: "Table", rendu: (l) => l.nom },
             { titre: "Lignes", rendu: (l) => fmt(l.n), droite: true },
-          ]} lignes={(inf.tables || []).slice(0, 60)} />
+          ]} lignes={tb.tables || []} max={15} />
         </Carte>
       </Bloc>
 

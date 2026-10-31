@@ -245,16 +245,6 @@ section("infra", "jour", async () => {
     const r = await peutManquer(fetch(`${process.env.UPSTASH_REDIS_REST_URL}/dbsize`, { headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` } }).then((x) => x.json()), null);
     if (r?.result != null) (out.upstash ||= {}).cles = r.result;
   }
-  // Taille des tables (MAX(rowid) : 1 ligne lue par table, approximatif si des lignes ont ete effacees).
-  out.tables = [];
-  for (const base of Object.keys(BASES)) {
-    const t = await peutManquer(sql(base, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts_%' AND name NOT LIKE '_litestream%'"), []);
-    for (const { name } of t) {
-      const n = await peutManquer(un(base, `SELECT MAX(rowid) n FROM "${name}"`), {});
-      out.tables.push({ base, nom: name, n: n.n ?? 0 });
-    }
-  }
-  out.tables.sort((a, b) => b.n - a.n);
   return { resume: { tursoPct: out.turso?.pct ?? null, upstashProjection: out.upstash?.projection ?? null }, ...out };
 });
 
@@ -276,6 +266,23 @@ section("automatisations", "jour", async () => {
   liste.sort((a, b) => String(b.dernier?.quand || "").localeCompare(String(a.dernier?.quand || "")));
   const echecs = liste.filter((x) => x.dernier?.etat === "failure").length;
   return { resume: { automatisationsEnEchec: echecs }, workflows: liste };
+});
+
+/* Le nombre EXACT de lignes de chaque table. MAX(rowid) ne convient pas : la
+   cle de `anime` est l'id AniList, 219 237 pour 22 783 lignes. Mesure du
+   31/10/2026 : Turso ne facture que ~3 300 lignes pour les COUNT(*) de toutes
+   les tables, d'ou la cadence quotidienne. */
+section("tables", "jour", async () => {
+  const tables = [];
+  for (const base of Object.keys(BASES)) {
+    const t = await peutManquer(sql(base, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%' AND name NOT LIKE '_litestream%'"), []);
+    for (const { name } of t) {
+      const n = await peutManquer(un(base, `SELECT count(*) n FROM "${name}"`), {});
+      tables.push({ base, nom: name, n: n.n ?? null });
+    }
+  }
+  tables.sort((a, b) => (b.n ?? 0) - (a.n ?? 0));
+  return { resume: { lignesEnBase: tables.reduce((s, t) => s + (t.n || 0), 0) }, tables };
 });
 
 /* ── Hebdomadaires : les grosses tables (~1,7 M de lignes lues au total) ──── */
