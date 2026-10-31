@@ -56,7 +56,9 @@ jobs:
           node-version: "22"
       - name: Install only what the scripts need
         # 3 essais : le 31/10 une tranche est morte sur un ENETUNREACH du registre npm.
-        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+        # Sans package.json : sinon npm installe TOUT le site (prisma et son
+        # postinstall), et une tranche est morte la-dessus le 31/10 (ENOTEMPTY).
+        run: rm -f package.json package-lock.json; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Copie d'anime-sama (tranche ${{ matrix.tranche }}/20)
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -82,7 +84,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install only what the scripts need
-        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+        run: rm -f package.json package-lock.json; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Parite et corrections
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -116,7 +118,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install only what the scripts need
-        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+        run: rm -f package.json package-lock.json; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Copie de voir-anime (tranche ${{ matrix.tranche }}/20)
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -139,7 +141,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install only what the scripts need
-        run: for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
+        run: rm -f package.json package-lock.json; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && exit 0; sleep 20; done; exit 1
       - name: Parite voir-anime et corrections
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
