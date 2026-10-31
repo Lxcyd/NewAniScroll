@@ -119,6 +119,44 @@ function domainesVidmoly(html) {
   }
 }
 
+/**
+ * Ancrage d'une fiche SANS lien AniList (~20 sur 1 400) par son titre.
+ * Le 31/10/2026, `cyberpunk-edgerunners-2` n'avait pas de lien : la parite
+ * l'ignorait, et la VF de la saison 2 (195539) servait la saison 1 sans que
+ * personne ne le voie (meme nombre d'episodes, 10).
+ *
+ * Un id n'est retenu que si UN SEUL anime AniList porte exactement l'un des
+ * titres de la fiche (romaji, anglais, natif ou synonyme, normalises) : deux
+ * candidats = pas d'ancre (une saison et son film portent souvent le meme nom).
+ */
+const normTitre = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, "");
+async function ancrerParTitre(titres, dossiers) {
+  const voulus = new Set(titres.map(normTitre).filter(Boolean));
+  /* Le FORMAT doit coller : une fiche a saisons ne s'ancre pas sur un film
+     (`dreamland`, serie de 2 episodes, tombait sur le film DREAMLAND de 2018). */
+  const aSaisons = dossiers.some((d) => /^saison/i.test(d));
+  const formatOk = (f) => (aSaisons ? f !== "MOVIE" : f === "MOVIE" || f === "OVA" || f === "SPECIAL" || f === "ONA");
+  const candidats = new Set();
+  for (const t of titres.slice(0, 4)) {
+    const q = `query($s:String){Page(perPage:15){media(search:$s,type:ANIME){id format title{romaji english native} synonyms}}}`;
+    let j = null;
+    for (let essai = 0; essai < 3 && !j; essai++) {
+      const r = await fetch("https://graphql.anilist.co", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, variables: { s: t } }), signal: AbortSignal.timeout(20000),
+      }).catch(() => null);
+      if (!r || r.status === 429) { await dors(20000); continue; }
+      j = await r.json().catch(() => null);
+    }
+    for (const m of j?.data?.Page?.media || []) {
+      const noms = [m.title?.romaji, m.title?.english, m.title?.native, ...(m.synonyms || [])].map(normTitre);
+      if (noms.some((n) => voulus.has(n)) && formatOk(m.format)) candidats.add(m.id);
+    }
+    await dors(2500); // AniList : 30 a 90 requetes / minute
+  }
+  return candidats.size === 1 ? [...candidats][0] : null;
+}
+
 /** Fiche : id AniList / MAL et saisons (`panneauAnime("Saison 1", "saison1/vostfr")`). */
 async function fiche(slug) {
   const { status, texte } = await viaWorker(`${AS}/catalogue/${slug}/`);
@@ -128,9 +166,18 @@ async function fiche(slug) {
     .map((m) => ({ libelle: m[1], dossier: m[2].split("/")[0] }))
     .filter((s) => s.libelle !== "nom" && /^(saison|film|oav|special|kai)/i.test(s.dossier));
   const vus = new Set();
+  const lienAnilist = Number(texte.match(/anilist\.co\/anime\/(\d+)/)?.[1]) || null;
+  // Le titre et ses variantes : l'ancrage de secours quand la fiche n'a pas de lien AniList.
+  const decode = (s) => s.replace(/&amp;/g, "&").replace(/&#0?39;|&apos;/g, "'").replace(/&quot;/g, '"').trim();
+  const titres = [
+    texte.match(/id="titreOeuvre"[^>]*>([^<]+)/)?.[1],
+    ...(texte.match(/id="titreAlter"[^>]*>([^<]+)/)?.[1] || "").split(","),
+  ].filter(Boolean).map(decode).filter((t) => t.length >= 3);
+  const dossiers = saisons.map((s) => s.dossier);
   return {
     slug,
-    anilist: Number(texte.match(/anilist\.co\/anime\/(\d+)/)?.[1]) || null,
+    anilist: lienAnilist || (titres.length && dossiers.length ? await ancrerParTitre(titres, dossiers) : null),
+    ancreParTitre: !lienAnilist,
     mal: Number(texte.match(/myanimelist\.net\/anime\/(\d+)/)?.[1]) || null,
     saisons: saisons.filter((s) => !vus.has(s.dossier) && vus.add(s.dossier)),
   };

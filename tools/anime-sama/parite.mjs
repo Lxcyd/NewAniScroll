@@ -166,10 +166,44 @@ for (const a of attentes) {
 for (let i = attentes.length - 1; i >= 0; i--) {
   if (parCle.get(`${attentes[i].id}:${attentes[i].lang}`).size > 1) attentes.splice(i, 1);
 }
+/* USURPEES : une ligne servie qui pointe EXACTEMENT (fiche, saison, decalage)
+   le panneau que l'alignement donne a UN AUTRE anime, alors que son propre
+   anime n'a aucune attente. Le 31/10/2026 : Cyberpunk: Edgerunners 2 (195539)
+   servait en VF la saison 1 (120377) — meme nombre d'episodes, la verification
+   par comptage passait. Seules les attentes sures comptent : alignement complet,
+   ou la saison qui porte l'id de la fiche elle-meme. */
+const proprietaire = new Map(); // "slug/dossier+decalage" -> Set(ids)
+const parAlignementComplet = new Set(); // memes cles, quand un proprietaire vient d'un alignement COMPLET
+for (const a of attentes) {
+  if (!a.complet && a.id !== fiches.get(a.slug)?.id) continue;
+  const k = `${a.slug}/${a.dossier}+${a.decalage}`;
+  (proprietaire.get(k) || proprietaire.set(k, new Set()).get(k)).add(a.id);
+  if (a.complet) parAlignementComplet.add(k);
+}
+const attendus = new Set(attentes.map((a) => `${a.id}:${a.lang}`));
+const usurpees = [];
+for (const r of lignesMap) {
+  if (r.status !== "verified" && r.status !== "heuristic") continue;
+  if (attendus.has(`${r.ani_id}:${r.lang}`)) continue; // deja jugee par son attente
+  const k = `${sansVf(r.slug)}/${r.season_dir}+${Number(r.ep_offset || 0)}`;
+  const proprios = proprietaire.get(k);
+  if (proprios && !proprios.has(Number(r.ani_id))) usurpees.push({ id: Number(r.ani_id), lang: r.lang, sert: `${r.slug}/${r.season_dir}+${r.ep_offset || 0}`, proprios: [...proprios], de: [...proprios].join("/"), sur: parAlignementComplet.has(k) });
+}
+/* Meme franchise (relation AniList directe dans un sens ou l'autre) : ce peut
+   etre le LIEN de la fiche anime-sama qui est faux (bungou-stray-dogs pointe
+   « Wan! », hidan-no-aria pointe « AA »). Signalee, jamais retiree. Sans
+   relation (Heibai Wushuang servant Ookami Shoujo to Kuro Ouji), c'est un
+   reste de rapprochement par titre : retiree. */
+await chargerLot(usurpees.map((u) => u.id));
+const relies = (a, b) => [[a, b], [b, a]].some(([x, y]) => (MEDIA.get(x)?.relations?.edges || []).some((e) => e.node?.id === y));
+// Un proprietaire etabli par un alignement COMPLET (toute la chaine de saisons
+// tombe juste) confirme le lien de la fiche : la meme franchise n'excuse plus rien.
+for (const u of usurpees) u.franchise = !u.sur && u.proprios.some((p) => relies(u.id, p));
 const par = (e) => attentes.filter((a) => a.etat === e);
 const resume = [
   `${panneauxVivants} saison(s)×langue avec un lien vidmoly vivant chez anime-sama, dont ${panneauxAlignes} alignee(s) sur AniList`,
   `${attentes.length} anime(s)×langue attendus : ${par("servie").length} servis exactement, ${par("manquante").length} manquants, ${par("contredite").length} servis sur un autre panneau ou decalage`,
+  `${usurpees.length} ligne(s) servant le panneau d'UN AUTRE anime : ${usurpees.filter((u) => !u.franchise).length} sans lien avec lui (retirees avec --corriger), ${usurpees.filter((u) => u.franchise).length} de la meme franchise (a examiner)`,
 ];
 resume.forEach((l) => console.log(l));
 const morts = panneaux.reduce((a, p) => a + Number(p.nb_morts || 0), 0);
@@ -182,6 +216,23 @@ const aFaire = [...par("contredite"), ...par("manquante")].sort(() => Math.rando
 const lignesRapport = [...par("contredite"), ...par("manquante")].slice(0, 200).map((a) =>
   `| ${a.etat} | ${a.id} | ${a.lang} | ${a.slug}/${a.dossier}+${a.decalage} | ${a.sert} |`);
 lignesRapport.slice(0, 30).forEach((l) => console.log(l));
+const lignesUsurpees = usurpees.map((u) => `| ${u.franchise ? "usurpee ? (franchise)" : "usurpee"} | ${u.id} | ${u.lang} | (panneau de ${u.de}) | ${u.sert} |`);
+lignesUsurpees.slice(0, 30).forEach((l) => console.log(l));
+const aRetirer = usurpees.filter((u) => !u.franchise);
+
+/* Une usurpee est RETIREE (absent), pas reverifiee : le resolveur l'a deja
+   choisie une fois, il la rechoisirait. Mieux vaut pas de lecteur que les
+   episodes d'un autre anime ; si l'anime a sa propre fiche, l'ancrage lui
+   donnera une attente et la correction suivante le servira. */
+if (aCorriger && aRetirer.length && !args.dry) {
+  const t = Math.floor(Date.now() / 1000);
+  await db.batch(aRetirer.map((u) => ({
+    sql: `UPDATE player_map SET status = 'absent', note = ?, checked_at = ?, expires_at = ?
+          WHERE ani_id = ? AND source = 'animesama' AND lang = ? AND status IN ('verified', 'heuristic')`,
+    args: [`parite:panneau-de-${u.de} (servait ${u.sert})`, t, t + 30 * 86400, u.id, u.lang],
+  })), "write");
+  console.log(`${aRetirer.length} ligne(s) usurpee(s) retiree(s)`);
+}
 
 if (aFaire.length) {
   console.log(`\nverification de ${aFaire.length} attente(s)…`);
@@ -203,7 +254,7 @@ if (args.md) {
     "## Parite anime-sama (lecteurs valides)", "", ...resume.flatMap((l) => [l, ""]),
     `Episodes dont tous les liens vidmoly sont morts chez eux : ${morts}`, "",
     "| etat | id AniList | langue | attendu | sert aujourd'hui |", "| --- | --: | --- | --- | --- |",
-    ...lignesRapport, "",
+    ...lignesRapport, ...lignesUsurpees, "",
   ].join("\n"));
 }
-process.exit(par("manquante").length + par("contredite").length ? 1 : 0);
+process.exit(par("manquante").length + par("contredite").length + usurpees.length ? 1 : 0);

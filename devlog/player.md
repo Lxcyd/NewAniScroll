@@ -3600,3 +3600,13 @@ on passe de l'un à l'autre directement.
 
 Flou par défaut passé à **20** (`AMBIENT_BLUR_DEFAULT`, demande de Luc), minimum toujours 5. Clé
 `ambient_blur:v4` : les valeurs d'essai de la v3 auraient masqué le nouveau défaut.
+
+## 31/10/2026 — Parite anime-sama : les lignes qui servent le panneau d'UN AUTRE anime
+
+**Signale par Luc :** Cyberpunk: Edgerunners 2 (195539) jouait la saison 1 en VF. La ligne VF pointait `cyberpunk-edgerunners/saison1` (la saison 1, 120377) — meme nombre d'episodes (10), le verificateur par comptage passait. La VOSTFR etait juste.
+
+**Deux trous :**
+1. **Fiches anime-sama sans lien AniList (20 sur ~1 400) ignorees par la parite** (`cyberpunk-edgerunners-2` en faisait partie). copie.mjs les ancre maintenant par TITRE (`titreOeuvre` + `titreAlter`) : un seul anime AniList portant exactement l'un des titres, ET un format compatible (`dreamland`, serie, tombait sur le film DREAMLAND de 2018 — rejete). Resultat : 1 fiche ancree ; les autres sont occidentales (Arcane, Castlevania, Korra…), absentes d'AniList.
+2. **Rien ne voyait une ligne servant le panneau d'un autre anime** quand son propre anime n'a pas d'attente. parite.mjs : « usurpees » = ligne verified/heuristic qui pointe EXACTEMENT (fiche, saison, decalage) le panneau attribue a un autre id. Retiree (`absent`, note `parite:panneau-de-…`, 30 j) si le proprietaire vient d'un alignement complet ou si les deux animes n'ont aucune relation AniList ; sinon signalee seulement (lien de fiche douteux : bungou-stray-dogs -> « Wan! »).
+
+**Applique :** 195539 VF corrigee ; **104 lignes retirees** (Frieren x5, Code Geass x5, Horimiya, One Piece, SNK, Working, White Album, HxEros servant Super Crooks, Heibai Wushuang servant Ookami Shoujo…) ; 5 a examiner (BSD x2, Sailor Moon x2, SAO).
