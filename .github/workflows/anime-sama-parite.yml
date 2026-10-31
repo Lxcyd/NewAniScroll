@@ -148,4 +148,4 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         # --imposer : la page alignee sur AniList (ancre titre+date, nombres
         # d'episodes exacts) l'emporte sur la devinette par titres du resolveur.
-        run: node tools/voir-anime/parite.mjs --corriger=400 --imposer --site=https://dev.aniscroll.com --md="$GITHUB_STEP_SUMMARY" || true
+        run: node tools/voir-anime/parite.mjs --corriger=3000 --imposer --direct --md="$GITHUB_STEP_SUMMARY" || true
