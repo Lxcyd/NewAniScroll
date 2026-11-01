@@ -286,7 +286,7 @@ section("video", "jour", async () => {
   /* Les fiches AniList : les plus populaires, et la saison en cours. Lus par
      l'index de popularite / de statut, quelques centaines de lignes. */
   const fiche = `SELECT id, popularity, format, status, season_year annee, json_extract(data, '$.episodes') episodes,
-      json_extract(data, '$.nextAiringEpisode.episode') prochain, json_extract(data, '$.nextAiringEpisode.airingAt') prochainLe,
+      json_extract(data, '$.nextAiringEpisode.episode') prochain, json_extract(data, '$.nextAiringEpisode.airingAt') prochainLe, json_extract(data, '$.idMal') mal,
       coalesce(json_extract(data, '$.title.userPreferred'), json_extract(data, '$.title.romaji')) titre FROM anime`;
   const FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "ONA", "OVA", "SPECIAL"]);
   const populaires = (await sql("cache", `${fiche} WHERE is_adult = 0 ORDER BY popularity DESC LIMIT 700`))
@@ -296,7 +296,7 @@ section("video", "jour", async () => {
     vostfr: max(x.id, "vostfr"), vf: max(x.id, "vf"), frembed: frembed.has(x.id),
   });
   const top = populaires.map((x, i) => etat(x, i + 1));
-  const sansVideo = top.filter((x) => !x.vostfr && !x.vf && !x.frembed);
+  let sansVideo = top.filter((x) => !x.vostfr && !x.vf && !x.frembed);
   const sansVf = top.filter((x) => x.vostfr && !x.vf && !x.frembed);
   let incomplets = top.filter((x) => x.episodes > 1 && !x.frembed && populaires[x.rang - 1].status === "FINISHED"
     && ((x.vostfr > 0 && x.vostfr < x.episodes) || (x.vf > 0 && x.vf < x.episodes)));
@@ -345,6 +345,35 @@ section("video", "jour", async () => {
   /* Le compte « max d'une source » sous-estime : un lien mort sur une page
      est souvent vivant sur l'autre (Death Parade : 11/12 ici, 12/12 la-bas).
      Seuls restent les animes ou l'UNION des sources a un trou. */
+  /* Megaplay n'a pas de catalogue : le site le resout a la volee par l'id MAL
+     (lib/extractors.js). On sonde donc seulement les episodes VOSTFR encore
+     manquants (et l'ep. 1 des sans-video) : sa page porte `data-id` quand
+     l'episode existe. Via le Worker, comme la route ; plafond par nuit. La
+     piste « dub » est anglaise : elle ne comble jamais la VF. */
+  const malDe = new Map(populaires.map((x) => [x.id, x.mal]));
+  let sondes = 0;
+  const PLAFOND_MP = 400;
+  const surMegaplay = async (mal, ep) => {
+    if (!mal || sondes >= PLAFOND_MP) return null;
+    sondes++;
+    try {
+      const u = `https://megaplay.buzz/stream/mal/${mal}/${ep}/sub`;
+      const r = await fetch(`${process.env.PROXY_BASE || "https://proxy.aniscroll.com"}/?url=${encodeURIComponent(u)}`, {
+        headers: { Origin: "https://dev.aniscroll.com" }, signal: AbortSignal.timeout(15000),
+      });
+      return /data-id="\d+"/.test(await r.text());
+    } catch { return null; }
+  };
+  const parLots = async (taches, n = 4) => { for (let i = 0; i < taches.length; i += n) await Promise.all(taches.slice(i, i + n).map((t) => t())); };
+  for (const x of incomplets.slice(0, 120)) {
+    if (!Array.isArray(x.vostfrManque) || !x.vostfrManque.length) continue;
+    const comble = [];
+    await parLots(x.vostfrManque.map((n) => async () => { if (await surMegaplay(malDe.get(x.id), n)) comble.push(n); }));
+    if (comble.length) { x.vostfrManque = x.vostfrManque.filter((n) => !comble.includes(n)); x.megaplay = comble.length; }
+  }
+  const sansVideoMp = [];
+  await parLots(sansVideo.map((x) => async () => { if (await surMegaplay(malDe.get(x.id), 1)) sansVideoMp.push(x.id); }));
+  sansVideo = sansVideo.filter((x) => !sansVideoMp.includes(x.id));
   incomplets = incomplets.slice(0, 120).filter((x) => [x.vostfrManque, x.vfManque].some((m) => Array.isArray(m) && m.length));
 
   /* La part de chaque catalogue qu'on SERT, hors ce qu'on ne prend pas : un

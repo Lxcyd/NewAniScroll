@@ -709,6 +709,7 @@ function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection
               <span className="flex flex-wrap gap-x-4 gap-y-0.5 pl-8">
                 <Manque lang="VOSTFR" m={x.vostfrManque} />
                 <Manque lang="VF" m={x.vfManque} />
+                {x.megaplay > 0 && <span className="text-white/40">Megaplay comble {x.megaplay} ep.</span>}
               </span>
             </span>
           ), 10)}
