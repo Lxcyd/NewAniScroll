@@ -239,13 +239,20 @@ section("lecteurs", "jour", async () => {
 section("video", "jour", async () => {
   const pm = await sql("cache", "SELECT ani_id, source, lang, status, slug, season_dir, ep_offset, note, checked_at FROM player_map");
   const somme0 = (l, k) => l.reduce((s, x) => s + (Number(x[k]) || 0), 0);
-  const asP = await sql("cache", "SELECT slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts FROM as_panneau");
+  const asP = await sql("cache", "SELECT slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts, sendvid FROM as_panneau");
+  /* Sendvid (01/11/2026) : la copie garde ses liens a part (colonne `sendvid`,
+     presence seule, ~92 % vivants au test). Un episode est jouable sur un
+     panneau s'il a un lien vidmoly vivant OU un lien sendvid. */
+  for (const p of asP) { let j = {}; try { j = JSON.parse(p.sendvid || "{}"); } catch {} p.sv = Object.keys(j).length; p.svEps = j; }
   const va = await sql("cache", "SELECT slug, langue, anilist, romaji, anglais, num_max, nb_ep, nb_vivants, nb_morts FROM va_page");
-  const fr = await peutManquer(sql("cache", "SELECT anilist_id FROM frembed_catalog"), []);
+  /* Frembed : son catalogue publie ET les titres que la sonde TMDB a trouves
+     heberges (le site les sert aussi : Goblin Slayer n'est pas au catalogue). */
+  const fr = [...await peutManquer(sql("cache", "SELECT anilist_id FROM frembed_catalog"), []),
+    ...(await peutManquer(sql("cache", "SELECT a.id anilist_id FROM frembed_probe p JOIN anime a ON a.tmdb_id = p.tmdb_id WHERE p.hosted = 1"), []))];
   const asPan = new Map();
   for (const p of asP) {
     const k = `${p.slug}|${p.dossier}|${p.langue.startsWith("vf") ? "vf" : "vostfr"}`;
-    asPan.set(k, Math.max(asPan.get(k) || 0, p.nb_vivants));
+    asPan.set(k, Math.max(asPan.get(k) || 0, p.nb_vivants, p.sv));
   }
   const vaPage = new Map(va.map((p) => [p.slug, p]));
   // dispo[id][lang] = { as, va } : episodes jouables par source.
@@ -302,10 +309,12 @@ section("video", "jour", async () => {
     for (const r of pagesDe(id, lang)) {
       if (r.source === "animesama") {
         const l = lang === "vf" ? ["vf", "vf1", "vf2"] : ["vostfr"];
-        for (const p of await sql("cache", `SELECT liens FROM as_panneau WHERE slug = ? AND dossier = ? AND langue IN (${l.map(() => "?").join(",")})`, [r.slug, r.season_dir, ...l])) {
-          let j = {};
+        for (const p of await sql("cache", `SELECT liens, sendvid FROM as_panneau WHERE slug = ? AND dossier = ? AND langue IN (${l.map(() => "?").join(",")})`, [r.slug, r.season_dir, ...l])) {
+          let j = {}, sv = {};
           try { j = JSON.parse(p.liens); } catch {}
+          try { sv = JSON.parse(p.sendvid || "{}"); } catch {}
           for (const [n, liens] of Object.entries(j)) if (liens.some((y) => y[1] === "vivant")) eps.add(Number(n) - (r.ep_offset || 0));
+          for (const n of Object.keys(sv)) eps.add(Number(n) - (r.ep_offset || 0));
         }
       } else if (r.source === "voiranime") {
         for (const p of await sql("cache", "SELECT episodes FROM va_page WHERE slug = ?", [r.slug])) {
@@ -343,8 +352,8 @@ section("video", "jour", async () => {
      fillers » (dossier `…hs`, doublon monte d'une serie qu'on sert deja). */
   const servisAs = new Set(pm.filter((r) => r.source === "animesama" && r.status === "verified").map((r) => `${r.slug}|${r.season_dir}|${r.lang === "vf" ? "vf" : "vostfr"}`));
   const servisVa = new Set(pm.filter((r) => r.source === "voiranime" && r.status === "verified").map((r) => r.slug));
-  const asSansFillers = asP.filter((p) => /hs$/.test(p.dossier) && p.nb_vivants > 0).length;
-  const asElig = asP.filter((p) => p.nb_vivants > 0 && !/hs$/.test(p.dossier));
+  const asSansFillers = asP.filter((p) => /hs$/.test(p.dossier) && (p.nb_vivants > 0 || p.sv > 0)).length;
+  const asElig = asP.filter((p) => (p.nb_vivants > 0 || p.sv > 0) && !/hs$/.test(p.dossier));
   const asNonServis = asElig.filter((p) => !servisAs.has(`${p.slug}|${p.dossier}|${p.langue.startsWith("vf") ? "vf" : "vostfr"}`));
   const vaElig = va.filter((p) => p.nb_vivants > 0);
   const vaNonServis = vaElig.filter((p) => !servisVa.has(p.slug) && !p.anilist);
@@ -361,6 +370,7 @@ section("video", "jour", async () => {
       nonServis: vaNonServis.sort((p, q) => q.nb_vivants - p.nb_vivants).slice(0, 30).map((p) => ({ page: p.slug, titre: p.romaji || p.anglais, ep: p.nb_vivants })),
     },
     frembed: { sondes: fp.sondes ?? null, heberges: fp.heberges ?? null, mappes: frembed.size },
+    sendvid: { panneaux: asP.filter((p) => p.sv > 0).length, liens: somme0(asP, "sv"), seulLecteur: asP.filter((p) => p.sv > 0 && !p.nb_vivants).length },
   };
 
   const enCoursBrut = (await sql("cache", `${fiche} WHERE status = 'RELEASING' AND is_adult = 0 ORDER BY popularity DESC LIMIT 120`))

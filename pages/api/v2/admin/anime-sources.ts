@@ -51,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     for (const r of pm.rows.filter((x) => x.source === "animesama")) {
       const langues = r.lang === "vf" ? ["vf", "vf1", "vf2"] : ["vostfr"];
       const p = await db.execute({
-        sql: `SELECT langue, nb_ep, nb_vivants, nb_morts, liens FROM as_panneau WHERE slug = ? AND dossier = ? AND langue IN (${langues.map(() => "?").join(",")})`,
+        sql: `SELECT langue, nb_ep, nb_vivants, nb_morts, liens, sendvid FROM as_panneau WHERE slug = ? AND dossier = ? AND langue IN (${langues.map(() => "?").join(",")})`,
         args: [String(r.slug), String(r.season_dir), ...langues],
       });
       for (const x of p.rows) {
@@ -62,6 +62,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           etat: l.some((y: any[]) => y[1] === "vivant") ? "vivant" : l.some((y: any[]) => y[1] === "mort") ? "mort" : "inconnu",
         })).sort((a, b) => a.n - b.n);
         lignes.push({ source: "anime-sama", lecteur: "Ansembed", lang: r.lang, page: `${r.slug}/${r.season_dir}/${x.langue}`, statut: r.status, note: r.note, nbEp: Number(x.nb_ep), vivants: Number(x.nb_vivants), morts: Number(x.nb_morts), eps });
+        // Sendvid : liens gardes a part par la copie (presence seule, pas de controle).
+        let sv: Record<string, string> = {};
+        try { sv = JSON.parse(String(x.sendvid || "{}")); } catch { /* illisible */ }
+        if (Object.keys(sv).length) {
+          const n = Number(x.nb_ep) || Math.max(...Object.keys(sv).map(Number));
+          const svEps: Ep[] = Array.from({ length: n }, (_, i) => ({ n: i + 1, etat: sv[i + 1] ? "present" : "absent" }));
+          lignes.push({ source: "anime-sama", lecteur: "Sendvid", lang: r.lang, page: `${r.slug}/${r.season_dir}/${x.langue}`, statut: r.status, note: "presence du lien, non controle", nbEp: Object.keys(sv).length, vivants: Object.keys(sv).length, morts: 0, eps: svEps });
+        }
       }
       if (!p.rows.length) lignes.push({ source: "anime-sama", lecteur: "Ansembed", lang: r.lang, page: `${r.slug}/${r.season_dir}`, statut: r.status, note: r.note, nbEp: 0, vivants: 0, morts: 0, eps: [] });
     }

@@ -632,7 +632,7 @@ function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection
     { nom: "Ansembed", via: "anime-sama", ids: ["animesama-ansembed", "animesama-ansembed-vo"], videos: as.vivants, total: (as.vivants || 0) + (as.morts || 0) },
     { nom: "Vidmoly (myTV)", via: "voir-anime", ids: ["voiranime-vidmoly", "voiranime-vidmoly-vo"], videos: va.vivants, total: (va.vivants || 0) + (va.morts || 0) },
     { nom: "Frembed", via: `${fmt(vi.sources?.frembed?.animes)} animes`, ids: ["frembed", "frembed-vo"], videos: null, total: null },
-    { nom: "Sendvid", via: "anime-sama, rallume le 01/11", ids: ["animesama-sendvid", "animesama-sendvid-vo"], videos: null, total: null },
+    { nom: "Sendvid", via: `anime-sama · ${fmt(vi.part?.sendvid?.panneaux)} panneaux, ${fmt(vi.part?.sendvid?.seulLecteur)} ou il est seul`, ids: ["animesama-sendvid", "animesama-sendvid-vo"], videos: vi.part?.sendvid?.liens ?? null, total: null },
     { nom: "Megaplay", via: "iframe, repli", ids: ["megaplay"], videos: null, total: null },
   ].map((l) => {
     const p = l.ids.map((id) => perf[id]).filter(Boolean);
@@ -661,7 +661,7 @@ function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection
           { titre: "Morts", rendu: (l) => <span className="text-rose-300">{fmt(l.morts)}</span>, droite: true },
           { titre: "Sans AniList", rendu: (l) => fmt(l.sansAnilist), droite: true },
         ]} lignes={[
-          { nom: "anime-sama", sous: `${fmt(as.fiches)} fiches · ansembed`, animes: as.animes, pages: as.panneaux, vostfr: as.vostfr, vf: as.vf, episodes: as.episodes, vivants: as.vivants, morts: as.morts, sansAnilist: as.sansAnilist },
+          { nom: "anime-sama", sous: `${fmt(as.fiches)} fiches · ansembed + sendvid`, animes: as.animes, pages: as.panneaux, vostfr: as.vostfr, vf: as.vf, episodes: as.episodes, vivants: as.vivants, morts: as.morts, sansAnilist: as.sansAnilist },
           { nom: "voir-anime", sous: "myTV (vidmoly-va)", animes: va.animes, pages: va.pages, vostfr: va.vostfr, vf: va.vf, episodes: va.episodes, vivants: va.vivants, morts: va.morts, sansAnilist: va.sansAnilist },
           { nom: "Frembed", sous: `${fmt(vi.part?.frembed?.heberges)} titres heberges sur ${fmt(vi.part?.frembed?.sondes)} sondes · un flux par titre, VF + VOSTFR`, animes: vi.sources?.frembed?.animes, pages: vi.part?.frembed?.heberges, vostfr: null, episodes: null, vivants: null, morts: null, sansAnilist: vi.part?.frembed?.heberges == null ? null : vi.part.frembed.heberges - (vi.sources?.frembed?.animes || 0) },
         ]} />
@@ -829,13 +829,13 @@ function PartCatalogues({ part }: { part: any }) {
       <div className="flex flex-col gap-2 py-3 border-t border-white/5">
         <div className="flex flex-wrap justify-between gap-2 text-sm">
           <span className="text-white font-semibold">Frembed</span>
-          <span className="text-white tabular-nums">{fmt(f.mappes)} / {fmt(f.heberges)} titres heberges rattaches a AniList · <strong>{pct(f.mappes, f.heberges)}</strong></span>
+          <span className="text-white tabular-nums">{fmt(f.heberges)} / {fmt(f.sondes)} titres TMDB sondes heberges · <strong>{pct(f.heberges, f.sondes)}</strong></span>
         </div>
-        <Survol contenu={<>{fmt(f.mappes)} rattaches · {fmt((f.heberges || 0) - (f.mappes || 0))} heberges sans id AniList · {fmt((f.sondes || 0) - (f.heberges || 0))} sondes non heberges</>} className="flex h-3 rounded-sm overflow-hidden bg-white/5 cursor-default">
-          <div className="bg-action" style={{ flex: f.mappes || 0 }} />
-          <div className="bg-amber-400/70" style={{ flex: (f.heberges || 0) - (f.mappes || 0) }} />
+        <Survol contenu={<>{fmt(f.heberges)} titres heberges · {fmt((f.sondes || 0) - (f.heberges || 0))} sondes sans flux · {fmt(f.mappes)} animes AniList couverts</>} className="flex h-3 rounded-sm overflow-hidden bg-white/5 cursor-default">
+          <div className="bg-action" style={{ flex: f.heberges || 0 }} />
+          <div className="bg-white/10" style={{ flex: (f.sondes || 0) - (f.heberges || 0) }} />
         </Survol>
-        <p className="text-[11px] text-white/55">Frembed sert un flux par titre (tous les episodes, VF et VOSTFR) : pas de compte par episode. {fmt(f.sondes)} titres TMDB sondes, {fmt(f.heberges)} heberges.</p>
+        <p className="text-[11px] text-white/55">Ces {fmt(f.heberges)} titres couvrent {fmt(f.mappes)} animes AniList (plusieurs saisons partagent un id TMDB). Frembed sert un flux par titre, VF et VOSTFR : pas de compte par episode.</p>
       </div>
     </Carte>
   );
@@ -887,9 +887,9 @@ function FicheAnime() {
     setCandidats(j?.candidats || []);
   };
   const ouvrir = async (id: number) => { setCandidats([]); setFiche(await appel(`id=${id}`)); };
-  const couleur: Record<string, string> = { vivant: "bg-emerald-400", mort: "bg-rose-400" };
+  const couleur: Record<string, string> = { vivant: "bg-emerald-400", present: "bg-sky-400", mort: "bg-rose-400" };
   return (
-    <Carte titre="Fiche d'un anime" note="Recherche par titre (pages voir-anime) ou par id AniList. Une case par episode : vert = lien vivant, rouge = mort, gris = non controle.">
+    <Carte titre="Fiche d'un anime" note="Recherche par titre (pages voir-anime) ou par id AniList. Une case par episode : vert = lien vivant, bleu = lien present non controle (Sendvid), rouge = mort, gris = rien.">
       <form onSubmit={chercher} className="flex flex-wrap gap-2 items-center">
         <label htmlFor="fiche-anime-q" className="sr-only">Titre ou id AniList</label>
         <input id="fiche-anime-q" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Titre ou id AniList (ex. Baki, 97888)"

@@ -351,7 +351,10 @@ async function copierFiche(slug, domaines, carte = null, connus = new Map()) {
     const episodes = [];
     for (let i = 0; i < nbEp; i++) {
       const liens = listes.map((l) => l.liens[i]).filter((u) => u && estVidmoly(u));
-      episodes.push({ ep: i + 1, liens });
+      // Sendvid (rallume le 01/11/2026) : garde A PART, jamais melange aux liens
+      // vidmoly que la parite lit. Presence seule, pas de controle de vie.
+      const sendvid = listes.map((l) => l.liens[i]).find((u) => u && /sendvid\.com\//.test(u)) || null;
+      episodes.push({ ep: i + 1, liens, sendvid });
     }
     f.panneaux.push({ dossier: s.dossier, libelle: s.libelle, langue, nbEp, episodes });
   });
@@ -433,6 +436,7 @@ async function lireConnus() {
   const liens = new Map(), empreintes = new Map(), vivantsAvant = new Map();
   if (!db) return { liens, empreintes, vivantsAvant };
   await db.execute(SCHEMA);
+  await db.execute("ALTER TABLE as_panneau ADD COLUMN sendvid TEXT").catch(() => {}); // {ep: url}, 01/11/2026
   const r = await db.execute("SELECT slug, dossier, langue, liens, empreinte, nb_vivants FROM as_panneau");
   for (const x of r.rows) {
     empreintes.set(`${x.slug}/${x.dossier}/${x.langue}`, x.empreinte);
@@ -467,7 +471,10 @@ async function ecrire(fiches, empreintes, vivantsAvant) {
         if (e.liens.some((u) => e.etats?.[u] === "vivant")) vivants++;
         else if (e.liens.every((u) => e.etats?.[u] === "mort")) morts++;
       }
-      const contenu = JSON.stringify([f.anilist, p.libelle, p.nbEp, Object.entries(liens).map(([ep, l]) => [ep, l.map((x) => [x[0], x[1]])])]);
+      const sendvid = Object.fromEntries(p.episodes.filter((e) => e.sendvid).map((e) => [e.ep, e.sendvid]));
+      const aSendvid = Object.keys(sendvid).length > 0;
+      // Sendvid n'entre dans l'empreinte que s'il y en a : les panneaux sans lui gardent la leur.
+      const contenu = JSON.stringify([f.anilist, p.libelle, p.nbEp, Object.entries(liens).map(([ep, l]) => [ep, l.map((x) => [x[0], x[1]])]), ...(aSendvid ? [sendvid] : [])]);
       const empreinte = createHash("sha1").update(contenu).digest("hex").slice(0, 16);
       const cle = `${f.slug}/${p.dossier}/${p.langue}`;
       /* Meme contenu ET aucun lien recontrole pendant ce passage : rien a
@@ -476,12 +483,12 @@ async function ecrire(fiches, empreintes, vivantsAvant) {
       if (empreintes.get(cle) === empreinte && !Object.values(liens).flat().some((x) => x[2] >= DEBUT)) continue;
       if (empreintes.get(cle) !== empreinte) noterChangement(cle, vivantsAvant.get(cle), vivants);
       ops.push({
-        sql: `INSERT INTO as_panneau (slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts, liens, empreinte, maj_le)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        sql: `INSERT INTO as_panneau (slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts, liens, empreinte, maj_le, sendvid)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(slug, dossier, langue) DO UPDATE SET libelle=excluded.libelle, anilist_fiche=excluded.anilist_fiche,
                 nb_ep=excluded.nb_ep, nb_vivants=excluded.nb_vivants, nb_morts=excluded.nb_morts, liens=excluded.liens,
-                empreinte=excluded.empreinte, maj_le=excluded.maj_le`,
-        args: [f.slug, p.dossier, p.langue, p.libelle, f.anilist, p.nbEp, vivants, morts, JSON.stringify(liens), empreinte, Date.now()],
+                empreinte=excluded.empreinte, maj_le=excluded.maj_le, sendvid=excluded.sendvid`,
+        args: [f.slug, p.dossier, p.langue, p.libelle, f.anilist, p.nbEp, vivants, morts, JSON.stringify(liens), empreinte, Date.now(), aSendvid ? JSON.stringify(sendvid) : null],
       });
     }
   }
@@ -498,7 +505,7 @@ const { texte: pageRef } = await viaWorker(`${AS}/catalogue/frieren/saison1/vost
 const { domaines, depuisLeurTable } = domainesVidmoly(pageRef);
 console.log(`famille vidmoly (${depuisLeurTable ? "leur table" : "liste par defaut"}) : ${domaines.join(", ")}`);
 
-if (!args["sans-vie"]) {
+if (!args["sans-vie"] && !args["sendvid-seul"]) {
   // Temoins : des liens que la copie precedente a vus vivants, puis les defauts.
   const vivantsConnus = [...connus.liens].filter(([, c]) => c.etat === "vivant").sort((a, b) => b[1].vu - a[1].vu).slice(0, 4).map(([u]) => u);
   if (await choisirTemoin([...TEMOINS_DEFAUT, ...vivantsConnus])) console.log(`temoin : ${temoin}`);
@@ -532,6 +539,29 @@ else {
     console.log(`tranche ${i}/${n} : ${slugs.length} fiches`);
   }
   if (args.mesure) slugs = slugs.sort(() => Math.random() - 0.5).slice(0, Number(args.mesure));
+}
+
+/* --sendvid-seul --ecrire : remplit la colonne `sendvid` des panneaux deja
+   copies, sans rien controler ni toucher aux liens vidmoly et a leurs etats.
+   Pose le 01/11/2026 pour ne pas attendre la copie de la nuit. */
+if (args["sendvid-seul"]) {
+  let maj = 0, avec = 0;
+  await parLots(slugs, async (slug) => {
+    const f = await fiche(slug);
+    if (f.erreur) return;
+    for (const s of f.saisons) for (const langue of (cat.get(slug) && !cat.get(slug).vf ? ["vostfr"] : LANGUES)) {
+      const listes = await panneau(slug, s.dossier, langue);
+      if (!listes?.length) continue;
+      const nbEp = Math.max(...listes.map((l) => l.liens.length));
+      const sv = {};
+      for (let i = 0; i < nbEp; i++) { const u = listes.map((l) => l.liens[i]).find((x) => x && /sendvid\.com\//.test(x)); if (u) sv[i + 1] = u; }
+      if (!Object.keys(sv).length) continue;
+      avec++;
+      if (db) { await db.execute({ sql: "UPDATE as_panneau SET sendvid = ? WHERE slug = ? AND dossier = ? AND langue = ?", args: [JSON.stringify(sv), slug, s.dossier, langue] }); maj++; }
+    }
+  });
+  console.log(`sendvid : ${avec} panneau(x) avec sendvid, ${maj} ligne(s) mise(s) a jour, ${compteur.requetes} requetes Worker`);
+  process.exit(0);
 }
 
 const bilan = { fiches: 0, erreurs: 0, nonControles: 0, sansAnilist: 0, panneaux: 0, episodes: 0, avecVidmoly: 0, liens: 0, vivants: 0, morts: 0, traitement: 0, inconnus: 0 };

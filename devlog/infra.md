@@ -8,6 +8,13 @@ Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
 ## 2026-11-01 — Statistiques refaites : cinq sections, catalogue video par anime
 
+**Suite (meme jour) — les lecteurs non copies comptent.** Luc : Goblin Slayer VF ep. 2 « manquant »
+jouait sur Frembed et Sendvid. La copie anime-sama garde maintenant les liens Sendvid A PART (colonne
+`as_panneau.sendvid`, presence seule, jamais melangee aux liens vidmoly que lit la parite ; remplie
+par `copie.mjs --sendvid-seul --ecrire` : 1 244 panneaux, 16 222 liens, 7 964 requetes Worker), et
+Frembed compte aussi la sonde TMDB (`frembed_probe` hosted, 1 255 animes AniList au lieu des 344 du
+catalogue publie). Episodes manquants = union des pages : 35 -> 18 -> **9**. Section video : 34 931 lignes.
+
 Maquette validee par Luc (artefact « Stats admin — maquette ») : 11 onglets -> 5 (Vue d'ensemble,
 Lecteurs video, Images & musique, Audience, Technique). La vue d'ensemble ne montre que des tuiles et
 les PANNES ; « a surveiller » reste dans sa section. Automatisations en feu tricolore, detail au clic.
