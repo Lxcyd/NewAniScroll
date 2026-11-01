@@ -72,7 +72,7 @@ import {
 } from "@/lib/watch/progress";
 import { avecReprise, estMegaplay, ouvrePont } from "@/lib/watch/megaplayBridge";
 import { recordWatchToday } from "@/lib/stats/streak";
-import { bandwidthKey, FREMBED_BW_KEY, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
+import { bandwidthKey, FREMBED_BW_KEY, plancherQualite, saveBandwidth, startEstimate } from "@/lib/watch/hlsBandwidth";
 import { rememberAnimeHost } from "@/lib/prefs/animeHostMemory";
 import { VIDMOLY_HOST_RE } from "@/lib/players/vidmolyDomains";
 import { getLoaderMemoire, loadHlsLibrary } from "@/lib/watch/playerCode";
@@ -2109,7 +2109,6 @@ export default function UniversalPlayer({
       const depart = startEstimate(bwKeyRef.current);
       /* Charger LA OU l'on va lire, pas depuis 0:00 (cf. `cibleDepart`). */
       const position = cibleDepart(serverId, aniListId, episodeNumber).at;
-      const partBas = serverId === "megaplay" || /^voiranime-vidmoly/.test(serverId || "");
       departHlsRef.current = position;
       provider.config = {
         ...provider.config,
@@ -2122,17 +2121,13 @@ export default function UniversalPlayer({
            `loader` maison interdit la lecture progressive (cf. HLS_PROGRESSIVE). */
         ...(loaderMemoire ? { pLoader: loaderMemoire } : null),
         ...(position > 0 ? { startPosition: position } : null),
-        /* Megaplay : leur CDN bride chaque connexion a ~1 Mb/s. Le debit
-           memorise pour « proxied » vient des AUTRES hotes du Worker, bien plus
-           rapides : il faisait partir hls.js en 1080p, segment de 1-3 Mo, 10 a
-           25 s d'attente. On part du plus bas niveau ; l'ABR remonte des que
-           la mesure le permet. */
-        /* Vidmoly de voir-anime (CDN vmbox, 27/10/2026) : des segments de 20 s,
-           ~9 Mo en 1080p, dont le premier a mis 12 a 16 s a arriver. En 480p
-           il pese ~1,2 Mo : image en quelques secondes, l'ABR remonte ensuite. */
-        ...(partBas ? { startLevel: 0 } : null),
+        /* Plus de depart en 480p, meme sur Megaplay (~1 Mb/s par connexion) ou
+           Vidmoly de voir-anime (segments de 20 s, ~9 Mo en 1080p) : Luc a
+           tranche le 01/11/2026 pour la qualite, quitte a attendre la premiere
+           image. Depart au niveau max (cf. `startEstimate`), plancher 720p
+           pose au manifeste (cf. `plancherQualite`). */
       };
-      diag("hls-config", { startPosition: position, startLevel: partBas ? 0 : -1 });
+      diag("hls-config", { startPosition: position, startLevel: -1 });
     }
   };
 
@@ -2336,6 +2331,24 @@ export default function UniversalPlayer({
           (hls as any).on("hlsManifestParsed", uneFamille);
         } catch {}
         uneFamille();
+      }
+      /* Plancher de qualite : l'ABR ne descend jamais sous 720p (le niveau max
+         si le maitre n'a rien en 720p). Enregistre APRES `uneFamille`, qui
+         retire des niveaux ; `minAutoBitrate` est relu a chaque decision. */
+      if (hls) {
+        const plancher = () => {
+          try {
+            const levels: any[] = (hls as any).levels || [];
+            const min = plancherQualite(levels);
+            (hls as any).config.minAutoBitrate = min;
+            diag("hls-plancher", { minAutoBitrate: min, niveaux: levels.length });
+          } catch {}
+        };
+        try {
+          (hls as any).on("hlsManifestParsed", plancher);
+          (hls as any).on("hlsLevelsUpdated", plancher);
+        } catch {}
+        plancher();
       }
       // Force Maximum Quality: pin hls.js to the top level (a fixed level
       // disables ABR auto-switching). Not from the manifest on: the first

@@ -77,10 +77,31 @@ export function saveBandwidth(key: string, bps: number) {
   }
 }
 
-/** L'estimation de depart a donner a hls.js, ou `null` (defaut d'hls.js). */
+/* LA QUALITE D'ABORD (decision de Luc, 01/11/2026) : « prioriser la qualite,
+   pas de 480p pour charger plus vite ». La regle « partir bas, monter tout de
+   suite » ci-dessus est abandonnee : on part TOUJOURS du plus haut niveau, et
+   le lecteur interdit a l'ABR de descendre sous 720p (cf. `plancherQualite`).
+   Le premier segment est plus lourd, donc l'image arrive plus tard — c'est le
+   prix accepte. Le debit memorise reste ecrit (classement frembed). */
+const ESTIMATION_HAUTE = 1_000_000_000;
+
+/** L'estimation de depart a donner a hls.js : assez haute pour le niveau max. */
 export function startEstimate(key: string): number | null {
-  const bw = readSavedBandwidth(key);
-  return bw ? Math.round(bw * START_FACTOR) : null;
+  void key;
+  void START_FACTOR;
+  return ESTIMATION_HAUTE;
+}
+
+/**
+ * Le debit plancher de l'ABR (`minAutoBitrate`) : celui du plus petit niveau
+ * en 720p ou plus. Sans aucun niveau >= 720p, le plus haut disponible.
+ */
+export function plancherQualite(levels: { height?: number; maxBitrate?: number; bitrate?: number }[]): number {
+  const br = (l: { maxBitrate?: number; bitrate?: number }) => l.maxBitrate || l.bitrate || 0;
+  const hd = levels.filter((l) => (l.height || 0) >= 720).map(br).filter((b) => b > 0);
+  if (hd.length) return Math.min(...hd);
+  const tous = levels.map(br).filter((b) => b > 0);
+  return tous.length ? Math.max(...tous) : 0;
 }
 
 /**

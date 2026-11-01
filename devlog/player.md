@@ -3669,3 +3669,16 @@ Vrais faux, corriges par `scripts/player-map/correctifs-2026-11-01.mjs`
 Laisses tels quels, a trancher : Danganronpa 3 (deux arcs sur un panneau
 entrelace), Haruhi 2006 (ordre de diffusion vs chronologique), Bookworm S3,
 Slime S2 partie 2 (25 ep. VOSTFR / 26 VF, decalage incertain).
+
+## 2026-11-01 — La qualite d'abord : fin du depart en 480p
+
+Demande de Luc : « prioriser la qualite, pas de 480p pour charger plus vite ».
+La regle « partir bas, monter tout de suite » (20/09) est abandonnee :
+- `startEstimate` (lib/watch/hlsBandwidth.ts) renvoie une estimation tres haute :
+  hls.js part du niveau max, et le prechauffage (`pickStartVariant`) chauffe la
+  meme variante ;
+- le `startLevel: 0` de Megaplay et Vidmoly (voir-anime) est retire ;
+- `plancherQualite` pose `minAutoBitrate` au manifeste : l'ABR ne descend plus
+  sous 720p (niveau max si le maitre n'a pas de 720p).
+Prix accepte : premiere image plus lente sur les CDN lents (Megaplay ~1 Mb/s,
+segments Vidmoly de ~9 Mo), et risque de rechargements si la connexion ne suit pas.
