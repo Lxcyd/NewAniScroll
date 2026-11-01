@@ -242,6 +242,30 @@ master `…acek-cdn.com/hls2/…_,l,n,h,.urlset/master.m3u8` : 480/720/1080, TS 
 de l'extracteur (`asn=`), ~300 Ko/s mesures. Extracteur `extractMovearnpre`
 deja dans lib/extractors.js (lecteur retire : le CDN bloquait le Worker).
 
+**Sites FR candidats** — releve le 01/11/2026 (lecteurs lus sur une page, pas
+encore testes en lecture) :
+- **FRAnime** (`franime.fr`, Next.js) — `https://api.franime.fr/api/animes` rend
+  TOUT le catalogue en un JSON : 2 553 animes, 56 979 episodes (50 k VOSTFR,
+  28 k VF), **ancre = id Kitsu** (Kitsu a les correspondances AniList/MAL :
+  rattachement sans titre). Par episode, noms de lecteurs seulement (les URL
+  viennent d'une autre route, a trouver) : vidmoly ~45 k VO / 26 k VF,
+  filemoon, sendvid ☠️, sibnet ☠️, uqload, puis vk (~4,6 k), `lpayer`
+  (~3,9 k, inconnu), famille Vidhide (movearnpre/smoothpre/minochinos/
+  dingtezuni), dailymotion (141 VF).
+- **Anime-Ultime** (`anime-ultime.net`) — HEBERGE ses fichiers : MP4 direct
+  (`/stream-<id>.mp4` -> 302 `strhq-fr.anime-ultime.net/<jeton>/<exp>/<hash>.mp4`).
+  VOSTFR seule, fansub historique, catalogue surtout ancien. Seule source
+  vraiment independante des hebergeurs tiers.
+- **French-Anime** (`french-anime.com`, moteur DLE de wiflix) — vidmoly,
+  **vidara.to** (inconnu), luluvdo (LuluStream).
+- **Vostfree** (`vostfree.ws`) — VIP `getvid.club`, **myvi** (russe), sibnet ☠️,
+  uqload.
+- **Eiga No Neko** (`eiganoneko.com`) — vidmoly, vk, sendvid, oneupload : memes
+  hotes qu'anime-sama, probablement une copie.
+- Morts ou injoignables : animesultra (redirige vers de la pub), jetanimes,
+  voiranime.com, senpai-stream (domaine revendu) ; vostanime/otakufr derriere
+  un challenge Cloudflare.
+
 Vu ailleurs : **flixcloud.cc** (reanime.to : Artplayer + hls.js, MKV « dual audio »
 VO+VA dans un meme fichier, chapitres MKV, sous-titres sur `vault-*.fallencdn.top`).
 
