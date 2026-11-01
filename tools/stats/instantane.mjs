@@ -118,6 +118,12 @@ section("audience", "jour", async () => {
     hotes: httpRequestsAdaptiveGroups(limit:20, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}"}){ count dimensions{clientRequestHTTPHost cacheStatus} }
     erreurs: httpRequestsAdaptiveGroups(limit:25, orderBy:[count_DESC], filter:{datetime_geq:"${depuis}", edgeResponseStatus_geq:500}){ count dimensions{clientRequestHTTPHost clientRequestPath edgeResponseStatus} }
   }}}`);
+  /* « Animes les plus regardes » : PAS mesurable ici (essaye le 01/11/2026).
+     Les groupes adaptatifs de Cloudflare sont ECHANTILLONNES (7 a 34 pages de
+     lecture vues sur 24 h, pour ~1 200 visiteurs), le plan gratuit refuse la
+     dimension clientRequestQuery (aniId est dans la requete), et la page de
+     lecture se charge par navigation interne. L'historique des comptes
+     (user_data « progress ») ne couvre que 4 comptes. Il faudrait un compteur. */
   // Les pages par FAMILLE : /en/anime/watch/…, /en/anime/123, /api/v2/source…
   const famille = (p) => {
     const s = p.split("?")[0].split("/").filter(Boolean);
@@ -159,6 +165,7 @@ section("audience", "jour", async () => {
     appareils24h: z24.appareils.map((x) => ({ nom: x.dimensions.clientDeviceType, n: x.count })),
     os24h: z24.os.map((x) => ({ nom: x.dimensions.userAgentOS || "inconnu", n: x.count })),
     hotes24h: Object.values(hotes).sort((a, b) => b.n - a.n),
+
     // Les 5xx des dernieres 24 h : adresse, chemin (sans la requete), code.
     erreurs24h: z24.erreurs.map((x) => ({
       hote: x.dimensions.clientRequestHTTPHost, chemin: x.dimensions.clientRequestPath.split("?")[0].slice(0, 120),
@@ -219,6 +226,121 @@ section("lecteurs", "jour", async () => {
     voirAnime: { ...va, langues: vaLangues, types: vaTypes, ancres: vaAncres },
     frembed, perf, runtimes, doublages,
     lecteurs: JSON.parse(fs.readFileSync(path.join(ROOT, "lib/lecteurs.json"), "utf8")).lecteurs,
+  };
+});
+
+/* Le catalogue VIDEO vu par anime AniList (01/11/2026) : qui sert quoi, et les
+   trous. Une source « a » un anime dans une langue si player_map a une ligne
+   verified pour lui (le site la sert telle quelle) ; le nombre d'episodes
+   jouables vient de la copie de la page servie (as_panneau / va_page).
+   as_panneau.anilist_fiche ne vaut pas pour la saison : c'est l'id de la FICHE
+   (Baki 2018 sur le film et l'OAV de « baki »), d'ou le detour par player_map.
+   Cout mesure : ~15 000 lignes (player_map + les deux copies + ~900 fiches). */
+section("video", "jour", async () => {
+  const pm = await sql("cache", "SELECT ani_id, source, lang, status, slug, season_dir, note, checked_at FROM player_map");
+  const asP = await sql("cache", "SELECT slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts FROM as_panneau");
+  const va = await sql("cache", "SELECT slug, langue, anilist, romaji, anglais, num_max, nb_ep, nb_vivants, nb_morts FROM va_page");
+  const fr = await peutManquer(sql("cache", "SELECT anilist_id FROM frembed_catalog"), []);
+  const asPan = new Map();
+  for (const p of asP) {
+    const k = `${p.slug}|${p.dossier}|${p.langue.startsWith("vf") ? "vf" : "vostfr"}`;
+    asPan.set(k, Math.max(asPan.get(k) || 0, p.nb_vivants));
+  }
+  const vaPage = new Map(va.map((p) => [p.slug, p]));
+  // dispo[id][lang] = { as, va } : episodes jouables par source.
+  const dispo = new Map();
+  const poser = (id, lang, src, n) => {
+    const d = (dispo.get(id) || dispo.set(id, { vf: {}, vostfr: {} }).get(id))[lang];
+    d[src] = Math.max(d[src] || 0, n);
+  };
+  for (const r of pm) {
+    if (r.status !== "verified") continue;
+    const lang = r.lang === "vf" ? "vf" : "vostfr";
+    if (r.source === "animesama") poser(r.ani_id, lang, "as", asPan.get(`${r.slug}|${r.season_dir}|${lang}`) ?? 0);
+    else if (r.source === "voiranime") poser(r.ani_id, lang, "va", vaPage.get(r.slug)?.nb_vivants ?? 0);
+  }
+  // Une page voir-anime ancree sans ligne player_map reste servie (lib/db/vaPage.ts).
+  for (const p of va) if (p.anilist && p.nb_vivants > 0) poser(p.anilist, p.langue === "vf" ? "vf" : "vostfr", "va", p.nb_vivants);
+  const frembed = new Set(fr.map((x) => x.anilist_id));
+  for (const id of frembed) { poser(id, "vf", "fr", 1); poser(id, "vostfr", "fr", 1); }
+  const max = (id, lang) => { const d = dispo.get(id)?.[lang] || {}; return Math.max(d.as || 0, d.va || 0); };
+  const a = (id, src) => { const d = dispo.get(id); return !!d && ((d.vf[src] || 0) > 0 || (d.vostfr[src] || 0) > 0); };
+  const ids = [...dispo.keys()].filter((id) => a(id, "as") || a(id, "va") || a(id, "fr"));
+  const recouvrement = {
+    total: ids.length,
+    deux: ids.filter((id) => a(id, "as") && a(id, "va")).length,
+    asSeul: ids.filter((id) => a(id, "as") && !a(id, "va")).length,
+    vaSeul: ids.filter((id) => a(id, "va") && !a(id, "as")).length,
+    frembedSeul: ids.filter((id) => a(id, "fr") && !a(id, "as") && !a(id, "va")).length,
+    avecVf: ids.filter((id) => max(id, "vf") > 0 || (dispo.get(id).vf.fr || 0) > 0).length,
+  };
+
+  /* Les fiches AniList : les plus populaires, et la saison en cours. Lus par
+     l'index de popularite / de statut, quelques centaines de lignes. */
+  const fiche = `SELECT id, popularity, format, status, season_year annee, json_extract(data, '$.episodes') episodes,
+      json_extract(data, '$.nextAiringEpisode.episode') prochain, json_extract(data, '$.nextAiringEpisode.airingAt') prochainLe,
+      coalesce(json_extract(data, '$.title.userPreferred'), json_extract(data, '$.title.romaji')) titre FROM anime`;
+  const FORMATS = new Set(["TV", "TV_SHORT", "MOVIE", "ONA", "OVA", "SPECIAL"]);
+  const populaires = (await sql("cache", `${fiche} WHERE is_adult = 0 ORDER BY popularity DESC LIMIT 700`))
+    .filter((x) => FORMATS.has(x.format) && x.status !== "NOT_YET_RELEASED" && x.status !== "CANCELLED").slice(0, 500);
+  const etat = (x, rang) => ({
+    id: x.id, rang, titre: x.titre, format: x.format, annee: x.annee, episodes: x.episodes,
+    vostfr: max(x.id, "vostfr"), vf: max(x.id, "vf"), frembed: frembed.has(x.id),
+  });
+  const top = populaires.map((x, i) => etat(x, i + 1));
+  const sansVideo = top.filter((x) => !x.vostfr && !x.vf && !x.frembed);
+  const sansVf = top.filter((x) => x.vostfr && !x.vf && !x.frembed);
+  const incomplets = top.filter((x) => x.episodes > 1 && !x.frembed && populaires[x.rang - 1].status === "FINISHED"
+    && ((x.vostfr > 0 && x.vostfr < x.episodes) || (x.vf > 0 && x.vf < x.episodes)));
+  const enCoursBrut = (await sql("cache", `${fiche} WHERE status = 'RELEASING' AND is_adult = 0 ORDER BY popularity DESC LIMIT 120`))
+    .filter((x) => FORMATS.has(x.format) && x.prochain > 1);
+  const enCours = enCoursBrut.map((x, i) => ({ ...etat(x, i + 1), sortis: x.prochain - 1, prochainLe: x.prochainLe }))
+    .map((x) => ({ ...x, retard: Math.max(0, x.sortis - x.vostfr) }));
+
+  // Rattachement : pages et fiches sans AniList, lignes retirees par la parite.
+  const vaSansId = va.filter((p) => !p.anilist);
+  const asSansId = [...new Map(asP.filter((p) => !p.anilist_fiche).map((p) => [p.slug, p])).values()];
+  const parite = pm.filter((r) => String(r.note || "").startsWith("parite:"));
+  const sautees = {};
+  for (const r of pm) if (r.status === "broken" || r.status === "absent") sautees[`${r.source} · ${r.status}`] = (sautees[`${r.source} · ${r.status}`] || 0) + 1;
+
+  const somme = (l, k) => l.reduce((s, x) => s + (Number(x[k]) || 0), 0);
+  const sources = {
+    animeSama: {
+      fiches: new Set(asP.map((p) => p.slug)).size, panneaux: asP.length,
+      vostfr: asP.filter((p) => p.langue === "vostfr").length, vf: asP.filter((p) => p.langue.startsWith("vf")).length,
+      episodes: somme(asP, "nb_ep"), vivants: somme(asP, "nb_vivants"), morts: somme(asP, "nb_morts"),
+      animes: ids.filter((id) => a(id, "as")).length, sansAnilist: asSansId.length,
+    },
+    voirAnime: {
+      pages: va.length, vostfr: va.filter((p) => p.langue !== "vf").length, vf: va.filter((p) => p.langue === "vf").length,
+      episodes: somme(va, "nb_ep"), vivants: somme(va, "nb_vivants"), morts: somme(va, "nb_morts"),
+      animes: ids.filter((id) => a(id, "va")).length, sansAnilist: vaSansId.length,
+    },
+    frembed: { animes: frembed.size },
+  };
+  return {
+    resume: {
+      animesJouables: recouvrement.total, avecVf: recouvrement.avecVf,
+      videosVivantes: sources.animeSama.vivants + sources.voirAnime.vivants,
+      videosMortes: sources.animeSama.morts + sources.voirAnime.morts,
+      asAnimes: sources.animeSama.animes, vaAnimes: sources.voirAnime.animes,
+      top500SansVideo: sansVideo.length, top500Incomplets: incomplets.length,
+      enCoursEnRetard: enCours.filter((x) => x.retard > 0).length,
+    },
+    sources, recouvrement,
+    trous: {
+      sansVideo: sansVideo.slice(0, 60), sansVf: sansVf.length, sansVfListe: sansVf.slice(0, 40),
+      incomplets: incomplets.slice(0, 60), nbIncomplets: incomplets.length,
+      enCours: enCours.slice(0, 80),
+    },
+    rattachement: {
+      vaSansId: vaSansId.length, vaSansIdListe: vaSansId.slice(0, 40).map((p) => ({ slug: p.slug, titre: p.romaji || p.anglais, ep: p.nb_ep })),
+      asSansId: asSansId.length, asSansIdListe: asSansId.map((p) => ({ slug: p.slug, titre: p.libelle })),
+      parite: parite.length,
+      pariteListe: parite.sort((x, y) => y.checked_at - x.checked_at).slice(0, 40).map((r) => ({ id: r.ani_id, lang: r.lang, note: r.note, quand: r.checked_at })),
+      sautees: Object.entries(sautees).sort((x, y) => y[1] - x[1]).map(([nom, n]) => ({ nom, n })),
+    },
   };
 });
 
@@ -434,7 +556,7 @@ for (const s of SECTIONS) {
   const duree = Date.now() - t0;
   coutTotal += coutSection;
   console.log(`${s.id} : ${erreur ? `ERREUR ${erreur}` : "ok"} — ${coutSection.toLocaleString("fr-FR")} lignes lues, ${duree} ms`);
-  if (SEC) { console.log(JSON.stringify(data, null, 1).slice(0, 3000)); continue; }
+  if (SEC) { console.log(args.json ? JSON.stringify(data) : JSON.stringify(data, null, 1).slice(0, 3000)); continue; }
   if (erreur) {
     // On garde la derniere valeur bonne ; seule l'erreur est notee.
     await sql("admin", `INSERT INTO site_stats (section, data, calcule_le, cout, duree_ms, erreur) VALUES (?, '{}', 0, ?, ?, ?)
@@ -450,5 +572,7 @@ if (!SEC) {
   const jour = new Date().toISOString().slice(0, 10);
   const plat = Object.fromEntries(Object.entries(resumes).flatMap(([sec, r]) => Object.entries(r).map(([k, v]) => [`${sec}.${k}`, v])));
   await sql("admin", "INSERT INTO site_stats_jour (jour, resume) VALUES (?, ?) ON CONFLICT(jour) DO UPDATE SET resume = excluded.resume", [jour, JSON.stringify(plat)]);
+  // Historique garde 90 jours (choix de Luc, 01/11/2026).
+  await sql("admin", "DELETE FROM site_stats_jour WHERE jour < ?", [new Date(maintenant - 90 * J * 1000).toISOString().slice(0, 10)]);
 }
 console.log(`total : ${coutTotal.toLocaleString("fr-FR")} lignes lues`);

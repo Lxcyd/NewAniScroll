@@ -6,6 +6,23 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-01 — Statistiques refaites : cinq sections, catalogue video par anime
+
+Maquette validee par Luc (artefact « Stats admin — maquette ») : 11 onglets -> 5 (Vue d'ensemble,
+Lecteurs video, Images & musique, Audience, Technique). La vue d'ensemble ne montre que des tuiles et
+les PANNES ; « a surveiller » reste dans sa section. Automatisations en feu tricolore, detail au clic.
+
+Nouvelle section `video` de l'instantane (quotidienne, **22 656 lignes**) : couverture par id AniList
+via player_map verified + copies + frembed_catalog (as_panneau.anilist_fiche est l'id de la FICHE, pas
+de la saison). Premier calcul : 5 279 animes jouables (1 431 avec VF), 1 791 sur les deux sites, 214
+anime-sama seul, 3 212 voir-anime seul ; top 500 AniList : 5 sans video, 150 sans VF, 35 incomplets
+(souvent un lien mort) ; 34 animes en cours en retard (One Piece 44 ep. VOSTFR). Fiche par anime :
+`/api/v2/admin/anime-sources` (recherche ~6 600 lignes, fiche < 10). Historique : 90 jours (DELETE).
+
+« Animes les plus regardes » NON mesurable : les groupes adaptatifs Cloudflare sont echantillonnes
+(7 a 34 pages de lecture vues / 24 h pour ~1 200 visiteurs), le plan gratuit refuse
+`clientRequestQuery`, l'historique des comptes ne couvre que 4 comptes. Il faudrait un compteur.
+
 ## 2026-10-31 — Onglet « Statistiques » du panneau admin
 
 Demande de Luc : des stats sur tout le site, ordonnees. Onze sections dans un ordre fixe
