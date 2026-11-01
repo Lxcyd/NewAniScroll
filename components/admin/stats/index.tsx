@@ -716,7 +716,7 @@ function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection
         </Carte>
         <Carte titre={`Saison en cours · ${fmt(vi.resume?.enCoursEnRetard)} en retard`} note="Animes en diffusion (cache AniList) : episodes sortis contre episodes jouables. Le cache d'une fiche peut dater de quelques jours.">
           {listeTrou([...(t.enCours || [])].sort((a: any, b: any) => b.retard - a.retard || a.rang - b.rang), (x) => (
-            <LigneTrou x={x} droite={<span className={x.retard ? "text-amber-300" : "text-emerald-300"}>{x.sortis} sorti(s) · VOSTFR {x.vostfr} · VF {x.vf}</span>} />
+            <LigneTrou x={x} droite={<span className={x.retard ? "text-amber-300" : "text-emerald-300"}>{x.sortis} sorti(s) · VOSTFR {x.vostfr}{x.megaplay ? " (Megaplay)" : ""} · VF {x.vf}</span>} />
           ), 10)}
         </Carte>
         <Carte titre="Erreurs de rattachement" note="Pages voir-anime sans id AniList (jamais servies), fiches anime-sama sans lien AniList, et lignes que la parite de la nuit a retirees parce qu'elles servaient la page d'un autre anime.">

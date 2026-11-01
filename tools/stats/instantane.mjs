@@ -352,7 +352,7 @@ section("video", "jour", async () => {
      piste « dub » est anglaise : elle ne comble jamais la VF. */
   const malDe = new Map(populaires.map((x) => [x.id, x.mal]));
   let sondes = 0;
-  const PLAFOND_MP = 400;
+  const PLAFOND_MP = 800;
   const surMegaplay = async (mal, ep) => {
     if (!mal || sondes >= PLAFOND_MP) return null;
     sondes++;
@@ -367,8 +367,13 @@ section("video", "jour", async () => {
   const parLots = async (taches, n = 4) => { for (let i = 0; i < taches.length; i += n) await Promise.all(taches.slice(i, i + n).map((t) => t())); };
   for (const x of incomplets.slice(0, 120)) {
     if (!Array.isArray(x.vostfrManque) || !x.vostfrManque.length) continue;
+    // 5 absences de suite : Megaplay n'a pas cette serie (Pokemon : 226 manques).
     const comble = [];
-    await parLots(x.vostfrManque.map((n) => async () => { if (await surMegaplay(malDe.get(x.id), n)) comble.push(n); }));
+    let rate = 0;
+    for (const n of x.vostfrManque) {
+      if (rate >= 5) break;
+      if (await surMegaplay(malDe.get(x.id), n)) { comble.push(n); rate = 0; } else rate++;
+    }
     if (comble.length) { x.vostfrManque = x.vostfrManque.filter((n) => !comble.includes(n)); x.megaplay = comble.length; }
   }
   const sansVideoMp = [];
@@ -406,6 +411,22 @@ section("video", "jour", async () => {
     .filter((x) => FORMATS.has(x.format) && x.prochain > 1);
   const enCours = enCoursBrut.map((x, i) => ({ ...etat(x, i + 1), sortis: x.prochain - 1, prochainLe: x.prochainLe }))
     .map((x) => ({ ...x, retard: Math.max(0, x.sortis - x.vostfr) }));
+  /* Megaplay (sans catalogue) : un anime en retard dont le DERNIER episode sorti
+     est chez lui est servi a jour en VOSTFR (Koupen-chan : 83 sortis, aucune
+     page anime-sama/voir-anime, tout sur Megaplay). Sinon on cherche par
+     dichotomie le dernier episode qu'il a (~7 sondes), au-dela de ce qu'on sert. */
+  const malEnCours = new Map(enCoursBrut.map((x) => [x.id, x.mal]));
+  await parLots(enCours.filter((x) => x.retard > 0).map((x) => async () => {
+    const mal = malEnCours.get(x.id);
+    let haut = 0;
+    if (await surMegaplay(mal, x.sortis)) haut = x.sortis;
+    else if (await surMegaplay(mal, x.vostfr + 1)) {
+      let lo = x.vostfr + 1, hi = x.sortis - 1;
+      while (lo < hi) { const m = Math.ceil((lo + hi) / 2); if (await surMegaplay(mal, m)) lo = m; else hi = m - 1; }
+      haut = lo;
+    }
+    if (haut > x.vostfr) { x.megaplay = true; x.vostfr = haut; x.retard = x.sortis - haut; }
+  }));
 
   // Rattachement : pages et fiches sans AniList, lignes retirees par la parite.
   const vaSansId = va.filter((p) => !p.anilist);
