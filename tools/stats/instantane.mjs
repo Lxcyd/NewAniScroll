@@ -237,7 +237,8 @@ section("lecteurs", "jour", async () => {
    (Baki 2018 sur le film et l'OAV de « baki »), d'ou le detour par player_map.
    Cout mesure : ~15 000 lignes (player_map + les deux copies + ~900 fiches). */
 section("video", "jour", async () => {
-  const pm = await sql("cache", "SELECT ani_id, source, lang, status, slug, season_dir, note, checked_at FROM player_map");
+  const pm = await sql("cache", "SELECT ani_id, source, lang, status, slug, season_dir, ep_offset, note, checked_at FROM player_map");
+  const somme0 = (l, k) => l.reduce((s, x) => s + (Number(x[k]) || 0), 0);
   const asP = await sql("cache", "SELECT slug, dossier, langue, libelle, anilist_fiche, nb_ep, nb_vivants, nb_morts FROM as_panneau");
   const va = await sql("cache", "SELECT slug, langue, anilist, romaji, anglais, num_max, nb_ep, nb_vivants, nb_morts FROM va_page");
   const fr = await peutManquer(sql("cache", "SELECT anilist_id FROM frembed_catalog"), []);
@@ -290,8 +291,78 @@ section("video", "jour", async () => {
   const top = populaires.map((x, i) => etat(x, i + 1));
   const sansVideo = top.filter((x) => !x.vostfr && !x.vf && !x.frembed);
   const sansVf = top.filter((x) => x.vostfr && !x.vf && !x.frembed);
-  const incomplets = top.filter((x) => x.episodes > 1 && !x.frembed && populaires[x.rang - 1].status === "FINISHED"
+  let incomplets = top.filter((x) => x.episodes > 1 && !x.frembed && populaires[x.rang - 1].status === "FINISHED"
     && ((x.vostfr > 0 && x.vostfr < x.episodes) || (x.vf > 0 && x.vf < x.episodes)));
+  /* Les episodes qui MANQUENT, numero par numero, pour les incomplets : l'union
+     des episodes vivants de toutes les pages qui servent l'anime dans la
+     langue. Lu par cle (as_panneau, va_page) : quelques lignes par anime. */
+  const pagesDe = (id, lang) => pm.filter((r) => r.ani_id === id && r.status === "verified" && (r.lang === "vf") === (lang === "vf"));
+  const vivantsDe = async (id, lang) => {
+    const eps = new Set();
+    for (const r of pagesDe(id, lang)) {
+      if (r.source === "animesama") {
+        const l = lang === "vf" ? ["vf", "vf1", "vf2"] : ["vostfr"];
+        for (const p of await sql("cache", `SELECT liens FROM as_panneau WHERE slug = ? AND dossier = ? AND langue IN (${l.map(() => "?").join(",")})`, [r.slug, r.season_dir, ...l])) {
+          let j = {};
+          try { j = JSON.parse(p.liens); } catch {}
+          for (const [n, liens] of Object.entries(j)) if (liens.some((y) => y[1] === "vivant")) eps.add(Number(n) - (r.ep_offset || 0));
+        }
+      } else if (r.source === "voiranime") {
+        for (const p of await sql("cache", "SELECT episodes FROM va_page WHERE slug = ?", [r.slug])) {
+          let j = {};
+          try { j = JSON.parse(p.episodes); } catch {}
+          for (const [n, e] of Object.entries(j)) if (e?.[2] === "vivant") eps.add(Number(n) - (r.ep_offset || 0));
+        }
+      }
+    }
+    for (const p of va) if (p.anilist === id && (p.langue === "vf") === (lang === "vf") && !pagesDe(id, lang).some((r) => r.slug === p.slug)) {
+      for (const q of await sql("cache", "SELECT episodes FROM va_page WHERE slug = ?", [p.slug])) {
+        let j = {};
+        try { j = JSON.parse(q.episodes); } catch {}
+        for (const [n, e] of Object.entries(j)) if (e?.[2] === "vivant") eps.add(Number(n));
+      }
+    }
+    return eps;
+  };
+  for (const x of incomplets.slice(0, 120)) {
+    for (const lang of ["vostfr", "vf"]) {
+      if (!x[lang]) { x[`${lang}Manque`] = "absente"; continue; }
+      const eps = await vivantsDe(x.id, lang);
+      const manque = [];
+      for (let n = 1; n <= x.episodes; n++) if (!eps.has(n)) manque.push(n);
+      x[`${lang}Manque`] = manque;
+    }
+  }
+  /* Le compte « max d'une source » sous-estime : un lien mort sur une page
+     est souvent vivant sur l'autre (Death Parade : 11/12 ici, 12/12 la-bas).
+     Seuls restent les animes ou l'UNION des sources a un trou. */
+  incomplets = incomplets.slice(0, 120).filter((x) => [x.vostfrManque, x.vfManque].some((m) => Array.isArray(m) && m.length));
+
+  /* La part de chaque catalogue qu'on SERT, hors ce qu'on ne prend pas : un
+     panneau sans aucun lien vivant d'un lecteur valide, ou une version « sans
+     fillers » (dossier `…hs`, doublon monte d'une serie qu'on sert deja). */
+  const servisAs = new Set(pm.filter((r) => r.source === "animesama" && r.status === "verified").map((r) => `${r.slug}|${r.season_dir}|${r.lang === "vf" ? "vf" : "vostfr"}`));
+  const servisVa = new Set(pm.filter((r) => r.source === "voiranime" && r.status === "verified").map((r) => r.slug));
+  const asSansFillers = asP.filter((p) => /hs$/.test(p.dossier) && p.nb_vivants > 0).length;
+  const asElig = asP.filter((p) => p.nb_vivants > 0 && !/hs$/.test(p.dossier));
+  const asNonServis = asElig.filter((p) => !servisAs.has(`${p.slug}|${p.dossier}|${p.langue.startsWith("vf") ? "vf" : "vostfr"}`));
+  const vaElig = va.filter((p) => p.nb_vivants > 0);
+  const vaNonServis = vaElig.filter((p) => !servisVa.has(p.slug) && !p.anilist);
+  const fp = await peutManquer(un("cache", "SELECT count(*) sondes, sum(hosted) heberges FROM frembed_probe"), {});
+  const part = {
+    animeSama: {
+      panneaux: asP.length, nonPris: asP.length - asElig.length, sansFillers: asSansFillers, sansLecteur: asP.length - asElig.length - asSansFillers, eligibles: asElig.length, servis: asElig.length - asNonServis.length,
+      episodesEligibles: somme0(asElig, "nb_vivants"), episodesServis: somme0(asElig, "nb_vivants") - somme0(asNonServis, "nb_vivants"),
+      nonServis: asNonServis.sort((p, q) => q.nb_vivants - p.nb_vivants).slice(0, 30).map((p) => ({ page: `${p.slug}/${p.dossier}/${p.langue}`, titre: p.libelle, ep: p.nb_vivants })),
+    },
+    voirAnime: {
+      panneaux: va.length, nonPris: va.length - vaElig.length, eligibles: vaElig.length, servis: vaElig.length - vaNonServis.length,
+      episodesEligibles: somme0(vaElig, "nb_vivants"), episodesServis: somme0(vaElig, "nb_vivants") - somme0(vaNonServis, "nb_vivants"),
+      nonServis: vaNonServis.sort((p, q) => q.nb_vivants - p.nb_vivants).slice(0, 30).map((p) => ({ page: p.slug, titre: p.romaji || p.anglais, ep: p.nb_vivants })),
+    },
+    frembed: { sondes: fp.sondes ?? null, heberges: fp.heberges ?? null, mappes: frembed.size },
+  };
+
   const enCoursBrut = (await sql("cache", `${fiche} WHERE status = 'RELEASING' AND is_adult = 0 ORDER BY popularity DESC LIMIT 120`))
     .filter((x) => FORMATS.has(x.format) && x.prochain > 1);
   const enCours = enCoursBrut.map((x, i) => ({ ...etat(x, i + 1), sortis: x.prochain - 1, prochainLe: x.prochainLe }))
@@ -328,7 +399,7 @@ section("video", "jour", async () => {
       top500SansVideo: sansVideo.length, top500Incomplets: incomplets.length,
       enCoursEnRetard: enCours.filter((x) => x.retard > 0).length,
     },
-    sources, recouvrement,
+    sources, recouvrement, part,
     trous: {
       sansVideo: sansVideo.slice(0, 60), sansVf: sansVf.length, sansVfListe: sansVf.slice(0, 40),
       incomplets: incomplets.slice(0, 60), nbIncomplets: incomplets.length,

@@ -81,28 +81,63 @@ function Carte({ titre, children, className = "", note }: { titre?: string; chil
   );
 }
 
+/** Une infobulle qui suit la souris, sans le delai de l'attribut `title`. */
+function Survol({ contenu, children, className = "", style }: { contenu: React.ReactNode; children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  return (
+    <div className={className} style={style} onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })} onMouseLeave={() => setPos(null)}>
+      {children}
+      {pos && (
+        <div className="pointer-events-none fixed z-50 px-2 py-1 rounded bg-black/90 border border-white/10 text-[11px] font-karla text-white whitespace-nowrap shadow-lg"
+          style={{ left: pos.x + 12, top: pos.y + 14 }}>
+          {contenu}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Une tuile : un chiffre, son contexte, et sa tendance si l'historique la connait. */
-function Tuile({ label, valeur, sous, serie }: { label: string; valeur: React.ReactNode; sous?: React.ReactNode; serie?: (number | null)[] }) {
+function Tuile({ label, valeur, sous, serie, jours, format = fmt }: { label: string; valeur: React.ReactNode; sous?: React.ReactNode; serie?: (number | null)[]; jours?: string[]; format?: (n: any) => string }) {
   return (
     <div className="bg-secondary rounded-md p-4 flex flex-col gap-1 min-w-0">
       <p className="font-karla text-[11px] text-white/55 uppercase tracking-wider truncate" title={label}>{label}</p>
       <p className="font-karla text-2xl font-bold text-white leading-tight">{valeur}</p>
       {sous && <p className="font-karla text-xs text-white/50">{sous}</p>}
-      {serie && serie.filter((x) => x != null).length >= 2 && <Etincelle serie={serie} />}
+      {serie && serie.filter((x) => x != null).length >= 2 && <Etincelle serie={serie} jours={jours} format={format} />}
     </div>
   );
 }
 
-function Etincelle({ serie }: { serie: (number | null)[] }) {
-  const pts = serie.map((v, i) => [i, v] as const).filter(([, v]) => v != null) as [number, number][];
+/** La tendance d'une tuile : survoler donne le jour et sa valeur. */
+function Etincelle({ serie, jours, format = fmt }: { serie: (number | null)[]; jours?: string[]; format?: (n: any) => string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [i, setI] = useState<number | null>(null);
+  const pts = serie.map((v, k) => [k, v] as const).filter(([, v]) => v != null) as [number, number][];
   const min = Math.min(...pts.map((p) => p[1])), max = Math.max(...pts.map((p) => p[1]));
   const W = 120, H = 28;
-  const x = (i: number) => (i / Math.max(1, serie.length - 1)) * W;
+  const x = (k: number) => (k / Math.max(1, serie.length - 1)) * W;
   const y = (v: number) => H - 2 - ((v - min) / (max - min || 1)) * (H - 4);
+  const bouge = (e: React.MouseEvent) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const k = Math.round(((e.clientX - r.left) / r.width) * (serie.length - 1));
+    setI(Math.min(serie.length - 1, Math.max(0, k)));
+  };
+  const v = i != null ? serie[i] : null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-7 mt-1" preserveAspectRatio="none" aria-hidden>
-      <polyline fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" className="text-action" points={pts.map(([i, v]) => `${x(i)},${y(v)}`).join(" ")} />
-    </svg>
+    <div ref={ref} className="relative mt-1 cursor-crosshair" onMouseMove={bouge} onMouseLeave={() => setI(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-7" preserveAspectRatio="none" aria-hidden>
+        <polyline fill="none" stroke="currentColor" strokeWidth={2} vectorEffect="non-scaling-stroke" className="text-action" points={pts.map(([k, w]) => `${x(k)},${y(w)}`).join(" ")} />
+        {i != null && v != null && <line x1={x(i)} x2={x(i)} y1={0} y2={H} stroke="currentColor" className="text-white/40" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+      </svg>
+      {i != null && (
+        <div className="pointer-events-none absolute -top-7 px-2 py-0.5 rounded bg-black/90 text-[11px] text-white whitespace-nowrap"
+          style={{ left: `${(i / Math.max(1, serie.length - 1)) * 100}%`, transform: `translateX(${i > serie.length / 2 ? "-100%" : "0"})` }}>
+          <span className="text-white/60">{jours?.[i] || ""}</span> {format(v)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -117,13 +152,14 @@ function Barres({ lignes, max = 12, format = fmt, libelle = (x: any) => String(x
   return (
     <div className="flex flex-col gap-1.5">
       {vues.map((l) => (
-        <div key={String(l.nom)} className={`group grid ${large ? "grid-cols-[minmax(0,20rem)_1fr_auto]" : "grid-cols-[minmax(0,9rem)_1fr_auto]"} items-center gap-2 text-xs font-karla`} title={`${libelle(l.nom)} : ${format(l.n)} (${pct(l.n, somme)})`}>
-          <span className="text-white/70 truncate">{libelle(l.nom)}</span>
+        <Survol key={String(l.nom)} contenu={<><span className="text-white/60">{libelle(l.nom)}</span> · {format(l.n)} · {pct(l.n, somme)}</>}
+          className={`group grid ${large ? "grid-cols-[minmax(0,20rem)_1fr_auto]" : "grid-cols-[minmax(0,9rem)_1fr_auto]"} items-center gap-2 text-xs font-karla rounded hover:bg-white/[0.04] -mx-1 px-1 py-0.5 cursor-default`}>
+          <span className="text-white/70 truncate group-hover:text-white">{libelle(l.nom)}</span>
           <span className="h-2.5 rounded-sm bg-white/5 overflow-hidden">
-            <span className="block h-full rounded-sm bg-action opacity-75 group-hover:opacity-100 transition-opacity" style={{ width: `${Math.max(1.5, ((Number(l.n) || 0) / haut) * 100)}%` }} />
+            <span className="block h-full rounded-sm bg-action opacity-70 group-hover:opacity-100 transition-opacity" style={{ width: `${Math.max(1.5, ((Number(l.n) || 0) / haut) * 100)}%` }} />
           </span>
           <span className="text-white tabular-nums text-right">{format(l.n)} <span className="text-white/40">{pct(l.n, somme)}</span></span>
-        </div>
+        </Survol>
       ))}
       {lignes.length > max && (
         <button type="button" onClick={() => setTout(!tout)} className="self-start mt-1 text-[11px] text-action hover:underline">
@@ -193,9 +229,9 @@ function Colonnes({ lignes, format = fmt }: { lignes: Ligne[]; format?: (n: any)
     <div>
       <div className="flex items-end gap-[2px] h-32">
         {lignes.map((l) => (
-          <div key={String(l.nom)} className="group relative flex-1 h-full flex items-end" title={`${l.nom} : ${format(l.n)}`}>
-            <div className="w-full rounded-t-[3px] bg-action opacity-75 group-hover:opacity-100 transition-opacity" style={{ height: `${Math.max(1, ((Number(l.n) || 0) / max) * 100)}%` }} />
-          </div>
+          <Survol key={String(l.nom)} contenu={<><span className="text-white/60">{l.nom}</span> · {format(l.n)}</>} className="group relative flex-1 h-full flex items-end cursor-default">
+            <div className="w-full rounded-t-[3px] bg-action opacity-60 group-hover:opacity-100 transition-opacity" style={{ height: `${Math.max(1, ((Number(l.n) || 0) / max) * 100)}%` }} />
+          </Survol>
         ))}
       </div>
       <div className="flex justify-between text-[10px] text-white/40 font-karla mt-1">
@@ -470,7 +506,8 @@ export default function AdminStats() {
       </p>
     );
   };
-  const props = { r, serie, aller: setOnglet, calcule, alertes };
+  const jours = (r.historique || []).map((h) => String(h.jour).slice(5));
+  const props = { r, serie, jours, aller: setOnglet, calcule, alertes };
 
   return (
     <div className="px-4 md:px-6 py-6 flex flex-col gap-6 font-karla">
@@ -504,6 +541,7 @@ export default function AdminStats() {
 type PropsSection = {
   r: Reponse;
   serie: (k: string) => (number | null)[];
+  jours: string[];
   aller: (o: string) => void;
   calcule: (...ids: string[]) => React.ReactNode;
   alertes: (o: string) => Controle[];
@@ -541,7 +579,7 @@ function Repli({ titre, children }: { titre: string; children: React.ReactNode }
 }
 
 /* ── Vue d'ensemble ──────────────────────────────────────────────────────── */
-function SectionApercu({ r, serie, aller, controles }: PropsSection & { controles: Controle[] }) {
+function SectionApercu({ r, serie, jours, aller, controles }: PropsSection & { controles: Controle[] }) {
   const vi = donnees(r, "video"), au = donnees(r, "audience"), co = donnees(r, "comptes"), inf = donnees(r, "infra"), fr = donnees(r, "fraicheur");
   const pannes = controles.filter((x) => x.niveau === "panne");
   const attention = controles.filter((x) => x.niveau === "attention");
@@ -552,10 +590,10 @@ function SectionApercu({ r, serie, aller, controles }: PropsSection & { controle
   return (
     <section className="flex flex-col gap-5">
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Tuile label="Animes jouables" valeur={fmt(vi.resume?.animesJouables)} sous={`dont ${fmt(vi.resume?.avecVf)} avec VF`} serie={serie("video.animesJouables")} />
-        <Tuile label="Videos vivantes" valeur={fmt(vivantes)} sous={`${pct(vivantes, (vivantes || 0) + (mortes || 0))} des liens · ${fmt(mortes)} morts`} serie={serie("video.videosVivantes")} />
-        <Tuile label="Visiteurs hier" valeur={fmt(au.resume?.visiteursHier)} sous={`${fmt(au.resume?.visiteurs7j)} sur 7 jours`} serie={serie("audience.visiteursHier")} />
-        <Tuile label="Comptes" valeur={fmt(co.comptes?.total)} sous={`${fmt(co.comptes?.actifs7j)} actifs sur 7 jours`} serie={serie("comptes.comptes")} />
+        <Tuile label="Animes jouables" valeur={fmt(vi.resume?.animesJouables)} sous={`dont ${fmt(vi.resume?.avecVf)} avec VF`} jours={jours} serie={serie("video.animesJouables")} />
+        <Tuile label="Videos vivantes" valeur={fmt(vivantes)} sous={`${pct(vivantes, (vivantes || 0) + (mortes || 0))} des liens · ${fmt(mortes)} morts`} jours={jours} serie={serie("video.videosVivantes")} />
+        <Tuile label="Visiteurs hier" valeur={fmt(au.resume?.visiteursHier)} sous={`${fmt(au.resume?.visiteurs7j)} sur 7 jours`} jours={jours} serie={serie("audience.visiteursHier")} />
+        <Tuile label="Comptes" valeur={fmt(co.comptes?.total)} sous={`${fmt(co.comptes?.actifs7j)} actifs sur 7 jours`} jours={jours} serie={serie("comptes.comptes")} />
         <Tuile label="Quota le plus haut" valeur={pire ? `${pire[1]} %` : "—"} sous={pire ? `${pire[0]}, projection fin de mois` : "non mesure"} />
         <Tuile label="Pannes" valeur={fmt(pannes.length)} sous={`${fmt(attention.length)} point(s) a surveiller`} />
       </div>
@@ -584,7 +622,7 @@ function SectionApercu({ r, serie, aller, controles }: PropsSection & { controle
 }
 
 /* ── Lecteurs video ──────────────────────────────────────────────────────── */
-function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
+function SectionVideo({ r, serie, jours, aller, calcule, alertes }: PropsSection) {
   const vi = donnees(r, "video"), le = donnees(r, "lecteurs"), op = donnees(r, "oped");
   const as = vi.sources?.animeSama || {}, va = vi.sources?.voirAnime || {}, rec = vi.recouvrement || {}, t = vi.trous || {}, ra = vi.rattachement || {};
   if (!vi.sources) return <Panneau titre="Lecteurs video" sous={calcule("video")}><p className="text-sm text-white/50">La section « video » n'a pas encore ete calculee (prochain passage du workflow stats-site, ou <code>node tools/stats/instantane.mjs --sections=video</code>).</p></Panneau>;
@@ -606,10 +644,10 @@ function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
   return (
     <Panneau titre="Lecteurs video" sous={calcule("video", "lecteurs")} alertes={alertes("video")} aller={aller}>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Tuile label="Animes jouables" valeur={fmt(rec.total)} sous={`${fmt(rec.avecVf)} avec VF`} serie={serie("video.animesJouables")} />
-        <Tuile label="Videos vivantes" valeur={fmt(vi.resume?.videosVivantes)} sous={`${fmt(vi.resume?.videosMortes)} mortes`} serie={serie("video.videosVivantes")} />
-        <Tuile label="Top 500 sans video" valeur={fmt(t.sansVideo?.length)} sous={`${fmt(t.sansVf)} sans VF`} serie={serie("video.top500SansVideo")} />
-        <Tuile label="En cours en retard" valeur={fmt(vi.resume?.enCoursEnRetard)} sous="episode sorti, absent en VOSTFR" serie={serie("video.enCoursEnRetard")} />
+        <Tuile label="Animes jouables" valeur={fmt(rec.total)} sous={`${fmt(rec.avecVf)} avec VF`} jours={jours} serie={serie("video.animesJouables")} />
+        <Tuile label="Videos vivantes" valeur={fmt(vi.resume?.videosVivantes)} sous={`${fmt(vi.resume?.videosMortes)} mortes`} jours={jours} serie={serie("video.videosVivantes")} />
+        <Tuile label="Top 500 sans video" valeur={fmt(t.sansVideo?.length)} sous={`${fmt(t.sansVf)} sans VF`} jours={jours} serie={serie("video.top500SansVideo")} />
+        <Tuile label="En cours en retard" valeur={fmt(vi.resume?.enCoursEnRetard)} sous="episode sorti, absent en VOSTFR" jours={jours} serie={serie("video.enCoursEnRetard")} />
       </div>
 
       <Carte titre="Sites sources" note="« Animes » : ids AniList qu'une ligne player_map verifiee (ou une page ancree) sert depuis ce site. Episodes : liens de la copie de la nuit, toutes langues.">
@@ -625,18 +663,22 @@ function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
         ]} lignes={[
           { nom: "anime-sama", sous: `${fmt(as.fiches)} fiches · ansembed`, animes: as.animes, pages: as.panneaux, vostfr: as.vostfr, vf: as.vf, episodes: as.episodes, vivants: as.vivants, morts: as.morts, sansAnilist: as.sansAnilist },
           { nom: "voir-anime", sous: "myTV (vidmoly-va)", animes: va.animes, pages: va.pages, vostfr: va.vostfr, vf: va.vf, episodes: va.episodes, vivants: va.vivants, morts: va.morts, sansAnilist: va.sansAnilist },
-          { nom: "Frembed", sous: "catalogue publie, films + series", animes: vi.sources?.frembed?.animes, pages: null, vostfr: null, episodes: null, vivants: null, morts: null, sansAnilist: null },
+          { nom: "Frembed", sous: `${fmt(vi.part?.frembed?.heberges)} titres heberges sur ${fmt(vi.part?.frembed?.sondes)} sondes · un flux par titre, VF + VOSTFR`, animes: vi.sources?.frembed?.animes, pages: vi.part?.frembed?.heberges, vostfr: null, episodes: null, vivants: null, morts: null, sansAnilist: vi.part?.frembed?.heberges == null ? null : vi.part.frembed.heberges - (vi.sources?.frembed?.animes || 0) },
         ]} />
         <div className="mt-4 flex flex-col gap-2">
-          <p className="text-xs text-white/70">Recouvrement : {fmt(rec.total)} animes AniList distincts</p>
+          <p className="text-xs text-white/70">Recouvrement : {fmt(rec.total)} animes AniList distincts (survoler une couleur)</p>
           <div className="flex h-7 rounded overflow-hidden text-[11px] font-semibold">
-            {[["les deux", rec.deux, "bg-sky-400 text-black"], ["anime-sama seul", rec.asSeul, "bg-action text-black"], ["voir-anime seul", rec.vaSeul, "bg-amber-400 text-black"], ["Frembed seul", rec.frembedSeul, "bg-emerald-400 text-black"]].map(([nom, n, c]) => (
-              <div key={nom as string} className={`${c} flex items-center px-2 truncate`} style={{ flex: Number(n) || 0 }} title={`${nom} : ${fmt(n)}`}>{Number(n) / (rec.total || 1) > 0.08 ? `${nom} · ${fmt(n)}` : ""}</div>
+            {[["Sur les deux sites", rec.deux, "bg-sky-400 text-black"], ["anime-sama seul", rec.asSeul, "bg-action text-black"], ["voir-anime seul", rec.vaSeul, "bg-amber-400 text-black"], ["Frembed seul", rec.frembedSeul, "bg-emerald-400 text-black"]].map(([nom, n, c]) => (
+              <Survol key={nom as string} contenu={<>{nom} · {fmt(n)} animes · {pct(n, rec.total)}</>} className={`${c} flex items-center px-2 truncate hover:brightness-110 cursor-default`} style={{ flex: Number(n) || 0 }}>
+                {Number(n) / (rec.total || 1) > 0.08 ? `${nom} · ${fmt(n)}` : ""}
+              </Survol>
             ))}
           </div>
           <p className="text-[11px] text-white/45">les deux {fmt(rec.deux)} · anime-sama seul {fmt(rec.asSeul)} · voir-anime seul {fmt(rec.vaSeul)} · Frembed seul {fmt(rec.frembedSeul)}</p>
         </div>
       </Carte>
+
+      <PartCatalogues part={vi.part} />
 
       <Carte titre="Par lecteur" note="Videos : liens vivants de la copie. Demarrage et part : mesures des visiteurs (server_perf, moyenne glissante) ; la part est celle des mesures de demarrage, faute de compteur de lectures. Le taux d'echec n'est pas encore mesure.">
         <Tableau colonnes={[
@@ -645,7 +687,9 @@ function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
           { titre: "Taux vivant", rendu: (l) => (l.total ? pct(l.videos, l.total) : "—"), droite: true },
           { titre: "Demarrage", rendu: (l) => (l.demarrage == null ? "—" : `${(l.demarrage / 1000).toFixed(1)} s`), droite: true },
           { titre: "Part des mesures", rendu: (l) => (l.part == null ? "—" : (
-            <span className="inline-flex items-center gap-2 justify-end"><span className="w-20 h-2 rounded-sm bg-white/5 overflow-hidden"><span className="block h-full bg-action" style={{ width: `${l.part * 100}%` }} /></span>{Math.round(l.part * 100)} %</span>
+            <Survol contenu={<>{l.nom} · {fmt(l.mesures)} mesures de demarrage sur {fmt(mesures)}</>} className="inline-flex items-center gap-2 justify-end cursor-default">
+              <span className="w-20 h-2 rounded-sm bg-white/5 overflow-hidden"><span className="block h-full bg-action" style={{ width: `${l.part * 100}%` }} /></span>{Math.round(l.part * 100)} %
+            </Survol>
           )), droite: true },
           { titre: "Mesures", rendu: (l) => fmt(l.mesures), droite: true },
         ]} lignes={lecteurs} />
@@ -658,8 +702,16 @@ function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
           <p className="mt-3 text-xs text-white/55">{fmt(t.sansVf)} autres n'ont que la VOSTFR (pas de VF nulle part).</p>
           {!!t.sansVfListe?.length && <Repli titre={`Les ${fmt(t.sansVf)} sans VF`}>{listeTrou(t.sansVfListe, (x) => <LigneTrou x={x} droite={`VOSTFR ${x.vostfr} ep.`} />, 40)}</Repli>}
         </Carte>
-        <Carte titre={`Episodes manquants · ${fmt(t.nbIncomplets)}`} note="Top 500, series terminees : moins d'episodes jouables que d'episodes diffuses, dans une langue servie. Souvent un seul lien mort.">
-          {listeTrou(t.incomplets || [], (x) => <LigneTrou x={x} droite={`VOSTFR ${x.vostfr}/${x.episodes} · VF ${x.vf}/${x.episodes}`} />)}
+        <Carte titre={`Episodes manquants · ${fmt(t.nbIncomplets)}`} note="Top 500, series terminees : les episodes qu'AUCUNE source ne sert vivants dans une langue servie (toutes pages confondues). « VF absente » : pas de VF du tout, pour info.">
+          {listeTrou(t.incomplets || [], (x) => (
+            <span className="flex flex-col gap-0.5">
+              <LigneTrou x={x} droite={`${x.episodes} ep.`} />
+              <span className="flex flex-wrap gap-x-4 gap-y-0.5 pl-8">
+                <Manque lang="VOSTFR" m={x.vostfrManque} />
+                <Manque lang="VF" m={x.vfManque} />
+              </span>
+            </span>
+          ), 10)}
         </Carte>
         <Carte titre={`Saison en cours · ${fmt(vi.resume?.enCoursEnRetard)} en retard`} note="Animes en diffusion (cache AniList) : episodes sortis contre episodes jouables. Le cache d'une fiche peut dater de quelques jours.">
           {listeTrou([...(t.enCours || [])].sort((a: any, b: any) => b.retard - a.retard || a.rang - b.rang), (x) => (
@@ -719,6 +771,73 @@ function SectionVideo({ r, serie, aller, calcule, alertes }: PropsSection) {
         </div>
       </Repli>
     </Panneau>
+  );
+}
+
+/** « 3, 7, 12-24 » : des numeros d'episodes, les suites regroupees. */
+function plages(n: number[]) {
+  const out: string[] = [];
+  for (let i = 0; i < n.length; i++) {
+    let j = i;
+    while (j + 1 < n.length && n[j + 1] === n[j] + 1) j++;
+    out.push(j > i ? `${n[i]}–${n[j]}` : String(n[i]));
+    i = j;
+  }
+  return out.join(", ");
+}
+
+/** Ce qui manque dans une langue : les episodes, « absente », ou rien (complete). */
+function Manque({ lang, m }: { lang: string; m: any }) {
+  if (m === "absente") return <span className="text-white/40">{lang} absente</span>;
+  if (!Array.isArray(m)) return null;
+  if (!m.length) return <span className="text-emerald-300/80">{lang} complete</span>;
+  return <span className="text-amber-300">{lang} : il manque {m.length > 1 ? "les ep." : "l'ep."} {plages(m)}</span>;
+}
+
+/** La part de chaque catalogue qu'on sert, hors ce qu'on ne prend pas. */
+function PartCatalogues({ part }: { part: any }) {
+  if (!part) return null;
+  const ligne = (nom: string, p: any, unite: string, nonPris: React.ReactNode) => (
+    <div className="flex flex-col gap-2 py-3 border-t border-white/5 first:border-t-0">
+      <div className="flex flex-wrap justify-between gap-2 text-sm">
+        <span className="text-white font-semibold">{nom}</span>
+        <span className="text-white tabular-nums">{fmt(p.servis)} / {fmt(p.eligibles)} {unite} servis · <strong>{pct(p.servis, p.eligibles)}</strong></span>
+      </div>
+      <Survol contenu={<>{fmt(p.servis)} servis · {fmt(p.eligibles - p.servis)} jouables mais non servis · {fmt(p.nonPris)} non pris</>} className="flex h-3 rounded-sm overflow-hidden bg-white/5 cursor-default">
+        <div className="bg-action" style={{ flex: p.servis }} />
+        <div className="bg-amber-400/70" style={{ flex: p.eligibles - p.servis }} />
+        <div className="bg-white/10" style={{ flex: p.nonPris }} />
+      </Survol>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-white/55">
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-action mr-1" />servis {fmt(p.servis)}</span>
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-amber-400/70 mr-1" />jouables non servis {fmt(p.eligibles - p.servis)}</span>
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-white/10 mr-1" />non pris {fmt(p.nonPris)} {nonPris}</span>
+        <span>episodes : {fmt(p.episodesServis)} / {fmt(p.episodesEligibles)} ({pct(p.episodesServis, p.episodesEligibles)})</span>
+      </div>
+      {!!p.nonServis?.length && (
+        <Repli titre={`Les plus gros ${unite} jouables non servis`}>
+          <ListeCourte lignes={p.nonServis} rendu={(x) => <span className="flex justify-between gap-3"><span className="truncate">{x.titre || x.page} <span className="text-white/40">{x.page}</span></span><span className="text-white/60 shrink-0">{fmt(x.ep)} ep.</span></span>} max={15} />
+        </Repli>
+      )}
+    </div>
+  );
+  const f = part.frembed || {};
+  return (
+    <Carte titre="Part de chaque catalogue qu'on sert" note="« Non pris » : ce qu'on ecarte volontairement — panneau ou page sans aucun lien vivant d'un lecteur valide (ansembed, myTV), versions « sans fillers » d'anime-sama. « Jouables non servis » : un lecteur valide, mais aucune correspondance AniList verifiee — c'est le reservoir a rattacher.">
+      {ligne("anime-sama", part.animeSama, "panneaux", <span className="text-white/40">({fmt(part.animeSama?.sansLecteur)} sans lecteur valide, {fmt(part.animeSama?.sansFillers)} sans fillers)</span>)}
+      {ligne("voir-anime", part.voirAnime, "pages", <span className="text-white/40">(sans lien myTV vivant)</span>)}
+      <div className="flex flex-col gap-2 py-3 border-t border-white/5">
+        <div className="flex flex-wrap justify-between gap-2 text-sm">
+          <span className="text-white font-semibold">Frembed</span>
+          <span className="text-white tabular-nums">{fmt(f.mappes)} / {fmt(f.heberges)} titres heberges rattaches a AniList · <strong>{pct(f.mappes, f.heberges)}</strong></span>
+        </div>
+        <Survol contenu={<>{fmt(f.mappes)} rattaches · {fmt((f.heberges || 0) - (f.mappes || 0))} heberges sans id AniList · {fmt((f.sondes || 0) - (f.heberges || 0))} sondes non heberges</>} className="flex h-3 rounded-sm overflow-hidden bg-white/5 cursor-default">
+          <div className="bg-action" style={{ flex: f.mappes || 0 }} />
+          <div className="bg-amber-400/70" style={{ flex: (f.heberges || 0) - (f.mappes || 0) }} />
+        </Survol>
+        <p className="text-[11px] text-white/55">Frembed sert un flux par titre (tous les episodes, VF et VOSTFR) : pas de compte par episode. {fmt(f.sondes)} titres TMDB sondes, {fmt(f.heberges)} heberges.</p>
+      </div>
+    </Carte>
   );
 }
 
@@ -881,14 +1000,14 @@ function SectionImages({ r, serie, aller, calcule, alertes }: PropsSection) {
 }
 
 /* ── Audience ────────────────────────────────────────────────────────────── */
-function SectionAudience({ r, serie, aller, calcule, alertes }: PropsSection) {
+function SectionAudience({ r, serie, jours, aller, calcule, alertes }: PropsSection) {
   const au = donnees(r, "audience"), co = donnees(r, "comptes");
   return (
     <Panneau titre="Audience" sous={calcule("audience", "comptes")} alertes={alertes("audience")} aller={aller}>
       {au.indisponible ? <p className="text-sm text-white/50">{au.indisponible}</p> : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            <Tuile label="Visiteurs hier" valeur={fmt(au.resume?.visiteursHier)} sous={`aujourd'hui ${fmt(au.resume?.visiteursAujourdhui)}`} serie={serie("audience.visiteursHier")} />
+            <Tuile label="Visiteurs hier" valeur={fmt(au.resume?.visiteursHier)} sous={`aujourd'hui ${fmt(au.resume?.visiteursAujourdhui)}`} jours={jours} serie={serie("audience.visiteursHier")} />
             <Tuile label="Visiteurs · 7 jours" valeur={fmt(au.resume?.visiteurs7j)} sous="somme des uniques par jour" />
             <Tuile label="Pages vues · 30 j" valeur={compact(au.resume?.pages30j)} />
             <Tuile label="Cache Cloudflare · 30 j" valeur={au.resume?.cache30j == null ? "—" : `${au.resume.cache30j} %`} />
@@ -917,13 +1036,13 @@ function SectionAudience({ r, serie, aller, calcule, alertes }: PropsSection) {
 
       <h3 className="font-outfit text-lg font-bold text-white mt-2">Comptes</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
-        <Tuile label="Comptes" valeur={fmt(co.comptes?.total)} serie={serie("comptes.comptes")} />
+        <Tuile label="Comptes" valeur={fmt(co.comptes?.total)} jours={jours} serie={serie("comptes.comptes")} />
         <Tuile label="E-mail verifie" valeur={fmt(co.comptes?.verifies)} sous={pct(co.comptes?.verifies, co.comptes?.total)} />
         <Tuile label="Lies a AniList" valeur={fmt(co.comptes?.anilist)} sous={pct(co.comptes?.anilist, co.comptes?.total)} />
         <Tuile label="Nouveaux · 7 j" valeur={fmt(co.comptes?.nouveaux7j)} />
         <Tuile label="Nouveaux · 30 j" valeur={fmt(co.comptes?.nouveaux30j)} />
         <Tuile label="Actifs · 24 h" valeur={fmt(co.comptes?.actifs24h)} />
-        <Tuile label="Actifs · 7 j" valeur={fmt(co.comptes?.actifs7j)} serie={serie("comptes.actifs7j")} />
+        <Tuile label="Actifs · 7 j" valeur={fmt(co.comptes?.actifs7j)} jours={jours} serie={serie("comptes.actifs7j")} />
         <Tuile label="Actifs · 30 j" valeur={fmt(co.comptes?.actifs30j)} />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
