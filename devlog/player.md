@@ -3644,3 +3644,28 @@ fusionnee (plus d'episodes que son ancre) portant une suite de sa chaine SEQUEL 
 `manuel` et pages sans ancre non jugees. Verifie : il retrouve exactement les 16
 lignes retirees a la main (Blade/Fate UBW, Petit Clover/Black Clover, suites sur
 pages saison 1…) et garde les 5 legitimes. Le code de sortie compte ces lignes.
+
+## 2026-11-01 — player_map anime-sama : ~60 liens vers le panneau d'un autre anime
+
+Signale par Luc : le remake de Spice and Wolf (145728) ne servait rien chez
+anime-sama — lie a `saison1hs`, inexistant ; le remake est `saison3`. En
+cherchant les cas semblables : `parite.mjs` ne voit que les saisons qu'il sait
+ALIGNER (2 230 / 3 042), le reste n'etait jamais controle. Methode qui a marche :
+croiser le nombre d'episodes AniList avec celui du panneau ET son `libelle`
+(as_panneau), ~100 suspects, la plupart legitimes (parties AniList reunies).
+Vrais faux, corriges par `scripts/player-map/correctifs-2026-11-01.mjs`
+(idempotent, la cible n'est ecrite que si le panneau existe dans la langue) :
+- mauvaise saison : Kenshin 2023 -> serie 1996, Monogatari Off & Monster ->
+  Second Season, Sailor Moon Crystal -> 1992, Gundam 08th/Origin -> Gundam 00,
+  Inazuma GO Galaxy/Chrono Stone, Nanatsu no Taizai S2-S4 -> saison 1, Gintama
+  (°, Enchousen, Porori, Shirogane), Pokemon XY&Z, Link Click Bridon,
+  Slime Diaries, Ginpachi-sensei, BSD Wan! ;
+- partie 2 servie depuis l'ep. 1 : Re:Zero S2, SAO WoU, JoJo Stone Ocean et
+  Stardust Egypte, Saint Seiya Hades Inferno ;
+- passes `absent` (anime-sama ne l'a pas, on servait autre chose) : AIR ->
+  Air Gear, Conan Hanzawa, Sword Art Offline, LoGH Neue These, Dragon Warrior,
+  Saint Seiya x5, courts K-ON/Euphonium/Amagi/Yuyushiki/Shana/Petit Clover...
+`sourceCacheKey` -> v16 (les mauvaises URL sont gardees chaudes en Redis).
+Laisses tels quels, a trancher : Danganronpa 3 (deux arcs sur un panneau
+entrelace), Haruhi 2006 (ordre de diffusion vs chronologique), Bookworm S3,
+Slime S2 partie 2 (25 ep. VOSTFR / 26 VF, decalage incertain).

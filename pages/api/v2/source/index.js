@@ -4202,7 +4202,10 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // f2 (frembed seul, 28/09/2026) : orpheline les absences « hors catalogue »
   // gardees 6 h avant que le catalogue s'etende aux titres sondes — et separe
   // ces cles de celles qu'ecrirait un code qui ne connait pas encore la sonde.
-  const v = FREMBED_SERVERS[server] ? "v15f2" : "v15";
+  // v16 (01/11/2026) : ~60 lignes player_map anime-sama corrigees a la main
+  // (scripts/player-map/correctifs-2026-11-01.mjs) — elles servaient le panneau
+  // d'un autre anime ; leurs URL en cache, gardees chaudes, sont orphelines.
+  const v = FREMBED_SERVERS[server] ? "v15f2" : "v16";
   return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
