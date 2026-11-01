@@ -7,7 +7,7 @@
     "vidmoly-va": { "etat": "actif", "site": true, "lot": true },
     "sibnet":     { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "flux HS : propose ~85 % mais 3 reussites sur 483 essais du lot (07/10) ; deja HS au 08/08" },
     "uqload":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-07", "decide": "Luc", "raison": "retire du site a la demande de Luc ; 59 % de pannes au lot" },
-    "sendvid":    { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-08-31", "decide": "Luc", "raison": "sendvid.com repond 502 sur toutes ses urls" },
+    "sendvid":    { "etat": "actif",  "site": true,  "lot": false, "depuis": "2026-11-01", "decide": "Luc", "note": "RALLUME le 01/11 (mort du 31/08 au 01/11 : 502 sur tout le site) ; test sur 35 animes : 47/51 videos lisibles, 4 en 410 (supprimees) ; anime-sama ne le garde plus que sur les titres anciens/de niche (0 sur SnK, Frieren, JJK…) ; pas encore au lot OP/ED" },
     "filemoon-va":   { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR MOON » de voir-anime (mfw09.org) : refuse tout site sauf voir-anime.to ; seul myTV (vidmoly-va) garde" },
     "yourupload-va": { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR YU » de voir-anime : 29/30 vivants mais non retenu, seul myTV (vidmoly-va) garde" },
     "mailru-va":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR FHD1 » de voir-anime : 22/30 vivants, non retenu, seul myTV (vidmoly-va) garde" },

@@ -6,6 +6,18 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-01 — Sendvid rallume
+
+sendvid.com repond de nouveau (200), retire le 31/08 pour un 502 sur tout le site. Test sur 35 fiches
+d'anime-sama (saison 1, VF + VOSTFR, 1er / milieu / dernier episode) : sendvid present sur 17 panneaux
+sur 51, **47 videos lisibles sur 51** (extracteur du site puis Range sur le MP4 : 206 video/mp4), les
+4 autres en **410** (supprimees : One Piece VF, 1 Zombie-sagashitemasu). Anime-sama l'a purge des
+titres populaires (0 lien sur SnK, Frieren, JJK, Demon Slayer, Naruto, Spy x Family…) et le garde sur
+l'ancien ou le niche (Baki, Baccano, 7 Seeds, Banana Fish, 91 Days, Dandadan VOSTFR) : c'est la qu'il
+comble un trou. Chips VF + VO au rang 4 ; le 410 compte maintenant comme une absence (avant :
+transitoire, donc chip en « retry »). `/api/v2/source` verifie en local sur Baccano VF/VO et Banana
+Fish. **Pas au lot OP/ED** (`lot: false`) tant que le lot du catalogue tourne.
+
 ## 2026-10-31 — voir-anime copie comme anime-sama (myTV seul), et servi depuis la copie
 
 **Lecteurs de voir-anime** (200 episodes tires dans les sitemaps, 30 liens testes par lecteur) :

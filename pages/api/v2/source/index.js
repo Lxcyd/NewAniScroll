@@ -177,6 +177,8 @@ async function isVidmolyEmbedAlive(embedUrl) {
    spectateur. Restent les deux qui servent. */
 const EXTRACTABLE_HOSTS = [
   "sibnet.ru",
+  // sendvid rallume le 01/11/2026 : MP4 direct, extrait ici (cf. extractSendvid).
+  "sendvid.com",
   // uqload gates the embed on the EMBEDDING site's Referer (anime-sama), so a
   // raw iframe fallback would just render its "embed restricted" page — treat
   // it like sibnet below and hide the chip on extraction failure rather than
@@ -857,9 +859,8 @@ const ANIMESAMA_SERVERS = {
   // VF (French dub)
   // "animesama-sibnet" (VF et VO) et "animesama-uqload" (VF et VO) retires le
   // 07/10/2026 (lib/lecteurs.json : sibnet mort, uqload retire, decision de Luc).
-  // "animesama-sendvid" retire le 31/08/2026 : sendvid.com est HS (502 sur tout
-  // le site) — voir lib/servers.js. L'extracteur reste en place dans
-  // lib/extractors.js, prêt si l'hôte revient.
+  // Sendvid : retire le 31/08/2026 (hote HS), rallume le 01/11/2026 — voir lib/servers.js.
+  "animesama-sendvid":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vf" },
   // Ansembed REPLACES anime-sama's old Vidmoly entry: the site migrated its
   // vidmoly uploads to this white-label domain and no longer lists vidmoly.*
   // on ANY panel (measured over 17 panels, 0 hits — while ansembed appears on
@@ -869,7 +870,7 @@ const ANIMESAMA_SERVERS = {
   // with its own uploads and stays.
   "animesama-ansembed":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vf" },
   // VOSTFR (Japanese + French subs)
-  // "animesama-sendvid-vo" retire avec son jumeau VF (31/08/2026).
+  "animesama-sendvid-vo":      { name: "Sendvid",     preferred: ["sendvid.com"],                            lang: "vostfr" },
   "animesama-ansembed-vo":     { name: "Ansembed",    preferred: ["ansembed."],                              lang: "vostfr" },
 };
 
