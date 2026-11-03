@@ -658,15 +658,8 @@ function PinEditor({
           );
         return (
           <div key={p.id} className="flex min-h-0 min-w-0 gap-2 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06]">
-            {/* LA NOTE BIEN VISIBLE en édition (03/11/2026, Luc) : en pastille
-                sur l'affiche, là où l'œil tombe en choisissant. */}
             <span className="relative block h-full max-h-[160px] shrink-0">
               <Cover src={meta.get(p.id)?.cover} className="h-full max-h-[160px]" />
-              {scores.get(p.id) ? (
-                <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/75 px-2 py-0.5 font-karla text-[13px] font-bold leading-none text-as-score ring-1 ring-white/10">
-                  ★ {scores.get(p.id)}
-                </span>
-              ) : null}
             </span>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <div className="flex items-start gap-1">
@@ -687,6 +680,14 @@ function PinEditor({
                 placeholder={t("profile.blocks.pinned.notePlaceholder")}
                 className="min-h-0 flex-1 resize-none rounded-lg bg-black/30 p-2 font-karla text-[12px] text-white outline-none ring-1 ring-white/10 focus:ring-white/30"
               />
+              {/* LA NOTE EN BAS À DROITE, comme sur la carte du profil
+                  (03/11/2026, Luc) : la case du texte raccourcit pour lui
+                  laisser sa ligne. */}
+              {scores.get(p.id) ? (
+                <span className="shrink-0 self-end whitespace-nowrap font-karla text-[16px] font-bold leading-none text-as-score">
+                  ★ {scores.get(p.id)}
+                </span>
+              ) : null}
             </div>
           </div>
         );
