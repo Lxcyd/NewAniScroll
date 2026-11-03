@@ -201,7 +201,17 @@ export default function ProfileOverview({
   /* Le journal des jours de CET appareil, chez soi, pour l'objectif et le
      bingo ; chez un autre, celui que sert la page. */
   const localDays = useLocalDays(isOwner);
-  const days = isOwner ? localDays : (watchDays ?? {});
+  /* Chez soi, l'appareil et la sauvegarde du compte, jour par jour le plus
+     rempli des deux : la mémoire de dev.aniscroll.com, par exemple, ne contient
+     presque rien (03/11/2026). */
+  const ownDays = useMemo(() => {
+    if (!localDays) return null;
+    if (!watchDays) return localDays;
+    const out = { ...watchDays };
+    for (const [d, v] of Object.entries(localDays)) if (!out[d] || v.n >= out[d].n) out[d] = v;
+    return out;
+  }, [localDays, watchDays]);
+  const days = isOwner ? ownDays : (watchDays ?? {});
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
      profil local d'un invité. Il est appelé dans tous les cas — un hook ne se
      saute pas — mais son résultat est ignoré côté compte. */
@@ -845,7 +855,7 @@ export default function ProfileOverview({
       case "heatmap":
         return (
           <HeatmapBlock
-            served={isOwner ? undefined : (watchDays ?? {})}
+            served={isOwner ? (ownDays ?? undefined) : (watchDays ?? {})}
             editing={editing}
             streak={optionOn("heatmap", "heatStreak")}
           />
@@ -853,7 +863,7 @@ export default function ProfileOverview({
       case "calendar":
         return (
           <CalendarBlock
-            served={isOwner ? undefined : (watchDays ?? {})}
+            served={isOwner ? (ownDays ?? undefined) : (watchDays ?? {})}
             entries={entries}
             bubbles={optionOn("calendar", "calBubbles")}
           />
