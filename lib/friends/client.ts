@@ -46,6 +46,14 @@ export async function friendTastes() {
   return (await get<{ friends: (FriendCard & { taste: Taste })[] }>("?tastes=1"))?.friends ?? null;
 }
 
+/* Un refus du serveur (trop de demandes, plafond atteint) est annoncé à la
+   page : FriendErrorToast l'affiche, quel que soit le bouton qui l'a causé. */
+export const FRIENDS_ERROR_EVENT = "aniscroll:friends-error";
+export type FriendError = "throttled" | "full" | "failed";
+const failed = (why: FriendError) => {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(FRIENDS_ERROR_EVENT, { detail: why }));
+};
+
 export async function friendAction(tag: string, action: "request" | "accept" | "remove"): Promise<FriendState | "none" | null> {
   try {
     const r = await fetch(API, {
@@ -54,11 +62,16 @@ export async function friendAction(tag: string, action: "request" | "accept" | "
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ tag, action }),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      failed(r.status === 429 ? "throttled" : r.status === 409 ? "full" : "failed");
+      changed(); // l'état affiché peut être périmé : on relit
+      return null;
+    }
     const j = await r.json();
     changed();
     return j.state ?? null;
   } catch {
+    failed("failed");
     return null;
   }
 }
@@ -118,7 +131,11 @@ export function sendMyTaste(taste: Taste) {
     body: JSON.stringify({ taste }),
   })
     .then((r) => {
-      if (r.ok) localStorage.setItem(SENT_KEY, fp);
+      try {
+        if (r.ok) localStorage.setItem(SENT_KEY, fp);
+      } catch {
+        /* stockage bloqué */
+      }
     })
     .catch(() => {});
 }

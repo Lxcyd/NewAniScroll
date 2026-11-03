@@ -243,12 +243,23 @@ const CASES = [
     name: "amis d'un compte (listFriends)",
     db: "users",
     optional: true,
-    source: ["lib/auth/friends.ts", "ORDER BY f.updated_at DESC LIMIT ?"],
+    source: ["lib/auth/friends.ts", "ORDER BY f.state = 'friend' DESC, f.updated_at DESC LIMIT ?"],
     sql: `SELECT f.state, f.updated_at, u.tag, u.username, u.anilist_name, u.avatar_url, u.anilist_avatar_url
           FROM friends f JOIN users u ON u.id = f.friend_id
           WHERE f.user_id = ? AND u.status = 'active'
-          ORDER BY f.updated_at DESC LIMIT 800`,
+          ORDER BY f.state = 'friend' DESC, f.updated_at DESC LIMIT 800`,
     args: ["query-cost"],
+    max: 20,
+  },
+  {
+    /* Les plafonds de act() (amis, demandes reçues/envoyées) : un préfixe de
+       la clé primaire, jamais la table. */
+    name: "plafonds d'amis (act, count)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/friends.ts", "SELECT COUNT(*) AS n FROM friends WHERE user_id = ? AND state = ?"],
+    sql: `SELECT COUNT(*) AS n FROM friends WHERE user_id = ? AND state = ?`,
+    args: ["query-cost", "in"],
     max: 20,
   },
   {

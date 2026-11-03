@@ -20,14 +20,19 @@ import type { Row } from "@libsql/client";
 import { usersDb as db } from "../db/turso-users";
 import { pickAvatar } from "./avatar";
 import { profileHref } from "../profile/href";
+import { checkThrottle } from "./throttle";
 
 export type FriendState = "out" | "in" | "friend";
 export type FriendCard = { tag: string; name: string; avatar: string | null; href: string; since: number };
 
 const MAX_FRIENDS = 500;
 const MAX_PENDING_OUT = 100;
+/* Côté receveur aussi : sans plafond, une poignée de comptes pouvait noyer
+   quelqu'un sous les demandes. Au-delà, les nouvelles demandes sont refusées. */
+const MAX_PENDING_IN = 200;
 const TASTE_KIND = "taste";
 const MAX_TASTE_TITLES = 2000;
+const TAG_RE = /^[0-9A-Za-z]{6}$/;
 
 function cardOf(r: Row): FriendCard {
   const name = String(r.anilist_name || r.username || `Guest#${r.tag}`);
@@ -44,7 +49,7 @@ const CARD_COLS = `u.tag, u.username, u.anilist_name, u.avatar_url, u.anilist_av
 
 async function idOfTag(tag: string): Promise<string | null> {
   const client = await db();
-  if (!client || !/^[0-9A-Za-z]{6}$/.test(tag)) return null;
+  if (!client || !TAG_RE.test(tag)) return null;
   const r = await client.execute({
     sql: `SELECT id FROM users WHERE tag = ? AND status = 'active'`,
     args: [tag.toUpperCase()],
@@ -59,12 +64,14 @@ export async function listFriends(
   const out = { friends: [] as FriendCard[], incoming: [] as FriendCard[], outgoing: [] as FriendCard[] };
   const client = await db();
   if (!client) return out;
+  /* Les amis d'abord : triées par date seule, des demandes reçues en masse
+     poussaient les amis hors de la limite. */
   const r = await client.execute({
     sql: `SELECT f.state, f.updated_at, ${CARD_COLS}
           FROM friends f JOIN users u ON u.id = f.friend_id
           WHERE f.user_id = ? AND u.status = 'active'
-          ORDER BY f.updated_at DESC LIMIT ?`,
-    args: [userId, MAX_FRIENDS + MAX_PENDING_OUT + 200],
+          ORDER BY f.state = 'friend' DESC, f.updated_at DESC LIMIT ?`,
+    args: [userId, MAX_FRIENDS + MAX_PENDING_OUT + MAX_PENDING_IN],
   });
   for (const row of r.rows) {
     const c = cardOf(row);
@@ -76,10 +83,29 @@ export async function listFriends(
   return out;
 }
 
-/** Les amis d'un profil, pour qui le visite (acceptés seulement). */
-export async function publicFriends(tag: string): Promise<FriendCard[]> {
-  const id = await idOfTag(tag);
-  if (!id) return [];
+/**
+ * Les amis d'un profil, pour qui le visite (acceptés seulement). Un profil
+ * PRIVÉ (réglage du profil Prisma, comme pages/en/profile/[user].tsx) ne
+ * montre ses amis qu'à son propriétaire : l'API les donnait à tout le monde.
+ */
+export async function publicFriends(tag: string, viewerId: string | null): Promise<FriendCard[]> {
+  const client = await db();
+  if (!client || !TAG_RE.test(tag)) return [];
+  const r = await client.execute({
+    sql: `SELECT id, username, anilist_name FROM users WHERE tag = ? AND status = 'active'`,
+    args: [tag.toUpperCase()],
+  });
+  const row = r.rows[0];
+  if (!row) return [];
+  const id = String(row.id);
+  if (id !== viewerId) {
+    const key = String(row.anilist_name || row.username || "");
+    if (key) {
+      const { getUser } = await import("@/prisma/user");
+      const viewed = await getUser(key, false).catch(() => null);
+      if (viewed?.setting?.private === true) return [];
+    }
+  }
   return (await listFriends(id)).friends;
 }
 
@@ -102,7 +128,11 @@ export type FriendAction = "request" | "accept" | "remove";
  * Une demande ; accepter ; retirer (refuser, annuler ou ne plus être amis :
  * dans les trois cas, la paire disparaît). Rend le nouvel état.
  */
-export async function act(userId: string, tag: string, action: FriendAction): Promise<FriendState | "none" | "error"> {
+export async function act(
+  userId: string,
+  tag: string,
+  action: FriendAction,
+): Promise<FriendState | "none" | "error" | "full" | "throttled"> {
   const client = await db();
   const other = await idOfTag(tag);
   if (!client || !other || other === userId) return "error";
@@ -110,6 +140,15 @@ export async function act(userId: string, tag: string, action: FriendAction): Pr
   const cur = (
     await client.execute({ sql: `SELECT state FROM friends WHERE user_id = ? AND friend_id = ?`, args: [userId, other] })
   ).rows[0]?.state as FriendState | undefined;
+  const count = async (who: string, state: FriendState) =>
+    Number(
+      (
+        await client.execute({
+          sql: `SELECT COUNT(*) AS n FROM friends WHERE user_id = ? AND state = ?`,
+          args: [who, state],
+        })
+      ).rows[0]?.n,
+    ) || 0;
 
   if (action === "remove") {
     await client.batch(
@@ -125,23 +164,43 @@ export async function act(userId: string, tag: string, action: FriendAction): Pr
   /* Demander à quelqu'un qui nous a déjà demandé, c'est accepter. */
   if (action === "accept" || (action === "request" && cur === "in")) {
     if (cur !== "in") return cur ?? "none";
-    await client.batch(
+    if ((await count(userId, "friend")) >= MAX_FRIENDS || (await count(other, "friend")) >= MAX_FRIENDS) return "full";
+    /* Les deux moitiés ensemble, et seulement si la paire est encore une
+       demande des deux côtés : si l'autre a annulé entre-temps, rien ne
+       bouge (avant, une moitié « friend » pouvait rester seule). */
+    const res = await client.batch(
       [
-        { sql: `UPDATE friends SET state = 'friend', updated_at = ? WHERE user_id = ? AND friend_id = ?`, args: [now, userId, other] },
-        { sql: `UPDATE friends SET state = 'friend', updated_at = ? WHERE user_id = ? AND friend_id = ?`, args: [now, other, userId] },
+        {
+          sql: `UPDATE friends SET state = 'friend', updated_at = ?
+                WHERE user_id = ? AND friend_id = ? AND state = 'out'
+                  AND EXISTS (SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND state = 'in')`,
+          args: [now, other, userId, userId, other],
+        },
+        {
+          sql: `UPDATE friends SET state = 'friend', updated_at = ?
+                WHERE user_id = ? AND friend_id = ? AND state = 'in'
+                  AND EXISTS (SELECT 1 FROM friends WHERE user_id = ? AND friend_id = ? AND state = 'friend')`,
+          args: [now, userId, other, other, userId],
+        },
       ],
       "write",
     );
-    return "friend";
+    if (res[0].rowsAffected) return "friend";
+    return ((await relation(userId, tag)) as FriendState | "none" | null) ?? "none";
   }
 
   if (cur) return cur; // déjà amis, ou demande déjà partie
-  const pending = await client.execute({
-    sql: `SELECT COUNT(*) AS n FROM friends WHERE user_id = ? AND state = 'out'`,
-    args: [userId],
-  });
-  if (Number(pending.rows[0]?.n) >= MAX_PENDING_OUT) return "error";
-  await client.batch(
+  if ((await count(userId, "out")) >= MAX_PENDING_OUT) return "full";
+  if ((await count(other, "in")) >= MAX_PENDING_IN) return "full";
+  if ((await count(userId, "friend")) >= MAX_FRIENDS) return "full";
+  /* Anti-spam : 30 demandes par heure, et 3 par jour vers la MÊME personne
+     (refuser supprime la paire ; sans ça, on pouvait redemander en boucle). */
+  const [perHour, perPair] = await Promise.all([
+    checkThrottle(`friend-req:${userId}`, 30, 3600_000),
+    checkThrottle(`friend-pair:${userId}:${other}`, 3, 86400_000),
+  ]);
+  if (!perHour.ok || !perPair.ok) return "throttled";
+  const ins = await client.batch(
     [
       {
         sql: `INSERT OR IGNORE INTO friends (user_id, friend_id, state, created_at, updated_at) VALUES (?, ?, 'out', ?, ?)`,
@@ -154,6 +213,8 @@ export async function act(userId: string, tag: string, action: FriendAction): Pr
     ],
     "write",
   );
+  /* L'autre a demandé au même instant : sa demande est passée la première. */
+  if (!ins[0].rowsAffected) return ((await relation(userId, tag)) as FriendState | "none" | null) ?? "none";
   return "out";
 }
 
@@ -204,15 +265,28 @@ export async function searchUsers(userId: string, q: string): Promise<(FriendCar
   if (!client) return [];
   const text = q.trim();
   if (text.length < 2) return [];
-  const tagMatch = /#([0-9A-Za-z]{6})$/.exec(text) || /^([0-9A-Fa-f]{6})$/.exec(text);
-  const rows = tagMatch
-    ? (
-        await client.execute({
-          sql: `SELECT u.id, ${CARD_COLS}, 0 AS updated_at FROM users u WHERE u.tag = ? AND u.status = 'active'`,
-          args: [tagMatch[1].toUpperCase()],
-        })
-      ).rows
-    : await byName(client, text.toLowerCase());
+  const hashTag = /#([0-9A-Za-z]{6})$/.exec(text);
+  /* « 7F3A2C » seul peut être un tag OU un début de nom (« facade ») : les deux. */
+  const bareTag = hashTag ? null : /^([0-9A-Za-z]{6})$/.exec(text);
+  const tag = (hashTag || bareTag)?.[1].toUpperCase();
+  const [byTag, named] = await Promise.all([
+    tag
+      ? client
+          .execute({
+            sql: `SELECT u.id, ${CARD_COLS}, 0 AS updated_at FROM users u WHERE u.tag = ? AND u.status = 'active'`,
+            args: [tag],
+          })
+          .then((r) => r.rows)
+      : ([] as Row[]),
+    hashTag ? ([] as Row[]) : byName(client, text.toLowerCase()),
+  ]);
+  const seenIds = new Set<string>();
+  const rows = [...byTag, ...named].filter((r) => {
+    const id = String(r.id);
+    if (seenIds.has(id)) return false;
+    seenIds.add(id);
+    return true;
+  });
   const others = rows.filter((r) => String(r.id) !== userId);
   if (!others.length) return [];
   const states = await client.execute({
@@ -289,6 +363,18 @@ export async function moveFriends(fromId: string, toId: string): Promise<void> {
   if (!client) return;
   await client.batch(
     [
+      /* Si les deux comptes connaissaient la même personne, l'amitié acceptée
+         gagne sur une simple demande (sinon le UPDATE OR IGNORE la perdait). */
+      {
+        sql: `UPDATE friends SET state = 'friend' WHERE user_id = ? AND friend_id IN
+                (SELECT friend_id FROM friends WHERE user_id = ? AND state = 'friend')`,
+        args: [toId, fromId],
+      },
+      {
+        sql: `UPDATE friends SET state = 'friend' WHERE friend_id = ? AND user_id IN
+                (SELECT user_id FROM friends WHERE friend_id = ? AND state = 'friend')`,
+        args: [toId, fromId],
+      },
       { sql: `UPDATE OR IGNORE friends SET user_id = ? WHERE user_id = ?`, args: [toId, fromId] },
       { sql: `UPDATE OR IGNORE friends SET friend_id = ? WHERE friend_id = ?`, args: [toId, fromId] },
       { sql: `DELETE FROM friends WHERE user_id = ? OR friend_id = ?`, args: [fromId, fromId] },

@@ -14,6 +14,7 @@ import {
   type FriendState,
 } from "@/lib/friends/client";
 import { affinity, tasteOf } from "@/lib/profile/affinity";
+import { FriendErrorNote } from "./FriendButton";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
@@ -59,19 +60,29 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
 
   useEffect(() => {
     let alive = true;
-    const load = () => {
+    const load = () =>
       void myFriends().then((d) => {
         if (!alive) return;
-        setData(d);
+        if (d) setData(d); // un échec réseau ne vide pas la liste affichée
         setLoaded(true);
       });
+    const stop = watchFriends(load);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, []);
+  /* Les goûts (lourds : la liste de chaque ami) ne suivent pas le sondage de
+     20 s : relus à l'ouverture, au retour sur l'onglet et après une action. */
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
       void friendTastes().then((f) => {
         if (!alive || !f || !entries.length) return;
         const me = tasteOf(entries);
         setTastes(new Map(f.map((x) => [x.tag, affinity(me, x.taste).pct])));
       });
-    };
-    const stop = watchFriends(load);
+    const stop = watchFriends(load, 0);
     return () => {
       alive = false;
       stop();
@@ -97,6 +108,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
         </>
       }
     >
+      <FriendErrorNote />
       {data?.incoming.length ? (
         <Group label={t("profile.friends.incoming")} count={data.incoming.length} accent>
           <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
@@ -446,6 +458,9 @@ function AddDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        <div className="px-5 pt-2 empty:hidden">
+          <FriendErrorNote />
+        </div>
         <div className="as-scroller max-h-[46vh] min-h-[7rem] overflow-y-auto px-3 py-3">
           {res == null ? (
             <p className="px-3 py-6 text-center font-karla text-[13px] leading-relaxed text-white/45">{t("profile.friends.searchHint")}</p>

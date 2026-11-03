@@ -1,6 +1,43 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { friendAction, stateWith, watchFriends, type FriendState } from "@/lib/friends/client";
+import {
+  FRIENDS_ERROR_EVENT,
+  friendAction,
+  stateWith,
+  watchFriends,
+  type FriendError,
+  type FriendState,
+} from "@/lib/friends/client";
+
+/** Le dernier refus du serveur (cf. friendAction), affiché 4 s. */
+export function useFriendError(): string | null {
+  const { t } = useTranslation();
+  const [why, setWhy] = useState<FriendError | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const on = (e: Event) => {
+      setWhy((e as CustomEvent<FriendError>).detail);
+      clearTimeout(timer);
+      timer = setTimeout(() => setWhy(null), 4000);
+    };
+    window.addEventListener(FRIENDS_ERROR_EVENT, on);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener(FRIENDS_ERROR_EVENT, on);
+    };
+  }, []);
+  if (!why) return null;
+  return t(why === "throttled" ? "profile.friends.errThrottled" : why === "full" ? "profile.friends.errFull" : "profile.friends.errFailed");
+}
+
+export function FriendErrorNote() {
+  const msg = useFriendError();
+  return msg ? (
+    <p role="status" className="font-karla text-[12px] font-semibold text-amber-300/90">
+      {msg}
+    </p>
+  ) : null;
+}
 
 /**
  * Le bouton d'ami sur le profil d'un autre (03/11/2026, Luc), à la place du
@@ -15,8 +52,6 @@ import { friendAction, stateWith, watchFriends, type FriendState } from "@/lib/f
 export default function FriendButton({ tag }: { tag: string }) {
   const { t } = useTranslation();
   const [state, setState] = useState<FriendState | "none" | "self" | "guest" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -35,6 +70,33 @@ export default function FriendButton({ tag }: { tag: string }) {
   }, [tag]);
 
   if (!state || state === "self" || state === "guest") return null;
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <Buttons state={state} setState={setState} tag={tag} />
+      <FriendErrorNote />
+    </div>
+  );
+}
+
+function Buttons({
+  state,
+  setState,
+  tag,
+}: {
+  state: FriendState | "none";
+  setState: (s: FriendState | "none") => void;
+  tag: string;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState(false);
+  /* La confirmation se désarme seule : au doigt, pointerleave suit chaque
+     tap et l'annulait aussitôt — « Retirer » était impossible sur mobile. */
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(id);
+  }, [armed]);
 
   const run = async (action: "request" | "accept" | "remove") => {
     setBusy(true);
@@ -77,7 +139,9 @@ export default function FriendButton({ tag }: { tag: string }) {
         type="button"
         disabled={busy}
         onClick={() => (armed ? run("remove") : setArmed(true))}
-        onPointerLeave={() => setArmed(false)}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") setArmed(false);
+        }}
         className={quiet}
       >
         <PersonIcon check />
