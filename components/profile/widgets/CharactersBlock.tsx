@@ -234,7 +234,7 @@ const Tile = memo(function Tile({
         </>
       ) : (
         <>
-          <Portrait c={c} sizes={z.img} ring="ring-white/20 group-hover:ring-white/40" />
+          <Portrait c={c} sizes={z.img} ring="ring-white/20 group-hover:ring-action" />
           <Caption c={c} size={size} showFrom={showFrom} />
           <button
             type="button"
@@ -259,7 +259,7 @@ function Portrait({ c, sizes, hover = false, ring = "" }: { c: ProfileCharacter;
   return (
     <span
       className={`relative block w-full overflow-hidden rounded-full as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-2 transition-[box-shadow] duration-200 ${
-        ring || (hover ? "ring-white/[0.08] group-hover:ring-white/30" : "ring-white/[0.08]")
+        ring || (hover ? "ring-white/[0.08] group-hover:ring-action" : "ring-white/[0.08]")
       }`}
       style={{ aspectRatio: "1" }}
     >
@@ -707,7 +707,7 @@ function CharacterSearch({
               title={a.title}
               className={`group grid min-w-0 content-start text-left ${z.inner}`}
             >
-              <span className="relative block w-full overflow-hidden rounded-xl as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-1 ring-white/[0.08] transition-[box-shadow] group-hover:ring-white/30" style={{ aspectRatio: "2 / 3" }}>
+              <span className="relative block w-full overflow-hidden rounded-xl as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-1 ring-white/[0.08] transition-[box-shadow] group-hover:ring-action" style={{ aspectRatio: "2 / 3" }}>
                 {a.cover ? (
                   <Image
                     src={a.cover}

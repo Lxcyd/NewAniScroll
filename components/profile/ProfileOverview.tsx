@@ -889,7 +889,14 @@ export default function ProfileOverview({
           />
         );
       case "pinned":
-        return <PinnedBlock pins={parsePins(savedString("pinned", "pins"))} entries={entries} isOwner={isOwner} />;
+        return (
+          <PinnedBlock
+            pins={parsePins(savedString("pinned", "pins"))}
+            entries={entries}
+            isOwner={isOwner}
+            showScore={optionOn("pinned", "pinScore")}
+          />
+        );
       case "themes":
         return <ThemesBlock favs={parseThemes(savedString("themes", "themes"))} entries={entries} isOwner={isOwner} />;
       case "badges":

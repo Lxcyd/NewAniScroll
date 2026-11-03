@@ -320,6 +320,8 @@ const OPTIONS: Record<string, BlockOption[]> = {
     { key: "goalTarget", slider: [10, 2000], step: 10, value: 250, input: [1, 9999] },
     { key: "goalColor", on: true },
   ],
+  /* La note du profil sous chaque épinglé (03/11/2026, Luc). */
+  pinned: [{ key: "pinScore", on: true }],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

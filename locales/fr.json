@@ -945,7 +945,9 @@
         "bingeOrderChoice": {
           "most": "Plus regardé",
           "watched": "Ordre de visionnage"
-        }
+        },
+        "pinScore": "Afficher la note",
+        "pinScoreDesc": "Ta note de l'anime sous son titre."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
