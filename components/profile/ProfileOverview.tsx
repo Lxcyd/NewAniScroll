@@ -565,6 +565,8 @@ export default function ProfileOverview({
             max: o.slider[1],
             value: blockOptionNumber(id, o.key, saved(id)),
             zeroLabel: o.zero ? t(`profile.widgets.options.${o.key}Choice.${o.zero}`) : undefined,
+            step: o.step,
+            input: o.input,
           },
         };
       }
@@ -882,7 +884,8 @@ export default function ProfileOverview({
           <GoalBlock
             days={days}
             unit={optionValue("goal", "goalUnit") === "animes" ? "animes" : "episodes"}
-            target={Number(optionValue("goal", "goalTarget")) || 250}
+            target={blockOptionNumber("goal", "goalTarget", saved("goal")) || 250}
+            colored={optionOn("goal", "goalColor")}
           />
         );
       case "pinned":

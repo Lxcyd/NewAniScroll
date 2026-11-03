@@ -355,10 +355,13 @@ export function GoalBlock({
   days,
   unit,
   target,
+  colored = false,
 }: {
   days: WatchDays | null;
   unit: "episodes" | "animes";
   target: number;
+  /** L'anneau du rouge au vert selon l'avancée, au lieu de la couleur du site. */
+  colored?: boolean;
 }) {
   const { t } = useTranslation();
   const year = new Date().getFullYear();
@@ -383,49 +386,53 @@ export function GoalBlock({
   const R = 34;
   const C = 2 * Math.PI * R;
   const diff = done - pace;
+  /* Option « couleur selon l'avancée » (03/11/2026, Luc) : rouge tant qu'on
+     n'a pas fait grand-chose, vert tout près du but — la teinte suit la part
+     de l'objectif atteinte, de 0° (rouge) à 135° (vert). */
+  const ring = colored ? `hsl(${Math.round(135 * pct)} 78% 52%)` : "var(--brand-primary, #E94560)";
   return (
-    <div className="flex h-full items-center gap-4">
-      <svg viewBox="0 0 80 80" className="h-full max-h-[110px] shrink-0 -rotate-90">
-        <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
-        {/* Le rythme attendu à ce jour, en trait fin : où il faudrait en être. */}
-        <circle
-          cx="40"
-          cy="40"
-          r={R}
-          fill="none"
-          stroke="rgba(255,255,255,0.25)"
-          strokeWidth="2"
-          strokeDasharray={`1.5 ${C}`}
-          strokeDashoffset={-C * Math.min(1, elapsed) + 0.75}
-        />
-        <circle
-          cx="40"
-          cy="40"
-          r={R}
-          fill="none"
-          stroke="var(--brand-primary, #E94560)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={`${C * pct} ${C}`}
-          className="transition-[stroke-dasharray] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
-        />
-      </svg>
-      <div className="min-w-0">
-        <p className="font-outfit text-[30px] font-bold leading-none text-white">
-          {done}
-          <span className="font-karla text-[14px] font-semibold text-txt"> / {target}</span>
-        </p>
-        <p className="mt-1 font-karla text-[12px] text-txt">
-          {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
-        </p>
-        <p className={`mt-1.5 font-karla text-[12px] font-bold ${done >= target ? "text-action" : diff >= 0 ? "text-[#22c55e]" : "text-white/60"}`}>
-          {done >= target
-            ? t("profile.blocks.goal.reached")
-            : diff >= 0
-              ? t("profile.blocks.goal.ahead", { count: diff })
-              : t("profile.blocks.goal.behind", { count: -diff })}
-        </p>
+    /* 1×1 seulement (03/11/2026, Luc) : l'anneau, le compte au milieu, la
+       ligne d'état dessous. */
+    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1.5">
+      <div className="relative aspect-square min-h-0 flex-1" style={{ maxHeight: 132 }}>
+        <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
+          <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+          <circle
+            cx="40"
+            cy="40"
+            r={R}
+            fill="none"
+            stroke={ring}
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeDasharray={`${C * pct} ${C}`}
+            className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          />
+          {/* LE RYTHME : où il faudrait en être aujourd'hui pour finir pile le
+              31 décembre (la part de l'année écoulée). Un trait en travers de
+              l'anneau ; son explication au survol. */}
+          <g transform={`rotate(${360 * Math.min(1, elapsed)} 40 40)`}>
+            <line x1={40 + R - 6} y1="40" x2={40 + R + 6} y2="40" stroke="white" strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round">
+              <title>{t("profile.blocks.goal.paceMark", { count: pace })}</title>
+            </line>
+          </g>
+        </svg>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="font-outfit text-[26px] font-bold leading-none text-white">{done}</span>
+          <span className="mt-0.5 font-karla text-[11px] font-semibold text-txt">
+            / {target} {t(`profile.blocks.goal.short_${unit}`)}
+          </span>
+        </div>
       </div>
+      <p
+        className={`shrink-0 text-center font-karla text-[12px] font-bold leading-tight ${done >= target ? "text-action" : diff >= 0 ? "text-[#22c55e]" : "text-txt"}`}
+      >
+        {done >= target
+          ? t("profile.blocks.goal.reached")
+          : diff >= 0
+            ? t("profile.blocks.goal.ahead", { count: diff })
+            : t("profile.blocks.goal.behind", { count: -diff })}
+      </p>
     </div>
   );
 }

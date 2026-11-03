@@ -938,6 +938,8 @@
         },
         "goalTarget": "Objectif",
         "goalTargetDesc": "Le nombre à atteindre d'ici le 31 décembre.",
+        "goalColor": "Couleur selon l'avancée",
+        "goalColorDesc": "L'anneau passe du rouge au vert à mesure qu'on approche du but.",
         "bingeOrder": "Ordre du paquet",
         "bingeOrderDesc": "Le plus regardé devant, ou les animes dans l'ordre où tu les as vus.",
         "bingeOrderChoice": {
@@ -1137,7 +1139,11 @@
         "ahead_one": "{{count}} d'avance sur le rythme",
         "ahead_other": "{{count}} d'avance sur le rythme",
         "behind_one": "{{count}} de retard sur le rythme",
-        "behind_other": "{{count}} de retard sur le rythme"
+        "behind_other": "{{count}} de retard sur le rythme",
+        "short_episodes": "ép.",
+        "short_animes": "animes",
+        "paceMark_one": "Le rythme : {{count}} à ce jour pour finir pile le 31 décembre",
+        "paceMark_other": "Le rythme : {{count}} à ce jour pour finir pile le 31 décembre"
       },
       "pinned": {
         "title": "Trois épinglés",

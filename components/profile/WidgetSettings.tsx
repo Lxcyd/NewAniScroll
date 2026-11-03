@@ -590,6 +590,7 @@ function Single({
   max,
   value,
   zeroLabel,
+  step = 1,
   onChange,
   label,
 }: {
@@ -597,9 +598,13 @@ function Single({
   max: number;
   value: number;
   zeroLabel?: string;
+  step?: number;
+  input?: [number, number];
   onChange: (v: number) => void;
   label: string;
 }) {
+  /* La case peut dépasser le rail (« 2500 ») : le rail reste alors plein. */
+  const shown = Math.min(max, Math.max(min, value));
   /* LE CURSEUR DU « FLOU » DU STUDIO, À L'IDENTIQUE (25/10/2026, Luc) : rail
      fin, remplissage d'accent, une poignée, et le rail entier cliquable
      (`pointerEvents: auto` en ligne, `.as-range` coupant les clics sinon). La
@@ -609,20 +614,62 @@ function Single({
       <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
       <span
         className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action"
-        style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+        style={{ width: `${((shown - min) / (max - min)) * 100}%` }}
       />
       <input
         type="range"
         min={min}
         max={max}
-        step={1}
-        value={value}
+        step={step}
+        value={shown}
         onChange={(e) => onChange(Number(e.target.value))}
         style={{ pointerEvents: "auto" }}
         aria-label={label}
         aria-valuetext={value === 0 && zeroLabel ? zeroLabel : String(value)}
       />
     </span>
+  );
+}
+
+/**
+ * La valeur d'un curseur, TAPÉE (03/11/2026, Luc : « un slider avec une input
+ * box »). Elle suit le curseur ; ce qu'on tape s'applique à Entrée ou en
+ * quittant la case, ramené dans ses bornes. Une saisie vide ou invalide
+ * revient à la valeur d'avant.
+ */
+function NumberBox({
+  value,
+  bounds,
+  label,
+  onCommit,
+}: {
+  value: number;
+  bounds: [number, number];
+  label: string;
+  onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const n = Math.round(Number(text));
+    if (!text.trim() || !Number.isFinite(n)) return setText(String(value));
+    const v = Math.min(bounds[1], Math.max(bounds[0], n));
+    setText(String(v));
+    if (v !== value) onCommit(v);
+  };
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      aria-label={label}
+      onChange={(e) => setText(e.target.value.replace(/[^0-9]/g, "").slice(0, 5))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+      }}
+      className="w-16 shrink-0 rounded-md border border-white/10 bg-white/[0.07] px-1.5 py-0.5 text-right font-karla text-[12px] font-bold text-white outline-none transition-colors focus:border-action"
+    />
   );
 }
 
@@ -701,11 +748,20 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                     le flou du studio. */}
                 <div className="flex items-start justify-between gap-3">
                   <Label label={o.label} desc={o.desc} />
-                  <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
-                    {o.single.value === 0 && o.single.zeroLabel
-                      ? o.single.zeroLabel
-                      : o.single.value}
-                  </span>
+                  {o.single.input ? (
+                    <NumberBox
+                      value={o.single.value}
+                      bounds={o.single.input}
+                      label={o.label}
+                      onCommit={(v) => onOption(o.key, String(v))}
+                    />
+                  ) : (
+                    <span className="shrink-0 rounded-md bg-white/[0.07] px-1.5 py-0.5 font-karla text-[11px] font-bold text-white/80">
+                      {o.single.value === 0 && o.single.zeroLabel
+                        ? o.single.zeroLabel
+                        : o.single.value}
+                    </span>
+                  )}
                 </div>
                 <Single
                   {...o.single}

@@ -159,7 +159,7 @@ export const BLOCKS: BlockDef[] = [
      - badges : la collection de badges du profil ;
      - affinité : les listes des profils visités, gardées sur l'appareil. */
   { id: "binge", size: [2, 1], min: [1, 1], max: [2, 1], color: "#F59E0B", source: "device", icon: "⏱" },
-  { id: "goal", size: [2, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎" },
+  { id: "goal", size: [1, 1], min: [1, 1], max: [1, 1], color: "#A855F7", source: "device", icon: "◎" },
   { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 2], color: "#E94560", source: "list", icon: "❏" },
   { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
   { id: "badges", size: [2, 1], min: [1, 1], max: [4, 2], color: "#FFD700", source: "none", icon: "✦" },
@@ -203,9 +203,11 @@ export type BlockOption =
   | { key: string; multi: readonly string[]; value: readonly string[] }
   /**
    * Un curseur à UNE poignée, sur des entiers. Rangé en chaîne comme le reste.
-   * `zero`, quand il est donné, nomme la position 0 (« Auto »).
+   * `zero`, quand il est donné, nomme la position 0 (« Auto »). `input`
+   * ajoute une case où taper la valeur, avec ses propres bornes (plus larges
+   * que le rail) ; `step` est le pas du rail.
    */
-  | { key: string; slider: [number, number]; value: number; zero?: string };
+  | { key: string; slider: [number, number]; value: number; zero?: string; step?: number; input?: [number, number] };
 
 /** Les six statuts, clés AniList, dans l'ordre du site. */
 export const STATUS_KEYS = [
@@ -310,10 +312,14 @@ const OPTIONS: Record<string, BlockOption[]> = {
      ou la soirée dans l'ordre. La pause entre deux épisodes est fixée à 1 h
      (BINGE_PAUSE_MIN) : le réglage a été retiré le même jour. */
   binge: [{ key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true }],
-  /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien. */
+  /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien — un
+     curseur et une case où taper le nombre (Luc, même jour). La couleur de
+     l'anneau qui va du rouge (loin du but) au vert (tout proche) : éteinte par
+     défaut, l'anneau garde la couleur du site. */
   goal: [
     { key: "goalUnit", choices: ["episodes", "animes"], value: "episodes", segmented: true },
-    { key: "goalTarget", choices: ["25", "50", "100", "250", "500", "1000", "2000"], value: "250" },
+    { key: "goalTarget", slider: [10, 2000], step: 10, value: 250, input: [1, 9999] },
+    { key: "goalColor", on: false },
   ],
   characters: [
     { key: "showFrom", on: true },
@@ -417,7 +423,8 @@ export function blockOptionNumber(
   const def = optionDef(id, key);
   if (!def || !("slider" in def)) return 0;
   const n = Number(saved?.[key]);
-  return Number.isInteger(n) && n >= def.slider[0] && n <= def.slider[1] ? n : def.value;
+  const [lo, hi] = def.input ?? def.slider;
+  return Number.isInteger(n) && n >= lo && n <= hi ? n : def.value;
 }
 
 /**

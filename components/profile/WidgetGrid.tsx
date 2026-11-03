@@ -132,7 +132,15 @@ export type WidgetOption =
       key: string;
       label: string;
       desc?: string;
-      single: { min: number; max: number; value: number; zeroLabel?: string };
+      single: {
+        min: number;
+        max: number;
+        value: number;
+        zeroLabel?: string;
+        step?: number;
+        /** Une case où taper la valeur, avec ses bornes. */
+        input?: [number, number];
+      };
     }
   /** Des cases à cocher dans un menu ; `values` sont les cochées. */
   | {
