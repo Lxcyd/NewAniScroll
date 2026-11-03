@@ -371,8 +371,10 @@ export function GoalBlock({
   return (
     /* L'anneau à gauche, le compte à droite (03/11/2026, Luc : « remets
        l'interface d'avant », après un essai avec le compte dans l'anneau). */
-    <div className="flex h-full min-h-0 items-center gap-4">
-      <div className="relative aspect-square h-full min-h-0 shrink-0" style={{ maxHeight: 110 }}>
+    /* 1×1 seulement (03/11/2026, Luc) : anneau plus petit pour laisser la
+       place au compte. */
+    <div className="flex h-full min-h-0 items-center gap-3">
+      <div className="relative aspect-square h-full min-h-0 shrink-0" style={{ maxHeight: 84 }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
           <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
           {/* LE RYTHME EN ARC FANTÔME (03/11/2026, Luc, choisi parmi 20) : la
@@ -404,11 +406,11 @@ export function GoalBlock({
         </svg>
       </div>
       <div className="min-w-0">
-        <p className="font-outfit text-[40px] font-bold leading-none text-white">
+        <p className="whitespace-nowrap font-outfit text-[34px] font-bold leading-none text-white">
           {done}
-          <span className="font-karla text-[20px] font-semibold text-txt"> / {target}</span>
+          <span className="font-karla text-[17px] font-semibold text-txt"> / {target}</span>
         </p>
-        <p className="mt-1 font-karla text-[12px] text-txt">
+        <p className="mt-1 font-karla text-[11px] leading-snug text-txt">
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
