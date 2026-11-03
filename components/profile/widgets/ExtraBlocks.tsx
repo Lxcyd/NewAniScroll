@@ -141,32 +141,6 @@ function Cover({ src, className = "" }: { src: string | null | undefined; classN
 
 /* ── Plus long binge ───────────────────────────────────────────────────── */
 
-/**
- * DEV SEULEMENT, comme le calendrier : avec NEXT_PUBLIC_CAL_DEMO=1, chez soi,
- * un binge inventé de 40 épisodes sur 25 animes
- * (03/11/2026, Luc : « fais un test avec une plus grosse série »).
- */
-const DEMO_BINGE: Binge | null =
-  process.env.NEXT_PUBLIC_CAL_DEMO === "1"
-    ? {
-        n: 40,
-        minutes: 933,
-        start: Date.now() - 2 * 86_400_000 - 933 * 60_000,
-        end: Date.now() - 2 * 86_400_000,
-        /* 25 animes différents (Luc : « plus d'animes différents pour voir »). */
-        a: [
-          21, 16498, 1535, 20, 113415, 101922, 5114, 11061, 9253, 30276, 21459, 99147, 108632, 127230, 140960,
-          154587, 1735, 269, 6547, 21087, 20954, 97940, 105333, 98659, 112151,
-        ],
-        c: [4, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        /* L'ordre de la soirée, pour le réglage « ordre de visionnage ». */
-        o: [
-          1535, 20, 21, 16498, 269, 6547, 113415, 5114, 1735, 101922, 11061, 9253, 99147, 30276, 21459, 108632,
-          127230, 21087, 140960, 154587, 20954, 97940, 105333, 98659, 112151,
-        ],
-      }
-    : null;
-
 export function BingeBlock({
   served,
   entries,
@@ -185,11 +159,16 @@ export function BingeBlock({
   /* Chez soi, la table de CET appareil peut être presque vide (dev.aniscroll.com
      n'a pas la même mémoire que le site principal) : on garde le plus long des
      deux, celui de l'appareil et celui du compte (03/11/2026). */
+  /* Le binge de démo (NEXT_PUBLIC_CAL_DEMO) est retiré le même jour : le fil
+     AniList donne de vrais binges. */
   const binge =
     served !== undefined
       ? served
-      : (DEMO_BINGE ??
-        (local === undefined ? undefined : !local || (account && account.n > local.n) ? (account ?? local) : local));
+      : local === undefined
+        ? undefined
+        : !local || (account && account.n > local.n)
+          ? (account ?? local)
+          : local;
   /* L'ordre de visionnage n'existe que sur un binge compté depuis le
      03/11/2026 (`o`) ; avant, le paquet reste dans l'ordre du plus regardé. */
   const ids = useMemo(() => (!binge ? [] : order === "watched" && binge.o ? binge.o : binge.a), [binge, order]);

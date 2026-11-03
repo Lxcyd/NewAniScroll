@@ -360,20 +360,25 @@ export function HeatmapBlock({
             au même dessin. En réorganisation, elles reprennent la main
             (`!pointer-events-auto`) et arrêtent le pointeur, sinon cliquer
             attraperait la carte. Pas de recul avant la première journée
-            regardée, pas d'avance au-delà d'aujourd'hui : une flèche qui ne
-            mène nulle part n'est pas affichée (03/11/2026, Luc). */}
-        <span className="ml-3 flex gap-1.5 empty:hidden">
+            regardée, pas d'avance au-delà d'aujourd'hui : la flèche qui ne
+            mène nulle part reste affichée mais grisée et inerte (03/11/2026,
+            Luc : « pas cliquable au lieu de pas l'afficher »). */}
+        <span className="ml-3 flex gap-1.5">
           {[-1, 1].map((dir) => {
             const step = geo?.weeks ?? ALL_WEEKS;
-            if (dir < 0 ? !canBack : back === 0) return null;
+            const off = dir < 0 ? !canBack : back === 0;
             return (
               <button
                 key={dir}
                 type="button"
+                disabled={off}
                 onClick={() => setBack((b) => Math.max(0, b - dir * step))}
                 onPointerDown={editing ? (e) => e.stopPropagation() : undefined}
                 aria-label={t(dir < 0 ? "anime.prev" : "anime.next")}
-                className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/[0.12] hover:text-white !pointer-events-auto"
+                style={off ? { opacity: 0.35 } : undefined}
+                className={`flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-white/60 ring-1 ring-white/10 transition-[color,background-color,opacity] !pointer-events-auto ${
+                  off ? "cursor-default" : "hover:bg-white/[0.12] hover:text-white"
+                }`}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3 w-3">
                   <polyline points={dir < 0 ? "15 18 9 12 15 6" : "9 18 15 12 9 6"} />

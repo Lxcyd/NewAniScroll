@@ -393,6 +393,13 @@ function CloudSyncBootstrap() {
       if (!cancelled && hasAniList) {
         void import("@/lib/anilist/feedImport")
           .then((m) => m.syncAnilistFeed((session as any)?.user?.token))
+          .then(async (changed) => {
+            /* Une fois l'import fini, un profil ouvert se met à jour (Luc) :
+               ses props serveur sont relues, sans recharger toute la page. */
+            if (!changed || cancelled || !/\/profile\//.test(window.location.pathname)) return;
+            const Router = (await import("next/router")).default;
+            void Router.replace(Router.asPath, undefined, { scroll: false });
+          })
           .catch(() => {});
       }
     })();

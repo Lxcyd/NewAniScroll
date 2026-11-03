@@ -70,20 +70,22 @@ function episodes(progress: unknown): number[] {
   return [];
 }
 
-export async function syncAnilistFeed(token: string | undefined): Promise<void> {
-  if (running || typeof window === "undefined") return;
+/** Vrai quand de nouvelles lignes ont été rangées (le profil est alors à recharger). */
+export async function syncAnilistFeed(token: string | undefined): Promise<boolean> {
+  if (running || typeof window === "undefined") return false;
   try {
-    if (Date.now() - Number(localStorage.getItem(AT_KEY) || 0) < EVERY_MS) return;
+    if (Date.now() - Number(localStorage.getItem(AT_KEY) || 0) < EVERY_MS) return false;
   } catch {
     /* sans stockage : on lit quand même, la reprise borne le coût */
   }
   running = true;
+  let changed = false;
   try {
     const state = await fetch("/api/v2/account/anilist-feed")
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     const id = Number(state?.anilistId);
-    if (!id) return;
+    if (!id) return false;
     const last = Number(state?.last) || 0;
     const save = (body: { e: FeedEvent[]; last: number; oldest?: number; done?: boolean }) =>
       fetch("/api/v2/account/anilist-feed", {
@@ -106,7 +108,7 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
       let top = last;
       for (let p = 1; p <= MAX_PAGES; p++) {
         const d = await page(token, id, p);
-        if (!d) return; // AniList en panne : on réessaiera à la prochaine visite
+        if (!d) return changed; // AniList en panne : on réessaiera à la prochaine visite
         let reached = false;
         for (const a of d.activities ?? []) {
           if (!a?.id) continue;
@@ -120,7 +122,10 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
         if (reached || !d.pageInfo?.hasNextPage) break;
         await sleep(PAGE_GAP_MS);
       }
-      if (top > last && !(await save({ e, last: top }))) return;
+      if (top > last) {
+        if (!(await save({ e, last: top }))) return changed;
+        changed = true;
+      }
     }
 
     /* 2. LE PASSÉ, tant qu'il n'est pas lu jusqu'au bout. Une REPRISE : on
@@ -134,7 +139,7 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
       let low = before;
       for (let p = 1; p <= MAX_PAGES; p++) {
         const d = await page(token, id, p, before);
-        if (!d) return;
+        if (!d) return changed;
         for (const a of d.activities ?? []) {
           if (!a?.id) continue;
           top = Math.max(top, a.id);
@@ -143,7 +148,8 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
         }
         const end = !d.pageInfo?.hasNextPage;
         if (end || p % SAVE_EVERY === 0) {
-          if (!(await save({ e, last: top, oldest: low, done: end }))) return;
+          if (!(await save({ e, last: top, oldest: low, done: end }))) return changed;
+          changed = true;
           e = [];
         }
         if (end) break;
@@ -155,6 +161,7 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
     } catch {
       /* best-effort */
     }
+    return changed;
   } finally {
     running = false;
   }
