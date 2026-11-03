@@ -1116,15 +1116,13 @@
         "record": "record {{count}}"
       },
       "binge": {
-        "title": "Plus long binge",
-        "desc": "Ton record d'épisodes d'affilée.",
-        "empty": "Aucune session d'épisodes enchaînés pour l'instant.",
-        "episodes_one": "épisode d'affilée",
-        "episodes_other": "épisodes d'affilée",
+        "title": "Journée record",
+        "desc": "Le jour où tu as vu le plus d'épisodes.",
+        "empty": "Aucun épisode daté pour l'instant.",
+        "episodes_one": "épisode en un jour",
+        "episodes_other": "épisodes en un jour",
         "duration": "{{h}} h {{m}}",
         "minutes": "{{m}} min",
-        "more_one": " et {{count}} autre",
-        "more_other": " et {{count}} autres",
         "eps_one": "{{count}} épisode",
         "eps_other": "{{count}} épisodes"
       },

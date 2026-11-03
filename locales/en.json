@@ -1116,15 +1116,13 @@
         "record": "record {{count}}"
       },
       "binge": {
-        "title": "Longest binge",
-        "desc": "Your record run of episodes.",
-        "empty": "No binge session yet.",
-        "episodes_one": "episode in a row",
-        "episodes_other": "episodes in a row",
+        "title": "Record day",
+        "desc": "The day you watched the most episodes.",
+        "empty": "No dated episode yet.",
+        "episodes_one": "episode in one day",
+        "episodes_other": "episodes in one day",
         "duration": "{{h}} h {{m}}",
         "minutes": "{{m}} min",
-        "more_one": " and {{count}} more",
-        "more_other": " and {{count}} more",
         "eps_one": "{{count}} episode",
         "eps_other": "{{count}} episodes"
       },

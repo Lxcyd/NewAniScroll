@@ -308,9 +308,8 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* La série en cours et le record, en petit à côté des flèches (03/11/2026,
      Luc) : ce qui reste de l'ancienne ligne de bilan. */
   heatmap: [{ key: "heatStreak", on: true }],
-  /* Le binge (03/11/2026, Luc) : l'ordre du paquet — le plus regardé devant,
-     ou la soirée dans l'ordre. La pause entre deux épisodes est fixée à 1 h
-     (BINGE_PAUSE_MIN) : le réglage a été retiré le même jour. */
+  /* La journée record (bloc `binge`, 03/11/2026, Luc) : l'ordre du paquet —
+     le plus regardé devant, ou la journée dans l'ordre. */
   binge: [{ key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true }],
   /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien — un
      curseur et une case où taper le nombre (Luc, même jour). La couleur de

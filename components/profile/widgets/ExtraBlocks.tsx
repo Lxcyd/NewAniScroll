@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
-import { dayKey, longestBinge, type Binge, type WatchDays } from "@/lib/profile/activity";
+import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
 import { affinity, readAffinity, type Visited } from "@/lib/profile/affinity";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { BADGES, BY_ID } from "@/lib/badges/catalog";
@@ -123,7 +123,7 @@ function useLocalBinge(enabled: boolean): Binge | null | undefined {
   const [binge, setBinge] = useState<Binge | null | undefined>(undefined);
   useEffect(() => {
     if (!enabled) return;
-    const read = () => setBinge(longestBinge(readProgressMap()));
+    const read = () => setBinge(busiestDay(readProgressMap()));
     read();
     window.addEventListener(PROGRESS_EVENT, read);
     return () => window.removeEventListener(PROGRESS_EVENT, read);

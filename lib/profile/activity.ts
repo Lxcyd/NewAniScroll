@@ -341,17 +341,16 @@ export function watchDays(
 }
 
 /**
- * LE PLUS LONG BINGE (03/11/2026, Luc) : la plus longue SESSION d'épisodes
- * enchaînés.
+ * LA JOURNÉE RECORD (03/11/2026, Luc) : le jour où l'on a vu le plus
+ * d'épisodes. Elle remplace « le plus long binge » le même jour : une ligne
+ * AniList « épisodes 1 - 8 » date les huit épisodes de la même seconde, et
+ * une session calculée à la minute près n'avait plus de sens. Le jour, lui, est
+ * juste quelle que soit la source.
  *
- * La table ne garde que la date de la dernière écriture de chaque épisode,
- * c'est-à-dire, à peu près, l'heure où on l'a fini. Deux épisodes sont dans la
- * même session quand le second a fini moins de « sa durée + la pause » après
- * le premier : le temps de le regarder, plus une pause raisonnable. Au-delà,
- * c'est une autre soirée. Un épisode de durée inconnue compte 24 min. La pause
- * est fixée à 60 min (03/11/2026, Luc ; le réglage a été retiré).
- *
- * `a` liste les animes de la session, le plus regardé d'abord.
+ * Le jour LOCAL (fuseau du serveur côté visiteur, cf. la réserve plus bas). À
+ * égalité d'épisodes, le plus de minutes, puis le plus récent. `a` liste les
+ * animes du jour, le plus regardé d'abord ; `o` dans l'ordre où on les a vus.
+ * Le type garde son nom `Binge` : le bloc s'appelle toujours `binge`.
  */
 export type Binge = {
   n: number;
@@ -365,23 +364,19 @@ export type Binge = {
   o?: number[];
 };
 
-export const BINGE_PAUSE_MIN = 60;
-
-export function longestBinge(
-  map: ProgressMap,
-  pauseMin = BINGE_PAUSE_MIN,
-  feed?: FeedEvent[] | null,
-): Binge | null {
-  const pauseMs = pauseMin * 60_000;
+export function busiestDay(map: ProgressMap, feed?: FeedEvent[] | null): Binge | null {
   const eps = watchesOf(map, feed);
   if (!eps.length) return null;
   eps.sort((x, y) => x.at - y.at);
-
+  const byDay = new Map<string, Watch[]>();
+  for (const w of eps) {
+    const k = dayKey(w.at);
+    const list = byDay.get(k);
+    if (list) list.push(w);
+    else byDay.set(k, [w]);
+  }
   let best: Binge | null = null;
-  let from = 0;
-  const close = (to: number) => {
-    const run = eps.slice(from, to);
-    if (best && run.length <= best.n) return;
+  byDay.forEach((run) => {
     const per = new Map<number, number>();
     const order: number[] = [];
     let secs = 0;
@@ -390,24 +385,22 @@ export function longestBinge(
       per.set(r.aniId, (per.get(r.aniId) ?? 0) + 1);
       secs += r.seen;
     }
+    const minutes = Math.round(secs / 60);
+    const end = run[run.length - 1].at;
+    const b = best as Binge | null;
+    if (b && (run.length < b.n || (run.length === b.n && (minutes < b.minutes || (minutes === b.minutes && end < b.end)))))
+      return;
     const sorted = Array.from(per.entries()).sort((x, y) => y[1] - x[1]);
     best = {
       n: run.length,
-      minutes: Math.round(secs / 60),
+      minutes,
       start: run[0].at - run[0].dur * 1000,
-      end: run[run.length - 1].at,
+      end,
       a: sorted.map(([id]) => id),
       c: sorted.map(([, c]) => c),
       o: order,
     };
-  };
-  for (let i = 1; i < eps.length; i++) {
-    if (eps[i].at - eps[i - 1].at > eps[i].dur * 1000 + pauseMs) {
-      close(i);
-      from = i;
-    }
-  }
-  close(eps.length);
+  });
   return best;
 }
 
@@ -431,6 +424,6 @@ export function activityFromCloud(
     /* Même réserve de fuseau que la série : chez lui, le calendrier est
        recompté dans son navigateur. Le fil AniList s'y ajoute (03/11/2026). */
     days: watchDays(map, Date.now(), 1000, feed),
-    binge: longestBinge(map, BINGE_PAUSE_MIN, feed),
+    binge: busiestDay(map, feed),
   };
 }
