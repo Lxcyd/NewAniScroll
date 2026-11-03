@@ -336,7 +336,9 @@ export default function TrailerAmbient({
           style={{
             transform: `scale(${1 + i * SCALE_STEP})`,
             transformOrigin: "center",
-            opacity: BASE_OPACITY * Math.pow(OPACITY_DECAY, i),
+            /* Arrondi : `Math.pow` ne rend pas le même dernier chiffre sur le
+               serveur et dans le navigateur, et l'écart cassait l'hydratation. */
+            opacity: Math.round(BASE_OPACITY * Math.pow(OPACITY_DECAY, i) * 1e4) / 1e4,
             willChange: "transform",
           }}
         >
