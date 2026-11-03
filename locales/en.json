@@ -1188,7 +1188,14 @@
         "shared_other": "{{count}} titles in common",
         "rated_one": "{{count}} rated by both",
         "rated_other": "{{count}} rated by both",
-        "noTaste": "Your friends haven't opened their profile since this feature shipped: their taste will arrive on their next visit."
+        "noTaste": "Your friends haven't opened their profile since this feature shipped: their taste will arrive on their next visit.",
+        "seeCommon": "See titles in common",
+        "commonWith": "In common with {{name}}",
+        "seeProfile": "Profile",
+        "you": "You",
+        "filterAll": "All",
+        "filterRated": "Rated by both",
+        "noneRated": "No title rated by both."
       },
       "bingo": {
         "title": "Season bingo",

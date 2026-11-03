@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -9,7 +9,7 @@ import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
-import { affinity, readAffinity, tasteOf } from "@/lib/profile/affinity";
+import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
 import { FRIENDS_EVENT, friendTastes, type FriendCard } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
@@ -1633,6 +1633,8 @@ export function AffinityBlock({
      amis acceptés, chacun avec les goûts qu'il a rangés en ouvrant son profil
      (lib/auth/friends.ts). `null` = pas encore lu ; un invité n'a pas d'amis. */
   const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number> })[] | null>(null);
+  /* Le tag de l'ami dont on regarde les titres en commun ; "visit" chez un autre. */
+  const [opened, setOpened] = useState<string | null>(null);
   useEffect(() => {
     if (!isOwner) return;
     let alive = true;
@@ -1666,8 +1668,26 @@ export function AffinityBlock({
     const theirs: Record<string, number> = {};
     for (const e of entries) if (e.status !== "PLANNING") theirs[e.mediaId] = e.score && e.score > 0 ? e.score : 0;
     const m = affinity(store.me, theirs);
+    const me = store.me;
     return (
-      <div className="flex h-full items-center gap-4">
+      <>
+      {/* Hors du bouton : les clics d'un portail remontent l'arbre React. */}
+      {opened === "visit" ? (
+        <CommonTitles
+          name={name}
+          match={m}
+          items={entries
+            .filter((e) => e.status !== "PLANNING" && e.mediaId in me)
+            .map((e) => ({ e, mine: me[e.mediaId] || 0, theirs: e.score || 0 }))}
+          onClose={() => setOpened(null)}
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setOpened("visit")}
+        title={t("profile.blocks.affinity.seeCommon")}
+        className="flex h-full w-full items-center gap-4 rounded-xl text-left hover:bg-white/[0.03]"
+      >
         <p className="font-outfit text-[42px] font-bold leading-none text-white">
           {m.pct}
           <span className="text-[20px] text-txt">%</span>
@@ -1682,7 +1702,8 @@ export function AffinityBlock({
             {m.rated >= 5 ? ` · ${t("profile.blocks.affinity.rated", { count: m.rated })}` : ""}
           </p>
         </div>
-      </div>
+      </button>
+      </>
     );
   }
 
@@ -1694,10 +1715,28 @@ export function AffinityBlock({
       />
     );
   }
+  const open = opened ? ranked.find((x) => x.o.tag === opened) : null;
   return (
     <div className="as-scroller grid h-full min-h-0 content-start gap-2 overflow-y-auto pr-1">
+      {open ? (
+        <CommonTitles
+          name={open.o.name}
+          href={open.o.href}
+          match={open.m}
+          items={entries
+            .filter((e) => e.status !== "PLANNING" && e.mediaId in open.o.taste)
+            .map((e) => ({ e, mine: e.score || 0, theirs: open.o.taste[e.mediaId] || 0 }))}
+          onClose={() => setOpened(null)}
+        />
+      ) : null}
       {ranked.map(({ o, m }) => (
-        <Link key={o.tag} href={o.href} className="flex items-center gap-3 rounded-xl px-1.5 py-1 hover:bg-white/[0.04]">
+        <button
+          key={o.tag}
+          type="button"
+          onClick={() => setOpened(o.tag)}
+          title={t("profile.blocks.affinity.seeCommon")}
+          className="flex w-full items-center gap-3 rounded-xl px-1.5 py-1 text-left hover:bg-white/[0.04]"
+        >
           {o.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={o.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
@@ -1716,9 +1755,138 @@ export function AffinityBlock({
             </div>
             <p className="mt-0.5 font-karla text-[10px] text-txt">{t("profile.blocks.affinity.shared", { count: m.shared })}</p>
           </div>
-        </Link>
+        </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * CE QU'ON A EN COMMUN (03/11/2026, Luc : « quand on clique, voir ce qu'on a
+ * en commun ») : les titres vus des deux côtés, les deux notes côte à côte.
+ * Notés des deux côtés d'abord (par note moyenne), puis le reste.
+ */
+function CommonTitles({
+  name,
+  href,
+  match,
+  items,
+  onClose,
+}: {
+  name: string;
+  href?: string;
+  match: Match;
+  items: { e: ProfileEntry; mine: number; theirs: number }[];
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const pref = useTitlePref();
+  const clickTarget = useClickTarget();
+  const [onlyRated, setOnlyRated] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  const rows = useMemo(() => {
+    const both = (x: { mine: number; theirs: number }) => x.mine > 0 && x.theirs > 0;
+    return items
+      .filter((x) => !onlyRated || both(x))
+      .sort(
+        (a, b) =>
+          Number(both(b)) - Number(both(a)) ||
+          b.mine + b.theirs - (a.mine + a.theirs) ||
+          pickTitle(a.e.title, pref).localeCompare(pickTitle(b.e.title, pref)),
+      );
+  }, [items, onlyRated, pref]);
+
+  const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
+  /* Accord d'une ligne : vert si les notes sont proches, ambre si elles divergent. */
+  const tone = (a: number, b: number) => {
+    if (!(a > 0 && b > 0)) return "text-white/35";
+    const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
+    return gap <= 0.1 ? "text-emerald-400" : gap >= 0.3 ? "text-amber-300" : "text-white/70";
+  };
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[10060] flex items-start justify-center px-4 pt-[8vh]" role="dialog" aria-modal="true" aria-label={t("profile.blocks.affinity.commonWith", { name })}>
+      <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm" />
+      <div className="relative flex max-h-[84vh] w-full max-w-lg flex-col overflow-hidden rounded-[22px] bg-[#15161d] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10">
+        <div className="flex items-start gap-3 px-5 pb-3 pt-5">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate font-outfit text-[18px] font-bold text-white">{t("profile.blocks.affinity.commonWith", { name })}</h3>
+            <p className="mt-0.5 font-karla text-[12px] text-white/50">
+              {match.pct}% · {t("profile.blocks.affinity.shared", { count: match.shared })}
+              {match.rated ? ` · ${t("profile.blocks.affinity.rated", { count: match.rated })}` : ""}
+            </p>
+          </div>
+          {href ? (
+            <Link href={href} onClick={onClose} className="shrink-0 rounded-full bg-white/[0.07] px-3 py-1.5 font-karla text-[12px] font-bold text-white/80 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white">
+              {t("profile.blocks.affinity.seeProfile")}
+            </Link>
+          ) : null}
+          <button type="button" onClick={onClose} aria-label={t("common.close", { defaultValue: "Close" })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/50 hover:bg-white/[0.08] hover:text-white">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-4 w-4">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex items-center gap-2 px-5 pb-2">
+          {[false, true].map((v) => (
+            <button
+              key={String(v)}
+              type="button"
+              onClick={() => setOnlyRated(v)}
+              className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+                onlyRated === v ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:text-white"
+              }`}
+            >
+              {v ? t("profile.blocks.affinity.filterRated") : t("profile.blocks.affinity.filterAll")}
+            </button>
+          ))}
+          <span className="ml-auto grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
+            <span className="w-10 text-center">{t("profile.blocks.affinity.you")}</span>
+            <span className="w-10 truncate text-center">{name}</span>
+          </span>
+        </div>
+        <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {rows.length ? (
+            rows.map(({ e, mine, theirs }) => (
+              <Link
+                key={e.mediaId}
+                href={animeHref(e.mediaId, clickTarget)}
+                className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/[0.05]"
+              >
+                {e.cover ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={e.cover} alt="" loading="lazy" className="h-12 w-9 shrink-0 rounded-md object-cover" />
+                ) : (
+                  <span className="h-12 w-9 shrink-0 rounded-md bg-white/[0.06]" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{pickTitle(e.title, pref)}</span>
+                <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit text-[14px] font-bold tabular-nums ${tone(mine, theirs)}`}>
+                  <span className="w-10 text-center">{fmt(mine)}</span>
+                  <span className="w-10 text-center">{fmt(theirs)}</span>
+                </span>
+              </Link>
+            ))
+          ) : (
+            <p className="px-3 py-8 text-center font-karla text-[13px] text-white/45">{t("profile.blocks.affinity.noneRated")}</p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

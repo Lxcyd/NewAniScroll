@@ -1188,7 +1188,14 @@
         "shared_other": "{{count}} titres en commun",
         "rated_one": "{{count}} noté des deux côtés",
         "rated_other": "{{count}} notés des deux côtés",
-        "noTaste": "Tes amis n'ont pas encore ouvert leur profil depuis l'ajout de cette fonction : leurs goûts arriveront à leur prochaine visite."
+        "noTaste": "Tes amis n'ont pas encore ouvert leur profil depuis l'ajout de cette fonction : leurs goûts arriveront à leur prochaine visite.",
+        "seeCommon": "Voir les titres en commun",
+        "commonWith": "En commun avec {{name}}",
+        "seeProfile": "Profil",
+        "you": "Toi",
+        "filterAll": "Tout",
+        "filterRated": "Notés des deux côtés",
+        "noneRated": "Aucun titre noté des deux côtés."
       },
       "bingo": {
         "title": "Bingo de la saison",
