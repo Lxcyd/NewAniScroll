@@ -404,7 +404,7 @@ export function HeatmapBlock({
 
       {/* L'année, SOUS LE TITRE (04/11/2026, Luc) ; remontée contre lui. La
           grille se mesure sur ce qui reste (boxRef). */}
-      <p className="-mt-3 mb-1 h-[14px] shrink-0 font-karla text-[11px] font-semibold leading-[14px] tabular-nums text-txt">
+      <p className="-mt-2.5 mb-1 h-[18px] shrink-0 font-karla text-[13px] font-semibold leading-[18px] tabular-nums text-txt">
         {years}
       </p>
       <div ref={boxRef} className="relative min-h-0 flex-1">
