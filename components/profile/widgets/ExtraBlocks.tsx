@@ -1294,16 +1294,18 @@ function startRowDrag(
      au lieu de sauter, et la ligne lâchée se pose en douceur avant le commit. */
   const step = rows.length > 1 ? rows[1].offsetTop - rows[0].offsetTop : dragged.offsetHeight + 6;
   const EASE = "cubic-bezier(0.22,1,0.36,1)";
-  const MOVE_MS = 200;
-  const DROP_MS = 180;
+  const MOVE_MS = 150;
+  const DROP_MS = 120;
 
   for (const r of rows) if (r !== dragged) r.style.transition = `transform ${MOVE_MS}ms ${EASE}`;
   Object.assign(dragged.style, {
     position: "relative",
     zIndex: "50",
-    opacity: "0.85",
+    /* Pas de transparence (03/11/2026, Luc : « un peu laggy ») : une ligne
+       semi-transparente sur la carte floutée se recompose à chaque image. */
     boxShadow: "0 12px 22px -10px rgba(0,0,0,0.7)",
-    transition: "box-shadow 150ms, opacity 150ms",
+    transition: "none",
+    transform: "translate3d(0,0,0)",
     cursor: "grabbing",
     willChange: "transform",
   });
@@ -1323,14 +1325,14 @@ function startRowDrag(
   const onMove = (clientY: number) => {
     const dy = Math.min(maxDy, Math.max(minDy, clientY - startClientY));
     // Pas d'agrandissement : la ligne garde la largeur de la liste.
-    dragged.style.transform = `translateY(${dy}px)`;
+    dragged.style.transform = `translate3d(0,${dy}px,0)`;
     toIndex = Math.min(rows.length - 1, Math.max(0, fromIndex + Math.round(dy / step)));
     rows.forEach((r, i) => {
       if (r === dragged) return;
       let shift = 0;
       if (fromIndex < toIndex && i > fromIndex && i <= toIndex) shift = -step;
       else if (toIndex < fromIndex && i >= toIndex && i < fromIndex) shift = step;
-      r.style.transform = shift ? `translateY(${shift}px)` : "";
+      r.style.transform = shift ? `translate3d(0,${shift}px,0)` : "";
     });
   };
   const onEnd = () => {
@@ -1346,10 +1348,15 @@ function startRowDrag(
       /* déjà relâché */
     }
     // La ligne se pose dans son emplacement, puis l'ordre est commité.
-    dragged.style.transition = `transform ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms, opacity ${DROP_MS}ms`;
-    dragged.style.transform = `translateY(${(toIndex - fromIndex) * step}px)`;
+    if (raf) {
+      // La dernière position, pas celle de l'image d'avant.
+      cancelAnimationFrame(raf);
+      raf = 0;
+      onMove(lastY);
+    }
+    dragged.style.transition = `transform ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms`;
+    dragged.style.transform = `translate3d(0,${(toIndex - fromIndex) * step}px,0)`;
     dragged.style.boxShadow = "";
-    dragged.style.opacity = "";
     setTimeout(() => {
       // Le nouvel ordre et l'effacement des décalages dans la même image : pas de saut.
       flushSync(() => done(fromIndex, toIndex));
@@ -1358,7 +1365,17 @@ function startRowDrag(
           r.style[k] = "";
     }, DROP_MS);
   };
-  const onPM = (e: PointerEvent) => onMove(e.clientY);
+  // Une mise à jour par image d'écran, pas une par évènement de souris.
+  let raf = 0;
+  let lastY = startClientY;
+  const onPM = (e: PointerEvent) => {
+    lastY = e.clientY;
+    if (!raf)
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        onMove(lastY);
+      });
+  };
   document.addEventListener("pointermove", onPM);
   document.addEventListener("pointerup", onEnd);
   document.addEventListener("pointercancel", onEnd);
