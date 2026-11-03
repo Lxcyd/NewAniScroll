@@ -355,6 +355,17 @@ export function GoalBlock({
     }
     return unit === "animes" ? ids.size : n;
   }, [days, unit, year]);
+  /* De 1×1 à 2×2 (03/11/2026, Luc : « 2 max et adapte la taille ») : l'anneau
+     suit la place de la carte, et le texte suit l'anneau. */
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [days]);
   if (!days) return <div className="h-full" />;
 
   const start = new Date(year, 0, 1).getTime();
@@ -368,13 +379,24 @@ export function GoalBlock({
      n'a pas fait grand-chose, vert tout près du but — la teinte suit la part
      de l'objectif atteinte, de 0° (rouge) à 135° (vert). */
   const ring = colored ? `hsl(${Math.round(135 * pct)} 78% 52%)` : "var(--brand-primary, #E94560)";
+  /* Une carte haute (2×2) empile : l'anneau en grand, le compte dessous. */
+  const tall = box.w > 0 && box.h > box.w * 0.7;
+  /* 84 px en 1×1 ; jusqu'à 280 px en 2×2. */
+  const size = !box.w
+    ? 84
+    : tall
+      ? Math.max(72, Math.min(280, box.h * 0.6, box.w * 0.7))
+      : Math.max(72, Math.min(200, box.h * 0.92, box.w * 0.42));
+  const k = Math.min(size / 84, tall ? 1.6 : 2);
   return (
     /* L'anneau à gauche, le compte à droite (03/11/2026, Luc : « remets
        l'interface d'avant », après un essai avec le compte dans l'anneau). */
-    /* 1×1 seulement (03/11/2026, Luc) : anneau plus petit pour laisser la
-       place au compte. */
-    <div className="flex h-full min-h-0 items-center gap-3">
-      <div className="relative aspect-square h-full min-h-0 shrink-0" style={{ maxHeight: 84 }}>
+    <div
+      ref={boxRef}
+      className={`flex h-full min-h-0 items-center justify-center ${tall ? "flex-col text-center" : ""}`}
+      style={{ gap: 12 * Math.min(k, 2) }}
+    >
+      <div className="relative aspect-square shrink-0" style={{ width: size, height: size }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
           <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
           {/* LE RYTHME EN ARC FANTÔME (03/11/2026, Luc, choisi parmi 20) : la
@@ -406,17 +428,22 @@ export function GoalBlock({
         </svg>
       </div>
       <div className="min-w-0">
-        <p className="whitespace-nowrap font-outfit text-[34px] font-bold leading-none text-white">
+        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 34 * Math.min(k, 1.9) }}>
           {done}
-          <span className="font-karla text-[17px] font-semibold text-txt"> / {target}</span>
+          <span className="font-karla font-semibold text-txt" style={{ fontSize: 17 * Math.min(k, 1.7) }}>
+            {" "}
+            / {target}
+          </span>
         </p>
-        <p className="mt-1 font-karla text-[11px] leading-snug text-txt">
+        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 11 * Math.min(k, 1.4) }}>
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
             fantôme le montre. Reste « Objectif atteint ». */}
         {done >= target ? (
-          <p className="mt-1.5 font-karla text-[12px] font-bold text-action">{t("profile.blocks.goal.reached")}</p>
+          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 12 * Math.min(k, 1.4) }}>
+            {t("profile.blocks.goal.reached")}
+          </p>
         ) : null}
       </div>
     </div>
