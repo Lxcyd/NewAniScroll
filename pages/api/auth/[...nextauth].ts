@@ -113,6 +113,11 @@ function accountClaims(user: UserRecord) {
     emailVerified: user.emailVerifiedAt != null,
     role: user.role,
     anilistId: user.anilistId,
+    /* Sans lui, une connexion par mot de passe recalculait le nom affiché sur
+       le PSEUDO (plus bas, « Display name ») : la synchro demandait alors à
+       AniList la liste de ce pseudo — un autre compte, ou personne (03/11/2026,
+       « Lucyd » au lieu de « Lxcyd »). */
+    anilistName: user.anilistName ?? null,
     // The resolved picture: the account's own, AniList's when it has none.
     avatarUrl: pickAvatar(user),
   };
@@ -419,6 +424,13 @@ export const authOptions: NextAuthOptions = {
             }
           }
         }
+      }
+
+      /* Sessions ouvertes avant le correctif d'accountClaims : liées à AniList
+         mais sans son nom. Une seule lecture, puis le jeton réémis le porte. */
+      if ((token as any).uid && (token as any).anilistId && (token as any).anilistName === undefined) {
+        const record = await findById(String((token as any).uid)).catch(() => null);
+        if (record) (token as any).anilistName = record.anilistName ?? null; // null : on ne relit plus
       }
 
       // Display name: the AniList name when linked, else the AniScroll pseudo.
