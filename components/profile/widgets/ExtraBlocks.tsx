@@ -430,7 +430,9 @@ export function GoalBlock({
             stroke={ring}
             strokeWidth="8"
             strokeLinecap="round"
-            strokeDasharray={`${C * pct} ${C}`}
+            /* Plein à 100 % : un tiret de toute la circonférence laissait une
+               fente d'un pixel à la jointure, où la piste grise se voyait. */
+            strokeDasharray={pct >= 1 ? undefined : `${C * pct} ${C}`}
             className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           />
         </svg>
