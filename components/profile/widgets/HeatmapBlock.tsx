@@ -325,9 +325,9 @@ export function HeatmapBlock({
   const shownFrom = mondayOf(new Date());
   shownFrom.setDate(shownFrom.getDate() - (back + (geo?.weeks ?? ALL_WEEKS) - 1) * 7);
   const canBack = firstDay != null && firstDay < dayKey(shownFrom.getTime());
-  /* L'ANNÉE, dans le coin de l'en-tête (03/11/2026, Luc : « mets l'année
-     ailleurs » — collée aux noms de mois, elle les décalait) : « 2025 – 2026 »
-     quand la période affichée chevauche deux années. */
+  /* L'ANNÉE, sous le titre (Luc : « mets l'année ailleurs », puis « en dessous
+     du titre ») : « 2025 – 2026 » quand la période affichée chevauche deux
+     années. */
   const shownTo = mondayOf(new Date());
   shownTo.setDate(shownTo.getDate() - back * 7 + 6);
   const y0 = shownFrom.getFullYear();
@@ -347,7 +347,6 @@ export function HeatmapBlock({
         /* Hauteur FIXE, celle de la pastille de série : sans elle, la ligne
            rapetissait et la légende remontait (03/11/2026, Luc). */
       >
-        <span className="mr-3 whitespace-nowrap font-outfit text-[12px] font-bold tabular-nums text-white/70">{years}</span>
         {streak && runs.now > 0 ? (
           /* LA SÉRIE (03/11/2026, Luc, réglage « Afficher les séries ») : la
              pastille à flamme de « Vu récemment », au même dessin (noir
@@ -403,6 +402,11 @@ export function HeatmapBlock({
         </span>
       </div>
 
+      {/* L'année, SOUS LE TITRE (04/11/2026, Luc) ; remontée contre lui. La
+          grille se mesure sur ce qui reste (boxRef). */}
+      <p className="-mt-3 mb-1 h-[14px] shrink-0 font-karla text-[11px] font-semibold leading-[14px] tabular-nums text-txt">
+        {years}
+      </p>
       <div ref={boxRef} className="relative min-h-0 flex-1">
         {grid && geo ? (
           /* CENTRÉE QUAND L'ANNÉE ENTIÈRE TIENT (03/11/2026, Luc) : le bloc
