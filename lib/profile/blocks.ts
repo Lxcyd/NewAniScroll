@@ -313,12 +313,12 @@ const OPTIONS: Record<string, BlockOption[]> = {
   binge: [{ key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true }],
   /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien — un
      curseur et une case où taper le nombre (Luc, même jour). La couleur de
-     l'anneau qui va du rouge (loin du but) au vert (tout proche) : éteinte par
-     défaut, l'anneau garde la couleur du site. */
+     l'anneau qui va du rouge (loin du but) au vert (tout proche) : allumée par
+     défaut (Luc, même jour) ; éteinte, l'anneau garde la couleur du site. */
   goal: [
     { key: "goalUnit", choices: ["episodes", "animes"], value: "episodes", segmented: true },
     { key: "goalTarget", slider: [10, 2000], step: 10, value: 250, input: [1, 9999] },
-    { key: "goalColor", on: false },
+    { key: "goalColor", on: true },
   ],
   characters: [
     { key: "showFrom", on: true },

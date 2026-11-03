@@ -940,7 +940,7 @@
         "goalTargetDesc": "Le nombre à atteindre d'ici le 31 décembre.",
         "goalColor": "Couleur selon l'avancée",
         "goalColorDesc": "L'anneau passe du rouge au vert à mesure qu'on approche du but.",
-        "bingeOrder": "Ordre du paquet",
+        "bingeOrder": "Ordre des animes",
         "bingeOrderDesc": "Le plus regardé devant, ou les animes dans l'ordre où tu les as vus.",
         "bingeOrderChoice": {
           "most": "Plus regardé",

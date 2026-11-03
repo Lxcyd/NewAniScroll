@@ -940,7 +940,7 @@
         "goalTargetDesc": "The number to reach by December 31.",
         "goalColor": "Color by progress",
         "goalColorDesc": "The ring goes from red to green as you get close to the goal.",
-        "bingeOrder": "Deck order",
+        "bingeOrder": "Anime order",
         "bingeOrderDesc": "Most watched first, or the anime in the order you watched them.",
         "bingeOrderChoice": {
           "most": "Most watched",
