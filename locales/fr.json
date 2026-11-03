@@ -1173,7 +1173,9 @@
           "op": "Openings",
           "ed": "Endings",
           "ins": "Musiques"
-        }
+        },
+        "retry": "Réessayer",
+        "unavailable": "Indisponible pour l'instant : la source ne répond pas. Clique pour réessayer."
       },
       "badges": {
         "title": "Badges & succès",

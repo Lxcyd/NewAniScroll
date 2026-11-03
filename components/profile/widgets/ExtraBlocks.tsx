@@ -866,8 +866,14 @@ function useTrack(sources: (string | null | undefined)[]) {
   const ref = useRef<HTMLAudioElement | null>(null);
   /** Passe à la source suivante (posée par l'effet, appelée par le délai). */
   const nextRef = useRef<() => void>(() => {});
+  /** Repart de la première source (après un échec de toutes). */
+  const resetRef = useRef<() => void>(() => {});
   const stall = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [state, setState] = useState({ on: false, loading: false, t: 0, d: 0, started: false });
+  /* `failed` : AUCUNE source n'a répondu (03/11/2026 : les serveurs de fichiers
+     d'AnimeThemes ne répondaient plus, et une version anglaise comme « We Are! »
+     OP1-EN n'a pas de mp3 AnisongDB pour la relayer). La ligne le dit, et un
+     clic réessaie, au lieu d'un bouton qui ne fait rien. */
+  const [state, setState] = useState({ on: false, loading: false, t: 0, d: 0, started: false, failed: false });
   useEffect(() => {
     const list = key ? key.split("|") : [];
     if (!list.length) return;
@@ -896,7 +902,12 @@ function useTrack(sources: (string | null | undefined)[]) {
     const onErr = () => {
       clearTimeout(stall.current);
       if (k + 1 >= list.length) {
-        setState((s) => ({ ...s, loading: false, on: false }));
+        // Plus rien à essayer : on lâche la source qui pend, et on le dit.
+        if (playing === a) playing = null;
+        a.pause();
+        a.removeAttribute("src");
+        a.load();
+        setState((s) => ({ ...s, loading: false, on: false, failed: true }));
         return;
       }
       const wasOn = playing === a;
@@ -907,6 +918,11 @@ function useTrack(sources: (string | null | undefined)[]) {
       }
     };
     nextRef.current = onErr;
+    resetRef.current = () => {
+      k = 0;
+      a.src = list[0];
+      setState((s) => ({ ...s, failed: false }));
+    };
     a.addEventListener("timeupdate", sync);
     a.addEventListener("loadedmetadata", sync);
     a.addEventListener("pause", () => {
@@ -941,6 +957,7 @@ function useTrack(sources: (string | null | undefined)[]) {
       a.pause();
       return;
     }
+    if (state.failed) resetRef.current();
     if (playing && playing !== a) playing.pause();
     playing = a;
     const ready = a.readyState >= 3;
@@ -1134,8 +1151,9 @@ function TrackRow({
   return (
     <div
       onPointerEnter={track.warm}
+      style={{ animationDelay: `${Math.min(rank - 1, 10) * 35}ms` }}
       /* Le fond du survol reste pendant la lecture, et s'en va à l'arrêt. */
-      className={`flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-white/[0.05] ${track.on || track.loading ? "bg-white/[0.05]" : ""}`}
+      className={`as-swap-row flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-white/[0.05] ${track.on || track.loading ? "bg-white/[0.05]" : ""}`}
     >
       <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{rank}</span>
       {/* La pochette en plus grand (03/11/2026, Luc), sur toute la hauteur de
@@ -1152,12 +1170,45 @@ function TrackRow({
         </p>
         {/* La barre, toujours là (03/11/2026, Luc). */}
         <div className="mt-0.5 flex items-center gap-2">
-          <span className="w-7 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
-          <Rail value={track.t} max={track.d} onSeek={track.seek} label={row?.song ?? slug} className="min-w-0 flex-1" />
-          <span className="w-7 text-right font-karla text-[10px] tabular-nums text-white/50">{track.d ? fmt(track.d) : "–:––"}</span>
+          <span className="w-8 shrink-0 whitespace-nowrap font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
+          <Rail
+            value={track.t}
+            max={track.d}
+            onSeek={track.seek}
+            label={row?.song ?? slug}
+            className={`min-w-0 flex-1 transition-opacity ${track.failed ? "opacity-40" : ""}`}
+          />
+          {/* La durée arrive avec les métadonnées ; en attendant, un point
+              qui pulse plutôt qu'un « –:–– » tassé. */}
+          <span className="flex w-8 shrink-0 justify-end whitespace-nowrap font-karla text-[10px] tabular-nums text-white/50">
+            {track.d ? (
+              fmt(track.d)
+            ) : track.failed || !track.has ? (
+              "—"
+            ) : (
+              <span className="h-1.5 w-5 animate-pulse rounded-full bg-white/15" />
+            )}
+          </span>
         </div>
       </div>
-      {track.has ? (
+      {track.has && track.failed ? (
+        <button
+          type="button"
+          aria-label={t("profile.blocks.themes.retry")}
+          title={t("profile.blocks.themes.unavailable")}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            track.toggle();
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/[0.14] hover:text-white"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+            <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+        </button>
+      ) : track.has ? (
         <button
           type="button"
           aria-label={t(track.on ? "profile.blocks.themes.pause" : "profile.blocks.themes.play")}
@@ -1500,7 +1551,8 @@ function ThemeEditor({
               /* LA MÊME TAILLE QU'EN LECTURE (03/11/2026, Luc) : pochette de
                  56 px, mêmes deux lignes ; `py-[5px]` + le bord = le `py-1.5`
                  de la ligne du widget. */
-              className="group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 py-[5px] hover:border-white/10 hover:bg-white/[0.065]"
+              style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+              className="as-swap-row group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 py-[5px] hover:border-white/10 hover:bg-white/[0.065]"
             >
               <span
                 className="flex h-5 w-5 shrink-0 items-center justify-center text-white/25 transition-colors group-hover/row:text-white/60"
@@ -1546,7 +1598,8 @@ function ThemeEditor({
         <button
           type="button"
           onClick={() => setPicking(true)}
-          className="shrink-0 rounded-[14px] border border-dashed border-white/15 py-2.5 font-karla text-[13px] text-white/50 transition-colors hover:border-white/25 hover:text-white"
+          style={{ animationDelay: `${Math.min(favs.length, 11) * 35}ms` }}
+          className="as-swap-row shrink-0 rounded-[14px] border border-dashed border-white/15 py-2.5 font-karla text-[13px] text-white/50 transition-colors hover:border-white/25 hover:text-white"
         >
           + {t("profile.blocks.themes.add")}
         </button>

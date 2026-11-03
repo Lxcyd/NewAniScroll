@@ -1173,7 +1173,9 @@
           "op": "Openings",
           "ed": "Endings",
           "ins": "Songs"
-        }
+        },
+        "retry": "Retry",
+        "unavailable": "Unavailable right now: the source isn't responding. Click to retry."
       },
       "badges": {
         "title": "Badges & achievements",

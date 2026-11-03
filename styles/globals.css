@@ -4919,6 +4919,19 @@ html.as-dragging .as-nudge {
 .as-acc-in {
   animation: as-acc-in 0.28s cubic-bezier(0.3, 0.7, 0.2, 1) backwards;
 }
+/* Le Top OP / ED / Musique passe de la lecture a l'edition et retour
+   (03/11/2026, Luc) : chaque ligne entre en fondu, decalee de la precedente
+   (`animation-delay` pose par la ligne). Hors de `prefers-reduced-motion` :
+   le poste de Luc repond `reduce`. */
+@keyframes as-swap-row {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+.as-swap-row {
+  animation: as-swap-row 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
 /* Les lignes de l'animé ouvert (épisodes, génériques, musiques) entrent en
    cascade, comme les tuiles d'Image. PAS de garde `prefers-reduced-motion` :
    ce poste répond `reduce` (cf. plus bas, `as-tile-in`) ; court, sans rebond,
