@@ -537,7 +537,7 @@ export function PinnedBlock({
             {/* La note en bas à droite de la carte (03/11/2026, Luc, choisie
                 parmi 20) : une signature sous le commentaire. */}
             {showScore && scores.get(p.id) ? (
-              <span className="absolute bottom-2 right-3 font-karla text-[12px] font-bold text-as-score">★ {scores.get(p.id)}</span>
+              <span className="absolute bottom-2 right-3 font-karla text-[16px] font-bold text-as-score">★ {scores.get(p.id)}</span>
             ) : null}
           </Link>
         );
