@@ -216,6 +216,10 @@ export async function ensureUsersSchema(): Promise<void> {
   await db.execute(
     `CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id)`
   );
+  /* Chercher un ami par son nom AniList (lib/auth/friends.ts, byName). */
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_users_anilist_lower ON users(lower(anilist_name))`
+  );
 
   schemaReady = true;
 }

@@ -9,6 +9,7 @@ import {
   friendsOf,
   myFriends,
   searchPeople,
+  watchFriends,
   type FriendCard,
   type FriendState,
 } from "@/lib/friends/client";
@@ -70,11 +71,10 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
         setTastes(new Map(f.map((x) => [x.tag, affinity(me, x.taste).pct])));
       });
     };
-    load();
-    window.addEventListener(FRIENDS_EVENT, load);
+    const stop = watchFriends(load);
     return () => {
       alive = false;
-      window.removeEventListener(FRIENDS_EVENT, load);
+      stop();
     };
   }, [entries]);
 
@@ -162,11 +162,10 @@ function Theirs({ tag, name }: { tag: string; name: string }) {
       void friendsOf(tag).then((f) => {
         if (alive) setList(f);
       });
-    load();
-    window.addEventListener(FRIENDS_EVENT, load);
+    const stop = watchFriends(load, 60_000);
     return () => {
       alive = false;
-      window.removeEventListener(FRIENDS_EVENT, load);
+      stop();
     };
   }, [tag]);
   return (

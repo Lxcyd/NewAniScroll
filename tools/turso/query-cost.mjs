@@ -276,7 +276,20 @@ const CASES = [
     sql: `SELECT u.id, u.tag FROM users u
           WHERE u.username_lower >= ? AND u.username_lower < ? AND u.status = 'active'
           LIMIT 8`,
-    args: ["zzzqc", "zzzqc￿"],
+    args: ["zzzqc", "zzzqc\uffff"],
+    max: 20,
+  },
+  {
+    /* La même recherche sur le nom AniList : l'index d'expression
+       idx_users_anilist_lower ne sert que si l'expression est identique. */
+    name: "recherche de nom AniList (searchUsers, byName)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/friends.ts", "WHERE lower(u.anilist_name) >= ? AND lower(u.anilist_name) < ? AND u.status = 'active'"],
+    sql: `SELECT u.id, u.tag FROM users u
+          WHERE lower(u.anilist_name) >= ? AND lower(u.anilist_name) < ? AND u.status = 'active'
+          LIMIT 8`,
+    args: ["zzzqc", "zzzqc\uffff"],
     max: 20,
   },
 ];

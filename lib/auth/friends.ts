@@ -158,9 +158,46 @@ export async function act(userId: string, tag: string, action: FriendAction): Pr
 }
 
 /**
+ * Par début de nom : le pseudo AniScroll OU le nom AniList (03/11/2026 : un
+ * compte AniList seul n'a souvent pas de pseudo, et « Lxcyd » restait
+ * introuvable). Deux PLAGES, chacune sur son index — `idx_users_username` et
+ * `idx_users_anilist_lower`, sur `lower(anilist_name)` : l'expression doit être
+ * écrite exactement ainsi pour que SQLite prenne l'index.
+ */
+async function byName(client: NonNullable<Awaited<ReturnType<typeof db>>>, low: string): Promise<Row[]> {
+  const hi = low + "\uffff";
+  const [a, b] = await Promise.all([
+    client.execute({
+      sql: `SELECT u.id, ${CARD_COLS}, 0 AS updated_at FROM users u
+            WHERE u.username_lower >= ? AND u.username_lower < ? AND u.status = 'active'
+            LIMIT 8`,
+      args: [low, hi],
+    }),
+    client.execute({
+      sql: `SELECT u.id, ${CARD_COLS}, 0 AS updated_at FROM users u
+            WHERE lower(u.anilist_name) >= ? AND lower(u.anilist_name) < ? AND u.status = 'active'
+            LIMIT 8`,
+      args: [low, hi],
+    }),
+  ]);
+  const seen = new Set<string>();
+  const out: Row[] = [];
+  /* L'égalité exacte d'abord, puis l'ordre alphabétique. */
+  for (const r of [...a.rows, ...b.rows]) {
+    const id = String(r.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(r);
+  }
+  const nameOf = (r: Row) => String(r.anilist_name || r.username || "").toLowerCase();
+  out.sort((x, y) => Number(nameOf(y) === low) - Number(nameOf(x) === low) || nameOf(x).localeCompare(nameOf(y)));
+  return out.slice(0, 8);
+}
+
+/**
  * Chercher quelqu'un à ajouter : par tag (« #7F3A2C », ou « Pseudo#7F3A2C »),
- * sinon par début de pseudo. La recherche par pseudo est une plage sur
- * `idx_users_username` — jamais un LIKE, qui lirait toute la table.
+ * sinon par début de pseudo ou de nom AniList (`byName`) : des plages sur
+ * index, jamais un LIKE, qui lirait toute la table.
  */
 export async function searchUsers(userId: string, q: string): Promise<(FriendCard & { state: FriendState | "none" })[]> {
   const client = await db();
@@ -175,14 +212,7 @@ export async function searchUsers(userId: string, q: string): Promise<(FriendCar
           args: [tagMatch[1].toUpperCase()],
         })
       ).rows
-    : (
-        await client.execute({
-          sql: `SELECT u.id, ${CARD_COLS}, 0 AS updated_at FROM users u
-                WHERE u.username_lower >= ? AND u.username_lower < ? AND u.status = 'active'
-                LIMIT 8`,
-          args: [text.toLowerCase(), text.toLowerCase() + "￿"],
-        })
-      ).rows;
+    : await byName(client, text.toLowerCase());
   const others = rows.filter((r) => String(r.id) !== userId);
   if (!others.length) return [];
   const states = await client.execute({

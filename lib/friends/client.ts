@@ -63,6 +63,36 @@ export async function friendAction(tag: string, action: "request" | "accept" | "
   }
 }
 
+/**
+ * PAS BESOIN DE RECHARGER (03/11/2026, Luc) : `load` est rejoué au retour sur
+ * l'onglet du navigateur, à chaque action ailleurs sur la page
+ * (FRIENDS_EVENT), et toutes les `everyMs` tant que la page est VISIBLE.
+ * Caché, rien ne part : chaque appel est une invocation Vercel et une lecture
+ * Turso, et un onglet oublié ne doit rien coûter.
+ */
+export function watchFriends(load: () => void, everyMs = 20_000): () => void {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const start = () => {
+    clearInterval(timer);
+    if (everyMs > 0 && document.visibilityState === "visible") timer = setInterval(load, everyMs);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible") load();
+    start();
+  };
+  load();
+  start();
+  window.addEventListener(FRIENDS_EVENT, load);
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("focus", load);
+  return () => {
+    clearInterval(timer);
+    window.removeEventListener(FRIENDS_EVENT, load);
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("focus", load);
+  };
+}
+
 /* ── Mes goûts, rangés sur le compte ──
    Envoyés quand on ouvre son propre profil, et seulement s'ils ont changé
    depuis le dernier envoi depuis cet appareil (empreinte en localStorage). */

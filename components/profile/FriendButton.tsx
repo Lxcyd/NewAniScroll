@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FRIENDS_EVENT, friendAction, stateWith, type FriendState } from "@/lib/friends/client";
+import { friendAction, stateWith, watchFriends, type FriendState } from "@/lib/friends/client";
 
 /**
  * Le bouton d'ami sur le profil d'un autre (03/11/2026, Luc), à la place du
@@ -24,11 +24,13 @@ export default function FriendButton({ tag }: { tag: string }) {
       void stateWith(tag).then((s) => {
         if (alive) setState(s);
       });
-    load();
-    window.addEventListener(FRIENDS_EVENT, load);
+    /* Relu au retour sur l'onglet du navigateur, sans sondage : ce bouton est
+       sur CHAQUE profil visité, et un appel toutes les 30 s par visiteur
+       connecté coûterait des invocations Vercel pour presque rien. */
+    const stop = watchFriends(load, 0);
     return () => {
       alive = false;
-      window.removeEventListener(FRIENDS_EVENT, load);
+      stop();
     };
   }, [tag]);
 
