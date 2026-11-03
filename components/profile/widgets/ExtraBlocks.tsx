@@ -394,7 +394,7 @@ export function GoalBlock({
     <div
       ref={boxRef}
       className={`flex h-full min-h-0 items-center justify-center ${tall ? "flex-col text-center" : ""}`}
-      style={{ gap: 12 * Math.min(k, 2) }}
+      style={{ gap: 20 * Math.min(k, 1.8) }}
     >
       <div className="relative aspect-square shrink-0" style={{ width: size, height: size }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
