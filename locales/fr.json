@@ -947,7 +947,7 @@
           "watched": "Ordre de visionnage"
         },
         "pinScore": "Afficher la note",
-        "pinScoreDesc": "Ta note de l'anime sous son titre."
+        "pinScoreDesc": "Ta note de l'anime, en bas à droite de la carte."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },

@@ -536,8 +536,17 @@ export function PinnedBlock({
             </div>
             {/* La note en bas à droite de la carte (03/11/2026, Luc, choisie
                 parmi 20) : une signature sous le commentaire. */}
-            {showScore && scores.get(p.id) ? (
-              <span className="absolute bottom-2 right-3 font-karla text-[16px] font-bold text-as-score">★ {scores.get(p.id)}</span>
+            {/* Toujours rendue, montrée ou cachée en fondu quand on bascule le
+                réglage (03/11/2026, Luc). */}
+            {scores.get(p.id) ? (
+              <span
+                aria-hidden={!showScore}
+                className={`absolute bottom-2 right-3 font-karla text-[16px] font-bold text-as-score transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                  showScore ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-1 scale-90 opacity-0"
+                }`}
+              >
+                ★ {scores.get(p.id)}
+              </span>
             ) : null}
           </Link>
         );

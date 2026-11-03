@@ -947,7 +947,7 @@
           "watched": "Watch order"
         },
         "pinScore": "Show score",
-        "pinScoreDesc": "Your score for the anime under its title."
+        "pinScoreDesc": "Your score for the anime, at the bottom right of the card."
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
