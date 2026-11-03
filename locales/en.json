@@ -1161,7 +1161,8 @@
         "none": "No known music for this title.",
         "play": "Play",
         "pause": "Pause",
-        "back": "Back"
+        "back": "Back",
+        "volume": "Volume"
       },
       "badges": {
         "title": "Badges & achievements",

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
+import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
@@ -574,11 +575,12 @@ function EntryPicker({
     const s = q.trim().toLowerCase();
     return entries
       .filter((e) => !exclude.has(e.mediaId))
-      .filter((e) => !s || [e.title?.english, e.title?.romaji, e.title?.native].some((x) => x?.toLowerCase().includes(s)))
-      /* Toute la liste, la mieux notée d'abord (03/11/2026, Luc : la limite
-         à 40 ne montrait que les 10/10). Les affiches se chargent au défilé. */
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+      .filter((e) => !s || [e.title?.english, e.title?.romaji, e.title?.native].some((x) => x?.toLowerCase().includes(s)));
+    /* Toute la liste (03/11/2026, Luc : la limite à 40 ne montrait que les
+         10/10), DANS L'ORDRE DU MENU MUSIQUE DU STUDIO : favoris, puis
+         revisionnages, puis note, puis statut (`studioOrder`). */
   }, [entries, exclude, q]);
+  const ordered = useMemo(() => studioOrder(found, (e) => pickTitle(e.title ?? {}, pref)), [found, pref]);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex gap-2">
@@ -594,7 +596,7 @@ function EntryPicker({
         </button>
       </div>
       <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
-        {found.map((e) => (
+        {ordered.map((e) => (
           <button
             key={e.mediaId}
             type="button"
@@ -869,9 +871,13 @@ function useTrack(sources: (string | null | undefined)[]) {
     let k = 0;
     const a = new Audio();
     a.preload = "metadata";
-    a.volume = 0.6;
+    a.volume = readVolume();
     a.src = list[0];
     ref.current = a;
+    const onVol = (v: number) => {
+      a.volume = v;
+    };
+    volListeners.add(onVol);
     const sync = () =>
       setState((s) => ({ ...s, on: !a.paused, t: a.currentTime, d: Number.isFinite(a.duration) ? a.duration : s.d }));
     const onWait = () => setState((s) => ({ ...s, loading: true }));
@@ -901,6 +907,7 @@ function useTrack(sources: (string | null | undefined)[]) {
     a.addEventListener("playing", onPlay);
     a.addEventListener("error", onErr);
     return () => {
+      volListeners.delete(onVol);
       clearTimeout(stall.current);
       a.pause();
       if (playing === a) playing = null;
@@ -944,6 +951,152 @@ function useTrack(sources: (string | null | undefined)[]) {
   return { has: !!key, ...state, warm, toggle, seek };
 }
 
+/* ── Le volume ──
+   UN RÉGLAGE À SOI, PAS UN PARAMÈTRE DU WIDGET (03/11/2026, Luc : « un bouton
+   personnel pour le volume, pour les users aussi ») : chaque visiteur règle le
+   sien, gardé dans son navigateur, et tous les morceaux le suivent. */
+const VOL_KEY = "aniscroll:themesVolume";
+const volListeners = new Set<(v: number) => void>();
+let volCache: number | null = null;
+function readVolume(): number {
+  if (volCache != null) return volCache;
+  let v = 0.6;
+  try {
+    const raw = localStorage.getItem(VOL_KEY);
+    if (raw != null && Number.isFinite(Number(raw))) v = Math.min(1, Math.max(0, Number(raw)));
+  } catch {
+    /* stockage refusé : le défaut */
+  }
+  volCache = v;
+  return v;
+}
+function setVolume(v: number) {
+  volCache = Math.min(1, Math.max(0, v));
+  try {
+    localStorage.setItem(VOL_KEY, String(volCache));
+  } catch {
+    /* best-effort */
+  }
+  volListeners.forEach((f) => f(volCache!));
+}
+function useVolume(): number {
+  const [v, setV] = useState(0.6);
+  useEffect(() => {
+    setV(readVolume());
+    volListeners.add(setV);
+    return () => {
+      volListeners.delete(setV);
+    };
+  }, []);
+  return v;
+}
+
+/**
+ * LE RAIL, AU DESSIN DE LA MUSIQUE DU PROFIL (BannerStudio `MusicRail`) : un
+ * rail de 8 px, la partie jouée à la couleur du site, sans les bornes jaunes de
+ * l'extrait (03/11/2026, Luc). On clique ou on glisse n'importe où dessus.
+ */
+function Rail({
+  value,
+  max,
+  onSeek,
+  label,
+  className = "",
+}: {
+  value: number;
+  max: number;
+  onSeek: (v: number) => void;
+  label: string;
+  className?: string;
+}) {
+  const held = useRef(false);
+  const at = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * max;
+  };
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={Math.round(max * 100) / 100}
+      aria-valuenow={Math.round(value * 100) / 100}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        held.current = true;
+        onSeek(at(e));
+      }}
+      onPointerMove={(e) => {
+        if (held.current && e.buttons & 1) onSeek(at(e));
+      }}
+      onPointerUp={() => {
+        held.current = false;
+      }}
+      onPointerCancel={() => {
+        held.current = false;
+      }}
+      onKeyDown={(e) => {
+        const step = max / 20;
+        if (e.key === "ArrowLeft") onSeek(Math.max(0, value - step));
+        else if (e.key === "ArrowRight") onSeek(Math.min(max, value + step));
+        else return;
+        e.preventDefault();
+      }}
+      className={`relative h-2 cursor-pointer touch-none rounded-full bg-white/[0.09] outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${className}`}
+    >
+      <span className="absolute inset-y-0 left-0 rounded-full bg-action" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+/** Le bouton du volume : un haut-parleur, et le rail en dessous au clic. */
+function VolumeButton() {
+  const { t } = useTranslation();
+  const v = useVolume();
+  const [open, setOpen] = useState(false);
+  const before = useRef(0.6);
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className={`overflow-hidden transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${open ? "w-24 opacity-100" : "w-0 opacity-0"}`}
+      >
+        <Rail value={v} max={1} onSeek={setVolume} label={t("profile.blocks.themes.volume")} className="mx-1" />
+      </div>
+      <button
+        type="button"
+        aria-label={t("profile.blocks.themes.volume")}
+        title={t("profile.blocks.themes.volume")}
+        onClick={() => setOpen((o) => !o)}
+        onDoubleClick={() => {
+          if (v > 0) {
+            before.current = v;
+            setVolume(0);
+          } else setVolume(before.current || 0.6);
+        }}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-white/10 transition-colors ${
+          open ? "bg-white/[0.12] text-white" : "bg-white/[0.05] text-white/60 hover:text-white"
+        }`}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+          <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />
+          {v === 0 ? (
+            <path d="m22 9-6 6m0-6 6 6" />
+          ) : (
+            <>
+              <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+              {v > 0.5 ? <path d="M18.5 5.5a9 9 0 0 1 0 13" /> : null}
+            </>
+          )}
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function TrackRow({
   rank,
   row,
@@ -962,70 +1115,54 @@ function TrackRow({
   const { t } = useTranslation();
   const track = useTrack([row?.alt, row?.video?.audio, row?.video?.url]);
   if (loading) return <Skeleton rows={1} tall />;
-  const pct = track.d ? (track.t / track.d) * 100 : 0;
   return (
     <div
       onPointerEnter={track.warm}
-      className={`flex flex-col gap-1 rounded-xl px-2 py-1.5 transition-colors ${track.started ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"}`}
+      className={`flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors ${track.started ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"}`}
     >
-      <div className="flex items-center gap-3">
-        <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{rank}</span>
-        <SongCover row={row} fallback={animeCover} className="h-11 w-11" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-semibold text-white">{row?.song ?? slug}</p>
-          <p className="flex min-w-0 items-center gap-1.5 font-karla text-[11px] text-txt">
-            <KindChip row={row} slug={slug} />
-            <span className="truncate">
-              {animeTitle ?? "…"}
-              {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
-            </span>
-          </p>
-        </div>
-        {track.has ? (
-          <button
-            type="button"
-            aria-label={t(track.on ? "profile.blocks.themes.pause" : "profile.blocks.themes.play")}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              track.toggle();
-            }}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-action text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform hover:scale-105"
-          >
-            {track.loading ? (
-              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5">
-                {track.on ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
-              </svg>
-            )}
-          </button>
-        ) : (
-          <span className="h-8 w-8 shrink-0" />
-        )}
-      </div>
-      {/* LA BARRE D'ÉCOUTE (Luc : « pour écouter la musique là où on veut ») :
-          elle apparaît dès qu'on a lancé le morceau. */}
-      {track.started ? (
-        <div className="flex items-center gap-2 pl-7 pr-1">
-          <span className="w-8 text-right font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
-          <span className="as-range relative block h-3 min-w-0 flex-1">
-            <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
-            <span className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action" style={{ width: `${pct}%` }} />
-            <input
-              type="range"
-              min={0}
-              max={track.d || 0}
-              step={0.1}
-              value={Math.min(track.t, track.d || 0)}
-              onChange={(e) => track.seek(Number(e.target.value))}
-              style={{ pointerEvents: "auto" }}
-              aria-label={row?.song ?? slug}
-            />
+      <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{rank}</span>
+      {/* La pochette en plus grand (03/11/2026, Luc), sur toute la hauteur de
+          la ligne ; la barre d'écoute vit à sa droite, sous la ligne OP1. */}
+      <SongCover row={row} fallback={animeCover} className="h-14 w-14" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="truncate text-[13px] font-semibold leading-tight text-white">{row?.song ?? slug}</p>
+        <p className="flex min-w-0 items-center gap-1.5 font-karla text-[11px] text-txt">
+          <KindChip row={row} slug={slug} />
+          <span className="truncate">
+            {animeTitle ?? "…"}
+            {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
           </span>
-          <span className="w-8 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.d)}</span>
-        </div>
-      ) : null}
+        </p>
+        {track.started ? (
+          <div className="mt-0.5 flex items-center gap-2">
+            <span className="w-7 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
+            <Rail value={track.t} max={track.d} onSeek={track.seek} label={row?.song ?? slug} className="min-w-0 flex-1" />
+            <span className="w-7 text-right font-karla text-[10px] tabular-nums text-white/50">{fmt(track.d)}</span>
+          </div>
+        ) : null}
+      </div>
+      {track.has ? (
+        <button
+          type="button"
+          aria-label={t(track.on ? "profile.blocks.themes.pause" : "profile.blocks.themes.play")}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            track.toggle();
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-action text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform hover:scale-105"
+        >
+          {track.loading ? (
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5">
+              {track.on ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
+            </svg>
+          )}
+        </button>
+      ) : (
+        <span className="h-8 w-8 shrink-0" />
+      )}
     </div>
   );
 }
@@ -1051,22 +1188,27 @@ export function ThemesBlock({
     return <EmptyBlock note={t(isOwner ? "profile.blocks.themes.emptyOwner" : "profile.blocks.themes.empty")} />;
 
   return (
-    <div className="as-scroller grid h-full min-h-0 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto overflow-x-hidden pr-1">
-      {favs.map((f, i) => {
-        const list = themes.get(f.a);
-        const m = meta.get(f.a);
-        return (
-          <TrackRow
-            key={`${f.a}-${f.s}`}
-            rank={i + 1}
-            slug={f.s}
-            row={list?.find((x) => x.slug === f.s)}
-            animeTitle={m?.title}
-            animeCover={m?.cover}
-            loading={!list}
-          />
-        );
-      })}
+    <div className="flex h-full min-h-0 flex-col gap-1">
+      <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto overflow-x-hidden pr-1">
+        {favs.map((f, i) => {
+          const list = themes.get(f.a);
+          const m = meta.get(f.a);
+          return (
+            <TrackRow
+              key={`${f.a}-${f.s}`}
+              rank={i + 1}
+              slug={f.s}
+              row={list?.find((x) => x.slug === f.s)}
+              animeTitle={m?.title}
+              animeCover={m?.cover}
+              loading={!list}
+            />
+          );
+        })}
+      </div>
+      <div className="flex shrink-0 justify-end pr-1">
+        <VolumeButton />
+      </div>
     </div>
   );
 }
@@ -1086,6 +1228,93 @@ function BackButton({ onClick, label }: { onClick: () => void; label: string }) 
   );
 }
 
+/**
+ * LE GLISSER-DÉPOSER DU GESTIONNAIRE DE LISTES d'AniScroll (Blazor,
+ * s00295653/AniScroll, `startRowDrag` de scroll-helpers.js), porté tel quel
+ * (03/11/2026, Luc) : la ligne prise par sa poignée flotte sous le pointeur,
+ * à demi transparente et ombrée ; un emplacement vide de sa hauteur glisse
+ * entre les autres jusqu'à l'endroit où elle tombera. Au lâcher, tout reprend
+ * sa place et l'ordre est commité d'un coup.
+ */
+function startRowDrag(
+  body: HTMLElement,
+  pointerId: number,
+  fromIndex: number,
+  startClientY: number,
+  done: (from: number, to: number) => void,
+) {
+  const rows = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-row]"));
+  if (fromIndex < 0 || fromIndex >= rows.length) return;
+  const dragged = rows[fromIndex];
+  const bodyRect = body.getBoundingClientRect();
+  const origRect = dragged.getBoundingClientRect();
+  let rowH = dragged.offsetHeight + 6;
+  if (rows.length > 1) rowH = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+  const initialY = origRect.top - bodyRect.top + body.scrollTop;
+
+  body.style.position = "relative";
+  Object.assign(dragged.style, {
+    position: "absolute",
+    left: "0",
+    right: "0",
+    zIndex: "50",
+    top: `${initialY}px`,
+    opacity: "0.5",
+    boxShadow: "0 8px 28px rgba(0,0,0,0.55)",
+    transition: "none",
+  });
+  const ph = document.createElement("div");
+  ph.style.height = `${dragged.offsetHeight}px`;
+  ph.style.flexShrink = "0";
+  body.insertBefore(ph, dragged);
+
+  let toIndex = fromIndex;
+  let ended = false;
+  try {
+    dragged.setPointerCapture(pointerId);
+  } catch {
+    /* le pointeur est déjà parti */
+  }
+
+  const onMove = (clientY: number) => {
+    const top = Math.max(0, initialY + clientY - startClientY);
+    dragged.style.top = `${top}px`;
+    const centre = top + rowH / 2;
+    const others = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-row]")).filter((r) => r !== dragged);
+    let best = 0;
+    for (let i = 0; i < others.length; i++) if (centre > others[i].offsetTop + rowH / 2) best = i + 1;
+    toIndex = best;
+    const anchor = others[best] ?? null;
+    if (anchor) body.insertBefore(ph, anchor);
+    else {
+      const last = others[others.length - 1];
+      if (last?.nextSibling) body.insertBefore(ph, last.nextSibling);
+      else body.appendChild(ph);
+    }
+  };
+  const onEnd = () => {
+    if (ended) return;
+    ended = true;
+    document.removeEventListener("pointermove", onPM);
+    document.removeEventListener("pointerup", onEnd);
+    document.removeEventListener("pointercancel", onEnd);
+    for (const k of ["position", "left", "right", "zIndex", "top", "opacity", "boxShadow", "transition"] as const)
+      dragged.style[k] = "";
+    body.style.position = "";
+    ph.remove();
+    try {
+      dragged.releasePointerCapture(pointerId);
+    } catch {
+      /* déjà relâché */
+    }
+    done(fromIndex, toIndex);
+  };
+  const onPM = (e: PointerEvent) => onMove(e.clientY);
+  document.addEventListener("pointermove", onPM);
+  document.addEventListener("pointerup", onEnd);
+  document.addEventListener("pointercancel", onEnd);
+}
+
 function ThemeEditor({
   favs,
   entries,
@@ -1103,10 +1332,7 @@ function ThemeEditor({
   const [anime, setAnime] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [rows, setRows] = useState<ThemeRow[] | null>(null);
-  /* Le glisser-déposer (Luc : « au lieu d'une flèche, qu'on puisse les
-     drag ») : la ligne prise, et la place où elle tomberait. */
-  const [drag, setDrag] = useState<number | null>(null);
-  const [over, setOver] = useState<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const pickedMeta = useAnimeMeta(anime != null ? [anime] : [], entries);
   useEffect(() => {
     if (anime == null) return;
@@ -1187,77 +1413,67 @@ function ThemeEditor({
     onChange(next);
   };
   return (
-    <div className="as-scroller grid h-full min-h-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 overflow-y-auto overflow-x-hidden pr-1">
-      {favs.map((f, i) => {
-        const list = themes.get(f.a);
-        const row = list?.find((x) => x.slug === f.s);
-        const m = meta.get(f.a);
-        return (
-          <div
-            key={`${f.a}-${f.s}`}
-            draggable
-            onDragStart={(e) => {
-              setDrag(i);
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("text/plain", String(i));
-            }}
-            onDragOver={(e) => {
-              if (drag == null) return;
-              e.preventDefault();
-              setOver(i);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (drag != null) move(drag, i);
-              setDrag(null);
-              setOver(null);
-            }}
-            onDragEnd={() => {
-              setDrag(null);
-              setOver(null);
-            }}
-            className={`flex min-w-0 cursor-grab items-center gap-2 rounded-xl bg-black/15 px-2 py-1.5 ring-1 transition-[opacity,box-shadow] active:cursor-grabbing ${
-              drag === i ? "opacity-40 ring-white/[0.06]" : over === i && drag != null ? "ring-action" : "ring-white/[0.06]"
-            }`}
-          >
-            {/* La poignée : six points, comme partout où l'on range. */}
-            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-white/30" aria-hidden>
-              <circle cx="9" cy="6" r="1.6" />
-              <circle cx="15" cy="6" r="1.6" />
-              <circle cx="9" cy="12" r="1.6" />
-              <circle cx="15" cy="12" r="1.6" />
-              <circle cx="9" cy="18" r="1.6" />
-              <circle cx="15" cy="18" r="1.6" />
-            </svg>
-            <span className="w-3 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
-            {list ? (
-              <SongCover row={row} fallback={m?.cover} className="h-9 w-9" />
-            ) : (
-              <span className="h-9 w-9 shrink-0 animate-pulse rounded-md bg-white/[0.07]" />
-            )}
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <KindChip row={row} slug={f.s} />
-                <span className="truncate text-[13px] font-semibold text-white">{row?.song ?? (list ? f.s : "…")}</span>
-              </span>
-              <span className="truncate font-karla text-[11px] text-txt">{m?.title ?? ""}</span>
-            </span>
-            <button
-              type="button"
-              aria-label={t("profile.blocks.pinned.remove")}
-              onClick={() => onChange(favs.filter((_, k) => k !== i))}
-              className="px-1 text-white/40 hover:text-white"
+    <div className="as-scroller flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto overflow-x-hidden pr-1">
+      <div ref={bodyRef} className="flex flex-col gap-1.5">
+        {favs.map((f, i) => {
+          const list = themes.get(f.a);
+          const row = list?.find((x) => x.slug === f.s);
+          const m = meta.get(f.a);
+          return (
+            <div
+              key={`${f.a}-${f.s}`}
+              data-drag-row
+              className="flex min-w-0 items-center gap-2.5 rounded-[14px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 transition-colors hover:border-white/10 hover:bg-white/[0.065]"
             >
-              ✕
-            </button>
-          </div>
-        );
-      })}
+              {/* La poignée du gestionnaire de listes (`.clm2-drag`) : seule
+                  elle saisit la ligne, le reste se clique. */}
+              <span
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
+                }}
+                className="flex h-5 w-5 shrink-0 cursor-grab touch-none items-center justify-center text-white/25 transition-colors hover:text-white/60 active:cursor-grabbing active:text-white/90"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
+                  <circle cx="9" cy="6" r="1.6" />
+                  <circle cx="15" cy="6" r="1.6" />
+                  <circle cx="9" cy="12" r="1.6" />
+                  <circle cx="15" cy="12" r="1.6" />
+                  <circle cx="9" cy="18" r="1.6" />
+                  <circle cx="15" cy="18" r="1.6" />
+                </svg>
+              </span>
+              <span className="w-3 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
+              {list ? (
+                <SongCover row={row} fallback={m?.cover} className="h-9 w-9" />
+              ) : (
+                <span className="h-9 w-9 shrink-0 animate-pulse rounded-md bg-white/[0.07]" />
+              )}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <KindChip row={row} slug={f.s} />
+                  <span className="truncate text-[13px] font-semibold text-white">{row?.song ?? (list ? f.s : "…")}</span>
+                </span>
+                <span className="truncate font-karla text-[11px] text-txt">{m?.title ?? ""}</span>
+              </span>
+              <button
+                type="button"
+                aria-label={t("profile.blocks.pinned.remove")}
+                onClick={() => onChange(favs.filter((_, k) => k !== i))}
+                className="px-1 text-white/40 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
       {favs.length < THEMES_MAX ? (
         <button
           type="button"
           onClick={() => setPicking(true)}
-          className="rounded-xl border border-dashed border-white/15 py-2.5 font-karla text-[13px] text-white/50 transition-colors hover:border-white/30 hover:text-white"
+          className="shrink-0 rounded-[14px] border border-dashed border-white/15 py-2.5 font-karla text-[13px] text-white/50 transition-colors hover:border-white/25 hover:text-white"
         >
           + {t("profile.blocks.themes.add")}
         </button>

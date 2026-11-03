@@ -1161,7 +1161,8 @@
         "none": "Aucune musique connue pour ce titre.",
         "play": "Écouter",
         "pause": "Pause",
-        "back": "Retour"
+        "back": "Retour",
+        "volume": "Volume"
       },
       "badges": {
         "title": "Badges & succès",
