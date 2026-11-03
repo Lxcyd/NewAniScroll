@@ -1462,7 +1462,8 @@ function ThemeEditor({
     onChange(next);
   };
   return (
-    <div className="as-scroller flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto overflow-x-hidden pr-1">
+    /* `pl-0.5` : sans lui, la zone qui défile rogne le tireté gauche du bouton « Ajouter ». */
+    <div className="as-scroller flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto overflow-x-hidden pl-0.5 pr-1">
       <div ref={bodyRef} className="flex flex-col gap-1">
         {favs.map((f, i) => {
           const list = themes.get(f.a);
