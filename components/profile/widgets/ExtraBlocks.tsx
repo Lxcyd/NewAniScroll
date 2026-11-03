@@ -403,7 +403,10 @@ export function GoalBlock({
     >
       <div className="relative aspect-square shrink-0" style={{ width: size, height: size }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
-          <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
+          {/* Piste et arc fantôme un peu plus FINS que l'avancée (03/11/2026) :
+              à même épaisseur, leurs bords anticrénelés dépassaient en liseré
+              sombre autour de l'arc coloré. */}
+          <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7.2" />
           {/* LE RYTHME EN ARC FANTÔME (03/11/2026, Luc, choisi parmi 20) : la
               piste s'éclaircit jusqu'à où il faudrait en être aujourd'hui
               pour finir pile le 31 décembre ; l'avancée se peint par-dessus. */}
@@ -413,7 +416,7 @@ export function GoalBlock({
             r={R}
             fill="none"
             stroke="rgba(255,255,255,0.16)"
-            strokeWidth="8"
+            strokeWidth="7.2"
             strokeLinecap="round"
             strokeDasharray={`${C * Math.min(1, elapsed)} ${C}`}
           >
