@@ -390,9 +390,9 @@ export function GoalBlock({
   const k = Math.min(size / 84, tall ? 1.6 : 2);
   /* LE TEXTE SUIT LA PLACE QUI LUI RESTE (03/11/2026, Luc : « plus gros quand
      il y a de la place ») : ~100 px à droite de l'anneau en 1×1 = tailles de
-     base ; jusqu'à 2,2× quand la carte s'élargit. Empilé, il a toute la largeur. */
+     base ; jusqu'à 2,8× quand la carte s'élargit. Empilé, il a toute la largeur. */
   const room = tall ? box.w * 0.55 : box.w - size - 20 * Math.min(k, 1.8);
-  const tk = box.w ? Math.max(1, Math.min(2.2, room / 110)) : 1;
+  const tk = box.w ? Math.max(1, Math.min(2.8, room / 95)) : 1;
   return (
     /* L'anneau à gauche, le compte à droite (03/11/2026, Luc : « remets
        l'interface d'avant », après un essai avec le compte dans l'anneau). */
@@ -451,13 +451,13 @@ export function GoalBlock({
             / {target}
           </span>
         </p>
-        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 9 * Math.min(tk, 1.6) }}>
+        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 9 * Math.min(tk, 2) }}>
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
             fantôme le montre. Reste « Objectif atteint ». */}
         {done >= target ? (
-          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 9.5 * Math.min(tk, 1.6) }}>
+          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 9.5 * Math.min(tk, 2) }}>
             {t("profile.blocks.goal.reached")}
           </p>
         ) : null}
