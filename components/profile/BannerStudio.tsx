@@ -1311,6 +1311,21 @@ export default function BannerStudio({
     ro.observe(box);
     return () => ro.disconnect();
   }, [open, scope]);
+  /* LA LISTE ATTEND LA FIN DU GLISSEMENT (03/11/2026, Luc : « dans un menu
+     un peu lourd comme musique ou vidéo, l'animation est beaucoup plus
+     longue »). Monter des dizaines de lignes à pochettes bloque le fil
+     principal pendant que le cadre recule : le menu (0,45 s) et la barre
+     (0,5 s + 0,08 s) part en retard et saccade. Le squelette, presque gratuit,
+     tient la place jusque-là ; changer d'onglet ensuite n'attend plus. */
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setSettled(false);
+      return;
+    }
+    const id = setTimeout(() => setSettled(true), 600);
+    return () => clearTimeout(id);
+  }, [open]);
   /*
    * LE LECTEUR PASSE D'UNE FENÊTRE À L'AUTRE, D'UN SEUL TENANT (16/10/2026).
    *
@@ -6004,7 +6019,7 @@ export default function BannerStudio({
                 /* La place du lecteur de musique posé par-dessus le bas. */
                 style={footPlayer && footSpace && !barMusic ? { marginBottom: footH } : undefined}
               >
-                {loading && flat.length === 0 ? (
+                {(loading && flat.length === 0) || !settled ? (
                   <div className="space-y-1.5 p-1">
                     {[0, 1, 2, 3].map((i) => (
                       <div key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
