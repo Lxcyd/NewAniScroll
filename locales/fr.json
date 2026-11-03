@@ -1158,9 +1158,10 @@
         "emptyOwner": "Passe en mode Personnaliser et clique sur le crayon pour choisir tes génériques préférés.",
         "manage": "Choisir les génériques",
         "add": "Ajouter un générique",
-        "none": "AnimeThemes ne connaît aucun générique pour ce titre.",
+        "none": "Aucune musique connue pour ce titre.",
         "play": "Écouter",
-        "pause": "Pause"
+        "pause": "Pause",
+        "back": "Retour"
       },
       "badges": {
         "title": "Badges & succès",

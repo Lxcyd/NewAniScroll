@@ -712,37 +712,77 @@ export function parseThemes(raw: string | undefined): FavTheme[] {
 
 type ThemeRow = {
   slug: string;
+  /** `ins` : une autre musique de l'anime (AnisongDB), « SONG » à l'écran. */
+  kind?: "op" | "ed" | "ins";
   song: string | null;
   artists: string[];
+  /** Pochette du morceau (Deezer, iTunes…), si elle est connue. */
+  cover?: string | null;
   video?: { url: string; audio?: string | null } | null;
+  /** Le mp3 d'AnisongDB du même slug : un repli quand le fichier
+      d'AnimeThemes ne démarre pas. */
+  alt?: string | null;
 };
 
-/* Les génériques d'un anime, par la route du site (cache Turso + CDN, comme
-   l'onglet OP/ED de la fiche et la musique du studio). Une fois par session. */
+/* LES MUSIQUES D'UN ANIME, COMME LE MENU MUSIQUE DU STUDIO (03/11/2026, Luc :
+   « fais OP / ED ou musique », avec leurs images). Les OP/ED d'AnimeThemes
+   (/api/v2/themes, avec les pochettes quand elles sont prêtes) et les autres
+   musiques d'AnisongDB (/api/v2/anisongs), dédoublonnées par slug. Une fois
+   par session. `onBase` reçoit les OP/ED dès qu'ils arrivent, sans attendre
+   AnisongDB, plus lent. */
 const themeCache = new Map<number, Promise<ThemeRow[]>>();
-function themesOf(id: number): Promise<ThemeRow[]> {
+const themeBaseSeen = new Map<number, ThemeRow[]>();
+function themesOf(id: number, onBase?: (rows: ThemeRow[]) => void): Promise<ThemeRow[]> {
+  const seen = themeBaseSeen.get(id);
+  if (seen && onBase) onBase(seen);
   let p = themeCache.get(id);
   if (!p) {
-    p = fetch(`/api/v2/themes/${id}?v=4`)
+    const main = fetch(`/api/v2/themes/${id}?v=4`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => (Array.isArray(j?.themes) ? (j.themes as ThemeRow[]) : []))
+      .then((j) => {
+        const covers = (j?.covers ?? {}) as Record<string, string | null>;
+        const rows: ThemeRow[] = Array.isArray(j?.themes)
+          ? (j.themes as ThemeRow[]).map((r) => ({ ...r, cover: r.cover ?? covers[r.slug] ?? null }))
+          : [];
+        themeBaseSeen.set(id, rows);
+        onBase?.(rows);
+        return rows;
+      });
+    const extra = fetch(`/api/v2/anisongs/${id}?v=6`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => (Array.isArray(j?.songs) ? (j.songs as ThemeRow[]) : []))
+      .catch(() => [] as ThemeRow[]);
+    p = Promise.all([main, extra])
+      .then(([base, more]) => {
+        const bySlug = new Map(more.map((m) => [m.slug.toUpperCase(), m]));
+        const have = new Set(base.map((x) => x.slug.toUpperCase()));
+        return [
+          ...base.map((r) => {
+            const m = bySlug.get(r.slug.toUpperCase());
+            return { ...r, cover: r.cover ?? m?.cover ?? null, alt: m?.video?.audio || m?.video?.url || null };
+          }),
+          ...more.filter((x) => !have.has(x.slug.toUpperCase())),
+        ];
+      })
       .catch(() => {
         themeCache.delete(id);
-        return [];
+        return [] as ThemeRow[];
       });
     themeCache.set(id, p);
   }
   return p;
 }
 
+/** Absent de la carte tant que les musiques de l'anime ne sont pas arrivées. */
 function useThemes(ids: number[]): Map<number, ThemeRow[]> {
   const [map, setMap] = useState<Map<number, ThemeRow[]>>(new Map());
   const key = ids.join(",");
   useEffect(() => {
     let alive = true;
-    void Promise.all(ids.map((id) => themesOf(id).then((rows) => [id, rows] as const))).then((pairs) => {
-      if (alive) setMap(new Map(pairs));
-    });
+    const put = (id: number, rows: ThemeRow[]) => {
+      if (alive) setMap((m) => (m.get(id) === rows ? m : new Map(m).set(id, rows)));
+    };
+    ids.forEach((id) => void themesOf(id, (rows) => put(id, rows)).then((rows) => put(id, rows)));
     return () => {
       alive = false;
     };
@@ -751,42 +791,242 @@ function useThemes(ids: number[]): Map<number, ThemeRow[]> {
   return map;
 }
 
-/** Un seul générique joue à la fois, sur toute la page. */
-let playing: HTMLAudioElement | null = null;
-
-function PlayButton({ src }: { src: string | null | undefined }) {
-  const { t } = useTranslation();
-  const ref = useRef<HTMLAudioElement | null>(null);
-  const [on, setOn] = useState(false);
-  useEffect(() => () => ref.current?.pause(), []);
-  if (!src) return <span className="h-8 w-8 shrink-0" />;
+/* LES PASTILLES DU MENU MUSIQUE : OP à la couleur du site, ED en bleu, SONG en
+   violet (BannerStudio, `row.chip`). */
+function KindChip({ row, slug }: { row?: ThemeRow; slug: string }) {
+  const kind = row?.kind ?? (/^OP/i.test(slug) ? "op" : /^ED/i.test(slug) ? "ed" : "ins");
+  const color = kind === "op" ? "var(--brand-primary, #E94560)" : kind === "ed" ? "#8a9bff" : "#c084fc";
   return (
-    <button
-      type="button"
-      aria-label={t(on ? "profile.blocks.themes.pause" : "profile.blocks.themes.play")}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!ref.current) {
-          ref.current = new Audio(src);
-          ref.current.volume = 0.6;
-          ref.current.addEventListener("pause", () => setOn(false));
-          ref.current.addEventListener("ended", () => setOn(false));
-          ref.current.addEventListener("play", () => setOn(true));
-        }
-        if (on) ref.current.pause();
-        else {
-          if (playing && playing !== ref.current) playing.pause();
-          playing = ref.current;
-          void ref.current.play().catch(() => setOn(false));
-        }
+    <span
+      className="shrink-0 rounded font-karla text-[10px] font-bold leading-none tracking-[.03em]"
+      style={{
+        padding: "3px 5px",
+        background: kind === "ed" ? "rgba(120,140,255,0.14)" : `color-mix(in srgb, ${color} 16%, transparent)`,
+        color,
       }}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-action text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform hover:scale-105"
     >
-      <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5">
-        {on ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
-      </svg>
-    </button>
+      {kind === "ins" ? "SONG" : slug.toUpperCase()}
+    </span>
+  );
+}
+
+/** La pochette du morceau, carrée ; l'affiche de l'anime à défaut. */
+function SongCover({ row, fallback, className = "" }: { row?: ThemeRow; fallback?: string | null; className?: string }) {
+  const src = row?.cover || fallback || null;
+  return (
+    <span className={`relative block shrink-0 overflow-hidden rounded-md bg-white/[0.06] ${className}`}>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
+      ) : null}
+    </span>
+  );
+}
+
+function Skeleton({ rows = 3, tall = false }: { rows?: number; tall?: boolean }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
+          <span className={`shrink-0 animate-pulse rounded-md bg-white/[0.07] ${tall ? "h-11 w-11" : "h-8 w-8"}`} />
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="h-3 w-3/5 animate-pulse rounded bg-white/[0.08]" style={{ animationDelay: `${i * 90}ms` }} />
+            <span className="h-2.5 w-2/5 animate-pulse rounded bg-white/[0.05]" style={{ animationDelay: `${i * 90}ms` }} />
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/* ── Le lecteur ──
+   UN SEUL MORCEAU À LA FOIS SUR LA PAGE. Chaque ligne garde son <audio>,
+   préchargé (`metadata` à l'affichage, le fichier entier au survol) : le clic
+   démarre aussitôt au lieu d'attendre le réseau (Luc : « elles mettent
+   beaucoup de temps à se lancer ou ne se lancent pas du tout »).
+   L'ORDRE DES SOURCES : le mp3 d'AnisongDB d'abord (0,5 s au premier octet),
+   le fichier audio d'AnimeThemes ensuite — a.animethemes.moe répondait 504
+   au bout de 60 s le 03/11/2026 —, sa vidéo en dernier. Une source en erreur,
+   ou qui n'a pas démarré 5 s après le clic, passe la main à la suivante. */
+let playing: HTMLAudioElement | null = null;
+const STALL_MS = 5000;
+
+function fmt(s: number) {
+  if (!Number.isFinite(s) || s < 0) return "0:00";
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+}
+
+function useTrack(sources: (string | null | undefined)[]) {
+  const key = Array.from(new Set(sources.filter(Boolean))).join("|");
+  const ref = useRef<HTMLAudioElement | null>(null);
+  /** Passe à la source suivante (posée par l'effet, appelée par le délai). */
+  const nextRef = useRef<() => void>(() => {});
+  const stall = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [state, setState] = useState({ on: false, loading: false, t: 0, d: 0, started: false });
+  useEffect(() => {
+    const list = key ? key.split("|") : [];
+    if (!list.length) return;
+    let k = 0;
+    const a = new Audio();
+    a.preload = "metadata";
+    a.volume = 0.6;
+    a.src = list[0];
+    ref.current = a;
+    const sync = () =>
+      setState((s) => ({ ...s, on: !a.paused, t: a.currentTime, d: Number.isFinite(a.duration) ? a.duration : s.d }));
+    const onWait = () => setState((s) => ({ ...s, loading: true }));
+    const onPlay = () => {
+      clearTimeout(stall.current);
+      setState((s) => ({ ...s, loading: false, on: true, started: true }));
+    };
+    const onErr = () => {
+      clearTimeout(stall.current);
+      if (k + 1 >= list.length) {
+        setState((s) => ({ ...s, loading: false, on: false }));
+        return;
+      }
+      const wasOn = playing === a;
+      a.src = list[++k];
+      if (wasOn) {
+        stall.current = setTimeout(onErr, STALL_MS);
+        void a.play().catch(() => {});
+      }
+    };
+    nextRef.current = onErr;
+    a.addEventListener("timeupdate", sync);
+    a.addEventListener("loadedmetadata", sync);
+    a.addEventListener("pause", sync);
+    a.addEventListener("ended", sync);
+    a.addEventListener("waiting", onWait);
+    a.addEventListener("playing", onPlay);
+    a.addEventListener("error", onErr);
+    return () => {
+      clearTimeout(stall.current);
+      a.pause();
+      if (playing === a) playing = null;
+      a.removeAttribute("src");
+      a.load();
+      ref.current = null;
+    };
+  }, [key]);
+  const warm = () => {
+    const a = ref.current;
+    if (a && a.preload !== "auto") a.preload = "auto";
+  };
+  const toggle = () => {
+    const a = ref.current;
+    if (!a) return;
+    if (!a.paused) {
+      clearTimeout(stall.current);
+      a.pause();
+      return;
+    }
+    if (playing && playing !== a) playing.pause();
+    playing = a;
+    const ready = a.readyState >= 3;
+    setState((s) => ({ ...s, loading: !ready }));
+    clearTimeout(stall.current);
+    if (!ready) stall.current = setTimeout(() => nextRef.current(), STALL_MS);
+    void a.play().catch((e: unknown) => {
+      /* Refus du navigateur (pas d'interaction) : rien à essayer d'autre. */
+      if ((e as Error)?.name === "NotAllowedError") {
+        clearTimeout(stall.current);
+        setState((s) => ({ ...s, loading: false, on: false }));
+      }
+    });
+  };
+  const seek = (t: number) => {
+    const a = ref.current;
+    if (!a) return;
+    a.currentTime = t;
+    setState((s) => ({ ...s, t, started: true }));
+  };
+  return { has: !!key, ...state, warm, toggle, seek };
+}
+
+function TrackRow({
+  rank,
+  row,
+  slug,
+  animeTitle,
+  animeCover,
+  loading,
+}: {
+  rank: number;
+  row?: ThemeRow;
+  slug: string;
+  animeTitle?: string;
+  animeCover?: string | null;
+  loading: boolean;
+}) {
+  const { t } = useTranslation();
+  const track = useTrack([row?.alt, row?.video?.audio, row?.video?.url]);
+  if (loading) return <Skeleton rows={1} tall />;
+  const pct = track.d ? (track.t / track.d) * 100 : 0;
+  return (
+    <div
+      onPointerEnter={track.warm}
+      className={`flex flex-col gap-1 rounded-xl px-2 py-1.5 transition-colors ${track.started ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"}`}
+    >
+      <div className="flex items-center gap-3">
+        <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{rank}</span>
+        <SongCover row={row} fallback={animeCover} className="h-11 w-11" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold text-white">{row?.song ?? slug}</p>
+          <p className="flex min-w-0 items-center gap-1.5 font-karla text-[11px] text-txt">
+            <KindChip row={row} slug={slug} />
+            <span className="truncate">
+              {animeTitle ?? "…"}
+              {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
+            </span>
+          </p>
+        </div>
+        {track.has ? (
+          <button
+            type="button"
+            aria-label={t(track.on ? "profile.blocks.themes.pause" : "profile.blocks.themes.play")}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              track.toggle();
+            }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-action text-white shadow-[0_4px_12px_rgba(0,0,0,0.35)] transition-transform hover:scale-105"
+          >
+            {track.loading ? (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5">
+                {track.on ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
+              </svg>
+            )}
+          </button>
+        ) : (
+          <span className="h-8 w-8 shrink-0" />
+        )}
+      </div>
+      {/* LA BARRE D'ÉCOUTE (Luc : « pour écouter la musique là où on veut ») :
+          elle apparaît dès qu'on a lancé le morceau. */}
+      {track.started ? (
+        <div className="flex items-center gap-2 pl-7 pr-1">
+          <span className="w-8 text-right font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
+          <span className="as-range relative block h-3 min-w-0 flex-1">
+            <span className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/[0.14]" />
+            <span className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-action" style={{ width: `${pct}%` }} />
+            <input
+              type="range"
+              min={0}
+              max={track.d || 0}
+              step={0.1}
+              value={Math.min(track.t, track.d || 0)}
+              onChange={(e) => track.seek(Number(e.target.value))}
+              style={{ pointerEvents: "auto" }}
+              aria-label={row?.song ?? slug}
+            />
+          </span>
+          <span className="w-8 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.d)}</span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -811,27 +1051,38 @@ export function ThemesBlock({
     return <EmptyBlock note={t(isOwner ? "profile.blocks.themes.emptyOwner" : "profile.blocks.themes.empty")} />;
 
   return (
-    <div className="as-scroller grid h-full min-h-0 content-start gap-1.5 overflow-y-auto pr-1">
+    <div className="as-scroller grid h-full min-h-0 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto overflow-x-hidden pr-1">
       {favs.map((f, i) => {
-        const row = themes.get(f.a)?.find((x) => x.slug === f.s);
+        const list = themes.get(f.a);
         const m = meta.get(f.a);
         return (
-          <div key={`${f.a}-${f.s}`} className="flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-white/[0.04]">
-            <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
-            <Cover src={m?.cover} className="h-11" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-semibold text-white">{row?.song ?? f.s}</p>
-              <p className="truncate font-karla text-[11px] text-txt">
-                <span className="mr-1.5 rounded bg-white/[0.08] px-1 py-px font-bold text-white/70">{f.s}</span>
-                {m?.title ?? "…"}
-                {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
-              </p>
-            </div>
-            <PlayButton src={row?.video?.audio || row?.video?.url} />
-          </div>
+          <TrackRow
+            key={`${f.a}-${f.s}`}
+            rank={i + 1}
+            slug={f.s}
+            row={list?.find((x) => x.slug === f.s)}
+            animeTitle={m?.title}
+            animeCover={m?.cover}
+            loading={!list}
+          />
         );
       })}
     </div>
+  );
+}
+
+function BackButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex shrink-0 items-center gap-1 rounded-full bg-white/[0.06] py-1 pl-1.5 pr-3 font-karla text-[12px] font-bold text-white/75 ring-1 ring-white/10 transition-colors hover:bg-white/[0.1] hover:text-white"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+        <polyline points="15 18 9 12 15 6" />
+      </svg>
+      {label}
+    </button>
   );
 }
 
@@ -852,11 +1103,20 @@ function ThemeEditor({
   const [anime, setAnime] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [rows, setRows] = useState<ThemeRow[] | null>(null);
+  /* Le glisser-déposer (Luc : « au lieu d'une flèche, qu'on puisse les
+     drag ») : la ligne prise, et la place où elle tomberait. */
+  const [drag, setDrag] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const pickedMeta = useAnimeMeta(anime != null ? [anime] : [], entries);
   useEffect(() => {
     if (anime == null) return;
     setRows(null);
     let alive = true;
-    void themesOf(anime).then((r) => alive && setRows(r));
+    void themesOf(anime, (base) => {
+      if (alive) setRows(base);
+    }).then((r) => {
+      if (alive) setRows(r);
+    });
     return () => {
       alive = false;
     };
@@ -875,15 +1135,17 @@ function ThemeEditor({
       />
     );
 
-  if (anime != null)
+  if (anime != null) {
+    const am = pickedMeta.get(anime);
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-2">
-        <button type="button" onClick={() => setAnime(null)} className="self-start font-karla text-[12px] text-white/60 hover:text-white">
-          ← {t("profile.blocks.pinned.cancel")}
-        </button>
+        <div className="flex min-w-0 items-center gap-2">
+          <BackButton onClick={() => setAnime(null)} label={t("profile.blocks.themes.back")} />
+          <span className="min-w-0 truncate font-karla text-[12px] font-semibold text-white/70">{am?.title ?? ""}</span>
+        </div>
         <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
           {rows == null ? (
-            <p className="py-4 text-center font-karla text-[12px] text-white/50">…</p>
+            <Skeleton rows={6} />
           ) : !rows.length ? (
             <p className="py-4 text-center font-karla text-[12px] text-white/50">{t("profile.blocks.themes.none")}</p>
           ) : (
@@ -898,11 +1160,16 @@ function ThemeEditor({
                     onChange([...favs, { a: anime, s: r.slug }].slice(0, THEMES_MAX));
                     setAnime(null);
                   }}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/[0.06] disabled:opacity-40"
+                  className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left hover:bg-white/[0.06] disabled:opacity-40"
                 >
-                  <span className="rounded bg-white/[0.08] px-1 font-karla text-[11px] font-bold text-white/70">{r.slug}</span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-white">{r.song ?? r.slug}</span>
-                  <span className="truncate font-karla text-[11px] text-txt">{r.artists?.join(", ")}</span>
+                  <SongCover row={r} fallback={am?.cover} className="h-8 w-8" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <KindChip row={r} slug={r.slug} />
+                      <span className="truncate text-[13px] font-semibold text-white">{r.song ?? r.slug}</span>
+                    </span>
+                    <span className="truncate font-karla text-[11px] text-txt">{r.artists?.join(", ")}</span>
+                  </span>
                 </button>
               );
             })
@@ -910,32 +1177,71 @@ function ThemeEditor({
         </div>
       </div>
     );
+  }
 
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = favs.slice();
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    onChange(next);
+  };
   return (
-    <div className="as-scroller grid h-full min-h-0 content-start gap-1.5 overflow-y-auto pr-1">
+    <div className="as-scroller grid h-full min-h-0 grid-cols-[minmax(0,1fr)] content-start gap-1.5 overflow-y-auto overflow-x-hidden pr-1">
       {favs.map((f, i) => {
-        const row = themes.get(f.a)?.find((x) => x.slug === f.s);
+        const list = themes.get(f.a);
+        const row = list?.find((x) => x.slug === f.s);
+        const m = meta.get(f.a);
         return (
-          <div key={`${f.a}-${f.s}`} className="flex items-center gap-2 rounded-xl bg-black/15 px-2 py-1.5 ring-1 ring-white/[0.06]">
-            <span className="w-4 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
-            <Cover src={meta.get(f.a)?.cover} className="h-9" />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-white">
-              <b className="mr-1 font-karla text-[11px] text-white/70">{f.s}</b>
-              {row?.song ?? meta.get(f.a)?.title}
+          <div
+            key={`${f.a}-${f.s}`}
+            draggable
+            onDragStart={(e) => {
+              setDrag(i);
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", String(i));
+            }}
+            onDragOver={(e) => {
+              if (drag == null) return;
+              e.preventDefault();
+              setOver(i);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (drag != null) move(drag, i);
+              setDrag(null);
+              setOver(null);
+            }}
+            onDragEnd={() => {
+              setDrag(null);
+              setOver(null);
+            }}
+            className={`flex min-w-0 cursor-grab items-center gap-2 rounded-xl bg-black/15 px-2 py-1.5 ring-1 transition-[opacity,box-shadow] active:cursor-grabbing ${
+              drag === i ? "opacity-40 ring-white/[0.06]" : over === i && drag != null ? "ring-action" : "ring-white/[0.06]"
+            }`}
+          >
+            {/* La poignée : six points, comme partout où l'on range. */}
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-white/30" aria-hidden>
+              <circle cx="9" cy="6" r="1.6" />
+              <circle cx="15" cy="6" r="1.6" />
+              <circle cx="9" cy="12" r="1.6" />
+              <circle cx="15" cy="12" r="1.6" />
+              <circle cx="9" cy="18" r="1.6" />
+              <circle cx="15" cy="18" r="1.6" />
+            </svg>
+            <span className="w-3 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
+            {list ? (
+              <SongCover row={row} fallback={m?.cover} className="h-9 w-9" />
+            ) : (
+              <span className="h-9 w-9 shrink-0 animate-pulse rounded-md bg-white/[0.07]" />
+            )}
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <KindChip row={row} slug={f.s} />
+                <span className="truncate text-[13px] font-semibold text-white">{row?.song ?? (list ? f.s : "…")}</span>
+              </span>
+              <span className="truncate font-karla text-[11px] text-txt">{m?.title ?? ""}</span>
             </span>
-            <button
-              type="button"
-              disabled={i === 0}
-              aria-label="↑"
-              onClick={() => {
-                const next = favs.slice();
-                [next[i - 1], next[i]] = [next[i], next[i - 1]];
-                onChange(next);
-              }}
-              className="px-1 text-white/50 hover:text-white disabled:opacity-20"
-            >
-              ↑
-            </button>
             <button
               type="button"
               aria-label={t("profile.blocks.pinned.remove")}

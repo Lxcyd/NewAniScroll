@@ -1158,9 +1158,10 @@
         "emptyOwner": "Switch to Customize and click the pencil to choose your favourite openings and endings.",
         "manage": "Choose themes",
         "add": "Add a theme",
-        "none": "AnimeThemes has no theme for this title.",
+        "none": "No known music for this title.",
         "play": "Play",
-        "pause": "Pause"
+        "pause": "Pause",
+        "back": "Back"
       },
       "badges": {
         "title": "Badges & achievements",
