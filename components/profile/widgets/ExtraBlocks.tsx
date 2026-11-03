@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
@@ -15,6 +16,7 @@ import { revealAnchor } from "@/lib/badges/reveal";
 import BadgeDefs from "../badges/BadgeDefs";
 import BadgeToken from "../badges/BadgeToken";
 import { Bar, EmptyBlock } from "./common";
+import HoverVolume from "@/components/shared/HoverVolume";
 
 /**
  * LES SEPT DERNIERS BLOCS DU PROFIL (03/11/2026, Luc : « procède comme les
@@ -956,39 +958,57 @@ function useTrack(sources: (string | null | undefined)[]) {
    personnel pour le volume, pour les users aussi ») : chaque visiteur règle le
    sien, gardé dans son navigateur, et tous les morceaux le suivent. */
 const VOL_KEY = "aniscroll:themesVolume";
+const MUTE_KEY = "aniscroll:themesMuted";
+/* Chaque écouteur reçoit le volume EFFECTIF (0 quand coupé). */
 const volListeners = new Set<(v: number) => void>();
 let volCache: number | null = null;
+let mutedCache = false;
 function readVolume(): number {
-  if (volCache != null) return volCache;
-  let v = 0.6;
-  try {
-    const raw = localStorage.getItem(VOL_KEY);
-    if (raw != null && Number.isFinite(Number(raw))) v = Math.min(1, Math.max(0, Number(raw)));
-  } catch {
-    /* stockage refusé : le défaut */
+  if (volCache == null) {
+    let v = 0.6;
+    try {
+      const raw = localStorage.getItem(VOL_KEY);
+      if (raw != null && Number.isFinite(Number(raw))) v = Math.min(1, Math.max(0, Number(raw)));
+      mutedCache = localStorage.getItem(MUTE_KEY) === "1";
+    } catch {
+      /* stockage refusé : le défaut */
+    }
+    volCache = v;
   }
-  volCache = v;
-  return v;
+  return mutedCache ? 0 : volCache;
 }
-function setVolume(v: number) {
-  volCache = Math.min(1, Math.max(0, v));
+function saveVolume() {
   try {
     localStorage.setItem(VOL_KEY, String(volCache));
+    localStorage.setItem(MUTE_KEY, mutedCache ? "1" : "0");
   } catch {
     /* best-effort */
   }
-  volListeners.forEach((f) => f(volCache!));
+  const eff = readVolume();
+  volListeners.forEach((f) => f(eff));
 }
-function useVolume(): number {
-  const [v, setV] = useState(0.6);
+function setVolume(v: number) {
+  readVolume();
+  volCache = Math.min(1, Math.max(0, v));
+  saveVolume();
+}
+function setMuted(m: boolean) {
+  readVolume();
+  mutedCache = m;
+  saveVolume();
+}
+function useVolume(): { v: number; muted: boolean } {
+  const [, tick] = useState(0);
   useEffect(() => {
-    setV(readVolume());
-    volListeners.add(setV);
+    const f = () => tick((n) => n + 1);
+    readVolume();
+    f();
+    volListeners.add(f);
     return () => {
-      volListeners.delete(setV);
+      volListeners.delete(f);
     };
   }, []);
-  return v;
+  return { v: volCache ?? 0.6, muted: mutedCache };
 }
 
 /**
@@ -1048,52 +1068,29 @@ function Rail({
       }}
       className={`relative h-2 cursor-pointer touch-none rounded-full bg-white/[0.09] outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${className}`}
     >
-      <span className="absolute inset-y-0 left-0 rounded-full bg-action" style={{ width: `${pct}%` }} />
+      {/* Au moins la hauteur du rail : le tout début reste un rond, pas un trait carré. */}
+      {pct > 0 ? (
+        <span className="absolute inset-y-0 left-0 rounded-full bg-action" style={{ width: `max(0.5rem, ${pct}%)` }} />
+      ) : null}
     </div>
   );
 }
 
-/** Le bouton du volume : un haut-parleur, et le rail en dessous au clic. */
+/** Le volume : le même geste que la musique du profil (`HoverVolume`). */
 function VolumeButton() {
   const { t } = useTranslation();
-  const v = useVolume();
-  const [open, setOpen] = useState(false);
-  const before = useRef(0.6);
+  const { v, muted } = useVolume();
   return (
-    <div className="flex items-center gap-2">
-      <div
-        className={`overflow-hidden transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${open ? "w-24 opacity-100" : "w-0 opacity-0"}`}
-      >
-        <Rail value={v} max={1} onSeek={setVolume} label={t("profile.blocks.themes.volume")} className="mx-1" />
-      </div>
-      <button
-        type="button"
-        aria-label={t("profile.blocks.themes.volume")}
-        title={t("profile.blocks.themes.volume")}
-        onClick={() => setOpen((o) => !o)}
-        onDoubleClick={() => {
-          if (v > 0) {
-            before.current = v;
-            setVolume(0);
-          } else setVolume(before.current || 0.6);
-        }}
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1 ring-white/10 transition-colors ${
-          open ? "bg-white/[0.12] text-white" : "bg-white/[0.05] text-white/60 hover:text-white"
-        }`}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
-          <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />
-          {v === 0 ? (
-            <path d="m22 9-6 6m0-6 6 6" />
-          ) : (
-            <>
-              <path d="M15.5 8.5a5 5 0 0 1 0 7" />
-              {v > 0.5 ? <path d="M18.5 5.5a9 9 0 0 1 0 13" /> : null}
-            </>
-          )}
-        </svg>
-      </button>
-    </div>
+    <HoverVolume
+      muted={muted}
+      volume={v}
+      onMuted={setMuted}
+      onVolume={setVolume}
+      fallback={0.6}
+      placement="up"
+      size={18}
+      label={t("profile.blocks.themes.volume")}
+    />
   );
 }
 
@@ -1246,27 +1243,25 @@ function startRowDrag(
   const rows = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-row]"));
   if (fromIndex < 0 || fromIndex >= rows.length) return;
   const dragged = rows[fromIndex];
-  const bodyRect = body.getBoundingClientRect();
-  const origRect = dragged.getBoundingClientRect();
-  let rowH = dragged.offsetHeight + 6;
-  if (rows.length > 1) rowH = rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
-  const initialY = origRect.top - bodyRect.top + body.scrollTop;
+  /* Plus fluide que l'original (03/11/2026, Luc) : tout bouge en `transform`,
+     sur le compositeur. Les autres lignes GLISSENT vers leur nouvelle place
+     au lieu de sauter, et la ligne lâchée se pose en douceur avant le commit. */
+  const step = rows.length > 1 ? rows[1].offsetTop - rows[0].offsetTop : dragged.offsetHeight + 6;
+  const EASE = "cubic-bezier(0.22,1,0.36,1)";
+  const MOVE_MS = 200;
+  const DROP_MS = 180;
 
-  body.style.position = "relative";
+  for (const r of rows) if (r !== dragged) r.style.transition = `transform ${MOVE_MS}ms ${EASE}`;
   Object.assign(dragged.style, {
-    position: "absolute",
-    left: "0",
-    right: "0",
+    position: "relative",
     zIndex: "50",
-    top: `${initialY}px`,
-    opacity: "0.5",
-    boxShadow: "0 8px 28px rgba(0,0,0,0.55)",
-    transition: "none",
+    opacity: "0.85",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.55)",
+    transition: "box-shadow 150ms, opacity 150ms",
+    cursor: "grabbing",
+    willChange: "transform",
   });
-  const ph = document.createElement("div");
-  ph.style.height = `${dragged.offsetHeight}px`;
-  ph.style.flexShrink = "0";
-  body.insertBefore(ph, dragged);
+  document.body.style.cursor = "grabbing";
 
   let toIndex = fromIndex;
   let ended = false;
@@ -1276,21 +1271,19 @@ function startRowDrag(
     /* le pointeur est déjà parti */
   }
 
+  const minDy = -dragged.offsetTop + rows[0].offsetTop;
+  const maxDy = rows[rows.length - 1].offsetTop - dragged.offsetTop;
   const onMove = (clientY: number) => {
-    const top = Math.max(0, initialY + clientY - startClientY);
-    dragged.style.top = `${top}px`;
-    const centre = top + rowH / 2;
-    const others = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-row]")).filter((r) => r !== dragged);
-    let best = 0;
-    for (let i = 0; i < others.length; i++) if (centre > others[i].offsetTop + rowH / 2) best = i + 1;
-    toIndex = best;
-    const anchor = others[best] ?? null;
-    if (anchor) body.insertBefore(ph, anchor);
-    else {
-      const last = others[others.length - 1];
-      if (last?.nextSibling) body.insertBefore(ph, last.nextSibling);
-      else body.appendChild(ph);
-    }
+    const dy = Math.min(maxDy + step * 0.3, Math.max(minDy - step * 0.3, clientY - startClientY));
+    dragged.style.transform = `translateY(${dy}px) scale(1.02)`;
+    toIndex = Math.min(rows.length - 1, Math.max(0, fromIndex + Math.round(dy / step)));
+    rows.forEach((r, i) => {
+      if (r === dragged) return;
+      let shift = 0;
+      if (fromIndex < toIndex && i > fromIndex && i <= toIndex) shift = -step;
+      else if (toIndex < fromIndex && i >= toIndex && i < fromIndex) shift = step;
+      r.style.transform = shift ? `translateY(${shift}px)` : "";
+    });
   };
   const onEnd = () => {
     if (ended) return;
@@ -1298,16 +1291,24 @@ function startRowDrag(
     document.removeEventListener("pointermove", onPM);
     document.removeEventListener("pointerup", onEnd);
     document.removeEventListener("pointercancel", onEnd);
-    for (const k of ["position", "left", "right", "zIndex", "top", "opacity", "boxShadow", "transition"] as const)
-      dragged.style[k] = "";
-    body.style.position = "";
-    ph.remove();
+    document.body.style.cursor = "";
     try {
       dragged.releasePointerCapture(pointerId);
     } catch {
       /* déjà relâché */
     }
-    done(fromIndex, toIndex);
+    // La ligne se pose dans son emplacement, puis l'ordre est commité.
+    dragged.style.transition = `transform ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms, opacity ${DROP_MS}ms`;
+    dragged.style.transform = `translateY(${(toIndex - fromIndex) * step}px)`;
+    dragged.style.boxShadow = "";
+    dragged.style.opacity = "";
+    setTimeout(() => {
+      // Le nouvel ordre et l'effacement des décalages dans la même image : pas de saut.
+      flushSync(() => done(fromIndex, toIndex));
+      for (const r of rows)
+        for (const k of ["transition", "transform", "position", "zIndex", "opacity", "boxShadow", "cursor", "willChange"] as const)
+          r.style[k] = "";
+    }, DROP_MS);
   };
   const onPM = (e: PointerEvent) => onMove(e.clientY);
   document.addEventListener("pointermove", onPM);
@@ -1423,17 +1424,17 @@ function ThemeEditor({
             <div
               key={`${f.a}-${f.s}`}
               data-drag-row
-              className="flex min-w-0 items-center gap-2.5 rounded-[14px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 transition-colors hover:border-white/10 hover:bg-white/[0.065]"
+              /* Toute la carte se saisit (03/11/2026, Luc), sauf la croix. */
+              onPointerDown={(e) => {
+                if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
+              }}
+              className="group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-2.5 rounded-[14px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 hover:border-white/10 hover:bg-white/[0.065]"
             >
-              {/* La poignée du gestionnaire de listes (`.clm2-drag`) : seule
-                  elle saisit la ligne, le reste se clique. */}
               <span
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
-                }}
-                className="flex h-5 w-5 shrink-0 cursor-grab touch-none items-center justify-center text-white/25 transition-colors hover:text-white/60 active:cursor-grabbing active:text-white/90"
+                className="flex h-5 w-5 shrink-0 items-center justify-center text-white/25 transition-colors group-hover/row:text-white/60"
               >
                 <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
                   <circle cx="9" cy="6" r="1.6" />
