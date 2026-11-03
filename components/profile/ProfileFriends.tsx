@@ -146,7 +146,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
           </div>
         </Group>
       ) : null}
-      {adding ? <AddDialog tag={tag} name={name} onClose={() => setAdding(false)} /> : null}
+      {adding ? <AddDialog onClose={() => setAdding(false)} /> : null}
     </Shell>
   );
 }
@@ -347,7 +347,7 @@ function AddButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function AddDialog({ tag, name, onClose }: { tag: string; name: string; onClose: () => void }) {
+function AddDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
   const [res, setRes] = useState<(FriendCard & { state: FriendState | "none" })[] | null>(null);
@@ -474,12 +474,6 @@ function AddDialog({ tag, name, onClose }: { tag: string; name: string; onClose:
           ) : (
             <p className="px-3 py-6 text-center font-karla text-[13px] text-white/45">{t("profile.friends.noResult")}</p>
           )}
-        </div>
-
-        {/* Pour être trouvé à son tour : son identifiant, copiable. */}
-        <div className="flex items-center justify-between gap-3 border-t border-white/[0.07] bg-white/[0.02] px-5 py-3.5">
-          <span className="font-karla text-[12px] text-white/50">{t("profile.friends.myIdHint")}</span>
-          <CopyId tag={tag} name={name} />
         </div>
       </div>
     </div>,
