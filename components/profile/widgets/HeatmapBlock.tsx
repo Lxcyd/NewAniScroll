@@ -167,7 +167,7 @@ export function HeatmapBlock({
     const start = mondayOf(today);
     start.setDate(start.getDate() - (ALL_WEEKS - 1 + back) * 7);
     const cols: { key: string; date: Date; n: number; future: boolean }[][] = [];
-    const months: { col: number; end: number; label: string; key: string }[] = [];
+    const months: { col: number; end: number; label: string; key: string; year?: number }[] = [];
     /* Noms de mois ABRÉGÉS, centrés sur leurs semaines (03/11/2026, Luc). */
     const fmtMonth = new Intl.DateTimeFormat(locale, { month: "short" });
     let max = 1;
@@ -183,7 +183,15 @@ export function HeatmapBlock({
         if (date.getDate() === 1) {
           /* Majuscule posée ici : `capitalize` ne prenait que sur certains mois. */
           const name = fmtMonth.format(date);
-          months.push({ col: c, end: ALL_WEEKS, label: name.charAt(0).toUpperCase() + name.slice(1), key: `${date.getFullYear()}-${date.getMonth()}` });
+          months.push({
+            col: c,
+            end: ALL_WEEKS,
+            label: name.charAt(0).toUpperCase() + name.slice(1),
+            key: `${date.getFullYear()}-${date.getMonth()}`,
+            /* L'ANNÉE (03/11/2026, Luc) : sur le premier mois affiché et sur
+               chaque janvier, là où elle change. */
+            year: !months.length || date.getMonth() === 0 ? date.getFullYear() : undefined,
+          });
         }
       }
       cols.push(col);
@@ -442,7 +450,7 @@ export function HeatmapBlock({
             {/* Les mois, centrés sur leurs semaines ; allumés avec leur
                 première semaine par le séquenceur. */}
             {grid.months.map((m) => {
-              const half = Math.ceil(m.label.length * 2.75);
+              const half = Math.ceil((m.label.length + (m.year ? 5 : 0)) * 2.75);
               const center = labelW + ((m.col + m.end - 1) / 2) * pitch + geo.cell / 2;
               return (
                 <span
@@ -456,6 +464,7 @@ export function HeatmapBlock({
                   style={{ left: Math.min(center, fullW - half) }}
                 >
                   {m.label}
+                  {m.year ? <span className="ml-1 font-bold text-white/75">{m.year}</span> : null}
                 </span>
               );
             })}
