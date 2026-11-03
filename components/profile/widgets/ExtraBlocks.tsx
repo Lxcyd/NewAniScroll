@@ -9,12 +9,10 @@ import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
-import { affinity, readAffinity, type Visited } from "@/lib/profile/affinity";
+import { affinity, readAffinity, tasteOf, type Visited } from "@/lib/profile/affinity";
+import { cachedFriends, loadFriends, type Friend } from "@/lib/anilist/friends";
+import { useSession } from "next-auth/react";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { BADGES, BY_ID } from "@/lib/badges/catalog";
-import { revealAnchor } from "@/lib/badges/reveal";
-import BadgeDefs from "../badges/BadgeDefs";
-import BadgeToken from "../badges/BadgeToken";
 import { Bar, EmptyBlock } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
 
@@ -1615,49 +1613,6 @@ function ThemeEditor({
   );
 }
 
-/* ── Badges & succès ───────────────────────────────────────────────────── */
-
-export function BadgesBlock({ earned }: { earned: Record<string, number> | null | undefined }) {
-  const { t } = useTranslation();
-  const got = useMemo(
-    () =>
-      Object.entries(earned ?? {})
-        .filter(([id]) => BY_ID[id])
-        .sort((a, b) => b[1] - a[1])
-        .map(([id]) => id),
-    [earned],
-  );
-  const total = BADGES.filter((b) => !b.secret).length;
-  if (!got.length) return <EmptyBlock note={t("profile.blocks.badges.empty")} />;
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
-      <BadgeDefs />
-      <p className="font-karla text-[12px] text-txt">
-        <b className="font-outfit text-[18px] text-white">{got.length}</b> / {total} · {t("profile.blocks.badges.recent")}
-      </p>
-      {/* Les plus récents d'abord ; ceux qui ne tiennent pas sont coupés par
-          la carte, l'onglet Badges les a tous. */}
-      <div className="flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-hidden">
-        {got.map((id) => {
-          const def = BY_ID[id];
-          const name = t(`badges.${id}.name`);
-          return (
-            <a
-              key={id}
-              href={`#${revealAnchor(id)}`}
-              title={name}
-              aria-label={name}
-              className="block rounded-lg transition-transform duration-200 hover:scale-110"
-            >
-              <BadgeToken id={id} rarity={def.rarity} icon={def.icon} tag={def.tag} unlocked size={52} />
-            </a>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /* ── Affinité de goûts ─────────────────────────────────────────────────── */
 
 export function AffinityBlock({
@@ -1671,17 +1626,55 @@ export function AffinityBlock({
   name: string;
 }) {
   const { t } = useTranslation();
+  const { data: session } = useSession();
+  const token = (session as { user?: { token?: string } } | null)?.user?.token;
   const [store, setStore] = useState<ReturnType<typeof readAffinity> | null>(null);
   /* Lu après le montage : c'est l'appareil du LECTEUR, le serveur ne l'a pas. */
   useEffect(() => setStore(readAffinity()), [entries]);
 
+  /* LES AMIS ANILIST (03/11/2026, Luc : « finis ceci ») : les comptes suivis
+     sur AniList, lus par ce navigateur et gardés 24 h (lib/anilist/friends.ts).
+     Ils s'ajoutent aux profils visités. */
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  useEffect(() => {
+    if (!isOwner) return;
+    setFriends(cachedFriends());
+    if (!token) return;
+    let alive = true;
+    setLoadingFriends(true);
+    void loadFriends(token, (all) => {
+      if (alive) setFriends(all);
+    })
+      .then((all) => {
+        if (alive) setFriends(all);
+      })
+      .finally(() => {
+        if (alive) setLoadingFriends(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isOwner, token]);
+
   const ranked = useMemo(() => {
-    if (!store || !isOwner || !store.me) return [];
-    return store.others
-      .map((o: Visited) => ({ o, m: affinity(store.me!, o.taste) }))
+    const me = store?.me ?? (entries.length ? tasteOf(entries) : undefined);
+    if (!store || !isOwner || !me) return [];
+    const people: Visited[] = friends.map((f) => ({
+      name: f.name,
+      avatar: f.avatar,
+      href: `/en/profile/${encodeURIComponent(f.name)}`,
+      at: 0,
+      taste: f.taste,
+    }));
+    /* Un ami déjà visité n'apparaît qu'une fois (sa liste AniList, plus fraîche). */
+    const seen = new Set(people.map((p) => p.name.toLowerCase()));
+    for (const o of store.others) if (!seen.has(o.name.toLowerCase())) people.push(o);
+    return people
+      .map((o) => ({ o, m: affinity(me, o.taste) }))
       .filter((x) => x.m.shared > 0)
       .sort((a, b) => b.m.pct - a.m.pct);
-  }, [store, isOwner]);
+  }, [store, isOwner, friends, entries]);
 
   if (!store) return <div className="h-full" />;
 
@@ -1712,9 +1705,18 @@ export function AffinityBlock({
     );
   }
 
-  if (!ranked.length) return <EmptyBlock note={t("profile.blocks.affinity.empty")} />;
+  if (!ranked.length) {
+    if (loadingFriends) return <Skeleton rows={3} />;
+    return <EmptyBlock note={t(token ? "profile.blocks.affinity.empty" : "profile.blocks.affinity.emptyNoAniList")} />;
+  }
   return (
     <div className="as-scroller grid h-full min-h-0 content-start gap-2 overflow-y-auto pr-1">
+      {loadingFriends ? (
+        <p className="flex items-center gap-2 px-1.5 font-karla text-[11px] text-white/45">
+          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+          {t("profile.blocks.affinity.loading")}
+        </p>
+      ) : null}
       {ranked.map(({ o, m }) => (
         <Link key={o.href} href={o.href} className="flex items-center gap-3 rounded-xl px-1.5 py-1 hover:bg-white/[0.04]">
           {o.avatar ? (

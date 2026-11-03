@@ -1177,22 +1177,18 @@
         "retry": "Retry",
         "unavailable": "Unavailable right now: the source isn't responding. Click to retry."
       },
-      "badges": {
-        "title": "Badges & achievements",
-        "desc": "What you've unlocked.",
-        "empty": "No badge earned yet.",
-        "recent": "most recent"
-      },
       "affinity": {
         "title": "Taste affinity",
-        "desc": "Your friends, ranked by affinity.",
-        "empty": "Visit profiles: they'll show up here, ranked by shared taste.",
+        "desc": "Your AniList friends and visited profiles, ranked by shared taste.",
+        "empty": "No friends to compare yet: follow people on AniList, or visit profiles.",
         "noMe": "Open your own profile once on this device to compare yourself with others.",
         "youAnd": "You and {{name}}",
         "shared_one": "{{count}} title in common",
         "shared_other": "{{count}} titles in common",
         "rated_one": "{{count}} rated by both",
-        "rated_other": "{{count}} rated by both"
+        "rated_other": "{{count}} rated by both",
+        "emptyNoAniList": "Connect your AniList account to compare with your friends, or visit profiles.",
+        "loading": "Reading your AniList friends' lists…"
       },
       "bingo": {
         "title": "Season bingo",

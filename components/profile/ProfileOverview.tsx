@@ -29,7 +29,6 @@ import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
   AffinityBlock,
-  BadgesBlock,
   BingeBlock,
   BingoBlock,
   GoalBlock,
@@ -951,8 +950,6 @@ export default function ProfileOverview({
             byKind={optionValue("themes", "themesSort") === "kind"}
           />
         );
-      case "badges":
-        return <BadgesBlock earned={earned} />;
       case "affinity":
         return <AffinityBlock isOwner={isOwner} entries={entries} name={who?.name ?? ""} />;
       case "bingo":

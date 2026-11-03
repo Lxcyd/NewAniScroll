@@ -1177,22 +1177,18 @@
         "retry": "Réessayer",
         "unavailable": "Indisponible pour l'instant : la source ne répond pas. Clique pour réessayer."
       },
-      "badges": {
-        "title": "Badges & succès",
-        "desc": "Ce que tu as débloqué.",
-        "empty": "Aucun badge obtenu pour l'instant.",
-        "recent": "les plus récents"
-      },
       "affinity": {
         "title": "Affinité de goûts",
-        "desc": "Tes amis classés par affinité.",
-        "empty": "Visite des profils : ils apparaîtront ici, classés selon vos goûts communs.",
+        "desc": "Tes amis AniList et les profils visités, classés par goûts communs.",
+        "empty": "Aucun ami à comparer pour l'instant : suis des comptes sur AniList, ou visite des profils.",
         "noMe": "Ouvre ton propre profil une fois sur cet appareil pour te comparer aux autres.",
         "youAnd": "Affinité entre toi et {{name}}",
         "shared_one": "{{count}} titre en commun",
         "shared_other": "{{count}} titres en commun",
         "rated_one": "{{count}} noté des deux côtés",
-        "rated_other": "{{count}} notés des deux côtés"
+        "rated_other": "{{count}} notés des deux côtés",
+        "emptyNoAniList": "Connecte ton compte AniList pour te comparer à tes amis, ou visite des profils.",
+        "loading": "Lecture des listes de tes amis AniList…"
       },
       "bingo": {
         "title": "Bingo de la saison",

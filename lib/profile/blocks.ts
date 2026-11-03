@@ -162,7 +162,7 @@ export const BLOCKS: BlockDef[] = [
   { id: "goal", size: [1, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎" },
   { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 1], color: "#E94560", source: "list", icon: "❏" },
   { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
-  { id: "badges", size: [2, 1], min: [1, 1], max: [4, 2], color: "#FFD700", source: "none", icon: "✦" },
+  /* « Badges & succès » retiré le 03/11/2026 (Luc) : l'onglet Badges suffit. */
   { id: "affinity", size: [2, 1], min: [2, 1], max: [4, 2], color: "#22c55e", source: "list", icon: "≈" },
   { id: "bingo", size: [2, 2], min: [2, 2], max: [3, 3], square: true, color: "#3B82F6", source: "device", icon: "▩" },
 ];
