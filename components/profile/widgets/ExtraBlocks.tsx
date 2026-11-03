@@ -525,18 +525,20 @@ export function PinnedBlock({
           <Link
             key={p.id}
             href={animeHref(p.id, clickTarget)}
-            className="group flex min-h-0 min-w-0 gap-3 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-black/25"
+            className="group relative flex min-h-0 min-w-0 gap-3 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-black/25"
           >
             <Cover src={m?.cover} className="h-full max-h-[160px] transition-transform duration-200 group-hover:scale-[1.03]" />
             <div className="flex min-w-0 flex-col justify-center gap-1.5">
               <p className="line-clamp-2 text-[13px] font-semibold leading-tight text-white">{m?.title ?? "…"}</p>
-              {showScore && scores.get(p.id) ? (
-                <p className="font-karla text-[12px] font-bold text-as-score">★ {scores.get(p.id)}</p>
-              ) : null}
               {p.note ? (
                 <p className="line-clamp-4 font-karla text-[12px] italic leading-snug text-txt">« {p.note} »</p>
               ) : null}
             </div>
+            {/* La note en bas à droite de la carte (03/11/2026, Luc, choisie
+                parmi 20) : une signature sous le commentaire. */}
+            {showScore && scores.get(p.id) ? (
+              <span className="absolute bottom-2 right-3 font-karla text-[12px] font-bold text-as-score">★ {scores.get(p.id)}</span>
+            ) : null}
           </Link>
         );
       })}
