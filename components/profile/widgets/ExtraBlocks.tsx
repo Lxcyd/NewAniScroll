@@ -397,6 +397,21 @@ export function GoalBlock({
       <div className="relative aspect-square min-h-0 flex-1" style={{ maxHeight: 132 }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
           <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+          {/* LE RYTHME EN ARC FANTÔME (03/11/2026, Luc, choisi parmi 20) : la
+              piste s'éclaircit jusqu'à où il faudrait en être aujourd'hui
+              pour finir pile le 31 décembre ; l'avancée se peint par-dessus. */}
+          <circle
+            cx="40"
+            cy="40"
+            r={R}
+            fill="none"
+            stroke="rgba(255,255,255,0.16)"
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeDasharray={`${C * Math.min(1, elapsed)} ${C}`}
+          >
+            <title>{t("profile.blocks.goal.paceMark", { count: pace })}</title>
+          </circle>
           <circle
             cx="40"
             cy="40"
@@ -408,14 +423,6 @@ export function GoalBlock({
             strokeDasharray={`${C * pct} ${C}`}
             className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           />
-          {/* LE RYTHME : où il faudrait en être aujourd'hui pour finir pile le
-              31 décembre (la part de l'année écoulée). Un trait en travers de
-              l'anneau ; son explication au survol. */}
-          <g transform={`rotate(${360 * Math.min(1, elapsed)} 40 40)`}>
-            <line x1={40 + R - 6} y1="40" x2={40 + R + 6} y2="40" stroke="white" strokeOpacity="0.55" strokeWidth="1.6" strokeLinecap="round">
-              <title>{t("profile.blocks.goal.paceMark", { count: pace })}</title>
-            </line>
-          </g>
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-outfit text-[26px] font-bold leading-none text-white">{done}</span>
