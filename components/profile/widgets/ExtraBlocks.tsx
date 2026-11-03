@@ -425,9 +425,9 @@ export function GoalBlock({
         </svg>
       </div>
       <div className="min-w-0">
-        <p className="font-outfit text-[30px] font-bold leading-none text-white">
+        <p className="font-outfit text-[40px] font-bold leading-none text-white">
           {done}
-          <span className="font-karla text-[14px] font-semibold text-txt"> / {target}</span>
+          <span className="font-karla text-[20px] font-semibold text-txt"> / {target}</span>
         </p>
         <p className="mt-1 font-karla text-[12px] text-txt">
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
