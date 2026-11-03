@@ -388,6 +388,11 @@ export function GoalBlock({
       ? Math.max(72, Math.min(280, box.h * 0.6, box.w * 0.7))
       : Math.max(72, Math.min(200, box.h * 0.92, box.w * 0.42));
   const k = Math.min(size / 84, tall ? 1.6 : 2);
+  /* LE TEXTE SUIT LA PLACE QUI LUI RESTE (03/11/2026, Luc : « plus gros quand
+     il y a de la place ») : ~100 px à droite de l'anneau en 1×1 = tailles de
+     base ; jusqu'à 2,2× quand la carte s'élargit. Empilé, il a toute la largeur. */
+  const room = tall ? box.w * 0.55 : box.w - size - 20 * Math.min(k, 1.8);
+  const tk = box.w ? Math.max(1, Math.min(2.2, room / 110)) : 1;
   return (
     /* L'anneau à gauche, le compte à droite (03/11/2026, Luc : « remets
        l'interface d'avant », après un essai avec le compte dans l'anneau). */
@@ -439,20 +444,20 @@ export function GoalBlock({
         </span>
       </div>
       <div className="min-w-0">
-        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 22 * Math.min(k, 1.9) }}>
+        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 22 * tk }}>
           {done}
-          <span className="font-karla font-semibold text-txt" style={{ fontSize: 12 * Math.min(k, 1.7) }}>
+          <span className="font-karla font-semibold text-txt" style={{ fontSize: 12 * tk }}>
             {" "}
             / {target}
           </span>
         </p>
-        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 9 * Math.min(k, 1.4) }}>
+        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 9 * Math.min(tk, 1.6) }}>
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
             fantôme le montre. Reste « Objectif atteint ». */}
         {done >= target ? (
-          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 9.5 * Math.min(k, 1.4) }}>
+          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 9.5 * Math.min(tk, 1.6) }}>
             {t("profile.blocks.goal.reached")}
           </p>
         ) : null}
