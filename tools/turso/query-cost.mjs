@@ -225,11 +225,27 @@ const CASES = [
     args: [ONE],
     max: 10,
   },
+  {
+    /* Lue à chaque vue d'un profil qui montre heatmap, calendrier, objectif,
+       bingo ou binge (03/11/2026). La clé primaire (user_id, kind) : 1 ligne. */
+    name: "fil d'activité AniList d'un compte (getAnilistFeed)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/userData.ts", "SELECT payload FROM user_data WHERE user_id = ? AND kind = ?"],
+    sql: "SELECT payload FROM user_data WHERE user_id = ? AND kind = ?",
+    args: ["query-cost", "anilist_feed"],
+    max: 5,
+  },
 ];
 
 let failed = 0;
 const fmt = (n) => Number(n).toLocaleString("en-US");
 for (const c of CASES) {
+  /* Une base dont le workflow n'a pas les identifiants : rien à mesurer. */
+  if (c.optional && (!process.env[DATABASES[c.db].url] || !process.env[DATABASES[c.db].token])) {
+    console.log(`- ${c.name} — identifiants ${c.db} absents, non mesuré`);
+    continue;
+  }
   const [file, fragment] = c.source;
   let src = "";
   try {
