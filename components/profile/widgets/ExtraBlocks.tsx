@@ -227,7 +227,7 @@ export function BingeBlock({
        cartes inclinées débordent de leur boîte, d'où un écart large. Plus
        gros, et sans la ligne « Demon Slayer et 4 autres » : le paquet les
        montre tous. */
-    <div ref={rootRef} className="as-binge relative flex h-full min-h-0 items-center pl-1">
+    <div ref={rootRef} className="as-binge relative flex h-full min-h-0 items-center pl-2.5">
       <BingeDeck ids={ids} counts={counts} meta={meta} width={box.w} height={box.h} clickTarget={clickTarget} />
       {/* Au milieu de la place qui reste à droite du paquet, centré
           (03/11/2026, Luc : « plus à droite, et centre le nombre »). */}
@@ -237,9 +237,11 @@ export function BingeBlock({
           {t("profile.blocks.binge.episodes", { count: binge.n })}
         </p>
         <p className="as-binge-d mt-1.5 font-karla text-txt">
-          {h ? t("profile.blocks.binge.duration", { h, m: String(m).padStart(2, "0") }) : t("profile.blocks.binge.minutes", { m })}
-          {" · "}
-          {date}
+          <span className="whitespace-nowrap">
+            {h ? t("profile.blocks.binge.duration", { h, m: String(m).padStart(2, "0") }) : t("profile.blocks.binge.minutes", { m })}
+            {" ·"}
+          </span>{" "}
+          <span className="whitespace-nowrap">{date}</span>
         </p>
       </div>
     </div>
@@ -275,20 +277,29 @@ function BingeDeck({
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState<number | null>(null);
   const n = ids.length;
-  const cardH = Math.max(60, Math.min(height * 0.88, 160, width * 0.42 * 1.5));
+  /* En 2×1, le paquet prend plus de place (03/11/2026, Luc) : cartes plus
+     hautes, éventail plus ouvert, jusqu'à 60 % de la largeur. */
+  const roomy = width > 420;
+  const cardH = Math.max(60, Math.min(height * (roomy ? 0.9 : 0.88), roomy ? 230 : 160, width * 0.42 * 1.5));
   const cardW = (cardH * 2) / 3;
   /* Serré : chaque carte dépasse d'un quart de la précédente, moins quand il
      y en a beaucoup. Étalé : jusqu'à une carte entière, dans la largeur. */
   /* Le paquet serré ne prend jamais plus de la moitié de la carte : en 1×1,
      le texte garde sa place (03/11/2026, Luc : « pas responsive »). */
-  const tight = n > 1 ? Math.max(0, Math.min(cardW * 0.26, (cardW * 1.2) / (n - 1), (width * 0.5 - cardW) / (n - 1))) : 0;
+  const share = roomy ? 0.56 : 0.5;
+  const tight =
+    n > 1
+      ? /* Peu de cartes : elles se chevauchent toujours, mais occupent la
+           place au lieu de rester tassées (03/11/2026, Luc). */
+        Math.max(0, Math.min(cardW * (roomy ? 0.6 : 0.45), (width * share - cardW) / (n - 1)))
+      : 0;
   const wide = n > 1 ? Math.max(tight, Math.min(cardW * 1.06, (width - cardW - 8) / (n - 1))) : 0;
   const step = open ? wide : tight;
   const mid = (n - 1) / 2;
   return (
     <div
       className="as-deck relative z-10 shrink-0 self-center"
-      style={{ width: cardW + tight * (n - 1) + 6, height: cardH }}
+      style={{ width: cardW + tight * (n - 1) + 6, height: cardH, marginLeft: roomy ? cardH * 0.06 : 0 }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => {
         setOpen(false);
