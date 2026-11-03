@@ -19,6 +19,7 @@ import { lazyWithPreload, preloadWhenIdle } from "@/lib/hooks/lazyWithPreload";
 export const ProfileList = lazyWithPreload(() => import("./ProfileList"));
 export const ProfileStatsPanel = lazyWithPreload(() => import("./ProfileStats"));
 export const ProfileBadges = lazyWithPreload(() => import("./ProfileBadges"));
+export const ProfileFriends = lazyWithPreload(() => import("./ProfileFriends"));
 
 /** A appeler dans un effet de montage ; rend la fonction d'annulation. */
 export function preloadProfileTabs() {
@@ -26,5 +27,6 @@ export function preloadProfileTabs() {
     ProfileList.preload,
     ProfileStatsPanel.preload,
     ProfileBadges.preload,
+    ProfileFriends.preload,
   );
 }

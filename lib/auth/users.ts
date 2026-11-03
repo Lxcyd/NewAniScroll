@@ -6,6 +6,7 @@
  */
 
 import type { Row } from "@libsql/client";
+import { dropFriends, moveFriends } from "./friends";
 import { usersDb as db } from "../db/turso-users";
 import { mintTag, ulid } from "./ids";
 import { open, seal } from "./secretBox";
@@ -391,6 +392,8 @@ export async function attachOrAbsorbAniList(
   });
 
   await client.batch(statements as any, "write");
+  /* Ses amis passent au compte qui l'absorbe (lib/auth/friends.ts). */
+  await moveFriends(source.id, target.id).catch((err) => console.error("[users] moveFriends", err));
   console.info(`[users] AniList-only account #${source.tag} absorbed into #${target.tag}`);
   return findById(userId);
 }
@@ -579,6 +582,7 @@ export async function deleteAccount(userId: string): Promise<void> {
   if (!client) return;
   await client.execute({ sql: `DELETE FROM user_data WHERE user_id = ?`, args: [userId] });
   await client.execute({ sql: `DELETE FROM auth_tokens WHERE user_id = ?`, args: [userId] });
+  await dropFriends(userId);
   await client.execute({ sql: `DELETE FROM users WHERE id = ?`, args: [userId] });
 }
 

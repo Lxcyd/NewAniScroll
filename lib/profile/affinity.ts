@@ -1,11 +1,10 @@
 /**
- * L'AFFINITÉ DE GOÛTS (03/11/2026, Luc), sans système d'amis.
+ * L'AFFINITÉ DE GOÛTS (03/11/2026, Luc).
  *
- * Il n'y a pas d'amis sur AniScroll. Le bloc compare donc avec ce qu'on a sous
- * la main : les PROFILS QU'ON A VISITÉS. Chaque visite range, sur cet appareil
- * seulement, la liste notée du profil (identifiant → note) ; ouvrir son propre
- * profil range la sienne. Rien ne part sur le serveur, et un profil privé ne
- * passe jamais par ici (sa liste n'arrive pas dans la page).
+ * Chez soi, le bloc compare sa liste à celle de ses AMIS D'ANISCROLL : chacun
+ * range ses goûts sur son compte en ouvrant son profil (lib/auth/friends.ts,
+ * `sendMyTaste`). Chez un autre, il compare le visiteur au profil visité, avec
+ * la liste du visiteur rangée sur CET appareil (`rememberMe`).
  *
  * Le calcul : sur les titres vus des deux côtés (hors « à voir »), la
  * CORRÉLATION des notes quand au moins cinq sont notés des deux côtés — deux
@@ -17,12 +16,12 @@
 import type { ProfileEntry } from "./types";
 
 const KEY = "aniscroll:affinity";
-const MAX_PROFILES = 20;
 const MAX_TITLES = 1500;
 
 export type Taste = Record<string, number>;
-export type Visited = { name: string; avatar: string | null; href: string; at: number; taste: Taste };
-type Store = { me?: Taste; others: Visited[] };
+/* `others` : les profils visités, rangés jusqu'au 03/11/2026 ; ce sont
+   désormais les amis du site qui servent de comparaison (lib/auth/friends.ts). */
+type Store = { me?: Taste; others: unknown[] };
 
 /** Ce qu'une liste dit des goûts : chaque titre vu, avec sa note (0 = non noté). */
 export function tasteOf(entries: ProfileEntry[]): Taste {
@@ -58,15 +57,6 @@ export function rememberMe(entries: ProfileEntry[]) {
   if (!entries.length) return;
   const s = read();
   s.me = tasteOf(entries);
-  write(s);
-}
-
-export function rememberProfile(who: { name: string; avatar: string | null; href: string }, entries: ProfileEntry[]) {
-  if (!entries.length || !who.name) return;
-  const s = read();
-  const others = s.others.filter((o) => o.href !== who.href);
-  others.unshift({ ...who, at: Date.now(), taste: tasteOf(entries) });
-  s.others = others.slice(0, MAX_PROFILES);
   write(s);
 }
 

@@ -195,6 +195,28 @@ export async function ensureUsersSchema(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_tokens_user ON auth_tokens(user_id, kind)`
   );
 
+  /* LES AMIS (03/11/2026, Luc) : réciproques, sur demande acceptée. DEUX
+     lignes par paire, une par personne, pour que « mes amis » soit une lecture
+     sur la clé (`user_id = ?`) et jamais un OR sur deux colonnes.
+       state = 'out'    : user_id a demandé friend_id
+               'in'     : friend_id a demandé user_id
+               'friend' : accepté des deux côtés
+     Les invités n'ont pas de ligne `users`, donc pas d'amis (choix de Luc). */
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS friends (
+      user_id    TEXT NOT NULL,
+      friend_id  TEXT NOT NULL,
+      state      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, friend_id)
+    )
+  `);
+  /* Pour les fusions et suppressions de compte (l'autre côté de la paire). */
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id)`
+  );
+
   schemaReady = true;
 }
 

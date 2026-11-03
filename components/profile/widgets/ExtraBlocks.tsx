@@ -9,9 +9,8 @@ import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
-import { affinity, readAffinity, tasteOf, type Visited } from "@/lib/profile/affinity";
-import { cachedFriends, loadFriends, type Friend } from "@/lib/anilist/friends";
-import { useSession } from "next-auth/react";
+import { affinity, readAffinity, tasteOf } from "@/lib/profile/affinity";
+import { FRIENDS_EVENT, friendTastes, type FriendCard } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
@@ -1626,55 +1625,37 @@ export function AffinityBlock({
   name: string;
 }) {
   const { t } = useTranslation();
-  const { data: session } = useSession();
-  const token = (session as { user?: { token?: string } } | null)?.user?.token;
   const [store, setStore] = useState<ReturnType<typeof readAffinity> | null>(null);
   /* Lu après le montage : c'est l'appareil du LECTEUR, le serveur ne l'a pas. */
   useEffect(() => setStore(readAffinity()), [entries]);
 
-  /* LES AMIS ANILIST (03/11/2026, Luc : « finis ceci ») : les comptes suivis
-     sur AniList, lus par ce navigateur et gardés 24 h (lib/anilist/friends.ts).
-     Ils s'ajoutent aux profils visités. */
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [loadingFriends, setLoadingFriends] = useState(false);
+  /* LES AMIS D'ANISCROLL (03/11/2026, Luc : « uniquement sur le site ») : les
+     amis acceptés, chacun avec les goûts qu'il a rangés en ouvrant son profil
+     (lib/auth/friends.ts). `null` = pas encore lu ; un invité n'a pas d'amis. */
+  const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number> })[] | null>(null);
   useEffect(() => {
     if (!isOwner) return;
-    setFriends(cachedFriends());
-    if (!token) return;
     let alive = true;
-    setLoadingFriends(true);
-    void loadFriends(token, (all) => {
-      if (alive) setFriends(all);
-    })
-      .then((all) => {
-        if (alive) setFriends(all);
-      })
-      .finally(() => {
-        if (alive) setLoadingFriends(false);
+    const load = () =>
+      void friendTastes().then((f) => {
+        if (alive) setFriends(f ?? []);
       });
+    load();
+    window.addEventListener(FRIENDS_EVENT, load);
     return () => {
       alive = false;
+      window.removeEventListener(FRIENDS_EVENT, load);
     };
-  }, [isOwner, token]);
+  }, [isOwner]);
 
   const ranked = useMemo(() => {
-    const me = store?.me ?? (entries.length ? tasteOf(entries) : undefined);
-    if (!store || !isOwner || !me) return [];
-    const people: Visited[] = friends.map((f) => ({
-      name: f.name,
-      avatar: f.avatar,
-      href: `/en/profile/${encodeURIComponent(f.name)}`,
-      at: 0,
-      taste: f.taste,
-    }));
-    /* Un ami déjà visité n'apparaît qu'une fois (sa liste AniList, plus fraîche). */
-    const seen = new Set(people.map((p) => p.name.toLowerCase()));
-    for (const o of store.others) if (!seen.has(o.name.toLowerCase())) people.push(o);
-    return people
+    if (!isOwner || !friends || !entries.length) return [];
+    const me = tasteOf(entries);
+    return friends
       .map((o) => ({ o, m: affinity(me, o.taste) }))
       .filter((x) => x.m.shared > 0)
       .sort((a, b) => b.m.pct - a.m.pct);
-  }, [store, isOwner, friends, entries]);
+  }, [isOwner, friends, entries]);
 
   if (!store) return <div className="h-full" />;
 
@@ -1705,20 +1686,18 @@ export function AffinityBlock({
     );
   }
 
+  if (friends == null) return <Skeleton rows={3} />;
   if (!ranked.length) {
-    if (loadingFriends) return <Skeleton rows={3} />;
-    return <EmptyBlock note={t(token ? "profile.blocks.affinity.empty" : "profile.blocks.affinity.emptyNoAniList")} />;
+    return (
+      <EmptyBlock
+        note={t(friends.length ? "profile.blocks.affinity.noTaste" : "profile.blocks.affinity.empty")}
+      />
+    );
   }
   return (
     <div className="as-scroller grid h-full min-h-0 content-start gap-2 overflow-y-auto pr-1">
-      {loadingFriends ? (
-        <p className="flex items-center gap-2 px-1.5 font-karla text-[11px] text-white/45">
-          <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-          {t("profile.blocks.affinity.loading")}
-        </p>
-      ) : null}
       {ranked.map(({ o, m }) => (
-        <Link key={o.href} href={o.href} className="flex items-center gap-3 rounded-xl px-1.5 py-1 hover:bg-white/[0.04]">
+        <Link key={o.tag} href={o.href} className="flex items-center gap-3 rounded-xl px-1.5 py-1 hover:bg-white/[0.04]">
           {o.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={o.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />

@@ -854,7 +854,8 @@
       "overview": "Overview",
       "list": "My list",
       "stats": "Statistics",
-      "badges": "Badges"
+      "badges": "Badges",
+      "friends": "Friends"
     },
     "ago": {
       "minutes": "{{count}} min ago",
@@ -1179,16 +1180,15 @@
       },
       "affinity": {
         "title": "Taste affinity",
-        "desc": "Your AniList friends and visited profiles, ranked by shared taste.",
-        "empty": "No friends to compare yet: follow people on AniList, or visit profiles.",
+        "desc": "Your AniScroll friends ranked by shared taste.",
+        "empty": "Add friends (Friends tab) to compare with them.",
         "noMe": "Open your own profile once on this device to compare yourself with others.",
         "youAnd": "You and {{name}}",
         "shared_one": "{{count}} title in common",
         "shared_other": "{{count}} titles in common",
         "rated_one": "{{count}} rated by both",
         "rated_other": "{{count}} rated by both",
-        "emptyNoAniList": "Connect your AniList account to compare with your friends, or visit profiles.",
-        "loading": "Reading your AniList friends' lists…"
+        "noTaste": "Your friends haven't opened their profile since this feature shipped: their taste will arrive on their next visit."
       },
       "bingo": {
         "title": "Season bingo",
@@ -1462,7 +1462,35 @@
     "studioDockNote": "Live preview on your profile — widgets move in place.",
     "studioBackground": "Background",
     "studioFrameOn": "Frame on",
-    "studioFrameOff": "No frame"
+    "studioFrameOff": "No frame",
+    "friends": {
+      "title": "Friends",
+      "noAccount": "Friends are for AniScroll or AniList accounts.",
+      "incoming": "Friend requests",
+      "mine": "My friends",
+      "outgoing": "Sent requests",
+      "none": "No friends yet. Search a name or a #TAG on the right, or open a profile and click “Add friend”.",
+      "theirs": "{{name}}'s friends",
+      "theirsNone": "{{name}} has no friends yet.",
+      "add": "Add a friend",
+      "searchPlaceholder": "Name or #TAG",
+      "noResult": "No one matches.",
+      "already": "Friends",
+      "request": "Add friend",
+      "accept": "Accept",
+      "acceptFrom": "Accept request",
+      "decline": "Decline",
+      "cancel": "Cancel",
+      "sent": "Request sent",
+      "isFriend": "Friends",
+      "remove": "Remove friend",
+      "confirmRemove": "Remove?",
+      "myId": "Your ID",
+      "myIdHint": "Give it to a friend so they can find you.",
+      "copy": "Copy",
+      "copied": "Copied!",
+      "affinityTitle": "Taste affinity"
+    }
   },
   "myList": {
     "localDesc": "Saved on this device, no account needed.",

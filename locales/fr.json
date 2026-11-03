@@ -854,7 +854,8 @@
       "overview": "Aperçu",
       "list": "Ma liste",
       "stats": "Statistiques",
-      "badges": "Badges"
+      "badges": "Badges",
+      "friends": "Amis"
     },
     "ago": {
       "minutes": "il y a {{count}} min",
@@ -1179,16 +1180,15 @@
       },
       "affinity": {
         "title": "Affinité de goûts",
-        "desc": "Tes amis AniList et les profils visités, classés par goûts communs.",
-        "empty": "Aucun ami à comparer pour l'instant : suis des comptes sur AniList, ou visite des profils.",
+        "desc": "Tes amis AniScroll classés par goûts communs.",
+        "empty": "Ajoute des amis (onglet Amis) pour te comparer à eux.",
         "noMe": "Ouvre ton propre profil une fois sur cet appareil pour te comparer aux autres.",
         "youAnd": "Affinité entre toi et {{name}}",
         "shared_one": "{{count}} titre en commun",
         "shared_other": "{{count}} titres en commun",
         "rated_one": "{{count}} noté des deux côtés",
         "rated_other": "{{count}} notés des deux côtés",
-        "emptyNoAniList": "Connecte ton compte AniList pour te comparer à tes amis, ou visite des profils.",
-        "loading": "Lecture des listes de tes amis AniList…"
+        "noTaste": "Tes amis n'ont pas encore ouvert leur profil depuis l'ajout de cette fonction : leurs goûts arriveront à leur prochaine visite."
       },
       "bingo": {
         "title": "Bingo de la saison",
@@ -1462,7 +1462,35 @@
     "studioDockNote": "Aperçu en direct sur ton profil — les widgets se déplacent directement.",
     "studioBackground": "Fond",
     "studioFrameOn": "Cadre actif",
-    "studioFrameOff": "Sans cadre"
+    "studioFrameOff": "Sans cadre",
+    "friends": {
+      "title": "Amis",
+      "noAccount": "Les amis sont réservés aux comptes AniScroll ou AniList.",
+      "incoming": "Demandes reçues",
+      "mine": "Mes amis",
+      "outgoing": "Demandes envoyées",
+      "none": "Pas encore d'amis. Cherche un pseudo ou un #TAG à droite, ou ouvre un profil et clique « Ajouter en ami ».",
+      "theirs": "Amis de {{name}}",
+      "theirsNone": "{{name}} n'a pas encore d'amis.",
+      "add": "Ajouter un ami",
+      "searchPlaceholder": "Pseudo ou #TAG",
+      "noResult": "Personne ne correspond.",
+      "already": "Amis",
+      "request": "Ajouter en ami",
+      "accept": "Accepter",
+      "acceptFrom": "Accepter la demande",
+      "decline": "Refuser",
+      "cancel": "Annuler",
+      "sent": "Demande envoyée",
+      "isFriend": "Amis",
+      "remove": "Retirer des amis",
+      "confirmRemove": "Retirer ?",
+      "myId": "Ton identifiant",
+      "myIdHint": "Donne-le à un ami : il pourra te trouver avec.",
+      "copy": "Copier",
+      "copied": "Copié !",
+      "affinityTitle": "Affinité de goûts"
+    }
   },
   "myList": {
     "localDesc": "Enregistrée sur cet appareil, aucun compte requis.",

@@ -58,10 +58,12 @@ import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid
 import { activityFromCloud, type ActivityRow, type Binge, type WatchDays } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
+import FriendButton from "@/components/profile/FriendButton";
 /* Liste, Stats, Badges : hors du chunk d'entree, precharges au repos (cf.
    components/profile/lazyTabs.ts). */
 import {
   ProfileBadges,
+  ProfileFriends,
   ProfileList,
   ProfileStatsPanel,
   preloadProfileTabs,
@@ -477,6 +479,8 @@ export default function Profile({
               { key: "list", label: t("profile.tabs.list"), count: entries.length },
               { key: "stats", label: t("profile.tabs.stats") },
               { key: "badges", label: t("profile.tabs.badges") },
+              /* Les amis n'existent que pour un compte (lib/auth/friends.ts). */
+              ...(identity.tag ? [{ key: "friends", label: t("profile.tabs.friends") }] : []),
             ]}
             active={tab}
             onChange={changeTab}
@@ -491,6 +495,7 @@ export default function Profile({
               {t("recommend.title")}
             </button>
           )}
+          {!isOwner && identity.tag ? <FriendButton tag={identity.tag} /> : null}
         </div>
 
         {tab === "overview" ? (
@@ -519,6 +524,10 @@ export default function Profile({
             mesure serait un chiffre faux. */}
         {tab === "badges" ? (
           <ProfileBadges state={badges ?? { v: 1, got: {} }} live={isOwner} />
+        ) : null}
+
+        {tab === "friends" ? (
+          <ProfileFriends isOwner={!!isOwner} tag={identity.tag ?? null} name={identity.name} entries={entries} />
         ) : null}
 
         {tab === "list" ? (

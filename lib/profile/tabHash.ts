@@ -24,7 +24,7 @@
  */
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 
-export const PROFILE_TABS = ["overview", "list", "stats", "badges"] as const;
+export const PROFILE_TABS = ["overview", "list", "stats", "badges", "friends"] as const;
 export type ProfileTabKey = (typeof PROFILE_TABS)[number];
 
 /** L'onglet demandé par l'adresse. « overview » par défaut — c'est aussi celui

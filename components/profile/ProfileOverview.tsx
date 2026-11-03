@@ -38,7 +38,8 @@ import {
   parseThemes,
 } from "./widgets/ExtraBlocks";
 import { useLocalDays } from "./widgets/CalendarBlock";
-import { rememberMe, rememberProfile } from "@/lib/profile/affinity";
+import { rememberMe, tasteOf } from "@/lib/profile/affinity";
+import { sendMyTaste } from "@/lib/friends/client";
 import type { Binge } from "@/lib/profile/activity";
 import {
   BLOCKS,
@@ -122,7 +123,7 @@ type Props = {
   /** Ses badges obtenus (id → date), pour « Badges & succès ». */
   earned?: Record<string, number> | null;
   /** Qui est ce profil : l'affinité range sa liste sous ce nom (visiteur). */
-  who?: { name: string; avatar: string | null } | null;
+  who?: { name: string; avatar: string | null; tag?: string | null } | null;
   /** Une note cliquée dans l'histogramme. La page bascule alors sur son onglet
    *  « Ma liste », filtrée sur cette note — et sur les titres terminés quand le
    *  bloc est réglé ainsi, sans quoi la liste montrerait des titres que la
@@ -224,16 +225,14 @@ export default function ProfileOverview({
 }: Props) {
   const { t } = useTranslation();
 
-  /* L'AFFINITÉ (03/11/2026) : chez soi, sa liste est rangée sur l'appareil ;
-     chez un autre, la sienne, sous son nom. C'est tout ce dont le bloc a
-     besoin pour comparer — cf. lib/profile/affinity.ts. */
+  /* L'AFFINITÉ (03/11/2026) : chez soi, ses goûts sont rangés sur l'appareil
+     (pour se comparer aux profils visités) ET, pour un compte, sur le serveur,
+     où ses amis les lisent (lib/auth/friends.ts). */
   useEffect(() => {
-    if (!entries.length) return;
-    if (isOwner) rememberMe(entries);
-    else if (who?.name)
-      rememberProfile({ name: who.name, avatar: who.avatar, href: window.location.pathname }, entries);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, isOwner, who?.name]);
+    if (!entries.length || !isOwner) return;
+    rememberMe(entries);
+    if (who?.tag) sendMyTaste(tasteOf(entries));
+  }, [entries, isOwner, who?.tag]);
 
   /* Le journal des jours de CET appareil, chez soi, pour l'objectif et le
      bingo ; chez un autre, celui que sert la page. */

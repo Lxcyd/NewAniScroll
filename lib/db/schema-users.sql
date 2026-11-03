@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS auth_throttle (
   reset_at INTEGER NOT NULL
 );
 
+-- Friends: two rows per pair, one per person (see turso-users.ts).
+CREATE TABLE IF NOT EXISTS friends (
+  user_id    TEXT NOT NULL,
+  friend_id  TEXT NOT NULL,
+  state      TEXT NOT NULL,     -- 'out' | 'in' | 'friend'
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, friend_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friends_friend ON friends(friend_id);
+
 CREATE INDEX IF NOT EXISTS idx_users_anilist   ON users(anilist_id);
 CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_tokens_user     ON auth_tokens(user_id, kind);

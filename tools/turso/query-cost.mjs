@@ -236,6 +236,49 @@ const CASES = [
     args: ["query-cost", "anilist_feed"],
     max: 5,
   },
+  {
+    /* Les amis d'un compte (onglet Amis, bouton du profil, 03/11/2026). La
+       clé primaire de `friends` (user_id, …) d'abord, puis users par son id.
+       Un plan qui partirait de `users` lirait toute la table. */
+    name: "amis d'un compte (listFriends)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/friends.ts", "ORDER BY f.updated_at DESC LIMIT ?"],
+    sql: `SELECT f.state, f.updated_at, u.tag, u.username, u.anilist_name, u.avatar_url, u.anilist_avatar_url
+          FROM friends f JOIN users u ON u.id = f.friend_id
+          WHERE f.user_id = ? AND u.status = 'active'
+          ORDER BY f.updated_at DESC LIMIT 800`,
+    args: ["query-cost"],
+    max: 20,
+  },
+  {
+    /* Les goûts des amis (widget Affinité, onglet Amis). */
+    name: "goûts des amis (friendTastes)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/friends.ts", "JOIN user_data d ON d.user_id = f.friend_id AND d.kind ="],
+    sql: `SELECT f.updated_at, u.tag, d.payload
+          FROM friends f
+          JOIN users u ON u.id = f.friend_id
+          JOIN user_data d ON d.user_id = f.friend_id AND d.kind = 'taste'
+          WHERE f.user_id = ? AND f.state = 'friend' AND u.status = 'active'
+          LIMIT 500`,
+    args: ["query-cost"],
+    max: 20,
+  },
+  {
+    /* Chercher un pseudo (onglet Amis) : une PLAGE sur idx_users_username,
+       jamais un LIKE qui lirait toute la table. */
+    name: "recherche de pseudo (searchUsers)",
+    db: "users",
+    optional: true,
+    source: ["lib/auth/friends.ts", "WHERE u.username_lower >= ? AND u.username_lower < ? AND u.status = 'active'"],
+    sql: `SELECT u.id, u.tag FROM users u
+          WHERE u.username_lower >= ? AND u.username_lower < ? AND u.status = 'active'
+          LIMIT 8`,
+    args: ["zzzqc", "zzzqc￿"],
+    max: 20,
+  },
 ];
 
 let failed = 0;
