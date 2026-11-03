@@ -1136,10 +1136,6 @@
         "animes_one": "anime goal",
         "animes_other": "anime goal",
         "reached": "Goal reached 🎉",
-        "ahead_one": "{{count}} ahead of pace",
-        "ahead_other": "{{count}} ahead of pace",
-        "behind_one": "{{count}} behind pace",
-        "behind_other": "{{count}} behind pace",
         "paceMark_one": "Pace: {{count}} by today to finish right on December 31",
         "paceMark_other": "Pace: {{count}} by today to finish right on December 31"
       },

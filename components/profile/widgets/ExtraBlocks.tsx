@@ -385,7 +385,6 @@ export function GoalBlock({
   const pct = Math.min(1, done / Math.max(1, target));
   const R = 34;
   const C = 2 * Math.PI * R;
-  const diff = done - pace;
   /* Option « couleur selon l'avancée » (03/11/2026, Luc) : rouge tant qu'on
      n'a pas fait grand-chose, vert tout près du but — la teinte suit la part
      de l'objectif atteinte, de 0° (rouge) à 135° (vert). */
@@ -433,15 +432,11 @@ export function GoalBlock({
         <p className="mt-1 font-karla text-[12px] text-txt">
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
-        <p
-          className={`mt-1.5 font-karla text-[12px] font-bold ${done >= target ? "text-action" : diff >= 0 ? "text-[#22c55e]" : "text-txt"}`}
-        >
-          {done >= target
-            ? t("profile.blocks.goal.reached")
-            : diff >= 0
-              ? t("profile.blocks.goal.ahead", { count: diff })
-              : t("profile.blocks.goal.behind", { count: -diff })}
-        </p>
+        {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
+            fantôme le montre. Reste « Objectif atteint ». */}
+        {done >= target ? (
+          <p className="mt-1.5 font-karla text-[12px] font-bold text-action">{t("profile.blocks.goal.reached")}</p>
+        ) : null}
       </div>
     </div>
   );
