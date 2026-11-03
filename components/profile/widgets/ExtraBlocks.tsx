@@ -380,7 +380,7 @@ export function GoalBlock({
      de l'objectif atteinte, de 0° (rouge) à 135° (vert). */
   const ring = colored ? `hsl(${Math.round(135 * pct)} 78% 52%)` : "var(--brand-primary, #E94560)";
   /* Une carte haute (2×2) empile : l'anneau en grand, le compte dessous. */
-  const tall = box.w > 0 && box.h > box.w * 0.7;
+  const tall = box.h > 300;
   /* 84 px en 1×1 ; jusqu'à 280 px en 2×2. */
   const size = !box.w
     ? 84
@@ -426,6 +426,17 @@ export function GoalBlock({
             className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           />
         </svg>
+        {/* LE POURCENTAGE AU CENTRE (03/11/2026, Luc, choisi parmi 20). Il
+            continue au-delà de 100 % quand l'objectif est dépassé. */}
+        <span
+          className="pointer-events-none absolute inset-0 flex items-center justify-center font-outfit font-bold leading-none text-white"
+          style={{ fontSize: size * 0.24 }}
+        >
+          {Math.round((done / Math.max(1, target)) * 100)}
+          <span className="font-karla font-semibold text-txt" style={{ fontSize: size * 0.12, marginLeft: size * 0.02 }}>
+            %
+          </span>
+        </span>
       </div>
       <div className="min-w-0">
         <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 34 * Math.min(k, 1.9) }}>
