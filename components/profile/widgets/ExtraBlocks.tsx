@@ -430,7 +430,7 @@ export function GoalBlock({
             continue au-delà de 100 % quand l'objectif est dépassé. */}
         <span
           className="pointer-events-none absolute inset-0 flex items-center justify-center font-outfit font-bold leading-none text-white"
-          style={{ fontSize: size * 0.24 }}
+          style={{ fontSize: size * (done / Math.max(1, target) >= 0.995 ? 0.2 : 0.24) }}
         >
           {Math.round((done / Math.max(1, target)) * 100)}
           <span className="font-karla font-semibold text-txt" style={{ fontSize: size * 0.12, marginLeft: size * 0.02 }}>
@@ -439,20 +439,20 @@ export function GoalBlock({
         </span>
       </div>
       <div className="min-w-0">
-        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 34 * Math.min(k, 1.9) }}>
+        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 26 * Math.min(k, 1.9) }}>
           {done}
-          <span className="font-karla font-semibold text-txt" style={{ fontSize: 17 * Math.min(k, 1.7) }}>
+          <span className="font-karla font-semibold text-txt" style={{ fontSize: 14 * Math.min(k, 1.7) }}>
             {" "}
             / {target}
           </span>
         </p>
-        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 11 * Math.min(k, 1.4) }}>
+        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 10 * Math.min(k, 1.4) }}>
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
             fantôme le montre. Reste « Objectif atteint ». */}
         {done >= target ? (
-          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 12 * Math.min(k, 1.4) }}>
+          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 10.5 * Math.min(k, 1.4) }}>
             {t("profile.blocks.goal.reached")}
           </p>
         ) : null}
