@@ -35,6 +35,7 @@ import { getUser } from "@/prisma/user";
 import { findByTag, setProfileLayout } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
 import {
+  getAnilistFeed,
   getAnilistSnapshot,
   getData,
   putAnilistSnapshot,
@@ -1183,8 +1184,14 @@ export async function getServerSideProps(context: any) {
      donne son sens à « je retire le bloc » : sans lui, l'activité resterait
      lisible dans __NEXT_DATA__ alors que plus rien ne l'afficherait à l'écran.
      C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
+  /* Le fil d'activité AniList (03/11/2026) : seulement pour les blocs qui
+     comptent des jours ou des sessions. Une ligne de plus, lue par profil. */
+  const feed =
+    account && account.anilistId && profileLayout?.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge"].includes(o.i))
+      ? await getAnilistFeed(account.id).catch(() => null)
+      : null;
   const read = layoutWantsActivity(profileLayout)
-    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress") }, 12)
+    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress"), feed: feed?.e }, 12)
     : null;
   const activity: ActivityRow[] | null = read?.rows ?? null;
   /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la

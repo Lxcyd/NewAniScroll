@@ -388,6 +388,13 @@ function CloudSyncBootstrap() {
         // of truth and will re-pull on the next load.
       }
       if (!cancelled) stop = cloud.start();
+      /* Le fil d'activité AniList (03/11/2026) : en arrière-plan, sans bloquer
+         la navigation, et au plus une fois toutes les 30 min. */
+      if (!cancelled && hasAniList) {
+        void import("@/lib/anilist/feedImport")
+          .then((m) => m.syncAnilistFeed((session as any)?.user?.token))
+          .catch(() => {});
+      }
     })();
 
     return () => {

@@ -160,6 +160,58 @@ export async function putAnilistSnapshot(userId: string, z: string): Promise<voi
   });
 }
 
+/* ── LE FIL D'ACTIVITÉ ANILIST DU COMPTE (03/11/2026, Luc) ────────────────────
+ *
+ * Chaque épisode marqué vu sur AniList, avec son heure : « A regardé l'épisode 4
+ * de … ». C'est le seul historique daté qu'AniList garde, et il remonte à la
+ * création du compte AniList. Il remplit la heatmap, le calendrier, l'objectif,
+ * le bingo et le binge pour tout ce qui a été vu ailleurs que sur AniScroll.
+ *
+ * Lu par le navigateur du propriétaire (lib/anilist/feedImport.ts) puis rangé
+ * ici, HORS de DATA_KINDS comme la copie AniList : la synchro des appareils ne
+ * le voit pas. `e` = [secondes, id AniList, épisode], du plus récent au plus
+ * ancien ; `last` = l'id de la dernière activité lue, pour ne relire ensuite que
+ * les nouvelles.
+ */
+const FEED_KIND = "anilist_feed";
+export type FeedEvent = [number, number, number];
+export type AnilistFeed = { last: number; e: FeedEvent[] };
+/** ~22 octets l'épisode : 40 000 épisodes tiennent sous le Mo. */
+export const FEED_MAX_EVENTS = 40_000;
+
+export async function getAnilistFeed(userId: string): Promise<AnilistFeed | null> {
+  const client = await db();
+  if (!client) return null;
+  const res = await client.execute({
+    sql: `SELECT payload FROM user_data WHERE user_id = ? AND kind = ?`,
+    args: [userId, FEED_KIND],
+  });
+  const raw = res.rows[0]?.payload;
+  if (raw == null) return null;
+  try {
+    const p = JSON.parse(String(raw));
+    return Array.isArray(p?.e) && typeof p?.last === "number" ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function putAnilistFeed(userId: string, feed: AnilistFeed): Promise<void> {
+  const client = await db();
+  if (!client) return;
+  const json = JSON.stringify(feed);
+  await client.execute({
+    sql: `INSERT INTO user_data (user_id, kind, payload, rev, updated_at)
+          VALUES (?, ?, ?, 1, ?)
+          ON CONFLICT(user_id, kind) DO UPDATE
+            SET payload = excluded.payload,
+                rev = user_data.rev + 1,
+                updated_at = excluded.updated_at
+          WHERE user_data.payload IS NOT excluded.payload`,
+    args: [userId, FEED_KIND, json, Date.now()],
+  });
+}
+
 export async function getAnilistSnapshot(
   userId: string,
 ): Promise<{ at: number; z: string } | null> {

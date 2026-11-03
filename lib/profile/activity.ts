@@ -218,15 +218,52 @@ function dayBefore(ms: number): number {
   return d.getTime();
 }
 
-export function watchStreak(map: ProgressMap, now = Date.now()): number {
-  const days = new Set<number>();
-  for (const e of Object.values(map || {})) {
+/**
+ * LES ÉPISODES DATÉS, toutes sources confondues (03/11/2026, Luc).
+ *
+ * La table de progression (ce qui a été vu SUR AniScroll) et le fil d'activité
+ * AniList (tout ce qui a été marqué vu sur AniList, avec l'heure, depuis la
+ * création du compte AniList — cf. lib/anilist/feedImport.ts). Un épisode
+ * présent dans les deux ne compte qu'une fois : regardé ici, il est aussi
+ * poussé sur AniList, qui en écrit une ligne à quelques minutes près. La ligne
+ * AniList est donc écartée quand la table a le même épisode dans les 12 h.
+ *
+ * Le fil ne connaît pas la durée : 24 min, regardées en entier.
+ */
+export type FeedEvent = [number, number, number];
+type Watch = { at: number; aniId: number; dur: number; seen: number };
+
+function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
+  const out: Watch[] = [];
+  const here = new Map<string, number>();
+  for (const [k, e] of Object.entries(map || {})) {
     const at = Number(e?.updatedAt);
     // La table vient d'un navigateur : une entrée sans date, ou datée de
     // n'importe quoi, ne doit pas inventer un jour de lecture.
-    // Un missclic de dix secondes n'entretient pas la flamme.
-    if (Number.isFinite(at) && at > 0 && watched(e)) days.add(startOfDay(at));
+    // Un missclic de dix secondes ne compte pas.
+    if (!(Number.isFinite(at) && at > 0) || !watched(e)) continue;
+    const aniId = Number(k.split(":")[0]);
+    if (!Number.isFinite(aniId) || aniId <= 0) continue;
+    const dur = Number(e.duration) > 0 ? Number(e.duration) : 24 * 60;
+    const seen = typeof e.watched === "number" ? e.watched : Math.min(Number(e.time) || 0, dur);
+    out.push({ at, aniId, dur, seen });
+    here.set(k, at);
   }
+  for (const f of feed || []) {
+    if (!Array.isArray(f)) continue;
+    const at = Number(f[0]) * 1000;
+    const aniId = Number(f[1]);
+    if (!(at > 0) || !(aniId > 0)) continue;
+    const mine = here.get(`${aniId}:${f[2]}`);
+    if (mine != null && Math.abs(mine - at) < 12 * 3_600_000) continue;
+    out.push({ at, aniId, dur: 24 * 60, seen: 24 * 60 });
+  }
+  return out;
+}
+
+export function watchStreak(map: ProgressMap, now = Date.now(), feed?: FeedEvent[] | null): number {
+  const days = new Set<number>();
+  for (const w of watchesOf(map, feed)) days.add(startOfDay(w.at));
   if (!days.size) return 0;
 
   const today = startOfDay(now);
@@ -271,14 +308,19 @@ export function dayKey(ms: number): string {
   return `${d.getFullYear()}-${m}-${j}`;
 }
 
-export function watchDays(map: ProgressMap, now = Date.now(), maxDays = 400): WatchDays {
+/* 1000 jours (03/11/2026) : avec le fil AniList, la heatmap remonte près de trois ans
+   en arrière. Le journal voyage dans la page des visiteurs : ~40 octets par
+   jour regardé, une vingtaine de Ko au pire. */
+export function watchDays(
+  map: ProgressMap,
+  now = Date.now(),
+  maxDays = 1000,
+  feed?: FeedEvent[] | null,
+): WatchDays {
   const since = now - maxDays * 86_400_000;
   const per = new Map<string, Map<number, { c: number; first: number }>>();
-  for (const [k, e] of Object.entries(map || {})) {
-    const at = Number(e?.updatedAt);
-    if (!(Number.isFinite(at) && at > since && at <= now + 86_400_000) || !watched(e)) continue;
-    const aniId = Number(k.split(":")[0]);
-    if (!Number.isFinite(aniId) || aniId <= 0) continue;
+  for (const { at, aniId } of watchesOf(map, feed)) {
+    if (!(at > since && at <= now + 86_400_000)) continue;
     const day = dayKey(at);
     let byAnime = per.get(day);
     if (!byAnime) per.set(day, (byAnime = new Map()));
@@ -325,18 +367,13 @@ export type Binge = {
 
 export const BINGE_PAUSE_MIN = 60;
 
-export function longestBinge(map: ProgressMap, pauseMin = BINGE_PAUSE_MIN): Binge | null {
+export function longestBinge(
+  map: ProgressMap,
+  pauseMin = BINGE_PAUSE_MIN,
+  feed?: FeedEvent[] | null,
+): Binge | null {
   const pauseMs = pauseMin * 60_000;
-  const eps: { at: number; dur: number; seen: number; aniId: number }[] = [];
-  for (const [k, e] of Object.entries(map || {})) {
-    const at = Number(e?.updatedAt);
-    if (!(Number.isFinite(at) && at > 0) || !watched(e)) continue;
-    const aniId = Number(k.split(":")[0]);
-    if (!Number.isFinite(aniId) || aniId <= 0) continue;
-    const dur = Number(e.duration) > 0 ? Number(e.duration) : 24 * 60;
-    const seen = typeof e.watched === "number" ? e.watched : Math.min(Number(e.time) || 0, dur);
-    eps.push({ at, dur, seen, aniId });
-  }
+  const eps = watchesOf(map, feed);
   if (!eps.length) return null;
   eps.sort((x, y) => x.at - y.at);
 
@@ -376,9 +413,10 @@ export function longestBinge(map: ProgressMap, pauseMin = BINGE_PAUSE_MIN): Bing
 
 /** Les deux catégories dont dépend l'activité, et la série qu'elles portent. */
 export function activityFromCloud(
-  payloads: { recent?: unknown; progress?: unknown },
+  payloads: { recent?: unknown; progress?: unknown; feed?: FeedEvent[] | null },
   limit = 12,
-):{ rows: ActivityRow[]; streak: number; days: WatchDays; binge: Binge | null } {
+): { rows: ActivityRow[]; streak: number; days: WatchDays; binge: Binge | null } {
+  const feed = payloads.feed;
   /* La table est déballée UNE fois et servie aux deux : les lignes en tirent
      leur avancement, la série ses jours. La reparser pour chacun coûterait un
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
@@ -389,10 +427,10 @@ export function activityFromCloud(
        propriétaire : sa journée peut donc basculer quelques heures trop tôt ou
        trop tard sur le profil vu par un visiteur. Chez lui, la série est
        recalculée dans son navigateur, donc juste (cf. DeviceBlocks.tsx). */
-    streak: watchStreak(map),
+    streak: watchStreak(map, Date.now(), feed),
     /* Même réserve de fuseau que la série : chez lui, le calendrier est
-       recompté dans son navigateur. */
-    days: watchDays(map),
-    binge: longestBinge(map),
+       recompté dans son navigateur. Le fil AniList s'y ajoute (03/11/2026). */
+    days: watchDays(map, Date.now(), 1000, feed),
+    binge: longestBinge(map, BINGE_PAUSE_MIN, feed),
   };
 }
