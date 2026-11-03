@@ -923,7 +923,10 @@ export default function WidgetGrid({
             {/* SAUF le bloc dont le contenu est en édition (le crayon) : il
                 reprend la main, et un appui dedans n'attrape plus la carte. */}
             {contentEdit === it.i && chrome.editor ? (
-              <div className="min-h-0 flex-1" onPointerDown={(e) => e.stopPropagation()}>
+              /* En colonne flexible : une liste à faire défiler dedans (le
+                 choix d'un épinglé) prend la hauteur qui reste au lieu de
+                 s'allonger sous le bord de la carte (03/11/2026). */
+              <div className="flex min-h-0 flex-1 flex-col" onPointerDown={(e) => e.stopPropagation()}>
                 {chrome.editor.node}
               </div>
             ) : (
