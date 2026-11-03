@@ -231,12 +231,15 @@ const MAX_LIST_VALUE = 800;
     les listes cochées, les trois épinglés avec leur phrase, les génériques
     favoris (03/11/2026). */
 const LONG_KEYS = new Set(["lists", "pins", "themes"]);
+/** Le Top OP / ED / Musique n'a plus de nombre maximum (03/11/2026, Luc) :
+    ~24 caractères par morceau, 6000 en tiennent environ 250. */
+const MAX_THEMES_VALUE = 6000;
 function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   if (!s || typeof s !== "object") return null;
   const out: Record<string, boolean | string> = {};
   for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
     if (k.length > 32) continue;
-    const cap = LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
+    const cap = k === "themes" ? MAX_THEMES_VALUE : LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
     if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= cap)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;

@@ -698,7 +698,8 @@ function PinEditor({
 /* ── Top OP / ED ───────────────────────────────────────────────────────── */
 
 export type FavTheme = { a: number; s: string };
-export const THEMES_MAX = 5;
+/** Pas de limite voulue (03/11/2026, Luc) : seulement le plafond de sauvegarde (grid.ts). */
+export const THEMES_MAX = 250;
 
 export function parseThemes(raw: string | undefined): FavTheme[] {
   try {
@@ -1045,6 +1046,11 @@ function Rail({
     return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * max;
   };
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  /* Le glissement doux ne sert qu'à la lecture qui avance (une mise à jour
+     toutes les ~250 ms). Un clic ou un glisser TÉLÉPORTE le rose sous la souris. */
+  const prev = useRef(value);
+  const smooth = !held.current && value >= prev.current && value - prev.current < 1.5;
+  prev.current = value;
   return (
     <div
       role="slider"
@@ -1082,7 +1088,7 @@ function Rail({
           le rose ENTRE petit à petit, arrondi des deux côtés dès le premier
           pixel (le rail rogne le début, la pilule arrondit la fin). */}
       <span
-        className="absolute inset-0 rounded-full bg-action transition-transform duration-300 ease-linear"
+        className={`absolute inset-0 rounded-full bg-action ${smooth ? "transition-transform duration-300 ease-linear" : ""}`}
         style={{ transform: `translateX(${pct - 100}%)` }}
       />
     </div>
@@ -1100,7 +1106,7 @@ function VolumeButton() {
       onMuted={setMuted}
       onVolume={setVolume}
       fallback={0.6}
-      placement="down"
+      placement="up"
       size={18}
       label={t("profile.blocks.themes.volume")}
     />
@@ -1195,14 +1201,16 @@ export function ThemesBlock({
   const ids = useMemo(() => Array.from(new Set(favs.map((f) => f.a))), [favs]);
   const meta = useAnimeMeta(ids, entries);
   const themes = useThemes(ids);
-  const shown = useMemo(() => {
-    if (!byKind) return favs;
-    const rank = (f: FavTheme) => {
-      const k = themes.get(f.a)?.find((x) => x.slug === f.s)?.kind ?? (/^OP/i.test(f.s) ? "op" : /^ED/i.test(f.s) ? "ed" : "ins");
-      return k === "op" ? 0 : k === "ed" ? 1 : 2;
-    };
-    // Tri stable : dans chaque type, l'ordre choisi par le propriétaire.
-    return favs.slice().sort((a, b) => rank(a) - rank(b));
+  /* « Par type » : trois CATÉGORIES DISTINCTES, chacune sous son titre et
+     numérotée depuis 1 (03/11/2026, Luc). Dans chacune, l'ordre du
+     propriétaire. Une catégorie vide n'apparaît pas. */
+  const groups = useMemo((): { kind: "all" | "op" | "ed" | "ins"; items: FavTheme[] }[] => {
+    if (!byKind) return [{ kind: "all", items: favs }];
+    const kindOf = (f: FavTheme) =>
+      themes.get(f.a)?.find((x) => x.slug === f.s)?.kind ?? (/^OP/i.test(f.s) ? "op" : /^ED/i.test(f.s) ? "ed" : "ins");
+    return (["op", "ed", "ins"] as const)
+      .map((kind) => ({ kind, items: favs.filter((f) => kindOf(f) === kind) }))
+      .filter((g) => g.items.length);
   }, [favs, byKind, themes]);
 
   if (onChange) return <ThemeEditor favs={favs} entries={entries} onChange={onChange} meta={meta} themes={themes} />;
@@ -1217,7 +1225,16 @@ export function ThemesBlock({
         <VolumeButton />
       </div>
       <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto overflow-x-hidden pr-1">
-        {shown.map((f, i) => {
+        {groups.map((g, gi) => (
+          <section key={g.kind} className="contents">
+            {g.kind !== "all" ? (
+              <h3 className={`flex items-center gap-2 px-2 font-karla text-[11px] font-bold uppercase tracking-[.08em] text-white/45 ${gi ? "mt-2" : ""}`}>
+                {t(`profile.blocks.themes.group.${g.kind}`)}
+                <span className="h-px flex-1 bg-white/[0.08]" />
+                <span className="tabular-nums text-white/30">{g.items.length}</span>
+              </h3>
+            ) : null}
+            {g.items.map((f, i) => {
           const list = themes.get(f.a);
           const m = meta.get(f.a);
           return (
@@ -1231,7 +1248,9 @@ export function ThemesBlock({
               loading={!list}
             />
           );
-        })}
+            })}
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -1283,7 +1302,7 @@ function startRowDrag(
     position: "relative",
     zIndex: "50",
     opacity: "0.85",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.55)",
+    boxShadow: "0 12px 22px -10px rgba(0,0,0,0.7)",
     transition: "box-shadow 150ms, opacity 150ms",
     cursor: "grabbing",
     willChange: "transform",
@@ -1298,11 +1317,13 @@ function startRowDrag(
     /* le pointeur est déjà parti */
   }
 
+  // Strictement bloquée entre la première et la dernière place.
   const minDy = -dragged.offsetTop + rows[0].offsetTop;
   const maxDy = rows[rows.length - 1].offsetTop - dragged.offsetTop;
   const onMove = (clientY: number) => {
-    const dy = Math.min(maxDy + step * 0.3, Math.max(minDy - step * 0.3, clientY - startClientY));
-    dragged.style.transform = `translateY(${dy}px) scale(1.02)`;
+    const dy = Math.min(maxDy, Math.max(minDy, clientY - startClientY));
+    // Pas d'agrandissement : la ligne garde la largeur de la liste.
+    dragged.style.transform = `translateY(${dy}px)`;
     toIndex = Math.min(rows.length - 1, Math.max(0, fromIndex + Math.round(dy / step)));
     rows.forEach((r, i) => {
       if (r === dragged) return;
@@ -1411,7 +1432,7 @@ function ThemeEditor({
                   type="button"
                   disabled={taken}
                   onClick={() => {
-                    onChange([...favs, { a: anime, s: r.slug }].slice(0, THEMES_MAX));
+                    onChange([...favs, { a: anime, s: r.slug }]);
                     setAnime(null);
                   }}
                   className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-left hover:bg-white/[0.06] disabled:opacity-40"
@@ -1442,7 +1463,7 @@ function ThemeEditor({
   };
   return (
     <div className="as-scroller flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto overflow-x-hidden pr-1">
-      <div ref={bodyRef} className="flex flex-col gap-1.5">
+      <div ref={bodyRef} className="flex flex-col gap-1">
         {favs.map((f, i) => {
           const list = themes.get(f.a);
           const row = list?.find((x) => x.slug === f.s);
@@ -1458,7 +1479,10 @@ function ThemeEditor({
                 e.stopPropagation();
                 if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
               }}
-              className="group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-2.5 rounded-[14px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 hover:border-white/10 hover:bg-white/[0.065]"
+              /* LA MÊME TAILLE QU'EN LECTURE (03/11/2026, Luc) : pochette de
+                 56 px, mêmes deux lignes ; `py-[5px]` + le bord = le `py-1.5`
+                 de la ligne du widget. */
+              className="group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 py-[5px] hover:border-white/10 hover:bg-white/[0.065]"
             >
               <span
                 className="flex h-5 w-5 shrink-0 items-center justify-center text-white/25 transition-colors group-hover/row:text-white/60"
@@ -1472,18 +1496,21 @@ function ThemeEditor({
                   <circle cx="15" cy="18" r="1.6" />
                 </svg>
               </span>
-              <span className="w-3 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
+              <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
               {list ? (
-                <SongCover row={row} fallback={m?.cover} className="h-9 w-9" />
+                <SongCover row={row} fallback={m?.cover} className="h-14 w-14" />
               ) : (
-                <span className="h-9 w-9 shrink-0 animate-pulse rounded-md bg-white/[0.07]" />
+                <span className="h-14 w-14 shrink-0 animate-pulse rounded-md bg-white/[0.07]" />
               )}
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="truncate text-[13px] font-semibold leading-tight text-white">{row?.song ?? (list ? f.s : "…")}</span>
+                <span className="flex min-w-0 items-center gap-1.5 font-karla text-[11px] text-txt">
                   <KindChip row={row} slug={f.s} />
-                  <span className="truncate text-[13px] font-semibold text-white">{row?.song ?? (list ? f.s : "…")}</span>
+                  <span className="truncate">
+                    {m?.title ?? ""}
+                    {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
+                  </span>
                 </span>
-                <span className="truncate font-karla text-[11px] text-txt">{m?.title ?? ""}</span>
               </span>
               <button
                 type="button"

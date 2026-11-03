@@ -949,10 +949,10 @@
         "pinScore": "Afficher la note",
         "pinScoreDesc": "Ta note de l'anime, en bas à droite de la carte.",
         "themesSort": "Trier",
-        "themesSortDesc": "Dans ton ordre, ou par type : les openings, puis les endings, puis les musiques.",
+        "themesSortDesc": "Dans ton ordre, ou rangées en trois catégories : openings, endings, musiques.",
         "themesSortChoice": {
           "mine": "Mon ordre",
-          "kind": "OP › ED › Musique"
+          "kind": "Par catégorie"
         }
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
@@ -1168,7 +1168,12 @@
         "play": "Écouter",
         "pause": "Pause",
         "back": "Retour",
-        "volume": "Volume"
+        "volume": "Volume",
+        "group": {
+          "op": "Openings",
+          "ed": "Endings",
+          "ins": "Musiques"
+        }
       },
       "badges": {
         "title": "Badges & succès",

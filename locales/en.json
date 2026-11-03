@@ -949,10 +949,10 @@
         "pinScore": "Show score",
         "pinScoreDesc": "Your score for the anime, at the bottom right of the card.",
         "themesSort": "Sort",
-        "themesSortDesc": "In your order, or by type: openings, then endings, then songs.",
+        "themesSortDesc": "In your order, or split into three categories: openings, endings, songs.",
         "themesSortChoice": {
           "mine": "My order",
-          "kind": "OP › ED › Songs"
+          "kind": "By category"
         }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
@@ -1168,7 +1168,12 @@
         "play": "Play",
         "pause": "Pause",
         "back": "Back",
-        "volume": "Volume"
+        "volume": "Volume",
+        "group": {
+          "op": "Openings",
+          "ed": "Endings",
+          "ins": "Songs"
+        }
       },
       "badges": {
         "title": "Badges & achievements",
