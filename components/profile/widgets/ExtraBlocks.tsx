@@ -172,8 +172,11 @@ export function BingeBlock({
   entries,
   pause = 60,
   order = "most",
+  account,
 }: {
   served?: Binge | null;
+  /** Chez soi : le binge compté sur la sauvegarde du compte. */
+  account?: Binge | null;
   entries: ProfileEntry[];
   /** Pause tolérée entre deux épisodes d'une session, en minutes. */
   pause?: number;
@@ -182,7 +185,14 @@ export function BingeBlock({
 }) {
   const { t, i18n } = useTranslation();
   const local = useLocalBinge(served === undefined, pause);
-  const binge = served === undefined ? (DEMO_BINGE ?? local) : served;
+  /* Chez soi, la table de CET appareil peut être presque vide (dev.aniscroll.com
+     n'a pas la même mémoire que le site principal) : on garde le plus long des
+     deux, celui de l'appareil et celui du compte (03/11/2026). */
+  const binge =
+    served !== undefined
+      ? served
+      : (DEMO_BINGE ??
+        (local === undefined ? undefined : !local || (account && account.n > local.n) ? (account ?? local) : local));
   /* L'ordre de visionnage n'existe que sur un binge compté depuis le
      03/11/2026 (`o`) ; avant, le paquet reste dans l'ordre du plus regardé. */
   const ids = useMemo(() => (!binge ? [] : order === "watched" && binge.o ? binge.o : binge.a), [binge, order]);
