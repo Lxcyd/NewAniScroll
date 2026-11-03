@@ -21,11 +21,12 @@ import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
  *
  * Chaque jour regardé porte l'affiche de l'anime le plus vu ce jour-là et le
  * nombre d'épisodes ; l'option `covers` éteinte le remplace par une teinte dont
- * l'intensité suit ce nombre. Les flèches feuillettent les douze derniers mois
+ * l'intensité suit ce nombre. Les flèches feuillettent 32 mois en arrière
  * (ce que le serveur garde).
  */
 
-const MONTHS_BACK = 12;
+/* 32 mois : le journal en garde 1000 jours depuis le fil AniList (03/11/2026). */
+const MONTHS_BACK = 32;
 
 /** Affiches demandées à AniList, pour la session (`null` = en cours / inconnu). */
 const fetched = new Map<number, { cover: string | null; title: string } | null>();
@@ -118,60 +119,6 @@ const CLOSE_MS = 280;
 /** Temps d'immobilité de la souris avant d'ouvrir un jour. */
 const STILL_MS = 180;
 
-/**
- * DEV SEULEMENT : NEXT_PUBLIC_CAL_DEMO=1 remplit le mois courant de 0 à 100
- * animes par jour (le jour J en a autant que la liste DEMO_COUNTS l'indique),
- * pris parmi les plus populaires d'AniList. Rien n'est écrit dans la
- * progression : c'est pour tester le survol.
- */
-const DEMO_COUNTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 45, 50, 55, 60, 70, 80, 90, 100];
-/** Épisodes par anime, un motif par jour (le 1er : un seul épisode). */
-const DEMO_EPS = [[1], [2, 2], [3, 1], [1, 1, 1], [5, 2, 2], [2, 2, 2, 2], [12, 3, 1], [4, 4, 1, 1], [1, 1, 1, 1, 1]];
-function useDemoDays(onCovers: () => void): WatchDays | null {
-  const [days, setDays] = useState<WatchDays | null>(null);
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    /* Allumé par NEXT_PUBLIC_CAL_DEMO=1 (.env, relancer `npm run dev`) : un
-       paramètre d'URL se perdait dans les redirections du profil. */
-    if (process.env.NEXT_PUBLIC_CAL_DEMO !== "1") return;
-    const page = (p: number) =>
-      fetch("https://graphql.anilist.co", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          query:
-            "query($p:Int){Page(page:$p,perPage:50){media(type:ANIME,sort:POPULARITY_DESC){id title{romaji english} coverImage{large}}}}",
-          variables: { p },
-        }),
-      }).then((r) => r.json());
-    Promise.all([1, 2, 3].map(page)).then((js) => {
-      const media = js.flatMap((j) => j?.data?.Page?.media ?? []);
-      for (const m of media) fetched.set(m.id, { cover: m.coverImage?.large ?? null, title: m.title.english || m.title.romaji });
-      const ids: number[] = media.map((m: { id: number }) => m.id);
-      const now = new Date();
-      const out: WatchDays = {};
-      DEMO_COUNTS.forEach((c, i) => {
-        const date = new Date(now.getFullYear(), now.getMonth(), i + 1);
-        if (date.getMonth() !== now.getMonth()) return;
-        /* Le jour a c bulles autour de lui : c + 1 animes, décalés d'un jour à l'autre. */
-        const a = Array.from(new Set(Array.from({ length: c + 1 }, (_, k) => ids[(i * 7 + k) % ids.length])));
-        /* Des cas variés d'un jour à l'autre, égalités comprises (2 SNK et
-           2 One Piece…) ; trié du plus vu au moins vu, comme `watchDays`. */
-        const pat = DEMO_EPS[i % DEMO_EPS.length];
-        const cs = a.map((_, k) => pat[k] ?? (k % 5 === 0 ? 2 : 1)).sort((x, y) => y - x);
-        out[dayKey(date.getTime())] = { n: cs.reduce((s, x) => s + x, 0), a, c: cs };
-      });
-      setDays(out);
-      onCovers();
-    })
-      /* AniList injoignable ou qui limite (« Failed to fetch », 03/11/2026) :
-         pas de démo, le calendrier garde le vrai journal. */
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return days;
-}
-
 export function CalendarBlock({
   served,
   entries,
@@ -187,8 +134,7 @@ export function CalendarBlock({
   const pref = useTitlePref();
   const local = useLocalDays(served == null);
   const [fetchedTick, setFetchedTick] = useState(0);
-  const demo = useDemoDays(() => setFetchedTick((n) => n + 1));
-  const days = demo ?? served ?? local;
+  const days = served ?? local;
 
   /* Le mois affiché, en décalage depuis le mois courant (0, -1, … -12). */
   const [offset, setOffset] = useState(0);
