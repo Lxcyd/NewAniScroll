@@ -439,20 +439,20 @@ export function GoalBlock({
         </span>
       </div>
       <div className="min-w-0">
-        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 26 * Math.min(k, 1.9) }}>
+        <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 22 * Math.min(k, 1.9) }}>
           {done}
-          <span className="font-karla font-semibold text-txt" style={{ fontSize: 14 * Math.min(k, 1.7) }}>
+          <span className="font-karla font-semibold text-txt" style={{ fontSize: 12 * Math.min(k, 1.7) }}>
             {" "}
             / {target}
           </span>
         </p>
-        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 10 * Math.min(k, 1.4) }}>
+        <p className="mt-1 font-karla leading-snug text-txt" style={{ fontSize: 9 * Math.min(k, 1.4) }}>
           {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
         </p>
         {/* Plus de ligne « N de retard / d'avance » (03/11/2026, Luc) : l'arc
             fantôme le montre. Reste « Objectif atteint ». */}
         {done >= target ? (
-          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 10.5 * Math.min(k, 1.4) }}>
+          <p className="mt-1.5 font-karla font-bold text-action" style={{ fontSize: 9.5 * Math.min(k, 1.4) }}>
             {t("profile.blocks.goal.reached")}
           </p>
         ) : null}
