@@ -227,12 +227,16 @@ export const MAX_VALUE = 48;
     tableau JSON de noms de listes : 48 caractères n'en tiennent que deux ou
     trois. Toujours borné, juste plus large. */
 const MAX_LIST_VALUE = 800;
+/** Les réglages qui rangent un tableau JSON et ont droit à cette longueur :
+    les listes cochées, les trois épinglés avec leur phrase, les génériques
+    favoris (03/11/2026). */
+const LONG_KEYS = new Set(["lists", "pins", "themes"]);
 function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   if (!s || typeof s !== "object") return null;
   const out: Record<string, boolean | string> = {};
   for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
     if (k.length > 32) continue;
-    const cap = k === "lists" ? MAX_LIST_VALUE : MAX_VALUE;
+    const cap = LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
     if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= cap)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;

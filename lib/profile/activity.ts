@@ -251,8 +251,17 @@ export function watchStreak(map: ProgressMap, now = Date.now()): number {
  * plus regardé d'abord, TOUS (Luc, 25/10) : la case montre le premier, les
  * autres en anneaux autour d'elle au survol. Bornée à `maxDays` en arrière : c'est ce qui voyage dans la page
  * d'un visiteur, et un an suffit à un calendrier qu'on feuillette mois par mois.
+ *
+ * À égalité d'épisodes, l'anime vu le PREMIER dans la journée passe devant
+ * (02/11/2026, Luc) — avant, l'ordre interne de la table décidait.
  */
-export type WatchDay = { n: number; a: number[] };
+export type WatchDay = {
+  n: number;
+  a: number[];
+  /** Épisodes de chaque anime de `a`, dans le même ordre. Absent des jours
+   *  servis avant le 02/11/2026. */
+  c?: number[];
+};
 export type WatchDays = Record<string, WatchDay>;
 
 export function dayKey(ms: number): string {
@@ -264,7 +273,7 @@ export function dayKey(ms: number): string {
 
 export function watchDays(map: ProgressMap, now = Date.now(), maxDays = 400): WatchDays {
   const since = now - maxDays * 86_400_000;
-  const per = new Map<string, Map<number, number>>();
+  const per = new Map<string, Map<number, { c: number; first: number }>>();
   for (const [k, e] of Object.entries(map || {})) {
     const at = Number(e?.updatedAt);
     if (!(Number.isFinite(at) && at > since && at <= now + 86_400_000) || !watched(e)) continue;
@@ -273,25 +282,105 @@ export function watchDays(map: ProgressMap, now = Date.now(), maxDays = 400): Wa
     const day = dayKey(at);
     let byAnime = per.get(day);
     if (!byAnime) per.set(day, (byAnime = new Map()));
-    byAnime.set(aniId, (byAnime.get(aniId) ?? 0) + 1);
+    const cur = byAnime.get(aniId);
+    if (cur) {
+      cur.c += 1;
+      cur.first = Math.min(cur.first, at);
+    } else byAnime.set(aniId, { c: 1, first: at });
   }
   const out: WatchDays = {};
   per.forEach((byAnime, day) => {
     let n = 0;
-    byAnime.forEach((c) => (n += c));
-    const a = Array.from(byAnime.entries())
-      .sort((x, y) => y[1] - x[1])
-      .map(([id]) => id);
-    out[day] = { n, a };
+    byAnime.forEach((v) => (n += v.c));
+    const sorted = Array.from(byAnime.entries()).sort((x, y) => y[1].c - x[1].c || x[1].first - y[1].first);
+    out[day] = { n, a: sorted.map(([id]) => id), c: sorted.map(([, v]) => v.c) };
   });
   return out;
+}
+
+/**
+ * LE PLUS LONG BINGE (03/11/2026, Luc) : la plus longue SESSION d'épisodes
+ * enchaînés.
+ *
+ * La table ne garde que la date de la dernière écriture de chaque épisode,
+ * c'est-à-dire, à peu près, l'heure où on l'a fini. Deux épisodes sont dans la
+ * même session quand le second a fini moins de « sa durée + la pause » après
+ * le premier : le temps de le regarder, plus une pause raisonnable. Au-delà,
+ * c'est une autre soirée. Un épisode de durée inconnue compte 24 min. La pause
+ * est un réglage du bloc : 15, 30 ou 60 min, 60 par défaut (03/11/2026, Luc).
+ *
+ * `a` liste les animes de la session, le plus regardé d'abord.
+ */
+export type Binge = {
+  n: number;
+  minutes: number;
+  start: number;
+  end: number;
+  a: number[];
+  /** Épisodes de chaque anime de `a`, dans le même ordre (absent avant le 03/11). */
+  c?: number[];
+  /** Les animes dans l'ORDRE DE VISIONNAGE (premier épisode vu d'abord). */
+  o?: number[];
+};
+
+export const BINGE_PAUSE_MIN = 60;
+
+export function longestBinge(map: ProgressMap, pauseMin = BINGE_PAUSE_MIN): Binge | null {
+  const pauseMs = pauseMin * 60_000;
+  const eps: { at: number; dur: number; seen: number; aniId: number }[] = [];
+  for (const [k, e] of Object.entries(map || {})) {
+    const at = Number(e?.updatedAt);
+    if (!(Number.isFinite(at) && at > 0) || !watched(e)) continue;
+    const aniId = Number(k.split(":")[0]);
+    if (!Number.isFinite(aniId) || aniId <= 0) continue;
+    const dur = Number(e.duration) > 0 ? Number(e.duration) : 24 * 60;
+    const seen = typeof e.watched === "number" ? e.watched : Math.min(Number(e.time) || 0, dur);
+    eps.push({ at, dur, seen, aniId });
+  }
+  if (!eps.length) return null;
+  eps.sort((x, y) => x.at - y.at);
+
+  let best: Binge | null = null;
+  let from = 0;
+  const close = (to: number) => {
+    const run = eps.slice(from, to);
+    if (best && run.length <= best.n) return;
+    const per = new Map<number, number>();
+    const order: number[] = [];
+    let secs = 0;
+    for (const r of run) {
+      if (!per.has(r.aniId)) order.push(r.aniId);
+      per.set(r.aniId, (per.get(r.aniId) ?? 0) + 1);
+      secs += r.seen;
+    }
+    const sorted = Array.from(per.entries()).sort((x, y) => y[1] - x[1]);
+    best = {
+      n: run.length,
+      minutes: Math.round(secs / 60),
+      start: run[0].at - run[0].dur * 1000,
+      end: run[run.length - 1].at,
+      a: sorted.map(([id]) => id),
+      c: sorted.map(([, c]) => c),
+      o: order,
+    };
+  };
+  for (let i = 1; i < eps.length; i++) {
+    if (eps[i].at - eps[i - 1].at > eps[i].dur * 1000 + pauseMs) {
+      close(i);
+      from = i;
+    }
+  }
+  close(eps.length);
+  return best;
 }
 
 /** Les deux catégories dont dépend l'activité, et la série qu'elles portent. */
 export function activityFromCloud(
   payloads: { recent?: unknown; progress?: unknown },
   limit = 12,
-): { rows: ActivityRow[]; streak: number; days: WatchDays } {
+  /** La pause du binge, réglée sur le bloc du propriétaire. */
+  bingePause = BINGE_PAUSE_MIN,
+): { rows: ActivityRow[]; streak: number; days: WatchDays; binge: Binge | null } {
   /* La table est déballée UNE fois et servie aux deux : les lignes en tirent
      leur avancement, la série ses jours. La reparser pour chacun coûterait un
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
@@ -306,5 +395,6 @@ export function activityFromCloud(
     /* Même réserve de fuseau que la série : chez lui, le calendrier est
        recompté dans son navigateur. */
     days: watchDays(map),
+    binge: longestBinge(map, bingePause),
   };
 }

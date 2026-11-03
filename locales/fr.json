@@ -902,8 +902,10 @@
           "normal": "Normales",
           "large": "Grandes"
         },
-        "covers": "Affiches dans les cases",
-        "coversDesc": "L'anime le plus regardé du jour ; sinon une teinte selon le nombre d'épisodes.",
+        "calBubbles": "Montrer tous les animes d’une journée",
+        "calBubblesDesc": "Quand tu passes la souris sur un jour, les autres animes que tu as regardés ce jour-là s'affichent autour.",
+        "heatStreak": "Afficher les séries",
+        "heatStreakDesc": "Une flamme avec tes jours d'affilée en cours, en haut de la carte.",
         "showFrom": "Afficher l'anime d'origine",
         "showFromDesc": "Le titre de l'anime sous le nom du personnage.",
         "ambientDesc": "Un halo tamisé aux couleurs de la vignette, derrière elle.",
@@ -927,7 +929,28 @@
         "groupStatuses": "Statuts",
         "groupCustom": "Listes personnalisées",
         "listsCount_one": "{{count}} liste",
-        "listsCount_other": "{{count}} listes"
+        "listsCount_other": "{{count}} listes",
+        "goalUnit": "Ce que tu comptes",
+        "goalUnitDesc": "Les épisodes regardés cette année, ou le nombre d'animes différents.",
+        "goalUnitChoice": {
+          "episodes": "Épisodes",
+          "animes": "Animes"
+        },
+        "goalTarget": "Objectif",
+        "goalTargetDesc": "Le nombre à atteindre d'ici le 31 décembre.",
+        "bingePause": "Pause tolérée",
+        "bingePauseDesc": "Le temps maximum entre deux épisodes d'une même session. Au-delà, c'est une autre soirée.",
+        "bingePauseChoice": {
+          "15": "15 min",
+          "30": "30 min",
+          "60": "1 h"
+        },
+        "bingeOrder": "Ordre du paquet",
+        "bingeOrderDesc": "Le plus regardé devant, ou les animes dans l'ordre où tu les as vus.",
+        "bingeOrderChoice": {
+          "most": "Plus regardé",
+          "watched": "Ordre de visionnage"
+        }
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
@@ -1082,7 +1105,8 @@
         "episodes_one": "{{count}} épisode",
         "episodes_other": "{{count}} épisodes",
         "none": "Rien de regardé ce mois-ci",
-        "today": "Aujourd’hui"
+        "today": "Aujourd’hui",
+        "eps": "x{{count}}"
       },
       "heatmap": {
         "title": "Heatmap de l'année",
@@ -1091,48 +1115,97 @@
         "more": "Plus",
         "episodes_one": "{{count}} épisode",
         "episodes_other": "{{count}} épisodes",
-        "activeDays_one": "{{count}} jour actif",
-        "activeDays_other": "{{count}} jours actifs",
-        "best_one": "record : {{count}} jour d'affilée",
-        "best_other": "record : {{count}} jours d'affilée",
-        "none": "Rien de regardé cette année",
-        "tip": "{{date}} · {{episodes}}",
-        "nothing": "rien de regardé"
+        "nothing": "rien de regardé",
+        "streak_one": "{{count}} jour d'affilée",
+        "streak_other": "{{count}} jours d'affilée",
+        "record": "record {{count}}"
       },
       "binge": {
         "title": "Plus long binge",
         "desc": "Ton record d'épisodes d'affilée.",
-        "soon": "Il faudrait mesurer les sessions de lecture ; seule la position dans l'épisode est gardée aujourd'hui."
+        "empty": "Aucune session d'épisodes enchaînés pour l'instant.",
+        "episodes_one": "épisode d'affilée",
+        "episodes_other": "épisodes d'affilée",
+        "duration": "{{h}} h {{m}}",
+        "minutes": "{{m}} min",
+        "more_one": " et {{count}} autre",
+        "more_other": " et {{count}} autres",
+        "eps_one": "{{count}} épisode",
+        "eps_other": "{{count}} épisodes"
       },
       "goal": {
         "title": "Objectif annuel",
         "desc": "Ta progression sur l'année.",
-        "soon": "Aucun objectif n'est encore réglable — il n'y a rien à suivre."
+        "episodes_one": "épisode visé",
+        "episodes_other": "épisodes visés",
+        "animes_one": "anime visé",
+        "animes_other": "animes visés",
+        "reached": "Objectif atteint 🎉",
+        "ahead_one": "{{count}} d'avance sur le rythme",
+        "ahead_other": "{{count}} d'avance sur le rythme",
+        "behind_one": "{{count}} de retard sur le rythme",
+        "behind_other": "{{count}} de retard sur le rythme"
       },
       "pinned": {
         "title": "Trois épinglés",
         "desc": "Trois titres mis en avant, avec ta phrase.",
-        "soon": "Il manque l'endroit où écrire et garder ces trois phrases."
+        "empty": "Rien d'épinglé pour l'instant.",
+        "emptyOwner": "Passe en mode Personnaliser et clique sur le crayon pour épingler trois titres avec ta phrase.",
+        "manage": "Choisir les épinglés",
+        "add": "Épingler un titre",
+        "remove": "Retirer",
+        "search": "Chercher dans ta liste…",
+        "cancel": "Annuler",
+        "notePlaceholder": "Ta phrase sur ce titre…"
       },
       "themes": {
         "title": "Top OP / ED",
         "desc": "Tes génériques préférés, écoutables ici.",
-        "soon": "Rien n'enregistre encore un générique en favori."
+        "empty": "Aucun générique favori pour l'instant.",
+        "emptyOwner": "Passe en mode Personnaliser et clique sur le crayon pour choisir tes génériques préférés.",
+        "manage": "Choisir les génériques",
+        "add": "Ajouter un générique",
+        "none": "AnimeThemes ne connaît aucun générique pour ce titre.",
+        "play": "Écouter",
+        "pause": "Pause"
       },
       "badges": {
         "title": "Badges & succès",
         "desc": "Ce que tu as débloqué.",
-        "soon": "Aucun badge n'existe encore."
+        "empty": "Aucun badge obtenu pour l'instant.",
+        "recent": "les plus récents"
       },
       "affinity": {
         "title": "Affinité de goûts",
         "desc": "Tes amis classés par affinité.",
-        "soon": "Il n'y a pas encore d'amis sur AniScroll."
+        "empty": "Visite des profils : ils apparaîtront ici, classés selon vos goûts communs.",
+        "noMe": "Ouvre ton propre profil une fois sur cet appareil pour te comparer aux autres.",
+        "youAnd": "Affinité entre toi et {{name}}",
+        "shared_one": "{{count}} titre en commun",
+        "shared_other": "{{count}} titres en commun",
+        "rated_one": "{{count}} noté des deux côtés",
+        "rated_other": "{{count}} notés des deux côtés"
       },
       "bingo": {
         "title": "Bingo de la saison",
         "desc": "Neuf défis de visionnage à cocher.",
-        "soon": "Les défis restent à écrire, et rien ne les suit encore."
+        "season": {
+          "winter": "Hiver",
+          "spring": "Printemps",
+          "summer": "Été",
+          "fall": "Automne"
+        },
+        "cell": {
+          "streak7": "{{count}} jours d'affilée",
+          "day10": "{{count}} épisodes en un jour",
+          "movie": "Un film",
+          "airing": "Un anime en diffusion",
+          "eps100": "{{count}} épisodes",
+          "classic": "Un classique de 15 ans ou plus",
+          "genres5": "{{count}} genres différents",
+          "animes10": "{{count}} animes différents",
+          "finish": "Une série terminée"
+        }
       }
     },
     "studioTitle": "Personnalisation du profil",

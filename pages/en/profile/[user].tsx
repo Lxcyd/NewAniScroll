@@ -54,7 +54,7 @@ import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
-import { activityFromCloud, type ActivityRow, type WatchDays } from "@/lib/profile/activity";
+import { activityFromCloud, type ActivityRow, type Binge, type WatchDays } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 /* Liste, Stats, Badges : hors du chunk d'entree, precharges au repos (cf.
@@ -84,7 +84,8 @@ import type {
 } from "@/lib/profile/types";
 
 /** Les deux blocs nourris par l'activité de lecture du propriétaire. */
-const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar", "heatmap"]);
+/* Le binge, l'objectif et le bingo (03/11/2026) lisent la même table. */
+const ACTIVITY_BLOCKS = new Set(["resume", "recents", "calendar", "heatmap", "binge", "goal", "bingo"]);
 
 /** Une disposition stockée, remise en forme — `null` si elle est illisible. */
 function parseLayout(raw: string | null | undefined): GridItem[] | null {
@@ -140,6 +141,8 @@ type Props = {
   streak: number | null;
   /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
   watchDays?: WatchDays | null;
+  /** Son plus long binge — seulement si le bloc est posé. */
+  binge?: Binge | null;
   /** La collection de badges du proprietaire, telle qu'elle est sauvegardee.
    *  Absente sur un profil prive, `got` vide pour un compte qui n'a rien encore. */
   badges?: BadgeState | null;
@@ -166,6 +169,7 @@ export default function Profile({
   activity,
   streak,
   watchDays,
+  binge,
   badges,
   isPrivate,
   viewedName,
@@ -497,6 +501,9 @@ export default function Profile({
             activity={activity ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
+            binge={binge ?? null}
+            earned={earned}
+            who={identity}
             onPickScore={openScore}
             editing={picker}
             onEditingChange={(on) => (on ? openEditor() : closeEditor())}
@@ -1177,7 +1184,12 @@ export async function getServerSideProps(context: any) {
      lisible dans __NEXT_DATA__ alors que plus rien ne l'afficherait à l'écran.
      C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
   const read = layoutWantsActivity(profileLayout)
-    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress") })
+    ? activityFromCloud(
+        { recent: payloadOf("recent"), progress: payloadOf("progress") },
+        12,
+        /* La pause du binge réglée par le propriétaire (03/11/2026). */
+        Number(profileLayout?.find((o) => o.i === "binge")?.s?.bingePause) || undefined,
+      )
     : null;
   const activity: ActivityRow[] | null = read?.rows ?? null;
   /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la
@@ -1187,7 +1199,9 @@ export async function getServerSideProps(context: any) {
   /* Le journal des jours, sous le même garde-fou et seulement si la grille
      montre le calendrier ou la heatmap : sans eux, rien ne l'afficherait. */
   const watchDays: WatchDays | null =
-    read && profileLayout?.some((o) => o.i === "calendar" || o.i === "heatmap") ? read.days : null;
+    read && profileLayout?.some((o) => ["calendar", "heatmap", "goal", "bingo"].includes(o.i)) ? read.days : null;
+  /* Le plus long binge, sous le même garde-fou, seulement si son bloc est posé. */
+  const binge: Binge | null = read && profileLayout?.some((o) => o.i === "binge") ? read.binge : null;
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more
@@ -1266,6 +1280,7 @@ export async function getServerSideProps(context: any) {
       activity,
       streak,
       watchDays,
+      binge,
       badges,
       musicPaused: context.req?.cookies?.[PROFILE_AUTOPLAY_COOKIE] === "0",
     },

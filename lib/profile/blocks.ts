@@ -143,23 +143,28 @@ export const BLOCKS: BlockDef[] = [
   { id: "characters", size: [4, 1], min: [1, 1], max: [4, 3], color: "#E94560", source: "list", icon: "☺" },
   /* Le journal des jours regardés (25/10/2026, Luc), tiré de la table de
      progression comme la flamme. */
-  /* DEUX TAILLES SEULEMENT, 2×2 et 3×3 (28/10/2026, Luc) : un mois est un
-     carré de 7 colonnes, il n'a rien à gagner à être étiré dans un sens. */
-  { id: "calendar", size: [2, 2], min: [2, 2], max: [3, 3], square: true, color: "#3B82F6", source: "device", icon: "▦" },
-  /* Le même journal, sur douze mois (28/10/2026, Luc). Large et basse : 53
-     semaines se lisent en longueur ; sous deux colonnes, seules les semaines
-     récentes tiennent. */
-  { id: "heatmap", size: [4, 1], min: [2, 1], max: [4, 2], color: "#E94560", source: "device", icon: "▨" },
-  // Sans source, pour l'instant — cf. l'en-tête. Chacun sait déjà ce qu'il lui
-  // manque, écrit dans sa traduction `.soon`, pour que le bloc vide explique
-  // lui-même pourquoi il est vide.
-  { id: "binge", size: [2, 1], color: "#F59E0B", source: "soon", icon: "⏱" },
-  { id: "goal", size: [2, 1], color: "#A855F7", source: "soon", icon: "◎" },
-  { id: "pinned", size: [4, 1], color: "#E94560", source: "soon", icon: "❏" },
-  { id: "themes", size: [2, 2], color: "#A855F7", source: "soon", icon: "♪" },
-  { id: "badges", size: [2, 1], color: "#FFD700", source: "soon", icon: "✦" },
-  { id: "affinity", size: [2, 1], color: "#22c55e", source: "soon", icon: "≈" },
-  { id: "bingo", size: [2, 2], color: "#3B82F6", source: "soon", icon: "▩" },
+  /* CARRÉ SEULEMENT, 2×2 à 4×4 (28/10/2026, Luc ; 4×4 ouvert le 02/11 pour
+     tester) : un mois est un carré de 7 colonnes, il n'a rien à gagner à être
+     étiré dans un sens. */
+  { id: "calendar", size: [2, 2], min: [2, 2], max: [4, 4], square: true, color: "#3B82F6", source: "device", icon: "▦" },
+  /* Le même journal, jusqu'à douze mois (28/10/2026, Luc). Une ligne de haut,
+     de 1 à 4 colonnes de large (« 1×4 », hauteur × largeur, 02/11/2026) : les
+     cases gardent leur taille, la largeur décide du nombre de mois. */
+  { id: "heatmap", size: [4, 1], min: [1, 1], max: [4, 1], color: "#E94560", source: "device", icon: "▨" },
+  /* LES SEPT DERNIERS, SORTIS DE « SOON » (03/11/2026, Luc). Chacun a trouvé
+     sa source sans rien ajouter côté serveur :
+     - binge, objectif, bingo : la table de progression, comme la flamme ;
+     - épinglés, génériques : la disposition elle-même (réglages `pins`,
+       `themes`, publics comme elle) ;
+     - badges : la collection de badges du profil ;
+     - affinité : les listes des profils visités, gardées sur l'appareil. */
+  { id: "binge", size: [2, 1], min: [1, 1], max: [2, 1], color: "#F59E0B", source: "device", icon: "⏱" },
+  { id: "goal", size: [2, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎" },
+  { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 2], color: "#E94560", source: "list", icon: "❏" },
+  { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
+  { id: "badges", size: [2, 1], min: [1, 1], max: [4, 2], color: "#FFD700", source: "none", icon: "✦" },
+  { id: "affinity", size: [2, 1], min: [2, 1], max: [4, 2], color: "#22c55e", source: "list", icon: "≈" },
+  { id: "bingo", size: [2, 2], min: [2, 2], max: [3, 3], square: true, color: "#3B82F6", source: "device", icon: "▩" },
 ];
 
 /**
@@ -294,9 +299,25 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* La taille des portraits, comme « En cours » (25/10/2026), et l'anime
      d'origine sous le nom. Pas de nombre par ligne : retiré le même jour (Luc),
      les colonnes suivent la largeur de la carte. */
-  /* L'affiche de l'anime du jour dans chaque case ; éteint, une teinte qui
-     suit le nombre d'épisodes. */
-  calendar: [{ key: "covers", on: true }],
+  /* LE CALENDRIER (02/11/2026, Luc) : « Affiches dans les cases » retiré (les
+     affiches sont toujours là). Seize réglages essayés le même jour, un seul
+     gardé : les autres animes du jour en bulles au survol. */
+  calendar: [{ key: "calBubbles", on: true }],
+  /* La série en cours et le record, en petit à côté des flèches (03/11/2026,
+     Luc) : ce qui reste de l'ancienne ligne de bilan. */
+  heatmap: [{ key: "heatStreak", on: true }],
+  /* Le binge (03/11/2026, Luc) : la pause tolérée entre deux épisodes d'une
+     même session (60 min par défaut : un repas ne coupe pas la soirée), et
+     l'ordre du paquet — le plus regardé devant, ou la soirée dans l'ordre. */
+  binge: [
+    { key: "bingePause", choices: ["15", "30", "60"], value: "60", segmented: true },
+    { key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true },
+  ],
+  /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien. */
+  goal: [
+    { key: "goalUnit", choices: ["episodes", "animes"], value: "episodes", segmented: true },
+    { key: "goalTarget", choices: ["25", "50", "100", "250", "500", "1000", "2000"], value: "250" },
+  ],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

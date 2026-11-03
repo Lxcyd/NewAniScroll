@@ -244,6 +244,7 @@ export default function LocalProfile() {
               entries={entries}
               characters={[]}
               isOwner
+              earned={badgeState.got}
               onPickScore={(score, completedOnly) => {
                 setListFocus({ status: completedOnly ? "COMPLETED" : "all", score });
                 changeTab("list");

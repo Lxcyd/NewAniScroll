@@ -28,6 +28,20 @@ import type { ActivityRow, WatchDays } from "@/lib/profile/activity";
 import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
+  AffinityBlock,
+  BadgesBlock,
+  BingeBlock,
+  BingoBlock,
+  GoalBlock,
+  PinnedBlock,
+  ThemesBlock,
+  parsePins,
+  parseThemes,
+} from "./widgets/ExtraBlocks";
+import { useLocalDays } from "./widgets/CalendarBlock";
+import { rememberMe, rememberProfile } from "@/lib/profile/affinity";
+import type { Binge } from "@/lib/profile/activity";
+import {
   BLOCKS,
   DEFAULT_BLOCKS,
   blockBounds,
@@ -104,6 +118,12 @@ type Props = {
   streak?: number | null;
   /** Les jours de lecture DU PROPRIÉTAIRE pour le calendrier (visiteur). */
   watchDays?: WatchDays | null;
+  /** Son plus long binge, compté au rendu serveur (visiteur). */
+  binge?: Binge | null;
+  /** Ses badges obtenus (id → date), pour « Badges & succès ». */
+  earned?: Record<string, number> | null;
+  /** Qui est ce profil : l'affinité range sa liste sous ce nom (visiteur). */
+  who?: { name: string; avatar: string | null } | null;
   /** Une note cliquée dans l'histogramme. La page bascule alors sur son onglet
    *  « Ma liste », filtrée sur cette note — et sur les titres terminés quand le
    *  bloc est réglé ainsi, sans quoi la liste montrerait des titres que la
@@ -158,11 +178,30 @@ export default function ProfileOverview({
   activity,
   streak,
   watchDays,
+  binge,
+  earned,
+  who,
   onPickScore,
   editing: editingProp,
   onEditingChange,
 }: Props) {
   const { t } = useTranslation();
+
+  /* L'AFFINITÉ (03/11/2026) : chez soi, sa liste est rangée sur l'appareil ;
+     chez un autre, la sienne, sous son nom. C'est tout ce dont le bloc a
+     besoin pour comparer — cf. lib/profile/affinity.ts. */
+  useEffect(() => {
+    if (!entries.length) return;
+    if (isOwner) rememberMe(entries);
+    else if (who?.name)
+      rememberProfile({ name: who.name, avatar: who.avatar, href: window.location.pathname }, entries);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, isOwner, who?.name]);
+
+  /* Le journal des jours de CET appareil, chez soi, pour l'objectif et le
+     bingo ; chez un autre, celui que sert la page. */
+  const localDays = useLocalDays(isOwner);
+  const days = isOwner ? localDays : (watchDays ?? {});
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
      profil local d'un invité. Il est appelé dans tous les cas — un hook ne se
      saute pas — mais son résultat est ignoré côté compte. */
@@ -324,6 +363,8 @@ export default function ProfileOverview({
       endRoom:
         id === "favorites" ||
         id === "scores" ||
+        /* La légende « Moins ▪▪▪▪▪ Plus » de la heatmap (02/11/2026). */
+        id === "heatmap" ||
         (id === "recents" && optionOn("recents", "streak")),
       /* Le crayon des personnages favoris, à côté de la roue, chez le
          propriétaire (25/10/2026, Luc) : ajouter, retirer, réordonner. */
@@ -341,7 +382,33 @@ export default function ProfileOverview({
                 />
               ),
             }
-          : undefined,
+          : /* Les épinglés et les génériques s'écrivent au crayon, comme les
+               personnages (03/11/2026) ; ils sont rangés dans la disposition. */
+            id === "pinned" && isOwner
+            ? {
+                label: t("profile.blocks.pinned.manage"),
+                node: (
+                  <PinnedBlock
+                    pins={parsePins(savedString("pinned", "pins"))}
+                    entries={entries}
+                    isOwner
+                    onChange={(p) => setOption("pinned", "pins", JSON.stringify(p))}
+                  />
+                ),
+              }
+            : id === "themes" && isOwner
+              ? {
+                  label: t("profile.blocks.themes.manage"),
+                  node: (
+                    <ThemesBlock
+                      favs={parseThemes(savedString("themes", "themes"))}
+                      entries={entries}
+                      isOwner
+                      onChange={(f) => setOption("themes", "themes", JSON.stringify(f))}
+                    />
+                  ),
+                }
+              : undefined,
       body: body(id),
     };
   }
@@ -353,6 +420,11 @@ export default function ProfileOverview({
   }
   function optionOn(id: string, key: string): boolean {
     return blockOption(id, key, saved(id));
+  }
+  /** Un réglage libre, rangé tel quel (les épinglés, les génériques). */
+  function savedString(id: string, key: string): string | undefined {
+    const v = saved(id)?.[key];
+    return typeof v === "string" ? v : undefined;
   }
   function optionValue(id: string, key: string): string {
     return blockOptionValue(id, key, saved(id), customValues);
@@ -771,15 +843,48 @@ export default function ProfileOverview({
           />
         );
       case "heatmap":
-        return <HeatmapBlock served={isOwner ? undefined : (watchDays ?? {})} />;
+        return (
+          <HeatmapBlock
+            served={isOwner ? undefined : (watchDays ?? {})}
+            editing={editing}
+            streak={optionOn("heatmap", "heatStreak")}
+          />
+        );
       case "calendar":
         return (
           <CalendarBlock
             served={isOwner ? undefined : (watchDays ?? {})}
             entries={entries}
-            covers={optionOn("calendar", "covers")}
+            bubbles={optionOn("calendar", "calBubbles")}
           />
         );
+      case "binge":
+        return (
+          <BingeBlock
+            served={isOwner ? undefined : (binge ?? null)}
+            entries={entries}
+            pause={Number(optionValue("binge", "bingePause")) || 60}
+            order={optionValue("binge", "bingeOrder") === "watched" ? "watched" : "most"}
+          />
+        );
+      case "goal":
+        return (
+          <GoalBlock
+            days={days}
+            unit={optionValue("goal", "goalUnit") === "animes" ? "animes" : "episodes"}
+            target={Number(optionValue("goal", "goalTarget")) || 250}
+          />
+        );
+      case "pinned":
+        return <PinnedBlock pins={parsePins(savedString("pinned", "pins"))} entries={entries} isOwner={isOwner} />;
+      case "themes":
+        return <ThemesBlock favs={parseThemes(savedString("themes", "themes"))} entries={entries} isOwner={isOwner} />;
+      case "badges":
+        return <BadgesBlock earned={earned} />;
+      case "affinity":
+        return <AffinityBlock isOwner={isOwner} entries={entries} name={who?.name ?? ""} />;
+      case "bingo":
+        return <BingoBlock days={days} entries={entries} />;
       default:
         // Les blocs `soon` : la mise en page est là, et le bloc dit lui-même ce
         // qui lui manque plutôt que d'afficher un chiffre inventé.

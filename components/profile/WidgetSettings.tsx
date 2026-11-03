@@ -634,7 +634,11 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
        absolu sous son bouton et serait coupé au bord du panneau. Rien d'autre
        ne dépassait de toute façon. */
     <div className="rounded-2xl border-2 border-[#2c2d36] bg-[#15161d] shadow-[0_18px_44px_rgba(0,0,0,0.6)]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+      {/* MÊMES BORDS QUE LES RÉGLAGES (02/11/2026, Luc) : px-5 = p-2 + px-3 du
+          contenu, et la croix recule de 10 px : son icône fait 14 px dans un
+          bouton de 28 (7 px) et le trait s'arrête 3 px avant le bord de
+          l'icône ; il finit ainsi au bord droit des interrupteurs. */}
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-3">
         {/* « Paramètres du widget », et rien d'autre — pas le nom du bloc : le
             panneau s'ouvre SUR sa carte, dont l'en-tête porte déjà ce nom à
             deux centimètres au-dessus. Le pluriel suit le nombre de paramètres
@@ -648,7 +652,7 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
           type="button"
           onClick={onClose}
           aria-label={t("profile.library.close")}
-          className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:text-white"
+          className="-mr-[10px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:text-white"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-3.5 w-3.5">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -667,7 +671,10 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                 role="switch"
                 aria-checked={o.on}
                 onClick={() => onOption(o.key, !o.on)}
-                className={`flex w-full items-center justify-between gap-3 text-left ${SECTION}`}
+                /* Calé sur le TITRE, pas centré sur titre + explication : comme
+                   la pastille de valeur des curseurs, tous les contrôles de
+                   droite tombent sur la ligne de leur titre (02/11/2026, Luc). */
+                className={`flex w-full items-start justify-between gap-3 text-left ${SECTION}`}
               >
                 <Label label={o.label} desc={o.desc} />
                 {/* ÉTEINT SE VOIT AUSSI. À 15 % de blanc l'interrupteur se

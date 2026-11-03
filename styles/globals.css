@@ -5107,6 +5107,9 @@ html.as-dragging .as-nudge {
     calc((100cqh - var(--lab) - var(--rows) * var(--g)) / var(--rows))
   );
   display: grid;
+  /* MÊME ÉCART EN LARGEUR ET EN HAUTEUR (02/11/2026, Luc) : des colonnes
+     étalées sur toute la largeur (essayé le même jour) écartaient les disques
+     plus en largeur qu'en hauteur. La grille est centrée. */
   grid-template-columns: repeat(7, var(--c));
   gap: var(--g);
   justify-content: center;
@@ -5134,53 +5137,173 @@ html.as-dragging .as-nudge {
 .as-cal-main {
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s;
 }
-.as-cal-cell:hover .as-cal-main {
+/* Seulement les jours sans bulles : pour les autres, c'est la copie posée sur
+   le voile (.as-cal-hc) qui grossit. Les deux à la fois se dédoublaient, le
+   ressort de la case dépassant autour de la copie (02/11/2026, Luc). */
+.as-cal-cell:not(.as-cal-multi):hover .as-cal-main {
   transform: scale(1.1);
 }
 /* LES AUTRES ANIMES DU JOUR, dans un portail par-dessus la page (Orbit,
    CalendarBlock.tsx) pour pouvoir sortir du widget. Chacun part du centre du
-   jour et va se poser à l'angle --a, à la distance --t (en % de sa propre
+   jour et va se poser en nid d'abeille à (--tx, --ty) (en % de sa propre
    taille), l'un après l'autre (--d). À la fermeture, ils y retournent. */
 .as-cal-sat {
   position: absolute;
-  overflow: hidden;
+  z-index: 3;
+  /* Pas d'overflow ici : l'affiche est rognée dans son propre rond, le
+     compteur d'épisodes déborde sur le bord. */
   border-radius: 9999px;
   pointer-events: auto;
-  box-shadow: 0 0 0 1px rgba(10, 10, 18, 0.85), 0 6px 16px rgba(0, 0, 0, 0.4);
-  transform: rotate(var(--a)) translateX(var(--t)) rotate(calc(-1 * var(--a)));
-  animation: as-cal-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) var(--d) backwards;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  transform: translate(var(--tx), var(--ty));
+  /* Même ressort que le voile (VEIL / SPRING, CalendarBlock.tsx). */
+  animation: as-cal-pop 0.55s cubic-bezier(0.3, 1.35, 0.5, 1) var(--d) backwards;
   transition:
-    transform 0.22s cubic-bezier(0.4, 0, 1, 1),
-    opacity 0.18s,
+    transform 0.28s cubic-bezier(0.3, 1.35, 0.5, 1),
+    opacity 0.2s,
     box-shadow 0.15s;
 }
 @keyframes as-cal-pop {
   from {
     opacity: 0;
-    transform: rotate(var(--a)) translateX(0) rotate(calc(-1 * var(--a))) scale(0.3);
+    transform: translate(0, 0) scale(0.25);
   }
 }
 .as-cal-orbit.is-closing .as-cal-sat {
   animation: none;
   opacity: 0;
   pointer-events: none;
-  transform: rotate(var(--a)) translateX(0) rotate(calc(-1 * var(--a))) scale(0.3);
+  transform: translate(0, 0) scale(0.25);
 }
+/* LE VOILE : verre léger et flou sous les bulles. Son masque (la forme de la
+   zone de survol, bords fondus) est redessiné à chaque image en JS. */
+.as-cal-veil {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(16, 16, 24, 0.25);
+  -webkit-backdrop-filter: blur(4px) saturate(1.2);
+  backdrop-filter: blur(4px) saturate(1.2);
+  -webkit-mask-image: linear-gradient(transparent, transparent);
+  mask-image: linear-gradient(transparent, transparent);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+/* Pas de contour noir sur le jour survolé (02/11/2026, Luc) ; son ombre
+   s'en va avec la fermeture au lieu de rester le temps du compteur. */
+.as-cal-hc {
+  transform: scale(1.1);
+  /* Part de la taille de la case, qu'elle recouvre exactement. */
+  animation: as-cal-hc-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.28s,
+    box-shadow 0.28s;
+}
+@keyframes as-cal-hc-in {
+  from {
+    transform: scale(1);
+  }
+}
+.as-cal-orbit.is-closing .as-cal-hc {
+  transform: scale(1);
+  box-shadow: none;
+}
+/* Le point où se pose le compteur : à 45° en bas à droite, un peu au-delà du
+   cercle (85 % = pile sur le bord, « un peu trop près », Luc 02/11).
+   Taille nulle, le compteur y est centré. */
+.as-cal-badge {
+  position: absolute;
+  left: 90%;
+  top: 90%;
+  z-index: 3;
+  display: flex;
+  width: 0;
+  height: 0;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.as-cal-badge > * {
+  flex: none;
+  white-space: nowrap;
+}
+/* Détourage (02/11/2026, Luc ; proposition 02 de l'artefact « Compteur
+   d'épisodes ») : un fin liseré sombre détache le compteur du disque. Pas de
+   contour blanc, et 1 px : 2 px puis 1,5 px faisaient trop gros (Luc). */
+.as-cal-detour {
+  box-shadow:
+    0 0 0 1px #0c0c12,
+    0 1px 3px rgba(0, 0, 0, 0.5);
+}
+/* Le compteur du jour s'efface à l'ouverture et revient à la fermeture : la
+   copie au-dessus du voile et la case dessous, en phase. */
+.as-cal-hcount,
+.as-cal-cell.is-open .as-cal-count {
+  animation: as-cal-ct-out 0.55s cubic-bezier(0.22, 0.8, 0.24, 1) forwards;
+}
+.as-cal-orbit.is-closing .as-cal-hcount,
+.as-cal-cell.is-back .as-cal-count {
+  animation: as-cal-ct-in 0.6s cubic-bezier(0.22, 0.8, 0.24, 1) 0.08s both;
+}
+/* Les épisodes de chaque anime, au survol : ils arrivent une fois la bulle
+   posée (et le total du jour effacé), et partent avec elle. */
+.as-cal-ep {
+  animation: as-cal-ct-in 0.45s cubic-bezier(0.22, 0.8, 0.24, 1) calc(var(--d, 0ms) + 0.35s) both;
+}
+.as-cal-orbit.is-closing .as-cal-ep {
+  animation: as-cal-ct-out 0.2s ease-in forwards;
+}
+@keyframes as-cal-ct-out {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+@keyframes as-cal-ct-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+/* Le calque des compteurs d'une bulle : même place et même mouvement qu'elle,
+   au-dessus de toutes les bulles, transparent à la souris. */
+.as-cal-sat.as-cal-sat-tag {
+  z-index: 6;
+  pointer-events: none;
+  box-shadow: none;
+}
+/* La bulle survolée grossit un peu (02/11/2026, Luc), au-dessus de ses voisines. */
 .as-cal-sat:hover {
-  box-shadow: 0 0 0 1.5px var(--brand-primary, #e94560), 0 6px 16px rgba(0, 0, 0, 0.4);
+  z-index: 4;
+  transform: translate(var(--tx), var(--ty)) scale(1.12);
+  box-shadow: 0 0 0 1.5px var(--brand-primary, #e94560), 0 8px 20px rgba(0, 0, 0, 0.5);
 }
 .as-cal-main {
   z-index: 2;
 }
-.as-cal-cell.is-open .as-cal-main {
-  transform: scale(1.1);
-  box-shadow: 0 0 0 1px rgba(10, 10, 18, 0.85), 0 8px 24px rgba(0, 0, 0, 0.5);
-}
 .as-cal-cell {
-  transition: opacity 0.25s;
+  transition: opacity 0.35s, filter 0.35s;
 }
+/* Le voile sépare déjà le jour ouvert : les autres ne font que pâlir. */
 .as-cal-grid.has-open .as-cal-cell:not(.is-open) {
-  opacity: 0.15;
+  opacity: 0.55;
+  filter: saturate(0.6);
 }
 /* Étroit (une colonne) : le nombre d'épisodes passe dans l'infobulle, le
    résumé du mois aussi. */
@@ -5199,12 +5322,35 @@ html.as-dragging .as-nudge {
 }
 
 /* ── Heatmap de l'année (HeatmapBlock.tsx) ─────────────────────────────── */
+/* AU REDIMENSIONNEMENT (02/11/2026, Luc) : les 53 semaines restent montées,
+   à leur place ; la grille ne bouge pas (collée à droite), et les
+   colonnes hors période s'éteignent (as-heat-off, posée sur la COLONNE par
+   le séquenceur de HeatmapBlock, une colonne à la fois et dans l'ordre).
+   Allumer = ÉCLOSION : la case naît d'un point. Transitions et pas
+   animations : interrompues, elles repartent d'où elles en sont. */
 .as-heat-cell {
   animation: as-heat-in 0.4s ease-out backwards;
-  transition: transform 0.12s;
+  transition:
+    opacity 0.12s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.as-heat-month {
+  animation: as-heat-in 0.4s ease-out backwards;
+  transition: opacity 0.14s ease;
+}
+.as-heat-off .as-heat-cell,
+.as-heat-month.as-heat-off {
+  opacity: 0;
+  pointer-events: none;
+  /* S'éteindre va plus vite. */
+  transition-duration: 0.08s;
+}
+.as-heat-off .as-heat-cell {
+  transform: scale(0);
 }
 .as-heat-cell:hover {
   transform: scale(1.35);
+  transition-duration: 0.12s;
   z-index: 2;
 }
 @keyframes as-heat-in {
@@ -5212,10 +5358,24 @@ html.as-dragging .as-nudge {
     opacity: 0;
   }
 }
-/* Étroite : la légende cède la place au bilan. */
-@container widget (max-width: 520px) {
+/* Étroite (une colonne) : la légende laisserait trop peu de place au titre. */
+/* ANIMÉE (03/11/2026, Luc) : `display: none` ne s'anime pas. La légende
+   replie sa largeur et sa marge en s'effaçant ; la flamme et les flèches
+   glissent à sa place. */
+.as-heat-legend {
+  max-width: 160px;
+  margin-left: 12px;
+  overflow: hidden;
+  transition:
+    max-width 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-left 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.2s ease;
+}
+@container widget (max-width: 380px) {
   .as-heat-legend {
-    display: none;
+    max-width: 0;
+    margin-left: 0;
+    opacity: 0;
   }
 }
 
@@ -5235,7 +5395,10 @@ html.as-dragging .as-nudge {
   background: none !important;
   isolation: isolate;
 }
-.as-clip-bg:not(.absolute):not(.fixed):not(.sticky) {
+/* Sélecteurs d'attribut, pas `:not(.absolute)` : Tailwind remplace `.absolute`
+   dans un sélecteur par chaque classe qui fait `@apply absolute` (.tooltip,
+   .vid-con…), et la règle s'appliquait alors aux disques du calendrier. */
+.as-clip-bg:not([class~="absolute"]):not([class~="fixed"]):not([class~="sticky"]) {
   position: relative;
 }
 .as-clip-bg::before {
@@ -5246,4 +5409,37 @@ html.as-dragging .as-nudge {
   border-radius: inherit;
   background: var(--clip-bg, #000);
   pointer-events: none;
+}
+
+/* « Plus long binge » (ExtraBlocks.tsx) : le paquet étalé passe par-dessus le
+   texte, qui s'efface le temps du survol (03/11/2026, Luc). */
+.as-binge:has(.as-deck:hover) .as-binge-text {
+  opacity: 0.12;
+}
+/* Le texte du binge suit la largeur de la carte : 2 colonnes, puis 1. */
+.as-binge {
+  gap: 40px;
+}
+.as-binge-n {
+  font-size: 68px;
+}
+.as-binge-l {
+  font-size: 21px;
+}
+.as-binge-d {
+  font-size: 16px;
+}
+@container widget (max-width: 420px) {
+  .as-binge {
+    gap: 14px;
+  }
+  .as-binge-n {
+    font-size: 44px;
+  }
+  .as-binge-l {
+    font-size: 14px;
+  }
+  .as-binge-d {
+    font-size: 12px;
+  }
 }

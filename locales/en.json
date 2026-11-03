@@ -902,8 +902,10 @@
           "normal": "Normal",
           "large": "Large"
         },
-        "covers": "Posters in the days",
-        "coversDesc": "The day's most-watched anime; otherwise a tint by episode count.",
+        "calBubbles": "Show all of a day's anime",
+        "calBubblesDesc": "When you hover a day, the other anime you watched that day appear around it.",
+        "heatStreak": "Show streaks",
+        "heatStreakDesc": "A flame with your current run of days in a row, at the top of the card.",
         "showFrom": "Show the source anime",
         "showFromDesc": "The anime's title under the character's name.",
         "ambientDesc": "A dimmed glow in the thumbnail's own colours, behind it.",
@@ -927,7 +929,28 @@
         "groupStatuses": "Statuses",
         "groupCustom": "Custom lists",
         "listsCount_one": "{{count}} list",
-        "listsCount_other": "{{count}} lists"
+        "listsCount_other": "{{count}} lists",
+        "goalUnit": "What you count",
+        "goalUnitDesc": "Episodes watched this year, or the number of different anime.",
+        "goalUnitChoice": {
+          "episodes": "Episodes",
+          "animes": "Anime"
+        },
+        "goalTarget": "Goal",
+        "goalTargetDesc": "The number to reach by December 31.",
+        "bingePause": "Allowed break",
+        "bingePauseDesc": "The longest gap between two episodes of one session. Beyond that, it's another night.",
+        "bingePauseChoice": {
+          "15": "15 min",
+          "30": "30 min",
+          "60": "1 h"
+        },
+        "bingeOrder": "Deck order",
+        "bingeOrderDesc": "Most watched first, or the anime in the order you watched them.",
+        "bingeOrderChoice": {
+          "most": "Most watched",
+          "watched": "Watch order"
+        }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -1082,7 +1105,8 @@
         "episodes_one": "{{count}} episode",
         "episodes_other": "{{count}} episodes",
         "none": "Nothing watched this month",
-        "today": "Today"
+        "today": "Today",
+        "eps": "x{{count}}"
       },
       "heatmap": {
         "title": "Year heatmap",
@@ -1091,48 +1115,97 @@
         "more": "More",
         "episodes_one": "{{count}} episode",
         "episodes_other": "{{count}} episodes",
-        "activeDays_one": "{{count}} active day",
-        "activeDays_other": "{{count}} active days",
-        "best_one": "best: {{count}} day in a row",
-        "best_other": "best: {{count}} days in a row",
-        "none": "Nothing watched this year",
-        "tip": "{{date}} · {{episodes}}",
-        "nothing": "nothing watched"
+        "nothing": "nothing watched",
+        "streak_one": "{{count}} day in a row",
+        "streak_other": "{{count}} days in a row",
+        "record": "record {{count}}"
       },
       "binge": {
         "title": "Longest binge",
         "desc": "Your record run of episodes.",
-        "soon": "This needs watch sessions to be measured; only the position inside an episode is kept today."
+        "empty": "No binge session yet.",
+        "episodes_one": "episode in a row",
+        "episodes_other": "episodes in a row",
+        "duration": "{{h}} h {{m}}",
+        "minutes": "{{m}} min",
+        "more_one": " and {{count}} more",
+        "more_other": " and {{count}} more",
+        "eps_one": "{{count}} episode",
+        "eps_other": "{{count}} episodes"
       },
       "goal": {
         "title": "Yearly goal",
         "desc": "Your progress through the year.",
-        "soon": "No goal can be set yet, so there is nothing to track."
+        "episodes_one": "episode goal",
+        "episodes_other": "episodes goal",
+        "animes_one": "anime goal",
+        "animes_other": "anime goal",
+        "reached": "Goal reached 🎉",
+        "ahead_one": "{{count}} ahead of pace",
+        "ahead_other": "{{count}} ahead of pace",
+        "behind_one": "{{count}} behind pace",
+        "behind_other": "{{count}} behind pace"
       },
       "pinned": {
         "title": "Three pinned",
         "desc": "Three titles you put forward, in your own words.",
-        "soon": "There is nowhere yet to write and keep those three lines."
+        "empty": "Nothing pinned yet.",
+        "emptyOwner": "Switch to Customize and click the pencil to pin three titles with your own line.",
+        "manage": "Choose pinned titles",
+        "add": "Pin a title",
+        "remove": "Remove",
+        "search": "Search your list…",
+        "cancel": "Cancel",
+        "notePlaceholder": "Your line about this title…"
       },
       "themes": {
         "title": "Top OP / ED",
         "desc": "Your favourite openings and endings, playable here.",
-        "soon": "Nothing records a favourite theme yet."
+        "empty": "No favourite theme yet.",
+        "emptyOwner": "Switch to Customize and click the pencil to choose your favourite openings and endings.",
+        "manage": "Choose themes",
+        "add": "Add a theme",
+        "none": "AnimeThemes has no theme for this title.",
+        "play": "Play",
+        "pause": "Pause"
       },
       "badges": {
         "title": "Badges & achievements",
         "desc": "What you've unlocked.",
-        "soon": "No badge exists yet."
+        "empty": "No badge earned yet.",
+        "recent": "most recent"
       },
       "affinity": {
         "title": "Taste affinity",
         "desc": "Your friends, ranked by affinity.",
-        "soon": "There are no friends on AniScroll yet."
+        "empty": "Visit profiles: they'll show up here, ranked by shared taste.",
+        "noMe": "Open your own profile once on this device to compare yourself with others.",
+        "youAnd": "You and {{name}}",
+        "shared_one": "{{count}} title in common",
+        "shared_other": "{{count}} titles in common",
+        "rated_one": "{{count}} rated by both",
+        "rated_other": "{{count}} rated by both"
       },
       "bingo": {
         "title": "Season bingo",
         "desc": "Nine watching challenges to tick off.",
-        "soon": "The challenges are still to be written, and nothing tracks them yet."
+        "season": {
+          "winter": "Winter",
+          "spring": "Spring",
+          "summer": "Summer",
+          "fall": "Fall"
+        },
+        "cell": {
+          "streak7": "{{count}} days in a row",
+          "day10": "{{count}} episodes in a day",
+          "movie": "A movie",
+          "airing": "An airing anime",
+          "eps100": "{{count}} episodes",
+          "classic": "A 15+ year-old classic",
+          "genres5": "{{count}} different genres",
+          "animes10": "{{count}} different anime",
+          "finish": "A finished series"
+        }
       }
     },
     "studioTitle": "Profile customization",

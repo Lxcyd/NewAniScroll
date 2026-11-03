@@ -1054,7 +1054,9 @@ export default function WidgetGrid({
             onPointerDown={(e) => e.stopPropagation()}
             className="as-widget-pop absolute z-40 origin-bottom-right"
             style={{
-              left: Math.round(rect.left + rect.width - 8 - w),
+              /* Bord droit du panneau = bord droit de la carte (02/11/2026,
+                 Luc) ; il rentrait de 8 px. */
+              left: Math.round(rect.left + rect.width - w),
               // Depuis le bas du conteneur, seul repère qui ne demande pas de
               // connaître la hauteur du panneau.
               bottom: Math.round(height - rect.top + 8),
