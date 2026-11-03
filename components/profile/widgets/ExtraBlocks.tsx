@@ -582,13 +582,13 @@ function EntryPicker({
           {t("profile.blocks.pinned.cancel")}
         </button>
       </div>
-      <div className="as-scroller grid min-h-0 flex-1 content-start gap-1 overflow-y-auto pr-1">
+      <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
         {found.map((e) => (
           <button
             key={e.mediaId}
             type="button"
             onClick={() => onPick(e.mediaId)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-white/[0.06]"
+            className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-white/[0.06]"
           >
             <Cover src={e.cover} className="h-9" />
             <span className="min-w-0 flex-1 truncate text-[13px] text-white">{pickTitle(e.title ?? {}, pref)}</span>
@@ -613,6 +613,7 @@ function PinEditor({
 }) {
   const { t } = useTranslation();
   const [picking, setPicking] = useState(false);
+  const scores = useMemo(() => new Map(entries.map((e) => [e.mediaId, e.score])), [entries]);
   if (picking)
     return (
       <EntryPicker
@@ -642,7 +643,16 @@ function PinEditor({
           );
         return (
           <div key={p.id} className="flex min-h-0 min-w-0 gap-2 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06]">
-            <Cover src={meta.get(p.id)?.cover} className="h-full max-h-[160px]" />
+            {/* LA NOTE BIEN VISIBLE en édition (03/11/2026, Luc) : en pastille
+                sur l'affiche, là où l'œil tombe en choisissant. */}
+            <span className="relative block h-full max-h-[160px] shrink-0">
+              <Cover src={meta.get(p.id)?.cover} className="h-full max-h-[160px]" />
+              {scores.get(p.id) ? (
+                <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/75 px-2 py-0.5 font-karla text-[13px] font-bold leading-none text-as-score ring-1 ring-white/10">
+                  ★ {scores.get(p.id)}
+                </span>
+              ) : null}
+            </span>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <div className="flex items-start gap-1">
                 <p className="line-clamp-2 flex-1 text-[12px] font-semibold leading-tight text-white">{meta.get(p.id)?.title ?? "…"}</p>
@@ -860,7 +870,7 @@ function ThemeEditor({
         <button type="button" onClick={() => setAnime(null)} className="self-start font-karla text-[12px] text-white/60 hover:text-white">
           ← {t("profile.blocks.pinned.cancel")}
         </button>
-        <div className="as-scroller grid min-h-0 flex-1 content-start gap-1 overflow-y-auto pr-1">
+        <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
           {rows == null ? (
             <p className="py-4 text-center font-karla text-[12px] text-white/50">…</p>
           ) : !rows.length ? (
