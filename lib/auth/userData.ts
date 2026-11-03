@@ -175,7 +175,8 @@ export async function putAnilistSnapshot(userId: string, z: string): Promise<voi
  */
 const FEED_KIND = "anilist_feed";
 export type FeedEvent = [number, number, number];
-export type AnilistFeed = { last: number; e: FeedEvent[] };
+/** `oldest` : la date (s) la plus ancienne déjà lue ; `done` : tout le passé est lu. */
+export type AnilistFeed = { last: number; e: FeedEvent[]; oldest?: number; done?: boolean };
 /** ~22 octets l'épisode : 40 000 épisodes tiennent sous le Mo. */
 export const FEED_MAX_EVENTS = 40_000;
 

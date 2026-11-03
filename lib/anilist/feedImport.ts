@@ -26,14 +26,16 @@ const EVERY_MS = 30 * 60_000;
 const PAGE_GAP_MS = 2200;
 const MAX_PAGES = 400;
 
-const QUERY = `query($id:Int,$p:Int){Page(page:$p,perPage:50){pageInfo{hasNextPage}
-activities(userId:$id,type:ANIME_LIST,sort:ID_DESC){... on ListActivity{id createdAt status progress media{id}}}}}`;
+const QUERY = `query($id:Int,$p:Int,$before:Int){Page(page:$p,perPage:50){pageInfo{hasNextPage}
+activities(userId:$id,type:ANIME_LIST,sort:ID_DESC,createdAt_lesser:$before){... on ListActivity{id createdAt status progress media{id}}}}}`;
+/** Un envoi toutes les 5 pages : un rechargement ne perd qu'une dizaine de secondes. */
+const SAVE_EVERY = 5;
 
 let running = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function page(token: string | undefined, id: number, p: number) {
+async function page(token: string | undefined, id: number, p: number, before?: number) {
   for (let tries = 0; tries < 6; tries++) {
     const r = await fetch("https://graphql.anilist.co", {
       method: "POST",
@@ -43,7 +45,7 @@ async function page(token: string | undefined, id: number, p: number) {
         /* Le jeton : un profil AniList privé ne montre son fil qu'à lui-même. */
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ query: QUERY, variables: { id, p } }),
+      body: JSON.stringify({ query: QUERY, variables: { id, p, before: before ?? null } }),
     });
     if (r.status === 429) {
       await sleep((Number(r.headers.get("retry-after")) || 60) * 1000);
@@ -83,38 +85,70 @@ export async function syncAnilistFeed(token: string | undefined): Promise<void> 
     const id = Number(state?.anilistId);
     if (!id) return;
     const last = Number(state?.last) || 0;
-
-    const e: FeedEvent[] = [];
-    let top = last;
-    for (let p = 1; p <= MAX_PAGES; p++) {
-      const d = await page(token, id, p);
-      if (!d) return; // AniList en panne : on réessaiera à la prochaine visite
-      let reached = false;
-      for (const a of d.activities ?? []) {
-        if (!a?.id) continue;
-        if (a.id <= last) {
-          reached = true;
-          break;
-        }
-        top = Math.max(top, a.id);
-        /* « watched episode » et « rewatched episode » ; pas « completed »,
-           « plans to watch »… qui ne portent pas d'épisode. */
-        if (!/episode/i.test(String(a.status)) || !a.media?.id) continue;
-        for (const ep of episodes(a.progress)) e.push([a.createdAt, a.media.id, ep]);
-      }
-      if (reached || !d.pageInfo?.hasNextPage) break;
-      await sleep(PAGE_GAP_MS);
-    }
-
-    if (top > last) {
-      const ok = await fetch("/api/v2/account/anilist-feed", {
+    const save = (body: { e: FeedEvent[]; last: number; oldest?: number; done?: boolean }) =>
+      fetch("/api/v2/account/anilist-feed", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ last: top, e }),
+        body: JSON.stringify(body),
       })
         .then((r) => r.ok)
         .catch(() => false);
-      if (!ok) return;
+    /* « watched episode » et « rewatched episode » ; pas « completed »,
+       « plans to watch »… qui ne portent pas d'épisode. */
+    const take = (a: any, into: FeedEvent[]) => {
+      if (!/episode/i.test(String(a.status)) || !a.media?.id) return;
+      for (const ep of episodes(a.progress)) into.push([a.createdAt, a.media.id, ep]);
+    };
+
+    /* 1. LES NOUVELLES LIGNES, au-dessus de la dernière déjà rangée. */
+    if (last > 0) {
+      const e: FeedEvent[] = [];
+      let top = last;
+      for (let p = 1; p <= MAX_PAGES; p++) {
+        const d = await page(token, id, p);
+        if (!d) return; // AniList en panne : on réessaiera à la prochaine visite
+        let reached = false;
+        for (const a of d.activities ?? []) {
+          if (!a?.id) continue;
+          if (a.id <= last) {
+            reached = true;
+            break;
+          }
+          top = Math.max(top, a.id);
+          take(a, e);
+        }
+        if (reached || !d.pageInfo?.hasNextPage) break;
+        await sleep(PAGE_GAP_MS);
+      }
+      if (top > last && !(await save({ e, last: top }))) return;
+    }
+
+    /* 2. LE PASSÉ, tant qu'il n'est pas lu jusqu'au bout. Une REPRISE : on
+       relit sous la plus ancienne date déjà rangée (`createdAt_lesser`), et on
+       range toutes les 5 pages. Un rechargement en pleine lecture ne perdait
+       sinon que tout — c'est ce qui est arrivé au premier essai (03/11/2026). */
+    if (!state?.done) {
+      const before = Number(state?.oldest) || Math.floor(Date.now() / 1000) + 86_400;
+      let e: FeedEvent[] = [];
+      let top = last;
+      let low = before;
+      for (let p = 1; p <= MAX_PAGES; p++) {
+        const d = await page(token, id, p, before);
+        if (!d) return;
+        for (const a of d.activities ?? []) {
+          if (!a?.id) continue;
+          top = Math.max(top, a.id);
+          low = Math.min(low, a.createdAt);
+          take(a, e);
+        }
+        const end = !d.pageInfo?.hasNextPage;
+        if (end || p % SAVE_EVERY === 0) {
+          if (!(await save({ e, last: top, oldest: low, done: end }))) return;
+          e = [];
+        }
+        if (end) break;
+        await sleep(PAGE_GAP_MS);
+      }
     }
     try {
       localStorage.setItem(AT_KEY, String(Date.now()));

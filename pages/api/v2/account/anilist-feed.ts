@@ -10,10 +10,10 @@ import {
 /**
  * Le fil d'activité AniList du compte (cf. lib/anilist/feedImport.ts).
  *
- *   GET  → { anilistId, last } — où reprendre la lecture.
- *   POST → { last, e: [[secondes, id, épisode], …] } — les nouvelles lignes,
- *          ajoutées à celles déjà rangées. `full: true` remplace tout (relecture
- *          complète : les lignes supprimées sur AniList disparaissent aussi).
+ *   GET  → { anilistId, last, oldest, done } — où reprendre la lecture.
+ *   POST → { last, e: [[secondes, id, épisode], …], oldest?, done? } — les
+ *          lignes lues, ajoutées à celles déjà rangées, et où en est la lecture
+ *          du passé. `full: true` remplace tout.
  */
 export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
 
@@ -39,7 +39,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === "GET") {
     const feed = await getAnilistFeed(user.id);
-    return res.status(200).json({ anilistId: user.anilistId, last: feed?.last ?? 0, n: feed?.e.length ?? 0 });
+    return res.status(200).json({
+      anilistId: user.anilistId,
+      last: feed?.last ?? 0,
+      oldest: feed?.oldest ?? 0,
+      done: !!feed?.done,
+      n: feed?.e.length ?? 0,
+    });
   }
 
   if (req.method === "POST") {
@@ -58,7 +64,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       all.push(ev);
     }
     all.sort((a, b) => b[0] - a[0]);
-    await putAnilistFeed(user.id, { last: Math.max(last, old?.last ?? 0), e: all.slice(0, FEED_MAX_EVENTS) });
+    /* La reprise de la lecture du passé : la date la plus ancienne lue, et si
+       on est arrivé au bout. */
+    const sent = Number(req.body?.oldest);
+    const oldest = [old?.oldest, Number.isInteger(sent) && sent > 0 ? sent : undefined]
+      .filter((x): x is number => !!x)
+      .reduce((a, b) => Math.min(a, b), Infinity);
+    await putAnilistFeed(user.id, {
+      last: Math.max(last, old?.last ?? 0),
+      e: all.slice(0, FEED_MAX_EVENTS),
+      ...(Number.isFinite(oldest) ? { oldest } : {}),
+      ...(req.body?.done === true || old?.done ? { done: true } : {}),
+    });
     return res.status(200).json({ n: Math.min(all.length, FEED_MAX_EVENTS) });
   }
 
