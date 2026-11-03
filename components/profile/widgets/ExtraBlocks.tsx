@@ -531,10 +531,16 @@ export function PinnedBlock({
             className="group relative flex min-h-0 min-w-0 gap-3 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-black/25"
           >
             <Cover src={m?.cover} className="h-full max-h-[160px] transition-transform duration-200 group-hover:scale-[1.03]" />
-            <div className="flex min-w-0 flex-col justify-center gap-1.5">
+            {/* `pb-5` sous la note de l'anime : la phrase s'arrête avant elle. */}
+            <div className={`flex min-w-0 flex-1 flex-col justify-center gap-1.5 ${showScore && scores.get(p.id) ? "pb-5" : ""}`}>
               <p className="line-clamp-2 text-[13px] font-semibold leading-tight text-white">{m?.title ?? "…"}</p>
               {p.note ? (
-                <p className="line-clamp-4 font-karla text-[12px] italic leading-snug text-txt">« {p.note} »</p>
+                /* SUR PLUSIEURS LIGNES (03/11/2026, Luc) : un mot sans espace se
+                   coupe au bord au lieu de déborder, et les retours à la ligne
+                   tapés sont gardés. */
+                <p className="line-clamp-4 whitespace-pre-line font-karla text-[12px] italic leading-snug text-txt [overflow-wrap:anywhere]">
+                  « {p.note} »
+                </p>
               ) : null}
             </div>
             {/* La note en bas à droite de la carte (03/11/2026, Luc, choisie
