@@ -160,7 +160,7 @@ export const BLOCKS: BlockDef[] = [
      - affinité : les listes des profils visités, gardées sur l'appareil. */
   { id: "binge", size: [2, 1], min: [1, 1], max: [2, 1], color: "#F59E0B", source: "device", icon: "⏱" },
   { id: "goal", size: [1, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎" },
-  { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 2], color: "#E94560", source: "list", icon: "❏" },
+  { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 1], color: "#E94560", source: "list", icon: "❏" },
   { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
   { id: "badges", size: [2, 1], min: [1, 1], max: [4, 2], color: "#FFD700", source: "none", icon: "✦" },
   { id: "affinity", size: [2, 1], min: [2, 1], max: [4, 2], color: "#22c55e", source: "list", icon: "≈" },
