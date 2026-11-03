@@ -564,8 +564,9 @@ function EntryPicker({
     return entries
       .filter((e) => !exclude.has(e.mediaId))
       .filter((e) => !s || [e.title?.english, e.title?.romaji, e.title?.native].some((x) => x?.toLowerCase().includes(s)))
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-      .slice(0, 40);
+      /* Toute la liste, la mieux notée d'abord (03/11/2026, Luc : la limite
+         à 40 ne montrait que les 10/10). Les affiches se chargent au défilé. */
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }, [entries, exclude, q]);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
