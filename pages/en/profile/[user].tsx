@@ -1184,12 +1184,7 @@ export async function getServerSideProps(context: any) {
      lisible dans __NEXT_DATA__ alors que plus rien ne l'afficherait à l'écran.
      C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
   const read = layoutWantsActivity(profileLayout)
-    ? activityFromCloud(
-        { recent: payloadOf("recent"), progress: payloadOf("progress") },
-        12,
-        /* La pause du binge réglée par le propriétaire (03/11/2026). */
-        Number(profileLayout?.find((o) => o.i === "binge")?.s?.bingePause) || undefined,
-      )
+    ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress") }, 12)
     : null;
   const activity: ActivityRow[] | null = read?.rows ?? null;
   /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la

@@ -938,13 +938,6 @@
         },
         "goalTarget": "Goal",
         "goalTargetDesc": "The number to reach by December 31.",
-        "bingePause": "Allowed break",
-        "bingePauseDesc": "The longest gap between two episodes of one session. Beyond that, it's another night.",
-        "bingePauseChoice": {
-          "15": "15 min",
-          "30": "30 min",
-          "60": "1 h"
-        },
         "bingeOrder": "Deck order",
         "bingeOrderDesc": "Most watched first, or the anime in the order you watched them.",
         "bingeOrderChoice": {

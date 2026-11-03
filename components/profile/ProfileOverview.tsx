@@ -874,7 +874,6 @@ export default function ProfileOverview({
             served={isOwner ? undefined : (binge ?? null)}
             account={binge ?? null}
             entries={entries}
-            pause={Number(optionValue("binge", "bingePause")) || 60}
             order={optionValue("binge", "bingeOrder") === "watched" ? "watched" : "most"}
           />
         );

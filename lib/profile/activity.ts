@@ -307,7 +307,7 @@ export function watchDays(map: ProgressMap, now = Date.now(), maxDays = 400): Wa
  * même session quand le second a fini moins de « sa durée + la pause » après
  * le premier : le temps de le regarder, plus une pause raisonnable. Au-delà,
  * c'est une autre soirée. Un épisode de durée inconnue compte 24 min. La pause
- * est un réglage du bloc : 15, 30 ou 60 min, 60 par défaut (03/11/2026, Luc).
+ * est fixée à 60 min (03/11/2026, Luc ; le réglage a été retiré).
  *
  * `a` liste les animes de la session, le plus regardé d'abord.
  */
@@ -378,9 +378,7 @@ export function longestBinge(map: ProgressMap, pauseMin = BINGE_PAUSE_MIN): Bing
 export function activityFromCloud(
   payloads: { recent?: unknown; progress?: unknown },
   limit = 12,
-  /** La pause du binge, réglée sur le bloc du propriétaire. */
-  bingePause = BINGE_PAUSE_MIN,
-): { rows: ActivityRow[]; streak: number; days: WatchDays; binge: Binge | null } {
+):{ rows: ActivityRow[]; streak: number; days: WatchDays; binge: Binge | null } {
   /* La table est déballée UNE fois et servie aux deux : les lignes en tirent
      leur avancement, la série ses jours. La reparser pour chacun coûterait un
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
@@ -395,6 +393,6 @@ export function activityFromCloud(
     /* Même réserve de fuseau que la série : chez lui, le calendrier est
        recompté dans son navigateur. */
     days: watchDays(map),
-    binge: longestBinge(map, bingePause),
+    binge: longestBinge(map),
   };
 }

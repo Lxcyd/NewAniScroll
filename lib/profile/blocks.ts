@@ -306,13 +306,10 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* La série en cours et le record, en petit à côté des flèches (03/11/2026,
      Luc) : ce qui reste de l'ancienne ligne de bilan. */
   heatmap: [{ key: "heatStreak", on: true }],
-  /* Le binge (03/11/2026, Luc) : la pause tolérée entre deux épisodes d'une
-     même session (60 min par défaut : un repas ne coupe pas la soirée), et
-     l'ordre du paquet — le plus regardé devant, ou la soirée dans l'ordre. */
-  binge: [
-    { key: "bingePause", choices: ["15", "30", "60"], value: "60", segmented: true },
-    { key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true },
-  ],
+  /* Le binge (03/11/2026, Luc) : l'ordre du paquet — le plus regardé devant,
+     ou la soirée dans l'ordre. La pause entre deux épisodes est fixée à 1 h
+     (BINGE_PAUSE_MIN) : le réglage a été retiré le même jour. */
+  binge: [{ key: "bingeOrder", choices: ["most", "watched"], value: "most", segmented: true }],
   /* L'objectif de l'année (03/11/2026) : ce qu'on compte, et combien. */
   goal: [
     { key: "goalUnit", choices: ["episodes", "animes"], value: "episodes", segmented: true },

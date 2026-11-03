@@ -119,15 +119,15 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
 }
 
 /** La table de progression de CET appareil, tenue à jour pendant qu'on regarde. */
-function useLocalBinge(enabled: boolean, pause: number): Binge | null | undefined {
+function useLocalBinge(enabled: boolean): Binge | null | undefined {
   const [binge, setBinge] = useState<Binge | null | undefined>(undefined);
   useEffect(() => {
     if (!enabled) return;
-    const read = () => setBinge(longestBinge(readProgressMap(), pause));
+    const read = () => setBinge(longestBinge(readProgressMap()));
     read();
     window.addEventListener(PROGRESS_EVENT, read);
     return () => window.removeEventListener(PROGRESS_EVENT, read);
-  }, [enabled, pause]);
+  }, [enabled]);
   return binge;
 }
 
@@ -170,7 +170,6 @@ const DEMO_BINGE: Binge | null =
 export function BingeBlock({
   served,
   entries,
-  pause = 60,
   order = "most",
   account,
 }: {
@@ -178,13 +177,11 @@ export function BingeBlock({
   /** Chez soi : le binge compté sur la sauvegarde du compte. */
   account?: Binge | null;
   entries: ProfileEntry[];
-  /** Pause tolérée entre deux épisodes d'une session, en minutes. */
-  pause?: number;
   /** Le paquet : le plus regardé devant, ou dans l'ordre de visionnage. */
   order?: "most" | "watched";
 }) {
   const { t, i18n } = useTranslation();
-  const local = useLocalBinge(served === undefined, pause);
+  const local = useLocalBinge(served === undefined);
   /* Chez soi, la table de CET appareil peut être presque vide (dev.aniscroll.com
      n'a pas la même mémoire que le site principal) : on garde le plus long des
      deux, celui de l'appareil et celui du compte (03/11/2026). */

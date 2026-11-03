@@ -938,13 +938,6 @@
         },
         "goalTarget": "Objectif",
         "goalTargetDesc": "Le nombre à atteindre d'ici le 31 décembre.",
-        "bingePause": "Pause tolérée",
-        "bingePauseDesc": "Le temps maximum entre deux épisodes d'une même session. Au-delà, c'est une autre soirée.",
-        "bingePauseChoice": {
-          "15": "15 min",
-          "30": "30 min",
-          "60": "1 h"
-        },
         "bingeOrder": "Ordre du paquet",
         "bingeOrderDesc": "Le plus regardé devant, ou les animes dans l'ordre où tu les as vus.",
         "bingeOrderChoice": {
