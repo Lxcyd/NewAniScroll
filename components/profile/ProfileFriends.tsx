@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   FRIENDS_EVENT,
@@ -51,7 +52,9 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
   const [data, setData] = useState<Awaited<ReturnType<typeof myFriends>>>(null);
   const [tastes, setTastes] = useState<Map<string, number>>(new Map());
   const [loaded, setLoaded] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
+  /* « Ajouter un ami » ouvre une fenêtre de recherche (03/11/2026, Luc :
+     « plus logique qu'un menu où l'on cherche quelqu'un »). */
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -89,7 +92,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
       count={loaded ? friends.length : undefined}
       tools={
         <>
-          <Search inputRef={searchRef} />
+          <AddButton onClick={() => setAdding(true)} />
           <CopyId tag={tag} name={name} />
         </>
       }
@@ -121,11 +124,11 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
       ) : (
         <EmptyState
           title={t("profile.friends.emptyTitle")}
-          text={t("profile.friends.none")}
+          text={t("profile.friends.noneOwner")}
           action={
             <button
               type="button"
-              onClick={() => searchRef.current?.focus()}
+              onClick={() => setAdding(true)}
               className="rounded-full bg-action px-5 py-2.5 font-karla text-[13px] font-bold text-white shadow-glow transition-transform hover:scale-105"
             >
               {t("profile.friends.add")}
@@ -143,6 +146,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
           </div>
         </Group>
       ) : null}
+      {adding ? <AddDialog tag={tag} name={name} onClose={() => setAdding(false)} /> : null}
     </Shell>
   );
 }
@@ -323,77 +327,136 @@ function Pending({ card }: { card: FriendCard }) {
   );
 }
 
-/* ── Chercher quelqu'un ── */
-function Search({ inputRef }: { inputRef: React.RefObject<HTMLInputElement> }) {
+/* ── Ajouter un ami : un bouton, une fenêtre de recherche ── */
+
+function AddButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex shrink-0 items-center gap-2 rounded-full bg-action py-2 pl-3 pr-4 font-karla text-[13px] font-bold text-white shadow-glow transition-transform hover:scale-105"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+        <path d="M19 8v6M16 11h6" />
+      </svg>
+      {t("profile.friends.add")}
+    </button>
+  );
+}
+
+function AddDialog({ tag, name, onClose }: { tag: string; name: string; onClose: () => void }) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
   const [res, setRes] = useState<(FriendCard & { state: FriendState | "none" })[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const seq = useRef(0);
   const [tick, setTick] = useState(0);
-  const box = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShown(true));
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(id);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
 
   useEffect(() => {
     const text = q.trim();
     if (text.length < 2) {
       setRes(null);
+      setSearching(false);
       return;
     }
+    setSearching(true);
     const n = ++seq.current;
     const id = setTimeout(() => {
       void searchPeople(text).then((r) => {
-        if (n === seq.current) setRes(r);
+        if (n !== seq.current) return;
+        setRes(r);
+        setSearching(false);
       });
     }, 250);
     return () => clearTimeout(id);
   }, [q, tick]);
-  /* Après une action, la recherche relit les états. */
+  /* Après une action, les états des résultats se relisent. */
   useEffect(() => {
     const again = () => setTick((n) => n + 1);
     window.addEventListener(FRIENDS_EVENT, again);
     return () => window.removeEventListener(FRIENDS_EVENT, again);
   }, []);
-  /* Un clic ailleurs ferme les résultats. */
-  useEffect(() => {
-    if (!open) return;
-    const off = (e: PointerEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", off);
-    return () => document.removeEventListener("pointerdown", off);
-  }, [open]);
 
-  return (
-    <div ref={box} className="relative w-full sm:w-72">
-      <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="h-4 w-4">
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
-      </span>
-      <input
-        ref={inputRef}
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
-        }}
-        placeholder={t("profile.friends.searchPlaceholder")}
-        className="w-full rounded-full bg-black/30 py-2 pl-10 pr-4 font-karla text-[13px] text-white outline-none ring-1 ring-white/10 transition-shadow placeholder:text-white/35 focus:ring-2 focus:ring-white/30"
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className={`fixed inset-0 z-[10060] flex items-start justify-center px-4 pt-[12vh] transition-opacity duration-200 ${shown ? "opacity-100" : "opacity-0"}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("profile.friends.add")}
+    >
+      <button
+        type="button"
+        aria-label={t("common.close", { defaultValue: "Close" })}
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm"
       />
-      {open && res ? (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-full min-w-[18rem] overflow-hidden rounded-2xl bg-[#15161d] p-1.5 shadow-[0_18px_50px_rgba(0,0,0,.6)] ring-1 ring-white/10">
-          {res.length ? (
+      <div
+        className={`relative w-full max-w-md overflow-hidden rounded-[22px] bg-[#15161d] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          shown ? "translate-y-0 scale-100" : "translate-y-3 scale-[0.98]"
+        }`}
+      >
+        <div className="flex items-center justify-between px-5 pb-3 pt-5">
+          <h3 className="font-outfit text-[18px] font-bold text-white">{t("profile.friends.add")}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("common.close", { defaultValue: "Close" })}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-4 w-4">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-5">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/40">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="h-[18px] w-[18px]">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </span>
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("profile.friends.searchPlaceholder")}
+              className="w-full rounded-2xl bg-white/[0.05] py-3 pl-11 pr-10 font-karla text-[15px] text-white outline-none ring-1 ring-white/10 transition-shadow placeholder:text-white/35 focus:ring-2 focus:ring-white/25"
+            />
+            {searching ? (
+              <span className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-white/15 border-t-white/70" />
+            ) : null}
+          </div>
+        </div>
+
+        <div className="as-scroller max-h-[46vh] min-h-[7rem] overflow-y-auto px-3 py-3">
+          {res == null ? (
+            <p className="px-3 py-6 text-center font-karla text-[13px] leading-relaxed text-white/45">{t("profile.friends.searchHint")}</p>
+          ) : res.length ? (
             res.map((c) => (
-              <div key={c.tag} className="flex items-center gap-2.5 rounded-xl p-2 hover:bg-white/[0.05]">
-                <Link href={c.href} className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <Avatar card={c} size={34} />
+              <div key={c.tag} className="as-swap-row flex items-center gap-3 rounded-2xl p-2.5 hover:bg-white/[0.05]">
+                <Link href={c.href} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar card={c} size={40} />
                   <span className="min-w-0">
-                    <span className="block truncate text-[13px] font-semibold text-white">{c.name}</span>
+                    <span className="block truncate text-[14px] font-semibold text-white">{c.name}</span>
                     <span className="block font-karla text-[11px] text-white/35">#{c.tag}</span>
                   </span>
                 </Link>
@@ -409,11 +472,18 @@ function Search({ inputRef }: { inputRef: React.RefObject<HTMLInputElement> }) {
               </div>
             ))
           ) : (
-            <p className="px-3 py-3 font-karla text-[13px] text-white/45">{t("profile.friends.noResult")}</p>
+            <p className="px-3 py-6 text-center font-karla text-[13px] text-white/45">{t("profile.friends.noResult")}</p>
           )}
         </div>
-      ) : null}
-    </div>
+
+        {/* Pour être trouvé à son tour : son identifiant, copiable. */}
+        <div className="flex items-center justify-between gap-3 border-t border-white/[0.07] bg-white/[0.02] px-5 py-3.5">
+          <span className="font-karla text-[12px] text-white/50">{t("profile.friends.myIdHint")}</span>
+          <CopyId tag={tag} name={name} />
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

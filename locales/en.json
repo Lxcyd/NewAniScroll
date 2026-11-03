@@ -1486,13 +1486,15 @@
       "remove": "Remove friend",
       "confirmRemove": "Remove?",
       "myId": "Your ID",
-      "myIdHint": "Give it to a friend so they can find you.",
+      "myIdHint": "To be found, share your ID:",
       "copy": "Copy",
       "copied": "Copied!",
       "affinityTitle": "Taste affinity",
       "emptyTitle": "No friends yet",
       "wantsYou": "wants to be your friend",
-      "requestShort": "Add"
+      "requestShort": "Add",
+      "noneOwner": "Add someone by their name or #TAG, or from their profile.",
+      "searchHint": "Type at least two letters of a name, or a #TAG (e.g. #952364)."
     }
   },
   "myList": {

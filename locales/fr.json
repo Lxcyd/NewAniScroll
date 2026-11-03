@@ -1486,13 +1486,15 @@
       "remove": "Retirer des amis",
       "confirmRemove": "Retirer ?",
       "myId": "Ton ID",
-      "myIdHint": "Donne-le à un ami : il pourra te trouver avec.",
+      "myIdHint": "Pour qu'on te trouve, donne ton ID :",
       "copy": "Copier",
       "copied": "Copié !",
       "affinityTitle": "Affinité de goûts",
       "emptyTitle": "Pas encore d'amis",
       "wantsYou": "veut être ton ami",
-      "requestShort": "Ajouter"
+      "requestShort": "Ajouter",
+      "noneOwner": "Ajoute quelqu'un avec son pseudo ou son #TAG, ou depuis son profil.",
+      "searchHint": "Tape au moins deux lettres d'un pseudo, ou un #TAG (ex. #952364)."
     }
   },
   "myList": {
