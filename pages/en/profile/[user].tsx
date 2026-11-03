@@ -477,10 +477,11 @@ export default function Profile({
             tabs={[
               { key: "overview", label: t("profile.tabs.overview") },
               { key: "list", label: t("profile.tabs.list"), count: entries.length },
+              /* Les amis n'existent que pour un compte (lib/auth/friends.ts) ;
+                 entre la liste et les stats (03/11/2026, Luc). */
+              ...(identity.tag ? [{ key: "friends", label: t("profile.tabs.friends") }] : []),
               { key: "stats", label: t("profile.tabs.stats") },
               { key: "badges", label: t("profile.tabs.badges") },
-              /* Les amis n'existent que pour un compte (lib/auth/friends.ts). */
-              ...(identity.tag ? [{ key: "friends", label: t("profile.tabs.friends") }] : []),
             ]}
             active={tab}
             onChange={changeTab}

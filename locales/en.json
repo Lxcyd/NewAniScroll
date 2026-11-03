@@ -1469,7 +1469,7 @@
       "incoming": "Friend requests",
       "mine": "My friends",
       "outgoing": "Sent requests",
-      "none": "No friends yet. Search a name or a #TAG on the right, or open a profile and click “Add friend”.",
+      "none": "Search a name or a #TAG above, or open a profile and click “Add friend”. Your ID copies in one click.",
       "theirs": "{{name}}'s friends",
       "theirsNone": "{{name}} has no friends yet.",
       "add": "Add a friend",
@@ -1489,7 +1489,10 @@
       "myIdHint": "Give it to a friend so they can find you.",
       "copy": "Copy",
       "copied": "Copied!",
-      "affinityTitle": "Taste affinity"
+      "affinityTitle": "Taste affinity",
+      "emptyTitle": "No friends yet",
+      "wantsYou": "wants to be your friend",
+      "requestShort": "Add"
     }
   },
   "myList": {

@@ -1469,7 +1469,7 @@
       "incoming": "Demandes reçues",
       "mine": "Mes amis",
       "outgoing": "Demandes envoyées",
-      "none": "Pas encore d'amis. Cherche un pseudo ou un #TAG à droite, ou ouvre un profil et clique « Ajouter en ami ».",
+      "none": "Cherche un pseudo ou un #TAG en haut, ou ouvre un profil et clique « Ajouter en ami ». Ton identifiant se copie d'un clic.",
       "theirs": "Amis de {{name}}",
       "theirsNone": "{{name}} n'a pas encore d'amis.",
       "add": "Ajouter un ami",
@@ -1485,11 +1485,14 @@
       "isFriend": "Amis",
       "remove": "Retirer des amis",
       "confirmRemove": "Retirer ?",
-      "myId": "Ton identifiant",
+      "myId": "Ton ID",
       "myIdHint": "Donne-le à un ami : il pourra te trouver avec.",
       "copy": "Copier",
       "copied": "Copié !",
-      "affinityTitle": "Affinité de goûts"
+      "affinityTitle": "Affinité de goûts",
+      "emptyTitle": "Pas encore d'amis",
+      "wantsYou": "veut être ton ami",
+      "requestShort": "Ajouter"
     }
   },
   "myList": {

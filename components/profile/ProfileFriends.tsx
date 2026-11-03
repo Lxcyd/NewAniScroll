@@ -15,12 +15,13 @@ import { affinity, tasteOf } from "@/lib/profile/affinity";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
- * L'ONGLET AMIS (03/11/2026, Luc : « fais un tab amis et tout ce qu'il faut »).
+ * L'ONGLET AMIS (03/11/2026, Luc : « fais un tab amis et tout ce qu'il faut »,
+ * puis « l'interface est vraiment moche » — refaite le même jour).
  *
- * Chez soi : chercher quelqu'un, les demandes reçues, ses amis (avec l'affinité
- * de goûts), les demandes envoyées, et son identifiant à partager. Chez un
- * autre : ses amis. Réciproques, sur demande acceptée ; les invités n'en ont
- * pas (lib/auth/friends.ts).
+ * UNE SEULE CARTE, comme un widget : un en-tête (titre, compte, recherche et
+ * identifiant à partager), les demandes reçues mises en avant, la grille des
+ * amis classés par affinité, les demandes envoyées en pied. Chez un autre :
+ * l'en-tête et la grille de ses amis.
  */
 export default function ProfileFriends({
   isOwner,
@@ -34,15 +35,23 @@ export default function ProfileFriends({
   entries: ProfileEntry[];
 }) {
   const { t } = useTranslation();
-  if (!tag) return <Card title={t("profile.friends.title")}>{<Empty text={t("profile.friends.noAccount")} />}</Card>;
+  if (!tag)
+    return (
+      <Shell title={t("profile.friends.title")}>
+        <EmptyState title={t("profile.friends.title")} text={t("profile.friends.noAccount")} />
+      </Shell>
+    );
   return isOwner ? <Mine tag={tag} name={name} entries={entries} /> : <Theirs tag={tag} name={name} />;
 }
+
+/* ── Chez soi ─────────────────────────────────────────────────────────────── */
 
 function Mine({ tag, name, entries }: { tag: string; name: string; entries: ProfileEntry[] }) {
   const { t } = useTranslation();
   const [data, setData] = useState<Awaited<ReturnType<typeof myFriends>>>(null);
   const [tastes, setTastes] = useState<Map<string, number>>(new Map());
   const [loaded, setLoaded] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let alive = true;
@@ -75,60 +84,70 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
   );
 
   return (
-    <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-      <div className="flex min-w-0 flex-col gap-5">
-        {data?.incoming.length ? (
-          <Card title={t("profile.friends.incoming")} count={data.incoming.length}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {data.incoming.map((c) => (
-                <Person key={c.tag} card={c}>
-                  <ActionButton tag={c.tag} action="accept" primary label={t("profile.friends.accept")} />
-                  <ActionButton tag={c.tag} action="remove" label={t("profile.friends.decline")} />
-                </Person>
-              ))}
-            </div>
-          </Card>
-        ) : null}
+    <Shell
+      title={t("profile.friends.title")}
+      count={loaded ? friends.length : undefined}
+      tools={
+        <>
+          <Search inputRef={searchRef} />
+          <CopyId tag={tag} name={name} />
+        </>
+      }
+    >
+      {data?.incoming.length ? (
+        <Group label={t("profile.friends.incoming")} count={data.incoming.length} accent>
+          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            {data.incoming.map((c) => (
+              <Request key={c.tag} card={c} />
+            ))}
+          </div>
+        </Group>
+      ) : null}
 
-        <Card title={t("profile.friends.mine")} count={loaded ? friends.length : undefined}>
-          {!loaded ? (
-            <Skeleton />
-          ) : friends.length ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {friends.map((c) => (
-                <Person key={c.tag} card={c} pct={tastes.get(c.tag)}>
-                  <RemoveFriend tag={c.tag} />
-                </Person>
-              ))}
-            </div>
-          ) : (
-            <Empty text={t("profile.friends.none")} />
-          )}
-        </Card>
+      {!loaded ? (
+        <Grid>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-[72px] animate-pulse rounded-2xl bg-white/[0.05]" style={{ animationDelay: `${i * 80}ms` }} />
+          ))}
+        </Grid>
+      ) : friends.length ? (
+        <Group label={data?.incoming.length ? t("profile.friends.mine") : null}>
+          <Grid>
+            {friends.map((c, i) => (
+              <Friend key={c.tag} card={c} pct={tastes.get(c.tag)} index={i} removable />
+            ))}
+          </Grid>
+        </Group>
+      ) : (
+        <EmptyState
+          title={t("profile.friends.emptyTitle")}
+          text={t("profile.friends.none")}
+          action={
+            <button
+              type="button"
+              onClick={() => searchRef.current?.focus()}
+              className="rounded-full bg-action px-5 py-2.5 font-karla text-[13px] font-bold text-white shadow-glow transition-transform hover:scale-105"
+            >
+              {t("profile.friends.add")}
+            </button>
+          }
+        />
+      )}
 
-        {data?.outgoing.length ? (
-          <Card title={t("profile.friends.outgoing")} count={data.outgoing.length}>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {data.outgoing.map((c) => (
-                <Person key={c.tag} card={c}>
-                  <ActionButton tag={c.tag} action="remove" label={t("profile.friends.cancel")} />
-                </Person>
-              ))}
-            </div>
-          </Card>
-        ) : null}
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-5">
-        <Search />
-        <Card title={t("profile.friends.myId")}>
-          <p className="mb-3 font-karla text-[13px] text-txt">{t("profile.friends.myIdHint")}</p>
-          <CopyId text={`${name}#${tag}`} />
-        </Card>
-      </div>
-    </div>
+      {data?.outgoing.length ? (
+        <Group label={t("profile.friends.outgoing")} count={data.outgoing.length}>
+          <div className="flex flex-wrap gap-2">
+            {data.outgoing.map((c) => (
+              <Pending key={c.tag} card={c} />
+            ))}
+          </div>
+        </Group>
+      ) : null}
+    </Shell>
   );
 }
+
+/* ── Chez un autre ────────────────────────────────────────────────────────── */
 
 function Theirs({ tag, name }: { tag: string; name: string }) {
   const { t } = useTranslation();
@@ -147,29 +166,173 @@ function Theirs({ tag, name }: { tag: string; name: string }) {
     };
   }, [tag]);
   return (
-    <Card title={t("profile.friends.theirs", { name })} count={list?.length}>
+    <Shell title={t("profile.friends.theirs", { name })} count={list?.length}>
       {list == null ? (
-        <Skeleton />
-      ) : list.length ? (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {list.map((c) => (
-            <Person key={c.tag} card={c} />
+        <Grid>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[72px] animate-pulse rounded-2xl bg-white/[0.05]" />
           ))}
-        </div>
+        </Grid>
+      ) : list.length ? (
+        <Grid>
+          {list.map((c, i) => (
+            <Friend key={c.tag} card={c} index={i} />
+          ))}
+        </Grid>
       ) : (
-        <Empty text={t("profile.friends.theirsNone", { name })} />
+        <EmptyState title={t("profile.friends.emptyTitle")} text={t("profile.friends.theirsNone", { name })} />
       )}
-    </Card>
+    </Shell>
+  );
+}
+
+/* ── La carte et ses morceaux ─────────────────────────────────────────────── */
+
+function Shell({
+  title,
+  count,
+  tools,
+  children,
+}: {
+  title: string;
+  count?: number;
+  tools?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="as-stat-card rounded-[20px] px-5 py-5 ring-1 ring-white/10 sm:px-6">
+      <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-action" style={{ background: "color-mix(in srgb, var(--brand-primary, #E94560) 16%, transparent)" }}>
+            <PeopleIcon className="h-5 w-5" />
+          </span>
+          <h2 className="truncate font-outfit text-[18px] font-bold text-white">{title}</h2>
+          {count != null ? (
+            <span className="rounded-full bg-white/[0.07] px-2.5 py-0.5 font-karla text-[12px] font-bold tabular-nums text-white/60">
+              {count}
+            </span>
+          ) : null}
+        </div>
+        {tools ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{tools}</div> : null}
+      </header>
+      <div className="flex flex-col gap-6">{children}</div>
+    </section>
+  );
+}
+
+function Group({
+  label,
+  count,
+  accent = false,
+  children,
+}: {
+  label: string | null;
+  count?: number;
+  accent?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      {label ? (
+        <p
+          className={`mb-2.5 flex items-center gap-2 font-karla text-[11px] font-bold uppercase tracking-[.1em] ${
+            accent ? "text-action" : "text-white/45"
+          }`}
+        >
+          {accent ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-action" /> : null}
+          {label}
+          {count != null ? <span className="tabular-nums opacity-70">{count}</span> : null}
+          <span className="h-px flex-1 bg-white/[0.07]" />
+        </p>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+function Grid({ children }: { children: React.ReactNode }) {
+  return <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{children}</div>;
+}
+
+/** Un ami : avatar, nom, et l'affinité de goûts quand on la connaît. */
+function Friend({ card, pct, index, removable = false }: { card: FriendCard; pct?: number; index: number; removable?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="as-swap-row group relative rounded-2xl bg-white/[0.035] ring-1 ring-white/[0.07] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-white/[0.06] hover:ring-white/15"
+      style={{ animationDelay: `${Math.min(index, 12) * 30}ms` }}
+    >
+      <Link href={card.href} className="flex min-w-0 items-center gap-3 p-3 pr-9">
+        <Avatar card={card} size={48} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-white">{card.name}</span>
+          {pct != null ? (
+            <span className="mt-1.5 flex items-center gap-2" title={t("profile.friends.affinityTitle")}>
+              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
+                <span className="block h-full rounded-full bg-action" style={{ width: `${pct}%` }} />
+              </span>
+              <span className="font-outfit text-[12px] font-bold tabular-nums text-white/85">{pct}%</span>
+            </span>
+          ) : (
+            <span className="mt-0.5 block font-karla text-[11px] text-white/35">#{card.tag}</span>
+          )}
+        </span>
+      </Link>
+      {removable ? <RemoveFriend tag={card.tag} /> : null}
+    </div>
+  );
+}
+
+/** Une demande reçue : mise en avant, deux boutons. */
+function Request({ card }: { card: FriendCard }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="as-swap-row flex min-w-0 items-center gap-3 rounded-2xl p-3"
+      style={{
+        background: "color-mix(in srgb, var(--brand-primary, #E94560) 9%, transparent)",
+        boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) 30%, transparent)",
+      }}
+    >
+      <Link href={card.href} className="flex min-w-0 flex-1 items-center gap-3">
+        <Avatar card={card} size={44} />
+        <span className="min-w-0">
+          <span className="block truncate text-[14px] font-semibold text-white">{card.name}</span>
+          <span className="block font-karla text-[11px] text-white/45">{t("profile.friends.wantsYou")}</span>
+        </span>
+      </Link>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <ActionButton tag={card.tag} action="accept" primary label={t("profile.friends.accept")} />
+        <IconAction tag={card.tag} action="remove" label={t("profile.friends.decline")} />
+      </div>
+    </div>
+  );
+}
+
+/** Une demande envoyée : une pastille, annulable. */
+function Pending({ card }: { card: FriendCard }) {
+  const { t } = useTranslation();
+  return (
+    <span className="flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pl-1 pr-1.5 ring-1 ring-white/[0.07]">
+      <Avatar card={card} size={26} />
+      <Link href={card.href} className="max-w-[10rem] truncate font-karla text-[12px] font-semibold text-white/75 hover:text-white">
+        {card.name}
+      </Link>
+      <IconAction tag={card.tag} action="remove" label={t("profile.friends.cancel")} small />
+    </span>
   );
 }
 
 /* ── Chercher quelqu'un ── */
-function Search() {
+function Search({ inputRef }: { inputRef: React.RefObject<HTMLInputElement> }) {
   const { t } = useTranslation();
   const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
   const [res, setRes] = useState<(FriendCard & { state: FriendState | "none" })[] | null>(null);
   const seq = useRef(0);
   const [tick, setTick] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const text = q.trim();
     if (text.length < 2) {
@@ -190,95 +353,84 @@ function Search() {
     window.addEventListener(FRIENDS_EVENT, again);
     return () => window.removeEventListener(FRIENDS_EVENT, again);
   }, []);
+  /* Un clic ailleurs ferme les résultats. */
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", off);
+    return () => document.removeEventListener("pointerdown", off);
+  }, [open]);
+
   return (
-    <Card title={t("profile.friends.add")}>
+    <div ref={box} className="relative w-full sm:w-72">
+      <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" className="h-4 w-4">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      </span>
       <input
+        ref={inputRef}
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
         placeholder={t("profile.friends.searchPlaceholder")}
-        className="w-full rounded-xl bg-black/30 px-3.5 py-2.5 font-karla text-[14px] text-white outline-none ring-1 ring-white/10 placeholder:text-white/35 focus:ring-white/30"
+        className="w-full rounded-full bg-black/30 py-2 pl-10 pr-4 font-karla text-[13px] text-white outline-none ring-1 ring-white/10 transition-shadow placeholder:text-white/35 focus:ring-2 focus:ring-white/30"
       />
-      {res ? (
-        <div className="mt-3 flex flex-col gap-2">
+      {open && res ? (
+        <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-full min-w-[18rem] overflow-hidden rounded-2xl bg-[#15161d] p-1.5 shadow-[0_18px_50px_rgba(0,0,0,.6)] ring-1 ring-white/10">
           {res.length ? (
             res.map((c) => (
-              <Person key={c.tag} card={c} compact>
+              <div key={c.tag} className="flex items-center gap-2.5 rounded-xl p-2 hover:bg-white/[0.05]">
+                <Link href={c.href} className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <Avatar card={c} size={34} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-semibold text-white">{c.name}</span>
+                    <span className="block font-karla text-[11px] text-white/35">#{c.tag}</span>
+                  </span>
+                </Link>
                 {c.state === "friend" ? (
-                  <span className="font-karla text-[12px] font-bold text-white/50">{t("profile.friends.already")}</span>
+                  <span className="px-2 font-karla text-[12px] font-bold text-white/45">{t("profile.friends.already")}</span>
                 ) : c.state === "out" ? (
                   <ActionButton tag={c.tag} action="remove" label={t("profile.friends.cancel")} />
                 ) : c.state === "in" ? (
                   <ActionButton tag={c.tag} action="accept" primary label={t("profile.friends.accept")} />
                 ) : (
-                  <ActionButton tag={c.tag} action="request" primary label={t("profile.friends.request")} />
+                  <ActionButton tag={c.tag} action="request" primary label={t("profile.friends.requestShort")} />
                 )}
-              </Person>
+              </div>
             ))
           ) : (
-            <p className="px-1 font-karla text-[13px] text-white/45">{t("profile.friends.noResult")}</p>
+            <p className="px-3 py-3 font-karla text-[13px] text-white/45">{t("profile.friends.noResult")}</p>
           )}
         </div>
       ) : null}
-    </Card>
+    </div>
   );
 }
 
 /* ── Briques ── */
 
-function Card({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
-  return (
-    <section className="as-stat-card rounded-[20px] px-5 py-5 ring-1 ring-white/10">
-      <h2 className="mb-4 flex items-baseline gap-2 font-outfit text-[15px] font-bold text-white">
-        {title}
-        {count != null ? <span className="font-karla text-[13px] font-semibold text-white/40">{count}</span> : null}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function Person({
-  card,
-  pct,
-  compact = false,
-  children,
-}: {
-  card: FriendCard;
-  pct?: number;
-  compact?: boolean;
-  children?: React.ReactNode;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl bg-white/[0.04] p-2.5 ring-1 ring-white/[0.06] transition-colors hover:bg-white/[0.06]">
-      <Link href={card.href} className="flex min-w-0 flex-1 items-center gap-3">
-        <Avatar card={card} size={compact ? 36 : 44} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold text-white">{card.name}</span>
-          {pct != null ? (
-            <span className="mt-1 flex items-center gap-2" title={t("profile.friends.affinityTitle")}>
-              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.09]">
-                <span className="block h-full rounded-full bg-action" style={{ width: `${pct}%` }} />
-              </span>
-              <span className="font-outfit text-[12px] font-bold tabular-nums text-white">{pct}%</span>
-            </span>
-          ) : (
-            <span className="block truncate font-karla text-[11px] text-white/40">#{card.tag}</span>
-          )}
-        </span>
-      </Link>
-      {children ? <div className="flex shrink-0 items-center gap-1.5">{children}</div> : null}
-    </div>
-  );
-}
-
 function Avatar({ card, size }: { card: FriendCard; size: number }) {
   return card.avatar ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={card.avatar} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />
+    <img
+      src={card.avatar}
+      alt=""
+      className="shrink-0 rounded-full object-cover ring-2 ring-white/10"
+      style={{ width: size, height: size }}
+    />
   ) : (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit font-bold text-white"
+      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-white/[0.14] to-white/[0.04] font-outfit font-bold text-white ring-2 ring-white/10"
       style={{ width: size, height: size, fontSize: size * 0.4 }}
     >
       {card.name.charAt(0).toUpperCase()}
@@ -307,7 +459,7 @@ function ActionButton({
         await friendAction(tag, action);
         setBusy(false);
       }}
-      className={`rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-colors disabled:opacity-50 ${
+      className={`shrink-0 rounded-full px-3.5 py-1.5 font-karla text-[12px] font-bold transition-[filter,background-color,color] disabled:opacity-50 ${
         primary ? "bg-action text-white hover:brightness-110" : "bg-white/[0.07] text-white/75 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white"
       }`}
     >
@@ -316,61 +468,124 @@ function ActionButton({
   );
 }
 
-/** Retirer un ami : un premier clic demande confirmation. */
+/** Un ✕ rond (refuser, annuler). */
+function IconAction({ tag, action, label, small = false }: { tag: string; action: "remove"; label: string; small?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        await friendAction(tag, action);
+        setBusy(false);
+      }}
+      className={`flex shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.1] hover:text-white disabled:opacity-50 ${
+        small ? "h-6 w-6" : "h-8 w-8 bg-white/[0.05] ring-1 ring-white/10"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className={small ? "h-3 w-3" : "h-3.5 w-3.5"}>
+        <path d="M6 6l12 12M18 6 6 18" />
+      </svg>
+    </button>
+  );
+}
+
+/** Retirer un ami : un ✕ au survol de la carte, puis une confirmation. */
 function RemoveFriend({ tag }: { tag: string }) {
   const { t } = useTranslation();
   const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!armed) return;
     const id = setTimeout(() => setArmed(false), 3000);
     return () => clearTimeout(id);
   }, [armed]);
-  if (armed) return <ActionButton tag={tag} action="remove" label={t("profile.friends.confirmRemove")} />;
   return (
     <button
       type="button"
       aria-label={t("profile.friends.remove")}
       title={t("profile.friends.remove")}
-      onClick={() => setArmed(true)}
-      className="flex h-8 w-8 items-center justify-center rounded-full text-white/35 transition-colors hover:bg-white/[0.08] hover:text-white"
+      disabled={busy}
+      onClick={async () => {
+        if (!armed) return setArmed(true);
+        setBusy(true);
+        await friendAction(tag, "remove");
+        setBusy(false);
+      }}
+      className={`absolute right-2 top-2 flex h-6 items-center justify-center rounded-full font-karla text-[11px] font-bold transition-[opacity,background-color,color,width] ${
+        armed
+          ? "bg-action px-2.5 text-white opacity-100"
+          : "w-6 text-white/40 opacity-0 hover:bg-white/[0.1] hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
+      }`}
     >
-      ✕
+      {armed ? (
+        t("profile.friends.confirmRemove")
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-3 w-3">
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
+      )}
     </button>
   );
 }
 
-function CopyId({ text }: { text: string }) {
+/** Son identifiant, en pastille : un clic le copie. */
+function CopyId({ tag, name }: { tag: string; name: string }) {
   const { t } = useTranslation();
   const [done, setDone] = useState(false);
   return (
     <button
       type="button"
+      title={t("profile.friends.myIdHint")}
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
+        void navigator.clipboard?.writeText(`${name}#${tag}`).then(() => {
           setDone(true);
           setTimeout(() => setDone(false), 1500);
         });
       }}
-      className="flex w-full items-center justify-between gap-3 rounded-xl bg-black/30 px-3.5 py-2.5 text-left ring-1 ring-white/10 transition-colors hover:ring-white/25"
+      className="flex shrink-0 items-center gap-2 rounded-full bg-white/[0.06] py-2 pl-3.5 pr-3 ring-1 ring-white/10 transition-colors hover:bg-white/[0.1]"
     >
-      <span className="truncate font-outfit text-[15px] font-bold text-white">{text}</span>
-      <span className="shrink-0 font-karla text-[12px] font-bold text-white/55">
-        {done ? t("profile.friends.copied") : t("profile.friends.copy")}
+      <span className="font-karla text-[12px] text-white/50">{t("profile.friends.myId")}</span>
+      <span className="font-outfit text-[13px] font-bold tabular-nums text-white">#{tag}</span>
+      <span className={`transition-colors ${done ? "text-emerald-400" : "text-white/45"}`}>
+        {done ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+            <path d="m5 12 5 5 9-10" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5">
+            <rect x="9" y="9" width="11" height="11" rx="2" />
+            <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        )}
       </span>
     </button>
   );
 }
 
-function Empty({ text }: { text: string }) {
-  return <p className="py-6 text-center font-karla text-[14px] text-white/45">{text}</p>;
+function EmptyState({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/[0.05] text-white/40 ring-1 ring-white/[0.08]">
+        <PeopleIcon className="h-8 w-8" />
+      </span>
+      <p className="font-outfit text-[16px] font-bold text-white">{title}</p>
+      <p className="max-w-sm font-karla text-[13px] leading-relaxed text-white/50">{text}</p>
+      {action ? <div className="mt-1">{action}</div> : null}
+    </div>
+  );
 }
 
-function Skeleton() {
+function PeopleIcon({ className = "" }: { className?: string }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[66px] animate-pulse rounded-2xl bg-white/[0.05]" />
-      ))}
-    </div>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8" />
+      <path d="M18.5 14.2A6.5 6.5 0 0 1 21.5 20" />
+    </svg>
   );
 }
