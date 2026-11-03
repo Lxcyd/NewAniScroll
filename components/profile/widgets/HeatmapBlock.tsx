@@ -167,7 +167,7 @@ export function HeatmapBlock({
     const start = mondayOf(today);
     start.setDate(start.getDate() - (ALL_WEEKS - 1 + back) * 7);
     const cols: { key: string; date: Date; n: number; future: boolean }[][] = [];
-    const months: { col: number; end: number; label: string; key: string; year?: number }[] = [];
+    const months: { col: number; end: number; label: string; key: string }[] = [];
     /* Noms de mois ABRÉGÉS, centrés sur leurs semaines (03/11/2026, Luc). */
     const fmtMonth = new Intl.DateTimeFormat(locale, { month: "short" });
     let max = 1;
@@ -188,9 +188,6 @@ export function HeatmapBlock({
             end: ALL_WEEKS,
             label: name.charAt(0).toUpperCase() + name.slice(1),
             key: `${date.getFullYear()}-${date.getMonth()}`,
-            /* L'ANNÉE (03/11/2026, Luc) : sur le premier mois affiché et sur
-               chaque janvier, là où elle change. */
-            year: !months.length || date.getMonth() === 0 ? date.getFullYear() : undefined,
           });
         }
       }
@@ -328,6 +325,14 @@ export function HeatmapBlock({
   const shownFrom = mondayOf(new Date());
   shownFrom.setDate(shownFrom.getDate() - (back + (geo?.weeks ?? ALL_WEEKS) - 1) * 7);
   const canBack = firstDay != null && firstDay < dayKey(shownFrom.getTime());
+  /* L'ANNÉE, dans le coin de l'en-tête (03/11/2026, Luc : « mets l'année
+     ailleurs » — collée aux noms de mois, elle les décalait) : « 2025 – 2026 »
+     quand la période affichée chevauche deux années. */
+  const shownTo = mondayOf(new Date());
+  shownTo.setDate(shownTo.getDate() - back * 7 + 6);
+  const y0 = shownFrom.getFullYear();
+  const y1 = Math.min(shownTo.getFullYear(), new Date().getFullYear());
+  const years = y0 === y1 ? String(y1) : `${y0} – ${y1}`;
 
   if (!days) return <div className="h-full" />;
 
@@ -342,6 +347,7 @@ export function HeatmapBlock({
         /* Hauteur FIXE, celle de la pastille de série : sans elle, la ligne
            rapetissait et la légende remontait (03/11/2026, Luc). */
       >
+        <span className="mr-3 whitespace-nowrap font-outfit text-[12px] font-bold tabular-nums text-white/70">{years}</span>
         {streak && runs.now > 0 ? (
           /* LA SÉRIE (03/11/2026, Luc, réglage « Afficher les séries ») : la
              pastille à flamme de « Vu récemment », au même dessin (noir
@@ -450,7 +456,7 @@ export function HeatmapBlock({
             {/* Les mois, centrés sur leurs semaines ; allumés avec leur
                 première semaine par le séquenceur. */}
             {grid.months.map((m) => {
-              const half = Math.ceil((m.label.length + (m.year ? 5 : 0)) * 2.75);
+              const half = Math.ceil(m.label.length * 2.75);
               const center = labelW + ((m.col + m.end - 1) / 2) * pitch + geo.cell / 2;
               return (
                 <span
@@ -464,7 +470,6 @@ export function HeatmapBlock({
                   style={{ left: Math.min(center, fullW - half) }}
                 >
                   {m.label}
-                  {m.year ? <span className="ml-1 font-bold text-white/75">{m.year}</span> : null}
                 </span>
               );
             })}
