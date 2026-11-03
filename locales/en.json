@@ -1140,8 +1140,6 @@
         "ahead_other": "{{count}} ahead of pace",
         "behind_one": "{{count}} behind pace",
         "behind_other": "{{count}} behind pace",
-        "short_episodes": "eps",
-        "short_animes": "anime",
         "paceMark_one": "Pace: {{count}} by today to finish right on December 31",
         "paceMark_other": "Pace: {{count}} by today to finish right on December 31"
       },

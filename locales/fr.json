@@ -1140,8 +1140,6 @@
         "ahead_other": "{{count}} d'avance sur le rythme",
         "behind_one": "{{count}} de retard sur le rythme",
         "behind_other": "{{count}} de retard sur le rythme",
-        "short_episodes": "ép.",
-        "short_animes": "animes",
         "paceMark_one": "Le rythme : {{count}} à ce jour pour finir pile le 31 décembre",
         "paceMark_other": "Le rythme : {{count}} à ce jour pour finir pile le 31 décembre"
       },

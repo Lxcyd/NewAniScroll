@@ -391,12 +391,12 @@ export function GoalBlock({
      de l'objectif atteinte, de 0° (rouge) à 135° (vert). */
   const ring = colored ? `hsl(${Math.round(135 * pct)} 78% 52%)` : "var(--brand-primary, #E94560)";
   return (
-    /* 1×1 seulement (03/11/2026, Luc) : l'anneau, le compte au milieu, la
-       ligne d'état dessous. */
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1.5">
-      <div className="relative aspect-square min-h-0 flex-1" style={{ maxHeight: 132 }}>
+    /* L'anneau à gauche, le compte à droite (03/11/2026, Luc : « remets
+       l'interface d'avant », après un essai avec le compte dans l'anneau). */
+    <div className="flex h-full min-h-0 items-center gap-4">
+      <div className="relative aspect-square h-full min-h-0 shrink-0" style={{ maxHeight: 110 }}>
         <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
-          <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+          <circle cx="40" cy="40" r={R} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
           {/* LE RYTHME EN ARC FANTÔME (03/11/2026, Luc, choisi parmi 20) : la
               piste s'éclaircit jusqu'à où il faudrait en être aujourd'hui
               pour finir pile le 31 décembre ; l'avancée se peint par-dessus. */}
@@ -406,7 +406,7 @@ export function GoalBlock({
             r={R}
             fill="none"
             stroke="rgba(255,255,255,0.16)"
-            strokeWidth="7"
+            strokeWidth="8"
             strokeLinecap="round"
             strokeDasharray={`${C * Math.min(1, elapsed)} ${C}`}
           >
@@ -418,28 +418,31 @@ export function GoalBlock({
             r={R}
             fill="none"
             stroke={ring}
-            strokeWidth="7"
+            strokeWidth="8"
             strokeLinecap="round"
             strokeDasharray={`${C * pct} ${C}`}
             className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           />
         </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-outfit text-[26px] font-bold leading-none text-white">{done}</span>
-          <span className="mt-0.5 font-karla text-[11px] font-semibold text-txt">
-            / {target} {t(`profile.blocks.goal.short_${unit}`)}
-          </span>
-        </div>
       </div>
-      <p
-        className={`shrink-0 text-center font-karla text-[12px] font-bold leading-tight ${done >= target ? "text-action" : diff >= 0 ? "text-[#22c55e]" : "text-txt"}`}
-      >
-        {done >= target
-          ? t("profile.blocks.goal.reached")
-          : diff >= 0
-            ? t("profile.blocks.goal.ahead", { count: diff })
-            : t("profile.blocks.goal.behind", { count: -diff })}
-      </p>
+      <div className="min-w-0">
+        <p className="font-outfit text-[30px] font-bold leading-none text-white">
+          {done}
+          <span className="font-karla text-[14px] font-semibold text-txt"> / {target}</span>
+        </p>
+        <p className="mt-1 font-karla text-[12px] text-txt">
+          {t(`profile.blocks.goal.${unit}`, { count: target })} · {year}
+        </p>
+        <p
+          className={`mt-1.5 font-karla text-[12px] font-bold ${done >= target ? "text-action" : diff >= 0 ? "text-[#22c55e]" : "text-txt"}`}
+        >
+          {done >= target
+            ? t("profile.blocks.goal.reached")
+            : diff >= 0
+              ? t("profile.blocks.goal.ahead", { count: diff })
+              : t("profile.blocks.goal.behind", { count: -diff })}
+        </p>
+      </div>
     </div>
   );
 }
