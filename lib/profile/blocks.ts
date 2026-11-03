@@ -322,6 +322,9 @@ const OPTIONS: Record<string, BlockOption[]> = {
   ],
   /* La note du profil sous chaque épinglé (03/11/2026, Luc). */
   pinned: [{ key: "pinScore", on: true }],
+  /* Le Top OP / ED : l'ordre choisi, ou par type — OP, ED, puis musiques
+     (03/11/2026, Luc). */
+  themes: [{ key: "themesSort", choices: ["mine", "kind"], value: "mine", segmented: true }],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

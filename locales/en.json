@@ -947,7 +947,13 @@
           "watched": "Watch order"
         },
         "pinScore": "Show score",
-        "pinScoreDesc": "Your score for the anime, at the bottom right of the card."
+        "pinScoreDesc": "Your score for the anime, at the bottom right of the card.",
+        "themesSort": "Sort",
+        "themesSortDesc": "In your order, or by type: openings, then endings, then songs.",
+        "themesSortChoice": {
+          "mine": "My order",
+          "kind": "OP › ED › Songs"
+        }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -1152,7 +1158,7 @@
         "notePlaceholder": "Your line about this title…"
       },
       "themes": {
-        "title": "Top OP / ED",
+        "title": "Top OP / ED / Songs",
         "desc": "Your favourite openings and endings, playable here.",
         "empty": "No favourite theme yet.",
         "emptyOwner": "Switch to Customize and click the pencil to choose your favourite openings and endings.",

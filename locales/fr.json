@@ -947,7 +947,13 @@
           "watched": "Ordre de visionnage"
         },
         "pinScore": "Afficher la note",
-        "pinScoreDesc": "Ta note de l'anime, en bas à droite de la carte."
+        "pinScoreDesc": "Ta note de l'anime, en bas à droite de la carte.",
+        "themesSort": "Trier",
+        "themesSortDesc": "Dans ton ordre, ou par type : les openings, puis les endings, puis les musiques.",
+        "themesSortChoice": {
+          "mine": "Mon ordre",
+          "kind": "OP › ED › Musique"
+        }
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
@@ -1152,7 +1158,7 @@
         "notePlaceholder": "Ta phrase sur ce titre…"
       },
       "themes": {
-        "title": "Top OP / ED",
+        "title": "Top OP / ED / Musique",
         "desc": "Tes génériques préférés, écoutables ici.",
         "empty": "Aucun générique favori pour l'instant.",
         "emptyOwner": "Passe en mode Personnaliser et clique sur le crayon pour choisir tes génériques préférés.",

@@ -3915,7 +3915,8 @@ html.as-dragging .as-nudge {
    titre du widget passe a 1.375rem au palier des 300 px de haut, donc la ligne
    d'oeil descend de trois pixels. Deux chiffres poses au meme endroit de deux
    cartes voisines ne peuvent pas flotter a deux hauteurs. */
-.as-score-avg {
+.as-score-avg,
+.as-themes-vol {
   top: -26px;
   transform: translateY(-50%);
   font-size: 13px;
@@ -3938,6 +3939,10 @@ html.as-dragging .as-nudge {
   .as-score-avg {
     top: -29px;
     font-size: 16px;
+  }
+  /* Le volume du Top OP / ED : la meme ligne d'oeil (03/11/2026). */
+  .as-themes-vol {
+    top: -29px;
   }
 }
 

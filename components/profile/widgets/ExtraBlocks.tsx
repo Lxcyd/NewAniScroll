@@ -883,6 +883,11 @@ function useTrack(sources: (string | null | undefined)[]) {
     const sync = () =>
       setState((s) => ({ ...s, on: !a.paused, t: a.currentTime, d: Number.isFinite(a.duration) ? a.duration : s.d }));
     const onWait = () => setState((s) => ({ ...s, loading: true }));
+    // Une musique qui démarre met en pause celle qui jouait.
+    const onStart = () => {
+      if (playing && playing !== a) playing.pause();
+      playing = a;
+    };
     const onPlay = () => {
       clearTimeout(stall.current);
       setState((s) => ({ ...s, loading: false, on: true, started: true }));
@@ -903,9 +908,14 @@ function useTrack(sources: (string | null | undefined)[]) {
     nextRef.current = onErr;
     a.addEventListener("timeupdate", sync);
     a.addEventListener("loadedmetadata", sync);
-    a.addEventListener("pause", sync);
+    a.addEventListener("pause", () => {
+      clearTimeout(stall.current);
+      setState((s) => ({ ...s, loading: false }));
+      sync();
+    });
     a.addEventListener("ended", sync);
     a.addEventListener("waiting", onWait);
+    a.addEventListener("play", onStart);
     a.addEventListener("playing", onPlay);
     a.addEventListener("error", onErr);
     return () => {
@@ -1066,12 +1076,15 @@ function Rail({
         else return;
         e.preventDefault();
       }}
-      className={`relative h-2 cursor-pointer touch-none rounded-full bg-white/[0.09] outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${className}`}
+      className={`relative h-2 cursor-pointer touch-none overflow-hidden rounded-full bg-white/[0.09] outline-none focus-visible:ring-2 focus-visible:ring-white/30 ${className}`}
     >
-      {/* Au moins la hauteur du rail : le tout début reste un rond, pas un trait carré. */}
-      {pct > 0 ? (
-        <span className="absolute inset-y-0 left-0 rounded-full bg-action" style={{ width: `max(0.5rem, ${pct}%)` }} />
-      ) : null}
+      {/* Une pilule de toute la largeur, poussée hors du rail puis ramenée :
+          le rose ENTRE petit à petit, arrondi des deux côtés dès le premier
+          pixel (le rail rogne le début, la pilule arrondit la fin). */}
+      <span
+        className="absolute inset-0 rounded-full bg-action transition-transform duration-300 ease-linear"
+        style={{ transform: `translateX(${pct - 100}%)` }}
+      />
     </div>
   );
 }
@@ -1087,7 +1100,7 @@ function VolumeButton() {
       onMuted={setMuted}
       onVolume={setVolume}
       fallback={0.6}
-      placement="up"
+      placement="down"
       size={18}
       label={t("profile.blocks.themes.volume")}
     />
@@ -1115,7 +1128,8 @@ function TrackRow({
   return (
     <div
       onPointerEnter={track.warm}
-      className={`flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors ${track.started ? "bg-white/[0.05]" : "hover:bg-white/[0.04]"}`}
+      /* Le fond du survol reste pendant la lecture, et s'en va à l'arrêt. */
+      className={`flex items-center gap-3 rounded-xl px-2 py-1.5 transition-colors hover:bg-white/[0.05] ${track.on || track.loading ? "bg-white/[0.05]" : ""}`}
     >
       <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{rank}</span>
       {/* La pochette en plus grand (03/11/2026, Luc), sur toute la hauteur de
@@ -1130,13 +1144,12 @@ function TrackRow({
             {row?.artists?.length ? ` · ${row.artists.join(", ")}` : ""}
           </span>
         </p>
-        {track.started ? (
-          <div className="mt-0.5 flex items-center gap-2">
-            <span className="w-7 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
-            <Rail value={track.t} max={track.d} onSeek={track.seek} label={row?.song ?? slug} className="min-w-0 flex-1" />
-            <span className="w-7 text-right font-karla text-[10px] tabular-nums text-white/50">{fmt(track.d)}</span>
-          </div>
-        ) : null}
+        {/* La barre, toujours là (03/11/2026, Luc). */}
+        <div className="mt-0.5 flex items-center gap-2">
+          <span className="w-7 font-karla text-[10px] tabular-nums text-white/50">{fmt(track.t)}</span>
+          <Rail value={track.t} max={track.d} onSeek={track.seek} label={row?.song ?? slug} className="min-w-0 flex-1" />
+          <span className="w-7 text-right font-karla text-[10px] tabular-nums text-white/50">{track.d ? fmt(track.d) : "–:––"}</span>
+        </div>
       </div>
       {track.has ? (
         <button
@@ -1169,25 +1182,42 @@ export function ThemesBlock({
   entries,
   isOwner,
   onChange,
+  byKind = false,
 }: {
   favs: FavTheme[];
   entries: ProfileEntry[];
   isOwner: boolean;
   onChange?: (favs: FavTheme[]) => void;
+  /** Option « Trier » : les OP, puis les ED, puis les musiques. */
+  byKind?: boolean;
 }) {
   const { t } = useTranslation();
   const ids = useMemo(() => Array.from(new Set(favs.map((f) => f.a))), [favs]);
   const meta = useAnimeMeta(ids, entries);
   const themes = useThemes(ids);
+  const shown = useMemo(() => {
+    if (!byKind) return favs;
+    const rank = (f: FavTheme) => {
+      const k = themes.get(f.a)?.find((x) => x.slug === f.s)?.kind ?? (/^OP/i.test(f.s) ? "op" : /^ED/i.test(f.s) ? "ed" : "ins");
+      return k === "op" ? 0 : k === "ed" ? 1 : 2;
+    };
+    // Tri stable : dans chaque type, l'ordre choisi par le propriétaire.
+    return favs.slice().sort((a, b) => rank(a) - rank(b));
+  }, [favs, byKind, themes]);
 
   if (onChange) return <ThemeEditor favs={favs} entries={entries} onChange={onChange} meta={meta} themes={themes} />;
   if (!favs.length)
     return <EmptyBlock note={t(isOwner ? "profile.blocks.themes.emptyOwner" : "profile.blocks.themes.empty")} />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-1">
+    <div className="relative flex h-full min-h-0 flex-col">
+      {/* Le volume dans le coin de l'en-tête (03/11/2026, Luc), sur la ligne
+          d'œil de la flamme et de la moyenne (`as-themes-vol`, globals.css). */}
+      <div className="as-themes-vol absolute right-0 z-10">
+        <VolumeButton />
+      </div>
       <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto overflow-x-hidden pr-1">
-        {favs.map((f, i) => {
+        {shown.map((f, i) => {
           const list = themes.get(f.a);
           const m = meta.get(f.a);
           return (
@@ -1202,9 +1232,6 @@ export function ThemesBlock({
             />
           );
         })}
-      </div>
-      <div className="flex shrink-0 justify-end pr-1">
-        <VolumeButton />
       </div>
     </div>
   );

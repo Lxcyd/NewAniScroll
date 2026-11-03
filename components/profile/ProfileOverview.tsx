@@ -375,6 +375,8 @@ export default function ProfileOverview({
         id === "scores" ||
         /* La légende « Moins ▪▪▪▪▪ Plus » de la heatmap (02/11/2026). */
         id === "heatmap" ||
+        /* Le volume du Top OP / ED (03/11/2026). */
+        id === "themes" ||
         (id === "recents" && optionOn("recents", "streak")),
       /* Le crayon des personnages favoris, à côté de la roue, chez le
          propriétaire (25/10/2026, Luc) : ajouter, retirer, réordonner. */
@@ -898,7 +900,14 @@ export default function ProfileOverview({
           />
         );
       case "themes":
-        return <ThemesBlock favs={parseThemes(savedString("themes", "themes"))} entries={entries} isOwner={isOwner} />;
+        return (
+          <ThemesBlock
+            favs={parseThemes(savedString("themes", "themes"))}
+            entries={entries}
+            isOwner={isOwner}
+            byKind={optionValue("themes", "themesSort") === "kind"}
+          />
+        );
       case "badges":
         return <BadgesBlock earned={earned} />;
       case "affinity":
