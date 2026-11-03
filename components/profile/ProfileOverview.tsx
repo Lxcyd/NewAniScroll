@@ -170,6 +170,44 @@ function defaultLayout(isOwner: boolean): GridItem[] {
   return items;
 }
 
+/* Les widgets retirés, gardés pour leur retour (cf. `commit`). */
+const REMOVED_KEY = "aniscroll:removedWidgets";
+type Removed = { w: number; h: number; s?: GridItem["s"] };
+function readRemoved(): Record<string, Removed> {
+  try {
+    const v = JSON.parse(localStorage.getItem(REMOVED_KEY) || "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+function stashRemoved(o: GridItem) {
+  try {
+    const all = readRemoved();
+    all[o.i] = { w: o.w, h: o.h, ...(o.s ? { s: o.s } : {}) };
+    localStorage.setItem(REMOVED_KEY, JSON.stringify(all));
+  } catch {
+    /* best-effort */
+  }
+}
+/** La taille gardée, ramenée dans les bornes actuelles du bloc. */
+function clampSize(id: string, w: number, h: number): [number, number] {
+  const b = blockBounds(id);
+  return [Math.min(b.maxW, Math.max(b.minW, w)), Math.min(b.maxH, Math.max(b.minH, h))];
+}
+function takeRemoved(id: string): Removed | null {
+  try {
+    const all = readRemoved();
+    const r = all[id];
+    if (!r) return null;
+    delete all[id];
+    localStorage.setItem(REMOVED_KEY, JSON.stringify(all));
+    return Number.isFinite(r.w) && Number.isFinite(r.h) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function ProfileOverview({
   entries,
   characters,
@@ -336,6 +374,11 @@ export default function ProfileOverview({
   }
 
   function commit(next: GridItem[]) {
+    /* UN WIDGET RETIRÉ GARDE SES RÉGLAGES (03/11/2026, Luc) : remis plus tard,
+       il revient avec son nom, ses options, son contenu (épinglés, musiques…)
+       et sa taille. Gardés sur cet appareil. */
+    const kept = new Set(next.map((o) => o.i));
+    for (const o of layout || []) if (!kept.has(o.i)) stashRemoved(o);
     setLayout(next);
     save(next);
   }
@@ -992,8 +1035,10 @@ export default function ProfileOverview({
             if (posed.has(id)) {
               commit(compact(cur.filter((o) => o.i !== id)));
             } else {
-              const [w, h] = blockSize(id);
-              commit(addItem(cur, id, w, h));
+              const back = takeRemoved(id);
+              const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
+              const added = addItem(cur, id, w, h);
+              commit(back?.s ? added.map((o) => (o.i === id ? { ...o, s: back.s } : o)) : added);
             }
           }}
           onRearrange={() => {
