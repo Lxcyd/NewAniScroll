@@ -575,7 +575,7 @@ export default function ProfileOverview({
   /** Les réglages de l'affinité : l'ordre, l'ajout auto, et le crayon. */
   function affinityPrefs() {
     return {
-      custom: optionValue("affinity", "affinitySort") === "custom",
+      custom: savedString("affinity", "affinitySort") === "custom",
       auto: optionOn("affinity", "affAuto"),
       order: parseTags(savedString("affinity", "affOrder")),
       hidden: parseTags(savedString("affinity", "affHidden")),

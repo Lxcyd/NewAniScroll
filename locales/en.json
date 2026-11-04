@@ -955,12 +955,6 @@
           "mine": "My order",
           "kind": "By category"
         },
-        "affinitySort": "Friend order",
-        "affinitySortDesc": "Closest match first, or the order you set with the pencil.",
-        "affinitySortChoice": {
-          "affinity": "Best match",
-          "custom": "Custom order"
-        },
         "affAuto": "Add new friends",
         "affAutoDesc": "New friends show up in the widget on their own. Off, they stay hidden until you check them with the pencil."
       },
@@ -1207,7 +1201,8 @@
         "allHidden": "All your friends are hidden: show them again with the widget's pencil.",
         "filterFav": "Favorites",
         "noneFav": "No favorites on either side.",
-        "manage": "Order and friends shown"
+        "manage": "Order and friends shown",
+        "resetOrder": "Sort by affinity"
       },
       "bingo": {
         "title": "Season bingo",

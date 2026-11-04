@@ -955,12 +955,6 @@
           "mine": "Mon ordre",
           "kind": "Par catégorie"
         },
-        "affinitySort": "Ordre des amis",
-        "affinitySortDesc": "Du plus proche au plus lointain, ou l'ordre que tu ranges au crayon.",
-        "affinitySortChoice": {
-          "affinity": "Plus d'affinité",
-          "custom": "Ordre perso"
-        },
         "affAuto": "Ajouter les nouveaux amis",
         "affAutoDesc": "Un nouvel ami apparaît tout seul dans le widget. Éteint, il reste masqué jusqu'à ce que tu le coches au crayon."
       },
@@ -1207,7 +1201,8 @@
         "allHidden": "Tous tes amis sont masqués : réaffiche-les avec le crayon du widget.",
         "filterFav": "Favoris",
         "noneFav": "Aucun favori, ni d'un côté ni de l'autre.",
-        "manage": "Ordre et amis affichés"
+        "manage": "Ordre et amis affichés",
+        "resetOrder": "Trier par affinité"
       },
       "bingo": {
         "title": "Bingo de la saison",

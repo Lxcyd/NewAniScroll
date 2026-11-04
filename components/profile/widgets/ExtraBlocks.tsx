@@ -1721,7 +1721,9 @@ function shownFriend(tag: string, p: AffinityPrefs) {
  * L'ÉDITEUR DE L'AFFINITÉ, au crayon (04/11/2026, Luc : « dans le même style
  * que les musiques ») : les amis en lignes à glisser, comme le Top OP / ED,
  * chacun avec une case cochée par défaut (décochée = masqué du widget).
- * Glisser une ligne passe le widget en ordre perso.
+ * Par affinité tant qu'on n'a rien glissé ; glisser une ligne passe le widget
+ * en ordre perso, « Trier par affinité » l'y ramène (le réglage d'ordre a été
+ * retiré le même jour, Luc).
  */
 export function AffinityEditor({
   entries,
@@ -1782,7 +1784,6 @@ export function AffinityEditor({
                   <circle cx="15" cy="18" r="1.6" />
                 </svg>
               </span>
-              <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
               {o.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={o.avatar} alt="" className={`h-10 w-10 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
@@ -1817,6 +1818,15 @@ export function AffinityEditor({
           );
         })}
       </div>
+      {prefs.custom ? (
+        <button
+          type="button"
+          onClick={() => onChange({ custom: false })}
+          className="shrink-0 rounded-[14px] border border-dashed border-white/15 py-2 font-karla text-[12px] text-white/50 transition-colors hover:border-white/25 hover:text-white"
+        >
+          {t("profile.blocks.affinity.resetOrder")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2038,18 +2048,20 @@ function CommonTitles({
   }, [items, filter, pref]);
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
-  /* Accord d'une ligne (04/11/2026, Luc) : vert vif = même note, vert = petit
-     écart (≤ 1/10), jaune = moyen, rouge = gros (≥ 3/10), gris = un des deux
-     n'a pas noté. */
+  /* Accord d'une ligne (04/11/2026, Luc) : les couleurs de note de l'éditeur de
+     liste (listEditor.css). Vert = petit écart (≤ 1/10), jaune = moyen, rouge
+     = gros (≥ 3/10), gris = un des deux n'a pas noté. Même note : le même vert,
+     dans une pastille. */
   const tone = (a: number, b: number) => {
     if (!(a > 0 && b > 0)) return "text-white/35";
-    if (a === b) return "text-lime-300";
+    if (a === b) return "rounded-lg bg-[#22c55e]/[0.12] py-0.5 text-[#22c55e]";
     const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
-    return gap <= 0.1 ? "text-emerald-500" : gap >= 0.3 ? "text-red-400" : "text-amber-300";
+    return gap <= 0.1 ? "text-[#22c55e]" : gap >= 0.3 ? "text-[#ef4444]" : "text-[#eab308]";
   };
+  /* Le cœur des favoris du site (#E94560, cf. WidgetSettings). */
   const heart = (on: boolean) =>
     on ? (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute -right-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 text-pink-400" aria-label="♥">
+      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute -right-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 text-[#E94560]" aria-label="♥">
         <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.5 1.1 5.2 3 1.7-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z" />
       </svg>
     ) : null;
