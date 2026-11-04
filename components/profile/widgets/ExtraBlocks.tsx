@@ -2155,11 +2155,14 @@ function CommonTitles({
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-white/70 ring-1 ring-inset ring-white/[0.08] transition-colors hover:bg-white/[0.1] hover:text-white"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
-              {size === "large"
-                ? [3, 13].flatMap((y) => [3, 13].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="8" height="8" rx="1.6" />))
-                : [3, 10, 17].flatMap((y) =>
-                    [3, 10, 17].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width={size === "small" ? 3.4 : 4.6} height={size === "small" ? 3.4 : 4.6} rx="1" />),
-                  )}
+              {/* 3×3 = petites, 2×2 = normales, un carré = grandes (04/11/2026, Luc). */}
+              {size === "large" ? (
+                <rect x="4" y="4" width="16" height="16" rx="2.5" />
+              ) : size === "normal" ? (
+                [3, 13].flatMap((y) => [3, 13].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="8" height="8" rx="1.6" />))
+              ) : (
+                [3, 10, 17].flatMap((y) => [3, 10, 17].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="4.6" height="4.6" rx="1" />))
+              )}
             </svg>
           </button>
         </div>
