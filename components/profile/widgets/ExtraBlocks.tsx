@@ -8,7 +8,7 @@ import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
-import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
+import { busiestDay, dayKey, type Binge, type WatchDay, type WatchDays } from "@/lib/profile/activity";
 import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
 import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
@@ -2310,12 +2310,116 @@ function seasonNow(now = new Date()) {
   };
 }
 
-type Cell = { id: string; got: number; need: number; icon: string };
+/* ── Les objectifs du bingo (04/11/2026, Luc : « cliquer sur chaque case pour
+   ajouter un objectif ») ──
+   Chacun se calcule sur la saison en cours, avec ce que la page a déjà : le
+   journal des jours regardés (`days`), la fiche des animes vus (`Meta`) et la
+   liste. Le libellé est sous `profile.blocks.bingo.cell.<id>`. */
+type BingoCtx = {
+  days: [string, WatchDay][];
+  eps: number;
+  bestDay: number;
+  bestRun: number;
+  ids: number[];
+  metas: Meta[];
+  byId: Map<number, ProfileEntry>;
+  year: number;
+};
+type Goal = { id: string; icon: string; need: number; got: (c: BingoCtx) => number };
 
-export function BingoBlock({ days, entries }: { days: WatchDays | null; entries: ProfileEntry[] }) {
+const isWeekendPair = (k: string, set: Set<string>) => {
+  const [y, m, d] = k.split("-").map(Number);
+  const day = new Date(y, m - 1, d);
+  return day.getDay() === 6 && set.has(dayKey(new Date(y, m - 1, d + 1).getTime()));
+};
+const genre = (g: string) => (c: BingoCtx) => (c.metas.some((m) => m.genres.includes(g)) ? 1 : 0);
+const finished = (c: BingoCtx) =>
+  c.ids.filter((id) => {
+    const s = c.byId.get(id)?.status;
+    return s === "COMPLETED" || s === "REPEATING";
+  }).length;
+
+export const BINGO_GOALS: Goal[] = [
+  { id: "streak7", icon: "🔥", need: 7, got: (c) => c.bestRun },
+  { id: "day10", icon: "⚡", need: 10, got: (c) => c.bestDay },
+  { id: "movie", icon: "🎬", need: 1, got: (c) => c.metas.filter((m) => m.format === "MOVIE").length },
+  { id: "airing", icon: "📡", need: 1, got: (c) => (c.metas.some((m) => m.airing || m.year === c.year) ? 1 : 0) },
+  { id: "eps100", icon: "📺", need: 100, got: (c) => c.eps },
+  { id: "classic", icon: "📼", need: 1, got: (c) => (c.metas.some((m) => m.year != null && m.year <= c.year - 15) ? 1 : 0) },
+  { id: "genres5", icon: "🎭", need: 5, got: (c) => new Set(c.metas.flatMap((m) => m.genres)).size },
+  { id: "animes10", icon: "🗂", need: 10, got: (c) => c.ids.length },
+  { id: "finish", icon: "🏁", need: 1, got: finished },
+  /* Les suivants servent à remplir une grille 4×4 ou 5×5, dans cet ordre. */
+  { id: "streak3", icon: "🕯️", need: 3, got: (c) => c.bestRun },
+  { id: "eps50", icon: "🎯", need: 50, got: (c) => c.eps },
+  { id: "finish3", icon: "🏆", need: 3, got: finished },
+  { id: "weekend", icon: "🛋", need: 1, got: (c) => {
+      const set = new Set(c.days.map(([k]) => k));
+      return c.days.some(([k]) => isWeekendPair(k, set)) ? 1 : 0;
+    } },
+  { id: "active30", icon: "📅", need: 30, got: (c) => c.days.length },
+  { id: "short", icon: "🍿", need: 1, got: (c) => (c.metas.some((m) => m.format === "OVA" || m.format === "ONA" || m.format === "SPECIAL") ? 1 : 0) },
+  { id: "retro", icon: "🕹️", need: 1, got: (c) => (c.metas.some((m) => m.year != null && m.year < 2000) ? 1 : 0) },
+  { id: "rated10", icon: "💯", need: 1, got: (c) => (c.ids.some((id) => { const s = c.byId.get(id)?.score ?? 0; return s === 10 || s === 100; }) ? 1 : 0) },
+  { id: "rewatch", icon: "🔁", need: 1, got: (c) => (c.ids.some((id) => { const e = c.byId.get(id); return e?.status === "REPEATING" || (e?.repeat ?? 0) > 0; }) ? 1 : 0) },
+  { id: "horror", icon: "👻", need: 1, got: genre("Horror") },
+  { id: "romance", icon: "💌", need: 1, got: genre("Romance") },
+  { id: "sports", icon: "🏀", need: 1, got: genre("Sports") },
+  { id: "mecha", icon: "🤖", need: 1, got: genre("Mecha") },
+  { id: "slice", icon: "🍵", need: 1, got: genre("Slice of Life") },
+  { id: "mystery", icon: "🔎", need: 1, got: genre("Mystery") },
+  { id: "day20", icon: "🌋", need: 20, got: (c) => c.bestDay },
+  { id: "streak14", icon: "☄️", need: 14, got: (c) => c.bestRun },
+  { id: "eps250", icon: "🛰", need: 250, got: (c) => c.eps },
+  { id: "animes20", icon: "📚", need: 20, got: (c) => c.ids.length },
+  { id: "genres10", icon: "🌈", need: 10, got: (c) => new Set(c.metas.flatMap((m) => m.genres)).size },
+  { id: "movies3", icon: "🎞", need: 3, got: (c) => c.metas.filter((m) => m.format === "MOVIE").length },
+];
+const GOAL = new Map(BINGO_GOALS.map((g) => [g.id, g]));
+/** Une case vidée au crayon. */
+const EMPTY = "-";
+
+/** Les cases d'une grille n×n : celles rangées, complétées par les objectifs du
+    catalogue pas encore posés. Un objectif retiré du catalogue redevient vide. */
+export function bingoCells(saved: string[], n: number): string[] {
+  const cells = saved.slice(0, n * n).map((id) => (GOAL.has(id) ? id : EMPTY));
+  const used = new Set(cells);
+  const pool = BINGO_GOALS.map((g) => g.id).filter((id) => !used.has(id));
+  while (cells.length < n * n) cells.push(pool.shift() ?? EMPTY);
+  return cells;
+}
+
+/** Les lignes gagnantes d'une grille n×n : lignes, colonnes, deux diagonales. */
+function bingoLines(n: number): number[][] {
+  const r = Array.from({ length: n }, (_, i) => i);
+  return [
+    ...r.map((y) => r.map((x) => y * n + x)),
+    ...r.map((x) => r.map((y) => y * n + x)),
+    r.map((i) => i * n + i),
+    r.map((i) => i * n + (n - 1 - i)),
+  ];
+}
+
+export function BingoBlock({
+  days,
+  entries,
+  cells: cellIds,
+  editing = false,
+  onCells,
+}: {
+  days: WatchDays | null;
+  entries: ProfileEntry[];
+  /** Les objectifs de la grille, n² cases (cf. `bingoCells`). */
+  cells: string[];
+  /** Au crayon : chaque case se clique pour choisir son objectif. */
+  editing?: boolean;
+  onCells?: (cells: string[]) => void;
+}) {
   const { t } = useTranslation();
   const season = seasonNow();
   const startKey = dayKey(season.start.getTime());
+  const n = Math.round(Math.sqrt(cellIds.length)) || 3;
+  const [picking, setPicking] = useState<number | null>(null);
 
   const inSeason = useMemo(
     () => Object.entries(days ?? {}).filter(([k]) => k >= startKey).sort(([a], [b]) => (a < b ? -1 : 1)),
@@ -2328,7 +2432,7 @@ export function BingoBlock({ days, entries }: { days: WatchDays | null; entries:
   }, [inSeason]);
   const meta = useAnimeMeta(ids, entries);
 
-  const cells: Cell[] = useMemo(() => {
+  const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
     let bestDay = 0;
     let run = 0;
@@ -2342,44 +2446,86 @@ export function BingoBlock({ days, entries }: { days: WatchDays | null; entries:
       bestRun = Math.max(bestRun, run);
       prev = k;
     }
-    const metas = ids.map((id) => meta.get(id)).filter(Boolean) as Meta[];
-    const genres = new Set(metas.flatMap((m) => m.genres));
-    const status = new Map(entries.map((e) => [e.mediaId, e.status]));
-    const finished = ids.filter((id) => status.get(id) === "COMPLETED").length;
-    const has = (f: (m: Meta) => boolean) => (metas.some(f) ? 1 : 0);
-    return [
-      { id: "streak7", got: Math.min(bestRun, 7), need: 7, icon: "🔥" },
-      { id: "day10", got: Math.min(bestDay, 10), need: 10, icon: "⚡" },
-      { id: "movie", got: has((m) => m.format === "MOVIE"), need: 1, icon: "🎬" },
-      { id: "airing", got: has((m) => m.airing || m.year === season.year), need: 1, icon: "📡" },
-      { id: "eps100", got: Math.min(eps, 100), need: 100, icon: "📺" },
-      { id: "classic", got: has((m) => m.year != null && m.year <= season.year - 15), need: 1, icon: "📼" },
-      { id: "genres5", got: Math.min(genres.size, 5), need: 5, icon: "🎭" },
-      { id: "animes10", got: Math.min(ids.length, 10), need: 10, icon: "🗂" },
-      { id: "finish", got: Math.min(finished, 1), need: 1, icon: "🏁" },
-    ];
+    return {
+      days: inSeason,
+      eps,
+      bestDay,
+      bestRun,
+      ids,
+      metas: ids.map((id) => meta.get(id)).filter(Boolean) as Meta[],
+      byId: new Map(entries.map((e) => [e.mediaId, e])),
+      year: season.year,
+    };
   }, [inSeason, ids, meta, entries, season.year]);
 
-  if (!days) return <div className="h-full" />;
-  const done = cells.map((c) => c.got >= c.need);
-  const LINES = [
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8],
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8],
-    [0, 4, 8],
-    [2, 4, 6],
-  ];
-  const lines = LINES.filter((l) => l.every((i) => done[i]));
+  if (!days && !editing) return <div className="h-full" />;
+  const cells = cellIds.map((id) => {
+    const g = GOAL.get(id);
+    if (!g) return null;
+    return { g, got: Math.min(g.got(ctx), g.need) };
+  });
+  const done = cells.map((c) => !!c && c.got >= c.g.need);
+  const lines = editing ? [] : bingoLines(n).filter((l) => l.every((i) => done[i]));
   const inLine = new Set(lines.flat());
+  /* Plus la grille est fine, plus la case resserre son texte. */
+  const icon = n >= 5 ? "text-[13px]" : n === 4 ? "text-[15px]" : "text-[18px]";
+  const label = n >= 5 ? "text-[8px]" : n === 4 ? "text-[9px]" : "text-[10px]";
+  const set = (i: number, id: string) => {
+    const next = cellIds.slice();
+    next[i] = id;
+    onCells?.(next);
+    setPicking(null);
+  };
+
+  if (editing && picking != null) {
+    const used = new Set(cellIds);
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <BackButton onClick={() => setPicking(null)} label={t("profile.blocks.bingo.back")} />
+          {cellIds[picking] !== EMPTY ? (
+            <button
+              type="button"
+              onClick={() => set(picking, EMPTY)}
+              className="ml-auto rounded-full bg-white/[0.06] px-2.5 py-1 font-karla text-[11px] font-bold text-white/60 hover:text-white"
+            >
+              {t("profile.blocks.bingo.clear")}
+            </button>
+          ) : null}
+        </div>
+        <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
+          {BINGO_GOALS.map((g) => {
+            const here = cellIds[picking] === g.id;
+            const taken = used.has(g.id) && !here;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                disabled={taken}
+                onClick={() => set(picking, g.id)}
+                className={`flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left disabled:opacity-35 ${
+                  here ? "bg-white/[0.08] ring-1 ring-white/15" : "hover:bg-white/[0.06]"
+                }`}
+              >
+                <span className="w-6 shrink-0 text-center text-[17px] leading-none">{g.icon}</span>
+                <span className="min-w-0 flex-1 truncate font-karla text-[13px] font-semibold text-white">
+                  {t(`profile.blocks.bingo.cell.${g.id}`, { count: g.need })}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-2">
       <p className="flex items-center justify-between font-karla text-[12px] text-txt">
         <span>
-          {t(`profile.blocks.bingo.season.${season.key}`)} {season.year} · {done.filter(Boolean).length}/9
+          {editing
+            ? t("profile.blocks.bingo.editHint")
+            : `${t(`profile.blocks.bingo.season.${season.key}`)} ${season.year} · ${done.filter(Boolean).length}/${n * n}`}
         </span>
         {lines.length ? (
           <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
@@ -2387,38 +2533,55 @@ export function BingoBlock({ days, entries }: { days: WatchDays | null; entries:
           </span>
         ) : null}
       </p>
-      <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-3 gap-1.5">
-        {cells.map((c, i) => (
-          <div
-            key={c.id}
-            title={t(`profile.blocks.bingo.cell.${c.id}`, { count: c.need })}
-            className={`relative flex min-h-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg p-1 text-center transition-colors ${
-              done[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
-            }`}
-            /* La couleur du site : une case gagnée la prend à moitié, une case
-               d'une ligne complète en entier. */
-            style={
-              done[i]
-                ? {
-                    background: `color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 80 : 35}%, transparent)`,
-                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 100 : 55}%, transparent)`,
-                  }
-                : undefined
-            }
-          >
-            <span className="text-[18px] leading-none">{c.icon}</span>
-            <span className="line-clamp-2 font-karla text-[10px] font-semibold leading-tight text-white">
-              {t(`profile.blocks.bingo.cell.${c.id}`, { count: c.need })}
-            </span>
-            {done[i] ? (
-              <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
-            ) : c.need > 1 ? (
-              <span className="font-karla text-[9px] text-white/50">
-                {c.got}/{c.need}
+      <div
+        className="grid min-h-0 flex-1 gap-1.5"
+        style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}
+      >
+        {cells.map((c, i) => {
+          const body = c ? (
+            <>
+              <span className={`${icon} leading-none`}>{c.g.icon}</span>
+              <span className={`line-clamp-2 font-karla ${label} font-semibold leading-tight text-white`}>
+                {t(`profile.blocks.bingo.cell.${c.g.id}`, { count: c.g.need })}
               </span>
-            ) : null}
-          </div>
-        ))}
+              {!editing && done[i] ? (
+                <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
+              ) : !editing && c.g.need > 1 && n < 5 ? (
+                <span className="font-karla text-[9px] text-white/50">
+                  {c.got}/{c.g.need}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className={`${icon} leading-none text-white/30`}>{editing ? "+" : ""}</span>
+          );
+          const cls = `relative flex min-h-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg p-1 text-center transition-colors ${
+            !editing && done[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
+          }`;
+          /* La couleur du site : une case gagnée la prend à moitié, une case
+             d'une ligne complète en entier. */
+          const style =
+            !editing && done[i]
+              ? {
+                  background: `color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 80 : 35}%, transparent)`,
+                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 100 : 55}%, transparent)`,
+                }
+              : undefined;
+          return editing ? (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setPicking(i)}
+              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${c ? "" : "border border-dashed border-white/15"}`}
+            >
+              {body}
+            </button>
+          ) : (
+            <div key={i} title={c ? t(`profile.blocks.bingo.cell.${c.g.id}`, { count: c.g.need }) : undefined} className={cls} style={style}>
+              {body}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -956,7 +956,14 @@
           "kind": "Par catégorie"
         },
         "affAuto": "Ajouter les nouveaux amis",
-        "affAutoDesc": "Un nouvel ami apparaît tout seul dans le widget. Éteint, il reste masqué jusqu'à ce que tu le coches au crayon."
+        "affAutoDesc": "Un nouvel ami apparaît tout seul dans le widget. Éteint, il reste masqué jusqu'à ce que tu le coches au crayon.",
+        "bingoSize": "Taille de la grille",
+        "bingoSizeDesc": "Neuf, seize ou vingt-cinq objectifs.",
+        "bingoSizeChoice": {
+          "3": "3 × 3",
+          "4": "4 × 4",
+          "5": "5 × 5"
+        }
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
@@ -1212,7 +1219,7 @@
       },
       "bingo": {
         "title": "Bingo de la saison",
-        "desc": "Neuf défis de visionnage à cocher.",
+        "desc": "Des défis de visionnage à cocher, choisis par toi.",
         "season": {
           "winter": "Hiver",
           "spring": "Printemps",
@@ -1228,8 +1235,33 @@
           "classic": "Un classique de 15 ans ou plus",
           "genres5": "{{count}} genres différents",
           "animes10": "{{count}} animes différents",
-          "finish": "Une série terminée"
-        }
+          "finish": "Une série terminée",
+          "streak3": "{{count}} jours d'affilée",
+          "eps50": "{{count}} épisodes",
+          "finish3": "{{count}} séries terminées",
+          "weekend": "Un week-end complet",
+          "active30": "{{count}} jours actifs",
+          "short": "Un OVA, ONA ou spécial",
+          "retro": "Un anime d'avant 2000",
+          "rated10": "Un 10/10",
+          "rewatch": "Un revisionnage",
+          "horror": "Un anime d'horreur",
+          "romance": "Une romance",
+          "sports": "Un anime de sport",
+          "mecha": "Un mecha",
+          "slice": "Une tranche de vie",
+          "mystery": "Un mystère",
+          "day20": "{{count}} épisodes en un jour",
+          "streak14": "{{count}} jours d'affilée",
+          "eps250": "{{count}} épisodes",
+          "animes20": "{{count}} animes différents",
+          "genres10": "{{count}} genres différents",
+          "movies3": "{{count}} films"
+        },
+        "manage": "Choisir les objectifs",
+        "editHint": "Clique une case pour changer son objectif",
+        "back": "Retour",
+        "clear": "Vider la case"
       }
     },
     "studioTitle": "Personnalisation du profil",

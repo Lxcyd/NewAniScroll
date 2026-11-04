@@ -30,6 +30,7 @@ import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
   AffinityBlock,
   AffinityEditor,
+  bingoCells,
   parseTags,
   BingeBlock,
   BingoBlock,
@@ -463,7 +464,21 @@ export default function ProfileOverview({
                     />
                   ),
                 }
-              : /* L'affinité : l'ordre et les amis affichés, au crayon (04/11/2026, Luc). */
+              : /* Le bingo : chaque case se clique pour choisir son objectif (04/11/2026). */
+                id === "bingo" && isOwner
+                ? {
+                    label: t("profile.blocks.bingo.manage"),
+                    node: (
+                      <BingoBlock
+                        days={days}
+                        entries={entries}
+                        cells={bingoGrid()}
+                        editing
+                        onCells={(c) => setOption("bingo", "bingoCells", JSON.stringify(c))}
+                      />
+                    ),
+                  }
+                : /* L'affinité : l'ordre et les amis affichés, au crayon (04/11/2026, Luc). */
                 id === "affinity" && isOwner
                 ? {
                     label: t("profile.blocks.affinity.manage"),
@@ -572,6 +587,10 @@ export default function ProfileOverview({
         o.i === id ? { ...o, s: { ...(o.s ?? {}), ...patch } } : o,
       ),
     );
+  }
+  /** Les cases du bingo, à la taille choisie. */
+  function bingoGrid() {
+    return bingoCells(parseTags(savedString("bingo", "bingoCells")), Number(optionValue("bingo", "bingoSize")) || 3);
   }
   /** Les réglages de l'affinité : l'ordre, l'ajout auto, et le crayon. */
   function affinityPrefs() {
@@ -996,7 +1015,7 @@ export default function ProfileOverview({
           />
         );
       case "bingo":
-        return <BingoBlock days={days} entries={entries} />;
+        return <BingoBlock days={days} entries={entries} cells={bingoGrid()} />;
       default:
         // Les blocs `soon` : la mise en page est là, et le bloc dit lui-même ce
         // qui lui manque plutôt que d'afficher un chiffre inventé.

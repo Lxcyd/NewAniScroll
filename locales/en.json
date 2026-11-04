@@ -956,7 +956,14 @@
           "kind": "By category"
         },
         "affAuto": "Add new friends",
-        "affAutoDesc": "New friends show up in the widget on their own. Off, they stay hidden until you check them with the pencil."
+        "affAutoDesc": "New friends show up in the widget on their own. Off, they stay hidden until you check them with the pencil.",
+        "bingoSize": "Grid size",
+        "bingoSizeDesc": "Nine, sixteen or twenty-five goals.",
+        "bingoSizeChoice": {
+          "3": "3 × 3",
+          "4": "4 × 4",
+          "5": "5 × 5"
+        }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -1212,7 +1219,7 @@
       },
       "bingo": {
         "title": "Season bingo",
-        "desc": "Nine watching challenges to tick off.",
+        "desc": "Viewing challenges to tick off, picked by you.",
         "season": {
           "winter": "Winter",
           "spring": "Spring",
@@ -1228,8 +1235,33 @@
           "classic": "A 15+ year-old classic",
           "genres5": "{{count}} different genres",
           "animes10": "{{count}} different anime",
-          "finish": "A finished series"
-        }
+          "finish": "A finished series",
+          "streak3": "{{count}} days in a row",
+          "eps50": "{{count}} episodes",
+          "finish3": "{{count}} finished series",
+          "weekend": "A full weekend",
+          "active30": "{{count}} active days",
+          "short": "An OVA, ONA or special",
+          "retro": "An anime from before 2000",
+          "rated10": "A 10/10",
+          "rewatch": "A rewatch",
+          "horror": "A horror anime",
+          "romance": "A romance",
+          "sports": "A sports anime",
+          "mecha": "A mecha",
+          "slice": "A slice of life",
+          "mystery": "A mystery",
+          "day20": "{{count}} episodes in one day",
+          "streak14": "{{count}} days in a row",
+          "eps250": "{{count}} episodes",
+          "animes20": "{{count}} different anime",
+          "genres10": "{{count}} different genres",
+          "movies3": "{{count}} movies"
+        },
+        "manage": "Pick the goals",
+        "editHint": "Click a square to change its goal",
+        "back": "Back",
+        "clear": "Clear square"
       }
     },
     "studioTitle": "Profile customization",

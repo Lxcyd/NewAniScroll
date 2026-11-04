@@ -329,6 +329,9 @@ const OPTIONS: Record<string, BlockOption[]> = {
      (allumé). L'ordre se règle au crayon, qui range `affinitySort`,
      `affOrder` et `affHidden`. */
   affinity: [{ key: "affAuto", on: true }],
+  /* La taille de la grille du bingo (04/11/2026, Luc). Les objectifs se
+     choisissent au crayon et se rangent sous `bingoCells`. */
+  bingo: [{ key: "bingoSize", choices: ["3", "4", "5"], value: "3", segmented: true }],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

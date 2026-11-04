@@ -230,7 +230,7 @@ const MAX_LIST_VALUE = 800;
 /** Les réglages qui rangent un tableau JSON et ont droit à cette longueur :
     les listes cochées, les trois épinglés avec leur phrase, les génériques
     favoris (03/11/2026). */
-const LONG_KEYS = new Set(["lists", "pins", "themes"]);
+const LONG_KEYS = new Set(["lists", "pins", "themes", "bingoCells"]);
 /** Le Top OP / ED / Musique n'a plus de nombre maximum (03/11/2026, Luc) :
     ~24 caractères par morceau, 6000 en tiennent environ 250. */
 const MAX_THEMES_VALUE = 6000;
