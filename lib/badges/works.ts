@@ -7,7 +7,7 @@
  * c'est là, et nulle part ailleurs, qu'un id faux se rattrape — un badge dont
  * l'id est faux ne se débloque jamais et ressemble à un badge difficile.
  *
- * Vérifié le 2026-09-16 : 74 ids, tous conformes.
+ * Vérifié le 2026-11-04 : 74 ids, tous conformes.
  */
 
 export type WorkDef = {

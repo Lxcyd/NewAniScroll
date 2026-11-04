@@ -1,5 +1,5 @@
 /**
- * Le catalogue des badges — 176 définitions.
+ * Le catalogue des badges — 177 définitions.
  *
  * FICHIER GÉNÉRÉ — ne pas éditer à la main.
  * Source : tools/badges/catalog.data.mjs, régénéré par
@@ -142,6 +142,7 @@ export const BADGES: BadgeDef[] = [
   { id: "share-link", family: "profile", rarity: "c", icon: "copyLink", tag: "", metric: {"k":"flag","name":"copyLink","n":1} },
   { id: "settings", family: "profile", rarity: "c", icon: "gear", tag: "", metric: {"k":"flag","name":"settings","n":1} },
   { id: "custom-list", family: "profile", rarity: "c", icon: "listPlus", tag: "", metric: {"k":"flag","name":"customList","n":1} },
+  { id: "bingo-full", family: "profile", rarity: "r", icon: "gridFull", tag: "100 %", metric: {"k":"flag","name":"bingoFull","n":1} },
   { id: "one-year-here", family: "profile", rarity: "r", icon: "cake", tag: "", metric: {"k":"accountAge","days":365,"n":365} },
   { id: "badges-50", family: "profile", rarity: "e", icon: "hexCluster", tag: "50", metric: {"k":"count","of":"badges","n":50}, ladder: "collection" },
   { id: "badges-75", family: "profile", rarity: "l", icon: "hexCluster", tag: "75", metric: {"k":"count","of":"badges","n":75}, ladder: "collection" },
