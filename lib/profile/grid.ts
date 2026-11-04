@@ -218,7 +218,8 @@ export function isValidLayout(value: unknown): value is GridItem[] {
  * toute façon sur le défaut quand la valeur ne lui dit rien (`blockOptionValue`).
  * Ce qui compte ici est qu'elle ne puisse pas être un roman.
  */
-const MAX_OPTIONS = 8;
+/* 12 depuis le 04/11/2026 : le bingo range à lui seul neuf réglages. */
+const MAX_OPTIONS = 12;
 /** La longueur d'une valeur de réglage — dont le NOM qu'on donne à un bloc
     (clé réservée `title`), d'où l'export : le champ de renommage coupe à la
     même longueur plutôt que de laisser écrire ce que le nettoyage jettera. */

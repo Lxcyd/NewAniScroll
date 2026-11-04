@@ -963,6 +963,14 @@
           "3": "3 × 3",
           "4": "4 × 4",
           "5": "5 × 5"
+        },
+        "bingoSpan": "Durée de mon bingo",
+        "bingoSpanDesc": "La saison, le mois, l'année, ou des dates choisies au crayon. Le bingo de la saison garde la saison.",
+        "bingoSpanChoice": {
+          "season": "Saison",
+          "month": "Mois",
+          "year": "Année",
+          "custom": "Perso"
         }
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
@@ -1308,7 +1316,10 @@
         "kept": "Gardé ✓",
         "pending": "Bingo de {{name}} prêt à être utilisé",
         "pendingUse": "Utiliser",
-        "pendingDrop": "Ignorer"
+        "pendingDrop": "Ignorer",
+        "ended": "Terminé",
+        "from": "Du",
+        "to": "au"
       }
     },
     "studioTitle": "Personnalisation du profil",

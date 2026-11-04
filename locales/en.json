@@ -963,6 +963,14 @@
           "3": "3 × 3",
           "4": "4 × 4",
           "5": "5 × 5"
+        },
+        "bingoSpan": "My bingo's length",
+        "bingoSpanDesc": "The season, the month, the year, or dates picked with the pencil. The season bingo keeps the season.",
+        "bingoSpanChoice": {
+          "season": "Season",
+          "month": "Month",
+          "year": "Year",
+          "custom": "Custom"
         }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
@@ -1308,7 +1316,10 @@
         "kept": "Kept ✓",
         "pending": "{{name}}'s bingo is ready to use",
         "pendingUse": "Use",
-        "pendingDrop": "Dismiss"
+        "pendingDrop": "Dismiss",
+        "ended": "Ended",
+        "from": "From",
+        "to": "to"
       }
     },
     "studioTitle": "Profile customization",

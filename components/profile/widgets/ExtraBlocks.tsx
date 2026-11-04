@@ -2571,13 +2571,10 @@ export function BingoBlock({
   editing?: boolean;
   onPatch?: (patch: Record<string, string>) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const season = seasonNow();
   const seasonId = `${season.year}-${season.key.toUpperCase()}`;
-  const startKey = dayKey(season.start.getTime());
   const n = size >= 3 && size <= 5 ? size : 3;
-  const seasonEnd = new Date(season.start.getFullYear(), season.start.getMonth() + 3, 1);
-  const daysLeft = Math.max(0, Math.ceil((seasonEnd.getTime() - Date.now()) / 864e5));
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -2586,6 +2583,45 @@ export function BingoBlock({
   /* Ce qui est rangé. */
   /* Mon bingo par défaut ; le bouton pose celui de la saison (04/11/2026, Luc). */
   const mode = saved?.bingoMode === "season" ? "season" : "mine";
+
+  /* LA PÉRIODE (04/11/2026, Luc : « une durée autre que la saison ») : mon
+     bingo peut courir sur le mois, l'année, ou des dates choisies au crayon.
+     Celui de la saison court toujours sur la saison. */
+  const spanSaved = String(saved?.bingoSpan ?? "");
+  const span = mode === "season" ? "season" : ["month", "year", "custom"].includes(spanSaved) ? spanSaved : "season";
+  const today = dayKey(Date.now());
+  const range = (() => {
+    const m = /^(d{4}-d{2}-d{2})|(d{4}-d{2}-d{2})$/.exec(String(saved?.bingoRange ?? ""));
+    return m && m[1] <= m[2] ? { from: m[1], to: m[2] } : { from: today, to: shiftDay(today, 29) };
+  })();
+  const now = new Date();
+  const lang = i18n.language || undefined;
+  const period =
+    span === "month"
+      ? {
+          start: dayKey(new Date(now.getFullYear(), now.getMonth(), 1).getTime()),
+          end: dayKey(new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime()),
+          label: now.toLocaleDateString(lang, { month: "long", year: "numeric" }).replace(/^./, (c) => c.toUpperCase()),
+        }
+      : span === "year"
+        ? { start: `${now.getFullYear()}-01-01`, end: `${now.getFullYear() + 1}-01-01`, label: String(now.getFullYear()) }
+        : span === "custom"
+          ? {
+              start: range.from,
+              end: shiftDay(range.to, 1),
+              label: [range.from, range.to]
+                .map((k) => new Date(`${k}T12:00:00`).toLocaleDateString(lang, { day: "numeric", month: "short" }))
+                .join(" → "),
+            }
+          : {
+              start: dayKey(season.start.getTime()),
+              end: dayKey(new Date(season.start.getFullYear(), season.start.getMonth() + 3, 1).getTime()),
+              label: `${t(`profile.blocks.bingo.season.${season.key}`)} ${season.year}`,
+            };
+  const startKey = period.start;
+  const periodId = span === "season" ? seasonId : `${span}:${period.start}`;
+  const endAt = new Date(`${period.end}T00:00:00`).getTime();
+  const daysLeft = Math.max(0, Math.ceil((endAt - Date.now()) / 864e5));
   const customs = parseJson<Custom[]>(saved?.bingoCustom, Array.isArray, []);
   const state = parseJson<BingoState>(saved?.bingoState, (v) => !!v && typeof v === "object", { done: [] });
   const seasonEdit = parseJson<{ k: string; c: string[] } | null>(
@@ -2627,13 +2663,13 @@ export function BingoBlock({
   }, [isOwner, owner, cellIds.includes("sharedShow")]);
 
   const allDays = useMemo(() => Object.entries(days ?? {}).sort(([a], [b]) => (a < b ? -1 : 1)), [days]);
-  const inSeason = useMemo(() => allDays.filter(([k]) => k >= startKey), [allDays, startKey]);
+  const inSeason = useMemo(() => allDays.filter(([k]) => k >= startKey && k < period.end), [allDays, startKey, period.end]);
   const ids = useMemo(() => {
     const s = new Set<number>();
     for (const [, d] of inSeason) d.a.forEach((id) => s.add(id));
     return Array.from(s);
   }, [inSeason]);
-  const rnd = state.rnd?.k === seasonId ? state.rnd.id : null;
+  const rnd = state.rnd?.k === periodId ? state.rnd.id : null;
   const extraIds = useMemo(
     () => [...cellIds.filter((id) => id.startsWith("a:")).map((id) => Number(id.slice(2))), ...(rnd != null ? [rnd] : [])],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2744,7 +2780,7 @@ export function BingoBlock({
     const pool = entries.filter((e) => e.status === "PLANNING");
     if (!pool.length || !onPatch) return;
     const pick = pool[Math.floor(Math.random() * pool.length)];
-    onPatch({ bingoState: JSON.stringify({ ...state, rnd: { k: seasonId, id: pick.mediaId } }) });
+    onPatch({ bingoState: JSON.stringify({ ...state, rnd: { k: periodId, id: pick.mediaId } }) });
   };
   /** Faire sien un bingo partagé : il devient « mon bingo ». */
   const applyCode = (code: string): boolean => {
@@ -2861,6 +2897,28 @@ export function BingoBlock({
               {t("profile.blocks.bingo.import")}
             </button>
           </div>
+          {mode === "mine" && span === "custom" ? (
+            <div className="flex items-center gap-1.5 font-karla text-[11px] text-txt">
+              <span>{t("profile.blocks.bingo.from")}</span>
+              <input
+                id="bingo-from"
+                type="date"
+                value={range.from}
+                max={range.to}
+                onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${e.target.value}|${range.to}` })}
+                className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-1.5 py-0.5 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+              />
+              <span>{t("profile.blocks.bingo.to")}</span>
+              <input
+                id="bingo-to"
+                type="date"
+                value={range.to}
+                min={range.from}
+                onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${range.from}|${e.target.value}` })}
+                className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-1.5 py-0.5 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+              />
+            </div>
+          ) : null}
           {importing ? (
             <ImportCode
               onImport={(code) => {
@@ -2874,7 +2932,7 @@ export function BingoBlock({
       ) : (
         <p className="flex items-center gap-2 font-karla text-[12px] text-txt">
           <span className="min-w-0 truncate">
-            {t(`profile.blocks.bingo.season.${season.key}`)} {season.year} · {isDone.filter(Boolean).length}/{n * n}
+            {period.label} · {isDone.filter(Boolean).length}/{n * n}
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
@@ -2885,7 +2943,7 @@ export function BingoBlock({
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
             <span className="font-karla text-[11px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
-              {t("profile.blocks.bingo.daysLeft", { count: daysLeft })}
+              {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
             {lines.length ? (
               <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
