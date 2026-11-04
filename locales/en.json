@@ -1205,7 +1205,9 @@
         "filterAll": "All",
         "filterRated": "Rated by both",
         "noneRated": "No title rated by both.",
-        "allHidden": "All your friends are hidden: show them again from the widget settings."
+        "allHidden": "All your friends are hidden: show them again from the widget settings.",
+        "filterFav": "Favorites",
+        "noneFav": "No favorites on either side."
       },
       "bingo": {
         "title": "Season bingo",

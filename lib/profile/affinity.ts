@@ -21,7 +21,12 @@ const MAX_TITLES = 1500;
 export type Taste = Record<string, number>;
 /* `others` : les profils visités, rangés jusqu'au 03/11/2026 ; ce sont
    désormais les amis du site qui servent de comparaison (lib/auth/friends.ts). */
-type Store = { me?: Taste; others: unknown[] };
+type Store = { me?: Taste; meFav?: string[]; others: unknown[] };
+
+/** Les favoris d'une liste, en ids (04/11/2026). */
+export function favsOf(entries: ProfileEntry[]): string[] {
+  return entries.filter((e) => e.favourite).map((e) => String(e.mediaId)).slice(0, 200);
+}
 
 /** Ce qu'une liste dit des goûts : chaque titre vu, avec sa note (0 = non noté). */
 export function tasteOf(entries: ProfileEntry[]): Taste {
@@ -39,7 +44,7 @@ function read(): Store {
   if (typeof window === "undefined") return { others: [] };
   try {
     const p = JSON.parse(localStorage.getItem(KEY) || "null");
-    return { me: p?.me ?? undefined, others: Array.isArray(p?.others) ? p.others : [] };
+    return { me: p?.me ?? undefined, meFav: Array.isArray(p?.meFav) ? p.meFav : undefined, others: Array.isArray(p?.others) ? p.others : [] };
   } catch {
     return { others: [] };
   }
@@ -57,6 +62,7 @@ export function rememberMe(entries: ProfileEntry[]) {
   if (!entries.length) return;
   const s = read();
   s.me = tasteOf(entries);
+  s.meFav = favsOf(entries);
   write(s);
 }
 

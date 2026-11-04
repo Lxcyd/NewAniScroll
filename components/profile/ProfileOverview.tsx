@@ -40,7 +40,7 @@ import {
   parseThemes,
 } from "./widgets/ExtraBlocks";
 import { useLocalDays } from "./widgets/CalendarBlock";
-import { rememberMe, tasteOf } from "@/lib/profile/affinity";
+import { favsOf, rememberMe, tasteOf } from "@/lib/profile/affinity";
 import { sendMyTaste } from "@/lib/friends/client";
 import type { Binge } from "@/lib/profile/activity";
 import {
@@ -233,7 +233,7 @@ export default function ProfileOverview({
   useEffect(() => {
     if (!entries.length || !isOwner) return;
     rememberMe(entries);
-    if (who?.tag) sendMyTaste(tasteOf(entries));
+    if (who?.tag) sendMyTaste(tasteOf(entries), favsOf(entries));
   }, [entries, isOwner, who?.tag]);
 
   /* Le journal des jours de CET appareil, chez soi, pour l'objectif et le

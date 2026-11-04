@@ -1205,7 +1205,9 @@
         "filterAll": "Tout",
         "filterRated": "Notés des deux côtés",
         "noneRated": "Aucun titre noté des deux côtés.",
-        "allHidden": "Tous tes amis sont masqués : réaffiche-les depuis les paramètres du widget."
+        "allHidden": "Tous tes amis sont masqués : réaffiche-les depuis les paramètres du widget.",
+        "filterFav": "Favoris",
+        "noneFav": "Aucun favori, ni d'un côté ni de l'autre."
       },
       "bingo": {
         "title": "Bingo de la saison",

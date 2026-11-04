@@ -315,7 +315,21 @@ export function cleanTaste(raw: unknown): Taste | null {
   return out;
 }
 
-export async function putTaste(userId: string, taste: Taste): Promise<void> {
+/** Les favoris (ids AniList), rangés à côté des notes sous la clé `f` du même
+    payload (04/11/2026, Luc) : `cleanTaste` ne lit que les clés numériques. */
+const MAX_FAV = 200;
+export function cleanFav(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    const k = String(v);
+    if (/^d{1,7}$/.test(k) && !out.includes(k)) out.push(k);
+    if (out.length >= MAX_FAV) break;
+  }
+  return out;
+}
+
+export async function putTaste(userId: string, taste: Taste, fav: string[] = []): Promise<void> {
   const client = await db();
   if (!client) return;
   await client.execute({
@@ -326,12 +340,12 @@ export async function putTaste(userId: string, taste: Taste): Promise<void> {
                 rev = user_data.rev + 1,
                 updated_at = excluded.updated_at
           WHERE user_data.payload IS NOT excluded.payload`,
-    args: [userId, TASTE_KIND, JSON.stringify(taste), Date.now()],
+    args: [userId, TASTE_KIND, JSON.stringify(fav.length ? { ...taste, f: fav } : taste), Date.now()],
   });
 }
 
 /** Les amis acceptés, chacun avec ses goûts (ceux qui n'en ont pas rangé sont omis). */
-export async function friendTastes(userId: string): Promise<(FriendCard & { taste: Taste })[]> {
+export async function friendTastes(userId: string): Promise<(FriendCard & { taste: Taste; fav: string[] })[]> {
   const client = await db();
   if (!client) return [];
   const r = await client.execute({
@@ -343,11 +357,12 @@ export async function friendTastes(userId: string): Promise<(FriendCard & { tast
           LIMIT ?`,
     args: [userId, MAX_FRIENDS],
   });
-  const out: (FriendCard & { taste: Taste })[] = [];
+  const out: (FriendCard & { taste: Taste; fav: string[] })[] = [];
   for (const row of r.rows) {
     try {
-      const taste = cleanTaste(JSON.parse(String(row.payload)));
-      if (taste) out.push({ ...cardOf(row), taste });
+      const p = JSON.parse(String(row.payload));
+      const taste = cleanTaste(p);
+      if (taste) out.push({ ...cardOf(row), taste, fav: cleanFav(p?.f) });
     } catch {
       /* goûts illisibles : cet ami est sauté */
     }

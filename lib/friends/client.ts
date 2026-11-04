@@ -43,7 +43,7 @@ export async function searchPeople(q: string) {
 }
 
 export async function friendTastes() {
-  return (await get<{ friends: (FriendCard & { taste: Taste })[] }>("?tastes=1"))?.friends ?? null;
+  return (await get<{ friends: (FriendCard & { taste: Taste; fav?: string[] })[] }>("?tastes=1"))?.friends ?? null;
 }
 
 /* Un refus du serveur (trop de demandes, plafond atteint) est annoncé à la
@@ -110,15 +110,15 @@ export function watchFriends(load: () => void, everyMs = 20_000): () => void {
    Envoyés quand on ouvre son propre profil, et seulement s'ils ont changé
    depuis le dernier envoi depuis cet appareil (empreinte en localStorage). */
 const SENT_KEY = "aniscroll:tasteSent";
-function print(t: Taste): string {
+function print(t: Taste, fav: string[]): string {
   let h = 0;
-  const s = JSON.stringify(Object.keys(t).sort().map((k) => [k, t[k]]));
+  const s = JSON.stringify([Object.keys(t).sort().map((k) => [k, t[k]]), fav]);
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return `${s.length}:${h}`;
 }
-export function sendMyTaste(taste: Taste) {
+export function sendMyTaste(taste: Taste, fav: string[] = []) {
   if (!Object.keys(taste).length) return;
-  const fp = print(taste);
+  const fp = print(taste, fav);
   try {
     if (localStorage.getItem(SENT_KEY) === fp) return;
   } catch {
@@ -128,7 +128,7 @@ export function sendMyTaste(taste: Taste) {
     method: "PUT",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ taste }),
+    body: JSON.stringify({ taste, fav }),
   })
     .then((r) => {
       try {

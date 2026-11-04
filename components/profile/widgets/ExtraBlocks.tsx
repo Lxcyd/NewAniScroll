@@ -1631,7 +1631,7 @@ export function parseTags(s: string | undefined): string[] {
  * encore lu. Partagé par le widget et son panneau de réglages.
  */
 function useRankedFriends(isOwner: boolean, entries: ProfileEntry[]) {
-  const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number> })[] | null>(null);
+  const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number>; fav?: string[] })[] | null>(null);
   useEffect(() => {
     if (!isOwner) return;
     let alive = true;
@@ -1808,6 +1808,7 @@ export function AffinityBlock({
     for (const e of entries) if (e.status !== "PLANNING") theirs[e.mediaId] = e.score && e.score > 0 ? e.score : 0;
     const m = affinity(store.me, theirs);
     const me = store.me;
+    const meFav = new Set(store.meFav ?? []);
     return (
       <>
       {/* Hors du bouton : les clics d'un portail remontent l'arbre React. */}
@@ -1817,7 +1818,13 @@ export function AffinityBlock({
           match={m}
           items={entries
             .filter((e) => e.status !== "PLANNING" && e.mediaId in me)
-            .map((e) => ({ e, mine: me[e.mediaId] || 0, theirs: e.score || 0 }))}
+            .map((e) => ({
+              e,
+              mine: me[e.mediaId] || 0,
+              theirs: e.score || 0,
+              mineFav: meFav.has(String(e.mediaId)),
+              theirsFav: !!e.favourite,
+            }))}
           onClose={() => setOpened(null)}
         />
       ) : null}
@@ -1870,7 +1877,13 @@ export function AffinityBlock({
           match={open.m}
           items={entries
             .filter((e) => e.status !== "PLANNING" && e.mediaId in open.o.taste)
-            .map((e) => ({ e, mine: e.score || 0, theirs: open.o.taste[e.mediaId] || 0 }))}
+            .map((e) => ({
+              e,
+              mine: e.score || 0,
+              theirs: open.o.taste[e.mediaId] || 0,
+              mineFav: !!e.favourite,
+              theirsFav: !!open.o.fav?.includes(String(e.mediaId)),
+            }))}
           onClose={() => setOpened(null)}
         />
       ) : null}
@@ -1921,13 +1934,14 @@ function CommonTitles({
   name: string;
   href?: string;
   match: Match;
-  items: { e: ProfileEntry; mine: number; theirs: number }[];
+  items: { e: ProfileEntry; mine: number; theirs: number; mineFav: boolean; theirsFav: boolean }[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
   const pref = useTitlePref();
   const clickTarget = useClickTarget();
-  const [onlyRated, setOnlyRated] = useState(false);
+  /* « Favoris » (04/11/2026, Luc) : les titres en favori d'au moins un des deux. */
+  const [filter, setFilter] = useState<"all" | "rated" | "fav">("all");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1948,24 +1962,34 @@ function CommonTitles({
 
   const rows = useMemo(() => {
     const both = (x: { mine: number; theirs: number }) => x.mine > 0 && x.theirs > 0;
+    const favs = (x: { mineFav: boolean; theirsFav: boolean }) => Number(x.mineFav) + Number(x.theirsFav);
     return items
-      .filter((x) => !onlyRated || both(x))
+      .filter((x) => (filter === "rated" ? both(x) : filter === "fav" ? favs(x) > 0 : true))
       .sort(
         (a, b) =>
+          (filter === "fav" ? favs(b) - favs(a) : 0) ||
           Number(both(b)) - Number(both(a)) ||
           b.mine + b.theirs - (a.mine + a.theirs) ||
           pickTitle(a.e.title, pref).localeCompare(pickTitle(b.e.title, pref)),
       );
-  }, [items, onlyRated, pref]);
+  }, [items, filter, pref]);
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
-  /* Accord d'une ligne (04/11/2026, Luc) : vert = petit écart (≤ 1/10),
-     jaune = moyen, rouge = gros (≥ 3/10), gris = un des deux n'a pas noté. */
+  /* Accord d'une ligne (04/11/2026, Luc) : vert vif = même note, vert = petit
+     écart (≤ 1/10), jaune = moyen, rouge = gros (≥ 3/10), gris = un des deux
+     n'a pas noté. */
   const tone = (a: number, b: number) => {
     if (!(a > 0 && b > 0)) return "text-white/35";
+    if (a === b) return "text-lime-300";
     const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
-    return gap <= 0.1 ? "text-emerald-400" : gap >= 0.3 ? "text-red-400" : "text-amber-300";
+    return gap <= 0.1 ? "text-emerald-500" : gap >= 0.3 ? "text-red-400" : "text-amber-300";
   };
+  const heart = (on: boolean) =>
+    on ? (
+      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute -right-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 text-pink-400" aria-label="♥">
+        <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.5 1.1 5.2 3 1.7-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z" />
+      </svg>
+    ) : null;
 
   if (typeof document === "undefined") return null;
   return createPortal(
@@ -1992,16 +2016,16 @@ function CommonTitles({
           </button>
         </div>
         <div className="flex items-center gap-2 px-5 pb-2">
-          {[false, true].map((v) => (
+          {(["all", "rated", "fav"] as const).map((v) => (
             <button
-              key={String(v)}
+              key={v}
               type="button"
-              onClick={() => setOnlyRated(v)}
+              onClick={() => setFilter(v)}
               className={`rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-                onlyRated === v ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:text-white"
+                filter === v ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:text-white"
               }`}
             >
-              {v ? t("profile.blocks.affinity.filterRated") : t("profile.blocks.affinity.filterAll")}
+              {t(v === "rated" ? "profile.blocks.affinity.filterRated" : v === "fav" ? "profile.blocks.affinity.filterFav" : "profile.blocks.affinity.filterAll")}
             </button>
           ))}
           <span className="ml-auto grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
@@ -2011,7 +2035,7 @@ function CommonTitles({
         </div>
         <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           {rows.length ? (
-            rows.map(({ e, mine, theirs }) => (
+            rows.map(({ e, mine, theirs, mineFav, theirsFav }) => (
               <Link
                 key={e.mediaId}
                 href={animeHref(e.mediaId, clickTarget)}
@@ -2025,13 +2049,19 @@ function CommonTitles({
                 )}
                 <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{pickTitle(e.title, pref)}</span>
                 <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit text-[14px] font-bold tabular-nums ${tone(mine, theirs)}`}>
-                  <span className="w-10 text-center">{fmt(mine)}</span>
-                  <span className="w-10 text-center">{fmt(theirs)}</span>
+                  <span className="relative w-10 text-center">
+                    {fmt(mine)}
+                    {heart(mineFav)}
+                  </span>
+                  <span className="relative w-10 text-center">
+                    {fmt(theirs)}
+                    {heart(theirsFav)}
+                  </span>
                 </span>
               </Link>
             ))
           ) : (
-            <p className="px-3 py-8 text-center font-karla text-[13px] text-white/45">{t("profile.blocks.affinity.noneRated")}</p>
+            <p className="px-3 py-8 text-center font-karla text-[13px] text-white/45">{t(filter === "fav" ? "profile.blocks.affinity.noneFav" : "profile.blocks.affinity.noneRated")}</p>
           )}
         </div>
       </div>

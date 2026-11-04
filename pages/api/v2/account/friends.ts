@@ -3,6 +3,7 @@ import { getSessionUser, requireUser } from "@/lib/auth/session";
 import { checkThrottle } from "@/lib/auth/throttle";
 import {
   act,
+  cleanFav,
   cleanTaste,
   friendTastes,
   listFriends,
@@ -22,7 +23,7 @@ import {
  * GET ?q=<texte>     → chercher quelqu'un à ajouter
  * GET ?tastes=1      → mes amis avec leurs goûts (widget Affinité)
  * POST {action, tag} → request | accept | remove
- * PUT  {taste}       → ranger mes goûts (envoyé par mon profil)
+ * PUT  {taste, fav}  → ranger mes goûts et mes favoris (envoyé par mon profil)
  *
  * L'identité vient toujours du cookie de session, jamais du corps. Les
  * écritures n'acceptent que du JSON : un formulaire d'un autre site (seul
@@ -81,7 +82,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === "PUT") {
     const taste = cleanTaste(req.body?.taste);
     if (!taste) return res.status(400).json({ error: "taste" });
-    await putTaste(me.id, taste);
+    await putTaste(me.id, taste, cleanFav(req.body?.fav));
     return res.status(200).json({ ok: true });
   }
 
