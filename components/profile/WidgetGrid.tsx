@@ -895,7 +895,10 @@ export default function WidgetGrid({
                   points qui ne distinguait rien : le nom du bloc est écrit juste
                   à côté. La couleur reste où elle sert, sur les icônes de la
                   bibliothèque, où l'on choisit un bloc avant de savoir son nom. */}
-              <h2 className="as-widget-head flex min-w-0 items-center gap-2 font-outfit text-lg font-bold text-white">
+              {/* `flex-1` + `min-w-0` ici ET sur le texte : sans eux le titre ne
+                  rétrécit jamais sous sa propre longueur, et le « … » ne se
+                  déclenche pas — il passait sous le coin (04/11/2026, Luc). */}
+              <h2 className="as-widget-head flex min-w-0 flex-1 items-center gap-2 font-outfit text-lg font-bold text-white">
                 {/* En réorganisation, le titre devient un champ — et le tireté
                     est ce qui le dit : c'est la convention du site pour « ceci
                     s'écrit », et elle évite un crayon de plus dans un en-tête
@@ -933,7 +936,7 @@ export default function WidgetGrid({
                     className="[field-sizing:content] w-auto min-w-0 max-w-full rounded-md border border-dashed border-white/25 bg-transparent px-2 py-0.5 font-outfit text-lg font-bold text-white outline-none transition-colors placeholder:text-white/35 hover:border-white/45 focus:border-action focus:bg-white/[0.06]"
                   />
                 ) : (
-                  <span className="truncate">{chrome.title}</span>
+                  <span className="min-w-0 truncate">{chrome.title}</span>
                 )}
                 {chrome.meta ? (
                   <span className="shrink-0 font-karla text-[11px] font-medium text-white/35">
