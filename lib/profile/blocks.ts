@@ -325,6 +325,13 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* Le Top OP / ED : l'ordre choisi, ou par type — OP, ED, puis musiques
      (03/11/2026, Luc). */
   themes: [{ key: "themesSort", choices: ["mine", "kind"], value: "mine", segmented: true }],
+  /* L'affinité (04/11/2026, Luc) : du plus proche au plus lointain, ou l'ordre
+     glissé au crayon ; et les nouveaux amis qui s'ajoutent d'eux-mêmes
+     (allumé). Le crayon range aussi `affOrder` / `affHidden`. */
+  affinity: [
+    { key: "affinitySort", choices: ["affinity", "custom"], value: "affinity", segmented: true },
+    { key: "affAuto", on: true },
+  ],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

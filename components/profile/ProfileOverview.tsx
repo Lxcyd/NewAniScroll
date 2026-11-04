@@ -470,12 +470,14 @@ export default function ProfileOverview({
                     node: (
                       <AffinityEditor
                         entries={entries}
-                        custom={savedString("affinity", "affinitySort") === "custom"}
-                        order={parseTags(savedString("affinity", "affOrder"))}
-                        hidden={parseTags(savedString("affinity", "affHidden"))}
-                        onCustom={(c) => setOption("affinity", "affinitySort", c ? "custom" : "affinity")}
-                        onOrder={(tags) => setOption("affinity", "affOrder", JSON.stringify(tags))}
-                        onHidden={(tags) => setOption("affinity", "affHidden", JSON.stringify(tags))}
+                        prefs={affinityPrefs()}
+                        onChange={(p) =>
+                          setOptions("affinity", {
+                            ...(p.custom !== undefined ? { affinitySort: p.custom ? "custom" : "affinity" } : {}),
+                            ...(p.order ? { affOrder: JSON.stringify(p.order) } : {}),
+                            ...(p.hidden ? { affHidden: JSON.stringify(p.hidden) } : {}),
+                          })
+                        }
                       />
                     ),
                   }
@@ -559,11 +561,25 @@ export default function ProfileOverview({
 
   /** Un réglage changé, écrit dans la disposition et sauvegardé. */
   function setOption(id: string, key: string, value: boolean | string) {
+    setOptions(id, { [key]: value });
+  }
+  /** Plusieurs réglages d'un coup : deux `setOption` de suite partiraient de
+      la même disposition, et le second effacerait le premier. */
+  function setOptions(id: string, patch: Record<string, boolean | string>) {
     commit(
       (layout || []).map((o) =>
-        o.i === id ? { ...o, s: { ...(o.s ?? {}), [key]: value } } : o,
+        o.i === id ? { ...o, s: { ...(o.s ?? {}), ...patch } } : o,
       ),
     );
+  }
+  /** Les réglages de l'affinité : l'ordre, l'ajout auto, et le crayon. */
+  function affinityPrefs() {
+    return {
+      custom: optionValue("affinity", "affinitySort") === "custom",
+      auto: optionOn("affinity", "affAuto"),
+      order: parseTags(savedString("affinity", "affOrder")),
+      hidden: parseTags(savedString("affinity", "affHidden")),
+    };
   }
 
   /**
@@ -973,9 +989,8 @@ export default function ProfileOverview({
             isOwner={isOwner}
             entries={entries}
             name={who?.name ?? ""}
-            custom={savedString("affinity", "affinitySort") === "custom"}
-            order={parseTags(savedString("affinity", "affOrder"))}
-            hidden={parseTags(savedString("affinity", "affHidden"))}
+            prefs={isOwner ? affinityPrefs() : undefined}
+            onKnown={isOwner ? (tags) => setOption("affinity", "affOrder", JSON.stringify(tags)) : undefined}
           />
         );
       case "bingo":

@@ -13,7 +13,6 @@ import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affin
 import { FRIENDS_EVENT, friendTastes, type FriendCard } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
-import { Segmented } from "../WidgetSettings";
 import HoverVolume from "@/components/shared/HoverVolume";
 
 /**
@@ -1703,34 +1702,40 @@ function inOrder<T extends { o: { tag: string } }>(ranked: T[], order: string[])
     .map((y) => y.x);
 }
 
+/** Le réglage de l'affinité, tel que le bloc le range (04/11/2026, Luc). */
+export type AffinityPrefs = { custom: boolean; auto: boolean; order: string[]; hidden: string[] };
+const NO_PREFS: AffinityPrefs = { custom: false, auto: true, order: [], hidden: [] };
+
 /**
- * L'ÉDITEUR DE L'AFFINITÉ, au crayon (04/11/2026, Luc : « pas des paramètres
- * mais en édit ») : par affinité ou dans son ordre, puis la liste des amis,
- * chacun avec une case cochée par défaut (décochée = masqué du widget). En
- * ordre perso, les lignes se glissent comme celles du Top OP / ED.
+ * Un ami est-il montré ? Décoché = non. Sinon oui, sauf un ami ARRIVÉ APRÈS
+ * qu'on a éteint « Ajouter les nouveaux amis » : un ami déjà vu est dans
+ * `order` ou `hidden` (le bloc y range ceux qu'il découvre tant que l'ajout
+ * automatique est allumé), un inconnu est donc un nouveau.
+ */
+function shownFriend(tag: string, p: AffinityPrefs) {
+  if (p.hidden.includes(tag)) return false;
+  return p.auto || p.order.includes(tag) || tag.startsWith("FAKE");
+}
+
+/**
+ * L'ÉDITEUR DE L'AFFINITÉ, au crayon (04/11/2026, Luc : « dans le même style
+ * que les musiques ») : les amis en lignes à glisser, comme le Top OP / ED,
+ * chacun avec une case cochée par défaut (décochée = masqué du widget).
+ * Glisser une ligne passe le widget en ordre perso.
  */
 export function AffinityEditor({
   entries,
-  custom,
-  order,
-  hidden,
-  onCustom,
-  onOrder,
-  onHidden,
+  prefs,
+  onChange,
 }: {
   entries: ProfileEntry[];
-  custom: boolean;
-  order: string[];
-  hidden: string[];
-  onCustom: (custom: boolean) => void;
-  onOrder: (tags: string[]) => void;
-  onHidden: (tags: string[]) => void;
+  prefs: AffinityPrefs;
+  onChange: (patch: { custom?: boolean; order?: string[]; hidden?: string[] }) => void;
 }) {
   const { t } = useTranslation();
   const { friends, ranked } = useRankedFriends(true, entries);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const list = custom ? inOrder(ranked, order) : ranked;
-  const off = new Set(hidden);
+  const list = prefs.custom ? inOrder(ranked, prefs.order) : ranked;
 
   if (friends == null) return <Skeleton rows={3} />;
   if (!list.length) return <EmptyBlock note={t("profile.blocks.affinity.empty")} />;
@@ -1740,83 +1745,78 @@ export function AffinityEditor({
     const next = list.map((x) => x.o.tag);
     const [x] = next.splice(from, 1);
     next.splice(to, 0, x);
-    onOrder(next);
+    onChange({ custom: true, order: next });
+  };
+  const toggle = (tag: string, on: boolean) => {
+    const hidden = on ? [...prefs.hidden, tag] : prefs.hidden.filter((x) => x !== tag);
+    /* Recocher un nouvel ami (ajout auto éteint) le fait entrer dans les connus. */
+    const order = !on && !prefs.order.includes(tag) ? [...prefs.order, tag] : prefs.order;
+    onChange({ hidden, order });
   };
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-    <Segmented
-      className=""
-      label={t("profile.blocks.affinity.sort")}
-      value={custom ? "custom" : "affinity"}
-      choices={[
-        { value: "affinity", label: t("profile.blocks.affinity.sortAffinity") },
-        { value: "custom", label: t("profile.blocks.affinity.sortCustom") },
-      ]}
-      onPick={(v) => onCustom(v === "custom")}
-    />
-    <div className="as-scroller min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
-    <div ref={bodyRef} className="flex flex-col gap-1">
-      {list.map(({ o, m }, i) => {
-        const on = !off.has(o.tag);
-        return (
-          <div
-            key={o.tag}
-            data-drag-row
-            onPointerDown={
-              custom
-                ? (e) => {
-                    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
-                  }
-                : undefined
-            }
-            className={`group/row flex min-w-0 select-none items-center gap-2 rounded-xl border border-white/[0.08] bg-[#1b1c24] px-2 py-1.5 ${
-              custom ? "cursor-grab touch-none hover:border-white/10 hover:bg-[#20212a]" : ""
-            }`}
-          >
-            {custom ? (
-              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-white/25 group-hover/row:text-white/60" aria-hidden>
-                <circle cx="9" cy="6" r="1.6" />
-                <circle cx="15" cy="6" r="1.6" />
-                <circle cx="9" cy="12" r="1.6" />
-                <circle cx="15" cy="12" r="1.6" />
-                <circle cx="9" cy="18" r="1.6" />
-                <circle cx="15" cy="18" r="1.6" />
-              </svg>
-            ) : null}
-            {o.avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={o.avatar} alt="" className={`h-7 w-7 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
-            ) : (
-              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit text-[12px] font-bold text-white ${on ? "" : "opacity-40"}`}>
-                {o.name.charAt(0).toUpperCase()}
-              </span>
-            )}
-            <span className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${on ? "text-white" : "text-white/40"}`}>{o.name}</span>
-            <span className="shrink-0 font-outfit text-[12px] font-bold text-white/50">{m.pct}%</span>
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={on}
-              aria-label={o.name}
-              onClick={() => onHidden(on ? [...hidden, o.tag] : hidden.filter((x) => x !== o.tag))}
-              className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] transition-colors ${
-                on ? "bg-action text-white" : "bg-white/[0.06] ring-1 ring-inset ring-white/25"
-              }`}
+    <div className="as-scroller flex h-full min-h-0 flex-col gap-1.5 overflow-y-auto overflow-x-hidden pl-0.5 pr-1">
+      <div ref={bodyRef} className="flex flex-col gap-1">
+        {list.map(({ o, m }, i) => {
+          const on = shownFriend(o.tag, prefs);
+          return (
+            <div
+              key={o.tag}
+              data-drag-row
+              /* Toute la carte se saisit, sauf la case. */
+              onPointerDown={(e) => {
+                if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
+              }}
+              style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+              className="as-swap-row group/row flex min-w-0 cursor-grab touch-none select-none items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 py-[5px] hover:border-white/10 hover:bg-white/[0.065]"
             >
-              {on ? (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
-                  <path d="M5 12.5l4.5 4.5L19 7.5" />
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-white/25 transition-colors group-hover/row:text-white/60">
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
+                  <circle cx="9" cy="6" r="1.6" />
+                  <circle cx="15" cy="6" r="1.6" />
+                  <circle cx="9" cy="12" r="1.6" />
+                  <circle cx="15" cy="12" r="1.6" />
+                  <circle cx="9" cy="18" r="1.6" />
+                  <circle cx="15" cy="18" r="1.6" />
                 </svg>
-              ) : null}
-            </button>
-          </div>
-        );
-      })}
-    </div>
-    </div>
+              </span>
+              <span className="w-4 shrink-0 text-center font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
+              {o.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={o.avatar} alt="" className={`h-10 w-10 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
+              ) : (
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit text-[15px] font-bold text-white ${on ? "" : "opacity-40"}`}>
+                  {o.name.charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className={`truncate text-[13px] font-semibold leading-tight ${on ? "text-white" : "text-white/40"}`}>{o.name}</span>
+                <span className="truncate font-karla text-[11px] text-txt">
+                  {m.pct}% · {t("profile.blocks.affinity.shared", { count: m.shared })}
+                </span>
+              </span>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={on}
+                aria-label={o.name}
+                onClick={() => toggle(o.tag, on)}
+                className={`mr-1 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] transition-colors ${
+                  on ? "bg-action text-white" : "bg-white/[0.06] ring-1 ring-inset ring-white/25"
+                }`}
+              >
+                {on ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                ) : null}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1825,18 +1825,17 @@ export function AffinityBlock({
   isOwner,
   entries,
   name,
-  custom = false,
-  order = [],
-  hidden = [],
+  prefs = NO_PREFS,
+  onKnown,
 }: {
   isOwner: boolean;
   entries: ProfileEntry[];
   /** Le nom du profil regardé (vue visiteur). */
   name: string;
-  /** Ordre perso plutôt que par affinité, et les amis masqués (réglages du bloc). */
-  custom?: boolean;
-  order?: string[];
-  hidden?: string[];
+  /** L'ordre et les amis montrés (réglages du bloc, chez soi). */
+  prefs?: AffinityPrefs;
+  /** Ranger les amis découverts tant que l'ajout automatique est allumé. */
+  onKnown?: (order: string[]) => void;
 }) {
   const { t } = useTranslation();
   const [store, setStore] = useState<ReturnType<typeof readAffinity> | null>(null);
@@ -1846,10 +1845,21 @@ export function AffinityBlock({
   /* Le tag de l'ami dont on regarde les titres en commun ; "visit" chez un autre. */
   const [opened, setOpened] = useState<string | null>(null);
   const { friends, ranked: all } = useRankedFriends(isOwner, entries);
-  const ranked = useMemo(() => {
-    const off = new Set(hidden);
-    return (custom ? inOrder(all, order) : all).filter((x) => !off.has(x.o.tag));
-  }, [all, custom, order, hidden]);
+  const ranked = useMemo(
+    () => (prefs.custom ? inOrder(all, prefs.order) : all).filter((x) => shownFriend(x.o.tag, prefs)),
+    [all, prefs],
+  );
+  /* Les nouveaux amis, rangés comme « connus » tant que l'ajout auto est
+     allumé : éteint plus tard, seuls ceux arrivés APRÈS restent masqués.
+     Une écriture seulement quand un ami apparaît (les faux amis jamais). */
+  const fresh = prefs.auto
+    ? all.map((x) => x.o.tag).filter((t) => !t.startsWith("FAKE") && !prefs.order.includes(t) && !prefs.hidden.includes(t))
+    : [];
+  const freshKey = fresh.join(",");
+  useEffect(() => {
+    if (freshKey && onKnown) onKnown([...prefs.order, ...freshKey.split(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freshKey]);
 
   if (!store) return <div className="h-full" />;
 
