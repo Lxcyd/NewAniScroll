@@ -239,7 +239,8 @@ function cleanOptions(s: unknown): Record<string, boolean | string> | null {
   const out: Record<string, boolean | string> = {};
   for (const [k, v] of Object.entries(s as Record<string, unknown>)) {
     if (k.length > 32) continue;
-    const cap = k === "themes" ? MAX_THEMES_VALUE : LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
+    /* `affOrder` / `affHidden` : des tags d'amis (6 car.), jusqu'à 500 amis. */
+    const cap = k === "themes" || k === "affOrder" || k === "affHidden" ? MAX_THEMES_VALUE : LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
     if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= cap)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;

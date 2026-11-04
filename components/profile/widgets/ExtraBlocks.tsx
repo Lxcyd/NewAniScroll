@@ -1614,27 +1614,24 @@ function ThemeEditor({
 
 /* ── Affinité de goûts ─────────────────────────────────────────────────── */
 
-export function AffinityBlock({
-  isOwner,
-  entries,
-  name,
-}: {
-  isOwner: boolean;
-  entries: ProfileEntry[];
-  /** Le nom du profil regardé (vue visiteur). */
-  name: string;
-}) {
-  const { t } = useTranslation();
-  const [store, setStore] = useState<ReturnType<typeof readAffinity> | null>(null);
-  /* Lu après le montage : c'est l'appareil du LECTEUR, le serveur ne l'a pas. */
-  useEffect(() => setStore(readAffinity()), [entries]);
+/** Un tableau JSON de tags rangé dans les réglages du bloc (`affOrder`, `affHidden`). */
+export function parseTags(s: string | undefined): string[] {
+  try {
+    const v = JSON.parse(s ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
-  /* LES AMIS D'ANISCROLL (03/11/2026, Luc : « uniquement sur le site ») : les
-     amis acceptés, chacun avec les goûts qu'il a rangés en ouvrant son profil
-     (lib/auth/friends.ts). `null` = pas encore lu ; un invité n'a pas d'amis. */
+/**
+ * LES AMIS D'ANISCROLL (03/11/2026, Luc : « uniquement sur le site ») : les
+ * amis acceptés, chacun avec les goûts qu'il a rangés en ouvrant son profil
+ * (lib/auth/friends.ts), classés du plus proche au plus lointain. `null` = pas
+ * encore lu. Partagé par le widget et son panneau de réglages.
+ */
+function useRankedFriends(isOwner: boolean, entries: ProfileEntry[]) {
   const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number> })[] | null>(null);
-  /* Le tag de l'ami dont on regarde les titres en commun ; "visit" chez un autre. */
-  const [opened, setOpened] = useState<string | null>(null);
   useEffect(() => {
     if (!isOwner) return;
     let alive = true;
@@ -1658,6 +1655,148 @@ export function AffinityBlock({
       .filter((x) => x.m.shared > 0)
       .sort((a, b) => b.m.pct - a.m.pct);
   }, [isOwner, friends, entries]);
+  return { friends, ranked };
+}
+
+/** L'ordre perso : les tags rangés d'abord, les nouveaux amis à la suite (par affinité). */
+function inOrder<T extends { o: { tag: string } }>(ranked: T[], order: string[]): T[] {
+  const at = new Map(order.map((tag, i) => [tag, i]));
+  return ranked
+    .map((x, i) => ({ x, k: at.get(x.o.tag) ?? order.length + i }))
+    .sort((a, b) => a.k - b.k)
+    .map((y) => y.x);
+}
+
+/**
+ * LE RÉGLAGE DE L'AFFINITÉ (04/11/2026, Luc) : la liste des amis, chacun avec
+ * une case cochée par défaut (décochée = masqué du widget). En ordre perso, les
+ * lignes se glissent comme celles du Top OP / ED.
+ */
+export function AffinityPeople({
+  entries,
+  custom,
+  order,
+  hidden,
+  onOrder,
+  onHidden,
+}: {
+  entries: ProfileEntry[];
+  custom: boolean;
+  order: string[];
+  hidden: string[];
+  onOrder: (tags: string[]) => void;
+  onHidden: (tags: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  const { friends, ranked } = useRankedFriends(true, entries);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const list = custom ? inOrder(ranked, order) : ranked;
+  const off = new Set(hidden);
+
+  if (friends == null) return <Skeleton rows={3} />;
+  if (!list.length) return <p className="py-2 font-karla text-[12px] text-white/50">{t("profile.blocks.affinity.empty")}</p>;
+
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const next = list.map((x) => x.o.tag);
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    onOrder(next);
+  };
+  return (
+    <div ref={bodyRef} className="mt-2.5 flex max-h-72 flex-col gap-1 overflow-y-auto overflow-x-hidden">
+      {list.map(({ o, m }, i) => {
+        const on = !off.has(o.tag);
+        return (
+          <div
+            key={o.tag}
+            data-drag-row
+            onPointerDown={
+              custom
+                ? (e) => {
+                    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (bodyRef.current) startRowDrag(bodyRef.current, e.pointerId, i, e.clientY, move);
+                  }
+                : undefined
+            }
+            className={`group/row flex min-w-0 select-none items-center gap-2 rounded-xl border border-white/[0.08] bg-[#1b1c24] px-2 py-1.5 ${
+              custom ? "cursor-grab touch-none hover:border-white/10 hover:bg-[#20212a]" : ""
+            }`}
+          >
+            {custom ? (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4 shrink-0 text-white/25 group-hover/row:text-white/60" aria-hidden>
+                <circle cx="9" cy="6" r="1.6" />
+                <circle cx="15" cy="6" r="1.6" />
+                <circle cx="9" cy="12" r="1.6" />
+                <circle cx="15" cy="12" r="1.6" />
+                <circle cx="9" cy="18" r="1.6" />
+                <circle cx="15" cy="18" r="1.6" />
+              </svg>
+            ) : null}
+            {o.avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={o.avatar} alt="" className={`h-7 w-7 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
+            ) : (
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit text-[12px] font-bold text-white ${on ? "" : "opacity-40"}`}>
+                {o.name.charAt(0).toUpperCase()}
+              </span>
+            )}
+            <span className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${on ? "text-white" : "text-white/40"}`}>{o.name}</span>
+            <span className="shrink-0 font-outfit text-[12px] font-bold text-white/50">{m.pct}%</span>
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              aria-label={o.name}
+              onClick={() => onHidden(on ? [...hidden, o.tag] : hidden.filter((x) => x !== o.tag))}
+              className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] transition-colors ${
+                on ? "bg-action text-white" : "bg-white/[0.06] ring-1 ring-inset ring-white/25"
+              }`}
+            >
+              {on ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3">
+                  <path d="M5 12.5l4.5 4.5L19 7.5" />
+                </svg>
+              ) : null}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function AffinityBlock({
+  isOwner,
+  entries,
+  name,
+  custom = false,
+  order = [],
+  hidden = [],
+}: {
+  isOwner: boolean;
+  entries: ProfileEntry[];
+  /** Le nom du profil regardé (vue visiteur). */
+  name: string;
+  /** Ordre perso plutôt que par affinité, et les amis masqués (réglages du bloc). */
+  custom?: boolean;
+  order?: string[];
+  hidden?: string[];
+}) {
+  const { t } = useTranslation();
+  const [store, setStore] = useState<ReturnType<typeof readAffinity> | null>(null);
+  /* Lu après le montage : c'est l'appareil du LECTEUR, le serveur ne l'a pas. */
+  useEffect(() => setStore(readAffinity()), [entries]);
+
+  /* Le tag de l'ami dont on regarde les titres en commun ; "visit" chez un autre. */
+  const [opened, setOpened] = useState<string | null>(null);
+  const { friends, ranked: all } = useRankedFriends(isOwner, entries);
+  const ranked = useMemo(() => {
+    const off = new Set(hidden);
+    return (custom ? inOrder(all, order) : all).filter((x) => !off.has(x.o.tag));
+  }, [all, custom, order, hidden]);
 
   if (!store) return <div className="h-full" />;
 
@@ -1711,7 +1850,13 @@ export function AffinityBlock({
   if (!ranked.length) {
     return (
       <EmptyBlock
-        note={t(friends.length ? "profile.blocks.affinity.noTaste" : "profile.blocks.affinity.empty")}
+        note={t(
+          all.length
+            ? "profile.blocks.affinity.allHidden"
+            : friends.length
+              ? "profile.blocks.affinity.noTaste"
+              : "profile.blocks.affinity.empty",
+        )}
       />
     );
   }
@@ -1789,11 +1934,15 @@ function CommonTitles({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    /* La page défile sur <html>, pas sur <body> : `overflow-x: clip` sur html
+       (globals.css) empêche le overflow du body de remonter au viewport, donc
+       bloquer le body ne bloquait rien (04/11/2026, Luc). */
+    const root = document.documentElement;
+    const prev = root.style.overflow;
+    root.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      root.style.overflow = prev;
     };
   }, [onClose]);
 

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { notify } from "@/lib/notifications/noticeStore";
 
-import WidgetGrid, { type BlockChrome } from "./WidgetGrid";
+import WidgetGrid, { type BlockChrome, type WidgetOption } from "./WidgetGrid";
 import BlockLibrary from "./BlockLibrary";
 import { EmptyBlock } from "./widgets/common";
 import { CharactersBlock } from "./widgets/CharactersBlock";
@@ -29,6 +29,8 @@ import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
   AffinityBlock,
+  AffinityPeople,
+  parseTags,
   BingeBlock,
   BingoBlock,
   GoalBlock,
@@ -589,6 +591,33 @@ export default function ProfileOverview({
    * (`listLabel`), donc « Terminés » veut dire ici ce qu'il veut dire ailleurs.
    */
   function widgetOptions(id: string) {
+    const opts = catalogOptions(id);
+    /* La liste des amis de l'affinité, sous la bascule (04/11/2026, Luc). */
+    if (id === "affinity" && isOwner) {
+      opts.push({
+        key: "affPeople",
+        label: t("profile.widgets.options.affPeople"),
+        desc: t(
+          optionValue("affinity", "affinitySort") === "custom"
+            ? "profile.widgets.options.affPeopleDescCustom"
+            : "profile.widgets.options.affPeopleDesc",
+        ),
+        node: (
+          <AffinityPeople
+            entries={entries}
+            custom={optionValue("affinity", "affinitySort") === "custom"}
+            order={parseTags(savedString("affinity", "affOrder"))}
+            hidden={parseTags(savedString("affinity", "affHidden"))}
+            onOrder={(tags) => setOption("affinity", "affOrder", JSON.stringify(tags))}
+            onHidden={(tags) => setOption("affinity", "affHidden", JSON.stringify(tags))}
+          />
+        ),
+      });
+    }
+    return opts;
+  }
+
+  function catalogOptions(id: string): WidgetOption[] {
     const def = blockDef(id);
     return blockOptions(id).map((o) => {
       const common = {
@@ -950,7 +979,16 @@ export default function ProfileOverview({
           />
         );
       case "affinity":
-        return <AffinityBlock isOwner={isOwner} entries={entries} name={who?.name ?? ""} />;
+        return (
+          <AffinityBlock
+            isOwner={isOwner}
+            entries={entries}
+            name={who?.name ?? ""}
+            custom={optionValue("affinity", "affinitySort") === "custom"}
+            order={parseTags(savedString("affinity", "affOrder"))}
+            hidden={parseTags(savedString("affinity", "affHidden"))}
+          />
+        );
       case "bingo":
         return <BingoBlock days={days} entries={entries} />;
       default:

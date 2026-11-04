@@ -954,7 +954,16 @@
         "themesSortChoice": {
           "mine": "Mon ordre",
           "kind": "Par catégorie"
-        }
+        },
+        "affinitySort": "Ordre des amis",
+        "affinitySortDesc": "Du plus proche au plus lointain, ou dans l’ordre que tu choisis.",
+        "affinitySortChoice": {
+          "affinity": "Plus d’affinité",
+          "custom": "Ordre perso"
+        },
+        "affPeople": "Amis affichés",
+        "affPeopleDesc": "Décoche un ami pour le retirer du widget.",
+        "affPeopleDescCustom": "Glisse les lignes pour les ranger ; décoche un ami pour le retirer du widget."
       },
       "hint": "Mode réorganisation — glisse un bloc n'importe où sur lui, redimensionne-le par le coin bas-droit."
     },
@@ -1195,7 +1204,8 @@
         "you": "Toi",
         "filterAll": "Tout",
         "filterRated": "Notés des deux côtés",
-        "noneRated": "Aucun titre noté des deux côtés."
+        "noneRated": "Aucun titre noté des deux côtés.",
+        "allHidden": "Tous tes amis sont masqués : réaffiche-les depuis les paramètres du widget."
       },
       "bingo": {
         "title": "Bingo de la saison",
