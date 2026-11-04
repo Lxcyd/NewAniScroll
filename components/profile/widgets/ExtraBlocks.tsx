@@ -2142,7 +2142,7 @@ function CommonTitles({
   return createPortal(
     <div className="fixed inset-0 z-[10060] flex items-start justify-center px-4 pt-[8vh]" role="dialog" aria-modal="true" aria-label={t("profile.blocks.affinity.commonWith", { name })}>
       <button type="button" aria-label={t("common.close", { defaultValue: "Close" })} onClick={onClose} className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm" />
-      <div className="relative flex max-h-[84vh] w-full max-w-lg flex-col overflow-hidden rounded-[22px] bg-[#15161d] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10">
+      <div className="relative flex max-h-[84vh] w-full max-w-xl flex-col overflow-hidden rounded-[22px] bg-[#15161d] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10">
         <div className="flex items-start gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0 flex-1">
             <h3 className="truncate font-outfit text-[18px] font-bold text-white">{t("profile.blocks.affinity.commonWith", { name })}</h3>
@@ -2235,8 +2235,8 @@ function CommonTitles({
               lignes (px-2) et mêmes colonnes (w-10, gap-3). */}
           <div className="sticky top-0 z-[1] flex justify-end bg-[#15161d] px-2 pb-1 pt-1.5">
             <span className="grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
-              <span className="w-10 text-center">{t("profile.blocks.affinity.you")}</span>
-              <span className="w-10 truncate text-center">{name}</span>
+              <span className="w-16 text-center">{t("profile.blocks.affinity.you")}</span>
+              <span className="w-16 truncate text-center">{name}</span>
             </span>
           </div>
           {rows.length ? (
@@ -2255,11 +2255,11 @@ function CommonTitles({
                 )}
                 <span className={`min-w-0 flex-1 font-semibold text-white ${sz.title}`}>{pickTitle(e.title, pref)}</span>
                 <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit font-bold tabular-nums ${sz.score} ${tone(mine, theirs)}`}>
-                  <span className="relative w-10 text-center">
+                  <span className="relative w-16 text-center">
                     {fmt(mine)}
                     {heart(mineFav)}
                   </span>
-                  <span className="relative w-10 text-center">
+                  <span className="relative w-16 text-center">
                     {fmt(theirs)}
                     {heart(theirsFav)}
                   </span>
