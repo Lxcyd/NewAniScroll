@@ -882,13 +882,17 @@ export default function WidgetGrid({
                  d'ambiance du contenu (« Reprendre la lecture », 24/10/2026,
                  Luc), qui est positionnée et peinte après lui. Sous les
                  pastilles du coin (flamme, moyenne : z-10). */
-              className={`relative z-[1] mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing && chrome.editor
-                  ? "pr-[max(5.25rem,var(--as-end-room,0px))]"
-                  : editing || chrome.endRoom
-                    ? "pr-[max(3.5rem,var(--as-end-room,0px))]"
-                    : ""
-              }`}
+              className="relative z-[1] mb-3 flex shrink-0 items-center justify-between gap-2"
+              /* En `style` et pas en classe Tailwind : `max(…, var(--as-end-room))`
+                 n'arrivait pas intact dans la feuille générée (04/11/2026). */
+              style={{
+                paddingRight:
+                  editing && chrome.editor
+                    ? "max(5.25rem, var(--as-end-room, 0px))"
+                    : editing || chrome.endRoom
+                      ? "max(3.5rem, var(--as-end-room, 0px))"
+                      : undefined,
+              }}
             >
               {/* PAS DE PASTILLE DE COULEUR. Chaque bloc en portait une, et
                   réunies sur une grille elles faisaient une constellation de
