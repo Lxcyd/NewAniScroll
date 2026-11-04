@@ -1352,6 +1352,10 @@ function startRowDrag(
   const MOVE_MS = 150;
   const DROP_MS = 120;
 
+  /* L'animation d'entrée (`as-swap-row`) repartait quand React déplaçait le
+     nœud au commit : la ligne poussée disparaissait puis revenait (04/11/2026,
+     Luc). Coupée pour de bon dès qu'on glisse — elle a déjà joué. */
+  for (const r of rows) r.style.animation = "none";
   for (const r of rows) if (r !== dragged) r.style.transition = `transform ${MOVE_MS}ms ${EASE}`;
   Object.assign(dragged.style, {
     position: "relative",
@@ -2049,14 +2053,14 @@ function CommonTitles({
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
   /* Accord d'une ligne (04/11/2026, Luc) : les couleurs de note de l'éditeur de
-     liste (listEditor.css). Vert = petit écart (≤ 1/10), jaune = moyen, rouge
-     = gros (≥ 3/10), gris = un des deux n'a pas noté. Même note : le même vert,
-     dans une pastille. */
+     liste (listEditor.css). Vert = petit écart (≤ 1/10), jaune = jusqu'à 4/10,
+     rouge = plus de 4/10, gris = un des deux n'a pas noté. Même note : le même
+     vert, dans une pastille. */
   const tone = (a: number, b: number) => {
     if (!(a > 0 && b > 0)) return "text-white/35";
     if (a === b) return "rounded-lg bg-[#22c55e]/[0.12] py-0.5 text-[#22c55e]";
     const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
-    return gap <= 0.1 ? "text-[#22c55e]" : gap >= 0.3 ? "text-[#ef4444]" : "text-[#eab308]";
+    return gap <= 0.1 ? "text-[#22c55e]" : gap <= 0.4 ? "text-[#eab308]" : "text-[#ef4444]";
   };
   /* Le cœur des favoris du site (#E94560, cf. WidgetSettings). */
   const heart = (on: boolean) =>
