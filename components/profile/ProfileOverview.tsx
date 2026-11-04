@@ -1021,6 +1021,7 @@ export default function ProfileOverview({
             size={Number(optionValue("bingo", "bingoSize")) || 3}
             isOwner={isOwner}
             owner={isOwner ? who?.tag ?? undefined : undefined}
+            name={who?.name ?? ""}
             onPatch={isOwner ? (p) => setOptions("bingo", p) : undefined}
           />
         );

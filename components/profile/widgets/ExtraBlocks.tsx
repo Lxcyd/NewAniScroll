@@ -2514,6 +2514,8 @@ function bingoLines(n: number): number[][] {
 /* LE PARTAGE (04/11/2026, Luc : « copier un bingo et le partager ») : la grille
    et ses objectifs perso dans un code à coller. */
 const CODE_PREFIX = "ASB1:";
+/** Le bingo d'un autre, mis de côté sur cet appareil pour mon profil. */
+const BINGO_PENDING = "aniscroll:bingoPending";
 function encodeBingo(cells: string[], customs: Custom[]): string {
   const used = customs.filter((c) => cells.includes(`c:${c.k}`));
   const json = JSON.stringify({ c: cells, x: used });
@@ -2550,11 +2552,14 @@ export function BingoBlock({
   size,
   isOwner,
   owner,
+  name = "",
   editing = false,
   onPatch,
 }: {
   days: WatchDays | null;
   entries: ProfileEntry[];
+  /** Le nom du profil (« Utiliser le bingo de X »). */
+  name?: string;
   /** Les réglages rangés du bloc (mode, cases, objectifs perso, état). */
   saved: Record<string, boolean | string> | undefined;
   /** Le côté de la grille : 3, 4 ou 5. */
@@ -2741,6 +2746,52 @@ export function BingoBlock({
     const pick = pool[Math.floor(Math.random() * pool.length)];
     onPatch({ bingoState: JSON.stringify({ ...state, rnd: { k: seasonId, id: pick.mediaId } }) });
   };
+  /** Faire sien un bingo partagé : il devient « mon bingo ». */
+  const applyCode = (code: string): boolean => {
+    const v = decodeBingo(code);
+    if (!v || !onPatch) return false;
+    /* Les objectifs perso importés prennent une clé neuve : deux bingos
+       peuvent avoir chacun leur `c:abc12`. */
+    const rename = new Map(v.x.map((g) => [`c:${g.k}`, newKey()]));
+    const imported = v.x.map((g) => ({ ...g, k: rename.get(`c:${g.k}`)! }));
+    const cellsIn = v.c.map((id) => (rename.has(id) ? `c:${rename.get(id)}` : id));
+    onPatch({
+      bingoMode: "mine",
+      bingoCells: JSON.stringify(cellsIn),
+      bingoCustom: JSON.stringify([...customs, ...imported]),
+    });
+    return true;
+  };
+  /* UTILISER LE BINGO D'UN AUTRE (04/11/2026, Luc) : chez lui, « Utiliser ce
+     bingo » le met de côté sur l'appareil ; sur mon profil, un bandeau propose
+     de le prendre. La page d'un autre ne peut pas écrire dans MA disposition. */
+  const [pending, setPending] = useState<{ code: string; from: string } | null>(null);
+  const [kept, setKept] = useState(false);
+  useEffect(() => {
+    if (!isOwner || editing) return;
+    try {
+      const v = JSON.parse(localStorage.getItem(BINGO_PENDING) || "null");
+      if (v && typeof v.code === "string") setPending({ code: v.code, from: String(v.from || "") });
+    } catch {
+      /* rien de mis de côté */
+    }
+  }, [isOwner, editing]);
+  const dropPending = () => {
+    try {
+      localStorage.removeItem(BINGO_PENDING);
+    } catch {
+      /* stockage bloqué */
+    }
+    setPending(null);
+  };
+  const keepForMe = () => {
+    try {
+      localStorage.setItem(BINGO_PENDING, JSON.stringify({ code: encodeBingo(cellIds, customs), from: name }));
+      setKept(true);
+    } catch {
+      copyCode();
+    }
+  };
   const copyCode = () => {
     const code = encodeBingo(cellIds, customs);
     void navigator.clipboard
@@ -2813,20 +2864,9 @@ export function BingoBlock({
           {importing ? (
             <ImportCode
               onImport={(code) => {
-                const v = decodeBingo(code);
-                if (!v) return false;
-                /* Les objectifs perso importés prennent une clé neuve : deux
-                   bingos peuvent avoir chacun leur `c:abc12`. */
-                const rename = new Map(v.x.map((g) => [`c:${g.k}`, newKey()]));
-                const imported = v.x.map((g) => ({ ...g, k: rename.get(`c:${g.k}`)! }));
-                const cellsIn = v.c.map((id) => (rename.has(id) ? `c:${rename.get(id)}` : id));
-                onPatch?.({
-                  bingoMode: "mine",
-                  bingoCells: JSON.stringify(cellsIn),
-                  bingoCustom: JSON.stringify([...customs, ...imported]),
-                });
-                setImporting(false);
-                return true;
+                const ok = applyCode(code);
+                if (ok) setImporting(false);
+                return ok;
               }}
             />
           ) : null}
@@ -2852,6 +2892,16 @@ export function BingoBlock({
                 {full ? "100 %" : `BINGO${lines.length > 1 ? ` ×${lines.length}` : ""}`}
               </span>
             ) : null}
+            {!isOwner ? (
+              <button
+                type="button"
+                onClick={keepForMe}
+                title={t("profile.blocks.bingo.useThisTitle")}
+                className="rounded-full bg-action px-2 py-0.5 font-karla text-[11px] font-bold text-white hover:brightness-110"
+              >
+                {kept ? t("profile.blocks.bingo.kept") : t("profile.blocks.bingo.useThis")}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={copyCode}
@@ -2871,6 +2921,25 @@ export function BingoBlock({
           </span>
         </p>
       )}
+      {pending && isOwner && !editing ? (
+        <div className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-2 py-1.5 font-karla text-[11px] ring-1 ring-inset ring-white/10">
+          <span className="min-w-0 flex-1 truncate text-white/80">
+            {t("profile.blocks.bingo.pending", { name: pending.from || "?" })}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (applyCode(pending.code)) dropPending();
+            }}
+            className="rounded-full bg-action px-2 py-0.5 font-bold text-white"
+          >
+            {t("profile.blocks.bingo.pendingUse")}
+          </button>
+          <button type="button" onClick={dropPending} className="px-1 text-white/50 hover:text-white">
+            {t("profile.blocks.bingo.pendingDrop")}
+          </button>
+        </div>
+      ) : null}
       <div
         className="grid min-h-0 flex-1 gap-1.5"
         style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}

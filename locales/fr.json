@@ -1302,7 +1302,13 @@
         "useMine": "Revenir à mon bingo",
         "daysLeft_one": "{{count}} j restant",
         "daysLeft_other": "{{count}} j restants",
-        "daysLeftTitle": "Jours avant la fin de la saison"
+        "daysLeftTitle": "Jours avant la fin de la saison",
+        "useThis": "Utiliser ce bingo",
+        "useThisTitle": "Le garder pour ton profil : ouvre-le ensuite pour l'utiliser",
+        "kept": "Gardé ✓",
+        "pending": "Bingo de {{name}} prêt à être utilisé",
+        "pendingUse": "Utiliser",
+        "pendingDrop": "Ignorer"
       }
     },
     "studioTitle": "Personnalisation du profil",

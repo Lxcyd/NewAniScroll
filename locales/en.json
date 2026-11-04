@@ -1302,7 +1302,13 @@
         "useMine": "Back to my bingo",
         "daysLeft_one": "{{count}} day left",
         "daysLeft_other": "{{count}} days left",
-        "daysLeftTitle": "Days until the season ends"
+        "daysLeftTitle": "Days until the season ends",
+        "useThis": "Use this bingo",
+        "useThisTitle": "Keep it for your profile, then open your profile to use it",
+        "kept": "Kept ✓",
+        "pending": "{{name}}'s bingo is ready to use",
+        "pendingUse": "Use",
+        "pendingDrop": "Dismiss"
       }
     },
     "studioTitle": "Profile customization",
