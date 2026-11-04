@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -1950,7 +1950,6 @@ export function AffinityBlock({
       {open ? (
         <CommonTitles
           name={open.o.name}
-          href={open.o.href}
           match={open.m}
           items={entries
             .filter((e) => e.status !== "PLANNING" && e.mediaId in open.o.taste)
@@ -2012,13 +2011,11 @@ const COMMON_SIZES: Record<CommonSize, { row: string; cover: string; title: stri
  */
 function CommonTitles({
   name,
-  href,
   match,
   items,
   onClose,
 }: {
   name: string;
-  href?: string;
   match: Match;
   items: { e: ProfileEntry; mine: number; theirs: number; mineFav: boolean; theirsFav: boolean }[];
   onClose: () => void;
@@ -2042,8 +2039,29 @@ function CommonTitles({
       return "normal";
     }
   });
+  /* CHANGER DE TAILLE NE FAIT PAS SAUTER LA LISTE (04/11/2026, Luc) : le
+     titre en haut de la vue y reste, au même décalage. Sans ça, le même
+     scrollTop tombait trois fois plus haut ou plus bas dans la liste. */
+  const listRef = useRef<HTMLDivElement>(null);
+  const anchor = useRef<{ id: string; off: number } | null>(null);
+  useLayoutEffect(() => {
+    const box = listRef.current;
+    const a = anchor.current;
+    anchor.current = null;
+    if (!box || !a) return;
+    const el = box.querySelector<HTMLElement>(`[data-media="${a.id}"]`);
+    if (el) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+  }, [size]);
   const cycleSize = () => {
     const next: CommonSize = size === "small" ? "normal" : size === "normal" ? "large" : "small";
+    const box = listRef.current;
+    if (box && box.scrollTop > 0) {
+      const top = box.getBoundingClientRect().top;
+      const first = Array.from(box.querySelectorAll<HTMLElement>("[data-media]")).find(
+        (el) => el.getBoundingClientRect().bottom > top + 1,
+      );
+      if (first) anchor.current = { id: first.dataset.media!, off: first.getBoundingClientRect().top - top };
+    }
     setSize(next);
     try {
       localStorage.setItem(COMMON_SIZE_KEY, next);
@@ -2123,11 +2141,6 @@ function CommonTitles({
               {match.rated ? ` · ${t("profile.blocks.affinity.rated", { count: match.rated })}` : ""}
             </p>
           </div>
-          {href ? (
-            <Link href={href} onClick={onClose} className="shrink-0 rounded-full bg-white/[0.07] px-3 py-1.5 font-karla text-[12px] font-bold text-white/80 ring-1 ring-white/10 hover:bg-white/[0.12] hover:text-white">
-              {t("profile.blocks.affinity.seeProfile")}
-            </Link>
-          ) : null}
           <button type="button" onClick={onClose} aria-label={t("common.close", { defaultValue: "Close" })} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/50 hover:bg-white/[0.08] hover:text-white">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-4 w-4">
               <path d="M6 6l12 12M18 6 6 18" />
@@ -2205,7 +2218,7 @@ function CommonTitles({
             </button>
           ))}
         </div>
-        <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <div ref={listRef} className="as-scroller min-h-0 flex-1 overflow-y-auto px-3 pb-3 [overflow-anchor:none]">
           {/* L'en-tête des colonnes DANS la zone qui défile (04/11/2026, Luc :
               « pas alignés ») : la barre de défilement réduit la liste, il faut
               qu'elle réduise l'en-tête de la même largeur. Mêmes bords que les
@@ -2220,6 +2233,7 @@ function CommonTitles({
             rows.map(({ e, mine, theirs, mineFav, theirsFav }) => (
               <Link
                 key={e.mediaId}
+                data-media={e.mediaId}
                 href={animeHref(e.mediaId, clickTarget)}
                 className={`flex items-center gap-3 rounded-xl hover:bg-white/[0.05] ${sz.row}`}
               >
