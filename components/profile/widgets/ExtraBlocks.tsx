@@ -10,7 +10,7 @@ import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
 import { busiestDay, dayKey, type Binge, type WatchDays } from "@/lib/profile/activity";
 import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
-import { FRIENDS_EVENT, friendTastes, type FriendCard } from "@/lib/friends/client";
+import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
@@ -1634,14 +1634,19 @@ export function parseTags(s: string | undefined): string[] {
  * (lib/auth/friends.ts), classés du plus proche au plus lointain. `null` = pas
  * encore lu. Partagé par le widget et son panneau de réglages.
  */
-function useRankedFriends(isOwner: boolean, entries: ProfileEntry[]) {
-  const [friends, setFriends] = useState<(FriendCard & { taste: Record<string, number>; fav?: string[] })[] | null>(null);
+function useRankedFriends(isOwner: boolean, entries: ProfileEntry[], owner?: string) {
+  const [friends, setFriends] = useState<FriendTaste[] | null>(null);
   useEffect(() => {
     if (!isOwner) return;
+    /* Le cache de l'appareil d'abord (lib/friends/client.ts), puis le réseau.
+       Lu dans l'effet et pas à l'initialisation : le serveur ne l'a pas. */
+    const cached = cachedFriendTastes(owner);
+    if (cached) setFriends((f) => f ?? cached);
     let alive = true;
     const load = () =>
-      void friendTastes().then((f) => {
-        if (alive) setFriends(f ?? []);
+      void friendTastes(owner).then((f) => {
+        if (alive && f) setFriends(f);
+        else if (alive) setFriends((cur) => cur ?? []);
       });
     load();
     window.addEventListener(FRIENDS_EVENT, load);
@@ -1649,7 +1654,7 @@ function useRankedFriends(isOwner: boolean, entries: ProfileEntry[]) {
       alive = false;
       window.removeEventListener(FRIENDS_EVENT, load);
     };
-  }, [isOwner]);
+  }, [isOwner, owner]);
 
   const ranked = useMemo(() => {
     if (!isOwner || !friends || !entries.length) return [];
@@ -1731,15 +1736,18 @@ function shownFriend(tag: string, p: AffinityPrefs) {
  */
 export function AffinityEditor({
   entries,
+  owner,
   prefs,
   onChange,
 }: {
   entries: ProfileEntry[];
+  /** Le tag du propriétaire : la clé du cache des goûts des amis. */
+  owner?: string;
   prefs: AffinityPrefs;
   onChange: (patch: { custom?: boolean; order?: string[]; hidden?: string[] }) => void;
 }) {
   const { t } = useTranslation();
-  const { friends, ranked } = useRankedFriends(true, entries);
+  const { friends, ranked } = useRankedFriends(true, entries, owner);
   const bodyRef = useRef<HTMLDivElement>(null);
   const list = prefs.custom ? inOrder(ranked, prefs.order) : ranked;
 
@@ -1841,9 +1849,12 @@ export function AffinityBlock({
   name,
   prefs = NO_PREFS,
   onKnown,
+  owner,
 }: {
   isOwner: boolean;
   entries: ProfileEntry[];
+  /** Le tag du propriétaire : la clé du cache des goûts des amis. */
+  owner?: string;
   /** Le nom du profil regardé (vue visiteur). */
   name: string;
   /** L'ordre et les amis montrés (réglages du bloc, chez soi). */
@@ -1858,7 +1869,7 @@ export function AffinityBlock({
 
   /* Le tag de l'ami dont on regarde les titres en commun ; "visit" chez un autre. */
   const [opened, setOpened] = useState<string | null>(null);
-  const { friends, ranked: all } = useRankedFriends(isOwner, entries);
+  const { friends, ranked: all } = useRankedFriends(isOwner, entries, owner);
   const ranked = useMemo(
     () => (prefs.custom ? inOrder(all, prefs.order) : all).filter((x) => shownFriend(x.o.tag, prefs)),
     [all, prefs],
@@ -1875,9 +1886,8 @@ export function AffinityBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freshKey]);
 
-  if (!store) return <div className="h-full" />;
-
   if (!isOwner) {
+    if (!store) return <div className="h-full" />;
     /* CHEZ UN AUTRE : toi et lui. Ta liste est celle rangée la dernière fois
        que tu as ouvert ton profil sur cet appareil. */
     if (!store.me) return <EmptyBlock note={t("profile.blocks.affinity.noMe")} />;

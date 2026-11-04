@@ -42,8 +42,44 @@ export async function searchPeople(q: string) {
   return (await get<{ users: (FriendCard & { state: FriendState | "none" })[] }>(`?q=${encodeURIComponent(q)}`))?.users ?? [];
 }
 
-export async function friendTastes() {
-  return (await get<{ friends: (FriendCard & { taste: Taste; fav?: string[] })[] }>("?tastes=1"))?.friends ?? null;
+export type FriendTaste = FriendCard & { taste: Taste; fav?: string[] };
+
+/* LE WIDGET « AFFINITÉ » S'AFFICHE TOUT DE SUITE (04/11/2026, Luc : « plutôt
+   long ») : la dernière réponse est gardée sur l'appareil, PAR COMPTE (le tag
+   du propriétaire), et sert pendant que la requête la rafraîchit. Une seule
+   requête à la fois pour le widget, son crayon et l'onglet Amis. */
+const TASTES_KEY = "aniscroll:friendTastes:";
+let inflight: Promise<FriendTaste[] | null> | null = null;
+
+export function cachedFriendTastes(owner: string | undefined): FriendTaste[] | null {
+  if (!owner || typeof window === "undefined") return null;
+  try {
+    const v = JSON.parse(localStorage.getItem(TASTES_KEY + owner) || "null");
+    return Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function friendTastes(owner?: string): Promise<FriendTaste[] | null> {
+  if (!inflight) {
+    inflight = get<{ friends: FriendTaste[] }>("?tastes=1")
+      .then((r) => {
+        const f = r?.friends ?? null;
+        if (f && owner) {
+          try {
+            localStorage.setItem(TASTES_KEY + owner, JSON.stringify(f));
+          } catch {
+            /* trop gros ou stockage bloqué : pas de cache, rien d'autre */
+          }
+        }
+        return f;
+      })
+      .finally(() => {
+        inflight = null;
+      });
+  }
+  return inflight;
 }
 
 /* Un refus du serveur (trop de demandes, plafond atteint) est annoncé à la

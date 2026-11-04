@@ -470,6 +470,7 @@ export default function ProfileOverview({
                     node: (
                       <AffinityEditor
                         entries={entries}
+                        owner={who?.tag ?? undefined}
                         prefs={affinityPrefs()}
                         onChange={(p) =>
                           setOptions("affinity", {
@@ -987,6 +988,7 @@ export default function ProfileOverview({
         return (
           <AffinityBlock
             isOwner={isOwner}
+            owner={isOwner ? who?.tag ?? undefined : undefined}
             entries={entries}
             name={who?.name ?? ""}
             prefs={isOwner ? affinityPrefs() : undefined}
