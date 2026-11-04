@@ -2157,9 +2157,9 @@ function CommonTitles({
             <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
               {/* 3×3 = petites, 2×2 = normales, un carré = grandes (04/11/2026, Luc). */}
               {size === "large" ? (
-                <rect x="4" y="4" width="16" height="16" rx="2.5" />
+                <rect x="2" y="2" width="20" height="20" rx="3" />
               ) : size === "normal" ? (
-                [3, 13].flatMap((y) => [3, 13].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="8" height="8" rx="1.6" />))
+                [2, 12.5].flatMap((y) => [2, 12.5].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="9.5" height="9.5" rx="1.8" />))
               ) : (
                 [3, 10, 17].flatMap((y) => [3, 10, 17].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="4.6" height="4.6" rx="1" />))
               )}
