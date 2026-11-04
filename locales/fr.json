@@ -1282,8 +1282,6 @@
         "back": "Retour",
         "clear": "Vider la case",
         "editSeasonHint": "Modifier une case retire le badge officiel",
-        "modeSeason": "Bingo de la saison",
-        "modeMine": "Mon bingo",
         "backOfficial": "Revenir à l'officiel",
         "official": "Officiel",
         "officialTitle": "La grille officielle de la saison, la même pour tout le monde",
@@ -1300,8 +1298,8 @@
         "newAdd": "Ajouter",
         "deleteGoal": "Supprimer cet objectif",
         "groupMine": "Mes objectifs",
-        "groupSeason": "Thème de la saison",
-        "groupAll": "Tous les objectifs"
+        "useSeason": "Utiliser le bingo de la saison",
+        "useMine": "Revenir à mon bingo"
       }
     },
     "studioTitle": "Personnalisation du profil",

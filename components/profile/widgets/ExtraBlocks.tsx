@@ -2455,19 +2455,24 @@ function seeded(key: string) {
  * centre, et le reste tiré dans un pool d'objectifs. 25 cases ; une grille n×n
  * en prend les n² premières.
  */
-function seasonGrid(key: string, data: SeasonData | null): string[] {
-  const r = seeded(key);
-  const pool = SEASON_POOL.slice();
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(r() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
+function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
+  /* UNE GRILLE PAR TAILLE (04/11/2026, Luc) : chaque taille a sa graine, ses
+     cases de thème (3, 5 ou 6) et leurs places, tirées une fois pour tous. */
+  const r = seeded(`${key}:${n}`);
+  const shuffle = <T,>(a: T[]) => {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(r() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+  const pool = shuffle(SEASON_POOL.slice());
   const g = (data?.genres ?? []).map((x) => `g:${x}`);
   const a = (data?.top ?? []).map((x) => `a:${x.id}`);
-  const themed = [g[0], a[0], g[1], "season3", g[2], a[1]].filter(Boolean) as string[];
-  const slots = new Set([0, 2, 4, 6, 9, 12]);
+  const themed = ([g[0], a[0], g[1], "season3", g[2], a[1]].filter(Boolean) as string[]).slice(0, n === 3 ? 3 : n === 4 ? 5 : 6);
+  const slots = new Set(shuffle(Array.from({ length: n * n }, (_, i) => i)).slice(0, themed.length));
   const out: string[] = [];
-  for (let i = 0; i < 25; i++) out.push((slots.has(i) && themed.length ? themed.shift() : pool.shift()) ?? themed.shift() ?? EMPTY);
+  for (let i = 0; i < n * n; i++) out.push((slots.has(i) ? themed.shift() : pool.shift()) ?? pool.shift() ?? EMPTY);
   return out;
 }
 
@@ -2572,7 +2577,8 @@ export function BingoBlock({
   const seasonData = useSeasonData(seasonId);
 
   /* Ce qui est rangé. */
-  const mode = saved?.bingoMode === "mine" ? "mine" : "season";
+  /* Mon bingo par défaut ; le bouton pose celui de la saison (04/11/2026, Luc). */
+  const mode = saved?.bingoMode === "season" ? "season" : "mine";
   const customs = parseJson<Custom[]>(saved?.bingoCustom, Array.isArray, []);
   const state = parseJson<BingoState>(saved?.bingoState, (v) => !!v && typeof v === "object", { done: [] });
   const seasonEdit = parseJson<{ k: string; c: string[] } | null>(
@@ -2580,8 +2586,9 @@ export function BingoBlock({
     (v) => !!v && typeof v === "object" && Array.isArray((v as { c?: unknown }).c),
     null,
   );
-  const edited = mode === "season" && seasonEdit?.k === seasonId;
-  const official = useMemo(() => seasonGrid(seasonId, seasonData ?? null), [seasonId, seasonData]);
+  const editKey = `${seasonId}:${n}`;
+  const edited = mode === "season" && seasonEdit?.k === editKey;
+  const official = useMemo(() => seasonGrid(seasonId, seasonData ?? null, n), [seasonId, seasonData, n]);
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
     GOAL.has(id) || /^g:.+/.test(id) || /^a:\d+$/.test(id) || customKeys.has(id);
@@ -2594,7 +2601,9 @@ export function BingoBlock({
   };
   const cellIds =
     mode === "mine"
-      ? fill(parseJson<string[]>(saved?.bingoCells, Array.isArray, []), BINGO_GOALS.map((g) => g.id))
+      ? /* Mon bingo se remplit de cartes écrites à la main (04/11/2026, Luc) :
+           les cases libres restent vides, « + » au crayon. */
+        fill(parseJson<string[]>(saved?.bingoCells, Array.isArray, []), [])
       : edited
         ? fill(seasonEdit!.c, official)
         : official.slice(0, n * n);
@@ -2712,7 +2721,7 @@ export function BingoBlock({
   const writeCells = (next: string[], extra: Record<string, string> = {}) => {
     if (!onPatch) return;
     if (mode === "mine") onPatch({ bingoCells: JSON.stringify(next), ...extra });
-    else onPatch({ bingoSeason: JSON.stringify({ k: seasonId, c: next }), ...extra });
+    else onPatch({ bingoSeason: JSON.stringify({ k: editKey, c: next }), ...extra });
   };
   const setCell = (i: number, id: string, extra?: Record<string, string>) => {
     const next = cellIds.slice();
@@ -2771,26 +2780,18 @@ export function BingoBlock({
     <div className="flex h-full min-h-0 flex-1 flex-col gap-2">
       {editing ? (
         <div className="flex flex-col gap-1.5">
-          <div className="relative flex rounded-full bg-white/[0.06] p-0.5 ring-1 ring-inset ring-white/[0.08]">
-            <span
-              aria-hidden
-              className={`absolute bottom-0.5 top-0.5 w-[calc(50%-2px)] rounded-full bg-action transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                mode === "season" ? "left-0.5" : "left-1/2"
-              }`}
-            />
-            {(["season", "mine"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => onPatch?.({ bingoMode: v })}
-                className={`relative z-[1] flex-1 rounded-full px-2 py-1 font-karla text-[11px] font-bold transition-colors ${
-                  mode === v ? "text-white" : "text-white/55 hover:text-white/85"
-                }`}
-              >
-                {t(v === "season" ? "profile.blocks.bingo.modeSeason" : "profile.blocks.bingo.modeMine")}
-              </button>
-            ))}
-          </div>
+          {/* UN BOUTON, PAS UN CHOIX DANS LA LISTE (04/11/2026, Luc) : il pose
+              la grille officielle de la taille choisie ; mon bingo reste rangé
+              et revient par l'autre bouton. */}
+          <button
+            type="button"
+            onClick={() => onPatch?.({ bingoMode: mode === "season" ? "mine" : "season" })}
+            className={`rounded-xl px-3 py-1.5 font-karla text-[12px] font-bold transition-colors ${
+              mode === "season" ? "bg-white/[0.07] text-white/80 ring-1 ring-inset ring-white/10 hover:text-white" : "bg-action text-white hover:brightness-110"
+            }`}
+          >
+            {mode === "season" ? t("profile.blocks.bingo.useMine") : `★ ${t("profile.blocks.bingo.useSeason")}`}
+          </button>
           <div className="flex flex-wrap items-center gap-1.5 font-karla text-[11px]">
             <span className="min-w-0 flex-1 truncate text-txt">
               {mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
@@ -2964,8 +2965,9 @@ function ImportCode({ onImport }: { onImport: (code: string) => boolean }) {
 }
 
 /**
- * LE CHOIX D'UN OBJECTIF : en tête, en écrire un (titre, description, emoji
- * facultatifs) ; puis les siens, ceux de la saison, et le catalogue.
+ * LE CHOIX D'UN OBJECTIF : en écrire un (titre, description et emoji
+ * facultatifs), ou reprendre un des siens. Le catalogue ne se pioche pas : ses
+ * objectifs n'arrivent que par la grille de la saison (04/11/2026, Luc).
  */
 function GoalPicker({
   current,
@@ -3094,12 +3096,6 @@ function GoalPicker({
             </button>,
           ),
         )}
-        {seasonData && (seasonData.genres.length || seasonData.top.length) ? head("profile.blocks.bingo.groupSeason") : null}
-        {seasonData
-          ? [...seasonData.genres.map((g) => `g:${g}`), ...seasonData.top.map((a) => `a:${a.id}`), "season3"].map((id) => row(id))
-          : null}
-        {head("profile.blocks.bingo.groupAll")}
-        {BINGO_GOALS.filter((g) => g.id !== "season3").map((g) => row(g.id))}
       </div>
     </div>
   );

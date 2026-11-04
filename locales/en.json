@@ -1282,8 +1282,6 @@
         "back": "Back",
         "clear": "Clear square",
         "editSeasonHint": "Editing a square removes the official badge",
-        "modeSeason": "Season bingo",
-        "modeMine": "My bingo",
         "backOfficial": "Back to official",
         "official": "Official",
         "officialTitle": "The season's official grid, the same for everyone",
@@ -1300,8 +1298,8 @@
         "newAdd": "Add",
         "deleteGoal": "Delete this goal",
         "groupMine": "My goals",
-        "groupSeason": "Season theme",
-        "groupAll": "All goals"
+        "useSeason": "Use the season bingo",
+        "useMine": "Back to my bingo"
       }
     },
     "studioTitle": "Profile customization",
