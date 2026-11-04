@@ -1202,7 +1202,12 @@
         "filterFav": "Favoris",
         "noneFav": "Aucun favori, ni d'un côté ni de l'autre.",
         "manage": "Ordre et amis affichés",
-        "resetOrder": "Trier par affinité"
+        "resetOrder": "Trier par affinité",
+        "search": "Rechercher un titre",
+        "cardSize": "Taille des affiches",
+        "filterDone": "Terminés",
+        "noneSearch": "Aucun titre ne correspond.",
+        "noneDone": "Aucun titre terminé en commun."
       },
       "bingo": {
         "title": "Bingo de la saison",

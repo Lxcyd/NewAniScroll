@@ -1202,7 +1202,12 @@
         "filterFav": "Favorites",
         "noneFav": "No favorites on either side.",
         "manage": "Order and friends shown",
-        "resetOrder": "Sort by affinity"
+        "resetOrder": "Sort by affinity",
+        "search": "Search a title",
+        "cardSize": "Cover size",
+        "filterDone": "Completed",
+        "noneSearch": "No title matches.",
+        "noneDone": "No completed titles in common."
       },
       "bingo": {
         "title": "Season bingo",

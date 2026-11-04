@@ -1996,6 +1996,15 @@ export function AffinityBlock({
   );
 }
 
+/* La taille des affiches de « En commun » (04/11/2026, Luc). */
+type CommonSize = "small" | "normal" | "large";
+const COMMON_SIZE_KEY = "aniscroll:commonSize";
+const COMMON_SIZES: Record<CommonSize, { row: string; cover: string; title: string; score: string }> = {
+  small: { row: "px-2 py-1", cover: "h-8 w-6", title: "truncate text-[12px]", score: "text-[13px]" },
+  normal: { row: "p-2", cover: "h-12 w-9", title: "truncate text-[13px]", score: "text-[14px]" },
+  large: { row: "p-2.5", cover: "h-24 w-16", title: "line-clamp-2 text-[15px] leading-snug", score: "text-[16px]" },
+};
+
 /**
  * CE QU'ON A EN COMMUN (03/11/2026, Luc : « quand on clique, voir ce qu'on a
  * en commun ») : les titres vus des deux côtés, les deux notes côte à côte.
@@ -2019,6 +2028,30 @@ function CommonTitles({
   const clickTarget = useClickTarget();
   /* « Favoris » (04/11/2026, Luc) : les titres en favori d'au moins un des deux. */
   const [filter, setFilter] = useState<"all" | "rated" | "fav">("all");
+  /* Terminés seulement, allumé par défaut (04/11/2026, Luc) : ce qu'on a vu en
+     entier se compare mieux qu'un titre lâché ou en cours. Statut de la liste
+     affichée (la mienne chez moi, la sienne chez lui). */
+  const [doneOnly, setDoneOnly] = useState(true);
+  const [query, setQuery] = useState("");
+  /* La taille des affiches, retenue sur cet appareil. */
+  const [size, setSize] = useState<CommonSize>(() => {
+    try {
+      const v = localStorage.getItem(COMMON_SIZE_KEY);
+      return v === "small" || v === "large" ? v : "normal";
+    } catch {
+      return "normal";
+    }
+  });
+  const cycleSize = () => {
+    const next: CommonSize = size === "small" ? "normal" : size === "normal" ? "large" : "small";
+    setSize(next);
+    try {
+      localStorage.setItem(COMMON_SIZE_KEY, next);
+    } catch {
+      /* stockage bloqué : la taille vaut pour cette ouverture */
+    }
+  };
+  const sz = COMMON_SIZES[size];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2040,7 +2073,12 @@ function CommonTitles({
   const rows = useMemo(() => {
     const both = (x: { mine: number; theirs: number }) => x.mine > 0 && x.theirs > 0;
     const favs = (x: { mineFav: boolean; theirsFav: boolean }) => Number(x.mineFav) + Number(x.theirsFav);
+    const q = query.trim().toLowerCase();
+    const hit = (e: ProfileEntry) =>
+      !q || [e.title?.english, e.title?.romaji, e.title?.native, e.title?.userPreferred].some((v) => v?.toLowerCase().includes(q));
     return items
+      .filter((x) => !doneOnly || x.e.status === "COMPLETED" || x.e.status === "REPEATING")
+      .filter((x) => hit(x.e))
       .filter((x) => (filter === "rated" ? both(x) : filter === "fav" ? favs(x) > 0 : true))
       .sort(
         (a, b) =>
@@ -2049,7 +2087,7 @@ function CommonTitles({
           b.mine + b.theirs - (a.mine + a.theirs) ||
           pickTitle(a.e.title, pref).localeCompare(pickTitle(b.e.title, pref)),
       );
-  }, [items, filter, pref]);
+  }, [items, filter, pref, doneOnly, query]);
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
   /* Accord d'une ligne (04/11/2026, Luc) : les couleurs de note de l'éditeur de
@@ -2094,7 +2132,55 @@ function CommonTitles({
             </svg>
           </button>
         </div>
-        <div className="flex items-center gap-2 px-5 pb-2">
+        <div className="flex items-center gap-2 px-5 pb-2.5">
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/[0.06] px-3 ring-1 ring-inset ring-white/[0.08] focus-within:ring-white/25">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-3.5 w-3.5 shrink-0 text-white/40" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              id="common-search"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("profile.blocks.affinity.search")}
+              className="min-w-0 flex-1 bg-transparent font-karla text-[13px] text-white outline-none placeholder:text-white/35"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={cycleSize}
+            aria-label={t("profile.blocks.affinity.cardSize")}
+            title={t("profile.blocks.affinity.cardSize")}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-white/70 ring-1 ring-inset ring-white/[0.08] transition-colors hover:bg-white/[0.1] hover:text-white"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden>
+              {size === "large"
+                ? [3, 13].flatMap((y) => [3, 13].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width="8" height="8" rx="1.6" />))
+                : [3, 10, 17].flatMap((y) =>
+                    [3, 10, 17].map((x) => <rect key={`${x}-${y}`} x={x} y={y} width={size === "small" ? 3.4 : 4.6} height={size === "small" ? 3.4 : 4.6} rx="1" />),
+                  )}
+            </svg>
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 px-5 pb-2">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={doneOnly}
+            onClick={() => setDoneOnly((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+              doneOnly ? "bg-action text-white" : "bg-white/[0.06] text-white/60 hover:text-white"
+            }`}
+          >
+            {doneOnly ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3" aria-hidden>
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+            ) : null}
+            {t("profile.blocks.affinity.filterDone")}
+          </button>
+          <span className="h-4 w-px bg-white/10" aria-hidden />
           {(["all", "rated", "fav"] as const).map((v) => (
             <button
               key={v}
@@ -2118,16 +2204,16 @@ function CommonTitles({
               <Link
                 key={e.mediaId}
                 href={animeHref(e.mediaId, clickTarget)}
-                className="flex items-center gap-3 rounded-xl p-2 hover:bg-white/[0.05]"
+                className={`flex items-center gap-3 rounded-xl hover:bg-white/[0.05] ${sz.row}`}
               >
                 {e.cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={e.cover} alt="" loading="lazy" className="h-12 w-9 shrink-0 rounded-md object-cover" />
+                  <img src={e.cover} alt="" loading="lazy" className={`shrink-0 rounded-md object-cover ${sz.cover}`} />
                 ) : (
-                  <span className="h-12 w-9 shrink-0 rounded-md bg-white/[0.06]" />
+                  <span className={`shrink-0 rounded-md bg-white/[0.06] ${sz.cover}`} />
                 )}
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-white">{pickTitle(e.title, pref)}</span>
-                <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit text-[14px] font-bold tabular-nums ${tone(mine, theirs)}`}>
+                <span className={`min-w-0 flex-1 font-semibold text-white ${sz.title}`}>{pickTitle(e.title, pref)}</span>
+                <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit font-bold tabular-nums ${sz.score} ${tone(mine, theirs)}`}>
                   <span className="relative w-10 text-center">
                     {fmt(mine)}
                     {heart(mineFav)}
@@ -2140,7 +2226,15 @@ function CommonTitles({
               </Link>
             ))
           ) : (
-            <p className="px-3 py-8 text-center font-karla text-[13px] text-white/45">{t(filter === "fav" ? "profile.blocks.affinity.noneFav" : "profile.blocks.affinity.noneRated")}</p>
+            <p className="px-3 py-8 text-center font-karla text-[13px] text-white/45">{t(
+                query.trim()
+                  ? "profile.blocks.affinity.noneSearch"
+                  : filter === "fav"
+                    ? "profile.blocks.affinity.noneFav"
+                    : filter === "rated"
+                      ? "profile.blocks.affinity.noneRated"
+                      : "profile.blocks.affinity.noneDone",
+              )}</p>
           )}
         </div>
       </div>
