@@ -13,6 +13,7 @@ import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affin
 import { FRIENDS_EVENT, friendTastes, type FriendCard } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
+import { Segmented } from "../WidgetSettings";
 import HoverVolume from "@/components/shared/HoverVolume";
 
 /**
@@ -1651,11 +1652,46 @@ function useRankedFriends(isOwner: boolean, entries: ProfileEntry[]) {
     if (!isOwner || !friends || !entries.length) return [];
     const me = tasteOf(entries);
     return friends
+      .concat(devFakeFriends(entries))
       .map((o) => ({ o, m: affinity(me, o.taste) }))
       .filter((x) => x.m.shared > 0)
       .sort((a, b) => b.m.pct - a.m.pct);
   }, [isOwner, friends, entries]);
   return { friends, ranked };
+}
+
+/**
+ * DE FAUX AMIS EN LOCAL SEULEMENT (04/11/2026, Luc : « ajoute des faux amis pour
+ * tester »). Jamais en base : la base Turso est la même pour local, dev et prod.
+ * Chacun reprend une part de ta liste avec des notes décalées, d'un jumeau
+ * presque parfait à quelqu'un qui pense l'inverse.
+ */
+const FAKES = [
+  { name: "Aiko (test)", keep: 0.8, drift: 0.3, flip: false },
+  { name: "Kenji (test)", keep: 0.5, drift: 1.5, flip: false },
+  { name: "Mika (test)", keep: 0.35, drift: 2.5, flip: false },
+  { name: "Ren (test)", keep: 0.6, drift: 0.8, flip: true },
+  { name: "Sora (test)", keep: 0.2, drift: 1, flip: false },
+  { name: "Yuki (test)", keep: 0.7, drift: 0, flip: false },
+];
+function devFakeFriends(entries: ProfileEntry[]) {
+  if (process.env.NODE_ENV !== "development") return [];
+  return FAKES.map((f, n) => {
+    const taste: Record<string, number> = {};
+    const fav: string[] = [];
+    entries.forEach((e, i) => {
+      if (e.status === "PLANNING") return;
+      // Pseudo-hasard stable : la même liste donne les mêmes faux amis à chaque rendu.
+      const r = ((e.mediaId * 9301 + (n + 1) * 49297) % 233280) / 233280;
+      if (r > f.keep) return;
+      const base = e.score && e.score > 0 ? e.score : 0;
+      const big = base > 10;
+      const s = !base ? 0 : f.flip ? (big ? 100 : 10) + (big ? 10 : 1) - base : base + (r * 2 - 1) * f.drift * (big ? 10 : 1);
+      taste[e.mediaId] = Math.round(Math.min(big ? 100 : 10, Math.max(big ? 10 : 1, s)) * 2) / 2;
+      if (i % 7 === n) fav.push(String(e.mediaId));
+    });
+    return { tag: `FAKE0${n}`, name: f.name, avatar: null, href: "#", since: 0, taste, fav };
+  });
 }
 
 /** L'ordre perso : les tags rangés d'abord, les nouveaux amis à la suite (par affinité). */
@@ -1668,15 +1704,17 @@ function inOrder<T extends { o: { tag: string } }>(ranked: T[], order: string[])
 }
 
 /**
- * LE RÉGLAGE DE L'AFFINITÉ (04/11/2026, Luc) : la liste des amis, chacun avec
- * une case cochée par défaut (décochée = masqué du widget). En ordre perso, les
- * lignes se glissent comme celles du Top OP / ED.
+ * L'ÉDITEUR DE L'AFFINITÉ, au crayon (04/11/2026, Luc : « pas des paramètres
+ * mais en édit ») : par affinité ou dans son ordre, puis la liste des amis,
+ * chacun avec une case cochée par défaut (décochée = masqué du widget). En
+ * ordre perso, les lignes se glissent comme celles du Top OP / ED.
  */
-export function AffinityPeople({
+export function AffinityEditor({
   entries,
   custom,
   order,
   hidden,
+  onCustom,
   onOrder,
   onHidden,
 }: {
@@ -1684,6 +1722,7 @@ export function AffinityPeople({
   custom: boolean;
   order: string[];
   hidden: string[];
+  onCustom: (custom: boolean) => void;
   onOrder: (tags: string[]) => void;
   onHidden: (tags: string[]) => void;
 }) {
@@ -1694,7 +1733,7 @@ export function AffinityPeople({
   const off = new Set(hidden);
 
   if (friends == null) return <Skeleton rows={3} />;
-  if (!list.length) return <p className="py-2 font-karla text-[12px] text-white/50">{t("profile.blocks.affinity.empty")}</p>;
+  if (!list.length) return <EmptyBlock note={t("profile.blocks.affinity.empty")} />;
 
   const move = (from: number, to: number) => {
     if (from === to) return;
@@ -1704,7 +1743,19 @@ export function AffinityPeople({
     onOrder(next);
   };
   return (
-    <div ref={bodyRef} className="mt-2.5 flex max-h-72 flex-col gap-1 overflow-y-auto overflow-x-hidden">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <Segmented
+      className=""
+      label={t("profile.blocks.affinity.sort")}
+      value={custom ? "custom" : "affinity"}
+      choices={[
+        { value: "affinity", label: t("profile.blocks.affinity.sortAffinity") },
+        { value: "custom", label: t("profile.blocks.affinity.sortCustom") },
+      ]}
+      onPick={(v) => onCustom(v === "custom")}
+    />
+    <div className="as-scroller min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+    <div ref={bodyRef} className="flex flex-col gap-1">
       {list.map(({ o, m }, i) => {
         const on = !off.has(o.tag);
         return (
@@ -1764,6 +1815,8 @@ export function AffinityPeople({
           </div>
         );
       })}
+    </div>
+    </div>
     </div>
   );
 }

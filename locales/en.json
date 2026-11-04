@@ -954,16 +954,7 @@
         "themesSortChoice": {
           "mine": "My order",
           "kind": "By category"
-        },
-        "affinitySort": "Friend order",
-        "affinitySortDesc": "Closest match first, or in the order you choose.",
-        "affinitySortChoice": {
-          "affinity": "Best match",
-          "custom": "Custom order"
-        },
-        "affPeople": "Friends shown",
-        "affPeopleDesc": "Uncheck a friend to remove them from the widget.",
-        "affPeopleDescCustom": "Drag rows to reorder; uncheck a friend to remove them from the widget."
+        }
       },
       "hint": "Rearrange mode — drag a block from anywhere on it, resize it from the bottom-right corner."
     },
@@ -1205,9 +1196,13 @@
         "filterAll": "All",
         "filterRated": "Rated by both",
         "noneRated": "No title rated by both.",
-        "allHidden": "All your friends are hidden: show them again from the widget settings.",
+        "allHidden": "All your friends are hidden: show them again with the widget's pencil.",
         "filterFav": "Favorites",
-        "noneFav": "No favorites on either side."
+        "noneFav": "No favorites on either side.",
+        "manage": "Order and friends shown",
+        "sort": "Friend order",
+        "sortAffinity": "Best match",
+        "sortCustom": "Custom order"
       },
       "bingo": {
         "title": "Season bingo",

@@ -325,10 +325,6 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* Le Top OP / ED : l'ordre choisi, ou par type — OP, ED, puis musiques
      (03/11/2026, Luc). */
   themes: [{ key: "themesSort", choices: ["mine", "kind"], value: "mine", segmented: true }],
-  /* L'affinité (04/11/2026, Luc) : du plus proche au plus lointain, ou dans
-     l'ordre qu'on a glissé. La liste des amis (cases + poignées) suit dans le
-     panneau, ajoutée par ProfileOverview : elle range `affOrder`/`affHidden`. */
-  affinity: [{ key: "affinitySort", choices: ["affinity", "custom"], value: "affinity", segmented: true }],
   characters: [
     { key: "showFrom", on: true },
     { key: "cardSize", choices: ["small", "normal", "large"], value: "normal", segmented: true },

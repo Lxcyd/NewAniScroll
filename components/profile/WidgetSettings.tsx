@@ -769,11 +769,6 @@ export default function WidgetSettings({ options, onOption, onClose }: Props) {
                   onChange={(v) => onOption(o.key, String(v))}
                 />
               </div>
-            ) : "node" in o ? (
-              <div key={o.key} className={SECTION}>
-                <Label label={o.label} desc={o.desc} />
-                {o.node}
-              </div>
             ) : "multi" in o ? (
               <div key={o.key} className={SECTION}>
                 <Label label={o.label} desc={o.desc} />

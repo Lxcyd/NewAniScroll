@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -150,8 +150,6 @@ export type WidgetOption =
       values: string[];
       multi: { value: string; label: string; color?: string; group?: string; groupLabel?: string }[];
     }
-  /** Un réglage dessiné par l'appelant (la liste des amis de l'affinité). */
-  | { key: string; label: string; desc?: string; node: ReactNode }
   /** Une plage à deux poignées. `from`/`to` sont déjà bornés. */
   | {
       key: string;

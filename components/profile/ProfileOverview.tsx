@@ -29,7 +29,7 @@ import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
   AffinityBlock,
-  AffinityPeople,
+  AffinityEditor,
   parseTags,
   BingeBlock,
   BingoBlock,
@@ -463,7 +463,23 @@ export default function ProfileOverview({
                     />
                   ),
                 }
-              : undefined,
+              : /* L'affinité : l'ordre et les amis affichés, au crayon (04/11/2026, Luc). */
+                id === "affinity" && isOwner
+                ? {
+                    label: t("profile.blocks.affinity.manage"),
+                    node: (
+                      <AffinityEditor
+                        entries={entries}
+                        custom={savedString("affinity", "affinitySort") === "custom"}
+                        order={parseTags(savedString("affinity", "affOrder"))}
+                        hidden={parseTags(savedString("affinity", "affHidden"))}
+                        onCustom={(c) => setOption("affinity", "affinitySort", c ? "custom" : "affinity")}
+                        onOrder={(tags) => setOption("affinity", "affOrder", JSON.stringify(tags))}
+                        onHidden={(tags) => setOption("affinity", "affHidden", JSON.stringify(tags))}
+                      />
+                    ),
+                  }
+                : undefined,
       body: body(id),
     };
   }
@@ -590,34 +606,7 @@ export default function ProfileOverview({
    * libellé — pour `source`, ce sont les noms de listes du reste du site
    * (`listLabel`), donc « Terminés » veut dire ici ce qu'il veut dire ailleurs.
    */
-  function widgetOptions(id: string) {
-    const opts = catalogOptions(id);
-    /* La liste des amis de l'affinité, sous la bascule (04/11/2026, Luc). */
-    if (id === "affinity" && isOwner) {
-      opts.push({
-        key: "affPeople",
-        label: t("profile.widgets.options.affPeople"),
-        desc: t(
-          optionValue("affinity", "affinitySort") === "custom"
-            ? "profile.widgets.options.affPeopleDescCustom"
-            : "profile.widgets.options.affPeopleDesc",
-        ),
-        node: (
-          <AffinityPeople
-            entries={entries}
-            custom={optionValue("affinity", "affinitySort") === "custom"}
-            order={parseTags(savedString("affinity", "affOrder"))}
-            hidden={parseTags(savedString("affinity", "affHidden"))}
-            onOrder={(tags) => setOption("affinity", "affOrder", JSON.stringify(tags))}
-            onHidden={(tags) => setOption("affinity", "affHidden", JSON.stringify(tags))}
-          />
-        ),
-      });
-    }
-    return opts;
-  }
-
-  function catalogOptions(id: string): WidgetOption[] {
+  function widgetOptions(id: string): WidgetOption[] {
     const def = blockDef(id);
     return blockOptions(id).map((o) => {
       const common = {
@@ -984,7 +973,7 @@ export default function ProfileOverview({
             isOwner={isOwner}
             entries={entries}
             name={who?.name ?? ""}
-            custom={optionValue("affinity", "affinitySort") === "custom"}
+            custom={savedString("affinity", "affinitySort") === "custom"}
             order={parseTags(savedString("affinity", "affOrder"))}
             hidden={parseTags(savedString("affinity", "affHidden"))}
           />
