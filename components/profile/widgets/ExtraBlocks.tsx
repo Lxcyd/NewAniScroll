@@ -1381,8 +1381,16 @@ function startRowDrag(
   // Strictement bloquée entre la première et la dernière place.
   const minDy = -dragged.offsetTop + rows[0].offsetTop;
   const maxDy = rows[rows.length - 1].offsetTop - dragged.offsetTop;
+  /* LA LIGNE RESTE SOUS LE CURSEUR QUAND LA LISTE DÉFILE (04/11/2026, Luc) :
+     le défilement depuis la prise s'ajoute au déplacement du pointeur. */
+  let scroller: HTMLElement | null = body.parentElement;
+  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+  const startScroll = scroller?.scrollTop ?? 0;
+  const onScroll = () => onMove(lastY);
+  scroller?.addEventListener("scroll", onScroll, { passive: true });
   const onMove = (clientY: number) => {
-    const dy = Math.min(maxDy, Math.max(minDy, clientY - startClientY));
+    const scrolled = (scroller?.scrollTop ?? 0) - startScroll;
+    const dy = Math.min(maxDy, Math.max(minDy, clientY - startClientY + scrolled));
     // Pas d'agrandissement : la ligne garde la largeur de la liste.
     dragged.style.transform = `translate3d(0,${dy}px,0)`;
     toIndex = Math.min(rows.length - 1, Math.max(0, fromIndex + Math.round(dy / step)));
@@ -1397,6 +1405,7 @@ function startRowDrag(
   const onEnd = () => {
     if (ended) return;
     ended = true;
+    scroller?.removeEventListener("scroll", onScroll);
     document.removeEventListener("pointermove", onPM);
     document.removeEventListener("pointerup", onEnd);
     document.removeEventListener("pointercancel", onEnd);
