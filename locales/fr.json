@@ -1207,7 +1207,8 @@
         "cardSize": "Taille des affiches",
         "filterDone": "Terminés",
         "noneSearch": "Aucun titre ne correspond.",
-        "noneDone": "Aucun titre terminé en commun."
+        "noneDone": "Aucun titre terminé en commun.",
+        "filterScored": "Notés"
       },
       "bingo": {
         "title": "Bingo de la saison",

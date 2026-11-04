@@ -1207,7 +1207,8 @@
         "cardSize": "Cover size",
         "filterDone": "Completed",
         "noneSearch": "No title matches.",
-        "noneDone": "No completed titles in common."
+        "noneDone": "No completed titles in common.",
+        "filterScored": "Rated"
       },
       "bingo": {
         "title": "Season bingo",

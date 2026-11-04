@@ -2002,7 +2002,7 @@ const COMMON_SIZE_KEY = "aniscroll:commonSize";
 const COMMON_SIZES: Record<CommonSize, { row: string; cover: string; title: string; score: string }> = {
   small: { row: "px-2 py-1", cover: "h-8 w-6", title: "truncate text-[12px]", score: "text-[13px]" },
   normal: { row: "p-2", cover: "h-12 w-9", title: "truncate text-[13px]", score: "text-[14px]" },
-  large: { row: "p-2.5", cover: "h-24 w-16", title: "line-clamp-2 text-[15px] leading-snug", score: "text-[16px]" },
+  large: { row: "px-2 py-2.5", cover: "h-24 w-16", title: "line-clamp-2 text-[15px] leading-snug", score: "text-[16px]" },
 };
 
 /**
@@ -2028,10 +2028,10 @@ function CommonTitles({
   const clickTarget = useClickTarget();
   /* « Favoris » (04/11/2026, Luc) : les titres en favori d'au moins un des deux. */
   const [filter, setFilter] = useState<"all" | "rated" | "fav">("all");
-  /* Terminés seulement, allumé par défaut (04/11/2026, Luc) : ce qu'on a vu en
-     entier se compare mieux qu'un titre lâché ou en cours. Statut de la liste
-     affichée (la mienne chez moi, la sienne chez lui). */
-  const [doneOnly, setDoneOnly] = useState(true);
+  /* Une bascule « Terminés / Notés » (04/11/2026, Luc), terminés par défaut :
+     ce qu'on a vu en entier se compare mieux qu'un titre lâché ou en cours.
+     Statut et note de la liste affichée (la mienne chez moi, la sienne chez lui). */
+  const [base, setBase] = useState<"done" | "scored">("done");
   const [query, setQuery] = useState("");
   /* La taille des affiches, retenue sur cet appareil. */
   const [size, setSize] = useState<CommonSize>(() => {
@@ -2077,7 +2077,9 @@ function CommonTitles({
     const hit = (e: ProfileEntry) =>
       !q || [e.title?.english, e.title?.romaji, e.title?.native, e.title?.userPreferred].some((v) => v?.toLowerCase().includes(q));
     return items
-      .filter((x) => !doneOnly || x.e.status === "COMPLETED" || x.e.status === "REPEATING")
+      .filter((x) =>
+        base === "done" ? x.e.status === "COMPLETED" || x.e.status === "REPEATING" : (x.e.score ?? 0) > 0,
+      )
       .filter((x) => hit(x.e))
       .filter((x) => (filter === "rated" ? both(x) : filter === "fav" ? favs(x) > 0 : true))
       .sort(
@@ -2087,7 +2089,7 @@ function CommonTitles({
           b.mine + b.theirs - (a.mine + a.theirs) ||
           pickTitle(a.e.title, pref).localeCompare(pickTitle(b.e.title, pref)),
       );
-  }, [items, filter, pref, doneOnly, query]);
+  }, [items, filter, pref, base, query]);
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
   /* Accord d'une ligne (04/11/2026, Luc) : les couleurs de note de l'éditeur de
@@ -2167,22 +2169,28 @@ function CommonTitles({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-5 pb-2">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={doneOnly}
-            onClick={() => setDoneOnly((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
-              doneOnly ? "bg-action text-white" : "bg-white/[0.06] text-white/60 hover:text-white"
-            }`}
-          >
-            {doneOnly ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3" aria-hidden>
-                <path d="M5 12.5l4.5 4.5L19 7.5" />
-              </svg>
-            ) : null}
-            {t("profile.blocks.affinity.filterDone")}
-          </button>
+          <div role="radiogroup" className="relative flex rounded-full bg-white/[0.06] p-0.5 ring-1 ring-inset ring-white/[0.08]">
+            <span
+              aria-hidden
+              className={`absolute bottom-0.5 top-0.5 w-[calc(50%-2px)] rounded-full bg-action transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                base === "done" ? "left-0.5" : "left-1/2"
+              }`}
+            />
+            {(["done", "scored"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={base === v}
+                onClick={() => setBase(v)}
+                className={`relative z-[1] min-w-[5.5rem] rounded-full px-3 py-1 font-karla text-[12px] font-bold transition-colors ${
+                  base === v ? "text-white" : "text-white/55 hover:text-white/85"
+                }`}
+              >
+                {t(v === "done" ? "profile.blocks.affinity.filterDone" : "profile.blocks.affinity.filterScored")}
+              </button>
+            ))}
+          </div>
           <span className="h-4 w-px bg-white/10" aria-hidden />
           {(["all", "rated", "fav"] as const).map((v) => (
             <button
@@ -2196,12 +2204,18 @@ function CommonTitles({
               {t(v === "rated" ? "profile.blocks.affinity.filterRated" : v === "fav" ? "profile.blocks.affinity.filterFav" : "profile.blocks.affinity.filterAll")}
             </button>
           ))}
-          <span className="ml-auto grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
-            <span className="w-10 text-center">{t("profile.blocks.affinity.you")}</span>
-            <span className="w-10 truncate text-center">{name}</span>
-          </span>
         </div>
         <div className="as-scroller min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {/* L'en-tête des colonnes DANS la zone qui défile (04/11/2026, Luc :
+              « pas alignés ») : la barre de défilement réduit la liste, il faut
+              qu'elle réduise l'en-tête de la même largeur. Mêmes bords que les
+              lignes (px-2) et mêmes colonnes (w-10, gap-3). */}
+          <div className="sticky top-0 z-[1] flex justify-end bg-[#15161d] px-2 pb-1 pt-1.5">
+            <span className="grid grid-cols-2 gap-3 font-karla text-[10px] font-bold uppercase tracking-wider text-white/40">
+              <span className="w-10 text-center">{t("profile.blocks.affinity.you")}</span>
+              <span className="w-10 truncate text-center">{name}</span>
+            </span>
+          </div>
           {rows.length ? (
             rows.map(({ e, mine, theirs, mineFav, theirsFav }) => (
               <Link
