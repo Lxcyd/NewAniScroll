@@ -1299,7 +1299,10 @@
         "deleteGoal": "Delete this goal",
         "groupMine": "My goals",
         "useSeason": "Use the season bingo",
-        "useMine": "Back to my bingo"
+        "useMine": "Back to my bingo",
+        "daysLeft_one": "{{count}} day left",
+        "daysLeft_other": "{{count}} days left",
+        "daysLeftTitle": "Days until the season ends"
       }
     },
     "studioTitle": "Profile customization",

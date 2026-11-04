@@ -1299,7 +1299,10 @@
         "deleteGoal": "Supprimer cet objectif",
         "groupMine": "Mes objectifs",
         "useSeason": "Utiliser le bingo de la saison",
-        "useMine": "Revenir à mon bingo"
+        "useMine": "Revenir à mon bingo",
+        "daysLeft_one": "{{count}} j restant",
+        "daysLeft_other": "{{count}} j restants",
+        "daysLeftTitle": "Jours avant la fin de la saison"
       }
     },
     "studioTitle": "Personnalisation du profil",

@@ -2571,6 +2571,8 @@ export function BingoBlock({
   const seasonId = `${season.year}-${season.key.toUpperCase()}`;
   const startKey = dayKey(season.start.getTime());
   const n = size >= 3 && size <= 5 ? size : 3;
+  const seasonEnd = new Date(season.start.getFullYear(), season.start.getMonth() + 3, 1);
+  const daysLeft = Math.max(0, Math.ceil((seasonEnd.getTime() - Date.now()) / 864e5));
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -2841,6 +2843,10 @@ export function BingoBlock({
             </span>
           ) : null}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
+            <span className="font-karla text-[11px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
+              {t("profile.blocks.bingo.daysLeft", { count: daysLeft })}
+            </span>
             {lines.length ? (
               <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
                 {full ? "100 %" : `BINGO${lines.length > 1 ? ` ×${lines.length}` : ""}`}
