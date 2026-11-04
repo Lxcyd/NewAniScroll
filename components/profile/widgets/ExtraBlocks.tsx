@@ -2133,7 +2133,7 @@ function CommonTitles({
   /* Le cœur des favoris du site (#E94560, cf. WidgetSettings). */
   const heart = (on: boolean) =>
     on ? (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute -right-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 text-[#E94560]" aria-label="♥">
+      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute left-full top-1/2 ml-1 h-3.5 w-3.5 -translate-y-1/2 text-[#E94560]" aria-label="♥">
         <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.5 1.1 5.2 3 1.7-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z" />
       </svg>
     ) : null;
@@ -2256,12 +2256,17 @@ function CommonTitles({
                 <span className={`min-w-0 flex-1 font-semibold text-white ${sz.title}`}>{pickTitle(e.title, pref)}</span>
                 <span className={`grid shrink-0 grid-cols-2 gap-3 font-outfit font-bold tabular-nums ${sz.score} ${tone(mine, theirs)}`}>
                   <span className="relative w-16 text-center">
-                    {fmt(mine)}
-                    {heart(mineFav)}
+                    {/* Le cœur colle au chiffre, pas au bord de la colonne. */}
+                    <span className="relative">
+                      {fmt(mine)}
+                      {heart(mineFav)}
+                    </span>
                   </span>
                   <span className="relative w-16 text-center">
-                    {fmt(theirs)}
-                    {heart(theirsFav)}
+                    <span className="relative">
+                      {fmt(theirs)}
+                      {heart(theirsFav)}
+                    </span>
                   </span>
                 </span>
               </Link>
