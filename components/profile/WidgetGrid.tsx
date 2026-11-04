@@ -192,11 +192,18 @@ export function useEndRoom() {
     while (card && !card.querySelector(":scope > header")) card = card.parentElement;
     if (!card) return;
     const box = card;
-    const put = () => box.style.setProperty("--as-end-room", `${Math.ceil(el.getBoundingClientRect().width) + 10}px`);
+    /* `offsetWidth` (la mise en page) et pas `getBoundingClientRect` : la
+       carte est mise à l'échelle pendant un redimensionnement, et la mesure
+       tombait trop petite quand la légende revenait (04/11/2026, Luc). Les
+       enfants comptent aussi : la légende s'ouvre en transition. */
+    const put = () => box.style.setProperty("--as-end-room", `${el.offsetWidth + 10}px`);
     put();
     const ro = new ResizeObserver(put);
     ro.observe(el);
+    for (const c of Array.from(el.children)) ro.observe(c);
+    el.addEventListener("transitionend", put);
     return () => {
+      el.removeEventListener("transitionend", put);
       ro.disconnect();
       box.style.removeProperty("--as-end-room");
     };
