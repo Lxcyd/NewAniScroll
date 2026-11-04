@@ -2054,11 +2054,11 @@ function CommonTitles({
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
   /* Accord d'une ligne (04/11/2026, Luc) : les couleurs de note de l'éditeur de
      liste (listEditor.css). Vert = petit écart (≤ 1/10), jaune = jusqu'à 4/10,
-     rouge = plus de 4/10, gris = un des deux n'a pas noté. Même note : le même
-     vert, dans une pastille. */
+     rouge = plus de 4/10, gris = un des deux n'a pas noté. Même note : blanc
+     (piste 2 de la planche, Luc). */
   const tone = (a: number, b: number) => {
     if (!(a > 0 && b > 0)) return "text-white/35";
-    if (a === b) return "rounded-lg bg-[#22c55e]/[0.12] py-0.5 text-[#22c55e]";
+    if (a === b) return "text-white";
     const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
     return gap <= 0.1 ? "text-[#22c55e]" : gap <= 0.4 ? "text-[#eab308]" : "text-[#ef4444]";
   };
