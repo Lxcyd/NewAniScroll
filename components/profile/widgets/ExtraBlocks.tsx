@@ -1959,11 +1959,12 @@ function CommonTitles({
   }, [items, onlyRated, pref]);
 
   const fmt = (n: number) => (n > 0 ? String(Math.round(n * 10) / 10) : "–");
-  /* Accord d'une ligne : vert si les notes sont proches, ambre si elles divergent. */
+  /* Accord d'une ligne (04/11/2026, Luc) : vert = petit écart (≤ 1/10),
+     jaune = moyen, rouge = gros (≥ 3/10), gris = un des deux n'a pas noté. */
   const tone = (a: number, b: number) => {
     if (!(a > 0 && b > 0)) return "text-white/35";
     const gap = Math.abs(a - b) / (Math.max(a, b) > 10 ? 100 : 10);
-    return gap <= 0.1 ? "text-emerald-400" : gap >= 0.3 ? "text-amber-300" : "text-white/70";
+    return gap <= 0.1 ? "text-emerald-400" : gap >= 0.3 ? "text-red-400" : "text-amber-300";
   };
 
   if (typeof document === "undefined") return null;
