@@ -1115,7 +1115,7 @@
         "eps": "x{{count}}"
       },
       "heatmap": {
-        "title": "Heatmap de l'année",
+        "title": "Heatmap",
         "desc": "Douze mois de visionnage en une grille.",
         "less": "Moins",
         "more": "Plus",

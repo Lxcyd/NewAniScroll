@@ -177,6 +177,33 @@ type Drag = {
   h: number;
 };
 
+/**
+ * LA PLACE DU COIN, MESURÉE (04/11/2026, Luc : « si le nom est trop long met
+ * … »). `endRoom` réservait 56 px, assez pour deux flèches mais pas pour la
+ * série + la légende + les flèches de la heatmap : le titre passait dessous.
+ * Un bloc dont le coin est plus large passe ce ref à ses commandes ; leur
+ * largeur va dans `--as-end-room` sur la carte, que l'en-tête réserve.
+ */
+export function useEndRoom() {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (!el) return;
+    let card = el.parentElement;
+    while (card && !card.querySelector(":scope > header")) card = card.parentElement;
+    if (!card) return;
+    const box = card;
+    const put = () => box.style.setProperty("--as-end-room", `${Math.ceil(el.getBoundingClientRect().width) + 10}px`);
+    put();
+    const ro = new ResizeObserver(put);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      box.style.removeProperty("--as-end-room");
+    };
+  }, [el]);
+  return setEl;
+}
+
 export default function WidgetGrid({
   layout,
   onLayout,
@@ -856,7 +883,11 @@ export default function WidgetGrid({
                  Luc), qui est positionnée et peinte après lui. Sous les
                  pastilles du coin (flamme, moyenne : z-10). */
               className={`relative z-[1] mb-3 flex shrink-0 items-center justify-between gap-2 ${
-                editing && chrome.editor ? "pr-[5.25rem]" : editing || chrome.endRoom ? "pr-14" : ""
+                editing && chrome.editor
+                  ? "pr-[max(5.25rem,var(--as-end-room,0px))]"
+                  : editing || chrome.endRoom
+                    ? "pr-[max(3.5rem,var(--as-end-room,0px))]"
+                    : ""
               }`}
             >
               {/* PAS DE PASTILLE DE COULEUR. Chaque bloc en portait une, et

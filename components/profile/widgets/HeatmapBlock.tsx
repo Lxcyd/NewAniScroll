@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { dayKey, type WatchDays } from "@/lib/profile/activity";
 import { useLocalDays } from "./CalendarBlock";
+import { useEndRoom } from "../WidgetGrid";
 
 /**
  * LA HEATMAP DE L'ANNÉE (28/10/2026) : une colonne par semaine, une case par
@@ -333,6 +334,7 @@ export function HeatmapBlock({
   const y0 = shownFrom.getFullYear();
   const y1 = Math.min(shownTo.getFullYear(), new Date().getFullYear());
   const years = y0 === y1 ? String(y1) : `${y0} – ${y1}`;
+  const endRoom = useEndRoom();
 
   if (!days) return <div className="h-full" />;
 
@@ -343,6 +345,7 @@ export function HeatmapBlock({
        ProfileOverview). En réorganisation, 6 px plus bas, sous la roue. */
     <div className="as-heat relative flex h-full min-h-0 flex-col">
       <div
+        ref={endRoom}
         className={`absolute ${editing ? "-top-[32px]" : "-top-[38px]"} right-0 z-10 flex h-[26px] items-center`}
         /* Hauteur FIXE, celle de la pastille de série : sans elle, la ligne
            rapetissait et la légende remontait (03/11/2026, Luc). */
