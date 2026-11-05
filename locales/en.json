@@ -958,7 +958,7 @@
         "affAuto": "Add new friends",
         "affAutoDesc": "New friends show up in the widget on their own. Off, they stay hidden until you check them with the pencil.",
         "bingoSize": "Grid size",
-        "bingoSizeDesc": "Nine, sixteen or twenty-five goals.",
+        "bingoSizeDesc": "Nine or sixteen goals.",
         "bingoSizeChoice": {
           "3": "3 × 3",
           "4": "4 × 4",
@@ -1298,6 +1298,7 @@
         "import": "Import",
         "importPlaceholder": "Paste a bingo code (ASB1:…)",
         "importGo": "OK",
+        "pickEmoji": "Change emoji",
         "points": "{{points}} pts",
         "pointsTitle": "10 pts per cell, +20 per complete line, column or diagonal, +50 for a full grid",
         "newGoal": "Write a goal",

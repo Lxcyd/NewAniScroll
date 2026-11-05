@@ -44,6 +44,13 @@ interface Props {
    *  visible over the video (a body portal is hidden behind the FS element). */
   fullscreen?: boolean;
   className?: string;
+  /** Un autre déclencheur que la petite icône du chat (ex. l'emoji d'une case
+   *  de bingo) : `bare` retire le style du bouton, `children` remplace l'icône. */
+  bare?: boolean;
+  children?: React.ReactNode;
+  /** Ferme le panneau dès qu'un emoji est choisi (le chat le laisse ouvert). */
+  closeOnPick?: boolean;
+  title?: string;
 }
 
 const PANEL_W = 360;
@@ -78,7 +85,7 @@ function pushRecent(insert: string): string[] {
 // (recently-used MRU + our custom anime set), then the FULL unicode set grouped
 // by category (incl. Flags) with a search box. Wide enough that every category
 // tab — Flags included — is visible without horizontal scrolling.
-export default function EmojiButton({ onPick, fullscreen, className = "" }: Props) {
+export default function EmojiButton({ onPick, fullscreen, className = "", bare, children, closeOnPick, title }: Props) {
   const { t, i18n } = useTranslation();
   // Keyword map for the site's current language (en ↔ fr), loaded lazily so the
   // two ~150KB maps stay out of the initial bundle — only the active one is
@@ -110,7 +117,9 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
     let left = r.left;
     left = Math.min(left, window.innerWidth - PANEL_W - 8);
     left = Math.max(8, left);
-    const top = Math.max(8, r.top - PANEL_H - 8);
+    /* Au-dessus du déclencheur ; s'il n'y a pas la place (haut de page), en dessous. */
+    const above = r.top - PANEL_H - 8;
+    const top = above >= 8 ? above : Math.max(8, Math.min(r.bottom + 8, window.innerHeight - PANEL_H - 8));
     setPos({ top, left });
   }, [open]);
 
@@ -166,6 +175,7 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
   const pick = (insert: string) => {
     setRecents(pushRecent(insert));
     onPick(insert);
+    if (closeOnPick) setOpen(false);
   };
 
   // When searching: match anime shortcodes/labels/tags, AND match unicode
@@ -436,10 +446,14 @@ export default function EmojiButton({ onPick, fullscreen, className = "" }: Prop
         ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title="Emoji"
-        className={`flex h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white ${className}`}
+        title={title ?? "Emoji"}
+        className={
+          bare
+            ? className
+            : `flex h-9 w-9 items-center justify-center rounded-md text-white/70 hover:bg-white/10 hover:text-white ${className}`
+        }
       >
-        <BsEmojiSmile size={18} />
+        {children ?? <BsEmojiSmile size={18} />}
       </button>
       {panel}
     </>

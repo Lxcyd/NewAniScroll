@@ -15,6 +15,9 @@ import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } fro
 import type { ProfileEntry } from "@/lib/profile/types";
 import { Bar, EmptyBlock } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
+import EmojiButton from "@/components/watch/party/EmojiButton";
+import { ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
+import { ANIME_STICKER_MAP } from "@/lib/watch2gether/animeStickers";
 
 /**
  * LES SEPT DERNIERS BLOCS DU PROFIL (03/11/2026, Luc : « procède comme les
@@ -2764,7 +2767,8 @@ export function BingoBlock({
   const { t, i18n } = useTranslation();
   const season = seasonNow();
   const seasonId = `${season.year}-${season.key.toUpperCase()}`;
-  const n = size >= 3 && size <= 5 ? size : 3;
+  /* 4×4 au plus (05/11/2026, Luc) ; un 5×5 enregistré avant redevient 4×4. */
+  const n = size >= 3 ? Math.min(4, size) : 3;
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -2815,6 +2819,14 @@ export function BingoBlock({
   const endAt = new Date(`${period.end}T00:00:00`).getTime();
   const daysLeft = Math.max(0, Math.ceil((endAt - Date.now()) / 864e5));
   const customs = parseJson<Custom[]>(saved?.bingoCustom, Array.isArray, []);
+  /* NOM ET EMOJI PROPRES À UNE CASE (05/11/2026, Luc) : au crayon, le nom est un
+     champ de texte et l'emoji ouvre le menu d'emojis du chat. Rangés par
+     identifiant d'objectif, pour suivre la carte quand on la déplace. */
+  const labels = parseJson<Record<string, { t?: string; e?: string }>>(
+    saved?.bingoLabels,
+    (v) => !!v && typeof v === "object" && !Array.isArray(v),
+    {},
+  );
   const state = parseJson<BingoState>(saved?.bingoState, (v) => !!v && typeof v === "object", { done: [] });
   const seasonEdit = parseJson<{ k: string; c: string[] } | null>(
     saved?.bingoSeason,
@@ -2939,7 +2951,27 @@ export function BingoBlock({
     if (c) return { icon: c.e || "✏️", label: c.t, got: done.has(id) ? 1 : 0, need: 1 };
     return null;
   };
-  const cells = cellIds.map((id) => resolve(id));
+  const baseCells = cellIds.map((id) => resolve(id));
+  const cells = baseCells.map((r, i) => {
+    const o = r && labels[cellIds[i]];
+    return r && o ? { ...r, icon: o.e || r.icon, label: o.t || r.label } : r;
+  });
+  const setLabel = (id: string, p: { t?: string; e?: string }) => {
+    const cur: Record<string, { t?: string; e?: string }> = {};
+    for (const k of cellIds) if (labels[k]) cur[k] = labels[k];
+    const merged = { ...cur[id], ...p };
+    if (!merged.t) delete merged.t;
+    if (!merged.e) delete merged.e;
+    if (Object.keys(merged).length) cur[id] = merged;
+    else delete cur[id];
+    onPatch?.({ bingoLabels: JSON.stringify(cur) });
+  };
+  /** Une icône : un emoji, ou une image quand l'emoji vient des animés du chat. */
+  const iconNode = (icon: string) => {
+    const img = /^:[^:\s]+:$/.test(icon) ? (ANIME_STICKER_MAP[icon]?.src ?? ANIME_EMOJI_MAP[icon]?.url) : null;
+    // eslint-disable-next-line @next/next/no-img-element
+    return img ? <img src={img} alt="" className="inline-block h-[1.1em] w-[1.1em] object-contain" /> : icon;
+  };
   const isDone = cells.map((c) => !!c && c.got >= c.need);
   const lines = editing ? [] : bingoLines(n).filter((l) => l.every((i) => isDone[i]));
   const inLine = new Set(lines.flat());
@@ -3232,9 +3264,25 @@ export function BingoBlock({
       >
         {cells.map((c, i) => {
           const id = cellIds[i];
-          const body = c ? (
+          const body = c && editing ? (
             <>
-              <span className="leading-none" style={iconStyle}>{c.icon}</span>
+              {/* L'emoji ouvre le menu d'emojis du chat ; le nom se tape sur place. */}
+              <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="leading-none">
+                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="leading-none transition-transform hover:scale-110" onPick={(e) => setLabel(id, { e })}>
+                  <span style={iconStyle}>{iconNode(c.icon)}</span>
+                </EmojiButton>
+              </span>
+              <CellName
+                key={`${id}:${c.label}`}
+                value={c.label}
+                style={labelStyle}
+                onCommit={(v) => setLabel(id, { t: v && v !== baseCells[i]?.label ? v : "" })}
+              />
+              <span aria-hidden className="pointer-events-none absolute right-1 top-0.5 text-[10px] text-white/35">✎</span>
+            </>
+          ) : c ? (
+            <>
+              <span className="leading-none" style={iconStyle}>{iconNode(c.icon)}</span>
               <span className="line-clamp-3 px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
               {!editing && isDone[i] ? (
                 <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
@@ -3276,6 +3324,8 @@ export function BingoBlock({
                 "data-drag-cell": true,
                 onPointerDown: (e: React.PointerEvent) => {
                   if (e.button !== 0 || !gridRef.current) return;
+                  /* Le champ de texte et l'emoji ne lancent pas le glisser. */
+                  if ((e.target as HTMLElement).closest("[data-nodrag]")) return;
                   dragged.current = false;
                   const sx = e.clientX;
                   const sy = e.clientY;
@@ -3303,6 +3353,33 @@ export function BingoBlock({
                 },
               }
             : {};
+          /* Au crayon une case porte un champ et un bouton : ce n'est plus un
+             <button> (pas de bouton dans un bouton) mais un bloc cliquable. */
+          if (editing && c) {
+            return (
+              <div
+                key={i}
+                role="button"
+                tabIndex={0}
+                title={tip}
+                onClick={() => {
+                  if (dragged.current) {
+                    dragged.current = false;
+                    return;
+                  }
+                  setPicking(i);
+                }}
+                onKeyDown={(e) => {
+                  if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) setPicking(i);
+                }}
+                {...dnd}
+                className={`${cls} cursor-grab touch-none select-none hover:bg-white/[0.08] hover:ring-white/20`}
+                style={style}
+              >
+                {body}
+              </div>
+            );
+          }
           return act ? (
             <button
               key={i}
@@ -3332,6 +3409,30 @@ export function BingoBlock({
         })}
       </div>
     </div>
+  );
+}
+
+/** Le nom d'une case, au crayon : un champ de texte qui s'enregistre en le quittant. */
+function CellName({ value, style, onCommit }: { value: string; style: React.CSSProperties; onCommit: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  return (
+    <textarea
+      data-nodrag
+      value={text}
+      rows={2}
+      maxLength={40}
+      spellCheck={false}
+      onChange={(e) => setText(e.target.value.replace(/\n/g, " "))}
+      onBlur={() => onCommit(text.trim())}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      className="w-full resize-none select-text rounded-md bg-white/[0.06] px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none ring-1 ring-inset ring-white/10 focus:ring-white/40"
+      style={style}
+    />
   );
 }
 
