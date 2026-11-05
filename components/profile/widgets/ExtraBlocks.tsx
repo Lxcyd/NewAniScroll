@@ -3122,7 +3122,7 @@ export function BingoBlock({
        captures : cases, emoji et noms décalés de 8 px) : le panneau d'édition
        a un titre plus court. On le redescend en `translate`, sans changer la
        hauteur, pour que les cartes ne bougent ni ne rétrécissent. */
-    <div className={`-mt-1.5 flex h-[calc(100%+6px)] min-h-0 flex-1 flex-col gap-2 ${editing ? "translate-y-[3px]" : ""}`}>
+    <div className={`flex min-h-0 flex-1 flex-col gap-2 ${editing ? "h-full" : "-mt-1.5 h-[calc(100%+6px)]"}`}>
       {editing ? (
         <div className="flex flex-col gap-1.5">
           {/* UN BOUTON, PAS UN CHOIX DANS LA LISTE (04/11/2026, Luc) : il pose
