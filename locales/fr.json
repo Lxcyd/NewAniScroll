@@ -1226,7 +1226,7 @@
         "filterScored": "Notés"
       },
       "bingo": {
-        "title": "Bingo de la saison",
+        "title": "Bingo",
         "desc": "Des défis de visionnage à cocher, choisis par toi.",
         "season": {
           "winter": "Hiver",
@@ -1289,7 +1289,7 @@
         "editHint": "Clique une case pour la changer, glisse-la pour la déplacer",
         "back": "Retour",
         "clear": "Vider la case",
-        "editSeasonHint": "Modifier une case retire le badge officiel",
+        "editSeasonHint": "La grille officielle ne se modifie pas",
         "backOfficial": "Revenir à l'officiel",
         "official": "Officiel",
         "officialTitle": "La grille officielle de la saison, la même pour tout le monde",

@@ -1226,7 +1226,7 @@
         "filterScored": "Rated"
       },
       "bingo": {
-        "title": "Season bingo",
+        "title": "Bingo",
         "desc": "Viewing challenges to tick off, picked by you.",
         "season": {
           "winter": "Winter",
@@ -1289,7 +1289,7 @@
         "editHint": "Click a square to change it, drag it to move it",
         "back": "Back",
         "clear": "Clear square",
-        "editSeasonHint": "Editing a square removes the official badge",
+        "editSeasonHint": "The official grid cannot be edited",
         "backOfficial": "Back to official",
         "official": "Official",
         "officialTitle": "The season's official grid, the same for everyone",

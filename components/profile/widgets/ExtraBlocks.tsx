@@ -2833,7 +2833,10 @@ export function BingoBlock({
     null,
   );
   const editKey = `${seasonId}:${n}`;
-  const edited = mode === "season" && seasonEdit?.k === editKey;
+  /* LA GRILLE OFFICIELLE N'SE MODIFIE PAS (05/11/2026, Luc) : seul « mon bingo »
+     se retouche ; une ancienne retouche de la saison est ignorée. */
+  const edited = false;
+  const ce = editing && mode !== "season";
   const official = useMemo(() => seasonGrid(seasonId, seasonData ?? null, n), [seasonId, seasonData, n]);
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
@@ -3143,8 +3146,8 @@ export function BingoBlock({
             </div>
             <span
               tabIndex={0}
-              title={mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
-              aria-label={mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
+              title={mode === "season" ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
+              aria-label={mode === "season" ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
               className="shrink-0 cursor-help text-[13px] leading-none text-white/50 hover:text-white"
             >
               ⓘ
@@ -3285,7 +3288,7 @@ export function BingoBlock({
       >
         {cells.map((c, i) => {
           const id = cellIds[i];
-          const body = c && editing ? (
+          const body = c && ce ? (
             <>
               {/* L'emoji ouvre le menu d'emojis du chat ; le nom se tape sur place. */}
               <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="mb-2 leading-none">
@@ -3304,24 +3307,24 @@ export function BingoBlock({
             <>
               <span className="mb-2 leading-none" style={iconStyle}>{iconNode(c.icon)}</span>
               <span className="line-clamp-3 px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
-              {!editing && isDone[i] ? (
+              {!ce && isDone[i] ? (
                 <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
-              ) : !editing && c.need > 1 && n < 5 ? (
+              ) : !ce && c.need > 1 && n < 5 ? (
                 <span className="font-karla text-[9px] text-white/50">
                   {c.got}/{c.need}
                 </span>
               ) : null}
             </>
           ) : (
-            <span className="leading-none text-white/30" style={iconStyle}>{editing ? "+" : ""}</span>
+            <span className="leading-none text-white/30" style={iconStyle}>{ce ? "+" : ""}</span>
           );
           const cls = `relative flex min-h-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg p-1 text-center transition-colors ${
-            !editing && isDone[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
+            !ce && isDone[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
           }`;
           /* La couleur du site : une case gagnée la prend à moitié, une case
              d'une ligne complète en entier. */
           const style =
-            !editing && isDone[i]
+            !ce && isDone[i]
               ? {
                   background: `color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 80 : 35}%, transparent)`,
                   boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 100 : 55}%, transparent)`,
@@ -3331,7 +3334,7 @@ export function BingoBlock({
           /* Chez soi, hors crayon : un objectif perso se coche à la main (le
              hasard, lui, se tire tout seul). */
           const act =
-            editing
+            ce
               ? () => setPicking(i)
               : isOwner && onPatch && id.startsWith("c:")
                 ? () => toggleCustom(id)
@@ -3339,7 +3342,7 @@ export function BingoBlock({
           /* DÉPLACER LES CARTES (05/11/2026, Luc : « comme les widgets ») : au
              crayon, une carte se glisse à sa place (`startGridDrag`). Le glisser
              ne part qu'après 6 px : en deçà c'est un clic, qui choisit l'objectif. */
-          const dnd = editing
+          const dnd = ce
             ? {
                 "data-drag-cell": true,
                 onPointerDown: (e: React.PointerEvent) => {
@@ -3375,7 +3378,7 @@ export function BingoBlock({
             : {};
           /* Au crayon une case porte un champ et un bouton : ce n'est plus un
              <button> (pas de bouton dans un bouton) mais un bloc cliquable. */
-          if (editing && c) {
+          if (ce && c) {
             return (
               <div
                 key={i}
@@ -3414,8 +3417,8 @@ export function BingoBlock({
               }}
               title={tip}
               {...dnd}
-              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && editing ? "border border-dashed border-white/15" : ""} ${
-                editing ? "cursor-grab touch-none select-none" : ""
+              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && ce ? "border border-dashed border-white/15" : ""} ${
+                ce ? "cursor-grab touch-none select-none" : ""
               }`}
               style={style}
             >
