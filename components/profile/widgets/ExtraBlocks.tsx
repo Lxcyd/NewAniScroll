@@ -3431,14 +3431,24 @@ export function BingoBlock({
 /** Le nom d'une case, au crayon : un champ de texte qui s'enregistre en le quittant. */
 function CellName({ value, style, onCommit }: { value: string; style: React.CSSProperties; onCommit: (v: string) => void }) {
   const [text, setText] = useState(value);
+  /* Comme la lecture (3 lignes au plus) : le champ grandit avec son texte au
+     lieu de couper à deux lignes. */
+  const ta = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, style.fontSize]);
   return (
     /* Le cadre en pointillés est sur l'enveloppe (comme celui de l'emoji, qui
        s'affiche) et non sur le champ lui-même. */
     <span className="block w-full rounded-md group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-1 group-hover:outline-white/45 focus-within:![outline-style:solid] focus-within:![outline-color:rgba(255,255,255,0.7)]">
     <textarea
+      ref={ta}
       data-nodrag
       value={text}
-      rows={2}
+      rows={1}
       maxLength={40}
       spellCheck={false}
       onChange={(e) => setText(e.target.value.replace(/\n/g, " "))}
@@ -3450,7 +3460,7 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none focus:bg-white/[0.12]"
-      style={style}
+      style={{ ...style, maxHeight: "3.75em", overflow: "hidden" }}
     />
     </span>
   );
