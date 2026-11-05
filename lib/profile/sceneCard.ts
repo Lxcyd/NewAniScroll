@@ -21,7 +21,8 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
     /* LA CASE RESTE DANS LA PAGE (05/11/2026, Luc) : arrivée au pied de la
        page, elle ne passe pas sur le pied de page — elle remonte d'autant que
        celui-ci entre dans l'écran, et garde 16 px d'air au-dessus. */
-    const footer = document.querySelector("footer");
+    const footers = document.querySelectorAll("footer");
+    const footer = footers[footers.length - 1] ?? null;
     const lift = footer ? Math.max(0, window.innerHeight - footer.getBoundingClientRect().top - 8) : 0;
     const y = scrolled - lift;
     el.style.translate = y ? `0 ${y}px` : "";
@@ -40,8 +41,10 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
       obs.observe(stage, { attributes: true, attributeFilter: ["class"] });
       stage.addEventListener("scroll", update, { passive: true });
     }
-    /* La page défile (ou se redimensionne) : le pied de page monte ou descend. */
-    window.addEventListener("scroll", update, { passive: true });
+    /* La page défile (ou se redimensionne) : le pied de page monte ou descend.
+       En capture : un `scroll` ne remonte pas, et en mode édition c'est le cadre
+       de la scène — pas la fenêtre — qui défile, parfois monté après nous. */
+    document.addEventListener("scroll", update, { passive: true, capture: true });
     window.addEventListener("resize", update);
     const size = new ResizeObserver(update);
     size.observe(document.body);
@@ -50,7 +53,7 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
       obs.disconnect();
       size.disconnect();
       stage?.removeEventListener("scroll", update);
-      window.removeEventListener("scroll", update);
+      document.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
     };
   }, [update]);
