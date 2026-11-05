@@ -3115,19 +3115,26 @@ export function BingoBlock({
           {/* UN BOUTON, PAS UN CHOIX DANS LA LISTE (04/11/2026, Luc) : il pose
               la grille officielle de la taille choisie ; mon bingo reste rangé
               et revient par l'autre bouton. */}
-          <button
-            type="button"
-            onClick={() => onPatch?.({ bingoMode: mode === "season" ? "mine" : "season" })}
-            className={`rounded-xl px-3 py-1.5 font-karla text-[12px] font-bold transition-colors ${
-              mode === "season" ? "bg-white/[0.07] text-white/80 ring-1 ring-inset ring-white/10 hover:text-white" : "bg-action text-white hover:brightness-110"
-            }`}
-          >
-            {mode === "season" ? t("profile.blocks.bingo.useMine") : `★ ${t("profile.blocks.bingo.useSeason")}`}
-          </button>
+          {/* AUTRE INTERFACE (05/11/2026, Luc : « enlève cette barre ») : un petit
+              interrupteur à deux positions, sur la même ligne que les actions,
+              au lieu d'une barre pleine largeur. */}
           <div className="flex flex-wrap items-center gap-1.5 font-karla text-[11px]">
-            <span className="min-w-0 flex-1 truncate text-txt">
-              {mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
-            </span>
+            <div role="group" aria-label={t("profile.blocks.bingo.modeLabel")} className="flex rounded-full bg-black/25 p-0.5 ring-1 ring-inset ring-white/10">
+              {(["season", "mine"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={mode === m}
+                  onClick={() => mode !== m && onPatch?.({ bingoMode: m })}
+                  className={`rounded-full px-2.5 py-0.5 font-bold transition-colors ${
+                    mode === m ? "bg-action text-white" : "text-white/60 hover:text-white"
+                  }`}
+                >
+                  {m === "season" ? `★ ${t("profile.blocks.bingo.modeSeason")}` : t("profile.blocks.bingo.modeMine")}
+                </button>
+              ))}
+            </div>
+            <span className="flex-1" />
             {edited ? (
               <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
                 {t("profile.blocks.bingo.backOfficial")}
@@ -3140,6 +3147,9 @@ export function BingoBlock({
               {t("profile.blocks.bingo.import")}
             </button>
           </div>
+          <p className="font-karla text-[11px] text-txt">
+            {mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
+          </p>
           {mode === "mine" && span === "custom" ? (
             <div className="flex items-center gap-1.5 font-karla text-[11px] text-txt">
               <span>{t("profile.blocks.bingo.from")}</span>
