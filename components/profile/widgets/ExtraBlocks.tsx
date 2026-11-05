@@ -2605,6 +2605,9 @@ export const BINGO_GOALS: Goal[] = [
   { id: "music", icon: "🎵", need: 1, got: genre("Music") },
   { id: "supernatural", icon: "🔮", need: 1, got: genre("Supernatural") },
   { id: "adventure", icon: "🗺️", need: 1, got: genre("Adventure") },
+  { id: "finishStarted", icon: "🏅", need: 1, got: (c) =>
+      c.ids.some((id) => { const st = c.byId.get(id)?.status; return !c.before.has(id) && (st === "COMPLETED" || st === "REPEATING"); }) ? 1 : 0 },
+  { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
   { id: "genres10", icon: "🌈", need: 10, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
   { id: "movies3", icon: "🎟️", need: 3, got: (c) => c.list.filter((m) => m.format === "MOVIE").length },
 ];
@@ -2619,6 +2622,7 @@ const SEASON_POOL = [
   /* Ajoutés le 06/11/2026 (Luc). */
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
   "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
+  "finishStarted", "animes5",
 ];
 
 type Custom = { k: string; t: string; d?: string; e?: string };

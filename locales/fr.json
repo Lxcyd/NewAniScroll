@@ -1291,7 +1291,9 @@
           "psycho": "Un anime psychologique",
           "music": "Un anime musical",
           "supernatural": "Un anime surnaturel",
-          "adventure": "Un anime d'aventure"
+          "adventure": "Un anime d'aventure",
+          "finishStarted": "Terminer un anime commencé pendant la saison",
+          "animes5": "{{count}} animes différents"
         },
         "manage": "Modifier le bingo",
         "editHint": "Clique une case pour la changer, glisse-la pour la déplacer",
