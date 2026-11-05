@@ -3082,8 +3082,9 @@ export function BingoBlock({
   /* LE TEXTE SUIT LA CARTE (05/11/2026, Luc : « titres bien plus gros ») : la
      taille est une part de la largeur de la grille (`cqw`, la grille est un
      conteneur), bornée pour rester lisible en petit et sage en grand. */
-  const iconStyle = { fontSize: `clamp(13px, ${16 / n}cqw, 34px)` };
-  const labelStyle = { fontSize: `clamp(10px, ${10 / n}cqw, 19px)` };
+  /* ... et de la HAUTEUR (`cqh`) : une carte basse ne coupe plus un nom de trois lignes. */
+  const iconStyle = { fontSize: `clamp(12px, min(${16 / n}cqw, ${18 / n}cqh), 34px)` };
+  const labelStyle = { fontSize: `clamp(9px, min(${10 / n}cqw, ${13 / n}cqh), 19px)` };
 
   if (!days && !editing) return <div className="h-full" />;
 
