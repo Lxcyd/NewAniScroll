@@ -1507,8 +1507,12 @@ function startGridDrag(
   const sameRow = (i: number) => slots[i].y === from.y;
   let swap = false;
   const onMove = (x: number, y: number) => {
-    const dx = (x - startX) / (kx || 1);
-    const dy = (y - startY) / (ky || 1);
+    /* Si la page défile pendant le glisser, la grille bouge à l'écran mais le
+       pointeur non : on retire ce déplacement de la grille (quel que soit le
+       parent qui défile) pour que la carte reste sous la souris. */
+    const r = body.getBoundingClientRect();
+    const dx = (x - startX - (r.left - rect.left)) / (kx || 1);
+    const dy = (y - startY - (r.top - rect.top)) / (ky || 1);
     dragged.style.transform = `translate3d(${dx}px,${dy}px,0) scale(1.04)`;
     /* L'emplacement le plus proche du centre de la case portée. */
     const cx = from.x + from.w / 2 + dx;
@@ -1548,10 +1552,19 @@ function startGridDrag(
         onMove(lastX, lastY);
       });
   };
+  /* Le défilement ne produit pas de `pointermove` : on recalcule à part. */
+  const onScroll = () => {
+    if (!raf)
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        onMove(lastX, lastY);
+      });
+  };
   const onEnd = () => {
     if (ended) return;
     ended = true;
     document.removeEventListener("pointermove", onPM);
+    document.removeEventListener("scroll", onScroll, true);
     document.removeEventListener("pointerup", onEnd);
     document.removeEventListener("pointercancel", onEnd);
     document.body.style.cursor = "";
@@ -1563,8 +1576,8 @@ function startGridDrag(
     if (raf) {
       cancelAnimationFrame(raf);
       raf = 0;
-      onMove(lastX, lastY);
     }
+    onMove(lastX, lastY);
     const to = slots[toIndex];
     dragged.style.transition = `transform ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms`;
     dragged.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`;
@@ -1577,6 +1590,7 @@ function startGridDrag(
     }, DROP_MS);
   };
   document.addEventListener("pointermove", onPM);
+  document.addEventListener("scroll", onScroll, true);
   document.addEventListener("pointerup", onEnd);
   document.addEventListener("pointercancel", onEnd);
   onMove(startX, startY);
