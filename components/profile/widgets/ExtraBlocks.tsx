@@ -2923,6 +2923,7 @@ export function BingoBlock({
     };
   }, [inSeason, allDays, ids, meta, entries, season.year, startKey, friendIds, rnd]);
 
+  const [draftEmoji, setDraftEmoji] = useState<Record<number, string>>({});
   const done = new Set(state.done);
   const customOf = (id: string) => customs.find((c) => `c:${c.k}` === id);
   /** Ce qu'une case affiche et où elle en est. */
@@ -3309,8 +3310,30 @@ export function BingoBlock({
                 </span>
               ) : null}
             </>
+          ) : ce ? (
+            /* CASE VIDE AU CRAYON (05/11/2026, Luc) : comme les autres, un emoji et
+               un nom en pointillés. Écrire le nom crée l'objectif dans la case. */
+            <>
+              <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="mb-2 leading-none">
+                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md px-1 leading-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-2 group-hover:outline-white/45" onPick={(e) => setDraftEmoji((d) => ({ ...d, [i]: e }))}>
+                  <span style={iconStyle} className={draftEmoji[i] ? "" : "opacity-40 grayscale"}>{iconNode(draftEmoji[i] || "🙂")}</span>
+                </EmojiButton>
+              </span>
+              <CellName
+                key={`new:${i}`}
+                value=""
+                placeholder={t("profile.blocks.bingo.newTitle")}
+                style={labelStyle}
+                onCommit={(v) => {
+                  if (!v) return;
+                  const k = newKey();
+                  setCell(i, `c:${k}`, { bingoCustom: JSON.stringify([...customs, cleanCustom({ t: v, e: draftEmoji[i] || undefined, k })]) });
+                  setDraftEmoji((d) => ({ ...d, [i]: "" }));
+                }}
+              />
+            </>
           ) : (
-            <span className="leading-none text-white/30" style={iconStyle}>{ce ? "+" : ""}</span>
+            <span className="leading-none text-white/30" style={iconStyle} />
           );
           const cls = `relative flex min-h-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg p-1 text-center transition-colors ${
             !ce && isDone[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
@@ -3329,7 +3352,7 @@ export function BingoBlock({
              hasard, lui, se tire tout seul). */
           const act =
             ce
-              ? () => setPicking(i)
+              ? null
               : isOwner && onPatch && c && (mode === "mine" || id.startsWith("c:"))
                 ? () => toggleCustom(id)
                 : null;
@@ -3372,7 +3395,7 @@ export function BingoBlock({
             : {};
           /* Au crayon une case porte un champ et un bouton : ce n'est plus un
              <button> (pas de bouton dans un bouton) mais un bloc cliquable. */
-          if (ce && c) {
+          if (ce) {
             return (
               <div
                 key={i}
@@ -3384,10 +3407,6 @@ export function BingoBlock({
                     dragged.current = false;
                     return;
                   }
-                  setPicking(i);
-                }}
-                onKeyDown={(e) => {
-                  if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) setPicking(i);
                 }}
                 {...dnd}
                 className={`${cls} group cursor-grab touch-none select-none hover:bg-white/[0.08] hover:ring-white/20`}
@@ -3430,7 +3449,7 @@ export function BingoBlock({
 }
 
 /** Le nom d'une case, au crayon : un champ de texte qui s'enregistre en le quittant. */
-function CellName({ value, style, onCommit }: { value: string; style: React.CSSProperties; onCommit: (v: string) => void }) {
+function CellName({ value, style, onCommit, placeholder }: { value: string; style: React.CSSProperties; onCommit: (v: string) => void; placeholder?: string }) {
   const [text, setText] = useState(value);
   /* Comme la lecture (3 lignes au plus) : le champ grandit avec son texte au
      lieu de couper à deux lignes. */
@@ -3449,6 +3468,7 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       ref={ta}
       data-nodrag
       value={text}
+      placeholder={placeholder}
       rows={1}
       maxLength={40}
       spellCheck={false}
@@ -3460,7 +3480,7 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0 text-center font-karla font-semibold leading-tight text-white outline-none focus:bg-white/[0.12]"
+      className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0 text-center font-karla font-semibold leading-tight text-white outline-none placeholder:text-white/35 focus:bg-white/[0.12]"
       style={{ ...style, maxHeight: "3.75em", overflow: "hidden" }}
     />
     </span>
