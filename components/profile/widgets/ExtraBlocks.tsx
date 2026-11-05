@@ -3053,9 +3053,8 @@ export function BingoBlock({
   const cellsDone = isDone.filter(Boolean).length;
   const pts = bingoPoints(cellIds, isDone, lines.length, full);
   /* Le maximum : toutes les cases, toutes les lignes/colonnes/diagonales
-     (2n + 2) et la grille pleine. Quatre paliers, un quart chacun. */
-  const maxPts = bingoPoints(cellIds, cellIds.map(() => true), 2 * n + 2, true);
-  const nextTier = Math.round([1, 2, 3, 4].map((k) => (maxPts * k) / 4).find((x) => x > pts) ?? maxPts);
+     (2n + 2) et la grille pleine. Affiché tel quel, sans paliers. */
+  const maxPts = Math.max(1, bingoPoints(cellIds, cellIds.map(() => true), 2 * n + 2, true));
 
   /* ── Choisir l'objectif d'une case ── */
   if (editing && picking != null) {
@@ -3150,17 +3149,17 @@ export function BingoBlock({
               maximum), et la barre dessous le suit. */}
           <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
             {mode !== "season" ? `${period.label} · ` : ""}
-            {t("profile.blocks.bingo.points", { points: `${pts} / ${nextTier}` })}
+            {t("profile.blocks.bingo.points", { points: `${pts} / ${maxPts}` })}
           </span>
           {/* La barre vers le prochain palier : petite, juste à côté des points. */}
           <span
             className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
             role="progressbar"
             aria-valuemin={0}
-            aria-valuemax={nextTier}
-            aria-valuenow={Math.min(pts, nextTier)}
+            aria-valuemax={maxPts}
+            aria-valuenow={Math.min(pts, maxPts)}
           >
-            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / nextTier) * 100)}%` }} />
+            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / maxPts) * 100)}%` }} />
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
