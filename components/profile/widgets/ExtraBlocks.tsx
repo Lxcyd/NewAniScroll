@@ -3267,7 +3267,7 @@ export function BingoBlock({
             <>
               {/* L'emoji ouvre le menu d'emojis du chat ; le nom se tape sur place. */}
               <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="leading-none">
-                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md border border-dashed border-transparent px-1.5 py-0.5 leading-none transition-colors group-hover:border-white/45 hover:bg-white/[0.1]" onPick={(e) => setLabel(id, { e })}>
+                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md px-1 leading-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-2 group-hover:outline-white/45" onPick={(e) => setLabel(id, { e })}>
                   <span style={iconStyle}>{iconNode(c.icon)}</span>
                 </EmojiButton>
               </span>
@@ -3414,6 +3414,9 @@ export function BingoBlock({
 function CellName({ value, style, onCommit }: { value: string; style: React.CSSProperties; onCommit: (v: string) => void }) {
   const [text, setText] = useState(value);
   return (
+    /* Le cadre en pointillés est sur l'enveloppe (comme celui de l'emoji, qui
+       s'affiche) et non sur le champ lui-même. */
+    <span className="block w-full rounded-md group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-1 group-hover:outline-white/45 focus-within:![outline-style:solid] focus-within:![outline-color:rgba(255,255,255,0.7)]">
     <textarea
       data-nodrag
       value={text}
@@ -3428,9 +3431,10 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none select-text rounded-md border border-dashed border-transparent bg-transparent px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none transition-colors group-hover:border-white/45 focus:border-solid focus:border-white/70 focus:bg-white/[0.12]"
+      className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none focus:bg-white/[0.12]"
       style={style}
     />
+    </span>
   );
 }
 
