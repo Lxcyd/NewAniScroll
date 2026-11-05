@@ -1271,7 +1271,7 @@
           "seasonInDay": "Une saison entière en un jour",
           "doubleFeature": "Deux films le même jour",
           "special": "Un épisode spécial",
-          "newSeason": "Un anime de la saison, vu dans ses 14 premiers jours",
+          "newSeason": "Regarder un épisode d'un anime en cours de diffusion",
           "finish5": "{{count}} séries terminées",
           "secondChance": "Reprendre un anime laissé un mois",
           "newStart": "Commencer un nouvel anime",
@@ -1291,12 +1291,7 @@
           "psycho": "Un anime psychologique",
           "music": "Un anime musical",
           "supernatural": "Un anime surnaturel",
-          "adventure": "Un anime d'aventure",
-          "longSeries": "Une série de plus de 50 épisodes",
-          "finishShort": "Terminer une série de 13 épisodes max",
-          "nineties": "Un anime des années 90",
-          "tens": "Un anime des années 2010",
-          "rate8": "Un anime noté 8/10 ou plus"
+          "adventure": "Un anime d'aventure"
         },
         "manage": "Modifier le bingo",
         "editHint": "Clique une case pour la changer, glisse-la pour la déplacer",

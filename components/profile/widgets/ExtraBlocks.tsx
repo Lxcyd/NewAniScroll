@@ -2562,10 +2562,8 @@ export const BINGO_GOALS: Goal[] = [
   { id: "doubleFeature", icon: "🎞️", need: 1, got: (c) =>
       c.days.some(([, d]) => d.a.filter((id) => c.metas.get(id)?.format === "MOVIE").length >= 2) ? 1 : 0 },
   { id: "special", icon: "🎁", need: 1, got: (c) => (c.list.some((m) => m.format === "SPECIAL") ? 1 : 0) },
-  { id: "newSeason", icon: "🌱", need: 1, got: (c) => {
-      const end = shiftDay(c.startKey, 14);
-      return c.days.some(([k, d]) => k < end && d.a.some((id) => { const m = c.metas.get(id); return !!m && m.airing && m.year === c.year; })) ? 1 : 0;
-    } },
+  /* 06/11/2026, Luc : un épisode d'un anime EN COURS de diffusion, à n'importe quel moment. */
+  { id: "newSeason", icon: "🌱", need: 1, got: (c) => (c.list.some((m) => m.airing) ? 1 : 0) },
   { id: "finish5", icon: "🏆", need: 5, got: finished },
   { id: "secondChance", icon: "🩹", need: 1, got: (c) =>
       c.ids.some((id) => { const b = c.before.get(id); const f = c.first.get(id); return !!b && !!f && gapDays(b, f) >= 30; }) ? 1 : 0 },
@@ -2607,12 +2605,6 @@ export const BINGO_GOALS: Goal[] = [
   { id: "music", icon: "🎵", need: 1, got: genre("Music") },
   { id: "supernatural", icon: "🔮", need: 1, got: genre("Supernatural") },
   { id: "adventure", icon: "🗺️", need: 1, got: genre("Adventure") },
-  { id: "longSeries", icon: "🐉", need: 1, got: (c) => (c.ids.some((id) => (c.byId.get(id)?.total ?? 0) > 50) ? 1 : 0) },
-  { id: "finishShort", icon: "⏱️", need: 1, got: (c) =>
-      c.ids.some((id) => { const e = c.byId.get(id); return (e?.status === "COMPLETED" || e?.status === "REPEATING") && (e?.total ?? 0) > 0 && (e?.total ?? 0) <= 13; }) ? 1 : 0 },
-  { id: "nineties", icon: "📟", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year >= 1990 && m.year <= 1999) ? 1 : 0) },
-  { id: "tens", icon: "💿", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year >= 2010 && m.year <= 2019) ? 1 : 0) },
-  { id: "rate8", icon: "✨", need: 1, got: (c) => (c.ids.some((id) => (c.byId.get(id)?.score ?? 0) >= 8) ? 1 : 0) },
   { id: "genres10", icon: "🌈", need: 10, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
   { id: "movies3", icon: "🎟️", need: 3, got: (c) => c.list.filter((m) => m.format === "MOVIE").length },
 ];
@@ -2627,7 +2619,6 @@ const SEASON_POOL = [
   /* Ajoutés le 06/11/2026 (Luc). */
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
   "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
-  "longSeries", "finishShort", "nineties", "tens", "rate8",
 ];
 
 type Custom = { k: string; t: string; d?: string; e?: string };
