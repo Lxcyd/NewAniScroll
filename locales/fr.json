@@ -1298,6 +1298,8 @@
         "import": "Importer",
         "importPlaceholder": "Colle un code de bingo (ASB1:…)",
         "importGo": "OK",
+        "points": "{{points}} pts",
+        "pointsTitle": "10 pts par case, +20 par ligne ou colonne complète, +50 grille pleine",
         "newGoal": "Écrire un objectif",
         "newEmoji": "Emoji (facultatif)",
         "newTitle": "Nom",

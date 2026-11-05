@@ -2609,6 +2609,8 @@ const SEASON_POOL = [
 ];
 
 type Custom = { k: string; t: string; d?: string; e?: string };
+/** Les points du bingo : 10 par case, +20 par ligne/colonne/diagonale, +50 grille pleine. */
+const bingoPoints = (cells: number, lines: number, full: boolean) => cells * 10 + lines * 20 + (full ? 50 : 0);
 type BingoState = { done: string[]; rnd?: { k: string; id: number } };
 type SeasonData = { key: string; genres: string[]; top: { id: number; title: string }[] };
 
@@ -3133,6 +3135,15 @@ export function BingoBlock({
         <p className="flex items-center gap-2 font-karla text-[12px] text-txt">
           <span className="min-w-0 truncate">
             {period.label} · {isDone.filter(Boolean).length}/{n * n}
+          </span>
+          {/* LES POINTS (05/11/2026, Luc : « un système de points plutôt ») :
+              10 par case, +20 par ligne ou colonne complète, +50 la grille
+              pleine. */}
+          <span
+            className="shrink-0 rounded-full bg-action/20 px-1.5 py-0.5 font-outfit text-[10px] font-bold text-white ring-1 ring-inset ring-white/15"
+            title={t("profile.blocks.bingo.pointsTitle")}
+          >
+            {t("profile.blocks.bingo.points", { points: bingoPoints(isDone.filter(Boolean).length, lines.length, full) })}
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (

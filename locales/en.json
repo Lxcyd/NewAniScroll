@@ -1298,6 +1298,8 @@
         "import": "Import",
         "importPlaceholder": "Paste a bingo code (ASB1:…)",
         "importGo": "OK",
+        "points": "{{points}} pts",
+        "pointsTitle": "10 pts per cell, +20 per complete line or column, +50 for a full grid",
         "newGoal": "Write a goal",
         "newEmoji": "Emoji (optional)",
         "newTitle": "Name",
