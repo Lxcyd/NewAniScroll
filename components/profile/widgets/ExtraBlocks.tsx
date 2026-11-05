@@ -1527,11 +1527,16 @@ function startGridDrag(
     });
     return d;
   };
-  /* En diagonale : d'abord la ligne jusqu'à la bonne colonne, puis la colonne
-     jusqu'à la bonne ligne (05/11/2026, Luc : pas d'échange). */
+  /* En diagonale (05/11/2026, Luc) : pas d'échange. L'axe que la carte a
+     dépassé EN PREMIER passe en premier : horizontal = la ligne puis la
+     colonne, vertical = la colonne puis la ligne. */
+  let firstAxis: "x" | "y" | null = null;
   const placement = (to: number): number[] => {
     if (slots[to].y === from.y || slots[to].x === from.x) return shiftLine(fromIndex, to);
-    const m = slots.findIndex((s) => s.x === slots[to].x && s.y === from.y);
+    const m =
+      firstAxis === "y"
+        ? slots.findIndex((s) => s.x === from.x && s.y === slots[to].y)
+        : slots.findIndex((s) => s.x === slots[to].x && s.y === from.y);
     if (m < 0) return shiftLine(fromIndex, to);
     const d1 = shiftLine(fromIndex, m);
     const d2 = shiftLine(m, to);
@@ -1559,6 +1564,10 @@ function startGridDrag(
       }
     });
     toIndex = best;
+    const outX = Math.abs(dx) / (from.w / 2);
+    const outY = Math.abs(dy) / (from.h / 2);
+    if (outX < 1 && outY < 1) firstAxis = null;
+    else if (!firstAxis) firstAxis = outX >= outY ? "x" : "y";
     dest = placement(toIndex);
     /* Les autres prennent la place qu'elles auront une fois la case posée. */
     cells.forEach((c, i) => {
