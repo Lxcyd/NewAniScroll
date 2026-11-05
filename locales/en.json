@@ -1303,6 +1303,7 @@
         "modeSeason": "Season",
         "modeMine": "My bingo",
         "points": "{{points}} pts",
+        "cards": "{{done}} / {{total}} cards",
         "pointsTitle": "10 pts per cell, +20 per complete line, column or diagonal, +50 for a full grid",
         "newGoal": "Write a goal",
         "newEmoji": "Emoji (optional)",

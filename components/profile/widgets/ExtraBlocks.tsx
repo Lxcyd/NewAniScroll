@@ -2982,9 +2982,9 @@ export function BingoBlock({
   /* LE BADGE « BINGO À 100 % » (04/11/2026, Luc) : chez soi, quand toutes les
      cases sont cochées. Le badge est un drapeau du catalogue (`bingoFull`). */
   useEffect(() => {
-    if (isOwner && !editing && days && full)
+    if (isOwner && !editing && days && full && mode === "season")
       void import("@/lib/badges/facts").then((f) => f.recordFlag("bingoFull")).catch(() => {});
-  }, [isOwner, editing, days, full]);
+  }, [isOwner, editing, days, full, mode]);
 
   /* ── Écritures ── */
   const writeCells = (next: string[], extra: Record<string, string> = {}) => {
@@ -3089,6 +3089,10 @@ export function BingoBlock({
   /* Le maximum : toutes les cases, toutes les lignes/colonnes/diagonales
      (2n + 2) et la grille pleine. Affiché tel quel, sans paliers. */
   const maxPts = Math.max(1, bingoPoints(cellIds, cellIds.map(() => true), 2 * n + 2, true));
+
+  /* Officiel : des points ; mon bingo : des cartes cochées par soi. */
+  const barNow = mode === "season" ? pts : cellsDone;
+  const barMax = mode === "season" ? maxPts : n * n;
 
   /* ── Choisir l'objectif d'une case ── */
   if (editing && picking != null) {
@@ -3205,17 +3209,19 @@ export function BingoBlock({
               maximum), et la barre dessous le suit. */}
           <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
             {mode !== "season" ? `${period.label} · ` : ""}
-            {t("profile.blocks.bingo.points", { points: `${pts} / ${maxPts}` })}
+            {mode === "season"
+              ? t("profile.blocks.bingo.points", { points: `${pts} / ${maxPts}` })
+              : t("profile.blocks.bingo.cards", { done: cellsDone, total: n * n })}
           </span>
           {/* La barre vers le prochain palier : petite, juste à côté des points. */}
           <span
             className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
             role="progressbar"
             aria-valuemin={0}
-            aria-valuemax={maxPts}
-            aria-valuenow={Math.min(pts, maxPts)}
+            aria-valuemax={barMax}
+            aria-valuenow={Math.min(barNow, barMax)}
           >
-            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / maxPts) * 100)}%` }} />
+            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (barNow / barMax) * 100)}%` }} />
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
@@ -3226,7 +3232,7 @@ export function BingoBlock({
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
             <span className="font-karla text-[11px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
-              {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")} · {cellsDone}/{n * n}
+              {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
             {lines.length ? (
               <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
