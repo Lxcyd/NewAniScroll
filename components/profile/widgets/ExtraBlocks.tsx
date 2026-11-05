@@ -3107,11 +3107,6 @@ export function BingoBlock({
         resolve={resolve}
         onBack={() => setPicking(null)}
         onPick={(id) => setCell(picking, id)}
-        onCreate={(g) => {
-          const k = newKey();
-          const list = [...customs, cleanCustom({ ...g, k })];
-          setCell(picking, `c:${k}`, { bingoCustom: JSON.stringify(list) });
-        }}
         onDelete={(k) => onPatch?.({ bingoCustom: JSON.stringify(customs.filter((c) => c.k !== k)) })}
       />
     );
@@ -3516,7 +3511,6 @@ function GoalPicker({
   resolve,
   onBack,
   onPick,
-  onCreate,
   onDelete,
 }: {
   current: string;
@@ -3526,12 +3520,9 @@ function GoalPicker({
   resolve: (id: string) => { icon: string; label: string; desc?: string } | null;
   onBack: () => void;
   onPick: (id: string) => void;
-  onCreate: (g: { t: string; d?: string; e?: string }) => void;
   onDelete: (k: string) => void;
 }) {
   const { t } = useTranslation();
-  const [title, setTitle] = useState("");
-  const [emoji, setEmoji] = useState("");
   const row = (id: string, extra?: ReactNode) => {
     const r = resolve(id);
     if (!r) return null;
@@ -3574,42 +3565,6 @@ function GoalPicker({
         ) : null}
       </div>
       <div className="as-scroller grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto overflow-x-hidden pr-1">
-        {/* Écrire son objectif. */}
-        <form
-          className="mb-1 grid gap-1.5 rounded-xl bg-white/[0.04] p-2 ring-1 ring-inset ring-white/[0.08]"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!title.trim()) return;
-            onCreate({ t: title.trim(), e: emoji.trim() || undefined });
-          }}
-        >
-          <p className="font-karla text-[11px] font-bold text-white/70">{t("profile.blocks.bingo.newGoal")}</p>
-          <div className="flex gap-1.5">
-            <input
-              id="bingo-emoji"
-              value={emoji}
-              onChange={(e) => setEmoji(Array.from(e.target.value).slice(0, 2).join(""))}
-              placeholder="🙂"
-              aria-label={t("profile.blocks.bingo.newEmoji")}
-              className="w-10 shrink-0 rounded-lg bg-white/[0.06] px-1 py-1 text-center text-[15px] text-white outline-none ring-1 ring-inset ring-white/10 focus:ring-white/30"
-            />
-            <input
-              id="bingo-title"
-              value={title}
-              maxLength={40}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("profile.blocks.bingo.newTitle")}
-              className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-2 py-1 font-karla text-[12px] text-white outline-none ring-1 ring-inset ring-white/10 placeholder:text-white/35 focus:ring-white/30"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={!title.trim()}
-            className="justify-self-end rounded-lg bg-action px-3 py-1 font-karla text-[11px] font-bold text-white disabled:opacity-40"
-          >
-            {t("profile.blocks.bingo.newAdd")}
-          </button>
-        </form>
         {customs.length ? head("profile.blocks.bingo.groupMine") : null}
         {customs.map((c) =>
           row(
