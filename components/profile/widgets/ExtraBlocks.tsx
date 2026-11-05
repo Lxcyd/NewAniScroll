@@ -3118,15 +3118,18 @@ export function BingoBlock({
           {/* AUTRE INTERFACE (05/11/2026, Luc : « enlève cette barre ») : un petit
               interrupteur à deux positions, sur la même ligne que les actions,
               au lieu d'une barre pleine largeur. */}
-          <div className="flex flex-wrap items-center gap-1.5 font-karla text-[11px]">
-            <div role="group" aria-label={t("profile.blocks.bingo.modeLabel")} className="flex rounded-full bg-black/25 p-0.5 ring-1 ring-inset ring-white/10">
+          {/* MÊME HAUTEUR QUE LA LIGNE DU MODE LECTURE (05/11/2026, Luc : « pour ne
+              pas rétrécir les cartes ») : une seule ligne de 24 px ; l'aide passe
+              dans l'infobulle du ⓘ. */}
+          <div className="flex h-6 items-center gap-1.5 overflow-hidden font-karla text-[11px]">
+            <div role="group" aria-label={t("profile.blocks.bingo.modeLabel")} className="flex shrink-0 rounded-full bg-black/25 p-0.5 ring-1 ring-inset ring-white/10">
               {(["season", "mine"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
                   aria-pressed={mode === m}
                   onClick={() => mode !== m && onPatch?.({ bingoMode: m })}
-                  className={`rounded-full px-2.5 py-0.5 font-bold transition-colors ${
+                  className={`whitespace-nowrap rounded-full px-2.5 py-px font-bold leading-4 transition-colors ${
                     mode === m ? "bg-action text-white" : "text-white/60 hover:text-white"
                   }`}
                 >
@@ -3134,22 +3137,27 @@ export function BingoBlock({
                 </button>
               ))}
             </div>
+            <span
+              tabIndex={0}
+              title={mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
+              aria-label={mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
+              className="shrink-0 cursor-help text-[13px] leading-none text-white/50 hover:text-white"
+            >
+              ⓘ
+            </span>
             <span className="flex-1" />
             {edited ? (
-              <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+              <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
                 {t("profile.blocks.bingo.backOfficial")}
               </button>
             ) : null}
-            <button type="button" onClick={copyCode} className="rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+            <button type="button" onClick={copyCode} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
               {copied ? t("profile.blocks.bingo.copied") : t("profile.blocks.bingo.copyCode")}
             </button>
-            <button type="button" onClick={() => setImporting((v) => !v)} className="rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+            <button type="button" onClick={() => setImporting((v) => !v)} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
               {t("profile.blocks.bingo.import")}
             </button>
           </div>
-          <p className="font-karla text-[11px] text-txt">
-            {mode === "season" && !edited ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
-          </p>
           {mode === "mine" && span === "custom" ? (
             <div className="flex items-center gap-1.5 font-karla text-[11px] text-txt">
               <span>{t("profile.blocks.bingo.from")}</span>
@@ -3183,7 +3191,7 @@ export function BingoBlock({
           ) : null}
         </div>
       ) : (
-        <p className="flex items-center gap-2 font-karla text-[12px] text-txt">
+        <p className="flex h-6 items-center gap-2 font-karla text-[12px] text-txt">
           {/* LES POINTS (05/11/2026, Luc : « garde ça » sur la maquette 05) :
               10 par case, +20 par ligne ou colonne complète, +50 la grille
               pleine ; « 180 / 270 » = vers le prochain palier (un quart du
