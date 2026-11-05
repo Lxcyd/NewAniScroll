@@ -1507,6 +1507,10 @@ function startGridDrag(
   /* Sur une même ligne OU une même colonne, la case s'insère et les autres de
      la ligne/colonne se décalent (05/11/2026, Luc : la verticale marche comme
      l'horizontale) ; en diagonale, on échange. `dest[i]` = où va la case i. */
+  const minDx = Math.min(...slots.map((s) => s.x)) - from.x;
+  const maxDx = Math.max(...slots.map((s) => s.x + s.w)) - from.x - from.w;
+  const minDy = Math.min(...slots.map((s) => s.y)) - from.y;
+  const maxDy = Math.max(...slots.map((s) => s.y + s.h)) - from.y - from.h;
   let dest = slots.map((_, i) => i);
   const placement = (to: number): number[] => {
     const same = (key: "x" | "y") => slots[to][key] === from[key];
@@ -1537,8 +1541,9 @@ function startGridDrag(
        pointeur non : on retire ce déplacement de la grille (quel que soit le
        parent qui défile) pour que la carte reste sous la souris. */
     const r = body.getBoundingClientRect();
-    const dx = (x - startX - (r.left - rect.left)) / (kx || 1);
-    const dy = (y - startY - (r.top - rect.top)) / (ky || 1);
+    /* La carte ne sort pas de la grille : son déplacement est borné aux bords. */
+    const dx = Math.min(maxDx, Math.max(minDx, (x - startX - (r.left - rect.left)) / (kx || 1)));
+    const dy = Math.min(maxDy, Math.max(minDy, (y - startY - (r.top - rect.top)) / (ky || 1)));
     dragged.style.transform = `translate3d(${dx}px,${dy}px,0) scale(1.04)`;
     /* L'emplacement le plus proche du centre de la case portée. */
     const cx = from.x + from.w / 2 + dx;
