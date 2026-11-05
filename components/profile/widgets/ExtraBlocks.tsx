@@ -1428,7 +1428,7 @@ function startRowDrag(
     dragged.style.boxShadow = "";
     setTimeout(() => {
       // Le nouvel ordre et l'effacement des décalages dans la même image : pas de saut.
-      flushSync(() => done(fromIndex, toIndex, swap));
+      flushSync(() => done(fromIndex, toIndex));
       for (const r of rows)
         for (const k of ["transition", "transform", "position", "zIndex", "opacity", "boxShadow", "cursor", "willChange"] as const)
           r.style[k] = "";
@@ -1564,7 +1564,7 @@ function startGridDrag(
     dragged.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`;
     dragged.style.boxShadow = "";
     setTimeout(() => {
-      flushSync(() => done(fromIndex, toIndex));
+      flushSync(() => done(fromIndex, toIndex, swap));
       for (const c of cells)
         for (const k of ["transition", "transform", "position", "zIndex", "boxShadow", "cursor", "willChange"] as const)
           c.style[k] = "";
