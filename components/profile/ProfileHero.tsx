@@ -27,7 +27,7 @@ import {
   writeProfileVolume,
 } from "@/lib/profile/playback";
 export { PROFILE_AUTOPLAY_COOKIE } from "@/lib/profile/playback";
-import { useSceneScrollFix } from "@/lib/profile/sceneCard";
+import { useSceneCard } from "@/lib/profile/sceneCard";
 /* Plus haut que les aperçus (0,15) : ici on a cliqué pour écouter. */
 const PROFILE_DEFAULT_VOLUME = 0.5;
 import { clampBlur, fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
@@ -442,7 +442,7 @@ export default function ProfileHero({
     return () => window.clearTimeout(id);
   }, [lingering]);
   const showCard = !studio || lingering;
-  const sceneCard = useSceneScrollFix();
+  const sceneCard = useSceneCard();
   /* AU RETOUR DU STUDIO, LE GESTE A DÉJÀ EU LIEU (22/10/2026) : on vient d'y
      cliquer « Enregistrer ». Sans ça le fond vidéo repartait muet, en
      attendant un clic de plus sur la page, et le volume réglé là-bas restait

@@ -17,15 +17,7 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
     const el = card.current;
     if (!el) return;
     const stage = document.querySelector<HTMLElement>(".as-stage.is-fixed");
-    const scrolled = stage ? stage.scrollTop : 0;
-    /* LA CASE RESTE DANS LA PAGE (05/11/2026, Luc) : arrivée au pied de la
-       page, elle ne passe pas sur le pied de page — elle remonte d'autant que
-       celui-ci entre dans l'écran, et garde 16 px d'air au-dessus. */
-    const footers = document.querySelectorAll("footer");
-    const footer = footers[footers.length - 1] ?? null;
-    const lift = footer ? Math.max(0, window.innerHeight - footer.getBoundingClientRect().top - 8) : 0;
-    const y = scrolled - lift;
-    el.style.translate = y ? `0 ${y}px` : "";
+    el.style.translate = stage && stage.scrollTop ? `0 ${stage.scrollTop}px` : "";
   }, []);
   const ref = useCallback(
     (el: HTMLDivElement | null) => {
@@ -36,26 +28,78 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
   );
   useEffect(() => {
     const stage = document.querySelector<HTMLElement>(".as-stage");
+    if (!stage) return;
     const obs = new MutationObserver(update);
-    if (stage) {
-      obs.observe(stage, { attributes: true, attributeFilter: ["class"] });
-      stage.addEventListener("scroll", update, { passive: true });
-    }
-    /* La page défile (ou se redimensionne) : le pied de page monte ou descend.
-       En capture : un `scroll` ne remonte pas, et en mode édition c'est le cadre
-       de la scène — pas la fenêtre — qui défile, parfois monté après nous. */
+    obs.observe(stage, { attributes: true, attributeFilter: ["class"] });
+    stage.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => {
+      obs.disconnect();
+      stage.removeEventListener("scroll", update);
+    };
+  }, [update]);
+  return ref;
+}
+
+/**
+ * LA CASE RESTE DANS LA PAGE (05/11/2026, Luc) : en bas de page, elle ne passe
+ * pas sur le pied de page. Elle remonte d'autant qu'il faut — `margin-bottom`,
+ * qui décale une case `fixed` depuis le bas sans toucher à son `transform`
+ * (celui de la scène) ni à son `translate` (celui du défilement du cadre).
+ *
+ * Le bas « naturel » de la case se déduit de sa position mesurée moins le
+ * décalage déjà posé : la même mesure marche sur le profil, dans le cadre de la
+ * scène et dans le studio, sans connaître leurs transformations.
+ */
+export function useAboveFooter(): (el: HTMLDivElement | null) => void {
+  const card = useRef<HTMLDivElement | null>(null);
+  const lifted = useRef(0);
+  const update = useCallback(() => {
+    const el = card.current;
+    if (!el) return;
+    const footers = document.querySelectorAll("footer");
+    const footer = footers[footers.length - 1];
+    const natural = el.getBoundingClientRect().bottom + lifted.current;
+    const lift = footer ? Math.max(0, Math.round(natural - (footer.getBoundingClientRect().top - 16))) : 0;
+    if (lift === lifted.current) return;
+    lifted.current = lift;
+    el.style.marginBottom = lift ? `${lift}px` : "";
+  }, []);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      card.current?.removeEventListener("transitionend", update);
+      card.current = el;
+      /* La case glisse avec le cadre (transition de `transform`) : on remesure à l'arrivée. */
+      el?.addEventListener("transitionend", update);
+      update();
+    },
+    [update],
+  );
+  useEffect(() => {
+    /* `scroll` ne remonte pas : en capture, il attrape la fenêtre comme le cadre de la scène. */
     document.addEventListener("scroll", update, { passive: true, capture: true });
     window.addEventListener("resize", update);
     const size = new ResizeObserver(update);
     size.observe(document.body);
     update();
     return () => {
-      obs.disconnect();
       size.disconnect();
-      stage?.removeEventListener("scroll", update);
       document.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
     };
   }, [update]);
   return ref;
+}
+
+/** Les deux ensemble, pour la case du profil. */
+export function useSceneCard(): (el: HTMLDivElement | null) => void {
+  const a = useSceneScrollFix();
+  const b = useAboveFooter();
+  return useCallback(
+    (el: HTMLDivElement | null) => {
+      a(el);
+      b(el);
+    },
+    [a, b],
+  );
 }

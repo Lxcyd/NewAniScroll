@@ -82,6 +82,7 @@ const CheckIcon = ({ className }: { className?: string }) => (
 
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import MusicCard from "@/components/profile/MusicCard";
+import { useAboveFooter } from "@/lib/profile/sceneCard";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
@@ -1474,14 +1475,17 @@ export default function BannerStudio({
   /* La case en bas à droite suit le cadre en CSS (`.as-scene-follow`) ;
      montée après le départ du recul, elle rattrape le temps perdu (mesuré au
      CDP le 22/10/2026 : ~90 ms de retard, visibles tout le recul). */
+  const aboveFooter = useAboveFooter();
   const catchUp = useCallback((el: HTMLDivElement | null) => {
+    /* Elle reste aussi au-dessus du pied de page (05/11/2026, Luc). */
+    aboveFooter(el);
     if (!el) return;
     const html = document.documentElement;
     const at = Number(html.dataset.sceneShrunkAt);
     if (!(at > 0) || !html.classList.contains("as-scene-shrunk") || html.classList.contains("as-scene-docked")) return;
     const late = performance.now() - at;
     if (late > 0 && late < 500) el.style.setProperty("--as-follow-late", `${-Math.round(late)}ms`);
-  }, []);
+  }, [aboveFooter]);
   const exitPlay = useRef<boolean | null>(null);
   useEffect(() => {
     if (!open) return;
