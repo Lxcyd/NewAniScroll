@@ -3139,7 +3139,6 @@ export function BingoBlock({
           ) : null}
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
         <p className="flex items-center gap-2 font-karla text-[12px] text-txt">
           {/* LES POINTS (05/11/2026, Luc : « garde ça » sur la maquette 05) :
               10 par case, +20 par ligne ou colonne complète, +50 la grille
@@ -3148,6 +3147,16 @@ export function BingoBlock({
           <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
             {mode !== "season" ? `${period.label} · ` : ""}
             {t("profile.blocks.bingo.points", { points: `${pts} / ${nextTier}` })}
+          </span>
+          {/* La barre vers le prochain palier : petite, juste à côté des points. */}
+          <span
+            className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={nextTier}
+            aria-valuenow={Math.min(pts, nextTier)}
+          >
+            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / nextTier) * 100)}%` }} />
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
@@ -3193,10 +3202,6 @@ export function BingoBlock({
             </button>
           </span>
         </p>
-        <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.1]" role="progressbar" aria-valuemin={0} aria-valuemax={nextTier} aria-valuenow={Math.min(pts, nextTier)}>
-          <div className="h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / nextTier) * 100)}%` }} />
-        </div>
-        </div>
       )}
       {pending && isOwner && !editing ? (
         <div className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-2 py-1.5 font-karla text-[11px] ring-1 ring-inset ring-white/10">
