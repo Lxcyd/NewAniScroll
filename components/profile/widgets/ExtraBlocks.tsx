@@ -2843,7 +2843,7 @@ export function BingoBlock({
      taille est une part de la largeur de la grille (`cqw`, la grille est un
      conteneur), bornée pour rester lisible en petit et sage en grand. */
   const iconStyle = { fontSize: `clamp(13px, ${16 / n}cqw, 34px)` };
-  const labelStyle = { fontSize: `clamp(9px, ${7.2 / n}cqw, 17px)` };
+  const labelStyle = { fontSize: `clamp(10px, ${10 / n}cqw, 19px)` };
 
   if (!days && !editing) return <div className="h-full" />;
 
