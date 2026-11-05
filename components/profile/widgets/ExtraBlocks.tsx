@@ -2786,7 +2786,7 @@ export function BingoBlock({
   const span = mode === "season" ? "season" : ["month", "year", "custom"].includes(spanSaved) ? spanSaved : "season";
   const today = dayKey(Date.now());
   const range = (() => {
-    const m = /^(d{4}-d{2}-d{2})|(d{4}-d{2}-d{2})$/.exec(String(saved?.bingoRange ?? ""));
+    const m = /^(\d{4}-\d{2}-\d{2})\|(\d{4}-\d{2}-\d{2})$/.exec(String(saved?.bingoRange ?? ""));
     return m && m[1] <= m[2] ? { from: m[1], to: m[2] } : { from: today, to: shiftDay(today, 29) };
   })();
   const now = new Date();
@@ -3600,6 +3600,7 @@ function DateField({ id, value, min, max, onCommit }: { id: string; value: strin
       value={text}
       min={min}
       max={max}
+      onBlur={() => setText(value)}
       onChange={(e) => {
         setText(e.target.value);
         const v = e.target.value;
