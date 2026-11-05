@@ -3603,7 +3603,7 @@ function DateField({ id, value, min, max, onCommit }: { id: string; value: strin
       onChange={(e) => {
         setText(e.target.value);
         const v = e.target.value;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(v) && (!min || v >= min) && (!max || v <= max)) onCommit(v);
+        if (/^20\d{2}-\d{2}-\d{2}$/.test(v) && (!min || v >= min) && (!max || v <= max)) onCommit(v);
       }}
       className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
     />
