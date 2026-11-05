@@ -3298,7 +3298,7 @@ export function BingoBlock({
             </>
           ) : c ? (
             <>
-              <span className="leading-none" style={iconStyle}>{iconNode(c.icon)}</span>
+              <span className="mb-2 leading-none" style={iconStyle}>{iconNode(c.icon)}</span>
               <span className="line-clamp-3 px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
               {!editing && isDone[i] ? (
                 <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
