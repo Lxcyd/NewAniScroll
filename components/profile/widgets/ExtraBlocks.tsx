@@ -2839,8 +2839,11 @@ export function BingoBlock({
       .catch(() => window.prompt?.("", code));
   };
 
-  const icon = n >= 5 ? "text-[13px]" : n === 4 ? "text-[15px]" : "text-[18px]";
-  const label = n >= 5 ? "text-[8px]" : n === 4 ? "text-[9px]" : "text-[10px]";
+  /* LE TEXTE SUIT LA CARTE (05/11/2026, Luc : « titres bien plus gros ») : la
+     taille est une part de la largeur de la grille (`cqw`, la grille est un
+     conteneur), bornée pour rester lisible en petit et sage en grand. */
+  const iconStyle = { fontSize: `clamp(13px, ${16 / n}cqw, 34px)` };
+  const labelStyle = { fontSize: `clamp(9px, ${7.2 / n}cqw, 17px)` };
 
   if (!days && !editing) return <div className="h-full" />;
 
@@ -2999,15 +3002,15 @@ export function BingoBlock({
         </div>
       ) : null}
       <div
-        className="grid min-h-0 flex-1 gap-1.5"
+        className="grid min-h-0 flex-1 gap-1.5 [container-type:size]"
         style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}
       >
         {cells.map((c, i) => {
           const id = cellIds[i];
           const body = c ? (
             <>
-              <span className={`${icon} leading-none`}>{c.icon}</span>
-              <span className={`line-clamp-2 font-karla ${label} font-semibold leading-tight text-white`}>{c.label}</span>
+              <span className="leading-none" style={iconStyle}>{c.icon}</span>
+              <span className="line-clamp-3 px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
               {!editing && isDone[i] ? (
                 <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
               ) : !editing && c.need > 1 && n < 5 ? (
@@ -3019,7 +3022,7 @@ export function BingoBlock({
               ) : null}
             </>
           ) : (
-            <span className={`${icon} leading-none text-white/30`}>{editing ? "+" : ""}</span>
+            <span className="leading-none text-white/30" style={iconStyle}>{editing ? "+" : ""}</span>
           );
           const cls = `relative flex min-h-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg p-1 text-center transition-colors ${
             !editing && isDone[i] ? "" : "bg-black/20 ring-1 ring-white/[0.06]"
