@@ -1428,7 +1428,7 @@ function startRowDrag(
     dragged.style.boxShadow = "";
     setTimeout(() => {
       // Le nouvel ordre et l'effacement des décalages dans la même image : pas de saut.
-      flushSync(() => done(fromIndex, toIndex));
+      flushSync(() => done(fromIndex, toIndex, swap));
       for (const r of rows)
         for (const k of ["transition", "transform", "position", "zIndex", "opacity", "boxShadow", "cursor", "willChange"] as const)
           r.style[k] = "";
@@ -1463,7 +1463,7 @@ function startGridDrag(
   fromIndex: number,
   startX: number,
   startY: number,
-  done: (from: number, to: number) => void,
+  done: (from: number, to: number, swap: boolean) => void,
 ) {
   const cells = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-cell]"));
   if (fromIndex < 0 || fromIndex >= cells.length) return;
@@ -1495,6 +1495,11 @@ function startGridDrag(
   let toIndex = fromIndex;
   let ended = false;
   const from = slots[fromIndex];
+  /* D'UNE LIGNE À L'AUTRE, ON ÉCHANGE (05/11/2026, Luc) : décaler toute la
+     grille pour un mouvement vertical déplaçait des cases qu'on ne touchait
+     pas. Sur la même ligne, les cases entre les deux se décalent. */
+  const sameRow = (i: number) => slots[i].y === from.y;
+  let swap = false;
   const onMove = (x: number, y: number) => {
     const dx = x - startX;
     const dy = y - startY;
@@ -1512,11 +1517,13 @@ function startGridDrag(
       }
     });
     toIndex = best;
-    /* Les autres prennent la place qu'elles auront une fois la case insérée. */
+    swap = !sameRow(toIndex);
+    /* Les autres prennent la place qu'elles auront une fois la case posée. */
     cells.forEach((c, i) => {
       if (c === dragged) return;
       let k = i;
-      if (fromIndex < toIndex && i > fromIndex && i <= toIndex) k = i - 1;
+      if (swap) k = i === toIndex ? fromIndex : i;
+      else if (fromIndex < toIndex && i > fromIndex && i <= toIndex) k = i - 1;
       else if (toIndex < fromIndex && i >= toIndex && i < fromIndex) k = i + 1;
       const tx = slots[k].x - slots[i].x;
       const ty = slots[k].y - slots[i].y;
@@ -3186,11 +3193,14 @@ export function BingoBlock({
                     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
                     stop();
                     dragged.current = true;
-                    startGridDrag(box, pid, i, sx, sy, (from, to) => {
+                    startGridDrag(box, pid, i, sx, sy, (from, to, swap) => {
                       if (from === to) return;
                       const next = cellIds.slice();
-                      const [x] = next.splice(from, 1);
-                      next.splice(to, 0, x);
+                      if (swap) [next[from], next[to]] = [next[to], next[from]];
+                      else {
+                        const [x] = next.splice(from, 1);
+                        next.splice(to, 0, x);
+                      }
                       writeCells(next);
                     });
                   };
