@@ -3088,6 +3088,8 @@ export function BingoBlock({
   if (!days && !editing) return <div className="h-full" />;
 
   const cellsDone = isDone.filter(Boolean).length;
+  /* Mon bingo ne compte que les cartes qui ont un contenu. */
+  const filled = cells.filter(Boolean).length;
   const pts = bingoPoints(cellIds, isDone, lines.length, full);
   /* Le maximum : toutes les cases, toutes les lignes/colonnes/diagonales
      (2n + 2) et la grille pleine. Affiché tel quel, sans paliers. */
@@ -3095,7 +3097,7 @@ export function BingoBlock({
 
   /* Officiel : des points ; mon bingo : des cartes cochées par soi. */
   const barNow = mode === "season" ? pts : cellsDone;
-  const barMax = mode === "season" ? maxPts : n * n;
+  const barMax = mode === "season" ? maxPts : Math.max(1, filled);
 
   /* ── Choisir l'objectif d'une case ── */
   if (editing && picking != null) {
@@ -3200,7 +3202,7 @@ export function BingoBlock({
           <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
             {mode === "season"
               ? t("profile.blocks.bingo.points", { points: `${pts} / ${maxPts}` })
-              : t("profile.blocks.bingo.cards", { done: cellsDone, total: n * n })}
+              : t("profile.blocks.bingo.cards", { done: cellsDone, total: filled })}
           </span>
           {/* La barre vers le prochain palier : petite, juste à côté des points. */}
           <span
@@ -3296,7 +3298,7 @@ export function BingoBlock({
           ) : c ? (
             <>
               <span className="mb-2 leading-none" style={iconStyle}>{iconNode(c.icon)}</span>
-              <span className="line-clamp-3 px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
+              <span className="line-clamp-3 break-words px-1 font-karla font-semibold leading-tight text-white" style={labelStyle}>{c.label}</span>
               {!ce && isDone[i] ? (
                 <span className="absolute right-1 top-0.5 text-[11px] font-bold text-white">✓</span>
               ) : !ce && c.need > 1 && n < 5 ? (
