@@ -2610,7 +2610,25 @@ const SEASON_POOL = [
 
 type Custom = { k: string; t: string; d?: string; e?: string };
 /** Les points du bingo : 10 par case, +20 par ligne/colonne/diagonale, +50 grille pleine. */
-const bingoPoints = (cells: number, lines: number, full: boolean) => cells * 10 + lines * 20 + (full ? 50 : 0);
+/** La valeur d'une case, selon sa difficulté (05/11/2026, Luc : « procède ») :
+ *  10 pour une case facile (un genre, un film…), jusqu'à 40 pour un gros
+ *  objectif chiffré ; quelques cases uniques plus rares valent 20 ou 30. */
+const GOAL_PTS: Record<string, number> = {
+  seasonInDay: 30, secondChance: 20, doubleFeature: 20, rated10: 20, newSeason: 20,
+  weekend: 20, retro: 20, classic: 20, sharedShow: 15, random: 15,
+  genres10: 30, eps250: 50, movies3: 20,
+};
+const cellPoints = (id: string): number => {
+  if (id === EMPTY) return 0;
+  const g = GOAL.get(id);
+  if (!g) return 10; // genre / anime de la saison, objectif perso
+  if (GOAL_PTS[id]) return GOAL_PTS[id];
+  const need = g.need;
+  return need <= 1 ? 10 : need <= 5 ? 15 : need <= 10 ? 20 : need <= 25 ? 30 : 40;
+};
+/** Total : les cases cochées + 20 par ligne/colonne/diagonale + 50 la grille pleine. */
+const bingoPoints = (cellIds: string[], done: boolean[], lines: number, full: boolean) =>
+  cellIds.reduce((s, id, i) => s + (done[i] ? cellPoints(id) : 0), 0) + lines * 20 + (full ? 50 : 0);
 type BingoState = { done: string[]; rnd?: { k: string; id: number } };
 type SeasonData = { key: string; genres: string[]; top: { id: number; title: string }[] };
 
@@ -3047,10 +3065,10 @@ export function BingoBlock({
   if (!days && !editing) return <div className="h-full" />;
 
   const cellsDone = isDone.filter(Boolean).length;
-  const pts = bingoPoints(cellsDone, lines.length, full);
+  const pts = bingoPoints(cellIds, isDone, lines.length, full);
   /* Le maximum : toutes les cases, toutes les lignes/colonnes/diagonales
      (2n + 2) et la grille pleine. Quatre paliers, un quart chacun. */
-  const maxPts = bingoPoints(n * n, 2 * n + 2, true);
+  const maxPts = bingoPoints(cellIds, cellIds.map(() => true), 2 * n + 2, true);
   const nextTier = Math.round([1, 2, 3, 4].map((k) => (maxPts * k) / 4).find((x) => x > pts) ?? maxPts);
 
   /* ── Choisir l'objectif d'une case ── */
@@ -3150,7 +3168,7 @@ export function BingoBlock({
           </span>
           {/* La barre vers le prochain palier : petite, juste à côté des points. */}
           <span
-            className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
+            className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={nextTier}
