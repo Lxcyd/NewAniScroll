@@ -1,38 +1,40 @@
-# Usage Monitor — 2026-11-04
+# Usage Monitor — 2026-11-05
 
-_Generated 2026-11-04T14:37:31.045Z_
+_Generated 2026-11-05T14:42:36.856Z_
 
 ## Upstash — daily commands
 > _skipped: Upstash mgmt 401 on /v2/redis/databases: {"error":"Unauthorized"}_
 
 ## Redis keyspace census (where the load comes from)
-- DBSIZE: **928** | scanned: 928 keys
+- DBSIZE: **1,015** | scanned: 1,015 keys
 
 | prefix | keys | % | Δ vs prev |
 |---|---:|---:|---:|
-| `anime:` | 733 | 79.0% | (+151 +26%) |
-| `tr:` | 128 | 13.8% | (+6 +5%) |
-| `episode:` | 47 | 5.1% | (+17 +57%) |
-| `ftree:` | 8 | 0.9% | (-4 -33%) |
-| `avail:` | 5 | 0.5% | (-10 -67%) |
-| `anilist:` | 4 | 0.4% | (-375 -99%) |
+| `anime:` | 817 | 80.5% | (+84 +11%) |
+| `tr:` | 129 | 12.7% | (+1 +1%) |
+| `episode:` | 48 | 4.7% | (+1 +2%) |
+| `anilist:` | 11 | 1.1% | (+7 +175%) |
+| `avail:` | 4 | 0.4% | (-1 -20%) |
+| `ftree:` | 2 | 0.2% | (-6 -75%) |
+| `bingo-season:` | 1 | 0.1% | — |
 | `frembed:` | 1 | 0.1% | (=) |
+| `index_server_v3:` | 1 | 0.1% | — |
 | `new_schedule:` | 1 | 0.1% | (=) |
-| `recent-episode-v3:` | 1 | 0.1% | — |
 
 <details><summary>Top 2-segment namespaces</summary>
 
 | namespace | keys |
 |---|---:|
-| `anime:v6` | 733 |
-| `tr:fr` | 128 |
-| `episode:v12` | 47 |
-| `ftree:v5` | 8 |
-| `avail:v5` | 5 |
+| `anime:v6` | 817 |
+| `tr:fr` | 129 |
+| `episode:v12` | 48 |
+| `anilist:resp` | 7 |
+| `avail:v5` | 4 |
 | `anilist:list` | 3 |
+| `ftree:v5` | 2 |
 | `anilist:upcoming` | 1 |
+| `bingo-season:v1` | 1 |
 | `frembed:base` | 1 |
-| `recent-episode-v3:1` | 1 |
 
 </details>
 
