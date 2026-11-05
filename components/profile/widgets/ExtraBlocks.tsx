@@ -3046,6 +3046,13 @@ export function BingoBlock({
 
   if (!days && !editing) return <div className="h-full" />;
 
+  const cellsDone = isDone.filter(Boolean).length;
+  const pts = bingoPoints(cellsDone, lines.length, full);
+  /* Le maximum : toutes les cases, toutes les lignes/colonnes/diagonales
+     (2n + 2) et la grille pleine. Quatre paliers, un quart chacun. */
+  const maxPts = bingoPoints(n * n, 2 * n + 2, true);
+  const nextTier = Math.round([1, 2, 3, 4].map((k) => (maxPts * k) / 4).find((x) => x > pts) ?? maxPts);
+
   /* ── Choisir l'objectif d'une case ── */
   if (editing && picking != null) {
     return (
@@ -3132,18 +3139,15 @@ export function BingoBlock({
           ) : null}
         </div>
       ) : (
+        <div className="flex flex-col gap-1.5">
         <p className="flex items-center gap-2 font-karla text-[12px] text-txt">
-          <span className="min-w-0 truncate">
-            {period.label} · {isDone.filter(Boolean).length}/{n * n}
-          </span>
-          {/* LES POINTS (05/11/2026, Luc : « un système de points plutôt ») :
+          {/* LES POINTS (05/11/2026, Luc : « garde ça » sur la maquette 05) :
               10 par case, +20 par ligne ou colonne complète, +50 la grille
-              pleine. */}
-          <span
-            className="shrink-0 rounded-full bg-action/20 px-1.5 py-0.5 font-outfit text-[10px] font-bold text-white ring-1 ring-inset ring-white/15"
-            title={t("profile.blocks.bingo.pointsTitle")}
-          >
-            {t("profile.blocks.bingo.points", { points: bingoPoints(isDone.filter(Boolean).length, lines.length, full) })}
+              pleine ; « 180 / 270 » = vers le prochain palier (un quart du
+              maximum), et la barre dessous le suit. */}
+          <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
+            {mode !== "season" ? `${period.label} · ` : ""}
+            {t("profile.blocks.bingo.points", { points: `${pts} / ${nextTier}` })}
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
@@ -3154,7 +3158,7 @@ export function BingoBlock({
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
             <span className="font-karla text-[11px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
-              {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
+              {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")} · {cellsDone}/{n * n}
             </span>
             {lines.length ? (
               <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
@@ -3189,6 +3193,10 @@ export function BingoBlock({
             </button>
           </span>
         </p>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.1]" role="progressbar" aria-valuemin={0} aria-valuemax={nextTier} aria-valuenow={Math.min(pts, nextTier)}>
+          <div className="h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (pts / nextTier) * 100)}%` }} />
+        </div>
+        </div>
       )}
       {pending && isOwner && !editing ? (
         <div className="flex items-center gap-2 rounded-lg bg-white/[0.06] px-2 py-1.5 font-karla text-[11px] ring-1 ring-inset ring-white/10">
