@@ -3278,7 +3278,7 @@ export function BingoBlock({
       ) : null}
       <div
         ref={gridRef}
-        className="grid min-h-0 flex-1 gap-1.5 [container-type:size]"
+        className="grid min-h-0 flex-1 select-none gap-1.5 [container-type:size]"
         style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}
       >
         {cells.map((c, i) => {
