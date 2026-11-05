@@ -3266,7 +3266,7 @@ export function BingoBlock({
           const body = c && editing ? (
             <>
               {/* L'emoji ouvre le menu d'emojis du chat ; le nom se tape sur place. */}
-              <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="leading-none">
+              <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="mb-2 leading-none">
                 <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md px-1 leading-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-2 group-hover:outline-white/45" onPick={(e) => setLabel(id, { e })}>
                   <span style={iconStyle}>{iconNode(c.icon)}</span>
                 </EmojiButton>
