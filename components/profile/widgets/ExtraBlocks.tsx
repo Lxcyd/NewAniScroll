@@ -1470,6 +1470,12 @@ function startGridDrag(
   const dragged = cells[fromIndex];
   /* Les emplacements, relevés une fois : ils ne bougent pas pendant le glisser. */
   const slots = cells.map((c) => ({ x: c.offsetLeft, y: c.offsetTop, w: c.offsetWidth, h: c.offsetHeight }));
+  /* La grille peut être mise à l'échelle par un parent (`transform: scale`) :
+     le pointeur parle en pixels d'écran, la case en pixels de la grille. Sans
+     cette division la carte prend du retard (ou de l'avance) sur la souris. */
+  const rect = body.getBoundingClientRect();
+  const kx = body.offsetWidth ? rect.width / body.offsetWidth : 1;
+  const ky = body.offsetHeight ? rect.height / body.offsetHeight : 1;
   const EASE = "cubic-bezier(0.22,1,0.36,1)";
   const MOVE_MS = 180;
   const DROP_MS = 140;
@@ -1501,8 +1507,8 @@ function startGridDrag(
   const sameRow = (i: number) => slots[i].y === from.y;
   let swap = false;
   const onMove = (x: number, y: number) => {
-    const dx = x - startX;
-    const dy = y - startY;
+    const dx = (x - startX) / (kx || 1);
+    const dy = (y - startY) / (ky || 1);
     dragged.style.transform = `translate3d(${dx}px,${dy}px,0) scale(1.04)`;
     /* L'emplacement le plus proche du centre de la case portée. */
     const cx = from.x + from.w / 2 + dx;
