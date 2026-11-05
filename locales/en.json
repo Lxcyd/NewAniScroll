@@ -1299,7 +1299,7 @@
         "importPlaceholder": "Paste a bingo code (ASB1:…)",
         "importGo": "OK",
         "points": "{{points}} pts",
-        "pointsTitle": "10 to 50 pts per cell depending on difficulty, +20 per complete line, column or diagonal, +50 for a full grid",
+        "pointsTitle": "10 pts per cell, +20 per complete line, column or diagonal, +50 for a full grid",
         "newGoal": "Write a goal",
         "newEmoji": "Emoji (optional)",
         "newTitle": "Name",

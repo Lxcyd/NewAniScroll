@@ -2609,23 +2609,9 @@ const SEASON_POOL = [
 ];
 
 type Custom = { k: string; t: string; d?: string; e?: string };
-/** Les points du bingo : 10 par case, +20 par ligne/colonne/diagonale, +50 grille pleine. */
-/** La valeur d'une case, selon sa difficulté (05/11/2026, Luc : « procède ») :
- *  10 pour une case facile (un genre, un film…), jusqu'à 40 pour un gros
- *  objectif chiffré ; quelques cases uniques plus rares valent 20 ou 30. */
-const GOAL_PTS: Record<string, number> = {
-  seasonInDay: 30, secondChance: 20, doubleFeature: 20, rated10: 20, newSeason: 20,
-  weekend: 20, retro: 20, classic: 20, sharedShow: 15, random: 15,
-  genres10: 30, eps250: 50, movies3: 20,
-};
-const cellPoints = (id: string): number => {
-  if (id === EMPTY) return 0;
-  const g = GOAL.get(id);
-  if (!g) return 10; // genre / anime de la saison, objectif perso
-  if (GOAL_PTS[id]) return GOAL_PTS[id];
-  const need = g.need;
-  return need <= 1 ? 10 : need <= 5 ? 15 : need <= 10 ? 20 : need <= 25 ? 30 : 40;
-};
+/** Les points du bingo : 10 par case, toutes pareilles (05/11/2026, Luc : pas de
+ *  bonus selon le chiffre de l'objectif), +20 par ligne/colonne/diagonale, +50 grille pleine. */
+const cellPoints = (id: string): number => (id === EMPTY ? 0 : 10);
 /** Total : les cases cochées + 20 par ligne/colonne/diagonale + 50 la grille pleine. */
 const bingoPoints = (cellIds: string[], done: boolean[], lines: number, full: boolean) =>
   cellIds.reduce((s, id, i) => s + (done[i] ? cellPoints(id) : 0), 0) + lines * 20 + (full ? 50 : 0);
