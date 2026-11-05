@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { type DragEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -1450,6 +1450,125 @@ function startRowDrag(
   document.addEventListener("pointercancel", onEnd);
 }
 
+/**
+ * LE MÊME GLISSER, EN GRILLE (05/11/2026, Luc : « fais comme les widgets ») :
+ * `startRowDrag` à deux dimensions. La case prise suit le pointeur, les autres
+ * glissent vers leur nouvelle place (ordre de lecture, la case s'insère), et
+ * au lâcher elle se pose dans son emplacement avant le commit. Tout en
+ * `transform`, sur le compositeur.
+ */
+function startGridDrag(
+  body: HTMLElement,
+  pointerId: number,
+  fromIndex: number,
+  startX: number,
+  startY: number,
+  done: (from: number, to: number) => void,
+) {
+  const cells = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-cell]"));
+  if (fromIndex < 0 || fromIndex >= cells.length) return;
+  const dragged = cells[fromIndex];
+  /* Les emplacements, relevés une fois : ils ne bougent pas pendant le glisser. */
+  const slots = cells.map((c) => ({ x: c.offsetLeft, y: c.offsetTop, w: c.offsetWidth, h: c.offsetHeight }));
+  const EASE = "cubic-bezier(0.22,1,0.36,1)";
+  const MOVE_MS = 180;
+  const DROP_MS = 140;
+
+  for (const c of cells) c.style.animation = "none";
+  for (const c of cells) if (c !== dragged) c.style.transition = `transform ${MOVE_MS}ms ${EASE}`;
+  Object.assign(dragged.style, {
+    position: "relative",
+    zIndex: "50",
+    boxShadow: "0 14px 26px -10px rgba(0,0,0,0.75)",
+    transition: "none",
+    transform: "translate3d(0,0,0) scale(1.04)",
+    cursor: "grabbing",
+    willChange: "transform",
+  });
+  document.body.style.cursor = "grabbing";
+  try {
+    dragged.setPointerCapture(pointerId);
+  } catch {
+    /* le pointeur est déjà parti */
+  }
+
+  let toIndex = fromIndex;
+  let ended = false;
+  const from = slots[fromIndex];
+  const onMove = (x: number, y: number) => {
+    const dx = x - startX;
+    const dy = y - startY;
+    dragged.style.transform = `translate3d(${dx}px,${dy}px,0) scale(1.04)`;
+    /* L'emplacement le plus proche du centre de la case portée. */
+    const cx = from.x + from.w / 2 + dx;
+    const cy = from.y + from.h / 2 + dy;
+    let best = toIndex;
+    let bestD = Infinity;
+    slots.forEach((s, i) => {
+      const d = (s.x + s.w / 2 - cx) ** 2 + (s.y + s.h / 2 - cy) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    toIndex = best;
+    /* Les autres prennent la place qu'elles auront une fois la case insérée. */
+    cells.forEach((c, i) => {
+      if (c === dragged) return;
+      let k = i;
+      if (fromIndex < toIndex && i > fromIndex && i <= toIndex) k = i - 1;
+      else if (toIndex < fromIndex && i >= toIndex && i < fromIndex) k = i + 1;
+      const tx = slots[k].x - slots[i].x;
+      const ty = slots[k].y - slots[i].y;
+      c.style.transform = tx || ty ? `translate3d(${tx}px,${ty}px,0)` : "";
+    });
+  };
+  let raf = 0;
+  let lastX = startX;
+  let lastY = startY;
+  const onPM = (e: PointerEvent) => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (!raf)
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        onMove(lastX, lastY);
+      });
+  };
+  const onEnd = () => {
+    if (ended) return;
+    ended = true;
+    document.removeEventListener("pointermove", onPM);
+    document.removeEventListener("pointerup", onEnd);
+    document.removeEventListener("pointercancel", onEnd);
+    document.body.style.cursor = "";
+    try {
+      dragged.releasePointerCapture(pointerId);
+    } catch {
+      /* déjà relâché */
+    }
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      onMove(lastX, lastY);
+    }
+    const to = slots[toIndex];
+    dragged.style.transition = `transform ${DROP_MS}ms ${EASE}, box-shadow ${DROP_MS}ms`;
+    dragged.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`;
+    dragged.style.boxShadow = "";
+    setTimeout(() => {
+      flushSync(() => done(fromIndex, toIndex));
+      for (const c of cells)
+        for (const k of ["transition", "transform", "position", "zIndex", "boxShadow", "cursor", "willChange"] as const)
+          c.style[k] = "";
+    }, DROP_MS);
+  };
+  document.addEventListener("pointermove", onPM);
+  document.addEventListener("pointerup", onEnd);
+  document.addEventListener("pointercancel", onEnd);
+  onMove(startX, startY);
+}
+
 function ThemeEditor({
   favs,
   entries,
@@ -2577,8 +2696,8 @@ export function BingoBlock({
   const n = size >= 3 && size <= 5 ? size : 3;
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
-  const [dragFrom, setDragFrom] = useState<number | null>(null);
-  const [dragOver, setDragOver] = useState<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const dragged = useRef(false);
   const [copied, setCopied] = useState(false);
   const seasonData = useSeasonData(seasonId);
 
@@ -3004,6 +3123,7 @@ export function BingoBlock({
         </div>
       ) : null}
       <div
+        ref={gridRef}
         className="grid min-h-0 flex-1 gap-1.5 [container-type:size]"
         style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}
       >
@@ -3049,35 +3169,37 @@ export function BingoBlock({
                 : isOwner && onPatch && id === "random" && rnd == null
                   ? draw
                   : null;
-          /* DÉPLACER LES CARTES (05/11/2026, Luc) : au crayon, une carte glissée
-             sur une autre échange sa place avec elle ; un clic choisit toujours
-             l'objectif. */
+          /* DÉPLACER LES CARTES (05/11/2026, Luc : « comme les widgets ») : au
+             crayon, une carte se glisse à sa place (`startGridDrag`). Le glisser
+             ne part qu'après 6 px : en deçà c'est un clic, qui choisit l'objectif. */
           const dnd = editing
             ? {
-                draggable: !!c,
-                onDragStart: (e: DragEvent) => {
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", String(i));
-                  setDragFrom(i);
-                },
-                onDragEnd: () => {
-                  setDragFrom(null);
-                  setDragOver(null);
-                },
-                onDragOver: (e: DragEvent) => {
-                  if (dragFrom == null) return;
-                  e.preventDefault();
-                  if (dragOver !== i) setDragOver(i);
-                },
-                onDrop: (e: DragEvent) => {
-                  e.preventDefault();
-                  if (dragFrom != null && dragFrom !== i) {
-                    const next = cellIds.slice();
-                    [next[dragFrom], next[i]] = [next[i], next[dragFrom]];
-                    writeCells(next);
-                  }
-                  setDragFrom(null);
-                  setDragOver(null);
+                "data-drag-cell": true,
+                onPointerDown: (e: React.PointerEvent) => {
+                  if (e.button !== 0 || !gridRef.current) return;
+                  dragged.current = false;
+                  const sx = e.clientX;
+                  const sy = e.clientY;
+                  const pid = e.pointerId;
+                  const box = gridRef.current;
+                  const move = (ev: PointerEvent) => {
+                    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+                    stop();
+                    dragged.current = true;
+                    startGridDrag(box, pid, i, sx, sy, (from, to) => {
+                      if (from === to) return;
+                      const next = cellIds.slice();
+                      const [x] = next.splice(from, 1);
+                      next.splice(to, 0, x);
+                      writeCells(next);
+                    });
+                  };
+                  const stop = () => {
+                    document.removeEventListener("pointermove", move);
+                    document.removeEventListener("pointerup", stop);
+                  };
+                  document.addEventListener("pointermove", move);
+                  document.addEventListener("pointerup", stop);
                 },
               }
             : {};
@@ -3085,12 +3207,19 @@ export function BingoBlock({
             <button
               key={i}
               type="button"
-              onClick={act}
+              onClick={() => {
+                /* Le clic qui suit un glisser ne rouvre pas le choix. */
+                if (dragged.current) {
+                  dragged.current = false;
+                  return;
+                }
+                act();
+              }}
               title={tip}
               {...dnd}
               className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && editing ? "border border-dashed border-white/15" : ""} ${
-                editing && c ? "cursor-grab active:cursor-grabbing" : ""
-              } ${dragFrom === i ? "opacity-40" : ""} ${dragOver === i && dragFrom !== i ? "!ring-2 !ring-action" : ""}`}
+                editing ? "cursor-grab touch-none select-none" : ""
+              }`}
               style={style}
             >
               {body}
