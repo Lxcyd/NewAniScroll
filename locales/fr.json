@@ -1286,7 +1286,7 @@
           "seasonAnime": "Regarder {{title}}"
         },
         "manage": "Modifier le bingo",
-        "editHint": "Clique une case pour changer son objectif",
+        "editHint": "Clique une case pour la changer, glisse-la pour la déplacer",
         "back": "Retour",
         "clear": "Vider la case",
         "editSeasonHint": "Modifier une case retire le badge officiel",
@@ -1301,8 +1301,7 @@
         "drawHint": "Clique pour tirer",
         "newGoal": "Écrire un objectif",
         "newEmoji": "Emoji (facultatif)",
-        "newTitle": "Titre",
-        "newDesc": "Description (facultative)",
+        "newTitle": "Nom",
         "newAdd": "Ajouter",
         "deleteGoal": "Supprimer cet objectif",
         "groupMine": "Mes objectifs",

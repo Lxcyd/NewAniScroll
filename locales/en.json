@@ -1286,7 +1286,7 @@
           "seasonAnime": "Watch {{title}}"
         },
         "manage": "Edit the bingo",
-        "editHint": "Click a square to change its goal",
+        "editHint": "Click a square to change it, drag it to move it",
         "back": "Back",
         "clear": "Clear square",
         "editSeasonHint": "Editing a square removes the official badge",
@@ -1301,8 +1301,7 @@
         "drawHint": "Click to draw",
         "newGoal": "Write a goal",
         "newEmoji": "Emoji (optional)",
-        "newTitle": "Title",
-        "newDesc": "Description (optional)",
+        "newTitle": "Name",
         "newAdd": "Add",
         "deleteGoal": "Delete this goal",
         "groupMine": "My goals",

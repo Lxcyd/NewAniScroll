@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -2577,6 +2577,8 @@ export function BingoBlock({
   const n = size >= 3 && size <= 5 ? size : 3;
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const seasonData = useSeasonData(seasonId);
 
@@ -2744,7 +2746,7 @@ export function BingoBlock({
       return { icon: "🌟", label: t("profile.blocks.bingo.cell.seasonAnime", { title }), got: ids.includes(aid) ? 1 : 0, need: 1 };
     }
     const c = customOf(id);
-    if (c) return { icon: c.e || "✏️", label: c.t, desc: c.d, got: done.has(id) ? 1 : 0, need: 1 };
+    if (c) return { icon: c.e || "✏️", label: c.t, got: done.has(id) ? 1 : 0, need: 1 };
     return null;
   };
   const cells = cellIds.map((id) => resolve(id));
@@ -3036,7 +3038,7 @@ export function BingoBlock({
                   boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--brand-primary, #E94560) ${inLine.has(i) ? 100 : 55}%, transparent)`,
                 }
               : undefined;
-          const tip = c ? (c.desc ? `${c.label} — ${c.desc}` : c.label) : undefined;
+          const tip = c ? c.label : undefined;
           /* Chez soi, hors crayon : un objectif perso se coche à la main, le
              hasard se tire d'un clic. */
           const act =
@@ -3047,13 +3049,48 @@ export function BingoBlock({
                 : isOwner && onPatch && id === "random" && rnd == null
                   ? draw
                   : null;
+          /* DÉPLACER LES CARTES (05/11/2026, Luc) : au crayon, une carte glissée
+             sur une autre échange sa place avec elle ; un clic choisit toujours
+             l'objectif. */
+          const dnd = editing
+            ? {
+                draggable: !!c,
+                onDragStart: (e: DragEvent) => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", String(i));
+                  setDragFrom(i);
+                },
+                onDragEnd: () => {
+                  setDragFrom(null);
+                  setDragOver(null);
+                },
+                onDragOver: (e: DragEvent) => {
+                  if (dragFrom == null) return;
+                  e.preventDefault();
+                  if (dragOver !== i) setDragOver(i);
+                },
+                onDrop: (e: DragEvent) => {
+                  e.preventDefault();
+                  if (dragFrom != null && dragFrom !== i) {
+                    const next = cellIds.slice();
+                    [next[dragFrom], next[i]] = [next[i], next[dragFrom]];
+                    writeCells(next);
+                  }
+                  setDragFrom(null);
+                  setDragOver(null);
+                },
+              }
+            : {};
           return act ? (
             <button
               key={i}
               type="button"
               onClick={act}
               title={tip}
-              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && editing ? "border border-dashed border-white/15" : ""}`}
+              {...dnd}
+              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && editing ? "border border-dashed border-white/15" : ""} ${
+                editing && c ? "cursor-grab active:cursor-grabbing" : ""
+              } ${dragFrom === i ? "opacity-40" : ""} ${dragOver === i && dragFrom !== i ? "!ring-2 !ring-action" : ""}`}
               style={style}
             >
               {body}
@@ -3128,7 +3165,6 @@ function GoalPicker({
 }) {
   const { t } = useTranslation();
   const [title, setTitle] = useState("");
-  const [desc, setDesc] = useState("");
   const [emoji, setEmoji] = useState("");
   const row = (id: string, extra?: ReactNode) => {
     const r = resolve(id);
@@ -3148,7 +3184,6 @@ function GoalPicker({
           <span className="w-6 shrink-0 text-center text-[17px] leading-none">{r.icon}</span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate font-karla text-[13px] font-semibold text-white">{r.label}</span>
-            {r.desc ? <span className="truncate font-karla text-[11px] text-txt">{r.desc}</span> : null}
           </span>
         </button>
         {extra}
@@ -3179,7 +3214,7 @@ function GoalPicker({
           onSubmit={(e) => {
             e.preventDefault();
             if (!title.trim()) return;
-            onCreate({ t: title.trim(), d: desc.trim() || undefined, e: emoji.trim() || undefined });
+            onCreate({ t: title.trim(), e: emoji.trim() || undefined });
           }}
         >
           <p className="font-karla text-[11px] font-bold text-white/70">{t("profile.blocks.bingo.newGoal")}</p>
@@ -3201,14 +3236,6 @@ function GoalPicker({
               className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-2 py-1 font-karla text-[12px] text-white outline-none ring-1 ring-inset ring-white/10 placeholder:text-white/35 focus:ring-white/30"
             />
           </div>
-          <input
-            id="bingo-desc"
-            value={desc}
-            maxLength={90}
-            onChange={(e) => setDesc(e.target.value)}
-            placeholder={t("profile.blocks.bingo.newDesc")}
-            className="rounded-lg bg-white/[0.06] px-2 py-1 font-karla text-[12px] text-white outline-none ring-1 ring-inset ring-white/10 placeholder:text-white/35 focus:ring-white/30"
-          />
           <button
             type="submit"
             disabled={!title.trim()}
