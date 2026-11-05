@@ -17,7 +17,14 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
     const el = card.current;
     if (!el) return;
     const stage = document.querySelector<HTMLElement>(".as-stage.is-fixed");
-    el.style.translate = stage && stage.scrollTop ? `0 ${stage.scrollTop}px` : "";
+    const scrolled = stage ? stage.scrollTop : 0;
+    /* LA CASE RESTE DANS LA PAGE (05/11/2026, Luc) : arrivée au pied de la
+       page, elle ne passe pas sur le pied de page — elle remonte d'autant que
+       celui-ci entre dans l'écran, et garde 16 px d'air au-dessus. */
+    const footer = document.querySelector("footer");
+    const lift = footer ? Math.max(0, window.innerHeight - footer.getBoundingClientRect().top - 8) : 0;
+    const y = scrolled - lift;
+    el.style.translate = y ? `0 ${y}px` : "";
   }, []);
   const ref = useCallback(
     (el: HTMLDivElement | null) => {
@@ -28,14 +35,23 @@ export function useSceneScrollFix(): (el: HTMLDivElement | null) => void {
   );
   useEffect(() => {
     const stage = document.querySelector<HTMLElement>(".as-stage");
-    if (!stage) return;
     const obs = new MutationObserver(update);
-    obs.observe(stage, { attributes: true, attributeFilter: ["class"] });
-    stage.addEventListener("scroll", update, { passive: true });
+    if (stage) {
+      obs.observe(stage, { attributes: true, attributeFilter: ["class"] });
+      stage.addEventListener("scroll", update, { passive: true });
+    }
+    /* La page défile (ou se redimensionne) : le pied de page monte ou descend. */
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    const size = new ResizeObserver(update);
+    size.observe(document.body);
     update();
     return () => {
       obs.disconnect();
-      stage.removeEventListener("scroll", update);
+      size.disconnect();
+      stage?.removeEventListener("scroll", update);
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
     };
   }, [update]);
   return ref;
