@@ -3316,7 +3316,7 @@ export function BingoBlock({
             <>
               <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="mb-2 leading-none">
                 <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md px-1 leading-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-2 group-hover:outline-white/45" onPick={(e) => setDraftEmoji((d) => ({ ...d, [i]: e }))}>
-                  <span style={iconStyle} className={draftEmoji[i] ? "" : "opacity-40 grayscale"}>{iconNode(draftEmoji[i] || "🙂")}</span>
+                  <span style={iconStyle} className={draftEmoji[i] ? "" : "text-white/35"}>{draftEmoji[i] ? iconNode(draftEmoji[i]) : <svg viewBox="0 0 24 24" fill="currentColor" className="h-[1.1em] w-[1.1em]" aria-hidden><path d="M15.5,11q0.63,0 1.06-0.44T17,9.5T16.56,8.44T15.5,8T14.44,8.44T14,9.5t0.44,1.06T15.5,11Zm-7,0q0.63,0 1.06-0.44T10,9.5T9.56,8.44T8.5,8T7.44,8.44T7,9.5t0.44,1.06T8.5,11ZM8.1,21.21q-1.82-0.79-3.17-2.14Q3.58,17.73 2.79,15.9T2,12Q2,9.92 2.79,8.1Q3.58,6.27 4.93,4.93Q6.28,3.57 8.1,2.79Q9.93,2 12,2t3.9,0.79t3.17,2.14q1.35,1.35 2.14,3.17Q22,9.92 22,12t-0.79,3.9t-2.14,3.17q-1.35,1.35-3.17,2.14T12,22q-2.07,0-3.9-0.79ZM12,12Zm5.68,5.68Q20,15.35 20,12T17.68,6.32T12,4T6.33,6.32T4,12t2.33,5.68T12,20t5.68-2.32ZM12,17.5q1.45,0 2.68-0.7t1.98-1.9q0.15-0.3-0.03-0.6T16.1,14H7.9q-0.35,0-0.53,0.3T7.35,14.9q0.75,1.2 1.99,1.9T12,17.5Z" /></svg>}</span>
                 </EmojiButton>
               </span>
               <CellName
