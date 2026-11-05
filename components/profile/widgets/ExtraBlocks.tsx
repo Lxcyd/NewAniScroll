@@ -3150,15 +3150,29 @@ export function BingoBlock({
                 </button>
               ))}
             </div>
-            <span
-              tabIndex={0}
-              title={mode === "season" ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
-              aria-label={mode === "season" ? t("profile.blocks.bingo.editSeasonHint") : t("profile.blocks.bingo.editHint")}
-              className="shrink-0 cursor-help text-[13px] leading-none text-white/50 hover:text-white"
-            >
-              ⓘ
-            </span>
             <span className="flex-1" />
+            {mode === "mine" && span === "custom" ? (
+              <div className="flex min-w-0 items-center gap-1.5 text-txt">
+                <span>{t("profile.blocks.bingo.from")}</span>
+                <input
+                  id="bingo-from"
+                  type="date"
+                  value={range.from}
+                  max={range.to}
+                  onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${e.target.value}|${range.to}` })}
+                  className="h-5 w-[7.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+                />
+                <span>{t("profile.blocks.bingo.to")}</span>
+                <input
+                  id="bingo-to"
+                  type="date"
+                  value={range.to}
+                  min={range.from}
+                  onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${range.from}|${e.target.value}` })}
+                  className="h-5 w-[7.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+                />
+              </div>
+            ) : null}
             {edited ? (
               <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
                 {t("profile.blocks.bingo.backOfficial")}
@@ -3171,28 +3185,6 @@ export function BingoBlock({
               {t("profile.blocks.bingo.import")}
             </button>
           </div>
-          {mode === "mine" && span === "custom" ? (
-            <div className="flex items-center gap-1.5 font-karla text-[11px] text-txt">
-              <span>{t("profile.blocks.bingo.from")}</span>
-              <input
-                id="bingo-from"
-                type="date"
-                value={range.from}
-                max={range.to}
-                onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${e.target.value}|${range.to}` })}
-                className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-1.5 py-0.5 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
-              />
-              <span>{t("profile.blocks.bingo.to")}</span>
-              <input
-                id="bingo-to"
-                type="date"
-                value={range.to}
-                min={range.from}
-                onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${range.from}|${e.target.value}` })}
-                className="min-w-0 flex-1 rounded-lg bg-white/[0.06] px-1.5 py-0.5 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
-              />
-            </div>
-          ) : null}
           {importing ? (
             <ImportCode
               onImport={(code) => {
