@@ -3152,23 +3152,9 @@ export function BingoBlock({
             {mode === "mine" && span === "custom" ? (
               <div className="flex min-w-0 items-center gap-1.5 text-txt">
                 <span>{t("profile.blocks.bingo.from")}</span>
-                <input
-                  id="bingo-from"
-                  type="date"
-                  value={range.from}
-                  max={range.to}
-                  onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${e.target.value}|${range.to}` })}
-                  className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
-                />
+                <DateField id="bingo-from" value={range.from} max={range.to} onCommit={(v) => onPatch?.({ bingoRange: `${v}|${range.to}` })} />
                 <span>{t("profile.blocks.bingo.to")}</span>
-                <input
-                  id="bingo-to"
-                  type="date"
-                  value={range.to}
-                  min={range.from}
-                  onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${range.from}|${e.target.value}` })}
-                  className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
-                />
+                <DateField id="bingo-to" value={range.to} min={range.from} onCommit={(v) => onPatch?.({ bingoRange: `${range.from}|${v}` })} />
               </div>
             ) : null}
             {edited ? (
@@ -3599,5 +3585,27 @@ function GoalPicker({
         )}
       </div>
     </div>
+  );
+}
+
+/** Un champ de date qui se SAISIT au clavier : tant que la date tapée est incomplète
+ *  (« 0 », « 05/1 »…) l'état reste local, et on ne l'enregistre qu'une fois valide. */
+function DateField({ id, value, min, max, onCommit }: { id: string; value: string; min?: string; max?: string; onCommit: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <input
+      id={id}
+      type="date"
+      value={text}
+      min={min}
+      max={max}
+      onChange={(e) => {
+        setText(e.target.value);
+        const v = e.target.value;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(v) && (!min || v >= min) && (!max || v <= max)) onCommit(v);
+      }}
+      className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+    />
   );
 }
