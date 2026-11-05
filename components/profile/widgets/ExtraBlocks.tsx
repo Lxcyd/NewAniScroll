@@ -1463,7 +1463,7 @@ function startGridDrag(
   fromIndex: number,
   startX: number,
   startY: number,
-  done: (from: number, to: number, swap: boolean) => void,
+  done: (dest: number[]) => void,
 ) {
   const cells = Array.from(body.querySelectorAll<HTMLElement>("[data-drag-cell]"));
   if (fromIndex < 0 || fromIndex >= cells.length) return;
@@ -1504,8 +1504,34 @@ function startGridDrag(
   /* D'UNE LIGNE À L'AUTRE, ON ÉCHANGE (05/11/2026, Luc) : décaler toute la
      grille pour un mouvement vertical déplaçait des cases qu'on ne touchait
      pas. Sur la même ligne, les cases entre les deux se décalent. */
-  const sameRow = (i: number) => slots[i].y === from.y;
-  let swap = false;
+  /* Sur une même ligne OU une même colonne, la case s'insère et les autres de
+     la ligne/colonne se décalent (05/11/2026, Luc : la verticale marche comme
+     l'horizontale) ; en diagonale, on échange. `dest[i]` = où va la case i. */
+  let dest = slots.map((_, i) => i);
+  const placement = (to: number): number[] => {
+    const same = (key: "x" | "y") => slots[to][key] === from[key];
+    const axis = same("y") ? "y" : same("x") ? "x" : null;
+    const d = slots.map((_, i) => i);
+    if (axis === null) {
+      d[fromIndex] = to;
+      d[to] = fromIndex;
+      return d;
+    }
+    const line = slots
+      .map((s, i) => i)
+      .filter((i) => slots[i][axis] === from[axis])
+      .sort((a, b) => (axis === "y" ? slots[a].x - slots[b].x : slots[a].y - slots[b].y));
+    const pf = line.indexOf(fromIndex);
+    const pt = line.indexOf(to);
+    line.forEach((cell, q) => {
+      let nq = q;
+      if (q === pf) nq = pt;
+      else if (pf < pt && q > pf && q <= pt) nq = q - 1;
+      else if (pt < pf && q >= pt && q < pf) nq = q + 1;
+      d[cell] = line[nq];
+    });
+    return d;
+  };
   const onMove = (x: number, y: number) => {
     /* Si la page défile pendant le glisser, la grille bouge à l'écran mais le
        pointeur non : on retire ce déplacement de la grille (quel que soit le
@@ -1527,14 +1553,11 @@ function startGridDrag(
       }
     });
     toIndex = best;
-    swap = !sameRow(toIndex);
+    dest = placement(toIndex);
     /* Les autres prennent la place qu'elles auront une fois la case posée. */
     cells.forEach((c, i) => {
       if (c === dragged) return;
-      let k = i;
-      if (swap) k = i === toIndex ? fromIndex : i;
-      else if (fromIndex < toIndex && i > fromIndex && i <= toIndex) k = i - 1;
-      else if (toIndex < fromIndex && i >= toIndex && i < fromIndex) k = i + 1;
+      const k = dest[i];
       const tx = slots[k].x - slots[i].x;
       const ty = slots[k].y - slots[i].y;
       c.style.transform = tx || ty ? `translate3d(${tx}px,${ty}px,0)` : "";
@@ -1583,7 +1606,7 @@ function startGridDrag(
     dragged.style.transform = `translate3d(${to.x - from.x}px,${to.y - from.y}px,0)`;
     dragged.style.boxShadow = "";
     setTimeout(() => {
-      flushSync(() => done(fromIndex, toIndex, swap));
+      flushSync(() => done(dest));
       for (const c of cells)
         for (const k of ["transition", "transform", "position", "zIndex", "boxShadow", "cursor", "willChange"] as const)
           c.style[k] = "";
@@ -3220,14 +3243,12 @@ export function BingoBlock({
                     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
                     stop();
                     dragged.current = true;
-                    startGridDrag(box, pid, i, sx, sy, (from, to, swap) => {
-                      if (from === to) return;
+                    startGridDrag(box, pid, i, sx, sy, (dest) => {
+                      if (dest.every((d, k) => d === k)) return;
                       const next = cellIds.slice();
-                      if (swap) [next[from], next[to]] = [next[to], next[from]];
-                      else {
-                        const [x] = next.splice(from, 1);
-                        next.splice(to, 0, x);
-                      }
+                      dest.forEach((d, k) => {
+                        next[d] = cellIds[k];
+                      });
                       writeCells(next);
                     });
                   };
