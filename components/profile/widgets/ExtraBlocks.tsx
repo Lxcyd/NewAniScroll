@@ -2767,8 +2767,7 @@ export function BingoBlock({
   const { t, i18n } = useTranslation();
   const season = seasonNow();
   const seasonId = `${season.year}-${season.key.toUpperCase()}`;
-  /* 4×4 au plus (05/11/2026, Luc) ; un 5×5 enregistré avant redevient 4×4. */
-  const n = size >= 3 ? Math.min(4, size) : 3;
+  const n = size >= 3 && size <= 5 ? size : 3;
   const [picking, setPicking] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);

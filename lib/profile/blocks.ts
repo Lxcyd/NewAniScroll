@@ -164,7 +164,7 @@ export const BLOCKS: BlockDef[] = [
   { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
   /* « Badges & succès » retiré le 03/11/2026 (Luc) : l'onglet Badges suffit. */
   { id: "affinity", size: [2, 1], min: [2, 1], max: [4, 2], color: "#22c55e", source: "list", icon: "≈" },
-  { id: "bingo", size: [2, 2], min: [2, 2], max: [3, 3], square: true, color: "#3B82F6", source: "device", icon: "▩" },
+  { id: "bingo", size: [2, 2], min: [2, 2], max: [4, 4], square: true, color: "#3B82F6", source: "device", icon: "▩" },
 ];
 
 /**
@@ -332,7 +332,7 @@ const OPTIONS: Record<string, BlockOption[]> = {
   /* La taille de la grille du bingo (04/11/2026, Luc). Les objectifs se
      choisissent au crayon et se rangent sous `bingoCells`. */
   bingo: [
-    { key: "bingoSize", choices: ["3", "4"], value: "3", segmented: true },
+    { key: "bingoSize", choices: ["3", "4", "5"], value: "3", segmented: true },
     /* La durée de MON bingo (04/11/2026, Luc) ; « Perso » = dates au crayon. */
     { key: "bingoSpan", choices: ["season", "month", "year", "custom"], value: "season", segmented: true },
   ],

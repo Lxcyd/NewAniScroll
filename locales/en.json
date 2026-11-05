@@ -958,7 +958,7 @@
         "affAuto": "Add new friends",
         "affAutoDesc": "New friends show up in the widget on their own. Off, they stay hidden until you check them with the pencil.",
         "bingoSize": "Grid size",
-        "bingoSizeDesc": "Nine or sixteen goals.",
+        "bingoSizeDesc": "Nine, sixteen or twenty-five goals.",
         "bingoSizeChoice": {
           "3": "3 × 3",
           "4": "4 × 4",

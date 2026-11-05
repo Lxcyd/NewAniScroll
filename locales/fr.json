@@ -958,7 +958,7 @@
         "affAuto": "Ajouter les nouveaux amis",
         "affAutoDesc": "Un nouvel ami apparaît tout seul dans le widget. Éteint, il reste masqué jusqu'à ce que tu le coches au crayon.",
         "bingoSize": "Taille de la grille",
-        "bingoSizeDesc": "Neuf ou seize objectifs.",
+        "bingoSizeDesc": "Neuf, seize ou vingt-cinq objectifs.",
         "bingoSizeChoice": {
           "3": "3 × 3",
           "4": "4 × 4",
