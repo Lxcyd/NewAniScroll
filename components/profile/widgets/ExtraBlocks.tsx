@@ -3223,11 +3223,6 @@ export function BingoBlock({
             <span className="font-karla text-[13px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
               {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
-            {lines.length ? (
-              <span className="rounded-full bg-action px-3 py-1 font-outfit text-[13px] font-bold text-white">
-                {full ? "100 %" : `BINGO${lines.length > 1 ? ` ×${lines.length}` : ""}`}
-              </span>
-            ) : null}
             {!isOwner ? (
               <button
                 type="button"
