@@ -3267,7 +3267,7 @@ export function BingoBlock({
             <>
               {/* L'emoji ouvre le menu d'emojis du chat ; le nom se tape sur place. */}
               <span data-nodrag onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} className="leading-none">
-                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="leading-none transition-transform hover:scale-110" onPick={(e) => setLabel(id, { e })}>
+                <EmojiButton bare closeOnPick title={t("profile.blocks.bingo.pickEmoji")} className="rounded-md px-1 leading-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-2 group-hover:outline-white/45" onPick={(e) => setLabel(id, { e })}>
                   <span style={iconStyle}>{iconNode(c.icon)}</span>
                 </EmojiButton>
               </span>
@@ -3277,7 +3277,6 @@ export function BingoBlock({
                 style={labelStyle}
                 onCommit={(v) => setLabel(id, { t: v && v !== baseCells[i]?.label ? v : "" })}
               />
-              <span aria-hidden className="pointer-events-none absolute right-1 top-0.5 text-[10px] text-white/35">✎</span>
             </>
           ) : c ? (
             <>
@@ -3372,7 +3371,7 @@ export function BingoBlock({
                   if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) setPicking(i);
                 }}
                 {...dnd}
-                className={`${cls} cursor-grab touch-none select-none hover:bg-white/[0.08] hover:ring-white/20`}
+                className={`${cls} group cursor-grab touch-none select-none hover:bg-white/[0.08] hover:ring-white/20`}
                 style={style}
               >
                 {body}
@@ -3429,7 +3428,7 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none select-text rounded-md bg-white/[0.06] px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none ring-1 ring-inset ring-white/10 focus:ring-white/40"
+      className="w-full resize-none select-text rounded-md bg-transparent px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none group-hover:outline-dashed group-hover:outline-1 group-hover:outline-offset-1 group-hover:outline-white/45 focus:bg-white/[0.12] focus:outline-solid focus:outline-white/60"
       style={style}
     />
   );
