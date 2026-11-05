@@ -3134,7 +3134,7 @@ export function BingoBlock({
           {/* MÊME HAUTEUR QUE LA LIGNE DU MODE LECTURE (05/11/2026, Luc : « pour ne
               pas rétrécir les cartes ») : une seule ligne de 24 px ; l'aide passe
               dans l'infobulle du ⓘ. */}
-          <div className="flex h-6 items-center gap-1.5 overflow-hidden font-karla text-[11px]">
+          <div className="flex h-8 items-center gap-2 overflow-hidden font-karla text-[13px]">
             <div role="group" aria-label={t("profile.blocks.bingo.modeLabel")} className="flex shrink-0 rounded-full bg-black/25 p-0.5 ring-1 ring-inset ring-white/10">
               {(["season", "mine"] as const).map((m) => (
                 <button
@@ -3142,7 +3142,7 @@ export function BingoBlock({
                   type="button"
                   aria-pressed={mode === m}
                   onClick={() => mode !== m && onPatch?.({ bingoMode: m })}
-                  className={`whitespace-nowrap rounded-full px-2.5 py-px font-bold leading-4 transition-colors ${
+                  className={`whitespace-nowrap rounded-full px-3.5 py-1 font-bold leading-4 transition-colors ${
                     mode === m ? "bg-action text-white" : "text-white/60 hover:text-white"
                   }`}
                 >
@@ -3160,7 +3160,7 @@ export function BingoBlock({
                   value={range.from}
                   max={range.to}
                   onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${e.target.value}|${range.to}` })}
-                  className="h-5 w-[7.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+                  className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
                 />
                 <span>{t("profile.blocks.bingo.to")}</span>
                 <input
@@ -3169,19 +3169,19 @@ export function BingoBlock({
                   value={range.to}
                   min={range.from}
                   onChange={(e) => e.target.value && onPatch?.({ bingoRange: `${range.from}|${e.target.value}` })}
-                  className="h-5 w-[7.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
+                  className="h-7 w-[8.5rem] min-w-0 rounded-lg bg-white/[0.06] px-1.5 py-0 text-white outline-none ring-1 ring-inset ring-white/10 [color-scheme:dark] focus:ring-white/30"
                 />
               </div>
             ) : null}
             {edited ? (
-              <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+              <button type="button" onClick={() => onPatch?.({ bingoSeason: "" })} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1 font-bold text-white/70 hover:text-white">
                 {t("profile.blocks.bingo.backOfficial")}
               </button>
             ) : null}
-            <button type="button" onClick={copyCode} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+            <button type="button" onClick={copyCode} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1 font-bold text-white/70 hover:text-white">
               {copied ? t("profile.blocks.bingo.copied") : t("profile.blocks.bingo.copyCode")}
             </button>
-            <button type="button" onClick={() => setImporting((v) => !v)} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-2 py-0.5 font-bold text-white/70 hover:text-white">
+            <button type="button" onClick={() => setImporting((v) => !v)} className="shrink-0 whitespace-nowrap rounded-full bg-white/[0.06] px-3 py-1 font-bold text-white/70 hover:text-white">
               {t("profile.blocks.bingo.import")}
             </button>
           </div>
@@ -3196,7 +3196,7 @@ export function BingoBlock({
           ) : null}
         </div>
       ) : (
-        <p className="flex h-6 items-center gap-2 font-karla text-[12px] text-txt">
+        <p className="flex h-8 items-center gap-2.5 font-karla text-[14px] text-txt">
           {/* LES POINTS (05/11/2026, Luc : « garde ça » sur la maquette 05) :
               10 par case, +20 par ligne ou colonne complète, +50 la grille
               pleine ; « 180 / 270 » = vers le prochain palier (un quart du
@@ -3208,7 +3208,7 @@ export function BingoBlock({
           </span>
           {/* La barre vers le prochain palier : petite, juste à côté des points. */}
           <span
-            className="h-2 w-24 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
+            className="h-2.5 w-28 shrink-0 overflow-hidden rounded-full bg-white/[0.1]"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={barMax}
@@ -3218,17 +3218,17 @@ export function BingoBlock({
           </span>
           {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
           {mode === "season" && !edited ? (
-            <span className="shrink-0 rounded-full bg-white/[0.1] px-1.5 py-0.5 font-outfit text-[10px] font-bold text-white ring-1 ring-white/15" title={t("profile.blocks.bingo.officialTitle")}>
+            <span className="shrink-0 rounded-full bg-white/[0.1] px-2.5 py-1 font-outfit text-[12px] font-bold text-white ring-1 ring-white/15" title={t("profile.blocks.bingo.officialTitle")}>
               ★ {t("profile.blocks.bingo.official")}
             </span>
           ) : null}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
-            <span className="font-karla text-[11px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
+            <span className="font-karla text-[13px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
               {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
             {lines.length ? (
-              <span className="rounded-full bg-action px-2 py-0.5 font-outfit text-[11px] font-bold text-white">
+              <span className="rounded-full bg-action px-3 py-1 font-outfit text-[13px] font-bold text-white">
                 {full ? "100 %" : `BINGO${lines.length > 1 ? ` ×${lines.length}` : ""}`}
               </span>
             ) : null}
@@ -3237,7 +3237,7 @@ export function BingoBlock({
                 type="button"
                 onClick={keepForMe}
                 title={t("profile.blocks.bingo.useThisTitle")}
-                className="rounded-full bg-action px-2 py-0.5 font-karla text-[11px] font-bold text-white hover:brightness-110"
+                className="rounded-full bg-action px-3 py-1 font-karla text-[13px] font-bold text-white hover:brightness-110"
               >
                 {kept ? t("profile.blocks.bingo.kept") : t("profile.blocks.bingo.useThis")}
               </button>
@@ -3247,12 +3247,12 @@ export function BingoBlock({
               onClick={copyCode}
               title={t("profile.blocks.bingo.copyCode")}
               aria-label={t("profile.blocks.bingo.copyCode")}
-              className="flex h-5 w-5 items-center justify-center rounded-md text-white/45 hover:bg-white/[0.08] hover:text-white"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-white/45 hover:bg-white/[0.08] hover:text-white"
             >
               {copied ? (
                 "✓"
               ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-3.5 w-3.5" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-[18px] w-[18px]" aria-hidden>
                   <rect x="9" y="9" width="11" height="11" rx="2" />
                   <path d="M5 15V5a2 2 0 0 1 2-2h8" />
                 </svg>
