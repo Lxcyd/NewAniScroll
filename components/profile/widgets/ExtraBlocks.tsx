@@ -3122,7 +3122,7 @@ export function BingoBlock({
        captures : cases, emoji et noms décalés de 8 px) : le panneau d'édition
        a un titre plus court. On le redescend en `translate`, sans changer la
        hauteur, pour que les cartes ne bougent ni ne rétrécissent. */
-    <div className={`flex min-h-0 flex-1 flex-col gap-2 ${editing ? "-mt-[3px] h-[calc(100%+3px)]" : "-mt-1.5 h-[calc(100%+6px)]"}`}>
+    <div className={`flex min-h-0 flex-1 flex-col gap-2 -mt-1.5 h-[calc(100%+6px)]`}>
       {editing ? (
         <div className="flex flex-col gap-1.5">
           {/* UN BOUTON, PAS UN CHOIX DANS LA LISTE (04/11/2026, Luc) : il pose
@@ -3465,7 +3465,7 @@ function CellName({ value, style, onCommit }: { value: string; style: React.CSSP
       }}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0.5 text-center font-karla font-semibold leading-tight text-white outline-none focus:bg-white/[0.12]"
+      className="w-full resize-none select-text block rounded-md bg-transparent px-1 py-0 text-center font-karla font-semibold leading-tight text-white outline-none focus:bg-white/[0.12]"
       style={{ ...style, maxHeight: "3.75em", overflow: "hidden" }}
     />
     </span>
