@@ -3200,17 +3200,17 @@ export function BingoBlock({
           >
             <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (barNow / barMax) * 100)}%` }} />
           </span>
-          {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
-          {mode === "season" && !edited ? (
-            <span className="shrink-0 rounded-full bg-white/[0.1] px-2.5 py-1 font-outfit text-[12px] font-bold text-white ring-1 ring-white/15" title={t("profile.blocks.bingo.officialTitle")}>
-              ★ {t("profile.blocks.bingo.official")}
-            </span>
-          ) : null}
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
             <span className="font-karla text-[13px] text-white/45" title={t("profile.blocks.bingo.daysLeftTitle")}>
               {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
+              {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
+              {mode === "season" && !edited ? (
+                <span className="shrink-0 rounded-full bg-action px-2.5 py-1 font-outfit text-[12px] font-bold text-white" title={t("profile.blocks.bingo.officialTitle")}>
+                  ★ {t("profile.blocks.bingo.official")}
+                </span>
+              ) : null}
             {!isOwner ? (
               <button
                 type="button"
