@@ -2956,7 +2956,9 @@ export function BingoBlock({
   const baseCells = cellIds.map((id) => resolve(id));
   const cells = baseCells.map((r, i) => {
     const o = r && labels[cellIds[i]];
-    return r && o ? { ...r, icon: o.e || r.icon, label: o.t || r.label } : r;
+    const r2 = r && o ? { ...r, icon: o.e || r.icon, label: o.t || r.label } : r;
+    /* MON BINGO : c'est l'utilisateur qui valide ses cartes, d'un clic. */
+    return r2 && mode === "mine" ? { ...r2, got: done.has(cellIds[i]) ? 1 : 0, need: 1 } : r2;
   });
   const setLabel = (id: string, p: { t?: string; e?: string }) => {
     const cur: Record<string, { t?: string; e?: string }> = {};
@@ -3208,7 +3210,6 @@ export function BingoBlock({
               pleine ; « 180 / 270 » = vers le prochain palier (un quart du
               maximum), et la barre dessous le suit. */}
           <span className="min-w-0 truncate" title={t("profile.blocks.bingo.pointsTitle")}>
-            {mode !== "season" ? `${period.label} · ` : ""}
             {mode === "season"
               ? t("profile.blocks.bingo.points", { points: `${pts} / ${maxPts}` })
               : t("profile.blocks.bingo.cards", { done: cellsDone, total: n * n })}
@@ -3342,7 +3343,7 @@ export function BingoBlock({
           const act =
             ce
               ? () => setPicking(i)
-              : isOwner && onPatch && id.startsWith("c:")
+              : isOwner && onPatch && c && (mode === "mine" || id.startsWith("c:"))
                 ? () => toggleCustom(id)
                 : null;
           /* DÉPLACER LES CARTES (05/11/2026, Luc : « comme les widgets ») : au
