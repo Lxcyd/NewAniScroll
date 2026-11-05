@@ -2910,6 +2910,17 @@ export function BingoBlock({
     const pick = pool[Math.floor(Math.random() * pool.length)];
     onPatch({ bingoState: JSON.stringify({ ...state, rnd: { k: periodId, id: pick.mediaId } }) });
   };
+  /* LE HASARD SE TIRE TOUT SEUL (05/11/2026, Luc) : chez soi, dès que la case
+     🎲 est sur la grille sans tirage pour la période. Une fois par période. */
+  const drewFor = useRef<string | null>(null);
+  const hasRandom = cellIds.includes("random");
+  useEffect(() => {
+    if (!isOwner || editing || !hasRandom || rnd != null || drewFor.current === periodId) return;
+    if (!entries.some((e) => e.status === "PLANNING")) return;
+    drewFor.current = periodId;
+    draw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwner, editing, hasRandom, rnd, periodId, entries]);
   /** Faire sien un bingo partagé : il devient « mon bingo ». */
   const applyCode = (code: string): boolean => {
     const v = decodeBingo(code);
@@ -3146,8 +3157,6 @@ export function BingoBlock({
                 <span className="font-karla text-[9px] text-white/50">
                   {c.got}/{c.need}
                 </span>
-              ) : !editing && id === "random" && rnd == null && isOwner ? (
-                <span className="font-karla text-[9px] text-white/50">{t("profile.blocks.bingo.drawHint")}</span>
               ) : null}
             </>
           ) : (
@@ -3166,16 +3175,14 @@ export function BingoBlock({
                 }
               : undefined;
           const tip = c ? c.label : undefined;
-          /* Chez soi, hors crayon : un objectif perso se coche à la main, le
-             hasard se tire d'un clic. */
+          /* Chez soi, hors crayon : un objectif perso se coche à la main (le
+             hasard, lui, se tire tout seul). */
           const act =
             editing
               ? () => setPicking(i)
               : isOwner && onPatch && id.startsWith("c:")
                 ? () => toggleCustom(id)
-                : isOwner && onPatch && id === "random" && rnd == null
-                  ? draw
-                  : null;
+                : null;
           /* DÉPLACER LES CARTES (05/11/2026, Luc : « comme les widgets ») : au
              crayon, une carte se glisse à sa place (`startGridDrag`). Le glisser
              ne part qu'après 6 px : en deçà c'est un clic, qui choisit l'objectif. */

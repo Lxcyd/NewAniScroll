@@ -1298,7 +1298,6 @@
         "import": "Importer",
         "importPlaceholder": "Colle un code de bingo (ASB1:…)",
         "importGo": "OK",
-        "drawHint": "Clique pour tirer",
         "newGoal": "Écrire un objectif",
         "newEmoji": "Emoji (facultatif)",
         "newTitle": "Nom",
