@@ -1501,31 +1501,22 @@ function startGridDrag(
   let toIndex = fromIndex;
   let ended = false;
   const from = slots[fromIndex];
-  /* D'UNE LIGNE À L'AUTRE, ON ÉCHANGE (05/11/2026, Luc) : décaler toute la
-     grille pour un mouvement vertical déplaçait des cases qu'on ne touchait
-     pas. Sur la même ligne, les cases entre les deux se décalent. */
   /* Sur une même ligne OU une même colonne, la case s'insère et les autres de
-     la ligne/colonne se décalent (05/11/2026, Luc : la verticale marche comme
-     l'horizontale) ; en diagonale, on échange. `dest[i]` = où va la case i. */
+     la ligne/colonne se décalent. `dest[i]` = où va la case i. */
   const minDx = Math.min(...slots.map((s) => s.x)) - from.x;
   const maxDx = Math.max(...slots.map((s) => s.x + s.w)) - from.x - from.w;
   const minDy = Math.min(...slots.map((s) => s.y)) - from.y;
   const maxDy = Math.max(...slots.map((s) => s.y + s.h)) - from.y - from.h;
   let dest = slots.map((_, i) => i);
-  const placement = (to: number): number[] => {
-    const same = (key: "x" | "y") => slots[to][key] === from[key];
-    const axis = same("y") ? "y" : same("x") ? "x" : null;
+  /* Insérer la case `f` en `to`, les deux sur une même ligne ou colonne. */
+  const shiftLine = (f: number, to: number): number[] => {
     const d = slots.map((_, i) => i);
-    if (axis === null) {
-      d[fromIndex] = to;
-      d[to] = fromIndex;
-      return d;
-    }
+    const axis = slots[to].y === slots[f].y ? "y" : "x";
     const line = slots
-      .map((s, i) => i)
-      .filter((i) => slots[i][axis] === from[axis])
+      .map((_, i) => i)
+      .filter((i) => slots[i][axis] === slots[f][axis])
       .sort((a, b) => (axis === "y" ? slots[a].x - slots[b].x : slots[a].y - slots[b].y));
-    const pf = line.indexOf(fromIndex);
+    const pf = line.indexOf(f);
     const pt = line.indexOf(to);
     line.forEach((cell, q) => {
       let nq = q;
@@ -1535,6 +1526,16 @@ function startGridDrag(
       d[cell] = line[nq];
     });
     return d;
+  };
+  /* En diagonale : d'abord la ligne jusqu'à la bonne colonne, puis la colonne
+     jusqu'à la bonne ligne (05/11/2026, Luc : pas d'échange). */
+  const placement = (to: number): number[] => {
+    if (slots[to].y === from.y || slots[to].x === from.x) return shiftLine(fromIndex, to);
+    const m = slots.findIndex((s) => s.x === slots[to].x && s.y === from.y);
+    if (m < 0) return shiftLine(fromIndex, to);
+    const d1 = shiftLine(fromIndex, m);
+    const d2 = shiftLine(m, to);
+    return d1.map((s) => d2[s]);
   };
   const onMove = (x: number, y: number) => {
     /* Si la page défile pendant le glisser, la grille bouge à l'écran mais le
