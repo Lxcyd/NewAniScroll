@@ -4052,7 +4052,13 @@ export function BingoBlock({
           const sliced = bk0?.anime && !bk0.focus && !bk0.keep ? { ...bk0, anime: bk0.anime.slice(0, Math.max(1, c!.need)) } : bk0;
           /* UNE CARTE QUI COMPTE DES ANIMES (3 séries terminées, 3 animes de la
              saison…) : juste les animes, sans cercle (06/11/2026, Luc). */
-          const counted = sliced?.bar && sliced.anime?.length && ANIME_COUNT.test(id) ? { ...sliced, bar: undefined } : sliced;
+          /* … une fois l'objectif atteint ; avant, le cercle seul (« 1/3 », Luc). */
+          const counted =
+            sliced?.bar && ANIME_COUNT.test(id)
+              ? sliced.bar.got >= sliced.bar.need && sliced.anime?.length
+                ? { ...sliced, bar: undefined }
+                : { ...sliced, anime: undefined }
+              : sliced;
           /* PAS DE DATES (06/11/2026, Luc) : seule la liste des genres garde son texte. */
           const bk = counted && !counted.plain && !counted.dated ? { ...counted, text: undefined } : counted;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
