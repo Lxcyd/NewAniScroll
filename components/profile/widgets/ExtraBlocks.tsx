@@ -4226,19 +4226,21 @@ function BingoBack({
       })()
     ) : anime.length ? (
       <div className="flex min-h-0 w-full items-start justify-center gap-[4cqw]">
-        {anime.slice(0, maxCovers).map((id) => {
+        {anime.slice(0, maxCovers).map((id, _i, shownList) => {
+          const shown = shownList.length;
           const m = meta.get(id);
           return (
             <div
               key={id}
               className="flex min-w-0 flex-1 flex-col items-center gap-[2cqh]"
-              style={{ maxWidth: back.bar || extra ? "28cqw" : "30cqw" }}
+              /* Deux covers ou moins : elles prennent toute la hauteur (Luc : « plus gros »). */
+              style={{ maxWidth: back.bar || extra ? "28cqw" : shown <= 2 ? "38cqw" : "30cqw" }}
               title={m?.title}
             >
               {/* PLUSIEURS ANIMES : LES IMAGES SEULES (06/11/2026, Luc) — le titre,
                   la note et les épisodes, c'est pour une carte à un seul anime. */}
               <Link href={`/en/anime/${id}`} onClick={(e) => e.stopPropagation()} className="block w-full rounded-md transition-transform hover:scale-[1.04]">
-                <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[84cqh]"}`} />
+                <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[86cqh]"}`} />
               </Link>
             </div>
           );
