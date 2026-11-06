@@ -3427,7 +3427,8 @@ export function BingoBlock({
           const [y, m, d] = k.split("-").map(Number);
           return new Date(y, m - 1, d).getDay() === 6 && set.has(shiftDay(k, 1));
         });
-        return sat ? { text: `${fmt(sat[0])} + ${fmt(shiftDay(sat[0], 1))}` } : {};
+        const sun = sat && ctx.days.find(([k]) => k === shiftDay(sat[0], 1));
+        return sat && sun ? { anime: [...sat[1].a, ...sun[1].a] } : {};
       }
       case "day3shows": {
         const b = bestOf((d) => d.a.length);
@@ -3908,7 +3909,9 @@ export function BingoBlock({
           const sliced = bk0?.anime && !bk0.focus && !bk0.keep ? { ...bk0, anime: bk0.anime.slice(0, Math.max(1, c!.need)) } : bk0;
           /* UNE CARTE QUI COMPTE DES ANIMES (3 séries terminées, 3 animes de la
              saison…) : juste les animes, sans cercle (06/11/2026, Luc). */
-          const bk = sliced?.bar && sliced.anime?.length && ANIME_COUNT.test(id) ? { ...sliced, bar: undefined } : sliced;
+          const counted = sliced?.bar && sliced.anime?.length && ANIME_COUNT.test(id) ? { ...sliced, bar: undefined } : sliced;
+          /* PAS DE DATES (06/11/2026, Luc) : seule la liste des genres garde son texte. */
+          const bk = counted && !counted.plain ? { ...counted, text: undefined } : counted;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
              poser à plat dans le cadre qui tourne. */
           const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
