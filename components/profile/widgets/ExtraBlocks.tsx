@@ -2669,6 +2669,8 @@ const EMPTY = "-";
 /** Jetons du pool, remplacés au tirage par `rg:<Genre>` / `rt:<Tag>`. */
 const RAND_GENRE = "~rg";
 const RAND_TAG = "~rt";
+/** Le plafond de cartes « au hasard » de chaque sorte sur une grille. */
+const RAND_MAX = 5;
 /** Ce qu'on tire au hasard pour la grille officielle, après le thème de la saison. */
 const SEASON_POOL = [
   "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special", "newSeason",
@@ -2759,7 +2761,17 @@ function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
   const themed = ([g[0], a[0], g[1], "season3", g[2], a[1]].filter(Boolean) as string[]).slice(0, n === 3 ? 3 : n === 4 ? 5 : 6);
   const slots = new Set(shuffle(Array.from({ length: n * n }, (_, i) => i)).slice(0, themed.length));
   const out: string[] = [];
-  for (let i = 0; i < n * n; i++) out.push((slots.has(i) ? themed.shift() : pool.shift()) ?? pool.shift() ?? EMPTY);
+  /* 5 cartes « au hasard » de chaque sorte au plus (06/11/2026, Luc) : au-delà,
+     le jeton est sauté et la case prend l'objectif suivant. */
+  const drawn: Record<string, number> = {};
+  const next = (): string | undefined => {
+    for (;;) {
+      const id = pool.shift();
+      if (id !== RAND_GENRE && id !== RAND_TAG) return id;
+      if ((drawn[id] = (drawn[id] ?? 0) + 1) <= RAND_MAX) return id;
+    }
+  };
+  for (let i = 0; i < n * n; i++) out.push((slots.has(i) ? themed.shift() : next()) ?? next() ?? EMPTY);
   /* Les jetons « au hasard » prennent un genre / un tag pas déjà sur la grille. */
   const usedGenres = new Set(
     out.flatMap((id) => (id.startsWith("g:") ? [id.slice(2)] : FIXED_GENRE[id] ? [FIXED_GENRE[id]] : [])),
