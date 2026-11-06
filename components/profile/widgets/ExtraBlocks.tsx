@@ -2679,6 +2679,23 @@ const RAND_YEAR = "~ry";
 const RAND_STUDIO = "~rs";
 /** Les chances (en %) d'avoir 0, 1, 2… cartes « au hasard » d'une sorte, par
  *  taille de grille ; 5 au plus (06/11/2026, Luc : 0 très rare, 2-3 le plus souvent). */
+/** LA DIFFICULTÉ D'UNE CARTE, de 1 (facile) à 5 (très dure) (06/11/2026,
+ *  Luc : la plus dure de la grille va au centre). Les cartes `g:`/`a:`/`rg:`…
+ *  ont la note de leur famille ; 2 par défaut. */
+const DIFFICULTY: Record<string, number> = {
+  streak21: 5, seasonInDay: 5, eps250: 5,
+  streak14: 4, day15: 4, doubleFeature: 4, finish5: 4,
+  streak7: 3, secondChance: 3, rewatch: 3, random: 3, eps100: 3, active15: 3, finishStarted: 3, music: 3,
+  oneShow10: 2, special: 2, sharedShow: 2, favSeason: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
+  eps50: 2, day3shows: 2, scifi: 2, psycho: 2, supernatural: 2, animes5: 2, season3: 2,
+  streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1, comedy: 1, adventure: 1,
+};
+const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3 };
+function difficulty(id: string): number {
+  if (id === EMPTY) return 0;
+  const fam = /^([a-z]+):/.exec(id)?.[1];
+  return DIFFICULTY[id] ?? (fam ? FAMILY_DIFFICULTY[fam] : undefined) ?? 2;
+}
 /** Le plafond des cartes « regarder un genre / un tag » (thème, fixes et hasard
  *  réunis) par taille de grille : environ un tiers des cases. */
 const GENRE_CAP: Record<number, number> = { 3: 3, 4: 5, 5: 8 };
@@ -2836,7 +2853,7 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
   );
   const genres = shuffle(RAND_GENRES.filter((x) => !usedGenres.has(x)));
   const tags = shuffle(RAND_TAGS.slice());
-  return out.map((id) =>
+  const final = out.map((id) =>
     id === RAND_GENRE
       ? genres.length ? `rg:${genres.shift()}` : EMPTY
       : id === RAND_TAG
@@ -2847,6 +2864,16 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
             ? `rs:${RAND_STUDIOS[Math.floor(r() * RAND_STUDIOS.length)]}`
             : id,
   );
+  /* LA PLUS DURE AU CENTRE (06/11/2026, Luc) : en 4×4, sur l'une des quatre
+     cases du milieu. À difficulté égale, la première trouvée. */
+  const h = Math.floor(n / 2);
+  const center = n % 2 ? h * n + h : [(h - 1) * n + h - 1, (h - 1) * n + h, h * n + h - 1, h * n + h][Math.floor(r() * 4)];
+  let hardest = 0;
+  final.forEach((id, i) => {
+    if (difficulty(id) > difficulty(final[hardest])) hardest = i;
+  });
+  [final[center], final[hardest]] = [final[hardest], final[center]];
+  return final;
 }
 
 const seasonMemo = new Map<string, SeasonData | null>();
