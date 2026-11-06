@@ -1286,6 +1286,8 @@
           "seasonAnime": "Regarder {{title}}",
           "randGenre": "Un anime « {{genre}} »",
           "randTag": "Un anime avec le tag « {{tag}} »",
+          "randYear": "Un anime sorti en {{year}}",
+          "randStudio": "Un anime du studio {{studio}}",
           "day3shows": "{{count}} animes différents en un jour",
           "active15": "Regarder {{count}} jours différents",
           "comedy": "Une comédie",

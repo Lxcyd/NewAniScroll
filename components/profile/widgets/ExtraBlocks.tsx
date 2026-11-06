@@ -127,9 +127,11 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
    hasard ») : ni la liste ni `Meta` ne les ont. Demandés au navigateur, par
    paquets de 50, seulement quand une carte tag est sur la grille. Un tag ne
    compte qu'à partir d'un rang de 50 % (en dessous, AniList le juge accessoire). */
-const tagCache = new Map<number, string[] | null>();
+/* Les studios principaux viennent dans la même requête (carte « studio tiré »). */
+type Extra = { tags: string[]; studios: string[] };
+const tagCache = new Map<number, Extra | null>();
 const tagListeners = new Set<() => void>();
-function useAnimeTags(ids: number[], enabled: boolean): Map<number, string[]> {
+function useAnimeTags(ids: number[], enabled: boolean): Map<number, Extra> {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const on = () => setTick((n) => n + 1);
@@ -149,14 +151,18 @@ function useAnimeTags(ids: number[], enabled: boolean): Map<number, string[]> {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
-          query: "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id tags{name rank}}}}",
+          query:
+            "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id tags{name rank} studios(isMain:true){nodes{name}}}}}",
           variables: { ids: missing.slice(i, i + 50) },
         }),
       })
         .then((r) => (r.ok ? r.json() : null))
         .then((j) => {
           for (const m of j?.data?.Page?.media ?? [])
-            tagCache.set(m.id, (m.tags ?? []).filter((x: { rank?: number }) => (x.rank ?? 0) >= 50).map((x: { name: string }) => x.name));
+            tagCache.set(m.id, {
+              tags: (m.tags ?? []).filter((x: { rank?: number }) => (x.rank ?? 0) >= 50).map((x: { name: string }) => x.name),
+              studios: (m.studios?.nodes ?? []).map((x: { name: string }) => x.name),
+            });
           tagListeners.forEach((f) => f());
         })
         .catch(() => {});
@@ -164,7 +170,7 @@ function useAnimeTags(ids: number[], enabled: boolean): Map<number, string[]> {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
   return useMemo(() => {
-    const out = new Map<number, string[]>();
+    const out = new Map<number, Extra>();
     for (const id of ids) {
       const v = tagCache.get(id);
       if (v) out.set(id, v);
@@ -2669,6 +2675,8 @@ const EMPTY = "-";
 /** Jetons du pool, remplacés au tirage par `rg:<Genre>` / `rt:<Tag>`. */
 const RAND_GENRE = "~rg";
 const RAND_TAG = "~rt";
+const RAND_YEAR = "~ry";
+const RAND_STUDIO = "~rs";
 /** Les chances (en %) d'avoir 0, 1, 2… cartes « au hasard » d'une sorte, par
  *  taille de grille ; 5 au plus (06/11/2026, Luc : 0 très rare, 2-3 le plus souvent). */
 const RAND_ODDS: Record<number, number[]> = {
@@ -2687,6 +2695,18 @@ const SEASON_POOL = [
   "finishStarted", "animes5",
   /* Les cartes « un genre / un tag au hasard » (`rg:` / `rt:`) ne sont pas
      dans le pool : leur nombre se tire à part, cf. RAND_ODDS. */
+  /* L'année et le studio tirés (06/11/2026, Luc) : un jeton chacun, remplacé
+     au tirage par `ry:<année>` / `rs:<studio>`. */
+  RAND_YEAR, RAND_STUDIO,
+];
+/** L'année tirée court de 1995 à l'année de la saison. */
+const RAND_YEAR_FROM = 1995;
+/** Des studios connus, au nom EXACT d'AniList (vérifié le 06/11/2026). */
+const RAND_STUDIOS = [
+  "MAPPA", "Kyoto Animation", "TRIGGER", "MADHOUSE", "bones", "Production I.G", "WIT STUDIO", "ufotable",
+  "Sunrise", "A-1 Pictures", "CloverWorks", "Shaft", "Toei Animation", "J.C.STAFF", "david production",
+  "Studio Ghibli", "Science SARU", "Lerche", "Doga Kobo", "Studio DEEN", "TMS Entertainment", "Studio Pierrot",
+  "CygamesPictures", "Shuka", "Studio Bind", "Kinema Citrus", "SILVER LINK.", "Brain's Base",
 ];
 /** Les genres AniList (sans le genre adulte), pour la carte « genre au hasard ». */
 const RAND_GENRES = [
@@ -2747,7 +2767,7 @@ function seeded(key: string) {
  * centre, et le reste tiré dans un pool d'objectifs. 25 cases ; une grille n×n
  * en prend les n² premières.
  */
-function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
+function seasonGrid(key: string, data: SeasonData | null, n: number, year: number): string[] {
   /* UNE GRILLE PAR TAILLE (04/11/2026, Luc) : chaque taille a sa graine, ses
      cases de thème (3, 5 ou 6) et leurs places, tirées une fois pour tous. */
   const r = seeded(`${key}:${n}`);
@@ -2794,7 +2814,15 @@ function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
   const genres = shuffle(RAND_GENRES.filter((x) => !usedGenres.has(x)));
   const tags = shuffle(RAND_TAGS.slice());
   return out.map((id) =>
-    id === RAND_GENRE ? (genres.length ? `rg:${genres.shift()}` : EMPTY) : id === RAND_TAG ? `rt:${tags.shift()}` : id,
+    id === RAND_GENRE
+      ? genres.length ? `rg:${genres.shift()}` : EMPTY
+      : id === RAND_TAG
+        ? `rt:${tags.shift()}`
+        : id === RAND_YEAR
+          ? `ry:${RAND_YEAR_FROM + Math.floor(r() * (year - RAND_YEAR_FROM + 1))}`
+          : id === RAND_STUDIO
+            ? `rs:${RAND_STUDIOS[Math.floor(r() * RAND_STUDIOS.length)]}`
+            : id,
   );
 }
 
@@ -2966,10 +2994,14 @@ export function BingoBlock({
      se retouche ; une ancienne retouche de la saison est ignorée. */
   const edited = false;
   const ce = editing && mode !== "season";
-  const official = useMemo(() => seasonGrid(seasonId, seasonData ?? null, n), [seasonId, seasonData, n]);
+  const [reroll, setReroll] = useState(0);
+  const official = useMemo(
+    () => seasonGrid(reroll ? `${seasonId}#${reroll}` : seasonId, seasonData ?? null, n, season.year),
+    [seasonId, seasonData, n, reroll, season.year],
+  );
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
-    GOAL.has(id) || /^(g|rg|rt):.+/.test(id) || /^a:\d+$/.test(id) || customKeys.has(id);
+    GOAL.has(id) || /^(g|rg|rt|rs):.+/.test(id) || /^(a|ry):\d+$/.test(id) || customKeys.has(id);
   const fill = (saved: string[], pad: string[]) => {
     const cells = saved.slice(0, n * n).map((id) => (valid(id) ? id : EMPTY));
     const used = new Set(cells);
@@ -3011,7 +3043,7 @@ export function BingoBlock({
     [cellIds.join(","), rnd],
   );
   const meta = useAnimeMeta(useMemo(() => [...ids, ...extraIds], [ids, extraIds]), entries);
-  const tagsOf = useAnimeTags(ids, cellIds.some((id) => id.startsWith("rt:")));
+  const tagsOf = useAnimeTags(ids, cellIds.some((id) => id.startsWith("rt:") || id.startsWith("rs:")));
 
   const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
@@ -3089,7 +3121,25 @@ export function BingoBlock({
       return {
         icon: "🔖",
         label: t("profile.blocks.bingo.cell.randTag", { tag: translateTag(name, i18n.language) }),
-        got: ids.some((aid) => tagsOf.get(aid)?.includes(name)) ? 1 : 0,
+        got: ids.some((aid) => tagsOf.get(aid)?.tags.includes(name)) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("ry:")) {
+      const y = Number(id.slice(3));
+      return {
+        icon: "📆",
+        label: t("profile.blocks.bingo.cell.randYear", { year: y }),
+        got: ctx.list.some((m) => m.year === y) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("rs:")) {
+      const name = id.slice(3);
+      return {
+        icon: "🏢",
+        label: t("profile.blocks.bingo.cell.randStudio", { studio: name }),
+        got: ids.some((aid) => tagsOf.get(aid)?.studios.includes(name)) ? 1 : 0,
         need: 1,
       };
     }
@@ -3358,6 +3408,18 @@ export function BingoBlock({
               {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
               {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
+              {/* TEMPORAIRE (06/11/2026, Luc) : retirer la grille pour voir les
+                  tirages ; local à l'affichage, rien n'est enregistré. */}
+              {mode === "season" && isOwner ? (
+                <button
+                  type="button"
+                  onClick={() => setReroll((x) => x + 1)}
+                  className="shrink-0 rounded-full bg-white/[0.1] px-2.5 py-1 font-outfit text-[12px] font-bold text-white hover:bg-white/[0.18]"
+                  title="Reroll (temporaire)"
+                >
+                  🔄 {reroll || ""}
+                </button>
+              ) : null}
               {mode === "season" && !edited ? (
                 <span className="shrink-0 rounded-full bg-action px-2.5 py-1 font-outfit text-[12px] font-bold text-white" title={t("profile.blocks.bingo.officialTitle")}>
                   ★ {t("profile.blocks.bingo.official")}
