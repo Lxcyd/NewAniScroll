@@ -3111,7 +3111,32 @@ export function BingoBlock({
   }, [isOwner, owner, cellIds.includes("sharedShow")]);
 
   const allDays = useMemo(() => Object.entries(days ?? {}).sort(([a], [b]) => (a < b ? -1 : 1)), [days]);
-  const inSeason = useMemo(() => allDays.filter(([k]) => k >= startKey && k < period.end), [allDays, startKey, period.end]);
+  /* FAIT PENDANT LA PÉRIODE, OU RIEN (06/11/2026, Luc : « primordial ») : un
+     anime TERMINÉ avant le début de la période et dont la fiche n'a plus bougé
+     depuis n'a pas été regardé pour de vrai pendant la période — ce sont des
+     essais du lecteur (Demon Slayer, vu l'an dernier, comptait par 3 épisodes
+     ouverts le 2 octobre). Un vrai revisionnage passe la fiche en REPEATING,
+     ce qui la met à jour : il reste compté. */
+  const stale = useMemo(() => {
+    const from = new Date(`${startKey}T00:00:00`).getTime();
+    return new Set(
+      entries.filter((e) => e.status === "COMPLETED" && Number(e.updatedAt) > 0 && Number(e.updatedAt) < from).map((e) => e.mediaId),
+    );
+  }, [entries, startKey]);
+  const inSeason = useMemo(
+    () =>
+      allDays
+        .filter(([k]) => k >= startKey && k < period.end)
+        .map(([k, d]): [string, WatchDay] => {
+          if (!d.a.some((id) => stale.has(id))) return [k, d];
+          const keep = d.a.map((id, i) => i).filter((i) => !stale.has(d.a[i]));
+          /* Sans le détail par anime (vieux jours), le total ne se corrige pas. */
+          const n = d.c ? keep.reduce((s, i) => s + (d.c![i] ?? 0), 0) : d.n;
+          return [k, { n, a: keep.map((i) => d.a[i]), ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}) }];
+        })
+        .filter(([, d]) => d.a.length > 0),
+    [allDays, startKey, period.end, stale],
+  );
   const ids = useMemo(() => {
     const s = new Set<number>();
     for (const [, d] of inSeason) d.a.forEach((id) => s.add(id));
