@@ -4094,7 +4094,6 @@ function BingoBack({
       <div className="flex min-h-0 w-full items-start justify-center gap-[4cqw]">
         {anime.slice(0, maxCovers).map((id) => {
           const m = meta.get(id);
-          const s = status(id);
           return (
             <div
               key={id}
@@ -4102,18 +4101,9 @@ function BingoBack({
               style={{ maxWidth: back.bar || extra ? "28cqw" : "30cqw" }}
               title={m?.title}
             >
-              {/* Larges d'abord : la carte en aligne jusqu'à cinq. */}
-              <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[58cqh]" : "max-h-[70cqh]"}`} />
-              <span className="line-clamp-1 w-full text-center font-karla font-semibold text-white/85" style={small}>
-                {m?.title ?? "…"}
-              </span>
-              {back.counts?.[id] != null ? (
-                <span className="font-karla text-white/70" style={small}>
-                  {epsDay(back.counts[id])}
-                </span>
-              ) : s.running ? (
-                <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} />
-              ) : null}
+              {/* PLUSIEURS ANIMES : LES IMAGES SEULES (06/11/2026, Luc) — le titre,
+                  la note et les épisodes, c'est pour une carte à un seul anime. */}
+              <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[84cqh]"}`} />
             </div>
           );
         })}
