@@ -58,6 +58,10 @@ export function entriesFromAniList(
         repeat: e.repeat || 0,
         // AniList compte en SECONDES ; tout le reste du site, en millisecondes.
         updatedAt: e.updatedAt ? Number(e.updatedAt) * 1000 : null,
+        completedAt:
+          e.completedAt?.year && e.completedAt?.month && e.completedAt?.day
+            ? `${e.completedAt.year}-${String(e.completedAt.month).padStart(2, "0")}-${String(e.completedAt.day).padStart(2, "0")}`
+            : null,
         format: e.media?.format ?? null,
         year: e.media?.startDate?.year ?? null,
         duration: e.media?.duration ?? null,

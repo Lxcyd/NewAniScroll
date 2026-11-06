@@ -84,6 +84,8 @@ export type ProfileEntry = {
    *  d'AniList, ou `activityAt`/`updatedAt` d'une liste locale. Range « En cours
    *  de visionnage » du plus récent au plus ancien. */
   updatedAt?: number | null;
+  /** La date de fin AniList, « AAAA-MM-JJ » ; absente d'une liste locale. */
+  completedAt?: string | null;
   /**
    * Les listes personnalisées AniList qui contiennent cette entrée.
    *

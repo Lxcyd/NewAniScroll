@@ -303,6 +303,9 @@ export type WatchDay = {
    *  (06/11/2026) : le bingo y lit si le DERNIER épisode a été vu pendant la
    *  période, ce qui seul fait un anime « terminé » pendant la période. */
   e?: number[];
+  /** Le plus BAS numéro d'épisode vu ce jour-là, même ordre (06/11/2026) : un
+   *  jour dont tous les épisodes dépassent la fiche AniList est un essai. */
+  f?: number[];
 };
 export type WatchDays = Record<string, WatchDay>;
 
@@ -323,7 +326,7 @@ export function watchDays(
   feed?: FeedEvent[] | null,
 ): WatchDays {
   const since = now - maxDays * 86_400_000;
-  const per = new Map<string, Map<number, { c: number; first: number; e: number }>>();
+  const per = new Map<string, Map<number, { c: number; first: number; e: number; f: number }>>();
   for (const { at, aniId, ep } of watchesOf(map, feed)) {
     if (!(at > since && at <= now + 86_400_000)) continue;
     const day = dayKey(at);
@@ -334,14 +337,15 @@ export function watchDays(
       cur.c += 1;
       cur.first = Math.min(cur.first, at);
       cur.e = Math.max(cur.e, ep);
-    } else byAnime.set(aniId, { c: 1, first: at, e: ep });
+      cur.f = Math.min(cur.f, ep);
+    } else byAnime.set(aniId, { c: 1, first: at, e: ep, f: ep });
   }
   const out: WatchDays = {};
   per.forEach((byAnime, day) => {
     let n = 0;
     byAnime.forEach((v) => (n += v.c));
     const sorted = Array.from(byAnime.entries()).sort((x, y) => y[1].c - x[1].c || x[1].first - y[1].first);
-    out[day] = { n, a: sorted.map(([id]) => id), c: sorted.map(([, v]) => v.c), e: sorted.map(([, v]) => v.e) };
+    out[day] = { n, a: sorted.map(([id]) => id), c: sorted.map(([, v]) => v.c), e: sorted.map(([, v]) => v.e), f: sorted.map(([, v]) => v.f) };
   });
   return out;
 }

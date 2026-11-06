@@ -2591,6 +2591,8 @@ type BingoCtx = {
   rnd: number | null;
   /** La saison du bingo, en clé AniList (« FALL »). */
   seasonKey: string;
+  /** Le premier jour APRÈS la période. */
+  endKey: string;
 };
 type Goal = { id: string; icon: string; need: number; got: (c: BingoCtx) => number };
 
@@ -2614,6 +2616,13 @@ const finishDays = (c: BingoCtx) => {
   for (const id of c.ids) {
     const e = c.byId.get(id);
     if (e?.status !== "COMPLETED" && e?.status !== "REPEATING") continue;
+    /* LA DATE DE FIN ANILIST FAIT FOI quand elle existe (06/11/2026, Luc :
+       Witch Hat Atelier, marqué terminé le 25/10 sans épisode dans le fil).
+       Un revisionnage garde l'ancienne date : il passe par les épisodes. */
+    if (e.status === "COMPLETED" && e.completedAt) {
+      if (e.completedAt >= c.startKey && e.completedAt < c.endKey) out.set(id, e.completedAt);
+      continue;
+    }
     const goal = Number(e.total) || Number(e.progress) || 0;
     let day: string | undefined;
     let known = false;
@@ -3207,6 +3216,7 @@ export function BingoBlock({
      liste (un essai du lecteur) ne compte pas. Sans liste du tout, rien n'est
      filtré. */
   const inList = useMemo(() => new Set(entries.map((e) => e.mediaId)), [entries]);
+  const byEntry = useMemo(() => new Map(entries.map((e) => [e.mediaId, e])), [entries]);
   /* NI À ZÉRO ÉPISODE (06/11/2026, Luc) : une fiche à 0 n'a pas été commencée,
      même si le lecteur a été ouvert (« Commencer un nouvel anime » validé par
      un 0/12). Un film terminé est à 1 : il passe. */
@@ -3223,23 +3233,41 @@ export function BingoBlock({
       allDays
         .filter(([k]) => k >= startKey && k < period.end)
         .map(([k, d]): [string, WatchDay] => {
-          if (!d.a.some(skip)) return [k, d];
-          const keep = d.a.map((id, i) => i).filter((i) => !skip(d.a[i]));
+          /* UN JOUR D'ESSAI (06/11/2026, Luc) : tous les épisodes vus ce jour-là
+             dépassent la progression de la fiche — Attack on Titan Final
+             Season, épisode 3 ouvert 1 min 42 alors que la fiche est à 2/16. Un
+             anime terminé n'est pas concerné. */
+          const trial = (i: number) => {
+            const e = byEntry.get(d.a[i]);
+            return !!d.f && !!e && e.status !== "COMPLETED" && (d.f[i] ?? 0) > Number(e.progress || 0);
+          };
+          if (!d.a.some(skip) && !d.a.some((_, i) => trial(i))) return [k, d];
+          const keep = d.a.map((id, i) => i).filter((i) => !skip(d.a[i]) && !trial(i));
           /* Sans le détail par anime (vieux jours), le total ne se corrige pas. */
           const n = d.c ? keep.reduce((s, i) => s + (d.c![i] ?? 0), 0) : d.n;
           return [
             k,
-            { n, a: keep.map((i) => d.a[i]), ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}), ...(d.e ? { e: keep.map((i) => d.e![i]) } : {}) },
+            {
+              n,
+              a: keep.map((i) => d.a[i]),
+              ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}),
+              ...(d.e ? { e: keep.map((i) => d.e![i]) } : {}),
+              ...(d.f ? { f: keep.map((i) => d.f![i]) } : {}),
+            },
           ];
         })
         .filter(([, d]) => d.a.length > 0),
-    [allDays, startKey, period.end, skip],
+    [allDays, startKey, period.end, skip, byEntry],
   );
   const ids = useMemo(() => {
     const s = new Set<number>();
     for (const [, d] of inSeason) d.a.forEach((id) => s.add(id));
+    /* Un anime TERMINÉ dans la période a été regardé dans la période, même
+       sans trace dans le journal (fini ailleurs, marqué d'un coup). */
+    for (const e of entries)
+      if (e.status === "COMPLETED" && e.completedAt && e.completedAt >= startKey && e.completedAt < period.end) s.add(e.mediaId);
     return Array.from(s);
-  }, [inSeason]);
+  }, [inSeason, entries, startKey, period.end]);
   const rnd = state.rnd?.k === periodId ? state.rnd.id : null;
   const extraIds = useMemo(
     () => [...cellIds.filter((id) => id.startsWith("a:")).map((id) => Number(id.slice(2))), ...(rnd != null ? [rnd] : [])],
@@ -3291,6 +3319,7 @@ export function BingoBlock({
       friendIds,
       rnd,
       seasonKey: season.key.toUpperCase(),
+      endKey: period.end,
     };
   }, [inSeason, allDays, ids, meta, entries, season.year, startKey, friendIds, rnd, tagsOf]);
 

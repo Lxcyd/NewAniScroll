@@ -639,6 +639,10 @@ const ANILIST_QUERY = `
           # La dernière modification de l'entrée (secondes) : « En cours de
           # visionnage » se range du plus récemment regardé au plus ancien.
           updatedAt
+          # La date de fin : le bingo y lit ce qui a été TERMINÉ pendant la
+          # saison (06/11/2026 — un « Completed » sans épisode n'a pas de trace
+          # dans le fil).
+          completedAt { year month day }
           media {
             id
             title { english romaji native userPreferred }
