@@ -4088,7 +4088,7 @@ function BingoBack({
       {/* UN CERCLE DE PROGRESSION (06/11/2026, Luc), le compte au milieu ; à
           côté des covers quand il y en a. */}
       {back.bar && back.plain ? (
-        <span className="font-outfit font-bold text-white" style={{ fontSize: "clamp(16px, min(16cqw, 26cqh), 40px)" }}>
+        <span className="shrink-0 font-outfit font-bold leading-none text-white" style={{ fontSize: "clamp(15px, min(14cqw, 22cqh), 36px)" }}>
           {Math.min(back.bar.got, back.bar.need)}/{back.bar.need}
         </span>
       ) : back.bar && body ? (
@@ -4102,7 +4102,7 @@ function BingoBack({
         body
       )}
       {back.text ? (
-        <span className={`${back.plain ? "line-clamp-3" : "line-clamp-2"} shrink-0 text-center font-karla font-semibold leading-tight text-white/85`} style={body || back.bar ? small : big}>
+        <span className={`${back.plain ? "min-h-0 overflow-hidden" : "line-clamp-2 shrink-0"} text-center font-karla font-semibold leading-tight text-white/85`} style={back.plain ? { fontSize: "clamp(9px, min(8cqw, 11cqh), 14px)" } : body || back.bar ? small : big}>
           {back.text}
         </span>
       ) : null}
