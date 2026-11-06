@@ -231,7 +231,8 @@ function dayBefore(ms: number): number {
  * Le fil ne connaît pas la durée : 24 min, regardées en entier.
  */
 export type FeedEvent = [number, number, number];
-type Watch = { at: number; aniId: number; dur: number; seen: number };
+/** `ep` : le numéro de l'épisode (0 si illisible). */
+type Watch = { at: number; aniId: number; dur: number; seen: number; ep: number };
 
 function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
   const out: Watch[] = [];
@@ -246,7 +247,7 @@ function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
     if (!Number.isFinite(aniId) || aniId <= 0) continue;
     const dur = Number(e.duration) > 0 ? Number(e.duration) : 24 * 60;
     const seen = typeof e.watched === "number" ? e.watched : Math.min(Number(e.time) || 0, dur);
-    out.push({ at, aniId, dur, seen });
+    out.push({ at, aniId, dur, seen, ep: Number(k.split(":")[1]) || 0 });
     here.set(k, at);
   }
   for (const f of feed || []) {
@@ -256,7 +257,7 @@ function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
     if (!(at > 0) || !(aniId > 0)) continue;
     const mine = here.get(`${aniId}:${f[2]}`);
     if (mine != null && Math.abs(mine - at) < 12 * 3_600_000) continue;
-    out.push({ at, aniId, dur: 24 * 60, seen: 24 * 60 });
+    out.push({ at, aniId, dur: 24 * 60, seen: 24 * 60, ep: Number(f[2]) || 0 });
   }
   return out;
 }
@@ -298,6 +299,10 @@ export type WatchDay = {
   /** Épisodes de chaque anime de `a`, dans le même ordre. Absent des jours
    *  servis avant le 02/11/2026. */
   c?: number[];
+  /** Le plus haut numéro d'épisode vu ce jour-là, pour chaque anime de `a`
+   *  (06/11/2026) : le bingo y lit si le DERNIER épisode a été vu pendant la
+   *  période, ce qui seul fait un anime « terminé » pendant la période. */
+  e?: number[];
 };
 export type WatchDays = Record<string, WatchDay>;
 
@@ -318,8 +323,8 @@ export function watchDays(
   feed?: FeedEvent[] | null,
 ): WatchDays {
   const since = now - maxDays * 86_400_000;
-  const per = new Map<string, Map<number, { c: number; first: number }>>();
-  for (const { at, aniId } of watchesOf(map, feed)) {
+  const per = new Map<string, Map<number, { c: number; first: number; e: number }>>();
+  for (const { at, aniId, ep } of watchesOf(map, feed)) {
     if (!(at > since && at <= now + 86_400_000)) continue;
     const day = dayKey(at);
     let byAnime = per.get(day);
@@ -328,14 +333,15 @@ export function watchDays(
     if (cur) {
       cur.c += 1;
       cur.first = Math.min(cur.first, at);
-    } else byAnime.set(aniId, { c: 1, first: at });
+      cur.e = Math.max(cur.e, ep);
+    } else byAnime.set(aniId, { c: 1, first: at, e: ep });
   }
   const out: WatchDays = {};
   per.forEach((byAnime, day) => {
     let n = 0;
     byAnime.forEach((v) => (n += v.c));
     const sorted = Array.from(byAnime.entries()).sort((x, y) => y[1].c - x[1].c || x[1].first - y[1].first);
-    out[day] = { n, a: sorted.map(([id]) => id), c: sorted.map(([, v]) => v.c) };
+    out[day] = { n, a: sorted.map(([id]) => id), c: sorted.map(([, v]) => v.c), e: sorted.map(([, v]) => v.e) };
   });
   return out;
 }

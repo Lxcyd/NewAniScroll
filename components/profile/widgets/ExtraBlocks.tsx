@@ -2604,11 +2604,32 @@ const gapDays = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse
    l'hiver, terminé en mars. */
 const ofSeason = (m: Meta, c: BingoCtx) => m.airing || (m.year === c.year && m.season === c.seasonKey);
 const genre = (g: string) => (c: BingoCtx) => (c.list.some((m) => m.genres.includes(g)) ? 1 : 0);
-const finished = (c: BingoCtx) =>
-  c.ids.filter((id) => {
-    const s = c.byId.get(id)?.status;
-    return s === "COMPLETED" || s === "REPEATING";
-  }).length;
+/** TERMINÉ PENDANT LA PÉRIODE (06/11/2026, audit) : la fiche est terminée ET
+ *  son DERNIER épisode a été vu pendant la période — le jour où c'est arrivé.
+ *  Attack on Titan, rouvert à l'épisode 1 le 23/10 puis remis à 25/25, comptait
+ *  pour toutes les cartes « terminer ». Sans numéros d'épisode (vieux journal),
+ *  l'anime vu dans la période et terminé compte, à son dernier jour vu. */
+const finishDays = (c: BingoCtx) => {
+  const out = new Map<number, string>();
+  for (const id of c.ids) {
+    const e = c.byId.get(id);
+    if (e?.status !== "COMPLETED" && e?.status !== "REPEATING") continue;
+    const goal = Number(e.total) || Number(e.progress) || 0;
+    let day: string | undefined;
+    let known = false;
+    for (const [k, d] of c.days) {
+      const i = d.a.indexOf(id);
+      if (i < 0) continue;
+      if (d.e) {
+        known = true;
+        if (!day && goal > 0 && (d.e[i] ?? 0) >= goal) day = k;
+      } else if (!known) day = k;
+    }
+    if (day) out.set(id, day);
+  }
+  return out;
+};
+const finished = (c: BingoCtx) => finishDays(c).size;
 /** LES REVISIONNAGES DE LA PÉRIODE (06/11/2026, audit) : `repeat` compte les
  *  revisionnages de toute la vie de la fiche — Attack on Titan, revu il y a
  *  des années, cochait la carte. Il faut un revisionnage EN COURS, ou une fiche
@@ -2670,7 +2691,7 @@ export const BINGO_GOALS: Goal[] = [
   { id: "sharedShow", icon: "🤝", need: 1, got: (c) => (c.ids.some((id) => c.friendIds.has(id)) ? 1 : 0) },
   { id: "random", icon: "🎲", need: 1, got: (c) => (c.rnd != null && c.ids.includes(c.rnd) ? 1 : 0) },
   { id: "favSeason", icon: "❤️", need: 1, got: (c) => (c.ids.some((id) => c.byId.get(id)?.favourite) ? 1 : 0) },
-  { id: "rate3", icon: "⭐", need: 3, got: (c) => c.ids.filter((id) => { const e = c.byId.get(id); return (e?.score ?? 0) > 0 && (e?.status === "COMPLETED" || e?.status === "REPEATING"); }).length },
+  { id: "rate3", icon: "⭐", need: 3, got: (c) => { const f = finishDays(c); return c.ids.filter((id) => (c.byId.get(id)?.score ?? 0) > 0 && f.has(id)).length; } },
   { id: "season3", icon: "🌸", need: 3, got: (c) => c.list.filter((m) => ofSeason(m, c)).length },
   { id: "firstEps3", icon: "🚀", need: 3, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
   { id: "weekend", icon: "🛋️", need: 1, got: (c) => {
@@ -2702,21 +2723,16 @@ export const BINGO_GOALS: Goal[] = [
   { id: "music", icon: "🎵", need: 1, got: genre("Music") },
   { id: "supernatural", icon: "🔮", need: 1, got: genre("Supernatural") },
   { id: "finishStarted", icon: "🏅", need: 1, got: (c) =>
-      c.ids.some((id) => { const st = c.byId.get(id)?.status; return !c.before.has(id) && (st === "COMPLETED" || st === "REPEATING"); }) ? 1 : 0 },
+      Array.from(finishDays(c).keys()).some((id) => !c.before.has(id)) ? 1 : 0 },
   { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
   /* Deux animes finis le même jour (06/11/2026, Luc). La liste ne date pas la
      fin : c'est le dernier jour de la période où l'anime terminé a été vu. */
   /* 06/11/2026, Luc : « terminer » en plus de « regarder ». */
   { id: "finishSeason", icon: "🎖️", need: 1, got: (c) =>
-      c.ids.some((id) => { const m = c.metas.get(id); const s = c.byId.get(id)?.status; return !!m && ofSeason(m, c) && (s === "COMPLETED" || s === "REPEATING"); }) ? 1 : 0 },
+      Array.from(finishDays(c).keys()).some((id) => { const m = c.metas.get(id); return !!m && ofSeason(m, c); }) ? 1 : 0 },
   { id: "finish2day", icon: "✌️", need: 1, got: (c) => {
-      const last = new Map<number, string>();
-      for (const [k, d] of c.days) for (const id of d.a) last.set(id, k);
       const per = new Map<string, number>();
-      for (const [id, k] of last) {
-        const st = c.byId.get(id)?.status;
-        if (st === "COMPLETED" || st === "REPEATING") per.set(k, (per.get(k) ?? 0) + 1);
-      }
+      for (const k of finishDays(c).values()) per.set(k, (per.get(k) ?? 0) + 1);
       return Array.from(per.values()).some((x) => x >= 2) ? 1 : 0;
     } },
   { id: "genres10", icon: "🌈", need: 10, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
@@ -3212,7 +3228,10 @@ export function BingoBlock({
           const keep = d.a.map((id, i) => i).filter((i) => !skip(d.a[i]));
           /* Sans le détail par anime (vieux jours), le total ne se corrige pas. */
           const n = d.c ? keep.reduce((s, i) => s + (d.c![i] ?? 0), 0) : d.n;
-          return [k, { n, a: keep.map((i) => d.a[i]), ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}) }];
+          return [
+            k,
+            { n, a: keep.map((i) => d.a[i]), ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}), ...(d.e ? { e: keep.map((i) => d.e![i]) } : {}) },
+          ];
         })
         .filter(([, d]) => d.a.length > 0),
     [allDays, startKey, period.end, skip],
@@ -3318,10 +3337,8 @@ export function BingoBlock({
     }
     if (/^(gf|fg|ft):/.test(id)) {
       const [fam, name] = [id.slice(0, 2), id.slice(3)];
-      const fin = (aid: number) => {
-        const st = ctx.byId.get(aid)?.status;
-        return st === "COMPLETED" || st === "REPEATING";
-      };
+      const done = finishDays(ctx);
+      const fin = (aid: number) => done.has(aid);
       const hit = ids.some((aid) => {
         if (!fin(aid)) return false;
         const m = ctx.metas.get(aid);
@@ -3408,10 +3425,8 @@ export function BingoBlock({
      série. `backOf` dit quoi montrer ; `BingoBack` le dessine. */
   const backOf = (id: string, got: number, need: number): Back | null => {
     if (id === EMPTY || id.startsWith("c:")) return null;
-    const isFin = (aid: number) => {
-      const s = ctx.byId.get(aid)?.status;
-      return s === "COMPLETED" || s === "REPEATING";
-    };
+    const finDays = finishDays(ctx);
+    const isFin = (aid: number) => finDays.has(aid);
     const where = (p: (aid: number, m: Meta | undefined) => boolean) => ctx.ids.filter((aid) => p(aid, ctx.metas.get(aid)));
     const bar = need > 1 ? { got, need } : undefined;
     const fmt = (k: string) => new Date(`${k}T12:00:00`).toLocaleDateString(lang, { day: "numeric", month: "short" });
@@ -3534,10 +3549,8 @@ export function BingoBlock({
         return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [], counts: b ? countsOf(b[1]) : undefined };
       }
       case "finish2day": {
-        const last = new Map<number, string>();
-        for (const [k, d] of ctx.days) for (const aid of d.a) last.set(aid, k);
         const per = new Map<string, number[]>();
-        for (const [aid, k] of last) if (isFin(aid)) per.set(k, [...(per.get(k) ?? []), aid]);
+        for (const [aid, k] of finDays) per.set(k, [...(per.get(k) ?? []), aid]);
         const hit = Array.from(per).find(([, a]) => a.length >= 2);
         return hit ? { text: fmt(hit[0]), anime: hit[1].slice(0, 2), keep: true } : {};
       }
@@ -3561,7 +3574,7 @@ export function BingoBlock({
     }
     if (f === "rn") {
       const day = ctx.days.find(([, d]) => d.n === Number(v));
-      return day ? { text: fmt(day[0]), anime: day[1].a, counts: countsOf(day[1]) } : {};
+      return day ? { text: fmt(day[0]), anime: day[1].a, counts: countsOf(day[1]), keep: true } : {};
     }
     return null;
   };
