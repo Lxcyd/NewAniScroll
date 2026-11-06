@@ -3294,6 +3294,10 @@ export function BingoBlock({
       return best;
     };
     const hasGenre = (g: string) => where((_, m) => !!m?.genres.includes(g));
+    /* LES ÉPISODES DE CE JOUR-LÀ (06/11/2026, Luc) : une carte « en un jour »
+       montre ce qu'on a vu ce jour, pas l'avancée de l'anime (4/12 trompait
+       sur « exactement 3 épisodes »). */
+    const countsOf = (d: WatchDay) => Object.fromEntries(d.a.map((aid, i) => [aid, epsOn(d, i)]));
     if (/^streak\d+$/.test(id)) {
       /* La plus longue série de jours d'affilée, avec ses dates. */
       let from = "";
@@ -3317,13 +3321,14 @@ export function BingoBlock({
     }
     if (/^day\d+$/.test(id)) {
       const b = bestOf((d) => d.n);
-      return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [] };
+      return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [], counts: b ? countsOf(b[1]) : undefined };
     }
     if (/^(eps|active)\d+$/.test(id)) return { bar };
     if (/^animes\d+$/.test(id)) return { bar, anime: ctx.ids };
     if (/^genres\d+$/.test(id)) {
       const gs = Array.from(new Set(ctx.list.flatMap((m) => m.genres)));
-      return { bar, text: gs.map((g) => genreLabel(t, g)).join(" · ") || undefined };
+      /* 06/11/2026, Luc : seulement le compte et les genres, sans cercle. */
+      return { bar, plain: true, text: gs.map((g) => genreLabel(t, g)).join(" · ") || undefined };
     }
     if (/^finish\d*$/.test(id)) return { bar, anime: ctx.ids.filter(isFin) };
     switch (id) {
@@ -3334,7 +3339,8 @@ export function BingoBlock({
           if (!best || e > best.e) best = { k, aid, e };
         });
         const b = best as { k: string; aid: number; e: number } | null;
-        return { bar, text: b ? fmt(b.k) : undefined, anime: b ? [b.aid] : [] };
+        /* 06/11/2026, Luc : l'anime seul, et rien tant que ce n'est pas réussi. */
+        return b && b.e >= need ? { anime: [b.aid], focus: true } : {};
       }
       case "seasonInDay":
         return {
@@ -3343,7 +3349,7 @@ export function BingoBlock({
       case "doubleFeature": {
         const day = ctx.days.find(([, d]) => d.a.filter((x) => ctx.metas.get(x)?.format === "MOVIE").length >= 2);
         return day
-          ? { text: fmt(day[0]), anime: day[1].a.filter((x) => ctx.metas.get(x)?.format === "MOVIE") }
+          ? { text: fmt(day[0]), anime: day[1].a.filter((x) => ctx.metas.get(x)?.format === "MOVIE"), counts: countsOf(day[1]) }
           : { anime: where((_, m) => m?.format === "MOVIE") };
       }
       case "movie":
@@ -3398,7 +3404,7 @@ export function BingoBlock({
       }
       case "day3shows": {
         const b = bestOf((d) => d.a.length);
-        return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [] };
+        return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [], counts: b ? countsOf(b[1]) : undefined };
       }
       case "finish2day": {
         const last = new Map<number, string>();
@@ -3406,7 +3412,7 @@ export function BingoBlock({
         const per = new Map<string, number[]>();
         for (const [aid, k] of last) if (isFin(aid)) per.set(k, [...(per.get(k) ?? []), aid]);
         const hit = Array.from(per).find(([, a]) => a.length >= 2);
-        return hit ? { text: fmt(hit[0]), anime: hit[1] } : { anime: ctx.ids.filter(isFin) };
+        return hit ? { text: fmt(hit[0]), anime: hit[1].slice(0, 2), keep: true } : {};
       }
     }
     if (FIXED_GENRE[id]) return { anime: hasGenre(FIXED_GENRE[id]) };
@@ -3425,7 +3431,7 @@ export function BingoBlock({
     }
     if (f === "rn") {
       const day = ctx.days.find(([, d]) => d.n === Number(v));
-      return day ? { text: fmt(day[0]), anime: day[1].a } : {};
+      return day ? { text: fmt(day[0]), anime: day[1].a, counts: countsOf(day[1]) } : {};
     }
     return null;
   };
@@ -3869,7 +3875,10 @@ export function BingoBlock({
             );
           }
           /* Le dos ne se montre que sur le bingo officiel (06/11/2026, Luc). */
-          const bk = c && mode === "season" ? backOf(id, c.got, c.need) : null;
+          const bk0 = c && mode === "season" ? backOf(id, c.got, c.need) : null;
+          /* QUE LES ANIMES QUI ONT VALIDÉ (06/11/2026, Luc) : les premiers vus,
+             autant que l'objectif en demande, sans « +N ». */
+          const bk = bk0?.anime && !bk0.focus && !bk0.keep ? { ...bk0, anime: bk0.anime.slice(0, Math.max(1, c!.need)) } : bk0;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
              poser à plat dans le cadre qui tourne. */
           const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
@@ -3915,7 +3924,7 @@ export function BingoBlock({
                 }`}
               >
                 {front}
-                <BingoBack back={bk} label={c.label} meta={meta} byId={ctx.byId} notYet={t("profile.blocks.bingo.notYet")} />
+                <BingoBack back={bk} label={c.label} meta={meta} byId={ctx.byId} notYet={t("profile.blocks.bingo.notYet")} epsDay={(k) => t("profile.blocks.bingo.epsDay", { count: k })} />
               </div>
             </div>
           );
@@ -3932,6 +3941,12 @@ type Back = {
   /** Une carte sur UN anime précis (titre phare, tirage) : en grand. */
   focus?: boolean;
   bar?: { got: number; need: number };
+  /** La liste d'animes est déjà celle qui valide : ne pas la couper. */
+  keep?: boolean;
+  /** Le compte en texte, sans cercle (la carte des genres). */
+  plain?: boolean;
+  /** Les épisodes vus CE JOUR-LÀ par anime (cartes « en un jour »). */
+  counts?: Record<number, number>;
   /** Une date, une plage de dates, une liste de genres. */
   text?: string;
 };
@@ -3981,12 +3996,15 @@ function BingoBack({
   meta,
   byId,
   notYet,
+  epsDay,
 }: {
   back: Back;
   label: string;
   meta: Map<number, Meta>;
   byId: Map<number, ProfileEntry>;
   notYet: string;
+  /** « 3 ép. ce jour-là ». */
+  epsDay: (n: number) => string;
 }) {
   const anime = (back.anime ?? []).filter((id, i, a) => a.indexOf(id) === i);
   /* PLUS GRAND, SANS L'OBJECTIF (06/11/2026, Luc) : le recto le dit déjà ; le
@@ -4004,8 +4022,7 @@ function BingoBack({
   };
   const extra = !!back.text || !!back.bar;
   /* À côté d'un cercle, deux covers tiennent ; seules, trois. */
-  /* Le « +N » prend la place d'une cover. */
-  const maxCovers = (back.bar ? 2 : 3) - ((back.anime?.length ?? 0) > (back.bar ? 2 : 3) ? 1 : 0);
+  const maxCovers = back.bar ? 2 : 3;
   const one = back.focus || anime.length === 1 ? anime[0] : undefined;
   const body =
     one != null ? (
@@ -4024,7 +4041,11 @@ function BingoBack({
                   ★ {s.sc}/10
                 </span>
               ) : null}
-              {s.running || (s.e && s.tot) ? (
+              {back.counts?.[one] != null ? (
+                <span className="font-karla font-semibold text-white/80" style={small}>
+                  {epsDay(back.counts[one])}
+                </span>
+              ) : s.running || (s.e && s.tot) ? (
                 <span className="flex flex-col gap-[3cqh]">
                   <span className="font-karla text-white/70" style={small}>
                     {s.prog}/{s.tot ?? "?"}
@@ -4047,15 +4068,16 @@ function BingoBack({
               <span className="line-clamp-1 max-w-[28cqw] text-center font-karla font-semibold text-white/85" style={small}>
                 {m?.title ?? "…"}
               </span>
-              {s.running ? <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} /> : null}
+              {back.counts?.[id] != null ? (
+                <span className="font-karla text-white/70" style={small}>
+                  {epsDay(back.counts[id])}
+                </span>
+              ) : s.running ? (
+                <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} />
+              ) : null}
             </div>
           );
         })}
-        {anime.length > maxCovers ? (
-          <span className="self-center font-outfit font-bold text-white/70" style={big}>
-            +{anime.length - maxCovers}
-          </span>
-        ) : null}
       </div>
     ) : null;
   return (
@@ -4065,7 +4087,11 @@ function BingoBack({
     >
       {/* UN CERCLE DE PROGRESSION (06/11/2026, Luc), le compte au milieu ; à
           côté des covers quand il y en a. */}
-      {back.bar && body ? (
+      {back.bar && back.plain ? (
+        <span className="font-outfit font-bold text-white" style={{ fontSize: "clamp(16px, min(16cqw, 26cqh), 40px)" }}>
+          {Math.min(back.bar.got, back.bar.need)}/{back.bar.need}
+        </span>
+      ) : back.bar && body ? (
         <div className="flex min-h-0 w-full items-center justify-center gap-[5cqw]">
           <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[48cqh]" : "h-[58cqh]"} font="clamp(11px, min(9cqw, 15cqh), 22px)" />
           <div className="flex min-w-0 flex-1 justify-center">{body}</div>
@@ -4076,7 +4102,7 @@ function BingoBack({
         body
       )}
       {back.text ? (
-        <span className="line-clamp-2 shrink-0 text-center font-karla font-semibold leading-tight text-white/85" style={body || back.bar ? small : big}>
+        <span className={`${back.plain ? "line-clamp-3" : "line-clamp-2"} shrink-0 text-center font-karla font-semibold leading-tight text-white/85`} style={body || back.bar ? small : big}>
           {back.text}
         </span>
       ) : null}

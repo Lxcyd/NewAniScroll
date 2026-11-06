@@ -1300,6 +1300,8 @@
           "finishStarted": "Finish an anime started this season",
           "animes5": "{{count}} different anime"
         },
+        "epsDay_one": "{{count}} ep. that day",
+        "epsDay_other": "{{count}} eps that day",
         "notYet": "Not yet",
         "manage": "Edit the bingo",
         "editHint": "Click a square to change it, drag it to move it",
