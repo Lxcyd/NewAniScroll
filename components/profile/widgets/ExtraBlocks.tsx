@@ -111,8 +111,11 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
       const e = byEntry.get(id);
       const f = metaCache.get(id);
       if (e) {
+        /* pickTitle rend « Untitled » plutôt que rien : sans ce test, le titre
+           demandé à AniList ne servait jamais à une fiche locale sans titre. */
+        const own = e.title ? pickTitle(e.title, pref) : "";
         out.set(id, {
-          title: pickTitle(e.title ?? {}, pref) || f?.title || `#${id}`,
+          title: (own !== "Untitled" && own) || f?.title || `#${id}`,
           cover: e.cover ?? f?.cover ?? null,
           format: e.format ?? f?.format ?? null,
           genres: e.genres?.length ? e.genres : (f?.genres ?? []),
@@ -2667,6 +2670,12 @@ const resumed = (c: BingoCtx) => {
 };
 /** Les épisodes d'un anime un jour donné (`c` manque sur les vieux jours). */
 const epsOn = (d: WatchDay, i: number) => (d.c ? d.c[i] ?? 0 : d.a.length === 1 ? d.n : 0);
+/** « UNE SAISON ENTIÈRE EN UN JOUR » : 2 à 12 épisodes, tous vus le même jour.
+ *  Sans le plancher de 2, un film (1/1) validait cette carte de difficulté 5. */
+const wholeSeason = (c: BingoCtx, id: number, eps: number) => {
+  const tot = c.byId.get(id)?.total ?? 0;
+  return tot >= 2 && tot <= 12 && eps >= tot;
+};
 
 export const BINGO_GOALS: Goal[] = [
   { id: "streak7", icon: "🔥", need: 7, got: (c) => c.bestRun },
@@ -2684,10 +2693,7 @@ export const BINGO_GOALS: Goal[] = [
   { id: "day15", icon: "🌋", need: 12, got: (c) => c.bestDay },
   { id: "oneShow10", icon: "🎯", need: 5, got: (c) => Math.max(0, ...c.days.map(([, d]) => Math.max(0, ...d.a.map((_, i) => epsOn(d, i))))) },
   { id: "seasonInDay", icon: "🏃", need: 1, got: (c) =>
-      c.days.some(([, d]) => d.a.some((id, i) => {
-        const tot = c.byId.get(id)?.total ?? 0;
-        return tot > 0 && tot <= 12 && epsOn(d, i) >= tot;
-      })) ? 1 : 0 },
+      c.days.some(([, d]) => d.a.some((id, i) => wholeSeason(c, id, epsOn(d, i)))) ? 1 : 0 },
   { id: "doubleFeature", icon: "🎞️", need: 1, got: (c) =>
       c.days.some(([, d]) => d.a.filter((id) => c.metas.get(id)?.format === "MOVIE").length >= 2) ? 1 : 0 },
   { id: "special", icon: "🎁", need: 1, got: (c) => (c.list.some((m) => m.format === "SPECIAL") ? 1 : 0) },
@@ -3015,7 +3021,7 @@ function useSeasonData(key: string): SeasonData | null | undefined {
   useEffect(() => {
     if (seasonMemo.has(key)) return setData(seasonMemo.get(key));
     let alive = true;
-    void fetch("/api/v2/bingo-season")
+    void fetch(`/api/v2/bingo-season?key=${encodeURIComponent(key)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j: SeasonData | null) => {
         const v = j && j.key === key && Array.isArray(j.genres) ? j : null;
@@ -3525,16 +3531,18 @@ export function BingoBlock({
         });
         const b = best as { k: string; aid: number; e: number } | null;
         /* 06/11/2026, Luc : l'anime seul, et rien tant que ce n'est pas réussi. */
-        return b && b.e >= need ? { anime: [b.aid], focus: true } : {};
+        /* Les épisodes de CE jour, pas l'avancée de la fiche (règle des cartes « en un jour »). */
+        return b && b.e >= need ? { anime: [b.aid], focus: true, counts: { [b.aid]: b.e } } : {};
       }
       case "seasonInDay":
         return {
-          anime: where((aid) => ctx.days.some(([, d]) => d.a.some((x, i) => x === aid && (ctx.byId.get(aid)?.total ?? 0) > 0 && epsOn(d, i) >= (ctx.byId.get(aid)?.total ?? 0)))),
+          anime: where((aid) => ctx.days.some(([, d]) => d.a.some((x, i) => x === aid && wholeSeason(ctx, aid, epsOn(d, i))))),
         };
       case "doubleFeature": {
         const day = ctx.days.find(([, d]) => d.a.filter((x) => ctx.metas.get(x)?.format === "MOVIE").length >= 2);
         return day
-          ? { text: fmt(day[0]), anime: day[1].a.filter((x) => ctx.metas.get(x)?.format === "MOVIE"), counts: countsOf(day[1]) }
+          ? /* `keep` : les deux films, pas un seul (l'objectif ne demande qu'« 1 » jour). */
+            { text: fmt(day[0]), anime: day[1].a.filter((x) => ctx.metas.get(x)?.format === "MOVIE"), counts: countsOf(day[1]), keep: true }
           : { anime: where((_, m) => m?.format === "MOVIE") };
       }
       case "movie":

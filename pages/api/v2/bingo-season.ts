@@ -36,11 +36,25 @@ const QUERY = `
 
 type Media = { id: number; title: { romaji?: string | null; english?: string | null }; genres?: string[] };
 
+/** La saison d'un instant, en UTC : « 2026-FALL ». */
+const seasonAt = (ms: number) => {
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${SEASONS[Math.floor(d.getUTCMonth() / 3)]}`;
+};
+/** L'écart d'heure le plus grand d'un fuseau réel (UTC−12 … UTC+14). */
+const TZ_MS = 14 * 3600_000;
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const season = SEASONS[Math.floor(now.getUTCMonth() / 3)];
-  const key = `${year}-${season}`;
+  /* LA SAISON DU NAVIGATEUR (06/11/2026) : il la calcule à SON heure, le
+     serveur en UTC. Le 1er janvier à 0 h 30 à Paris, l'un disait WINTER et
+     l'autre FALL : la clé ne collait pas et la grille officielle perdait son
+     thème — des heures durant, le CDN gardant la réponse 6 h. La saison
+     demandée est servie si un fuseau réel est dedans en ce moment ; pas plus
+     loin, sinon une requête en novembre figerait le thème de l'hiver 100 jours. */
+  const now = Date.now();
+  const asked = String(req.query.key ?? "");
+  const key = [seasonAt(now - TZ_MS), seasonAt(now + TZ_MS)].includes(asked) ? asked : seasonAt(now);
+  const [year, season] = [Number(key.slice(0, 4)), key.slice(5)];
   const cacheKey = `bingo-season:v1:${key}`;
 
   if (redis) {
