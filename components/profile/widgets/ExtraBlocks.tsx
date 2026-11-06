@@ -3939,7 +3939,7 @@ type Back = {
 /** Une barre fine, remplie à `v / max`. */
 function ThinBar({ v, max }: { v: number; max: number }) {
   return (
-    <span className="block h-[max(3px,3cqh)] w-full overflow-hidden rounded-full bg-white/15">
+    <span className="block h-[max(4px,4cqh)] w-full overflow-hidden rounded-full bg-white/15">
       <span className="block h-full rounded-full bg-action" style={{ width: `${Math.min(100, (v / Math.max(1, max)) * 100)}%` }} />
     </span>
   );
@@ -3963,7 +3963,10 @@ function BingoBack({
   notYet: string;
 }) {
   const anime = (back.anime ?? []).filter((id, i, a) => a.indexOf(id) === i);
-  const small = { fontSize: "clamp(8px, min(7cqw, 9cqh), 13px)" };
+  /* PLUS GRAND, SANS L'OBJECTIF (06/11/2026, Luc) : le recto le dit déjà ; le
+     dos donne toute la place aux covers. Les tailles suivent la carte (cq). */
+  const small = { fontSize: "clamp(9px, min(9cqw, 11cqh), 15px)" };
+  const big = { fontSize: "clamp(11px, min(11cqw, 15cqh), 20px)" };
   /** Les épisodes d'une entrée en cours, et sa note. */
   const status = (id: number) => {
     const e = byId.get(id);
@@ -3972,6 +3975,7 @@ function BingoBack({
     const sc = score10(e?.score);
     return { e, tot, prog, sc, running: !!e && prog > 0 && (tot == null || prog < tot) };
   };
+  const extra = !!back.text || !!back.bar;
   const one = back.focus || anime.length === 1 ? anime[0] : undefined;
   const body =
     one != null ? (
@@ -3979,20 +3983,20 @@ function BingoBack({
         const m = meta.get(one);
         const s = status(one);
         return (
-          <div className="flex min-h-0 flex-1 items-stretch gap-[4cqw]">
-            <Cover src={m?.cover} className="aspect-[2/3] h-full shrink-0 rounded-md" />
-            <div className="flex min-w-0 flex-1 flex-col justify-center gap-[3cqh] text-left">
-              <span className="line-clamp-3 font-karla font-semibold leading-tight text-white" style={{ fontSize: "clamp(9px, min(9cqw, 12cqh), 16px)" }}>
+          <div className="flex min-h-0 w-full items-center gap-[5cqw]">
+            <Cover src={m?.cover} className={`${extra ? "h-[58cqh]" : "h-[86cqh]"} w-auto rounded-md`} />
+            <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
+              <span className="line-clamp-3 font-karla font-bold leading-tight text-white" style={big}>
                 {m?.title ?? "…"}
               </span>
               {s.sc ? (
-                <span className="font-karla text-white/70" style={small}>
+                <span className="font-karla font-semibold text-white/80" style={small}>
                   ★ {s.sc}/10
                 </span>
               ) : null}
               {s.running || (s.e && s.tot) ? (
-                <span className="flex flex-col gap-[2cqh]">
-                  <span className="font-karla text-white/60" style={small}>
+                <span className="flex flex-col gap-[3cqh]">
+                  <span className="font-karla text-white/70" style={small}>
                     {s.prog}/{s.tot ?? "?"}
                   </span>
                   <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} />
@@ -4003,14 +4007,14 @@ function BingoBack({
         );
       })()
     ) : anime.length ? (
-      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[3cqw]">
+      <div className="flex min-h-0 w-full items-start justify-center gap-[4cqw]">
         {anime.slice(0, 3).map((id) => {
           const m = meta.get(id);
           const s = status(id);
           return (
-            <div key={id} className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-[2cqh]" title={m?.title}>
-              <Cover src={m?.cover} className="aspect-[2/3] min-h-0 flex-1 rounded-md" />
-              <span className="line-clamp-1 w-full text-center font-karla text-white/80" style={small}>
+            <div key={id} className="flex min-w-0 flex-col items-center gap-[2cqh]" title={m?.title}>
+              <Cover src={m?.cover} className={`${extra ? "h-[48cqh]" : "h-[66cqh]"} w-auto rounded-md`} />
+              <span className="line-clamp-1 max-w-[30cqw] text-center font-karla font-semibold text-white/85" style={small}>
                 {m?.title ?? "…"}
               </span>
               {s.running ? <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} /> : null}
@@ -4018,7 +4022,7 @@ function BingoBack({
           );
         })}
         {anime.length > 3 ? (
-          <span className="self-center font-karla text-white/60" style={small}>
+          <span className="self-center font-outfit font-bold text-white/70" style={big}>
             +{anime.length - 3}
           </span>
         ) : null}
@@ -4026,28 +4030,28 @@ function BingoBack({
     ) : null;
   return (
     <div
-      className="absolute inset-0 flex flex-col gap-[3cqh] overflow-hidden rounded-lg bg-[#0e1720] p-[5cqh] ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-[4cqh] overflow-hidden rounded-lg bg-[#0e1720] p-[6cqh] ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
       title={label}
     >
-      <span className="line-clamp-1 font-karla font-semibold text-white/55" style={small}>
-        {label}
-      </span>
       {body}
       {back.text ? (
-        <span className="line-clamp-2 text-center font-karla text-white/80" style={small}>
+        <span className="line-clamp-2 text-center font-karla font-semibold text-white/85" style={body ? small : big}>
           {back.text}
         </span>
       ) : null}
       {back.bar ? (
-        <span className="mt-auto flex flex-col gap-[2cqh]">
-          <span className="text-center font-outfit font-bold text-white" style={{ fontSize: "clamp(10px, min(10cqw, 14cqh), 20px)" }}>
+        <span className="flex w-full flex-col gap-[3cqh]">
+          <span
+            className="text-center font-outfit font-bold text-white"
+            style={{ fontSize: body ? "clamp(11px, min(11cqw, 15cqh), 20px)" : "clamp(16px, min(18cqw, 28cqh), 40px)" }}
+          >
             {Math.min(back.bar.got, back.bar.need)} / {back.bar.need}
           </span>
           <ThinBar v={back.bar.got} max={back.bar.need} />
         </span>
       ) : null}
-      {!body && !back.text && !back.bar ? (
-        <span className="m-auto font-karla text-white/45" style={small}>
+      {!body && !extra ? (
+        <span className="font-karla font-semibold text-white/50" style={big}>
           {notYet}
         </span>
       ) : null}
