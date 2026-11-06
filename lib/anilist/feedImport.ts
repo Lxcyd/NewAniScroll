@@ -45,7 +45,12 @@ async function page(token: string | undefined, id: number, p: number, before?: n
         /* Le jeton : un profil AniList privé ne montre son fil qu'à lui-même. */
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ query: QUERY, variables: { id, p, before: before ?? null } }),
+      /* JAMAIS `null` (06/11/2026) : AniList répond 400 « Illegal operator and
+         value combination » à `createdAt_lesser: null`. La lecture des nouvelles
+         lignes, qui n'a pas de borne, échouait donc à chaque fois depuis la fin
+         de l'import initial — le fil s'était figé le 03/11. Demain fait office
+         de « pas de borne ». */
+      body: JSON.stringify({ query: QUERY, variables: { id, p, before: before ?? Math.floor(Date.now() / 1000) + 86_400 } }),
     });
     if (r.status === 429) {
       await sleep((Number(r.headers.get("retry-after")) || 60) * 1000);
