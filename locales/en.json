@@ -1290,12 +1290,10 @@
           "randStudio": "An anime by {{studio}}",
           "day3shows": "{{count}} different shows in one day",
           "active15": "Watch on {{count}} different days",
-          "comedy": "A comedy",
           "scifi": "A sci-fi anime",
           "psycho": "A psychological anime",
           "music": "A music anime",
           "supernatural": "A supernatural anime",
-          "adventure": "An adventure anime",
           "finishStarted": "Finish an anime started this season",
           "animes5": "{{count}} different anime"
         },

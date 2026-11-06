@@ -2657,12 +2657,10 @@ export const BINGO_GOALS: Goal[] = [
   /* De nouveaux objectifs (06/11/2026, Luc : « crée en d'autres »). */
   { id: "day3shows", icon: "🎪", need: 3, got: (c) => Math.max(0, ...c.days.map(([, d]) => d.a.length)) },
   { id: "active15", icon: "📆", need: 15, got: (c) => c.days.length },
-  { id: "comedy", icon: "😂", need: 1, got: genre("Comedy") },
   { id: "scifi", icon: "🛸", need: 1, got: genre("Sci-Fi") },
   { id: "psycho", icon: "🧠", need: 1, got: genre("Psychological") },
   { id: "music", icon: "🎵", need: 1, got: genre("Music") },
   { id: "supernatural", icon: "🔮", need: 1, got: genre("Supernatural") },
-  { id: "adventure", icon: "🗺️", need: 1, got: genre("Adventure") },
   { id: "finishStarted", icon: "🏅", need: 1, got: (c) =>
       c.ids.some((id) => { const st = c.byId.get(id)?.status; return !c.before.has(id) && (st === "COMPLETED" || st === "REPEATING"); }) ? 1 : 0 },
   { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
@@ -2688,7 +2686,7 @@ const DIFFICULTY: Record<string, number> = {
   streak7: 3, secondChance: 3, rewatch: 3, random: 3, eps100: 3, active15: 3, finishStarted: 3, music: 3,
   oneShow10: 2, special: 2, sharedShow: 2, favSeason: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
   eps50: 2, day3shows: 2, scifi: 2, psycho: 2, supernatural: 2, animes5: 2, season3: 2,
-  streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1, comedy: 1, adventure: 1,
+  streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1,
 };
 const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3 };
 function difficulty(id: string): number {
@@ -2711,7 +2709,7 @@ const SEASON_POOL = [
   "weekend", "firstEps3", "genres5", "movie",
   /* Ajoutés le 06/11/2026 (Luc). */
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
-  "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
+  "day3shows", "active15", "scifi", "psycho", "music", "supernatural",
   "finishStarted", "animes5",
   /* Les cartes « un genre / un tag au hasard » (`rg:` / `rt:`) ne sont pas
      dans le pool : leur nombre se tire à part, cf. RAND_ODDS. */
@@ -2746,8 +2744,8 @@ const RAND_TAGS = [
 /** Les cartes de genre fixes : un `rg:` ne tire pas un genre déjà sur la grille. */
 const FIXED_GENRE: Record<string, string> = {
   horror: "Horror", romance: "Romance", sports: "Sports", mecha: "Mecha", slice: "Slice of Life",
-  mystery: "Mystery", comedy: "Comedy", scifi: "Sci-Fi", psycho: "Psychological", music: "Music",
-  supernatural: "Supernatural", adventure: "Adventure",
+  mystery: "Mystery", scifi: "Sci-Fi", psycho: "Psychological", music: "Music",
+  supernatural: "Supernatural",
 };
 
 type Custom = { k: string; t: string; d?: string; e?: string };
