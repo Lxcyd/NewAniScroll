@@ -2669,8 +2669,13 @@ const EMPTY = "-";
 /** Jetons du pool, remplacés au tirage par `rg:<Genre>` / `rt:<Tag>`. */
 const RAND_GENRE = "~rg";
 const RAND_TAG = "~rt";
-/** Le plafond de cartes « au hasard » de chaque sorte sur une grille. */
-const RAND_MAX = 5;
+/** Les chances (en %) d'avoir 0, 1, 2… cartes « au hasard » d'une sorte, par
+ *  taille de grille ; 5 au plus (06/11/2026, Luc : 0 très rare, 2-3 le plus souvent). */
+const RAND_ODDS: Record<number, number[]> = {
+  3: [0.5, 30, 55, 14.5],
+  4: [0.5, 12, 37, 37, 11, 2.5],
+  5: [0.5, 7, 30, 35, 18, 9.5],
+};
 /** Ce qu'on tire au hasard pour la grille officielle, après le thème de la saison. */
 const SEASON_POOL = [
   "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special", "newSeason",
@@ -2680,10 +2685,8 @@ const SEASON_POOL = [
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
   "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
   "finishStarted", "animes5",
-  /* UN GENRE / UN TAG AU HASARD (06/11/2026, Luc) : chaque jeton tiré devient
-     une case `rg:<Genre>` ou `rt:<Tag>` ; dix jetons de chaque, donc une
-     grille peut en avoir plusieurs (« une romance » ET « une comédie »…). */
-  ...Array<string>(10).fill(RAND_GENRE), ...Array<string>(10).fill(RAND_TAG),
+  /* Les cartes « un genre / un tag au hasard » (`rg:` / `rt:`) ne sont pas
+     dans le pool : leur nombre se tire à part, cf. RAND_ODDS. */
 ];
 /** Les genres AniList (sans le genre adulte), pour la carte « genre au hasard ». */
 const RAND_GENRES = [
@@ -2761,17 +2764,29 @@ function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
   const themed = ([g[0], a[0], g[1], "season3", g[2], a[1]].filter(Boolean) as string[]).slice(0, n === 3 ? 3 : n === 4 ? 5 : 6);
   const slots = new Set(shuffle(Array.from({ length: n * n }, (_, i) => i)).slice(0, themed.length));
   const out: string[] = [];
-  /* 5 cartes « au hasard » de chaque sorte au plus (06/11/2026, Luc) : au-delà,
-     le jeton est sauté et la case prend l'objectif suivant. */
-  const drawn: Record<string, number> = {};
-  const next = (): string | undefined => {
-    for (;;) {
-      const id = pool.shift();
-      if (id !== RAND_GENRE && id !== RAND_TAG) return id;
-      if ((drawn[id] = (drawn[id] ?? 0) + 1) <= RAND_MAX) return id;
+  const free: number[] = [];
+  for (let i = 0; i < n * n; i++) {
+    const th = slots.has(i) ? themed.shift() : undefined;
+    if (th) out.push(th);
+    else {
+      out.push(EMPTY);
+      free.push(i);
     }
+  }
+  /* COMBIEN DE CARTES « AU HASARD » (06/11/2026, Luc) : un nombre tiré dans
+     RAND_ODDS pour chaque sorte (genre, tag), pas un jeton dans le pool ; il
+     reste toujours au moins un objectif ordinaire. */
+  const count = () => {
+    let x = r() * 100;
+    const odds = RAND_ODDS[n] ?? RAND_ODDS[3];
+    for (let c = 0; c < odds.length; c++) if ((x -= odds[c]) < 0) return c;
+    return odds.length - 1;
   };
-  for (let i = 0; i < n * n; i++) out.push((slots.has(i) ? themed.shift() : next()) ?? next() ?? EMPTY);
+  const cg = Math.min(count(), free.length - 1);
+  const ct = Math.max(0, Math.min(count(), free.length - 1 - cg));
+  shuffle(free).forEach((i, k) => {
+    out[i] = k < cg ? RAND_GENRE : k < cg + ct ? RAND_TAG : (pool.shift() ?? EMPTY);
+  });
   /* Les jetons « au hasard » prennent un genre / un tag pas déjà sur la grille. */
   const usedGenres = new Set(
     out.flatMap((id) => (id.startsWith("g:") ? [id.slice(2)] : FIXED_GENRE[id] ? [FIXED_GENRE[id]] : [])),
