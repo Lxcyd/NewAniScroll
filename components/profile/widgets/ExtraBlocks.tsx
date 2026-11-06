@@ -3328,7 +3328,8 @@ export function BingoBlock({
     if (/^genres\d+$/.test(id)) {
       const gs = Array.from(new Set(ctx.list.flatMap((m) => m.genres)));
       /* 06/11/2026, Luc : seulement le compte et les genres, sans cercle. */
-      return { bar, plain: true, text: gs.map((g) => genreLabel(t, g)).join(" · ") || undefined };
+      /* Les genres qui ont validé : les premiers vus, autant que l'objectif en demande. */
+      return { bar, plain: true, text: gs.slice(0, need).map((g) => genreLabel(t, g)).join(" · ") || undefined };
     }
     if (/^finish\d*$/.test(id)) return { bar, anime: ctx.ids.filter(isFin) };
     switch (id) {
