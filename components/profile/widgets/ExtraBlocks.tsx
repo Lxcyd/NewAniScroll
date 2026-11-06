@@ -2666,6 +2666,9 @@ export const BINGO_GOALS: Goal[] = [
   { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
   /* Deux animes finis le même jour (06/11/2026, Luc). La liste ne date pas la
      fin : c'est le dernier jour de la période où l'anime terminé a été vu. */
+  /* 06/11/2026, Luc : « terminer » en plus de « regarder ». */
+  { id: "finishSeason", icon: "🎖️", need: 1, got: (c) =>
+      c.ids.some((id) => { const m = c.metas.get(id); const s = c.byId.get(id)?.status; return !!m && ofSeason(m, c) && (s === "COMPLETED" || s === "REPEATING"); }) ? 1 : 0 },
   { id: "finish2day", icon: "✌️", need: 1, got: (c) => {
       const last = new Map<number, string>();
       for (const [k, d] of c.days) for (const id of d.a) last.set(id, k);
@@ -2695,13 +2698,13 @@ const RAND_EXACT = "~rn";
  *  ont la note de leur famille ; 2 par défaut. */
 const DIFFICULTY: Record<string, number> = {
   streak21: 5, seasonInDay: 5, eps250: 5,
-  streak14: 4, day15: 4, doubleFeature: 4, finish5: 4, finish2day: 4,
+  streak14: 4, day15: 4, doubleFeature: 4, finish5: 4, finish2day: 4, finishSeason: 3,
   streak7: 3, secondChance: 3, rewatch: 3, random: 3, eps100: 3, active15: 3, finishStarted: 3, music: 3,
   oneShow10: 2, special: 2, sharedShow: 2, favSeason: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
   eps50: 2, day3shows: 2, scifi: 2, psycho: 2, supernatural: 2, animes5: 2, season3: 2,
   streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1,
 };
-const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3, rn: 3, rc: 4 };
+const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3, rn: 3, rc: 4, gf: 2, fg: 3, ft: 4 };
 function difficulty(id: string): number {
   if (id === EMPTY) return 0;
   const fam = /^([a-z]+):/.exec(id)?.[1];
@@ -2730,8 +2733,10 @@ const SEASON_POOL = [
      au tirage par `ry:<année>` / `rs:<studio>`. */
   RAND_YEAR, RAND_STUDIO,
   /* 06/11/2026, Luc : le compte exact d'épisodes (`rn:<n>`) et deux animes finis le même jour. */
-  RAND_EXACT, "finish2day",
+  RAND_EXACT, "finish2day", "finishSeason",
 ];
+/** La part des cartes genre/tag qui demandent de TERMINER l'anime. */
+const FINISH_SHARE = 1 / 3;
 /** La part des cartes genre/tag au hasard qui deviennent un combo. */
 const COMBO_SHARE = 1 / 3;
 /** Des paires genre|tag fréquentes ensemble sur AniList. */
@@ -2882,13 +2887,18 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
      existent vraiment (un « Sports + Vampire » serait impossible). */
   const combos = shuffle(RAND_COMBOS.slice());
   const randCard = (plain: () => string) => (r() < COMBO_SHARE && combos.length ? `rc:${combos.shift()}` : plain());
+  /* « TERMINER » AU LIEU DE « REGARDER » (06/11/2026, Luc) : une carte genre ou
+     tag sur trois demande de finir l'anime (`fg:` / `ft:` / `gf:`). */
+  const finishOr = (id: string, fin: string) => (id !== EMPTY && r() < FINISH_SHARE ? `${fin}:${id.slice(id.indexOf(":") + 1)}` : id);
   const final = out.map((id) =>
     id === RAND_GENRE
-      ? randCard(() => (genres.length ? `rg:${genres.shift()}` : EMPTY))
+      ? randCard(() => finishOr(genres.length ? `rg:${genres.shift()}` : EMPTY, "fg"))
       : id === RAND_TAG
-        ? randCard(() => `rt:${tags.shift()}`)
+        ? randCard(() => finishOr(`rt:${tags.shift()}`, "ft"))
         : id === RAND_EXACT
           ? `rn:${3 + Math.floor(r() * 7)}`
+          : id.startsWith("g:")
+            ? finishOr(id, "gf")
           : id === RAND_YEAR
           ? `ry:${RAND_YEAR_FROM + Math.floor(r() * (year - RAND_YEAR_FROM + 1))}`
           : id === RAND_STUDIO
@@ -3082,7 +3092,7 @@ export function BingoBlock({
   );
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
-    GOAL.has(id) || /^(g|rg|rt|rs):.+/.test(id) || /^rc:.+\|.+/.test(id) || /^(a|ry|rn):\d+$/.test(id) || customKeys.has(id);
+    GOAL.has(id) || /^(g|rg|rt|rs|gf|fg|ft):.+/.test(id) || /^rc:.+\|.+/.test(id) || /^(a|ry|rn):\d+$/.test(id) || customKeys.has(id);
   const fill = (saved: string[], pad: string[]) => {
     const cells = saved.slice(0, n * n).map((id) => (valid(id) ? id : EMPTY));
     const used = new Set(cells);
@@ -3149,7 +3159,7 @@ export function BingoBlock({
     [cellIds.join(","), rnd],
   );
   const meta = useAnimeMeta(useMemo(() => [...ids, ...extraIds], [ids, extraIds]), entries);
-  const tagsOf = useAnimeTags(ids, cellIds.some((id) => /^(rt|rs|rc):/.test(id)));
+  const tagsOf = useAnimeTags(ids, cellIds.some((id) => /^(rt|rs|rc|ft):/.test(id)));
 
   const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
@@ -3230,6 +3240,24 @@ export function BingoBlock({
         got: ids.some((aid) => tagsOf.get(aid)?.tags.includes(name)) ? 1 : 0,
         need: 1,
       };
+    }
+    if (/^(gf|fg|ft):/.test(id)) {
+      const [fam, name] = [id.slice(0, 2), id.slice(3)];
+      const fin = (aid: number) => {
+        const st = ctx.byId.get(aid)?.status;
+        return st === "COMPLETED" || st === "REPEATING";
+      };
+      const hit = ids.some((aid) => {
+        if (!fin(aid)) return false;
+        const m = ctx.metas.get(aid);
+        if (fam === "ft") return !!tagsOf.get(aid)?.tags.includes(name);
+        return !!m?.genres.includes(name) && (fam === "fg" || ofSeason(m, ctx));
+      });
+      const label =
+        fam === "ft"
+          ? t("profile.blocks.bingo.cell.finishTag", { tag: translateTag(name, i18n.language) })
+          : t(fam === "gf" ? "profile.blocks.bingo.cell.finishSeasonGenre" : "profile.blocks.bingo.cell.finishGenre", { genre: genreLabel(t, name) });
+      return { icon: fam === "ft" ? "🔖" : fam === "gf" ? "🏷️" : "🎰", label, got: hit ? 1 : 0, need: 1 };
     }
     if (id.startsWith("rc:")) {
       const [gName, tName] = id.slice(3).split("|");
@@ -3396,6 +3424,8 @@ export function BingoBlock({
         return { anime: where((_, m) => m?.year != null && m.year <= ctx.year - 15) };
       case "retro":
         return { anime: where((_, m) => m?.year != null && m.year < 2000) };
+      case "finishSeason":
+        return { anime: where((aid, m) => isFin(aid) && !!m && ofSeason(m, ctx)) };
       case "finishStarted":
         return { anime: ctx.ids.filter((aid) => isFin(aid) && !ctx.before.has(aid)) };
       case "secondChance":
@@ -3448,6 +3478,9 @@ export function BingoBlock({
     if (!fam) return null;
     const [, f, v] = fam;
     if (f === "g") return { anime: where((_, m) => !!m && ofSeason(m, ctx) && m.genres.includes(v)) };
+    if (f === "gf") return { anime: where((aid, m) => isFin(aid) && !!m && ofSeason(m, ctx) && m.genres.includes(v)) };
+    if (f === "fg") return { anime: where((aid, m) => isFin(aid) && !!m?.genres.includes(v)) };
+    if (f === "ft") return { anime: ctx.ids.filter((aid) => isFin(aid) && tagsOf.get(aid)?.tags.includes(v)) };
     if (f === "a") return { anime: [Number(v)], focus: true };
     if (f === "rg") return { anime: hasGenre(v) };
     if (f === "rt") return { anime: ctx.ids.filter((aid) => tagsOf.get(aid)?.tags.includes(v)) };
@@ -4069,7 +4102,7 @@ function BingoBack({
           <div className="flex min-h-0 w-full items-center gap-[5cqw]">
             <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
-              <span className={`${extra ? "line-clamp-2" : "line-clamp-3"} font-karla font-bold leading-tight text-white`} style={title}>
+              <span className="line-clamp-2 font-karla font-bold leading-tight text-white" style={title}>
                 {m?.title ?? "…"}
               </span>
               {s.sc ? (
