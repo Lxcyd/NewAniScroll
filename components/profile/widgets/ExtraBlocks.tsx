@@ -2642,7 +2642,8 @@ export const BINGO_GOALS: Goal[] = [
   { id: "streak7", icon: "🔥", need: 7, got: (c) => c.bestRun },
   { id: "day10", icon: "⚡", need: 10, got: (c) => c.bestDay },
   { id: "movie", icon: "🎬", need: 1, got: (c) => c.list.filter((m) => m.format === "MOVIE").length },
-  { id: "airing", icon: "📡", need: 1, got: (c) => (c.list.some((m) => ofSeason(m, c)) ? 1 : 0) },
+  /* 06/11/2026, Luc : « Regarder un anime en diffusion » — en cours de diffusion, rien d'autre. */
+  { id: "airing", icon: "📡", need: 1, got: (c) => (c.list.some((m) => m.airing) ? 1 : 0) },
   { id: "eps100", icon: "📺", need: 100, got: (c) => c.eps },
   { id: "classic", icon: "📼", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year <= c.year - 15) ? 1 : 0) },
   { id: "genres5", icon: "🎭", need: 5, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
@@ -2759,7 +2760,7 @@ const RAND_ODDS: Record<number, number[]> = {
 };
 /** Ce qu'on tire au hasard pour la grille officielle, après le thème de la saison. */
 const SEASON_POOL = [
-  "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special", "newSeason",
+  "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special",
   "finish5", "secondChance", "newStart", "rewatch", "sharedShow", "random", "favSeason", "rate3",
   "weekend", "firstEps3", "genres5", "movie",
   /* Ajoutés le 06/11/2026 (Luc). */
@@ -3489,7 +3490,7 @@ export function BingoBlock({
       case "short":
         return { anime: where((_, m) => m?.format === "OVA" || m?.format === "ONA" || m?.format === "SPECIAL") };
       case "airing":
-        return { anime: where((_, m) => !!m && ofSeason(m, ctx)) };
+        return { anime: where((_, m) => !!m?.airing) };
       case "season3":
         return { bar, anime: where((_, m) => !!m && ofSeason(m, ctx)) };
       case "newSeason":
