@@ -132,7 +132,10 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
    paquets de 50, seulement quand une carte tag est sur la grille. Un tag ne
    compte qu'à partir d'un rang de 50 % (en dessous, AniList le juge accessoire). */
 /* Les studios principaux viennent dans la même requête (carte « studio tiré »). */
-type Extra = { tags: string[]; studios: string[] };
+/* La saison AniList aussi (06/11/2026, audit) : une fiche de la liste ne la
+   porte pas, et sans elle un anime de l'automne déjà terminé n'était « de la
+   saison » pour aucune carte. */
+type Extra = { tags: string[]; studios: string[]; season: string | null; year: number | null };
 const tagCache = new Map<number, Extra | null>();
 const tagListeners = new Set<() => void>();
 function useAnimeTags(ids: number[], enabled: boolean): Map<number, Extra> {
@@ -156,7 +159,7 @@ function useAnimeTags(ids: number[], enabled: boolean): Map<number, Extra> {
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           query:
-            "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id tags{name rank} studios(isMain:true){nodes{name}}}}}",
+            "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id season seasonYear tags{name rank} studios(isMain:true){nodes{name}}}}}",
           variables: { ids: missing.slice(i, i + 50) },
         }),
       })
@@ -166,6 +169,8 @@ function useAnimeTags(ids: number[], enabled: boolean): Map<number, Extra> {
             tagCache.set(m.id, {
               tags: (m.tags ?? []).filter((x: { rank?: number }) => (x.rank ?? 0) >= 50).map((x: { name: string }) => x.name),
               studios: (m.studios?.nodes ?? []).map((x: { name: string }) => x.name),
+              season: m.season ?? null,
+              year: m.seasonYear ?? null,
             });
           tagListeners.forEach((f) => f());
         })
@@ -2604,6 +2609,32 @@ const finished = (c: BingoCtx) =>
     const s = c.byId.get(id)?.status;
     return s === "COMPLETED" || s === "REPEATING";
   }).length;
+/** LES REVISIONNAGES DE LA PÉRIODE (06/11/2026, audit) : `repeat` compte les
+ *  revisionnages de toute la vie de la fiche — Attack on Titan, revu il y a
+ *  des années, cochait la carte. Il faut un revisionnage EN COURS, ou une fiche
+ *  déjà revue dont on a vu la moitié des épisodes pendant la période (3 au moins). */
+const rewatched = (c: BingoCtx) => {
+  const seen = new Map<number, number>();
+  for (const [, d] of c.days) d.a.forEach((id, i) => seen.set(id, (seen.get(id) ?? 0) + epsOn(d, i)));
+  return c.ids.filter((id) => {
+    const e = c.byId.get(id);
+    if (e?.status === "REPEATING") return true;
+    return (e?.repeat ?? 0) > 0 && (seen.get(id) ?? 0) >= Math.max(3, Math.ceil((e?.total ?? 0) / 2));
+  });
+};
+/** LES ANIMES REPRIS APRÈS UN MOIS DE PAUSE (06/11/2026) : la pause peut
+ *  commencer avant la période ou pendant ; la reprise, elle, est dans la période. */
+const resumed = (c: BingoCtx) => {
+  const last = new Map(c.before);
+  const out = new Set<number>();
+  for (const [k, d] of c.days)
+    for (const id of d.a) {
+      const p = last.get(id);
+      if (p && gapDays(p, k) >= 30) out.add(id);
+      last.set(id, k);
+    }
+  return Array.from(out);
+};
 /** Les épisodes d'un anime un jour donné (`c` manque sur les vieux jours). */
 const epsOn = (d: WatchDay, i: number) => (d.c ? d.c[i] ?? 0 : d.a.length === 1 ? d.n : 0);
 
@@ -2632,10 +2663,9 @@ export const BINGO_GOALS: Goal[] = [
   /* 06/11/2026, Luc : un épisode d'un anime EN COURS de diffusion, à n'importe quel moment. */
   { id: "newSeason", icon: "🌱", need: 1, got: (c) => (c.list.some((m) => m.airing) ? 1 : 0) },
   { id: "finish5", icon: "🏆", need: 5, got: finished },
-  { id: "secondChance", icon: "🩹", need: 1, got: (c) =>
-      c.ids.some((id) => { const b = c.before.get(id); const f = c.first.get(id); return !!b && !!f && gapDays(b, f) >= 30; }) ? 1 : 0 },
+  { id: "secondChance", icon: "🩹", need: 1, got: (c) => (resumed(c).length ? 1 : 0) },
   { id: "newStart", icon: "📝", need: 1, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
-  { id: "rewatch", icon: "🔁", need: 1, got: (c) => (c.ids.some((id) => { const e = c.byId.get(id); return e?.status === "REPEATING" || (e?.repeat ?? 0) > 0; }) ? 1 : 0) },
+  { id: "rewatch", icon: "🔁", need: 1, got: (c) => (rewatched(c).length ? 1 : 0) },
   { id: "sharedShow", icon: "🤝", need: 1, got: (c) => (c.ids.some((id) => c.friendIds.has(id)) ? 1 : 0) },
   { id: "random", icon: "🎲", need: 1, got: (c) => (c.rnd != null && c.ids.includes(c.rnd) ? 1 : 0) },
   { id: "favSeason", icon: "❤️", need: 1, got: (c) => (c.ids.some((id) => c.byId.get(id)?.favourite) ? 1 : 0) },
@@ -2743,6 +2773,13 @@ const SEASON_POOL = [
   RAND_YEAR, RAND_STUDIO,
   /* 06/11/2026, Luc : le compte exact d'épisodes (`rn:<n>`) et deux animes finis le même jour. */
   RAND_EXACT, "finish2day", "finishSeason",
+];
+/** Les familles d'objectifs qui se recoupent : une seule carte de chacune par grille. */
+const GOAL_FAMILY: [string, RegExp][] = [
+  ["streak", /^streak\d+$/],
+  ["eps", /^eps\d+$/],
+  ["new", /^(newStart|firstEps3)$/],
+  ["airing", /^(airing|newSeason)$/],
 ];
 /** La part des cartes genre/tag qui demandent de TERMINER l'anime. */
 const FINISH_SHARE = 1 / 3;
@@ -2872,14 +2909,22 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
     else cg--;
   }
   genreLike += cg + ct;
+  /* UNE CARTE PAR FAMILLE (06/11/2026, audit) : « 3 jours d'affilée » et
+     « 14 jours d'affilée » sur la même grille, la seconde valide la première. */
+  const famOf = (id: string) => GOAL_FAMILY.find(([, re]) => re.test(id))?.[0];
+  const families = new Set(out.map(famOf).filter(Boolean));
   const next = () => {
     for (;;) {
       const id = pool.shift();
-      if (!id || !FIXED_GENRE[id]) return id;
-      if (genreLike < cap) {
+      if (!id) return id;
+      const fam = famOf(id);
+      if (fam && families.has(fam)) continue;
+      if (FIXED_GENRE[id]) {
+        if (genreLike >= cap) continue;
         genreLike++;
-        return id;
       }
+      if (fam) families.add(fam);
+      return id;
     }
   };
   shuffle(free).forEach((i, k) => {
@@ -3183,7 +3228,10 @@ export function BingoBlock({
     [cellIds.join(","), rnd],
   );
   const meta = useAnimeMeta(useMemo(() => [...ids, ...extraIds], [ids, extraIds]), entries);
-  const tagsOf = useAnimeTags(ids, cellIds.some((id) => /^(rt|rs|rc|ft):/.test(id)));
+  const tagsOf = useAnimeTags(
+    ids,
+    cellIds.some((id) => /^(rt|rs|rc|ft|g|gf):/.test(id) || ["airing", "season3", "finishSeason"].includes(id)),
+  );
 
   const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
@@ -3205,7 +3253,8 @@ export function BingoBlock({
     const metas = new Map<number, Meta>();
     for (const id of ids) {
       const m = meta.get(id);
-      if (m) metas.set(id, m);
+      const x = tagsOf.get(id);
+      if (m) metas.set(id, m.season || !x ? m : { ...m, season: x.season, year: m.year ?? x.year });
     }
     return {
       days: inSeason,
@@ -3224,7 +3273,7 @@ export function BingoBlock({
       rnd,
       seasonKey: season.key.toUpperCase(),
     };
-  }, [inSeason, allDays, ids, meta, entries, season.year, startKey, friendIds, rnd]);
+  }, [inSeason, allDays, ids, meta, entries, season.year, startKey, friendIds, rnd, tagsOf]);
 
   const [draftEmoji, setDraftEmoji] = useState<Record<number, string>>({});
   const done = new Set(state.done);
@@ -3454,18 +3503,12 @@ export function BingoBlock({
       case "finishStarted":
         return { anime: ctx.ids.filter((aid) => isFin(aid) && !ctx.before.has(aid)) };
       case "secondChance":
-        return {
-          anime: ctx.ids.filter((aid) => {
-            const b = ctx.before.get(aid);
-            const f = ctx.first.get(aid);
-            return !!b && !!f && gapDays(b, f) >= 30;
-          }),
-        };
+        return { anime: resumed(ctx) };
       case "newStart":
       case "firstEps3":
         return { bar, anime: ctx.ids.filter((aid) => !ctx.before.has(aid)) };
       case "rewatch":
-        return { anime: ctx.ids.filter((aid) => { const e = ctx.byId.get(aid); return e?.status === "REPEATING" || (e?.repeat ?? 0) > 0; }) };
+        return { anime: rewatched(ctx) };
       case "sharedShow":
         return { anime: ctx.ids.filter((aid) => ctx.friendIds.has(aid)) };
       case "favSeason":
