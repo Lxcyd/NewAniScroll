@@ -257,8 +257,13 @@ export async function compterFacettes(
 
 /**
  * Le décompte `tout` de compterFacettes, pour toute une liste en UNE requête
- * (sous-titres du studio de profil, /api/v2/art-counts). La fenêtre est déjà
- * partitionnée par anime : le plafond `rang <= TOP_PAR_TITRE` reste par titre.
+ * (sous-titres du studio de profil, /api/v2/art-counts).
+ *
+ * SANS `ROW_NUMBER()` : le classement trie sur le score même que le plancher
+ * filtre, donc « rang <= TOP et points >= PLANCHER » vaut
+ * min(TOP, nombre au-dessus du plancher). La fenêtre lisait ~4 lignes par image
+ * (190 000 contre 44 000 sur les 200 plus populaires le 06/11/2026, mêmes
+ * comptes au titre près).
  */
 export async function compterToutParAnime(
   ids: number[],
@@ -272,24 +277,21 @@ export async function compterToutParAnime(
   const score = sqlScore("w");
 
   const sql = `
-    WITH classe AS (
-      SELECT w.anime_id,
-             ${score} AS points,
-             ROW_NUMBER() OVER (PARTITION BY w.anime_id ORDER BY ${score} DESC, w.wh_id) AS rang
-        FROM wallhaven_image w
-       WHERE w.anime_id IN (${ids.map(() => "?").join(",")})
-         AND w.width >= ? AND w.height >= ? AND ${OU_SERIE_OK}
-    )
-    SELECT anime_id, COUNT(*) AS tout
-      FROM classe WHERE points >= ? AND rang <= ?
-     GROUP BY anime_id`;
+    SELECT w.anime_id, COUNT(*) AS tout
+      FROM wallhaven_image w
+     WHERE w.anime_id IN (${ids.map(() => "?").join(",")})
+       AND w.width >= ? AND w.height >= ? AND ${OU_SERIE_OK}
+       AND ${score} >= ?
+     GROUP BY w.anime_id`;
 
   try {
     const r = await db.execute({
       sql,
-      args: [...ids, minLargeur, minHauteur, PLANCHER_DUR, TOP_PAR_TITRE],
+      args: [...ids, minLargeur, minHauteur, PLANCHER_DUR],
     });
-    for (const row of r.rows as any[]) out[Number(row.anime_id)] = Number(row.tout) || 0;
+    for (const row of r.rows as any[]) {
+      out[Number(row.anime_id)] = Math.min(Number(row.tout) || 0, TOP_PAR_TITRE);
+    }
   } catch {
     /* Sans Wallhaven, les comptes restent ceux de fanart.tv et TMDB. */
   }

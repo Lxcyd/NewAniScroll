@@ -82,17 +82,15 @@ const CASES = [
   {
     name: "comptes Wallhaven de 200 animés (art-counts)",
     db: "fanarts",
-    source: ["lib/db/wallhavenImages.ts", "WHERE w.anime_id IN (${ids.map(() => \"?\").join(\",\")})"],
-    sql: `WITH classe AS (
-            SELECT w.anime_id, ${SCORE} AS points,
-                   ROW_NUMBER() OVER (PARTITION BY w.anime_id ORDER BY ${SCORE} DESC, w.wh_id) AS rang
-              FROM wallhaven_image w
-             WHERE w.anime_id IN (${ph(200)}) AND w.width >= ? AND w.height >= ? AND ${OK})
-          SELECT anime_id, COUNT(*) AS tout FROM classe WHERE points >= ? AND rang <= ? GROUP BY anime_id`,
-    args: [...top, 1920, 1080, 1, 60],
-    /* 57 001 mesurées le 22/10/2026 sur les 200 plus populaires : le bon
-       index, mais ~285 images par titre à classer. Le plafond garde la marge
-       d'un catalogue qui grossit, et attrape un balayage (126 000+). */
+    source: ["lib/db/wallhavenImages.ts", "out[Number(row.anime_id)] = Math.min(Number(row.tout) || 0, TOP_PAR_TITRE)"],
+    sql: `SELECT w.anime_id, COUNT(*) AS tout FROM wallhaven_image w
+           WHERE w.anime_id IN (${ph(200)}) AND w.width >= ? AND w.height >= ? AND ${OK}
+             AND ${SCORE} >= ? GROUP BY w.anime_id`,
+    args: [...top, 1920, 1080, 10],
+    /* 44 360 mesurées le 06/11/2026 sur les 200 plus populaires (une ligne
+       par image). L'ancienne forme à ROW_NUMBER() en lisait ~4 par image :
+       57 000 le 22/10, 186 000 le 03/11, la table grossissant. Le plafond
+       garde la marge du remplissage en cours. */
     max: 100_000,
   },
   {
