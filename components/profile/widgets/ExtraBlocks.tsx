@@ -3345,8 +3345,9 @@ export function BingoBlock({
       return { bar, text: best ? `${fmt(best[0])} → ${fmt(best[1])}` : undefined };
     }
     if (/^day\d+$/.test(id)) {
+      /* Un compte d'épisodes : la barre et la date, pas d'animes (Luc). */
       const b = bestOf((d) => d.n);
-      return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [], counts: b ? countsOf(b[1]) : undefined };
+      return { bar, text: b ? fmt(b[0]) : undefined };
     }
     if (/^(eps|active)\d+$/.test(id)) return { bar };
     if (/^animes\d+$/.test(id)) return { bar, anime: ctx.ids };
@@ -3904,7 +3905,10 @@ export function BingoBlock({
           const bk0 = c && mode === "season" ? backOf(id, c.got, c.need) : null;
           /* QUE LES ANIMES QUI ONT VALIDÉ (06/11/2026, Luc) : les premiers vus,
              autant que l'objectif en demande, sans « +N ». */
-          const bk = bk0?.anime && !bk0.focus && !bk0.keep ? { ...bk0, anime: bk0.anime.slice(0, Math.max(1, c!.need)) } : bk0;
+          const sliced = bk0?.anime && !bk0.focus && !bk0.keep ? { ...bk0, anime: bk0.anime.slice(0, Math.max(1, c!.need)) } : bk0;
+          /* UNE CARTE QUI COMPTE DES ANIMES (3 séries terminées, 3 animes de la
+             saison…) : juste les animes, sans cercle (06/11/2026, Luc). */
+          const bk = sliced?.bar && sliced.anime?.length && ANIME_COUNT.test(id) ? { ...sliced, bar: undefined } : sliced;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
              poser à plat dans le cadre qui tourne. */
           const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
@@ -3959,6 +3963,9 @@ export function BingoBlock({
     </div>
   );
 }
+
+/** Les objectifs qui comptent des animes : leur dos montre les animes, pas un cercle. */
+const ANIME_COUNT = /^(animes\d+|finish\d*|movies3|season3|firstEps3|newStart|rate3)$/;
 
 /** Ce que montre le dos d'une carte du bingo. */
 type Back = {
@@ -4048,7 +4055,7 @@ function BingoBack({
   };
   const extra = !!back.text || !!back.bar;
   /* À côté d'un cercle, deux covers tiennent ; seules, trois. */
-  const maxCovers = back.bar ? 2 : 3;
+  const maxCovers = back.bar ? 2 : 5;
   const one = back.focus || anime.length === 1 ? anime[0] : undefined;
   const body =
     one != null ? (
@@ -4089,9 +4096,15 @@ function BingoBack({
           const m = meta.get(id);
           const s = status(id);
           return (
-            <div key={id} className="flex min-w-0 flex-col items-center gap-[2cqh]" title={m?.title}>
-              <Cover src={m?.cover} className={`${extra ? "h-[58cqh]" : "h-[70cqh]"} w-auto rounded-md`} />
-              <span className="line-clamp-1 max-w-[28cqw] text-center font-karla font-semibold text-white/85" style={small}>
+            <div
+              key={id}
+              className="flex min-w-0 flex-1 flex-col items-center gap-[2cqh]"
+              style={{ maxWidth: back.bar || extra ? "28cqw" : "30cqw" }}
+              title={m?.title}
+            >
+              {/* Larges d'abord : la carte en aligne jusqu'à cinq. */}
+              <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[58cqh]" : "max-h-[70cqh]"}`} />
+              <span className="line-clamp-1 w-full text-center font-karla font-semibold text-white/85" style={small}>
                 {m?.title ?? "…"}
               </span>
               {back.counts?.[id] != null ? (
