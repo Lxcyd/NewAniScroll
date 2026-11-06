@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { translateTag } from "@/lib/i18n/animeTags";
 import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
@@ -120,6 +121,57 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, byEntry, pref, tick]);
+}
+
+/* LES TAGS ANILIST (06/11/2026, Luc : la carte « un anime avec un tag au
+   hasard ») : ni la liste ni `Meta` ne les ont. Demandés au navigateur, par
+   paquets de 50, seulement quand une carte tag est sur la grille. Un tag ne
+   compte qu'à partir d'un rang de 50 % (en dessous, AniList le juge accessoire). */
+const tagCache = new Map<number, string[] | null>();
+const tagListeners = new Set<() => void>();
+function useAnimeTags(ids: number[], enabled: boolean): Map<number, string[]> {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const on = () => setTick((n) => n + 1);
+    tagListeners.add(on);
+    return () => {
+      tagListeners.delete(on);
+    };
+  }, []);
+  const key = ids.join(",");
+  useEffect(() => {
+    if (!enabled) return;
+    const missing = ids.filter((id) => !tagCache.has(id));
+    if (!missing.length) return;
+    missing.forEach((id) => tagCache.set(id, null));
+    for (let i = 0; i < missing.length; i += 50) {
+      fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          query: "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id tags{name rank}}}}",
+          variables: { ids: missing.slice(i, i + 50) },
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          for (const m of j?.data?.Page?.media ?? [])
+            tagCache.set(m.id, (m.tags ?? []).filter((x: { rank?: number }) => (x.rank ?? 0) >= 50).map((x: { name: string }) => x.name));
+          tagListeners.forEach((f) => f());
+        })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled]);
+  return useMemo(() => {
+    const out = new Map<number, string[]>();
+    for (const id of ids) {
+      const v = tagCache.get(id);
+      if (v) out.set(id, v);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, tick]);
 }
 
 /** La table de progression de CET appareil, tenue à jour pendant qu'on regarde. */
@@ -2614,6 +2666,9 @@ export const BINGO_GOALS: Goal[] = [
 const GOAL = new Map(BINGO_GOALS.map((g) => [g.id, g]));
 /** Une case vidée au crayon. */
 const EMPTY = "-";
+/** Jetons du pool, remplacés au tirage par `rg:<Genre>` / `rt:<Tag>`. */
+const RAND_GENRE = "~rg";
+const RAND_TAG = "~rt";
 /** Ce qu'on tire au hasard pour la grille officielle, après le thème de la saison. */
 const SEASON_POOL = [
   "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special", "newSeason",
@@ -2623,7 +2678,32 @@ const SEASON_POOL = [
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
   "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
   "finishStarted", "animes5",
+  /* UN GENRE / UN TAG AU HASARD (06/11/2026, Luc) : chaque jeton tiré devient
+     une case `rg:<Genre>` ou `rt:<Tag>` ; deux jetons de chaque, donc une
+     grille peut en avoir plusieurs (« une romance » ET « un shōjo »). */
+  RAND_GENRE, RAND_GENRE, RAND_TAG, RAND_TAG,
 ];
+/** Les genres AniList (sans le genre adulte), pour la carte « genre au hasard ». */
+const RAND_GENRES = [
+  "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha",
+  "Music", "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+];
+/** Des tags AniList connus et assez fréquents pour qu'une saison suffise. */
+const RAND_TAGS = [
+  "Shoujo", "Shounen", "Seinen", "Josei", "Isekai", "School", "Magic", "Vampire", "Time Manipulation",
+  "Iyashikei", "Super Power", "Martial Arts", "Military", "Survival", "Detective", "Samurai", "Ninja",
+  "Idol", "Food", "Dragons", "Ghost", "Robots", "Female Protagonist", "Tragedy", "Revenge", "Parody",
+  "Found Family", "Space", "Zombie", "Post-Apocalyptic", "Love Triangle", "Video Games", "Dystopian",
+  "Demons", "Witch", "Mythology", "Coming of Age", "Historical", "Tsundere", "Cyberpunk", "Band",
+  "Swordplay", "Urban Fantasy", "Reincarnation", "Gods", "Ensemble Cast", "Delinquents", "Assassins",
+  "Mafia", "Body Swapping",
+];
+/** Les cartes de genre fixes : un `rg:` ne tire pas un genre déjà sur la grille. */
+const FIXED_GENRE: Record<string, string> = {
+  horror: "Horror", romance: "Romance", sports: "Sports", mecha: "Mecha", slice: "Slice of Life",
+  mystery: "Mystery", comedy: "Comedy", scifi: "Sci-Fi", psycho: "Psychological", music: "Music",
+  supernatural: "Supernatural", adventure: "Adventure",
+};
 
 type Custom = { k: string; t: string; d?: string; e?: string };
 /** Les points du bingo : 10 par case, toutes pareilles (05/11/2026, Luc : pas de
@@ -2680,7 +2760,15 @@ function seasonGrid(key: string, data: SeasonData | null, n: number): string[] {
   const slots = new Set(shuffle(Array.from({ length: n * n }, (_, i) => i)).slice(0, themed.length));
   const out: string[] = [];
   for (let i = 0; i < n * n; i++) out.push((slots.has(i) ? themed.shift() : pool.shift()) ?? pool.shift() ?? EMPTY);
-  return out;
+  /* Les jetons « au hasard » prennent un genre / un tag pas déjà sur la grille. */
+  const usedGenres = new Set(
+    out.flatMap((id) => (id.startsWith("g:") ? [id.slice(2)] : FIXED_GENRE[id] ? [FIXED_GENRE[id]] : [])),
+  );
+  const genres = shuffle(RAND_GENRES.filter((x) => !usedGenres.has(x)));
+  const tags = shuffle(RAND_TAGS.slice());
+  return out.map((id) =>
+    id === RAND_GENRE ? (genres.length ? `rg:${genres.shift()}` : EMPTY) : id === RAND_TAG ? `rt:${tags.shift()}` : id,
+  );
 }
 
 const seasonMemo = new Map<string, SeasonData | null>();
@@ -2854,7 +2942,7 @@ export function BingoBlock({
   const official = useMemo(() => seasonGrid(seasonId, seasonData ?? null, n), [seasonId, seasonData, n]);
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
-    GOAL.has(id) || /^g:.+/.test(id) || /^a:\d+$/.test(id) || customKeys.has(id);
+    GOAL.has(id) || /^(g|rg|rt):.+/.test(id) || /^a:\d+$/.test(id) || customKeys.has(id);
   const fill = (saved: string[], pad: string[]) => {
     const cells = saved.slice(0, n * n).map((id) => (valid(id) ? id : EMPTY));
     const used = new Set(cells);
@@ -2896,6 +2984,7 @@ export function BingoBlock({
     [cellIds.join(","), rnd],
   );
   const meta = useAnimeMeta(useMemo(() => [...ids, ...extraIds], [ids, extraIds]), entries);
+  const tagsOf = useAnimeTags(ids, cellIds.some((id) => id.startsWith("rt:")));
 
   const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
@@ -2956,6 +3045,24 @@ export function BingoBlock({
         icon: "🏷️",
         label: t("profile.blocks.bingo.cell.seasonGenre", { genre: genreLabel(t, name) }),
         got: ctx.list.some((m) => ofSeason(m, ctx) && m.genres.includes(name)) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("rg:")) {
+      const name = id.slice(3);
+      return {
+        icon: "🎰",
+        label: t("profile.blocks.bingo.cell.randGenre", { genre: genreLabel(t, name) }),
+        got: ctx.list.some((m) => m.genres.includes(name)) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("rt:")) {
+      const name = id.slice(3);
+      return {
+        icon: "🔖",
+        label: t("profile.blocks.bingo.cell.randTag", { tag: translateTag(name, i18n.language) }),
+        got: ids.some((aid) => tagsOf.get(aid)?.includes(name)) ? 1 : 0,
         need: 1,
       };
     }

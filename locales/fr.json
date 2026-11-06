@@ -1284,6 +1284,8 @@
           "firstEps3": "Commencer {{count}} nouveaux animes",
           "seasonGenre": "Un anime « {{genre}} » de la saison",
           "seasonAnime": "Regarder {{title}}",
+          "randGenre": "Un anime « {{genre}} »",
+          "randTag": "Un anime avec le tag « {{tag}} »",
           "day3shows": "{{count}} animes différents en un jour",
           "active15": "Regarder {{count}} jours différents",
           "comedy": "Une comédie",

@@ -1284,6 +1284,8 @@
           "firstEps3": "Start {{count}} new anime",
           "seasonGenre": "A \"{{genre}}\" anime this season",
           "seasonAnime": "Watch {{title}}",
+          "randGenre": "A \"{{genre}}\" anime",
+          "randTag": "An anime tagged \"{{tag}}\"",
           "day3shows": "{{count}} different shows in one day",
           "active15": "Watch on {{count}} different days",
           "comedy": "A comedy",
