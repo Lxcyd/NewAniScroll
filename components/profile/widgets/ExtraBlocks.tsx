@@ -2806,6 +2806,14 @@ const GOAL_FAMILY: [string, RegExp][] = [
   ["new", /^(newStart|firstEps3)$/],
   ["airing", /^(airing|newSeason)$/],
 ];
+/** LA DIFFICULTÉ SELON LA TAILLE (06/11/2026, Luc : « la petite un peu plus
+ *  facile, la moyenne un tout petit peu, la grande garde la sienne »).
+ *  `skip[d]` : la chance d'écarter au tirage une carte de difficulté d ;
+ *  `combo` / `finish` : la part des combos et des « terminer » (au lieu d'1/3). */
+const EASIER: Record<number, { skip: Record<number, number>; combo: number; finish: number }> = {
+  3: { skip: { 3: 0.3, 4: 0.6, 5: 0.75 }, combo: 0.2, finish: 0.2 },
+  4: { skip: { 4: 0.2, 5: 0.35 }, combo: 0.28, finish: 0.28 },
+};
 /** La part des cartes genre/tag qui demandent de TERMINER l'anime. */
 const FINISH_SHARE = 1 / 3;
 /** La part des cartes genre/tag au hasard qui deviennent un combo. */
@@ -2944,6 +2952,9 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
       if (!id) return id;
       const fam = famOf(id);
       if (fam && families.has(fam)) continue;
+      /* PLUS FACILE EN PETIT (06/11/2026, Luc) : une carte dure est parfois
+         écartée au tirage, selon la taille de la grille (cf. EASIER). */
+      if (r() < (EASIER[n]?.skip[difficulty(id)] ?? 0)) continue;
       if (FIXED_GENRE[id]) {
         if (genreLike >= cap) continue;
         genreLike++;
@@ -2965,10 +2976,11 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
      « genre + tag dans le même anime », tiré dans une liste de paires qui
      existent vraiment (un « Sports + Vampire » serait impossible). */
   const combos = shuffle(RAND_COMBOS.slice());
-  const randCard = (plain: () => string) => (r() < COMBO_SHARE && combos.length ? `rc:${combos.shift()}` : plain());
+  const ease = EASIER[n];
+  const randCard = (plain: () => string) => (r() < (ease?.combo ?? COMBO_SHARE) && combos.length ? `rc:${combos.shift()}` : plain());
   /* « TERMINER » AU LIEU DE « REGARDER » (06/11/2026, Luc) : une carte genre ou
      tag sur trois demande de finir l'anime (`fg:` / `ft:` / `gf:`). */
-  const finishOr = (id: string, fin: string) => (id !== EMPTY && r() < FINISH_SHARE ? `${fin}:${id.slice(id.indexOf(":") + 1)}` : id);
+  const finishOr = (id: string, fin: string) => (id !== EMPTY && r() < (ease?.finish ?? FINISH_SHARE) ? `${fin}:${id.slice(id.indexOf(":") + 1)}` : id);
   const final = out.map((id) =>
     id === RAND_GENRE
       ? randCard(() => finishOr(genres.length ? `rg:${genres.shift()}` : EMPTY, "fg"))
