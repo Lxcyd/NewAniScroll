@@ -3939,7 +3939,7 @@ type Back = {
 /** Une barre fine, remplie à `v / max`. */
 function ThinBar({ v, max }: { v: number; max: number }) {
   return (
-    <span className="block h-[max(4px,4cqh)] w-full overflow-hidden rounded-full bg-white/15">
+    <span className="block h-[max(4px,5cqh)] w-full overflow-hidden rounded-full bg-white/15">
       <span className="block h-full rounded-full bg-action" style={{ width: `${Math.min(100, (v / Math.max(1, max)) * 100)}%` }} />
     </span>
   );
@@ -3991,8 +3991,9 @@ function BingoBack({
   const anime = (back.anime ?? []).filter((id, i, a) => a.indexOf(id) === i);
   /* PLUS GRAND, SANS L'OBJECTIF (06/11/2026, Luc) : le recto le dit déjà ; le
      dos donne toute la place aux covers. Les tailles suivent la carte (cq). */
-  const small = { fontSize: "clamp(9px, min(9cqw, 11cqh), 15px)" };
-  const big = { fontSize: "clamp(11px, min(11cqw, 15cqh), 20px)" };
+  const small = { fontSize: "clamp(10px, min(10cqw, 13cqh), 18px)" };
+  const big = { fontSize: "clamp(12px, min(12cqw, 17cqh), 24px)" };
+  const title = { fontSize: "clamp(11px, min(10cqw, 14cqh), 20px)" };
   /** Les épisodes d'une entrée en cours, et sa note. */
   const status = (id: number) => {
     const e = byId.get(id);
@@ -4003,7 +4004,8 @@ function BingoBack({
   };
   const extra = !!back.text || !!back.bar;
   /* À côté d'un cercle, deux covers tiennent ; seules, trois. */
-  const maxCovers = back.bar ? 2 : 3;
+  /* Le « +N » prend la place d'une cover. */
+  const maxCovers = (back.bar ? 2 : 3) - ((back.anime?.length ?? 0) > (back.bar ? 2 : 3) ? 1 : 0);
   const one = back.focus || anime.length === 1 ? anime[0] : undefined;
   const body =
     one != null ? (
@@ -4012,9 +4014,9 @@ function BingoBack({
         const s = status(one);
         return (
           <div className="flex min-h-0 w-full items-center gap-[5cqw]">
-            <Cover src={m?.cover} className={`${extra ? "h-[58cqh]" : "h-[86cqh]"} w-auto rounded-md`} />
+            <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
-              <span className="line-clamp-3 font-karla font-bold leading-tight text-white" style={big}>
+              <span className={`${extra ? "line-clamp-2" : "line-clamp-3"} font-karla font-bold leading-tight text-white`} style={title}>
                 {m?.title ?? "…"}
               </span>
               {s.sc ? (
@@ -4041,8 +4043,8 @@ function BingoBack({
           const s = status(id);
           return (
             <div key={id} className="flex min-w-0 flex-col items-center gap-[2cqh]" title={m?.title}>
-              <Cover src={m?.cover} className={`${extra ? "h-[48cqh]" : "h-[66cqh]"} w-auto rounded-md`} />
-              <span className="line-clamp-1 max-w-[30cqw] text-center font-karla font-semibold text-white/85" style={small}>
+              <Cover src={m?.cover} className={`${extra ? "h-[58cqh]" : "h-[70cqh]"} w-auto rounded-md`} />
+              <span className="line-clamp-1 max-w-[28cqw] text-center font-karla font-semibold text-white/85" style={small}>
                 {m?.title ?? "…"}
               </span>
               {s.running ? <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} /> : null}
@@ -4058,23 +4060,23 @@ function BingoBack({
     ) : null;
   return (
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center gap-[4cqh] overflow-hidden rounded-lg bg-[#0e1720] p-[6cqh] ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-[4cqh] overflow-hidden rounded-lg bg-[#0e1720] p-2 ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
       title={label}
     >
       {/* UN CERCLE DE PROGRESSION (06/11/2026, Luc), le compte au milieu ; à
           côté des covers quand il y en a. */}
       {back.bar && body ? (
         <div className="flex min-h-0 w-full items-center justify-center gap-[5cqw]">
-          <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[46cqh]" : "h-[58cqh]"} font="clamp(9px, min(8cqw, 11cqh), 18px)" />
-          {body}
+          <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[48cqh]" : "h-[58cqh]"} font="clamp(11px, min(9cqw, 15cqh), 22px)" />
+          <div className="flex min-w-0 flex-1 justify-center">{body}</div>
         </div>
       ) : back.bar ? (
-        <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[64cqh]" : "h-[80cqh]"} font="clamp(12px, min(12cqw, 17cqh), 30px)" />
+        <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[76cqh]" : "h-[96cqh]"} font="clamp(14px, min(14cqw, 22cqh), 38px)" />
       ) : (
         body
       )}
       {back.text ? (
-        <span className="line-clamp-2 text-center font-karla font-semibold text-white/85" style={body || back.bar ? small : big}>
+        <span className="line-clamp-2 shrink-0 text-center font-karla font-semibold leading-tight text-white/85" style={body || back.bar ? small : big}>
           {back.text}
         </span>
       ) : null}
