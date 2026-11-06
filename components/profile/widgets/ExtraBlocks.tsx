@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -40,6 +40,8 @@ export type Meta = {
   genres: string[];
   year: number | null;
   airing: boolean;
+  /** WINTER/SPRING/SUMMER/FALL — seulement quand AniList a été interrogé. */
+  season?: string | null;
 };
 
 const metaCache = new Map<number, Meta | null>();
@@ -78,7 +80,7 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           query:
-            "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id title{romaji english native} coverImage{large} format genres seasonYear status}}}",
+            "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id title{romaji english native} coverImage{large} format genres season seasonYear status}}}",
           variables: { ids: missing.slice(i, i + 50) },
         }),
       })
@@ -92,6 +94,7 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
               genres: m.genres ?? [],
               year: m.seasonYear ?? null,
               airing: m.status === "RELEASING",
+              season: m.season ?? null,
             });
           }
           metaListeners.forEach((f) => f());
@@ -115,6 +118,7 @@ export function useAnimeMeta(ids: number[], entries: ProfileEntry[]): Map<number
           genres: e.genres?.length ? e.genres : (f?.genres ?? []),
           year: e.year ?? f?.year ?? null,
           airing: e.nextEpisode != null || !!f?.airing,
+          season: f?.season ?? null,
         });
       } else if (f) out.set(id, f);
     }
@@ -2580,6 +2584,8 @@ type BingoCtx = {
   startKey: string;
   friendIds: Set<number>;
   rnd: number | null;
+  /** La saison du bingo, en clé AniList (« FALL »). */
+  seasonKey: string;
 };
 type Goal = { id: string; icon: string; need: number; got: (c: BingoCtx) => number };
 
@@ -2588,7 +2594,10 @@ const shiftDay = (k: string, n: number) => {
   return dayKey(new Date(y, m - 1, d + n).getTime());
 };
 const gapDays = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
-const ofSeason = (m: Meta, c: BingoCtx) => m.airing || m.year === c.year;
+/* « DE LA SAISON » (06/11/2026, Luc) : en cours de diffusion, ou de CETTE
+   saison de cette année. « Sorti cette année » laissait passer un anime de
+   l'hiver, terminé en mars. */
+const ofSeason = (m: Meta, c: BingoCtx) => m.airing || (m.year === c.year && m.season === c.seasonKey);
 const genre = (g: string) => (c: BingoCtx) => (c.list.some((m) => m.genres.includes(g)) ? 1 : 0);
 const finished = (c: BingoCtx) =>
   c.ids.filter((id) => {
@@ -3133,19 +3142,24 @@ export function BingoBlock({
       entries.filter((e) => e.status === "COMPLETED" && Number(e.updatedAt) > 0 && Number(e.updatedAt) < from).map((e) => e.mediaId),
     );
   }, [entries, startKey]);
+  /* ET DANS LA LISTE (06/11/2026, Luc) : un anime ouvert sans être dans la
+     liste (un essai du lecteur) ne compte pas. Sans liste du tout, rien n'est
+     filtré. */
+  const inList = useMemo(() => new Set(entries.map((e) => e.mediaId)), [entries]);
+  const skip = useCallback((id: number) => stale.has(id) || (inList.size > 0 && !inList.has(id)), [stale, inList]);
   const inSeason = useMemo(
     () =>
       allDays
         .filter(([k]) => k >= startKey && k < period.end)
         .map(([k, d]): [string, WatchDay] => {
-          if (!d.a.some((id) => stale.has(id))) return [k, d];
-          const keep = d.a.map((id, i) => i).filter((i) => !stale.has(d.a[i]));
+          if (!d.a.some(skip)) return [k, d];
+          const keep = d.a.map((id, i) => i).filter((i) => !skip(d.a[i]));
           /* Sans le détail par anime (vieux jours), le total ne se corrige pas. */
           const n = d.c ? keep.reduce((s, i) => s + (d.c![i] ?? 0), 0) : d.n;
           return [k, { n, a: keep.map((i) => d.a[i]), ...(d.c ? { c: keep.map((i) => d.c![i]) } : {}) }];
         })
         .filter(([, d]) => d.a.length > 0),
-    [allDays, startKey, period.end, stale],
+    [allDays, startKey, period.end, skip],
   );
   const ids = useMemo(() => {
     const s = new Set<number>();
@@ -3198,6 +3212,7 @@ export function BingoBlock({
       startKey,
       friendIds,
       rnd,
+      seasonKey: season.key.toUpperCase(),
     };
   }, [inSeason, allDays, ids, meta, entries, season.year, startKey, friendIds, rnd]);
 
