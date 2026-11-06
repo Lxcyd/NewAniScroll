@@ -2690,7 +2690,6 @@ export const BINGO_GOALS: Goal[] = [
   { id: "rewatch", icon: "🔁", need: 1, got: (c) => (rewatched(c).length ? 1 : 0) },
   { id: "sharedShow", icon: "🤝", need: 1, got: (c) => (c.ids.some((id) => c.friendIds.has(id)) ? 1 : 0) },
   { id: "random", icon: "🎲", need: 1, got: (c) => (c.rnd != null && c.ids.includes(c.rnd) ? 1 : 0) },
-  { id: "favSeason", icon: "❤️", need: 1, got: (c) => (c.ids.some((id) => c.byId.get(id)?.favourite) ? 1 : 0) },
   { id: "rate3", icon: "⭐", need: 3, got: (c) => { const f = finishDays(c); return c.ids.filter((id) => (c.byId.get(id)?.score ?? 0) > 0 && f.has(id)).length; } },
   { id: "season3", icon: "🌸", need: 3, got: (c) => c.list.filter((m) => ofSeason(m, c)).length },
   { id: "firstEps3", icon: "🚀", need: 3, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
@@ -2756,7 +2755,7 @@ const DIFFICULTY: Record<string, number> = {
   streak21: 5, seasonInDay: 5, eps250: 5,
   streak14: 4, day15: 4, doubleFeature: 4, finish5: 4, finish2day: 4, finishSeason: 3,
   streak7: 3, secondChance: 3, rewatch: 3, random: 3, eps100: 3, active15: 3, finishStarted: 3, music: 3,
-  oneShow10: 2, special: 2, sharedShow: 2, favSeason: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
+  oneShow10: 2, special: 2, sharedShow: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
   eps50: 2, day3shows: 2, scifi: 2, psycho: 2, supernatural: 2, animes5: 2, season3: 2,
   streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1,
 };
@@ -2777,7 +2776,7 @@ const RAND_ODDS: Record<number, number[]> = {
 /** Ce qu'on tire au hasard pour la grille officielle, après le thème de la saison. */
 const SEASON_POOL = [
   "streak7", "streak21", "day15", "oneShow10", "seasonInDay", "doubleFeature", "special",
-  "finish5", "secondChance", "newStart", "rewatch", "sharedShow", "random", "favSeason", "rate3",
+  "finish5", "secondChance", "newStart", "rewatch", "sharedShow", "random", "rate3",
   "weekend", "firstEps3", "genres5", "movie",
   /* Ajoutés le 06/11/2026 (Luc). */
   "streak3", "streak14", "eps50", "eps100", "eps250", "airing",
@@ -3527,8 +3526,6 @@ export function BingoBlock({
         return { anime: rewatched(ctx) };
       case "sharedShow":
         return { anime: ctx.ids.filter((aid) => ctx.friendIds.has(aid)) };
-      case "favSeason":
-        return { anime: ctx.ids.filter((aid) => ctx.byId.get(aid)?.favourite) };
       case "rate3":
         return { bar, anime: ctx.ids.filter((aid) => (ctx.byId.get(aid)?.score ?? 0) > 0 && isFin(aid)) };
       case "rated10":

@@ -1278,7 +1278,6 @@
           "sharedShow": "Un anime qu'un ami a vu",
           "random": "Un anime tiré au hasard dans « À voir »",
           "randomPick": "Au hasard : {{title}}",
-          "favSeason": "Mettre en favori un anime vu cette saison",
           "rate3": "Noter {{count}} animes terminés",
           "season3": "{{count}} animes de la saison",
           "firstEps3": "Commencer {{count}} nouveaux animes",
