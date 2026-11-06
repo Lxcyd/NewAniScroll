@@ -3574,7 +3574,8 @@ export function BingoBlock({
     }
     if (f === "rn") {
       const day = ctx.days.find(([, d]) => d.n === Number(v));
-      return day ? { text: fmt(day[0]), anime: day[1].a, counts: countsOf(day[1]), keep: true } : {};
+      /* La date de la journée, pas ses épisodes (06/11/2026, Luc). */
+      return day ? { text: fmt(day[0]), anime: day[1].a, keep: true, dated: true } : {};
     }
     return null;
   };
@@ -4026,7 +4027,7 @@ export function BingoBlock({
              saison…) : juste les animes, sans cercle (06/11/2026, Luc). */
           const counted = sliced?.bar && sliced.anime?.length && ANIME_COUNT.test(id) ? { ...sliced, bar: undefined } : sliced;
           /* PAS DE DATES (06/11/2026, Luc) : seule la liste des genres garde son texte. */
-          const bk = counted && !counted.plain ? { ...counted, text: undefined } : counted;
+          const bk = counted && !counted.plain && !counted.dated ? { ...counted, text: undefined } : counted;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
              poser à plat dans le cadre qui tourne. */
           const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
@@ -4092,6 +4093,8 @@ type Back = {
   /** Une carte sur UN anime précis (titre phare, tirage) : en grand. */
   focus?: boolean;
   bar?: { got: number; need: number };
+  /** Garder la date (`text`) : seule la carte du compte exact la montre. */
+  dated?: boolean;
   /** La liste d'animes est déjà celle qui valide : ne pas la couper. */
   keep?: boolean;
   /** Le compte en texte, sans cercle (la carte des genres). */
