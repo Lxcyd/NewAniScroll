@@ -3274,6 +3274,162 @@ export function BingoBlock({
     // eslint-disable-next-line @next/next/no-img-element
     return img ? <img src={img} alt="" className="inline-block h-[1.1em] w-[1.1em] object-contain" /> : icon;
   };
+  /* ── LE DOS DES CARTES (06/11/2026, Luc) ──────────────────────────────────
+     Hors crayon, survoler une carte la retourne : les animes qui la valident
+     (cover, titre, note, épisodes), une barre pour un compte, les dates d'une
+     série. `backOf` dit quoi montrer ; `BingoBack` le dessine. */
+  const backOf = (id: string, got: number, need: number): Back | null => {
+    if (id === EMPTY || id.startsWith("c:")) return null;
+    const isFin = (aid: number) => {
+      const s = ctx.byId.get(aid)?.status;
+      return s === "COMPLETED" || s === "REPEATING";
+    };
+    const where = (p: (aid: number, m: Meta | undefined) => boolean) => ctx.ids.filter((aid) => p(aid, ctx.metas.get(aid)));
+    const bar = need > 1 ? { got, need } : undefined;
+    const fmt = (k: string) => new Date(`${k}T12:00:00`).toLocaleDateString(lang, { day: "numeric", month: "short" });
+    /* Le jour où une mesure est la plus haute (premier en cas d'égalité). */
+    const bestOf = (f: (d: WatchDay) => number) => {
+      let best: [string, WatchDay] | null = null;
+      for (const day of ctx.days) if (!best || f(day[1]) > f(best[1])) best = day;
+      return best;
+    };
+    const hasGenre = (g: string) => where((_, m) => !!m?.genres.includes(g));
+    if (/^streak\d+$/.test(id)) {
+      /* La plus longue série de jours d'affilée, avec ses dates. */
+      let from = "";
+      let best: [string, string] | null = null;
+      let run = 0;
+      let bestRun = 0;
+      let prev = "";
+      for (const [k] of ctx.days) {
+        if (prev && shiftDay(prev, 1) === k) run++;
+        else {
+          run = 1;
+          from = k;
+        }
+        if (run > bestRun) {
+          bestRun = run;
+          best = [from, k];
+        }
+        prev = k;
+      }
+      return { bar, text: best ? `${fmt(best[0])} → ${fmt(best[1])}` : undefined };
+    }
+    if (/^day\d+$/.test(id)) {
+      const b = bestOf((d) => d.n);
+      return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [] };
+    }
+    if (/^(eps|active)\d+$/.test(id)) return { bar };
+    if (/^animes\d+$/.test(id)) return { bar, anime: ctx.ids };
+    if (/^genres\d+$/.test(id)) {
+      const gs = Array.from(new Set(ctx.list.flatMap((m) => m.genres)));
+      return { bar, text: gs.map((g) => genreLabel(t, g)).join(" · ") || undefined };
+    }
+    if (/^finish\d*$/.test(id)) return { bar, anime: ctx.ids.filter(isFin) };
+    switch (id) {
+      case "oneShow10": {
+        let best: { k: string; aid: number; e: number } | null = null;
+        for (const [k, d] of ctx.days) d.a.forEach((aid, i) => {
+          const e = epsOn(d, i);
+          if (!best || e > best.e) best = { k, aid, e };
+        });
+        const b = best as { k: string; aid: number; e: number } | null;
+        return { bar, text: b ? fmt(b.k) : undefined, anime: b ? [b.aid] : [] };
+      }
+      case "seasonInDay":
+        return {
+          anime: where((aid) => ctx.days.some(([, d]) => d.a.some((x, i) => x === aid && (ctx.byId.get(aid)?.total ?? 0) > 0 && epsOn(d, i) >= (ctx.byId.get(aid)?.total ?? 0)))),
+        };
+      case "doubleFeature": {
+        const day = ctx.days.find(([, d]) => d.a.filter((x) => ctx.metas.get(x)?.format === "MOVIE").length >= 2);
+        return day
+          ? { text: fmt(day[0]), anime: day[1].a.filter((x) => ctx.metas.get(x)?.format === "MOVIE") }
+          : { anime: where((_, m) => m?.format === "MOVIE") };
+      }
+      case "movie":
+      case "movies3":
+        return { bar, anime: where((_, m) => m?.format === "MOVIE") };
+      case "special":
+        return { anime: where((_, m) => m?.format === "SPECIAL") };
+      case "short":
+        return { anime: where((_, m) => m?.format === "OVA" || m?.format === "ONA" || m?.format === "SPECIAL") };
+      case "airing":
+        return { anime: where((_, m) => !!m && ofSeason(m, ctx)) };
+      case "season3":
+        return { bar, anime: where((_, m) => !!m && ofSeason(m, ctx)) };
+      case "newSeason":
+        return { anime: where((_, m) => !!m?.airing) };
+      case "classic":
+        return { anime: where((_, m) => m?.year != null && m.year <= ctx.year - 15) };
+      case "retro":
+        return { anime: where((_, m) => m?.year != null && m.year < 2000) };
+      case "finishStarted":
+        return { anime: ctx.ids.filter((aid) => isFin(aid) && !ctx.before.has(aid)) };
+      case "secondChance":
+        return {
+          anime: ctx.ids.filter((aid) => {
+            const b = ctx.before.get(aid);
+            const f = ctx.first.get(aid);
+            return !!b && !!f && gapDays(b, f) >= 30;
+          }),
+        };
+      case "newStart":
+      case "firstEps3":
+        return { bar, anime: ctx.ids.filter((aid) => !ctx.before.has(aid)) };
+      case "rewatch":
+        return { anime: ctx.ids.filter((aid) => { const e = ctx.byId.get(aid); return e?.status === "REPEATING" || (e?.repeat ?? 0) > 0; }) };
+      case "sharedShow":
+        return { anime: ctx.ids.filter((aid) => ctx.friendIds.has(aid)) };
+      case "favSeason":
+        return { anime: ctx.ids.filter((aid) => ctx.byId.get(aid)?.favourite) };
+      case "rate3":
+        return { bar, anime: ctx.ids.filter((aid) => (ctx.byId.get(aid)?.score ?? 0) > 0 && isFin(aid)) };
+      case "rated10":
+        return { anime: ctx.ids.filter((aid) => { const s = ctx.byId.get(aid)?.score ?? 0; return s === 10 || s === 100; }) };
+      case "random":
+        return rnd != null ? { anime: [rnd], focus: true } : null;
+      case "weekend": {
+        const set = new Set(ctx.days.map(([k]) => k));
+        const sat = ctx.days.find(([k]) => {
+          const [y, m, d] = k.split("-").map(Number);
+          return new Date(y, m - 1, d).getDay() === 6 && set.has(shiftDay(k, 1));
+        });
+        return sat ? { text: `${fmt(sat[0])} + ${fmt(shiftDay(sat[0], 1))}` } : {};
+      }
+      case "day3shows": {
+        const b = bestOf((d) => d.a.length);
+        return { bar, text: b ? fmt(b[0]) : undefined, anime: b ? b[1].a : [] };
+      }
+      case "finish2day": {
+        const last = new Map<number, string>();
+        for (const [k, d] of ctx.days) for (const aid of d.a) last.set(aid, k);
+        const per = new Map<string, number[]>();
+        for (const [aid, k] of last) if (isFin(aid)) per.set(k, [...(per.get(k) ?? []), aid]);
+        const hit = Array.from(per).find(([, a]) => a.length >= 2);
+        return hit ? { text: fmt(hit[0]), anime: hit[1] } : { anime: ctx.ids.filter(isFin) };
+      }
+    }
+    if (FIXED_GENRE[id]) return { anime: hasGenre(FIXED_GENRE[id]) };
+    const fam = /^([a-z]+):(.*)$/.exec(id);
+    if (!fam) return null;
+    const [, f, v] = fam;
+    if (f === "g") return { anime: where((_, m) => !!m && ofSeason(m, ctx) && m.genres.includes(v)) };
+    if (f === "a") return { anime: [Number(v)], focus: true };
+    if (f === "rg") return { anime: hasGenre(v) };
+    if (f === "rt") return { anime: ctx.ids.filter((aid) => tagsOf.get(aid)?.tags.includes(v)) };
+    if (f === "rs") return { anime: ctx.ids.filter((aid) => tagsOf.get(aid)?.studios.includes(v)) };
+    if (f === "ry") return { anime: where((_, m) => m?.year === Number(v)) };
+    if (f === "rc") {
+      const [g, tg] = v.split("|");
+      return { anime: ctx.ids.filter((aid) => !!ctx.metas.get(aid)?.genres.includes(g) && !!tagsOf.get(aid)?.tags.includes(tg)) };
+    }
+    if (f === "rn") {
+      const day = ctx.days.find(([, d]) => d.n === Number(v));
+      return day ? { text: fmt(day[0]), anime: day[1].a } : {};
+    }
+    return null;
+  };
+  const [flipped, setFlipped] = useState<number | null>(null);
   const isDone = cells.map((c) => !!c && c.got >= c.need);
   const lines = editing ? [] : bingoLines(n).filter((l) => l.every((i) => isDone[i]));
   const inLine = new Set(lines.flat());
@@ -3712,7 +3868,12 @@ export function BingoBlock({
               </div>
             );
           }
-          return act ? (
+          /* Le dos ne se montre que sur le bingo officiel (06/11/2026, Luc). */
+          const bk = c && mode === "season" ? backOf(id, c.got, c.need) : null;
+          /* Retournée, la carte montre son dos : on lui retire `relative` pour la
+             poser à plat dans le cadre qui tourne. */
+          const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
+          const front = act ? (
             <button
               key={i}
               type="button"
@@ -3724,9 +3885,9 @@ export function BingoBlock({
                 }
                 act();
               }}
-              title={tip}
+              title={bk ? undefined : tip}
               {...dnd}
-              className={`${cls} hover:bg-white/[0.08] hover:ring-white/20 ${!c && ce ? "border border-dashed border-white/15" : ""} ${
+              className={`${flat} hover:bg-white/[0.08] hover:ring-white/20 ${!c && ce ? "border border-dashed border-white/15" : ""} ${
                 ce ? "cursor-grab touch-none select-none" : ""
               }`}
               style={style}
@@ -3734,12 +3895,162 @@ export function BingoBlock({
               {body}
             </button>
           ) : (
-            <div key={i} title={tip} className={cls} style={style}>
+            <div
+              key={i}
+              title={bk ? undefined : tip}
+              className={flat}
+              style={style}
+              /* Au doigt, pas de survol : un tap retourne la carte. */
+              onClick={bk ? () => setFlipped((f) => (f === i ? null : i)) : undefined}
+            >
               {body}
+            </div>
+          );
+          if (!bk || !c) return front;
+          return (
+            <div key={i} className="group relative min-h-0 [perspective:900px]" onMouseLeave={() => flipped === i && setFlipped(null)}>
+              <div
+                className={`absolute inset-0 transition-transform duration-500 [transform-style:preserve-3d] group-hover:[transform:rotateY(180deg)] ${
+                  flipped === i ? "[transform:rotateY(180deg)]" : ""
+                }`}
+              >
+                {front}
+                <BingoBack back={bk} label={c.label} meta={meta} byId={ctx.byId} notYet={t("profile.blocks.bingo.notYet")} />
+              </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Ce que montre le dos d'une carte du bingo. */
+type Back = {
+  /** Les animes qui valident la carte (ou y comptent). */
+  anime?: number[];
+  /** Une carte sur UN anime précis (titre phare, tirage) : en grand. */
+  focus?: boolean;
+  bar?: { got: number; need: number };
+  /** Une date, une plage de dates, une liste de genres. */
+  text?: string;
+};
+
+/** Une barre fine, remplie à `v / max`. */
+function ThinBar({ v, max }: { v: number; max: number }) {
+  return (
+    <span className="block h-[max(3px,3cqh)] w-full overflow-hidden rounded-full bg-white/15">
+      <span className="block h-full rounded-full bg-action" style={{ width: `${Math.min(100, (v / Math.max(1, max)) * 100)}%` }} />
+    </span>
+  );
+}
+
+/** La note d'une entrée, sur 10 (AniList la donne sur 10 ou sur 100). */
+const score10 = (s: number | null | undefined) => (!s ? null : s > 10 ? Math.round(s) / 10 : s);
+
+/** LE DOS D'UNE CARTE (06/11/2026, Luc) : à plat derrière le recto, retourné. */
+function BingoBack({
+  back,
+  label,
+  meta,
+  byId,
+  notYet,
+}: {
+  back: Back;
+  label: string;
+  meta: Map<number, Meta>;
+  byId: Map<number, ProfileEntry>;
+  notYet: string;
+}) {
+  const anime = (back.anime ?? []).filter((id, i, a) => a.indexOf(id) === i);
+  const small = { fontSize: "clamp(8px, min(7cqw, 9cqh), 13px)" };
+  /** Les épisodes d'une entrée en cours, et sa note. */
+  const status = (id: number) => {
+    const e = byId.get(id);
+    const tot = e?.total ?? null;
+    const prog = e?.progress ?? 0;
+    const sc = score10(e?.score);
+    return { e, tot, prog, sc, running: !!e && prog > 0 && (tot == null || prog < tot) };
+  };
+  const one = back.focus || anime.length === 1 ? anime[0] : undefined;
+  const body =
+    one != null ? (
+      (() => {
+        const m = meta.get(one);
+        const s = status(one);
+        return (
+          <div className="flex min-h-0 flex-1 items-stretch gap-[4cqw]">
+            <Cover src={m?.cover} className="aspect-[2/3] h-full shrink-0 rounded-md" />
+            <div className="flex min-w-0 flex-1 flex-col justify-center gap-[3cqh] text-left">
+              <span className="line-clamp-3 font-karla font-semibold leading-tight text-white" style={{ fontSize: "clamp(9px, min(9cqw, 12cqh), 16px)" }}>
+                {m?.title ?? "…"}
+              </span>
+              {s.sc ? (
+                <span className="font-karla text-white/70" style={small}>
+                  ★ {s.sc}/10
+                </span>
+              ) : null}
+              {s.running || (s.e && s.tot) ? (
+                <span className="flex flex-col gap-[2cqh]">
+                  <span className="font-karla text-white/60" style={small}>
+                    {s.prog}/{s.tot ?? "?"}
+                  </span>
+                  <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} />
+                </span>
+              ) : null}
+            </div>
+          </div>
+        );
+      })()
+    ) : anime.length ? (
+      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[3cqw]">
+        {anime.slice(0, 3).map((id) => {
+          const m = meta.get(id);
+          const s = status(id);
+          return (
+            <div key={id} className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-[2cqh]" title={m?.title}>
+              <Cover src={m?.cover} className="aspect-[2/3] min-h-0 flex-1 rounded-md" />
+              <span className="line-clamp-1 w-full text-center font-karla text-white/80" style={small}>
+                {m?.title ?? "…"}
+              </span>
+              {s.running ? <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} /> : null}
+            </div>
+          );
+        })}
+        {anime.length > 3 ? (
+          <span className="self-center font-karla text-white/60" style={small}>
+            +{anime.length - 3}
+          </span>
+        ) : null}
+      </div>
+    ) : null;
+  return (
+    <div
+      className="absolute inset-0 flex flex-col gap-[3cqh] overflow-hidden rounded-lg bg-[#0e1720] p-[5cqh] ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
+      title={label}
+    >
+      <span className="line-clamp-1 font-karla font-semibold text-white/55" style={small}>
+        {label}
+      </span>
+      {body}
+      {back.text ? (
+        <span className="line-clamp-2 text-center font-karla text-white/80" style={small}>
+          {back.text}
+        </span>
+      ) : null}
+      {back.bar ? (
+        <span className="mt-auto flex flex-col gap-[2cqh]">
+          <span className="text-center font-outfit font-bold text-white" style={{ fontSize: "clamp(10px, min(10cqw, 14cqh), 20px)" }}>
+            {Math.min(back.bar.got, back.bar.need)} / {back.bar.need}
+          </span>
+          <ThinBar v={back.bar.got} max={back.bar.need} />
+        </span>
+      ) : null}
+      {!body && !back.text && !back.bar ? (
+        <span className="m-auto font-karla text-white/45" style={small}>
+          {notYet}
+        </span>
+      ) : null}
     </div>
   );
 }

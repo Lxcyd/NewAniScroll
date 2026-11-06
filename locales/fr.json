@@ -1300,6 +1300,7 @@
           "finishStarted": "Terminer un anime commencé pendant la saison",
           "animes5": "{{count}} animes différents"
         },
+        "notYet": "Pas encore",
         "manage": "Modifier le bingo",
         "editHint": "Clique une case pour la changer, glisse-la pour la déplacer",
         "back": "Retour",
