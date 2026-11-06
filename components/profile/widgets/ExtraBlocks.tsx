@@ -2664,6 +2664,18 @@ export const BINGO_GOALS: Goal[] = [
   { id: "finishStarted", icon: "🏅", need: 1, got: (c) =>
       c.ids.some((id) => { const st = c.byId.get(id)?.status; return !c.before.has(id) && (st === "COMPLETED" || st === "REPEATING"); }) ? 1 : 0 },
   { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
+  /* Deux animes finis le même jour (06/11/2026, Luc). La liste ne date pas la
+     fin : c'est le dernier jour de la période où l'anime terminé a été vu. */
+  { id: "finish2day", icon: "✌️", need: 1, got: (c) => {
+      const last = new Map<number, string>();
+      for (const [k, d] of c.days) for (const id of d.a) last.set(id, k);
+      const per = new Map<string, number>();
+      for (const [id, k] of last) {
+        const st = c.byId.get(id)?.status;
+        if (st === "COMPLETED" || st === "REPEATING") per.set(k, (per.get(k) ?? 0) + 1);
+      }
+      return Array.from(per.values()).some((x) => x >= 2) ? 1 : 0;
+    } },
   { id: "genres10", icon: "🌈", need: 10, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
   { id: "movies3", icon: "🎟️", need: 3, got: (c) => c.list.filter((m) => m.format === "MOVIE").length },
 ];
@@ -2675,6 +2687,7 @@ const RAND_GENRE = "~rg";
 const RAND_TAG = "~rt";
 const RAND_YEAR = "~ry";
 const RAND_STUDIO = "~rs";
+const RAND_EXACT = "~rn";
 /** Les chances (en %) d'avoir 0, 1, 2… cartes « au hasard » d'une sorte, par
  *  taille de grille ; 5 au plus (06/11/2026, Luc : 0 très rare, 2-3 le plus souvent). */
 /** LA DIFFICULTÉ D'UNE CARTE, de 1 (facile) à 5 (très dure) (06/11/2026,
@@ -2682,13 +2695,13 @@ const RAND_STUDIO = "~rs";
  *  ont la note de leur famille ; 2 par défaut. */
 const DIFFICULTY: Record<string, number> = {
   streak21: 5, seasonInDay: 5, eps250: 5,
-  streak14: 4, day15: 4, doubleFeature: 4, finish5: 4,
+  streak14: 4, day15: 4, doubleFeature: 4, finish5: 4, finish2day: 4,
   streak7: 3, secondChance: 3, rewatch: 3, random: 3, eps100: 3, active15: 3, finishStarted: 3, music: 3,
   oneShow10: 2, special: 2, sharedShow: 2, favSeason: 2, rate3: 2, firstEps3: 2, genres5: 2, movie: 2,
   eps50: 2, day3shows: 2, scifi: 2, psycho: 2, supernatural: 2, animes5: 2, season3: 2,
   streak3: 1, newSeason: 1, newStart: 1, weekend: 1, airing: 1,
 };
-const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3 };
+const FAMILY_DIFFICULTY: Record<string, number> = { g: 1, a: 2, rg: 2, rt: 3, ry: 3, rs: 3, rn: 3, rc: 4 };
 function difficulty(id: string): number {
   if (id === EMPTY) return 0;
   const fam = /^([a-z]+):/.exec(id)?.[1];
@@ -2716,6 +2729,19 @@ const SEASON_POOL = [
   /* L'année et le studio tirés (06/11/2026, Luc) : un jeton chacun, remplacé
      au tirage par `ry:<année>` / `rs:<studio>`. */
   RAND_YEAR, RAND_STUDIO,
+  /* 06/11/2026, Luc : le compte exact d'épisodes (`rn:<n>`) et deux animes finis le même jour. */
+  RAND_EXACT, "finish2day",
+];
+/** La part des cartes genre/tag au hasard qui deviennent un combo. */
+const COMBO_SHARE = 1 / 3;
+/** Des paires genre|tag fréquentes ensemble sur AniList. */
+const RAND_COMBOS = [
+  "Romance|Vampire", "Comedy|Isekai", "Action|Martial Arts", "Fantasy|Dragons", "Romance|School",
+  "Sci-Fi|Robots", "Horror|Zombie", "Drama|Tragedy", "Mystery|Detective", "Action|Samurai",
+  "Supernatural|Ghost", "Fantasy|Witch", "Comedy|Parody", "Sci-Fi|Space", "Music|Idol",
+  "Slice of Life|Iyashikei", "Romance|Shoujo", "Action|Shounen", "Drama|Seinen", "Fantasy|Reincarnation",
+  "Sci-Fi|Cyberpunk", "Sports|School", "Psychological|Survival", "Thriller|Revenge", "Fantasy|Gods",
+  "Comedy|Delinquents", "Action|Military", "Romance|Love Triangle", "Mecha|Military", "Slice of Life|Food",
 ];
 /** L'année tirée court de 1995 à l'année de la saison. */
 const RAND_YEAR_FROM = 1995;
@@ -2851,12 +2877,19 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
   );
   const genres = shuffle(RAND_GENRES.filter((x) => !usedGenres.has(x)));
   const tags = shuffle(RAND_TAGS.slice());
+  /* LE COMBO (06/11/2026, Luc) : une carte genre ou tag sur trois devient
+     « genre + tag dans le même anime », tiré dans une liste de paires qui
+     existent vraiment (un « Sports + Vampire » serait impossible). */
+  const combos = shuffle(RAND_COMBOS.slice());
+  const randCard = (plain: () => string) => (r() < COMBO_SHARE && combos.length ? `rc:${combos.shift()}` : plain());
   const final = out.map((id) =>
     id === RAND_GENRE
-      ? genres.length ? `rg:${genres.shift()}` : EMPTY
+      ? randCard(() => (genres.length ? `rg:${genres.shift()}` : EMPTY))
       : id === RAND_TAG
-        ? `rt:${tags.shift()}`
-        : id === RAND_YEAR
+        ? randCard(() => `rt:${tags.shift()}`)
+        : id === RAND_EXACT
+          ? `rn:${3 + Math.floor(r() * 7)}`
+          : id === RAND_YEAR
           ? `ry:${RAND_YEAR_FROM + Math.floor(r() * (year - RAND_YEAR_FROM + 1))}`
           : id === RAND_STUDIO
             ? `rs:${RAND_STUDIOS[Math.floor(r() * RAND_STUDIOS.length)]}`
@@ -3049,7 +3082,7 @@ export function BingoBlock({
   );
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
-    GOAL.has(id) || /^(g|rg|rt|rs):.+/.test(id) || /^(a|ry):\d+$/.test(id) || customKeys.has(id);
+    GOAL.has(id) || /^(g|rg|rt|rs):.+/.test(id) || /^rc:.+\|.+/.test(id) || /^(a|ry|rn):\d+$/.test(id) || customKeys.has(id);
   const fill = (saved: string[], pad: string[]) => {
     const cells = saved.slice(0, n * n).map((id) => (valid(id) ? id : EMPTY));
     const used = new Set(cells);
@@ -3091,7 +3124,7 @@ export function BingoBlock({
     [cellIds.join(","), rnd],
   );
   const meta = useAnimeMeta(useMemo(() => [...ids, ...extraIds], [ids, extraIds]), entries);
-  const tagsOf = useAnimeTags(ids, cellIds.some((id) => id.startsWith("rt:") || id.startsWith("rs:")));
+  const tagsOf = useAnimeTags(ids, cellIds.some((id) => /^(rt|rs|rc):/.test(id)));
 
   const ctx: BingoCtx = useMemo(() => {
     let eps = 0;
@@ -3170,6 +3203,24 @@ export function BingoBlock({
         icon: "🔖",
         label: t("profile.blocks.bingo.cell.randTag", { tag: translateTag(name, i18n.language) }),
         got: ids.some((aid) => tagsOf.get(aid)?.tags.includes(name)) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("rc:")) {
+      const [gName, tName] = id.slice(3).split("|");
+      return {
+        icon: "🧬",
+        label: t("profile.blocks.bingo.cell.randCombo", { genre: genreLabel(t, gName), tag: translateTag(tName, i18n.language) }),
+        got: ids.some((aid) => !!ctx.metas.get(aid)?.genres.includes(gName) && !!tagsOf.get(aid)?.tags.includes(tName)) ? 1 : 0,
+        need: 1,
+      };
+    }
+    if (id.startsWith("rn:")) {
+      const k = Number(id.slice(3));
+      return {
+        icon: "🧮",
+        label: t("profile.blocks.bingo.cell.randExact", { count: k }),
+        got: ctx.days.some(([, d]) => d.n === k) ? 1 : 0,
         need: 1,
       };
     }
