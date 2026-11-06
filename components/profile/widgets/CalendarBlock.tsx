@@ -468,9 +468,25 @@ export function CalendarBlock({
                 {/* Pas de compteur pour un seul épisode (02/11/2026, Luc). */}
                 {w.n > 1 ? (
                   <span className="as-cal-badge">
-                    <span className="as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white as-cal-detour">
-                      {w.n}
-                    </span>
+                    {/* UN SEUL ANIME CE JOUR (06/11/2026, Luc) : pas de couronne à
+                        ouvrir, mais le survol montre quand même ses épisodes en
+                        bleu (« x4 »), comme les bulles d'un jour à plusieurs. */}
+                    {others.length ? (
+                      <span className="as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white as-cal-detour">
+                        {w.n}
+                      </span>
+                    ) : (
+                      <span className="relative inline-flex">
+                        <span className="as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white transition-opacity duration-200 as-cal-detour group-hover:opacity-0">
+                          {w.n}
+                        </span>
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                          <span className="rounded-full bg-[#0ea5e9] px-[7px] font-outfit text-[10px] font-bold leading-[16px] text-white">
+                            {t("profile.blocks.calendar.eps", { count: w.c?.[0] ?? w.n })}
+                          </span>
+                        </span>
+                      </span>
+                    )}
                   </span>
                 ) : null}
               </span>
