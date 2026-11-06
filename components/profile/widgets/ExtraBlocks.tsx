@@ -2679,9 +2679,9 @@ const SEASON_POOL = [
   "day3shows", "active15", "comedy", "scifi", "psycho", "music", "supernatural", "adventure",
   "finishStarted", "animes5",
   /* UN GENRE / UN TAG AU HASARD (06/11/2026, Luc) : chaque jeton tiré devient
-     une case `rg:<Genre>` ou `rt:<Tag>` ; deux jetons de chaque, donc une
-     grille peut en avoir plusieurs (« une romance » ET « un shōjo »). */
-  RAND_GENRE, RAND_GENRE, RAND_TAG, RAND_TAG,
+     une case `rg:<Genre>` ou `rt:<Tag>` ; cinq jetons de chaque, donc une
+     grille peut en avoir plusieurs (« une romance » ET « une comédie »…). */
+  ...Array<string>(5).fill(RAND_GENRE), ...Array<string>(5).fill(RAND_TAG),
 ];
 /** Les genres AniList (sans le genre adulte), pour la carte « genre au hasard ». */
 const RAND_GENRES = [
