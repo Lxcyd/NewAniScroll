@@ -466,7 +466,7 @@ export function CalendarBlock({
                     survol, les compteurs par anime sont en EP_BLUE (ListBlocks.tsx),
                     le bleu des barres d'épisodes. */}
                 {/* Pas de compteur pour un seul épisode (02/11/2026, Luc). */}
-                {w.n > 1 ? (
+                {w.n > 1 || !others.length ? (
                   <span className="as-cal-badge">
                     {/* UN SEUL ANIME CE JOUR (06/11/2026, Luc) : pas de couronne à
                         ouvrir, mais le survol montre quand même ses épisodes en
@@ -477,7 +477,12 @@ export function CalendarBlock({
                       </span>
                     ) : (
                       <span className="relative inline-flex">
-                        <span className="as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white transition-opacity duration-200 as-cal-detour group-hover:opacity-0">
+                        {/* Un seul épisode : pas de total rose, seulement le x1 au survol. */}
+                        <span
+                          className={`as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white transition-opacity duration-200 as-cal-detour group-hover:opacity-0${
+                            w.n > 1 ? "" : " invisible"
+                          }`}
+                        >
                           {w.n}
                         </span>
                         <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
@@ -693,7 +698,8 @@ function Orbit({
         {/* AU SURVOL, LES ÉPISODES DE CHAQUE ANIME (02/11/2026, Luc) : le total
             du jour s'efface, celui de l'anime du jour prend sa place, et
             chaque bulle a le sien. Rien pour un seul épisode, comme la case. */}
-        {(orbit.mainN ?? 0) > 1 ? (
+        {/* x1 compris (06/11/2026, Luc). */}
+        {(orbit.mainN ?? 0) >= 1 ? (
           <span className="as-cal-badge">
             <span className="as-cal-ep pointer-events-none rounded-full bg-[#0ea5e9] px-[7px] font-outfit text-[10px] font-bold leading-[16px] text-white as-cal-detour">
               {t("profile.blocks.calendar.eps", { count: orbit.mainN })}
@@ -720,7 +726,7 @@ function Orbit({
           bulle, ils passaient sous la bulle voisine. Une couche à part, après
           toutes les bulles, qui reprend leur place et leur mouvement. */}
       {others.map((id, k) =>
-        (orbit.counts[k] ?? 0) > 1 ? (
+        (orbit.counts[k] ?? 0) >= 1 ? (
           <span key={`ep-${id}`} aria-hidden className="as-cal-sat as-cal-sat-tag" style={satStyle(k)}>
             <span className="as-cal-badge">
               <span className="as-cal-ep pointer-events-none rounded-full bg-[#0ea5e9] px-[7px] font-outfit text-[10px] font-bold leading-[16px] text-white as-cal-detour">
