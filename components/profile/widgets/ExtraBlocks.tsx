@@ -4201,7 +4201,12 @@ function BingoBack({
                   ★ {s.sc}/10
                 </span>
               ) : null}
-              {back.counts?.[one] != null ? (
+              {/* Le compte exact : la date, à la place de la progression (Luc). */}
+              {back.dated && back.text ? (
+                <span className="font-karla font-semibold text-white/80" style={small}>
+                  {back.text}
+                </span>
+              ) : back.counts?.[one] != null ? (
                 <span className="font-karla font-semibold text-white/80" style={small}>
                   {epsDay(back.counts[one])}
                 </span>
@@ -4260,7 +4265,7 @@ function BingoBack({
       ) : (
         body
       )}
-      {back.text ? (
+      {back.text && !(back.dated && one != null) ? (
         <span className={`${back.plain ? "min-h-0 overflow-hidden" : "line-clamp-2 shrink-0"} text-center font-karla font-semibold leading-tight text-white/85`} style={back.plain ? { fontSize: "clamp(9px, min(8cqw, 11cqh), 14px)" } : body || back.bar ? small : big}>
           {back.text}
         </span>
