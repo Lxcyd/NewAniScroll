@@ -4118,6 +4118,8 @@ function Ring({ got, need, size, font }: { got: number; need: number; size: stri
     <span className={`relative block aspect-square shrink-0 ${size}`}>
       <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90" aria-hidden>
         <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="3" />
+        {/* À 0, rien : le bout arrondi dessinait un point rose (Luc). */}
+        {pct > 0 ? (
         <circle
           cx="18"
           cy="18"
@@ -4129,6 +4131,7 @@ function Ring({ got, need, size, font }: { got: number; need: number; size: stri
           pathLength={100}
           strokeDasharray={`${pct} 100`}
         />
+        ) : null}
       </svg>
       <span className="absolute inset-0 flex items-center justify-center font-outfit font-bold text-white" style={{ fontSize: font }}>
         {Math.min(got, need)}/{need}
