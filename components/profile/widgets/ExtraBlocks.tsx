@@ -3146,7 +3146,17 @@ export function BingoBlock({
      liste (un essai du lecteur) ne compte pas. Sans liste du tout, rien n'est
      filtré. */
   const inList = useMemo(() => new Set(entries.map((e) => e.mediaId)), [entries]);
-  const skip = useCallback((id: number) => stale.has(id) || (inList.size > 0 && !inList.has(id)), [stale, inList]);
+  /* NI À ZÉRO ÉPISODE (06/11/2026, Luc) : une fiche à 0 n'a pas été commencée,
+     même si le lecteur a été ouvert (« Commencer un nouvel anime » validé par
+     un 0/12). Un film terminé est à 1 : il passe. */
+  const unstarted = useMemo(
+    () => new Set(entries.filter((e) => !(Number(e.progress) > 0) && e.status !== "COMPLETED").map((e) => e.mediaId)),
+    [entries],
+  );
+  const skip = useCallback(
+    (id: number) => stale.has(id) || unstarted.has(id) || (inList.size > 0 && !inList.has(id)),
+    [stale, unstarted, inList],
+  );
   const inSeason = useMemo(
     () =>
       allDays
