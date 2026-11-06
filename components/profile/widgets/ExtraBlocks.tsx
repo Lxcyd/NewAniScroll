@@ -3542,7 +3542,8 @@ export function BingoBlock({
           return new Date(y, m - 1, d).getDay() === 6 && set.has(shiftDay(k, 1));
         });
         const sun = sat && ctx.days.find(([k]) => k === shiftDay(sat[0], 1));
-        return sat && sun ? { anime: [...sat[1].a, ...sun[1].a] } : {};
+        /* Un anime du samedi, un du dimanche (06/11/2026, Luc). */
+        return sat && sun ? { anime: [sat[1].a[0], sun[1].a[0]], keep: true } : {};
       }
       case "day3shows": {
         const b = bestOf((d) => d.a.length);
