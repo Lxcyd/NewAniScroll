@@ -4190,7 +4190,7 @@ function BingoBack({
           <div className="flex min-h-0 w-full items-center gap-[5cqw]">
             {/* La cover ouvre la page de l'anime (06/11/2026, Luc). */}
             <Link href={`/en/anime/${one}`} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded-md transition-transform hover:scale-[1.03]" title={m?.title}>
-              <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
+              <Cover src={m?.cover} className={`${extra && !back.dated ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
             </Link>
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
               <span className="line-clamp-2 font-karla font-bold leading-tight text-white" style={title}>
