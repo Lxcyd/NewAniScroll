@@ -2679,6 +2679,9 @@ const RAND_YEAR = "~ry";
 const RAND_STUDIO = "~rs";
 /** Les chances (en %) d'avoir 0, 1, 2… cartes « au hasard » d'une sorte, par
  *  taille de grille ; 5 au plus (06/11/2026, Luc : 0 très rare, 2-3 le plus souvent). */
+/** Le plafond des cartes « regarder un genre / un tag » (thème, fixes et hasard
+ *  réunis) par taille de grille : environ un tiers des cases. */
+const GENRE_CAP: Record<number, number> = { 3: 3, 4: 5, 5: 8 };
 const RAND_ODDS: Record<number, number[]> = {
   3: [0.5, 30, 55, 14.5],
   4: [0.5, 12, 37, 37, 11, 2.5],
@@ -2802,10 +2805,30 @@ function seasonGrid(key: string, data: SeasonData | null, n: number, year: numbe
     for (let c = 0; c < odds.length; c++) if ((x -= odds[c]) < 0) return c;
     return odds.length - 1;
   };
-  const cg = Math.min(count(), free.length - 1);
-  const ct = Math.max(0, Math.min(count(), free.length - 1 - cg));
+  let cg = Math.min(count(), free.length - 1);
+  let ct = Math.max(0, Math.min(count(), free.length - 1 - cg));
+  /* PAS TROP DE « REGARDER UN GENRE » (06/11/2026, Luc) : genres du thème,
+     cartes genre fixes, genre et tag au hasard réunis ne passent pas
+     GENRE_CAP ; on rabote le plus nombreux des deux tirages. */
+  const cap = GENRE_CAP[n] ?? GENRE_CAP[3];
+  let genreLike = out.filter((id) => id.startsWith("g:")).length;
+  while (cg + ct > Math.max(0, cap - genreLike)) {
+    if (ct >= cg) ct--;
+    else cg--;
+  }
+  genreLike += cg + ct;
+  const next = () => {
+    for (;;) {
+      const id = pool.shift();
+      if (!id || !FIXED_GENRE[id]) return id;
+      if (genreLike < cap) {
+        genreLike++;
+        return id;
+      }
+    }
+  };
   shuffle(free).forEach((i, k) => {
-    out[i] = k < cg ? RAND_GENRE : k < cg + ct ? RAND_TAG : (pool.shift() ?? EMPTY);
+    out[i] = k < cg ? RAND_GENRE : k < cg + ct ? RAND_TAG : (next() ?? EMPTY);
   });
   /* Les jetons « au hasard » prennent un genre / un tag pas déjà sur la grille. */
   const usedGenres = new Set(
