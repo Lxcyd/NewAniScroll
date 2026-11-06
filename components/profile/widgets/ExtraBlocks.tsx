@@ -4207,7 +4207,8 @@ function BingoBack({
                   <span className="font-karla text-white/70" style={small}>
                     {s.prog}/{s.tot ?? "?"}
                   </span>
-                  <ThinBar v={s.prog} max={s.tot ?? s.prog + 1} />
+                  {/* Sans total connu, pas de barre : elle ne mesurerait rien (Luc). */}
+                  {s.tot ? <ThinBar v={s.prog} max={s.tot} /> : null}
                 </span>
               ) : null}
             </div>
