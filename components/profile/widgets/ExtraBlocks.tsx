@@ -4100,7 +4100,10 @@ function BingoBack({
         const s = status(one);
         return (
           <div className="flex min-h-0 w-full items-center gap-[5cqw]">
-            <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
+            {/* La cover ouvre la page de l'anime (06/11/2026, Luc). */}
+            <Link href={`/en/anime/${one}`} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded-md transition-transform hover:scale-[1.03]" title={m?.title}>
+              <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
+            </Link>
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
               <span className="line-clamp-2 font-karla font-bold leading-tight text-white" style={title}>
                 {m?.title ?? "…"}
@@ -4139,7 +4142,9 @@ function BingoBack({
             >
               {/* PLUSIEURS ANIMES : LES IMAGES SEULES (06/11/2026, Luc) — le titre,
                   la note et les épisodes, c'est pour une carte à un seul anime. */}
-              <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[84cqh]"}`} />
+              <Link href={`/en/anime/${id}`} onClick={(e) => e.stopPropagation()} className="block w-full rounded-md transition-transform hover:scale-[1.04]">
+                <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[84cqh]"}`} />
+              </Link>
             </div>
           );
         })}
