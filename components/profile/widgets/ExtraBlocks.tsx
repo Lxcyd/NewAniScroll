@@ -3945,6 +3945,32 @@ function ThinBar({ v, max }: { v: number; max: number }) {
   );
 }
 
+/** Un cercle de progression, `got / need` écrit au milieu. */
+function Ring({ got, need, size, font }: { got: number; need: number; size: string; font: string }) {
+  const pct = Math.min(100, (got / Math.max(1, need)) * 100);
+  return (
+    <span className={`relative block aspect-square shrink-0 ${size}`}>
+      <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90" aria-hidden>
+        <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="3" />
+        <circle
+          cx="18"
+          cy="18"
+          r="15.9"
+          fill="none"
+          stroke="var(--brand-primary, #E94560)"
+          strokeWidth="3"
+          strokeLinecap="round"
+          pathLength={100}
+          strokeDasharray={`${pct} 100`}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center font-outfit font-bold text-white" style={{ fontSize: font }}>
+        {Math.min(got, need)}/{need}
+      </span>
+    </span>
+  );
+}
+
 /** La note d'une entrée, sur 10 (AniList la donne sur 10 ou sur 100). */
 const score10 = (s: number | null | undefined) => (!s ? null : s > 10 ? Math.round(s) / 10 : s);
 
@@ -3976,6 +4002,8 @@ function BingoBack({
     return { e, tot, prog, sc, running: !!e && prog > 0 && (tot == null || prog < tot) };
   };
   const extra = !!back.text || !!back.bar;
+  /* À côté d'un cercle, deux covers tiennent ; seules, trois. */
+  const maxCovers = back.bar ? 2 : 3;
   const one = back.focus || anime.length === 1 ? anime[0] : undefined;
   const body =
     one != null ? (
@@ -4008,7 +4036,7 @@ function BingoBack({
       })()
     ) : anime.length ? (
       <div className="flex min-h-0 w-full items-start justify-center gap-[4cqw]">
-        {anime.slice(0, 3).map((id) => {
+        {anime.slice(0, maxCovers).map((id) => {
           const m = meta.get(id);
           const s = status(id);
           return (
@@ -4021,9 +4049,9 @@ function BingoBack({
             </div>
           );
         })}
-        {anime.length > 3 ? (
+        {anime.length > maxCovers ? (
           <span className="self-center font-outfit font-bold text-white/70" style={big}>
-            +{anime.length - 3}
+            +{anime.length - maxCovers}
           </span>
         ) : null}
       </div>
@@ -4033,21 +4061,21 @@ function BingoBack({
       className="absolute inset-0 flex flex-col items-center justify-center gap-[4cqh] overflow-hidden rounded-lg bg-[#0e1720] p-[6cqh] ring-1 ring-white/10 [backface-visibility:hidden] [container-type:size] [transform:rotateY(180deg)]"
       title={label}
     >
-      {body}
+      {/* UN CERCLE DE PROGRESSION (06/11/2026, Luc), le compte au milieu ; à
+          côté des covers quand il y en a. */}
+      {back.bar && body ? (
+        <div className="flex min-h-0 w-full items-center justify-center gap-[5cqw]">
+          <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[46cqh]" : "h-[58cqh]"} font="clamp(9px, min(8cqw, 11cqh), 18px)" />
+          {body}
+        </div>
+      ) : back.bar ? (
+        <Ring got={back.bar.got} need={back.bar.need} size={back.text ? "h-[64cqh]" : "h-[80cqh]"} font="clamp(12px, min(12cqw, 17cqh), 30px)" />
+      ) : (
+        body
+      )}
       {back.text ? (
-        <span className="line-clamp-2 text-center font-karla font-semibold text-white/85" style={body ? small : big}>
+        <span className="line-clamp-2 text-center font-karla font-semibold text-white/85" style={body || back.bar ? small : big}>
           {back.text}
-        </span>
-      ) : null}
-      {back.bar ? (
-        <span className="flex w-full flex-col gap-[3cqh]">
-          <span
-            className="text-center font-outfit font-bold text-white"
-            style={{ fontSize: body ? "clamp(11px, min(11cqw, 15cqh), 20px)" : "clamp(16px, min(18cqw, 28cqh), 40px)" }}
-          >
-            {Math.min(back.bar.got, back.bar.need)} / {back.bar.need}
-          </span>
-          <ThinBar v={back.bar.got} max={back.bar.need} />
         </span>
       ) : null}
       {!body && !extra ? (
