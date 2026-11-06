@@ -88,6 +88,38 @@ const MERGERS: Partial<Record<DataKind, (payload: unknown) => boolean>> = {
     }
     return touched;
   },
+  /* LA PROGRESSION SE FUSIONNE AUSSI (06/11/2026, Luc : le 6 novembre comptait
+     2 épisodes au lieu de 8). C'est une collection : une entrée par épisode.
+     Écrasée en bloc, la table de l'appareil qui écrivait en dernier effaçait
+     les épisodes vus sur l'autre — localhost et aniscroll.com sont deux
+     appareils pour le navigateur. Ici, épisode par épisode, la date la plus
+     récente gagne. Vrai dès que local et serveur diffèrent : l'union doit
+     repartir vers le serveur (cf. le commentaire de pullAll). Un « tout
+     effacer » sur un appareil ne se propage plus : l'autre rapporte ses
+     épisodes. */
+  progress: (payload) => {
+    const raw = (payload as Record<string, unknown> | null)?.["aniscroll:progress"];
+    if (typeof raw !== "string") return false;
+    try {
+      type E = { updatedAt?: number };
+      const cloud = JSON.parse(raw) as Record<string, E>;
+      const local = JSON.parse(localStorage.getItem("aniscroll:progress") || "{}") as Record<string, E>;
+      let differs = false;
+      let changed = false;
+      for (const [k, e] of Object.entries(cloud)) {
+        const mine = local[k];
+        if (!mine || Number(e?.updatedAt) > Number(mine.updatedAt)) {
+          local[k] = e;
+          changed = true;
+        } else if (Number(e?.updatedAt) !== Number(mine.updatedAt)) differs = true;
+      }
+      for (const k of Object.keys(local)) if (!(k in cloud)) differs = true;
+      if (changed) localStorage.setItem("aniscroll:progress", JSON.stringify(local));
+      return changed || differs;
+    } catch {
+      return false;
+    }
+  },
 };
 
 /**
@@ -253,6 +285,9 @@ export type PullResult = {
  * `force` is the answer to that conflict once the visitor has confirmed it:
  * the account's copy replaces this device's, every category, no questions.
  */
+/** Les catégories fusionnées au dernier pull : `start` les renvoie aussitôt. */
+const mergedSincePull = new Set<DataKind>();
+
 export async function pullAll(options?: { force?: boolean }): Promise<PullResult> {
   const result: PullResult = { applied: [], conflicts: [] };
   if (typeof window === "undefined") return result;
@@ -293,8 +328,10 @@ export async function pullAll(options?: { force?: boolean }): Promise<PullResult
          maintenant l'union), donc il doit repartir vers le serveur au prochain
          passage, et c'est `pushKinds` qui posera la révision de la version
          fusionnée. */
-      if (merge(entry.payload)) result.applied.push(entry.kind);
-      else nextRevs[entry.kind] = entry.rev;
+      if (merge(entry.payload)) {
+        result.applied.push(entry.kind);
+        mergedSincePull.add(entry.kind);
+      } else nextRevs[entry.kind] = entry.rev;
     } else if (known == null) {
       // Both sides have data and this device never synced: only the user knows.
       result.conflicts.push(entry.kind);
@@ -407,6 +444,9 @@ export function start(): () => void {
      (`writeRevs`) et ne coûte plus rien ensuite — pas de POST par session. Et
      si l'historique local est vide, `pushKinds` n'envoie rien du tout. */
   if (readRevs().recent === undefined) mark("recent");
+  /* L'union faite au pull part tout de suite, sans attendre le prochain épisode. */
+  mergedSincePull.forEach((k) => mark(k));
+  mergedSincePull.clear();
 
   const onList = () => mark("list");
   const onQueue = () => mark("queue");
