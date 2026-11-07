@@ -205,10 +205,11 @@ function useLocalBinge(enabled: boolean): Binge | null | undefined {
   return binge;
 }
 
-function Cover({ src, className = "" }: { src: string | null | undefined; className?: string }) {
+function Cover({ src, className = "", children }: { src: string | null | undefined; className?: string; children?: ReactNode }) {
   return (
     <span className={`relative block shrink-0 overflow-hidden rounded-lg bg-white/[0.06] ${className}`} style={{ aspectRatio: "2 / 3" }}>
       {src ? <Image src={src} alt="" fill sizes="120px" className="object-cover" /> : null}
+      {children}
     </span>
   );
 }
@@ -3621,8 +3622,8 @@ export function BingoBlock({
     }
     if (f === "rn") {
       const day = ctx.days.find(([, d]) => d.n === Number(v));
-      /* La date de la journée, pas ses épisodes (06/11/2026, Luc). */
-      return day ? { text: fmt(day[0]), anime: day[1].a, keep: true, dated: true } : {};
+      /* Pas de date : les épisodes de chaque anime, en pastille sur sa cover (07/11/2026, Luc). */
+      return day ? { anime: day[1].a, keep: true, counts: countsOf(day[1]) } : {};
     }
     return null;
   };
@@ -4080,7 +4081,7 @@ export function BingoBlock({
                 : { ...sliced, anime: undefined }
               : sliced;
           /* PAS DE DATES (06/11/2026, Luc) : seule la liste des genres garde son texte. */
-          const bk = counted && !counted.plain && !counted.dated ? { ...counted, text: undefined } : counted;
+          const bk = counted && !counted.plain ? { ...counted, text: undefined } : counted;
           /* Retournée, la carte montre son dos : on lui retire `relative` pour la
              poser à plat dans le cadre qui tourne. */
           const flat = bk ? `${cls.replace("relative ", "absolute inset-0 ")} [backface-visibility:hidden]` : cls;
@@ -4126,7 +4127,7 @@ export function BingoBlock({
                 }`}
               >
                 {front}
-                <BingoBack back={bk} label={c.label} meta={meta} byId={ctx.byId} notYet={t("profile.blocks.bingo.notYet")} epsDay={(k) => t("profile.blocks.bingo.epsDay", { count: k })} />
+                <BingoBack back={bk} label={c.label} meta={meta} byId={ctx.byId} notYet={t("profile.blocks.bingo.notYet")} epsDay={(k) => t("profile.blocks.calendar.eps", { count: k })} />
               </div>
             </div>
           );
@@ -4146,8 +4147,6 @@ type Back = {
   /** Une carte sur UN anime précis (titre phare, tirage) : en grand. */
   focus?: boolean;
   bar?: { got: number; need: number };
-  /** Garder la date (`text`) : seule la carte du compte exact la montre. */
-  dated?: boolean;
   /** La liste d'animes est déjà celle qui valide : ne pas la couper. */
   keep?: boolean;
   /** Le compte en texte, sans cercle (la carte des genres). */
@@ -4213,7 +4212,7 @@ function BingoBack({
   meta: Map<number, Meta>;
   byId: Map<number, ProfileEntry>;
   notYet: string;
-  /** « 3 ép. ce jour-là ». */
+  /** « x3 », la pastille du calendrier. */
   epsDay: (n: number) => string;
 }) {
   const anime = (back.anime ?? []).filter((id, i, a) => a.indexOf(id) === i);
@@ -4230,6 +4229,20 @@ function BingoBack({
     const sc = score10(e?.score);
     return { e, tot, prog, sc, running: !!e && prog > 0 && (tot == null || prog < tot) };
   };
+  /* LES ÉPISODES DU JOUR EN PASTILLE (07/11/2026, Luc) : en bas à droite de
+     la cover, le bleu « x4 » du calendrier (CalendarBlock.tsx). Pas de « x1 »
+     (un film), comme le calendrier. */
+  const badge = (id: number) => {
+    const n = back.counts?.[id] ?? 0;
+    return n > 1 ? (
+      <span
+        className="absolute bottom-[4%] right-[5%] rounded-full bg-[#0ea5e9] px-[0.5em] font-outfit font-bold leading-[1.6] text-white shadow-md"
+        style={{ fontSize: "clamp(9px, min(7cqw, 9cqh), 13px)" }}
+      >
+        {epsDay(n)}
+      </span>
+    ) : null;
+  };
   const extra = !!back.text || !!back.bar;
   /* À côté d'un cercle, deux covers tiennent ; seules, trois. */
   const maxCovers = back.bar ? 2 : 5;
@@ -4243,7 +4256,9 @@ function BingoBack({
           <div className="flex min-h-0 w-full items-center gap-[5cqw]">
             {/* La cover ouvre la page de l'anime (06/11/2026, Luc). */}
             <Link href={`/en/anime/${one}`} onClick={(e) => e.stopPropagation()} className="shrink-0 rounded-md transition-transform hover:scale-[1.03]" title={m?.title}>
-              <Cover src={m?.cover} className={`${extra && !back.dated ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`} />
+              <Cover src={m?.cover} className={`${extra ? "h-[66cqh]" : "h-[96cqh]"} w-auto rounded-md`}>
+                {badge(one)}
+              </Cover>
             </Link>
             <div className="flex min-w-0 flex-1 flex-col justify-center gap-[4cqh] text-left">
               <span className="line-clamp-2 font-karla font-bold leading-tight text-white" style={title}>
@@ -4254,16 +4269,8 @@ function BingoBack({
                   ★ {s.sc}/10
                 </span>
               ) : null}
-              {/* Le compte exact : la date, à la place de la progression (Luc). */}
-              {back.dated && back.text ? (
-                <span className="font-karla font-semibold text-white/80" style={small}>
-                  {back.text}
-                </span>
-              ) : back.counts?.[one] != null ? (
-                <span className="font-karla font-semibold text-white/80" style={small}>
-                  {epsDay(back.counts[one])}
-                </span>
-              ) : s.running || (s.e && s.tot) ? (
+              {/* Les épisodes du jour sont sur la cover : pas de progression ici. */}
+              {back.counts?.[one] != null ? null : s.running || (s.e && s.tot) ? (
                 <span className="flex flex-col gap-[3cqh]">
                   <span className="font-karla text-white/70" style={small}>
                     {s.prog}/{s.tot ?? "?"}
@@ -4292,7 +4299,9 @@ function BingoBack({
               {/* PLUSIEURS ANIMES : LES IMAGES SEULES (06/11/2026, Luc) — le titre,
                   la note et les épisodes, c'est pour une carte à un seul anime. */}
               <Link href={`/en/anime/${id}`} onClick={(e) => e.stopPropagation()} className="block w-full rounded-md transition-transform hover:scale-[1.04]">
-                <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[86cqh]"}`} />
+                <Cover src={m?.cover} className={`w-full rounded-md ${extra ? "max-h-[66cqh]" : "max-h-[86cqh]"}`}>
+                  {badge(id)}
+                </Cover>
               </Link>
             </div>
           );
@@ -4320,7 +4329,7 @@ function BingoBack({
       ) : (
         body
       )}
-      {back.text && !(back.dated && one != null) ? (
+      {back.text ? (
         <span className={`${back.plain ? "min-h-0 overflow-hidden" : "line-clamp-2 shrink-0"} text-center font-karla font-semibold leading-tight text-white/85`} style={back.plain ? { fontSize: "clamp(9px, min(8cqw, 11cqh), 14px)" } : body || back.bar ? small : big}>
           {back.text}
         </span>
