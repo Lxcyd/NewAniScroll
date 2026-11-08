@@ -278,6 +278,26 @@ export default function WidgetGrid({
     return () => ro.disconnect();
   }, []);
 
+  /* LA CARTE ARRIVE EN FONDU (08/11/2026, Luc : « le fond du widget apparaît
+     d'un coup »). Chaque carte, la première fois qu'elle est placée pour de vrai
+     (largeur connue), pendant le chargement seulement : un widget ajouté plus
+     tard a sa propre entrée. En Web Animations : le Chrome de Luc est en
+     `prefers-reduced-motion`, qui couperait une animation CSS. */
+  const faded = useRef(new Set<string>());
+  /* Pris au premier rendu client (pas dans un effet : l'effet de mise en page
+     ci-dessous passe avant). */
+  const gridMountedAt = useRef(typeof performance !== "undefined" ? performance.now() : 0);
+  useIsoLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host || !width || performance.now() - gridMountedAt.current > 3000) return;
+    for (const card of Array.from(host.querySelectorAll<HTMLElement>("[data-widget]"))) {
+      const id = card.dataset.widget!;
+      if (faded.current.has(id)) continue;
+      faded.current.add(id);
+      card.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: "ease-out", fill: "backwards" });
+    }
+  });
+
   /* Le panneau se referme sur Échap, en sortant du mode réorganisation, et sur
      un appui AILLEURS. Ce dernier n'a personne à reconnaître : la roue et le
      panneau arrêtent tous deux la propagation du pointerdown — c'est leur
