@@ -2879,8 +2879,8 @@
     "search": "Search your list…",
     "status": "Status",
     "lists": "Lists",
-    "allStatuses": "All statuses",
-    "allEntries": "All entries",
+    "allStatuses": "All",
+    "allEntries": "All",
     "noCustomLists": "No custom lists yet",
     "view": "View",
     "views": {

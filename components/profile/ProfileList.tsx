@@ -501,28 +501,34 @@ function progressText(e: ProfileEntry) {
   return e.total ? `${e.progress}/${e.total}` : String(e.progress);
 }
 
+/* Une option des menus Statut / Listes, comme `.lf-dd-option` de la référence
+   (08/11, Luc) : pastille LUMINEUSE (halo de sa couleur), coche à droite pour
+   la sélection, pas de compteur. */
 function MenuItem({
   on,
   onClick,
   label,
-  count,
   color,
 }: {
   on: boolean;
   onClick: () => void;
   label: string;
-  count: number;
+  count?: number;
   color?: string;
 }) {
+  const c = color || "rgba(255,255,255,.6)";
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-semibold transition-colors ${on ? "bg-action/15 text-white" : "text-white/60 hover:bg-white/[0.05] hover:text-white"}`}
+      aria-pressed={on}
+      className={`as-list-opt${on ? " is-on" : ""}`}
     >
-      <span className="h-2 w-2 shrink-0 rounded-full" style={color ? { background: color } : { boxShadow: "inset 0 0 0 1px rgba(255,255,255,.35)" }} />
+      <span className="as-list-dot" style={{ background: c, boxShadow: `0 0 5px ${color ? `${color}b3` : "rgba(255,255,255,.45)"}` }} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="text-xs tabular-nums text-white/35">{count}</span>
+      {on ? (
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/70" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+      ) : null}
     </button>
   );
 }

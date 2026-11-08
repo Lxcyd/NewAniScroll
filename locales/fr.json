@@ -2879,8 +2879,8 @@
     "search": "Chercher dans ta liste…",
     "status": "Statut",
     "lists": "Listes",
-    "allStatuses": "Tous les statuts",
-    "allEntries": "Toute la liste",
+    "allStatuses": "Tous",
+    "allEntries": "Toutes",
     "noCustomLists": "Aucune liste perso",
     "view": "Affichage",
     "views": {
