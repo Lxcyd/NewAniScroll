@@ -1254,7 +1254,10 @@ export default function ProfileOverview({
            par défaut pour que l'utilisateur comprenne ») : sans épinglés, ses
            trois titres les mieux notés, avec une phrase d'exemple. */
         const pins = parsePins(savedString("pinned", "pins"));
-        const sample = menuPreview.current && !pins.length ? sampleEntries(entries, 3) : [];
+        /* Aussi sur le profil, chez le propriétaire (08/11/2026, Luc : « vide,
+           regarde sur le profil ») ; un visiteur ne voit jamais de phrases
+           prêtées au propriétaire. */
+        const sample = (menuPreview.current || isOwner) && !pins.length ? sampleEntries(entries, 3) : [];
         const notes = sampleNotes(sample);
         return (
           <PinnedBlock
@@ -1281,7 +1284,7 @@ export default function ProfileOverview({
             byKind={optionValue("themes", "themesSort") === "kind"}
             /* L'exemple du menu Widgets : l'opening de ses cinq titres les
                mieux notés (08/11/2026, Luc). */
-            sample={menuPreview.current ? sampleEntries(entries, 5).map((e) => e.mediaId) : undefined}
+            sample={menuPreview.current || isOwner ? sampleEntries(entries, 5).map((e) => e.mediaId) : undefined}
           />
         );
       case "affinity":
