@@ -1177,9 +1177,29 @@
         "search": "Chercher dans ta liste…",
         "cancel": "Annuler",
         "notePlaceholder": "Ta phrase sur ce titre…",
-        "sampleNote1": "Celui qui m'a fait aimer l'anime.",
-        "sampleNote2": "La fin m'a laissé sans voix.",
-        "sampleNote3": "À revoir chaque année."
+        "sample": {
+          "romance": "J'ai attendu ce premier aveu pendant douze épisodes.",
+          "horror": "Regardé la nuit, lumière allumée. Erreur.",
+          "psychological": "Il m'a retourné le cerveau, et je recommencerais.",
+          "mecha": "Les combats de robots les plus beaux que j'aie vus.",
+          "sports": "Jamais un match ne m'a autant fait crier devant un écran.",
+          "music": "La bande-son tourne encore dans ma tête.",
+          "mahoushoujo": "Mignon en apparence, bien plus sombre qu'on ne croit.",
+          "mystery": "J'avais une théorie par épisode, toutes fausses.",
+          "thriller": "Impossible de m'arrêter avant le dernier épisode.",
+          "sliceoflife": "Mon anime réconfort pour un dimanche pluvieux.",
+          "scifi": "Un futur qui me fait encore réfléchir.",
+          "supernatural": "Un monde qu'on aimerait vraiment visiter.",
+          "drama": "La fin m'a laissé sans voix.",
+          "comedy": "J'ai ri à m'en faire mal au ventre.",
+          "fantasy": "Le monde dans lequel je voudrais me réincarner.",
+          "adventure": "Le voyage que je referais sans hésiter.",
+          "action": "Des combats qui donnent des frissons.",
+          "ecchi": "On ne va pas se mentir, je l'assume.",
+          "generic0": "Celui qui m'a fait aimer l'anime.",
+          "generic1": "À revoir chaque année.",
+          "generic2": "Je le conseille à tout le monde."
+        }
       },
       "themes": {
         "title": "Top OP / ED / Musique",

@@ -82,15 +82,40 @@ import {
 import WidgetAddIcon from "./WidgetAddIcon";
 import type { ProfileCharacter, ProfileEntry, ProfileTitle } from "@/lib/profile/types";
 
-/** Les exemples du menu Widgets : les titres les mieux notés de la liste, les
-    titres en cours ou finis à défaut de note. */
+/** Les exemples du menu Widgets : les FAVORIS AniList d'abord (08/11/2026,
+    Luc), puis les titres les mieux notés, les titres finis ou en cours à
+    défaut de note. */
 function sampleEntries(entries: ProfileEntry[], n: number): ProfileEntry[] {
   const rank = (e: ProfileEntry) =>
-    (e.score ?? 0) * 10 + (e.status === "COMPLETED" ? 2 : e.status === "CURRENT" ? 1 : 0);
+    (e.favourite ? 1000 : 0) +
+    (e.score ?? 0) * 10 +
+    (e.status === "COMPLETED" ? 2 : e.status === "CURRENT" ? 1 : 0);
   return entries
     .filter((e) => e.status !== "PLANNING")
     .sort((a, b) => rank(b) - rank(a))
     .slice(0, n);
+}
+
+/** Les genres AniList qui ont leur phrase d'exemple (profile.blocks.pinned.sample.*),
+    du plus parlant au plus banal : AniList les range par ordre alphabétique,
+    « Action » viendrait sinon presque toujours en premier. */
+const SAMPLE_GENRES = [
+  "Romance", "Horror", "Psychological", "Mecha", "Sports", "Music", "Mahou Shoujo",
+  "Mystery", "Thriller", "Slice of Life", "Sci-Fi", "Supernatural", "Drama", "Comedy",
+  "Fantasy", "Adventure", "Action", "Ecchi",
+];
+const genreKey = (g: string) => g.toLowerCase().replace(/[^a-z]/g, "");
+/** Une phrase par épinglé, tirée de son genre le plus parlant — jamais deux
+    fois la même ; la phrase passe-partout sinon. */
+function sampleNotes(list: ProfileEntry[]): string[] {
+  const used = new Set<string>();
+  let generic = 0;
+  return list.map((e) => {
+    const g = SAMPLE_GENRES.find((x) => e.genres?.includes(x) && !used.has(x));
+    if (!g) return `generic${generic++ % 3}`;
+    used.add(g);
+    return genreKey(g);
+  });
 }
 
 /**
@@ -1229,13 +1254,15 @@ export default function ProfileOverview({
            par défaut pour que l'utilisateur comprenne ») : sans épinglés, ses
            trois titres les mieux notés, avec une phrase d'exemple. */
         const pins = parsePins(savedString("pinned", "pins"));
+        const sample = menuPreview.current && !pins.length ? sampleEntries(entries, 3) : [];
+        const notes = sampleNotes(sample);
         return (
           <PinnedBlock
             pins={
-              menuPreview.current && !pins.length
-                ? sampleEntries(entries, 3).map((e, i) => ({
+              sample.length
+                ? sample.map((e, i) => ({
                     id: e.mediaId,
-                    note: t(`profile.blocks.pinned.sampleNote${i + 1}`),
+                    note: t(`profile.blocks.pinned.sample.${notes[i]}`),
                   }))
                 : pins
             }

@@ -1177,9 +1177,29 @@
         "search": "Search your list…",
         "cancel": "Cancel",
         "notePlaceholder": "Your line about this title…",
-        "sampleNote1": "The one that got me into anime.",
-        "sampleNote2": "That ending left me speechless.",
-        "sampleNote3": "A yearly rewatch."
+        "sample": {
+          "romance": "Twelve episodes waiting for that first confession.",
+          "horror": "Watched it at night with the lights on. Mistake.",
+          "psychological": "It messed with my head, and I'd do it again.",
+          "mecha": "The best robot fights I've ever seen.",
+          "sports": "No match ever made me yell at a screen like this.",
+          "music": "The soundtrack is still stuck in my head.",
+          "mahoushoujo": "Cute on the surface, much darker than you'd think.",
+          "mystery": "A new theory every episode, all of them wrong.",
+          "thriller": "Couldn't stop until the last episode.",
+          "sliceoflife": "The perfect comfort watch for a rainy Sunday.",
+          "scifi": "A future I still think about.",
+          "supernatural": "A world I'd really love to visit.",
+          "drama": "That ending left me speechless.",
+          "comedy": "Laughed until my stomach hurt.",
+          "fantasy": "The world I'd want to be reincarnated in.",
+          "adventure": "A journey I'd take again in a heartbeat.",
+          "action": "Fights that give you chills.",
+          "ecchi": "Not going to lie, I own it.",
+          "generic0": "The one that got me into anime.",
+          "generic1": "A yearly rewatch.",
+          "generic2": "I recommend it to everyone."
+        }
       },
       "themes": {
         "title": "Top OP / ED / Songs",
