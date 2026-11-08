@@ -5106,20 +5106,8 @@ html.as-dragging .as-nudge {
 }
 
 /* ── Calendrier du mois (CalendarBlock.tsx) ─────────────────────────────── */
-.as-cal-day {
-  animation: as-cal-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-@keyframes as-cal-in {
-  from {
-    opacity: 0;
-    transform: scale(0.85);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .as-cal-day {
-    animation: none;
-  }
-}
+/* L'entrée des jours est en JS (Web Animations, CalendarBlock.tsx) : l'ancienne
+   `as-cal-in` était coupée par prefers-reduced-motion, actif chez Luc. */
 /* La scène du calendrier : un conteneur à taille, que la grille remplit au
    mieux en cases CARRÉES (28/10/2026). --c = le côté d'une case. */
 .as-cal-stage {

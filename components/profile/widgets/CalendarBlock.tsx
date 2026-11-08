@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -119,6 +119,9 @@ const CLOSE_MS = 280;
 /** Temps d'immobilité de la souris avant d'ouvrir un jour. */
 const STILL_MS = 180;
 
+/* Effet de mise en page sans l'avertissement du rendu serveur (cf. ListBlocks.tsx). */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 export function CalendarBlock({
   served,
   entries,
@@ -204,6 +207,30 @@ export function CalendarBlock({
     stillTimer.current = setTimeout(open, STILL_MS);
   };
   useEffect(() => () => (keep(), unsettle()), [keep, unsettle]);
+
+  /* L'ENTRÉE (08/11/2026, Luc : « comme la répartition par statut »). Les
+     jours attendent, invisibles, que le bloc soit à l'écran ; puis ils
+     éclosent en vague depuis le haut à gauche (une diagonale à la fois), et
+     les compteurs sautent une fois leur disque posé. Rejouée à chaque mois
+     feuilleté. En JS (Web Animations) et pas en CSS : le Chrome de Luc est en
+     `prefers-reduced-motion`, qui coupait l'ancienne `as-cal-in`. */
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [seen, setSeen] = useState(false);
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  });
+  useEffect(() => {
+    if (entered || !seen) return;
+    const go = setTimeout(() => setEntered(true), 80);
+    return () => clearTimeout(go);
+  }, [entered, seen]);
 
   /* Affiches et titres : la liste du profil d'abord, l'historique de
      l'appareil ensuite (un anime regardé sans être ajouté). */
@@ -296,6 +323,35 @@ export function CalendarBlock({
     max = Math.max(max, w.n);
   }
 
+  useIsoLayoutEffect(() => {
+    const board = boardRef.current;
+    if (!entered || !board) return;
+    const ease = "cubic-bezier(.2,.8,.2,1)";
+    for (const cell of Array.from(board.querySelectorAll<HTMLElement>("[data-wave]"))) {
+      const delay = Number(cell.dataset.wave) * 40;
+      cell.animate(
+        [
+          /* Pas d'opacité d'arrivée : elle finit sur celle de la case (les
+             jours à venir sont à 40 %), sans saut à la dernière image. */
+          { opacity: 0, transform: "scale(0.4)" },
+          { transform: "scale(1.08)", offset: 0.6 },
+          { transform: "none" },
+        ],
+        { duration: 420, delay, easing: ease, fill: "backwards" },
+      );
+      cell.querySelectorAll<HTMLElement>(".as-cal-badge > *").forEach((b) =>
+        b.animate(
+          [
+            { opacity: 0, transform: "scale(0)" },
+            { opacity: 1, transform: "scale(1.3)", offset: 0.6 },
+            { opacity: 1, transform: "none" },
+          ],
+          { duration: 380, delay: delay + 280, easing: ease, fill: "backwards" },
+        ),
+      );
+    }
+  }, [entered, year, month, !!days]);
+
   if (!days) return <div className="h-full" />;
 
   /* TOUJOURS 6 LIGNES (02/11/2026, Luc) : la taille du disque ne change pas
@@ -360,8 +416,13 @@ export function CalendarBlock({
       <div className="as-cal-stage relative min-h-0 flex-1">
         <div
           key={`${year}-${month}`}
+          ref={boardRef}
           className={`as-cal-grid as-cal-board${orbit && !orbit.closing ? " has-open" : ""}`}
-          style={{ ["--rows" as any]: rows, gridTemplateRows: `var(--lab) repeat(${rows}, var(--c))` }}
+          style={{
+            ["--rows" as any]: rows,
+            gridTemplateRows: `var(--lab) repeat(${rows}, var(--c))`,
+            opacity: entered ? undefined : 0,
+          }}
         >
           {weekdays.map((w, i) => (
             <span
@@ -380,11 +441,13 @@ export function CalendarBlock({
           const future = c.key > todayKey;
           const top = w ? known.get(w.a[0]) : undefined;
           const art = top?.cover ?? null;
-          const delay = { animationDelay: `${Math.min(i, 30) * 12}ms` };
+          /* La diagonale de la case (ligne + colonne) : son rang dans la vague. */
+          const pos = lead + i;
+          const wave = Math.floor(pos / 7) + (pos % 7);
 
           if (!w) {
             return (
-              <span key={c.key} style={delay} className={`as-cal-day as-cal-cell${future ? " opacity-40" : ""}`}>
+              <span key={c.key} data-wave={wave} className={`as-cal-day as-cal-cell${future ? " opacity-40" : ""}`}>
                 {/* Un peu plus visibles (02/11/2026, Luc) : 0,04 → 0,07 et 40 → 55 %. */}
                 <span className={`as-cal-dot flex items-center justify-center rounded-full bg-white/[0.07]${today ? " ring-2 ring-action" : ""}`}>
                   <span className="as-cal-num font-karla text-[12px] font-bold text-white/55">{c.d}</span>
@@ -405,7 +468,7 @@ export function CalendarBlock({
           return (
             <span
               key={c.key}
-              style={delay}
+              data-wave={wave}
               className={`as-cal-day as-cal-cell group${others.length ? " as-cal-multi" : ""}${
                 orbit?.key === c.key ? (orbit.closing ? " is-back" : " is-open") : ""
               }`}
