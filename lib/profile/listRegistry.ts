@@ -28,6 +28,9 @@ export type ListRegistry = {
   lists: LocalCustomList[];
   /** Couleurs choisies pour des listes perso venues d'AniList. */
   anilistColors: Record<string, string>;
+  /** L'ordre de TOUTES les listes perso (AniScroll et AniList mêlées), par nom,
+   *  tel que réglé dans le gestionnaire. Un nom absent se range après. */
+  customOrder: string[];
 };
 
 const KEY = "aniscroll:listRegistry";
@@ -38,6 +41,7 @@ export const EMPTY_REGISTRY: ListRegistry = {
   statusColors: {},
   lists: [],
   anilistColors: {},
+  customOrder: [],
 };
 
 /** La palette du sélecteur de couleur (celle de la référence, aux tons du site). */
@@ -60,7 +64,23 @@ function clean(raw: any): ListRegistry {
         }))
     : [];
   const obj = (o: any) => (o && typeof o === "object" ? o : {});
-  return { statusOrder: order, statusColors: obj(raw?.statusColors), lists, anilistColors: obj(raw?.anilistColors) };
+  const customOrder = Array.isArray(raw?.customOrder)
+    ? raw.customOrder.filter((n: any) => typeof n === "string")
+    : [];
+  return { statusOrder: order, statusColors: obj(raw?.statusColors), lists, anilistColors: obj(raw?.anilistColors), customOrder };
+}
+
+/** Range des listes perso selon `customOrder` ; les inconnues gardent leur
+ *  ordre d'arrivée, après. */
+export function orderCustom<T>(items: T[], nameOf: (x: T) => string, order: string[]): T[] {
+  const rank = (x: T) => {
+    const i = order.indexOf(nameOf(x));
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return items
+    .map((x, i) => ({ x, i }))
+    .sort((a, b) => rank(a.x) - rank(b.x) || a.i - b.i)
+    .map((o) => o.x);
 }
 
 export function getListRegistry(): ListRegistry {

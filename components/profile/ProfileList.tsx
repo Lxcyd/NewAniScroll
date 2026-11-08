@@ -26,7 +26,7 @@ import {
 } from "@/lib/profile/listFilter";
 import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
 import ListManager from "@/components/profile/ListManager";
-import { EMPTY_REGISTRY, useListRegistry } from "@/lib/profile/listRegistry";
+import { EMPTY_REGISTRY, orderCustom, useListRegistry } from "@/lib/profile/listRegistry";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
@@ -354,14 +354,17 @@ export default function ProfileList({
             <div className="as-list-menu">
               <MenuItem on={!activeList} onClick={() => { setList(""); setMenu(""); }} label={t("listMenu.allEntries")} count={base.length} />
               {localLists.length || anilistLists.length ? (
-                <>
-                  {localLists.map((l) => (
-                    <MenuItem key={`l:${l.name}`} on={activeList === l.name} onClick={() => { setList(l.name); setMenu(""); }} color={l.color} label={l.name} count={l.count} />
-                  ))}
-                  {anilistLists.map(([n, c]) => (
-                    <MenuItem key={`a:${n}`} on={activeList === n} onClick={() => { setList(n); setMenu(""); }} color={listColor(n)} label={n} count={c} />
-                  ))}
-                </>
+                /* Dans l'ordre réglé au gestionnaire (registre `customOrder`). */
+                orderCustom(
+                  [
+                    ...localLists.map((l) => ({ name: l.name, count: l.count })),
+                    ...anilistLists.map(([n, c]) => ({ name: n, count: c })),
+                  ],
+                  (x) => x.name,
+                  reg.customOrder,
+                ).map((x) => (
+                  <MenuItem key={x.name} on={activeList === x.name} onClick={() => { setList(x.name); setMenu(""); }} color={listColor(x.name)} label={x.name} count={x.count} />
+                ))
               ) : (
                 <p className="px-2.5 py-2 text-xs text-white/40">{t("listMenu.noCustomLists")}</p>
               )}

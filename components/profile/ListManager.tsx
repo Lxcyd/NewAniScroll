@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import {
   LIST_PALETTE,
+  orderCustom,
   updateListRegistry,
   useListRegistry,
   type ListRegistry,
@@ -87,9 +88,10 @@ export default function ListManager({
         o.splice(to, 0, o.splice(d.from, 1)[0]);
         return { ...r, statusOrder: o };
       }
-      const l = r.lists.slice();
-      l.splice(to, 0, l.splice(d.from, 1)[0]);
-      return { ...r, lists: l };
+      // Toutes les listes perso, dans l'ordre affiché, puis le déplacement.
+      const names = customRows(r).map((x) => x.name);
+      names.splice(to, 0, names.splice(d.from, 1)[0]);
+      return { ...r, customOrder: names };
     });
     d.from = to;
     setDragging(to);
@@ -98,6 +100,18 @@ export default function ListManager({
     drag.current = null;
     setDragging(null);
   };
+
+  /* Les listes perso dans l'ordre du gestionnaire : celles d'AniScroll et
+     celles d'AniList mêlées, toutes déplaçables (08/11, Luc). */
+  function customRows(r: ListRegistry) {
+    const rows = [
+      ...r.lists
+        .filter((l) => !anilistLists.some(([n]) => n === l.name))
+        .map((l) => ({ kind: "local" as const, name: l.name })),
+      ...anilistLists.map(([n]) => ({ kind: "anilist" as const, name: n })),
+    ];
+    return orderCustom(rows, (x) => x.name, r.customOrder);
+  }
 
   if (!open || !mounted) return null;
 
@@ -214,42 +228,49 @@ export default function ListManager({
               ))
             : (
               <>
-                {reg.lists.map((l, i) => (
-                  <div key={l.name}>
-                    <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
-                      {grip("custom", i)}
-                      {swatch(`l:${l.name}`, l.color)}
-                      <span className="as-lm-name">{l.name}</span>
-                      <span className="as-lm-count">{localCounts[l.name] || 0}</span>
-                      {confirm === l.name ? (
-                        <span className="as-lm-confirm">
-                          <button type="button" className="is-danger" onClick={() => { updateListRegistry((r) => ({ ...r, lists: r.lists.filter((x) => x.name !== l.name) })); setConfirm(null); }}>
-                            {t("listMenu.manager.yes")}
+                {customRows(reg).map((row, i) => {
+                  if (row.kind === "anilist") {
+                    const n = row.name;
+                    const c = anilistLists.find(([x]) => x === n)?.[1] ?? 0;
+                    return (
+                      <div key={`a:${n}`}>
+                        <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
+                          {grip("custom", i)}
+                          {swatch(`a:${n}`, reg.anilistColors[n] || customListColor(n))}
+                          <span className="as-lm-name">{n}</span>
+                          <span className="as-lm-tag">AniList</span>
+                          <span className="as-lm-count">{c}</span>
+                          {lock()}
+                        </div>
+                        {palette === `a:${n}` ? paletteRow() : null}
+                      </div>
+                    );
+                  }
+                  const l = reg.lists.find((x) => x.name === row.name)!;
+                  return (
+                    <div key={`l:${l.name}`}>
+                      <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
+                        {grip("custom", i)}
+                        {swatch(`l:${l.name}`, l.color)}
+                        <span className="as-lm-name">{l.name}</span>
+                        <span className="as-lm-count">{localCounts[l.name] || 0}</span>
+                        {confirm === l.name ? (
+                          <span className="as-lm-confirm">
+                            <button type="button" className="is-danger" onClick={() => { updateListRegistry((r) => ({ ...r, lists: r.lists.filter((x) => x.name !== l.name) })); setConfirm(null); }}>
+                              {t("listMenu.manager.yes")}
+                            </button>
+                            <button type="button" onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="as-lm-del" aria-label={`${t("listMenu.manager.yes")} ${l.name}`} title={t("listMenu.manager.yes")} onClick={() => setConfirm(l.name)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
                           </button>
-                          <button type="button" onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
-                        </span>
-                      ) : (
-                        <button type="button" className="as-lm-del" aria-label={`${t("listMenu.manager.yes")} ${l.name}`} title={t("listMenu.manager.yes")} onClick={() => setConfirm(l.name)}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
-                        </button>
-                      )}
+                        )}
+                      </div>
+                      {palette === `l:${l.name}` ? paletteRow() : null}
                     </div>
-                    {palette === `l:${l.name}` ? paletteRow() : null}
-                  </div>
-                ))}
-                {anilistLists.map(([n, c]) => (
-                  <div key={`a:${n}`}>
-                    <div className="as-lm-row">
-                      <span className="as-lm-grip is-off" />
-                      {swatch(`a:${n}`, reg.anilistColors[n] || customListColor(n))}
-                      <span className="as-lm-name">{n}</span>
-                      <span className="as-lm-tag">AniList</span>
-                      <span className="as-lm-count">{c}</span>
-                      {lock()}
-                    </div>
-                    {palette === `a:${n}` ? paletteRow() : null}
-                  </div>
-                ))}
+                  );
+                })}
                 {!reg.lists.length && !anilistLists.length ? (
                   <p className="as-lm-empty">{t("listMenu.manager.empty")}</p>
                 ) : null}
