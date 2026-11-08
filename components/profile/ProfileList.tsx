@@ -243,13 +243,13 @@ export default function ProfileList({
           onClick={() => setPanel(true)}
           aria-label={t("listMenu.sortFilter")}
           title={t("listMenu.sortFilter")}
-          className={`as-list-ib relative ${nFilters ? "is-on" : ""}`}
+          className={`as-list-ib as-stat-card relative ${nFilters ? "is-on" : ""}`}
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
           {nFilters ? <span className="as-list-ib-badge">{nFilters}</span> : null}
         </button>
 
-        <label className="as-list-field min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
+        <label className="as-list-field as-stat-card min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="shrink-0 text-white/40"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <input
             value={query}
@@ -282,7 +282,7 @@ export default function ProfileList({
             type="button"
             aria-expanded={menu === "status"}
             onClick={() => setMenu(menu === "status" ? "" : "status")}
-            className={`as-list-field w-full justify-between font-semibold ${status !== "all" ? "is-set" : ""}`}
+            className={`as-list-field as-stat-card w-full justify-between font-semibold ${status !== "all" ? "is-set" : ""}`}
           >
             <span className="flex min-w-0 items-center gap-2 truncate">
               {status !== "all" ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor(status) }} /> : null}
@@ -306,7 +306,7 @@ export default function ProfileList({
             type="button"
             aria-expanded={menu === "list"}
             onClick={() => setMenu(menu === "list" ? "" : "list")}
-            className={`as-list-field w-full justify-between font-semibold ${activeList ? "is-set" : ""}`}
+            className={`as-list-field as-stat-card w-full justify-between font-semibold ${activeList ? "is-set" : ""}`}
           >
             <span className="flex min-w-0 items-center gap-2 truncate">
               {activeList ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: customListColor(activeList) }} /> : null}
@@ -329,7 +329,7 @@ export default function ProfileList({
         </div>
 
         {/* Choix de vue */}
-        <div role="group" aria-label={t("listMenu.view")} className="flex h-9 shrink-0 items-center gap-0.5 rounded-[10px] border border-white/[0.12] bg-white/[0.04] p-0.5">
+        <div role="group" aria-label={t("listMenu.view")} className="flex h-9 shrink-0 items-center gap-0.5 as-stat-card rounded-[10px] border border-white/[0.12] p-0.5">
           {VIEWS.map((v) => (
             <button
               key={v}

@@ -5466,7 +5466,9 @@ html.as-dragging .as-nudge {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   ONGLET LISTE DU PROFIL — barre unique + panneau « Sort & Filter »
+   ONGLET LISTE DU PROFIL — barre unique (boutons en `.as-stat-card` : la
+   teinte et le flou du profil réglés au studio, comme ses autres surfaces,
+   Luc 08/11) + panneau « Sort & Filter »
    (08/11/2026, Luc). Calqué sur la version de référence
    (s00295653.github.io/AniScroll, sort-filter-popup.css) : mêmes surfaces,
    puces roses à halo, curseurs blancs cerclés d'accent. Composants :
@@ -5475,7 +5477,7 @@ html.as-dragging .as-nudge {
 .as-list-ib {
   display: grid; place-items: center; width: 36px; height: 36px; flex: none;
   border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.04); color: rgba(255,255,255,.6);
+  color: rgba(255,255,255,.7);
   transition: color .15s, border-color .15s, background .15s;
 }
 .as-list-ib:hover { color: #fff; border-color: rgba(233,69,96,.55); }
@@ -5487,9 +5489,8 @@ html.as-dragging .as-nudge {
 }
 .as-list-field {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 11px;
-  border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
-  color: rgba(255,255,255,.6); font-size: 13px; transition: border-color .15s, color .15s;
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.7); font-size: 13px; transition: border-color .15s, color .15s;
 }
 .as-list-field:hover { border-color: rgba(255,255,255,.22); }
 .as-list-field.is-set { color: #fff; border-color: rgba(233,69,96,.55); }
