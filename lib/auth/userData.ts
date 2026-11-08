@@ -104,9 +104,12 @@ export async function getData(
  * seul effacement est « tout effacer », qui envoie une table vide — elle
  * remplace alors tout, comme avant.
  *
- * `recent` : une ligne par anime. Pour un anime présent des deux côtés, la plus
- * récente l'emporte ; une ligne ABSENTE de l'envoi reste une suppression (on
- * retire un anime de son historique), donc elle n'est pas recopiée.
+ * `recent` et `list` : une ligne par anime. Pour un anime présent des deux
+ * côtés, la plus récente l'emporte ; une ligne ABSENTE de l'envoi reste une
+ * suppression (on retire un anime de son historique, de sa liste), donc elle
+ * n'est pas recopiée. La liste aussi : une copie périmée renvoyée par le
+ * serveur local remettait Aristocrat à 7 dans la liste du compte, que la prod
+ * relisait puis renvoyait à AniList.
  */
 type Timed = { updatedAt?: unknown; createdAt?: unknown };
 const stamp = (v: Timed | undefined, field: "updatedAt" | "createdAt") => {
@@ -114,9 +117,9 @@ const stamp = (v: Timed | undefined, field: "updatedAt" | "createdAt") => {
   const n = typeof x === "number" ? x : typeof x === "string" ? Date.parse(x) : NaN;
   return Number.isFinite(n) ? n : 0;
 };
-export function mergeTimed(kind: "progress" | "recent", stored: unknown, incoming: unknown): unknown {
-  const key = kind === "progress" ? "aniscroll:progress" : "artplayer_settings";
-  const field = kind === "progress" ? "updatedAt" : "createdAt";
+export function mergeTimed(kind: "progress" | "recent" | "list", stored: unknown, incoming: unknown): unknown {
+  const key = kind === "progress" ? "aniscroll:progress" : kind === "list" ? "aniscroll:localList" : "artplayer_settings";
+  const field = kind === "recent" ? "createdAt" : "updatedAt";
   const s = (stored as Record<string, unknown>)?.[key];
   const i = (incoming as Record<string, unknown>)?.[key];
   if (typeof s !== "string" || typeof i !== "string") return incoming;
@@ -144,7 +147,7 @@ export async function putData(
   const client = await db();
   if (!client) return null;
 
-  if (kind === "progress" || kind === "recent") {
+  if (kind === "progress" || kind === "recent" || kind === "list") {
     const prev = await client.execute({
       sql: `SELECT payload FROM user_data WHERE user_id = ? AND kind = ?`,
       args: [userId, kind],
