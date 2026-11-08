@@ -93,6 +93,48 @@ export async function getData(
 }
 
 /**
+ * DEUX APPAREILS NE S'EFFACENT PLUS (08/11/2026, Luc : « Vu récemment » sans
+ * les épisodes 10-11 d'Aristocrat). Chaque envoi remplaçait la catégorie
+ * entière : aniscroll.com y avait mis les épisodes 10 et 11, puis le serveur
+ * local, connecté au même compte avec un stockage qui s'arrêtait au 9, a
+ * renvoyé sa copie à 12:43 et les a effacés.
+ *
+ * `progress` : réunion des deux tables, et pour un même épisode la date la plus
+ * récente l'emporte. Sans perte possible : aucune entrée ne s'efface seule, le
+ * seul effacement est « tout effacer », qui envoie une table vide — elle
+ * remplace alors tout, comme avant.
+ *
+ * `recent` et `list` : une ligne par anime. Pour un anime présent des deux
+ * côtés, la plus récente l'emporte ; une ligne ABSENTE de l'envoi reste une
+ * suppression (on retire un anime de son historique, de sa liste), donc elle
+ * n'est pas recopiée. La liste aussi : une copie périmée renvoyée par le
+ * serveur local remettait Aristocrat à 7 dans la liste du compte, que la prod
+ * relisait puis renvoyait à AniList.
+ */
+type Timed = { updatedAt?: unknown; createdAt?: unknown };
+const stamp = (v: Timed | undefined, field: "updatedAt" | "createdAt") => {
+  const x = v?.[field];
+  const n = typeof x === "number" ? x : typeof x === "string" ? Date.parse(x) : NaN;
+  return Number.isFinite(n) ? n : 0;
+};
+export function mergeTimed(kind: "progress" | "recent" | "list", stored: unknown, incoming: unknown): unknown {
+  const key = kind === "progress" ? "aniscroll:progress" : kind === "list" ? "aniscroll:localList" : "artplayer_settings";
+  const field = kind === "recent" ? "createdAt" : "updatedAt";
+  const s = (stored as Record<string, unknown>)?.[key];
+  const i = (incoming as Record<string, unknown>)?.[key];
+  if (typeof s !== "string" || typeof i !== "string") return incoming;
+  const old = JSON.parse(s) as Record<string, Timed>;
+  const next = JSON.parse(i) as Record<string, Timed>;
+  if (!old || typeof old !== "object" || !next || typeof next !== "object") return incoming;
+  if (kind === "progress" && !Object.keys(next).length) return incoming;
+  const out: Record<string, Timed> = kind === "progress" ? { ...old, ...next } : { ...next };
+  for (const [k, v] of Object.entries(old)) {
+    if (k in next && stamp(v, field) > stamp(next[k], field)) out[k] = v;
+  }
+  return { ...(incoming as object), [key]: JSON.stringify(out) };
+}
+
+/**
  * Write one category. `rev` is stamped server-side (previous + 1) so two
  * devices can't argue about numbering. Returns the new revision, or null when
  * the payload is refused.
@@ -104,6 +146,21 @@ export async function putData(
 ): Promise<number | null> {
   const client = await db();
   if (!client) return null;
+
+  if (kind === "progress" || kind === "recent" || kind === "list") {
+    const prev = await client.execute({
+      sql: `SELECT payload FROM user_data WHERE user_id = ? AND kind = ?`,
+      args: [userId, kind],
+    });
+    const raw = prev.rows[0]?.payload;
+    if (raw != null) {
+      try {
+        payload = mergeTimed(kind, JSON.parse(String(raw)), payload);
+      } catch {
+        /* copie illisible : l'envoi la remplace, comme avant */
+      }
+    }
+  }
 
   const json = JSON.stringify(payload ?? null);
   if (Buffer.byteLength(json, "utf8") > MAX_PAYLOAD_BYTES) return null;
