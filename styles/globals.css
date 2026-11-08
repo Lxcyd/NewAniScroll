@@ -5475,8 +5475,8 @@ html.as-dragging .as-nudge {
    components/profile/ProfileList.tsx et ListSortFilter.tsx.
    ────────────────────────────────────────────────────────────── */
 .as-list-ib {
-  display: grid; place-items: center; width: 36px; height: 36px; flex: none;
-  border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+  display: grid; place-items: center; width: 42px; height: 42px; flex: none;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
   color: rgba(255,255,255,.7);
   transition: color .15s, border-color .15s, background .15s;
 }
@@ -5488,9 +5488,9 @@ html.as-dragging .as-nudge {
   font-size: 10px; font-weight: 800; display: grid; place-items: center;
 }
 .as-list-field {
-  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 11px;
-  border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
-  color: rgba(255,255,255,.7); font-size: 13px; transition: border-color .15s, color .15s;
+  display: flex; align-items: center; gap: 9px; height: 42px; padding: 0 13px;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.7); font-size: 14.5px; transition: border-color .15s, color .15s;
 }
 .as-list-field:hover { border-color: rgba(255,255,255,.22); }
 .as-list-field.is-set { color: #fff; border-color: rgba(233,69,96,.55); }
@@ -5510,31 +5510,32 @@ html.as-dragging .as-nudge {
 }
 .as-list-opt:hover { background: rgba(255,255,255,.06); }
 .as-list-opt.is-on { font-weight: 600; color: #fff; }
-.as-list-dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  animation: as-dot-pulse 2s ease-in-out infinite;
+/* LA PASTILLE DE STATUT LUMINEUSE — menus Statut / Listes, affiches de la vue
+   Grille. La recette de `.as-airing-dot` : un petit halo FIXE sur la pastille,
+   et le grand halo sur un `::after` dont seule l'OPACITÉ respire (2 s), que le
+   compositeur anime seul. Animer le `box-shadow` repeignait la pastille à
+   chaque image sous les cartes floutées (08/11, Luc : « les glow ne sont pas
+   bons »). La couleur arrive par `--c`. Hors de prefers-reduced-motion : rien
+   ne bouge, et le Chrome de Luc répond `reduce` (mémoire poste-reduced-motion). */
+.as-glow-dot {
+  position: relative; display: inline-block; flex-shrink: 0;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c, #fff);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--c, #fff) 55%, transparent);
 }
-/* La pastille de statut sur une AFFICHE (vue Grille) : 9 px, un liseré sombre
-   et un halo net dans le MÊME box-shadow (un `outline` ou un anneau à part
-   recouvrait le halo), qui respire comme celui des menus. */
-.as-poster-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  animation: as-poster-pulse 2s ease-in-out infinite;
+.as-glow-dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  box-shadow: 0 0 7px var(--c, #fff);
+  opacity: 0;
+  animation: as-airing-pulse 2s ease-in-out infinite;
 }
-@keyframes as-poster-pulse {
-  0%, 100% { box-shadow: 0 0 0 1.5px rgba(0,0,0,.45), 0 0 6px 1px color-mix(in srgb, var(--c, #fff) 75%, transparent); }
-  50% { box-shadow: 0 0 0 1.5px rgba(0,0,0,.45), 0 0 10px 2px var(--c, #fff); }
+/* Sur une affiche : plus grande, un liseré sombre pour se détacher d'une image
+   claire, et un halo plus large. */
+.as-glow-dot-poster {
+  width: 10px; height: 10px;
+  box-shadow: 0 0 0 1.5px rgba(0,0,0,.5), 0 0 6px 1px color-mix(in srgb, var(--c, #fff) 70%, transparent);
 }
-/* `pulse-green` / `pulse-red` de la référence, dans la couleur de la pastille.
-   Volontairement HORS de prefers-reduced-motion : le halo ne déplace rien, et
-   le Chrome de Luc répond `reduce` (cf. mémoire poste-reduced-motion). */
-/* Halo LÉGER (08/11, Luc) : il plafonne au halo fixe des pastilles de
-   l'éditeur de liste (`.le-dd-dot-*`, 6 px à 70 %) au lieu des 8 px pleins de
-   la référence ; la pulsation ne fait que respirer en dessous. */
-@keyframes as-dot-pulse {
-  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--c, #fff) 45%, transparent); }
-  50% { box-shadow: 0 0 6px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
-}
+.as-glow-dot-poster::after { box-shadow: 0 0 12px 3px var(--c, #fff); }
 .as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
 
 .as-sfp-overlay {

@@ -262,7 +262,7 @@ export default function ProfileList({
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         {editable ? (
           <button
             type="button"
@@ -271,7 +271,7 @@ export default function ProfileList({
             title={t("listMenu.manager.manage")}
             className="as-list-ib as-stat-card relative"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         ) : null}
         <button
@@ -281,18 +281,18 @@ export default function ProfileList({
           title={t("listMenu.sortFilter")}
           className={`as-list-ib as-stat-card relative ${nFilters ? "is-on" : ""}`}
         >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
           {nFilters ? <span className="as-list-ib-badge">{nFilters}</span> : null}
         </button>
 
         <label className="as-list-field as-stat-card min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="shrink-0 text-white/40"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="shrink-0 text-white/40"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("listMenu.search")}
             aria-label={t("listMenu.search")}
-            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+            className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/35"
           />
         </label>
 
@@ -305,7 +305,7 @@ export default function ProfileList({
             type="button"
             onClick={() => setScore(null)}
             title={t("myList.clearScore")}
-            className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-as-score/15 px-3 text-sm font-medium text-as-score ring-1 ring-as-score/40 transition-colors hover:bg-as-score/25"
+            className="inline-flex h-[42px] items-center gap-2 rounded-[12px] bg-as-score/15 px-3 text-sm font-medium text-as-score ring-1 ring-as-score/40 transition-colors hover:bg-as-score/25"
           >
             <span>★ {String(score).replace(".", ",")}</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" className="h-3 w-3"><line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" /></svg>
@@ -380,7 +380,7 @@ export default function ProfileList({
         </div>
 
         {/* Choix de vue */}
-        <div role="group" aria-label={t("listMenu.view")} className="flex h-9 shrink-0 items-center gap-0.5 as-stat-card rounded-[10px] border border-white/[0.12] p-0.5">
+        <div role="group" aria-label={t("listMenu.view")} className="flex h-[42px] shrink-0 items-center gap-0.5 as-stat-card rounded-[12px] border border-white/[0.12] p-0.5">
           {VIEWS.map((v) => (
             <button
               key={v}
@@ -389,7 +389,7 @@ export default function ProfileList({
               aria-pressed={view === v}
               aria-label={t(`listMenu.views.${v}`)}
               title={t(`listMenu.views.${v}`)}
-              className={`grid h-full w-8 place-items-center rounded-[8px] transition-colors ${view === v ? "bg-white/[0.12] text-white" : "text-white/40 hover:text-white/80"}`}
+              className={`grid h-full w-9 place-items-center rounded-[9px] transition-colors ${view === v ? "bg-white/[0.12] text-white" : "text-white/40 hover:text-white/80"}`}
             >
               <ViewIcon v={v} />
             </button>
@@ -420,16 +420,18 @@ export default function ProfileList({
               href={animeHref(e.mediaId, clickTarget)}
               className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
             >
-              <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
-                {e.cover ? (
-                  <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
-                ) : null}
-                {/* La pastille de statut, collée au coin, avec un halo PLUS FRANC
-                    que celui des menus (`.as-poster-dot`) : sur une affiche claire,
-                    le halo léger disparaissait (08/11, Luc). */}
+              {/* La pastille et le cœur sont HORS du cadre de l'affiche, qui coupe
+                  ce qui dépasse (`overflow-hidden`) : le halo de la pastille, à
+                  5 px du coin, y était rogné (08/11, Luc). */}
+              <span className="relative block">
+                <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
+                  {e.cover ? (
+                    <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+                  ) : null}
+                </span>
                 <span
-                  className="as-poster-dot absolute left-[5px] top-[5px]"
-                  style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
+                  className="as-glow-dot as-glow-dot-poster absolute left-[6px] top-[6px]"
+                  style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
                   title={statusName(e.status)}
                 />
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
@@ -547,7 +549,7 @@ function MenuItem({
       aria-pressed={on}
       className={`as-list-opt${on ? " is-on" : ""}`}
     >
-      <span className="as-list-dot" style={{ background: c, ["--c" as string]: c } as React.CSSProperties} />
+      <span className="as-glow-dot" style={{ ["--c" as string]: c } as React.CSSProperties} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {on ? (
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/70" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
@@ -564,7 +566,7 @@ function ViewIcon({ v }: { v: View }) {
         ? <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>
         : <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />;
   return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {p}
     </svg>
   );
