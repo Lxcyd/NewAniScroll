@@ -258,7 +258,7 @@ function Friend({ card, index, removable = false }: { card: FriendCard; index: n
       <Link href={card.href} className="flex min-w-0 items-center gap-3 p-3 pr-9">
         <Avatar card={card} size={48} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-semibold text-white">{card.name}</span>
+          <span className="block truncate font-outfit text-[19px] font-bold leading-tight text-white">{card.name}</span>
           <span className="mt-0.5 block font-karla text-[11px] text-white/35">#{card.tag}</span>
         </span>
       </Link>
