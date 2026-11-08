@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useScrollMemory } from "@/lib/profile/scrollMemory";
 import { SparklesIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { BY_ID } from "@/lib/badges/catalog";
 import BadgeDefs from "./badges/BadgeDefs";
@@ -76,6 +77,10 @@ export default function BadgePicker({
 }) {
   const [over, setOver] = useState<number | null>(null);
   const full = chosen.length >= FEATURED_MAX;
+  /* Le menu Badges du studio : sa liste retrouve sa hauteur à la réouverture
+     (lib/profile/scrollMemory.ts). */
+  const listRef = useRef<HTMLDivElement>(null);
+  useScrollMemory(listRef, "badges", "list");
 
   const toggle = (id: string) =>
     onChange(
@@ -197,7 +202,7 @@ export default function BadgePicker({
       {/* Deux catégories : les badges du catalogue, puis les secrets — ceux
           qu'on ne voit qu'une fois trouvés, et qu'on a souvent le plus envie
           de montrer. Une catégorie vide ne s'affiche pas. */}
-      <div className="as-scroller -mx-1 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto overflow-x-hidden px-1 pb-1 pt-1">
+      <div ref={listRef} className="as-scroller -mx-1 grid min-h-0 flex-1 content-start gap-3 overflow-y-auto overflow-x-hidden px-1 pb-1 pt-1">
       {[
         { key: "normal", ids: owned.filter((id) => !BY_ID[id].secret) },
         { key: "secret", ids: owned.filter((id) => BY_ID[id].secret) }

@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { audioFirst } from "@/lib/animethemes/audioUrl";
+import { useScrollMemory } from "@/lib/profile/scrollMemory";
 import {
   startTransition,
   useCallback,
@@ -1860,7 +1861,10 @@ export default function BannerStudio({
      était la ligne au clic, et on recale le défilement après le rendu pour
      qu'elle — ou l'en-tête qui la remplace — reste sous le pointeur. */
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const anchor = useRef<{ key: string; top: number } | null>(null);
+  /* Rouvrir le studio sur le même menu le rend à la même hauteur ; en changer
+     repart du haut (lib/profile/scrollMemory.ts). */
+  useScrollMemory(scrollerRef, open && !mini && scope ? scope : null);
+  const anchor =useRef<{ key: string; top: number } | null>(null);
   const holdAnchor = useCallback((key: string) => {
     const el = scrollerRef.current?.querySelector<HTMLElement>(`[data-anchor="${key}"]`);
     anchor.current = el ? { key, top: el.getBoundingClientRect().top } : null;
