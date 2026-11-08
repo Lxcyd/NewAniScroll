@@ -5631,6 +5631,7 @@ html.as-dragging .as-nudge {
 .as-lm-confirm { display: flex; gap: 5px; flex: none; }
 .as-lm-confirm button { font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 7px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
 .as-lm-confirm button.is-danger { background: var(--brand-primary, #E94560); color: #fff; }
+.as-lm-picker { padding: 8px 0 4px; }
 .as-lm-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; padding: 8px 4px 4px; }
 .as-lm-palette button { aspect-ratio: 1; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); transition: transform .12s; }
 .as-lm-palette button:hover { transform: scale(1.12); }

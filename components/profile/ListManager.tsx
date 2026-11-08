@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
+import ColorPicker from "@/components/shared/ColorPicker";
 import {
   LIST_PALETTE,
   orderCustom,
@@ -218,9 +219,11 @@ export default function ListManager({
     setPalette(null);
   };
 
+  /* Appliquée EN DIRECT pendant qu'on glisse dans le sélecteur : la pastille de
+     la ligne change sous les yeux. Le sélecteur reste ouvert ; un clic sur la
+     pastille ou Échap le referme. */
   const pickColor = (c: string) => {
     const p = palette;
-    setPalette(null);
     if (!p) return;
     if (p === "new") return setColor(c);
     const [kind, key] = [p.slice(0, 1), p.slice(2)];
@@ -243,11 +246,12 @@ export default function ListManager({
       onClick={() => setPalette(palette === id ? null : id)}
     />
   );
-  const paletteRow = () => (
-    <div className="as-lm-palette" role="group" aria-label={t("listMenu.manager.color")}>
-      {LIST_PALETTE.map((c) => (
-        <button key={c} type="button" style={{ background: c }} aria-label={c} onClick={() => pickColor(c)} />
-      ))}
+  /* LE SÉLECTEUR DU SITE (components/shared/ColorPicker.tsx), celui du studio
+     et des réglages, porté de la référence : carré, teinte, 24 pastilles,
+     HEX / RGB / HSV / HSL (08/11, Luc : « met le bon truc de couleurs »). */
+  const paletteRow = (current: string) => (
+    <div className="as-lm-picker">
+      <ColorPicker value={current} onChange={pickColor} />
     </div>
   );
   const grip = (kind: "status" | "custom", idx: number) => (
@@ -300,7 +304,7 @@ export default function ListManager({
                     <span className="as-lm-count">{statusCounts[s] || 0}</span>
                     {lock()}
                   </div>
-                  {palette === `s:${s}` ? paletteRow() : null}
+                  {palette === `s:${s}` ? paletteRow(statusColor(s)) : null}
                 </div>
               ))
             : (
@@ -319,7 +323,7 @@ export default function ListManager({
                           <span className="as-lm-count">{c}</span>
                           {lock()}
                         </div>
-                        {palette === `a:${n}` ? paletteRow() : null}
+                        {palette === `a:${n}` ? paletteRow(reg.anilistColors[n] || customListColor(n)) : null}
                       </div>
                     );
                   }
@@ -344,7 +348,7 @@ export default function ListManager({
                           </button>
                         )}
                       </div>
-                      {palette === `l:${l.name}` ? paletteRow() : null}
+                      {palette === `l:${l.name}` ? paletteRow(l.color) : null}
                     </div>
                   );
                 })}
@@ -371,7 +375,7 @@ export default function ListManager({
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
-            {palette === "new" ? paletteRow() : null}
+            {palette === "new" ? paletteRow(color) : null}
             <p className="as-lm-note">{clash ? t("listMenu.manager.exists") : t("listMenu.manager.deviceNote")}</p>
           </div>
         ) : null}
