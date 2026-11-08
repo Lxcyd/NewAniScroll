@@ -365,16 +365,6 @@ export default function ProfileList({
               ) : (
                 <p className="px-2.5 py-2 text-xs text-white/40">{t("listMenu.noCustomLists")}</p>
               )}
-              {editable ? (
-                <button
-                  type="button"
-                  onClick={() => { setMenu(""); setManager(true); }}
-                  className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-white/[0.06] px-2.5 py-2 text-left text-[13px] font-semibold text-action hover:bg-white/[0.05]"
-                >
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-                  {t("listMenu.manager.manage")}
-                </button>
-              ) : null}
             </div>
           ) : null}
         </div>
