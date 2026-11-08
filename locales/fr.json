@@ -2874,5 +2874,62 @@
       "name": "La grande évasion",
       "cond": "Termine The Promised Neverland."
     }
+  },
+  "listMenu": {
+    "search": "Chercher dans ta liste…",
+    "status": "Statut",
+    "lists": "Listes",
+    "allStatuses": "Tous les statuts",
+    "allEntries": "Toute la liste",
+    "noCustomLists": "Aucune liste perso",
+    "view": "Affichage",
+    "views": {
+      "cards": "Cartes",
+      "grid": "Grille",
+      "compact": "Compacte"
+    },
+    "sortFilter": "Trier & filtrer",
+    "reset": "Réinitialiser",
+    "close": "Fermer",
+    "sortBy": "Trier par",
+    "sort": {
+      "updated": "Mis à jour",
+      "favourites": "Favoris",
+      "title": "Titre",
+      "score": "Ma note",
+      "rating": "Note moyenne",
+      "episodes": "Épisodes",
+      "year": "Année"
+    },
+    "airStatus": "Diffusion",
+    "format": "Format",
+    "season": "Saison",
+    "seasons": {
+      "WINTER": "Hiver",
+      "SPRING": "Printemps",
+      "SUMMER": "Été",
+      "FALL": "Automne"
+    },
+    "year": "Année",
+    "all": "Tout",
+    "myScore": "Ma note",
+    "episodes": "Épisodes",
+    "genres": "Genres",
+    "studio": "Studio",
+    "tags": "Tags",
+    "source": "Source",
+    "country": "Pays d'origine",
+    "content": "Contenu",
+    "nonAdult": "Sans contenu adulte",
+    "adultOnly": "Adulte seulement",
+    "show": "Voir",
+    "results_one": "résultat",
+    "results_other": "résultats",
+    "random": "Au hasard",
+    "randomPick": "Tiré au hasard : {{title}}",
+    "randomNone": "Rien à tirer : desserre les filtres.",
+    "nothing": "Aucun résultat",
+    "nothingHint": "Essaie un autre statut, une autre liste ou un autre filtre.",
+    "clearAll": "Tout effacer"
   }
 }

@@ -113,6 +113,23 @@ export type ProfileEntry = {
   studio?: string | null;
   /** Identifiant YouTube de la bande-annonce — le fond « Vidéo » du studio. */
   trailer?: string | null;
+  /* Ce que lit le panneau « Sort & Filter » de l'onglet Liste. AniList
+     seulement : sur une liste locale ils manquent, et le panneau cache alors
+     les sections qui n'auraient rien à filtrer. */
+  /** Statut de DIFFUSION du titre : RELEASING, FINISHED, NOT_YET_RELEASED,
+   *  CANCELLED, HIATUS. À ne pas confondre avec `status`, celui de la liste. */
+  airStatus?: string | null;
+  /** WINTER, SPRING, SUMMER, FALL. */
+  season?: string | null;
+  /** ORIGINAL, MANGA, LIGHT_NOVEL… */
+  source?: string | null;
+  /** JP, CN, KR, TW. */
+  country?: string | null;
+  isAdult?: boolean;
+  /** Note moyenne AniList, sur 100. */
+  rating?: number | null;
+  /** Tags pertinents (rang ≥ 60, sans spoiler). */
+  tags?: string[];
 };
 
 /** Un personnage favori, tel qu'AniList le publie. */

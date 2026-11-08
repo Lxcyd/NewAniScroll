@@ -2874,5 +2874,62 @@
       "name": "The great escape",
       "cond": "Finish The Promised Neverland."
     }
+  },
+  "listMenu": {
+    "search": "Search your list…",
+    "status": "Status",
+    "lists": "Lists",
+    "allStatuses": "All statuses",
+    "allEntries": "All entries",
+    "noCustomLists": "No custom lists yet",
+    "view": "View",
+    "views": {
+      "cards": "Cards",
+      "grid": "Grid",
+      "compact": "Compact"
+    },
+    "sortFilter": "Sort & Filter",
+    "reset": "Reset",
+    "close": "Close",
+    "sortBy": "Sort by",
+    "sort": {
+      "updated": "Recently Updated",
+      "favourites": "Favourites",
+      "title": "Title",
+      "score": "My Score",
+      "rating": "Rating",
+      "episodes": "Episodes",
+      "year": "Year"
+    },
+    "airStatus": "Status",
+    "format": "Format",
+    "season": "Season",
+    "seasons": {
+      "WINTER": "Winter",
+      "SPRING": "Spring",
+      "SUMMER": "Summer",
+      "FALL": "Fall"
+    },
+    "year": "Year",
+    "all": "All",
+    "myScore": "My Score",
+    "episodes": "Episodes",
+    "genres": "Genres",
+    "studio": "Studio",
+    "tags": "Tags",
+    "source": "Source Material",
+    "country": "Country of Origin",
+    "content": "Content",
+    "nonAdult": "Non-adult only",
+    "adultOnly": "Adult only",
+    "show": "Show",
+    "results_one": "result",
+    "results_other": "results",
+    "random": "Random pick",
+    "randomPick": "Random pick: {{title}}",
+    "randomNone": "Nothing to pick from: loosen the filters.",
+    "nothing": "Nothing matches",
+    "nothingHint": "Try another status, list or filter.",
+    "clearAll": "Clear everything"
   }
 }

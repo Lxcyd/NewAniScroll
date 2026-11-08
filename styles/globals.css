@@ -5464,3 +5464,111 @@ html.as-dragging .as-nudge {
     font-size: 12px;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   ONGLET LISTE DU PROFIL — barre unique + panneau « Sort & Filter »
+   (08/11/2026, Luc). Calqué sur la version de référence
+   (s00295653.github.io/AniScroll, sort-filter-popup.css) : mêmes surfaces,
+   puces roses à halo, curseurs blancs cerclés d'accent. Composants :
+   components/profile/ProfileList.tsx et ListSortFilter.tsx.
+   ────────────────────────────────────────────────────────────── */
+.as-list-ib {
+  display: grid; place-items: center; width: 36px; height: 36px; flex: none;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04); color: rgba(255,255,255,.6);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.as-list-ib:hover { color: #fff; border-color: rgba(233,69,96,.55); }
+.as-list-ib.is-on { background: var(--brand-primary, #E94560); border-color: var(--brand-primary, #E94560); color: #fff; }
+.as-list-ib-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 9px; background: #fff; color: var(--brand-primary, #E94560);
+  font-size: 10px; font-weight: 800; display: grid; place-items: center;
+}
+.as-list-field {
+  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 11px;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.6); font-size: 13px; transition: border-color .15s, color .15s;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.as-list-field:hover { border-color: rgba(255,255,255,.22); }
+.as-list-field.is-set { color: #fff; border-color: rgba(233,69,96,.55); }
+.as-list-menu {
+  position: absolute; top: 42px; left: 0; right: 0; min-width: 190px; z-index: 30;
+  max-height: 320px; overflow-y: auto; padding: 5px; border-radius: 12px;
+  background: #1c1c28; border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 14px 34px rgba(0,0,0,.55);
+}
+.as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
+
+.as-sfp-overlay {
+  position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(5,5,10,.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: as-sfp-fade .2s ease;
+}
+@media (min-width: 640px) { .as-sfp-overlay { align-items: center; padding: 24px; } }
+@keyframes as-sfp-fade { from { opacity: 0; } }
+@keyframes as-sfp-up { from { transform: translateY(40px); opacity: .4; } }
+.as-sfp {
+  width: 100%; max-width: 520px; max-height: 88dvh; display: flex; flex-direction: column; overflow: hidden;
+  background: #14141f; border-top: 1px solid rgba(255,255,255,.07); border-radius: 20px 20px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: as-sfp-up .28s cubic-bezier(.22,1,.36,1);
+}
+@media (min-width: 640px) { .as-sfp { border-radius: 20px; border: 1px solid rgba(255,255,255,.08); padding-bottom: 0; } }
+.as-sfp-handle { width: 36px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.15); margin: 10px auto; flex: none; }
+.as-sfp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 18px 12px; border-bottom: 1px solid rgba(255,255,255,.08); flex: none; }
+.as-sfp-hl { display: flex; align-items: center; gap: 8px; }
+.as-sfp-head h3 { font-size: 16px; font-weight: 700; color: #fff; letter-spacing: .01em; }
+.as-sfp-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--brand-primary, #E94560); color: #fff; font-size: 11px; font-weight: 800; display: inline-grid; place-items: center; }
+.as-sfp-reset { font-size: 12px; font-weight: 700; color: rgba(255,255,255,.38); padding: 4px 6px; }
+.as-sfp-reset:hover { color: var(--brand-primary, #E94560); }
+.as-sfp-x { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.06); color: rgba(255,255,255,.6); }
+.as-sfp-x:hover { background: rgba(255,255,255,.14); color: #fff; }
+.as-sfp-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 4px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
+.as-sfp-sec { padding: 14px 18px 12px; }
+.as-sfp-sec.is-tight { padding: 5px 18px; }
+.as-sfp-div { height: 1px; background: rgba(255,255,255,.055); margin: 0 18px; }
+.as-sfp-label { display: flex; align-items: center; justify-content: space-between; min-height: 20px; margin-bottom: 10px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.38); }
+.as-sfp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.as-sfp-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 20px; line-height: 1;
+  font-size: 12.5px; font-weight: 600; white-space: nowrap; color: rgba(255,255,255,.6);
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08);
+  transition: background .15s, border-color .15s, color .15s, box-shadow .15s;
+}
+.as-sfp-chip:hover { background: rgba(255,255,255,.09); color: rgba(255,255,255,.85); }
+.as-sfp-chip.is-on { background: rgba(233,69,96,.18); border-color: rgba(233,69,96,.55); color: #ff8fa3; box-shadow: 0 0 8px rgba(233,69,96,.28); }
+.as-sfp-chip.is-on:hover { background: rgba(233,69,96,.24); }
+.as-sfp-arrow { font-size: 11px; }
+.as-sfp-cc { font-size: 9.5px; font-weight: 800; opacity: .6; letter-spacing: .02em; }
+.as-sfp-all { font-size: 12px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--brand-primary, #E94560); background: rgba(233,69,96,.18); border: 1px solid rgba(233,69,96,.55); padding: 2px 9px; border-radius: 10px; }
+.as-sfp-dual { display: flex; align-items: center; gap: 10px; }
+.as-sfp-num { width: 58px; flex: none; padding: 6px 4px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; text-align: center; outline: none; font-variant-numeric: tabular-nums; }
+.as-sfp-num:focus { border-color: rgba(233,69,96,.55); background: rgba(233,69,96,.08); }
+.as-sfp-slider { flex: 1; position: relative; height: 32px; min-width: 0; }
+.as-sfp-track { position: absolute; left: 11px; right: 11px; top: 50%; transform: translateY(-50%); height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); pointer-events: none; }
+.as-sfp-fill { position: absolute; top: 50%; transform: translateY(-50%); height: 5px; border-radius: 3px; background: var(--brand-primary, #E94560); box-shadow: 0 0 6px rgba(233,69,96,.35); pointer-events: none; }
+.as-sfp-range { position: absolute; inset: 0; width: 100%; height: 32px; margin: 0; background: none; -webkit-appearance: none; appearance: none; pointer-events: none; outline: none; }
+.as-sfp-range::-webkit-slider-runnable-track { background: none; height: 32px; }
+.as-sfp-range::-moz-range-track { background: none; }
+.as-sfp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: 5px; border-radius: 50%; background: #fff; border: 2.5px solid var(--brand-primary, #E94560); box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; pointer-events: all; transition: transform .15s, box-shadow .15s; }
+.as-sfp-range::-webkit-slider-thumb:hover { transform: scale(1.15); box-shadow: 0 2px 10px rgba(0,0,0,.5), 0 0 0 7px rgba(233,69,96,.28); }
+.as-sfp-range::-moz-range-thumb { box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2.5px solid var(--brand-primary, #E94560); box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; pointer-events: all; }
+.as-sfp-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(233,69,96,.35); }
+.as-sfp-dds { padding: 8px 0 6px; }
+.as-sfp-dd { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: #fff; opacity: .7; transition: opacity .15s, border-color .15s; }
+.as-sfp-dd:hover, .as-sfp-dd[aria-expanded="true"] { opacity: 1; }
+.as-sfp-dd[aria-expanded="true"] { border-color: rgba(233,69,96,.55); }
+.as-sfp-dd .as-sfp-chev { transition: transform .2s; color: rgba(255,255,255,.4); }
+.as-sfp-dd[aria-expanded="true"] .as-sfp-chev { transform: rotate(180deg); }
+.as-sfp-ddl { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.as-sfp-ddb { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--brand-primary, #E94560); color: #fff; font-size: 10.5px; font-weight: 800; display: inline-grid; place-items: center; }
+.as-sfp-ddp { padding: 10px 2px 4px; }
+.as-sfp-pick { flex: none; padding: 9px 18px; font-size: 12.5px; color: #ff8fa3; background: rgba(233,69,96,.08); border-top: 1px solid rgba(255,255,255,.08); }
+.as-sfp-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 18px 18px; border-top: 1px solid rgba(255,255,255,.08); background: #14141f; }
+.as-sfp-rand { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: transform .2s, border-color .15s; }
+.as-sfp-rand:hover { border-color: rgba(233,69,96,.55); transform: rotate(-8deg); }
+.as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); }
+.as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { .as-sfp, .as-sfp-overlay { animation: none; } }

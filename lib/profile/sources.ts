@@ -71,6 +71,22 @@ export function entriesFromAniList(
         // par titre, le gain était négligeable.
         genres: Array.isArray(e.media?.genres) ? e.media.genres : [],
         studio: e.media?.studios?.nodes?.[0]?.name ?? null,
+        // Le panneau « Sort & Filter » de l'onglet Liste.
+        airStatus: e.media?.status ?? null,
+        season: e.media?.season ?? null,
+        source: e.media?.source ?? null,
+        country: e.media?.countryOfOrigin ?? null,
+        isAdult: !!e.media?.isAdult,
+        rating: e.media?.meanScore ?? null,
+        /* Les tags pertinents seulement (rang ≥ 60, sans spoiler), et huit au
+           plus : AniList en publie souvent vingt par titre, la plupart à 20 %,
+           et ils voyagent dans les props de la page pour toute la liste. */
+        tags: Array.isArray(e.media?.tags)
+          ? e.media.tags
+              .filter((x: any) => x?.name && !x.isMediaSpoiler && (x.rank ?? 0) >= 60)
+              .slice(0, 8)
+              .map((x: any) => String(x.name))
+          : [],
         /* La bande-annonce, et seulement si elle est sur YouTube : AniList
            publie aussi des identifiants Dailymotion, que le fond du profil ne
            sait pas jouer. Un id d'un autre hôte gardé ici aurait produit une

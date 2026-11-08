@@ -1,16 +1,36 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { HeartIcon } from "@heroicons/react/24/solid";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
-import { listLabel, STATUS_TO_LIST, LIST_COLORS } from "@/components/anime/v2/helpers";
+import {
+  customListColor,
+  listLabel,
+  prettyFormat,
+  STATUS_TO_LIST,
+  LIST_COLORS,
+} from "@/components/anime/v2/helpers";
 import { scoreBucket } from "@/lib/profile/insights";
+import {
+  activeCount,
+  applyFilters,
+  boundsOf,
+  freshFilters,
+  sortEntries,
+  SORT_KEYS,
+  type ListFilters,
+  type SortKey,
+} from "@/lib/profile/listFilter";
+import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
- * The list half of a profile: status filter + one section per status.
+ * L'onglet Liste d'un profil : la BARRE UNIQUE de la version de référence
+ * (08/11/2026, Luc) — tri & filtres, recherche, menus Statut et Listes, choix
+ * de vue (cartes, grille, compacte) — puis la liste, triée, sans barre de
+ * progression (retirée à sa demande).
  *
  * Source-agnostic on purpose — it is handed already-normalised entries
  * (lib/profile/types.ts), so the AniList profile, an AniScroll account's
@@ -29,14 +49,15 @@ import type { ProfileEntry } from "@/lib/profile/types";
  */
 const FIRST_ROWS = 40;
 
-const STATUS_ORDER = [
-  "CURRENT",
-  "REPEATING",
-  "COMPLETED",
-  "PAUSED",
-  "PLANNING",
-  "DROPPED",
-];
+const STATUS_ORDER = ["CURRENT", "REPEATING", "COMPLETED", "PAUSED", "PLANNING", "DROPPED"];
+
+type View = "cards" | "grid" | "compact";
+const VIEWS: View[] = ["cards", "grid", "compact"];
+/* La vue et le tri sont des préférences de l'appareil, pas du profil : on les
+   retrouve d'un profil à l'autre. Lus après le montage, sans quoi le rendu
+   serveur et le premier rendu client divergeraient. */
+const VIEW_KEY = "as-profile-list-view";
+const SORT_KEY = "as-profile-list-sort";
 
 /**
  * SUR QUOI LA LISTE S'OUVRE, quand on n'y arrive pas par l'onglet mais par un
@@ -62,50 +83,132 @@ export default function ProfileList({
   const { t } = useTranslation();
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
-  const [filter, setFilter] = useState(focus?.status || "all");
+  const [status, setStatus] = useState(focus?.status || "all");
+  const [list, setList] = useState<string>("");
   const [score, setScore] = useState<number | null>(focus?.score ?? null);
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<View>("cards");
+  const [menu, setMenu] = useState<"" | "status" | "list">("");
+  const [panel, setPanel] = useState(false);
+  const [picked, setPicked] = useState<number | null>(null);
+
+  const bounds = useMemo(() => boundsOf(entries), [entries]);
+  const [filters, setFilters] = useState<ListFilters>(() => freshFilters(bounds));
+  /* Les bornes suivent la liste (le plus long titre fixe le max des épisodes) :
+     une sélection encore pleine reste pleine. */
+  const prevBounds = useRef(bounds);
+  useEffect(() => {
+    const prev = prevBounds.current;
+    prevBounds.current = bounds;
+    if (prev === bounds) return;
+    setFilters((f) => ({
+      ...f,
+      ranges: {
+        ...f.ranges,
+        episodes: f.ranges.episodes[1] >= prev.episodes[1]
+          ? [f.ranges.episodes[0], bounds.episodes[1]]
+          : [f.ranges.episodes[0], Math.min(f.ranges.episodes[1], bounds.episodes[1])],
+      },
+    }));
+  }, [bounds]);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY) as View | null;
+      if (v && VIEWS.includes(v)) setView(v);
+      const s = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+      if (s && SORT_KEYS.includes(s.sort)) setFilters((f) => ({ ...f, sort: s.sort as SortKey, desc: !!s.desc }));
+    } catch {}
+  }, []);
+  const chooseView = (v: View) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch {}
+  };
+  const changeFilters = (f: ListFilters) => {
+    setFilters(f);
+    try { localStorage.setItem(SORT_KEY, JSON.stringify({ sort: f.sort, desc: f.desc })); } catch {}
+  };
 
   useEffect(() => {
     if (!focus) return;
-    setFilter(focus.status || "all");
+    setStatus(focus.status || "all");
     setScore(focus.score ?? null);
   }, [focus]);
 
-  /* LA NOTE FILTRE AVANT LE GROUPEMENT, donc les sections, les compteurs des
-     pastilles et l'état vide décrivent tous la même sélection. Le palier vient
-     de `scoreBucket`, partagé avec l'histogramme : un 6,7 tombe ici dans la
-     colonne où il était dessiné là-bas. */
-  const shown = useMemo(
-    () =>
-      score == null
-        ? entries
-        : entries.filter((e) => e.score && scoreBucket(e.score) === score),
+  // Un clic hors des menus Statut / Listes les referme.
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest?.("[data-list-dd]")) setMenu("");
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setMenu("");
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [menu]);
+
+  const titleOf = useCallback((e: ProfileEntry) => pickTitle(e.title, titlePref), [titlePref]);
+
+  /* LA NOTE FILTRE AVANT TOUT LE RESTE, donc les compteurs des menus et l'état
+     vide décrivent tous la même sélection. Le palier vient de `scoreBucket`,
+     partagé avec l'histogramme : un 6,7 tombe ici dans la colonne où il était
+     dessiné là-bas. */
+  const base = useMemo(
+    () => (score == null ? entries : entries.filter((e) => e.score && scoreBucket(e.score) === score)),
     [entries, score],
   );
 
-  const groups = useMemo(() => {
-    const byStatus: Record<string, ProfileEntry[]> = {};
-    for (const e of shown) {
-      (byStatus[e.status || "PLANNING"] ||= []).push(e);
-    }
-    return STATUS_ORDER.map((s) => ({ status: s, entries: byStatus[s] || [] })).filter(
-      (g) => g.entries.length > 0,
+  const statusCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const e of base) c[e.status || "PLANNING"] = (c[e.status || "PLANNING"] || 0) + 1;
+    return c;
+  }, [base]);
+  const customLists = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const e of base) for (const n of e.customLists ?? []) c.set(n, (c.get(n) || 0) + 1);
+    return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [base]);
+
+  // Une liste perso disparue (autre profil, filtre de note) ne filtre plus rien.
+  const activeList = list && customLists.some(([n]) => n === list) ? list : "";
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pre = base.filter(
+      (e) =>
+        (status === "all" || (e.status || "PLANNING") === status) &&
+        (!activeList || e.customLists?.includes(activeList)) &&
+        (!q ||
+          [e.title?.english, e.title?.romaji, e.title?.native, e.title?.userPreferred].some((x) =>
+            x?.toLowerCase().includes(q),
+          )),
     );
-  }, [shown]);
+    return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf);
+  }, [base, status, activeList, query, filters, bounds, titleOf]);
 
-  const visible = filter === "all" ? groups : groups.filter((g) => g.status === filter);
-
-  /* Tout est-il rendu pour CE filtre ? La clé change avec le filtre et la note :
-     une nouvelle sélection repart de quarante lignes, sans rendu de remise à
-     zéro. */
-  const viewKey = `${filter}|${score ?? ""}`;
+  /* Tout est-il rendu pour CETTE sélection ? La clé change avec elle : une
+     nouvelle sélection repart de quarante lignes, sans rendu de remise à zéro. */
+  const viewKey = `${status}|${activeList}|${score ?? ""}|${query}|${JSON.stringify(filters)}|${view}`;
   const [fullKey, setFullKey] = useState<string | null>(null);
   const full = fullKey === viewKey;
   useEffect(() => {
     if (full) return;
     startTransition(() => setFullKey(viewKey));
   }, [full, viewKey]);
-  let budget = full ? Infinity : FIRST_ROWS;
+  const rows = full ? shown : shown.slice(0, FIRST_ROWS);
+
+  const nFilters = activeCount(filters, bounds);
+
+  const clearAll = () => {
+    setStatus("all");
+    setList("");
+    setScore(null);
+    setQuery("");
+    changeFilters({ ...freshFilters(bounds), sort: filters.sort, desc: filters.desc });
+  };
 
   if (entries.length === 0) {
     return (
@@ -116,193 +219,307 @@ export default function ProfileList({
     );
   }
 
+  const statusColor = (s: string | null) => LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
+  const statusName = (s: string | null) => {
+    const l = STATUS_TO_LIST[s || "PLANNING"] || s || "";
+    return listLabel(t, l);
+  };
+
   return (
     <>
-      <div className="mb-8 flex flex-wrap gap-2">
-        {/* LA NOTE EN COURS, EN PREMIÈRE PASTILLE ET DÉTACHABLE.
-            On arrive ici avec un filtre qu'on n'a pas posé sur cet onglet : la
-            pastille est ce qui le DIT, et la croix ce qui le défait. Sans elle,
-            une liste de six titres passerait pour la liste entière.
-            Elle est en OR, la couleur des notes partout ailleurs, pour ne pas se
-            confondre avec les pastilles de statut. */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setPanel(true)}
+          aria-label={t("listMenu.sortFilter")}
+          title={t("listMenu.sortFilter")}
+          className={`as-list-ib relative ${nFilters ? "is-on" : ""}`}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+          {nFilters ? <span className="as-list-ib-badge">{nFilters}</span> : null}
+        </button>
+
+        <label className="as-list-field min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="shrink-0 text-white/40"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("listMenu.search")}
+            aria-label={t("listMenu.search")}
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+          />
+        </label>
+
+        {/* LA NOTE EN COURS, détachable : on arrive ici avec un filtre qu'on n'a
+            pas posé sur cet onglet (l'histogramme des notes). Sans elle, une
+            liste de six titres passerait pour la liste entière. En OR, la
+            couleur des notes partout ailleurs. */}
         {score != null ? (
           <button
+            type="button"
             onClick={() => setScore(null)}
             title={t("myList.clearScore")}
-            className="inline-flex items-center gap-2 rounded-full bg-as-score/15 px-3.5 py-1.5 text-sm font-medium text-as-score ring-1 ring-as-score/40 transition-colors hover:bg-as-score/25"
+            className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-as-score/15 px-3 text-sm font-medium text-as-score ring-1 ring-as-score/40 transition-colors hover:bg-as-score/25"
           >
             <span>★ {String(score).replace(".", ",")}</span>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" className="h-3 w-3">
-              <line x1="5" y1="5" x2="19" y2="19" />
-              <line x1="19" y1="5" x2="5" y2="19" />
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" className="h-3 w-3"><line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" /></svg>
           </button>
         ) : null}
-        <Chip
-          active={filter === "all"}
-          onClick={() => setFilter("all")}
-          label={`${t("profile.showAll")} (${shown.length})`}
-        />
-        {groups.map((g) => {
-          const label = STATUS_TO_LIST[g.status] || g.status;
-          return (
-            <Chip
-              key={g.status}
-              active={filter === g.status}
-              onClick={() => setFilter(g.status)}
-              color={LIST_COLORS[label]}
-              label={`${listLabel(t, label)} (${g.entries.length})`}
-            />
-          );
-        })}
+
+        {/* Menu Statut */}
+        <div data-list-dd className="relative min-w-0 flex-[2_1_150px]">
+          <button
+            type="button"
+            aria-expanded={menu === "status"}
+            onClick={() => setMenu(menu === "status" ? "" : "status")}
+            className={`as-list-field w-full justify-between font-semibold ${status !== "all" ? "is-set" : ""}`}
+          >
+            <span className="flex min-w-0 items-center gap-2 truncate">
+              {status !== "all" ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor(status) }} /> : null}
+              <span className="truncate">{status === "all" ? t("listMenu.status") : statusName(status)}</span>
+            </span>
+            <Chevron className="shrink-0 opacity-50" />
+          </button>
+          {menu === "status" ? (
+            <div className="as-list-menu">
+              <MenuItem on={status === "all"} onClick={() => { setStatus("all"); setMenu(""); }} label={t("listMenu.allStatuses")} count={base.length} />
+              {STATUS_ORDER.filter((s) => statusCounts[s]).map((s) => (
+                <MenuItem key={s} on={status === s} onClick={() => { setStatus(s); setMenu(""); }} color={statusColor(s)} label={statusName(s)} count={statusCounts[s]} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Menu Listes perso */}
+        <div data-list-dd className="relative min-w-0 flex-[2_1_150px]">
+          <button
+            type="button"
+            aria-expanded={menu === "list"}
+            onClick={() => setMenu(menu === "list" ? "" : "list")}
+            className={`as-list-field w-full justify-between font-semibold ${activeList ? "is-set" : ""}`}
+          >
+            <span className="flex min-w-0 items-center gap-2 truncate">
+              {activeList ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: customListColor(activeList) }} /> : null}
+              <span className="truncate">{activeList || t("listMenu.lists")}</span>
+            </span>
+            <Chevron className="shrink-0 opacity-50" />
+          </button>
+          {menu === "list" ? (
+            <div className="as-list-menu">
+              <MenuItem on={!activeList} onClick={() => { setList(""); setMenu(""); }} label={t("listMenu.allEntries")} count={base.length} />
+              {customLists.length ? (
+                customLists.map(([n, c]) => (
+                  <MenuItem key={n} on={activeList === n} onClick={() => { setList(n); setMenu(""); }} color={customListColor(n)} label={n} count={c} />
+                ))
+              ) : (
+                <p className="px-2.5 py-2 text-xs text-white/40">{t("listMenu.noCustomLists")}</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Choix de vue */}
+        <div role="group" aria-label={t("listMenu.view")} className="flex h-9 shrink-0 items-center gap-0.5 rounded-[10px] border border-white/[0.12] bg-white/[0.04] p-0.5">
+          {VIEWS.map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => chooseView(v)}
+              aria-pressed={view === v}
+              aria-label={t(`listMenu.views.${v}`)}
+              title={t(`listMenu.views.${v}`)}
+              className={`grid h-full w-8 place-items-center rounded-[8px] transition-colors ${view === v ? "bg-white/[0.12] text-white" : "text-white/40 hover:text-white/80"}`}
+            >
+              <ViewIcon v={v} />
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Une liste bien remplie peut n'avoir aucun titre à CETTE note : le vide
-          doit alors nommer son filtre, sinon il se lit comme une liste vide. */}
       {shown.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 py-16 text-center">
-          <p className="text-white/60">
-            {t("myList.noneAtScore", { score: String(score).replace(".", ",") })}
+        <div className="flex flex-col items-center gap-2 py-16 text-center">
+          <p className="font-bold text-white/70">
+            {score != null && base.length === 0
+              ? t("myList.noneAtScore", { score: String(score).replace(".", ",") })
+              : t("listMenu.nothing")}
           </p>
-          <button
-            onClick={() => setScore(null)}
-            className="rounded-lg px-4 py-2 text-sm ring-1 ring-action transition-colors hover:bg-action/10"
-          >
-            {t("myList.clearScore")}
+          <p className="text-sm text-white/40">{t("listMenu.nothingHint")}</p>
+          <button type="button" onClick={clearAll} className="mt-3 rounded-lg px-4 py-2 text-sm ring-1 ring-action transition-colors hover:bg-action/10">
+            {t("listMenu.clearAll")}
           </button>
         </div>
-      ) : null}
+      ) : view === "grid" ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5">
+          {rows.map((e) => (
+            <Link
+              key={e.mediaId}
+              href={animeHref(e.mediaId, clickTarget)}
+              className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
+            >
+              <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
+                {e.cover ? (
+                  <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+                ) : null}
+                <span className="absolute left-1.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-black/40" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
+                {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
+                {e.score ? (
+                  <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-bold text-as-score">{e.score}</span>
+                ) : null}
+              </span>
+              <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
+              <span className="text-[11px] tabular-nums text-white/40">
+                {progressText(e)}{e.format ? ` · ${prettyFormat(e.format)}` : ""}
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : view === "compact" ? (
+        <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
+          {rows.map((e) => (
+            <Link
+              key={e.mediaId}
+              href={animeHref(e.mediaId, clickTarget)}
+              className={`as-list-row group grid grid-cols-[10px_minmax(0,1fr)_40px_56px] items-center gap-3 border-b border-white/[0.04] px-3 py-2 text-sm transition-colors last:border-0 hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_56px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
+              <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
+              <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
+              <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
+              <span className="text-right text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
+              <span className="text-right text-xs tabular-nums text-white/50">{progressText(e)}</span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        /* `as-stat-card` comme toutes les surfaces du profil : le fond sombre
+           et le flou du studio. */
+        <div className="flex flex-col gap-1.5">
+          {rows.map((e) => (
+            <Row
+              key={e.mediaId}
+              entry={e}
+              color={statusColor(e.status)}
+              statusName={statusName(e.status)}
+              href={animeHref(e.mediaId, clickTarget)}
+              title={titleOf(e)}
+              picked={picked === e.mediaId}
+            />
+          ))}
+        </div>
+      )}
 
-      <div className="grid gap-10">
-        {visible.map((g) => {
-          const label = STATUS_TO_LIST[g.status] || g.status;
-          const color = LIST_COLORS[label] || "#6b7280";
-          if (budget <= 0) return null;
-          const rows = g.entries.slice(0, budget);
-          budget -= rows.length;
-          return (
-            <section key={g.status} id={g.status.toLowerCase()}>
-              <h2 className="mb-3 flex items-center gap-2.5">
-                <span
-                  className="h-6 w-1 rounded-full"
-                  style={{ background: color, boxShadow: `0 0 12px ${color}66` }}
-                />
-                <span className="font-outfit text-lg font-bold">
-                  {listLabel(t, label)}
-                </span>
-                <span className="text-xs text-white/35">{g.entries.length}</span>
-              </h2>
-              {/* `as-stat-card` comme toutes les surfaces du profil : le fond
-                  sombre et le flou du studio. La liste était la seule à laisser
-                  l'illustration nette derrière ses titres. */}
-              <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
-                {rows.map((e) => (
-                  <Row key={e.mediaId} entry={e} color={color} href={animeHref(e.mediaId, clickTarget)} title={pickTitle(e.title, titlePref)} />
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+      <ListSortFilter
+        open={panel}
+        onClose={() => setPanel(false)}
+        entries={base}
+        filters={filters}
+        bounds={bounds}
+        onChange={changeFilters}
+        count={shown.length}
+        onRandom={() => {
+          if (!shown.length) { setPicked(null); return null; }
+          const e = shown[Math.floor(Math.random() * shown.length)];
+          setPicked(e.mediaId);
+          return titleOf(e);
+        }}
+      />
     </>
   );
 }
 
-function Chip({
-  active,
+function progressText(e: ProfileEntry) {
+  return e.total ? `${e.progress}/${e.total}` : String(e.progress);
+}
+
+function MenuItem({
+  on,
   onClick,
   label,
+  count,
   color,
 }: {
-  active: boolean;
+  on: boolean;
   onClick: () => void;
   label: string;
+  count: number;
   color?: string;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-        active
-          ? "bg-action text-white shadow-glow"
-          : "as-stat-card text-white/60 ring-1 ring-white/10 hover:bg-white/10 hover:text-white"
-      }`}
+      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] font-semibold transition-colors ${on ? "bg-action/15 text-white" : "text-white/60 hover:bg-white/[0.05] hover:text-white"}`}
     >
-      {color && !active ? (
-        <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-      ) : null}
-      {label}
+      <span className="h-2 w-2 shrink-0 rounded-full" style={color ? { background: color } : { boxShadow: "inset 0 0 0 1px rgba(255,255,255,.35)" }} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="text-xs tabular-nums text-white/35">{count}</span>
     </button>
+  );
+}
+
+function ViewIcon({ v }: { v: View }) {
+  const p =
+    v === "cards"
+      ? <><rect x="3" y="4" width="18" height="6" rx="1" /><rect x="3" y="14" width="18" height="6" rx="1" /></>
+      : v === "grid"
+        ? <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>
+        : <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />;
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {p}
+    </svg>
   );
 }
 
 function Row({
   entry,
   color,
+  statusName,
   href,
   title,
+  picked,
 }: {
   entry: ProfileEntry;
   color: string;
+  statusName: string;
   href: string;
   title: string;
+  picked: boolean;
 }) {
-  // The bar is the honest one: no total means no bar, rather than a full one.
-  const pct =
-    entry.total && entry.total > 0
-      ? Math.min(100, Math.round((entry.progress / entry.total) * 100))
-      : null;
-
+  const sub = [entry.format && prettyFormat(entry.format), entry.year, entry.studio].filter(Boolean).join(" · ");
   return (
     <Link
       href={href}
       /* `as-list-row` : une ligne hors de l'écran n'est ni mise en page ni
          peinte (cf. globals.css). */
-      className="as-list-row group relative flex items-center gap-3 border-b border-white/[0.04] px-3 py-2.5 transition-colors last:border-0 hover:bg-white/[0.06]"
+      className={`as-list-row as-stat-card group flex items-center gap-3 rounded-xl px-3 py-1.5 pl-1.5 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
     >
       {entry.cover ? (
-        <Image
-          src={entry.cover}
-          alt=""
-          width={40}
-          height={56}
-          className="h-14 w-10 shrink-0 rounded-md object-cover"
-        />
+        <Image src={entry.cover} alt="" width={40} height={56} className="h-14 w-10 shrink-0 rounded-md object-cover" />
       ) : (
         <div className="h-14 w-10 shrink-0 rounded-md bg-white/10" />
       )}
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium group-hover:text-action">{title}</p>
-        <div className="mt-1.5 flex items-center gap-2">
-          {pct !== null ? (
-            <span className="h-1 w-full max-w-[9rem] overflow-hidden rounded-full bg-white/10">
-              <span
-                className="block h-full rounded-full"
-                style={{ width: `${pct}%`, background: color }}
-              />
-            </span>
-          ) : null}
-          <span className="shrink-0 text-[11px] text-white/40">
-            {entry.total ? `${entry.progress}/${entry.total}` : entry.progress}
-          </span>
-        </div>
+        <p className="truncate text-sm font-semibold group-hover:text-action">{title}</p>
+        {sub ? <p className="mt-0.5 truncate text-xs text-white/40">{sub}</p> : null}
       </div>
 
+      <span
+        className="hidden shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold sm:inline"
+        style={{ color, background: `${color}24`, boxShadow: `inset 0 0 0 1px ${color}66` }}
+      >
+        {statusName}
+      </span>
       {entry.repeat ? (
-        <span className="shrink-0 text-[11px] text-white/35" title={`×${entry.repeat}`}>
-          ↻{entry.repeat}
-        </span>
+        <span className="shrink-0 text-[11px] text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
       ) : null}
-      {entry.favourite ? (
-        <HeartIcon className="h-4 w-4 shrink-0 text-action" />
-      ) : null}
+      {entry.favourite ? <HeartIcon className="h-4 w-4 shrink-0 text-action" /> : null}
+      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-white/50">{progressText(entry)}</span>
       {entry.score ? (
-        <span className="shrink-0 rounded-md bg-as-score/10 px-2 py-1 text-xs font-bold text-as-score">
-          {entry.score}
-        </span>
+        <span className="w-10 shrink-0 rounded-md bg-as-score/10 py-1 text-center text-xs font-bold text-as-score">{entry.score}</span>
       ) : (
-        <span className="w-9 shrink-0" />
+        <span className="w-10 shrink-0" />
       )}
     </Link>
   );

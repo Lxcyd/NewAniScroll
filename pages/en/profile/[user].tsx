@@ -735,6 +735,15 @@ const ANILIST_QUERY = `
             trailer { id site }
             genres
             studios(isMain: true) { nodes { name } }
+            # Ce que lit le panneau « Sort & Filter » de l'onglet Liste (08/11) :
+            # statut de diffusion, saison, source, pays, contenu adulte, tags.
+            # Même requête, aucun aller-retour de plus.
+            status
+            season
+            source
+            countryOfOrigin
+            isAdult
+            tags { name rank isMediaSpoiler }
           }
         }
       }
