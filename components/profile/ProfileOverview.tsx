@@ -25,6 +25,7 @@ import {
 } from "@/components/anime/v2/helpers";
 import { CUSTOM_PREFIX, customListNames } from "@/lib/profile/insights";
 import type { ActivityRow, WatchDays } from "@/lib/profile/activity";
+import type { ProgressEntry } from "@/lib/watch/progress";
 import { CalendarBlock } from "./widgets/CalendarBlock";
 import { HeatmapBlock } from "./widgets/HeatmapBlock";
 import {
@@ -126,6 +127,9 @@ type Props = {
    *  Le propriétaire, lui, garde sa source locale — elle est plus fraîche que
    *  la dernière synchronisation, et elle se met à jour pendant qu'il regarde. */
   activity?: ActivityRow[] | null;
+  /** Chez soi : la progression du compte et du fil AniList, que « Vu
+   *  récemment » mêle à celle du navigateur (pages/en/profile/[user].tsx). */
+  ownerProgress?: Record<string, ProgressEntry> | null;
   /** Les jours consécutifs de lecture DU PROPRIÉTAIRE, comptés au rendu serveur
    *  en même temps que `activity`. Chez lui, le bloc les recompte dans son
    *  navigateur : un jour de série est un jour de calendrier, donc il dépend du
@@ -265,6 +269,7 @@ export default function ProfileOverview({
   isOwner,
   accountLayout,
   activity,
+  ownerProgress,
   streak,
   watchDays,
   binge,
@@ -1090,6 +1095,7 @@ export default function ProfileOverview({
         return (
           <RecentsBlock
             rows={served}
+            extra={isOwner ? ownerProgress ?? null : null}
             other={!isOwner}
             titles={titlesById}
             streak={streak ?? 0}

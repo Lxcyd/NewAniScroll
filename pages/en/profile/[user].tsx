@@ -54,7 +54,15 @@ import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
 import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
-import { activityFromCloud, type ActivityRow, type Binge, type WatchDays } from "@/lib/profile/activity";
+import {
+  activityFromCloud,
+  progressFromCloud,
+  withFeed,
+  type ActivityRow,
+  type Binge,
+  type ProgressMap,
+  type WatchDays,
+} from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
 import ProfileTabs from "@/components/profile/ProfileTabs";
 import FriendButton from "@/components/profile/FriendButton";
@@ -139,6 +147,9 @@ type Props = {
   profileLayout: GridItem[] | null;
   /** L'activité de lecture du propriétaire, quand sa grille l'affiche. */
   activity: ActivityRow[] | null;
+  /** Chez soi seulement : la progression du compte complétée par le fil
+   *  AniList (120 jours), mêlée à celle du navigateur par « Vu récemment ». */
+  ownerProgress?: ProgressMap | null;
   /** Ses jours consécutifs de lecture, comptés en même temps que `activity`. */
   streak: number | null;
   /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
@@ -178,6 +189,7 @@ function ProfileView({
   isOwner,
   profileLayout,
   activity,
+  ownerProgress,
   streak,
   watchDays,
   binge,
@@ -527,6 +539,7 @@ function ProfileView({
             isOwner={isOwner}
             accountLayout={profileLayout ?? null}
             activity={activity ?? null}
+            ownerProgress={ownerProgress ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
             binge={binge ?? null}
@@ -1246,13 +1259,31 @@ export async function getServerSideProps(context: any) {
      les garde-fous lisent donc celle-là. */
   const shown: readonly GridItem[] = profileLayout ?? DEFAULT_LAYOUT;
   const feed =
-    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge"].includes(o.i))
+    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge", "recents"].includes(o.i))
       ? await getAnilistFeed(account.id).catch(() => null)
       : null;
   const read = layoutWantsActivity(profileLayout)
     ? activityFromCloud({ recent: payloadOf("recent"), progress: payloadOf("progress"), feed: feed?.e }, 12)
     : null;
   const activity: ActivityRow[] | null = read?.rows ?? null;
+  /* CHEZ SOI, LA PROGRESSION DU COMPTE ET DU FIL ANILIST (08/11/2026, Luc).
+     « Vu récemment » lit le navigateur du propriétaire, plus frais et vivant —
+     mais aveugle à ce qu'il a regardé ailleurs (un autre site, aniscroll.com vu
+     depuis le serveur local, un autre appareil). On lui envoie donc la table
+     du compte complétée par le fil, sur 120 jours : son navigateur garde le
+     dernier mot sur les épisodes qu'il connaît (DeviceBlocks.tsx). */
+  const ownerProgress: ProgressMap | null =
+    isOwner && read && shown.some((o) => o.i === "recents")
+      ? withFeed(
+          Object.fromEntries(
+            Object.entries(progressFromCloud(payloadOf("progress"))).filter(
+              ([, e]) => Number(e?.updatedAt) > Date.now() - 120 * 86_400_000,
+            ),
+          ),
+          feed?.e,
+          Date.now() - 120 * 86_400_000,
+        )
+      : null;
   /* La serie suit exactement le meme garde-fou que les lignes : elle decrit la
      lecture du proprietaire, elle ne doit pas rester lisible dans
      __NEXT_DATA__ quand la grille n'affiche plus le bloc qui la montre. */
@@ -1339,6 +1370,7 @@ export async function getServerSideProps(context: any) {
       isOwner,
       profileLayout,
       activity,
+      ownerProgress,
       streak,
       watchDays,
       binge,

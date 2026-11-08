@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { extractSeasonFromTitle } from "@/components/anime/v2/helpers";
 import { readHistory, watchHref } from "@/lib/profile/history";
-import { decorateRows, watchStreak, type ActivityRow } from "@/lib/profile/activity";
+import { decorateRows, watchStreak, type ActivityRow, type ProgressMap } from "@/lib/profile/activity";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
@@ -31,7 +31,22 @@ import { DEFAULT_SERVER_ID } from "@/lib/servers";
  * sa propre lecture sous le nom d'un autre.
  */
 
-function useHistory(limit: number): {
+/**
+ * La table de CET appareil, complétée par `extra` (la progression du compte et
+ * du fil AniList, servie au propriétaire) : pour un même épisode, la date la
+ * plus récente l'emporte — la même règle que la fusion côté serveur
+ * (lib/auth/userData.ts).
+ */
+function mergeProgress(local: ProgressMap, extra?: ProgressMap | null): ProgressMap {
+  if (!extra) return local;
+  const out: ProgressMap = { ...extra };
+  for (const [k, v] of Object.entries(local)) {
+    if (!out[k] || Number(v?.updatedAt) >= Number(out[k]?.updatedAt)) out[k] = v;
+  }
+  return out;
+}
+
+function useHistory(limit: number, extra?: ProgressMap | null): {
   rows: ActivityRow[];
   streak: number;
   loaded: boolean;
@@ -49,7 +64,7 @@ function useHistory(limit: number): {
     const read = () => {
       const map = readProgressMap();
       setState({
-        rows: decorateRows(readHistory(limit), map),
+        rows: decorateRows(readHistory(limit), mergeProgress(map, extra)),
         /* Chez soi, la série est comptée ICI et pas au rendu serveur : le
            « jour » d'une série est un jour de CALENDRIER, donc il dépend du
            fuseau, et celui du navigateur est le bon. */
@@ -64,13 +79,18 @@ function useHistory(limit: number): {
       window.removeEventListener(PROGRESS_EVENT, read);
       window.removeEventListener("storage", read);
     };
-  }, [limit]);
+  }, [limit, extra]);
   return state;
 }
 
 /** Les lignes servies s'il y en a, sinon celles de l'appareil. */
-function useRows(served: ActivityRow[] | undefined, limit: number, servedStreak = 0) {
-  const local = useHistory(limit);
+function useRows(
+  served: ActivityRow[] | undefined,
+  limit: number,
+  servedStreak = 0,
+  extra?: ProgressMap | null,
+) {
+  const local = useHistory(limit, extra);
   return served ? { rows: served, streak: servedStreak, loaded: true } : local;
 }
 
@@ -548,11 +568,18 @@ export function RecentsBlock({
   editing = false,
   /* La couverture de l'anime au lieu de l'image de l'épisode. */
   coverArt = false,
-}: ActivityProps & { streakOn?: boolean; editing?: boolean; coverArt?: boolean } = {}) {
+  /* Chez soi : la progression du compte et du fil AniList (cf. mergeProgress). */
+  extra = null,
+}: ActivityProps & {
+  streakOn?: boolean;
+  editing?: boolean;
+  coverArt?: boolean;
+  extra?: ProgressMap | null;
+} = {}) {
   const { t } = useTranslation();
   const ago = useAgo();
   const rowTitle = useRowTitle(titles);
-  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak);
+  const { rows: all, streak, loaded } = useRows(served, 12, servedStreak, extra);
   /* Un épisode ouvert quelques secondes (missclic) n'a pas de carte. */
   const rows = useMemo(() => all.filter((r) => !r.glance), [all]);
   /* L'ENTRÉE (08/11/2026, Luc : « il manque l'anim du contenu ») : les lignes

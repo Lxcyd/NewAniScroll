@@ -113,18 +113,28 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
     const key = (ep: number) => `${row.aniId}:${ep}`;
     /* Un missclic sur le dernier épisode ouvert garde sa ligne (la reprise en a
        besoin) mais ne s'étend à rien : les cartes repartent de l'épisode d'avant. */
-    /* Ouvert sans jamais avoir été lancé, juste après un épisode vu : la carte
-       parle de ce dernier (cf. `lastSeen`). */
-    const lastSeen =
-      !map[key(row.episode)] && row.episode > 1 && watched(map[key(row.episode - 1)])
+    /* LE DERNIER ÉPISODE VU de la carte (cf. `lastSeen`) :
+       - celui de l'historique s'il a été regardé ;
+       - sinon, s'il a été ouvert sans être lancé juste après un épisode vu,
+         ce dernier ;
+       - puis on PROLONGE tant que l'épisode suivant est vu (08/11/2026, Luc) :
+         regardé ailleurs ou marqué sur AniList (cf. `withFeed`), il n'est pas
+         dans l'historique de cet appareil, qui s'arrêtait au 9 d'Aristocrat
+         quand AniList disait 11. */
+    const own = map[key(row.episode)];
+    let end: number | null = watched(own)
+      ? row.episode
+      : !own && row.episode > 1 && watched(map[key(row.episode - 1)])
         ? row.episode - 1
         : null;
+    if (end != null) while (watched(map[key(end + 1)])) end++;
+    const lastSeen = end != null && end !== row.episode ? end : null;
     /* MOINS D'UNE MINUTE, OU JAMAIS LANCÉ, NE COMPTE PAS (08/11/2026, Luc :
        « ne compte pas un anime regardé moins de 1 minute »). Un épisode ouvert
        sans aucune progression enregistrée n'était pas pris pour un missclic —
        seul celui ouvert quelques secondes l'était — et gardait sa carte, barre
        vide (Apothecary ép. 1, King's Avatar ép. 4). */
-    const glance = !lastSeen && !watched(map[key(row.episode)]);
+    const glance = end == null;
     let last = row.episode;
     let first = true;
     for (;;) {
@@ -141,6 +151,9 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
                     ...decorate({ ...row, episode: lastSeen, ...(at > 0 ? { at } : {}) }, map, from),
                     episode: row.episode,
                     lastSeen,
+                    /* Une carte qui dépasse l'épisode de l'historique ne peut
+                       plus rouvrir celui-ci (déjà vu) : elle mène à la fiche. */
+                    ...(lastSeen > row.episode ? { watchId: null } : {}),
                   }
                 : decorate(at > 0 ? { ...row, at } : row, map, from)),
               ...(glance ? { glance } : {}),
@@ -216,6 +229,38 @@ function runStart(map: ProgressMap, aniId: number, episode: number, others: [num
     first--;
   }
   return first;
+}
+
+/**
+ * LA TABLE DE PROGRESSION, COMPLÉTÉE PAR LE FIL ANILIST (08/11/2026, Luc : « tu
+ * ne peux pas réparer avec AniList, il manque les premiers épisodes et les
+ * derniers »). Un épisode que le fil dit vu et que la table ne connaît pas —
+ * regardé ailleurs, sur un autre site ou avant AniScroll, ou coché sur AniList
+ * — y entre comme TERMINÉ, daté de sa première mention dans le fil (les
+ * suivantes peuvent être des réécritures : le 07/11, AniList a reçu deux fois un
+ * retour à l'épisode 7). La table l'emporte toujours quand elle a l'épisode :
+ * elle porte la vraie position et la vraie durée.
+ *
+ * `since` : ne garder que les épisodes plus récents (ms), pour ce qu'on envoie
+ * au navigateur du propriétaire.
+ */
+export function withFeed(map: ProgressMap, feed?: FeedEvent[] | null, since = 0): ProgressMap {
+  if (!feed?.length) return map;
+  const out: ProgressMap = { ...map };
+  const added = new Set<string>();
+  for (const f of feed) {
+    if (!Array.isArray(f)) continue;
+    const at = Number(f[0]) * 1000;
+    const aniId = Number(f[1]);
+    const ep = Number(f[2]);
+    if (!(at > since) || !(aniId > 0) || !(ep > 0)) continue;
+    const k = `${aniId}:${ep}`;
+    if (map[k] && watched(map[k])) continue;
+    if (added.has(k) && Number(out[k].updatedAt) <= at) continue;
+    added.add(k);
+    out[k] = { time: 1440, duration: 1440, updatedAt: at, watched: 1440 };
+  }
+  return out;
 }
 
 /** Les épisodes vus de la table, `[date, anime]`. */
@@ -471,7 +516,7 @@ export function activityFromCloud(
      `JSON.parse` de plus sur un objet qui grandit à chaque épisode vu. */
   const map = progressFromCloud(payloads.progress);
   return {
-    rows: decorateRows(historyFromCloud(payloads.recent, limit), map),
+    rows: decorateRows(historyFromCloud(payloads.recent, limit), withFeed(map, feed)),
     /* Le fuseau est celui du SERVEUR (UTC en production), pas celui du
        propriétaire : sa journée peut donc basculer quelques heures trop tôt ou
        trop tard sur le profil vu par un visiteur. Chez lui, la série est
