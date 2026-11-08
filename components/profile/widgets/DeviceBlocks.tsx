@@ -136,6 +136,28 @@ function useSeasonNumber(aniId: number | null, title: string | null): number | n
   return fromTitle ?? fetched;
 }
 
+/** La vignette de l'épisode `n`, prise dans la liste d'épisodes de la fiche. */
+function useEpisodeImage(aniId: number, n: number, enabled: boolean): string | null {
+  const [img, setImg] = useState<string | null>(null);
+  useEffect(() => {
+    setImg(null);
+    if (!enabled) return;
+    let off = false;
+    /* Chargé à la demande : le module porte aussi la résolution des lecteurs,
+       dont le profil n'a pas besoin pour une vignette. */
+    import("@/lib/profile/episodeStream")
+      .then((m) => m.fetchEpisodes(aniId))
+      .then((eps) => {
+        if (!off) setImg(eps.find((e) => e.n === n)?.img ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      off = true;
+    };
+  }, [aniId, n, enabled]);
+  return img;
+}
+
 export type ActivityProps = {
   /** L'activité du propriétaire, venue du rendu serveur. Absent : cet appareil. */
   rows?: ActivityRow[];
@@ -689,7 +711,14 @@ function RecentRow({
      tournures qui vivent dans le romaji d'AniList. Un titre anglais traduit peut
      ne plus les porter, et on perdrait la saison en changeant de langue. */
   const season = useSeasonNumber(r.aniId, r.animeTitle);
-  const art = coverArt ? r.cover || r.image : r.image || r.cover;
+  /* L'IMAGE DU PREMIER ÉPISODE DE LA CARTE (08/11/2026, Luc). L'historique ne
+     garde que la vignette du dernier épisode OUVERT : « 9–11 » montrait celle
+     du 10, et les cartes plus anciennes la couverture. Les vignettes viennent de
+     la liste d'épisodes de la fiche (/api/v2/episode, en cache 30 j). */
+  const ownImage = r.image && r.episode === r.runFrom ? r.image : null;
+  const firstImage = useEpisodeImage(r.aniId, r.runFrom, !coverArt && !ownImage);
+  const epImage = ownImage ?? firstImage ?? r.image;
+  const art = coverArt ? r.cover || epImage : epImage || r.cover;
   /* L'autre image n'est montée qu'au premier basculement de l'option : la
      charger d'office doublerait les images de chaque ligne pour rien. */
   const [toggled, setToggled] = useState(false);
@@ -697,8 +726,8 @@ function RecentRow({
   useEffect(() => {
     if (coverArt !== firstCover.current) setToggled(true);
   }, [coverArt]);
-  const showImage = !!r.image && (toggled || art === r.image);
-  const showCover = !!r.cover && r.cover !== r.image && (toggled || art === r.cover);
+  const showImage = !!epImage && (toggled || art === epImage);
+  const showCover = !!r.cover && r.cover !== epImage && (toggled || art === r.cover);
   /* Le dernier épisode VU, pas celui ouvert sans être lancé (cf. `lastSeen`). */
   const end = r.lastSeen ?? r.episode;
   const range = r.runFrom < end;
@@ -747,12 +776,12 @@ function RecentRow({
             sauterait d'une image à l'autre. */}
         {showImage ? (
           <Image
-            src={r.image!}
+            src={epImage!}
             alt=""
             fill
             sizes="220px"
             className={`object-cover transition-opacity duration-300 ${
-              art === r.image ? "opacity-100" : "opacity-0"
+              art === epImage ? "opacity-100" : "opacity-0"
             }`}
           />
         ) : null}
