@@ -37,8 +37,9 @@ export type ActivityRow = HistoryRow & {
   /** Carte d'un jour plus ancien, reconstruite depuis la table de progression :
    *  pas la dernière lecture de l'anime, donc rien à reprendre. */
   older?: boolean;
-  /** Dernier épisode ouvert à peine quelques secondes (missclic) : « Vu
-   *  récemment » le tait, « Regarde en ce moment » le reprend quand même. */
+  /** Dernier épisode ouvert moins d'une minute (missclic, ou jamais lancé) :
+   *  « Vu récemment » et « Reprendre la lecture » le taisent tous deux
+   *  (08/11/2026, Luc). */
   glance?: boolean;
   /**
    * LE DERNIER ÉPISODE VU, quand celui de l'historique n'a jamais été lancé
@@ -140,8 +141,8 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
     /* ROUVERT MOINS D'UNE MINUTE : RIEN NE CHANGE (08/11/2026, Luc). Le
        lecteur a remplacé la ligne de l'anime à l'ouverture, mais a gardé la
        dernière vraiment regardée (`before`, lib/profile/history.ts) : la ligne
-       ouverte reste pour « Regarde en ce moment » (cachée ici, `glance`), et
-       les cartes repartent de celle d'avant, comme si on n'avait rien ouvert. */
+       ouverte est marquée `glance` (et tue partout), et les cartes repartent
+       de celle d'avant, comme si on n'avait rien ouvert. */
     if (glance && row.before) {
       out.push({ ...decorate(row, map, row.episode), glance });
       queue.push(row.before);

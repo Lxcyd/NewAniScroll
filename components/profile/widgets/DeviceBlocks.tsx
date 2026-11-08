@@ -281,6 +281,12 @@ export function ResumeBlock({
     for (const r of rows) {
       // Les cartes des jours d'avant ne sont pas la dernière lecture de l'anime.
       if (r.older) continue;
+      /* MOINS D'UNE MINUTE NE COMPTE PAS ICI NON PLUS (08/11/2026, Luc :
+         « Reprendre la lecture ne doit pas afficher un anime regardé moins
+         d'une minute »). Un épisode à peine ouvert est sauté : s'il a une
+         ligne d'avant (`before`), elle suit dans la liste et c'est elle qu'on
+         reprend. */
+      if (r.glance) continue;
       if (!r.done) {
         if (r.pct > 0) return { ...r, href: watchHref(r) };
         continue;
