@@ -5514,6 +5514,17 @@ html.as-dragging .as-nudge {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   animation: as-dot-pulse 2s ease-in-out infinite;
 }
+/* La pastille de statut sur une AFFICHE (vue Grille) : 9 px, un liseré sombre
+   et un halo net dans le MÊME box-shadow (un `outline` ou un anneau à part
+   recouvrait le halo), qui respire comme celui des menus. */
+.as-poster-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  animation: as-poster-pulse 2s ease-in-out infinite;
+}
+@keyframes as-poster-pulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(0,0,0,.45), 0 0 6px 1px color-mix(in srgb, var(--c, #fff) 75%, transparent); }
+  50% { box-shadow: 0 0 0 1.5px rgba(0,0,0,.45), 0 0 10px 2px var(--c, #fff); }
+}
 /* `pulse-green` / `pulse-red` de la référence, dans la couleur de la pastille.
    Volontairement HORS de prefers-reduced-motion : le halo ne déplace rien, et
    le Chrome de Luc répond `reduce` (cf. mémoire poste-reduced-motion). */

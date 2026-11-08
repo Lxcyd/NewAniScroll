@@ -424,16 +424,14 @@ export default function ProfileList({
                 {e.cover ? (
                   <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                 ) : null}
-                {/* La pastille de statut avec le halo des menus (as-list-dot), posée
-                    sur une rondelle sombre : le halo s'y voit comme sur le fond du
-                    menu. Un contour sombre autour de la pastille le recouvrait
-                    (08/11, Luc : « c pas les glows de couleur »). */}
-                <span className="absolute left-1 top-1 grid h-[22px] w-[22px] place-items-center rounded-full bg-black/55" title={statusName(e.status)}>
-                  <span
-                    className="as-list-dot !h-2.5 !w-2.5"
-                    style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
-                  />
-                </span>
+                {/* La pastille de statut, collée au coin, avec un halo PLUS FRANC
+                    que celui des menus (`.as-poster-dot`) : sur une affiche claire,
+                    le halo léger disparaissait (08/11, Luc). */}
+                <span
+                  className="as-poster-dot absolute left-[5px] top-[5px]"
+                  style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
+                  title={statusName(e.status)}
+                />
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
               </span>
               <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
