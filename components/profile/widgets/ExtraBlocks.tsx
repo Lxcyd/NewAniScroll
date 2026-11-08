@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { genreLabel } from "@/lib/i18n/genreLabel";
-import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
+import { useTranslatedText, useTranslatedTexts } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -673,12 +673,15 @@ export function PinnedBlock({
   const clickTarget = useClickTarget();
   const scores = useMemo(() => new Map(entries.map((e) => [e.mediaId, e.score])), [entries]);
   const useSample = !onChange && !pins.length && !!sample?.length;
-  const synopsis = useSynopsis(sample ?? [], useSample);
-  if (useSample) pins = sample!.map((id) => ({ id, note: synopsis.get(id) ?? "" }));
   /* LE CRAYON PART DE L'EXEMPLE (08/11/2026, Luc : « on ne peut pas
-     modifier ») : l'éditeur reçoit les titres montrés, sans le synopsis — la
-     phrase est à écrire. Rien n'est enregistré tant qu'on n'y touche pas. */
-  else if (onChange && !pins.length && sample?.length) pins = sample.map((id) => ({ id, note: "" }));
+     modifier », puis « affiche la phrase déjà entrée ») : l'éditeur reçoit
+     les titres montrés ET leur phrase, le synopsis traduit, déjà dans la
+     case. Rien n'est enregistré tant qu'on n'y touche pas. */
+  const editSample = !!onChange && !pins.length && !!sample?.length;
+  const synopsis = useSynopsis(sample ?? [], useSample || editSample);
+  const translated = useTranslatedTexts(editSample ? sample!.map((id) => synopsis.get(id) ?? "") : []);
+  if (useSample) pins = sample!.map((id) => ({ id, note: synopsis.get(id) ?? "" }));
+  else if (editSample) pins = sample!.map((id, i) => ({ id, note: clip(translated[i] ?? "") }));
   const meta = useAnimeMeta(
     pins.map((p) => p.id),
     entries,

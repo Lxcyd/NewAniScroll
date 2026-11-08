@@ -82,6 +82,33 @@ export function prefetchTranslations(
   }
 }
 
+/** Plusieurs textes d'un coup (les trois synopsis de l'exemple des épinglés) :
+    même cache, même repli sur l'anglais. */
+export function useTranslatedTexts(sources: string[]): string[] {
+  const { i18n } = useTranslation();
+  const lang = i18n.language || "en";
+  const [, setTick] = useState(0);
+  const key = sources.join("\u0000");
+  useEffect(() => {
+    if (lang === "en") return;
+    let cancelled = false;
+    for (const s of sources) {
+      const text = s.trim();
+      if (!text || memCache.has(cacheKeyOf(text, lang))) continue;
+      void translateOne(text, lang).then(() => {
+        if (!cancelled) setTick((n) => n + 1);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, lang]);
+  return sources.map((s) =>
+    lang === "en" || !s.trim() ? s : memCache.get(cacheKeyOf(s.trim(), lang)) ?? s,
+  );
+}
+
 export function useTranslatedText(source: string | null | undefined): string {
   const { i18n } = useTranslation();
   const lang = i18n.language || "en";
