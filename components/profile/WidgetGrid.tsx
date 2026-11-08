@@ -294,7 +294,14 @@ export default function WidgetGrid({
       const id = card.dataset.widget!;
       if (faded.current.has(id)) continue;
       faded.current.add(id);
-      card.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: "ease-out", fill: "backwards" });
+      /* LE FOND SEUL, PAS LA CARTE (08/11/2026, Luc : « saccadé ») : la carte
+         entière en `opacity` privait son calque de flou d'arrière-plan pendant
+         tout le fondu, et le flou revenait d'un coup. Le fond (teinte et flou,
+         `::before`, globals.css) fond en `opacity` sur le compositeur ; le
+         liseré suit. Le contenu a sa propre entrée. */
+      const timing = { duration: 260, easing: "ease-out", fill: "backwards" } as const;
+      card.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, pseudoElement: "::before" });
+      card.animate([{ outlineColor: "transparent" }, {}], timing);
     }
   });
 

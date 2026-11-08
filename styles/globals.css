@@ -3015,6 +3015,37 @@ html.as-dragging .as-nudge {
    (un `outline` rentré, cf. WidgetGrid). La grille tombe sur un demi-pixel
    (y = 384,5 mesuré) et le calque de flou ne s'y arrondit pas du même côté que
    le liseré : il dépassait d'un trait en haut et à gauche (24/10/2026, Luc). */
+/* LA TEINTE DES WIDGETS VIT SUR LE MÊME CALQUE QUE LE FLOU (08/11/2026, Luc :
+   « le fond du widget apparaît en saccadé »). WidgetGrid fait entrer la carte
+   en fondu ; fondre la CARTE ENTIÈRE (son `opacity`) privait le calque flou de
+   son arrière-plan pendant tout le fondu, et le flou revenait d'un coup à la
+   fin. On ne fond donc que ce calque — teinte et flou ensemble — en `opacity`,
+   que le compositeur anime seul. Visuellement identique : flouter la teinte
+   (l'ordre d'avant) ou la poser sur le flou, c'est la même carte. */
+.as-widget.as-stat-card {
+  background: none;
+}
+.as-widget.as-stat-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    145deg,
+    rgba(20, 22, 28, var(--as-plate-a1, 0.72)),
+    rgba(12, 13, 16, var(--as-plate-a2, 0.58))
+  );
+}
+.as-widget-edit:hover::before,
+.as-widget-edit.is-held::before {
+  background: linear-gradient(
+    145deg,
+    rgba(20, 22, 28, calc(var(--as-plate-a1, 0.72) + 0.14)),
+    rgba(12, 13, 16, calc(var(--as-plate-a2, 0.58) + 0.14))
+  );
+}
 .as-plate-frosted .as-widget.as-stat-card::before {
   inset: 1px;
   /* RENTRÉ D'1 PX, ARRONDI D'1 PX DE MOINS (28/10/2026, Luc : liseré dans les
