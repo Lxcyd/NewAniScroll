@@ -244,8 +244,11 @@ export function ResumeBlock({
         continue;
       }
       const total = totals?.get(r.aniId) ?? null;
-      if (total != null && r.episode >= total) continue;
-      const n = r.episode + 1;
+      /* `lastSeen` : l'épisode suivant est déjà celui de l'historique, ouvert
+         sans être lancé — c'est lui qu'on propose. */
+      const seen = r.lastSeen ?? r.episode;
+      if (total != null && seen >= total) continue;
+      const n = seen + 1;
       return {
         ...r,
         episode: n,
@@ -669,18 +672,20 @@ function RecentRow({
   }, [coverArt]);
   const showImage = !!r.image && (toggled || art === r.image);
   const showCover = !!r.cover && r.cover !== r.image && (toggled || art === r.cover);
-  const range = r.runFrom < r.episode;
+  /* Le dernier épisode VU, pas celui ouvert sans être lancé (cf. `lastSeen`). */
+  const end = r.lastSeen ?? r.episode;
+  const range = r.runFrom < end;
   const where = season != null
     ? range
       ? t("profile.blocks.recents.seasonEpRange", {
           season,
           from: r.runFrom,
-          to: r.episode,
+          to: end,
         })
-      : t("profile.blocks.recents.seasonEp", { season, episode: r.episode })
+      : t("profile.blocks.recents.seasonEp", { season, episode: end })
     : range
-      ? t("profile.blocks.recents.epRange", { from: r.runFrom, to: r.episode })
-      : t("profile.blocks.recents.ep", { episode: r.episode });
+      ? t("profile.blocks.recents.epRange", { from: r.runFrom, to: end })
+      : t("profile.blocks.recents.ep", { episode: end });
 
   /* « Terminé » l'emporte sur les minutes restantes : à la fin d'un épisode il
      en reste zéro, et « 0 min restantes » est une façon inutilement laborieuse

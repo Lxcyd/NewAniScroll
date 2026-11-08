@@ -40,6 +40,14 @@ export type ActivityRow = HistoryRow & {
   /** Dernier épisode ouvert à peine quelques secondes (missclic) : « Vu
    *  récemment » le tait, « Regarde en ce moment » le reprend quand même. */
   glance?: boolean;
+  /**
+   * LE DERNIER ÉPISODE VU, quand celui de l'historique n'a jamais été lancé
+   * (08/11/2026, Luc : « barre à 0 alors que j'ai tout fini ») — l'épisode
+   * suivant ouvert d'office à la fin du précédent, sans aucune progression.
+   * La carte parle de celui-ci (« Épisodes 7–9 », terminé) ; son lien mène
+   * toujours à `episode`, le prochain à regarder.
+   */
+  lastSeen?: number;
 };
 
 export type ProgressMap = Record<string, ProgressEntry>;
@@ -105,18 +113,30 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
     /* Un missclic sur le dernier épisode ouvert garde sa ligne (la reprise en a
        besoin) mais ne s'étend à rien : les cartes repartent de l'épisode d'avant. */
     const glance = !!map[key(row.episode)] && !watched(map[key(row.episode)]);
+    /* Ouvert sans jamais avoir été lancé, juste après un épisode vu : la carte
+       parle de ce dernier (cf. `lastSeen`). */
+    const lastSeen =
+      !map[key(row.episode)] && row.episode > 1 && watched(map[key(row.episode - 1)])
+        ? row.episode - 1
+        : null;
     let last = row.episode;
     let first = true;
     for (;;) {
-      const from = first && glance ? last : runStart(map, row.aniId, last);
-      const at = Number(map[key(last)]?.updatedAt);
+      const from = first && glance ? last : runStart(map, row.aniId, first && lastSeen ? lastSeen : last);
+      const at = Number(map[key(first && lastSeen ? lastSeen : last)]?.updatedAt);
       out.push(
         first
           ? {
               /* La date de la PROGRESSION quand il y en a une : l'historique est
                  re-daté à chaque ouverture, même quand l'épisode, déjà terminé,
                  garde la sienne (cf. `rewatching`, lib/watch/progress.ts). */
-              ...decorate(at > 0 ? { ...row, at } : row, map, from),
+              ...(lastSeen
+                ? {
+                    ...decorate({ ...row, episode: lastSeen, ...(at > 0 ? { at } : {}) }, map, from),
+                    episode: row.episode,
+                    lastSeen,
+                  }
+                : decorate(at > 0 ? { ...row, at } : row, map, from)),
               ...(glance ? { glance } : {}),
             }
           : {
