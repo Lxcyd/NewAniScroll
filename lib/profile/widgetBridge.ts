@@ -15,8 +15,11 @@ import type { BlockChrome } from "@/components/profile/WidgetGrid";
 export type WidgetPreview = { chrome: BlockChrome; w: number; h: number; gridW: number };
 
 type Bridge = {
+  /** Les blocs qu'on ne peut plus ajouter (posés autant de fois que permis). */
   posed: ReadonlySet<string>;
-  /** Ajouter le bloc à la fin de la grille (rien s'il y est déjà), puis
+  /** Le nombre de widgets sur le profil, instances comprises. */
+  count: number;
+  /** Ajouter le bloc à la fin de la grille (rien s'il est au plafond), puis
       descendre jusqu'à lui et le faire apparaître. */
   add: ((id: string) => void) | null;
   /** Le contenu du bloc, tel que la grille le dessine, et sa taille en cases
@@ -30,7 +33,7 @@ export const WIDGETS_MENU_EVENT = "as-studio-widgets";
     l'Aperçu à sa disposition par défaut. */
 export const WIDGETS_RESET_EVENT = "as-widgets-reset";
 
-export const NO_WIDGETS: Bridge = { posed: new Set(), add: null, preview: null };
+export const NO_WIDGETS: Bridge = { posed: new Set(), count: 0, add: null, preview: null };
 let state: Bridge = NO_WIDGETS;
 const subs = new Set<() => void>();
 

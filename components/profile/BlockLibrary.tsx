@@ -18,7 +18,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   blocks: BlockDef[];
+  /** Les blocs au plafond (posés autant de fois que permis). */
   posed: Set<string>;
+  /** Le nombre de widgets posés, instances comprises. */
+  count: number;
   onToggle: (id: string) => void;
   onRearrange: () => void;
   onReset: () => void;
@@ -29,6 +32,7 @@ export default function BlockLibrary({
   onClose,
   blocks,
   posed,
+  count,
   onToggle,
   onRearrange,
   onReset,
@@ -131,7 +135,7 @@ export default function BlockLibrary({
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] pt-4">
           <span className="font-karla text-xs text-white/40">
-            {t("profile.library.count", { count: posed.size })}
+            {t("profile.library.count", { count })}
           </span>
           <div className="flex gap-2.5">
             <button

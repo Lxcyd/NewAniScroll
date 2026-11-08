@@ -6133,7 +6133,7 @@ export default function BannerStudio({
                           sur ton profil » sous lui. */}
                       {scope === "widgets" ? (
                         <span className="rounded-full bg-white/10 px-2 py-0.5 font-karla text-xs font-bold tabular-nums text-white/70">
-                          {widgets.posed.size}
+                          {widgets.count}
                         </span>
                       ) : null}
                     </h2>

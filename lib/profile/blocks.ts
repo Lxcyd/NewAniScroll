@@ -44,6 +44,8 @@ export type BlockDef = {
   source: BlockSource;
   /** Emoji du catalogue — décoratif, jamais porteur d'information seule. */
   icon: string;
+  /** Combien de fois le bloc peut être posé (08/11/2026, Luc). Absent : une. */
+  multi?: number;
 };
 
 export const BLOCKS: BlockDef[] = [
@@ -71,6 +73,9 @@ export const BLOCKS: BlockDef[] = [
     color: "#E94560",
     source: "list",
     icon: "★",
+    /* Une vitrine par liste (08/11/2026, Luc : « infini ») — borné par les 40
+       blocs d'une disposition (profile-layout.ts). */
+    multi: Infinity,
   },
   // Deux colonnes au minimum : sous cette largeur, la vignette 16:9 et la
   // colonne de texte ne cohabitent plus. Trois lignes au maximum — c'est une
@@ -159,8 +164,9 @@ export const BLOCKS: BlockDef[] = [
      - badges : la collection de badges du profil ;
      - affinité : les listes des profils visités, gardées sur l'appareil. */
   { id: "binge", size: [2, 1], min: [1, 1], max: [2, 1], color: "#F59E0B", source: "device", icon: "⏱" },
-  { id: "goal", size: [1, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎" },
-  { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 1], color: "#E94560", source: "list", icon: "❏" },
+  /* Deux au plus (08/11/2026, Luc) : un en épisodes, un en animes. */
+  { id: "goal", size: [1, 1], min: [1, 1], max: [2, 2], color: "#A855F7", source: "device", icon: "◎", multi: 2 },
+  { id: "pinned", size: [4, 1], min: [2, 1], max: [4, 1], color: "#E94560", source: "list", icon: "❏", multi: Infinity },
   { id: "themes", size: [2, 2], min: [2, 1], max: [4, 3], color: "#A855F7", source: "list", icon: "♪" },
   /* « Badges & succès » retiré le 03/11/2026 (Luc) : l'onglet Badges suffit. */
   { id: "affinity", size: [2, 1], min: [2, 1], max: [4, 2], color: "#22c55e", source: "list", icon: "≈" },
@@ -386,7 +392,7 @@ export function blockOptionRange(
 }
 
 export function blockOptions(id: string): BlockOption[] {
-  return OPTIONS[id] ?? [];
+  return OPTIONS[blockType(id)] ?? [];
 }
 
 function optionDef(id: string, key: string): BlockOption | undefined {
@@ -471,21 +477,51 @@ export function blockOptionList(
 
 const BY_ID = new Map(BLOCKS.map((b) => [b.id, b]));
 
+/**
+ * UN MÊME BLOC POSÉ PLUSIEURS FOIS (08/11/2026, Luc). La première instance
+ * garde le nom du bloc (`favorites`), ce qui laisse les dispositions déjà
+ * rangées telles quelles ; les suivantes prennent un numéro (`favorites~2`).
+ * Chacune porte ses propres réglages (`GridItem.s`). Toutes les fonctions de
+ * ce fichier acceptent l'une ou l'autre forme.
+ */
+export function blockType(id: string): string {
+  const k = id.indexOf("~");
+  return k < 0 ? id : id.slice(0, k);
+}
+
+/** Combien d'instances du bloc une disposition peut porter. */
+export function blockLimit(id: string): number {
+  return BY_ID.get(blockType(id))?.multi ?? 1;
+}
+
+/** Le prochain identifiant libre pour le bloc `type`, ou null s'il est au
+    plafond. Le plus petit numéro libre : un numéro ne dépasse jamais le
+    plafond, ce que `isKnownBlock` vérifie. */
+export function nextInstance(ids: readonly string[], type: string): string | null {
+  const have = new Set(ids);
+  const count = ids.filter((i) => blockType(i) === type).length;
+  if (count >= blockLimit(type)) return null;
+  if (!have.has(type)) return type;
+  for (let n = 2; ; n++) if (!have.has(`${type}~${n}`)) return `${type}~${n}`;
+}
+
 export function blockDef(id: string): BlockDef | undefined {
-  return BY_ID.get(id);
+  return BY_ID.get(blockType(id));
 }
 
 export function isKnownBlock(id: string): boolean {
-  return BY_ID.has(id);
+  const m = /^([a-z]+)(?:~([1-9]\d{0,2}))?$/.exec(id);
+  if (!m || !BY_ID.has(m[1])) return false;
+  return !m[2] || (Number(m[2]) >= 2 && Number(m[2]) <= blockLimit(m[1]));
 }
 
 export function blockSize(id: string): [number, number] {
-  return BY_ID.get(id)?.size ?? [2, 1];
+  return blockDef(id)?.size ?? [2, 1];
 }
 
 /** Les bornes de redimensionnement d'un bloc, pour lib/profile/grid.ts. */
 export function blockBounds(id: string): Bounds {
-  const def = BY_ID.get(id);
+  const def = blockDef(id);
   if (!def) return DEFAULT_BOUNDS;
   return {
     minW: def.min?.[0] ?? DEFAULT_BOUNDS.minW,
@@ -545,5 +581,5 @@ export const DEFAULT_BLOCKS: readonly string[] = DEFAULT_LAYOUT.map((o) => o.i);
  * disposition étant elle-même publique.
  */
 export function visibleTo(_isOwner: boolean, id: string): boolean {
-  return BY_ID.has(id);
+  return isKnownBlock(id);
 }

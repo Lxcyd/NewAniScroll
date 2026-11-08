@@ -56,7 +56,9 @@ import {
   blockOptionValue,
   blockOptions,
   blockSize,
+  blockType,
   isKnownBlock,
+  nextInstance,
   visibleTo,
 } from "@/lib/profile/blocks";
 import {
@@ -469,17 +471,23 @@ export default function ProfileOverview({
     save(next);
   }
 
-  const posed = useMemo(
-    () => new Set((layout || []).map((o) => o.i)),
-    [layout],
-  );
+  /* Les blocs qu'on ne peut plus ajouter : posés autant de fois que le
+     catalogue le permet (une seule pour la plupart, cf. `multi`). */
+  const posed = useMemo(() => {
+    const ids = (layout || []).map((o) => o.i);
+    return new Set(BLOCKS.filter((b) => !nextInstance(ids, b.id)).map((b) => b.id));
+  }, [layout]);
+  const count = layout?.length ?? 0;
 
-  /** Poser un bloc absent, retirer un bloc posé : la bibliothèque et le menu
-      Widgets du studio passent tous deux par ici. */
-  function toggleBlock(id: string) {
+  /** Poser un bloc absent, retirer un bloc posé : la bibliothèque passe par
+      ici. Un bloc qui peut être posé plusieurs fois s'ajoute jusqu'à son
+      plafond, puis le dernier posé se retire. */
+  function toggleBlock(type: string) {
     const cur = layout || [];
-    if (posed.has(id)) {
-      commit(compact(cur.filter((o) => o.i !== id)));
+    const id = nextInstance(cur.map((o) => o.i), type);
+    if (!id) {
+      const last = cur.filter((o) => blockType(o.i) === type).pop();
+      commit(compact(cur.filter((o) => o !== last)));
     } else {
       const back = takeRemoved(id);
       const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
@@ -493,18 +501,20 @@ export default function ProfileOverview({
   /** Le bloc qu'on vient d'ajouter depuis le menu, à faire apparaître. */
   const [fresh, setFresh] = useState<{ id: string; n: number } | null>(null);
   /** UN CLIC DANS LE MENU AJOUTE LE WIDGET À LA FIN (07/11/2026, Luc, à la
-      place du glisser) : rien s'il est déjà posé. Dans les deux cas la vue
-      descend jusqu'à lui et le fait apparaître. */
-  function addBlock(id: string) {
+      place du glisser) : rien s'il est au plafond (posé, pour la plupart).
+      Dans les deux cas la vue descend jusqu'à lui et le fait apparaître. */
+  function addBlock(type: string) {
     const cur = layout || [];
-    if (!posed.has(id)) {
+    let id = nextInstance(cur.map((o) => o.i), type);
+    if (id) {
       const back = takeRemoved(id);
       const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
       /* Sous la dernière ligne, pas dans le premier trou venu. */
       const item: GridItem = { i: id, x: 0, y: rowCount(cur), w, h, ...(back?.s ? { s: back.s } : null) };
       commit(cur.concat([item]));
-    }
-    setFresh((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+    } else id = cur.filter((o) => blockType(o.i) === type).pop()?.i ?? type;
+    const target = id;
+    setFresh((f) => ({ id: target, n: (f?.n ?? 0) + 1 }));
   }
   /* Après le rendu qui a posé le bloc : descendre jusqu'à lui, puis le faire
      surgir. Défilement et animation en JS (Web Animations) et pas en CSS :
@@ -609,25 +619,31 @@ export default function ProfileOverview({
     if (!bridged) return;
     publishWidgets({
       posed,
+      count,
       add: (id) => addRef.current(id),
       preview: (id) => previewRef.current(id),
     });
-  }, [bridged, posed]);
+  }, [bridged, posed, count]);
+  const countRef = useRef(count);
+  countRef.current = count;
   useEffect(() => {
     if (!bridged) return;
     /* Sur un autre onglet, le menu Widgets garde ses aperçus (08/11/2026,
        Luc) : on ne peut plus ajouter (`add` nul), mais les vignettes restent,
        sous le message. */
     const keep = previewRef;
-    return () => publishWidgets({ ...NO_WIDGETS, posed: posedRef.current, preview: (id) => keep.current(id) });
+    return () =>
+      publishWidgets({ ...NO_WIDGETS, posed: posedRef.current, count: countRef.current, preview: (id) => keep.current(id) });
   }, [bridged]);
 
   function renderBlock(id: string): BlockChrome | null {
     const def = blockDef(id);
     if (!def) return null;
+    /* `id` est l'instance (`favorites~2`), `type` le bloc du catalogue. */
+    const type = def.id;
     /* « Reprendre la lecture » est écrit pour celui qui lit. Sur le profil d'un
        autre, c'est lui qui regarde, pas nous. */
-    const other = !isOwner && id === "resume";
+    const other = !isOwner && type === "resume";
     const name = customName(id);
     return {
       /* Le nom donné l'emporte sur celui du catalogue — c'est tout l'objet du
@@ -648,24 +664,24 @@ export default function ProfileOverview({
          moyenne, elle, n'est pas réglable : elle est là dès qu'une note existe,
          et la réservation ne coûte que sur un profil qui n'a rien noté. */
       endRoom:
-        id === "favorites" ||
-        id === "scores" ||
+        type === "favorites" ||
+        type === "scores" ||
         /* La légende « Moins ▪▪▪▪▪ Plus » de la heatmap (02/11/2026). */
-        id === "heatmap" ||
+        type === "heatmap" ||
         /* Le volume du Top OP / ED (03/11/2026). */
-        id === "themes" ||
-        (id === "recents" && optionOn("recents", "streak")),
+        type === "themes" ||
+        (type === "recents" && optionOn(id, "streak")),
       /* Le crayon des personnages favoris, à côté de la roue, chez le
          propriétaire (25/10/2026, Luc) : ajouter, retirer, réordonner. */
       editor:
-        id === "characters" && isOwner
+        type === "characters" && isOwner
           ? {
               label: t("profile.blocks.characters.manage"),
               node: (
                 <CharactersBlock
                   characters={characters}
-                  showFrom={optionOn("characters", "showFrom")}
-                  size={optionValue("characters", "cardSize") as "small" | "normal" | "large"}
+                  showFrom={optionOn(id, "showFrom")}
+                  size={optionValue(id, "cardSize") as "small" | "normal" | "large"}
                   isOwner
                   editing
                 />
@@ -673,52 +689,52 @@ export default function ProfileOverview({
             }
           : /* Les épinglés et les génériques s'écrivent au crayon, comme les
                personnages (03/11/2026) ; ils sont rangés dans la disposition. */
-            id === "pinned" && isOwner
+            type === "pinned" && isOwner
             ? {
                 label: t("profile.blocks.pinned.manage"),
                 node: (
                   <PinnedBlock
-                    pins={parsePins(savedString("pinned", "pins"))}
+                    pins={parsePins(savedString(id, "pins"))}
                     entries={entries}
                     isOwner
-                    onChange={(p) => setOption("pinned", "pins", JSON.stringify(p))}
+                    onChange={(p) => setOption(id, "pins", JSON.stringify(p))}
                     /* Le crayon part de l'exemple affiché (08/11/2026, Luc). */
                     sample={sampleEntries(entries, 3).map((e) => e.mediaId)}
                   />
                 ),
               }
-            : id === "themes" && isOwner
+            : type === "themes" && isOwner
               ? {
                   label: t("profile.blocks.themes.manage"),
                   node: (
                     <ThemesBlock
-                      favs={parseThemes(savedString("themes", "themes"))}
+                      favs={parseThemes(savedString(id, "themes"))}
                       entries={entries}
                       isOwner
-                      onChange={(f) => setOption("themes", "themes", JSON.stringify(f))}
+                      onChange={(f) => setOption(id, "themes", JSON.stringify(f))}
                       sample={sampleEntries(entries, 5).map((e) => e.mediaId)}
                     />
                   ),
                 }
               : /* Le bingo : chaque case se clique pour choisir son objectif (04/11/2026). */
-                id === "bingo" && isOwner
+                type === "bingo" && isOwner
                 ? {
                     label: t("profile.blocks.bingo.manage"),
                     node: (
                       <BingoBlock
                         days={days}
                         entries={entries}
-                        saved={saved("bingo")}
-                        size={Number(optionValue("bingo", "bingoSize")) || 3}
+                        saved={saved(id)}
+                        size={Number(optionValue(id, "bingoSize")) || 3}
                         isOwner
                         owner={who?.tag ?? undefined}
                         editing
-                        onPatch={(p) => setOptions("bingo", p)}
+                        onPatch={(p) => setOptions(id, p)}
                       />
                     ),
                   }
                 : /* L'affinité : l'ordre et les amis affichés, au crayon (04/11/2026, Luc). */
-                id === "affinity" && isOwner
+                type === "affinity" && isOwner
                 ? {
                     label: t("profile.blocks.affinity.manage"),
                     node: (
@@ -727,7 +743,7 @@ export default function ProfileOverview({
                         owner={who?.tag ?? undefined}
                         prefs={affinityPrefs()}
                         onChange={(p) =>
-                          setOptions("affinity", {
+                          setOptions(id, {
                             ...(p.custom !== undefined ? { affinitySort: p.custom ? "custom" : "affinity" } : {}),
                             ...(p.order ? { affOrder: JSON.stringify(p.order) } : {}),
                             ...(p.hidden ? { affHidden: JSON.stringify(p.hidden) } : {}),
@@ -1033,8 +1049,9 @@ export default function ProfileOverview({
    * en 1×1 et large en 2×4 dans la même fenêtre.
    */
   function blockTitle(id: string, other: boolean): React.ReactNode {
-    if (id === "favorites") {
-      const src = optionValue("favorites", "source");
+    const type = blockType(id);
+    if (type === "favorites") {
+      const src = optionValue(id, "source");
       if (src && src !== "favourites") {
         const custom = src.startsWith(CUSTOM_PREFIX);
         const list = custom
@@ -1061,10 +1078,10 @@ export default function ProfileOverview({
     }
     /* Le bloc ne compte plus des statuts : son nom doit le dire. Sans ça,
        « Répartition par statut » chapeautait une liste de noms inventés. */
-    if (id === "statuses" && onlyCustom()) {
+    if (type === "statuses" && onlyCustom()) {
       return t("profile.blocks.statuses.titleCustom");
     }
-    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
+    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${type}.title`);
   }
 
   /**
@@ -1077,8 +1094,9 @@ export default function ProfileOverview({
    * LONGUE qu'on suggère, celle qu'on lirait sur une carte large.
    */
   function blockName(id: string, other: boolean): string {
-    if (id === "favorites") {
-      const src = optionValue("favorites", "source");
+    const type = blockType(id);
+    if (type === "favorites") {
+      const src = optionValue(id, "source");
       if (src && src !== "favourites") {
         const list = src.startsWith(CUSTOM_PREFIX)
           ? src.slice(CUSTOM_PREFIX.length)
@@ -1087,15 +1105,15 @@ export default function ProfileOverview({
       }
       if (!hasFavourites) return t("profile.blocks.favorites.titleTopRated");
     }
-    if (id === "statuses" && onlyCustom()) {
+    if (type === "statuses" && onlyCustom()) {
       return t("profile.blocks.statuses.titleCustom");
     }
-    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${id}.title`);
+    return t(other ? "profile.blocks.resume.titleOther" : `profile.blocks.${type}.title`);
   }
 
   function body(id: string): React.ReactNode {
     const served = isOwner ? undefined : (activity ?? undefined);
-    switch (id) {
+    switch (blockType(id)) {
       /* `served` reste indéfini chez soi, et c'est délibéré : les deux blocs
          retombent alors sur le localStorage de cet appareil, qui est plus frais
          que la dernière synchronisation et qui se met à jour PENDANT qu'on
@@ -1105,7 +1123,7 @@ export default function ProfileOverview({
         /* 2 de haut et 2 ou 3 de large : l'image passe au-dessus du texte
            (23/10/2026, Luc). Les autres tailles (2×1…4×1, et 4×2 où la vignette
            a la place d'être à gauche) la gardent à gauche. */
-        const item = layout?.find((o) => o.i === "resume");
+        const item = layout?.find((o) => o.i === id);
         return (
           <ResumeBlock
             stacked={item?.h === 2 && (item?.w === 2 || item?.w === 3)}
@@ -1113,7 +1131,7 @@ export default function ProfileOverview({
             other={!isOwner}
             titles={titlesById}
             totals={totalsById}
-            ambient={optionOn("resume", "ambient")}
+            ambient={optionOn(id, "ambient")}
           />
         );
       }
@@ -1125,8 +1143,8 @@ export default function ProfileOverview({
             other={!isOwner}
             titles={titlesById}
             streak={streak ?? 0}
-            streakOn={optionOn("recents", "streak")}
-            coverArt={optionOn("recents", "coverArt")}
+            streakOn={optionOn(id, "streak")}
+            coverArt={optionOn(id, "coverArt")}
             editing={editing}
           />
         );
@@ -1134,10 +1152,10 @@ export default function ProfileOverview({
         return (
           <FavoritesBlock
             entries={entries}
-            source={optionValue("favorites", "source")}
-            scores={blockOptionRange("favorites", "scores", saved("favorites"))}
-            unrated={optionOn("favorites", "unrated")}
-            trailer={optionOn("favorites", "trailer")}
+            source={optionValue(id, "source")}
+            scores={blockOptionRange(id, "scores", saved(id))}
+            unrated={optionOn(id, "unrated")}
+            trailer={optionOn(id, "trailer")}
             editing={editing && isOwner}
           />
         );
@@ -1149,11 +1167,11 @@ export default function ProfileOverview({
         return (
           <ScoresBlock
             entries={entries}
-            completedOnly={optionOn("scores", "completedOnly")}
+            completedOnly={optionOn(id, "completedOnly")}
             editing={editing}
             onPick={
               onPickScore
-                ? (score) => onPickScore(score, optionOn("scores", "completedOnly"))
+                ? (score) => onPickScore(score, optionOn(id, "completedOnly"))
                 : undefined
             }
           />
@@ -1162,37 +1180,37 @@ export default function ProfileOverview({
         return (
           <GenresBlock
             entries={entries}
-            completedOnly={optionOn("genres", "completedOnly")}
+            completedOnly={optionOn(id, "completedOnly")}
           />
         );
       case "years":
         return (
           <YearsBlock
             entries={entries}
-            completedOnly={optionOn("years", "completedOnly")}
-            skipEmpty={optionOn("years", "skipEmpty")}
+            completedOnly={optionOn(id, "completedOnly")}
+            skipEmpty={optionOn(id, "skipEmpty")}
           />
         );
       case "studios":
         return (
-          <StudiosBlock entries={entries} completedOnly={optionOn("studios", "completedOnly")} />
+          <StudiosBlock entries={entries} completedOnly={optionOn(id, "completedOnly")} />
         );
       case "season":
         return (
           <SeasonBlock
             entries={entries}
-            rewatching={optionOn("season", "rewatching")}
-            airingFirst={optionOn("season", "airingFirst")}
-            perRow={blockOptionNumber("season", "perRow", saved("season"))}
-            size={optionValue("season", "cardSize") as "small" | "normal" | "large"}
+            rewatching={optionOn(id, "rewatching")}
+            airingFirst={optionOn(id, "airingFirst")}
+            perRow={blockOptionNumber(id, "perRow", saved(id))}
+            size={optionValue(id, "cardSize") as "small" | "normal" | "large"}
           />
         );
       case "characters":
         return (
           <CharactersBlock
             characters={characters}
-            showFrom={optionOn("characters", "showFrom")}
-            size={optionValue("characters", "cardSize") as "small" | "normal" | "large"}
+            showFrom={optionOn(id, "showFrom")}
+            size={optionValue(id, "cardSize") as "small" | "normal" | "large"}
             isOwner={isOwner}
           />
         );
@@ -1201,7 +1219,7 @@ export default function ProfileOverview({
           <HeatmapBlock
             served={isOwner ? (ownDays ?? undefined) : (watchDays ?? {})}
             editing={editing}
-            streak={optionOn("heatmap", "heatStreak")}
+            streak={optionOn(id, "heatStreak")}
           />
         );
       case "calendar":
@@ -1209,7 +1227,7 @@ export default function ProfileOverview({
           <CalendarBlock
             served={isOwner ? (ownDays ?? undefined) : (watchDays ?? {})}
             entries={entries}
-            bubbles={optionOn("calendar", "calBubbles")}
+            bubbles={optionOn(id, "calBubbles")}
           />
         );
       case "binge":
@@ -1218,23 +1236,23 @@ export default function ProfileOverview({
             served={isOwner ? undefined : (binge ?? null)}
             account={binge ?? null}
             entries={entries}
-            order={optionValue("binge", "bingeOrder") === "watched" ? "watched" : "most"}
+            order={optionValue(id, "bingeOrder") === "watched" ? "watched" : "most"}
           />
         );
       case "goal":
         return (
           <GoalBlock
             days={days}
-            unit={optionValue("goal", "goalUnit") === "animes" ? "animes" : "episodes"}
-            target={blockOptionNumber("goal", "goalTarget", saved("goal")) || 250}
-            colored={optionOn("goal", "goalColor")}
+            unit={optionValue(id, "goalUnit") === "animes" ? "animes" : "episodes"}
+            target={blockOptionNumber(id, "goalTarget", saved(id)) || 250}
+            colored={optionOn(id, "goalColor")}
           />
         );
       case "pinned": {
         /* UN EXEMPLE DANS LE MENU WIDGETS (08/11/2026, Luc : « met des exemples
            par défaut pour que l'utilisateur comprenne ») : sans épinglés, ses
            trois titres les mieux notés, avec une phrase d'exemple. */
-        const pins = parsePins(savedString("pinned", "pins"));
+        const pins = parsePins(savedString(id, "pins"));
         /* Aussi sur le profil, chez le propriétaire (08/11/2026, Luc : « vide,
            regarde sur le profil ») ; un visiteur ne voit jamais de phrases
            prêtées au propriétaire. */
@@ -1244,17 +1262,17 @@ export default function ProfileOverview({
             sample={menuPreview.current || isOwner ? sampleEntries(entries, 3).map((e) => e.mediaId) : undefined}
             entries={entries}
             isOwner={isOwner}
-            showScore={optionOn("pinned", "pinScore")}
+            showScore={optionOn(id, "pinScore")}
           />
         );
       }
       case "themes":
         return (
           <ThemesBlock
-            favs={parseThemes(savedString("themes", "themes"))}
+            favs={parseThemes(savedString(id, "themes"))}
             entries={entries}
             isOwner={isOwner}
-            byKind={optionValue("themes", "themesSort") === "kind"}
+            byKind={optionValue(id, "themesSort") === "kind"}
             /* L'exemple du menu Widgets : l'opening de ses cinq titres les
                mieux notés (08/11/2026, Luc). */
             sample={menuPreview.current || isOwner ? sampleEntries(entries, 5).map((e) => e.mediaId) : undefined}
@@ -1268,14 +1286,14 @@ export default function ProfileOverview({
             entries={entries}
             name={who?.name ?? ""}
             prefs={isOwner ? affinityPrefs() : undefined}
-            onKnown={isOwner ? (tags) => setOption("affinity", "affOrder", JSON.stringify(tags)) : undefined}
+            onKnown={isOwner ? (tags) => setOption(id, "affOrder", JSON.stringify(tags)) : undefined}
           />
         );
       case "bingo": {
         /* DANS LE MENU WIDGETS, UN BINGO QUI SE VOIT (08/11/2026, Luc) : « mon
            bingo » sans carte n'est qu'une grille de cases vides. L'aperçu
            montre alors celui de la saison, en lecture seule. */
-        const s = saved("bingo");
+        const s = saved(id);
         let mine: unknown = [];
         try {
           mine = JSON.parse(String(s?.bingoCells ?? "[]"));
@@ -1291,18 +1309,18 @@ export default function ProfileOverview({
             days={days}
             entries={entries}
             saved={showcase ? { ...s, bingoMode: "season" } : s}
-            size={Number(optionValue("bingo", "bingoSize")) || 3}
+            size={Number(optionValue(id, "bingoSize")) || 3}
             isOwner={isOwner}
             owner={isOwner ? who?.tag ?? undefined : undefined}
             name={who?.name ?? ""}
-            onPatch={isOwner && !showcase ? (p) => setOptions("bingo", p) : undefined}
+            onPatch={isOwner && !showcase ? (p) => setOptions(id, p) : undefined}
           />
         );
       }
       default:
         // Les blocs `soon` : la mise en page est là, et le bloc dit lui-même ce
         // qui lui manque plutôt que d'afficher un chiffre inventé.
-        return <EmptyBlock note={t(`profile.blocks.${id}.soon`)} />;
+        return <EmptyBlock note={t(`profile.blocks.${blockType(id)}.soon`)} />;
     }
   }
 
@@ -1447,6 +1465,7 @@ export default function ProfileOverview({
           onClose={() => setLibrary(false)}
           blocks={BLOCKS.filter((b) => visibleTo(isOwner, b.id))}
           posed={posed}
+          count={count}
           onToggle={toggleBlock}
           onRearrange={() => {
             setLibrary(false);
