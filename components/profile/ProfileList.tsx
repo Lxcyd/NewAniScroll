@@ -530,7 +530,10 @@ function Row({
         <span className="shrink-0 text-xs text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
       ) : null}
       {entry.favourite ? <HeartIcon className="h-5 w-5 shrink-0 text-action" /> : null}
-      <span className="w-14 shrink-0 text-right text-sm tabular-nums text-white/55">{progressText(entry)}</span>
+      {/* Les épisodes dans une case, centrés, jumelle neutre de celle de la note (08/11, Luc). */}
+      <span className="w-16 shrink-0 rounded-lg bg-white/[0.07] py-1.5 text-center text-sm font-semibold tabular-nums text-white/75 ring-1 ring-white/[0.08]">
+        {progressText(entry)}
+      </span>
       {entry.score ? (
         <span className="w-12 shrink-0 rounded-lg bg-as-score/10 py-1.5 text-center text-sm font-bold text-as-score">{entry.score}</span>
       ) : (
