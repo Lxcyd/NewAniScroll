@@ -10,6 +10,7 @@ import {
   columnWidth,
   compact,
   pixelRect,
+  reorderLine,
   resizeItem,
   rowCount,
   type Bounds,
@@ -98,6 +99,9 @@ type Props = {
   /** Renommer un bloc. Absent : les titres ne se modifient pas. */
   onRename?: (id: string, name: string) => void;
   editing: boolean;
+  /** Faux : pas de moins dans le coin, les blocs ne se retirent pas (onglet
+   *  Statistiques, 07/11/2026). La roue prend alors la place du moins. */
+  removable?: boolean;
 };
 
 /**
@@ -171,10 +175,20 @@ type Drag = {
       (ProfileStage), où le curseur parcourt moins de pixels écran que la
       grille n'a de pixels de mise en page. */
   k: number;
+  /** Position de la grille à l'écran au départ : si la page défile pendant le
+      geste, la grille bouge sous le curseur, et l'écart s'ajoute au déplacement. */
+  hx: number;
+  hy: number;
+  /** Dernière position du curseur, pour suivre un défilement sans mouvement. */
+  px: number;
+  py: number;
   x: number;
   y: number;
   w: number;
   h: number;
+  /** La disposition au départ du geste : l'échange dans la ligne (reorderRow)
+      se calcule toujours depuis elle, pas depuis l'état déjà remanié. */
+  base: GridItem[];
 };
 
 /**
@@ -220,6 +234,7 @@ export default function WidgetGrid({
   onOption,
   onRename,
   editing,
+  removable = true,
 }: Props) {
   const { t } = useTranslation();
   const boundsOf = useCallback(
@@ -443,12 +458,17 @@ export default function WidgetGrid({
   });
 
   const onMove = useCallback(
-    (e: PointerEvent) => {
+    (e: { clientX: number; clientY: number }) => {
       const d = dragRef.current;
       if (!d) return;
+      d.px = e.clientX;
+      d.py = e.clientY;
       const cw = columnWidth(width || 1);
-      const dx = (e.clientX - d.sx) / d.k;
-      const dy = (e.clientY - d.sy) / d.k;
+      /* LA CARTE RESTE SOUS LA SOURIS QUAND ON DÉFILE (07/11/2026, Luc) : le
+         déplacement se compte par rapport à la grille, pas à l'écran. */
+      const r = hostRef.current?.getBoundingClientRect();
+      const dx = (e.clientX - d.sx - (r ? r.left - d.hx : 0)) / d.k;
+      const dy = (e.clientY - d.sy - (r ? r.top - d.hy : 0)) / d.k;
       if (d.mode === "move") {
         const nx = Math.min(COLS - d.w, Math.max(0, d.x + Math.round(dx / (cw + GAP))));
         const ny = Math.max(0, d.y + Math.round(dy / (ROW + GAP)));
@@ -463,12 +483,39 @@ export default function WidgetGrid({
            « laggy »). Elle était recalculée et renvoyée au profil à CHAQUE
            mouvement de souris, qui redessinait alors tout l'aperçu. Entre deux
            cases, seul `offset` bouge : la carte suit la main, rien d'autre. */
+        /* DANS SA LIGNE, LE BLOC ÉCHANGE SA PLACE AVEC SON VOISIN, comme les
+           cartes du Bingo (07/11/2026, Luc) : son centre posé sur un voisin
+           suffit, et les blocs d'entre les deux se décalent. Hors de sa ligne,
+           ou sur un trou, la pose case par case d'avant. */
+        /* À l'horizontale dans sa rangée, ou à la verticale dans sa colonne
+           (reorderLine, grid.ts : les blocs empilés à côté bougent ensemble).
+           En diagonale, la pose d'avant. */
+        const cxCol = d.x + d.w / 2 + dx / (cw + GAP);
+        const cyRow = d.y + d.h / 2 + dy / (ROW + GAP);
+        /* Revenu sur sa propre place : la disposition d'origine, telle quelle. */
+        const home =
+          cxCol >= d.x && cxCol < d.x + d.w && cyRow >= d.y && cyRow < d.y + d.h;
+        const swapped = home
+          ? d.base
+          : ny === d.y
+            ? reorderLine(d.base, d.id, cxCol, "x")
+            : nx === d.x
+              ? reorderLine(d.base, d.id, cyRow, "y")
+              : null;
         const cur = layoutRef.current.find((o) => o.i === d.id);
-        if (cur && cur.x === nx && cur.y === ny) return;
+        if (!swapped && cur && cur.x === nx && cur.y === ny) return;
         const moved = layoutRef.current.map((o) =>
           o.i === d.id ? { ...o, x: nx, y: ny } : o,
         );
-        const next = compact(moved, d.id);
+        const next = swapped ?? compact(moved, d.id);
+        if (
+          swapped &&
+          swapped.every((o) => {
+            const c = layoutRef.current.find((p) => p.i === o.i);
+            return c && c.x === o.x && c.y === o.y;
+          })
+        )
+          return;
         layoutRef.current = next;
         setLive(next);
       } else {
@@ -541,7 +588,16 @@ export default function WidgetGrid({
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);
+    /* Un défilement (molette, ou le studio qui défile) sans bouger la souris :
+       la carte doit suivre quand même. `capture` attrape aussi le défilement
+       des cadres internes (`.as-stage`), dont l'événement ne remonte pas. */
+    const onScroll = () => {
+      const d = dragRef.current;
+      if (d) onMove({ clientX: d.px, clientY: d.py });
+    };
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     return () => {
+      window.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", endDrag);
       window.removeEventListener("pointercancel", endDrag);
@@ -619,11 +675,16 @@ export default function WidgetGrid({
     const it = layoutRef.current.find((o) => o.i === id);
     if (!it) return;
     setSettings(null);
+    const hr = hostRef.current?.getBoundingClientRect();
     const started: Drag = {
       id,
       mode,
       sx,
       sy,
+      hx: hr?.left ?? 0,
+      hy: hr?.top ?? 0,
+      px: sx,
+      py: sy,
       k: (() => {
         const host = hostRef.current;
         const k = host && host.offsetWidth ? host.getBoundingClientRect().width / host.offsetWidth : 1;
@@ -633,6 +694,7 @@ export default function WidgetGrid({
       y: it.y,
       w: it.w,
       h: it.h,
+      base: layoutRef.current,
     };
     dragRef.current = started;
     moveRef.current = { dx: 0, dy: 0 };
@@ -988,7 +1050,7 @@ export default function WidgetGrid({
                 seconde pastille sur une carte qui en a déjà une, celle de la
                 couleur du bloc, et se lirait comme un élément du bloc plutôt
                 que comme une commande. */}
-            {editing ? (
+            {editing && removable ? (
               <button
                 type="button"
                 /* Le `draggableCancel` du moins : sans lui, appuyer dessus
@@ -1020,7 +1082,7 @@ export default function WidgetGrid({
                 aria-label={t("profile.widgets.settings")}
                 aria-expanded={settings === it.i}
                 title={t("profile.widgets.settings")}
-                className={`absolute right-7 top-0 z-[2] flex h-7 w-7 items-start justify-end p-[7px] transition-colors ${
+                className={`absolute ${removable ? "right-7" : "right-0"} top-0 z-[2] flex h-7 w-7 items-start justify-end p-[7px] transition-colors ${
                   settings === it.i ? "text-white" : "text-white/60 hover:text-white"
                 }`}
               >

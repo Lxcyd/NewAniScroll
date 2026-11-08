@@ -115,6 +115,112 @@ export function compact(items: GridItem[], pinned?: string): GridItem[] {
   return out;
 }
 
+/**
+ * L'ÉCHANGE, COMME LES CARTES DU BINGO (07/11/2026, Luc).
+ *
+ * Le bloc `id` est porté le long d'un axe — `"x"` dans sa rangée, `"y"` dans
+ * sa colonne — et `center` est la position, fractionnaire en cases, de son
+ * centre sur cet axe.
+ *
+ * LA BANDE. Sur l'axe x, c'est la hauteur du bloc, élargie à tout bloc qui la
+ * chevauche, jusqu'à ce que plus rien ne dépasse : un calendrier 2×2 à côté de
+ * deux blocs 1×2 empilés forme une bande de deux lignes. (Sur l'axe y, même
+ * chose avec les colonnes.)
+ *
+ * LES TRANCHES. Dans la bande, les blocs qui se recouvrent sur l'axe font une
+ * seule tranche : les deux blocs empilés bougent ENSEMBLE. Si le centre du
+ * bloc porté est sur une autre tranche, la sienne prend ce rang et celles
+ * d'entre les deux se décalent d'un cran — à deux, c'est un échange : le
+ * calendrier passe à droite, la pile à gauche. Les tranches se rangent ensuite
+ * bout à bout depuis la première, chacune gardant son dessin intérieur.
+ *
+ * D'ABORD SANS ÉLARGIR. La bande élargie peut avaler tout le profil (un bloc
+ * pleine largeur au-dessus de deux blocs empilés soude toute la colonne) : on
+ * essaie donc d'abord avec les seuls blocs contenus dans la bande du bloc
+ * porté, les autres faisant mur, et on n'élargit qu'à défaut.
+ *
+ * `null` : le centre n'est sur aucune autre tranche, ou ça ne tient pas.
+ */
+export function reorderLine(
+  items: GridItem[],
+  id: string,
+  center: number,
+  axis: "x" | "y",
+): GridItem[] | null {
+  return lineSwap(items, id, center, axis, false) ?? lineSwap(items, id, center, axis, true);
+}
+
+function lineSwap(
+  items: GridItem[],
+  id: string,
+  center: number,
+  axis: "x" | "y",
+  grow: boolean,
+): GridItem[] | null {
+  const me = items.find((o) => o.i === id);
+  if (!me) return null;
+  /* `p` : la position sur l'axe du geste, `s` sa taille ; `q`/`t` l'autre axe. */
+  const p = (o: GridItem) => (axis === "x" ? o.x : o.y);
+  const s = (o: GridItem) => (axis === "x" ? o.w : o.h);
+  const q = (o: GridItem) => (axis === "x" ? o.y : o.x);
+  const t = (o: GridItem) => (axis === "x" ? o.h : o.w);
+
+  let lo = q(me);
+  let hi = q(me) + t(me);
+  for (let grew = grow; grew; ) {
+    grew = false;
+    for (const o of items) {
+      if (q(o) < hi && q(o) + t(o) > lo && (q(o) < lo || q(o) + t(o) > hi)) {
+        lo = Math.min(lo, q(o));
+        hi = Math.max(hi, q(o) + t(o));
+        grew = true;
+      }
+    }
+  }
+  const inBand = (o: GridItem) => q(o) >= lo && q(o) + t(o) <= hi;
+  const band = items.filter(inBand).sort((a, b) => p(a) - p(b));
+  /* Les blocs à cheval sur la bande sont des murs. */
+  const walls = items.filter((o) => !inBand(o) && q(o) < hi && q(o) + t(o) > lo);
+
+  type Slice = { a: number; b: number; ids: string[] };
+  const slices: Slice[] = [];
+  for (const o of band) {
+    const last = slices[slices.length - 1];
+    if (last && p(o) < last.b) {
+      last.b = Math.max(last.b, p(o) + s(o));
+      last.ids.push(o.i);
+    } else slices.push({ a: p(o), b: p(o) + s(o), ids: [o.i] });
+  }
+  const from = slices.findIndex((sl) => sl.ids.includes(id));
+  const to = slices.findIndex((sl, k) => k !== from && center >= sl.a && center < sl.b);
+  if (from < 0 || to < 0) return null;
+
+  /* Seulement les tranches d'entre les deux bougent ; un mur au milieu, et
+     l'échange ne se fait pas. */
+  const [i0, i1] = from < to ? [from, to] : [to, from];
+  const span = slices.slice(i0, i1 + 1);
+  const a0 = span[0].a;
+  const b1 = span[span.length - 1].b;
+  if (walls.some((o) => p(o) < b1 && p(o) + s(o) > a0)) return null;
+  const order = span.filter((sl) => sl !== slices[from]);
+  order.splice(to - i0, 0, slices[from]);
+  let at = a0;
+  const shift = new Map<string, number>();
+  for (const sl of order) {
+    for (const i of sl.ids) shift.set(i, at - sl.a);
+    at += sl.b - sl.a;
+  }
+  if (axis === "x" && at > COLS) return null;
+  return compact(
+    items.map((o) => {
+      const d = shift.get(o.i);
+      if (!d) return o;
+      return axis === "x" ? { ...o, x: o.x + d } : { ...o, y: o.y + d };
+    }),
+    id,
+  );
+}
+
 /** Le premier emplacement libre pour un bloc w×h, balayé en lecture. */
 export function place(
   items: GridItem[],

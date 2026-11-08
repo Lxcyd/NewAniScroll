@@ -3582,8 +3582,16 @@ html.as-dragging .as-nudge {
 /* Deuxième passe, « vraiment plus gros » (Luc) : un 4×2 (~300 px de contenu)
    donne un titre de ~45 px, des pilules de ~57 px et un bouton de lecture de
    ~90 px ; un 2×1 ne bouge presque pas (les planchers tiennent). */
+/* LE TEXTE SE MESURE SUR SA COLONNE (07/11/2026, Luc : « le texte prend pas
+   la bonne place et décale tout le reste »). En `cqh` de la carte entière, le
+   titre ignorait la largeur de sa colonne et l'en-tête du bloc : à côté d'une
+   large vignette il prenait trois grosses lignes et débordait. La colonne est
+   donc son propre conteneur, et le titre suit aussi sa largeur (`cqw`). */
+.as-resume-text {
+  container-type: size;
+}
 .as-resume-in:not(.as-resume-stacked) .as-widget-lead {
-  font-size: clamp(1.125rem, 15cqh, 3.5rem);
+  font-size: clamp(1.125rem, min(15cqh, 9cqw), 3.5rem);
   line-height: 1.1;
 }
 .as-resume-in:not(.as-resume-stacked) .as-widget-sub {

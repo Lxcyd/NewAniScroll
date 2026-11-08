@@ -3,7 +3,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import Head from "next/head";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SparklesIcon } from "@heroicons/react/24/solid";
+import ResetWidgetsButton, { popIn } from "@/components/profile/ResetWidgetsButton";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../api/auth/[...nextauth]";
@@ -11,7 +11,6 @@ import { authOptions } from "../../api/auth/[...nextauth]";
 import { Navbar } from "@/components/shared/NavBar";
 import Footer from "@/components/shared/footer";
 import QueueSection from "@/components/list/QueueSection";
-import ForYouPanel from "@/components/discover/ForYouPanel";
 import ProfileHero, {
   heroStats,
   previewBanner,
@@ -53,7 +52,7 @@ import { bannerCandidates, rankCandidates, studioOrder } from "@/lib/profile/fav
 import { useOwnLiveEntries } from "@/lib/profile/liveEntries";
 import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
-import { DEFAULT_BLOCKS, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
+import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import { activityFromCloud, type ActivityRow, type Binge, type WatchDays } from "@/lib/profile/activity";
 import { trailersFor } from "@/lib/db/anime";
@@ -159,7 +158,16 @@ type Props = {
 
 import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
 
-export default function Profile({
+/* UN PROFIL = UN MONTAGE (07/11/2026, Luc : « sur le profil d'un ami c'est mon
+   fond qui est chargé »). Next garde le même composant d'une page profil à
+   l'autre : sans clé, tout l'état (`useState(initialBanner)`, le brouillon du
+   studio, l'onglet, la disposition…) survivait à la navigation, et le profil
+   d'un ami s'affichait avec l'habillage du précédent. */
+export default function Profile(props: Props) {
+  return <ProfileView key={props.identity?.tag ?? props.viewedName ?? "profile"} {...props} />;
+}
+
+function ProfileView({
   identity,
   stats,
   entries: serverEntries,
@@ -258,7 +266,6 @@ export default function Profile({
     () => (isOwner ? mergeBadgeState(badges ?? { v: 1, got: {} }, localBadges) : badges)?.got ?? null,
     [isOwner, badges, localBadges],
   );
-  const [showForYou, setShowForYou] = useState(false);
   /* L'onglet ouvert. « Aperçu » d'abord : c'est la vitrine, la liste complète
      est à un clic. L'état reste local, mais il est MIROITÉ DANS LE FRAGMENT
      (`#stats`, `#badges`) — pas dans le chemin : une URL par onglet ferait
@@ -416,7 +423,8 @@ export default function Profile({
         stats={heroStats(t, stats)}
         earned={earned}
         isOwner={isOwner}
-        onEditBanner={openEditor}
+        /* Plus de palette sur le bandeau (08/11/2026, Luc) : « Personnaliser
+           le profil », à côté des onglets, est la seule entrée du studio. */
         studio={picker ? studioBridge : null}
         musicPaused={musicPaused}
       />
@@ -446,14 +454,19 @@ export default function Profile({
             gauche du contenu : les widgets occupent alors la place à sa droite,
             et continuent sous elle en défilant, la colonne restant collée en
             haut. En dessous de `lg` la colonne repasse au-dessus du contenu —
-            deux colonnes sur un téléphone n'en font qu'une, étroite. */}
+            deux colonnes sur un téléphone n'en font qu'une, étroite.
+            À partir de 1800 px, la colonne des widgets garde la place et la
+            largeur de l'agencement sans colonne (centrée, screen-xl) et la
+            carte d'identité passe dans la marge de gauche (07/11/2026, Luc). */}
         <div
           className={`mx-auto w-full max-w-screen-xl px-4 pb-16 pt-10 ${
-            asideLayout ? "flex flex-col gap-6 lg:flex-row lg:items-start" : ""
+            asideLayout
+              ? "flex flex-col gap-6 lg:flex-row lg:items-start min-[1800px]:grid min-[1800px]:max-w-none min-[1800px]:grid-cols-[minmax(0,1fr)_minmax(0,80rem)_minmax(0,1fr)] min-[1800px]:items-start min-[1800px]:gap-0 min-[1800px]:px-0"
+              : ""
           }`}
         >
         {asideLayout ? (
-          <div className="w-full shrink-0 lg:w-72">
+          <div className="w-full shrink-0 lg:w-72 min-[1800px]:w-[min(18rem,calc(100%-2rem))] min-[1800px]:ml-4 min-[1800px]:justify-self-center">
             <ProfileAside
               name={identity.name}
               tag={identity.tag}
@@ -471,7 +484,7 @@ export default function Profile({
             />
           </div>
         ) : null}
-        <div className={asideLayout ? "min-w-0 flex-1" : "contents"}>
+        <div className={asideLayout ? "min-w-0 flex-1 min-[1800px]:px-4" : "contents"}>
         <div ref={tabsRef} className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <ProfileTabs
             tabs={[
@@ -486,14 +499,22 @@ export default function Profile({
             active={tab}
             onChange={changeTab}
           />
-          {isOwner && (
+          {/* RÉINITIALISER LES WIDGETS (08/11/2026, Luc) : dans le studio
+              seulement, À LA PLACE de « Personnaliser le profil ». */}
+          {isOwner && picker ? <ResetWidgetsButton /> : null}
+          {/* PERSONNALISER LE PROFIL, à la place de « Pour toi » (08/11/2026,
+              Luc) : LE bouton qui ouvre le studio. */}
+          {isOwner && !picker && (
             <button
+              ref={popIn}
               type="button"
-              onClick={() => setShowForYou(true)}
+              onClick={openEditor}
               className="inline-flex items-center gap-2 rounded-full bg-action px-5 py-2.5 font-karla text-sm font-bold text-white shadow-glow transition-transform hover:scale-105"
             >
-              <SparklesIcon className="h-5 w-5" />
-              {t("recommend.title")}
+              <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden>
+                <path d="M12,22q-2.05,0-3.88-0.79Q6.3,20.43 4.94,19.06Q3.58,17.7 2.79,15.88T2,12Q2,9.92 2.81,8.1q0.81-1.83 2.2-3.17Q6.4,3.57 8.25,2.79T12.2,2q2,0 3.78,0.69t3.11,1.9t2.13,2.88Q22,9.13 22,11.05q0,2.88-1.75,4.41T16,17H14.15q-0.22,0-0.31,0.13T13.75,17.4q0,0.3 0.38,0.86t0.38,1.29q0,1.25-0.69,1.85T12,22Zm0-10ZM7.58,12.58Q8,12.15 8,11.5T7.58,10.43T6.5,10T5.43,10.43T5,11.5t0.43,1.07T6.5,13t1.08-0.43Zm3-4Q11,8.15 11,7.5T10.58,6.43T9.5,6T8.43,6.43T8,7.5T8.43,8.57T9.5,9t1.08-0.43Zm5,0Q16,8.15 16,7.5T15.58,6.43T14.5,6T13.43,6.43T13,7.5t0.43,1.07T14.5,9t1.08-0.43Zm3,4Q19,12.15 19,11.5t-0.43-1.08T17.5,10t-1.07,0.42T16,11.5t0.43,1.07T17.5,13t1.07-0.43ZM12,20q0.23,0 0.36-0.13t0.14-0.32q0-0.35-0.38-0.82T11.75,17.3q0-1.05 0.73-1.68T14.25,15H16q1.65,0 2.82-0.96T20,11.05q0-3.03-2.31-5.04T12.2,4Q8.8,4 6.4,6.32T4,12q0,3.32 2.34,5.66T12,20Z" />
+              </svg>
+              {t("profile.customizeProfile")}
             </button>
           )}
           {!isOwner && identity.tag ? <FriendButton tag={identity.tag} /> : null}
@@ -517,7 +538,29 @@ export default function Profile({
           />
         ) : null}
 
-        {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+        {/* L'onglet Statistiques sur la grille de l'aperçu (07/11/2026, Luc) :
+            six blocs fixes, déplaçables, redimensionnables et réglables, mais ni
+            ajoutés ni retirés (variant="stats", ProfileOverview.tsx). */}
+        {tab === "stats" ? (
+          <ProfileOverview
+            variant="stats"
+            entries={entries}
+            characters={characters}
+            isOwner={isOwner}
+            activity={activity ?? null}
+            streak={streak ?? null}
+            watchDays={watchDays ?? null}
+            binge={binge ?? null}
+            earned={earned}
+            who={identity}
+            onPickScore={openScore}
+            /* En édition avec le studio, comme l'Aperçu (08/11/2026, Luc :
+               plus de bouton « Réorganiser ») : on range les statistiques en
+               ouvrant le studio puis l'onglet. */
+            editing={picker}
+            onEditingChange={(on) => (on ? setPicker(true) : closeEditor())}
+          />
+        ) : null}
 
         {/* `live` seulement chez soi : les barres se calculent depuis les
             stores de CET appareil. Sur le profil d'un autre, on n'a que sa
@@ -559,7 +602,6 @@ export default function Profile({
 
       {isOwner && (
         <>
-          <ForYouPanel isVisible={showForYou} onClose={() => setShowForYou(false)} />
           {studioEverOpened && (
             <BannerStudio
               open={picker}
@@ -1200,8 +1242,11 @@ export async function getServerSideProps(context: any) {
      C'est le seul moyen qu'a quelqu'un de ne pas publier sa lecture. */
   /* Le fil d'activité AniList (03/11/2026) : seulement pour les blocs qui
      comptent des jours ou des sessions. Une ligne de plus, lue par profil. */
+  /* Sans disposition rangée, c'est la disposition par défaut qui s'affiche :
+     les garde-fous lisent donc celle-là. */
+  const shown: readonly GridItem[] = profileLayout ?? DEFAULT_LAYOUT;
   const feed =
-    account && account.anilistId && profileLayout?.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge"].includes(o.i))
+    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge"].includes(o.i))
       ? await getAnilistFeed(account.id).catch(() => null)
       : null;
   const read = layoutWantsActivity(profileLayout)
@@ -1215,9 +1260,9 @@ export async function getServerSideProps(context: any) {
   /* Le journal des jours, sous le même garde-fou et seulement si la grille
      montre le calendrier ou la heatmap : sans eux, rien ne l'afficherait. */
   const watchDays: WatchDays | null =
-    read && profileLayout?.some((o) => ["calendar", "heatmap", "goal", "bingo"].includes(o.i)) ? read.days : null;
+    read && shown.some((o) => ["calendar", "heatmap", "goal", "bingo"].includes(o.i)) ? read.days : null;
   /* Le plus long binge, sous le même garde-fou, seulement si son bloc est posé. */
-  const binge: Binge | null = read && profileLayout?.some((o) => o.i === "binge") ? read.binge : null;
+  const binge: Binge | null = read && shown.some((o) => o.i === "binge") ? read.binge : null;
 
   /* An AniList account brings its own banner. It is the plate only when there
      is no list to draw one from — an anime the viewer actually rated says more

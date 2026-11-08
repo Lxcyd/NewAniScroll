@@ -45,7 +45,7 @@ import { sendMyTaste } from "@/lib/friends/client";
 import type { Binge } from "@/lib/profile/activity";
 import {
   BLOCKS,
-  DEFAULT_BLOCKS,
+  DEFAULT_LAYOUT,
   blockBounds,
   blockDef,
   blockOption,
@@ -60,12 +60,25 @@ import {
 } from "@/lib/profile/blocks";
 import {
   MAX_VALUE as MAX_NAME,
+  GAP,
+  ROW,
   addItem,
   compact,
+  pixelRect,
+  rowCount,
   sanitizeLayout,
   type GridItem,
 } from "@/lib/profile/grid";
 import { setProfileLayout, useProfileLayout } from "@/lib/prefs/profileLayout";
+import {
+  NO_WIDGETS,
+  publishWidgets,
+  useWidgetsMenuOpen,
+  WIDGETS_MENU_EVENT,
+  WIDGETS_RESET_EVENT,
+  type WidgetPreview,
+} from "@/lib/profile/widgetBridge";
+import WidgetAddIcon from "./WidgetAddIcon";
 import type { ProfileCharacter, ProfileEntry, ProfileTitle } from "@/lib/profile/types";
 
 /**
@@ -138,7 +151,32 @@ type Props = {
    */
   editing?: boolean;
   onEditingChange?: (on: boolean) => void;
+  /** L'onglet « Statistiques » (07/11/2026, Luc) : la même grille, avec un
+   *  jeu de blocs FIXE (STATS_LAYOUT) — on les déplace, on les redimensionne,
+   *  on les règle, mais on n'en ajoute ni n'en retire. Disposition gardée dans
+   *  le localStorage de cet appareil (STATS_KEY), chez soi seulement. */
+  variant?: "stats";
 };
+
+const STATS_KEY = "aniscroll:statsTabLayoutTmp";
+/* La disposition de Luc (07/11/2026, « garde cette organisation par défaut »). */
+const STATS_LAYOUT: readonly GridItem[] = [
+  { i: "statuses", x: 0, y: 0, w: 2, h: 1 },
+  { i: "heatmap", x: 2, y: 0, w: 2, h: 1 },
+  { i: "genres", x: 0, y: 1, w: 2, h: 2 },
+  { i: "scores", x: 2, y: 1, w: 2, h: 1 },
+  { i: "studios", x: 2, y: 2, w: 2, h: 1 },
+  { i: "years", x: 0, y: 3, w: 4, h: 1 },
+];
+const STATS_IDS = new Set(STATS_LAYOUT.map((o) => o.i));
+
+/** Une disposition rangée, ramenée au jeu fixe : les blocs en trop partent,
+ *  ceux qui manquent reviennent à leur taille par défaut. */
+function statsLayout(saved: GridItem[]): GridItem[] {
+  let out = sanitizeLayout(saved, (id) => STATS_IDS.has(id), blockBounds);
+  for (const d of STATS_LAYOUT) if (!out.some((o) => o.i === d.i)) out = addItem(out, d.i, d.w, d.h);
+  return out;
+}
 
 /**
  * CE QUE LE PROPRIÉTAIRE VIENT DE RANGER, GARDÉ POUR LA DURÉE DE LA PAGE.
@@ -162,18 +200,29 @@ type Props = {
  */
 let ownLayout: { items: GridItem[] | null } | null = null;
 
-function defaultLayout(isOwner: boolean): GridItem[] {
-  let items: GridItem[] = [];
-  for (const id of DEFAULT_BLOCKS) {
-    if (!visibleTo(isOwner, id)) continue;
-    const [w, h] = blockSize(id);
-    items = addItem(items, id, w, h);
-  }
-  return items;
+/* La disposition par défaut, places et réglages compris (DEFAULT_LAYOUT),
+   copiée pour que personne ne modifie la constante. */
+function defaultLayout(isOwner: boolean, variant?: "stats"): GridItem[] {
+  return sanitizeLayout(
+    (variant === "stats" ? STATS_LAYOUT : DEFAULT_LAYOUT).filter((o) => visibleTo(isOwner, o.i)).map((o) => ({ ...o, ...(o.s ? { s: { ...o.s } } : {}) })),
+    isKnownBlock,
+    blockBounds,
+  );
 }
 
 /* Les widgets retirés, gardés pour leur retour (cf. `commit`). */
 const REMOVED_KEY = "aniscroll:removedWidgets";
+/** Les proportions d'une case du menu Widgets du studio (WidgetMenuTile). */
+const TILE_RATIO = 2;
+/** La largeur de la grille de l'Aperçu à sa dernière mesure (aperçus du menu). */
+let lastGridW = 0;
+/** Montrés dans le menu à leur taille par défaut, pas à la plus grande qui
+    remplit la case (08/11/2026, Luc) : l'affinité n'a qu'une ligne par ami,
+    en 4×2 réduit elle devenait illisible ; en 2×1 elle remplit la case
+    presque aussi bien et se lit. « Reprendre la lecture » en 4×2 : ses
+    pilules grandissent avec la hauteur et « Plus d'infos » sortait de la
+    carte, coupé (même jour). */
+const AT_DEFAULT_SIZE = new Set(["affinity", "resume"]);
 type Removed = { w: number; h: number; s?: GridItem["s"] };
 function readRemoved(): Record<string, Removed> {
   try {
@@ -224,6 +273,7 @@ export default function ProfileOverview({
   onPickScore,
   editing: editingProp,
   onEditingChange,
+  variant,
 }: Props) {
   const { t } = useTranslation();
 
@@ -276,6 +326,16 @@ export default function ProfileOverview({
 
   useEffect(() => {
     if (!loaded) return;
+    if (variant === "stats") {
+      let mine: GridItem[] | null = null;
+      try {
+        if (isOwner) mine = JSON.parse(localStorage.getItem(STATS_KEY) || "null");
+      } catch {}
+      setLayout(
+        compact(Array.isArray(mine) ? statsLayout(mine) : defaultLayout(isOwner, variant)),
+      );
+      return;
+    }
     /* La disposition rangée pendant CETTE session l'emporte sur celle du rendu
        serveur : elle est postérieure, et la prop ne sera rafraîchie qu'au
        prochain chargement de la page (cf. `ownLayout`). */
@@ -355,6 +415,13 @@ export default function ProfileOverview({
 
   function save(next: GridItem[] | null) {
     if (!isOwner) return;
+    if (variant === "stats") {
+      try {
+        if (next) localStorage.setItem(STATS_KEY, JSON.stringify(next));
+        else localStorage.removeItem(STATS_KEY);
+      } catch {}
+      return;
+    }
     /* Retenue AVANT l'envoi, et quel que soit son sort : ce qui est à l'écran
        est ce que le propriétaire a voulu, et un changement d'onglet ne doit pas
        le défaire même si le réseau, lui, a échoué. */
@@ -387,6 +454,154 @@ export default function ProfileOverview({
     () => new Set((layout || []).map((o) => o.i)),
     [layout],
   );
+
+  /** Poser un bloc absent, retirer un bloc posé : la bibliothèque et le menu
+      Widgets du studio passent tous deux par ici. */
+  function toggleBlock(id: string) {
+    const cur = layout || [];
+    if (posed.has(id)) {
+      commit(compact(cur.filter((o) => o.i !== id)));
+    } else {
+      const back = takeRemoved(id);
+      const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
+      const added = addItem(cur, id, w, h);
+      commit(back?.s ? added.map((o) => (o.i === id ? { ...o, s: back.s } : o)) : added);
+    }
+  }
+  /* Le menu Widgets du studio (lib/profile/widgetBridge) : la grille de
+     l'Aperçu seulement — celle des Statistiques n'ajoute ni ne retire rien. */
+  const gridBox = useRef<HTMLDivElement>(null);
+  /** Le bloc qu'on vient d'ajouter depuis le menu, à faire apparaître. */
+  const [fresh, setFresh] = useState<{ id: string; n: number } | null>(null);
+  /** UN CLIC DANS LE MENU AJOUTE LE WIDGET À LA FIN (07/11/2026, Luc, à la
+      place du glisser) : rien s'il est déjà posé. Dans les deux cas la vue
+      descend jusqu'à lui et le fait apparaître. */
+  function addBlock(id: string) {
+    const cur = layout || [];
+    if (!posed.has(id)) {
+      const back = takeRemoved(id);
+      const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
+      /* Sous la dernière ligne, pas dans le premier trou venu. */
+      const item: GridItem = { i: id, x: 0, y: rowCount(cur), w, h, ...(back?.s ? { s: back.s } : null) };
+      commit(cur.concat([item]));
+    }
+    setFresh((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  }
+  /* Après le rendu qui a posé le bloc : descendre jusqu'à lui, puis le faire
+     surgir. Défilement et animation en JS (Web Animations) et pas en CSS :
+     le Chrome de Luc est en `prefers-reduced-motion`, un défilement `smooth`
+     ou une animation sous la media query y seraient instantanés. */
+  useEffect(() => {
+    if (!fresh) return;
+    const el = gridBox.current?.querySelector<HTMLElement>(`[data-widget="${CSS.escape(fresh.id)}"]`);
+    if (!el) return;
+    let raf = 0;
+    let cancelled = false;
+    const pop = () => {
+      if (cancelled) return;
+      /* NI `opacity` NI `filter` SUR LA CARTE (08/11/2026, Luc : fond « de
+         survol » pendant l'animation). L'un comme l'autre en fait une racine
+         de fond : le flou de son `::before` ne voit plus le décor derrière et
+         la carte change de teinte le temps de l'animation. `scale` (une
+         transformation) et l'ombre ne touchent pas au flou. */
+      /* Plus de liseré rose (08/11/2026, Luc) : la carte surgit, son ombre
+         s'efface en fondu — la dernière image ne la nomme pas, elle revient
+         donc à celle de la carte. */
+      el.animate(
+        [
+          { offset: 0, scale: "0.6", boxShadow: "0 0 0 rgba(0,0,0,0)", easing: "cubic-bezier(.2,.8,.2,1)" },
+          { offset: 0.3, scale: "1.04", boxShadow: "0 20px 50px rgba(0,0,0,0.55)" },
+          { offset: 0.5, scale: "1", easing: "ease-out" },
+          { offset: 1, scale: "1" },
+        ],
+        { duration: 1100 },
+      );
+    };
+    /* Le premier ancêtre qui défile : `.as-stage` dans le studio, la page
+       sinon. */
+    let box: HTMLElement | null = el.parentElement;
+    while (box) {
+      const oy = getComputedStyle(box).overflowY;
+      if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+      box = box.parentElement;
+    }
+    const root = box ?? (document.scrollingElement as HTMLElement);
+    /* `.as-stage` est réduit par un `scale` dans le studio : les mesures à
+       l'écran se divisent par l'échelle pour devenir du défilement. */
+    const br = box?.getBoundingClientRect();
+    const k = box && br && box.offsetHeight ? br.height / box.offsetHeight || 1 : 1;
+    const viewTop = br ? br.top : 0;
+    const viewH = box ? box.clientHeight : window.innerHeight;
+    const r = el.getBoundingClientRect();
+    const from = root.scrollTop;
+    const max = root.scrollHeight - root.clientHeight;
+    const to = Math.max(0, Math.min(max, from + (r.top - viewTop) / k - (viewH - r.height / k) / 2));
+    if (Math.abs(to - from) < 4) {
+      pop();
+    } else {
+      el.style.visibility = "hidden";
+      const t0 = performance.now();
+      const dur = Math.min(550, 220 + Math.abs(to - from) * 0.25);
+      const step = (now: number) => {
+        if (cancelled) return;
+        const p = Math.min(1, (now - t0) / dur);
+        const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+        root.scrollTop = from + (to - from) * e;
+        if (p < 1) raf = requestAnimationFrame(step);
+        else {
+          el.style.visibility = "";
+          pop();
+        }
+      };
+      raf = requestAnimationFrame(step);
+    }
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      el.style.visibility = "";
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh?.n]);
+  const addRef = useRef(addBlock);
+  addRef.current = addBlock;
+  const posedRef = useRef(posed);
+  posedRef.current = posed;
+  /** La disposition par défaut, enregistrée comme telle (pas de copie). */
+  function resetLayout() {
+    save(null);
+    setLayout(defaultLayout(isOwner, variant));
+  }
+  /* Le bouton « Réinitialiser » de l'en-tête du profil (08/11/2026, Luc) :
+     la grille de l'onglet affiché, Aperçu ou Statistiques — une seule est
+     montée à la fois. */
+  const resetRef = useRef(resetLayout);
+  resetRef.current = resetLayout;
+  useEffect(() => {
+    if (!isOwner) return;
+    const go = () => resetRef.current();
+    window.addEventListener(WIDGETS_RESET_EVENT, go);
+    return () => window.removeEventListener(WIDGETS_RESET_EVENT, go);
+  }, [isOwner, variant]);
+  const previewRef = useRef<(id: string) => WidgetPreview | null>(() => null);
+  const menuPreview = useRef(false);
+  const widgetsMenuOpen = useWidgetsMenuOpen();
+  const bridged = isOwner && variant !== "stats" && !!layout;
+  useEffect(() => {
+    if (!bridged) return;
+    publishWidgets({
+      posed,
+      add: (id) => addRef.current(id),
+      preview: (id) => previewRef.current(id),
+    });
+  }, [bridged, posed]);
+  useEffect(() => {
+    if (!bridged) return;
+    /* Sur un autre onglet, le menu Widgets garde ses aperçus (08/11/2026,
+       Luc) : on ne peut plus ajouter (`add` nul), mais les vignettes restent,
+       sous le message. */
+    const keep = previewRef;
+    return () => publishWidgets({ ...NO_WIDGETS, posed: posedRef.current, preview: (id) => keep.current(id) });
+  }, [bridged]);
 
   function renderBlock(id: string): BlockChrome | null {
     const def = blockDef(id);
@@ -1012,25 +1227,79 @@ export default function ProfileOverview({
             onKnown={isOwner ? (tags) => setOption("affinity", "affOrder", JSON.stringify(tags)) : undefined}
           />
         );
-      case "bingo":
+      case "bingo": {
+        /* DANS LE MENU WIDGETS, UN BINGO QUI SE VOIT (08/11/2026, Luc) : « mon
+           bingo » sans carte n'est qu'une grille de cases vides. L'aperçu
+           montre alors celui de la saison, en lecture seule. */
+        const s = saved("bingo");
+        let mine: unknown = [];
+        try {
+          mine = JSON.parse(String(s?.bingoCells ?? "[]"));
+        } catch {
+          /* illisible : traité comme vide */
+        }
+        const showcase =
+          menuPreview.current &&
+          s?.bingoMode !== "season" &&
+          !(Array.isArray(mine) && mine.some((c) => typeof c === "string" && c && c !== "-"));
         return (
           <BingoBlock
             days={days}
             entries={entries}
-            saved={saved("bingo")}
+            saved={showcase ? { ...s, bingoMode: "season" } : s}
             size={Number(optionValue("bingo", "bingoSize")) || 3}
             isOwner={isOwner}
             owner={isOwner ? who?.tag ?? undefined : undefined}
             name={who?.name ?? ""}
-            onPatch={isOwner ? (p) => setOptions("bingo", p) : undefined}
+            onPatch={isOwner && !showcase ? (p) => setOptions("bingo", p) : undefined}
           />
         );
+      }
       default:
         // Les blocs `soon` : la mise en page est là, et le bloc dit lui-même ce
         // qui lui manque plutôt que d'afficher un chiffre inventé.
         return <EmptyBlock note={t(`profile.blocks.${id}.soon`)} />;
     }
   }
+
+  /* L'aperçu du menu Widgets : `menuPreview` dit au contenu qu'il est dessiné
+     pour le menu, le temps de le construire. */
+  previewRef.current = (id) => {
+    menuPreview.current = true;
+    try {
+      const chrome = renderBlock(id);
+      if (!chrome) return null;
+      /* LA TAILLE QUI REMPLIT LA CASE (08/11/2026, Luc : « ceux où tu peux
+         réduire la taille, affiche la taille parfaite pour remplir le
+         rectangle ») : parmi les tailles permises au bloc, celle dont les
+         proportions collent le mieux à la case (2:1) ; à égalité, la plus
+         proche de sa taille par défaut. Un bloc à taille fixe garde la sienne. */
+      /* La dernière largeur mesurée quand la grille n'est plus montée (autre
+         onglet) : sans elle, les aperçus du menu verrouillé étaient dessinés à
+         une autre taille (08/11/2026, Luc). */
+      const measured = gridBox.current?.offsetWidth || 0;
+      if (measured) lastGridW = measured;
+      const gridW = measured || lastGridW;
+      const b = blockBounds(id);
+      const [dw, dh] = blockSize(id);
+      let best = { w: dw, h: dh, fill: -1, dist: Infinity };
+      /* Les blocs carrés (Bingo, calendrier : `square` dans blocks.ts) restent
+         carrés : étirés en 2:1, ils ne ressemblent plus à eux-mêmes
+         (08/11/2026, Luc). */
+      if (blockDef(id)?.square || AT_DEFAULT_SIZE.has(id)) return { chrome, w: dw, h: dh, gridW };
+      for (let w = b.minW; w <= b.maxW; w++)
+        for (let h = b.minH; h <= b.maxH; h++) {
+          const r = pixelRect({ i: id, x: 0, y: 0, w, h }, gridW || 1100);
+          const a = r.width / r.height / TILE_RATIO;
+          const fill = Math.round(Math.min(a, 1 / a) * 100);
+          const dist = Math.abs(w - dw) + Math.abs(h - dh);
+          if (fill > best.fill || (fill === best.fill && dist < best.dist)) best = { w, h, fill, dist };
+        }
+      return { chrome, w: best.w, h: best.h, gridW };
+    } finally {
+      menuPreview.current = false;
+    }
+  };
 
   if (!layout) {
     // Tant que le stockage n'a pas répondu : la hauteur de la grille par défaut,
@@ -1040,8 +1309,14 @@ export default function ProfileOverview({
 
   return (
     <div>
-      {isOwner ? (
+      {/* Piloté par la page (studio), plus de « Ajouter un bloc » ni de
+          « Personnaliser » au-dessus de la grille (08/11/2026, Luc) : le
+          bouton « Personnaliser le profil » de l'en-tête ouvre le studio, et
+          on ajoute un widget depuis son menu ou le bouton sous la grille.
+          Les Statistiques aussi : elles passent en édition avec le studio. */}
+      {isOwner && !controlled ? (
         <div className="mb-5 flex flex-wrap items-center justify-end gap-2.5">
+          {variant === "stats" ? null : (
           <button
             type="button"
             onClick={() => setLibrary(true)}
@@ -1053,6 +1328,7 @@ export default function ProfileOverview({
             </svg>
             {t("profile.widgets.add")}
           </button>
+          )}
           {/* Piloté par la page, le bouton disparaît pendant l'édition : c'est
               le dock du studio qui la termine, en enregistrant le fond avec. */}
           {controlled && editing ? null : (
@@ -1081,6 +1357,7 @@ export default function ProfileOverview({
       {/* Plus de bandeau « Mode réorganisation » au-dessus de la grille
           (retiré le 16/10/2026) : la grille en édition se lit d'elle-même, et
           « Réinitialiser » vit dans la bibliothèque de blocs. */}
+      <div ref={gridBox}>
       <WidgetGrid
         layout={layout}
         onLayout={commit}
@@ -1090,33 +1367,48 @@ export default function ProfileOverview({
         onOption={setOption}
         onRename={setName}
         editing={editing && isOwner}
+        removable={variant !== "stats"}
       />
+      </div>
 
-      {isOwner ? (
+      {/* AJOUTER UN WIDGET, SOUS LA GRILLE (07/11/2026, Luc) : en édition, il
+          ouvre le menu Widgets du studio ; sinon, la bibliothèque. Plus épais
+          et plus haut, et effacé en fondu tant que le menu Widgets est ouvert :
+          il ferait doublon (08/11/2026, Luc). La place reste réservée, la
+          grille ne saute pas. */}
+      {isOwner && editing && variant !== "stats" ? (
+        <button
+          type="button"
+          onClick={() =>
+            controlled ? window.dispatchEvent(new Event(WIDGETS_MENU_EVENT)) : setLibrary(true)
+          }
+          tabIndex={widgetsMenuOpen ? -1 : undefined}
+          aria-hidden={widgetsMenuOpen || undefined}
+          /* LE MÊME ÉCART QU'ENTRE DEUX WIDGETS (08/11/2026, Luc). En édition
+             la grille garde une demi-rangée vide sous elle (WidgetGrid, pour
+             glisser un bloc vers le bas) : le bouton remonte d'autant. */
+          style={{ marginTop: GAP - ROW / 2 }}
+          className={`relative flex w-full items-center justify-center gap-3 rounded-2xl border-[3px] border-dashed border-white/25 py-12 font-outfit text-lg font-bold text-white/75 transition-[opacity,color,background-color,border-color] duration-300 hover:border-action hover:bg-action/10 hover:text-white ${
+            widgetsMenuOpen ? "pointer-events-none opacity-0" : "opacity-100"
+          }`}
+        >
+          <WidgetAddIcon className="h-8 w-8" />
+          {t("profile.widgets.addWidget")}
+        </button>
+      ) : null}
+
+      {isOwner && variant !== "stats" ? (
         <BlockLibrary
           open={library}
           onClose={() => setLibrary(false)}
           blocks={BLOCKS.filter((b) => visibleTo(isOwner, b.id))}
           posed={posed}
-          onToggle={(id) => {
-            const cur = layout || [];
-            if (posed.has(id)) {
-              commit(compact(cur.filter((o) => o.i !== id)));
-            } else {
-              const back = takeRemoved(id);
-              const [w, h] = back ? clampSize(id, back.w, back.h) : blockSize(id);
-              const added = addItem(cur, id, w, h);
-              commit(back?.s ? added.map((o) => (o.i === id ? { ...o, s: back.s } : o)) : added);
-            }
-          }}
+          onToggle={toggleBlock}
           onRearrange={() => {
             setLibrary(false);
             setEditing(true);
           }}
-          onReset={() => {
-            save(null);
-            setLayout(defaultLayout(isOwner));
-          }}
+          onReset={resetLayout}
         />
       ) : null}
     </div>

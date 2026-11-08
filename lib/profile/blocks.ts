@@ -17,7 +17,7 @@
  * Les libellés passent par i18n (`profile.blocks.<id>.title` / `.desc`).
  */
 
-import { DEFAULT_BOUNDS, type Bounds } from "./grid";
+import { DEFAULT_BOUNDS, type Bounds, type GridItem } from "./grid";
 
 export type BlockSource = "list" | "device" | "none" | "soon";
 
@@ -504,14 +504,26 @@ export function blockBounds(id: string): Bounds {
  * Le visiteur d'un profil qui n'est pas le sien ne voit pas les blocs
  * "device" : ils décriraient SA lecture à lui, pas celle du profil.
  */
-export const DEFAULT_BLOCKS = [
-  "resume",
-  "favorites",
-  "recents",
-  "statuses",
-  "scores",
-  "genres",
-] as const;
+/* LA DISPOSITION DE LUC (07/11/2026, Luc : « met ça par défaut ») : places,
+   tailles et réglages repris de son profil. Seuls les réglages génériques sont
+   gardés — ses objectifs perso, ses dates, ses cases cochées et l'ordre de ses
+   amis restent à lui. */
+export const DEFAULT_LAYOUT: readonly GridItem[] = [
+  { i: "resume", x: 0, y: 0, w: 2, h: 1 },
+  { i: "heatmap", x: 2, y: 0, w: 2, h: 1 },
+  { i: "calendar", x: 0, y: 1, w: 2, h: 2 },
+  { i: "statuses", x: 2, y: 1, w: 2, h: 1 },
+  { i: "affinity", x: 2, y: 2, w: 2, h: 1 },
+  { i: "favorites", x: 0, y: 3, w: 4, h: 1 },
+  { i: "season", x: 0, y: 4, w: 4, h: 2 },
+  { i: "recents", x: 0, y: 6, w: 2, h: 2 },
+  { i: "binge", x: 2, y: 6, w: 2, h: 1 },
+  { i: "goal", x: 2, y: 7, w: 2, h: 1, s: { goalUnit: "animes" } },
+  { i: "characters", x: 0, y: 8, w: 4, h: 1 },
+  { i: "bingo", x: 0, y: 9, w: 4, h: 4, s: { bingoSize: "5", bingoMode: "season" } },
+];
+
+export const DEFAULT_BLOCKS: readonly string[] = DEFAULT_LAYOUT.map((o) => o.i);
 
 /**
  * Les blocs qu'un visiteur peut voir sur le profil d'un autre : tous.

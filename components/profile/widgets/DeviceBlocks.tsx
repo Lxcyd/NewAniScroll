@@ -392,7 +392,9 @@ export function ResumeBlock({
           positionné se peint PAR-DESSUS le contenu non positionné qui le suit.
           Sans ça la lueur voilait le titre et les boutons. */}
       <div
-        className={`relative z-10 flex min-w-0 flex-col ${stacked ? "shrink-0" : "flex-1 justify-center"}`}
+        /* Côte à côte, la colonne est son propre conteneur (`as-resume-text`) :
+           le texte se mesure sur la place qu'il a vraiment, pas sur la carte. */
+        className={`relative z-10 flex min-w-0 flex-col ${stacked ? "shrink-0" : "as-resume-text flex-1 justify-center self-stretch"}`}
       >
         <Link href={href} className="as-resume-line min-w-0" style={{ animationDelay: "120ms" }}>
           <h3

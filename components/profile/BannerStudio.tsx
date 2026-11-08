@@ -83,6 +83,10 @@ const CheckIcon = ({ className }: { className?: string }) => (
 import type { TrailerRemote } from "@/components/profile/PlateBackground";
 import MusicCard from "@/components/profile/MusicCard";
 import { useAboveFooter } from "@/lib/profile/sceneCard";
+import { setWidgetsMenuOpen, useWidgetBridge, WIDGETS_MENU_EVENT } from "@/lib/profile/widgetBridge";
+import WidgetAddIcon from "@/components/profile/WidgetAddIcon";
+import WidgetMenuTile from "@/components/profile/WidgetMenuTile";
+import { BLOCKS } from "@/lib/profile/blocks";
 import YouTubeMusic, { type MusicMedia } from "@/components/profile/YouTubeMusic";
 import HoverVolume from "@/components/shared/HoverVolume";
 import { availableServers, fetchEpisodes, serverLabel, type StudioEpisode } from "@/lib/profile/episodeStream";
@@ -628,7 +632,86 @@ type Section = {
 /** Ce que la palette montre : un type de fond, ou la musique. */
 /* `fonds` : un ONGLET du groupe Vidéo, pas une nature de fond — ce qu'il pose
    est une vidéo (`kind: "video"` + l'URL du fond, lib/profile/fonds.ts). */
-type PaletteScope = DressingKind | "music" | "layout" | "frame" | "avatar" | "badges" | "fonds";
+/** Le voile du menu Widgets verrouillé : ni molette ni doigt ne font défiler
+    la liste dessous (08/11/2026, Luc). Écouteurs natifs, non passifs — ceux
+    de React le sont, et ne peuvent pas annuler le défilement. Fonction hors
+    composant : passée en `ref`, elle ne s'accroche qu'une fois par voile. */
+let unlockVeil: (() => void) | null = null;
+function blockScroll(el: HTMLElement | null) {
+  /* React 18 rappelle la ref avec `null` au démontage : on y défait le
+     blocage de la barre de défilement. */
+  if (!el) {
+    unlockVeil?.();
+    unlockVeil = null;
+    return;
+  }
+  const stop = (e: Event) => e.preventDefault();
+  el.addEventListener("wheel", stop, { passive: false });
+  el.addEventListener("touchmove", stop, { passive: false });
+  /* NI LA BARRE DE DÉFILEMENT (08/11/2026, Luc : « qu'on ne puisse pas
+     interagir avec ») : un cache transparent est posé EXACTEMENT sur elle,
+     elle reste visible mais ne se saisit plus. Ramener la position à chaque
+     défilement la faisait trembler. */
+  let box: HTMLElement | null = el.parentElement;
+  while (box) {
+    const oy = getComputedStyle(box).overflowY;
+    if ((oy === "auto" || oy === "scroll") && box.scrollHeight > box.clientHeight) break;
+    box = box.parentElement;
+  }
+  unlockVeil?.();
+  unlockVeil = null;
+  if (box) {
+    const col = box;
+    const cover = document.createElement("div");
+    cover.setAttribute("aria-hidden", "true");
+    const place = () => {
+      const r = col.getBoundingClientRect();
+      const k = col.offsetWidth ? r.width / col.offsetWidth : 1;
+      /* La barre : ce que la boîte a en largeur au-delà de son contenu, et au
+         moins 12 px pour les barres flottantes qui n'en prennent pas. */
+      const bar = Math.max(12, (col.offsetWidth - col.clientWidth) * k);
+      Object.assign(cover.style, {
+        position: "fixed",
+        left: `${r.right - bar}px`,
+        top: `${r.top}px`,
+        width: `${bar}px`,
+        height: `${r.height}px`,
+        zIndex: "2147483000",
+      });
+    };
+    place();
+    cover.addEventListener("wheel", stop, { passive: false });
+    document.body.appendChild(cover);
+    const ro = new ResizeObserver(place);
+    ro.observe(col);
+    window.addEventListener("resize", place);
+    unlockVeil = () => {
+      ro.disconnect();
+      window.removeEventListener("resize", place);
+      cover.remove();
+    };
+  }
+  /* IL ARRIVE EN FONDU (08/11/2026, Luc : en quittant l'Aperçu, flou et
+     message apparaissaient d'un coup). En JS : le Chrome de Luc est en
+     `prefers-reduced-motion`. */
+  el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 280, easing: "ease-out" });
+}
+/** Le flou du menu verrouillé arrive en fondu. */
+function veilFadeIn(el: HTMLElement | null) {
+  el?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 280, easing: "ease-out" });
+}
+/** Le message du menu verrouillé : il monte un peu en apparaissant. */
+function lockMessageIn(el: HTMLElement | null) {
+  el?.animate(
+    [
+      { opacity: 0, transform: "translateY(10px) scale(0.95)" },
+      { opacity: 1, transform: "none" },
+    ],
+    { duration: 320, delay: 80, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
+  );
+}
+
+type PaletteScope = DressingKind | "music" | "layout" | "widgets" | "frame" | "avatar" | "badges" | "fonds";
 
 /** Les tris de la grille des cadres. Les quatre premiers gardent les sections
     par collection ; les trois derniers mettent tout À PLAT, une seule grille. */
@@ -654,7 +737,7 @@ function shuffleKey(asset: string, seed: number): number {
 const LAST_SCOPE_KEY = "as-studio-scope";
 const SCOPES: PaletteScope[] = [
   "color", "banner", "image", "wall", "video", "oped", "fonds", "upload",
-  "music", "layout", "frame", "avatar", "badges",
+  "music", "layout", "widgets", "frame", "avatar", "badges",
 ];
 
 /** Le dock regroupe les fonds de même nature : un bouton par groupe, et un
@@ -2117,7 +2200,7 @@ export default function BannerStudio({
     /* Bannière et Image en sont depuis qu'elles se parcourent par anime : leur
        en-tête porte la même affiche et le même sélecteur de saison, et une
        saison atteinte par ce sélecteur n'est pas forcément dans la liste. */
-    if (scope === "color" || scope === "layout" || scope === "frame" || scope === "avatar" || scope === "badges" || scope === "wall" || !scope) return;
+    if (scope === "color" || scope === "layout" || scope === "widgets" || scope === "frame" || scope === "avatar" || scope === "badges" || scope === "wall" || !scope) return;
     const known = animes.find((a) => a.mediaId === listedAnimeId);
     /* Une saison connue de la liste peut n'avoir aucune bande-annonce SUE : le
        cache d'animés ne l'avait pas au rendu de la page. On la redemande alors
@@ -2571,6 +2654,31 @@ export default function BannerStudio({
     return () => window.clearTimeout(id);
   }, [scope, query]);
 
+  /** Les blocs posés sur la grille de l'Aperçu, et de quoi en poser. */
+  const widgets = useWidgetBridge();
+  /* LE VOILE DU MENU WIDGETS VERROUILLÉ (autre onglet que l'Aperçu) entre ET
+     sort en fondu (08/11/2026, Luc). « out » : l'Aperçu est revenu, mais le
+     voile reste le temps de s'effacer, puis il est retiré. */
+  const locked = !widgets.add;
+  const [veil, setVeil] = useState<"off" | "in" | "out">(locked ? "in" : "off");
+  useEffect(() => {
+    if (locked) setVeil("in");
+    else setVeil((v) => (v === "in" ? "out" : v));
+  }, [locked]);
+  useEffect(() => {
+    if (veil !== "out") return;
+    const els = Array.from(document.querySelectorAll<HTMLElement>("[data-widgets-veil]"));
+    const runs = els.map(
+      (el) => el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 240, easing: "ease-in", fill: "forwards" }).finished,
+    );
+    let live = true;
+    void Promise.all(runs)
+      .catch(() => undefined)
+      .then(() => live && setVeil((v) => (v === "out" ? "off" : v)));
+    return () => {
+      live = false;
+    };
+  }, [veil]);
   const lastAvatarTab = useRef<"avatar" | "frame">("avatar");
   useEffect(() => {
     if (scope === "avatar" || scope === "frame") lastAvatarTab.current = scope;
@@ -3418,6 +3526,115 @@ export default function BannerStudio({
           </div>
         ),
       });
+    }
+
+    /* ── Les widgets (07/11/2026, Luc) ─────────────────────────────────────
+       La bibliothèque de blocs dans la colonne : une case 1×2 (une ligne de
+       haut, deux de large) par widget, son aperçu et un « + » qui le pose —
+       une coche s'il est déjà sur le profil (lib/profile/widgetBridge). */
+    if (scope === "widgets") {
+      const { posed, add } = widgets;
+      out.push({
+        title: "",
+        rows: [],
+        node: (
+          <div className="flex flex-col gap-3 px-1">
+            {/* L'APERÇU DE CHAQUE WIDGET (07/11/2026, Luc), un par rangée pour
+                qu'il se lise ; un clic l'ajoute à la fin du profil et la vue
+                descend jusqu'à lui — déjà posé, elle y descend seulement. */}
+            <div className="relative">
+              {/* HORS DE L'APERÇU (08/11/2026, Luc) : la liste garde son
+                  visuel (tailles, liserés, barre de défilement) ; un voile
+                  grisé et flouté la couvre, le message au milieu de la colonne
+                  visible (collant). La molette et le doigt sont bloqués sur le
+                  voile : la liste ne défile plus dessous. */}
+              {veil === "off" ? null : (
+                /* LE FLOU ET L'OMBRE SONT SÉPARÉS (08/11/2026, Luc, après
+                   plusieurs essais) :
+                   - le FLOU est ce voile commun (`backdrop-filter`), qui
+                     déborde de 12 px et s'y estompe : il floute les liserés
+                     roses jusqu'à leur bord sans arête, et un flou ne se voit
+                     pas sur le fond uni de la colonne ;
+                   - l'OMBRE est dans chaque case (WidgetMenuTile), à sa forme :
+                     posée ici, elle débordait en noir sur la colonne.
+                   Jamais de `filter` sur la liste : il éteint le fond dépoli
+                   des cartes. Le voile porte aussi le message et bloque le
+                   défilement. */
+                <>
+                <div
+                  ref={veilFadeIn}
+                  data-widgets-veil
+                  /* Le FLOU, à z-20 et AVANT les cases : l'ombre des cases
+                     (z-20, posée après) reste au-dessus de lui, nette à leur
+                     forme. Passé au-dessus, il floutait leurs bords sombres en
+                     halo autour des liserés (08/11/2026, Luc). */
+                  className="pointer-events-none absolute -inset-3 z-20 backdrop-blur-[2.5px]"
+                  style={{
+                    maskImage:
+                      "linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent), linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent)",
+                    maskComposite: "intersect",
+                    WebkitMaskImage:
+                      "linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent), linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent)",
+                    WebkitMaskComposite: "source-in",
+                  }}
+                />
+                <div
+                  ref={blockScroll}
+                  data-widgets-veil
+                  /* Le MESSAGE, sur sa propre couche au-dessus de tout (z-40) :
+                     transparente, elle bloque aussi la molette et la barre de
+                     défilement. En sortie, elle laisse déjà passer le pointeur. */
+                  className={`absolute inset-0 z-40 ${veil === "out" ? "pointer-events-none" : ""}`}
+                >
+                  <div className="sticky top-[34%] flex justify-center px-3 py-6">
+                  {/* Un `border` et pas un `ring` : le ring prenait ici une
+                      teinte bleue (08/11/2026, Luc). */}
+                  <div ref={lockMessageIn} className="max-w-[20rem] rounded-2xl border border-solid border-[rgba(255,255,255,0.15)] bg-[#1b1c23] px-6 py-5 text-center shadow-[0_16px_40px_rgba(0,0,0,0.6)] outline-none">
+                      <WidgetAddIcon className="mx-auto mb-2.5 h-8 w-8 text-white/50" />
+                      <p className="font-outfit text-lg font-bold leading-snug text-white">
+                        {t("profile.studioWidgetsOffTabTitle")}
+                      </p>
+                      <p className="mt-1.5 font-karla text-[13px] leading-snug text-white/65">
+                        {t("profile.studioWidgetsOffTab")}
+                      </p>
+                  </div>
+                  </div>
+                </div>
+                </>
+              )}
+              <div className="grid gap-2.5">
+              {BLOCKS.map((b) => {
+                const on = posed.has(b.id);
+                return (
+                  <WidgetMenuTile
+                    key={b.id}
+                    id={b.id}
+                    label={t(`profile.blocks.${b.id}.title`)}
+                    desc={t(`profile.blocks.${b.id}.desc`)}
+                    on={on}
+                    disabled={!add}
+                    shaded={veil !== "off"}
+                    preview={widgets.preview}
+                    onAdd={() => add?.(b.id)}
+                    badge={
+                      <span
+                        className={`grid h-7 w-7 place-items-center rounded-full shadow-[0_4px_12px_rgba(0,0,0,.45)] transition-colors ${
+                          on ? "bg-action text-white" : "bg-black/60 text-white/80 group-hover/tile:bg-action group-hover/tile:text-white"
+                        }`}
+                        aria-hidden
+                      >
+                        {on ? <CheckIcon className="h-4 w-4" /> : <PlusIcon className="h-4 w-4" strokeWidth={2.4} />}
+                      </span>
+                    }
+                  />
+                );
+              })}
+              </div>
+            </div>
+          </div>
+        ),
+      });
+      return out;
     }
 
     /* ── L'onglet Import : la première case importe, les suivantes se portent
@@ -4705,7 +4922,7 @@ export default function BannerStudio({
       artRoot, artAll, loading, fanartsLoading, holdAnchor, found, artTypes, musicCounts, prefetchArt, densite,
       avFav, avHits, avOpen, avTick, avCounts, avCols, avChars, avHover, avFavOpen, avImpOpen, avDefOpen, avImpEdit, avImports, avImporting, onAvFile,
       bgImports, bgImporting, bgImpOpen, bgImpEdit, onBgFile, wearBg,
-      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf, presetEdit]);
+      entries, baseTick, epTick, hoverEpisodes, customVideos, saveCustomVideos, presets, savePresets, presetsOpen, togglePresets, activePreset, themeOf, presetEdit, widgets, veil]);
 
   /* « VOIR LES N AUTRES » INSTANTANÉ. Au clic, la liste est déjà là ; ce qui
      manquait, ce sont les images — le navigateur ne les demandait qu'à
@@ -4809,6 +5026,18 @@ export default function BannerStudio({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, scope, flat, cursor, onClose, openScope]);
+  /* Le bouton « ajouter un widget » sous la grille ouvre ce menu-ci. */
+  useEffect(() => {
+    if (!open) return;
+    const go = () => openScope("widgets");
+    window.addEventListener(WIDGETS_MENU_EVENT, go);
+    return () => window.removeEventListener(WIDGETS_MENU_EVENT, go);
+  }, [open, openScope]);
+  /* …et s'efface tant que ce menu est ouvert (lib/profile/widgetBridge). */
+  useEffect(() => {
+    setWidgetsMenuOpen(open && scope === "widgets");
+  }, [open, scope]);
+  useEffect(() => () => setWidgetsMenuOpen(false), []);
 
   /* Changer de FAMILLE de menu ramène les menus sur la barre : le lecteur
      posé dessus (musique, ou vidéo depuis le 21/10/2026) appartient à son
@@ -5094,7 +5323,7 @@ export default function BannerStudio({
   /* L'onglet Couleur ne cherche rien : ses couleurs sont toutes à l'écran. Les
      agencements non plus — ils sont cinq, en vignettes, et un champ de recherche
      au-dessus de cinq vignettes est un aveu de liste trop longue. */
-  const searchable = scope !== "color" && scope !== "layout" && scope !== "wall";
+  const searchable = scope !== "color" && scope !== "layout" && scope !== "widgets" && scope !== "wall";
   /** Tous les menus s'ouvrent dans la colonne de gauche de la scène — et il y
       en a toujours un d'ouvert, sauf quand le studio est réduit. */
   const inColumn = !mini && !!scope;
@@ -5105,6 +5334,8 @@ export default function BannerStudio({
       ? SpeakerWaveIcon
       : scope === "layout"
         ? LayoutIcon
+        : scope === "widgets"
+          ? WidgetAddIcon
         : scope === "frame"
           ? FrameIcon
           : scope === "avatar"
@@ -5891,8 +6122,16 @@ export default function BannerStudio({
                 ) : (
                   <>
                     <ScopeIcon className="h-5 w-5 shrink-0 text-white/45" />
-                    <h2 className="min-w-0 flex-1 font-outfit text-[15px] font-bold text-white">
+                    <h2 className="flex min-w-0 flex-1 items-center gap-2 font-outfit text-[15px] font-bold text-white">
                       {t(`profile.studioKind_${scope}`)}
+                      {/* Le nombre de widgets posés, à droite du titre
+                          (08/11/2026, Luc), à la place de la ligne « N blocs
+                          sur ton profil » sous lui. */}
+                      {scope === "widgets" ? (
+                        <span className="rounded-full bg-white/10 px-2 py-0.5 font-karla text-xs font-bold tabular-nums text-white/70">
+                          {widgets.posed.size}
+                        </span>
+                      ) : null}
                     </h2>
                   </>
                 )}
@@ -6540,8 +6779,11 @@ export default function BannerStudio({
         <div
           /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
              du profil au studio avec le cadre, au lieu de disparaître. */
+          /* `pointer-events-none` (07/11/2026, Luc) : réduite, la case garde
+             sa boîte de 240 px, hors du cadre qui défile — la molette y mourait.
+             MusicCard rend le pointeur à la seule case visible. Idem plus bas. */
           ref={catchUp}
-          className="as-scene-follow pointer-events-auto z-[10004]"
+          className="as-scene-follow pointer-events-none z-[10004]"
         >
           <YouTubeMusic
             ref={preview}
@@ -6624,7 +6866,7 @@ export default function BannerStudio({
           /* TOUJOURS LÀ (22/10/2026, Luc), comme sur le profil : la case passe
              du profil au studio avec le cadre, au lieu de disparaître. */
           ref={catchUp}
-          className="as-scene-follow pointer-events-auto z-[10004]"
+          className="as-scene-follow pointer-events-none z-[10004]"
         >
           <MusicCard
             className="h-[240px] w-[240px]"
@@ -6667,7 +6909,7 @@ export default function BannerStudio({
            qu'on enregistre (`videoVolume`), le même que le curseur de la
            carte vidéo. */
         <div ref={catchUp}
-          className="as-scene-follow pointer-events-auto z-[10004]">
+          className="as-scene-follow pointer-events-none z-[10004]">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={videoThumb || "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="}
@@ -6829,6 +7071,22 @@ export default function BannerStudio({
                 <LayoutIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
                 <span className="truncate font-outfit text-[13.5px] font-bold">
                   {t(`profile.studioLayout_${draft.layout ?? "band"}`)}
+                </span>
+              </button>
+            </SceneBox>
+
+            {/* WIDGETS (07/11/2026, Luc) : la bibliothèque de blocs dans la
+                colonne de gauche ; la case dit combien sont posés. */}
+            <SceneBox label={t("profile.studioKind_widgets")} active={barScope === "widgets"} onOpen={() => openScope("widgets")}>
+              <button
+                type="button"
+                onClick={() => openScope("widgets")}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+              >
+                <WidgetAddIcon className="h-6 w-6 shrink-0 text-white/75" strokeWidth={1.6} />
+                <span className="truncate font-outfit text-[13.5px] font-bold">
+                  {/* Le nom du menu seul, sans le nombre (08/11/2026, Luc). */}
+                  {t("profile.studioKind_widgets")}
                 </span>
               </button>
             </SceneBox>

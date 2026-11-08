@@ -1928,46 +1928,11 @@ function useRankedFriends(isOwner: boolean, entries: ProfileEntry[], owner?: str
     if (!isOwner || !friends || !entries.length) return [];
     const me = tasteOf(entries);
     return friends
-      .concat(devFakeFriends(entries))
       .map((o) => ({ o, m: affinity(me, o.taste) }))
       .filter((x) => x.m.shared > 0)
       .sort((a, b) => b.m.pct - a.m.pct);
   }, [isOwner, friends, entries]);
   return { friends, ranked };
-}
-
-/**
- * DE FAUX AMIS EN LOCAL SEULEMENT (04/11/2026, Luc : « ajoute des faux amis pour
- * tester »). Jamais en base : la base Turso est la même pour local, dev et prod.
- * Chacun reprend une part de ta liste avec des notes décalées, d'un jumeau
- * presque parfait à quelqu'un qui pense l'inverse.
- */
-const FAKES = [
-  { name: "Aiko (test)", keep: 0.8, drift: 0.3, flip: false },
-  { name: "Kenji (test)", keep: 0.5, drift: 1.5, flip: false },
-  { name: "Mika (test)", keep: 0.35, drift: 2.5, flip: false },
-  { name: "Ren (test)", keep: 0.6, drift: 0.8, flip: true },
-  { name: "Sora (test)", keep: 0.2, drift: 1, flip: false },
-  { name: "Yuki (test)", keep: 0.7, drift: 0, flip: false },
-];
-function devFakeFriends(entries: ProfileEntry[]) {
-  if (process.env.NODE_ENV !== "development") return [];
-  return FAKES.map((f, n) => {
-    const taste: Record<string, number> = {};
-    const fav: string[] = [];
-    entries.forEach((e, i) => {
-      if (e.status === "PLANNING") return;
-      // Pseudo-hasard stable : la même liste donne les mêmes faux amis à chaque rendu.
-      const r = ((e.mediaId * 9301 + (n + 1) * 49297) % 233280) / 233280;
-      if (r > f.keep) return;
-      const base = e.score && e.score > 0 ? e.score : 0;
-      const big = base > 10;
-      const s = !base ? 0 : f.flip ? (big ? 100 : 10) + (big ? 10 : 1) - base : base + (r * 2 - 1) * f.drift * (big ? 10 : 1);
-      taste[e.mediaId] = Math.round(Math.min(big ? 100 : 10, Math.max(big ? 10 : 1, s)) * 2) / 2;
-      if (i % 7 === n) fav.push(String(e.mediaId));
-    });
-    return { tag: `FAKE0${n}`, name: f.name, avatar: null, href: "#", since: 0, taste, fav };
-  });
 }
 
 /** L'ordre perso : les tags rangés d'abord, les nouveaux amis à la suite (par affinité). */
@@ -1991,7 +1956,7 @@ const NO_PREFS: AffinityPrefs = { custom: false, auto: true, order: [], hidden: 
  */
 function shownFriend(tag: string, p: AffinityPrefs) {
   if (p.hidden.includes(tag)) return false;
-  return p.auto || p.order.includes(tag) || tag.startsWith("FAKE");
+  return p.auto || p.order.includes(tag);
 }
 
 /**
@@ -2146,7 +2111,7 @@ export function AffinityBlock({
      allumé : éteint plus tard, seuls ceux arrivés APRÈS restent masqués.
      Une écriture seulement quand un ami apparaît (les faux amis jamais). */
   const fresh = prefs.auto
-    ? all.map((x) => x.o.tag).filter((t) => !t.startsWith("FAKE") && !prefs.order.includes(t) && !prefs.hidden.includes(t))
+    ? all.map((x) => x.o.tag).filter((t) => !prefs.order.includes(t) && !prefs.hidden.includes(t))
     : [];
   const freshKey = fresh.join(",");
   useEffect(() => {
@@ -2685,9 +2650,9 @@ export const BINGO_GOALS: Goal[] = [
   /* 06/11/2026, Luc : « Regarder un anime en diffusion » — en cours de diffusion, rien d'autre. */
   { id: "airing", icon: "📡", need: 1, got: (c) => (c.list.some((m) => m.airing) ? 1 : 0) },
   { id: "eps100", icon: "📺", need: 100, got: (c) => c.eps },
-  { id: "classic", icon: "📼", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year <= c.year - 15) ? 1 : 0) },
+  { id: "classic", icon: ":goku:", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year <= c.year - 15) ? 1 : 0) },
   { id: "genres5", icon: "🎭", need: 5, got: (c) => new Set(c.list.flatMap((m) => m.genres)).size },
-  { id: "animes10", icon: "🗂", need: 10, got: (c) => c.ids.length },
+  { id: "animes10", icon: ":yuji_happy:", need: 10, got: (c) => c.ids.length },
   { id: "finish", icon: "🏁", need: 1, got: finished },
   /* La sélection de Luc (04/11/2026), puis des objectifs faciles. */
   { id: "streak21", icon: "🔗", need: 21, got: (c) => c.bestRun },
@@ -2701,15 +2666,15 @@ export const BINGO_GOALS: Goal[] = [
   /* 06/11/2026, Luc : un épisode d'un anime EN COURS de diffusion, à n'importe quel moment. */
   { id: "newSeason", icon: "🌱", need: 1, got: (c) => (c.list.some((m) => m.airing) ? 1 : 0) },
   { id: "finish5", icon: "🏆", need: 5, got: finished },
-  { id: "secondChance", icon: "🩹", need: 1, got: (c) => (resumed(c).length ? 1 : 0) },
-  { id: "newStart", icon: "📝", need: 1, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
+  { id: "secondChance", icon: ":peek:", need: 1, got: (c) => (resumed(c).length ? 1 : 0) },
+  { id: "newStart", icon: ":gojo_wave:", need: 1, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
   { id: "rewatch", icon: "🔁", need: 1, got: (c) => (rewatched(c).length ? 1 : 0) },
   { id: "sharedShow", icon: "🤝", need: 1, got: (c) => (c.ids.some((id) => c.friendIds.has(id)) ? 1 : 0) },
   { id: "random", icon: "🎲", need: 1, got: (c) => (c.rnd != null && c.ids.includes(c.rnd) ? 1 : 0) },
   { id: "rate3", icon: "⭐", need: 3, got: (c) => { const f = finishDays(c); return c.ids.filter((id) => (c.byId.get(id)?.score ?? 0) > 0 && f.has(id)).length; } },
   { id: "season3", icon: "🌸", need: 3, got: (c) => c.list.filter((m) => ofSeason(m, c)).length },
   { id: "firstEps3", icon: "🚀", need: 3, got: (c) => c.ids.filter((id) => !c.before.has(id)).length },
-  { id: "weekend", icon: "🛋️", need: 1, got: (c) => {
+  { id: "weekend", icon: ":catgirl_cozy:", need: 1, got: (c) => {
       const set = new Set(c.days.map(([k]) => k));
       return c.days.some(([k]) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d).getDay() === 6 && set.has(shiftDay(k, 1)); }) ? 1 : 0;
     } },
@@ -2718,7 +2683,7 @@ export const BINGO_GOALS: Goal[] = [
   { id: "finish3", icon: "🥉", need: 3, got: finished },
   { id: "active30", icon: "📅", need: 30, got: (c) => c.days.length },
   { id: "short", icon: "🍿", need: 1, got: (c) => (c.list.some((m) => m.format === "OVA" || m.format === "ONA" || m.format === "SPECIAL") ? 1 : 0) },
-  { id: "retro", icon: "🕹️", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year < 2000) ? 1 : 0) },
+  { id: "retro", icon: ":sailor_moon_snow_globe:", need: 1, got: (c) => (c.list.some((m) => m.year != null && m.year < 2000) ? 1 : 0) },
   { id: "rated10", icon: "💯", need: 1, got: (c) => (c.ids.some((id) => { const s = c.byId.get(id)?.score ?? 0; return s === 10 || s === 100; }) ? 1 : 0) },
   { id: "horror", icon: "👻", need: 1, got: genre("Horror") },
   { id: "romance", icon: "💌", need: 1, got: genre("Romance") },
@@ -2729,7 +2694,7 @@ export const BINGO_GOALS: Goal[] = [
   { id: "day20", icon: "💥", need: 20, got: (c) => c.bestDay },
   { id: "streak14", icon: "☄️", need: 14, got: (c) => c.bestRun },
   { id: "eps250", icon: "🛰️", need: 250, got: (c) => c.eps },
-  { id: "animes20", icon: "📚", need: 20, got: (c) => c.ids.length },
+  { id: "animes20", icon: ":overlord_ainzooalgown1:", need: 20, got: (c) => c.ids.length },
   /* De nouveaux objectifs (06/11/2026, Luc : « crée en d'autres »). */
   { id: "day3shows", icon: "🎪", need: 3, got: (c) => Math.max(0, ...c.days.map(([, d]) => d.a.length)) },
   { id: "active15", icon: "📆", need: 15, got: (c) => c.days.length },
@@ -2739,13 +2704,13 @@ export const BINGO_GOALS: Goal[] = [
   { id: "supernatural", icon: "🔮", need: 1, got: genre("Supernatural") },
   { id: "finishStarted", icon: "🏅", need: 1, got: (c) =>
       Array.from(finishDays(c).keys()).some((id) => !c.before.has(id)) ? 1 : 0 },
-  { id: "animes5", icon: "🔢", need: 5, got: (c) => c.ids.length },
+  { id: "animes5", icon: ":nanami_happy:", need: 5, got: (c) => c.ids.length },
   /* Deux animes finis le même jour (06/11/2026, Luc). La liste ne date pas la
      fin : c'est le dernier jour de la période où l'anime terminé a été vu. */
   /* 06/11/2026, Luc : « terminer » en plus de « regarder ». */
   { id: "finishSeason", icon: "🎖️", need: 1, got: (c) =>
       Array.from(finishDays(c).keys()).some((id) => { const m = c.metas.get(id); return !!m && ofSeason(m, c); }) ? 1 : 0 },
-  { id: "finish2day", icon: "✌️", need: 1, got: (c) => {
+  { id: "finish2day", icon: ":naruto_vsign:", need: 1, got: (c) => {
       const per = new Map<string, number>();
       for (const k of finishDays(c).values()) per.set(k, (per.get(k) ?? 0) + 1);
       return Array.from(per.values()).some((x) => x >= 2) ? 1 : 0;
@@ -2754,6 +2719,12 @@ export const BINGO_GOALS: Goal[] = [
   { id: "movies3", icon: "🎟️", need: 3, got: (c) => c.list.filter((m) => m.format === "MOVIE").length },
 ];
 const GOAL = new Map(BINGO_GOALS.map((g) => [g.id, g]));
+/** Une icône : un emoji, ou une image quand c'est un `:shortcode:` des animés du chat. */
+function iconNode(icon: string) {
+  const img = /^:[^:\s]+:$/.test(icon) ? (ANIME_STICKER_MAP[icon]?.src ?? ANIME_EMOJI_MAP[icon]?.url) : null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return img ? <img src={img} alt="" className="inline-block h-[1.1em] w-[1.1em] object-contain" /> : icon;
+}
 /** Une case vidée au crayon. */
 const EMPTY = "-";
 /** Jetons du pool, remplacés au tirage par `rg:<Genre>` / `rt:<Tag>`. */
@@ -3183,10 +3154,9 @@ export function BingoBlock({
      se retouche ; une ancienne retouche de la saison est ignorée. */
   const edited = false;
   const ce = editing && mode !== "season";
-  const [reroll, setReroll] = useState(0);
   const official = useMemo(
-    () => seasonGrid(reroll ? `${seasonId}#${reroll}` : seasonId, seasonData ?? null, n, season.year),
-    [seasonId, seasonData, n, reroll, season.year],
+    () => seasonGrid(seasonId, seasonData ?? null, n, season.year),
+    [seasonId, seasonData, n, season.year],
   );
   const customKeys = new Set(customs.map((c) => `c:${c.k}`));
   const valid = (id: string) =>
@@ -3445,7 +3415,8 @@ export function BingoBlock({
   };
   const baseCells = cellIds.map((id) => resolve(id));
   const cells = baseCells.map((r, i) => {
-    const o = r && labels[cellIds[i]];
+    /* La grille officielle ne se retouche pas : elle garde l'emoji et le nom de base. */
+    const o = r && mode !== "season" && labels[cellIds[i]];
     const r2 = r && o ? { ...r, icon: o.e || r.icon, label: o.t || r.label } : r;
     /* MON BINGO : c'est l'utilisateur qui valide ses cartes, d'un clic. */
     return r2 && mode === "mine" ? { ...r2, got: done.has(cellIds[i]) ? 1 : 0, need: 1 } : r2;
@@ -3459,12 +3430,6 @@ export function BingoBlock({
     if (Object.keys(merged).length) cur[id] = merged;
     else delete cur[id];
     onPatch?.({ bingoLabels: JSON.stringify(cur) });
-  };
-  /** Une icône : un emoji, ou une image quand l'emoji vient des animés du chat. */
-  const iconNode = (icon: string) => {
-    const img = /^:[^:\s]+:$/.test(icon) ? (ANIME_STICKER_MAP[icon]?.src ?? ANIME_EMOJI_MAP[icon]?.url) : null;
-    // eslint-disable-next-line @next/next/no-img-element
-    return img ? <img src={img} alt="" className="inline-block h-[1.1em] w-[1.1em] object-contain" /> : icon;
   };
   /* ── LE DOS DES CARTES (06/11/2026, Luc) ──────────────────────────────────
      Hors crayon, survoler une carte la retourne : les animes qui la valident
@@ -3861,18 +3826,6 @@ export function BingoBlock({
               {daysLeft > 0 ? t("profile.blocks.bingo.daysLeft", { count: daysLeft }) : t("profile.blocks.bingo.ended")}
             </span>
               {/* LE BADGE DE LA SAISON : la grille officielle, non retouchée. */}
-              {/* TEMPORAIRE (06/11/2026, Luc) : retirer la grille pour voir les
-                  tirages ; local à l'affichage, rien n'est enregistré. */}
-              {mode === "season" && isOwner ? (
-                <button
-                  type="button"
-                  onClick={() => setReroll((x) => x + 1)}
-                  className="shrink-0 rounded-full bg-white/[0.1] px-2.5 py-1 font-outfit text-[12px] font-bold text-white hover:bg-white/[0.18]"
-                  title="Reroll (temporaire)"
-                >
-                  🔄 {reroll || ""}
-                </button>
-              ) : null}
               {mode === "season" && !edited ? (
                 <span className="shrink-0 rounded-full bg-action px-2.5 py-1 font-outfit text-[12px] font-bold text-white" title={t("profile.blocks.bingo.officialTitle")}>
                   ★ {t("profile.blocks.bingo.official")}
@@ -4352,8 +4305,19 @@ function CellName({ value, style, onCommit, placeholder }: { value: string; styl
   useLayoutEffect(() => {
     const el = ta.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    fit();
+    /* La police suit la taille de la case (cqw/cqh) : quand le widget change de
+       taille, le texte se replie autrement, il faut remesurer. On observe la
+       case (taille fixée par la grille), pas le champ, pour ne pas boucler. */
+    const cell = el.closest<HTMLElement>("[data-drag-cell]") ?? el.parentElement;
+    if (!cell) return;
+    const ro = new ResizeObserver(fit);
+    ro.observe(cell);
+    return () => ro.disconnect();
   }, [text, style.fontSize]);
   return (
     /* Le cadre en pointillés est sur l'enveloppe (comme celui de l'emoji, qui
@@ -4453,7 +4417,7 @@ function GoalPicker({
             here ? "bg-white/[0.08] ring-1 ring-white/15" : "hover:bg-white/[0.06]"
           }`}
         >
-          <span className="w-6 shrink-0 text-center text-[17px] leading-none">{r.icon}</span>
+          <span className="w-6 shrink-0 text-center text-[17px] leading-none">{iconNode(r.icon)}</span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate font-karla text-[13px] font-semibold text-white">{r.label}</span>
           </span>

@@ -290,17 +290,27 @@ export default function MusicCard({
          SUIT la case pendant qu'elle change de taille (même durée, même
          courbe, en transform) : la grande se replie vers le coin en
          s'éteignant, la petite part de la taille de la grande. */}
+      {/* LE CARRÉ CLAIR AUTOUR DE LA CASE (07/11/2026, Luc). La pile est faite
+          de rectangles : sur un fond de la même image, son pourtour se lisait
+          en carré à bords droits. Un masque RADIAL l'arrondit — posé sur une
+          boîte plus grande que la case (`-inset-16`, la lumière se rend à
+          ~55 px), car un masque efface tout ce qui dépasse sa propre boîte.
+          Même centre que la case : le repli (scale) ne bouge pas. */}
       <div
-        className="pointer-events-none absolute inset-0 -z-10 transition-[transform,opacity] duration-300 ease-out will-change-transform"
+        className="pointer-events-none absolute -inset-16 -z-10 transition-[transform,opacity] duration-300 ease-out will-change-transform"
         style={{
           opacity: folded ? 0 : 1,
           transform: folded ? `translate(${SHIFT}px, ${SHIFT}px) scale(${MINI / CARD})` : "none",
+          maskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
+          WebkitMaskImage: "radial-gradient(closest-side, #000 55%, transparent 100%)",
         }}
       >
-        {/* `playing` toujours faux : elle ne peint son image qu'à l'arrêt, et
-            une lecture partie seule au montage l'aurait laissée éteinte. Il n'y
-            a pas de vidéo à suivre ici. */}
-        <TrailerAmbient banner={art} playing={false} />
+        <div className="absolute inset-16">
+          {/* `playing` toujours faux : elle ne peint son image qu'à l'arrêt, et
+              une lecture partie seule au montage l'aurait laissée éteinte. Il
+              n'y a pas de vidéo à suivre ici. */}
+          <TrailerAmbient banner={art} playing={false} />
+        </div>
       </div>
       {canMini ? (
         <img
@@ -323,7 +333,7 @@ export default function MusicCard({
            réduit vers le coin bas droit. */
         /* L'ombre est ICI, avec l'arrondi de la case : le masque de la case
            (ci-dessous) la couperait. */
-        className={`relative h-full w-full shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
+        className={`pointer-events-auto relative h-full w-full shadow-2xl transition-[transform,border-radius] duration-300 ease-out will-change-transform ${folded ? "rounded-[40px]" : "rounded-xl"}`}
         style={canMini ? { transform: folded ? `scale(${MINI / CARD})` : "none", transformOrigin: "100% 100%" } : undefined}
         onPointerMove={() => wake()}
         onPointerEnter={() => {

@@ -1,4 +1,6 @@
 import Image from "next/image";
+import Head from "next/head";
+import { fondOf } from "@/lib/profile/fonds";
 import { useEffect, useRef, useState, type CSSProperties, type MutableRefObject } from "react";
 import { fadeGain, isVideoKind, type Dressing } from "@/lib/profile/dressing";
 import { resolveEpisodeStream, type EpisodeStream } from "@/lib/profile/episodeStream";
@@ -240,6 +242,8 @@ export default function PlateBackground({
      brouillon portait EP2 et le fichier de l'ED1 à la fois, et le fond jouait
      l'ED1 — l'épisode 2 « ne se lançait jamais » (21/10/2026). */
   const src = episode ? (ep?.url ?? null) : (dressing.url ?? null);
+  /** Le fichier qui a échoué à charger (image ou vidéo) : il n'est plus peint. */
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     const el = video.current;
@@ -667,21 +671,45 @@ export default function PlateBackground({
   }
 
   /* Un épisode dont le flux se cherche encore, ou qu'aucun lecteur ne sert :
-     un fond noir plutôt que rien, la page derrière ne doit pas percer. */
-  if (!src) return episode ? <div className="absolute inset-0 bg-black" /> : null;
+     rien, et c'est le fond du site posé dessous (ProfileHero) qui se voit. Un
+     aplat noir ici restait à l'écran pour toujours quand le flux échouait. */
+  if (!src) return null;
+  /* Un fichier (image ou vidéo) qui ne charge pas s'efface : ni icône d'image
+     cassée étirée sur l'écran, ni vidéo noire ; le fond du site dessous, oui. */
+  if (failed === src) return null;
 
   if (isVideoKind(dressing.kind)) {
+    /* UN FOND VIDÉO S'AFFICHE TOUT DE SUITE (07/11/2026, Luc : « optimise le
+       chargement du fond »). Trois étages, du plus rapide au plus lourd :
+       l'aperçu flou du catalogue (~230 octets, DANS le HTML : rien à
+       télécharger), l'affiche 640×360 (préchargée dans le <head>, avant même
+       le JavaScript), puis la vidéo par-dessus dès qu'elle a une image. */
+    const fond = episode ? null : fondOf(src);
     return (
-      <div className="absolute inset-0 overflow-hidden">
+      <div
+        className="absolute inset-0 overflow-hidden"
+        style={fond?.lqip ? { backgroundImage: `url(${fond.lqip})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+      >
+        {fond ? (
+          <Head>
+            {/^https:/.test(fond.url) ? <link rel="preconnect" href={new URL(fond.url).origin} /> : null}
+            {/* `fetchpriority` en minuscules : React 18.2 ne connaît pas la forme camelCase. */}
+            <link rel="preload" as="image" href={fond.poster} key="as-fond-poster" {...{ fetchpriority: "high" }} />
+          </Head>
+        ) : null}
         <video
           ref={video}
           /* Un HLS est attaché par hls.js, pas par l'attribut. */
           src={ep?.hls ? undefined : src}
+          poster={fond?.poster}
           autoPlay={!paused}
           loop
           playsInline
           muted={!unmuted}
-          preload="metadata"
+          /* `auto` : le fichier se télécharge d'emblée, au lieu des seules
+             métadonnées puis d'une seconde requête au moment de jouer. */
+          preload="auto"
+          onError={() => setFailed(src)}
           className={`absolute inset-0 h-full w-full ${
             contain ? "object-contain" : "object-cover"
           }`}
@@ -704,6 +732,9 @@ export default function PlateBackground({
           src={apercu}
           alt=""
           aria-hidden
+          /* Petite et demandée en premier : c'est elle qui remplit l'écran
+             pendant que l'image entière arrive. */
+          {...{ fetchpriority: "high" }}
           className={`absolute inset-0 h-full w-full ${fit} blur-sm`}
         />
       )}
@@ -714,14 +745,19 @@ export default function PlateBackground({
         priority={priority}
         sizes={sizes}
         className={`${fit} ${fallback ? "as-hero-cover" : ""}`}
+        onError={() => setFailed(src)}
       />
     </>
   );
 }
 
-/** `w.wallhaven.cc/full/72/wallhaven-72lej9.png` → `th.wallhaven.cc/orig/72/72lej9.jpg`
- *  (la vignette « orig » garde les proportions, « lg » est recadree en 3:2). */
+/** Une petite version de la même image, quand l'hôte en sert une :
+ *  - `w.wallhaven.cc/full/72/wallhaven-72lej9.png` → `th.wallhaven.cc/orig/72/72lej9.jpg`
+ *    (la vignette « orig » garde les proportions, « lg » est recadree en 3:2) ;
+ *  - TMDB `/t/p/original/x.jpg` → `/t/p/w300/x.jpg` (~20 Ko au lieu de 1 à 3 Mo). */
 function apercuWallhaven(url: string | null | undefined): string | null {
   const m = url?.match(/^https:\/\/w\.wallhaven\.cc\/full\/(\w+)\/wallhaven-(\w+)\.\w+$/);
-  return m ? `https://th.wallhaven.cc/orig/${m[1]}/${m[2]}.jpg` : null;
+  if (m) return `https://th.wallhaven.cc/orig/${m[1]}/${m[2]}.jpg`;
+  const t = url?.match(/^(https:\/\/image\.tmdb\.org\/t\/p\/)(?:original|w\d+)(\/.+)$/);
+  return t ? `${t[1]}w300${t[2]}` : null;
 }

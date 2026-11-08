@@ -713,6 +713,48 @@ export function StatusesBlock({
   const shown = usePresence(rows, (r) => (r.custom ? `${CUSTOM_PREFIX}${r.key}` : r.key));
   const listRef = useRef<HTMLDivElement>(null);
   const tops = useRef(new Map<string, number>());
+  const mountedAt = useRef(0);
+  useEffect(() => {
+    mountedAt.current = performance.now();
+  }, []);
+
+  /* L'ENTRÉE, AU BON MOMENT (08/11/2026, Luc : elle partait trop tôt au
+     rechargement, on n'en voyait que la fin sur les dernières lignes). Les
+     lignes attendent, invisibles et barres à zéro, que le bloc soit à l'écran
+     ET que la liste n'ait plus bougé depuis un instant (elle arrive en deux
+     fois) ; puis elles tombent en place l'une après l'autre et leurs barres
+     poussent. En JS (Web Animations) : le Chrome de Luc est en
+     `prefers-reduced-motion`. */
+  const [entered, setEntered] = useState(false);
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    const el = listRef.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  });
+  const settled = rows.map((r) => `${r.key}:${r.count}`).join("|");
+  useEffect(() => {
+    if (entered || !seen) return;
+    const go = setTimeout(() => setEntered(true), 80);
+    return () => clearTimeout(go);
+  }, [entered, seen, settled]);
+  useIsoLayoutEffect(() => {
+    if (!entered) return;
+    const rowsEl = listRef.current?.querySelectorAll<HTMLElement>("[data-row]") ?? [];
+    Array.from(rowsEl).forEach((row, i) =>
+      row.animate(
+        [
+          { opacity: 0, transform: "translateY(-14px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 180, delay: i * 20, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
+      ),
+    );
+  }, [entered]);
   useIsoLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
@@ -724,8 +766,18 @@ export function StatusesBlock({
       const was = tops.current.get(k);
       if (was != null && was !== row.offsetTop) moved.push([row, was - row.offsetTop]);
     }
+    /* ON NE GLISSE QUE SI UNE LIGNE ENTRE OU SORT (08/11/2026, Luc : au
+       rechargement, chaque ligne tombait depuis le haut). Les mêmes lignes
+       dont seule la position a changé, c'est la carte qui se met en page
+       (hauteur partagée entre les lignes, liste qui arrive en plusieurs
+       fois) : elles prennent leur place sans glisser. */
+    const sameRows = now.size === tops.current.size && [...now.keys()].every((k) => tops.current.has(k));
     tops.current = now;
-    if (!moved.length) return;
+    /* Ni pendant le chargement : la liste peut arriver en deux fois (copie de
+       l'appareil, puis compte), et la ligne qui s'ajoute alors n'est pas un
+       réglage qu'on vient de cocher. */
+    const loading = performance.now() - mountedAt.current < 1500;
+    if (!moved.length || sameRows || loading) return;
     for (const [row, dy] of moved) {
       row.style.transition = "none";
       row.style.transform = `translateY(${dy}px)`;
@@ -782,7 +834,7 @@ export function StatusesBlock({
               data-row={key}
               className="as-status-row"
               style={{
-                opacity: state === "in" ? 1 : 0,
+                opacity: entered && state === "in" ? 1 : 0,
                 transition: ROW_TRANSITION,
               }}
             >
@@ -804,7 +856,7 @@ export function StatusesBlock({
                 {r.custom ? r.key : listLabel(t, STATUS_TO_LIST[r.key] || r.key)}
               </span>
               <span className="as-status-bar min-w-0">
-                <Bar pct={state === "in" ? (r.count / max) * 100 : 0} color={color} />
+                <Bar pct={entered && state === "in" ? (r.count / max) * 100 : 0} color={color} />
               </span>
               {/* `min-w` en `ch` et pas en pixels : la colonne des nombres reste
                   alignée à chaque palier sans qu'on ait à la re-mesurer, puisque

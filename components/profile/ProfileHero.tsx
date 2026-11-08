@@ -910,7 +910,10 @@ export default function ProfileHero({
           sa pochette à la place du lecteur. Jamais de lecture auto : le
           visiteur la lance d'ici. */}
       {banner.music && !viaYouTube && showCard ? (
-        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
+        /* `pointer-events-none` : réduite, la case garde sa boîte de 240 px
+           (elle rétrécit en transform) et cette boîte vide bloquait la molette.
+           Seule la case visible reprend le pointeur (MusicCard). */
+        <div ref={sceneCard} className="pointer-events-none fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={
@@ -948,7 +951,7 @@ export default function ProfileHero({
           petit carré hors survol. Seulement sans musique : celle-ci a déjà sa
           case, et la vidéo se tait sous elle. Hors studio : il a la sienne. */}
       {(trailer || (video && !!banner.url)) && showCard && !banner.music ? (
-        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
+        <div ref={sceneCard} className="pointer-events-none fixed bottom-6 right-6 z-40">
           <MusicCard
             className="h-[240px] w-[240px]"
             art={
@@ -1005,7 +1008,7 @@ export default function ProfileHero({
            lumière d'ambiance, lecture au centre, volume en haut à droite. La
            bande-annonce y est aussi, comme les autres. Les bornes et le fondu
            du studio valent pour elle (YouTubeMusic pilote le lecteur). */
-        <div ref={sceneCard} className="fixed bottom-6 right-6 z-40">
+        <div ref={sceneCard} className="pointer-events-none fixed bottom-6 right-6 z-40">
           <YouTubeMusic
             /* Remonté au retour du studio : pas de départ muet d'office, c'est
                l'effet du retour (`setSound`) qui relance — ou non, selon ce
