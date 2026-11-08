@@ -1202,8 +1202,10 @@ export function ScoresBlock({
                    sans quoi elle serait invisible sur une échelle qui monte
                    à 40. */
                 height: n && entered ? `max(3px, ${(n / top) * 100}%)` : "0px",
-                transitionDuration: intro ? "700ms" : undefined,
-                transitionDelay: intro ? `${i * 30}ms` : undefined,
+                /* « Un peu plus rapide » (08/11/2026, Luc) : 0,7 s → 0,45 s,
+                   30 → 18 ms entre colonnes. */
+                transitionDuration: intro ? "450ms" : undefined,
+                transitionDelay: intro ? `${i * 18}ms` : undefined,
               }}
             />
             </Tag>
