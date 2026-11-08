@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { HeartIcon } from "@heroicons/react/24/solid";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -427,20 +428,22 @@ export default function ProfileList({
                     sur une rondelle sombre : le halo s'y voit comme sur le fond du
                     menu. Un contour sombre autour de la pastille le recouvrait
                     (08/11, Luc : « c pas les glows de couleur »). */}
-                <span className="absolute left-1 top-1 grid h-[18px] w-[18px] place-items-center rounded-full bg-black/55" title={statusName(e.status)}>
+                <span className="absolute left-1 top-1 grid h-[22px] w-[22px] place-items-center rounded-full bg-black/55" title={statusName(e.status)}>
                   <span
-                    className="as-list-dot !h-2 !w-2"
+                    className="as-list-dot !h-2.5 !w-2.5"
                     style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
                   />
                 </span>
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
-                {e.score ? (
-                  <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-bold text-as-score">{e.score}</span>
-                ) : null}
               </span>
               <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
-              <span className="text-[11px] tabular-nums text-white/40">
-                {progressText(e)}{e.format ? ` · ${prettyFormat(e.format)}` : ""}
+              {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
+                  méta (08/11, Luc). */}
+              <span className="flex min-w-0 items-center gap-2 text-[11px] tabular-nums text-white/40">
+                <span className="min-w-0 flex-1 truncate">
+                  {progressText(e, t)}{e.format ? ` · ${prettyFormat(e.format)}` : ""}
+                </span>
+                {e.score ? <span className="shrink-0 font-bold text-as-score">★ {e.score}</span> : null}
               </span>
             </Link>
           ))}
@@ -451,14 +454,14 @@ export default function ProfileList({
             <Link
               key={e.mediaId}
               href={animeHref(e.mediaId, clickTarget)}
-              className={`as-list-row group grid grid-cols-[10px_minmax(0,1fr)_40px_56px] items-center gap-3 border-b border-white/[0.04] px-3 py-2 text-sm transition-colors last:border-0 hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_56px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
+              className={`as-list-row group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 border-b border-white/[0.04] px-3 py-2 text-sm transition-colors last:border-0 hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
               <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
               <span className="text-right text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
-              <span className="text-right text-xs tabular-nums text-white/50">{progressText(e)}</span>
+              <span className="truncate text-right text-xs tabular-nums text-white/50">{progressText(e, t)}</span>
             </Link>
           ))}
         </div>
@@ -475,6 +478,7 @@ export default function ProfileList({
               href={animeHref(e.mediaId, clickTarget)}
               title={titleOf(e)}
               picked={picked === e.mediaId}
+              progress={progressText(e, t)}
             />
           ))}
         </div>
@@ -509,8 +513,16 @@ export default function ProfileList({
   );
 }
 
-function progressText(e: ProfileEntry) {
-  return e.total ? `${e.progress}/${e.total}` : String(e.progress);
+/* LES ÉPISODES COMME PARTOUT SUR LE SITE (08/11, Luc) : la règle du bloc
+   « En cours de visionnage » (ListBlocks), mêmes clés de traduction —
+   « ép. 6 / 12 » ; sans total, la borne est le dernier épisode SORTI suivi
+   d'un « + » (« ép. 1109 / 1150+ ») ; sinon « ép. 4 ». */
+function progressText(e: ProfileEntry, t: TFunction) {
+  if (e.total) return t("profile.blocks.season.progress", { progress: e.progress, total: e.total });
+  const aired = e.aired && e.aired >= e.progress ? e.aired : null;
+  return aired
+    ? t("profile.blocks.season.progressAiring", { progress: e.progress, aired })
+    : t("profile.blocks.season.progressOpen", { progress: e.progress });
 }
 
 /* Une option des menus Statut / Listes, comme `.lf-dd-option` de la référence
@@ -567,6 +579,7 @@ function Row({
   href,
   title,
   picked,
+  progress,
 }: {
   entry: ProfileEntry;
   color: string;
@@ -574,6 +587,7 @@ function Row({
   href: string;
   title: string;
   picked: boolean;
+  progress: string;
 }) {
   const sub = [entry.format && prettyFormat(entry.format), entry.year, entry.studio].filter(Boolean).join(" · ");
   return (
@@ -610,8 +624,8 @@ function Row({
       ) : null}
       {entry.favourite ? <HeartIcon className="h-5 w-5 shrink-0 text-action" /> : null}
       {/* Les épisodes dans une case, centrés, jumelle neutre de celle de la note (08/11, Luc). */}
-      <span className="w-16 shrink-0 rounded-lg bg-white/[0.07] py-1.5 text-center text-sm font-semibold tabular-nums text-white/75 ring-1 ring-white/[0.08]">
-        {progressText(entry)}
+      <span className="min-w-[5.5rem] shrink-0 whitespace-nowrap rounded-lg bg-white/[0.07] px-2.5 py-1.5 text-center text-sm font-semibold tabular-nums text-white/75 ring-1 ring-white/[0.08]">
+        {progress}
       </span>
       {entry.score ? (
         <span className="w-12 shrink-0 rounded-lg bg-as-score/10 py-1.5 text-center text-sm font-bold text-as-score">{entry.score}</span>
