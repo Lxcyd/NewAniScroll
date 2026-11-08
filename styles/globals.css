@@ -3118,32 +3118,8 @@ html.as-dragging .as-nudge {
    `pathLength: 1` est pose sur le trait en JSX : le chemin fait alors une unite
    de long quelle que soit la liste, donc un seul jeu de keyframes sert a toutes
    les frises, sans mesurer quoi que ce soit. */
-@keyframes as-year-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-.as-year-draw {
-  stroke-dasharray: 1;
-  animation: as-year-draw 0.9s cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-.as-year-veil {
-  animation: as-fade-in 0.45s ease 0.5s both;
-}
-/* Moins de mouvement : la frise est simplement la, entiere. Un trace est un
-   deplacement du regard impose, et c'est exactement ce qu'on vient d'ecarter. */
-@media (prefers-reduced-motion: reduce) {
-  .as-year-draw {
-    stroke-dasharray: none;
-    animation: none;
-  }
-  .as-year-veil {
-    animation: as-fade-in 0.3s ease both;
-  }
-}
+/* Le tracé et le fondu de « Vus par année de sortie » sont en JS (YearsBlock,
+   ListBlocks.tsx) : en CSS, prefers-reduced-motion les coupait chez Luc. */
 
 /* ── Les widgets du profil : ce qu'ils portent grandit avec la carte ──────
 

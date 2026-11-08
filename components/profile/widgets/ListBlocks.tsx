@@ -1655,13 +1655,29 @@ export function YearsBlock({
        l'ANCIENNE frise, à zéro et invisible. */
     k.startsWith("x:") ? posIn(snap.prev ?? snap.years, Number(k.slice(2)) || 0) : 0,
   );
-  /* Le fondu d'ouverture (`as-year-veil`) ne vaut qu'au premier affichage : une
-     année ajoutée par un réglage le rejouait — invisible une demi-seconde, puis
-     un saut. */
-  const opened = useRef(false);
-  useEffect(() => {
-    opened.current = true;
-  }, []);
+  /* L'ENTRÉE, EN JS (08/11/2026, Luc : « pas d'animation »). Le tracé et le
+     fondu étaient en CSS (`as-year-draw` / `as-year-veil`) : coupés par
+     `prefers-reduced-motion`, actif chez Luc, et joués dès le montage, même
+     hors de l'écran. Ils partent maintenant une fois le bloc visible : la
+     courbe se trace de la plus vieille année à aujourd'hui, puis l'aire, les
+     points et les chiffres se posent dessus. Une seule fois : une année
+     ajoutée ensuite par un réglage glisse avec la frise (useTween). */
+  const entered = useRowsEntrance(ref, years.length >= 3 ? years.map((v) => v.key).join(",") : null);
+  const drawn = useRef(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!entered || drawn.current || !el) return;
+    drawn.current = true;
+    const ease = "cubic-bezier(0.4, 0, 0.2, 1)";
+    el.querySelector<SVGPathElement>("[data-year-line]")?.animate(
+      [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }],
+      { duration: 900, easing: ease, fill: "backwards" },
+    );
+    el.querySelectorAll<SVGElement>("[data-year-veil]").forEach((v) =>
+      v.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, delay: 500, easing: "ease", fill: "backwards" }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entered]);
 
   /* FILET : tant que la bulle est ouverte, tout mouvement du pointeur HORS de
      la frise la ferme. Le glisser de la frise capture le pointeur, et le
@@ -1741,7 +1757,7 @@ export function YearsBlock({
          la rouvrira sur l'année qui est sous le pointeur. */
       onScroll={() => setHover(null)}
     >
-      <div className="relative shrink-0" style={{ width: W, height: H }}>
+      <div className="relative shrink-0" style={{ width: W, height: H, opacity: entered ? undefined : 0 }}>
       <svg width={W} height={H} className="font-karla">
         <defs>
           <linearGradient
@@ -1761,7 +1777,7 @@ export function YearsBlock({
             le reste se pose dessus une fois la forme lue. `pathLength={1}`
             évite de mesurer le chemin en JS — le trait fait une unité de long,
             quelle que soit la frise, donc un seul jeu de keyframes suffit. */}
-        <path d={area} fill="url(#as-years-fill)" className="as-year-veil" />
+        <path d={area} fill="url(#as-years-fill)" data-year-veil />
         <path
           d={smoothPath(pts)}
           fill="none"
@@ -1770,14 +1786,11 @@ export function YearsBlock({
           strokeLinecap="round"
           strokeLinejoin="round"
           pathLength={1}
-          className="as-year-draw"
+          strokeDasharray={1}
+          data-year-line
         />
         {display.map(({ stat: v }, i) => (
-          <g
-            key={v.key}
-            className={opened.current ? undefined : "as-year-veil"}
-            opacity={alpha(i)}
-          >
+          <g key={v.key} data-year-veil opacity={alpha(i)}>
             {/* LA CIBLE DU SURVOL EST LA COLONNE ENTIÈRE, pas la pastille :
                 viser un disque de quatre pixels à la souris est un exercice
                 d'adresse, et la colonne est sans ambiguïté — une abscisse
