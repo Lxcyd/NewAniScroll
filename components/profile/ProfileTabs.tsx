@@ -31,10 +31,14 @@ export default function ProfileTabs({
   tabs,
   active,
   onChange,
+  ready = true,
 }: {
   tabs: ProfileTab[];
   active: string;
   onChange: (key: string) => void;
+  /** Faux tant que la page n'a pas lu l'onglet de l'adresse : aucun onglet
+   *  n'est marqué, pour que la pilule ne saute pas d'« Aperçu » au bon. */
+  ready?: boolean;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const btnRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -59,6 +63,7 @@ export default function ProfileTabs({
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     const switched = lastActive.current !== null && lastActive.current !== active;
     lastActive.current = active;
     const measure = (slide: boolean) => {
@@ -77,7 +82,7 @@ export default function ProfileTabs({
     const ro = new ResizeObserver(() => measure(false));
     if (barRef.current) ro.observe(barRef.current);
     return () => ro.disconnect();
-  }, [active]);
+  }, [active, ready]);
 
   return (
     /* `as-stat-card` comme toutes les surfaces du profil : elle porte le fond
@@ -89,7 +94,7 @@ export default function ProfileTabs({
          defile (la pilule, enfant de la barre, defile avec elle). */
       className="as-stat-card flex w-max max-sm:max-w-full max-sm:overflow-x-auto max-sm:scrollbar-hide items-center gap-1 rounded-full p-[5px] ring-1 ring-white/[0.07]"
     >
-      {pill ? (
+      {pill && ready ? (
         <span
           aria-hidden
           className="pointer-events-none absolute left-0 top-0 rounded-full bg-action shadow-glow"
@@ -104,7 +109,7 @@ export default function ProfileTabs({
         />
       ) : null}
       {tabs.map((tab) => {
-        const on = tab.key === active;
+        const on = ready && tab.key === active;
         return (
           <button
             key={tab.key}

@@ -2,7 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 import Head from "next/head";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ResetWidgetsButton, { popIn } from "@/components/profile/ResetWidgetsButton";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
@@ -175,6 +175,10 @@ import { PROFILE_AUTOPLAY_COOKIE } from "@/components/profile/ProfileHero";
    l'autre : sans clé, tout l'état (`useState(initialBanner)`, le brouillon du
    studio, l'onglet, la disposition…) survivait à la navigation, et le profil
    d'un ami s'affichait avec l'habillage du précédent. */
+
+/** `useLayoutEffect` au navigateur, `useEffect` au serveur (qui l'ignorerait
+ *  en avertissant). */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 export default function Profile(props: Props) {
   return <ProfileView key={props.identity?.tag ?? props.viewedName ?? "profile"} {...props} />;
 }
@@ -298,9 +302,15 @@ function ProfileView({
      serveur, et choisir l'onglet dès le premier rendu client ferait diverger
      l'hydratation. On écoute `hashchange` ET `popstate` — un retour arrière qui
      retombe sur le même fragment n'émet que le second. */
-  useEffect(() => {
+  /* L'onglet de l'adresse est-il lu ? Jusque-là, aucun onglet n'est marqué
+     actif : le HTML du serveur, peint avant le JavaScript, montrait la pilule
+     sur « Aperçu » puis la faisait sauter sur `#list` (08/11, Luc). La lecture
+     se fait AVANT la première peinture côté client (effet de mise en page). */
+  const [tabReady, setTabReady] = useState(false);
+  useIsoLayoutEffect(() => {
     const sync = () => setTab(lireOnglet());
     sync();
+    setTabReady(true);
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
     return () => {
@@ -516,6 +526,7 @@ function ProfileView({
               { key: "badges", label: t("profile.tabs.badges") },
             ]}
             active={tab}
+            ready={tabReady}
             onChange={changeTab}
           />
           {/* RÉINITIALISER LES WIDGETS (08/11/2026, Luc) : dans le studio

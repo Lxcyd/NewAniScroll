@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import Footer from "@/components/shared/footer";
@@ -54,6 +54,10 @@ import type { Dressing } from "@/lib/profile/dressing";
  * favourite-anime banner, stats, grouped list), because "signed out" should mean
  * a different source of data, not a lesser page.
  */
+
+/** `useLayoutEffect` au navigateur, `useEffect` au serveur (qui l'ignorerait
+ *  en avertissant). */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 export default function LocalProfile() {
   const { t } = useTranslation();
   const identity = useGuestIdentity();
@@ -75,9 +79,15 @@ export default function LocalProfile() {
      serveur, et choisir l'onglet des le premier rendu client ferait diverger
      l'hydratation. Le prix est un eclair de l'onglet Apercu, invisible en
      pratique — l'effet part avant la peinture suivante. */
-  useEffect(() => {
+  /* L'onglet de l'adresse est-il lu ? Jusque-là, aucun onglet n'est marqué
+     actif : le HTML du serveur, peint avant le JavaScript, montrait la pilule
+     sur « Aperçu » puis la faisait sauter sur `#list` (08/11, Luc). La lecture
+     se fait AVANT la première peinture côté client (effet de mise en page). */
+  const [tabReady, setTabReady] = useState(false);
+  useIsoLayoutEffect(() => {
     const sync = () => setTab(lireOnglet());
     sync();
+    setTabReady(true);
     window.addEventListener("hashchange", sync);
     window.addEventListener("popstate", sync);
     return () => {
@@ -230,6 +240,7 @@ export default function LocalProfile() {
                 { key: "badges", label: t("profile.tabs.badges") },
               ]}
               active={tab}
+              ready={tabReady}
               onChange={changeTab}
             />
           </div>
