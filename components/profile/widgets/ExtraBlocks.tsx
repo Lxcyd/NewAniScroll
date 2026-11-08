@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { genreLabel } from "@/lib/i18n/genreLabel";
+import { useTranslatedText } from "@/lib/i18n/useTranslatedText";
 import { translateTag } from "@/lib/i18n/animeTags";
 import { studioOrder } from "@/lib/profile/favorite";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
@@ -579,8 +580,16 @@ function firstSentence(raw: string): string {
     .replace(/\s+/g, " ")
     .trim();
   const m = /^.{20,}?[.!?](?=\s|$)/.exec(text);
-  const s = m ? m[0] : text;
-  return s.length > PIN_NOTE_MAX ? `${s.slice(0, PIN_NOTE_MAX - 1).replace(/\s+\S*$/, "")}…` : s;
+  return m ? m[0] : text;
+}
+/** Coupé à la taille d'une phrase épinglée, au dernier mot entier. */
+const clip = (s: string) =>
+  s.length > PIN_NOTE_MAX ? `${s.slice(0, PIN_NOTE_MAX - 1).replace(/\s+\S*$/, "")}…` : s;
+/** LA PHRASE DANS LA LANGUE DU SITE (08/11/2026, Luc) : la même traduction que
+    le synopsis de la fiche anime (/api/v2/translate, en cache côté serveur),
+    coupée APRÈS traduction pour ne pas traduire un « … ». */
+function SynopsisNote({ text }: { text: string }) {
+  return <>{clip(useTranslatedText(text))}</>;
 }
 function useSynopsis(ids: number[], enabled: boolean): Map<number, string> {
   const [tick, setTick] = useState(0);
@@ -696,7 +705,7 @@ export function PinnedBlock({
                    coupe au bord au lieu de déborder, et les retours à la ligne
                    tapés sont gardés. */
                 <p className="line-clamp-4 whitespace-pre-line font-karla text-[12px] italic leading-snug text-txt [overflow-wrap:anywhere]">
-                  « {p.note} »
+                  « {useSample ? <SynopsisNote text={p.note} /> : p.note} »
                 </p>
               ) : null}
             </div>
