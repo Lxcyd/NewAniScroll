@@ -409,7 +409,10 @@ export default function ProfileList({
           </button>
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5">
+        /* Un fond translucide (teinte et flou du profil) sous TOUTE la grille,
+           comme les autres surfaces (08/11, Luc) : les titres ne se lisent plus
+           à même l'illustration. */
+        <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
           {rows.map((e) => (
             <Link
               key={e.mediaId}
@@ -420,7 +423,13 @@ export default function ProfileList({
                 {e.cover ? (
                   <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                 ) : null}
-                <span className="absolute left-1.5 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-black/40" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
+                {/* La pastille de statut avec le halo des menus (as-list-dot) ; le
+                    liseré sombre est un `outline`, le halo occupant box-shadow. */}
+                <span
+                  className="as-list-dot absolute left-1.5 top-1.5 !h-2.5 !w-2.5 outline outline-2 outline-black/40"
+                  style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
+                  title={statusName(e.status)}
+                />
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
                 {e.score ? (
                   <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-bold text-as-score">{e.score}</span>
