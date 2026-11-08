@@ -62,43 +62,113 @@ export default function ListManager({
     };
   }, [open, onClose, palette]);
 
-  /* RÉORDONNER AU POINTEUR : souris et doigt pareil (le glisser-déposer HTML5
-     ne marche pas au tactile). La ligne sous le pointeur prend la place. */
+  /* RÉORDONNER COMME LES WIDGETS (08/11, Luc : « ça se TP au lieu de suivre le
+     curseur ») : la ligne tenue SUIT le pointeur (translate), bloquée entre le
+     haut de la première et le bas de la dernière ; les autres glissent pour
+     lui faire de la place ; la molette pendant le geste fait défiler la liste
+     et la ligne reste sous le curseur. Rien n'est écrit avant le lâcher.
+     Souris et doigt pareil (Pointer Events, écoutés sur `window`). */
   const listRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ kind: "status" | "custom"; from: number } | null>(null);
-  const [dragging, setDragging] = useState<number | null>(null);
+  type Drag = {
+    kind: "status" | "custom";
+    from: number;
+    to: number;
+    dy: number;
+    /** Hauteur de la ligne tenue + l'écart : le pas dont les autres glissent. */
+    step: number;
+  };
+  const [drag, setDrag] = useState<Drag | null>(null);
+  /* Une image sans transition au lâcher : l'ordre change dans le DOM au même
+     moment où les décalages tombent à zéro, rien ne doit glisser. */
+  const [settling, setSettling] = useState(false);
+  const geo = useRef<{
+    tops: number[];
+    bottoms: number[];
+    startY: number;
+    startScroll: number;
+    lastY: number;
+  } | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  dragRef.current = drag;
+
   const startDrag = (kind: "status" | "custom", idx: number) => (e: React.PointerEvent) => {
+    const box = listRef.current;
+    if (!box) return;
     e.preventDefault();
-    listRef.current?.setPointerCapture?.(e.pointerId);
-    drag.current = { kind, from: idx };
-    setDragging(idx);
+    setPalette(null);
+    const items = [...box.querySelectorAll<HTMLElement>("[data-item]")];
+    const base = box.getBoundingClientRect().top - box.scrollTop;
+    const tops = items.map((el) => el.getBoundingClientRect().top - base);
+    const bottoms = items.map((el) => el.getBoundingClientRect().bottom - base);
+    const gap = items.length > 1 ? tops[1] - bottoms[0] : 7;
+    geo.current = { tops, bottoms, startY: e.clientY, startScroll: box.scrollTop, lastY: e.clientY };
+    setDrag({ kind, from: idx, to: idx, dy: 0, step: bottoms[idx] - tops[idx] + gap });
   };
-  const moveDrag = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d || !listRef.current) return;
-    const rows = [...listRef.current.querySelectorAll<HTMLElement>("[data-row]")];
-    const to = rows.findIndex((r) => {
-      const b = r.getBoundingClientRect();
-      return e.clientY >= b.top && e.clientY <= b.bottom;
-    });
-    if (to < 0 || to === d.from) return;
-    updateListRegistry((r) => {
-      if (d.kind === "status") {
-        const o = r.statusOrder.slice();
-        o.splice(to, 0, o.splice(d.from, 1)[0]);
-        return { ...r, statusOrder: o };
+
+  useEffect(() => {
+    if (!drag) return;
+    const box = listRef.current;
+    const update = () => {
+      const d = dragRef.current;
+      const g = geo.current;
+      if (!d || !g || !box) return;
+      const n = g.tops.length;
+      let dy = g.lastY - g.startY + (box.scrollTop - g.startScroll);
+      // Bloquée en haut et en bas de la liste.
+      dy = Math.max(g.tops[0] - g.tops[d.from], Math.min(g.bottoms[n - 1] - g.bottoms[d.from], dy));
+      const center = (g.tops[d.from] + g.bottoms[d.from]) / 2 + dy;
+      let to = 0;
+      for (let i = 0; i < n; i++) {
+        if (i !== d.from && (g.tops[i] + g.bottoms[i]) / 2 < center) to++;
       }
-      // Toutes les listes perso, dans l'ordre affiché, puis le déplacement.
-      const names = customRows(r).map((x) => x.name);
-      names.splice(to, 0, names.splice(d.from, 1)[0]);
-      return { ...r, customOrder: names };
-    });
-    d.from = to;
-    setDragging(to);
-  };
-  const endDrag = () => {
-    drag.current = null;
-    setDragging(null);
+      setDrag({ ...d, dy, to });
+    };
+    const onMove = (e: PointerEvent) => {
+      if (geo.current) geo.current.lastY = e.clientY;
+      update();
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      setSettling(true);
+      setDrag(null);
+      geo.current = null;
+      requestAnimationFrame(() => requestAnimationFrame(() => setSettling(false)));
+      if (!d || d.to === d.from) return;
+      updateListRegistry((r) => {
+        if (d.kind === "status") {
+          const o = r.statusOrder.slice();
+          o.splice(d.to, 0, o.splice(d.from, 1)[0]);
+          return { ...r, statusOrder: o };
+        }
+        // Toutes les listes perso, dans l'ordre affiché, puis le déplacement.
+        const names = customRows(r).map((x) => x.name);
+        names.splice(d.to, 0, names.splice(d.from, 1)[0]);
+        return { ...r, customOrder: names };
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    box?.addEventListener("scroll", update, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      box?.removeEventListener("scroll", update);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag !== null]);
+
+  /** Le style de la i-ème ligne pendant un geste. */
+  const itemStyle = (kind: "status" | "custom", i: number): React.CSSProperties | undefined => {
+    if (settling) return { transition: "none" };
+    if (!drag || drag.kind !== kind) return undefined;
+    if (i === drag.from) {
+      return { transform: `translate3d(0, ${drag.dy}px, 0)`, transition: "none", zIndex: 2, position: "relative" };
+    }
+    const { from, to, step } = drag;
+    const shift = from < to && i > from && i <= to ? -step : to < from && i >= to && i < from ? step : 0;
+    return { transform: `translate3d(0, ${shift}px, 0)` };
   };
 
   /* Les listes perso dans l'ordre du gestionnaire : celles d'AniScroll et
@@ -212,11 +282,11 @@ export default function ListManager({
           ))}
         </div>
 
-        <div className="as-lm-body" ref={listRef} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+        <div className={`as-lm-body${drag ? " is-sorting" : ""}`} ref={listRef}>
           {tab === "status"
             ? reg.statusOrder.map((s, i) => (
-                <div key={s}>
-                  <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
+                <div key={s} data-item className="as-lm-item" style={itemStyle("status", i)}>
+                  <div data-row className={`as-lm-row${drag?.kind === "status" && drag.from === i ? " is-dragging" : ""}`}>
                     {grip("status", i)}
                     {swatch(`s:${s}`, statusColor(s))}
                     <span className="as-lm-name">{statusName(s)}</span>
@@ -233,8 +303,8 @@ export default function ListManager({
                     const n = row.name;
                     const c = anilistLists.find(([x]) => x === n)?.[1] ?? 0;
                     return (
-                      <div key={`a:${n}`}>
-                        <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
+                      <div key={`a:${n}`} data-item className="as-lm-item" style={itemStyle("custom", i)}>
+                        <div data-row className={`as-lm-row${drag?.kind === "custom" && drag.from === i ? " is-dragging" : ""}`}>
                           {grip("custom", i)}
                           {swatch(`a:${n}`, reg.anilistColors[n] || customListColor(n))}
                           <span className="as-lm-name">{n}</span>
@@ -248,8 +318,8 @@ export default function ListManager({
                   }
                   const l = reg.lists.find((x) => x.name === row.name)!;
                   return (
-                    <div key={`l:${l.name}`}>
-                      <div data-row className={`as-lm-row${dragging === i ? " is-dragging" : ""}`}>
+                    <div key={`l:${l.name}`} data-item className="as-lm-item" style={itemStyle("custom", i)}>
+                      <div data-row className={`as-lm-row${drag?.kind === "custom" && drag.from === i ? " is-dragging" : ""}`}>
                         {grip("custom", i)}
                         {swatch(`l:${l.name}`, l.color)}
                         <span className="as-lm-name">{l.name}</span>

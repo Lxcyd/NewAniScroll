@@ -5614,7 +5614,9 @@ html.as-dragging .as-nudge {
 .as-lm-tabs button[aria-selected="true"] { color: #fff; }
 .as-lm-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 12px; display: flex; flex-direction: column; gap: 7px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; touch-action: pan-y; }
 .as-lm-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 8px; border-radius: 12px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); transition: border-color .15s, background .15s, opacity .15s; }
-.as-lm-row.is-dragging { border-color: rgba(233,69,96,.55); background: rgba(233,69,96,.08); }
+.as-lm-item { transition: transform .2s cubic-bezier(.22,1,.36,1); will-change: transform; }
+.as-lm-row.is-dragging { border-color: rgba(233,69,96,.55); background: #22202c; box-shadow: 0 12px 28px rgba(0,0,0,.5); cursor: grabbing; }
+.as-lm-body.is-sorting { user-select: none; cursor: grabbing; }
 .as-lm-grip { display: grid; place-items: center; width: 18px; color: rgba(255,255,255,.3); cursor: grab; touch-action: none; flex: none; }
 .as-lm-grip:active { cursor: grabbing; color: rgba(255,255,255,.7); }
 .as-lm-grip.is-off { cursor: default; }
