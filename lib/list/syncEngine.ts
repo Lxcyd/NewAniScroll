@@ -351,6 +351,33 @@ function reconcileEntry(local: LocalEntry, remote: LocalEntry): LocalEntry {
   };
 }
 
+/**
+ * La progression qu'AniList a pour cet anime, lue À LA SOURCE : la copie en
+ * cache de la session peut dater de plusieurs minutes. Repli sur elle si la
+ * requête échoue ; `null` quand on ne sait rien (l'envoi part alors comme avant).
+ */
+async function remoteProgress(token: string, userName: string, mediaId: number): Promise<number | null> {
+  try {
+    const r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        query: "query($u:String,$m:Int){MediaList(userName:$u,mediaId:$m){progress}}",
+        variables: { u: userName, m: mediaId },
+      }),
+    });
+    const j = await r.json().catch(() => null);
+    const p = j?.data?.MediaList?.progress;
+    /* Pas d'entrée chez AniList (404) : rien à protéger. */
+    if (typeof p === "number") return p;
+    if (r.status === 404 || (j && j.data && j.data.MediaList === null)) return 0;
+  } catch {
+    /* réseau : repli sur le cache */
+  }
+  const cached = peekListEntry(userName, mediaId);
+  return typeof cached?.progress === "number" ? cached.progress : null;
+}
+
 /** De-dupe guard: the player re-binds its `ended` listener per episode/server,
  *  so the same finish can fire more than once. We coalesce per media:episode. */
 const recentlyFinished = new Set<string>();
@@ -473,7 +500,16 @@ export async function onEpisodeFinished(
 
   // Build the upstream payload from the same rules but gated per-toggle.
   const payload: Parameters<typeof saveMediaListEntry>[1] = { mediaId: aniId };
-  if (prefs.autoProgress) payload.progress = nextProgress;
+  /* JAMAIS EN ARRIÈRE SUR ANILIST (08/11/2026, Luc). `nextProgress` se calcule
+     sur la liste et la progression de CET appareil ; en retard (une copie plus
+     ancienne relue depuis le compte), il valait 7 alors qu'AniList était à 11,
+     et la fin d'un épisode a ramené Aristocrat à 7/12, deux fois le 07/11. On
+     lit donc la progression d'AniList et on ne pousse le compteur que s'il
+     avance. La reculer reste possible, à la main, dans l'éditeur de liste. */
+  if (prefs.autoProgress) {
+    const there = userName ? await remoteProgress(token, userName, aniId) : null;
+    if (there == null || nextProgress > there) payload.progress = nextProgress;
+  }
   if (totalEp != null && nextProgress >= totalEp) {
     payload.status = "COMPLETED";
     payload.completedAt = todayFuzzy();
