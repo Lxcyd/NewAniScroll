@@ -4807,12 +4807,12 @@ html.as-dragging .as-nudge {
 
 /* Une ligne de la liste du profil (ProfileList). Six cents lignes, dont une
    douzaine à l'écran : les autres ne sont ni mises en page ni peintes tant
-   qu'on ne s'en approche pas. 77 px est la hauteur réelle d'une ligne
-   (vignette de 56 + 2 × 10 de marge + 1 de trait) ; `auto` retient ensuite
+   qu'on ne s'en approche pas. 96 px est la hauteur réelle d'une ligne en
+   vue Cartes depuis le 08/11 (vignette de 80 + 2 × 8 de marge) ; `auto` retient ensuite
    celle mesurée, pour que la barre de défilement ne bouge pas. */
 .as-list-row {
   content-visibility: auto;
-  contain-intrinsic-size: auto 77px;
+  contain-intrinsic-size: auto 96px;
 }
 
 /* La sélection d'un palier (cf. LadderPopup). Le TRAJET du cadre est en JS ; sa

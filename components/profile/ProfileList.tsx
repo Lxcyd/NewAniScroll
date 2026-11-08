@@ -49,7 +49,17 @@ import type { ProfileEntry } from "@/lib/profile/types";
  */
 const FIRST_ROWS = 40;
 
-const STATUS_ORDER = ["CURRENT", "REPEATING", "COMPLETED", "PAUSED", "PLANNING", "DROPPED"];
+/* L'ordre et les noms de l'éditeur de liste (components/listEditor.tsx) : le
+   menu Statut doit se lire comme celui où l'on CHOISIT le statut (08/11, Luc). */
+const STATUS_ORDER = ["CURRENT", "REPEATING", "COMPLETED", "PLANNING", "PAUSED", "DROPPED"];
+const STATUS_KEY: Record<string, string> = {
+  CURRENT: "listEditor.watching",
+  REPEATING: "listEditor.repeating",
+  COMPLETED: "listEditor.completed",
+  PLANNING: "listEditor.planToWatch",
+  PAUSED: "listEditor.paused",
+  DROPPED: "listEditor.dropped",
+};
 
 type View = "cards" | "grid" | "compact";
 const VIEWS: View[] = ["cards", "grid", "compact"];
@@ -221,8 +231,8 @@ export default function ProfileList({
 
   const statusColor = (s: string | null) => LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
   const statusName = (s: string | null) => {
-    const l = STATUS_TO_LIST[s || "PLANNING"] || s || "";
-    return listLabel(t, l);
+    const k = STATUS_KEY[s || "PLANNING"];
+    return k ? t(k) : listLabel(t, STATUS_TO_LIST[s || ""] || s || "");
   };
 
   return (
@@ -393,7 +403,7 @@ export default function ProfileList({
       ) : (
         /* `as-stat-card` comme toutes les surfaces du profil : le fond sombre
            et le flou du studio. */
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           {rows.map((e) => (
             <Row
               key={e.mediaId}
@@ -492,34 +502,35 @@ function Row({
       href={href}
       /* `as-list-row` : une ligne hors de l'écran n'est ni mise en page ni
          peinte (cf. globals.css). */
-      className={`as-list-row as-stat-card group flex items-center gap-3 rounded-xl px-3 py-1.5 pl-1.5 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
+      /* Plus grande depuis le 08/11 (Luc) : affiche 56×80, titre en 16 px. */
+      className={`as-list-row as-stat-card group flex items-center gap-4 rounded-2xl py-2 pl-2 pr-4 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
     >
       {entry.cover ? (
-        <Image src={entry.cover} alt="" width={40} height={56} className="h-14 w-10 shrink-0 rounded-md object-cover" />
+        <Image src={entry.cover} alt="" width={56} height={80} className="h-20 w-14 shrink-0 rounded-lg object-cover" />
       ) : (
-        <div className="h-14 w-10 shrink-0 rounded-md bg-white/10" />
+        <div className="h-20 w-14 shrink-0 rounded-lg bg-white/10" />
       )}
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold group-hover:text-action">{title}</p>
-        {sub ? <p className="mt-0.5 truncate text-xs text-white/40">{sub}</p> : null}
+        <p className="truncate text-base font-semibold group-hover:text-action">{title}</p>
+        {sub ? <p className="mt-1 truncate text-[13px] text-white/40">{sub}</p> : null}
       </div>
 
       <span
-        className="hidden shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold sm:inline"
+        className="hidden shrink-0 rounded-full px-3 py-1 text-xs font-bold sm:inline"
         style={{ color, background: `${color}24`, boxShadow: `inset 0 0 0 1px ${color}66` }}
       >
         {statusName}
       </span>
       {entry.repeat ? (
-        <span className="shrink-0 text-[11px] text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
+        <span className="shrink-0 text-xs text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
       ) : null}
-      {entry.favourite ? <HeartIcon className="h-4 w-4 shrink-0 text-action" /> : null}
-      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-white/50">{progressText(entry)}</span>
+      {entry.favourite ? <HeartIcon className="h-5 w-5 shrink-0 text-action" /> : null}
+      <span className="w-14 shrink-0 text-right text-sm tabular-nums text-white/55">{progressText(entry)}</span>
       {entry.score ? (
-        <span className="w-10 shrink-0 rounded-md bg-as-score/10 py-1 text-center text-xs font-bold text-as-score">{entry.score}</span>
+        <span className="w-12 shrink-0 rounded-lg bg-as-score/10 py-1.5 text-center text-sm font-bold text-as-score">{entry.score}</span>
       ) : (
-        <span className="w-10 shrink-0" />
+        <span className="w-12 shrink-0" />
       )}
     </Link>
   );
