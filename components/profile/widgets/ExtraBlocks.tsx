@@ -2076,6 +2076,48 @@ export function AffinityEditor({
   );
 }
 
+/**
+ * L'ENTRÉE D'UNE LISTE À BARRES, comme « Répartition par statut »
+ * (StatusesBlock, ListBlocks.tsx) : les lignes `[data-row]` attendent,
+ * invisibles et barres à zéro, que le bloc soit à l'écran ET que la liste
+ * n'ait plus bougé depuis un instant (`settled`) ; puis elles tombent en place
+ * l'une après l'autre et leurs barres poussent. En Web Animations : le Chrome
+ * de Luc est en `prefers-reduced-motion`.
+ */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+function useRowsEntrance(ref: React.RefObject<HTMLElement | null>, settled: string | null) {
+  const [seen, setSeen] = useState(false);
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  });
+  useEffect(() => {
+    if (entered || !seen || settled == null) return;
+    const go = setTimeout(() => setEntered(true), 80);
+    return () => clearTimeout(go);
+  }, [entered, seen, settled]);
+  useIsoLayoutEffect(() => {
+    if (!entered) return;
+    const rows = ref.current?.querySelectorAll<HTMLElement>("[data-row]") ?? [];
+    Array.from(rows).forEach((row, i) =>
+      row.animate(
+        [
+          { opacity: 0, transform: "translateY(-14px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 180, delay: i * 20, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
+      ),
+    );
+  }, [entered]);
+  return entered;
+}
+
 export function AffinityBlock({
   isOwner,
   entries,
@@ -2119,6 +2161,25 @@ export function AffinityBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freshKey]);
 
+  /* L'entrée (08/11/2026, Luc : « de même » que le calendrier et la
+     répartition par statut). Prête quand la liste est connue : les goûts des
+     amis arrivent en plusieurs fois, d'où la clé qui doit cesser de bouger. */
+  const rootRef = useRef<HTMLElement | null>(null);
+  const setRoot = (el: HTMLElement | null) => {
+    rootRef.current = el;
+  };
+  const entered = useRowsEntrance(
+    rootRef,
+    isOwner
+      ? friends == null
+        ? null
+        : ranked.map((x) => `${x.o.tag}:${x.m.pct}`).join("|")
+      : store
+        ? "visit"
+        : null,
+  );
+  const hidden = entered ? undefined : ({ opacity: 0 } as const);
+
   if (!isOwner) {
     if (!store) return <div className="h-full" />;
     /* CHEZ UN AUTRE : toi et lui. Ta liste est celle rangée la dernière fois
@@ -2149,6 +2210,9 @@ export function AffinityBlock({
         />
       ) : null}
       <button
+        ref={setRoot}
+        data-row="visit"
+        style={hidden}
         type="button"
         onClick={() => setOpened("visit")}
         title={t("profile.blocks.affinity.seeCommon")}
@@ -2161,7 +2225,7 @@ export function AffinityBlock({
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold text-white">{t("profile.blocks.affinity.youAnd", { name })}</p>
           <div className="my-1.5">
-            <Bar pct={m.pct} />
+            <Bar pct={entered ? m.pct : 0} />
           </div>
           <p className="font-karla text-[11px] text-txt">
             {t("profile.blocks.affinity.shared", { count: m.shared })}
@@ -2189,7 +2253,7 @@ export function AffinityBlock({
   }
   const open = opened ? ranked.find((x) => x.o.tag === opened) : null;
   return (
-    <div className="as-scroller grid h-full min-h-0 content-start gap-2 overflow-y-auto pr-1">
+    <div ref={setRoot} className="as-scroller grid h-full min-h-0 content-start gap-2 overflow-y-auto pr-1">
       {open ? (
         <CommonTitles
           name={open.o.name}
@@ -2209,6 +2273,8 @@ export function AffinityBlock({
       {ranked.map(({ o, m }) => (
         <button
           key={o.tag}
+          data-row={o.tag}
+          style={hidden}
           type="button"
           onClick={() => setOpened(o.tag)}
           title={t("profile.blocks.affinity.seeCommon")}
@@ -2228,7 +2294,7 @@ export function AffinityBlock({
               <span className="font-outfit text-[13px] font-bold text-white">{m.pct}%</span>
             </div>
             <div className="mt-1">
-              <Bar pct={m.pct} />
+              <Bar pct={entered ? m.pct : 0} />
             </div>
             <p className="mt-0.5 font-karla text-[10px] text-txt">{t("profile.blocks.affinity.shared", { count: m.shared })}</p>
           </div>
