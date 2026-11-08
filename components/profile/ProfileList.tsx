@@ -511,17 +511,21 @@ function Row({
         <div className="h-20 w-14 shrink-0 rounded-lg bg-white/10" />
       )}
 
+      {/* Disposition n° 02 de l'artefact des lignes, retenue par Luc le 08/11 :
+          le statut passe SOUS le titre, en pastille, devant la méta — sans le
+          liseré coloré à gauche. La droite ne garde que les chiffres. */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-base font-semibold group-hover:text-action">{title}</p>
-        {sub ? <p className="mt-1 truncate text-[13px] text-white/40">{sub}</p> : null}
+        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+          <span
+            className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+            style={{ color, background: `${color}24`, boxShadow: `inset 0 0 0 1px ${color}66` }}
+          >
+            {statusName}
+          </span>
+          {sub ? <span className="truncate text-[13px] text-white/40">{sub}</span> : null}
+        </div>
       </div>
-
-      <span
-        className="hidden shrink-0 rounded-full px-3 py-1 text-xs font-bold sm:inline"
-        style={{ color, background: `${color}24`, boxShadow: `inset 0 0 0 1px ${color}66` }}
-      >
-        {statusName}
-      </span>
       {entry.repeat ? (
         <span className="shrink-0 text-xs text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
       ) : null}
