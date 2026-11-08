@@ -96,28 +96,6 @@ function sampleEntries(entries: ProfileEntry[], n: number): ProfileEntry[] {
     .slice(0, n);
 }
 
-/** Les genres AniList qui ont leur phrase d'exemple (profile.blocks.pinned.sample.*),
-    du plus parlant au plus banal : AniList les range par ordre alphabétique,
-    « Action » viendrait sinon presque toujours en premier. */
-const SAMPLE_GENRES = [
-  "Romance", "Horror", "Psychological", "Mecha", "Sports", "Music", "Mahou Shoujo",
-  "Mystery", "Thriller", "Slice of Life", "Sci-Fi", "Supernatural", "Drama", "Comedy",
-  "Fantasy", "Adventure", "Action", "Ecchi",
-];
-const genreKey = (g: string) => g.toLowerCase().replace(/[^a-z]/g, "");
-/** Une phrase par épinglé, tirée de son genre le plus parlant — jamais deux
-    fois la même ; la phrase passe-partout sinon. */
-function sampleNotes(list: ProfileEntry[]): string[] {
-  const used = new Set<string>();
-  let generic = 0;
-  return list.map((e) => {
-    const g = SAMPLE_GENRES.find((x) => e.genres?.includes(x) && !used.has(x));
-    if (!g) return `generic${generic++ % 3}`;
-    used.add(g);
-    return genreKey(g);
-  });
-}
-
 /**
  * L'onglet « Aperçu » : la grille de widgets du profil, sa barre d'outils et
  * sa bibliothèque de blocs.
@@ -1257,18 +1235,10 @@ export default function ProfileOverview({
         /* Aussi sur le profil, chez le propriétaire (08/11/2026, Luc : « vide,
            regarde sur le profil ») ; un visiteur ne voit jamais de phrases
            prêtées au propriétaire. */
-        const sample = (menuPreview.current || isOwner) && !pins.length ? sampleEntries(entries, 3) : [];
-        const notes = sampleNotes(sample);
         return (
           <PinnedBlock
-            pins={
-              sample.length
-                ? sample.map((e, i) => ({
-                    id: e.mediaId,
-                    note: t(`profile.blocks.pinned.sample.${notes[i]}`),
-                  }))
-                : pins
-            }
+            pins={pins}
+            sample={menuPreview.current || isOwner ? sampleEntries(entries, 3).map((e) => e.mediaId) : undefined}
             entries={entries}
             isOwner={isOwner}
             showScore={optionOn("pinned", "pinScore")}

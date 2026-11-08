@@ -562,6 +562,25 @@ export function GoalBlock({
 export type Pin = { id: number; note: string };
 export const PIN_NOTE_MAX = 120;
 
+/* ── L'exemple des épinglés ────────────────────────────────────────────────
+   LA PHRASE SUIT L'ANIME, PAS SON GENRE (08/11/2026, Luc : « les phrases sont
+   nulles, n'ont pas vraiment de sens avec l'anime ») : on lit les tags AniList
+   des trois titres (« Pirates », « Dungeon », « Cyberpunk »…), et chaque titre
+   prend la phrase de son tag le mieux classé qui en a une
+   (profile.blocks.pinned.tag.*). À défaut, celle de son genre le plus parlant
+   (profile.blocks.pinned.sample.*), puis une phrase passe-partout. Jamais deux
+   fois la même phrase. Les tags : `useAnimeTags`, plus haut (rangés par rang
+   par AniList). */
+
+/** Les genres qui ont leur phrase, du plus parlant au plus banal : AniList
+    les range par ordre alphabétique, « Action » viendrait sinon en premier. */
+const SAMPLE_GENRES = [
+  "Romance", "Horror", "Psychological", "Mecha", "Sports", "Music", "Mahou Shoujo",
+  "Mystery", "Thriller", "Slice of Life", "Sci-Fi", "Supernatural", "Drama", "Comedy",
+  "Fantasy", "Adventure", "Action", "Ecchi",
+];
+const phraseKey = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+
 export function parsePins(raw: string | undefined): Pin[] {
   try {
     const p = JSON.parse(raw || "[]");
@@ -582,6 +601,7 @@ export function PinnedBlock({
   isOwner,
   onChange,
   showScore = true,
+  sample,
 }: {
   pins: Pin[];
   entries: ProfileEntry[];
@@ -590,16 +610,45 @@ export function PinnedBlock({
   onChange?: (pins: Pin[]) => void;
   /** La note du profil sous le titre (réglage du widget, 03/11/2026). */
   showScore?: boolean;
+  /** L'exemple : sans épinglés, ces titres, avec une phrase tirée de l'anime. */
+  sample?: number[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const clickTarget = useClickTarget();
   const scores = useMemo(() => new Map(entries.map((e) => [e.mediaId, e.score])), [entries]);
+  const useSample = !onChange && !pins.length && !!sample?.length;
+  const tags = useAnimeTags(sample ?? [], useSample);
+  /* AniList muet : au bout de 2 s, l'exemple part avec les genres. */
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (!useSample) return;
+    const timer = setTimeout(() => setGaveUp(true), 2000);
+    return () => clearTimeout(timer);
+  }, [useSample]);
+  if (useSample) {
+    const used = new Set<string>();
+    let generic = 0;
+    const has = (k: string) => !used.has(k) && i18n.exists(k);
+    pins = sample!.map((id) => {
+      const genres = entries.find((e) => e.mediaId === id)?.genres ?? [];
+      const k =
+        (tags.get(id)?.tags ?? []).map((x) => `profile.blocks.pinned.tag.${phraseKey(x)}`).find(has) ??
+        SAMPLE_GENRES.filter((g) => genres.includes(g))
+          .map((g) => `profile.blocks.pinned.sample.${phraseKey(g)}`)
+          .find(has) ??
+        `profile.blocks.pinned.sample.generic${generic++ % 3}`;
+      used.add(k);
+      return { id, note: t(k) };
+    });
+  }
   const meta = useAnimeMeta(
     pins.map((p) => p.id),
     entries,
   );
 
   if (onChange) return <PinEditor pins={pins} entries={entries} onChange={onChange} meta={meta} />;
+  /* L'exemple attend ses tags plutôt que de changer de phrase sous les yeux. */
+  if (useSample && !gaveUp && sample!.some((id) => !tags.has(id))) return null;
   if (!pins.length)
     return <EmptyBlock note={t(isOwner ? "profile.blocks.pinned.emptyOwner" : "profile.blocks.pinned.empty")} />;
 
