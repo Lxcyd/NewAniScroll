@@ -116,10 +116,17 @@ export default function ListManager({
       let dy = g.lastY - g.startY + (box.scrollTop - g.startScroll);
       // Bloquée en haut et en bas de la liste.
       dy = Math.max(g.tops[0] - g.tops[d.from], Math.min(g.bottoms[n - 1] - g.bottoms[d.from], dy));
-      const center = (g.tops[d.from] + g.bottoms[d.from]) / 2 + dy;
+      /* On prend la place d'une voisine dès que le BORD de la ligne tenue passe
+         sa moitié : bord bas en descendant, bord haut en remontant. Comparer
+         les centres ne permettait jamais d'atteindre la dernière place, la
+         ligne étant bloquée pile au centre de celle-ci (08/11, Luc). */
+      const top = g.tops[d.from] + dy;
+      const bottom = g.bottoms[d.from] + dy;
       let to = 0;
       for (let i = 0; i < n; i++) {
-        if (i !== d.from && (g.tops[i] + g.bottoms[i]) / 2 < center) to++;
+        if (i === d.from) continue;
+        const mid = (g.tops[i] + g.bottoms[i]) / 2;
+        if (i < d.from ? top > mid : bottom > mid) to++;
       }
       setDrag({ ...d, dy, to });
     };
