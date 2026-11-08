@@ -103,6 +103,7 @@ export function progressFromCloud(payload: unknown): ProgressMap {
  */
 export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[] {
   const out: ActivityRow[] = [];
+  const others = watchedTimes(map);
   for (const row of rows) {
     /* UNE CARTE PAR JOURNÉE. Les épisodes enchaînés le même jour tiennent sur
        une carte (« Épisodes 1–3 ») ; un épisode vu un autre jour ouvre la sienne,
@@ -122,7 +123,7 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
     let last = row.episode;
     let first = true;
     for (;;) {
-      const from = first && glance ? last : runStart(map, row.aniId, first && lastSeen ? lastSeen : last);
+      const from = first && glance ? last : runStart(map, row.aniId, first && lastSeen ? lastSeen : last, others);
       const at = Number(map[key(first && lastSeen ? lastSeen : last)]?.updatedAt);
       out.push(
         first
@@ -191,15 +192,35 @@ function dayOf(map: ProgressMap, aniId: number, episode: number): number | null 
  *
  * La boucle est bornée par sa nature : elle ne descend que vers 1.
  */
-function runStart(map: ProgressMap, aniId: number, episode: number): number {
+/*
+ * UN AUTRE ANIME ENTRE DEUX ÉPISODES COUPE LA SÉRIE (08/11/2026, Luc). « 5–8 »,
+ * puis un épisode d'un autre anime le même jour, puis on reprend le premier :
+ * trois cartes — la reprise a la sienne, à sa date — et pas une carte « 5–10 »
+ * qui raconterait un enchaînement qui n'a pas eu lieu. `others` : les dates des
+ * épisodes vus, avec leur anime (cf. `watchedTimes`).
+ */
+function runStart(map: ProgressMap, aniId: number, episode: number, others: [number, number][]): number {
   const day = dayOf(map, aniId, episode);
   let first = episode;
   while (first > 1 && watched(map[`${aniId}:${first - 1}`])) {
     const prev = dayOf(map, aniId, first - 1);
     if (day != null && prev != null && prev !== day) break;
+    const a = Number(map[`${aniId}:${first - 1}`]?.updatedAt);
+    const b = Number(map[`${aniId}:${first}`]?.updatedAt);
+    if (a > 0 && b > 0 && others.some(([t, id]) => id !== aniId && t > Math.min(a, b) && t < Math.max(a, b))) break;
     first--;
   }
   return first;
+}
+
+/** Les épisodes vus de la table, `[date, anime]`. */
+function watchedTimes(map: ProgressMap): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [k, e] of Object.entries(map || {})) {
+    const at = Number(e?.updatedAt);
+    if (at > 0 && watched(e)) out.push([at, Number(k.split(":")[0])]);
+  }
+  return out;
 }
 
 /**
