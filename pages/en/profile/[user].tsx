@@ -52,7 +52,7 @@ import { bannerCandidates, rankCandidates, studioOrder } from "@/lib/profile/fav
 import { useOwnLiveEntries } from "@/lib/profile/liveEntries";
 import { normalizeDressing, type Dressing } from "@/lib/profile/dressing";
 import { resolveFavoriteBanner, type KnownArt } from "@/lib/profile/resolve";
-import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, isKnownBlock } from "@/lib/profile/blocks";
+import { DEFAULT_BLOCKS, DEFAULT_LAYOUT, blockBounds, blockType, isKnownBlock } from "@/lib/profile/blocks";
 import { isValidLayout, sanitizeLayout, type GridItem } from "@/lib/profile/grid";
 import {
   activityFromCloud,
@@ -1026,7 +1026,7 @@ export async function getServerSideProps(context: any) {
      défaut, et DEFAULT_BLOCKS contient les deux blocs d'activité. */
   const layoutWantsActivity = (items: GridItem[] | null) =>
     items
-      ? items.some((o) => ACTIVITY_BLOCKS.has(o.i))
+      ? items.some((o) => ACTIVITY_BLOCKS.has(blockType(o.i)))
       : DEFAULT_BLOCKS.some((id) => ACTIVITY_BLOCKS.has(id));
 
   const kinds: DataKind[] = [];
@@ -1259,7 +1259,7 @@ export async function getServerSideProps(context: any) {
      les garde-fous lisent donc celle-là. */
   const shown: readonly GridItem[] = profileLayout ?? DEFAULT_LAYOUT;
   const feed =
-    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge", "recents"].includes(o.i))
+    account && account.anilistId && shown.some((o) => ["calendar", "heatmap", "goal", "bingo", "binge", "recents"].includes(blockType(o.i)))
       ? await getAnilistFeed(account.id).catch(() => null)
       : null;
   const read = layoutWantsActivity(profileLayout)
@@ -1291,7 +1291,7 @@ export async function getServerSideProps(context: any) {
   /* Le journal des jours, sous le même garde-fou et seulement si la grille
      montre le calendrier ou la heatmap : sans eux, rien ne l'afficherait. */
   const watchDays: WatchDays | null =
-    read && shown.some((o) => ["calendar", "heatmap", "goal", "bingo"].includes(o.i)) ? read.days : null;
+    read && shown.some((o) => ["calendar", "heatmap", "goal", "bingo"].includes(blockType(o.i))) ? read.days : null;
   /* Le plus long binge, sous le même garde-fou, seulement si son bloc est posé. */
   const binge: Binge | null = read && shown.some((o) => o.i === "binge") ? read.binge : null;
 
