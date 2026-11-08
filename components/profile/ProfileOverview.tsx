@@ -738,7 +738,16 @@ export default function ProfileOverview({
   /* Les réglages du bloc `id` : ce que le propriétaire a rangé dans la
      disposition, sinon les défauts du catalogue. */
   function saved(id: string) {
-    return layout?.find((o) => o.i === id)?.s;
+    const s = layout?.find((o) => o.i === id)?.s;
+    if (s || !menuPreview.current || !isOwner) return s;
+    /* L'APERÇU DU MENU MONTRE LE WIDGET TEL QU'ON L'A LAISSÉ (08/11/2026,
+       Luc) : retiré, il garde ses réglages sur l'appareil (`stashRemoved`),
+       et c'est eux que l'aperçu montre, pas l'exemple. */
+    try {
+      return readRemoved()[id]?.s;
+    } catch {
+      return undefined;
+    }
   }
   function optionOn(id: string, key: string): boolean {
     return blockOption(id, key, saved(id));
