@@ -502,7 +502,8 @@ function progressText(e: ProfileEntry) {
 }
 
 /* Une option des menus Statut / Listes, comme `.lf-dd-option` de la référence
-   (08/11, Luc) : pastille LUMINEUSE (halo de sa couleur), coche à droite pour
+   (08/11, Luc) : pastille LUMINEUSE (halo qui PULSE, `pulse-green` de la
+   référence), coche à droite pour
    la sélection, pas de compteur. */
 function MenuItem({
   on,
@@ -524,7 +525,7 @@ function MenuItem({
       aria-pressed={on}
       className={`as-list-opt${on ? " is-on" : ""}`}
     >
-      <span className="as-list-dot" style={{ background: c, boxShadow: `0 0 5px ${color ? `${color}b3` : "rgba(255,255,255,.45)"}` }} />
+      <span className="as-list-dot" style={{ background: c, ["--c" as string]: c } as React.CSSProperties} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {on ? (
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/70" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>

@@ -5510,7 +5510,17 @@ html.as-dragging .as-nudge {
 }
 .as-list-opt:hover { background: rgba(255,255,255,.06); }
 .as-list-opt.is-on { font-weight: 600; color: #fff; }
-.as-list-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.as-list-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  animation: as-dot-pulse 2s ease-in-out infinite;
+}
+/* `pulse-green` / `pulse-red` de la référence, dans la couleur de la pastille.
+   Volontairement HORS de prefers-reduced-motion : le halo ne déplace rien, et
+   le Chrome de Luc répond `reduce` (cf. mémoire poste-reduced-motion). */
+@keyframes as-dot-pulse {
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--c, #fff) 50%, transparent); }
+  50% { box-shadow: 0 0 8px var(--c, #fff); }
+}
 .as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
 
 .as-sfp-overlay {
