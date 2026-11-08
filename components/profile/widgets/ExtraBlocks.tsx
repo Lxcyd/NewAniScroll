@@ -563,23 +563,70 @@ export type Pin = { id: number; note: string };
 export const PIN_NOTE_MAX = 120;
 
 /* ── L'exemple des épinglés ────────────────────────────────────────────────
-   LA PHRASE SUIT L'ANIME, PAS SON GENRE (08/11/2026, Luc : « les phrases sont
-   nulles, n'ont pas vraiment de sens avec l'anime ») : on lit les tags AniList
-   des trois titres (« Pirates », « Dungeon », « Cyberpunk »…), et chaque titre
-   prend la phrase de son tag le mieux classé qui en a une
-   (profile.blocks.pinned.tag.*). À défaut, celle de son genre le plus parlant
-   (profile.blocks.pinned.sample.*), puis une phrase passe-partout. Jamais deux
-   fois la même phrase. Les tags : `useAnimeTags`, plus haut (rangés par rang
-   par AniList). */
+   LE DÉBUT DU SYNOPSIS (08/11/2026, Luc, après trois essais de phrases
+   inventées) : sous chaque titre de l'exemple, la première phrase du résumé
+   AniList (en anglais, AniList n'a pas de français). Une requête depuis le
+   navigateur pour les trois titres, gardée pour la session. */
 
-/** Les genres qui ont leur phrase, du plus parlant au plus banal : AniList
-    les range par ordre alphabétique, « Action » viendrait sinon en premier. */
-const SAMPLE_GENRES = [
-  "Romance", "Horror", "Psychological", "Mecha", "Sports", "Music", "Mahou Shoujo",
-  "Mystery", "Thriller", "Slice of Life", "Sci-Fi", "Supernatural", "Drama", "Comedy",
-  "Fantasy", "Adventure", "Action", "Ecchi",
-];
-const phraseKey = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+const synopsisCache = new Map<number, string | null>();
+const synopsisListeners = new Set<() => void>();
+/** La première phrase d'un résumé AniList, sans balises ni « (Source: …) ». */
+function firstSentence(raw: string): string {
+  const text = raw
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\(Source:[^)]*\)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const m = /^.{20,}?[.!?](?=\s|$)/.exec(text);
+  const s = m ? m[0] : text;
+  return s.length > PIN_NOTE_MAX ? `${s.slice(0, PIN_NOTE_MAX - 1).replace(/\s+\S*$/, "")}…` : s;
+}
+function useSynopsis(ids: number[], enabled: boolean): Map<number, string> {
+  const [tick, setTick] = useState(0);
+  const key = ids.join(",");
+  useEffect(() => {
+    if (!enabled) return;
+    const on = () => setTick((n) => n + 1);
+    synopsisListeners.add(on);
+    const missing = ids.filter((id) => !synopsisCache.has(id));
+    if (missing.length) {
+      missing.forEach((id) => synopsisCache.set(id, null));
+      fetch("https://graphql.anilist.co", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          query: "query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id description(asHtml:false)}}}",
+          variables: { ids: missing },
+        }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          for (const m of j?.data?.Page?.media ?? [])
+            synopsisCache.set(m.id, m.description ? firstSentence(m.description) : "");
+        })
+        .catch(() => {})
+        .finally(() => {
+          /* Sans réponse : pas de phrase, mais l'exemple s'affiche quand même. */
+          for (const id of missing) if (synopsisCache.get(id) == null) synopsisCache.set(id, "");
+          synopsisListeners.forEach((f) => f());
+        });
+    }
+    return () => {
+      synopsisListeners.delete(on);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled]);
+  return useMemo(() => {
+    const out = new Map<number, string>();
+    for (const id of ids) {
+      const v = synopsisCache.get(id);
+      if (v != null) out.set(id, v);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, tick]);
+}
 
 export function parsePins(raw: string | undefined): Pin[] {
   try {
@@ -610,45 +657,23 @@ export function PinnedBlock({
   onChange?: (pins: Pin[]) => void;
   /** La note du profil sous le titre (réglage du widget, 03/11/2026). */
   showScore?: boolean;
-  /** L'exemple : sans épinglés, ces titres, avec une phrase tirée de l'anime. */
+  /** L'exemple : sans épinglés, ces titres, avec le début de leur synopsis. */
   sample?: number[];
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const clickTarget = useClickTarget();
   const scores = useMemo(() => new Map(entries.map((e) => [e.mediaId, e.score])), [entries]);
   const useSample = !onChange && !pins.length && !!sample?.length;
-  const tags = useAnimeTags(sample ?? [], useSample);
-  /* AniList muet : au bout de 2 s, l'exemple part avec les genres. */
-  const [gaveUp, setGaveUp] = useState(false);
-  useEffect(() => {
-    if (!useSample) return;
-    const timer = setTimeout(() => setGaveUp(true), 2000);
-    return () => clearTimeout(timer);
-  }, [useSample]);
-  if (useSample) {
-    const used = new Set<string>();
-    let generic = 0;
-    const has = (k: string) => !used.has(k) && i18n.exists(k);
-    pins = sample!.map((id) => {
-      const genres = entries.find((e) => e.mediaId === id)?.genres ?? [];
-      const k =
-        (tags.get(id)?.tags ?? []).map((x) => `profile.blocks.pinned.tag.${phraseKey(x)}`).find(has) ??
-        SAMPLE_GENRES.filter((g) => genres.includes(g))
-          .map((g) => `profile.blocks.pinned.sample.${phraseKey(g)}`)
-          .find(has) ??
-        `profile.blocks.pinned.sample.generic${generic++ % 3}`;
-      used.add(k);
-      return { id, note: t(k) };
-    });
-  }
+  const synopsis = useSynopsis(sample ?? [], useSample);
+  if (useSample) pins = sample!.map((id) => ({ id, note: synopsis.get(id) ?? "" }));
   const meta = useAnimeMeta(
     pins.map((p) => p.id),
     entries,
   );
 
   if (onChange) return <PinEditor pins={pins} entries={entries} onChange={onChange} meta={meta} />;
-  /* L'exemple attend ses tags plutôt que de changer de phrase sous les yeux. */
-  if (useSample && !gaveUp && sample!.some((id) => !tags.has(id))) return null;
+  /* L'exemple attend ses résumés plutôt que de les voir arriver un à un. */
+  if (useSample && sample!.some((id) => !synopsis.has(id))) return null;
   if (!pins.length)
     return <EmptyBlock note={t(isOwner ? "profile.blocks.pinned.emptyOwner" : "profile.blocks.pinned.empty")} />;
 
