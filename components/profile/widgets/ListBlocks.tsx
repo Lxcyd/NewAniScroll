@@ -1354,15 +1354,24 @@ export function GenresBlock({
   /* LA FORME GLISSE D'UN RÉGLAGE À L'AUTRE (25/10/2026, Luc). Un polygone SVG
      ne s'anime pas en CSS (`points` n'est pas une propriété), d'où une
      interpolation en JS, PAR GENRE : la part de chaque branche et son compte. */
+  /* L'ENTRÉE (08/11/2026, Luc : « pas d'animation ») : tant que le bloc n'est
+     pas à l'écran, la cible est zéro partout ; une fois visible, la forme se
+     déploie depuis le centre et les comptes montent, par la même interpolation
+     que les changements de réglage. */
+  const svgRef = useRef<SVGSVGElement>(null);
+  const entered = useRowsEntrance(
+    svgRef as unknown as React.RefObject<HTMLElement>,
+    genres.length >= 3 ? genres.map((g) => `${g.key}:${g.count}`).join(",") : null,
+  );
   const target = useMemo(() => {
     const max = Math.max(1, ...genres.map((g) => g.count));
     const out: Record<string, number> = {};
     for (const g of genres) {
-      out[`r:${g.key}`] = g.count / max;
-      out[`n:${g.key}`] = g.count;
+      out[`r:${g.key}`] = entered ? g.count / max : 0;
+      out[`n:${g.key}`] = entered ? g.count : 0;
     }
     return out;
-  }, [genres]);
+  }, [genres, entered]);
   const live = useTween(target);
 
   if (genres.length < 3)
@@ -1410,7 +1419,7 @@ export function GenresBlock({
        238 (le compte de six heures, sous son nom).
        `meet` (le défaut) fait ensuite tenir le tout dans la carte quelle que
        soit sa forme, sans déformer. */
-    <svg viewBox="-92 -36 384 274" className="h-full w-full">
+    <svg ref={svgRef} viewBox="-92 -36 384 274" className="h-full w-full">
       {/* LA TOILE EST FAITE DE CERCLES, plus de polygones. Un polygone à seize
           côtés dessine seize sommets de plus dans une figure qui en a déjà
           seize : les repères devenaient impossibles à distinguer de la mesure.
@@ -1491,7 +1500,7 @@ export function GenresBlock({
               fontWeight="700"
               fontSize="9"
             >
-              {Math.round(live[`n:${g.key}`] ?? g.count)}
+              {Math.round(live[`n:${g.key}`] ?? 0)}
             </tspan>
           </text>
         );
