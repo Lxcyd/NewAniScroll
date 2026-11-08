@@ -1029,6 +1029,18 @@ export function ScoresBlock({
     () => scoreSpread(entries, completedOnly),
     [entries, completedOnly],
   );
+  /* L'ENTRÉE (08/11/2026, Luc : « manque une animation ») : une fois le bloc à
+     l'écran, les barres poussent depuis la base, de gauche à droite. Le
+     décalage entre colonnes ne vaut que pour l'entrée : basculer ensuite
+     « Terminés uniquement » fait bouger toutes les barres ensemble. */
+  const plotRef = useRef<HTMLDivElement>(null);
+  const entered = useRowsEntrance(plotRef, bins.length ? bins.join(",") : null);
+  const [intro, setIntro] = useState(true);
+  useEffect(() => {
+    if (!entered) return;
+    const id = setTimeout(() => setIntro(false), 1500);
+    return () => clearTimeout(id);
+  }, [entered]);
   if (!bins.length) {
     /* Deux vides pour deux raisons différentes : un profil sans aucune note n'a
        rien à répartir, un profil qui n'a noté que des titres en cours a bien des
@@ -1053,6 +1065,7 @@ export function ScoresBlock({
         <AverageBadge mean={mean} rated={rated} t={t} num={num} />
       ) : null}
       <div
+        ref={plotRef}
         className="as-score-plot grid h-full"
         style={{
           gridTemplateColumns: `auto repeat(${bins.length}, minmax(0, 1fr))`,
@@ -1188,7 +1201,9 @@ export function ScoresBlock({
                    plus de barre du tout, et une note donnée une fois garde 3 px,
                    sans quoi elle serait invisible sur une échelle qui monte
                    à 40. */
-                height: n ? `max(3px, ${(n / top) * 100}%)` : "0px",
+                height: n && entered ? `max(3px, ${(n / top) * 100}%)` : "0px",
+                transitionDuration: intro ? "700ms" : undefined,
+                transitionDelay: intro ? `${i * 30}ms` : undefined,
               }}
             />
             </Tag>
