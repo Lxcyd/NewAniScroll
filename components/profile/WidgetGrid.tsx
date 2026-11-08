@@ -278,6 +278,19 @@ export default function WidgetGrid({
     return () => ro.disconnect();
   }, []);
 
+  /* LA TRANSITION DE TAILLE ATTEND QUE LE PREMIER VRAI PLACEMENT SOIT PEINT
+     (08/11/2026, Luc : « le fond grossit depuis la gauche »). Allumée dans le
+     même rendu que la première largeur mesurée, elle animait le passage de la
+     disposition d'un pixel (celle du serveur) à la vraie : chaque carte
+     s'étirait depuis la gauche. Une image plus tard, il n'y a plus rien à
+     animer. */
+  const [placed, setPlaced] = useState(false);
+  useEffect(() => {
+    if (!width || placed) return;
+    const r = requestAnimationFrame(() => setPlaced(true));
+    return () => cancelAnimationFrame(r);
+  }, [width, placed]);
+
   /* LA CARTE ARRIVE EN FONDU (08/11/2026, Luc : « le fond du widget apparaît
      d'un coup »). Chaque carte, la première fois qu'elle est placée pour de vrai
      (largeur connue), pendant le chargement seulement : un widget ajouté plus
@@ -860,7 +873,7 @@ export default function WidgetGrid({
         const active = drag?.id === it.i;
         const sig = [
           Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height),
-          active ? drag?.mode : "", editing, contentEdit === it.i, settings === it.i, !!width,
+          active ? drag?.mode : "", editing, contentEdit === it.i, settings === it.i, !!width, placed,
         ].join("|");
         const hit = cardCache.current.get(it.i);
         /* La carte tenue est toujours refaite : sa position vient de `moveRef`. */
@@ -918,7 +931,7 @@ export default function WidgetGrid({
                      plusieurs fois ») : c'est la classe `as-grid-dragging` du
                      conteneur qui le dit (globals.css), une seule pour toutes
                      les cartes — une classe par carte les refaisait toutes. */
-                  `z-10 ${width ? "transition-[width,height] duration-200 ease-in-out" : ""}`
+                  `z-10 ${placed ? "transition-[width,height] duration-200 ease-in-out" : ""}`
             }`}
             style={{
               /* LA CARTE TENUE SE DÉPLACE PAR `transform` (25/10/2026, Luc :
