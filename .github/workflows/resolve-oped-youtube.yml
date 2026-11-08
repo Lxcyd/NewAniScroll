@@ -66,7 +66,10 @@ jobs:
       - name: Installer le strict nécessaire
         # Le résolveur n'utilise que la bibliothèque standard et `curl` (présent
         # sur les runners). Côté Node, seul @libsql/client sert.
-        run: npm install --no-save @libsql/client@^0.17
+        # package.json mis de cote le temps de l'installation : sinon npm installe
+        # tout le site, sharp compris, dont le telechargement de libvips a pris
+        # un 504 le 08/11/2026. Trois essais, comme wallhaven.yml.
+        run: mv package.json /tmp/pkg.json; rm -f package-lock.json; ok=1; for i in 1 2 3; do npm install --no-save @libsql/client@^0.17 && ok=0 && break; sleep 20; done; mv /tmp/pkg.json package.json; exit $ok
 
       - name: Lire ce qui est déjà en base
         env:
