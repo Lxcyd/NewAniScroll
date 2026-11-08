@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ResetWidgetsButton, { popIn } from "@/components/profile/ResetWidgetsButton";
 import { useTranslation } from "react-i18next";
 import { getServerSession } from "next-auth";
+import { useSession } from "next-auth/react";
 import { authOptions } from "../../api/auth/[...nextauth]";
 
 import { Navbar } from "@/components/shared/NavBar";
@@ -199,6 +200,8 @@ function ProfileView({
   musicPaused,
 }: Props) {
   const { t } = useTranslation();
+  /* Pour rafraîchir l'avatar et le cadre de la barre après une sauvegarde. */
+  const { update: refreshSession } = useSession();
   /* Sur son propre profil, ses modifications récentes passent par-dessus la
      copie du serveur (lib/profile/liveEntries). */
   const entries = useOwnLiveEntries(serverEntries ?? [], !!isOwner, identity?.anilistName);
@@ -399,6 +402,9 @@ function ProfileView({
         setBanner(before.banner);
         setPinned(before.pinned);
         notify.error(t("profile.studioSaveError"));
+      } else {
+        /* La barre lit l'avatar et le cadre dans la session (08/11/2026). */
+        void refreshSession();
       }
     } catch {
       /* the plate is already swapped locally; a failed write just isn't kept */

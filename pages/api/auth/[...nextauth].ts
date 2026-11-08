@@ -17,6 +17,8 @@ import {
   type UserRecord,
 } from "@/lib/auth/users";
 import { pickAvatar } from "@/lib/auth/avatar";
+import { normalizeDressing } from "@/lib/profile/dressing";
+import { isVideoUpload } from "@/lib/upload/media";
 import { verifyPassword } from "@/lib/auth/password";
 import { checkThrottle, resetThrottle } from "@/lib/auth/throttle";
 import { consumeToken, pruneTokens } from "@/lib/auth/tokens";
@@ -120,7 +122,17 @@ function accountClaims(user: UserRecord) {
     anilistName: user.anilistName ?? null,
     // The resolved picture: the account's own, AniList's when it has none.
     avatarUrl: pickAvatar(user),
+    ...profileLook(user),
   };
+}
+
+/* L'avatar et le cadre choisis au studio du profil, pour la barre de
+   navigation (08/11/2026, Luc). `null` et pas `undefined` : un jeton qui les
+   porte, même vides, n'a plus besoin d'être relu (cf. le rattrapage plus bas). */
+function profileLook(user: UserRecord) {
+  const d = normalizeDressing(user.profileBanner ?? null);
+  const avatar = d?.avatar && !isVideoUpload(d.avatar) ? d.avatar : null;
+  return { profileAvatar: avatar, frame: d?.frame ?? null };
 }
 
 /**
@@ -432,6 +444,12 @@ export const authOptions: NextAuthOptions = {
         const record = await findById(String((token as any).uid)).catch(() => null);
         if (record) (token as any).anilistName = record.anilistName ?? null; // null : on ne relit plus
       }
+      /* Sessions ouvertes avant l'avatar du studio dans la barre : une lecture,
+         puis le jeton réémis le porte. */
+      if ((token as any).uid && (token as any).frame === undefined) {
+        const record = await findById(String((token as any).uid)).catch(() => null);
+        if (record) Object.assign(token, profileLook(record));
+      }
 
       // Display name: the AniList name when linked, else the AniScroll pseudo.
       (token as any).name =
@@ -452,6 +470,8 @@ export const authOptions: NextAuthOptions = {
         // AniList — same names and meanings as before this file grew accounts
         anilistId: t.anilistId ?? null,
         avatarUrl: t.avatarUrl ?? null,
+        profileAvatar: t.profileAvatar ?? null,
+        frame: t.frame ?? null,
         id: t.id,
         sub: t.sub,
         token: t.token,

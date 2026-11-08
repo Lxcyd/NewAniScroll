@@ -34,6 +34,8 @@ export function avatarFrom(value: unknown): string | null {
  */
 export function pickAvatar(user: any): string | null {
   return (
+    /* L'avatar choisi au studio du profil, que la session porte (08/11/2026). */
+    avatarFrom(user?.profileAvatar) ||
     avatarFrom(user?.avatarUrl) ||
     avatarFrom(user?.anilistAvatarUrl) ||
     avatarFrom(user?.image) ||

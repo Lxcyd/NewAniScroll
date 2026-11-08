@@ -10,6 +10,8 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickAvatar } from "@/lib/auth/avatar";
+import { isFrameAsset } from "@/lib/profile/frames";
+import { FrameTileImage } from "@/components/profile/FramedAvatar";
 import { profileHref } from "@/lib/profile/href";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
@@ -103,6 +105,8 @@ export function Navbar({
      pseudo; "-" separates it, since a browser would swallow everything after a
      "#" as a fragment and the server would never see it. */
   const avatarUrl = pickAvatar(session?.user);
+  const frame = (session?.user as any)?.frame;
+  const frameAsset = isFrameAsset(frame) ? frame : null;
   const profileTarget = profileHref(session?.user);
   const { setIsOpen } = useSearch();
 
@@ -377,20 +381,30 @@ export function Navbar({
                   onClick={() =>
                     touchMenu() ? setSheetOpen(true) : router.push(profileTarget)
                   }
-                  className="rounded-full w-10 h-10 bg-white/30 overflow-hidden"
+                  className="relative w-10 h-10 rounded-full"
                   title={t("nav.profile")}
                 >
-                  {avatarUrl ? (
-                    <Image
-                      src={avatarUrl}
-                      alt="avatar"
-                      width={64}
-                      height={64}
-                      className="w-10 h-10 object-cover"
+                  <span className="block w-10 h-10 overflow-hidden rounded-full bg-white/30">
+                    {avatarUrl ? (
+                      <Image
+                        src={avatarUrl}
+                        alt="avatar"
+                        width={64}
+                        height={64}
+                        className="w-10 h-10 object-cover"
+                      />
+                    ) : (
+                      <UserIcon className="w-full h-full translate-y-1" />
+                    )}
+                  </span>
+                  {/* Le cadre du profil, comme sur la page (08/11/2026, Luc) :
+                      1,2 fois l'avatar, posé dessus (cf. FramedAvatar). */}
+                  {frameAsset ? (
+                    <FrameTileImage
+                      asset={frameAsset}
+                      className="pointer-events-none absolute -left-[10%] -top-[10%] h-[120%] w-[120%] max-w-none select-none"
                     />
-                  ) : (
-                    <UserIcon className="w-full h-full translate-y-1" />
-                  )}
+                  ) : null}
                 </button>
               ) : (
                 <button
