@@ -423,13 +423,16 @@ export default function ProfileList({
                 {e.cover ? (
                   <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                 ) : null}
-                {/* La pastille de statut avec le halo des menus (as-list-dot) ; le
-                    liseré sombre est un `outline`, le halo occupant box-shadow. */}
-                <span
-                  className="as-list-dot absolute left-1.5 top-1.5 !h-2.5 !w-2.5 outline outline-2 outline-black/40"
-                  style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
-                  title={statusName(e.status)}
-                />
+                {/* La pastille de statut avec le halo des menus (as-list-dot), posée
+                    sur une rondelle sombre : le halo s'y voit comme sur le fond du
+                    menu. Un contour sombre autour de la pastille le recouvrait
+                    (08/11, Luc : « c pas les glows de couleur »). */}
+                <span className="absolute left-1 top-1 grid h-[18px] w-[18px] place-items-center rounded-full bg-black/55" title={statusName(e.status)}>
+                  <span
+                    className="as-list-dot !h-2 !w-2"
+                    style={{ background: statusColor(e.status), ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
+                  />
+                </span>
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
                 {e.score ? (
                   <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-bold text-as-score">{e.score}</span>
