@@ -432,7 +432,7 @@ export default function ProfileList({
               {/* Le statut à GAUCHE DU TITRE, la pastille du menu Statut à
                   l'identique (08/11, Luc). */}
               <span className="flex min-w-0 items-center gap-2" title={statusName(e.status)}>
-                <span className="as-glow-dot" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
+                <span className="as-glow-dot !h-[9px] !w-[9px]" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
                 <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
               </span>
               {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
