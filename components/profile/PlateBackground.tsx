@@ -244,6 +244,8 @@ export default function PlateBackground({
   const src = episode ? (ep?.url ?? null) : (dressing.url ?? null);
   /** Le fichier qui a échoué à charger (image ou vidéo) : il n'est plus peint. */
   const [failed, setFailed] = useState<string | null>(null);
+  /** Les nouvelles tentatives déjà faites pour la vidéo `src`. */
+  const retries = useRef({ src: "", n: 0 });
 
   useEffect(() => {
     const el = video.current;
@@ -674,9 +676,6 @@ export default function PlateBackground({
      rien, et c'est le fond du site posé dessous (ProfileHero) qui se voit. Un
      aplat noir ici restait à l'écran pour toujours quand le flux échouait. */
   if (!src) return null;
-  /* Un fichier (image ou vidéo) qui ne charge pas s'efface : ni icône d'image
-     cassée étirée sur l'écran, ni vidéo noire ; le fond du site dessous, oui. */
-  if (failed === src) return null;
 
   if (isVideoKind(dressing.kind)) {
     /* UN FOND VIDÉO S'AFFICHE TOUT DE SUITE (07/11/2026, Luc : « optimise le
@@ -685,6 +684,22 @@ export default function PlateBackground({
        télécharger), l'affiche 640×360 (préchargée dans le <head>, avant même
        le JavaScript), puis la vidéo par-dessus dès qu'elle a une image. */
     const fond = episode ? null : fondOf(src);
+    /* UNE VIDÉO EN ÉCHEC GARDE SON AFFICHE (08/11/2026, Luc : « parfois le
+       fond ne charge pas ») : avant, une seule erreur effaçait tout le fond,
+       aperçu flou compris, et la page restait noire pour la visite. Seule
+       une vidéo hors catalogue (sans affiche) laisse place au fond du site. */
+    if (failed === src) {
+      if (!fond) return null;
+      return (
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={fond.lqip ? { backgroundImage: `url(${fond.lqip})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={fond.poster} alt="" aria-hidden className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"}`} />
+        </div>
+      );
+    }
     return (
       <div
         className="absolute inset-0 overflow-hidden"
@@ -709,7 +724,18 @@ export default function PlateBackground({
           /* `auto` : le fichier se télécharge d'emblée, au lieu des seules
              métadonnées puis d'une seconde requête au moment de jouer. */
           preload="auto"
-          onError={() => setFailed(src)}
+          onError={(e) => {
+            /* Deux nouvelles tentatives (1 s puis 2 s) avant d'abandonner :
+               un chargement coupé n'est pas un fichier mort. Un HLS a ses
+               propres reprises (hls.js). */
+            const el = e.currentTarget;
+            const n = retries.current.src === src ? retries.current.n : 0;
+            if (ep?.hls || n >= 2) return setFailed(src);
+            retries.current = { src, n: n + 1 };
+            setTimeout(() => {
+              if (el.isConnected && el.getAttribute("src") === src) el.load();
+            }, 1000 * (n + 1));
+          }}
           className={`absolute inset-0 h-full w-full ${
             contain ? "object-contain" : "object-cover"
           }`}
@@ -719,6 +745,9 @@ export default function PlateBackground({
     );
   }
 
+  /* Une image qui ne charge pas s'efface : ni icône d'image cassée étirée sur
+     l'écran ; le fond du site dessous, oui. */
+  if (failed === src) return null;
   const fit = contain ? "object-contain" : "object-cover";
   const apercu = apercuWallhaven(dressing.url);
   return (
