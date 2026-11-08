@@ -538,14 +538,18 @@ section("automatisations", "jour", async () => {
     const runs = (r.workflow_runs || []).map(passage);
     /* Le rythme attendu : l'ecart median entre deux passages PROGRAMMES. Un
        workflow programme dont le dernier passage date de plus de deux ecarts
-       (et d'au moins 3 h de plus) ne tourne plus — panne silencieuse. */
+       (et d'au moins 3 h de plus) ne tourne plus — panne silencieuse.
+       Ni moins que le plus long ecart deja vu + 3 h : des creneaux inegaux
+       (wallhaven : 08:10, 13:40, 19:10, donc 13 h la nuit) donnent une mediane
+       de ~4 h et un trou de nuit normal passait pour une panne (08/11/2026). */
     const prog = runs.filter((x) => x.evenement === "schedule").map((x) => Date.parse(x.quand));
     const ecarts = prog.slice(0, -1).map((t, i) => (t - prog[i + 1]) / 1000).sort((a, b) => a - b);
     const rythme = ecarts.length >= 2 ? ecarts[Math.floor(ecarts.length / 2)] : null;
+    const seuil = rythme && Math.max(2 * rythme, rythme + 3 * 3600, ecarts[ecarts.length - 1] + 3 * 3600);
     const age = runs[0] ? (maintenant - Date.parse(runs[0].quand)) / 1000 : null;
     liste.push({
       nom: wf.name, fichier: wf.path.split("/").pop(), actif: wf.state === "active", etatWorkflow: wf.state,
-      rythme, enRetard: !!(wf.state === "active" && rythme && age != null && age > Math.max(2 * rythme, rythme + 3 * 3600)),
+      rythme, enRetard: !!(wf.state === "active" && rythme && age != null && age > seuil),
       dernier: runs[0] || null, passages: runs,
     });
   }
