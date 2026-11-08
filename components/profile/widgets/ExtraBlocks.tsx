@@ -1351,9 +1351,13 @@ export function ThemesBlock({
   const meta = useAnimeMeta(ids, entries);
   const themes = useThemes(ids);
   if (useSample)
-    favs = ids.flatMap((a) => {
+    /* Les trois sortes en alternance (08/11/2026, Luc : « tu as mis que des
+       OP ») : OP, ED, musique, OP, ED… ; l'animé qui n'a pas la sorte voulue
+       donne la suivante. */
+    favs = ids.flatMap((a, i) => {
       const list = themes.get(a);
-      const pick = list?.find((x) => x.kind === "op") ?? list?.[0];
+      const order = (["op", "ed", "ins"] as const).map((_, k) => (["op", "ed", "ins"] as const)[(i + k) % 3]);
+      const pick = order.map((k) => list?.find((x) => x.kind === k)).find(Boolean) ?? list?.[0];
       return pick ? [{ a, s: pick.slug }] : [];
     });
   /* « Par type » : trois CATÉGORIES DISTINCTES, chacune sous son titre et
