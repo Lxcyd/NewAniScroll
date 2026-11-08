@@ -2078,6 +2078,15 @@ export function StudiosBlock({
     };
   }, [ranks]);
 
+  /* L'ENTRÉE (08/11/2026, Luc : « manque une animation ») : une fois le bloc à
+     l'écran, les lignes descendent l'une après l'autre et les barres poussent
+     depuis zéro, comme « Saison en cours ». */
+  const listRef = useRef<HTMLDivElement>(null);
+  const entered = useRowsEntrance(
+    listRef,
+    shownRanks.length ? shownRanks.map((s) => s.name).join(",") : null,
+  );
+
   if (!shownRanks.length)
     return (
       <EmptyBlock
@@ -2096,6 +2105,7 @@ export function StudiosBlock({
        barre TOUT le reste — elle s'étire avec la carte au lieu de rester à
        64 px. `overflow-x-hidden` : plus de barre de défilement en bas. */
     <div
+      ref={listRef}
       className="as-studio-list as-scroller grid h-full content-start gap-x-3 gap-y-3 overflow-y-auto overflow-x-hidden pr-1.5"
       style={{
         opacity: phase === "out" ? 0 : 1,
@@ -2106,8 +2116,9 @@ export function StudiosBlock({
         <div
           key={s.name}
           data-studio={s.name}
+          data-row
           className="col-span-full grid items-center"
-          style={{ gridTemplateColumns: "subgrid" }}
+          style={{ gridTemplateColumns: "subgrid", ...(entered ? null : { opacity: 0 }) }}
         >
           <span className="font-karla text-[11px] font-bold text-white/30">{i + 1}</span>
           <span className="max-w-[16ch] truncate text-[13px] font-semibold text-white">
@@ -2127,7 +2138,7 @@ export function StudiosBlock({
             <Bar
               /* À zéro pendant la réapparition, puis à leur note : les barres
                  poussent (cf. `phase`). */
-              pct={phase === "grow" ? 0 : s.score ? ((s.score - 5) / 5) * 100 : 2}
+              pct={!entered || phase === "grow" ? 0 : s.score ? ((s.score - 5) / 5) * 100 : 2}
               color="linear-gradient(90deg,#FFD700,#b8860b)"
             />
           </span>
