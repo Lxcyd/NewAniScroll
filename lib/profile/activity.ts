@@ -113,13 +113,18 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
     const key = (ep: number) => `${row.aniId}:${ep}`;
     /* Un missclic sur le dernier épisode ouvert garde sa ligne (la reprise en a
        besoin) mais ne s'étend à rien : les cartes repartent de l'épisode d'avant. */
-    const glance = !!map[key(row.episode)] && !watched(map[key(row.episode)]);
     /* Ouvert sans jamais avoir été lancé, juste après un épisode vu : la carte
        parle de ce dernier (cf. `lastSeen`). */
     const lastSeen =
       !map[key(row.episode)] && row.episode > 1 && watched(map[key(row.episode - 1)])
         ? row.episode - 1
         : null;
+    /* MOINS D'UNE MINUTE, OU JAMAIS LANCÉ, NE COMPTE PAS (08/11/2026, Luc :
+       « ne compte pas un anime regardé moins de 1 minute »). Un épisode ouvert
+       sans aucune progression enregistrée n'était pas pris pour un missclic —
+       seul celui ouvert quelques secondes l'était — et gardait sa carte, barre
+       vide (Apothecary ép. 1, King's Avatar ép. 4). */
+    const glance = !lastSeen && !watched(map[key(row.episode)]);
     let last = row.episode;
     let first = true;
     for (;;) {
