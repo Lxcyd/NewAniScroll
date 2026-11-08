@@ -675,6 +675,10 @@ export function PinnedBlock({
   const useSample = !onChange && !pins.length && !!sample?.length;
   const synopsis = useSynopsis(sample ?? [], useSample);
   if (useSample) pins = sample!.map((id) => ({ id, note: synopsis.get(id) ?? "" }));
+  /* LE CRAYON PART DE L'EXEMPLE (08/11/2026, Luc : « on ne peut pas
+     modifier ») : l'éditeur reçoit les titres montrés, sans le synopsis — la
+     phrase est à écrire. Rien n'est enregistré tant qu'on n'y touche pas. */
+  else if (onChange && !pins.length && sample?.length) pins = sample.map((id) => ({ id, note: "" }));
   const meta = useAnimeMeta(
     pins.map((p) => p.id),
     entries,

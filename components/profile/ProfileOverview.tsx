@@ -682,6 +682,8 @@ export default function ProfileOverview({
                     entries={entries}
                     isOwner
                     onChange={(p) => setOption("pinned", "pins", JSON.stringify(p))}
+                    /* Le crayon part de l'exemple affiché (08/11/2026, Luc). */
+                    sample={sampleEntries(entries, 3).map((e) => e.mediaId)}
                   />
                 ),
               }
@@ -694,6 +696,7 @@ export default function ProfileOverview({
                       entries={entries}
                       isOwner
                       onChange={(f) => setOption("themes", "themes", JSON.stringify(f))}
+                      sample={sampleEntries(entries, 5).map((e) => e.mediaId)}
                     />
                   ),
                 }
