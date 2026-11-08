@@ -9,7 +9,7 @@ import { decorateRows, watchStreak, type ActivityRow } from "@/lib/profile/activ
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import type { ProfileTitle } from "@/lib/profile/types";
 import { readProgressMap, PROGRESS_EVENT } from "@/lib/watch/progress";
-import { Bar, EmptyBlock, useAgo } from "./common";
+import { Bar, EmptyBlock, useAgo, useRowsEntrance } from "./common";
 import { DEFAULT_SERVER_ID } from "@/lib/servers";
 
 /**
@@ -552,6 +552,15 @@ export function RecentsBlock({
   const { rows: all, streak, loaded } = useRows(served, 12, servedStreak);
   /* Un épisode ouvert quelques secondes (missclic) n'a pas de carte. */
   const rows = useMemo(() => all.filter((r) => !r.glance), [all]);
+  /* L'ENTRÉE (08/11/2026, Luc : « il manque l'anim du contenu ») : les lignes
+     tombent en cascade, les barres poussent depuis zéro (useRowsEntrance). */
+  const listRef = useRef<HTMLDivElement>(null);
+  const entered = useRowsEntrance(
+    listRef,
+    loaded && rows.length
+      ? rows.slice(0, RECENTS_MAX).map((r) => `${r.aniId}:${r.episode}`).join(",")
+      : null,
+  );
 
   if (!loaded) return <div className="h-full" />;
   if (!rows.length)
@@ -577,7 +586,10 @@ export function RecentsBlock({
       {/* `minmax(0,1fr)` : une colonne `auto` prend la largeur naturelle du plus
           long titre et poussait les lignes hors de la carte, coupées à droite.
           `as-scroller` rend la barre de défilement que le site masque partout. */}
-      <div className="as-scroller grid h-full grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1">
+      <div
+        ref={listRef}
+        className="as-scroller grid h-full grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto overflow-x-hidden pr-1"
+      >
         {/* Dix lignes au plus (24/10/2026, Luc), qu'elles viennent de
             l'historique local ou du serveur. Coupé ICI et non dans `useRows` :
             la flamme se calcule sur l'historique entier. */}
@@ -590,6 +602,7 @@ export function RecentsBlock({
             known={titles?.get(r.aniId) ?? null}
             rowTitle={rowTitle}
             coverArt={coverArt}
+            entered={entered}
           />
         ))}
       </div>
@@ -623,8 +636,11 @@ function RecentRow({
   known,
   rowTitle,
   coverArt = false,
+  entered = true,
 }: {
   coverArt?: boolean;
+  /** Faux tant que l'entrée du bloc n'est pas partie : ligne cachée, barre à zéro. */
+  entered?: boolean;
   row: ActivityRow;
   ago: (at: number) => string;
   t: (key: string, opts?: Record<string, unknown>) => string;
@@ -678,6 +694,8 @@ function RecentRow({
   return (
     <Link
       href={watchHref(r)}
+      data-row
+      style={entered ? undefined : { opacity: 0 }}
       /* `as-recent-row` porte la hauteur de vignette du palier courant, et le
          `gap` qui va avec (cf. globals.css) : tout le reste de la ligne en
          descend. */
@@ -758,7 +776,7 @@ function RecentRow({
           {state ? ` · ${state}` : ""}
         </p>
         <span className="mt-1.5 block">
-          <Bar pct={r.done ? 100 : r.pct} />
+          <Bar pct={entered ? (r.done ? 100 : r.pct) : 0} />
         </span>
       </div>
     </Link>
