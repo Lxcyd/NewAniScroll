@@ -554,7 +554,7 @@ export const DEFAULT_LAYOUT: readonly GridItem[] = [
   { i: "season", x: 0, y: 4, w: 4, h: 2 },
   { i: "recents", x: 0, y: 6, w: 2, h: 2 },
   { i: "binge", x: 2, y: 6, w: 2, h: 1 },
-  { i: "goal", x: 2, y: 7, w: 2, h: 1, s: { goalUnit: "animes" } },
+  { i: "goal", x: 2, y: 7, w: 2, h: 1 },
   { i: "characters", x: 0, y: 8, w: 4, h: 1 },
   { i: "bingo", x: 0, y: 9, w: 4, h: 4, s: { bingoSize: "5", bingoMode: "season" } },
 ];
