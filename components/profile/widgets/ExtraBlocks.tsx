@@ -1330,6 +1330,7 @@ export function ThemesBlock({
   isOwner,
   onChange,
   byKind = false,
+  sample,
 }: {
   favs: FavTheme[];
   entries: ProfileEntry[];
@@ -1337,11 +1338,24 @@ export function ThemesBlock({
   onChange?: (favs: FavTheme[]) => void;
   /** Option « Trier » : les OP, puis les ED, puis les musiques. */
   byKind?: boolean;
+  /** L'EXEMPLE DU MENU WIDGETS (08/11/2026, Luc) : sans génériques choisis,
+      l'opening de ces animés, pour montrer à quoi ressemble le bloc. */
+  sample?: number[];
 }) {
   const { t } = useTranslation();
-  const ids = useMemo(() => Array.from(new Set(favs.map((f) => f.a))), [favs]);
+  const useSample = !favs.length && !!sample?.length;
+  const ids = useMemo(
+    () => Array.from(new Set(useSample ? sample! : favs.map((f) => f.a))),
+    [favs, sample, useSample],
+  );
   const meta = useAnimeMeta(ids, entries);
   const themes = useThemes(ids);
+  if (useSample)
+    favs = ids.flatMap((a) => {
+      const list = themes.get(a);
+      const pick = list?.find((x) => x.kind === "op") ?? list?.[0];
+      return pick ? [{ a, s: pick.slug }] : [];
+    });
   /* « Par type » : trois CATÉGORIES DISTINCTES, chacune sous son titre et
      numérotée depuis 1 (03/11/2026, Luc). Dans chacune, l'ordre du
      propriétaire. Une catégorie vide n'apparaît pas. */
@@ -1355,6 +1369,8 @@ export function ThemesBlock({
   }, [favs, byKind, themes]);
 
   if (onChange) return <ThemeEditor favs={favs} entries={entries} onChange={onChange} meta={meta} themes={themes} />;
+  /* L'exemple attend ses génériques plutôt que d'afficher « aucun ». */
+  if (useSample && !favs.length && ids.some((a) => !themes.has(a))) return null;
   if (!favs.length)
     return <EmptyBlock note={t(isOwner ? "profile.blocks.themes.emptyOwner" : "profile.blocks.themes.empty")} />;
 

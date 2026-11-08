@@ -1176,7 +1176,10 @@
         "remove": "Remove",
         "search": "Search your list…",
         "cancel": "Cancel",
-        "notePlaceholder": "Your line about this title…"
+        "notePlaceholder": "Your line about this title…",
+        "sampleNote1": "The one that got me into anime.",
+        "sampleNote2": "That ending left me speechless.",
+        "sampleNote3": "A yearly rewatch."
       },
       "themes": {
         "title": "Top OP / ED / Songs",

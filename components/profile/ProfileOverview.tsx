@@ -82,6 +82,17 @@ import {
 import WidgetAddIcon from "./WidgetAddIcon";
 import type { ProfileCharacter, ProfileEntry, ProfileTitle } from "@/lib/profile/types";
 
+/** Les exemples du menu Widgets : les titres les mieux notés de la liste, les
+    titres en cours ou finis à défaut de note. */
+function sampleEntries(entries: ProfileEntry[], n: number): ProfileEntry[] {
+  const rank = (e: ProfileEntry) =>
+    (e.score ?? 0) * 10 + (e.status === "COMPLETED" ? 2 : e.status === "CURRENT" ? 1 : 0);
+  return entries
+    .filter((e) => e.status !== "PLANNING")
+    .sort((a, b) => rank(b) - rank(a))
+    .slice(0, n);
+}
+
 /**
  * L'onglet « Aperçu » : la grille de widgets du profil, sa barre d'outils et
  * sa bibliothèque de blocs.
@@ -1204,15 +1215,27 @@ export default function ProfileOverview({
             colored={optionOn("goal", "goalColor")}
           />
         );
-      case "pinned":
+      case "pinned": {
+        /* UN EXEMPLE DANS LE MENU WIDGETS (08/11/2026, Luc : « met des exemples
+           par défaut pour que l'utilisateur comprenne ») : sans épinglés, ses
+           trois titres les mieux notés, avec une phrase d'exemple. */
+        const pins = parsePins(savedString("pinned", "pins"));
         return (
           <PinnedBlock
-            pins={parsePins(savedString("pinned", "pins"))}
+            pins={
+              menuPreview.current && !pins.length
+                ? sampleEntries(entries, 3).map((e, i) => ({
+                    id: e.mediaId,
+                    note: t(`profile.blocks.pinned.sampleNote${i + 1}`),
+                  }))
+                : pins
+            }
             entries={entries}
             isOwner={isOwner}
             showScore={optionOn("pinned", "pinScore")}
           />
         );
+      }
       case "themes":
         return (
           <ThemesBlock
@@ -1220,6 +1243,9 @@ export default function ProfileOverview({
             entries={entries}
             isOwner={isOwner}
             byKind={optionValue("themes", "themesSort") === "kind"}
+            /* L'exemple du menu Widgets : l'opening de ses cinq titres les
+               mieux notés (08/11/2026, Luc). */
+            sample={menuPreview.current ? sampleEntries(entries, 5).map((e) => e.mediaId) : undefined}
           />
         );
       case "affinity":
