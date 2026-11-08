@@ -26,7 +26,7 @@ import {
 } from "@/lib/profile/listFilter";
 import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
 import ListManager from "@/components/profile/ListManager";
-import { EMPTY_REGISTRY, orderCustom, useListRegistry } from "@/lib/profile/listRegistry";
+import { CUSTOM_STATUS, EMPTY_REGISTRY, orderCustom, useListRegistry } from "@/lib/profile/listRegistry";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
@@ -185,8 +185,14 @@ export default function ProfileList({
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = {};
     for (const e of base) c[e.status || "PLANNING"] = (c[e.status || "PLANNING"] || 0) + 1;
+    // Les statuts perso du registre (`c:<nom>`), comptés sur la liste affichée.
+    const ids = new Set(base.map((e) => e.mediaId));
+    for (const s of reg.statuses) c[CUSTOM_STATUS + s.name] = s.ids.filter((id) => ids.has(id)).length;
     return c;
-  }, [base]);
+  }, [base, reg.statuses]);
+  const customStatusOf = (s: string | null) =>
+    s && s.startsWith(CUSTOM_STATUS) ? reg.statuses.find((x) => CUSTOM_STATUS + x.name === s) ?? null : null;
+  const activeCustomStatus = customStatusOf(status);
   /* Les listes perso d'AniList, lues sur les entrées. */
   const anilistLists = useMemo(() => {
     const c = new Map<string, number>();
@@ -212,7 +218,8 @@ export default function ProfileList({
     const q = query.trim().toLowerCase();
     const pre = base.filter(
       (e) =>
-        (status === "all" || (e.status || "PLANNING") === status) &&
+        (status === "all" ||
+          (activeCustomStatus ? activeCustomStatus.ids.includes(e.mediaId) : (e.status || "PLANNING") === status)) &&
         (!activeList ||
           (activeLocal ? activeLocal.ids.includes(e.mediaId) : e.customLists?.includes(activeList))) &&
         (!q ||
@@ -221,7 +228,7 @@ export default function ProfileList({
           )),
     );
     return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf);
-  }, [base, status, activeList, activeLocal, query, filters, bounds, titleOf]);
+  }, [base, status, activeCustomStatus, activeList, activeLocal, query, filters, bounds, titleOf]);
 
   /* Tout est-il rendu pour CETTE sélection ? La clé change avec elle : une
      nouvelle sélection repart de quarante lignes, sans rendu de remise à zéro. */
@@ -254,8 +261,10 @@ export default function ProfileList({
   }
 
   const statusColor = (s: string | null) =>
-    reg.statusColors[s || "PLANNING"] || LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
+    customStatusOf(s)?.color || reg.statusColors[s || "PLANNING"] || LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
   const statusName = (s: string | null) => {
+    const cs = customStatusOf(s);
+    if (cs) return cs.name;
     const k = STATUS_KEY[s || "PLANNING"];
     return k ? t(k) : listLabel(t, STATUS_TO_LIST[s || ""] || s || "");
   };
@@ -329,7 +338,7 @@ export default function ProfileList({
           {menu === "status" ? (
             <div className="as-list-menu">
               <MenuItem on={status === "all"} onClick={() => { setStatus("all"); setMenu(""); }} label={t("listMenu.allStatuses")} count={base.length} />
-              {(editable ? reg.statusOrder : STATUS_ORDER).filter((s) => statusCounts[s]).map((s) => (
+              {(editable ? reg.statusOrder : STATUS_ORDER).filter((s) => statusCounts[s] || customStatusOf(s)).map((s) => (
                 <MenuItem key={s} on={status === s} onClick={() => { setStatus(s); setMenu(""); }} color={statusColor(s)} label={statusName(s)} count={statusCounts[s]} />
               ))}
             </div>

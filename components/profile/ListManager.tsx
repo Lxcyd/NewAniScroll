@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import ColorPicker from "@/components/shared/ColorPicker";
 import {
+  CUSTOM_STATUS,
   LIST_PALETTE,
   orderCustom,
   updateListRegistry,
@@ -42,7 +43,14 @@ export default function ListManager({
   const [tab, setTab] = useState<"status" | "custom">("status");
   const [name, setName] = useState("");
   const [color, setColor] = useState(LIST_PALETTE[6]);
-  const [palette, setPalette] = useState<string | null>(null); // "new" | "s:<STATUS>" | "l:<name>" | "a:<name>"
+  /* Le sélecteur ouvert : "new" | "s:<STATUS>" | "cs:<statut perso>" |
+     "l:<liste>" | "a:<liste AniList>", et la pastille sous laquelle il flotte. */
+  const [palette, setPaletteId] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const setPalette = (id: string | null, el?: HTMLElement) => {
+    setPaletteId(id);
+    setAnchor(id && el ? el.getBoundingClientRect() : null);
+  };
   const [confirm, setConfirm] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -193,8 +201,12 @@ export default function ListManager({
 
   if (!open || !mounted) return null;
 
-  const statusColor = (s: string) => reg.statusColors[s] || LIST_COLORS[STATUS_TO_LIST[s]] || "#6b7280";
+  const customStatus = (s: string) =>
+    s.startsWith(CUSTOM_STATUS) ? reg.statuses.find((x) => CUSTOM_STATUS + x.name === s) ?? null : null;
+  const statusColor = (s: string) =>
+    customStatus(s)?.color || reg.statusColors[s] || LIST_COLORS[STATUS_TO_LIST[s]] || "#6b7280";
   const statusName = (s: string) =>
+    customStatus(s)?.name ??
     t(
       ({
         CURRENT: "listEditor.watching",
@@ -206,14 +218,24 @@ export default function ListManager({
       } as Record<string, string>)[s],
     );
 
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   const taken = (n: string) =>
-    reg.lists.some((l) => l.name.toLowerCase() === n.toLowerCase()) ||
-    anilistLists.some(([a]) => a.toLowerCase() === n.toLowerCase());
+    tab === "status"
+      ? reg.statusOrder.some((s) => same(statusName(s), n))
+      : reg.lists.some((l) => same(l.name, n)) || anilistLists.some(([a]) => same(a, n));
   const trimmed = name.trim();
   const clash = !!trimmed && taken(trimmed);
   const add = () => {
     if (!trimmed || clash) return;
-    updateListRegistry((r) => ({ ...r, lists: r.lists.concat({ name: trimmed, color, ids: [] }) }));
+    updateListRegistry((r) =>
+      tab === "status"
+        ? {
+            ...r,
+            statuses: r.statuses.concat({ name: trimmed, color, ids: [] }),
+            statusOrder: r.statusOrder.concat(CUSTOM_STATUS + trimmed),
+          }
+        : { ...r, lists: r.lists.concat({ name: trimmed, color, ids: [] }) },
+    );
     setName("");
     setColor(LIST_PALETTE[(LIST_PALETTE.indexOf(color) + 5) % LIST_PALETTE.length]);
     setPalette(null);
@@ -226,14 +248,27 @@ export default function ListManager({
     const p = palette;
     if (!p) return;
     if (p === "new") return setColor(c);
-    const [kind, key] = [p.slice(0, 1), p.slice(2)];
+    const cut = p.indexOf(":");
+    const [kind, key] = [p.slice(0, cut), p.slice(cut + 1)];
     updateListRegistry((r: ListRegistry) =>
       kind === "s"
         ? { ...r, statusColors: { ...r.statusColors, [key]: c } }
-        : kind === "a"
-          ? { ...r, anilistColors: { ...r.anilistColors, [key]: c } }
-          : { ...r, lists: r.lists.map((l) => (l.name === key ? { ...l, color: c } : l)) },
+        : kind === "cs"
+          ? { ...r, statuses: r.statuses.map((x) => (x.name === key ? { ...x, color: c } : x)) }
+          : kind === "a"
+            ? { ...r, anilistColors: { ...r.anilistColors, [key]: c } }
+            : { ...r, lists: r.lists.map((l) => (l.name === key ? { ...l, color: c } : l)) },
     );
+  };
+  /** La couleur actuelle de ce que le sélecteur ouvert colore. */
+  const colorOf = (p: string): string => {
+    if (p === "new") return color;
+    const cut = p.indexOf(":");
+    const [kind, key] = [p.slice(0, cut), p.slice(cut + 1)];
+    if (kind === "s") return statusColor(key);
+    if (kind === "cs") return statusColor(CUSTOM_STATUS + key);
+    if (kind === "a") return reg.anilistColors[key] || customListColor(key);
+    return reg.lists.find((l) => l.name === key)?.color || color;
   };
 
   const swatch = (id: string, value: string) => (
@@ -243,17 +278,33 @@ export default function ListManager({
       style={{ background: value }}
       aria-label={t("listMenu.manager.color")}
       title={t("listMenu.manager.color")}
-      onClick={() => setPalette(palette === id ? null : id)}
+      onClick={(e) => setPalette(palette === id ? null : id, e.currentTarget)}
     />
   );
   /* LE SÉLECTEUR DU SITE (components/shared/ColorPicker.tsx), celui du studio
      et des réglages, porté de la référence : carré, teinte, 24 pastilles,
      HEX / RGB / HSV / HSL (08/11, Luc : « met le bon truc de couleurs »). */
-  const paletteRow = (current: string) => (
-    <div className="as-lm-picker">
-      <ColorPicker value={current} onChange={pickColor} />
-    </div>
-  );
+  /* Il FLOTTE à côté de la pastille, à 280 px comme la référence (08/11, Luc :
+     « trop gros » étalé sous la ligne). Sous la pastille s'il y a la place,
+     au-dessus sinon, toujours dans l'écran. */
+  const POP_W = 280;
+  const POP_H = 380;
+  const popover = () => {
+    if (!palette || !anchor) return null;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const left = Math.max(12, Math.min(anchor.left, vw - POP_W - 12));
+    const below = anchor.bottom + 8;
+    const top = below + POP_H <= vh - 12 ? below : Math.max(12, anchor.top - 8 - POP_H);
+    return (
+      <>
+        <div className="as-lm-pop-backdrop" onMouseDown={() => setPalette(null)} />
+        <div className="as-lm-pop" style={{ left, top, width: POP_W }} role="dialog" aria-label={t("listMenu.manager.color")}>
+          <ColorPicker key={palette} value={colorOf(palette)} onChange={pickColor} />
+        </div>
+      </>
+    );
+  };
   const grip = (kind: "status" | "custom", idx: number) => (
     <span
       className="as-lm-grip"
@@ -295,18 +346,42 @@ export default function ListManager({
 
         <div className={`as-lm-body${drag ? " is-sorting" : ""}`} ref={listRef}>
           {tab === "status"
-            ? reg.statusOrder.map((s, i) => (
+            ? reg.statusOrder.map((s, i) => {
+                const cs = customStatus(s);
+                return (
                 <div key={s} data-item className="as-lm-item" style={itemStyle("status", i)}>
                   <div data-row className={`as-lm-row${drag?.kind === "status" && drag.from === i ? " is-dragging" : ""}`}>
                     {grip("status", i)}
-                    {swatch(`s:${s}`, statusColor(s))}
+                    {swatch(cs ? `cs:${cs.name}` : `s:${s}`, statusColor(s))}
                     <span className="as-lm-name">{statusName(s)}</span>
                     <span className="as-lm-count">{statusCounts[s] || 0}</span>
-                    {lock()}
+                    {!cs ? lock() : confirm === s ? (
+                      <span className="as-lm-confirm">
+                        <button
+                          type="button"
+                          className="is-danger"
+                          onClick={() => {
+                            updateListRegistry((r) => ({
+                              ...r,
+                              statuses: r.statuses.filter((x) => x.name !== cs.name),
+                              statusOrder: r.statusOrder.filter((x) => x !== s),
+                            }));
+                            setConfirm(null);
+                          }}
+                        >
+                          {t("listMenu.manager.yes")}
+                        </button>
+                        <button type="button" onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
+                      </span>
+                    ) : (
+                      <button type="button" className="as-lm-del" aria-label={`${t("listMenu.manager.yes")} ${cs.name}`} title={t("listMenu.manager.yes")} onClick={() => setConfirm(s)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+                      </button>
+                    )}
                   </div>
-                  {palette === `s:${s}` ? paletteRow(statusColor(s)) : null}
-                </div>
-              ))
+                                  </div>
+                );
+              })
             : (
               <>
                 {customRows(reg).map((row, i) => {
@@ -323,8 +398,7 @@ export default function ListManager({
                           <span className="as-lm-count">{c}</span>
                           {lock()}
                         </div>
-                        {palette === `a:${n}` ? paletteRow(reg.anilistColors[n] || customListColor(n)) : null}
-                      </div>
+                                              </div>
                     );
                   }
                   const l = reg.lists.find((x) => x.name === row.name)!;
@@ -348,8 +422,7 @@ export default function ListManager({
                           </button>
                         )}
                       </div>
-                      {palette === `l:${l.name}` ? paletteRow(l.color) : null}
-                    </div>
+                                          </div>
                   );
                 })}
                 {!reg.lists.length && !anilistLists.length ? (
@@ -359,8 +432,9 @@ export default function ListManager({
             )}
         </div>
 
-        {tab === "custom" ? (
-          <div className="as-lm-foot">
+        {/* La ligne « nouveau statut » / « nouvelle liste », sur les deux onglets
+            comme la référence. */}
+        <div className="as-lm-foot">
             <div className={`as-lm-new${clash ? " is-clash" : ""}`}>
               {swatch("new", color)}
               <input
@@ -368,18 +442,17 @@ export default function ListManager({
                 maxLength={40}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && add()}
-                placeholder={t("listMenu.manager.newList")}
-                aria-label={t("listMenu.manager.newList")}
+                placeholder={t(tab === "status" ? "listMenu.manager.newStatus" : "listMenu.manager.newList")}
+                aria-label={t(tab === "status" ? "listMenu.manager.newStatus" : "listMenu.manager.newList")}
               />
               <button type="button" className="as-lm-add" disabled={!trimmed || clash} onClick={add} aria-label={t("listMenu.manager.add")} title={t("listMenu.manager.add")}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
-            {palette === "new" ? paletteRow(color) : null}
             <p className="as-lm-note">{clash ? t("listMenu.manager.exists") : t("listMenu.manager.deviceNote")}</p>
           </div>
-        ) : null}
       </div>
+      {popover()}
     </div>,
     document.body,
   );

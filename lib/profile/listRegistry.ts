@@ -21,8 +21,18 @@ export const STATUS_KEYS = ["CURRENT", "REPEATING", "COMPLETED", "PLANNING", "PA
 
 export type LocalCustomList = { name: string; color: string; ids: number[] };
 
+/** Un statut créé dans le gestionnaire se range dans `statusOrder` sous la
+ *  clé `c:<nom>`, à côté des six clés AniList. */
+export const CUSTOM_STATUS = "c:";
+
 export type ListRegistry = {
+  /** Les six statuts AniList ET les statuts perso (`c:<nom>`), dans l'ordre du
+   *  gestionnaire. */
   statusOrder: string[];
+  /** Les statuts créés dans AniScroll (08/11, Luc : « il manque le truc pour
+   *  créer un statut »). Comme une liste perso : un nom, une couleur, des
+   *  titres ; ils s'affichent avec les statuts (onglet Statuts, menu Statut). */
+  statuses: LocalCustomList[];
   statusColors: Record<string, string>;
   /** Listes créées dans AniScroll, dans l'ordre du gestionnaire. */
   lists: LocalCustomList[];
@@ -38,6 +48,7 @@ const EVT = "aniscroll:listRegistry";
 
 export const EMPTY_REGISTRY: ListRegistry = {
   statusOrder: STATUS_KEYS,
+  statuses: [],
   statusColors: {},
   lists: [],
   anilistColors: {},
@@ -50,12 +61,9 @@ export const LIST_PALETTE = [
   "#facc15", "#84cc16", "#14b8a6", "#38bdf8", "#6366f1", "#ec4899", "#a3a3a3", "#78716c",
 ];
 
-function clean(raw: any): ListRegistry {
-  const order = Array.isArray(raw?.statusOrder) ? raw.statusOrder.filter((s: any) => STATUS_KEYS.includes(s)) : [];
-  // Un statut oublié (registre ancien, saisie abîmée) reprend sa place à la fin.
-  for (const s of STATUS_KEYS) if (!order.includes(s)) order.push(s);
-  const lists: LocalCustomList[] = Array.isArray(raw?.lists)
-    ? raw.lists
+function cleanLists(raw: any): LocalCustomList[] {
+  return Array.isArray(raw)
+    ? raw
         .filter((l: any) => l && typeof l.name === "string" && l.name.trim())
         .map((l: any) => ({
           name: String(l.name).trim().slice(0, 40),
@@ -63,11 +71,22 @@ function clean(raw: any): ListRegistry {
           ids: Array.isArray(l.ids) ? l.ids.filter((x: any) => typeof x === "number") : [],
         }))
     : [];
+}
+
+function clean(raw: any): ListRegistry {
+  const lists = cleanLists(raw?.lists);
+  const statuses = cleanLists(raw?.statuses);
+  const known = new Set([...STATUS_KEYS, ...statuses.map((s) => CUSTOM_STATUS + s.name)]);
+  const order: string[] = Array.isArray(raw?.statusOrder)
+    ? raw.statusOrder.filter((s: any, i: number, a: any[]) => known.has(s) && a.indexOf(s) === i)
+    : [];
+  // Un statut oublié (registre ancien, saisie abîmée) reprend sa place à la fin.
+  for (const s of known) if (!order.includes(s)) order.push(s);
   const obj = (o: any) => (o && typeof o === "object" ? o : {});
   const customOrder = Array.isArray(raw?.customOrder)
     ? raw.customOrder.filter((n: any) => typeof n === "string")
     : [];
-  return { statusOrder: order, statusColors: obj(raw?.statusColors), lists, anilistColors: obj(raw?.anilistColors), customOrder };
+  return { statusOrder: order, statuses, statusColors: obj(raw?.statusColors), lists, anilistColors: obj(raw?.anilistColors), customOrder };
 }
 
 /** Range des listes perso selon `customOrder` ; les inconnues gardent leur
@@ -108,6 +127,18 @@ export function toggleInLocalList(name: string, mediaId: number): void {
   updateListRegistry((r) => ({
     ...r,
     lists: r.lists.map((l) =>
+      l.name !== name
+        ? l
+        : { ...l, ids: l.ids.includes(mediaId) ? l.ids.filter((x) => x !== mediaId) : l.ids.concat(mediaId) },
+    ),
+  }));
+}
+
+/** Ajoute ou retire un titre d'un statut créé dans AniScroll. */
+export function toggleInLocalStatus(name: string, mediaId: number): void {
+  updateListRegistry((r) => ({
+    ...r,
+    statuses: r.statuses.map((l) =>
       l.name !== name
         ? l
         : { ...l, ids: l.ids.includes(mediaId) ? l.ids.filter((x) => x !== mediaId) : l.ids.concat(mediaId) },

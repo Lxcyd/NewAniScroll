@@ -784,7 +784,8 @@
     "removed": "Retiré de la liste",
     "save": "Enregistrer",
     "saved": "Entrée de liste enregistrée",
-    "error": "Une erreur est survenue"
+    "error": "Une erreur est survenue",
+    "customStatuses": "Statuts perso"
   },
   "list": {
     "addToList": "Ajouter à la liste",
@@ -2945,7 +2946,8 @@
       "color": "Choisir la couleur",
       "drag": "Glisser pour réordonner",
       "deviceNote": "Enregistré sur cet appareil. Les listes AniList restent sur AniList.",
-      "exists": "Une liste porte déjà ce nom."
+      "exists": "Une liste porte déjà ce nom.",
+      "newStatus": "Nom du nouveau statut…"
     }
   }
 }

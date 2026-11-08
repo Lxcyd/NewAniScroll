@@ -784,7 +784,8 @@
     "removed": "Removed from list",
     "save": "Save",
     "saved": "Media list entry saved",
-    "error": "Something went wrong"
+    "error": "Something went wrong",
+    "customStatuses": "Custom statuses"
   },
   "list": {
     "addToList": "Add to List",
@@ -2945,7 +2946,8 @@
       "color": "Choose a colour",
       "drag": "Drag to reorder",
       "deviceNote": "Saved on this device. Lists from AniList stay on AniList.",
-      "exists": "A list with that name already exists."
+      "exists": "A list with that name already exists.",
+      "newStatus": "New status name…"
     }
   }
 }

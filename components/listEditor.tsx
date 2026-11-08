@@ -24,7 +24,7 @@ import { deleteMediaListEntry } from "@/lib/list/anilistPush";
    depuis que le menu déroulant des réglages de widget peint les mêmes
    pastilles : deux hachages parallèles auraient fini par diverger. */
 import { customListColor } from "@/components/anime/v2/helpers";
-import { toggleInLocalList, useListRegistry } from "@/lib/profile/listRegistry";
+import { toggleInLocalList, toggleInLocalStatus, useListRegistry } from "@/lib/profile/listRegistry";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -832,6 +832,35 @@ const ListEditor: React.FC<ListEditorProps> = ({
                       className={`le-custom-chip ${on ? "on" : ""}`}
                       style={on ? { background: `color-mix(in srgb, ${l.color} 18%, transparent)`, borderColor: l.color, color: l.color } : undefined}
                       onClick={() => toggleInLocalList(l.name, animeId)}
+                    >
+                      <span
+                        className="le-custom-chip-dot"
+                        style={{ background: l.color, boxShadow: on ? `0 0 8px ${l.color}, 0 0 3px ${l.color}` : `0 0 6px ${l.color}` }}
+                      />
+                      {l.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* LES STATUTS PERSO créés dans le gestionnaire « + » du profil : un clic
+              y range ou en retire le titre tout de suite, comme les listes
+              AniScroll ci-dessus. Le statut AniList, lui, reste celui du menu. */}
+          {listRegistry.statuses.length > 0 && (
+            <div className="list-editor-field">
+              <span className="list-editor-label">{t("listEditor.customStatuses")}</span>
+              <div className="le-custom-lists">
+                {listRegistry.statuses.map((l) => {
+                  const on = l.ids.includes(animeId);
+                  return (
+                    <button
+                      type="button"
+                      key={`status:${l.name}`}
+                      className={`le-custom-chip ${on ? "on" : ""}`}
+                      style={on ? { background: `color-mix(in srgb, ${l.color} 18%, transparent)`, borderColor: l.color, color: l.color } : undefined}
+                      onClick={() => toggleInLocalStatus(l.name, animeId)}
                     >
                       <span
                         className="le-custom-chip-dot"
