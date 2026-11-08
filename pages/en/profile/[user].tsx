@@ -334,8 +334,9 @@ function ProfileView({
   }
 
   /* L'édition se fait sur l'Aperçu : c'est lui qui porte les widgets. */
+  /* Le studio s'ouvre sur l'onglet où l'on est (08/11/2026, Luc) : il ne
+     ramène plus à l'Aperçu. */
   function openEditor() {
-    changeTab("overview");
     setPicker(true);
   }
   function closeEditor() {
