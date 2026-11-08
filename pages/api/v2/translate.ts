@@ -91,6 +91,33 @@ async function translateUpstream(
   }
 }
 
+/**
+ * LE REPLI (08/11/2026) : l'adresse de l'extension Chrome de Google Traduction.
+ * `translate.googleapis.com` répond 429 (« Sorry… ») à certaines adresses IP —
+ * le serveur local de Luc l'a eu — quand celle-ci passe encore. Réponse :
+ * `[["traduction","langue source"]]` (ou `["traduction"]`).
+ */
+async function translateFallback(text: string, target: string): Promise<string | null> {
+  const url =
+    "https://clients5.google.com/translate_a/t" +
+    `?client=dict-chrome-ex&sl=auto&tl=${encodeURIComponent(target)}&q=${encodeURIComponent(text)}`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return null;
+    const data = await res.json();
+    const first = Array.isArray(data) ? data[0] : null;
+    const out = Array.isArray(first) ? first[0] : first;
+    return typeof out === "string" && out ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -163,7 +190,8 @@ export default async function handler(
   }
 
   // 2. Live translate.
-  const translated = await translateUpstream(trimmed, lang);
+  const translated =
+    (await translateUpstream(trimmed, lang)) ?? (await translateFallback(trimmed, lang));
   if (!translated) {
     // Upstream failed — return the original so the client shows English. Never
     // cached at the edge: the next visitor must get a fresh attempt.
