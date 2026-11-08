@@ -2379,7 +2379,11 @@ export function SeasonBlock({
         const aired = !e.total && e.aired && e.aired >= e.progress ? e.aired : null;
         const end = e.total || aired;
         const pct = end ? Math.min(100, (e.progress / end) * 100) : 0;
-        const left = end ? Math.max(0, end - e.progress) : null;
+        /* Le reste à voir se compte sur ce qui est SORTI (08/11/2026, Luc) :
+           ép. 6 / 12 avec 8 sortis = 2 restants, pas 6. */
+        const out = e.nextEpisode ? e.nextEpisode - 1 : e.aired || null;
+        const reach = end ? Math.min(end, out ?? end) : null;
+        const left = reach ? Math.max(0, reach - e.progress) : null;
         const again = (e.status || "").toUpperCase() === "REPEATING";
         /* « À JOUR » (25/10/2026, Luc) : en diffusion, et tout ce qui est sorti
            est vu — le prochain épisode est le seul à attendre. */
