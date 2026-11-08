@@ -14,7 +14,7 @@ import { busiestDay, dayKey, type Binge, type WatchDay, type WatchDays } from "@
 import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
 import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { Bar, EmptyBlock } from "./common";
+import { Bar, EmptyBlock, useRowsEntrance } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
 import EmojiButton from "@/components/watch/party/EmojiButton";
 import { ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
@@ -2074,48 +2074,6 @@ export function AffinityEditor({
       ) : null}
     </div>
   );
-}
-
-/**
- * L'ENTRÉE D'UNE LISTE À BARRES, comme « Répartition par statut »
- * (StatusesBlock, ListBlocks.tsx) : les lignes `[data-row]` attendent,
- * invisibles et barres à zéro, que le bloc soit à l'écran ET que la liste
- * n'ait plus bougé depuis un instant (`settled`) ; puis elles tombent en place
- * l'une après l'autre et leurs barres poussent. En Web Animations : le Chrome
- * de Luc est en `prefers-reduced-motion`.
- */
-const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
-function useRowsEntrance(ref: React.RefObject<HTMLElement | null>, settled: string | null) {
-  const [seen, setSeen] = useState(false);
-  const [entered, setEntered] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (seen || !el) return;
-    const io = new IntersectionObserver((es) => {
-      if (es.some((e) => e.isIntersecting)) setSeen(true);
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  });
-  useEffect(() => {
-    if (entered || !seen || settled == null) return;
-    const go = setTimeout(() => setEntered(true), 80);
-    return () => clearTimeout(go);
-  }, [entered, seen, settled]);
-  useIsoLayoutEffect(() => {
-    if (!entered) return;
-    const rows = ref.current?.querySelectorAll<HTMLElement>("[data-row]") ?? [];
-    Array.from(rows).forEach((row, i) =>
-      row.animate(
-        [
-          { opacity: 0, transform: "translateY(-14px)" },
-          { opacity: 1, transform: "none" },
-        ],
-        { duration: 180, delay: i * 20, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
-      ),
-    );
-  }, [entered]);
-  return entered;
 }
 
 export function AffinityBlock({

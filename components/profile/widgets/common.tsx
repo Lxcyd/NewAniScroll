@@ -1,4 +1,52 @@
+import { type RefObject, useEffect, useLayoutEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/**
+ * L'ENTRÉE D'UNE LISTE, comme « Répartition par statut » (StatusesBlock,
+ * ListBlocks.tsx) : les lignes `[data-row]` attendent, invisibles, que le bloc
+ * soit à l'écran ET que la liste n'ait plus bougé depuis un instant
+ * (`settled`, null = pas encore prête) ; puis elles tombent en place l'une
+ * après l'autre. L'appelant cache ses lignes et garde ses barres à zéro tant
+ * que la valeur rendue est `false`. En Web Animations : le Chrome de Luc est
+ * en `prefers-reduced-motion`. Servi à « Affinité de goûts » et « En cours de
+ * visionnage » (08/11/2026).
+ */
+export function useRowsEntrance(ref: RefObject<HTMLElement | null>, settled: string | null) {
+  const [seen, setSeen] = useState(false);
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) setSeen(true);
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  });
+  useEffect(() => {
+    if (entered || !seen || settled == null) return;
+    const go = setTimeout(() => setEntered(true), 80);
+    return () => clearTimeout(go);
+  }, [entered, seen, settled]);
+  useIsoLayoutEffect(() => {
+    if (!entered) return;
+    const rows = ref.current?.querySelectorAll<HTMLElement>("[data-row]") ?? [];
+    /* Plafonné : une longue liste ne fait pas attendre ses dernières lignes,
+       qui sont de toute façon sous le pli. */
+    Array.from(rows).forEach((row, i) =>
+      row.animate(
+        [
+          { opacity: 0, transform: "translateY(-14px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 180, delay: Math.min(i, 15) * 20, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
+      ),
+    );
+  }, [entered]);
+  return entered;
+}
 
 /**
  * Le petit outillage partagé par les widgets du profil.

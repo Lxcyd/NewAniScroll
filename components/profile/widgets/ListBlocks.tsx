@@ -29,7 +29,7 @@ import {
   type StatusKey,
 } from "@/lib/profile/insights";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { Bar, EmptyBlock } from "./common";
+import { Bar, EmptyBlock, useRowsEntrance } from "./common";
 
 /**
  * Les widgets alimentés par la LISTE du profil.
@@ -2266,6 +2266,12 @@ export function SeasonBlock({
     }
   }, [items, perRow, size]);
 
+  /* L'ENTRÉE (08/11/2026, Luc : « same » que la répartition par statut) : les
+     cartes et les intertitres tombent en cascade, les barres poussent depuis
+     zéro, une fois le bloc à l'écran et la liste arrivée (useRowsEntrance). */
+  const entered = useRowsEntrance(gridRef, items.length ? items.map((e) => e.mediaId).join(",") : null);
+  const hidden = entered ? undefined : ({ opacity: 0 } as const);
+
   if (!items.length) return <EmptyBlock note={t("profile.blocks.season.empty")} />;
 
   const n = Number(perRow);
@@ -2289,6 +2295,8 @@ export function SeasonBlock({
         const heading =
           grouped && (idx === 0 || idx === airing.length) ? (
             <p
+              data-row
+              style={hidden}
               className={`col-span-full flex items-center gap-2 font-karla text-[11px] font-bold uppercase tracking-[0.08em] text-white/45 ${
                 idx ? "mt-2" : ""
               }`}
@@ -2326,6 +2334,8 @@ export function SeasonBlock({
           {heading}
           <Link
             data-season={e.mediaId}
+            data-row
+            style={hidden}
             href={animeHref(e.mediaId, clickTarget)}
             className={`group relative flex min-w-0 items-center bg-white/[0.03] ring-1 ${
               small
@@ -2428,7 +2438,7 @@ export function SeasonBlock({
                 </span>
               </span>
               <span className={`block ${small ? "mt-1.5" : large ? "mt-4" : "mt-2"}`}>
-                <Bar pct={pct} color={EP_BLUE} />
+                <Bar pct={entered ? pct : 0} color={EP_BLUE} />
               </span>
             </span>
           </Link>
