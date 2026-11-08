@@ -24,6 +24,7 @@ import { deleteMediaListEntry } from "@/lib/list/anilistPush";
    depuis que le menu déroulant des réglages de widget peint les mêmes
    pastilles : deux hachages parallèles auraient fini par diverger. */
 import { customListColor } from "@/components/anime/v2/helpers";
+import { toggleInLocalList, useListRegistry } from "@/lib/profile/listRegistry";
 
 /**
  * Full list editor — layout/design adapted from the AniScroll reference editor
@@ -133,6 +134,11 @@ const ListEditor: React.FC<ListEditorProps> = ({
   const availableCustomLists: string[] = Array.isArray(session?.user?.list)
     ? session.user.list
     : [];
+  /* Les listes créées dans le gestionnaire « + » du profil (registre de cet
+     appareil, lib/profile/listRegistry.ts). Elles ne partent pas chez AniList :
+     un clic range ou retire le titre tout de suite, sans attendre « Save ». */
+  const listRegistry = useListRegistry();
+  const localCustomLists = listRegistry.lists.filter((l) => !availableCustomLists.includes(l.name));
 
   // null = "not in list". We do NOT seed from the caller's `stats` prop: that
   // value comes from the info page's own (sometimes stale / not-yet-resolved)
@@ -773,13 +779,13 @@ const ListEditor: React.FC<ListEditorProps> = ({
 
           {/* CUSTOM LISTS — toggle chips for each of the user's AniList custom
               lists. Only shown when the account has at least one. */}
-          {availableCustomLists.length > 0 && (
+          {(availableCustomLists.length > 0 || localCustomLists.length > 0) && (
             <div className="list-editor-field">
               <span className="list-editor-label">{t("listEditor.customLists")}</span>
               <div className="le-custom-lists">
                 {availableCustomLists.map((name) => {
                   const on = customLists.includes(name);
-                  const color = customListColor(name);
+                  const color = listRegistry.anilistColors[name] || customListColor(name);
                   return (
                     <button
                       type="button"
@@ -814,6 +820,24 @@ const ListEditor: React.FC<ListEditorProps> = ({
                         }}
                       />
                       {name}
+                    </button>
+                  );
+                })}
+                {localCustomLists.map((l) => {
+                  const on = l.ids.includes(animeId);
+                  return (
+                    <button
+                      type="button"
+                      key={`local:${l.name}`}
+                      className={`le-custom-chip ${on ? "on" : ""}`}
+                      style={on ? { background: `color-mix(in srgb, ${l.color} 18%, transparent)`, borderColor: l.color, color: l.color } : undefined}
+                      onClick={() => toggleInLocalList(l.name, animeId)}
+                    >
+                      <span
+                        className="le-custom-chip-dot"
+                        style={{ background: l.color, boxShadow: on ? `0 0 8px ${l.color}, 0 0 3px ${l.color}` : `0 0 6px ${l.color}` }}
+                      />
+                      {l.name}
                     </button>
                   );
                 })}

@@ -267,6 +267,7 @@ export default function LocalProfile() {
               <ProfileList
                 entries={entries}
                 focus={listFocus}
+                editable
                 emptyAction={
                   <Link
                     href="/en/search/anime"

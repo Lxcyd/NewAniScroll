@@ -2930,6 +2930,22 @@
     "randomNone": "Nothing to pick from: loosen the filters.",
     "nothing": "Nothing matches",
     "nothingHint": "Try another status, list or filter.",
-    "clearAll": "Clear everything"
+    "clearAll": "Clear everything",
+    "manager": {
+      "manage": "Manage lists",
+      "title": "My Lists",
+      "tabStatus": "Status",
+      "tabCustom": "Custom Lists",
+      "newList": "New list name…",
+      "add": "Add list",
+      "empty": "No custom lists yet. Create one below!",
+      "locked": "AniList status, can't be deleted",
+      "yes": "Delete",
+      "no": "Cancel",
+      "color": "Choose a colour",
+      "drag": "Drag to reorder",
+      "deviceNote": "Saved on this device. Lists from AniList stay on AniList.",
+      "exists": "A list with that name already exists."
+    }
   }
 }

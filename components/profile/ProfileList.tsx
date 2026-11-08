@@ -24,6 +24,8 @@ import {
   type SortKey,
 } from "@/lib/profile/listFilter";
 import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
+import ListManager from "@/components/profile/ListManager";
+import { EMPTY_REGISTRY, useListRegistry } from "@/lib/profile/listRegistry";
 import type { ProfileEntry } from "@/lib/profile/types";
 
 /**
@@ -84,8 +86,13 @@ export default function ProfileList({
   entries,
   emptyAction,
   focus,
+  editable = false,
 }: {
   entries: ProfileEntry[];
+  /** Son propre profil : le « + » (gestionnaire de listes) et le registre de
+   *  CET appareil (ordre et couleurs des statuts, listes AniScroll). Sur le
+   *  profil d'un autre, le registre du visiteur n'a rien à faire. */
+  editable?: boolean;
   /** Rendered under the "nothing here" message (a link to go and watch). */
   emptyAction?: React.ReactNode;
   focus?: ListFocus | null;
@@ -100,6 +107,9 @@ export default function ProfileList({
   const [view, setView] = useState<View>("cards");
   const [menu, setMenu] = useState<"" | "status" | "list">("");
   const [panel, setPanel] = useState(false);
+  const [manager, setManager] = useState(false);
+  const liveReg = useListRegistry();
+  const reg = editable ? liveReg : EMPTY_REGISTRY;
   const [picked, setPicked] = useState<number | null>(null);
 
   const bounds = useMemo(() => boundsOf(entries), [entries]);
@@ -176,28 +186,41 @@ export default function ProfileList({
     for (const e of base) c[e.status || "PLANNING"] = (c[e.status || "PLANNING"] || 0) + 1;
     return c;
   }, [base]);
-  const customLists = useMemo(() => {
+  /* Les listes perso d'AniList, lues sur les entrées. */
+  const anilistLists = useMemo(() => {
     const c = new Map<string, number>();
     for (const e of base) for (const n of e.customLists ?? []) c.set(n, (c.get(n) || 0) + 1);
     return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [base]);
+  /* Les listes créées dans AniScroll (registre), dans l'ordre du gestionnaire,
+     comptées sur la liste affichée. Une liste AniList du même nom l'emporte. */
+  const localLists = useMemo(() => {
+    const ids = new Set(base.map((e) => e.mediaId));
+    return reg.lists
+      .filter((l) => !anilistLists.some(([n]) => n === l.name))
+      .map((l) => ({ ...l, count: l.ids.filter((id) => ids.has(id)).length }));
+  }, [reg.lists, base, anilistLists]);
+  const listColor = (n: string) =>
+    localLists.find((l) => l.name === n)?.color || reg.anilistColors[n] || customListColor(n);
 
   // Une liste perso disparue (autre profil, filtre de note) ne filtre plus rien.
-  const activeList = list && customLists.some(([n]) => n === list) ? list : "";
+  const activeLocal = localLists.find((l) => l.name === list) || null;
+  const activeList = list && (activeLocal || anilistLists.some(([n]) => n === list)) ? list : "";
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const pre = base.filter(
       (e) =>
         (status === "all" || (e.status || "PLANNING") === status) &&
-        (!activeList || e.customLists?.includes(activeList)) &&
+        (!activeList ||
+          (activeLocal ? activeLocal.ids.includes(e.mediaId) : e.customLists?.includes(activeList))) &&
         (!q ||
           [e.title?.english, e.title?.romaji, e.title?.native, e.title?.userPreferred].some((x) =>
             x?.toLowerCase().includes(q),
           )),
     );
     return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf);
-  }, [base, status, activeList, query, filters, bounds, titleOf]);
+  }, [base, status, activeList, activeLocal, query, filters, bounds, titleOf]);
 
   /* Tout est-il rendu pour CETTE sélection ? La clé change avec elle : une
      nouvelle sélection repart de quarante lignes, sans rendu de remise à zéro. */
@@ -229,7 +252,8 @@ export default function ProfileList({
     );
   }
 
-  const statusColor = (s: string | null) => LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
+  const statusColor = (s: string | null) =>
+    reg.statusColors[s || "PLANNING"] || LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
   const statusName = (s: string | null) => {
     const k = STATUS_KEY[s || "PLANNING"];
     return k ? t(k) : listLabel(t, STATUS_TO_LIST[s || ""] || s || "");
@@ -238,6 +262,17 @@ export default function ProfileList({
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {editable ? (
+          <button
+            type="button"
+            onClick={() => setManager(true)}
+            aria-label={t("listMenu.manager.manage")}
+            title={t("listMenu.manager.manage")}
+            className="as-list-ib as-stat-card relative"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setPanel(true)}
@@ -293,7 +328,7 @@ export default function ProfileList({
           {menu === "status" ? (
             <div className="as-list-menu">
               <MenuItem on={status === "all"} onClick={() => { setStatus("all"); setMenu(""); }} label={t("listMenu.allStatuses")} count={base.length} />
-              {STATUS_ORDER.filter((s) => statusCounts[s]).map((s) => (
+              {(editable ? reg.statusOrder : STATUS_ORDER).filter((s) => statusCounts[s]).map((s) => (
                 <MenuItem key={s} on={status === s} onClick={() => { setStatus(s); setMenu(""); }} color={statusColor(s)} label={statusName(s)} count={statusCounts[s]} />
               ))}
             </div>
@@ -309,7 +344,7 @@ export default function ProfileList({
             className={`as-list-field as-stat-card w-full justify-between font-semibold ${activeList ? "is-set" : ""}`}
           >
             <span className="flex min-w-0 items-center gap-2 truncate">
-              {activeList ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: customListColor(activeList) }} /> : null}
+              {activeList ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: listColor(activeList) }} /> : null}
               <span className="truncate">{activeList || t("listMenu.lists")}</span>
             </span>
             <Chevron className="shrink-0 opacity-50" />
@@ -317,13 +352,28 @@ export default function ProfileList({
           {menu === "list" ? (
             <div className="as-list-menu">
               <MenuItem on={!activeList} onClick={() => { setList(""); setMenu(""); }} label={t("listMenu.allEntries")} count={base.length} />
-              {customLists.length ? (
-                customLists.map(([n, c]) => (
-                  <MenuItem key={n} on={activeList === n} onClick={() => { setList(n); setMenu(""); }} color={customListColor(n)} label={n} count={c} />
-                ))
+              {localLists.length || anilistLists.length ? (
+                <>
+                  {localLists.map((l) => (
+                    <MenuItem key={`l:${l.name}`} on={activeList === l.name} onClick={() => { setList(l.name); setMenu(""); }} color={l.color} label={l.name} count={l.count} />
+                  ))}
+                  {anilistLists.map(([n, c]) => (
+                    <MenuItem key={`a:${n}`} on={activeList === n} onClick={() => { setList(n); setMenu(""); }} color={listColor(n)} label={n} count={c} />
+                  ))}
+                </>
               ) : (
                 <p className="px-2.5 py-2 text-xs text-white/40">{t("listMenu.noCustomLists")}</p>
               )}
+              {editable ? (
+                <button
+                  type="button"
+                  onClick={() => { setMenu(""); setManager(true); }}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-white/[0.06] px-2.5 py-2 text-left text-[13px] font-semibold text-action hover:bg-white/[0.05]"
+                >
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                  {t("listMenu.manager.manage")}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -417,6 +467,16 @@ export default function ProfileList({
           ))}
         </div>
       )}
+
+      {editable ? (
+        <ListManager
+          open={manager}
+          onClose={() => setManager(false)}
+          statusCounts={statusCounts}
+          anilistLists={anilistLists}
+          localCounts={Object.fromEntries(localLists.map((l) => [l.name, l.count]))}
+        />
+      ) : null}
 
       <ListSortFilter
         open={panel}

@@ -2930,6 +2930,22 @@
     "randomNone": "Rien à tirer : desserre les filtres.",
     "nothing": "Aucun résultat",
     "nothingHint": "Essaie un autre statut, une autre liste ou un autre filtre.",
-    "clearAll": "Tout effacer"
+    "clearAll": "Tout effacer",
+    "manager": {
+      "manage": "Gérer les listes",
+      "title": "Mes listes",
+      "tabStatus": "Statuts",
+      "tabCustom": "Listes perso",
+      "newList": "Nom de la nouvelle liste…",
+      "add": "Ajouter la liste",
+      "empty": "Aucune liste perso. Crée la première ci-dessous !",
+      "locked": "Statut AniList, non supprimable",
+      "yes": "Supprimer",
+      "no": "Annuler",
+      "color": "Choisir la couleur",
+      "drag": "Glisser pour réordonner",
+      "deviceNote": "Enregistré sur cet appareil. Les listes AniList restent sur AniList.",
+      "exists": "Une liste porte déjà ce nom."
+    }
   }
 }

@@ -602,6 +602,7 @@ function ProfileView({
             <ProfileList
               entries={entries}
               focus={listFocus}
+              editable={!!isOwner}
               emptyAction={
                 <Link
                   href="/en/search/anime"

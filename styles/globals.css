@@ -5573,3 +5573,45 @@ html.as-dragging .as-nudge {
 .as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); }
 .as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .as-sfp, .as-sfp-overlay { animation: none; } }
+
+/* LE GESTIONNAIRE DE LISTES (« + » de l'onglet Liste, ListManager.tsx), calqué
+   sur le CustomListManager de la référence : onglets à curseur, lignes à
+   poignée, pastille de couleur, cadenas, ligne « nouvelle liste » en pied. */
+.as-lm { max-width: 480px; }
+.as-lm .as-sfp-head { border-bottom: 0; padding-bottom: 10px; }
+.as-lm-tabs { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin: 0 18px 12px; padding: 3px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); flex: none; }
+.as-lm-slider { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 9px; background: rgba(255,255,255,.12); transition: transform .22s cubic-bezier(.22,1,.36,1); }
+.as-lm-tabs button { position: relative; z-index: 1; padding: 7px 8px; border-radius: 9px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,.4); transition: color .15s; }
+.as-lm-tabs button[aria-selected="true"] { color: #fff; }
+.as-lm-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 18px 12px; display: flex; flex-direction: column; gap: 7px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; touch-action: pan-y; }
+.as-lm-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 8px; border-radius: 12px; background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.08); transition: border-color .15s, background .15s, opacity .15s; }
+.as-lm-row.is-dragging { border-color: rgba(233,69,96,.55); background: rgba(233,69,96,.08); }
+.as-lm-grip { display: grid; place-items: center; width: 18px; color: rgba(255,255,255,.3); cursor: grab; touch-action: none; flex: none; }
+.as-lm-grip:active { cursor: grabbing; color: rgba(255,255,255,.7); }
+.as-lm-grip.is-off { cursor: default; }
+.as-lm-swatch { width: 22px; height: 22px; border-radius: 7px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: transform .15s; }
+.as-lm-swatch:hover { transform: scale(1.1); }
+.as-lm-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.as-lm-count { font-size: 12px; color: rgba(255,255,255,.35); font-variant-numeric: tabular-nums; flex: none; }
+.as-lm-tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #02a9ff; background: rgba(2,169,255,.12); border-radius: 6px; padding: 2px 6px; flex: none; }
+.as-lm-lock { display: grid; color: rgba(255,255,255,.28); flex: none; }
+.as-lm-del { display: grid; padding: 3px; color: rgba(255,255,255,.35); border-radius: 6px; flex: none; }
+.as-lm-del:hover { color: var(--brand-primary, #E94560); background: rgba(233,69,96,.1); }
+.as-lm-confirm { display: flex; gap: 5px; flex: none; }
+.as-lm-confirm button { font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 7px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
+.as-lm-confirm button.is-danger { background: var(--brand-primary, #E94560); color: #fff; }
+.as-lm-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; padding: 8px 4px 4px; }
+.as-lm-palette button { aspect-ratio: 1; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); transition: transform .12s; }
+.as-lm-palette button:hover { transform: scale(1.12); }
+.as-lm-empty { text-align: center; padding: 18px 8px; font-size: 13px; color: rgba(255,255,255,.4); }
+.as-lm-foot { flex: none; padding: 12px 18px 16px; border-top: 1px solid rgba(255,255,255,.08); }
+.as-lm-new { display: flex; align-items: center; gap: 9px; padding: 7px 7px 7px 10px; border-radius: 12px; border: 1px dashed rgba(255,255,255,.18); transition: border-color .15s; }
+.as-lm-new:focus-within { border-color: rgba(233,69,96,.55); border-style: solid; }
+.as-lm-new.is-clash { border-color: #f97316; }
+.as-lm-new input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #fff; font-size: 14px; }
+.as-lm-new input::placeholder { color: rgba(255,255,255,.35); }
+.as-lm-add { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); flex: none; transition: opacity .15s; }
+.as-lm-add:disabled { background: rgba(255,255,255,.08); color: rgba(255,255,255,.3); cursor: default; }
+.as-lm-note { margin: 8px 2px 0; font-size: 11.5px; color: rgba(255,255,255,.35); }
+.as-lm-new.is-clash + .as-lm-note, .as-lm-new.is-clash ~ .as-lm-note { color: #f97316; }
+@media (prefers-reduced-motion: reduce) { .as-lm-slider { transition: none; } }
