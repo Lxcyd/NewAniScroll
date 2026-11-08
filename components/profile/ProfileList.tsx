@@ -420,23 +420,21 @@ export default function ProfileList({
               href={animeHref(e.mediaId, clickTarget)}
               className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
             >
-              {/* La pastille et le cœur sont HORS du cadre de l'affiche, qui coupe
-                  ce qui dépasse (`overflow-hidden`) : le halo de la pastille, à
-                  5 px du coin, y était rogné (08/11, Luc). */}
+              {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
               <span className="relative block">
                 <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
                   {e.cover ? (
                     <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                   ) : null}
                 </span>
-                <span
-                  className="as-glow-dot as-glow-dot-poster absolute left-[6px] top-[6px]"
-                  style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties}
-                  title={statusName(e.status)}
-                />
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
               </span>
-              <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
+              {/* Le statut à GAUCHE DU TITRE, la pastille du menu Statut à
+                  l'identique (08/11, Luc). */}
+              <span className="flex min-w-0 items-center gap-2" title={statusName(e.status)}>
+                <span className="as-glow-dot" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
+                <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
+              </span>
               {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
                   méta (08/11, Luc). */}
               <span className="flex min-w-0 items-center gap-2 text-[11px] tabular-nums text-white/40">

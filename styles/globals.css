@@ -5510,7 +5510,7 @@ html.as-dragging .as-nudge {
 }
 .as-list-opt:hover { background: rgba(255,255,255,.06); }
 .as-list-opt.is-on { font-weight: 600; color: #fff; }
-/* LA PASTILLE DE STATUT LUMINEUSE — menus Statut / Listes, affiches de la vue
+/* LA PASTILLE DE STATUT LUMINEUSE — menus Statut / Listes, titres de la vue
    Grille. La recette de `.as-airing-dot` : un petit halo FIXE sur la pastille,
    et le grand halo sur un `::after` dont seule l'OPACITÉ respire (2 s), que le
    compositeur anime seul. Animer le `box-shadow` repeignait la pastille à
@@ -5529,13 +5529,6 @@ html.as-dragging .as-nudge {
   opacity: 0;
   animation: as-airing-pulse 2s ease-in-out infinite;
 }
-/* Sur une affiche : plus grande, un liseré sombre pour se détacher d'une image
-   claire, et un halo plus large. */
-.as-glow-dot-poster {
-  width: 10px; height: 10px;
-  box-shadow: 0 0 0 1.5px rgba(0,0,0,.5), 0 0 6px 1px color-mix(in srgb, var(--c, #fff) 70%, transparent);
-}
-.as-glow-dot-poster::after { box-shadow: 0 0 12px 3px var(--c, #fff); }
 .as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
 
 .as-sfp-overlay {
