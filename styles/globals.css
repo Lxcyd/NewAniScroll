@@ -5517,9 +5517,12 @@ html.as-dragging .as-nudge {
 /* `pulse-green` / `pulse-red` de la référence, dans la couleur de la pastille.
    Volontairement HORS de prefers-reduced-motion : le halo ne déplace rien, et
    le Chrome de Luc répond `reduce` (cf. mémoire poste-reduced-motion). */
+/* Halo LÉGER (08/11, Luc) : il plafonne au halo fixe des pastilles de
+   l'éditeur de liste (`.le-dd-dot-*`, 6 px à 70 %) au lieu des 8 px pleins de
+   la référence ; la pulsation ne fait que respirer en dessous. */
 @keyframes as-dot-pulse {
-  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--c, #fff) 50%, transparent); }
-  50% { box-shadow: 0 0 8px var(--c, #fff); }
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--c, #fff) 45%, transparent); }
+  50% { box-shadow: 0 0 6px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
 }
 .as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
 

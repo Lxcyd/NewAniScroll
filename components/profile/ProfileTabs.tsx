@@ -8,6 +8,12 @@
  * pourrait que s'éteindre ici et s'allumer là. Mesurée après le rendu : au
  * premier passage (rendu serveur compris) c'est le bouton actif qui porte son
  * propre fond, puis la pilule le relaie au même endroit, sans rien qui bouge.
+ *
+ * ELLE NE GLISSE QUE POUR UN VRAI CHANGEMENT D'ONGLET (08/11/2026, Luc : « au
+ * rechargement l'animation se refait »). La page démarre sur « Aperçu » puis
+ * restaure l'onglet du fragment (`#list`) juste après le montage : ce saut-là
+ * se pose sans glisser. De même quand seule la LARGEUR bouge (le compteur de
+ * « Ma liste » qui arrive, la police) : la pilule suit sans transition.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +25,7 @@ export type ProfileTab = {
   count?: number | null;
 };
 
-type Pill = { x: number; y: number; w: number; h: number };
+type Pill = { x: number; y: number; w: number; h: number; slide: boolean };
 
 export default function ProfileTabs({
   tabs,
@@ -33,31 +39,45 @@ export default function ProfileTabs({
   const barRef = useRef<HTMLDivElement>(null);
   const btnRefs = useRef(new Map<string, HTMLButtonElement>());
   const [pill, setPill] = useState<Pill | null>(null);
-  /** La première pose ne glisse pas : elle remplace le fond du bouton sur place. */
-  const placed = useRef(false);
+  /** L'onglet sur lequel la pilule est posée — pour distinguer un changement
+   *  d'onglet d'une simple nouvelle mesure. */
+  const lastActive = useRef<string | null>(null);
+  /** Vrai deux images après le montage : la restauration depuis le fragment est
+   *  passée, un changement d'onglet vient désormais de l'utilisateur. */
+  const settled = useRef(false);
+  useEffect(() => {
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        settled.current = true;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(r1);
+      cancelAnimationFrame(r2);
+    };
+  }, []);
 
   useEffect(() => {
-    const measure = () => {
+    const switched = lastActive.current !== null && lastActive.current !== active;
+    lastActive.current = active;
+    const measure = (slide: boolean) => {
       const b = btnRefs.current.get(active);
       if (!b) return;
-      const next = { x: b.offsetLeft, y: b.offsetTop, w: b.offsetWidth, h: b.offsetHeight };
+      const next = { x: b.offsetLeft, y: b.offsetTop, w: b.offsetWidth, h: b.offsetHeight, slide };
       // Même valeur, même objet : sans ça, chaque mesure relancerait un rendu.
       setPill((p) =>
         p && p.x === next.x && p.y === next.y && p.w === next.w && p.h === next.h ? p : next,
       );
     };
-    measure();
+    measure(switched && settled.current);
     /* Un libellé qui change de largeur (le compteur de « Ma liste » arrive
        après coup, la langue change, la police finit de charger) déplace les
-       onglets : la pilule suit. */
-    const ro = new ResizeObserver(measure);
+       onglets : la pilule suit, sans glisser. */
+    const ro = new ResizeObserver(() => measure(false));
     if (barRef.current) ro.observe(barRef.current);
     return () => ro.disconnect();
   }, [active]);
-
-  useEffect(() => {
-    if (pill) placed.current = true;
-  }, [pill]);
 
   return (
     /* `as-stat-card` comme toutes les surfaces du profil : elle porte le fond
@@ -77,7 +97,7 @@ export default function ProfileTabs({
             width: pill.w,
             height: pill.h,
             transform: `translate(${pill.x}px, ${pill.y}px)`,
-            transition: placed.current
+            transition: pill.slide
               ? "transform 420ms cubic-bezier(0.22, 1, 0.36, 1), width 420ms cubic-bezier(0.22, 1, 0.36, 1)"
               : "none",
           }}
