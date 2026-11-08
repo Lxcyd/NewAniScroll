@@ -2213,11 +2213,21 @@ export function SeasonBlock({
   const gridRef = useRef<HTMLDivElement>(null);
   type Box = { left: number; top: number; width: number; height: number };
   const boxes = useRef(new Map<string, Box>());
+  const mountedAt = useRef(0);
+  useEffect(() => {
+    mountedAt.current = performance.now();
+  }, []);
   useIsoLayoutEffect(() => {
     const grid = gridRef.current;
     if (!grid) return;
     const cards = Array.from(grid.querySelectorAll<HTMLElement>("[data-season]"));
-    const first = boxes.current.size === 0;
+    /* PAS PENDANT LE CHARGEMENT (08/11/2026, Luc : « un deuxième chargement
+       après 1 ou 2 secondes »). Chez soi, la liste arrive en plusieurs fois
+       (copie du serveur, puis de l'appareil, puis la synchro du compte et la
+       liste AniList) : ces cartes qui apparaissent ou changent de place ne sont
+       pas un réglage qu'on vient de toucher, elles prennent leur place sans
+       glisser ni fondre, après l'entrée. Même garde que StatusesBlock. */
+    const first = boxes.current.size === 0 || performance.now() - mountedAt.current < 4000;
     const now = new Map<string, Box>();
     const moves: Array<[HTMLElement, string]> = [];
     /* Mesurées dans le CONTENU de la liste (défilement compris), pas dans la
@@ -2247,7 +2257,7 @@ export function SeasonBlock({
       }
     }
     boxes.current = now;
-    if (!moves.length) return;
+    if (!moves.length || first) return;
     for (const [card, tf] of moves) {
       card.style.transition = "none";
       card.style.transformOrigin = "0 0";
