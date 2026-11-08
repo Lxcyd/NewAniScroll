@@ -14,7 +14,7 @@ import { busiestDay, dayKey, type Binge, type WatchDay, type WatchDays } from "@
 import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
 import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { Bar, EmptyBlock, useRowsEntrance } from "./common";
+import { Bar, EmptyBlock, useCountUp, useRowsEntrance } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
 import EmojiButton from "@/components/watch/party/EmojiButton";
 import { ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
@@ -441,6 +441,11 @@ export function GoalBlock({
     ro.observe(el);
     return () => ro.disconnect();
   }, [days]);
+  /* L'ENTRÉE (08/11/2026, Luc : « manque l'animation au chargement ») : une
+     fois le bloc à l'écran, l'anneau et l'arc du rythme se remplissent depuis
+     zéro, les chiffres montent, le compte tombe en place (useRowsEntrance). */
+  const entered = useRowsEntrance(boxRef, days ? `${done}` : null);
+  const shownDone = useCountUp(done, entered);
   if (!days) return <div className="h-full" />;
 
   const start = new Date(year, 0, 1).getTime();
@@ -493,7 +498,9 @@ export function GoalBlock({
             stroke="rgba(255,255,255,0.16)"
             strokeWidth="7.2"
             strokeLinecap="round"
-            strokeDasharray={`${C * Math.min(1, elapsed)} ${C}`}
+            strokeDasharray={`${entered ? C * Math.min(1, elapsed) : 0} ${C}`}
+            strokeOpacity={entered ? 1 : 0}
+            className="transition-[stroke-dasharray] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           >
             <title>{t("profile.blocks.goal.paceMark", { count: pace })}</title>
           </circle>
@@ -507,8 +514,9 @@ export function GoalBlock({
             strokeLinecap="round"
             /* Plein à 100 % : un tiret de toute la circonférence laissait une
                fente d'un pixel à la jointure, où la piste grise se voyait. */
-            strokeDasharray={pct >= 1 ? undefined : `${C * pct} ${C}`}
-            className="transition-[stroke-dasharray,stroke] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            strokeDasharray={entered && pct >= 1 ? undefined : `${entered ? C * pct : 0} ${C}`}
+            strokeOpacity={entered ? 1 : 0}
+            className="transition-[stroke-dasharray,stroke] delay-100 duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
           />
         </svg>
         {/* LE POURCENTAGE AU CENTRE (03/11/2026, Luc, choisi parmi 20). Il
@@ -517,15 +525,15 @@ export function GoalBlock({
           className="pointer-events-none absolute inset-0 flex items-center justify-center font-outfit font-bold leading-none text-white"
           style={{ fontSize: size * (done / Math.max(1, target) >= 0.995 ? 0.2 : 0.24) }}
         >
-          {Math.round((done / Math.max(1, target)) * 100)}
+          {Math.round((shownDone / Math.max(1, target)) * 100)}
           <span className="font-karla font-semibold text-txt" style={{ fontSize: size * 0.12, marginLeft: size * 0.02 }}>
             %
           </span>
         </span>
       </div>
-      <div className="min-w-0">
+      <div data-row className="min-w-0" style={entered ? undefined : { opacity: 0 }}>
         <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 22 * tk }}>
-          {done}
+          {shownDone}
           <span className="font-karla font-semibold text-txt" style={{ fontSize: 12 * tk }}>
             {" "}
             / {target}

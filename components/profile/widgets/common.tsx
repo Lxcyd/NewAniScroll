@@ -1,4 +1,4 @@
-import { type RefObject, useEffect, useLayoutEffect, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -75,6 +75,32 @@ export function EmptyBlock({ note }: { note: string }) {
       </p>
     </div>
   );
+}
+
+/**
+ * UN NOMBRE QUI MONTE jusqu'à `value` une fois `run` vrai, au rythme de
+ * l'anneau de l'objectif (0,1 s de retard, 0,9 s, même courbe qui freine).
+ * Avant : 0. Une valeur qui change ensuite glisse depuis la précédente.
+ */
+export function useCountUp(value: number, run: boolean, ms = 900, delay = 100): number {
+  const [shown, setShown] = useState(0);
+  const from = useRef(0);
+  useEffect(() => {
+    if (!run) return;
+    const a = from.current;
+    let raf = 0;
+    const t0 = performance.now() + delay;
+    const tick = (now: number) => {
+      const k = Math.min(1, Math.max(0, (now - t0) / ms));
+      const v = a + (value - a) * (1 - Math.pow(1 - k, 3));
+      from.current = v;
+      setShown(Math.round(v));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, run, ms, delay]);
+  return shown;
 }
 
 /**
