@@ -686,6 +686,10 @@ export function PinnedBlock({
     pins.map((p) => p.id),
     entries,
   );
+  /* L'ENTRÉE (08/11/2026, Luc : « il manque une animation ») : les cartes
+     tombent en place l'une après l'autre, comme les personnages. */
+  const gridRef = useRef<HTMLDivElement>(null);
+  const entered = useRowsEntrance(gridRef, pins.length ? pins.map((p) => p.id).join(",") : null);
 
   if (onChange) return <PinEditor pins={pins} entries={entries} onChange={onChange} meta={meta} />;
   /* L'exemple attend ses résumés plutôt que de les voir arriver un à un. */
@@ -694,12 +698,18 @@ export function PinnedBlock({
     return <EmptyBlock note={t(isOwner ? "profile.blocks.pinned.emptyOwner" : "profile.blocks.pinned.empty")} />;
 
   return (
-    <div className="grid h-full min-h-0 gap-3" style={{ gridTemplateColumns: `repeat(${pins.length}, minmax(0, 1fr))` }}>
+    <div
+      ref={gridRef}
+      className="grid h-full min-h-0 gap-3"
+      style={{ gridTemplateColumns: `repeat(${pins.length}, minmax(0, 1fr))` }}
+    >
       {pins.map((p) => {
         const m = meta.get(p.id);
         return (
           <Link
             key={p.id}
+            data-row
+            style={entered ? undefined : { opacity: 0 }}
             href={animeHref(p.id, clickTarget)}
             className="group relative flex min-h-0 min-w-0 gap-3 rounded-xl bg-black/15 p-2 ring-1 ring-white/[0.06] transition-colors hover:bg-black/25"
           >
