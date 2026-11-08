@@ -64,7 +64,36 @@ export type HistoryRow = {
   cover: string | null;
   /** Epoch ms de la dernière ouverture. */
   at: number;
+  /** La dernière ligne VRAIMENT regardée de cet anime, quand celle-ci l'a
+   *  remplacée à l'ouverture d'un autre épisode (cf. `rowBefore`). */
+  before?: HistoryRow | null;
 };
+
+/**
+ * CE QU'ON GARDE QUAND UN ÉPISODE S'OUVRE (08/11/2026, Luc : « si on
+ * reregarde un épisode et qu'on quitte avant une minute, ça ne doit rien faire
+ * et pas supprimer de l'historique l'épisode vu avant »).
+ *
+ * Le lecteur réécrit la ligne de l'anime dès l'ouverture. On y range donc la
+ * ligne d'avant (`before`) — si elle a été regardée au moins une minute, sinon
+ * celle qu'ELLE gardait déjà : ouvrir 9 puis 10 sans les regarder garde le 8.
+ * « Vu récemment » s'y rabat tant que le nouvel épisode n'a pas sa minute
+ * (lib/profile/activity.ts). `watchedFor` : la minute est-elle atteinte pour
+ * cet épisode (la table de progression, que ce module ne lit pas).
+ */
+export function rowBefore(
+  prev: Record<string, any> | null | undefined,
+  episode: number,
+  watchedFor: (episode: number) => boolean,
+): Record<string, any> | null {
+  if (!prev || !Number.isFinite(Number(prev.episode))) return null;
+  if (Number(prev.episode) === Number(episode)) return prev.before ?? null;
+  if (watchedFor(Number(prev.episode))) {
+    const { before: _drop, ...rest } = prev;
+    return rest;
+  }
+  return prev.before ?? null;
+}
 
 /**
  * Le suffixe de format qu'AniList colle à un titre, retiré.
@@ -108,26 +137,33 @@ function parseDate(value: unknown): number {
  * propriétaire d'un profil (lib/profile/activity.ts). Une seule mise en forme
  * pour les deux, sinon les deux vues du même historique divergent.
  */
+function parseItem(item: unknown): HistoryRow | null {
+  if (!item || typeof item !== "object") return null;
+  const aniId = Number((item as any).aniId);
+  const episode = Number((item as any).episode);
+  if (!Number.isFinite(aniId) || !Number.isFinite(episode)) return null;
+  return {
+    aniId,
+    episode,
+    watchId: typeof (item as any).watchId === "string" ? (item as any).watchId : null,
+    provider: typeof (item as any).provider === "string" ? (item as any).provider : null,
+    dub: !!(item as any).dub,
+    animeTitle: stripFormatSuffix((item as any).aniTitle || null),
+    episodeTitle: (item as any).title || null,
+    image: (item as any).image || null,
+    cover: (item as any).cover || null,
+    at: parseDate((item as any).createdAt),
+  };
+}
+
 export function rowsFromRaw(raw: unknown, limit = 12): HistoryRow[] {
   if (!raw || typeof raw !== "object") return [];
   const rows: HistoryRow[] = [];
   for (const item of Object.values(raw as Record<string, any>)) {
-    if (!item || typeof item !== "object") continue;
-    const aniId = Number((item as any).aniId);
-    const episode = Number((item as any).episode);
-    if (!Number.isFinite(aniId) || !Number.isFinite(episode)) continue;
-    rows.push({
-      aniId,
-      episode,
-      watchId: typeof (item as any).watchId === "string" ? (item as any).watchId : null,
-      provider: typeof (item as any).provider === "string" ? (item as any).provider : null,
-      dub: !!(item as any).dub,
-      animeTitle: stripFormatSuffix((item as any).aniTitle || null),
-      episodeTitle: (item as any).title || null,
-      image: (item as any).image || null,
-      cover: (item as any).cover || null,
-      at: parseDate((item as any).createdAt),
-    });
+    const row = parseItem(item);
+    if (!row) continue;
+    const before = parseItem((item as any).before);
+    rows.push(before && before.aniId === row.aniId ? { ...row, before } : row);
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);

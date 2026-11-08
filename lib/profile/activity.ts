@@ -104,7 +104,9 @@ export function progressFromCloud(payload: unknown): ProgressMap {
 export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[] {
   const out: ActivityRow[] = [];
   const others = watchedTimes(map);
-  for (const row of rows) {
+  const queue = [...rows];
+  for (let qi = 0; qi < queue.length; qi++) {
+    const row = queue[qi];
     /* UNE CARTE PAR JOURNÉE. Les épisodes enchaînés le même jour tiennent sur
        une carte (« Épisodes 1–3 ») ; un épisode vu un autre jour ouvre la sienne,
        à sa date. L'historique ne connaît que le dernier épisode : les cartes
@@ -135,6 +137,16 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
        seul celui ouvert quelques secondes l'était — et gardait sa carte, barre
        vide (Apothecary ép. 1, King's Avatar ép. 4). */
     const glance = end == null;
+    /* ROUVERT MOINS D'UNE MINUTE : RIEN NE CHANGE (08/11/2026, Luc). Le
+       lecteur a remplacé la ligne de l'anime à l'ouverture, mais a gardé la
+       dernière vraiment regardée (`before`, lib/profile/history.ts) : la ligne
+       ouverte reste pour « Regarde en ce moment » (cachée ici, `glance`), et
+       les cartes repartent de celle d'avant, comme si on n'avait rien ouvert. */
+    if (glance && row.before) {
+      out.push({ ...decorate(row, map, row.episode), glance });
+      queue.push(row.before);
+      continue;
+    }
     let last = row.episode;
     let first = true;
     for (;;) {
@@ -175,7 +187,9 @@ export function decorateRows(rows: HistoryRow[], map: ProgressMap): ActivityRow[
   return out.sort((a, b) => b.at - a.at);
 }
 
-function decorate(row: HistoryRow, map: ProgressMap, runFrom: number): ActivityRow {
+function decorate(full: HistoryRow, map: ProgressMap, runFrom: number): ActivityRow {
+  /* `before` ne sert qu'au calcul : il ne voyage pas jusqu'à la page. */
+  const { before: _before, ...row } = full;
   const p = map[`${row.aniId}:${row.episode}`] ?? null;
   const pct =
     p && p.duration > 0 ? Math.min(100, Math.round((p.time / p.duration) * 100)) : 0;

@@ -170,6 +170,18 @@ export function isCompleted(entry: ProgressEntry | null | undefined): boolean {
 }
 
 /**
+ * L'épisode a-t-il été REGARDÉ (une minute au moins, GLANCE_SECONDS) — pas
+ * seulement ouvert, ni terminé d'un clic au bout de la barre. Les entrées
+ * d'avant le compteur `watched` retombent sur la position. Même règle que
+ * `watched()` de lib/profile/activity.ts.
+ */
+export function watchedEnough(entry: ProgressEntry | null | undefined): boolean {
+  if (!entry) return false;
+  if (typeof entry.watched === "number") return entry.watched >= GLANCE_SECONDS;
+  return isCompleted(entry) || Number(entry.time) >= GLANCE_SECONDS;
+}
+
+/**
  * Annonce la duree du fichier des que le lecteur la connait, sans attendre
  * qu'on ait regarde quoi que ce soit. La liste d'episodes affiche une duree
  * estimee tant que personne n'a mesure l'episode ; des que le fichier est

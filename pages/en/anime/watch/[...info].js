@@ -79,7 +79,7 @@ import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
 import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
 import { hasFreshUserList, peekListEntry } from "@/lib/anilist/userListCache";
-import { markComplete, getProgress, isCompleted, getResumeTime } from "@/lib/watch/progress";
+import { markComplete, getProgress, isCompleted, getResumeTime, watchedEnough } from "@/lib/watch/progress";
 import { getSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
@@ -99,7 +99,7 @@ const ListEditor = dynamic(() => import("@/components/listEditor"), {
 import Skeleton from "react-loading-skeleton";
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { touchHistory } from "@/lib/profile/history";
+import { touchHistory, rowBefore } from "@/lib/profile/history";
 import RateModal from "@/components/shared/RateModal";
 import { notify } from "@/lib/notifications/noticeStore";
 import { useWatchParty } from "@/lib/watch2gether/useWatchParty";
@@ -1419,6 +1419,9 @@ export default function Watch({
         provider,
         dub: !!dub,
         createdAt: new Date().toISOString(),
+        /* La dernière ligne vraiment regardée, si cette ouverture n'atteint
+           pas la minute (cf. rowBefore, lib/profile/history.ts). */
+        before: rowBefore(prev, Number(epiNumber), (ep) => watchedEnough(getProgress(info.id, ep))),
       };
       localStorage.setItem("artplayer_settings", JSON.stringify(existing));
       touchHistory();
@@ -1698,6 +1701,10 @@ export default function Watch({
               nextNumber: nextEpisode?.number || null,
               dub: !!dub,
               createdAt: new Date().toISOString(),
+              // Cf. l'écriture à l'ouverture, plus haut.
+              before: rowBefore(existing[entryKey], Number(currentEpisode.number), (ep) =>
+                watchedEnough(getProgress(info.id, ep)),
+              ),
             };
             localStorage.setItem("artplayer_settings", JSON.stringify(existing));
             touchHistory();
