@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import {
   FRIENDS_EVENT,
   friendAction,
-  friendTastes,
   friendsOf,
   myFriends,
   searchPeople,
@@ -13,7 +12,6 @@ import {
   type FriendCard,
   type FriendState,
 } from "@/lib/friends/client";
-import { affinity, tasteOf } from "@/lib/profile/affinity";
 import { FriendErrorNote } from "./FriendButton";
 import type { ProfileEntry } from "@/lib/profile/types";
 
@@ -52,7 +50,6 @@ export default function ProfileFriends({
 function Mine({ tag, name, entries }: { tag: string; name: string; entries: ProfileEntry[] }) {
   const { t } = useTranslation();
   const [data, setData] = useState<Awaited<ReturnType<typeof myFriends>>>(null);
-  const [tastes, setTastes] = useState<Map<string, number>>(new Map());
   const [loaded, setLoaded] = useState(false);
   /* « Ajouter un ami » ouvre une fenêtre de recherche (03/11/2026, Luc :
      « plus logique qu'un menu où l'on cherche quelqu'un »). */
@@ -72,29 +69,11 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
       stop();
     };
   }, []);
-  /* Les goûts (lourds : la liste de chaque ami) ne suivent pas le sondage de
-     20 s : relus à l'ouverture, au retour sur l'onglet et après une action. */
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      void friendTastes().then((f) => {
-        if (!alive || !f || !entries.length) return;
-        const me = tasteOf(entries);
-        setTastes(new Map(f.map((x) => [x.tag, affinity(me, x.taste).pct])));
-      });
-    const stop = watchFriends(load, 0);
-    return () => {
-      alive = false;
-      stop();
-    };
-  }, [entries]);
-
+  /* Pas d'affinité dans l'onglet (08/11/2026, Luc : « juste avatar, nom ») :
+     les amis par ordre alphabétique. */
   const friends = useMemo(
-    () =>
-      (data?.friends ?? [])
-        .slice()
-        .sort((a, b) => (tastes.get(b.tag) ?? -1) - (tastes.get(a.tag) ?? -1) || a.name.localeCompare(b.name)),
-    [data, tastes],
+    () => (data?.friends ?? []).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [data],
   );
 
   return (
@@ -129,7 +108,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
         <Group label={data?.incoming.length ? t("profile.friends.mine") : null}>
           <Grid>
             {friends.map((c, i) => (
-              <Friend key={c.tag} card={c} pct={tastes.get(c.tag)} index={i} removable />
+              <Friend key={c.tag} card={c} index={i} removable />
             ))}
           </Grid>
         </Group>
@@ -269,9 +248,8 @@ function Grid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{children}</div>;
 }
 
-/** Un ami : avatar, nom, et l'affinité de goûts quand on la connaît. */
-function Friend({ card, pct, index, removable = false }: { card: FriendCard; pct?: number; index: number; removable?: boolean }) {
-  const { t } = useTranslation();
+/** Un ami : avatar, nom, identifiant. */
+function Friend({ card, index, removable = false }: { card: FriendCard; index: number; removable?: boolean }) {
   return (
     <div
       className="as-swap-row group relative rounded-2xl bg-white/[0.035] ring-1 ring-white/[0.07] transition-[background-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:bg-white/[0.06] hover:ring-white/15"
@@ -281,16 +259,7 @@ function Friend({ card, pct, index, removable = false }: { card: FriendCard; pct
         <Avatar card={card} size={48} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[14px] font-semibold text-white">{card.name}</span>
-          {pct != null ? (
-            <span className="mt-1.5 flex items-center gap-2" title={t("profile.friends.affinityTitle")}>
-              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
-                <span className="block h-full rounded-full bg-action" style={{ width: `${pct}%` }} />
-              </span>
-              <span className="font-outfit text-[12px] font-bold tabular-nums text-white/85">{pct}%</span>
-            </span>
-          ) : (
-            <span className="mt-0.5 block font-karla text-[11px] text-white/35">#{card.tag}</span>
-          )}
+          <span className="mt-0.5 block font-karla text-[11px] text-white/35">#{card.tag}</span>
         </span>
       </Link>
       {removable ? <RemoveFriend tag={card.tag} /> : null}
