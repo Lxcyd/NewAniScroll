@@ -17,7 +17,7 @@ import {
 } from "@/lib/profile/favChars";
 import type { ProfileCharacter } from "@/lib/profile/types";
 import { Segmented } from "../WidgetSettings";
-import { EmptyBlock } from "./common";
+import { EmptyBlock, useRowsEntrance } from "./common";
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -60,6 +60,10 @@ export function CharactersBlock({
   const list = useFavChars(characters, isOwner);
   const gridRef = useRef<HTMLDivElement>(null);
   useFlip(gridRef, [list, size, showFrom, editing]);
+  /* L'ENTRÉE (08/11/2026, Luc : « il manque une animation »), comme les
+     autres widgets : les portraits tombent en cascade une fois le bloc à
+     l'écran et la liste arrivée (useRowsEntrance). */
+  const entered = useRowsEntrance(gridRef, list.length ? list.map((c) => c.id).join(",") : null);
   const [searching, setSearching] = useState(false);
   useEffect(() => {
     if (!editing) setSearching(false);
@@ -94,7 +98,7 @@ export function CharactersBlock({
           className={`pointer-events-none absolute left-0 top-0 z-30 grid justify-items-center text-center ${z.inner}`}
           style={{ width: ed.gripWidth, willChange: "transform" }}
         >
-          <span className="block w-full rounded-full shadow-[0_14px_28px_rgba(0,0,0,0.55)]">
+          <span className={`block ${TILE_W} rounded-full shadow-[0_14px_28px_rgba(0,0,0,0.55)]`}>
             <Portrait c={heldChar} sizes={z.img} ring="ring-action" />
           </span>
           <Caption c={heldChar} size={size} showFrom={showFrom} />
@@ -123,6 +127,7 @@ export function CharactersBlock({
             size={size}
             showFrom={showFrom}
             editing={editing}
+            entered={entered || editing}
             held={ed.held === c.id}
             onGrab={ed.grab}
             onRemove={ed.remove}
@@ -182,6 +187,7 @@ const Tile = memo(function Tile({
   size,
   showFrom,
   editing,
+  entered,
   held,
   onGrab,
   onRemove,
@@ -190,6 +196,8 @@ const Tile = memo(function Tile({
   size: Size;
   showFrom: boolean;
   editing: boolean;
+  /** Faux tant que l'entrée du bloc n'est pas partie : case cachée. */
+  entered: boolean;
   held: boolean;
   onGrab: (e: React.PointerEvent, id: number) => void;
   onRemove: (c: ProfileCharacter) => void;
@@ -206,8 +214,10 @@ const Tile = memo(function Tile({
         rel="noopener noreferrer"
         title={c.from ? `${c.name} — ${c.from}` : c.name}
         className={cls}
+        data-row
+        style={entered ? undefined : { opacity: 0 }}
       >
-        <Portrait c={c} sizes={z.img} hover />
+        <Portrait c={c} sizes={z.img} hover width={TILE_W} />
         <Caption c={c} size={size} showFrom={showFrom} />
       </a>
     );
@@ -225,7 +235,7 @@ const Tile = memo(function Tile({
            widgets (WidgetGrid) — même accent, même pointillé. */
         <>
           <span
-            className="block w-full rounded-full border-2 border-dashed border-action/60 bg-action/10"
+            className={`block ${TILE_W} rounded-full border-2 border-dashed border-action/60 bg-action/10`}
             style={{ aspectRatio: "1" }}
           />
           <span className="invisible block w-full">
@@ -234,7 +244,7 @@ const Tile = memo(function Tile({
         </>
       ) : (
         <>
-          <Portrait c={c} sizes={z.img} ring="ring-white/20 group-hover:ring-action" />
+          <Portrait c={c} sizes={z.img} ring="ring-white/20 group-hover:ring-action" width={TILE_W} />
           <Caption c={c} size={size} showFrom={showFrom} />
           <button
             type="button"
@@ -255,10 +265,28 @@ const Tile = memo(function Tile({
   );
 });
 
-function Portrait({ c, sizes, hover = false, ring = "" }: { c: ProfileCharacter; sizes: string; hover?: boolean; ring?: string }) {
+/* LE PORTRAIT DE LA GRILLE NE PREND PAS TOUTE LA COLONNE (08/11/2026, Luc :
+   « les noms sont coupés en bas, monte-les un peu ») : à pleine largeur, une
+   rangée de portraits et ses deux lignes de légende dépassaient la hauteur
+   d'une carte d'une rangée. À 88 %, les noms remontent d'une quinzaine de px. */
+const TILE_W = "w-[88%]";
+
+function Portrait({
+  c,
+  sizes,
+  hover = false,
+  ring = "",
+  width = "w-full",
+}: {
+  c: ProfileCharacter;
+  sizes: string;
+  hover?: boolean;
+  ring?: string;
+  width?: string;
+}) {
   return (
     <span
-      className={`relative block w-full overflow-hidden rounded-full as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-2 transition-[box-shadow] duration-200 ${
+      className={`relative block ${width} overflow-hidden rounded-full as-clip-bg [--clip-bg:rgba(255,255,255,0.1)] ring-2 transition-[box-shadow] duration-200 ${
         ring || (hover ? "ring-white/[0.08] group-hover:ring-action" : "ring-white/[0.08]")
       }`}
       style={{ aspectRatio: "1" }}
