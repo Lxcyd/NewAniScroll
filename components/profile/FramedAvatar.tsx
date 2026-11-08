@@ -62,6 +62,14 @@ function useFrameSrc(
   return asset ? src ?? frameThumbUrl(asset, size) : null;
 }
 
+/** Un cadre toujours à l'écran (barre de navigation) : animé tout de suite,
+    sans attendre de croiser l'écran comme une case de grille. */
+export function FrameImage({ asset, className }: { asset: string; className?: string }) {
+  const src = useFrameSrc(asset, 160, true, false);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src ?? undefined} alt="" aria-hidden draggable={false} className={className} />;
+}
+
 /** Le premier ancêtre qui défile, ou `null` (la fenêtre). */
 function scrollParent(el: HTMLElement): HTMLElement | null {
   for (let p = el.parentElement; p; p = p.parentElement) {

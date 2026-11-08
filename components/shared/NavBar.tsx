@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
 import { pickAvatar } from "@/lib/auth/avatar";
 import { isFrameAsset } from "@/lib/profile/frames";
-import { FrameTileImage } from "@/components/profile/FramedAvatar";
+import { FrameImage } from "@/components/profile/FramedAvatar";
 import { profileHref } from "@/lib/profile/href";
 import Logo from "./Logo";
 import ChangelogButton from "./ChangelogButton";
@@ -400,7 +400,7 @@ export function Navbar({
                   {/* Le cadre du profil, comme sur la page (08/11/2026, Luc) :
                       1,2 fois l'avatar, posé dessus (cf. FramedAvatar). */}
                   {frameAsset ? (
-                    <FrameTileImage
+                    <FrameImage
                       asset={frameAsset}
                       className="pointer-events-none absolute -left-[10%] -top-[10%] h-[120%] w-[120%] max-w-none select-none"
                     />
