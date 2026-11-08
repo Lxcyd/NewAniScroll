@@ -14,7 +14,7 @@ import { busiestDay, dayKey, type Binge, type WatchDay, type WatchDays } from "@
 import { affinity, readAffinity, tasteOf, type Match } from "@/lib/profile/affinity";
 import { cachedFriendTastes, FRIENDS_EVENT, friendTastes, type FriendTaste } from "@/lib/friends/client";
 import type { ProfileEntry } from "@/lib/profile/types";
-import { Bar, EmptyBlock, useCountUp, useRowsEntrance } from "./common";
+import { Bar, EmptyBlock, SteadyNumber, useCountUp, useRowsEntrance } from "./common";
 import HoverVolume from "@/components/shared/HoverVolume";
 import EmojiButton from "@/components/watch/party/EmojiButton";
 import { ANIME_EMOJI_MAP } from "@/lib/watch2gether/animeEmojis";
@@ -525,7 +525,10 @@ export function GoalBlock({
           className="pointer-events-none absolute inset-0 flex items-center justify-center font-outfit font-bold leading-none text-white"
           style={{ fontSize: size * (done / Math.max(1, target) >= 0.995 ? 0.2 : 0.24) }}
         >
-          {Math.round((shownDone / Math.max(1, target)) * 100)}
+          <SteadyNumber
+            value={Math.round((shownDone / Math.max(1, target)) * 100)}
+            final={Math.round((done / Math.max(1, target)) * 100)}
+          />
           <span className="font-karla font-semibold text-txt" style={{ fontSize: size * 0.12, marginLeft: size * 0.02 }}>
             %
           </span>
@@ -533,7 +536,7 @@ export function GoalBlock({
       </div>
       <div data-row className="min-w-0" style={entered ? undefined : { opacity: 0 }}>
         <p className="whitespace-nowrap font-outfit font-bold leading-none text-white" style={{ fontSize: 22 * tk }}>
-          {shownDone}
+          <SteadyNumber value={shownDone} final={done} />
           <span className="font-karla font-semibold text-txt" style={{ fontSize: 12 * tk }}>
             {" "}
             / {target}

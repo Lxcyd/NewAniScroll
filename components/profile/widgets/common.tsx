@@ -104,6 +104,24 @@ export function useCountUp(value: number, run: boolean, ms = 900, delay = 100): 
 }
 
 /**
+ * UN NOMBRE QUI MONTE SANS RIEN POUSSER (08/11/2026, Luc : « le contenu
+ * tremble car la taille du texte change »). La valeur finale est posée,
+ * invisible, dans la même case de grille : elle fixe la largeur dès la
+ * première image, et les chiffres à chasse fixe (`tabular-nums`) ne bougent pas
+ * en défilant.
+ */
+export function SteadyNumber({ value, final }: { value: number; final: number }) {
+  return (
+    <span className="inline-grid justify-items-end tabular-nums">
+      <span className="invisible [grid-area:1/1]" aria-hidden>
+        {final}
+      </span>
+      <span className="[grid-area:1/1]">{value}</span>
+    </span>
+  );
+}
+
+/**
  * Barre horizontale d'un classement. `pct` est déjà borné par l'appelant.
  *
  * Son épaisseur est une VARIABLE et pas une classe : « Répartition par statut »
