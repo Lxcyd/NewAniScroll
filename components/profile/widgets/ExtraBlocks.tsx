@@ -3740,6 +3740,31 @@ export function BingoBlock({
   const iconStyle = { fontSize: `clamp(11px, min(18cqw, 20cqh), 34px)` };
   const labelStyle = { fontSize: `clamp(9px, min(11cqw, 15cqh), 19px)` };
 
+  /* L'ENTRÉE (08/11/2026, Luc : « manque une animation ») : une fois le bloc à
+     l'écran, les cartes éclosent en vague diagonale depuis le coin haut gauche,
+     comme le calendrier, et la barre des points se remplit depuis zéro. Les
+     cartes sont de plusieurs sortes (bouton, carte qui se retourne, carte
+     éditable) : on anime les enfants de la grille, sans toucher à chacune. Au
+     crayon, rien : on range, on ne regarde pas. */
+  const entered = useRowsEntrance(gridRef, days ? cellIds.join(",") : null) || editing;
+  const popped = useRef(false);
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || popped.current || editing || !entered) return;
+    popped.current = true;
+    Array.from(grid.children).forEach((cell, i) => {
+      const wave = Math.floor(i / n) + (i % n);
+      (cell as HTMLElement).animate(
+        [
+          { opacity: 0, transform: "scale(0.6)" },
+          { opacity: 1, transform: "scale(1.04)", offset: 0.6 },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 420, delay: wave * 45, easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards" },
+      );
+    });
+  }, [entered, editing]);
+
   if (!days && !editing) return <div className="h-full" />;
 
   const cellsDone = isDone.filter(Boolean).length;
@@ -3853,7 +3878,10 @@ export function BingoBlock({
             aria-valuemax={barMax}
             aria-valuenow={Math.min(barNow, barMax)}
           >
-            <span className="block h-full rounded-full bg-action transition-[width] duration-500" style={{ width: `${Math.min(100, (barNow / barMax) * 100)}%` }} />
+            <span
+              className="block h-full rounded-full bg-action transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              style={{ width: `${entered ? Math.min(100, (barNow / barMax) * 100) : 0}%` }}
+            />
           </span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {/* Les jours qui restent avant la saison suivante (04/11/2026, Luc). */}
@@ -3917,7 +3945,11 @@ export function BingoBlock({
       <div
         ref={gridRef}
         className="grid min-h-0 flex-1 select-none gap-1.5 [container-type:size]"
-        style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${n}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${n}, minmax(0, 1fr))`,
+          opacity: entered ? undefined : 0,
+        }}
       >
         {cells.map((c, i) => {
           const id = cellIds[i];
