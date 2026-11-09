@@ -243,6 +243,8 @@ export default function ListSortFilter({
             onClick={() => {
               const name = onRandom();
               setPick(name ? t("listMenu.randomPick", { title: name }) : t("listMenu.randomNone"));
+              /* Le badge « Au hasard » : jusqu'ici aucun bouton ne le levait. */
+              if (name) void import("@/lib/badges/facts").then((f) => f.recordFlag("random")).catch(() => {});
             }}
           >
             <Icon d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" size={18} />

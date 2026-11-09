@@ -1,5 +1,5 @@
 /**
- * Le catalogue des badges — 177 définitions.
+ * Le catalogue des badges — 182 définitions.
  *
  * FICHIER GÉNÉRÉ — ne pas éditer à la main.
  * Source : tools/badges/catalog.data.mjs, régénéré par
@@ -142,7 +142,12 @@ export const BADGES: BadgeDef[] = [
   { id: "share-link", family: "profile", rarity: "c", icon: "copyLink", tag: "", metric: {"k":"flag","name":"copyLink","n":1} },
   { id: "settings", family: "profile", rarity: "c", icon: "gear", tag: "", metric: {"k":"flag","name":"settings","n":1} },
   { id: "custom-list", family: "profile", rarity: "c", icon: "listPlus", tag: "", metric: {"k":"flag","name":"customList","n":1} },
-  { id: "bingo-full", family: "profile", rarity: "r", icon: "gridFull", tag: "100 %", metric: {"k":"flag","name":"bingoFull","n":1} },
+  { id: "bingo-50", family: "profile", rarity: "c", icon: "gridFull", tag: "50", metric: {"k":"count","of":"bingoPoints","n":50}, ladder: "bingo" },
+  { id: "bingo-200", family: "profile", rarity: "u", icon: "gridFull", tag: "200", metric: {"k":"count","of":"bingoPoints","n":200}, ladder: "bingo" },
+  { id: "bingo-500", family: "profile", rarity: "r", icon: "gridFull", tag: "500", metric: {"k":"count","of":"bingoPoints","n":500}, ladder: "bingo" },
+  { id: "bingo-1000", family: "profile", rarity: "e", icon: "gridFull", tag: "1 000", metric: {"k":"count","of":"bingoPoints","n":1000}, ladder: "bingo" },
+  { id: "bingo-2000", family: "profile", rarity: "l", icon: "gridFull", tag: "2 000", metric: {"k":"count","of":"bingoPoints","n":2000}, ladder: "bingo" },
+  { id: "bingo-3500", family: "profile", rarity: "m", icon: "gridFull", tag: "3 500", metric: {"k":"count","of":"bingoPoints","n":3500}, ladder: "bingo" },
   { id: "one-year-here", family: "profile", rarity: "r", icon: "cake", tag: "", metric: {"k":"accountAge","days":365,"n":365} },
   { id: "badges-50", family: "profile", rarity: "e", icon: "hexCluster", tag: "50", metric: {"k":"count","of":"badges","n":50}, ladder: "collection" },
   { id: "badges-75", family: "profile", rarity: "l", icon: "hexCluster", tag: "75", metric: {"k":"count","of":"badges","n":75}, ladder: "collection" },
@@ -283,6 +288,14 @@ export const LADDERS: Record<string, string[]> = {
   "favourite": [
     "fav-1",
     "fav-10"
+  ],
+  "bingo": [
+    "bingo-50",
+    "bingo-200",
+    "bingo-500",
+    "bingo-1000",
+    "bingo-2000",
+    "bingo-3500"
   ]
 };
 

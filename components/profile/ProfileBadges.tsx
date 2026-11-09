@@ -26,6 +26,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { MdFormatListBulleted, MdGridView } from "react-icons/md";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   BADGES, BY_ID, LADDERS, MAIN, RARITY_ORDER, SECRETS,
   type BadgeDef, type Rarity,
@@ -682,6 +683,7 @@ function BadgeRow({
             live={live}
             color={R.ic}
           />
+          {!unlocked && derived && !hidden ? <MissingLine def={def} derived={derived} /> : null}
         </div>
 
         {/* Le détail : QUOI remplit le badge, case par case. Jamais sur un
@@ -1375,7 +1377,7 @@ function DetailGrid({
     show === "missing" ? !c.done : show === "done" ? c.done : true,
   );
   const picked = detail.cells.find((c) => c.key === pick) ?? null;
-  const label = (c: DetailCell) => (detail.labels === "genre" ? genreLabel(t, c.label) : c.label);
+  const label = (c: DetailCell) => cellLabel(detail, c, t);
 
   const filters: { k: typeof show; label: string; n: number }[] = [
     { k: "all", label: t("badges.ui.detail.all", "Tous"), n: detail.cells.length },
@@ -1435,7 +1437,11 @@ function DetailGrid({
               }
             >
               {label(c)}
-              {detail.browsable && c.done ? (
+              {c.value != null ? (
+                <span className="text-[10px] opacity-70">
+                  {t("profile.blocks.bingo.points", { points: c.value })}
+                </span>
+              ) : detail.browsable && c.done ? (
                 <span className="text-[10px] opacity-60">{c.items.length}</span>
               ) : null}
             </button>
@@ -1462,6 +1468,45 @@ function DetailGrid({
         ) : null
       ) : null}
     </>
+  );
+}
+
+/** Le libellé d'une case : genre traduit, saison de bingo lisible, ou tel quel. */
+function cellLabel(
+  detail: Extract<Detail, { kind: "grid" }>,
+  c: DetailCell,
+  t: TFunction,
+): string {
+  if (detail.labels === "genre") return genreLabel(t, c.label);
+  if (detail.labels === "season") {
+    const [year, season] = c.label.split("-");
+    return season ? `${t(`profile.blocks.bingo.season.${season.toLowerCase()}`)} ${year}` : c.label;
+  }
+  return c.label;
+}
+
+/**
+ * CE QUI MANQUE, SUR LA LIGNE MÊME (09/11/2026, Luc : « De A à Z ne te dit
+ * même pas quelles lettres sont manquantes »). Le détail le disait, derrière
+ * un bouton qu'on ne voyait pas ; quand il reste peu de cases, on les écrit
+ * sous la barre.
+ */
+const MISSING_INLINE = 12;
+function MissingLine({ def, derived }: { def: BadgeDef; derived: Derived }) {
+  const { t } = useTranslation();
+  const missing = useMemo(() => {
+    if (detailKind(def, derived) !== "grid") return null;
+    const d = detailOf(def, derived);
+    if (!d || d.kind !== "grid" || d.labels === "season") return null;
+    const m = d.cells.filter((c) => !c.done);
+    return m.length && m.length <= MISSING_INLINE ? m.map((c) => cellLabel(d, c, t)) : null;
+  }, [def, derived, t]);
+  if (!missing) return null;
+  return (
+    <p className="m-0 mt-1.5 font-karla text-[11.5px] leading-snug text-white/45">
+      <span className="text-white/30">{t("badges.ui.detail.missingInline", "Il manque :")}</span>{" "}
+      <span className="font-semibold text-white/70">{missing.join(" · ")}</span>
+    </p>
   );
 }
 

@@ -52,7 +52,7 @@ export default function BadgePicker({
   owned,
   chosen,
   cols = 4,
-  onChange,
+  onChange: setChosen,
   nameOf,
   toolbar,
   hint,
@@ -75,6 +75,13 @@ export default function BadgePicker({
   toolbar?: React.ReactNode;
   t: (key: string, opts?: Record<string, unknown>) => string;
 }) {
+  /* Le badge « Frimeur » : épingler un mythique. Personne ne le levait. */
+  const onChange = (next: string[]) => {
+    setChosen(next);
+    if (next.some((id) => BY_ID[id]?.rarity === "m")) {
+      void import("@/lib/badges/facts").then((f) => f.recordFlag("pinMythic")).catch(() => {});
+    }
+  };
   const [over, setOver] = useState<number | null>(null);
   const full = chosen.length >= FEATURED_MAX;
   /* Le menu Badges du studio : sa liste retrouve sa hauteur à la réouverture

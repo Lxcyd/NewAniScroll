@@ -201,12 +201,15 @@ export type WorkDef = {
   /** "all" : toutes les entrées doivent être terminées. "any" : une suffit. */
   mode: "all" | "any";
   ids: number[];
+  /** Le titre de chaque id, dans le même ordre : le DÉTAIL du badge nomme
+   *  ce qui manque, même quand l'œuvre n'est pas dans la liste. */
+  titles: string[];
 };
 
 export const WORKS: Record<string, WorkDef> = {
 ${Object.entries(WORKS)
   .map(([key, def]) =>
-    `  ${key}: { mode: ${JSON.stringify(def.mode ?? "all")}, ids: [${def.ids.map(([id]) => id).join(", ")}] },`,
+    `  ${key}: { mode: ${JSON.stringify(def.mode ?? "all")}, ids: [${def.ids.map(([id]) => id).join(", ")}], titles: ${JSON.stringify(def.ids.map(([, title]) => title))} },`,
   )
   .join("\n")}
 };

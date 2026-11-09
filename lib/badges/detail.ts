@@ -19,7 +19,8 @@
  */
 
 import type { BadgeDef } from "./catalog";
-import { fuzzyDay, titleOf, type Derived } from "./derive";
+import { fuzzyDay, initialsOf, titleOf, type Derived } from "./derive";
+import { WORKS } from "./works";
 import type { LocalEntry } from "../list/localList";
 
 export type DetailCell = {
@@ -28,23 +29,28 @@ export type DetailCell = {
   /** Les anime terminés qui remplissent la case. Vide pour les lecteurs. */
   items: LocalEntry[];
   done: boolean;
+  /** Un chiffre à côté du libellé, quand la case en porte un qui n'est pas un
+   *  nombre d'anime (les points d'une saison de bingo). */
+  value?: number;
 };
 
 export type Detail =
   | {
       kind: "grid";
       cells: DetailCell[];
-      /** Les libellés sont des genres AniList, à traduire à l'affichage. */
-      labels?: "genre";
+      /** Les libellés sont à traduire à l'affichage : des genres AniList, ou
+       *  des saisons de bingo (« 2026-FALL »). */
+      labels?: "genre" | "season";
       /** Les cases portent des anime qu'on peut ouvrir (pas les lecteurs). */
       browsable: boolean;
     }
   | { kind: "list"; items: LocalEntry[] };
 
-const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio"]);
+const GRID = new Set(["years", "alphabet", "allGenres", "allTags", "hosts", "studio", "works"]);
 const LIST = new Set([
   "genre", "tag", "format", "yearBefore", "popularityUnder", "studioNamed",
   "titleLength", "sameDayFinish", "onlyLastEpisode", "planningUnaired", "repeatSame", "listSize",
+  "worksEpisodes", "onDate", "neverSkipOp",
 ]);
 /** Les compteurs `count` qui se ramènent à des anime de la liste. Les épisodes,
  *  les minutes ou la série de jours n'en sont pas : pas de liste à montrer. */
@@ -59,7 +65,13 @@ const COUNT_OF = new Set(["completed", "rated", "rewatched"]);
 export function detailKind(def: BadgeDef, d: Derived): "grid" | "list" | null {
   const k = def.metric.k;
   if ((k === "allGenres" || k === "allTags") && !d.vocab) return null;
-  if (k === "count") return COUNT_OF.has(String(def.metric.of)) ? "list" : null;
+  if (k === "count") {
+    if (def.metric.of === "bingoPoints") return "grid";
+    return COUNT_OF.has(String(def.metric.of)) ? "list" : null;
+  }
+  /* Une œuvre en un seul morceau (« Termine Death Note ») n'a rien à
+     détailler : la case unique redirait la condition. */
+  if (k === "works") return (WORKS[String(def.metric.key)]?.ids.length ?? 0) > 1 ? "grid" : null;
   return GRID.has(k) ? "grid" : LIST.has(k) ? "list" : null;
 }
 
@@ -101,8 +113,28 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       return {
         kind: "grid",
         browsable: true,
-        // L'initiale est lue comme le compte la lit (`titleOf`, première lettre).
-        cells: cellsOf(letters, done, (e, l) => titleOf(e).trim().charAt(0).toUpperCase() === l),
+        // L'initiale est lue comme le compte la lit (`initialsOf`).
+        cells: cellsOf(letters, done, (e, l) => initialsOf(e).includes(l)),
+      };
+    }
+    /* Les morceaux d'une œuvre (« Naruto ET Shippuden ») : lequel manque.
+       Le titre vient du catalogue, l'entrée de la liste quand elle y est. */
+    case "works": {
+      const w = WORKS[String(m.key)];
+      if (!w) return null;
+      return {
+        kind: "grid",
+        browsable: true,
+        cells: w.ids.map((id, i) => {
+          const e = d.entries.find((x) => x.mediaId === id);
+          const ok = d.completedIds.has(id);
+          return {
+            key: String(id),
+            label: w.titles[i] ?? (e ? titleOf(e) : `#${id}`),
+            items: ok && e ? [e] : [],
+            done: ok,
+          };
+        }),
       };
     }
     case "allGenres":
@@ -197,8 +229,55 @@ export function detailOf(def: BadgeDef, d: Derived): Detail | null {
       };
     case "listSize":
       return { kind: "list", items: [...d.entries].sort(byTitle) };
+    /* Les épisodes d'une œuvre-fleuve (Conan, Pokémon) : ses entrées de liste. */
+    case "worksEpisodes": {
+      const ids = new Set(WORKS[String(m.key)]?.ids ?? []);
+      return { kind: "list", items: d.entries.filter((e) => ids.has(e.mediaId)).sort(byTitle) };
+    }
+    /* Halloween, Saint-Valentin, 1er avril : ce qui a été vu ce jour-là, et
+       qui porte le bon genre. */
+    case "onDate": {
+      const ids = new Set(d.animeOnDate(Number(m.month), Number(m.day)));
+      const genre = m.genre ? String(m.genre) : null;
+      return {
+        kind: "list",
+        items: d.entries
+          .filter((e) => ids.has(e.mediaId) && (!genre || !!e.genres?.includes(genre)))
+          .sort(byTitle),
+      };
+    }
+    /* « Jamais sans l'opening » : les anime terminés dont tout ce qu'on a lu
+       ici a gardé son opening — la même règle que derive.ts. */
+    case "neverSkipOp": {
+      const skipped = new Set(d.facts.opSkipped);
+      return {
+        kind: "list",
+        items: done
+          .filter((e) => {
+            const eps = d.perAnime.get(e.mediaId);
+            if (!eps?.size) return false;
+            for (const ep of eps) if (skipped.has(`${e.mediaId}:${ep}`)) return false;
+            return true;
+          })
+          .sort(byTitle),
+      };
+    }
     case "count":
       switch (String(m.of)) {
+        /* Les saisons de bingo jouées, chacune avec son meilleur score. */
+        case "bingoPoints": {
+          const cells = Object.entries(d.facts.counters)
+            .filter(([name]) => name.startsWith("bingo:"))
+            .map(([name, c]) => ({
+              key: name.slice(6),
+              label: name.slice(6),
+              items: [],
+              done: true,
+              value: c.n,
+            }))
+            .sort((a, b) => b.key.localeCompare(a.key));
+          return { kind: "grid", browsable: false, labels: "season", cells };
+        }
         case "completed": return { kind: "list", items: [...done].sort(byTitle) };
         case "rated":
           return { kind: "list", items: d.entries.filter((e) => (e.score ?? 0) > 0).sort(byTitle) };

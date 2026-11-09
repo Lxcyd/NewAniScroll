@@ -87,6 +87,7 @@ export const LADDERS = {
      l'autre dans le dépli alors qu'aucun des deux n'est le palier suivant. */
   collection: ["badges-50", "badges-75", "complete"],
   favourite: ["fav-1", "fav-10"],
+  bingo: ["bingo-50", "bingo-200", "bingo-500", "bingo-1000", "bingo-2000", "bingo-3500"],
 };
 
 /* ══════════════════════════════════════════════════════════════════════════ */
@@ -265,11 +266,11 @@ export const CATALOG = {
       "Impatient", "Ajoute à ta liste un anime pas encore sorti.",
       "Hyped", "Add an anime that hasn't aired yet to your list."],
     ["two-voices", "u", "speech", "", flag("bothLangs"),
-      "VO et VF", "Regarde le même épisode en VO et en VF.",
-      "Sub and dub", "Watch the same episode both subbed and dubbed."],
+      "VO et VF", "Termine le même épisode en VO puis en VF (ou l'inverse) dans la même session.",
+      "Sub and dub", "Finish the same episode subbed then dubbed (or the reverse) in one session."],
     ["blind-pick", "c", "shuffle", "", flag("random"),
-      "Au hasard", "Lance un anime tiré au hasard.",
-      "Random pick", "Start an anime picked at random."],
+      "Au hasard", "Tire un anime au hasard avec le bouton du menu de tri de ta liste.",
+      "Random pick", "Draw a random anime with the button in your list's sort menu."],
     ["studio-10", "r", "clapper", "10", { k: "studio", n: 10 },
       "Studio préféré", "Termine 10 anime du même studio.",
       "Favourite studio", "Finish 10 anime from the same studio."],
@@ -297,8 +298,8 @@ export const CATALOG = {
       "Cinéphile", "Termine 30 films.",
       "Film buff", "Finish 30 films."],
     ["alphabet", "l", "alphabet", "A-Z", { k: "alphabet", n: 26 },
-      "De A à Z", "Termine un anime pour chaque lettre de l'alphabet.",
-      "A to Z", "Finish an anime for every letter of the alphabet."],
+      "De A à Z", "Termine un anime dont le titre commence par chaque lettre de l'alphabet (titre anglais ou romaji, au choix).",
+      "A to Z", "Finish an anime whose title starts with every letter of the alphabet (English or romaji title, either one)."],
     ["long-title", "r", "longTitle", "100+", { k: "titleLength", min: 100, n: 1 },
       "Titre à rallonge", "Termine un anime dont le titre dépasse 100 caractères.",
       "Very long title", "Finish an anime whose title runs past 100 characters."],
@@ -447,9 +448,29 @@ export const CATALOG = {
     ["custom-list", "c", "listPlus", "", flag("customList"),
       "Liste sur mesure", "Crée une liste personnalisée.",
       "Custom list", "Create a custom list."],
-    ["bingo-full", "r", "gridFull", "100 %", flag("bingoFull"),
-      "Carton plein", "Coche toutes les cases de ton bingo de la saison.",
-      "Full card", "Tick every square of your season bingo."],
+    /* LE BINGO ÉVOLUE (09/11/2026, Luc) : un seul badge, du commun au
+       mythique, qui monte avec les points CUMULÉS des bingos officiels de la
+       saison (meilleur score de chaque saison, grille non retouchée). Il
+       remplace « Carton plein » (`bingo-full`). Repères : une grille pleine
+       vaut 300 points en 3×3, 410 en 4×4, 540 en 5×5. */
+    ["bingo-50", "c", "gridFull", "50", count("bingoPoints", 50),
+      "Premier bingo", "Cumule 50 points sur les bingos officiels de la saison.",
+      "First bingo", "Score 50 points across the official season bingos."],
+    ["bingo-200", "u", "gridFull", "200", count("bingoPoints", 200),
+      "Joueur de bingo", "Cumule 200 points sur les bingos officiels de la saison.",
+      "Bingo player", "Score 200 points across the official season bingos."],
+    ["bingo-500", "r", "gridFull", "500", count("bingoPoints", 500),
+      "Habitué du bingo", "Cumule 500 points sur les bingos officiels de la saison.",
+      "Bingo regular", "Score 500 points across the official season bingos."],
+    ["bingo-1000", "e", "gridFull", "1 000", count("bingoPoints", 1000),
+      "Stratège du bingo", "Cumule 1 000 points sur les bingos officiels de la saison.",
+      "Bingo strategist", "Score 1,000 points across the official season bingos."],
+    ["bingo-2000", "l", "gridFull", "2 000", count("bingoPoints", 2000),
+      "Champion du bingo", "Cumule 2 000 points sur les bingos officiels de la saison.",
+      "Bingo champion", "Score 2,000 points across the official season bingos."],
+    ["bingo-3500", "m", "gridFull", "3 500", count("bingoPoints", 3500),
+      "Légende du bingo", "Cumule 3 500 points sur les bingos officiels de la saison.",
+      "Bingo legend", "Score 3,500 points across the official season bingos."],
     ["one-year-here", "r", "cake", "", { k: "accountAge", days: 365, n: 365 },
       "Un an déjà", "Ton compte AniScroll a un an.",
       "A year already", "Your AniScroll account turns one."],

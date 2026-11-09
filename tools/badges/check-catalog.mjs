@@ -103,7 +103,7 @@ const all = Object.entries(CATALOG).flatMap(([family, rows]) =>
 );
 
 ok("ids uniques", new Set(all.map((b) => b.id)).size === all.length);
-ok("101 badges principaux", all.filter((b) => b.family !== "secret").length === 101);
+ok("107 badges principaux", all.filter((b) => b.family !== "secret").length === 107);
 ok("familles connues", all.every((b) => FAMILIES.includes(b.family)));
 
 for (const b of all) {
@@ -187,10 +187,9 @@ for (const [name, ids] of Object.entries(LADDERS)) {
      laisser ici plutot que de faire echouer la passe est un choix : ils sont
      au catalogue, on sait qu'ils sont inertes, et le jour ou la
      fonctionnalite arrive c'est cette liste qu'on vient raccourcir. */
-  const PENDING = new Map([
-    ["random", "le site n'a pas de bouton « anime au hasard »"],
-    ["pinMythic", "on ne peut pas encore epingler un badge sur son profil"],
-  ]);
+  /* Vide depuis le 09/11/2026 : « Au hasard » est leve par le bouton du menu
+     de tri de la liste, « Frimeur » par le choix des badges mis en avant. */
+  const PENDING = new Map();
 
   for (const b of all) {
     const k = b.metric.k;
@@ -591,7 +590,7 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   for (const b of all.filter((x) => x.family === "secret").slice(0, 10)) withSecrets[b.id] = 1;
   check("les secrets ne gonflent pas le compteur", m("badges-50", snap(), state(withSecrets)), [50, 50]);
   check("...ils ont le leur", m("secret-50", snap(), state(withSecrets)), [10, 50]);
-  check("« Collection complète » s'exclut elle-même", m("complete", snap(), state(got))[1], 100);
+  check("« Collection complète » s'exclut elle-même", m("complete", snap(), state(got))[1], 106);
 }
 
 /* ── Le détail dit ce que le compte dit ─────────────────────────────────────
@@ -642,6 +641,10 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
       check(`${def.id} : liste non vide = acquis`, det.items.length > 0, p[0] >= 1);
     } else if (det.kind === "list") {
       check(`${def.id} : anime listés = courant`, det.items.length, p[0]);
+    } else if (def.metric.of === "bingoPoints") {
+      // Une case par saison jouée, avec ses points : leur somme est le courant.
+      check(`${def.id} : points des saisons = courant`,
+        det.cells.reduce((s, c) => s + (c.value ?? 0), 0), p[0]);
     } else if (def.metric.k === "studio") {
       check(`${def.id} : premier studio = courant`, det.cells[0].items.length, p[0]);
     } else {
@@ -653,6 +656,24 @@ ok("25 → 26 octobre 2026 = 1 jour (heure d'hiver)", lt.dayDiff("2026-10-25", "
   check("1998 porte ses deux anime", years.cells.find((c) => c.key === "1998").items.length, 2);
   ok("2001 reste vide : un anime en projet ne remplit rien", !years.cells.find((c) => c.key === "2001").done);
   const az = detailOf(all.find((b) => b.metric.k === "alphabet"), d);
+  /* Les initiales (09/11/2026) : chaque titre latin compte, signes et accents
+     d'en tête ignorés, un chiffre en tête ne donne rien. */
+  {
+    const { initialsOf } = await load("lib/badges/derive.ts");
+    const ini = (title) => initialsOf({ title }).sort();
+    check("anglais ET romaji", ini({ english: "Attack on Titan", romaji: "Shingeki no Kyojin" }), ["A", "S"]);
+    check("crochets ignorés", ini({ romaji: "[Oshi no Ko]" }), ["O"]);
+    check("accent ôté", ini({ romaji: "Éden" }), ["E"]);
+    check("chiffre en tête : rien", ini({ english: "86 Eighty-Six" }), []);
+    check("natif seul : rien", ini({ native: "進撃の巨人" }), []);
+    const bf = { ...EMPTY_FACTS, counters: {
+      "bingo:2026-FALL": { n: 180, at: 1 }, "bingo:2026-SUMMER": { n: 300, at: 1 }, other: { n: 9, at: 1 },
+    } };
+    check("bingo : les saisons s'additionnent", m("bingo-500", snap({ facts: bf })), [480, 500]);
+    const np = { ...EMPTY_FACTS, noPause: ["1:1"], bothLangs: [5] };
+    check("« D'une traite » lit l'ensemble", m("no-pause", snap({ facts: np })), [1, 1]);
+    check("« VO et VF » lit l'ensemble", m("two-voices", snap({ facts: np })), [1, 1]);
+  }
   check("A : Akira et Another Show", az.cells.find((c) => c.key === "A").items.map((e) => e.mediaId), [1, 4]);
   for (const [k, ids] of [
     ["titleLength", [8]], ["sameDayFinish", [8]], ["planningUnaired", [9]], ["repeatSame", [8]],

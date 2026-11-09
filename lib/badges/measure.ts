@@ -53,6 +53,7 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
         case "rated": return [d.rated, n];
         case "rewatched": return [d.rewatched, n];
         case "favourites": return maybe(d.favourites, n);
+        case "bingoPoints": return [d.bingoPoints, n];
         /* « Obtenir 50 badges » se compte sur les badges NON SECRETS : les
            secrets ont leur propre compteur, et ils sont annoncés « hors total »
            dans le catalogue. Les faire compter ici contredirait cette promesse. */
@@ -61,7 +62,7 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
       }
 
     /* ── Gestes ────────────────────────────────────────────────────────────── */
-    case "flag": return bool(d.facts.flags[String(m.name)] != null);
+    case "flag": return bool(flagUp(d, String(m.name)));
     case "counter": return [d.facts.counters[String(m.name)]?.n ?? 0, n];
 
     /* ── Rythme de visionnage ──────────────────────────────────────────────── */
@@ -177,6 +178,22 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
     default:
       return null;
   }
+}
+
+/**
+ * Un drapeau levé — ou, pour deux d'entre eux, son ENSEMBLE rempli.
+ *
+ * « D'une traite » et « VO et VF » attendaient les drapeaux `noPause` et
+ * `bothLangs`, que personne ne levait : le lecteur remplit les ensembles du
+ * même nom (recordNoPause, recordBothLangs), jamais le drapeau. Les deux
+ * badges étaient donc impossibles (constaté le 09/11/2026). Lire l'ensemble
+ * rattrape aussi tout ce qui a été enregistré avant la correction.
+ */
+export function flagUp(d: Derived, name: string): boolean {
+  if (d.facts.flags[name] != null) return true;
+  if (name === "noPause") return d.facts.noPause.length > 0;
+  if (name === "bothLangs") return d.facts.bothLangs.length > 0;
+  return false;
 }
 
 /**

@@ -3753,12 +3753,20 @@ export function BingoBlock({
   const inLine = new Set(lines.flat());
   const full = cells.length > 0 && isDone.every(Boolean);
 
-  /* LE BADGE « BINGO À 100 % » (04/11/2026, Luc) : chez soi, quand toutes les
-     cases sont cochées. Le badge est un drapeau du catalogue (`bingoFull`). */
+  /* LE BADGE BINGO (09/11/2026, Luc : « un badge qui évolue de commun à
+     mythique selon les points de chaque bingo saisonnier »). Chez soi, sur la
+     grille OFFICIELLE (elle ne se retouche pas), on range le score de la
+     saison sous `bingo:<saison>` ; `noteListCounter` ne garde que le MEILLEUR,
+     donc décocher, changer de taille ou finir la saison ne fait rien perdre.
+     Le badge somme les saisons (lib/badges/derive.ts). Le thème de la saison
+     doit être arrivé : sans lui la grille n'est pas encore la vraie. */
+  const seasonPts = bingoPoints(cellIds, isDone, lines.length, full);
   useEffect(() => {
-    if (isOwner && !editing && days && full && mode === "season")
-      void import("@/lib/badges/facts").then((f) => f.recordFlag("bingoFull")).catch(() => {});
-  }, [isOwner, editing, days, full, mode]);
+    if (!isOwner || editing || !days || mode !== "season" || seasonData === undefined || seasonPts <= 0) return;
+    void import("@/lib/badges/facts")
+      .then((f) => f.noteListCounter(`bingo:${seasonId}`, seasonPts))
+      .catch(() => {});
+  }, [isOwner, editing, days, mode, seasonData, seasonPts, seasonId]);
 
   /* ── Écritures ── */
   const writeCells = (next: string[], extra: Record<string, string> = {}) => {

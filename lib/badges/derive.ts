@@ -121,8 +121,10 @@ export type Derived = {
   studioNamed: (name: string) => number | null;
   /** Anime terminés vus par moins de `max` personnes. */
   underPopularity: (max: number) => number | null;
-  /** Lettres initiales distinctes (A-Z) des anime terminés. */
+  /** Lettres initiales distinctes (A-Z) des anime terminés (cf. initialsOf). */
   initials: number;
+  /** Points cumulés des bingos officiels, meilleur score de chaque saison. */
+  bingoPoints: number;
   /** Le titre terminé le plus long, en caractères. */
   longestTitle: number;
   /** Genres du catalogue couverts par au moins un anime terminé. */
@@ -174,6 +176,37 @@ export function fuzzyDay(d: { year: number | null; month: number | null; day: nu
 export function titleOf(e: LocalEntry): string {
   const t = e.title;
   return t?.english || t?.romaji || t?.userPreferred || t?.native || "";
+}
+
+/**
+ * LES INITIALES D'UNE ENTRÉE, pour « De A à Z » (09/11/2026, Luc : « il ne
+ * marche pas »).
+ *
+ * L'ancienne règle ne lisait QUE le titre anglais (`titleOf`), et prenait son
+ * premier caractère tel quel. Trois façons de rater une lettre qu'on voit
+ * pourtant sur sa liste : le titre affiché est le romaji (« Shingeki no
+ * Kyojin » ne donnait pas S, seulement A pour « Attack on Titan ») ; le titre
+ * commence par un signe (« [Oshi no Ko] », « "Oshi no Ko" ») ; ou par une
+ * lettre accentuée (« Éden »). Une entrée donne désormais l'initiale de
+ * CHACUN de ses titres latins, débarrassée de ce qui précède la première
+ * lettre et de ses accents. Le natif n'en donne pas : il n'a pas de A-Z.
+ */
+export function initialsOf(e: LocalEntry): string[] {
+  const t = e.title;
+  const out = new Set<string>();
+  for (const s of [t?.english, t?.romaji, t?.userPreferred]) {
+    const c = (s ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .match(/[A-Za-z]/)?.[0];
+    /* La première LETTRE, mais seulement si rien d'autre qu'un signe la
+       précède : « 86 Eighty-Six » ne donne pas E, il commence par un chiffre. */
+    if (!c) continue;
+    const head = (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+    if (/[0-9\p{L}]/u.test(head.slice(0, head.indexOf(c)))) continue;
+    out.add(c.toUpperCase());
+  }
+  return [...out];
 }
 
 export function derive(s: Snapshot): Derived {
@@ -372,11 +405,14 @@ export function derive(s: Snapshot): Derived {
     if (e.studio) studioCounts.set(e.studio, (studioCounts.get(e.studio) ?? 0) + 1);
   }
 
-  const initials = new Set(
-    completed
-      .map((e) => titleOf(e).trim().charAt(0).toUpperCase())
-      .filter((c) => c >= "A" && c <= "Z"),
-  );
+  const initials = new Set(completed.flatMap(initialsOf));
+
+  /* LES POINTS DE BINGO : le meilleur score de chaque saison officielle, posé
+     par le bloc Bingo sous `bingo:<saison>` (noteListCounter garde le max). */
+  let bingoPoints = 0;
+  for (const [name, c] of Object.entries(s.facts.counters)) {
+    if (name.startsWith("bingo:")) bingoPoints += c.n;
+  }
   const longestTitle = completed.reduce((m, e) => Math.max(m, titleOf(e).length), 0);
 
   /* ── Les franchises, reconstruites depuis les relations déjà en cache ──────
@@ -509,6 +545,7 @@ export function derive(s: Snapshot): Derived {
     underPopularity: (max) =>
       !hasPop ? null : completed.filter((e) => (e.popularity ?? Infinity) < max).length,
     initials: initials.size,
+    bingoPoints,
     longestTitle,
     genresCovered: !s.vocab || !hasGenres
       ? null
