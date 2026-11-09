@@ -1644,6 +1644,47 @@
       "requestShort": "Add",
       "noneOwner": "Add someone by their name or #TAG, or from their profile.",
       "searchHint": "Type at least two letters of a name, or a #TAG (e.g. #952364)."
+    },
+    "studioTour": {
+      "count": "Step {{n}} of {{total}}",
+      "close": "Close the tutorial",
+      "skip": "Skip",
+      "prev": "Back",
+      "next": "Next",
+      "start": "Let's go",
+      "finish": "Done",
+      "intro": {
+        "title": "Welcome to the studio",
+        "body": "This is where you customise your profile. A quick tour of the menus: under a minute, and you can skip at any time."
+      },
+      "background": {
+        "title": "Background",
+        "body": "A colour, an anime illustration, a poster wall, a video or your own file. The menu opens on the left, and your profile updates live."
+      },
+      "layout": {
+        "title": "Layout",
+        "body": "Choose how the banner, avatar and content of your profile are arranged."
+      },
+      "widgets": {
+        "title": "Widgets",
+        "body": "Add blocks to your profile: stats, calendar, bingo, favourites… Then drag them around the grid to arrange them."
+      },
+      "avatar": {
+        "title": "Avatar and frame",
+        "body": "Pick a character as your profile picture, crop it, then add a frame in the second tab."
+      },
+      "badges": {
+        "title": "Your badges",
+        "body": "Show off up to three of your badges next to your username."
+      },
+      "music": {
+        "title": "Music",
+        "body": "An opening or ending that plays when people visit your profile, from the part you choose."
+      },
+      "save": {
+        "title": "Save",
+        "body": "Nothing goes live until you press this. \"Cancel\" takes you back to your profile with nothing changed."
+      }
     }
   },
   "myList": {
@@ -2156,7 +2197,8 @@
         "pick": "Pick a filled cell to see its anime.",
         "empty": "No finished anime counts yet.",
         "animeCount_one": "{{count}} anime",
-        "animeCount_other": "{{count}} anime"
+        "animeCount_other": "{{count}} anime",
+        "missingInline": "Still missing:"
       },
       "unit": {
         "h": "h",
@@ -2337,11 +2379,11 @@
     },
     "two-voices": {
       "name": "Sub and dub",
-      "cond": "Watch the same episode both subbed and dubbed."
+      "cond": "Finish the same episode subbed then dubbed (or the reverse) in one session."
     },
     "blind-pick": {
       "name": "Random pick",
-      "cond": "Start an anime picked at random."
+      "cond": "Draw a random anime with the button in your list's sort menu."
     },
     "studio-10": {
       "name": "Favourite studio",
@@ -2377,7 +2419,7 @@
     },
     "alphabet": {
       "name": "A to Z",
-      "cond": "Finish an anime for every letter of the alphabet."
+      "cond": "Finish an anime whose title starts with every letter of the alphabet (English or romaji title, either one)."
     },
     "long-title": {
       "name": "Very long title",
@@ -2543,9 +2585,29 @@
       "name": "Custom list",
       "cond": "Create a custom list."
     },
-    "bingo-full": {
-      "name": "Full card",
-      "cond": "Tick every square of your season bingo."
+    "bingo-50": {
+      "name": "First bingo",
+      "cond": "Score 50 points across the official season bingos."
+    },
+    "bingo-200": {
+      "name": "Bingo player",
+      "cond": "Score 200 points across the official season bingos."
+    },
+    "bingo-500": {
+      "name": "Bingo regular",
+      "cond": "Score 500 points across the official season bingos."
+    },
+    "bingo-1000": {
+      "name": "Bingo strategist",
+      "cond": "Score 1,000 points across the official season bingos."
+    },
+    "bingo-2000": {
+      "name": "Bingo champion",
+      "cond": "Score 2,000 points across the official season bingos."
+    },
+    "bingo-3500": {
+      "name": "Bingo legend",
+      "cond": "Score 3,500 points across the official season bingos."
     },
     "one-year-here": {
       "name": "A year already",

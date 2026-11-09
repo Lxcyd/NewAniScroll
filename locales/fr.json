@@ -1644,6 +1644,47 @@
       "requestShort": "Ajouter",
       "noneOwner": "Ajoute quelqu'un avec son pseudo ou son #TAG, ou depuis son profil.",
       "searchHint": "Tape au moins deux lettres d'un pseudo, ou un #TAG (ex. #952364)."
+    },
+    "studioTour": {
+      "count": "Étape {{n}} sur {{total}}",
+      "close": "Fermer le tutoriel",
+      "skip": "Passer",
+      "prev": "Précédent",
+      "next": "Suivant",
+      "start": "C'est parti",
+      "finish": "Terminer",
+      "intro": {
+        "title": "Bienvenue dans le studio",
+        "body": "C'est ici que tu personnalises ton profil. Petit tour des menus : moins d'une minute, et tu peux passer quand tu veux."
+      },
+      "background": {
+        "title": "Le fond",
+        "body": "Une couleur, l'illustration d'un anime, un mur d'affiches, une vidéo ou ton propre fichier. Le menu s'ouvre à gauche, le résultat s'affiche en direct sur ton profil."
+      },
+      "layout": {
+        "title": "L'agencement",
+        "body": "Choisis comment se placent la bannière, l'avatar et le contenu de ton profil."
+      },
+      "widgets": {
+        "title": "Les widgets",
+        "body": "Ajoute des blocs à ton profil : statistiques, calendrier, bingo, favoris… Glisse-les ensuite sur la grille pour les ranger."
+      },
+      "avatar": {
+        "title": "Avatar et cadre",
+        "body": "Prends un personnage comme photo de profil, recadre-le, puis ajoute-lui un cadre dans le deuxième onglet."
+      },
+      "badges": {
+        "title": "Tes badges",
+        "body": "Mets jusqu'à trois de tes badges en avant, à côté de ton pseudo."
+      },
+      "music": {
+        "title": "La musique",
+        "body": "Un opening ou un ending qui joue quand on visite ton profil, avec le passage de ton choix."
+      },
+      "save": {
+        "title": "Enregistrer",
+        "body": "Rien n'est publié avant ce bouton. « Annuler » te ramène à ton profil sans rien changer."
+      }
     }
   },
   "myList": {
@@ -2156,7 +2197,8 @@
         "pick": "Choisis une case remplie pour voir ses anime.",
         "empty": "Aucun anime terminé ne compte encore.",
         "animeCount_one": "{{count}} anime",
-        "animeCount_other": "{{count}} anime"
+        "animeCount_other": "{{count}} anime",
+        "missingInline": "Il manque :"
       },
       "unit": {
         "h": "h",
@@ -2337,11 +2379,11 @@
     },
     "two-voices": {
       "name": "VO et VF",
-      "cond": "Regarde le même épisode en VO et en VF."
+      "cond": "Termine le même épisode en VO puis en VF (ou l'inverse) dans la même session."
     },
     "blind-pick": {
       "name": "Au hasard",
-      "cond": "Lance un anime tiré au hasard."
+      "cond": "Tire un anime au hasard avec le bouton du menu de tri de ta liste."
     },
     "studio-10": {
       "name": "Studio préféré",
@@ -2377,7 +2419,7 @@
     },
     "alphabet": {
       "name": "De A à Z",
-      "cond": "Termine un anime pour chaque lettre de l'alphabet."
+      "cond": "Termine un anime dont le titre commence par chaque lettre de l'alphabet (titre anglais ou romaji, au choix)."
     },
     "long-title": {
       "name": "Titre à rallonge",
@@ -2543,9 +2585,29 @@
       "name": "Liste sur mesure",
       "cond": "Crée une liste personnalisée."
     },
-    "bingo-full": {
-      "name": "Carton plein",
-      "cond": "Coche toutes les cases de ton bingo de la saison."
+    "bingo-50": {
+      "name": "Premier bingo",
+      "cond": "Cumule 50 points sur les bingos officiels de la saison."
+    },
+    "bingo-200": {
+      "name": "Joueur de bingo",
+      "cond": "Cumule 200 points sur les bingos officiels de la saison."
+    },
+    "bingo-500": {
+      "name": "Habitué du bingo",
+      "cond": "Cumule 500 points sur les bingos officiels de la saison."
+    },
+    "bingo-1000": {
+      "name": "Stratège du bingo",
+      "cond": "Cumule 1 000 points sur les bingos officiels de la saison."
+    },
+    "bingo-2000": {
+      "name": "Champion du bingo",
+      "cond": "Cumule 2 000 points sur les bingos officiels de la saison."
+    },
+    "bingo-3500": {
+      "name": "Légende du bingo",
+      "cond": "Cumule 3 500 points sur les bingos officiels de la saison."
     },
     "one-year-here": {
       "name": "Un an déjà",

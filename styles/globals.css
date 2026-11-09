@@ -5656,3 +5656,14 @@ html.as-dragging .as-nudge {
 .as-lm-note { margin: 8px 2px 0; font-size: 11.5px; color: rgba(255,255,255,.35); }
 .as-lm-new.is-clash + .as-lm-note, .as-lm-new.is-clash ~ .as-lm-note { color: #f97316; }
 @media (prefers-reduced-motion: reduce) { .as-lm-slider { transition: none; } }
+
+/* ── Le tour du studio (components/profile/StudioTour.tsx, 09/11/2026) ──────
+   La case présentée s'allume d'un liseré intérieur (la barre est en
+   `overflow-hidden`, un contour extérieur y serait coupé) ; la bulle arrive
+   en glissant de quelques pixels. Sous `reduce`, elle apparaît sans bouger. */
+.as-tour-target { box-shadow: inset 0 0 0 2px #E94560, inset 0 0 24px rgba(233,69,96,.28); transition: box-shadow .25s; }
+.as-scene-box.as-tour-target { border-radius: 12px; }
+button.as-tour-target { box-shadow: 0 0 0 3px rgba(233,69,96,.5); }
+.as-tour-card { animation: as-tour-in .32s cubic-bezier(.22,1,.36,1) both; }
+@keyframes as-tour-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .as-tour-card { animation: none; } .as-tour-target { transition: none; } }

@@ -96,6 +96,7 @@ import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage, cropStyle } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
+import StudioTour from "@/components/profile/StudioTour";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
@@ -2453,6 +2454,11 @@ export default function BannerStudio({
     });
     requestAnimationFrame(() => search.current?.focus());
   }, []);
+  /* Le menu ouvert, lu par le tour du studio à son départ (pour le rouvrir
+     à la fin) sans le redessiner à chaque changement. */
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const readScope = useCallback(() => scopeRef.current, []);
 
   /* Les chiffres arrivent dans un tableau neuf à chaque rendu de la page : la
      clé en texte évite de recalculer toute la palette pour rien. */
@@ -5363,6 +5369,7 @@ export default function BannerStudio({
   const saveButton = (
     <button
       type="button"
+      data-tour="save"
       onClick={finish}
       className="shrink-0 rounded-full bg-action px-4 py-1.5 text-[11px] font-bold text-white transition-transform hover:scale-105"
     >
@@ -5849,6 +5856,8 @@ export default function BannerStudio({
         navigation. Le conteneur couvre la fenêtre mais ne capte RIEN : le
         profil reste cliquable, ses widgets déplaçables. */}
     <div className="pointer-events-none fixed inset-0 z-[10003] overflow-hidden text-white">
+      {/* Le tour des menus, une fois par navigateur (09/11/2026, Luc). */}
+      <StudioTour active={!mini && !soundTip} openScope={openScope} currentScope={readScope} />
       {soundTip ? (
         <div className="pointer-events-auto absolute inset-0 z-[60] grid place-items-center bg-black/55 p-4 backdrop-blur-sm">
           <div
@@ -7018,6 +7027,7 @@ export default function BannerStudio({
                  le bloc éteint (24/10/2026, Luc). */
               active={groupOf(barScope) != null}
               fit
+              tour="background"
             >
               {DOCK_GROUPS.map((kinds) => {
                 const id = kinds[0];
@@ -7066,7 +7076,7 @@ export default function BannerStudio({
                 );
               })}
             </SceneBox>
-            <SceneBox label={t("profile.studioKind_layout")} active={barScope === "layout"} onOpen={() => openScope("layout")}>
+            <SceneBox tour="layout" label={t("profile.studioKind_layout")} active={barScope === "layout"} onOpen={() => openScope("layout")}>
               <button
                 type="button"
                 onClick={() => openScope("layout")}
@@ -7081,7 +7091,7 @@ export default function BannerStudio({
 
             {/* WIDGETS (07/11/2026, Luc) : la bibliothèque de blocs dans la
                 colonne de gauche ; la case dit combien sont posés. */}
-            <SceneBox label={t("profile.studioKind_widgets")} active={barScope === "widgets"} onOpen={() => openScope("widgets")}>
+            <SceneBox tour="widgets" label={t("profile.studioKind_widgets")} active={barScope === "widgets"} onOpen={() => openScope("widgets")}>
               <button
                 type="button"
                 onClick={() => openScope("widgets")}
@@ -7097,7 +7107,7 @@ export default function BannerStudio({
 
             {/* Avatar et cadre : un bouton, deux onglets dans le menu. Il rouvre
                 le dernier des deux qu'on a ouvert. */}
-            <SceneBox label={t("profile.studioAvatarSection")} active={barScope === "avatar" || barScope === "frame"} onOpen={() => openScope(lastAvatarTab.current)}>
+            <SceneBox tour="avatar" label={t("profile.studioAvatarSection")} active={barScope === "avatar" || barScope === "frame"} onOpen={() => openScope(lastAvatarTab.current)}>
               <button
                 type="button"
                 onClick={() => openScope(lastAvatarTab.current)}
@@ -7128,7 +7138,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_badges")} active={barScope === "badges"} onOpen={() => openScope("badges")}>
+            <SceneBox tour="badges" label={t("profile.studioKind_badges")} active={barScope === "badges"} onOpen={() => openScope("badges")}>
               <button
                 type="button"
                 onClick={() => openScope("badges")}
@@ -7174,7 +7184,7 @@ export default function BannerStudio({
               </button>
             </SceneBox>
 
-            <SceneBox label={t("profile.studioKind_music")} active={barScope === "music"} grow onOpen={() => openScope("music")}>
+            <SceneBox tour="music" label={t("profile.studioKind_music")} active={barScope === "music"} grow onOpen={() => openScope("music")}>
               {/* Deux commandes, pas une : la pochette lance et arrête, le
                   texte ouvre le menu (un bouton dans un bouton n'existe pas). */}
               {draft.music ? (
@@ -7930,9 +7940,12 @@ function SceneBox({
   fit,
   extra,
   onOpen,
+  tour,
   children,
 }: {
   label: string;
+  /** Le repère du tour du studio (components/profile/StudioTour.tsx). */
+  tour?: string;
   /** Son menu est celui ouvert à gauche : le compartiment s'allume. */
   active?: boolean;
   /** Ouvre son menu : TOUT le compartiment est cliquable, pas seulement le
@@ -7970,6 +7983,7 @@ function SceneBox({
   }, [active]);
   return (
     <div
+      data-tour={tour}
       onClick={
         onOpen
           ? (e) => {
