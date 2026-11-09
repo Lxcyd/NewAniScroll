@@ -1,0 +1,38 @@
+{
+  "date": "2026-11-09",
+  "generatedAt": "2026-11-09T16:27:45.887Z",
+  "census": {
+    "dbsize": 1412,
+    "scanned": 1411,
+    "complete": true,
+    "iters": 2,
+    "buckets": {
+      "anime": 1147,
+      "tr": 157,
+      "episode": 73,
+      "ftree": 18,
+      "anilist": 8,
+      "avail": 4,
+      "bingo-season": 1,
+      "frembed": 1,
+      "index_server_v3": 1,
+      "src": 1
+    },
+    "topTwoSeg": {
+      "anime:v6": 1147,
+      "tr:fr": 157,
+      "episode:v12": 73,
+      "ftree:v5": 18,
+      "anilist:resp": 5,
+      "avail:v5": 4,
+      "anilist:list": 3,
+      "bingo-season:v1": 1,
+      "frembed:base": 1,
+      "src:v15": 1
+    }
+  },
+  "upstashStats": {
+    "error": "Upstash mgmt 401 on /v2/redis/databases: {\"error\":\"Unauthorized\"}"
+  },
+  "vercel": null
+}
