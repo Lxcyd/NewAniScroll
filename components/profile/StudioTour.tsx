@@ -350,10 +350,14 @@ export default function StudioTour({
         {pos && pos.arrow >= 0 ? (
           <span
             aria-hidden
-            className={`absolute left-0 h-3 w-3 bg-[#15161d] ring-1 ring-white/10 ${
-              pos.below ? "-top-1.5 [clip-path:polygon(0_0,100%_0,0_100%)]" : "-bottom-1.5 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
+            /* LOSANGE ARRONDI (10/11, Luc, choix 1 sur 10) : la pointe est
+               arrondie, le liseré ne suit que les deux bords extérieurs. */
+            className={`absolute left-0 h-3.5 w-3.5 bg-[#15161d] ${
+              pos.below
+                ? "-top-[7px] rounded-tl-[4px] shadow-[-1px_-1px_0_rgba(255,255,255,.1)]"
+                : "-bottom-[7px] rounded-br-[4px] shadow-[1px_1px_0_rgba(255,255,255,.1)]"
             }`}
-            style={{ transform: `translateX(${pos.arrow - 6}px) rotate(45deg)`, transition: slide }}
+            style={{ transform: `translateX(${pos.arrow - 7}px) rotate(45deg)`, transition: slide }}
           />
         ) : null}
 
