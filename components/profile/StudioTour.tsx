@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
 /* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
-const DONE_KEY = "aniscroll:studioTour:3";
+const DONE_KEY = "aniscroll:studioTour:4";
 
 export type TourScope = "image" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
@@ -98,9 +98,6 @@ export default function StudioTour({
     if (!active || step != null || tourDone()) return;
     const id = window.setTimeout(() => {
       startScope.current = currentScope();
-      /* Vu dès qu'il démarre : fermer le studio en plein tour démonte ce
-         composant sans passer par `end`, et le tour reviendrait sinon. */
-      markDone();
       setStep(0);
     }, 900);
     return () => window.clearTimeout(id);
@@ -115,12 +112,13 @@ export default function StudioTour({
     if (back && STEPS.some((s) => s.scope === back)) openScope(back as TourScope);
   }, [openScope]);
 
-  /* Le studio se ferme ou se réduit en plein tour : le tour s'arrête, compté
-     comme vu — le rejouer à chaque réouverture deviendrait intrusif. */
+  /* Le studio se ferme ou se réduit en plein tour : la bulle s'en va, mais le
+     tour n'est PAS compté comme vu (Luc, 10/11) — seuls Skip, la croix, Échap
+     ou la dernière étape le closent. Il repart du début à la réouverture. */
   useEffect(() => {
     if (!active && step != null) {
-      markDone();
       setStep(null);
+      setPos(null);
     }
   }, [active, step]);
 
