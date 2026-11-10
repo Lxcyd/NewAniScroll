@@ -15,6 +15,8 @@ import { prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { setPrefetchedInfo } from "@/lib/watch/infoPrefetch";
 
 import { useSession } from "next-auth/react";
+import { useShowAdultReady } from "@/lib/prefs/adultPrefs";
+import AdultBlocked from "@/components/shared/AdultBlocked";
 import dynamic from "next/dynamic";
 
 import { useAniList } from "@/lib/anilist/useAnilist";
@@ -155,6 +157,7 @@ export default function Info({
   const { toggleFavourite } = useAniList(session);
   const { t } = useTranslation();
   const router = useRouter();
+  const showAdult = useShowAdultReady();
 
   // Seed with the SSR-resolved values so the first paint already shows
   // the correct heart / list-status / resume-episode — no flash from
@@ -726,6 +729,9 @@ export default function Info({
         Math.max(1, progress + 1)
       }&num=${Math.max(1, progress + 1)}`
     : undefined;
+
+  /* Une page -18 est cachee tant que le reglage n'est pas LU comme allume : pas un instant de contenu. */
+  if (info?.isAdult && showAdult !== true) return <AdultBlocked />;
 
   return (
     <>

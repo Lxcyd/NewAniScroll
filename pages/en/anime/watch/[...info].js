@@ -85,6 +85,8 @@ import { anilistFetch } from "@/lib/anilist/anilistFetch";
 import Link from "next/link";
 import { Navbar } from "@/components/shared/NavBar";
 import { useSession } from "next-auth/react";
+import { useShowAdultReady } from "@/lib/prefs/adultPrefs";
+import AdultBlocked from "@/components/shared/AdultBlocked";
 import { useListStatus } from "@/lib/list/useListStatus";
 const ReportModal = dynamic(() => import("@/components/shared/ReportModal"), {
   ssr: false,
@@ -386,6 +388,7 @@ export default function Watch({
      is null for the first paint of a cold load, so anything reading it must
      tolerate that (they all do: modals, list buttons and effects). */
   const { data: sessions } = useSession();
+  const showAdult = useShowAdultReady();
 
   // ── Client-hydratable metadata ────────────────────────────────────────
   // `info` no longer relies solely on the SSR prop. To make SPA navigation
@@ -3179,6 +3182,9 @@ export default function Watch({
       </div>
     )
   );
+
+  /* Une page -18 est cachee tant que le reglage n'est pas LU comme allume : pas un instant de contenu. */
+  if (info?.isAdult && showAdult !== true) return <AdultBlocked />;
 
   return (
     <>

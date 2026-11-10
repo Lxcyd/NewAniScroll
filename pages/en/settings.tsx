@@ -213,16 +213,20 @@ function Toggle({
   label,
   desc,
   disabled = false,
+  id,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   desc?: string;
   disabled?: boolean;
+  /** Ancre `?focus=<id>` : la page y defile et la met en evidence. */
+  id?: string;
 }) {
   return (
     <div
-      className={`flex items-start justify-between gap-4 py-3 ${
+      id={id ? `setting-${id}` : undefined}
+      className={`flex items-start justify-between gap-4 py-3 ${id ? "-mx-3 rounded-xl px-3" : ""} ${
         disabled ? "opacity-40" : ""
       }`}
     >
@@ -578,6 +582,29 @@ export default function Settings() {
   };
 
   // ── Left-nav scroll-spy ──────────────────────────────────────────
+  /* `?focus=<id>` : on arrive d'un lien qui vise UN reglage (ex. la page -18
+     bloquee). On y defile, on le met en evidence, on donne le focus a son
+     interrupteur. */
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("focus");
+    if (!id) return;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(`setting-${id}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.querySelector("button")?.focus({ preventScroll: true });
+      el.animate(
+        [
+          { backgroundColor: "rgba(233,69,96,.22)", boxShadow: "0 0 0 2px rgba(233,69,96,.75), 0 0 24px rgba(233,69,96,.35)" },
+          { backgroundColor: "rgba(233,69,96,.10)", boxShadow: "0 0 0 2px rgba(233,69,96,.45), 0 0 14px rgba(233,69,96,.15)", offset: 0.6 },
+          { backgroundColor: "rgba(233,69,96,0)", boxShadow: "0 0 0 2px rgba(233,69,96,0), 0 0 0 rgba(233,69,96,0)" },
+        ],
+        { duration: 2600, easing: "ease-out" },
+      );
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Track which section is in view so the sticky nav can highlight it. The
   // section list adapts to login state (profile section is logged-in only).
   const navSections = SECTIONS.filter((s) => !s.loggedInOnly || isLoggedIn);
@@ -899,6 +926,7 @@ export default function Settings() {
                 onChange={setHideSpoilers}
               />
               <Toggle
+                id="showAdult"
                 label={t("settings.browsing.showAdult")}
                 desc={t("settings.browsing.showAdultDesc")}
                 checked={showAdult}

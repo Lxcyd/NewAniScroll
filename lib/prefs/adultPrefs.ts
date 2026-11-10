@@ -45,3 +45,21 @@ export function useShowAdult(): boolean {
   }, []);
   return on;
 }
+
+/** Comme `useShowAdult`, mais `null` tant que le navigateur n'a pas lu le
+ *  reglage : une page ne doit pas afficher « bloque » a quelqu'un qui l'a
+ *  active, le temps d'un premier rendu. */
+export function useShowAdultReady(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const read = () => setOn(getShowAdult());
+    read();
+    window.addEventListener(SHOW_ADULT_EVENT, read);
+    window.addEventListener("storage", read);
+    return () => {
+      window.removeEventListener(SHOW_ADULT_EVENT, read);
+      window.removeEventListener("storage", read);
+    };
+  }, []);
+  return on;
+}
