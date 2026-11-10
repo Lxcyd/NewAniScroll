@@ -376,7 +376,7 @@ export default function StudioTour({
               onClick={close}
               title={t("profile.studioTour.close")}
               aria-label={t("profile.studioTour.close")}
-              className="-mr-1.5 -mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/50 transition-all duration-200 hover:rotate-90 hover:bg-white/10 hover:text-white"
+              className="-mr-1.5 -mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/50 transition-all duration-200 hover:bg-white/10 hover:text-white"
             >
               <XMarkIcon className="h-4 w-4" strokeWidth={2} />
             </button>
@@ -391,7 +391,7 @@ export default function StudioTour({
               <button
                 type="button"
                 onClick={close}
-                className="mr-auto shrink-0 rounded-full px-2 py-1.5 font-outfit text-[11.5px] font-bold text-white/45 transition-colors hover:text-white"
+                className="mr-auto shrink-0 rounded-full bg-white/[0.06] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/60 transition-all duration-200 hover:bg-white/[0.14] hover:text-white"
               >
                 {t("profile.studioTour.skip")}
               </button>
