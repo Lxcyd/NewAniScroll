@@ -164,7 +164,7 @@ export default function SearchPalette() {
 
     await Promise.all([
       /* `null` : adulte inclus (AniList rend les deux) ; `false` par defaut. */
-      quickSearch({ search: q, type, isAdult: getShowAdult() ? null : false }).then((res) => {
+      quickSearch({ search: q, type, isAdult: getShowAdult() ? (null as unknown as boolean) : false }).then((res) => {
         aniResults = res?.data?.Page?.results || [];
         if (seq === requestSeq.current)
           setNextPage(res?.data?.Page?.pageInfo?.hasNextPage ?? false);
