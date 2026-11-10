@@ -37,6 +37,8 @@ export type Snapshot = {
   accountCreatedAt: number | null;
   /** Lecteurs proposés par le site — la cible de « Tous les lecteurs ». */
   displayedHosts: string[];
+  /** Les heures (depuis 1970) du fil d'activité AniList, pour les jours de série. */
+  feedHours?: number[];
   /** Maintenant, injectable pour que les tests ne dépendent pas de l'horloge. */
   now: number;
 };
@@ -249,6 +251,10 @@ export function derive(s: Snapshot): Derived {
     hours.add(h);
     if (h === 0 && d.getMinutes() === 0) midnight = true;
   }
+  /* LE FIL ANILIST COMPTE POUR LES JOURS (10/11/2026, Luc : « j'ai deja regarde
+     plus de 7 jours d'affilee »), comme pour la heatmap. Les jours seulement :
+     les heures, les seances et les paliers d'episodes restent ceux de la table. */
+  for (const h of s.feedHours ?? []) days.add(dayKey(new Date(h * 3_600_000)));
 
   /* La duree du premier episode trouve a chaque horodatage — ce que
      `watched.find((w) => w.at === …)` rendait, mais en un seul balayage : le

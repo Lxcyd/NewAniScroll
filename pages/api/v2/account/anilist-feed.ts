@@ -45,6 +45,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       oldest: feed?.oldest ?? 0,
       done: !!feed?.done,
       n: feed?.e.length ?? 0,
+      /* Les heures datees du fil (10/11/2026), pour les badges de serie, qui se
+         calculent dans le navigateur : ~un entier par heure regardee, pas un par
+         episode. Le navigateur en tire ses jours LOCAUX. */
+      ...(req.query.hours
+        ? { h: [...new Set((feed?.e ?? []).map((ev) => Math.floor(ev[0] / 3600)))].sort((a, b) => a - b) }
+        : {}),
     });
   }
 

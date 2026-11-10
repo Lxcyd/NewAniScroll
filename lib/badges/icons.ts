@@ -163,6 +163,23 @@ import {
   MdOutlineWorkspacePremium,
 } from "react-icons/md";
 import { TbGhost } from "react-icons/tb";
+import { GenIcon } from "react-icons/lib";
+
+/* Billet a etoile (Material « loyalty »), fourni par Luc le 10/11/2026 : l'icone
+   des badges de bingo. Absent de react-icons, d'ou GenIcon. */
+const TicketStar: IconType = GenIcon({
+  tag: "svg",
+  attr: { viewBox: "0 0 24 24" },
+  child: [
+    {
+      tag: "path",
+      attr: {
+        d: "M12,13.9l1.5,1.15q0.28,0.23 0.6,0.01t0.2-0.56l-0.6-1.9l1.67-1.3q0.28-0.22 0.15-0.56T15.05,10.4H13.1L12.48,8.48Q12.35,8.13 12,8.13T11.53,8.48L10.9,10.4H8.93q-0.35,0-0.46,0.34T8.63,11.3l1.63,1.3l-0.6,1.93q-0.13,0.35 0.18,0.56t0.6-0.01L12,13.9ZM4,20q-0.82,0-1.41-0.59T2,18V14.63q0-0.28 0.18-0.48T2.63,13.9q0.6-0.2 0.99-0.72T4,12T3.61,10.83T2.63,10.1Q2.35,10.05 2.18,9.85T2,9.38V6Q2,5.18 2.59,4.59T4,4H20q0.83,0 1.41,0.59Q22,5.18 22,6V9.38q0,0.27-0.17,0.47T21.38,10.1q-0.6,0.2-0.99,0.72T20,12t0.39,1.17t0.99,0.72q0.28,0.05 0.45,0.25T22,14.63V18q0,0.82-0.59,1.41T20,20H4Zm0-2H20V15.45q-0.93-0.55-1.46-1.46Q18,13.08 18,12t0.54-1.99T20,8.55V6H4V8.55Q4.93,9.1 5.46,10.01T6,12T5.46,13.99T4,15.45V18Zm8-6Z",
+      },
+      child: [],
+    },
+  ],
+}) as IconType;
 
 export const BADGE_ICONS: Record<string, IconType> = {
   screen1: MdOutlinePlayCircle,
@@ -259,6 +276,7 @@ export const BADGE_ICONS: Record<string, IconType> = {
   flame: MdOutlineLocalFireDepartment,
   hexCluster: MdOutlineWorkspacePremium,
   gridFull: MdOutlineGridView,
+  ticketStar: TicketStar,
   cake: MdOutlineCake,
   listPlus: MdOutlinePlaylistAdd,
   trophy: MdOutlineEmojiEvents,

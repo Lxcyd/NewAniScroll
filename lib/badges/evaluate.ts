@@ -54,8 +54,19 @@ function readFavourites(): number[] | null {
   }
 }
 
+function readFeedHours(): number[] | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const h = JSON.parse(window.localStorage.getItem("aniscroll:anilistFeedHours") || "null");
+    return Array.isArray(h) ? h.map(Number).filter(Number.isFinite) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function snapshot(now = Date.now()): Snapshot {
   return {
+    feedHours: readFeedHours(),
     progress: readProgressMap(),
     list: getLocalList(),
     facts: getFacts(),

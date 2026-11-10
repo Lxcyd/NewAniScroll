@@ -49,7 +49,9 @@ export function measure(def: BadgeDef, d: Derived, state: BadgeState): Progress 
            d'afficher 599. */
         case "minutes": return [Math.floor(d.minutes), n];
         case "completed": return [d.completedCount, n];
-        case "streak": return [d.streak, n];
+        /* La PLUS LONGUE serie, pas celle qui court : un badge de serie reste
+           acquis, et une serie tenue avant le compte (fil AniList) compte. */
+        case "streak": return [Math.max(d.streak, d.bestStreak), n];
         case "rated": return [d.rated, n];
         case "rewatched": return [d.rewatched, n];
         case "favourites": return maybe(d.favourites, n);

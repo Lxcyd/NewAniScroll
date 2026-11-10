@@ -1161,7 +1161,7 @@ function LadderPopup({
             const R = RARITY[def.rarity];
             /* Un palier obtenu montre une barre PLEINE : c'est ce qu'il a
                accompli, pas l'avancement du compteur vers un palier plus haut. */
-            const reach = p && p[1] > 1 ? (at != null ? p[1] : Math.min(p[0], p[1])) : null;
+            const reach = p && p[1] > 1 ? (at != null ? Math.max(p[0], p[1]) : Math.min(p[0], p[1])) : null;
             return (
               <div
                 key={id}

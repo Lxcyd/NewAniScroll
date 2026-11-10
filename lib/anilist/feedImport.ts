@@ -75,8 +75,33 @@ function episodes(progress: unknown): number[] {
   return [];
 }
 
+/** Les heures du fil (en heures depuis 1970), gardees pour les badges de serie
+ *  (lib/badges/evaluate.ts) : ils se calculent ici, le fil vit sur le serveur. */
+export const FEED_HOURS_KEY = "aniscroll:anilistFeedHours";
+
+async function storeFeedHours(): Promise<void> {
+  try {
+    const r = await fetch("/api/v2/account/anilist-feed?hours=1");
+    const h = r.ok ? (await r.json())?.h : null;
+    if (Array.isArray(h)) localStorage.setItem(FEED_HOURS_KEY, JSON.stringify(h));
+  } catch {
+    /* best-effort : sans elles, les badges ne voient que la table locale */
+  }
+}
+
 /** Vrai quand de nouvelles lignes ont été rangées (le profil est alors à recharger). */
 export async function syncAnilistFeed(token: string | undefined): Promise<boolean> {
+  const changed = await syncFeed(token);
+  /* Relues quand le fil a bouge, ou tant qu'elles n'ont jamais ete lues. */
+  try {
+    if (changed || !localStorage.getItem(FEED_HOURS_KEY)) await storeFeedHours();
+  } catch {
+    /* sans stockage */
+  }
+  return changed;
+}
+
+async function syncFeed(token: string | undefined): Promise<boolean> {
   if (running || typeof window === "undefined") return false;
   try {
     if (Date.now() - Number(localStorage.getItem(AT_KEY) || 0) < EVERY_MS) return false;
