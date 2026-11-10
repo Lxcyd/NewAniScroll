@@ -1655,7 +1655,7 @@
       "finish": "Terminer",
       "intro": {
         "title": "Bienvenue dans le studio",
-        "body": "C'est ici que tu personnalises ton profil. Petit tour des menus : moins d'une minute, et tu peux passer quand tu veux."
+        "body": "C'est ici que tu personnalises ton profil. Chaque case de cette barre ouvre un menu : petit tour en moins d'une minute, et tu peux passer quand tu veux."
       },
       "background": {
         "title": "Le fond",
@@ -1667,7 +1667,8 @@
       },
       "widgets": {
         "title": "Les widgets",
-        "body": "Ajoute des blocs à ton profil : statistiques, calendrier, bingo, favoris… Glisse-les ensuite sur la grille pour les ranger."
+        "body": "Ajoute des blocs depuis le menu : statistiques, calendrier, bingo, favoris… Sur ton profil, attrape un bloc pour le déplacer, tire son coin pour l'agrandir, et sa roue règle ses options.",
+        "spot": "Glisse les blocs pour les ranger"
       },
       "avatar": {
         "title": "Avatar et cadre",

@@ -1655,7 +1655,7 @@
       "finish": "Done",
       "intro": {
         "title": "Welcome to the studio",
-        "body": "This is where you customise your profile. A quick tour of the menus: under a minute, and you can skip at any time."
+        "body": "This is where you customise your profile. Each box in this bar opens a menu: a quick tour in under a minute, and you can skip at any time."
       },
       "background": {
         "title": "Background",
@@ -1667,7 +1667,8 @@
       },
       "widgets": {
         "title": "Widgets",
-        "body": "Add blocks to your profile: stats, calendar, bingo, favourites… Then drag them around the grid to arrange them."
+        "body": "Add blocks from the menu: stats, calendar, bingo, favourites… On your profile, grab a block to move it, drag its corner to resize it, and its gear sets its options.",
+        "spot": "Drag the blocks to arrange them"
       },
       "avatar": {
         "title": "Avatar and frame",

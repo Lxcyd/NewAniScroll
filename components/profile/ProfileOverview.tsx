@@ -1419,7 +1419,7 @@ export default function ProfileOverview({
       {/* Plus de bandeau « Mode réorganisation » au-dessus de la grille
           (retiré le 16/10/2026) : la grille en édition se lit d'elle-même, et
           « Réinitialiser » vit dans la bibliothèque de blocs. */}
-      <div ref={gridBox}>
+      <div ref={gridBox} data-tour="grid">
       <WidgetGrid
         layout={layout}
         onLayout={commit}

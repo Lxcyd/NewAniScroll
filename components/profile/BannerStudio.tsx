@@ -7014,6 +7014,7 @@ export default function BannerStudio({
           </div>
           <div
             ref={menusEl}
+            data-tour="bar"
             aria-hidden={showMusic}
             /* `as-scene-menus` : sur telephone la rangee defile (mobile.css). */
             className={`as-scene-menus flex h-full w-full items-stretch divide-x divide-white/[0.08] transition-transform duration-500 ease-[cubic-bezier(.22,1,.36,1)] ${
