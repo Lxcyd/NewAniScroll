@@ -16,7 +16,8 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
-const DONE_KEY = "aniscroll:studioTour";
+/* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
+const DONE_KEY = "aniscroll:studioTour:2";
 
 export type TourScope = "image" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
