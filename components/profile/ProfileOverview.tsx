@@ -153,6 +153,8 @@ type Props = {
   streak?: number | null;
   /** Les jours de lecture DU PROPRIÉTAIRE pour le calendrier (visiteur). */
   watchDays?: WatchDays | null;
+  /** Le propriétaire est relié à AniList : `watchDays` vient de son fil seul. */
+  anilistDays?: boolean;
   /** Son plus long binge, compté au rendu serveur (visiteur). */
   binge?: Binge | null;
   /** Ses badges obtenus (id → date), pour « Badges & succès ». */
@@ -288,6 +290,7 @@ export default function ProfileOverview({
   ownerProgress,
   streak,
   watchDays,
+  anilistDays,
   binge,
   earned,
   who,
@@ -314,12 +317,16 @@ export default function ProfileOverview({
      rempli des deux : la mémoire de dev.aniscroll.com, par exemple, ne contient
      presque rien (03/11/2026). */
   const ownDays = useMemo(() => {
+    /* Un compte relié à AniList : ses jours viennent du fil AniList seul
+       (cf. watchesOf, lib/profile/activity.ts) ; la table de cet appareil
+       remettrait les essais du lecteur. */
+    if (anilistDays && watchDays) return watchDays;
     if (!localDays) return null;
     if (!watchDays) return localDays;
     const out = { ...watchDays };
     for (const [d, v] of Object.entries(localDays)) if (!out[d] || v.n >= out[d].n) out[d] = v;
     return out;
-  }, [localDays, watchDays]);
+  }, [localDays, watchDays, anilistDays]);
   const days = isOwner ? ownDays : (watchDays ?? {});
   /* Le compte l'emporte dès qu'il y en a un ; le hook n'est là que pour le
      profil local d'un invité. Il est appelé dans tous les cas — un hook ne se

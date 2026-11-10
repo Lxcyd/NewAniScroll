@@ -155,6 +155,8 @@ type Props = {
   streak: number | null;
   /** Ses jours de lecture, pour le calendrier — seulement s'il est posé. */
   watchDays?: WatchDays | null;
+  /** `watchDays` vient du fil AniList seul (cf. watchesOf). */
+  anilistDays?: boolean;
   /** Son plus long binge — seulement si le bloc est posé. */
   binge?: Binge | null;
   /** La collection de badges du proprietaire, telle qu'elle est sauvegardee.
@@ -197,6 +199,7 @@ function ProfileView({
   ownerProgress,
   streak,
   watchDays,
+  anilistDays,
   binge,
   badges,
   isPrivate,
@@ -562,6 +565,7 @@ function ProfileView({
             ownerProgress={ownerProgress ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
+            anilistDays={anilistDays}
             binge={binge ?? null}
             earned={earned}
             who={identity}
@@ -583,6 +587,7 @@ function ProfileView({
             activity={activity ?? null}
             streak={streak ?? null}
             watchDays={watchDays ?? null}
+            anilistDays={anilistDays}
             binge={binge ?? null}
             earned={earned}
             who={identity}
@@ -1403,6 +1408,7 @@ export async function getServerSideProps(context: any) {
       ownerProgress,
       streak,
       watchDays,
+      anilistDays: !!watchDays && !!feed?.e?.length,
       binge,
       badges,
       musicPaused: context.req?.cookies?.[PROFILE_AUTOPLAY_COOKIE] === "0",

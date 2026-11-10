@@ -343,7 +343,13 @@ type Watch = { at: number; aniId: number; dur: number; seen: number; ep: number 
 function watchesOf(map: ProgressMap, feed?: FeedEvent[] | null): Watch[] {
   const out: Watch[] = [];
   const here = new Map<string, number>();
-  for (const [k, e] of Object.entries(map || {})) {
+  /* LE FIL ANILIST FAIT FOI QUAND IL EXISTE (10/11/2026, Luc : « tout ça est
+     faux, regarde par rapport à AniList »). La table de progression note aussi
+     les essais du lecteur (des épisodes « vus » à une minute d'écart les
+     01-03/10) et les ouvertures de quelques secondes ; ce que le site fait
+     vraiment regarder part de toute façon sur AniList, qui l'a donc déjà. */
+  const feedOnly = Array.isArray(feed) && feed.length > 0;
+  if (!feedOnly) for (const [k, e] of Object.entries(map || {})) {
     const at = Number(e?.updatedAt);
     // La table vient d'un navigateur : une entrée sans date, ou datée de
     // n'importe quoi, ne doit pas inventer un jour de lecture.
