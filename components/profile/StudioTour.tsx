@@ -23,9 +23,9 @@ import { ArrowsPointingOutIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 
 /* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
-const DONE_KEY = "aniscroll:studioTour:6";
+const DONE_KEY = "aniscroll:studioTour:7";
 
-export type TourScope = "image" | "layout" | "widgets" | "avatar" | "badges" | "music";
+export type TourScope = "color" | "image" | "video" | "upload" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
 type Step = {
   id: string;
@@ -41,7 +41,11 @@ type Step = {
 
 const STEPS: Step[] = [
   { id: "intro", anchor: "bar" },
-  { id: "background", scope: "image", anchor: "background" },
+  /* Le Fond, bouton par bouton (10/11, Luc). */
+  { id: "bgColor", scope: "color", anchor: "bg-color" },
+  { id: "bgImage", scope: "image", anchor: "bg-image" },
+  { id: "bgVideo", scope: "video", anchor: "bg-video" },
+  { id: "bgUpload", scope: "upload", anchor: "bg-upload" },
   { id: "layout", scope: "layout", anchor: "layout" },
   { id: "widgets", scope: "widgets", anchor: "widgets", spot: "grid", overview: true },
   { id: "avatar", scope: "avatar", anchor: "avatar" },
@@ -102,6 +106,20 @@ function scroller(el: HTMLElement): DOMRect | undefined {
     if (o === "auto" || o === "scroll") return p.getBoundingClientRect();
   }
   return undefined;
+}
+
+/** Le rectangle des blocs eux-mêmes (`[data-widget]`) : la boîte de la grille
+ *  garde sous eux une rangée vide où déposer, et le cadre tombait trop bas. */
+function contentRect(el: HTMLElement): DOMRect {
+  const items = el.querySelectorAll<HTMLElement>("[data-widget]");
+  if (!items.length) return el.getBoundingClientRect();
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (const it of items) {
+    const q = it.getBoundingClientRect();
+    if (!q.width) continue;
+    l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+  }
+  return l === Infinity ? el.getBoundingClientRect() : new DOMRect(l, t, r - l, b - t);
 }
 
 type Pos = { x: number; y: number; arrow: number; below: boolean } | null;
@@ -200,7 +218,7 @@ export default function StudioTour({
 
     const bar = findAnchor("bar");
     const sp = cur.spot ? findAnchor(cur.spot) : null;
-    setSpot(sp ? clip(sp.getBoundingClientRect(), 6, bar ? bar.getBoundingClientRect().top - 10 : Infinity, scroller(sp)) : null);
+    setSpot(sp ? clip(contentRect(sp), 8, bar ? bar.getBoundingClientRect().top - 10 : Infinity, scroller(sp)) : null);
 
     if (!el) {
       setRing(null);

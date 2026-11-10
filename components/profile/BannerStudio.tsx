@@ -7046,6 +7046,7 @@ export default function BannerStudio({
                   <button
                     key={id}
                     type="button"
+                    data-tour={`bg-${id}`}
                     onClick={() => {
                       /* Le groupe s'ouvre sur l'onglet du fond porté s'il en
                          fait partie, sinon sur le premier ; ouvert, il revient

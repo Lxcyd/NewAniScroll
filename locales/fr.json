@@ -1661,6 +1661,22 @@
         "title": "Le fond",
         "body": "Une couleur, l'illustration d'un anime, un mur d'affiches, une vidéo ou ton propre fichier. Le menu s'ouvre à gauche, le résultat s'affiche en direct sur ton profil."
       },
+      "bgColor": {
+        "title": "Le fond · Couleur",
+        "body": "Le plus simple : une couleur pour tout le fond de ton profil."
+      },
+      "bgImage": {
+        "title": "Le fond · Image",
+        "body": "L'illustration d'un anime de ta liste, une bannière, ou un mur fait de tes affiches."
+      },
+      "bgVideo": {
+        "title": "Le fond · Vidéo",
+        "body": "Une bande-annonce, un opening ou un ending, ou un fond animé qui tourne en boucle."
+      },
+      "bgUpload": {
+        "title": "Le fond · Import",
+        "body": "Ton propre fichier, image ou vidéo, depuis ton appareil."
+      },
       "layout": {
         "title": "L'agencement",
         "body": "Choisis comment se placent la bannière, l'avatar et le contenu de ton profil."
