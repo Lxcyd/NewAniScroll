@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSession } from "next-auth/react";
+import { FAVOURITES_EVENT, loadFavourites, readFavouriteIds } from "@/lib/anilist/favouritesCache";
 
 import { notify } from "@/lib/notifications/noticeStore";
 
@@ -282,7 +284,7 @@ function takeRemoved(id: string): Removed | null {
 }
 
 export default function ProfileOverview({
-  entries,
+  entries: serverEntries,
   characters,
   isOwner,
   accountLayout,
@@ -300,6 +302,32 @@ export default function ProfileOverview({
   variant,
 }: Props) {
   const { t } = useTranslation();
+  const { data: session } = useSession();
+  const token: string | null = (session as any)?.user?.token ?? null;
+
+  /* LES FAVORIS CHEZ SOI SUIVENT LE NAVIGATEUR (10/11/2026, Luc : le coeur change
+     sur AniList et sur le site, pas sur le profil). Le profil est rendu par le
+     serveur depuis une reponse AniList gardee en cache ; la copie des favoris du
+     navigateur, elle, est a jour (cf. lib/anilist/favouritesCache.ts). Chez soi,
+     elle l'emporte des qu'elle existe. */
+  const [favIds, setFavIds] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!isOwner) return;
+    const read = () => setFavIds(readFavouriteIds());
+    read();
+    window.addEventListener(FAVOURITES_EVENT, read);
+    /* `force` : la copie a jusqu'a 5 min, et un coeur bascule sur anilist.co
+       n'y est pas. Une lecture (quelques pages d'ids) a l'ouverture du profil. */
+    if (token) void loadFavourites(token, { force: true }).then(read);
+    return () => window.removeEventListener(FAVOURITES_EVENT, read);
+  }, [isOwner, token]);
+  const entries = useMemo(
+    () =>
+      isOwner && favIds
+        ? serverEntries.map((e) => (favIds.has(e.mediaId) === !!e.favourite ? e : { ...e, favourite: favIds.has(e.mediaId) }))
+        : serverEntries,
+    [serverEntries, favIds, isOwner],
+  );
 
   /* L'AFFINITÉ (03/11/2026) : chez soi, ses goûts sont rangés sur l'appareil
      (pour se comparer aux profils visités) ET, pour un compte, sur le serveur,

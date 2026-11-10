@@ -145,6 +145,13 @@ export function loadFavourites(token: string, opts?: { force?: boolean }): Promi
   return run;
 }
 
+/** La copie du navigateur, sans reseau : `null` tant qu'elle n'a jamais ete lue. */
+export function readFavouriteIds(): Set<number> | null {
+  if (ids) return ids;
+  const c = readSession();
+  return c ? new Set(c.ids) : null;
+}
+
 /** Synchronous read. `false` while the list hasn't loaded yet. */
 export function isFavourite(mediaId: number): boolean {
   return ids?.has(mediaId) ?? false;
