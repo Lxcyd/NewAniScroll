@@ -1662,19 +1662,19 @@
         "body": "A colour, an anime illustration, a poster wall, a video or your own file. The menu opens on the left, and your profile updates live."
       },
       "bgColor": {
-        "title": "Background · Colour",
+        "title": "Colour",
         "body": "The simplest option: one colour for your whole profile background."
       },
       "bgImage": {
-        "title": "Background · Image",
+        "title": "Image",
         "body": "An illustration from an anime on your list, a banner, or a wall made of your posters."
       },
       "bgVideo": {
-        "title": "Background · Video",
+        "title": "Video",
         "body": "A trailer, an opening or ending, or an animated background on a loop."
       },
       "bgUpload": {
-        "title": "Background · Upload",
+        "title": "Upload",
         "body": "Your own file, image or video, from your device."
       },
       "layout": {
