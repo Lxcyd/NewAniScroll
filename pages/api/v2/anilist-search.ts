@@ -41,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       season: body.season,
       seasonYear: body.seasonYear,
       perPage: body.perPage,
+      adult: body.adult === true,
     });
     // Un echec (null) n'est pas une reponse : ne pas le garder au bord.
     if (!page) {

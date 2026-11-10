@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { recordFlag } from "@/lib/badges/facts";
+import { getShowAdult } from "@/lib/prefs/adultPrefs";
 import { Combobox, Dialog, Menu, Transition } from "@headlessui/react";
 import useDebounce from "@/lib/hooks/useDebounce";
 import Image from "next/image";
@@ -162,7 +163,8 @@ export default function SearchPalette() {
     };
 
     await Promise.all([
-      quickSearch({ search: q, type }).then((res) => {
+      /* `null` : adulte inclus (AniList rend les deux) ; `false` par defaut. */
+      quickSearch({ search: q, type, isAdult: getShowAdult() ? null : false }).then((res) => {
         aniResults = res?.data?.Page?.results || [];
         if (seq === requestSeq.current)
           setNextPage(res?.data?.Page?.pageInfo?.hasNextPage ?? false);
@@ -191,7 +193,9 @@ export default function SearchPalette() {
       const json = await res.json();
       const rows: any[] = json?.results || [];
       return rows
-        .filter((m) => m?.id && m?.title)
+        /* La table locale garde les titres adultes (`isAdult` dans la ligne) :
+           sans le reglage, ils ne s'affichent pas (10/11/2026). */
+        .filter((m) => m?.id && m?.title && (getShowAdult() || !m.isAdult))
         .map((m) => ({
           id: m.id,
           title: m.title,

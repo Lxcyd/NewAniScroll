@@ -195,6 +195,8 @@
       "openOnDesc": "Choose whether selecting an anime opens its info page or jumps straight into watching.",
       "infoPage": "Info page",
       "watchPage": "Watch page",
+      "showAdult": "Show adult content",
+      "showAdultDesc": "Include hentai and adult anime in search results. Off by default.",
       "hideSpoilers": "Hide spoilers",
       "hideSpoilersDesc": "Blur episode thumbnails and hide episode titles and descriptions throughout the app to avoid spoilers.",
       "hoverPreview": "Hover preview",

@@ -29,6 +29,7 @@ import { useNotifPrefs, setNotifPrefs } from "@/lib/prefs/notifPrefs";
 import { useBadgePrefs, setBadgeFx } from "@/lib/prefs/badgePrefs";
 import { useClickTarget, setClickTarget, ClickTarget } from "@/lib/prefs/clickTarget";
 import { useHideSpoilers, setHideSpoilers } from "@/lib/prefs/spoilerPrefs";
+import { useShowAdult, setShowAdult } from "@/lib/prefs/adultPrefs";
 import {
   usePreviewPrefs,
   setPreviewEnabled,
@@ -420,6 +421,7 @@ export default function Settings() {
   const badgePrefs = useBadgePrefs();
   const clickTarget = useClickTarget();
   const hideSpoilers = useHideSpoilers();
+  const showAdult = useShowAdult();
   const previewPrefs = usePreviewPrefs();
   const serverPref = useServerPref();
   const serverPerfEnabled = useServerPerfEnabled();
@@ -895,6 +897,12 @@ export default function Settings() {
                 desc={t("settings.browsing.hideSpoilersDesc")}
                 checked={hideSpoilers}
                 onChange={setHideSpoilers}
+              />
+              <Toggle
+                label={t("settings.browsing.showAdult")}
+                desc={t("settings.browsing.showAdultDesc")}
+                checked={showAdult}
+                onChange={setShowAdult}
               />
               <Toggle
                 label={t("settings.browsing.hoverPreview")}

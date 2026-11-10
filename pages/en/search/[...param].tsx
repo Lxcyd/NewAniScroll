@@ -1,4 +1,5 @@
 import { Key, useEffect, useRef, useState } from "react";
+import { useShowAdult } from "@/lib/prefs/adultPrefs";
 import Skeleton from "react-loading-skeleton";
 import { useRouter } from "next/router";
 import Link from "next/link";
@@ -214,6 +215,7 @@ export default function Card({
 
   const [isVisible, setIsVisible] = useState(false);
 
+  const showAdult = useShowAdult();
   const [page, setPage] = useState(1);
   const [nextPage, setNextPage] = useState(true);
 
@@ -233,6 +235,7 @@ export default function Card({
       format: format?.value,
       season: season?.value,
       seasonYear: year?.value,
+      ...(showAdult && { adult: true }),
     };
     /* A typed search goes straight from the browser to AniList, like the
        Ctrl+S palette. Through /api/v2/anilist-search it queued in the
@@ -285,6 +288,7 @@ export default function Card({
     format?.value,
     season?.value,
     year?.value,
+    showAdult,
   ]);
 
   useEffect(() => {

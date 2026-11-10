@@ -21,6 +21,9 @@ export type AniAdvanceSearch = {
   season?: string;
   seasonYear?: number;
   perPage?: number;
+  /** Adulte inclus : `isAdult: null` (AniList rend alors les deux ; `true`
+   *  ne rendrait QUE l'adulte). Absent : la requete garde son `false`. */
+  adult?: boolean;
 };
 
 export function advanceSearchVars({
@@ -33,6 +36,7 @@ export function advanceSearchVars({
   season,
   seasonYear,
   perPage,
+  adult,
 }: AniAdvanceSearch) {
   const categorizedGenres = genres?.reduce((result, item) => {
     const existingEntry = result[item.type];
@@ -62,5 +66,6 @@ export function advanceSearchVars({
     ...(perPage && { perPage: perPage }),
     ...(sort && { sort: sort }),
     ...(page && { page: page }),
+    ...(adult && { isAdult: null }),
   };
 }
