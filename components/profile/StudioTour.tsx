@@ -45,6 +45,8 @@ const EDGE = 16;
 
 function tourDone(): boolean {
   try {
+    /* `?tour` dans l'adresse : rejouer le tour (tests). */
+    if (new URLSearchParams(location.search).has("tour")) return false;
     return localStorage.getItem(DONE_KEY) != null;
   } catch {
     /* stockage refusé : on ne rejoue pas un tour qu'on ne pourrait pas clore */
