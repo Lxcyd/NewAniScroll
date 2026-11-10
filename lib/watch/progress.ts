@@ -245,6 +245,11 @@ export function saveProgress(
   emitTick({ aniId, episode, time, duration });
   const watched = trackPlayed(progressKey(aniId, episode), time);
   if (time < MIN_SAVE_SECONDS) return;
+  /* RIEN N'EST ENREGISTRE AVANT UNE MINUTE REELLEMENT REGARDEE (10/11/2026,
+     Luc : « on est d'accord, une minute minimum avant »). Ni point de reprise,
+     ni date, ni ligne d'historique : un episode ouvert puis quitte n'a rien
+     laisse. Un episode deja connu continue d'etre suivi. */
+  if (watched < GLANCE_SECONDS && !readMap()[progressKey(aniId, episode)]) return;
   if (Number.isFinite(duration) && duration > 0 && time >= duration - END_THRESHOLD_SECONDS) {
     // In the end zone — let the natural-end / next-episode path mark it
     // complete rather than storing a near-the-end resume point.
@@ -262,6 +267,14 @@ export function saveProgress(
   writeMap(map);
 }
 
+/** Une minute reellement regardee, cette seance ou une precedente : le seuil
+ *  sous lequel rien ne s'enregistre ni ne se synchronise. */
+export function hasWatchedMinute(aniId: number | string, episode: number | string): boolean {
+  const key = progressKey(aniId, episode);
+  if ((played.get(key)?.w ?? 0) >= GLANCE_SECONDS) return true;
+  return watchedEnough(readMap()[key]);
+}
+
 /**
  * Mark an episode as fully watched. Used when the user advances to the next
  * episode (the previous one is implicitly finished) and when the video ends.
@@ -275,6 +288,9 @@ export function markComplete(
   if (aniId == null || episode == null) return;
   const map = readMap();
   const key = progressKey(aniId, episode);
+  /* Meme regle que `saveProgress` : « passer a l'episode suivant » ne rend pas
+     vu un episode regarde moins d'une minute. */
+  if (!hasWatchedMinute(aniId, episode)) return;
   const dur =
     Number.isFinite(duration) && (duration as number) > 0
       ? (duration as number)

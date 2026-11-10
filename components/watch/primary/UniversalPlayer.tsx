@@ -67,6 +67,7 @@ import { VIDSTACK_FR } from "@/lib/i18n/vidstackFr";
 import {
   getResumeTime,
   saveProgress,
+  hasWatchedMinute,
   markComplete,
   publishDuration,
 } from "@/lib/watch/progress";
@@ -5017,6 +5018,9 @@ export default function UniversalPlayer({
     let completeFired = false;
     const fireComplete = () => {
       if (completeFired) return;
+      /* Le suivi de liste (et AniList) non plus ne part pas avant une minute
+         reellement regardee : un saut au bout de la barre ne termine rien. */
+      if (!hasWatchedMinute(aniListId, episodeNumber)) return;
       completeFired = true;
       onEpisodeCompleteRef.current?.({ aniListId, episodeNumber });
     };
@@ -6519,7 +6523,7 @@ export default function UniversalPlayer({
           segments={skipTimes}
           autoSaut={playerPrefs.autoSkipIntro || playerPrefs.autoSkipOutro}
           surFin={() =>
-            aniListId != null && episodeNumber != null
+            aniListId != null && episodeNumber != null && hasWatchedMinute(aniListId, episodeNumber)
               ? onEpisodeCompleteRef.current?.({ aniListId, episodeNumber })
               : undefined
           }
