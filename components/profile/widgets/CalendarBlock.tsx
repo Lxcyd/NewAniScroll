@@ -528,25 +528,27 @@ export function CalendarBlock({
                     l'animation as-cal-ct-out/in. Le total du jour reste rose ; au
                     survol, les compteurs par anime sont en EP_BLUE (ListBlocks.tsx),
                     le bleu des barres d'épisodes. */}
-                {/* Pas de compteur pour un seul épisode (02/11/2026, Luc). */}
-                {w.n > 1 || !others.length ? (
+                {/* LA PASTILLE ROSE = LE NOMBRE D'ANIMES DIFFÉRENTS du jour (10/11/2026,
+                    Luc ; c'était le total d'épisodes). Un seul anime : pas de
+                    pastille, ses épisodes restent au survol, en bleu. */}
+                {w.a.length > 1 || !others.length ? (
                   <span className="as-cal-badge">
                     {/* UN SEUL ANIME CE JOUR (06/11/2026, Luc) : pas de couronne à
                         ouvrir, mais le survol montre quand même ses épisodes en
                         bleu (« x4 »), comme les bulles d'un jour à plusieurs. */}
                     {others.length ? (
                       <span className="as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white as-cal-detour">
-                        {w.n}
+                        {w.a.length}
                       </span>
                     ) : (
                       <span className="relative inline-flex">
                         {/* Un seul épisode : pas de total rose, seulement le x1 au survol. */}
                         <span
                           className={`as-cal-count pointer-events-none rounded-full bg-action px-1.5 font-outfit text-[10px] font-bold leading-[16px] text-white transition-opacity duration-200 as-cal-detour group-hover:opacity-0${
-                            w.n > 1 ? "" : " invisible"
+                            w.a.length > 1 ? "" : " invisible"
                           }`}
                         >
-                          {w.n}
+                          {w.a.length}
                         </span>
                         <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                           <span className="rounded-full bg-[#0ea5e9] px-[7px] font-outfit text-[10px] font-bold leading-[16px] text-white">
