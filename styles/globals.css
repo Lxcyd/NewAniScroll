@@ -5658,47 +5658,60 @@ html.as-dragging .as-nudge {
 @media (prefers-reduced-motion: reduce) { .as-lm-slider { transition: none; } }
 
 /* ── Le tour du studio (components/profile/StudioTour.tsx, 09/11/2026) ──────
-   La case présentée s'allume d'un liseré intérieur (la barre est en
-   `overflow-hidden`, un contour extérieur y serait coupé) ; la bulle arrive
-   en glissant de quelques pixels. Sous `reduce`, elle apparaît sans bouger. */
-/* Le cadre posé sur la case présentée (élément à part, cf. StudioTour.tsx). */
+   Rien que `transform` et `opacity` : le compositeur les joue même quand le
+   menu qui s'ouvre tient le fil principal (10/11, « très laggy » avec des
+   box-shadow, filter et pointillés en background-position animés). Pas
+   coupées sous `reduce` : le Chrome de Luc y répond, et elles restent courtes. */
+.as-touring .as-scene-line { visibility: hidden; }
+
+/* ── Le squelette des menus du studio (MenuSkeleton, BannerStudio.tsx) ────
+   Un reflet qui passe, en `transform` seul : il reste fluide pendant que le
+   vrai menu se calcule. Le menu arrivé apparaît en fondu (opacité seule). */
+.as-skel { position: relative; overflow: hidden; background: rgba(255,255,255,.06); }
+.as-skel::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.09) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: as-skel-shine 1.3s ease-in-out infinite;
+  animation-delay: inherit;
+}
+@keyframes as-skel-shine { to { transform: translateX(100%); } }
+:where(.as-menu-body) > :not(.as-acc-in) { animation: as-menu-in .25s ease-out both; }
+@keyframes as-menu-in { from { opacity: 0; } to { opacity: 1; } }
+/* Le cadre posé sur la case présentée : son halo est un calque fixe dont
+   seule l'opacité respire. */
 .as-tour-ring {
+  position: relative;
   border: 2px solid #E94560;
   background: rgba(233,69,96,.07);
-  animation: as-tour-fade .3s ease-out both, as-tour-pulse 1.8s ease-in-out .3s infinite;
+  animation: as-tour-pop .35s cubic-bezier(.34,1.45,.64,1) both;
 }
-@keyframes as-tour-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(233,69,96,.45), inset 0 0 14px rgba(233,69,96,.15); }
-  50%      { box-shadow: 0 0 0 6px rgba(233,69,96,0), inset 0 0 26px rgba(233,69,96,.3); }
+.as-tour-ring::after {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit;
+  box-shadow: 0 0 0 4px rgba(233,69,96,.35), 0 0 18px rgba(233,69,96,.35);
+  animation: as-tour-breathe 1.8s ease-in-out infinite;
+  will-change: opacity;
 }
-/* Le cadre de la grille des widgets : pointillés qui défilent. */
-.as-tour-spot {
-  background-image:
-    linear-gradient(90deg, #E94560 50%, transparent 0), linear-gradient(90deg, #E94560 50%, transparent 0),
-    linear-gradient(0deg, #E94560 50%, transparent 0), linear-gradient(0deg, #E94560 50%, transparent 0);
-  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-  background-size: 14px 2px, 14px 2px, 2px 14px, 2px 14px;
-  background-position: 0 0, 0 100%, 0 0, 100% 0;
-  animation: as-tour-fade .35s ease-out both, as-tour-march .8s linear infinite;
-}
-@keyframes as-tour-march {
-  to { background-position: 14px 0, -14px 100%, 0 -14px, 100% 14px; }
-}
+@keyframes as-tour-pop { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes as-tour-breathe { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+/* Le cadre de la grille des widgets : pointillés arrondis (SVG), qui respirent. */
+.as-tour-spot { animation: as-tour-fade .35s ease-out both; }
+.as-tour-spot > svg { animation: as-tour-dim 1.8s ease-in-out .35s infinite; will-change: opacity; }
+@keyframes as-tour-dim { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .as-tour-chip { animation: as-tour-rise .42s cubic-bezier(.22,1,.36,1) .15s both; }
 .as-tour-nudge { animation: as-tour-nudge 1.4s ease-in-out infinite; }
 @keyframes as-tour-nudge { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25) rotate(8deg); } }
 @keyframes as-tour-fade { from { opacity: 0; } to { opacity: 1; } }
 .as-tour-ring.is-leaving, .as-tour-spot.is-leaving { animation: as-tour-out .2s ease-in both; }
-/* Entrée avec un léger rebond, sortie en fondu. Volontairement pas coupées
-   sous `reduce` : le Chrome de Luc y répond, et elles restent courtes. */
+/* La bulle : entrée avec un léger rebond, sortie en fondu. */
 .as-tour-card { animation: as-tour-in .45s cubic-bezier(.34,1.45,.64,1) both; }
 .as-tour-card.is-leaving { animation: as-tour-out .2s ease-in both; }
-@keyframes as-tour-in { from { opacity: 0; transform: translateY(14px) scale(.92); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes as-tour-out { to { opacity: 0; transform: translateY(8px) scale(.95); filter: blur(3px); } }
+@keyframes as-tour-in { from { opacity: 0; transform: translateY(14px) scale(.94); } to { opacity: 1; transform: none; } }
+@keyframes as-tour-out { to { opacity: 0; transform: translateY(8px) scale(.96); } }
 .as-tour-rise { animation: as-tour-rise .42s cubic-bezier(.22,1,.36,1) both; }
 @keyframes as-tour-rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 /* Le bouton principal : reflet qui passe au survol. */
-.as-tour-cta { position: relative; overflow: hidden; transition: transform .2s, box-shadow .2s; }
-.as-tour-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(233,69,96,.45); }
+.as-tour-cta { position: relative; overflow: hidden; transition: transform .2s; }
+.as-tour-cta:hover { transform: translateY(-1px); }
 .as-tour-cta::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-120%); }
 .as-tour-cta:hover::after { transform: translateX(120%); transition: transform .6s ease; }

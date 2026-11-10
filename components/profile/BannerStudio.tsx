@@ -6269,18 +6269,22 @@ export default function BannerStudio({
               <div
                 ref={scrollerRef}
                 onPointerMove={clavier ? () => setClavier(false) : undefined}
-                className={`as-scroller overflow-y-auto p-2.5 ${
+                className={`as-scroller as-menu-body overflow-y-auto p-2.5 ${
                   inColumn ? "flex min-h-0 flex-1 flex-col" : "max-h-[52vh]"
                 }`}
                 /* La place du lecteur de musique posé par-dessus le bas. */
                 style={footPlayer && footSpace && !barMusic ? { marginBottom: footH } : undefined}
               >
-                {(loading && flat.length === 0) || !settled ? (
-                  <div className="space-y-1.5 p-1">
-                    {[0, 1, 2, 3].map((i) => (
-                      <div key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
-                    ))}
-                  </div>
+                {barVise != null && barVise !== scope ? (
+                  /* LE SQUELETTE DU MENU QUI ARRIVE (10/11/2026, Luc : « tous les
+                     menus chargent sans lag »). Le menu suivant se prépare en
+                     transition ; jusque-là on gardait l'ancien à l'écran, figé.
+                     Le squelette prend sa place dès le clic, rendu urgent et
+                     léger (l'ancienne liste se démonte au lieu de se redessiner),
+                     à la forme du menu attendu. */
+                  <MenuSkeleton grid={SKELETON_GRID.has(barVise)} />
+                ) : (loading && flat.length === 0) || !settled ? (
+                  <MenuSkeleton grid={SKELETON_GRID.has(scope)} />
                 ) : sections.length === 0 ? (
                   <p className="px-3 py-10 text-center font-karla text-[15px] text-white/45">
                     {t("profile.studioNoResult")}
@@ -7934,6 +7938,34 @@ let lastSceneLine: HTMLSpanElement | null = null;
  * rangée lisible d'un coup d'œil, là où l'ancien dock alignait douze icônes de
  * même poids.
  */
+/** Les menus faits de vignettes (le reste est en lignes). */
+const SKELETON_GRID = new Set<string | null>(["avatar", "frame", "badges", "layout", "widgets", "wall", "color"]);
+
+/** La forme du menu qui se prépare : des vignettes ou des lignes, qui
+ *  luisent. Le reflet ne touche que `transform` (cf. `.as-skel` dans
+ *  globals.css) : il défile même pendant que le vrai menu se calcule. */
+function MenuSkeleton({ grid }: { grid: boolean }) {
+  return grid ? (
+    <div className="grid grid-cols-3 gap-2 p-1" aria-hidden>
+      {Array.from({ length: 12 }, (_, i) => (
+        <div key={i} className="as-skel aspect-square rounded-xl" style={{ animationDelay: `${i * 30}ms` }} />
+      ))}
+    </div>
+  ) : (
+    <div className="space-y-1.5 p-1" aria-hidden>
+      {Array.from({ length: 7 }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-lg p-1.5" style={{ animationDelay: `${i * 40}ms` }}>
+          <div className="as-skel h-11 w-11 shrink-0 rounded-lg" />
+          <div className="flex-1 space-y-1.5">
+            <div className="as-skel h-3 rounded-full" style={{ width: `${70 - (i % 3) * 15}%` }} />
+            <div className="as-skel h-2.5 w-1/3 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SceneBox({
   label,
   active,
@@ -8004,7 +8036,7 @@ function SceneBox({
       <span
         ref={line}
         aria-hidden
-        className={`pointer-events-none absolute inset-x-0 top-0 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
+        className={`as-scene-line pointer-events-none absolute inset-x-0 top-0 h-[2px] origin-left bg-action ${active ? "" : "opacity-0"}`}
       />
       <span className="flex h-4 items-center justify-between gap-2">
         <span

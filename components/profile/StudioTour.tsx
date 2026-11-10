@@ -9,6 +9,11 @@
  * Le cadre est un élément à part (portail, position fixe), pas un style
  * injecté dans la case : la barre coupe ce qui déborde, et un liseré intérieur
  * y disparaissait sous le contenu (10/11, « la box rose est buggée »).
+ *
+ * TOUT ce qui bouge passe par `transform` / `opacity` (le compositeur) : le
+ * menu qui s'ouvre occupe le fil principal plusieurs centaines de ms, et une
+ * transition sur `left`/`width`, un `box-shadow` ou un `filter` animés
+ * saccadaient pendant ce temps (10/11, « très laggy »).
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -18,7 +23,7 @@ import { ArrowsPointingOutIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 
 /* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
-const DONE_KEY = "aniscroll:studioTour:5";
+const DONE_KEY = "aniscroll:studioTour:6";
 
 export type TourScope = "image" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
@@ -80,16 +85,26 @@ type Box = { left: number; top: number; width: number; height: number };
 
 /** Le rectangle ramené à l'écran (et au-dessus de `floor`) ; rien s'il n'en
  *  reste presque rien. */
-function clip(r: DOMRect, pad: number, floor = Infinity): Box | null {
-  const l = Math.max(r.left - pad, 4);
-  const t = Math.max(r.top - pad, 4);
-  const rt = Math.min(r.right + pad, window.innerWidth - 4);
-  const b = Math.min(r.bottom + pad, window.innerHeight - 4, floor);
+function clip(r: DOMRect, pad: number, floor = Infinity, within?: DOMRect): Box | null {
+  const l = Math.max(r.left - pad, 4, within ? within.left + 6 : 0);
+  const t = Math.max(r.top - pad, 4, within ? within.top + 6 : 0);
+  const rt = Math.min(r.right + pad, window.innerWidth - 4, within ? within.right - 6 : Infinity);
+  const b = Math.min(r.bottom + pad, window.innerHeight - 4, floor, within ? within.bottom - 6 : Infinity);
   if (rt - l < 12 || b - t < 12) return null;
   return { left: l, top: t, width: rt - l, height: b - t };
 }
 
-type Pos = { left: number; top?: number; bottom?: number; arrow: number; below: boolean } | null;
+/** Le cadre qui fait défiler `el` (la scène du profil) : les pointillés
+ *  restent dedans au lieu de déborder sur la page. */
+function scroller(el: HTMLElement): DOMRect | undefined {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === "auto" || o === "scroll") return p.getBoundingClientRect();
+  }
+  return undefined;
+}
+
+type Pos = { x: number; y: number; arrow: number; below: boolean } | null;
 
 export default function StudioTour({
   active,
@@ -185,11 +200,11 @@ export default function StudioTour({
 
     const bar = findAnchor("bar");
     const sp = cur.spot ? findAnchor(cur.spot) : null;
-    setSpot(sp ? clip(sp.getBoundingClientRect(), 8, bar ? bar.getBoundingClientRect().top - 10 : Infinity) : null);
+    setSpot(sp ? clip(sp.getBoundingClientRect(), 6, bar ? bar.getBoundingClientRect().top - 10 : Infinity, scroller(sp)) : null);
 
     if (!el) {
       setRing(null);
-      setPos({ left: (vw - w) / 2, top: Math.max(EDGE, (vh - h) / 2), arrow: -1, below: false });
+      setPos({ x: (vw - w) / 2, y: Math.max(EDGE, (vh - h) / 2), arrow: -1, below: false });
       return;
     }
     const r = el.getBoundingClientRect();
@@ -199,8 +214,8 @@ export default function StudioTour({
     const left = Math.min(Math.max(EDGE, cx - w / 2), vw - EDGE - w);
     const below = r.top < vh / 2;
     setPos({
-      left,
-      ...(below ? { top: r.bottom + GAP } : { bottom: vh - Math.max(r.top, 0) + GAP }),
+      x: left,
+      y: below ? r.bottom + GAP : Math.max(EDGE, Math.max(r.top, 0) - GAP - h),
       arrow: Math.min(Math.max(18, cx - left), w - 18),
       below,
     });
@@ -218,13 +233,21 @@ export default function StudioTour({
     const scroll = cur.spot
       ? window.setTimeout(() => findAnchor(cur.spot!)?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 160)
       : 0;
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", place, true);
+    let raf = 0;
+    const onMove = () => {
+      if (!raf) raf = requestAnimationFrame(() => ((raf = 0), place()));
+    };
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
+    /* Le liseré du menu actif ferait doublon avec le cadre. */
+    document.documentElement.classList.add("as-touring");
     return () => {
       ids.forEach((i) => window.clearTimeout(i));
       window.clearTimeout(scroll);
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", place, true);
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
+      document.documentElement.classList.remove("as-touring");
     };
   }, [cur, place]);
 
@@ -241,7 +264,7 @@ export default function StudioTour({
   if (step == null || !cur || typeof document === "undefined") return null;
   const last = step === STEPS.length - 1;
   const w = typeof window !== "undefined" ? Math.min(W, window.innerWidth - EDGE * 2) : W;
-  const move = glide ? `left .5s ${EASE}, top .5s ${EASE}, width .5s ${EASE}, height .5s ${EASE}, bottom .5s ${EASE}` : "none";
+  const slide = glide ? `transform .5s ${EASE}` : "none";
   /* Le contenu de chaque étape monte en cascade. */
   const rise = (n: number) => ({ style: { animationDelay: `${60 + n * 55}ms` } });
 
@@ -250,49 +273,69 @@ export default function StudioTour({
       {ring ? (
         <div
           aria-hidden
-          className={`as-tour-ring pointer-events-none fixed z-[10009] rounded-xl ${leaving ? "is-leaving" : ""}`}
-          style={{ ...ring, transition: move }}
-        />
+          key={`ring-${cur.id}`}
+          className="pointer-events-none fixed left-0 top-0 z-[10009]"
+          style={{ transform: `translate3d(${ring.left}px,${ring.top}px,0)`, width: ring.width, height: ring.height }}
+        >
+          <div className={`as-tour-ring h-full w-full rounded-xl ${leaving ? "is-leaving" : ""}`} />
+        </div>
       ) : null}
 
       {spot ? (
         <div
           aria-hidden
           key={`spot-${cur.id}`}
-          className={`as-tour-spot pointer-events-none fixed z-[10009] ${leaving ? "is-leaving" : ""}`}
-          style={spot}
+          className="pointer-events-none fixed left-0 top-0 z-[10009]"
+          style={{ transform: `translate3d(${spot.left}px,${spot.top}px,0)`, width: spot.width, height: spot.height }}
         >
-          <span className="as-tour-chip absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-action px-3 py-1.5 font-outfit text-[11.5px] font-bold text-white shadow-[0_6px_18px_rgba(233,69,96,.45)]">
-            <ArrowsPointingOutIcon className="as-tour-nudge h-3.5 w-3.5" strokeWidth={2.2} />
-            {t(`profile.studioTour.${cur.id}.spot`)}
-          </span>
+          <div className={`as-tour-spot relative h-full w-full ${leaving ? "is-leaving" : ""}`}>
+            <svg className="absolute inset-0 h-full w-full overflow-visible">
+              <rect
+                x="1"
+                y="1"
+                rx="16"
+                width={Math.max(0, spot.width - 2)}
+                height={Math.max(0, spot.height - 2)}
+                fill="none"
+                stroke="#E94560"
+                strokeWidth="2"
+                strokeDasharray="8 8"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="as-tour-chip absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-action px-3 py-1.5 font-outfit text-[11.5px] font-bold text-white shadow-[0_4px_12px_rgba(233,69,96,.35)]">
+              <ArrowsPointingOutIcon className="as-tour-nudge h-3.5 w-3.5" strokeWidth={2.2} />
+              {t(`profile.studioTour.${cur.id}.spot`)}
+            </span>
+          </div>
         </div>
       ) : null}
 
+      <div
+        className="fixed left-0 top-0 z-[10010]"
+        style={{
+          width: w,
+          transform: pos ? `translate3d(${pos.x}px,${pos.y}px,0)` : "translate3d(-9999px,0,0)",
+          visibility: pos ? "visible" : "hidden",
+          transition: slide,
+        }}
+      >
       <div
         ref={card}
         role="dialog"
         aria-modal="false"
         aria-labelledby="as-tour-title"
-        className={`as-tour-card fixed z-[10010] rounded-2xl bg-[#15161d] p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/10 ${
+        className={`as-tour-card relative rounded-2xl bg-[#15161d] p-4 text-white shadow-[0_12px_32px_rgba(0,0,0,.55)] ring-1 ring-white/10 ${
           leaving ? "is-leaving" : ""
         }`}
-        style={{
-          width: w,
-          left: pos?.left ?? -9999,
-          top: pos?.top,
-          bottom: pos?.bottom,
-          visibility: pos ? "visible" : "hidden",
-          transition: move,
-        }}
       >
         {pos && pos.arrow >= 0 ? (
           <span
             aria-hidden
-            className={`absolute h-3 w-3 rotate-45 bg-[#15161d] ring-1 ring-white/10 ${
+            className={`absolute left-0 h-3 w-3 bg-[#15161d] ring-1 ring-white/10 ${
               pos.below ? "-top-1.5 [clip-path:polygon(0_0,100%_0,0_100%)]" : "-bottom-1.5 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
             }`}
-            style={{ left: pos.arrow - 6, transition: glide ? `left .5s ${EASE}` : "none" }}
+            style={{ transform: `translateX(${pos.arrow - 6}px) rotate(45deg)`, transition: slide }}
           />
         ) : null}
 
@@ -349,6 +392,7 @@ export default function StudioTour({
             </button>
           </div>
         </div>
+      </div>
       </div>
     </>,
     document.body,
