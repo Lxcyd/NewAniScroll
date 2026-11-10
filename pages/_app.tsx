@@ -28,6 +28,7 @@ import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
 import { useTranslation } from "react-i18next";
 import type { AppProps } from "next/app";
+import DechuPrank from "@/components/misc/DechuPrank";
 import { installAnilistWriteGuard } from "@/lib/anilist/writeGuard";
 
 /* Hors de aniscroll.com, aucune mutation ne part vers AniList (localhost,
@@ -893,6 +894,7 @@ export default function App({
                   />
 
                   <SearchPaletteMount />
+                  <DechuPrank />
                   {/* Dans CE conteneur, pas a cote : son animation d'opacite en
                       fill cree un contexte d'empilement, et le squelette doit
                       partager celui de la navbar de la page (z-[9999]) pour
