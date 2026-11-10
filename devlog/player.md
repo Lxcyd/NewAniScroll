@@ -6,6 +6,30 @@ megaplay, vidmoly...).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-10 — Steel Ball Run : un episode de retard, et pas de voir-anime
+
+Un visiteur signale : « l'episode est sur anime-sama, pas chez nous ». Luc soupconnait des dates AniList
+fausses (sorties Netflix en avance). **Faux : un decalage.** AniList coupe SBR en deux fiches, 190327
+« 1st STAGE » (1 ep de 47 min, 19/03) et 210482 « 2nd & 3rd STAGE » (depuis le 25/09). anime-sama
+(`jojos-bizarre-adventure/saison7`) et voir-anime (`jojo-no-kimyou-na-bouken-steel-ball-run(-vf)`)
+les fusionnent : leur ep 1 est le 1st STAGE. Preuves : durees HLS chez anime-sama (ep 1 = 48,7 min,
+ep 2 = 25,3) ; dates de mise en ligne voir-anime (01 le 19/03, 02 le 25/09 = 2nd STAGE ep 1, puis
+une par semaine aux dates AniList) ; planning anime-sama (prochaine sortie le 13/11 09:35 UTC, AniList
+08:00). Le site servait 210482 depuis saison7 SANS decalage, donc l'ep N jouait l'ep N-1, et
+anime-sama affichait « Episode 8 » quand on s'arretait a 7. Le cas « SBR ep 2 en avance » du 28/09,
+qui a fait naitre `lib/watch/airedAhead.ts`, etait deja ca.
+
+- **anime-sama** : `detectSeasonNumber` compte le 1st STAGE en S7, le 2nd en S8 ; la garde de saison
+  defaisait toute ligne `saison7`, et l'alignement ne peut rien (la fiche JoJo casse des saison1).
+  Lignes `manuel` (210482 saison7 +1, 190327 saison7 +0) par
+  `scripts/player-map/correctifs-2026-11-10-sbr.mjs` ; la garde du site et `verify-player-map --from=due`
+  laissent desormais les lignes `verified` notees `manuel` en place.
+- **voir-anime** : les deux pages etaient copiees (7 ep vivants) mais sans ancre (`aucun-candidat`) :
+  `titre~soustitre` coupait le titre AniList au PREMIER separateur (« JoJo no Kimyou na Bouken »).
+  Il essaie aussi sans le DERNIER segment « - … ». Rejoue sur les 173 pages sans ancre : seules les 2
+  pages SBR en gagnent une (190327, score 6). La parite de nuit aligne ensuite 190327 +0 / 210482 +1.
+- Pas de lecture du planning anime-sama : les dates AniList etaient justes.
+
 ## 2026-11-01 — Sendvid rallume
 
 sendvid.com repond de nouveau (200), retire le 31/08 pour un 502 sur tout le site. Test sur 35 fiches

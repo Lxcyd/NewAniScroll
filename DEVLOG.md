@@ -77,7 +77,7 @@ construit depuis `git log --since=<derniere release>`.
 | Domaine | Fichier | Entrees | Couvre |
 | --- | --- | --: | --- |
 | Apercu au survol & bandes-annonces | [`devlog/preview.md`](devlog/preview.md) | 33 | carte de survol, trailer, lumiere d'ambiance, blocage YouTube |
-| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 48 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
+| Lecteur video & lecteurs distants | [`devlog/player.md`](devlog/player.md) | 49 | raccourcis, toasts, autoplay, plein ecran, w2g, lecteurs distants |
 | Detecteur OP/ED | [`devlog/oped.md`](devlog/oped.md) | 14 | tools/opening-detector (v1) et opening-detector-v2, replis, audits, lots de mesure |
 | Pages, saisons, relations & sources de donnees | [`devlog/site.md`](devlog/site.md) | 48 | saisons, graphe de franchise, hero, navbar, TMDB/fanart/ani.zip |
 | Infra, cout, cache & releases | [`devlog/infra.md`](devlog/infra.md) | 17 | Upstash, Fluid CPU, crons, usage-monitor, analytics, releases |
@@ -124,6 +124,7 @@ construit depuis `git log --since=<derniere release>`.
 
 ### Lecteur video & lecteurs distants — [`devlog/player.md`](devlog/player.md)
 
+- 2026-11-10 — **Steel Ball Run : un épisode de retard = un décalage, pas Netflix** : anime-sama et voir-anime fusionnent le 1st STAGE (190327) en ep 1 ; 210482 servi sans décalage. Lignes player_map `manuel` (+1) respectées par la garde de saison et le vérificateur ; empreinte voir-anime coupe aussi au dernier « - … » (seules les 2 pages SBR gagnent une ancre). Le cas fondateur d'`airedAhead` (28/09) était ce décalage
 - 2026-10-02 — **Lien à un minutage : viser puis vérifier** : le saut ne partait qu'une fois, sur le premier `<video>`, et le `tf` était perdu au nettoyage de l'URL ; cible tenue jusqu'à être atteinte, effet relancé sur le flux vidmoly, messages quand le lien vise un autre lecteur / un iframe ; cause chez Luc = `player_map` donne voir-anime **absent à tort** pour SnK → bascule frembed → minutage écarté sans un mot (table NON corrigée)
 - 2026-10-01 (suite) — **Ouvrir à un minutage** : hls.js partait déjà du bon segment (mesuré : megaplay `00224`, frembed `00090`, ansembed `seg-61`), seul le compteur restait à 0:00 ; position posée avant toute donnée (MP4, non vérifiable au banc : sibnet refuse l'IP de test), sonde de 1re image et `warmStream` alignés sur la reprise ; **deux requêtes du même nom = deux qualités, pas un doublon** ; un `timeupdate` de synthèse au `can-play` fait repartir la lecture de 0:00 (retiré)
 - 2026-10-01 — **« Les lecteurs sont lents » : le lecteur était rapide, le serveur froid** : banc `player-timeline.mjs` (une visite, chaque maillon) ; dev = prod, le temps part dans le document (2,3-5 s) puis la source (1,3-2,4 s) ; Turso avant AniList au rendu de la page, `getMediaMeta({ dbFirst })`, `getSources` megaplay en course, stale de dev remis à 1 j, une absence ne se redemande plus (1,7 s de roue pour relire le cache du navigateur), chien de garde 40 → 20 s, frembed jugé sur SA mesure ; première image à froid 8,05 → 4,80 s (megaplay) et 5,68 → 2,15 s (frembed) ; reste `retires` (Prisma, ~0,85 s sur lambda neuf)

@@ -774,7 +774,9 @@ function classifyEp(
   /* Comme la page de lecture (components/watch/secondary/episodeLists) : un
      episode qu'un lecteur a DEJA n'attend pas la date AniList — Steel Ball
      Run ep 5 se lisait sur la page de lecture et restait « Pas encore sorti »
-     ici (21/10/2026). Meme borne : un episode au plus au-dela du calendrier. */
+     ici (21/10/2026 ; c'etait le decalage du 1st STAGE, cf.
+     lib/watch/airedAhead.ts). Meme borne : un episode au plus au-dela du
+     calendrier. */
   const next = info.nextAiringEpisode?.episode;
   const borne =
     next != null ? Math.max(next, Math.min(airedAhead(info.id), next + 1) + 1) : null;

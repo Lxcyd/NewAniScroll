@@ -92,11 +92,18 @@ export function noter(p, m) {
        voir-anime garde le titre sans le sous-titre. Ces deux-la exigent en plus
        une date de debut au jour pres (verifie plus bas). */
     const sansParenthese = (t) => norm(String(t).replace(/\s*\([^)]*\)\s*$/, ""));
-    const avantSousTitre = (t) => norm(String(t).split(/\s*:\s+|\s+-\s+/)[0]);
+    /* Et le titre sans son DERNIER segment « - … » : « JoJo no Kimyou na Bouken:
+       Steel Ball Run - 1st STAGE » (AniList) = « …: Steel Ball Run » (voir-anime,
+       qui fusionne les STAGE sur une page). Couper au premier separateur ne
+       laissait que « JoJo no Kimyou na Bouken » (10/11/2026). */
+    const avantSousTitre = (t) => [
+      norm(String(t).split(/\s*:\s+|\s+-\s+/)[0]),
+      norm(String(t).replace(/\s+-\s+[^-]*$/, "")),
+    ];
     const nP = new Set(tousP.map(norm));
     if (tousP.map(formeSaison).some((f) => f && formes.has(f))) preuves.push("titre~saison");
     else if (tousM.some((t) => /\)\s*$/.test(t) && nP.has(sansParenthese(t)))) preuves.push("titre~parenthese");
-    else if (tousM.some((t) => { const b = avantSousTitre(t); return b.length >= 6 && b !== norm(t) && nP.has(b); })) preuves.push("titre~soustitre");
+    else if (tousM.some((t) => avantSousTitre(t).some((b) => b.length >= 6 && b !== norm(t) && nP.has(b)))) preuves.push("titre~soustitre");
     else return { score: -1, preuves, contre: ["titre"] };
   }
   if (p.natif && m.title?.native && norm(p.natif) === norm(m.title.native)) { score += 1; preuves.push("natif"); }

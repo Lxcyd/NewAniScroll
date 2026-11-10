@@ -2,9 +2,11 @@
  * Les episodes que les LECTEURS ont deja, meme quand AniList les annonce a venir.
  *
  * La liste d'episodes s'arrete a `nextAiringEpisode - 1` : c'est le calendrier
- * de la diffusion japonaise. Or une plateforme peut publier avant — cas signale
- * le 28/09/2026 : Steel Ball Run ep 2 en ligne sur anime-sama (sortie Netflix)
- * alors qu'AniList le disait « dans 3 j ». Le site cachait un episode jouable.
+ * de la diffusion japonaise. Or une plateforme peut publier avant. (Le cas qui
+ * l'a motive — Steel Ball Run ep 2 sur anime-sama le 28/09/2026, « dans 3 j »
+ * selon AniList — n'en etait PAS un : anime-sama fusionne le 1st STAGE en ep 1,
+ * le site lisait la saison sans decalage. Corrige le 10/11/2026 par une ligne
+ * player_map `manuel`, cf. scripts/player-map/correctifs-2026-11-10-sbr.mjs.)
  *
  * Trois preuves :
  *   - une source RESOLUE pour l'episode N prouve que N existe ;

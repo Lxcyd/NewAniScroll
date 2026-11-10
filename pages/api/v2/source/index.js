@@ -1155,8 +1155,13 @@ async function getAnimeSamaIframe(serverKey, title, episode, aniId) {
          exacts sur toute la fiche) en sait plus que detectSeasonNumber, qui
          devine par les titres. Mesure du 30/10/2026 : sur 77 corrections, la
          garde en aurait defait 24 a la premiere visite — Tales of Zestiria
-         « S10 », Vivid Strike « S5 », Tokyo Revengers S3 « S2 ». */
-      !(mapRow.status === "verified" && (mapRow.note || "").startsWith("verify:alignement-anime-sama"))
+         « S10 », Vivid Strike « S5 », Tokyo Revengers S3 « S2 ». Idem pour
+         une correction `manuel` : Steel Ball Run (10/11/2026), 1st et 2nd
+         STAGE fusionnes dans saison7, que le resolveur compte « S8 ». */
+      !(
+        mapRow.status === "verified" &&
+        /^(verify:alignement-anime-sama|manuel)/.test(mapRow.note || "")
+      )
     ) {
       const dirSeason = Number((mapRow.seasonDir.match(/saison\s*(\d+)/i) || [])[1] || 1);
       const expectedSeason = await detectSeasonNumber(aniId);

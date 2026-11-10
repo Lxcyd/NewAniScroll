@@ -321,11 +321,14 @@ if (ONLY_IDS) {
 } else {
   /* Les lignes d'ALIGNEMENT (anime-sama, voir-anime) appartiennent a la
      parite de nuit (tools/anime-sama et tools/voir-anime, parite.mjs), qui les recontrole contre la copie :
-     le resolveur par titres n'a pas a les rejuger. */
+     le resolveur par titres n'a pas a les rejuger. Une correction `manuel`
+     verifiee non plus : il la casserait (Steel Ball Run saison7, que le
+     resolveur compte « S8 », 10/11/2026). */
   rows = (await db.execute({
     sql: `SELECT * FROM player_map
            WHERE (expires_at < ? OR status = 'heuristic')
              AND (note IS NULL OR note NOT LIKE 'verify:alignement-%')
+             AND NOT (status = 'verified' AND COALESCE(note, '') LIKE 'manuel%')
            ORDER BY expires_at ASC LIMIT ?`,
     args: [now, LIMIT],
   })).rows;

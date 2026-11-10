@@ -894,7 +894,8 @@ export default function EpisodeLists({
      `info` decrit toujours la saison affichee : pas de risque d'appliquer ici la
      date d'une autre saison. */
   /* Sauf ceux qu'un lecteur a DEJA : une plateforme publie parfois avant la date
-     AniList (Steel Ball Run ep 2, 28/09/2026). Une source resolue pour
+     AniList (le cas Steel Ball Run du 28/09/2026 etait en fait un decalage,
+     cf. lib/watch/airedAhead.ts). Une source resolue pour
      l'episode N, ou un panneau qui porte deja N+1, le prouvent — sans requete
      en plus (cf. lib/watch/airedAhead.ts). Borne a +2 au-dela du calendrier :
      un panneau mal rattache ne doit pas faire apparaitre une saison fantome. */
