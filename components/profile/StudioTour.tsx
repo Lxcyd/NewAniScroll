@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
 /* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
-const DONE_KEY = "aniscroll:studioTour:2";
+const DONE_KEY = "aniscroll:studioTour:3";
 
 export type TourScope = "image" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
@@ -88,6 +88,10 @@ export default function StudioTour({
   const [pos, setPos] = useState<Pos>(null);
   const startScope = useRef<string | null>(null);
   const card = useRef<HTMLDivElement>(null);
+  /* La bulle glisse d'une case à l'autre, mais pas depuis sa place de départ
+     (hors écran) ni quand elle passe du centre à la barre. */
+  const [glide, setGlide] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
   /* Le départ : un temps après l'ouverture, que la scène ait fini d'entrer. */
   useEffect(() => {
@@ -120,7 +124,24 @@ export default function StudioTour({
     }
   }, [active, step]);
 
+  /* Sortie : la bulle s'efface avant de disparaître. */
+  const close = useCallback(() => {
+    setLeaving(true);
+    window.setTimeout(() => {
+      setLeaving(false);
+      end();
+    }, 200);
+  }, [end]);
+
   const cur = step != null ? STEPS[step] : null;
+  const cardKey = cur?.anchor ? "anchored" : "center";
+
+  useLayoutEffect(() => setGlide(false), [cardKey]);
+  useEffect(() => {
+    if (!pos || glide) return;
+    const id = requestAnimationFrame(() => setGlide(true));
+    return () => cancelAnimationFrame(id);
+  }, [pos, glide]);
 
   /* Ouvrir le menu de l'étape. */
   useEffect(() => {
@@ -172,15 +193,19 @@ export default function StudioTour({
   useEffect(() => {
     if (step == null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") end();
+      if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, end]);
+  }, [step, close]);
 
   if (step == null || !cur || typeof document === "undefined") return null;
   const last = step === STEPS.length - 1;
   const w = typeof window !== "undefined" ? Math.min(W, window.innerWidth - EDGE * 2) : W;
+
+  const ease = "cubic-bezier(.22,1,.36,1)";
+  /* Le contenu de chaque étape monte en cascade. */
+  const rise = (n: number) => ({ className: "as-tour-rise", style: { animationDelay: `${60 + n * 55}ms` } });
 
   return createPortal(
     <div
@@ -188,14 +213,17 @@ export default function StudioTour({
       role="dialog"
       aria-modal="false"
       aria-labelledby="as-tour-title"
-      key={cur.id}
-      className="as-tour-card fixed z-[10010] rounded-2xl bg-[#15161d] p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/10"
+      key={cardKey}
+      className={`as-tour-card fixed z-[10010] overflow-visible rounded-2xl bg-[#15161d] p-4 text-white shadow-[0_24px_60px_rgba(0,0,0,.7)] ring-1 ring-white/10 ${
+        leaving ? "is-leaving" : ""
+      }`}
       style={{
         width: w,
         left: pos?.left ?? -9999,
         top: pos?.top,
         bottom: pos?.bottom,
         visibility: pos ? "visible" : "hidden",
+        transition: glide ? `left .5s ${ease}, top .5s ${ease}, bottom .5s ${ease}` : "none",
       }}
     >
       {pos && pos.arrow >= 0 ? (
@@ -204,71 +232,68 @@ export default function StudioTour({
           className={`absolute h-3 w-3 rotate-45 bg-[#15161d] ring-1 ring-white/10 ${
             pos.below ? "-top-1.5 [clip-path:polygon(0_0,100%_0,0_100%)]" : "-bottom-1.5 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
           }`}
-          style={{ left: pos.arrow - 6 }}
+          style={{ left: pos.arrow - 6, transition: glide ? `left .5s ${ease}` : "none" }}
         />
       ) : null}
 
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="m-0 font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-action">
-            {t("profile.studioTour.count", { n: step + 1, total: STEPS.length })}
-          </p>
-          <h3 id="as-tour-title" className="m-0 mt-1 font-outfit text-[16px] font-bold leading-snug">
-            {t(`profile.studioTour.${cur.id}.title`)}
-          </h3>
-        </div>
-        <button
-          type="button"
-          onClick={end}
-          title={t("profile.studioTour.close")}
-          aria-label={t("profile.studioTour.close")}
-          className="-mr-1.5 -mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <XMarkIcon className="h-4 w-4" strokeWidth={2} />
-        </button>
-      </div>
-
-      <p className="m-0 mt-2 font-karla text-[13px] leading-relaxed text-white/70">
-        {t(`profile.studioTour.${cur.id}.body`)}
-      </p>
-
-      {/* Les points : où on en est, sans chiffre à lire. */}
-      <div className="mt-4 flex items-center gap-2">
-        <div className="flex flex-1 items-center gap-1" aria-hidden>
-          {STEPS.map((s, i) => (
-            <span
-              key={s.id}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                i === step ? "w-4 bg-action" : i < step ? "w-1.5 bg-white/45" : "w-1.5 bg-white/15"
-              }`}
-            />
-          ))}
-        </div>
-        {!last ? (
+      <div key={cur.id}>
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p {...rise(0)}>
+              <span className="font-karla text-[10.5px] font-bold uppercase tracking-[.12em] text-action">
+                {t("profile.studioTour.count", { n: step + 1, total: STEPS.length })}
+              </span>
+            </p>
+            <h3
+              id="as-tour-title"
+              {...rise(1)}
+              className="as-tour-rise m-0 mt-1 font-outfit text-[16px] font-bold leading-snug"
+            >
+              {t(`profile.studioTour.${cur.id}.title`)}
+            </h3>
+          </div>
           <button
             type="button"
-            onClick={end}
-            className="shrink-0 rounded-full px-2.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/50 transition-colors hover:text-white"
+            onClick={close}
+            title={t("profile.studioTour.close")}
+            aria-label={t("profile.studioTour.close")}
+            className="-mr-1.5 -mt-1.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/50 transition-all duration-200 hover:rotate-90 hover:bg-white/10 hover:text-white"
           >
-            {t("profile.studioTour.skip")}
+            <XMarkIcon className="h-4 w-4" strokeWidth={2} />
           </button>
-        ) : null}
-        {step > 0 ? (
+        </div>
+
+        <p {...rise(2)} className="as-tour-rise m-0 mt-2 font-karla text-[13px] leading-relaxed text-white/70">
+          {t(`profile.studioTour.${cur.id}.body`)}
+        </p>
+
+        <div {...rise(3)} className="as-tour-rise mt-4 flex items-center justify-end gap-2">
+          {!last ? (
+            <button
+              type="button"
+              onClick={close}
+              className="mr-auto shrink-0 rounded-full px-2 py-1.5 font-outfit text-[11.5px] font-bold text-white/45 transition-colors hover:text-white"
+            >
+              {t("profile.studioTour.skip")}
+            </button>
+          ) : null}
+          {step > 0 ? (
+            <button
+              type="button"
+              onClick={() => setStep(step - 1)}
+              className="shrink-0 rounded-full bg-white/[0.08] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/85 transition-all duration-200 hover:-translate-y-px hover:bg-white/[0.16] hover:text-white"
+            >
+              {t("profile.studioTour.prev")}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => setStep(step - 1)}
-            className="shrink-0 rounded-full bg-white/[0.08] px-3.5 py-1.5 font-outfit text-[11.5px] font-bold text-white/85 transition-colors hover:bg-white/[0.16] hover:text-white"
+            onClick={() => (last ? close() : setStep(step + 1))}
+            className="as-tour-cta shrink-0 rounded-full bg-action px-4 py-1.5 font-outfit text-[11.5px] font-bold text-white"
           >
-            {t("profile.studioTour.prev")}
+            {t(last ? "profile.studioTour.finish" : step === 0 ? "profile.studioTour.start" : "profile.studioTour.next")}
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => (last ? end() : setStep(step + 1))}
-          className="shrink-0 rounded-full bg-action px-4 py-1.5 font-outfit text-[11.5px] font-bold text-white transition-transform hover:scale-105"
-        >
-          {t(last ? "profile.studioTour.finish" : step === 0 ? "profile.studioTour.start" : "profile.studioTour.next")}
-        </button>
+        </div>
       </div>
     </div>,
     document.body,

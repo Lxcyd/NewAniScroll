@@ -1648,7 +1648,7 @@
     "studioTour": {
       "count": "Étape {{n}} sur {{total}}",
       "close": "Fermer le tutoriel",
-      "skip": "Passer",
+      "skip": "Skip",
       "prev": "Précédent",
       "next": "Suivant",
       "start": "C'est parti",
