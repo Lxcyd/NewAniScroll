@@ -4814,6 +4814,18 @@ html.as-dragging .as-nudge {
   content-visibility: auto;
   contain-intrinsic-size: auto 96px;
 }
+/* La vue compacte : lignes de ~37 px. Avec l'estimation de 96 px ci-dessus, six
+   cents lignes pesaient 58 000 px avant d'etre mesurees, puis la page se
+   raccourcissait par a-coups pendant le changement de vue (10/11/2026). */
+.as-list-row.as-list-row-compact {
+  contain-intrinsic-size: auto 37px;
+}
+/* UN FLOU PAR LIGNE, c'etait six cents `backdrop-filter` a recreer a chaque
+   changement de vue (c'est ce qui rendait la transition laggy). Les lignes
+   gardent leur teinte ; seul le flou du fond leur est retire. */
+.as-plate-frosted .as-stat-card.as-list-row::before {
+  content: none;
+}
 
 /* La sélection d'un palier (cf. LadderPopup). Le TRAJET du cadre est en JS ; sa
    COULEUR, elle, change ici, en même temps qu'il voyage. Il apparaît avec les

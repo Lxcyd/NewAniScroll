@@ -190,8 +190,11 @@ export default function ProfileList({
     for (const s of reg.statuses) c[CUSTOM_STATUS + s.name] = s.ids.filter((id) => ids.has(id)).length;
     return c;
   }, [base, reg.statuses]);
-  const customStatusOf = (s: string | null) =>
-    s && s.startsWith(CUSTOM_STATUS) ? reg.statuses.find((x) => CUSTOM_STATUS + x.name === s) ?? null : null;
+  const customStatusOf = useCallback(
+    (s: string | null) =>
+      s && s.startsWith(CUSTOM_STATUS) ? reg.statuses.find((x) => CUSTOM_STATUS + x.name === s) ?? null : null,
+    [reg.statuses],
+  );
   const activeCustomStatus = customStatusOf(status);
   /* Les listes perso d'AniList, lues sur les entrées. */
   const anilistLists = useMemo(() => {
@@ -251,6 +254,102 @@ export default function ProfileList({
     changeFilters({ ...freshFilters(bounds), sort: filters.sort, desc: filters.desc });
   };
 
+  const statusColor = useCallback(
+    (s: string | null) =>
+      customStatusOf(s)?.color || reg.statusColors[s || "PLANNING"] || LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280",
+    [customStatusOf, reg.statusColors],
+  );
+  const statusName = useCallback(
+    (s: string | null) => {
+      const cs = customStatusOf(s);
+      if (cs) return cs.name;
+      const k = STATUS_KEY[s || "PLANNING"];
+      return k ? t(k) : listLabel(t, STATUS_TO_LIST[s || ""] || s || "");
+    },
+    [customStatusOf, t],
+  );
+
+  /* LES LIGNES SONT MEMOISEES (10/11/2026) : ouvrir un menu ou changer un
+     champ re-rendait les six cents lignes. Elles ne se refont plus que si la
+     vue, la selection ou ce qu'elles lisent change. */
+  const body = useMemo(
+    () => (
+view === "grid" ? (
+        /* Un fond translucide (teinte et flou du profil) sous TOUTE la grille,
+           comme les autres surfaces (08/11, Luc) : les titres ne se lisent plus
+           à même l'illustration. */
+        <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
+          {rows.map((e) => (
+            <Link
+              key={e.mediaId}
+              href={animeHref(e.mediaId, clickTarget)}
+              className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
+            >
+              {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
+              <span className="relative block">
+                <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
+                  {e.cover ? (
+                    <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+                  ) : null}
+                </span>
+                {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
+              </span>
+              {/* Le statut à GAUCHE DU TITRE, la pastille du menu Statut à
+                  l'identique (08/11, Luc). */}
+              <span className="flex min-w-0 items-center gap-2" title={statusName(e.status)}>
+                <span className="as-glow-dot !h-2 !w-2" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
+                <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
+              </span>
+              {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
+                  méta (08/11, Luc). */}
+              <span className="flex min-w-0 items-center gap-2 text-[11px] tabular-nums text-white/40">
+                <span className="min-w-0 flex-1 truncate">
+                  {progressText(e, t)}{e.format ? ` · ${prettyFormat(e.format)}` : ""}
+                </span>
+                {e.score ? <span className="shrink-0 font-bold text-as-score">★ {e.score}</span> : null}
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : view === "compact" ? (
+        <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
+          {rows.map((e) => (
+            <Link
+              key={e.mediaId}
+              href={animeHref(e.mediaId, clickTarget)}
+              className={`as-list-row as-list-row-compact group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 px-3 py-2 text-sm shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
+              <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
+              <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
+              <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
+              <span className="text-right text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
+              <span className="truncate text-right text-xs tabular-nums text-white/50">{progressText(e, t)}</span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        /* `as-stat-card` comme toutes les surfaces du profil : le fond sombre
+           et le flou du studio. */
+        <div className="as-frost flex flex-col gap-2 rounded-2xl">
+          {rows.map((e) => (
+            <Row
+              key={e.mediaId}
+              entry={e}
+              color={statusColor(e.status)}
+              statusName={statusName(e.status)}
+              href={animeHref(e.mediaId, clickTarget)}
+              title={titleOf(e)}
+              picked={picked === e.mediaId}
+              progress={progressText(e, t)}
+            />
+          ))}
+        </div>
+      )
+    ),
+    [view, rows, clickTarget, picked, titleOf, statusColor, statusName, t],
+  );
+
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center gap-5 py-20 text-center">
@@ -259,15 +358,6 @@ export default function ProfileList({
       </div>
     );
   }
-
-  const statusColor = (s: string | null) =>
-    customStatusOf(s)?.color || reg.statusColors[s || "PLANNING"] || LIST_COLORS[STATUS_TO_LIST[s || "PLANNING"]] || "#6b7280";
-  const statusName = (s: string | null) => {
-    const cs = customStatusOf(s);
-    if (cs) return cs.name;
-    const k = STATUS_KEY[s || "PLANNING"];
-    return k ? t(k) : listLabel(t, STATUS_TO_LIST[s || ""] || s || "");
-  };
 
   return (
     <>
@@ -382,7 +472,15 @@ export default function ProfileList({
         </div>
 
         {/* Choix de vue */}
-        <div role="group" aria-label={t("listMenu.view")} className="flex h-[42px] shrink-0 items-center gap-0.5 as-stat-card rounded-[12px] border border-white/[0.12] p-0.5">
+        <div role="group" aria-label={t("listMenu.view")} className="relative flex h-[42px] shrink-0 items-center gap-0.5 as-stat-card rounded-[12px] border border-white/[0.12] p-0.5">
+          {/* Le carre de selection GLISSE d'une vue a l'autre, a droite ou a
+              gauche selon la place de la nouvelle (10/11/2026, Luc). 38 px =
+              la largeur d'un bouton (36) + l'ecart (2). */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 w-9 rounded-[9px] bg-white/[0.12] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            style={{ transform: `translateX(${VIEWS.indexOf(view) * 38}px)` }}
+          />
           {VIEWS.map((v) => (
             <button
               key={v}
@@ -391,7 +489,7 @@ export default function ProfileList({
               aria-pressed={view === v}
               aria-label={t(`listMenu.views.${v}`)}
               title={t(`listMenu.views.${v}`)}
-              className={`grid h-full w-9 place-items-center rounded-[9px] transition-colors ${view === v ? "bg-white/[0.12] text-white" : "text-white/40 hover:text-white/80"}`}
+              className={`relative z-10 grid h-full w-9 place-items-center rounded-[9px] transition-colors ${view === v ? "text-white" : "text-white/40 hover:text-white/80"}`}
             >
               <ViewIcon v={v} />
             </button>
@@ -411,77 +509,8 @@ export default function ProfileList({
             {t("listMenu.clearAll")}
           </button>
         </div>
-      ) : view === "grid" ? (
-        /* Un fond translucide (teinte et flou du profil) sous TOUTE la grille,
-           comme les autres surfaces (08/11, Luc) : les titres ne se lisent plus
-           à même l'illustration. */
-        <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
-          {rows.map((e) => (
-            <Link
-              key={e.mediaId}
-              href={animeHref(e.mediaId, clickTarget)}
-              className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
-            >
-              {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
-              <span className="relative block">
-                <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
-                  {e.cover ? (
-                    <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
-                  ) : null}
-                </span>
-                {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
-              </span>
-              {/* Le statut à GAUCHE DU TITRE, la pastille du menu Statut à
-                  l'identique (08/11, Luc). */}
-              <span className="flex min-w-0 items-center gap-2" title={statusName(e.status)}>
-                <span className="as-glow-dot !h-2 !w-2" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
-                <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
-              </span>
-              {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
-                  méta (08/11, Luc). */}
-              <span className="flex min-w-0 items-center gap-2 text-[11px] tabular-nums text-white/40">
-                <span className="min-w-0 flex-1 truncate">
-                  {progressText(e, t)}{e.format ? ` · ${prettyFormat(e.format)}` : ""}
-                </span>
-                {e.score ? <span className="shrink-0 font-bold text-as-score">★ {e.score}</span> : null}
-              </span>
-            </Link>
-          ))}
-        </div>
-      ) : view === "compact" ? (
-        <div className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
-          {rows.map((e) => (
-            <Link
-              key={e.mediaId}
-              href={animeHref(e.mediaId, clickTarget)}
-              className={`as-list-row group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 border-b border-white/[0.04] px-3 py-2 text-sm transition-colors last:border-0 hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
-            >
-              <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
-              <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
-              <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
-              <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
-              <span className="text-right text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
-              <span className="truncate text-right text-xs tabular-nums text-white/50">{progressText(e, t)}</span>
-            </Link>
-          ))}
-        </div>
       ) : (
-        /* `as-stat-card` comme toutes les surfaces du profil : le fond sombre
-           et le flou du studio. */
-        <div className="flex flex-col gap-2">
-          {rows.map((e) => (
-            <Row
-              key={e.mediaId}
-              entry={e}
-              color={statusColor(e.status)}
-              statusName={statusName(e.status)}
-              href={animeHref(e.mediaId, clickTarget)}
-              title={titleOf(e)}
-              picked={picked === e.mediaId}
-              progress={progressText(e, t)}
-            />
-          ))}
-        </div>
+        body
       )}
 
       {editable ? (
