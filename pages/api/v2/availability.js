@@ -78,7 +78,10 @@ const WRITE_GUARD_S = 10 * 60;    // collapse the write storm: 1 write / 10 min
  * sert. Bumper `src:` ne suffit pas — c'est ICI que le selecteur lit son
  * verdict, et le fan-out ne repart meme pas.
  */
-const CACHE_VERSION = "v5";
+/* v6 (13/11/2026) : anime-sama a change de format le 12/11 et voir-anime.to est
+   mort (→ voiranime.cx). Les instantanes de ces deux jours disent « absent »
+   pour tous leurs chips, que le resolveur sert de nouveau. */
+const CACHE_VERSION = "v6";
 
 function key(aniId, episode, sub) {
   const s = sub === "dub" ? "dub" : "sub";
