@@ -193,6 +193,14 @@ async function fiche(slug) {
    une adresse a CONTROLER coute un appel a lien.php (cf. vieUneFois). */
 const ASLIEN = /^https:\/\/[^/]+\/aslien\/(\d+)$/;
 const aslien = new Map(); // pseudo-adresse -> { jeton, supprimee }
+/* L'adresse reelle d'un repere ne change pas : apprise une fois, elle est
+   gardee en base (4e element de chaque lien, cf. ecrire) et plus jamais
+   redemandee. Et lien.php passe par le WORKER, dont le quota (100 000/jour)
+   est celui de la prod : le 13/11/2026, le premier passage (aucune adresse
+   connue, ~3 000 controles par machine x 20) l'a vide — 429 « 1027 » pour
+   tout le site jusqu'a minuit UTC. D'ou le plafond par machine. */
+const reels = new Map(); // pseudo-adresse -> adresse reelle
+let budgetLien = Number(args["budget-lien"] || 150);
 
 function listesDe(texte) {
   return [...texte.matchAll(/var\s+(eps\d+)\s*=\s*\[([\s\S]*?)\];/g)].map((m) => ({
@@ -350,8 +358,14 @@ async function vieUneFois(pseudoOuUrl) {
   let urlBrut = pseudoOuUrl;
   if (ASLIEN.test(pseudoOuUrl)) {
     if (aslien.get(pseudoOuUrl)?.supprimee) return "mort";
-    urlBrut = await adresseReelle(pseudoOuUrl);
-    if (!urlBrut) return "inconnu:lien";
+    urlBrut = reels.get(pseudoOuUrl);
+    if (!urlBrut) {
+      if (budgetLien <= 0) return "inconnu:budget-lien";
+      budgetLien--;
+      urlBrut = await adresseReelle(pseudoOuUrl);
+      if (!urlBrut) return "inconnu:lien";
+      reels.set(pseudoOuUrl, urlBrut);
+    }
   }
   /* Un embed vidmoly.to/.net/.biz se controle sur le miroir ansembed, meme
      slug : c'est la que le site le rejoue (lib/clientVidmoly.js), et vidmoly.to
@@ -494,7 +508,12 @@ async function lireConnus() {
     empreintes.set(`${x.slug}/${x.dossier}/${x.langue}`, x.empreinte);
     vivantsAvant.set(`${x.slug}/${x.dossier}/${x.langue}`, Number(x.nb_vivants || 0));
     try {
-      for (const lst of Object.values(JSON.parse(x.liens))) for (const [u, etat, vu] of lst) liens.set(u, { etat, vu });
+      for (const lst of Object.values(JSON.parse(x.liens))) {
+        for (const [u, etat, vu, reel] of lst) {
+          liens.set(u, { etat, vu });
+          if (reel) reels.set(u, reel);
+        }
+      }
     } catch { /* ligne illisible : tout sera recontrole */ }
   }
   return { liens, empreintes, vivantsAvant };
@@ -519,7 +538,10 @@ async function ecrire(fiches, empreintes, vivantsAvant) {
       let vivants = 0, morts = 0;
       for (const e of p.episodes) {
         if (!e.liens.length) continue;
-        liens[e.ep] = e.liens.map((u) => [u, e.etats?.[u] || "inconnu", e.vus?.[u] || 0]);
+        // 4e element : l'adresse reelle d'un repere « aslien », si on la connait.
+        liens[e.ep] = e.liens.map((u) => (reels.has(u)
+          ? [u, e.etats?.[u] || "inconnu", e.vus?.[u] || 0, reels.get(u)]
+          : [u, e.etats?.[u] || "inconnu", e.vus?.[u] || 0]));
         if (e.liens.some((u) => e.etats?.[u] === "vivant")) vivants++;
         else if (e.liens.every((u) => e.etats?.[u] === "mort")) morts++;
       }
