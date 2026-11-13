@@ -941,8 +941,10 @@ function animeSamaLangDirs(langPath, exclude, slug) {
  * anime » confondrait deux choses distinctes : « le panneau n'existe pas » et
  * « le panneau existe mais cet hote n'y est pas ». La seconde est une absence
  * honnete, propre a un serveur, et elle continue d'etre decidee par appelant. */
+/* v2 (13/11/2026) : nouveau format anime-sama (reperes « lien:<n°> »), les
+   tableaux vides mis en cache par l'ancien lecteur d'episodes.js sont orphelins. */
 const EPISODES_KEY = (slug, seasonDir, langDir) =>
-  `asEps:v1:${slug}:${seasonDir}:${langDir}`;
+  `asEps:v2:${slug}:${seasonDir}:${langDir}`;
 /* Assez long pour couvrir le fan-out d'un visiteur et de ses voisins immediats,
    assez court pour qu'un panneau repare se voie dans la minute qui suit. */
 const EPISODES_TTL_S = 300;
@@ -996,10 +998,19 @@ async function loadEpisodeArrays(slug, seasonDir, langDir) {
 
   let arrays;
   try {
+    /* Depuis le 12/11/2026 les listes sont DANS la page du panneau (episodes.js
+       repond 404) ; l'ancien fichier n'est redemande que si la page n'en porte
+       aucune. */
     const res = await fetchViaWorker(
-      `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${langDir}/episodes.js`,
+      `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${langDir}/`,
     );
-    arrays = res.ok ? parseEpisodesJs(await res.text()) : [];
+    arrays = res.ok ? parseAnimeSamaPanel(await res.text()) : [];
+    if (res.ok && !arrays.length) {
+      const old = await fetchViaWorker(
+        `${ANIMESAMA_BASE}/catalogue/${slug}/${seasonDir}/${langDir}/episodes.js`,
+      );
+      arrays = old.ok ? parseEpisodesJs(await old.text()) : [];
+    }
   } catch {
     return null; // indetermine : ni memo, ni cache
   }
@@ -1573,6 +1584,12 @@ async function resolveAnimeSamaHeuristically(
  */
 async function finalizeAnimeSamaIframe(serverKey, serverDef, iframeUrl) {
   try {
+    // Repere « lien:<n°> » (format du 12/11/2026) → l'adresse reelle.
+    iframeUrl = await resolveAnimeSamaLien(iframeUrl);
+    if (!iframeUrl) {
+      dlog(`[anime-sama] ${serverKey}: lien.php sans adresse`);
+      return null;
+    }
     // Per-host iframe rewriting before extraction.
     // - vidmoly.to currently 302s to a HTTP survey scam. extractVidmoly
     //   iterates the .net/.to/.biz triple itself, so we just pick a safe
@@ -2598,6 +2615,86 @@ function pickPreferredEpisodeUrl(episodeArrays, preferred, index) {
     if (url && prefs.some((p) => url.toLowerCase().includes(p))) return url;
   }
   return null;
+}
+
+/**
+ * Le format anime-sama du 12/11/2026 : la page du panneau porte elle-meme
+ *
+ *   var eps1 = ["lien:137747", …];             // un repere, plus d'adresse
+ *   var epsMeta = {"137747":["ansembed.net"], "137778":["megankiddifference.com",2]};
+ *   var epsJeton = "3824.1794618000.d0ed…";     // valable 24 h
+ *
+ * et l'adresse d'un episode ne se donne qu'a la demande, par
+ * /api/lien.php?j=<jeton>&l=<n°> (cf. resolveAnimeSamaLien).
+ *
+ * Chaque repere devient une pseudo-adresse `https://<hote>/aslien/<n°>?j=<jeton>` :
+ * l'hote y figure, donc pickPreferredEpisodeUrl choisit le lecteur comme avant,
+ * et seul l'episode retenu coute un appel. Un second element dans epsMeta (1 ou
+ * 2) = video supprimee chez l'hote (lecteur.js d'anime-sama l'affiche « mort ») :
+ * on la traite en absence, sans meme la sonder.
+ *
+ * Une page a l'ancien format (adresses en clair) passe telle quelle.
+ */
+function parseAnimeSamaPanel(html) {
+  const arrays = parseEpisodesJs(html);
+  if (!arrays.some((a) => a.some((u) => u.startsWith("lien:")))) return arrays;
+  let meta = {};
+  try {
+    meta = JSON.parse((html.match(/var\s+epsMeta\s*=\s*(\{[\s\S]*?\})\s*;/) || [])[1] || "{}");
+  } catch {
+    meta = {};
+  }
+  const jeton = (html.match(/var\s+epsJeton\s*=\s*"([^"]+)"/) || [])[1] || "";
+  return arrays.map((arr) =>
+    arr.map((u) => {
+      if (!u.startsWith("lien:")) return u;
+      const n = u.slice(5);
+      const m = meta[n];
+      if (!Array.isArray(m) || !m[0] || m[1]) return "";
+      return `https://${m[0]}/aslien/${n}?j=${encodeURIComponent(jeton)}`;
+    }),
+  );
+}
+
+const ASLIEN_RE = /^https:\/\/[^/]+\/aslien\/(\d+)\?j=(.*)$/;
+const lienMemo = new Map(); // pseudo-adresse → vraie adresse
+
+/**
+ * Pseudo-adresse « aslien » → l'adresse reelle de l'episode, via
+ * /api/lien.php. Toute autre adresse est rendue telle quelle.
+ *
+ * Le Worker doit envoyer `Sec-Fetch-Site: same-origin` (ou rien) : en
+ * `cross-site`, anime-sama repond 403 {"erreur":"origine"} — mesure du
+ * 13/11/2026. Ni cookie ni Referer requis, le jeton n'est pas lie a la session.
+ *
+ * `null` = pas d'adresse (absent, jeton expire, reponse illisible). Une erreur
+ * reseau leve, pour rester une erreur transitoire et non une absence.
+ */
+async function resolveAnimeSamaLien(url) {
+  const m = typeof url === "string" && url.match(ASLIEN_RE);
+  if (!m) return url;
+  if (lienMemo.has(url)) return lienMemo.get(url);
+  const res = await fetchViaWorker(
+    `${ANIMESAMA_BASE}/api/lien.php?j=${m[2]}&l=${encodeURIComponent(m[1])}`,
+  );
+  if (!res.ok) {
+    if (res.status >= 500 || res.status === 403 || res.status === 429) {
+      throw new TransientSourceError(`anime-sama lien.php ${res.status}`);
+    }
+    return null;
+  }
+  let d = null;
+  try {
+    d = await res.json();
+  } catch {
+    d = null;
+  }
+  const vrai = d && typeof d.u === "string" && /^https?:\/\//.test(d.u) ? d.u : null;
+  if (vrai) {
+    if (lienMemo.size > 2000) lienMemo.clear();
+    lienMemo.set(url, vrai);
+  }
+  return vrai;
 }
 
 function parseEpisodesJs(jsContent) {
@@ -3789,19 +3886,15 @@ export async function inspectAnimeSama(aniId, lang = "vostfr") {
     const targetLangs = directTarget.isFilm
       ? [directTarget.path.split("/")[1] || langPath]
       : animeSamaLangDirs(langPath, null, slug);
-    let epRes = null;
+    // Meme lecture que le resolveur (page du panneau, format du 12/11/2026).
+    let episodeArrays = null;
     for (const lp of targetLangs) {
-      const r = await fetchViaWorker(`${ANIMESAMA_BASE}/catalogue/${slug}/${directTarget.dir}/${lp}/episodes.js`);
-      if (r.ok) { epRes = r; break; }
+      const arr = await loadEpisodeArrays(slug, directTarget.dir, lp);
+      if (arr?.length) { episodeArrays = arr; break; }
     }
-    if (!epRes) {
-      // The chosen season has no episodes.js in this language — still report
-      // the resolution; episodeCount stays 0 so the audit flags it.
-      return out;
-    }
-    const jsContent = await epRes.text();
-    const episodeArrays = parseEpisodesJs(jsContent);
-    if (episodeArrays.length === 0) return out;
+    // The chosen season has no episode list in this language — still report
+    // the resolution; episodeCount stays 0 so the audit flags it.
+    if (!episodeArrays) return out;
     // Canonical count = the longest host array (host availability varies).
     const canonical = episodeArrays.reduce((a, b) => (b.length > a.length ? b : a), []);
     out.found = true;
@@ -4210,7 +4303,9 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // v16 (01/11/2026) : ~60 lignes player_map anime-sama corrigees a la main
   // (scripts/player-map/correctifs-2026-11-01.mjs) — elles servaient le panneau
   // d'un autre anime ; leurs URL en cache, gardees chaudes, sont orphelines.
-  const v = FREMBED_SERVERS[server] ? "v15f2" : "v16";
+  // v17 (13/11/2026) : anime-sama a change de format le 12/11 (reperes
+  // « lien:<n°> », episodes.js en 404) ; toutes ses absences depuis sont fausses.
+  const v = FREMBED_SERVERS[server] ? "v15f2" : "v17";
   return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 

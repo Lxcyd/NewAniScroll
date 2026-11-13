@@ -191,6 +191,16 @@ async function handle(request, env, ctx) {
     "Sec-Fetch-Mode": "no-cors",
     "Sec-Fetch-Site": "cross-site",
   };
+  /* anime-sama /api/lien.php (format du 12/11/2026 : l'adresse d'un episode
+     se demande a part) refuse `Sec-Fetch-Site: cross-site` par un 403
+     {"erreur":"origine"} ; il repond a une requete same-origin, comme celle de
+     sa propre page. Mesure du 13/11/2026. Les pages HTML gardent les en-tetes
+     ci-dessus, qui marchent. */
+  if (/^https:\/\/(www\.)?anime-sama\.[a-z]+\/api\//i.test(targetUrl)) {
+    headers["Sec-Fetch-Dest"] = "empty";
+    headers["Sec-Fetch-Mode"] = "cors";
+    headers["Sec-Fetch-Site"] = "same-origin";
+  }
   // Origin is only set when actually needed (some CDNs reject when it's
   // present for same-origin asset fetches — sibnet's video pipeline being
   // the canonical case where Origin: video.sibnet.ru caused a 400).
