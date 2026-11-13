@@ -18,7 +18,7 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] 
 const env = (n) => process.env[n] || fs.readFileSync(new URL("../../.env", import.meta.url), "utf8").split(/\r?\n/).find((l) => l.startsWith(`${n}=`))?.slice(n.length + 1).replace(/^"|"$/g, "");
 const db = createClient({ url: env("TURSO_DATABASE_URL"), authToken: env("TURSO_AUTH_TOKEN") });
 const dors = (ms) => new Promise((r) => setTimeout(r, ms));
-const VA = "https://voir-anime.to";
+const VA = "https://voiranime.cx";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const CACHE = args.cache || "audit-ancres.json";
 

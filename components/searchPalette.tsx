@@ -141,7 +141,7 @@ export default function SearchPalette() {
     // Run AniList live search AND our local Turso FTS in parallel, then merge.
     // Why: AniList's `search` param matches poorly on French / alternate
     // titles (searching "le chateau ambulant" returns nothing), whereas
-    // voir-anime.to finds it because it indexes localized titles. Our local
+    // voiranime.cx finds it because it indexes localized titles. Our local
     // FTS row indexes romaji + english + native + synonyms, so it matches the
     // same way voir-anime does. Merging the two gives AniList's live coverage
     // plus synonym/French-title matching, deduped by id. AniList results come

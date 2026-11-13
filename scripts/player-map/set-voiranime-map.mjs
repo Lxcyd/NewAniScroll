@@ -57,7 +57,7 @@ const UA =
 
 /** Les numeros d'episode listes sur une page voir-anime. */
 async function pageEpisodes(s) {
-  const res = await fetch(`https://voir-anime.to/anime/${s}/`, {
+  const res = await fetch(`https://voiranime.cx/anime/${s}/`, {
     headers: { "User-Agent": UA },
     redirect: "follow",
   });

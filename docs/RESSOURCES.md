@@ -222,7 +222,7 @@ Etat des lecteurs : **[lib/lecteurs.json](../lib/lecteurs.json)** (seule source)
 Pour memoire, les hotes croises dans le code :
 frembed (`frembed.*`, domaine tournant), megaplay (`megaplay.buzz`), ansembed,
 vidmoly (`vidmoly.to/.net`), anime-sama (`anime-sama.to`), voir-anime
-(`voir-anime.to`), sibnet ☠️, uqload ☠️, sendvid ☠️, animepahe/kwik ☠️,
+(`voiranime.cx` depuis le 13/11/2026 ; `voir-anime.to` ne resout plus), sibnet ☠️, uqload ☠️, sendvid ☠️, animepahe/kwik ☠️,
 aniwatchtv, megaup, embed4me, mewstream.
 
 **anime-sama** (`anime-sama.to`) — analyse le 30/10/2026. N'heberge rien :

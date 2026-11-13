@@ -36,7 +36,7 @@ import { playlistDurations } from "../../../lib/hlsMerge.js";
 // the whole top50 batch. Measured 2026-08-08: this URL 404s example.com.
 const WORKER = "https://proxy.aniscroll.com";
 const BASE = "https://anime-sama.to";
-const VOIRANIME_BASE = "https://voir-anime.to";
+const VOIRANIME_BASE = "https://voiranime.cx";
 // `ansembed.net` is Vidmoly white-labelled: the same embed page (its own
 // <title>, cdn.staticmoly.me assets) serving the same …/hls2/…/master.m3u8.
 // anime-sama lists it as a SEPARATE player, so it is an extra encode per title.
@@ -397,7 +397,7 @@ async function resolveFrembed(spec, start, end) {
 // pass the voir-anime slug (vaSlug). Flow mirrors getVoiranimeIframe in
 // pages/api/v2/source/index.js: detail page → episode URL → thisChapterSources
 // → the vidmoly iframe. Runs Redis/Turso-free (no player_map), all via Worker
-// (voir-anime.to 403s data-center IPs the same way anime-sama does).
+// (voiranime.cx 403s data-center IPs the same way anime-sama does).
 function buildVoirEpRegex(slug) {
   const slugEsc = slug.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const baseEsc = VOIRANIME_BASE.replace(/\./g, "\\.");

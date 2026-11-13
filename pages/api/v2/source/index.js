@@ -2729,8 +2729,8 @@ function parseEpisodesJs(jsContent) {
   return arrays;
 }
 
-// â”€â”€ voir-anime.to (VF + VOSTFR via WordPress / Madara theme) â”€â”€
-const VOIRANIME_BASE = "https://voir-anime.to";
+// â”€â”€ voiranime.cx (VF + VOSTFR via WordPress / Madara theme) â”€â”€
+const VOIRANIME_BASE = "https://voiranime.cx";
 const voirSlugCache = new Map();
 const VOIRANIME_SERVERS = {
   // VF
@@ -3105,7 +3105,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       return map;
     };
 
-    // Try detail page scrape first. Routed via the CF Worker — voir-anime.to
+    // Try detail page scrape first. Routed via the CF Worker — voiranime.cx
     // 403s direct Vercel fetches (Cloudflare), same as anime-sama.
     let detailDead = false; // 4xx on a mapped slug = the mapping itself is gone
     // …and the opposite: the detail page never gave a verdict (5xx/429/timeout).
@@ -3346,7 +3346,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
  * getVoiranimeIframe's catch.
  */
 async function voiranimeEpisodeIframe(episodeUrl, serverDef, serverKey) {
-  // Via the Worker — voir-anime.to 403s direct Vercel fetches (Cloudflare).
+  // Via the Worker — voiranime.cx 403s direct Vercel fetches (Cloudflare).
   const epRes = await fetchViaWorker(episodeUrl);
   if (!epRes.ok) {
     console.error(`[voiranime] ${serverKey} episode page ${epRes.status} for ${episodeUrl}`);
@@ -3534,7 +3534,7 @@ function isUsableSlugBase(slug) {
 }
 
 // Quickly check if /anime/{slug}/ exists. Routed through the CF Worker because
-// voir-anime.to (Cloudflare) 403s direct fetches from Vercel's AWS IPs — the
+// voiranime.cx (Cloudflare) 403s direct fetches from Vercel's AWS IPs — the
 // same reason anime-sama scraping goes via the Worker. The Worker returns 200
 // for a live anime page and 410/4xx for a dead slug, so a 200 is a reliable
 // "exists" signal. We follow redirects (a missing-language slug 301s to the
@@ -4942,7 +4942,7 @@ export default async function handler(req, res) {
     return sendOk(data);
   }
 
-  // voir-anime.to (VF + VOSTFR) â€” Madara/WordPress source
+  // voiranime.cx (VF + VOSTFR) â€” Madara/WordPress source
   if (VOIRANIME_SERVERS[server]) {
     const searchTitle = await resolveTitle();
     if (!searchTitle) return sendNotFound("Could not resolve anime title");

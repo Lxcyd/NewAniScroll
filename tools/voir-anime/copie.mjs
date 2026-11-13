@@ -31,7 +31,7 @@ import { lireMeta, ancrer as ancrerParEmpreinte } from "./empreinte.mjs";
 
 const JOURS_VIE = 14;
 const JOURS_ANCRE = 7; // une page sans ancre est recherchee a nouveau apres ce delai
-const VA = "https://voir-anime.to";
+const VA = "https://voiranime.cx";
 const args = Object.fromEntries(process.argv.slice(2).map((a) => {
   const [k, ...v] = a.replace(/^--/, "").split("=");
   return [k, v.length ? v.join("=") : "1"];

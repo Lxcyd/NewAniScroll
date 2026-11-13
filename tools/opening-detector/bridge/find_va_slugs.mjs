@@ -19,7 +19,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
-const VOIRANIME_BASE = "https://voir-anime.to";
+const VOIRANIME_BASE = "https://voiranime.cx";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const PAUSE_MS = 300;   // la meme IP sert le lot ; on ne la brule pas pour un dataset
