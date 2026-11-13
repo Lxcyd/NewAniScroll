@@ -16,6 +16,7 @@
 // Sortie : UNE ligne JSON — { ok, host, episodes: [{ep, url, isM3U8}], errors }
 
 import { getExtractor, VIDMOLY_HOST_RE } from "../../lib/extractors.js";
+import { parsePanneau, premiere, adresseReelle } from "../anime-sama/format-panneau.mjs";
 
 // ⚠️ La famille Vidmoly (vidmoly.*, ansembed.net, voembed.net) NE PASSE PAS par
 // `getExtractor`. `lib/extractors.js` extrait deliberement via le Worker
@@ -76,19 +77,13 @@ async function fetchText(url) {
   return r.text();
 }
 
-/** episodes.js declare une liste d'URLs d'embed par lecteur : `var eps1 = [...]`. */
-function parseEpisodesJs(js) {
-  const arrays = [];
-  const re = /var\s+eps\d+\s*=\s*\[([^\]]*)\]/g;
-  let m;
-  while ((m = re.exec(js)) !== null) {
-    const urls = [];
-    const ure = /['"]([^'"]+)['"]/g;
-    let um;
-    while ((um = ure.exec(m[1])) !== null) urls.push(um[1]);
-    if (urls.length) arrays.push(urls);
-  }
-  return arrays;
+/* Format anime-sama du 12/11/2026 (episodes.js en 404, listes dans la page du
+   panneau, adresse par lien.php) : cf. tools/anime-sama/format-panneau.mjs. */
+async function lireListes(slug, seasonDir, lang) {
+  const ref = `${BASE}/catalogue/${slug}/${seasonDir}/${lang}/`;
+  const arrays = parsePanneau(await fetchText(ref));
+  if (arrays.length) return arrays;
+  return parsePanneau(await fetchText(`${ref}episodes.js`)); // ancien format
 }
 
 // Le nom d'hote sous lequel chaque lecteur apparait dans episodes.js. ansembed
@@ -111,7 +106,7 @@ function findHostArray(arrays, host) {
   const needles = HOST_MATCH[host] || [host];
   for (const needle of needles) {
     for (const arr of arrays) {
-      if (arr.length && arr[0].toLowerCase().includes(needle)) return arr;
+      if (premiere(arr).toLowerCase().includes(needle)) return arr;
     }
   }
   return null;
@@ -129,8 +124,7 @@ async function main() {
   const out = { ok: false, host, episodes: [], errors: [] };
 
   try {
-    const js = await fetchText(`${BASE}/catalogue/${slug}/${seasonDir}/${lang}/episodes.js`);
-    const arr = findHostArray(parseEpisodesJs(js), host);
+    const arr = findHostArray(await lireListes(slug, seasonDir, lang), host);
     if (!arr) {
       // Distinguer « non propose par le catalogue » d'une panne : les logs qui
       // confondent les deux ont deja coute une soiree de faux diagnostic.
@@ -139,12 +133,13 @@ async function main() {
       return;
     }
     for (let ep = start; ep <= end; ep++) {
-      const embed = arr[ep - 1];
+      let embed = arr[ep - 1];
       if (!embed) {
         out.errors.push(`ep ${ep}: pas d'embed a l'index ${ep - 1}`);
         continue;
       }
       try {
+        embed = await adresseReelle(embed, fetchText, BASE);
         let res;
         if (VIDMOLY_HOST_RE.test(embed)) {
           res = await extractVidmolyLocal(embed);   // jamais via le Worker, cf. plus haut

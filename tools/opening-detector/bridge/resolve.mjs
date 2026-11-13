@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { getExtractor, extractMegaplay } from "../../../lib/extractors.js";
 import { getPartsBySlug } from "../../../lib/multipartEpisodes.js";
 import { playlistDurations } from "../../../lib/hlsMerge.js";
+import { parsePanneau, premiere, adresseReelle } from "../../anime-sama/format-panneau.mjs";
 
 // proxy.aniscroll.com, NOT aniscroll-proxy.luc-deldem.workers.dev. The
 // workers.dev route was retired when the proxy moved to the custom domain (the
@@ -184,18 +185,13 @@ async function fetchPage(url) {
   }
 }
 
-function parseEpisodesJs(js) {
-  const arrays = [];
-  const re = /var\s+eps\d+\s*=\s*\[([^\]]*)\]/g;
-  let m;
-  while ((m = re.exec(js)) !== null) {
-    const urls = [];
-    const ure = /['"]([^'"]+)['"]/g;
-    let um;
-    while ((um = ure.exec(m[1])) !== null) urls.push(um[1]);
-    if (urls.length) arrays.push(urls);
-  }
-  return arrays;
+/* Format anime-sama du 12/11/2026 : cf. tools/anime-sama/format-panneau.mjs
+   (meme correctif que le pont v2). */
+async function lireListes(slug, seasonDir, lang) {
+  const ref = `${BASE}/catalogue/${slug}/${seasonDir}/${lang}/`;
+  const arrays = parsePanneau(await fetchPage(ref));
+  if (arrays.length) return arrays;
+  return parsePanneau(await fetchPage(`${ref}episodes.js`)); // ancien format
 }
 
 function hostOf(url) {
@@ -204,7 +200,7 @@ function hostOf(url) {
 
 function pickArray(arrays, hostKey) {
   for (const arr of arrays) {
-    if (arr.length && arr[0].toLowerCase().includes(hostKey)) return arr;
+    if (premiere(arr).toLowerCase().includes(hostKey)) return arr;
   }
   return null;
 }
@@ -289,8 +285,14 @@ async function extractRange(arr, hostKey, start, end) {
   }
 
   for (let ep = start; ep <= end; ep++) {
-    const embed = arr[ep - 1];
+    let embed = arr[ep - 1];
     if (!embed) { errors.push(`ep ${ep}: no embed`); continue; }
+    try {
+      embed = await adresseReelle(embed, fetchPage, BASE);
+    } catch (e) {
+      errors.push(`ep ${ep}: ${e.message}`);
+      continue;
+    }
     const r = await extractWithRetry(embed);
     if (r.throttled) {
       errors.push(`ep ${ep}: ${r.error}`);
@@ -595,8 +597,7 @@ async function main() {
   );
   if (needsEpisodesJs) {
     try {
-      const js = await fetchPage(`${BASE}/catalogue/${slug}/${seasonDir}/${lang}/episodes.js`);
-      arrays = parseEpisodesJs(js);
+      arrays = await lireListes(slug, seasonDir, lang);
     } catch (e) {
       out.errors.push(`episodes.js: ${e.message}`);
       // Only bail out here if nothing in the priority list can proceed
