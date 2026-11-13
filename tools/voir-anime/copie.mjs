@@ -74,7 +74,7 @@ async function catalogue() {
   const pages = new Map();
   for (const c of cartes) {
     const { texte } = await va(c);
-    for (const m of texte.matchAll(/<loc>https:\/\/voir-anime\.to\/anime\/([^/<]+)\/<\/loc>\s*<lastmod>([^<]+)</g)) {
+    for (const m of texte.matchAll(/<loc>https?:\/\/[^/<]+\/anime\/([^/<]+)\/<\/loc>\s*<lastmod>([^<]+)</g)) {
       pages.set(decodeURIComponent(m[1]), m[2]);
     }
   }

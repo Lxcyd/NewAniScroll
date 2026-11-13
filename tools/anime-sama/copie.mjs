@@ -183,18 +183,61 @@ async function fiche(slug) {
   };
 }
 
-/** Les listes `epsN` d'un panneau, ou null si le panneau n'existe pas. */
-async function panneau(slug, dossier, langue) {
-  const ref = `${AS}/catalogue/${slug}/${dossier}/${langue}/`;
-  const { status, texte } = await viaWorker(`${ref}episodes.js`, ref);
-  if (status !== 200) return null;
-  /* 200 sans aucune liste (« // // // ») : le panneau existe mais est VIDE.
-     On le distingue d'une erreur : l'alignement a besoin de sa place. */
-  if (!/var\s+eps\d+/.test(texte)) return [];
+/* Format du 12/11/2026 : episodes.js repond 404, les listes sont DANS la page
+   du panneau, en reperes « lien:<n> » ; epsMeta donne l'hote de chaque repere
+   (et un 2e element = video supprimee chez l'hote), epsJeton (24 h) ouvre
+   /api/lien.php?j=&l=<n> qui rend l'adresse reelle. Cf. parseAnimeSamaPanel
+   dans pages/api/v2/source/index.js.
+   Un repere devient la pseudo-adresse STABLE `https://<hote>/aslien/<n>` (sans
+   le jeton, qui change chaque jour) : c'est la cle des etats connus, et seule
+   une adresse a CONTROLER coute un appel a lien.php (cf. vieUneFois). */
+const ASLIEN = /^https:\/\/[^/]+\/aslien\/(\d+)$/;
+const aslien = new Map(); // pseudo-adresse -> { jeton, supprimee }
+
+function listesDe(texte) {
   return [...texte.matchAll(/var\s+(eps\d+)\s*=\s*\[([\s\S]*?)\];/g)].map((m) => ({
     liste: m[1],
     liens: [...m[2].matchAll(/['"]([^'"]*)['"]/g)].map((x) => x[1].trim()),
   }));
+}
+
+/** Les listes `epsN` d'un panneau, ou null si le panneau n'existe pas. */
+async function panneau(slug, dossier, langue) {
+  const ref = `${AS}/catalogue/${slug}/${dossier}/${langue}/`;
+  const page = await viaWorker(ref, ref);
+  if (page.status === 200 && /var\s+eps\d+/.test(page.texte)) {
+    let meta = {};
+    try { meta = JSON.parse(page.texte.match(/var\s+epsMeta\s*=\s*(\{[\s\S]*?\})\s*;/)?.[1] || "{}"); } catch { meta = {}; }
+    const jeton = page.texte.match(/var\s+epsJeton\s*=\s*"([^"]+)"/)?.[1] || "";
+    return listesDe(page.texte).map((l) => ({
+      liste: l.liste,
+      liens: l.liens.map((u) => {
+        if (!u.startsWith("lien:")) return u;
+        const n = u.slice(5), m = meta[n];
+        if (!Array.isArray(m) || !m[0]) return "";
+        const pseudo = `https://${m[0]}/aslien/${n}`;
+        aslien.set(pseudo, { jeton, supprimee: Boolean(m[1]) });
+        return pseudo;
+      }),
+    }));
+  }
+  // Ancien format (ou page sans listes) : episodes.js.
+  const { status, texte } = await viaWorker(`${ref}episodes.js`, ref);
+  if (status !== 200) return page.status === 200 && /panneauAnime|epsJeton/.test(page.texte) ? [] : null;
+  /* 200 sans aucune liste (« // // // ») : le panneau existe mais est VIDE.
+     On le distingue d'une erreur : l'alignement a besoin de sa place. */
+  if (!/var\s+eps\d+/.test(texte)) return [];
+  return listesDe(texte);
+}
+
+/** Pseudo-adresse « aslien » -> l'adresse reelle (null = pas de reponse exploitable). */
+async function adresseReelle(pseudo) {
+  const n = pseudo.match(ASLIEN)?.[1];
+  const info = aslien.get(pseudo);
+  if (!n || !info?.jeton) return null;
+  const { status, texte } = await viaWorker(`${AS}/api/lien.php?j=${info.jeton}&l=${n}`);
+  if (status !== 200) return null;
+  try { const u = JSON.parse(texte)?.u; return typeof u === "string" && /^https?:\/\//.test(u) ? u : null; } catch { return null; }
 }
 
 /** Vivant / mort / inconnu. Un parametre du jour contourne le cache 24 h du Worker. */
@@ -300,7 +343,16 @@ async function vie(url) {
     if (!(await attendreDeblocage())) return "inconnu:bloque";
   }
 }
-async function vieUneFois(urlBrut) {
+async function vieUneFois(pseudoOuUrl) {
+  /* Format du 12/11 : anime-sama marque lui-meme la video supprimee chez
+     l'hote (son lecteur l'affiche « morte ») ; sinon l'adresse se demande a
+     lien.php, une seule fois, et seulement pour un lien a controler. */
+  let urlBrut = pseudoOuUrl;
+  if (ASLIEN.test(pseudoOuUrl)) {
+    if (aslien.get(pseudoOuUrl)?.supprimee) return "mort";
+    urlBrut = await adresseReelle(pseudoOuUrl);
+    if (!urlBrut) return "inconnu:lien";
+  }
   /* Un embed vidmoly.to/.net/.biz se controle sur le miroir ansembed, meme
      slug : c'est la que le site le rejoue (lib/clientVidmoly.js), et vidmoly.to
      rend une page « Loading... » de verification ou ne repond pas (Mekakucity
