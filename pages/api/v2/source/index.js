@@ -944,7 +944,7 @@ function animeSamaLangDirs(langPath, exclude, slug) {
 /* v2 (13/11/2026) : nouveau format anime-sama (reperes « lien:<n°> »), les
    tableaux vides mis en cache par l'ancien lecteur d'episodes.js sont orphelins. */
 const EPISODES_KEY = (slug, seasonDir, langDir) =>
-  `asEps:v2:${slug}:${seasonDir}:${langDir}`;
+  `asEps:v3:${slug}:${seasonDir}:${langDir}`; // v3 : cases vides gardees (parseEpisodesJs)
 /* Assez long pour couvrir le fan-out d'un visiteur et de ses voisins immediats,
    assez court pour qu'un panneau repare se voie dans la minute qui suit. */
 const EPISODES_TTL_S = 300;
@@ -2703,14 +2703,28 @@ function parseEpisodesJs(jsContent) {
   const regex = /var\s+eps\d+\s*=\s*\[([^\]]*)\]/g;
   let match;
   while ((match = regex.exec(jsContent)) !== null) {
-    const urls = [];
-    // Extract all quoted strings from the array content
-    const urlRegex = /['"]([^'"]+)['"]/g;
-    let urlMatch;
-    while ((urlMatch = urlRegex.exec(match[1])) !== null) {
-      urls.push(urlMatch[1]);
+    /* JSON d'abord, en GARDANT les cases vides : la position est le numero
+       d'episode. Le format du 12/11/2026 bouche un trou par "" (Overgeared
+       VOSTFR : ["lien:74884","lien:74889","","lien:74897",…]) ; l'ancienne
+       regex sautait ce "" de travers et decalait toute la suite — l'ep 7
+       d'ansembed tombait a la mauvaise position et passait pour absent. */
+    let urls = null;
+    try {
+      const parsed = JSON.parse(`[${match[1].replace(/,\s*$/, "")}]`);
+      if (Array.isArray(parsed)) urls = parsed.map((u) => (typeof u === "string" ? u : ""));
+    } catch {
+      urls = null;
     }
-    if (urls.length > 0) arrays.push(urls);
+    if (!urls) {
+      // Ancien format (guillemets simples) : une chaine, vide ou non, par case.
+      urls = [];
+      const urlRegex = /'([^']*)'|"([^"]*)"/g;
+      let urlMatch;
+      while ((urlMatch = urlRegex.exec(match[1])) !== null) {
+        urls.push(urlMatch[1] ?? urlMatch[2] ?? "");
+      }
+    }
+    if (urls.some((u) => u)) arrays.push(urls);
   }
   return arrays;
 }
@@ -4305,7 +4319,8 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
   // d'un autre anime ; leurs URL en cache, gardees chaudes, sont orphelines.
   // v17 (13/11/2026) : anime-sama a change de format le 12/11 (reperes
   // « lien:<n°> », episodes.js en 404) ; toutes ses absences depuis sont fausses.
-  const v = FREMBED_SERVERS[server] ? "v15f2" : "v17";
+  // v18 : meme jour, les listes a case vide etaient decalees (parseEpisodesJs).
+  const v = FREMBED_SERVERS[server] ? "v15f2" : "v18";
   return `src:${v}:${server}:${aniId}:${episode}:${sub || "sub"}`;
 }
 
