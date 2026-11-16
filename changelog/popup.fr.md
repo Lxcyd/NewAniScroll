@@ -1,13 +1,16 @@
-## v0.0.8
+## v0.0.9
 
-🖥️ **Nouvelle page de visionnage** — toute la largeur de l'écran, un lecteur dimensionné sur votre fenêtre, et la **liste complète des épisodes** juste à côté : trois affichages, une recherche, les durées réelles et votre progression.
+👤 **Votre profil fait peau neuve** — un fond animé ou une illustration de votre anime préféré, votre avatar avec son cadre, et les badges que vous mettez en avant à côté de votre pseudo.
 
-⏰ **Prochain épisode** — un compte à rebours, la date de diffusion et un bouton **Ajouter un rappel**. Les épisodes qui ne sont pas encore sortis disparaissent de la liste.
+🧩 **Des widgets à composer** — reprendre la lecture, heatmap, calendrier du mois, répartition par statut… Ajoutez-les, déplacez-les, redimensionnez-les.
 
-⚡ **Les lecteurs classés selon leurs performances chez vous** — démarrage, coupures et qualité mesurés sur votre appareil, les plus rapides en tête. Et un ordre de préférence VOSTFR / VF / multi que vous définissez une fois.
+📋 **Votre liste, rangée par statut** — en cours, revisionnage, terminé… chacun sous son intertitre, avec recherche, filtres et trois affichages.
 
-🖼️ **Des vignettes d'épisode plus nettes** — quand TMDB propose plusieurs images, c'est celle que ses votes désignent qui est retenue.
+🏅 **Les badges** — plus d'une centaine à débloquer en regardant, certains secrets.
 
-🔢 **La numérotation des saisons corrigée** — Jujutsu Kaisen affichait deux « Saison 1 », Attack on Titan deux « Saison 3 ».
+🎨 **Le studio** — un bouton **Personnaliser le profil** pour tout régler, avec l'aperçu en direct.
 
-🔧 **Fondus au blanc, lumière d'ambiance et changements de lecteur intempestifs** — corrigés.
+![Aperçu et widgets](/changelog/v0.0.9/apercu.webp)
+![Ma liste, rangée par statut](/changelog/v0.0.9/liste.webp)
+![Les badges](/changelog/v0.0.9/badges.webp)
+![Le studio de personnalisation](/changelog/v0.0.9/studio.webp)

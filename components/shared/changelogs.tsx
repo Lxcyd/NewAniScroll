@@ -31,7 +31,7 @@ function hashStr(s: string): string {
  *  normalised file — the auto-display trigger. */
 function parsePopup(
   md: string,
-): { version: string; body: string; sig: string } | null {
+): { version: string; body: string; sig: string; images: PopupImage[] } | null {
   const text = md.replace(/\r\n/g, "\n").trim();
   if (!text) return null;
   // Hash the whole normalised file so any change (not only the version line)
@@ -45,8 +45,115 @@ function parsePopup(
   if (!version) return null;
   // Drop a leading `---` separator if present (optional).
   if ((lines[0] || "").trim() === "---") lines.shift();
-  const body = lines.join("\n").trim();
-  return { version, body, sig };
+  /* LES IMAGES (16/11, Luc) : toute ligne `![légende](url)` sort du texte et
+     rejoint le carrousel affiché à la fin, dans l'ordre du fichier. */
+  const images: PopupImage[] = [];
+  const kept = lines.filter((l) => {
+    const m = /^\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*$/.exec(l);
+    if (m) images.push({ alt: m[1], src: m[2] });
+    return !m;
+  });
+  const body = kept.join("\n").trim();
+  return { version, body, sig, images };
+}
+
+type PopupImage = { alt: string; src: string };
+
+/**
+ * Le carrousel des images de la popup : une image à la fois, flèches gauche et
+ * droite, points dessous (celui de l'image affichée allongé), glisser du doigt
+ * ou de la souris, flèches du clavier. Les images sont sur une même rangée
+ * (étirée à la plus haute), donc la popup ne change pas de taille en passant.
+ */
+function PopupCarousel({ images }: { images: PopupImage[] }) {
+  const [i, setI] = useState(0);
+  const [drag, setDrag] = useState(0);
+  const start = useRef<{ x: number; w: number } | null>(null);
+  const n = images.length;
+  const go = (k: number) => setI(Math.max(0, Math.min(n - 1, k)));
+
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    start.current = { x: e.clientX, w: e.currentTarget.clientWidth };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (start.current) setDrag(e.clientX - start.current.x);
+  };
+  const onUp = () => {
+    const s = start.current;
+    start.current = null;
+    if (s && Math.abs(drag) > Math.min(60, s.w / 5)) go(i + (drag < 0 ? 1 : -1));
+    setDrag(0);
+  };
+
+  const arrow = (dir: -1 | 1) => {
+    const off = dir < 0 ? i === 0 : i === n - 1;
+    return (
+      <button
+        type="button"
+        aria-label={dir < 0 ? "Previous" : "Next"}
+        disabled={off}
+        onClick={() => go(i + dir)}
+        className={`absolute top-1/2 ${dir < 0 ? "left-2" : "right-2"} z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/15 backdrop-blur transition hover:bg-black/80 disabled:pointer-events-none disabled:opacity-0`}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d={dir < 0 ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
+        </svg>
+      </button>
+    );
+  };
+
+  return (
+    <div
+      className="mt-3 outline-none"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") { e.preventDefault(); go(i - 1); }
+        if (e.key === "ArrowRight") { e.preventDefault(); go(i + 1); }
+      }}
+    >
+      <div className="relative overflow-hidden rounded-lg bg-black/30 ring-1 ring-white/10">
+        <div
+          className={`flex touch-pan-y select-none ${drag ? "" : "transition-transform duration-300 ease-out"}`}
+          style={{ transform: `translateX(calc(${-i * 100}% + ${drag}px))` }}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerCancel={onUp}
+        >
+          {images.map((im, k) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={k}
+              src={im.src}
+              alt={im.alt}
+              draggable={false}
+              loading={k === 0 ? "eager" : "lazy"}
+              className="block w-full shrink-0 object-contain"
+            />
+          ))}
+        </div>
+        {n > 1 ? arrow(-1) : null}
+        {n > 1 ? arrow(1) : null}
+      </div>
+      {images[i]?.alt ? <p className="mt-2 text-center text-xs text-gray-400">{images[i].alt}</p> : null}
+      {n > 1 ? (
+        <div className="mt-2 flex justify-center gap-1.5">
+          {images.map((_, k) => (
+            <button
+              key={k}
+              type="button"
+              aria-label={`${k + 1} / ${n}`}
+              aria-current={k === i}
+              onClick={() => go(k)}
+              className={`h-2 rounded-full transition-all ${k === i ? "w-5 bg-action" : "w-2 bg-white/25 hover:bg-white/45"}`}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** Read the dismissed-signature set from localStorage (comma-separated). */
@@ -126,6 +233,7 @@ export default function ChangeLogs() {
   let [isOpen, setIsOpen] = useState(false);
   let [version, setVersion] = useState<string | null>(null);
   let [body, setBody] = useState<string>("");
+  const [images, setImages] = useState<PopupImage[]>([]);
   // Content signature of the currently-shown popup, used to record dismissal.
   let [sig, setSig] = useState<string | null>(null);
   let completeButtonRef = useRef(null);
@@ -176,6 +284,7 @@ export default function ChangeLogs() {
       if (active) {
         setVersion(active.version);
         setBody(active.body);
+        setImages(active.images);
         setSig(active.sig);
       }
       // Show only if NONE of this release's signatures have been dismissed yet.
@@ -227,7 +336,7 @@ export default function ChangeLogs() {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full max-w-lg transform overflow-hidden rounded bg-secondary p-6 text-left align-middle shadow-xl transition-all">
+                <Dialog.Panel className={`w-full ${images.length ? "max-w-2xl" : "max-w-lg"} transform overflow-hidden rounded bg-secondary p-6 text-left align-middle shadow-xl transition-all`}>
                   <Dialog.Title
                     as="h3"
                     className="text-lg font-medium leading-6 text-gray-100"
@@ -274,6 +383,8 @@ export default function ChangeLogs() {
                       </p>
                     ))}
                   </ChangelogsVersions>
+
+                  {images.length ? <PopupCarousel images={images} /> : null}
 
                   <div className="mt-2 text-gray-400 text-sm">
                     <p>{t("changelog.seeFull")}</p>

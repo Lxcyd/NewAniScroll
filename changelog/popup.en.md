@@ -1,13 +1,16 @@
-## v0.0.8
+## v0.0.9
 
-🖥️ **New watch page** — the full width of the screen, a player sized from your window, and the **complete episode list** right beside it: three layouts, search, real runtimes and your progress.
+👤 **A brand-new profile** — an animated background or artwork from your favourite anime, your avatar with its frame, and the badges you choose to show next to your name.
 
-⏰ **Next episode** — a countdown, the air date and an **Add a reminder** button. Episodes that haven't aired yet disappear from the list.
+🧩 **Widgets you arrange yourself** — continue watching, heatmap, monthly calendar, status breakdown… Add them, move them, resize them.
 
-⚡ **Servers ranked on how they perform for you** — startup, stalls and quality measured on your device, the fastest first. Plus a sub / dub / multi preference order you set once.
+📋 **Your list, grouped by status** — watching, rewatching, completed… each under its own heading, with search, filters and three layouts.
 
-🖼️ **Sharper episode thumbnails** — when TMDB offers several images, the one its votes single out is the one used.
+🏅 **Badges** — over a hundred to unlock as you watch, some of them secret.
 
-🔢 **Season numbering fixed** — Jujutsu Kaisen listed two "Season 1", Attack on Titan two "Season 3".
+🎨 **The studio** — one **Customize profile** button to set it all up, with a live preview.
 
-🔧 **Fades from white, ambient light and players switching on their own** — all fixed.
+![Overview and widgets](/changelog/v0.0.9/apercu.webp)
+![My list, grouped by status](/changelog/v0.0.9/liste.webp)
+![Badges](/changelog/v0.0.9/badges.webp)
+![The customization studio](/changelog/v0.0.9/studio.webp)
