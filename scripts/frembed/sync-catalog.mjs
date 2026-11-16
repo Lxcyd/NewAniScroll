@@ -40,14 +40,36 @@ const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
+/* frembed repond parfois 500 (ou coupe) sur sa liste, apres ~30 s, puis va bien
+   la nuit suivante (echecs du 12/11 et du 15/11) : 4 essais espaces de 30 s,
+   60 s, 90 s avant d'abandonner. Un 4xx, lui, ne se rejoue pas. */
+async function fetchListe(n) {
+  for (let essai = 1; ; essai++) {
+    let res, err;
+    try {
+      res = await fetch(`${BASE}/api/public/v1/anime?page=${n}`, {
+        headers: { "User-Agent": UA, Accept: "application/json" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok || res.status < 500) return res;
+    } catch (e) {
+      err = e;
+    }
+    if (essai >= 4) {
+      if (res) return res;
+      throw err;
+    }
+    console.warn(`[frembed] page ${n} : ${res ? `HTTP ${res.status}` : err?.message}, essai ${essai}/4, nouvel essai dans ${30 * essai} s`);
+    await new Promise((r) => setTimeout(r, 30_000 * essai));
+  }
+}
+
 async function page(n) {
   /* Le domaine de frembed demenage (casa -> surf le 19/09). On SUIT la
      redirection et on repart de l'origine d'arrivee, comme le fait la route
      /api/v2/source : un demenagement ne doit pas faire echouer la synchro. */
-  const res = await fetch(`${BASE}/api/public/v1/anime?page=${n}`, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    redirect: "follow",
-  });
+  const res = await fetchListe(n);
   if (!res.ok) throw new Error(`frembed /anime?page=${n} → HTTP ${res.status}`);
   const json = await res.json();
   const r = json?.result;
