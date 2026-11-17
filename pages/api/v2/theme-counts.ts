@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchByMal, malIdsOf, pickSongs, songSlug } from "@/lib/music/anisongdb";
 import { aplSongsOf } from "@/lib/db/aniplaylistSongs";
-import { sameTitle, titleKey } from "@/lib/music/titleKey";
+import { sameSong } from "@/lib/music/titleKey";
 
 /**
  * Le nombre de génériques de plusieurs animés d'un coup — la ligne de chaque
@@ -45,36 +45,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     "&include=resources,animethemes&fields[anime]=id&fields[animetheme]=id,slug" +
     "&fields[resource]=external_id,site&page[size]=100";
   try {
-    const r = await fetch(url, {
-      headers: { "User-Agent": "NewAniScroll/1.0 (+studio-music)", Accept: "application/json" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) throw new Error(`animethemes ${r.status}`);
-    const d = await r.json();
     const counts: Record<number, number> = Object.fromEntries(ids.map((id) => [id, 0]));
     const slugs = new Map<number, Set<string>>();
-    for (const a of d?.anime ?? []) {
-      const list = Array.isArray(a?.animethemes) ? a.animethemes : [];
-      for (const res of a?.resources ?? []) {
-        const id = Number(res?.external_id);
-        if (res?.site === "AniList" && id in counts && list.length >= counts[id]) {
-          counts[id] = list.length;
-          slugs.set(id, new Set(list.map((t: any) => String(t?.slug ?? "").toUpperCase())));
+    let complete = true;
+    /* AnimeThemes EN PANNE (503 du 17/11/2026) : on compte quand même avec
+       AnisongDB et AniPlaylist, qui ont aussi les OP/ED — au lieu de rendre
+       `{}` et des lignes muettes. Réponse non gardée (cache court). */
+    try {
+      const r = await fetch(url, {
+        headers: { "User-Agent": "NewAniScroll/1.0 (+studio-music)", Accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) throw new Error(`animethemes ${r.status}`);
+      const d = await r.json();
+      for (const a of d?.anime ?? []) {
+        const list = Array.isArray(a?.animethemes) ? a.animethemes : [];
+        for (const res of a?.resources ?? []) {
+          const id = Number(res?.external_id);
+          if (res?.site === "AniList" && id in counts && list.length >= counts[id]) {
+            counts[id] = list.length;
+            slugs.set(id, new Set(list.map((t: any) => String(t?.slug ?? "").toUpperCase())));
+          }
         }
       }
+    } catch (e: any) {
+      console.warn("[theme-counts]", e?.message);
+      complete = false;
     }
-    let complete = true;
     /* Les titres déjà comptés (AnisongDB), pour ne pas compter deux fois un
        morceau qu'AniPlaylist a aussi. */
-    const titles = new Map<number, Set<string>>();
+    const titles = new Map<number, { title: string; artists: string[] }[]>();
     try {
       const mal = await malIdsOf(ids);
       const raw = await fetchByMal([...new Set(mal.values())]);
       for (const id of mal.keys()) {
         const have = slugs.get(id) ?? new Set<string>();
-        const seen = new Set<string>();
+        const seen: { title: string; artists: string[] }[] = [];
         for (const s of pickSongs(id, raw)) {
-          seen.add(titleKey(s.songName));
+          seen.push({ title: String(s.songName ?? ""), artists: s.songArtist ? [s.songArtist] : [] });
           const slug = songSlug(s);
           if (slug === null || (slug && !have.has(slug))) counts[id]++;
         }
@@ -90,11 +98,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
        qu'AnimeThemes a déjà. */
     const apl = await aplSongsOf(ids);
     for (const [id, list] of apl) {
-      const seen = titles.get(id) ?? new Set<string>();
-      const fresh = list.filter((x) => {
-        const k = titleKey(x.t);
-        return ![...seen].some((y) => sameTitle(k, y));
-      });
+      const seen = titles.get(id) ?? [];
+      const fresh = list.filter((x) => !seen.some((y) => sameSong({ title: x.t, artists: x.a ?? [] }, y)));
       const at = slugs.get(id) ?? new Set<string>();
       for (const k of ["op", "ed"] as const) {
         const theirs = fresh.filter((x) => x.k === k).length;

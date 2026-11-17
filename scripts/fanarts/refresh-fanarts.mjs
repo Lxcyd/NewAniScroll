@@ -55,6 +55,10 @@ const TV_ROTATION = 7;
 
 const LAST_CHECK_KEY = "fanart_last_check";
 const REQUEST_DELAY_MS = 1300;
+const ONLY = (() => {
+  const v = process.argv.find((x) => x.startsWith("--ids="));
+  return v ? new Set(v.slice(6).split(",").map(Number).filter(Boolean)) : null;
+})();
 
 // Same maps as bootstrap-fanarts.mjs — kept in sync manually.
 const TV_TYPE_MAP = {
@@ -230,9 +234,22 @@ async function main() {
     const format = String(row.format || "");
     const isMovie = format === "MOVIE";
 
-    if (isMovie && tmdb && changedMovieIds.has(tmdb)) {
+    /* --ids : ces animes seulement, changes ou non (17/11/2026 : les 229
+       animes qui venaient de recevoir leur identifiant par refresh-fribb). */
+    if (ONLY) {
+      if (!ONLY.has(Number(row.id))) continue;
+      if (isMovie && tmdb) toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
+      else if (tvdb) toRefresh.push({ id: Number(row.id), tvdb, isMovie: false });
+      else if (tmdb) toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
+      continue;
+    }
+    /* LES FILMS AUSSI TOURNENT (17/11/2026). Ils n'etaient revus que si
+       /movies/latest les annoncait : un film qui recoit son identifiant TMDB
+       apres coup (refresh-fribb) n'allait jamais chercher ses images. */
+    const tour = Number(row.id) % TV_ROTATION === slice;
+    if (isMovie && tmdb && (changedMovieIds.has(tmdb) || tour)) {
       toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
-    } else if (tvdb && (changedTvIds.has(tvdb) || (tvRotation && !isMovie && Number(row.id) % TV_ROTATION === slice))) {
+    } else if (tvdb && (changedTvIds.has(tvdb) || (tvRotation && !isMovie && tour))) {
       toRefresh.push({ id: Number(row.id), tvdb, isMovie: false });
     } else if (tmdb && changedMovieIds.has(tmdb)) {
       toRefresh.push({ id: Number(row.id), tmdb, isMovie: true });
@@ -265,6 +282,8 @@ async function main() {
 
   const dt = Math.round((Date.now() - t0) / 1000);
   console.log(`\n✓ Refresh done in ${Math.floor(dt / 60)}m${dt % 60}s — ${added} new image(s), ${errors} error(s)`);
+  // --ids : un rattrapage ponctuel ne touche ni au bilan du cron ni a son curseur.
+  if (ONLY) return;
 
   const bilan = {
     at: nowS, since, tvLatest: tvLatest == null ? null : changedTvIds.size, moviesLatest: movieLatest == null ? null : changedMovieIds.size,

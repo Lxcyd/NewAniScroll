@@ -47,9 +47,9 @@ CREATE TABLE IF NOT EXISTS anime_fanarts (
   FOREIGN KEY (anime_id) REFERENCES anime(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_fanart_anime  ON anime_fanarts(anime_id);
+-- idx_fanart_anime retire le 17/11/2026 : l'index UNIQUE (anime_id, type, url) le couvre.
 CREATE INDEX IF NOT EXISTS idx_fanart_type   ON anime_fanarts(type);
-CREATE INDEX IF NOT EXISTS idx_fanart_label  ON anime_fanarts(nsfw_label);
+-- idx_fanart_label retire le 17/11/2026 : idx_fanart_classifier / idx_fanart_review commencent par nsfw_label.
 CREATE INDEX IF NOT EXISTS idx_fanart_unclassified ON anime_fanarts(classified_at);
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -133,8 +133,8 @@ CREATE TABLE IF NOT EXISTS wallhaven_image (
 -- seul anime, pas les centaines de milliers de la table.
 CREATE INDEX IF NOT EXISTS idx_wh_anime ON wallhaven_image(anime_id, favorites DESC);
 -- La file du moissonneur de tags, et celle du rafraichissement quotidien.
-CREATE INDEX IF NOT EXISTS idx_wh_atag  ON wallhaven_image(tagged_at);
-CREATE INDEX IF NOT EXISTS idx_wh_frais ON wallhaven_image(wh_created_at);
+-- idx_wh_atag / idx_wh_frais retires le 17/11/2026 : seuls tags.mjs et quotidien.mjs (remplaces
+-- le 31/10) filtraient sur ces colonnes ; 560 000 lignes d'index pour rien.
 
 -- Les tags BRUTS. Ils sont conserves tels quels pour que corriger la regle de
 -- repliage (lib/wallhaven/criteres.js) ne demande AUCUN re-moissonnage : si la

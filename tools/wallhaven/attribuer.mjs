@@ -26,8 +26,14 @@
  *  - Les lignes de l'ancienne recherche par titre restent si les tags
  *    confirment la serie (serieConfirmee), et partent s'ils la dementent.
  *
- *   node tools/wallhaven/attribuer.mjs [--tout] [--essai=wh_id,…]
+ *   node tools/wallhaven/attribuer.mjs [--tout] [--essai=wh_id,…] [--diff [--appliquer]]
  *     --tout : rejoue toutes les images etiquetees (apres un changement de regle)
+ *       ⚠️ reecrit CHAQUE ligne (~900 k ecritures Turso, quota 10 M/mois) :
+ *       preferer --diff apres un changement de regle.
+ *     --diff : rejoue tout SANS rien reecrire de ce qui ne change pas ; compte
+ *       les lignes a ajouter / retirer par anime. --appliquer ecrit ces seuls
+ *       ecarts, et retire les lignes jamais etiquetees (ancienne recherche par
+ *       titre : aucun tag ne dit de quel anime elles parlent).
  *     --essai : affiche l'attribution de ces images, n'ecrit rien
  */
 import {
@@ -39,6 +45,8 @@ chargerEnv();
 const args = process.argv.slice(2);
 const tout = args.includes("--tout");
 const essai = args.find((a) => a.startsWith("--essai="))?.slice(8).split(",") || null;
+const diff = args.includes("--diff");
+const appliquer = diff && args.includes("--appliquer");
 
 const anime = baseAnime();
 const db = baseImages();
@@ -83,27 +91,57 @@ for (let i = 0; i < ids.length; i += 500) {
     const t = [x.en, x.ro, x.na].filter(Boolean).map(String);
     titres.set(id, [...t, ...syn]);
     const ajouter = (f) => (parForme.get(f) || parForme.set(f, new Set()).get(f)).add(id);
-    for (const s of t) for (const f of formes(s)) ajouter(f);
+    /* La parenthese d'un titre AniList est une precision d'edition, pas un mot
+       du titre : « HUNTER×HUNTER (2011) » / « Hunter x Hunter (2011) » ne
+       rencontrait JAMAIS le tag « Hunter x Hunter » (17/11/2026 : 12 images en
+       base contre 175 sur Wallhaven). On ajoute la forme sans parenthese. */
+    const sansParenthese = (s) => s.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+    for (const s of t) for (const f of formes(s).concat(formes(sansParenthese(s)))) ajouter(f);
     // Synonymes : souvent des abreviations (« SnK », « AoT ») ; 4 caracteres au moins.
     for (const s of syn) for (const f of formes(s)) if (f.length >= 4) ajouter(f);
     let rel = []; try { rel = JSON.parse(String(x.rel || "[]")); } catch {}
     for (const e of rel) {
       const [type, autre] = String(e).split(":");
-      if (LIENS.has(type)) relations.push([id, Number(autre)]);
+      if (LIENS.has(type)) relations.push([id, Number(autre), type]);
     }
   }
 }
-// Franchises : union-find sur les relations entre animes connus.
-const parent = new Map(ids.map((id) => [id, id]));
-const racine = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
-for (const [a, b] of relations) if (parent.has(b)) parent.set(racine(a), racine(b));
-const franchise = new Map();
-for (const id of ids) { const r = racine(id); (franchise.get(r) || franchise.set(r, []).get(r)).push(id); }
-const membres = (id) => {
-  const f = franchise.get(racine(id)) || [id];
-  return f.length > 200 ? [id] : f; // garde-fou : un pont absurde ne doit pas tout relier
-};
-console.error(`${ids.length} animes, ${parForme.size} formes de titre, ${franchise.size} franchises (${duree(Date.now() - t0)})`);
+/* Franchises : un PARCOURS par image, plus une union-find globale.
+   L'union-find reliait tout ce qui se touche, et un crossover touche deux
+   series : « Dream 9 Toriko & One Piece & Dragon Ball Z » soudait One Piece,
+   Dragon Ball et Toriko en une « franchise » de 101 animes — 1 100 images
+   Dragon Ball rangees sous One Piece (constat du 17/11/2026). Desormais :
+     - SEQUEL / PREQUEL : toujours suivis (c'est la meme oeuvre qui continue) ;
+     - PARENT / SIDE_STORY / SUMMARY : suivis SEULEMENT si l'oeuvre d'arrivee
+       est nommee par les tags de l'image (serieConfirmee, par prefixe :
+       « One Piece » confirme « One Piece Film: Red », pas « Dream 9 »). */
+const SUITES = new Set(["SEQUEL", "PREQUEL"]);
+const voisins = new Map(); // id -> [[autre, type]]
+const lier = (a, b, type) => (voisins.get(a) || voisins.set(a, []).get(a)).push([b, type]);
+for (const [a, b, type] of relations) {
+  if (!titres.has(b)) continue;
+  lier(a, b, type);
+  lier(b, a, SUITES.has(type) ? type : "SIDE_STORY"); // l'inverse d'un lien large reste large
+}
+function membres(depart, tags) {
+  const vus = new Set([depart]);
+  const file = [depart];
+  const confirme = new Map();
+  while (file.length && vus.size < 200) {
+    const x = file.shift();
+    for (const [y, type] of voisins.get(x) || []) {
+      if (vus.has(y)) continue;
+      if (!SUITES.has(type)) {
+        if (!confirme.has(y)) confirme.set(y, serieConfirmee(tags, titres.get(y) || []) === 1);
+        if (!confirme.get(y)) continue;
+      }
+      vus.add(y);
+      file.push(y);
+    }
+  }
+  return vus;
+}
+console.error(`${ids.length} animes, ${parForme.size} formes de titre, ${relations.length} relations (${duree(Date.now() - t0)})`);
 
 /* ── Les tags ─────────────────────────────────────────────────────────────── */
 const SURES = new Set(["Series", "Anime & Manga", "Movies", "Games", "Visual Novels", "Television", "Literature",
@@ -151,16 +189,22 @@ function animesDuTag(tagId, nom, categorie) {
   return out;
 }
 
-if (tout && !essai) await db.execute("UPDATE wallhaven_brut SET attribue_at = NULL WHERE tagged_at IS NOT NULL");
+if (tout && !essai && !diff) await db.execute("UPDATE wallhaven_brut SET attribue_at = NULL WHERE tagged_at IS NOT NULL");
 
 /* ── Le travail ───────────────────────────────────────────────────────────── */
 const COLS = "wh_id, favorites, views, width, height, path, thumb, source, colors, wh_created_at, facet_type, has_character, is_scenery, tagged_at, fetched_at";
 let images = 0, attribuees = 0, lignesEcrites = 0, lignesRetirees = 0, sansAnime = 0;
+let curseur = "";
+const ecarts = new Map(); // --diff : anime -> { plus, moins }
+const ecart = (id, k) => { const e = ecarts.get(id) || ecarts.set(id, { plus: 0, moins: 0 }).get(id); e[k]++; };
 for (;;) {
   const lot = essai
     ? (await db.execute({ sql: `SELECT ${COLS} FROM wallhaven_brut WHERE wh_id IN (${essai.map(() => "?").join(",")})`, args: essai })).rows
-    : (await db.execute(`SELECT ${COLS} FROM wallhaven_brut WHERE tagged_at IS NOT NULL AND attribue_at IS NULL LIMIT 300`)).rows;
+    : diff
+      ? (await db.execute({ sql: `SELECT ${COLS} FROM wallhaven_brut WHERE tagged_at IS NOT NULL AND wh_id > ? ORDER BY wh_id LIMIT 300`, args: [curseur] })).rows
+      : (await db.execute(`SELECT ${COLS} FROM wallhaven_brut WHERE tagged_at IS NOT NULL AND attribue_at IS NULL LIMIT 300`)).rows;
   if (!lot.length) break;
+  curseur = String(lot[lot.length - 1].wh_id);
   const whIds = lot.map((r) => String(r.wh_id));
   const ph = whIds.map(() => "?").join(",");
   const tagsPar = new Map();
@@ -179,7 +223,7 @@ for (;;) {
     const directs = new Set();
     if (Number(img.tagged_at) > 0) for (const t of tags) for (const id of animesDuTag(t.id, t.name, t.category)) directs.add(id);
     const voulus = new Set();
-    for (const id of directs) for (const m of membres(id)) voulus.add(m);
+    for (const id of directs) for (const m of membres(id, tags)) voulus.add(m);
     // Lignes de l'ancienne recherche : gardees si les tags confirment la serie.
     for (const id of existantes.get(wh) || []) {
       if (voulus.has(id)) continue;
@@ -192,7 +236,7 @@ for (;;) {
         const a = animesDuTag(t.id, t.name, t.category);
         if (a.size) console.log(`     <- « ${t.name} » (${defs.get(t.id)?.category || t.category}) : ${[...a].map((id) => titres.get(id)?.[0]).join(", ")}`);
       }
-      console.log(`   franchise : ${voulus.size} anime(s)`);
+      console.log(`   franchise : ${voulus.size} anime(s)`, process.env.WH_DEBUG ? [...voulus].map((id) => titres.get(id)?.[0]).join(" ; ") : "");
       continue;
     }
     if (voulus.size) attribuees++; else sansAnime++;
@@ -200,9 +244,12 @@ for (;;) {
       if (!voulus.has(id) && Number(img.tagged_at) > 0) {
         ops.push({ sql: "DELETE FROM wallhaven_image WHERE anime_id = ? AND wh_id = ?", args: [id, wh] });
         lignesRetirees++;
+        if (diff) ecart(id, "moins");
       }
     }
     for (const id of voulus) {
+      if (diff && existantes.get(wh)?.has(id)) continue; // inchangee : pas d'ecriture
+      if (diff) ecart(id, "plus");
       ops.push({
         sql: `INSERT INTO wallhaven_image (anime_id, wh_id, favorites, views, width, height, path, thumb, source, colors,
                 wh_created_at, facet_type, has_character, is_scenery, serie_ok, tagged_at, fetched_at)
@@ -216,10 +263,25 @@ for (;;) {
       });
       lignesEcrites++;
     }
-    ops.push({ sql: "UPDATE wallhaven_brut SET attribue_at = ? WHERE wh_id = ?", args: [maintenant(), wh] });
+    if (!diff) ops.push({ sql: "UPDATE wallhaven_brut SET attribue_at = ? WHERE wh_id = ?", args: [maintenant(), wh] });
   }
   if (essai) break;
+  if (diff && !appliquer) {
+    process.stderr.write(`\r${images} images : ${lignesEcrites} lignes a ajouter, ${lignesRetirees} a retirer`);
+    continue;
+  }
   for (let i = 0; i < ops.length; i += 400) await db.batch(ops.slice(i, i + 400), "write");
   process.stderr.write(`\r${images} images : ${attribuees} attribuees, ${sansAnime} sans anime, ${lignesEcrites} lignes ecrites, ${lignesRetirees} retirees`);
+}
+if (diff) {
+  const jamais = (await db.execute("SELECT COUNT(*) n FROM wallhaven_image WHERE tagged_at IS NULL")).rows[0].n;
+  console.error(`
+${lignesEcrites} lignes a ajouter, ${lignesRetirees} a retirer, ${jamais} jamais etiquetees (a retirer)`);
+  const top = [...ecarts].sort((a, b) => (b[1].moins + b[1].plus) - (a[1].moins + a[1].plus));
+  for (const [id, e] of top) console.log(`${id}	+${e.plus}	-${e.moins}	${titres.get(id)?.[0] ?? "?"}`);
+  if (appliquer) {
+    await db.execute("DELETE FROM wallhaven_image WHERE tagged_at IS NULL");
+    console.error(`${jamais} lignes jamais etiquetees retirees`);
+  }
 }
 console.error(`\nfini en ${duree(Date.now() - t0)}`);

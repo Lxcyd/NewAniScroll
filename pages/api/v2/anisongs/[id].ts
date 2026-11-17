@@ -3,7 +3,7 @@ import { fetchByMal, malIdsOf, pickSongs, type AnisongRaw } from "@/lib/music/an
 import { seasonCacheGet, seasonCacheGetEntry, seasonCacheSet } from "@/lib/db/seasonCache";
 import { getAplSongs, type AplSong } from "@/lib/db/aniplaylistSongs";
 import { THEMES_KEY } from "@/lib/animethemes/themesKey";
-import { sameTitle, titleKey } from "@/lib/music/titleKey";
+import { sameSong, titleKey } from "@/lib/music/titleKey";
 import { deezerTrack, norm as dzNorm } from "@/lib/music/deezer";
 
 /**
@@ -169,18 +169,18 @@ async function withAniplaylist(anilistId: number, malId: number | undefined, son
   /* La liste AnimeThemes telle que le studio la reçoit (clé sans MAL id),
      sinon celle de la page anime (clé MAL). */
   const themes =
-    (await seasonCacheGet<{ slug: string; song?: string | null }[]>(THEMES_KEY(anilistId, null))) ??
-    (malId ? await seasonCacheGet<{ slug: string; song?: string | null }[]>(THEMES_KEY(anilistId, malId)) : null) ??
+    (await seasonCacheGet<{ slug: string; song?: string | null; artists?: string[] }[]>(THEMES_KEY(anilistId, null))) ??
+    (malId ? await seasonCacheGet<{ slug: string; song?: string | null; artists?: string[] }[]>(THEMES_KEY(anilistId, malId)) : null) ??
     [];
-  const known = [...songs.map((x) => titleKey(x.song)), ...themes.map((x) => titleKey(x.song))].filter(Boolean);
+  const known = [
+    ...songs.map((x) => ({ title: x.song, artists: x.artists ?? [] })),
+    ...themes.map((x) => ({ title: x.song, artists: x.artists ?? [] })),
+  ].filter((x) => titleKey(x.title));
   const num = (slug: string, k: string) => (slug.toUpperCase().startsWith(k) ? Number(/\d+/.exec(slug)?.[0] ?? 0) : 0);
   const next = { OP: 0, ED: 0, IN: 0 };
   for (const x of [...songs, ...themes]) for (const k of ["OP", "ED", "IN"] as const) next[k] = Math.max(next[k], num(x.slug, k));
   const fresh = apl
-    .filter((x) => {
-      const k = titleKey(x.t);
-      return !known.some((y) => sameTitle(k, y));
-    })
+    .filter((x) => !known.some((y) => sameSong({ title: x.t, artists: x.a ?? [] }, y)))
     /* OP, puis ED, puis les inserts ; dans chaque groupe, le plus écouté d'abord. */
     .sort((a, b) => KIND_ORDER[a.k] - KIND_ORDER[b.k] || (b.s ?? 0) - (a.s ?? 0));
   const row = (x: AplSong): AnisongRow => {

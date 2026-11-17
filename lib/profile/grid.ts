@@ -348,7 +348,10 @@ function cleanOptions(s: unknown): Record<string, boolean | string> | null {
     if (k.length > 32) continue;
     /* `affOrder` / `affHidden` : des tags d'amis (6 car.), jusqu'à 500 amis. */
     /* `bingoCustom` : les objectifs écrits à la main (titre 40 + description 90). */
-    const cap = k === "themes" || k === "affOrder" || k === "affHidden" || k === "bingoCustom" || k === "bingoLabels" ? MAX_THEMES_VALUE : LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
+    /* `bingoCells` / `bingoSeason` aussi (17/11/2026) : 25 cases d'un 5×5 en
+       tags longs (« rt:Cute Girls Doing Cute Things ») dépassent 800 caractères,
+       et la grille entière était jetée ici sans un mot. */
+    const cap = k === "themes" || k === "affOrder" || k === "affHidden" || k === "bingoCustom" || k === "bingoLabels" || k === "bingoCells" || k === "bingoSeason" ? MAX_THEMES_VALUE : LONG_KEYS.has(k) ? MAX_LIST_VALUE : MAX_VALUE;
     if (typeof v !== "boolean" && !(typeof v === "string" && v.length <= cap)) continue;
     out[k] = v;
     if (Object.keys(out).length >= MAX_OPTIONS) break;

@@ -1,5 +1,6 @@
 import { getFanartsClient } from "@/lib/db/turso-fanarts";
 import { GALLERY_TYPES, isAcceptableLang } from "@/components/anime/v2/helpers";
+import { getFribbEntry } from "@/lib/fribb/fribbMap";
 
 /* Cloudflare Worker proxy in front of fanart.tv. Cached 1 year on
    330+ edges -> first paint of clearart/banner/cover is ~50ms worldwide
@@ -93,7 +94,15 @@ export async function loadFanarts(
      14 au 21/10, 80 % du quota Turso du mois. Le `+` interdit l'index sur
      cette colonne ; EXPLAIN QUERY PLAN doit dire `USING INDEX … (anime_id=?)`. */
   try {
-    const r = await db.execute({
+    /* LES IMAGES D'UNE AUTRE SAISON (17/11/2026). fanart.tv range ses images
+       par série TVDB : toutes les saisons d'AniList partagent la même, et la
+       page de la saison 1 de Shingeki no Kyojin proposait les affiches des
+       saisons 2, 3 et 4 (Final Season comprise). Fribb dit de quelle saison
+       TVDB est cette entrée : une image `season*` numérotée pour une autre est
+       écartée. Sans saison connue (film, entrée absente de Fribb), rien ne
+       change. Une ligne Turso, gardée en mémoire par fribbMap. */
+    const [r, fribb] = await Promise.all([
+      db.execute({
       sql: `SELECT type, url, language, likes, season, nsfw_label, nsfw_score
               FROM anime_fanarts
              WHERE anime_id = ?
@@ -101,11 +110,17 @@ export async function loadFanarts(
                AND likes >= ?
              ORDER BY type, likes DESC`,
       args: [animeId, ...labels, minLikes],
-    });
+      }),
+      getFribbEntry(animeId).catch(() => null),
+    ]);
+    const saison = fribb?.tvdbSeason && fribb.tvdbSeason > 0 ? fribb.tvdbSeason : null;
 
     const types: Record<string, FanartRow[]> = {};
+    let total = 0;
     for (const row of r.rows) {
       const t = String(row.type);
+      if (saison != null && t.startsWith("season") && row.season != null && Number(row.season) !== saison) continue;
+      total++;
       if (!types[t]) types[t] = [];
       types[t].push({
         url: rewriteFanartUrl(String(row.url)),
@@ -120,7 +135,7 @@ export async function loadFanarts(
     return {
       animeId,
       includeNsfw,
-      total: r.rows.length,
+      total,
       types,
     };
   } catch (e: any) {

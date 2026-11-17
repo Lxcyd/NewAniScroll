@@ -636,7 +636,21 @@ export default function WidgetGrid({
       if (d) onMove({ clientX: d.px, clientY: d.py });
     };
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+    /* ÉCHAP ANNULE LE GESTE, et une fenêtre qui perd le focus (Alt-Tab, une
+       notification) le termine (17/11/2026) : sans `pointerup`, la carte
+       restait accrochée au curseur au retour. Échap rend la disposition
+       d'avant le geste ; la perte de focus pose la carte où elle est. */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const d = dragRef.current;
+      if (d) layoutRef.current = d.base;
+      endDrag();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", endDrag);
     return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", endDrag);
       window.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", endDrag);

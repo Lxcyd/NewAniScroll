@@ -130,10 +130,31 @@ async function main() {
       type: r.type ?? null,
     }));
 
+  /* SEULES LES LIGNES QUI CHANGENT SONT ECRITES (17/11/2026). Fribb publie
+     presque chaque jour, donc l'ETag change a chaque passage et les ~40 000
+     lignes etaient reecrites chaque semaine pour quelques dizaines de vraies
+     modifications — sur un quota Turso de 10 M d'ecritures par mois partage
+     par tout le projet. Une lecture de la table coute ~40 000 lignes LUES,
+     sur un quota cinquante fois plus large. */
+  const sig = (e) =>
+    [e.malId, e.tmdbTvId, e.tmdbMovieId, e.tvdbId, e.simklId, e.tmdbSeason, e.tvdbSeason, e.type].join("|");
+  const have = new Map();
+  for (const r of (await db.execute(
+    "SELECT anilist_id, mal_id, tmdb_tv_id, tmdb_movie_id, tvdb_id, simkl_id, tmdb_season, tvdb_season, type FROM fribb_map",
+  )).rows) {
+    have.set(
+      Number(r.anilist_id),
+      [r.mal_id, r.tmdb_tv_id, r.tmdb_movie_id, r.tvdb_id, r.simkl_id, r.tmdb_season, r.tvdb_season, r.type]
+        .map((v) => (v == null ? "" : String(v)))
+        .join("|"),
+    );
+  }
+  const changed = entries.filter((e) => have.get(e.anilistId) !== sig(e));
+
   const BATCH = 500;
   let written = 0;
-  for (let i = 0; i < entries.length; i += BATCH) {
-    const slice = entries.slice(i, i + BATCH);
+  for (let i = 0; i < changed.length; i += BATCH) {
+    const slice = changed.slice(i, i + BATCH);
     await db.batch(
       slice.map((e) => ({
         sql: `INSERT INTO fribb_map
@@ -156,9 +177,27 @@ async function main() {
     written += slice.length;
   }
 
+  /* LES IDENTIFIANTS TVDB / TMDB DE LA TABLE `anime` (17/11/2026). Le script
+     qui les posait a disparu en mai 2026 : depuis, aucun anime entre au
+     catalogue n'en avait — et refresh-fanarts ne lit que ces colonnes. Ni
+     Shingeki no Kyojin (mapping perdu), ni Mushoku Tensei III, ni Cyberpunk:
+     Edgerunners 2 n'allaient chercher leurs images fanart.tv. On COMBLE les
+     trous depuis fribb_map ; on n'ecrase jamais un identifiant deja pose (23
+     desaccords au 17/11, sans moyen de savoir qui a raison). */
+  const filled = await db.execute(`
+    UPDATE anime SET
+      tvdb_id = (SELECT f.tvdb_id FROM fribb_map f WHERE f.anilist_id = anime.id),
+      tmdb_id = (SELECT CASE WHEN f.type = 'MOVIE' THEN COALESCE(f.tmdb_movie_id, f.tmdb_tv_id)
+                             ELSE COALESCE(f.tmdb_tv_id, f.tmdb_movie_id) END
+                   FROM fribb_map f WHERE f.anilist_id = anime.id)
+    WHERE tvdb_id IS NULL AND tmdb_id IS NULL
+      AND EXISTS (SELECT 1 FROM fribb_map f WHERE f.anilist_id = anime.id
+                  AND (f.tvdb_id IS NOT NULL OR f.tmdb_tv_id IS NOT NULL OR f.tmdb_movie_id IS NOT NULL))`);
+
   if (etag) await setState(etag);
   console.log(
-    `✓ Fribb ingested: ${written} rows (skipped ${raw.length - entries.length} without anilist_id)`
+    `✓ Fribb ingested: ${written} changed rows of ${entries.length} (skipped ${raw.length - entries.length} without anilist_id); ` +
+      `${filled.rowsAffected} anime gained a TVDB/TMDB id`
   );
 }
 

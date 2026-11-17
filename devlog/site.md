@@ -6,6 +6,49 @@ ani.zip, Fribb).
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-17 — Audit des sources du studio : Wallhaven mal range, mappings fanart perdus, musiques en double
+
+Controle chiffre contre les sites eux-memes (API Wallhaven, fanart.tv, AniList, MyAnimeList,
+itemshop.gg, TMDB), pas contre nos totaux.
+
+- **Wallhaven, couverture** : 88 902 images en base pour 88 904 sur le site aux filtres de la
+  galerie (SFW, paysage, >= 1920x1080). Par serie, 97-100 % (le reste : < 4 favoris). Les « 250 000 »
+  de memoire = categorie Anime avec le sketchy (265 336) ; SFW toutes tailles = 164 738.
+- **Wallhaven, rangement — le gros defaut** : la franchise etait une union-find sur les relations
+  AniList, et un crossover soude deux series (« Dream 9 Toriko & One Piece & Dragon Ball Z » : 101
+  animes dans la « franchise » de DBZ, 1 121 images Dragon Ball sous One Piece ; Nisekoi sous
+  Bakemonogatari ; Love Live sous Yohane). Desormais un parcours par image : SEQUEL/PREQUEL suivis,
+  PARENT/SIDE_STORY/SUMMARY seulement si l'oeuvre d'arrivee est nommee par les tags (serieConfirmee).
+  Et la parenthese d'un titre AniList est retiree (« Hunter x Hunter (2011) » : 12 images -> 159).
+  `attribuer.mjs --diff [--appliquer]` n'ecrit que les ecarts : applique le 17/11, 259 000 lignes
+  retirees, 3 800 ajoutees, + 4 123 lignes jamais etiquetees de l'ancienne recherche par titre (dont
+  157 images devenues sketchy chez Wallhaven, collees a Lilac, Violet!?, ONE…).
+- **fanart.tv** : 20 titres compares a l'API, identiques a l'image pres. MAIS le script qui posait
+  `anime.tvdb_id/tmdb_id` a disparu en mai : aucun anime entre depuis n'avait d'identifiant, donc
+  refresh-fanarts ne le voyait jamais (SnK avait meme perdu le sien). refresh-fribb comble
+  maintenant ces trous depuis fribb_map (229 animes, dont SnK, Mushoku III, Edgerunners 2,
+  Kusuriya 3) et n'ecrit plus que les lignes Fribb changees (0 au lieu de 20 924 par passage). Les
+  films tournent aussi par septiemes (ils n'etaient revus que via /movies/latest). `--ids=` pour un
+  rattrapage ponctuel (lance sur les 1 929 animes mappes sans aucune image).
+- **Musique** : AnimeThemes en 503 le 17/11 -> theme-counts rendait `{}` (tout jete) et themes/[id]
+  rendait 0 theme malgre un cache d'une semaine. Corriges : comptes sans AnimeThemes, cache perime
+  servi. Doublons de romanisation entre AnisongDB et AniPlaylist (« Chu, Tayousei. » / « Taiyousei »,
+  « 2-oku » / « Nioku », « Haru » / « Hareru ») : `sameSong` (meme artiste + distance d'edition).
+  Contre MAL sur 14 titres : rien ne manque hors 2 ED absents d'AnisongDB (HxH « Understanding »,
+  Steins;Gate « Fake Verthandi »), a revoir quand AnimeThemes reviendra.
+- **Personnages** : identiques a AniList (comptes par pages ; le `pageInfo.total` d'AniList dit 500
+  partout, il ment). **Cadres** : 693/698 — `sync-avatar-frames.yml` (et `anilist-catalog.yml`)
+  ne sont pas sur main, leur cron n'a jamais tourne.
+- **Base** : index retires (idx_fanart_anime couvert par l'UNIQUE, idx_fanart_label par
+  idx_fanart_classifier, idx_wh_atag / idx_wh_frais des scripts remplaces) — query-cost inchange.
+  La copie morte d'`anime_fanarts` dans la base CACHE (123 918 lignes, figee au 31/10) supprimee
+  apres verification : toutes ses lignes sont dans la base fanarts. Consequence : le repli de
+  turso-fanarts.ts sur la base principale rend desormais des galeries vides, plus des images figees.
+- Fanart par saison : loadFanarts ecarte les `season*` numerotees pour une autre saison TVDB que
+  celle de l'entree (fribb_map.tvdb_season) — SnK S1 montrait les affiches de la Final Season.
+- **Studio** : Echap annule un glisser, une perte de focus le termine ; `bingoCells`/`bingoSeason`
+  bornes a 6000 car. (un 5x5 de tags longs depassait 800 et la grille etait jetee en silence).
+
 ## 2026-10-31 — Wallhaven : toute la categorie Anime, attribuee par les tags
 
 Etat trouve : l'aspiration du 13/09 avait tourne une fois, puis plus rien (ni tags, ni increment).

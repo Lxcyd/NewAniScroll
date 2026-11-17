@@ -120,6 +120,14 @@ export default async function handler(
     // Fail soft — an upstream hiccup shouldn't 500 the info page, and we DON'T
     // cache the failure (so a genuine outage recovers on the next view).
     res.setHeader("Cache-Control", "public, max-age=60, s-maxage=60");
+    /* UNE LISTE PÉRIMÉE VAUT MIEUX QUE RIEN (17/11/2026 : AnimeThemes en 503,
+       Frieren et Chainsaw Man rendaient 0 thème alors que leur liste d'il y a
+       dix jours dormait dans season_cache). Une liste pleine, même hors
+       délai, est servie — cache court, l'appel suivant retentera. */
+    if (entry?.value?.length) {
+      const [out, covers] = await Promise.all([withVideoIds(entry.value), withCovers(entry.value)]);
+      return res.status(200).json({ themes: out.themes, ...covers, stale: true });
+    }
     return res.status(200).json({ themes: [] });
   }
 
