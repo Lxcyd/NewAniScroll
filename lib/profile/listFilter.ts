@@ -8,8 +8,11 @@
 
 import type { ProfileEntry } from "./types";
 
-export type SortKey = "updated" | "favourites" | "title" | "score" | "rating" | "episodes" | "year";
-export const SORT_KEYS: SortKey[] = ["updated", "favourites", "title", "score", "rating", "episodes", "year"];
+/* « status » = par liste, dans l'ordre du menu Statut (En cours, Revisionnage,
+   Terminé…), avec un intertitre par statut ; le défaut depuis le 16/11 (Luc).
+   Dans un statut, le dernier mis à jour d'abord (le sens inverse ce dernier). */
+export type SortKey = "status" | "updated" | "favourites" | "title" | "score" | "rating" | "episodes" | "year";
+export const SORT_KEYS: SortKey[] = ["status", "updated", "favourites", "title", "score", "rating", "episodes", "year"];
 
 export const AIR_STATUSES = ["RELEASING", "NOT_YET_RELEASED", "FINISHED", "CANCELLED", "HIATUS"];
 export const FORMATS = ["TV", "MOVIE", "OVA", "ONA", "TV_SHORT", "SPECIAL", "MUSIC"];
@@ -44,7 +47,7 @@ export function boundsOf(entries: ProfileEntry[]): Bounds {
 
 export function freshFilters(b: Bounds): ListFilters {
   return {
-    sort: "updated",
+    sort: "status",
     desc: true,
     sets: { air: [], format: [], season: [], source: [], country: [], genres: [], studio: [], tags: [] },
     ranges: { year: [...b.year], score: [...b.score], episodes: [...b.episodes] },
@@ -71,12 +74,22 @@ function valuesOf(e: ProfileEntry, k: SetKey): string[] {
     case "source": return e.source ? [e.source] : [];
     case "country": return e.country ? [e.country] : [];
     case "genres": return e.genres ?? [];
-    case "studio": return e.studio ? [e.studio] : [];
-    case "tags": return e.tags ?? [];
+    /* Tous les studios et tous les tags du titre quand on les a (profil
+       AniList), comme AniList les compte ; sinon le principal / les tags
+       pertinents (liste locale, ancienne réponse). */
+    case "studio": return e.studios?.length ? e.studios : e.studio ? [e.studio] : [];
+    case "tags": return e.allTags?.length ? e.allTags : e.tags ?? [];
   }
 }
 
 /** Les valeurs présentes dans la liste, triées — Genres, Studio et Tags. */
+/** Combien de titres portent chaque valeur (un titre compte une fois par valeur). */
+export function valueCounts(entries: ProfileEntry[], k: SetKey): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const e of entries) for (const v of new Set(valuesOf(e, k))) m.set(v, (m.get(v) || 0) + 1);
+  return m;
+}
+
 export function presentValues(entries: ProfileEntry[], k: SetKey): string[] {
   const s = new Set<string>();
   for (const e of entries) for (const v of valuesOf(e, k)) s.add(v);
@@ -113,8 +126,24 @@ export function sortEntries(
   entries: ProfileEntry[],
   f: ListFilters,
   titleOf: (e: ProfileEntry) => string,
+  /** Tri « status » : l'ordre des statuts (celui du menu Statut). */
+  statusOrder: string[] = [],
 ): ProfileEntry[] {
   const dir = f.desc ? -1 : 1;
+  if (f.sort === "status") {
+    const rank = (e: ProfileEntry) => {
+      const i = statusOrder.indexOf(e.status || "PLANNING");
+      return i < 0 ? statusOrder.length : i;
+    };
+    return entries
+      .slice()
+      // Dans un statut, comme AniList : meilleure note d'abord (sans note = en
+      // dernier), puis titre alphabétique.
+      .sort((a, b) =>
+        rank(a) - rank(b) ||
+        (b.score ?? 0) - (a.score ?? 0) ||
+        titleOf(a).localeCompare(titleOf(b)));
+  }
   const num = (e: ProfileEntry): number | null => {
     switch (f.sort) {
       case "updated": return e.updatedAt ?? null;

@@ -2963,6 +2963,18 @@
   },
   "listMenu": {
     "search": "Chercher dans ta liste…",
+    "clearSearch": "Effacer la recherche",
+    "scope": {
+      "genres": { "list": "Genres dans la liste", "anilist": "Tous les genres" },
+      "tags": { "list": "Tags dans la liste", "anilist": "Tous les tags" },
+      "studio": { "list": "Studios dans la liste", "anilist": "Tous les studios" }
+    },
+    "searchIn": "Chercher dans « {{what}} »…",
+    "descending": "Décroissant",
+    "ascending": "Croissant",
+    "titles_one": "{{count}} titre",
+    "titles_other": "{{count}} titres",
+    "outOf": "sur {{total}}",
     "status": "Statut",
     "lists": "Listes",
     "allStatuses": "Tous",
@@ -2979,6 +2991,7 @@
     "close": "Fermer",
     "sortBy": "Trier par",
     "sort": {
+      "status": "Par liste",
       "updated": "Mis à jour",
       "favourites": "Favoris",
       "title": "Titre",
@@ -3005,7 +3018,7 @@
     "tags": "Tags",
     "source": "Source",
     "country": "Pays d'origine",
-    "content": "Contenu",
+    "content": "Contenu adulte",
     "nonAdult": "Sans contenu adulte",
     "adultOnly": "Adulte seulement",
     "show": "Voir",

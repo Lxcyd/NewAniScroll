@@ -751,7 +751,9 @@ const ANILIST_QUERY = `
             # aurait coûté un aller-retour par titre.
             trailer { id site }
             genres
-            studios(isMain: true) { nodes { name } }
+            # TOUS les studios (le filtre les compte tous, 12/11) ; le principal
+            # se reconnaît à isMain.
+            studios { edges { isMain node { name } } }
             # Ce que lit le panneau « Sort & Filter » de l'onglet Liste (08/11) :
             # statut de diffusion, saison, source, pays, contenu adulte, tags.
             # Même requête, aucun aller-retour de plus.
@@ -844,7 +846,10 @@ const RECENTE_MS = PARTAGE_TTL_S * 1000;
    déploiements qui tournent encore l'ancienne requête, la carte restait sur
    « ép. 1109 ». */
 /* v4 (même jour) : `nextAiringEpisode.airingAt`, le compte à rebours. */
-const partageKey = (name: string) => `anilist:list:v4:${name.toLowerCase()}`;
+/* v5 (12/11/2026) : TOUS les studios de chaque titre (`studios { edges }`) pour
+   le filtre Studio ; une copie v4 ne porte que le principal, et le panneau
+   comptait 83 studios là où AniList en compte 308. */
+const partageKey = (name: string) => `anilist:list:v5:${name.toLowerCase()}`;
 
 /** Ce qu'Upstash range : l'heure de la réponse, et la liste gzip + base64. */
 type ListePartagee = { at: number; z: string };

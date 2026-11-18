@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { HeartIcon } from "@/components/profile/HeartIcon";
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -2521,9 +2522,7 @@ function CommonTitles({
   /* Le cœur des favoris du site (#E94560, cf. WidgetSettings). */
   const heart = (on: boolean) =>
     on ? (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="absolute left-full top-1/2 ml-1 h-3.5 w-3.5 -translate-y-1/2 text-[#E94560]" aria-label="♥">
-        <path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.5 1.1 5.2 3 1.7-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z" />
-      </svg>
+      <HeartIcon className="absolute left-full top-1/2 ml-1 h-3.5 w-3.5 -translate-y-1/2 text-[#E94560]" aria-hidden={false} aria-label="♥" />
     ) : null;
 
   if (typeof document === "undefined") return null;

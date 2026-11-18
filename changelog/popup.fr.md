@@ -10,7 +10,7 @@
 
 🎨 **Le studio** — un bouton **Personnaliser le profil** pour tout régler, avec l'aperçu en direct.
 
-![Aperçu et widgets](/changelog/v0.0.9/apercu.webp)
-![Ma liste, rangée par statut](/changelog/v0.0.9/liste.webp)
-![Les badges](/changelog/v0.0.9/badges.webp)
-![Le studio de personnalisation](/changelog/v0.0.9/studio.webp)
+![Aperçu et widgets](/changelog/v0.0.9/apercu.mp4)
+![Ma liste, rangée par statut](/changelog/v0.0.9/liste.mp4)
+![Les badges](/changelog/v0.0.9/badges.mp4)
+![Le studio de personnalisation](/changelog/v0.0.9/studio.mp4)

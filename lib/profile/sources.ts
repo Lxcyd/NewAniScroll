@@ -70,7 +70,16 @@ export function entriesFromAniList(
         // 62, Thriller absent, 09/10/2026). AniList en donne au plus ~7 courts
         // par titre, le gain était négligeable.
         genres: Array.isArray(e.media?.genres) ? e.media.genres : [],
-        studio: e.media?.studios?.nodes?.[0]?.name ?? null,
+        /* Le principal (isMain) pour l'affichage, les badges et les stats ; la
+           liste complète pour le filtre. `nodes` reste lu pour une réponse à
+           l'ancienne forme (cache). */
+        studio:
+          e.media?.studios?.edges?.find((x: any) => x?.isMain)?.node?.name ??
+          e.media?.studios?.nodes?.[0]?.name ??
+          null,
+        studios: Array.isArray(e.media?.studios?.edges)
+          ? [...new Set<string>(e.media.studios.edges.map((x: any) => x?.node?.name).filter(Boolean))]
+          : [],
         // Le panneau « Sort & Filter » de l'onglet Liste.
         airStatus: e.media?.status ?? null,
         season: e.media?.season ?? null,
@@ -86,6 +95,9 @@ export function entriesFromAniList(
               .filter((x: any) => x?.name && !x.isMediaSpoiler && (x.rank ?? 0) >= 60)
               .slice(0, 8)
               .map((x: any) => String(x.name))
+          : [],
+        allTags: Array.isArray(e.media?.tags)
+          ? e.media.tags.filter((x: any) => x?.name).map((x: any) => String(x.name))
           : [],
         /* La bande-annonce, et seulement si elle est sur YouTube : AniList
            publie aussi des identifiants Dailymotion, que le fond du profil ne

@@ -1,0 +1,58 @@
+# Tient a jour le catalogue AniList des onglets « Tous les genres / tags /
+# studios » du panneau Tri & filtres (lib/data/anilistCatalog.json).
+#
+# Chaque nuit : une requete pour les genres et les tags, une ou deux pour les
+# studios crees depuis la veille (tools/anilist/catalog.mjs, incremental). Le
+# fichier n'est reecrit QUE si quelque chose a change : la plupart des nuits,
+# rien a committer, donc aucun deploiement.
+#
+# Le commit va sur `dev` (comme tout changement : la prod le recoit a la
+# release). ATTENTION : un workflow planifie ne tourne que depuis la branche
+# PAR DEFAUT du depot — tant que ce fichier n'est pas sur `main`, il ne part
+# pas tout seul (on peut le lancer a la main depuis l'onglet Actions).
+#
+# Aucune invocation Vercel, aucune base : seulement l'API publique d'AniList.
+
+name: anilist-catalog
+
+on:
+  schedule:
+    - cron: "23 4 * * *" # 04:23 UTC, a l'ecart des autres crons du depot
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Tout recharger (≈ 55 requetes AniList, ~2 min)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: dev
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Mettre a jour le catalogue
+        run: node tools/anilist/catalog.mjs ${{ inputs.full && '--full' || '' }}
+
+      - name: Committer s'il a change
+        run: |
+          if git diff --quiet -- lib/data/anilistCatalog.json; then
+            echo "Rien de neuf, rien a committer."
+            exit 0
+          fi
+          git config user.name "anilist-catalog[bot]"
+          git config user.email "anilist-catalog@users.noreply.github.com"
+          git add lib/data/anilistCatalog.json
+          git commit -m "data(anilist): catalogue des tags et studios du $(date -u +%F)"
+          git push origin dev

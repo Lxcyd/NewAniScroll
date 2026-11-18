@@ -59,6 +59,34 @@ function parsePopup(
 
 type PopupImage = { alt: string; src: string };
 
+/** Une vidéo du carrousel : repart du début quand on arrive dessus, en pause
+ *  quand on la quitte. Rien n'est téléchargé avant qu'elle soit affichée. */
+function CarouselVideo({ src, label, active }: { src: string; label: string; active: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [seen, setSeen] = useState(active);
+  useEffect(() => {
+    if (active) setSeen(true);
+    const v = ref.current;
+    if (!v) return;
+    if (active) {
+      v.currentTime = 0;
+      v.play().catch(() => {});
+    } else v.pause();
+  }, [active, seen]);
+  return (
+    <video
+      ref={ref}
+      src={seen ? src : undefined}
+      aria-label={label}
+      muted
+      loop
+      playsInline
+      preload={seen ? "auto" : "none"}
+      className="pointer-events-none block aspect-video h-full w-full object-contain"
+    />
+  );
+}
+
 /**
  * Le carrousel des images de la popup : une image à la fois, flèches gauche et
  * droite, points dessous (celui de l'image affichée allongé), glisser du doigt
@@ -78,7 +106,11 @@ function PopupCarousel({ images }: { images: PopupImage[] }) {
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (start.current) setDrag(e.clientX - start.current.x);
+    if (!start.current) return;
+    const d = e.clientX - start.current.x;
+    /* Pas de glisser au-delà des bords : rien avant la première, rien après
+       la dernière (16/11, Luc). */
+    setDrag((i === 0 && d > 0) || (i === n - 1 && d < 0) ? 0 : d);
   };
   const onUp = () => {
     const s = start.current;
@@ -95,7 +127,9 @@ function PopupCarousel({ images }: { images: PopupImage[] }) {
         aria-label={dir < 0 ? "Previous" : "Next"}
         disabled={off}
         onClick={() => go(i + dir)}
-        className={`absolute top-1/2 ${dir < 0 ? "left-2" : "right-2"} z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white ring-1 ring-white/15 backdrop-blur transition hover:bg-black/80 disabled:pointer-events-none disabled:opacity-0`}
+        /* Pas de contour de focus bleu du navigateur (16/11, Luc) : l'accent du
+           site au survol et au clavier. */
+        className={`absolute top-1/2 ${dir < 0 ? "left-2" : "right-2"} z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white outline-none backdrop-blur transition hover:bg-action focus-visible:bg-action disabled:pointer-events-none disabled:opacity-0`}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d={dir < 0 ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} />
@@ -115,23 +149,33 @@ function PopupCarousel({ images }: { images: PopupImage[] }) {
     >
       <div className="relative overflow-hidden rounded-lg bg-black/30 ring-1 ring-white/10">
         <div
-          className={`flex touch-pan-y select-none ${drag ? "" : "transition-transform duration-300 ease-out"}`}
-          style={{ transform: `translateX(calc(${-i * 100}% + ${drag}px))` }}
+          className="flex touch-pan-y select-none"
+          style={{
+            transform: `translateX(calc(${-i * 100}% + ${drag}px))`,
+            transition: drag ? "none" : "transform 300ms ease-out",
+          }}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
           onPointerCancel={onUp}
         >
           {images.map((im, k) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={k}
-              src={im.src}
-              alt={im.alt}
-              draggable={false}
-              loading={k === 0 ? "eager" : "lazy"}
-              className="block w-full shrink-0 object-contain"
-            />
+            <div key={k} className="relative w-full shrink-0">
+              {/* Une VIDÉO (.mp4/.webm) se lit muette en boucle, et seulement
+                  quand elle est affichée (17/11, Luc : « des mini vidéos »). */}
+              {/\.(mp4|webm)(\?|$)/i.test(im.src) ? (
+                <CarouselVideo src={im.src} label={im.alt} active={k === i} />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={im.src}
+                  alt={im.alt}
+                  draggable={false}
+                  loading={k === 0 ? "eager" : "lazy"}
+                  className="block h-full w-full object-contain"
+                />
+              )}
+            </div>
           ))}
         </div>
         {n > 1 ? arrow(-1) : null}
@@ -147,7 +191,7 @@ function PopupCarousel({ images }: { images: PopupImage[] }) {
               aria-label={`${k + 1} / ${n}`}
               aria-current={k === i}
               onClick={() => go(k)}
-              className={`h-2 rounded-full transition-all ${k === i ? "w-5 bg-action" : "w-2 bg-white/25 hover:bg-white/45"}`}
+              className={`h-2 rounded-full outline-none transition-all focus-visible:ring-2 focus-visible:ring-action/60 ${k === i ? "w-5 bg-action" : "w-2 bg-white/25 hover:bg-white/45"}`}
             />
           ))}
         </div>
@@ -206,15 +250,27 @@ let popupsEnVol: Promise<{ l: string; parsed: PopupParse }[]> | null = null;
 
 type PopupParse = ReturnType<typeof parsePopup>;
 
+/* `?changelog` dans l'adresse ROUVRE la popup, même déjà vue, et relit les
+   fichiers sans le cache du navigateur (une heure) : pour la relire après
+   l'avoir modifiée (16/11, Luc). */
+const forcee = () => {
+  try {
+    return new URLSearchParams(window.location.search).has("changelog");
+  } catch {
+    return false;
+  }
+};
+
 function chargePopups(): Promise<{ l: string; parsed: PopupParse }[]> {
   if (popupsEnVol) return popupsEnVol;
+  const force = forcee();
   const LANGS = ["en", "fr"] as const;
   popupsEnVol = Promise.all(
     LANGS.map((l) =>
       /* No cache-buster, no no-store: a unique `t=` made every one of these a
          fresh function invocation for a static markdown file — the CDN could
          never serve it. The route's own s-maxage handles freshness. */
-      fetch(`/api/v2/changelog-popup?lang=${l}`)
+      fetch(`/api/v2/changelog-popup?lang=${l}`, force ? { cache: "no-store" } : undefined)
         .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
         .then((md) => ({ l: l as string, parsed: parsePopup(md) }))
         .catch(() => ({ l: l as string, parsed: null })),
@@ -290,7 +346,7 @@ export default function ChangeLogs() {
       // Show only if NONE of this release's signatures have been dismissed yet.
       const seen = readSeenSet();
       const alreadySeen = Array.from(sigs).some((s) => seen.has(s));
-      if (active && !alreadySeen) setIsOpen(true);
+      if (active && (!alreadySeen || forcee())) setIsOpen(true);
     }).catch(() => {
       /* `chargePopups` remet son cache a null puis relance en cas d'echec, pour
          qu'un montage ulterieur puisse reessayer. Sans ce catch, ce rejet
@@ -385,10 +441,6 @@ export default function ChangeLogs() {
                   </ChangelogsVersions>
 
                   {images.length ? <PopupCarousel images={images} /> : null}
-
-                  <div className="mt-2 text-gray-400 text-sm">
-                    <p>{t("changelog.seeFull")}</p>
-                  </div>
 
                   <div className="flex items-center gap-2 mt-4">
                     <div className="flex-1" />

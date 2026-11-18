@@ -67,10 +67,10 @@ import {
 } from "@heroicons/react/24/outline";
 import {
   BookmarkIcon as BookmarkSolidIcon,
-  HeartIcon,
   PauseIcon,
   PlayIcon,
 } from "@heroicons/react/24/solid";
+import { HeartIcon } from "@/components/profile/HeartIcon";
 
 /* LES COCHES DU STUDIO (22/10/2026, Luc) : la coche d'Heroicons, pleine puis
    en contour épaissi, restait pixelisée à 12-18 px. C'est la coche arrondie
@@ -96,7 +96,7 @@ import type { StudioBridge } from "@/components/profile/ProfileHero";
 import { FrameTileImage, cropStyle } from "@/components/profile/FramedAvatar";
 import LayoutThumb from "@/components/profile/LayoutThumb";
 import BadgePicker from "@/components/profile/BadgePicker";
-import StudioTour from "@/components/profile/StudioTour";
+import StudioTour, { type TourScope } from "@/components/profile/StudioTour";
 import { FEATURED_MAX } from "@/components/profile/FeaturedBadges";
 import BadgeDefs from "@/components/profile/badges/BadgeDefs";
 import BadgeToken from "@/components/profile/badges/BadgeToken";
@@ -2436,7 +2436,17 @@ export default function BannerStudio({
     void el.play().catch(() => setPlaying(false));
   }, [wantPlay, draft.music?.url, draft.music?.videoId]);
 
+  /* LE VERROU DU TOUR (14/11, Luc) : pendant une étape, seuls les onglets du
+     menu présenté s'ouvrent (Image → Image | Bannière | Mur) ; un clic sur une
+     autre case de la barre, ou sur la scène, ne fait rien. `[]` = étape sans
+     menu (intro, Enregistrer) : rien ne s'ouvre. `null` = pas de tour. */
+  const tourLock = useRef<PaletteScope[] | null>(null);
+  const lockTour = useCallback((s: TourScope | null | false) => {
+    tourLock.current =
+      s === false ? null : s ? (tabGroupOf(s as PaletteScope) ?? [s as PaletteScope]) : [];
+  }, []);
   const openScope = useCallback((s: PaletteScope) => {
+    if (tourLock.current && !tourLock.current.includes(s)) return;
     /* La barre réagit au clic (`barVise`, urgent) ; le menu lui-même se prépare
        en arrière-plan. Monter les 688 cases des cadres bloquait le clic, le
        liseré et la barre le temps du rendu. */
@@ -5059,8 +5069,15 @@ export default function BannerStudio({
   const densiteVisible = ["image", "banner", "fonds"].includes(scope ?? "");
   /* Stable : <ScopeTabs> est mémoïsé, une nouvelle fonction à chaque rendu le
      redessinerait pour rien. */
+  /* Fermer le menu (voile, croix) : pas pendant une étape du tour qui le
+     présente (14/11, Luc). */
+  const closeMenu = () => {
+    if (tourLock.current?.length) return;
+    setScope(null);
+  };
   const pickTab = useCallback(
     (k: PaletteScope) => {
+      if (tourLock.current && !tourLock.current.includes(k)) return;
       writeLastScope(k);
       startMenu(() => {
         setScope(k);
@@ -5857,7 +5874,7 @@ export default function BannerStudio({
         profil reste cliquable, ses widgets déplaçables. */}
     <div className="pointer-events-none fixed inset-0 z-[10003] overflow-hidden text-white">
       {/* Le tour des menus, une fois par navigateur (09/11/2026, Luc). */}
-      <StudioTour active={!mini && !soundTip} openScope={openScope} currentScope={readScope} />
+      <StudioTour active={!mini && !soundTip} openScope={openScope} currentScope={readScope} lockTo={lockTour} />
       {soundTip ? (
         <div className="pointer-events-auto absolute inset-0 z-[60] grid place-items-center bg-black/55 p-4 backdrop-blur-sm">
           <div
@@ -5896,7 +5913,7 @@ export default function BannerStudio({
           <button
             type="button"
             aria-label={t("common.close", { defaultValue: "Close" })}
-            onClick={() => setScope(null)}
+            onClick={closeMenu}
             className="pointer-events-auto absolute inset-0 z-20 cursor-default bg-gradient-to-t from-black/80 via-black/40 to-transparent"
           />
           )}
@@ -6152,7 +6169,7 @@ export default function BannerStudio({
                     la vide pas. */}
                 <button
                   type="button"
-                  onClick={() => setScope(null)}
+                  onClick={closeMenu}
                   className={`shrink-0 rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white ${
                     inColumn ? "hidden" : ""
                   }`}

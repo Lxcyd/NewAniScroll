@@ -10,7 +10,7 @@
 
 🎨 **The studio** — one **Customize profile** button to set it all up, with a live preview.
 
-![Overview and widgets](/changelog/v0.0.9/apercu.webp)
-![My list, grouped by status](/changelog/v0.0.9/liste.webp)
-![Badges](/changelog/v0.0.9/badges.webp)
-![The customization studio](/changelog/v0.0.9/studio.webp)
+![Overview and widgets](/changelog/v0.0.9/apercu.mp4)
+![My list, grouped by status](/changelog/v0.0.9/liste.mp4)
+![Badges](/changelog/v0.0.9/badges.mp4)
+![The customization studio](/changelog/v0.0.9/studio.mp4)

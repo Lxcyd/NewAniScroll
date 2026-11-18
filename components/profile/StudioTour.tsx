@@ -23,7 +23,12 @@ import { ArrowsPointingOutIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 
 /* Changer le suffixe rejoue le tour pour tout le monde (nouvelle version). */
-const DONE_KEY = "aniscroll:studioTour:7";
+const DONE_KEY =
+  process.env.NODE_ENV === "development"
+    ? /* En local seulement : le tour repart UNE fois (15/11, Luc, test du
+         verrou). La prod garde sa clé, personne d'autre ne le revoit. */
+      "aniscroll:studioTour:7:local-1511"
+    : "aniscroll:studioTour:7";
 
 export type TourScope = "color" | "image" | "video" | "upload" | "layout" | "widgets" | "avatar" | "badges" | "music";
 
@@ -128,12 +133,16 @@ export default function StudioTour({
   active,
   openScope,
   currentScope,
+  lockTo,
 }: {
   /** Le studio est ouvert en scène (pas réduit). */
   active: boolean;
   openScope: (s: TourScope) => void;
   /** Le menu ouvert au départ, rouvert à la fin du tour. */
   currentScope: () => string | null;
+  /** Le verrou du studio : le menu de l'étape (ses onglets restent libres),
+   *  `null` = étape sans menu (rien ne s'ouvre), `false` = plus de tour. */
+  lockTo?: (s: TourScope | null | false) => void;
 }) {
   const { t } = useTranslation();
   const [step, setStep] = useState<number | null>(null);
@@ -159,6 +168,8 @@ export default function StudioTour({
   }, [active]);
 
   const reset = () => {
+    /* Déverrouiller AVANT que `end` rouvre le menu de départ. */
+    lockTo?.(false);
     setStep(null);
     setPos(null);
     setRing(null);
@@ -200,12 +211,31 @@ export default function StudioTour({
   /* Ouvrir le menu de l'étape ; revenir sur Aperçu si elle en a besoin (les
      deux pages de profil suivent `hashchange`, cf. lib/profile/tabHash.ts). */
   useEffect(() => {
+    /* Le verrou d'abord : sinon l'étape ne pourrait pas ouvrir son menu. */
+    lockTo?.(cur ? cur.scope ?? null : false);
     if (cur?.scope) openScope(cur.scope);
     if (cur?.overview && lireOnglet() !== "overview") {
       ecrireOnglet("overview");
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     }
-  }, [cur, openScope]);
+  }, [cur, openScope, lockTo]);
+
+  /* Démonté en plein tour (on quitte le studio) : ne pas laisser le verrou. */
+  useEffect(() => () => lockTo?.(false), [lockTo]);
+
+  /* Les autres cases de la barre s'éteignent pendant une étape à menu ; la
+     case présentée est marquée pour rester allumée. */
+  useEffect(() => {
+    if (!cur?.scope || !cur.anchor) return;
+    const el = findAnchor(cur.anchor);
+    const root = document.documentElement;
+    root.classList.add("as-tour-locked");
+    el?.setAttribute("data-tour-on", "");
+    return () => {
+      root.classList.remove("as-tour-locked");
+      el?.removeAttribute("data-tour-on");
+    };
+  }, [cur]);
 
   /* Placer la bulle et les cadres. */
   const place = useCallback(() => {

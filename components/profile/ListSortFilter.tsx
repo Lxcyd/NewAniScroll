@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { countryLabel, prettyFormat, prettySource, statusLabel } from "@/components/anime/v2/helpers";
@@ -10,15 +10,33 @@ import {
   SORT_KEYS,
   SOURCES,
   activeCount,
+  applyFilters,
   freshFilters,
-  presentValues,
   rangeIsFull,
+  valueCounts,
   type Bounds,
   type ListFilters,
   type RangeKey,
   type SetKey,
 } from "@/lib/profile/listFilter";
 import type { ProfileEntry } from "@/lib/profile/types";
+import { useShowAdult } from "@/lib/prefs/adultPrefs";
+import CATALOG from "@/lib/data/anilistCatalog.json";
+
+/* LE CATALOGUE D'ANILIST pour les onglets « Tous les genres / tags / studios »
+   (12/11, Luc : « il doit avoir tous les tags anilist »). Figé par
+   tools/anilist/catalog.mjs : 19 genres, 430 tags, 1066 studios d'animation.
+   Les tags adultes (67) et le genre Hentai n'y sont que si le réglage -18 est
+   allumé, comme partout ailleurs sur le site. */
+type DdScope = "list" | "anilist";
+
+
+function anilistCatalog(k: SetKey, adult: boolean): string[] | null {
+  if (k === "genres") return CATALOG.genres.filter((g) => adult || g !== "Hentai");
+  if (k === "tags") return CATALOG.tags.filter((x) => adult || !x.isAdult).map((x) => x.name);
+  if (k === "studio") return CATALOG.studios;
+  return null;
+}
 
 /**
  * LE PANNEAU « SORT & FILTER » de l'onglet Liste, calqué section par section
@@ -54,14 +72,33 @@ export default function ListSortFilter({
 }) {
   const { t } = useTranslation();
   const [openDd, setOpenDd] = useState<SetKey | null>(null);
+  const [ddScope, setDdScope] = useState<DdScope>("list");
+  const showAdult = useShowAdult();
+  const [ddQuery, setDdQuery] = useState("");
   const [pick, setPick] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sortOpen) return;
+    const away = (e: MouseEvent) => !sortRef.current?.contains(e.target as Node) && setSortOpen(false);
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [sortOpen]);
+  const sortOpenRef = useRef(sortOpen);
+  sortOpenRef.current = sortOpen;
 
   useEffect(() => {
     if (!open) return;
     setPick(null);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    setSortOpen(false);
+    // Échap ferme d'abord le menu de tri, puis le panneau.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (sortOpenRef.current) setSortOpen(false);
+      else onClose();
+    };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -104,10 +141,55 @@ export default function ListSortFilter({
     </div>
   );
 
-  const slider = ({ k, label, step = 1, allBadge }: { k: RangeKey; label: string; step?: number; allBadge?: boolean }) => {
+  /* LES COMPTES D'UNE SECTION : ceux de toute la liste (`whole`, pour savoir
+     quelles valeurs existent) et ceux que donnerait chaque valeur avec TOUS
+     LES AUTRES filtres appliqués (`facet`), le sien exclu. */
+  const wholeCache = new Map<SetKey, Map<string, number>>();
+  const whole = (k: SetKey) => {
+    let m = wholeCache.get(k);
+    if (!m) wholeCache.set(k, (m = valueCounts(entries, k)));
+    return m;
+  };
+  const facet = (k: SetKey) => valueCounts(applyFilters(entries, { ...f, sets: { ...f.sets, [k]: [] } }, bounds), k);
+
+  /* Les tuiles (Format, Saison) : icône, nom, nombre de titres. Une valeur
+     absente de toute la liste n'a pas de tuile ; présente mais à zéro avec les
+     autres filtres, elle est en pointillés (et reste cliquable). */
+  /* Tuiles de LARGEUR FIXE (14/11, Luc) : un panneau plus large en met plus
+     par ligne au lieu de les étirer. */
+  const tiles = (k: SetKey, values: string[], label: (v: string) => React.ReactNode, icons: Record<string, string>) => {
+    const n = facet(k);
+    return (
+      <div className="as-sfp-tiles">
+        {values.filter((v) => whole(k).has(v)).map((v) => {
+          const on = f.sets[k].includes(v);
+          const c = n.get(v) || 0;
+          return (
+            <button key={v} type="button" aria-pressed={on} onClick={() => toggle(k, v)} className={`as-sfp-tile${on ? " is-on" : ""}${!on && !c ? " is-zero" : ""}`}>
+              {icons[v] ? <Icon d={icons[v]} size={21} /> : null}
+              <span className="as-sfp-tile-l">{label(v)}</span>
+              <span className="as-sfp-tile-n">{t("listMenu.titles", { count: c })}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const slider = ({ k, label, step = 1, hist }: { k: RangeKey; label: string; step?: number; hist?: boolean }) => {
     const [lo, hi] = bounds[k];
     const [a, b] = f.ranges[k];
     const span = hi - lo || 1;
+    const full = rangeIsFull(f, bounds, k);
+    /* L'histogramme de l'année (gardé de la maquette) : une barre par année de
+       la liste, la plage choisie en rose. */
+    let bars: { y: number; n: number }[] = [];
+    if (hist) {
+      const m = new Map<number, number>();
+      for (const e of entries) if (e.year) m.set(e.year, (m.get(e.year) || 0) + 1);
+      for (let y = lo; y <= hi; y++) bars.push({ y, n: m.get(y) || 0 });
+    }
+    const top = Math.max(1, ...bars.map((x) => x.n));
     const setAt = (i: 0 | 1, raw: number) => {
       if (Number.isNaN(raw)) return;
       let v = Math.min(hi, Math.max(lo, raw));
@@ -118,8 +200,20 @@ export default function ListSortFilter({
     return (
       <Section
         label={label}
-        extra={allBadge && rangeIsFull(f, bounds, k) ? <span className="as-sfp-all">{t("listMenu.all")}</span> : null}
+        extra={<span className={full ? "as-sfp-rv" : "as-sfp-rv is-set"}>{full ? t("listMenu.all") : `${a} – ${b}`}</span>}
       >
+        {hist ? (
+          <div className="as-sfp-hist" aria-hidden="true">
+            {bars.map((x) => (
+              <span
+                key={x.y}
+                title={`${x.y} : ${x.n}`}
+                className={x.y >= a && x.y <= b ? "is-in" : ""}
+                style={{ height: `${Math.max(x.n ? 8 : 3, Math.round((x.n / top) * 100))}%` }}
+              />
+            ))}
+          </div>
+        ) : null}
         <div className="as-sfp-dual">
           <NumBox value={a} onCommit={(v) => setAt(0, v)} label={`${label} min`} />
           <div className="as-sfp-slider">
@@ -151,25 +245,128 @@ export default function ListSortFilter({
     );
   };
 
+  /* LES DÉPLIANTS GENRES / STUDIO / TAGS, au dessin de la référence (12/11,
+     Luc) : en-tête teinté une fois ouvert, deux onglets, une recherche, des
+     puces qui défilent dans une boîte bornée.
+
+     LES TOTAUX : l'en-tête montre le nombre de puces cochées (rose) s'il y en
+     a, sinon le nombre de valeurs de la liste (gris), jamais tronqué (la
+     référence affichait un « 588… » coupé). Chaque puce dit combien de tes
+     titres la portent. Une puce cochée reste affichée même à zéro, pour
+     pouvoir la décocher. */
   const dropdown = ({ k, label, icon }: { k: SetKey; label: string; icon: React.ReactNode }) => {
-    const values = presentValues(entries, k);
-    if (!values.length) return null;
+    const whole = valueCounts(entries, k);
+    if (!whole.size) return null;
     const isOpen = openDd === k;
-    const n = f.sets[k].length;
+    const sel = f.sets[k];
+    const head = sel.length ? (
+      <span className="as-sfp-ddb">{sel.length}</span>
+    ) : (
+      <span className="as-sfp-ddn">{whole.size}</span>
+    );
+    let panel: React.ReactNode = null;
+    if (isOpen) {
+      /* DEUX ONGLETS (12/11, Luc) : « Tags dans la liste » (ce que porte au
+         moins un de tes titres) et « Tous les tags » (le catalogue AniList,
+         ceux que tu n'as jamais vus à 0). Pareil pour les genres et les
+         studios. Chaque puce compte tes titres. */
+      const cat = anilistCatalog(k, showAdult);
+      const catalog = cat ? new Map(cat.map((v) => [v, whole.get(v) || 0])) : null;
+      if (catalog) for (const [v, n] of whole) if (!catalog.has(v)) catalog.set(v, n);
+      const scope: DdScope = catalog ? ddScope : "list";
+      const src = scope === "anilist" && catalog ? catalog : new Map(whole);
+      for (const v of sel) if (!src.has(v)) src.set(v, 0);
+      const q = ddQuery.trim().toLowerCase();
+      const values = [...src.entries()]
+        .filter(([v]) => !q || v.toLowerCase().includes(q))
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      panel = (
+        <div className="as-sfp-ddp">
+          {catalog ? (
+            <div className="as-sfp-ddt" role="tablist">
+              {(["list", "anilist"] as const).map((s) => (
+                <button key={s} type="button" role="tab" aria-selected={scope === s} className={scope === s ? "is-on" : ""} onClick={() => setDdScope(s)}>
+                  {t(`listMenu.scope.${k}.${s}`)}
+                  <span>{(s === "anilist" ? catalog : whole).size}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <label className="as-sfp-dds-search">
+            <Icon d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-3.5-3.5" size={14} />
+            <input value={ddQuery} onChange={(e) => setDdQuery(e.target.value)} placeholder={t("listMenu.searchIn", { what: label })} />
+            {ddQuery ? (
+              <button type="button" onClick={() => setDdQuery("")} aria-label={t("listMenu.clearSearch")}>
+                <Icon d="M18 6 6 18M6 6l12 12" size={12} />
+              </button>
+            ) : null}
+          </label>
+          <div className="as-sfp-ddscroll">
+            {values.length ? (
+              <div className="as-sfp-chips">
+                {values.map(([v, n]) => (
+                  <Chip key={v} on={sel.includes(v)} zero={!n} onClick={() => toggle(k, v)}>
+                    {v}
+                    <span className="as-sfp-chipn">{n}</span>
+                  </Chip>
+                ))}
+              </div>
+            ) : (
+              <p className="as-sfp-ddempty">{t("listMenu.nothing")}</p>
+            )}
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="as-sfp-sec is-tight">
-        <button type="button" className="as-sfp-dd" aria-expanded={isOpen} onClick={() => setOpenDd(isOpen ? null : k)}>
+      <div className={`as-sfp-sec is-tight${isOpen ? " is-open" : ""}`}>
+        <button
+          type="button"
+          className="as-sfp-dd"
+          aria-expanded={isOpen}
+          onClick={() => { setOpenDd(isOpen ? null : k); setDdQuery(""); }}
+        >
           <span className="as-sfp-ddl">
             {icon}
             {label}
-            {n ? <span className="as-sfp-ddb">{n}</span> : null}
           </span>
-          <Chevron className="as-sfp-chev" />
+          <span className="as-sfp-ddl">
+            {head}
+            <Chevron className="as-sfp-chev" />
+          </span>
         </button>
-        {isOpen ? <div className="as-sfp-ddp">{chips(k, values, (v) => v)}</div> : null}
+        {panel}
       </div>
     );
   };
+
+  /* LES FILTRES ACTIFS en bandeau sous l'en-tête (14/11, Luc) : une sélection
+     dans un dépliant fermé (Tags, Studio) ne se voyait plus. Une puce par
+     valeur, une par curseur resserré (« Ma note ≥ 7 »), une pour le contenu ;
+     un clic l'enlève. */
+  const setLabel: Record<SetKey, (v: string) => string> = {
+    air: (v) => statusLabel(t, v),
+    format: (v) => prettyFormat(v),
+    season: (v) => t(`listMenu.seasons.${v}`),
+    source: (v) => prettySource(v),
+    country: (v) => countryLabel(t, v),
+    genres: (v) => v,
+    studio: (v) => v,
+    tags: (v) => v,
+  };
+  const rangeLabel: Record<RangeKey, string> = { year: t("listMenu.year"), score: t("listMenu.myScore"), episodes: t("listMenu.episodes") };
+  const pills: { key: string; label: string; off: () => void }[] = [];
+  for (const k of ["format", "season", "air", "genres", "tags", "studio", "source", "country"] as SetKey[]) {
+    for (const v of f.sets[k]) pills.push({ key: `${k}:${v}`, label: setLabel[k](v), off: () => toggle(k, v) });
+  }
+  for (const k of ["year", "score", "episodes"] as RangeKey[]) {
+    if (rangeIsFull(f, bounds, k)) continue;
+    const [lo, hi] = bounds[k];
+    const [a, b] = f.ranges[k];
+    const txt = b >= hi ? `≥ ${a}` : a <= lo ? `≤ ${b}` : `${a} – ${b}`;
+    pills.push({ key: k, label: `${rangeLabel[k]} ${txt}`, off: () => set({ ranges: { ...f.ranges, [k]: [lo, hi] } }) });
+  }
+  if (f.adult) pills.push({ key: "adult", label: t(f.adult === "no" ? "listMenu.nonAdult" : "listMenu.adultOnly"), off: () => set({ adult: "" }) });
 
   return createPortal(
     <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -190,47 +387,120 @@ export default function ListSortFilter({
           </div>
         </div>
 
-        <div className="as-sfp-body">
-          <Section label={t("listMenu.sortBy")}>
-            <div className="as-sfp-chips">
-              {SORT_KEYS.map((k) => {
-                const on = f.sort === k;
-                return (
-                  <Chip
-                    key={k}
-                    on={on}
-                    onClick={() => set(on ? { desc: !f.desc } : { sort: k, desc: k !== "title" })}
-                  >
-                    {t(`listMenu.sort.${k}`)}
-                    {on ? <span className="as-sfp-arrow">{f.desc ? "↓" : "↑"}</span> : null}
-                  </Chip>
-                );
-              })}
-            </div>
-          </Section>
-          {has("air") ? (<><div className="as-sfp-div" /><Section label={t("listMenu.airStatus")}>{chips("air", AIR_STATUSES, (v) => statusLabel(t, v))}</Section></>) : null}
-          {has("format") ? (<><div className="as-sfp-div" /><Section label={t("listMenu.format")}>{chips("format", FORMATS, (v) => prettyFormat(v))}</Section></>) : null}
-          {has("season") ? (<><div className="as-sfp-div" /><Section label={t("listMenu.season")}>{chips("season", SEASONS, (v) => t(`listMenu.seasons.${v}`))}</Section></>) : null}
-          {hasYear ? (<><div className="as-sfp-div" />{slider({ k: "year", label: t("listMenu.year"), allBadge: true })}</>) : null}
-          <div className="as-sfp-div" />
-          {slider({ k: "score", label: t("listMenu.myScore"), step: 0.5 })}
-          {hasTotal ? (<><div className="as-sfp-div" />{slider({ k: "episodes", label: t("listMenu.episodes") })}</>) : null}
-
-          <div className="as-sfp-dds">
-            {dropdown({ k: "genres", label: t("listMenu.genres"), icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /> })}
-            {dropdown({ k: "studio", label: t("listMenu.studio"), icon: <Icon d="M2 3h20v14H2zM8 21h8M12 17v4" /> })}
-            {dropdown({ k: "tags", label: t("listMenu.tags"), icon: <Icon d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01" /> })}
+        {pills.length ? (
+          <div className="as-sfp-active">
+            {pills.map((p) => (
+              <button key={p.key} type="button" className="as-sfp-chip is-on" onClick={p.off} aria-label={`${p.label} ✕`}>
+                {p.label}
+                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            ))}
           </div>
+        ) : null}
 
-          {has("source") ? (<Section label={t("listMenu.source")}>{chips("source", SOURCES, (v) => prettySource(v))}</Section>) : null}
-          {has("country") ? (<><div className="as-sfp-div" /><Section label={t("listMenu.country")}>{chips("country", COUNTRIES, (v) => (<><span className="as-sfp-cc">{v}</span>{countryLabel(t, v)}</>))}</Section></>) : null}
-          <div className="as-sfp-div" />
-          <Section label={t("listMenu.content")}>
-            <div className="as-sfp-chips">
-              <Chip on={f.adult === "no"} onClick={() => set({ adult: f.adult === "no" ? "" : "no" })}>{t("listMenu.nonAdult")}</Chip>
-              <Chip on={f.adult === "yes"} onClick={() => set({ adult: f.adult === "yes" ? "" : "yes" })}>{t("listMenu.adultOnly")}</Chip>
+        {/* UNE COLONNE (14/11/2026, Luc) : d'abord ce qu'on choisit par type,
+            en tuiles, puis les chiffres (curseurs) et les longues listes
+            (dépliants). Les deux colonnes du 12/11 ne s'équilibraient pas. */}
+        <div className="as-sfp-body">
+          <div className="as-sfp-cols">
+            <div className="as-sfp-col">
+              <Section label={t("listMenu.sortBy")}>
+                <div className="as-sfp-sort">
+                  {/* Menu MAISON, pas un <select> : la liste native s'ouvrait
+                      en bleu système, hors du style du panneau (14/11, Luc). */}
+                  <div className="as-sfp-sortdd" ref={sortRef}>
+                    <button
+                      type="button"
+                      className="as-sfp-select"
+                      aria-haspopup="listbox"
+                      aria-expanded={sortOpen}
+                      aria-label={t("listMenu.sortBy")}
+                      onClick={() => setSortOpen((o) => !o)}
+                    >
+                      <span>{t(`listMenu.sort.${f.sort}`)}</span>
+                      <Chevron className="as-sfp-chev" />
+                    </button>
+                    {sortOpen ? (
+                      <div className="as-list-menu" role="listbox">
+                        {SORT_KEYS.map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            role="option"
+                            aria-selected={f.sort === k}
+                            className={`as-list-opt${f.sort === k ? " is-on" : ""}`}
+                            onClick={() => {
+                              setSortOpen(false);
+                              set({ sort: k, desc: k !== "title" });
+                            }}
+                          >
+                            {t(`listMenu.sort.${k}`)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button type="button" className="as-sfp-dir" onClick={() => set({ desc: !f.desc })}>
+                    <Icon d={f.desc ? "M12 5v14M6 13l6 6 6-6" : "M12 19V5M6 11l6-6 6 6"} size={14} />
+                    {t(f.desc ? "listMenu.descending" : "listMenu.ascending")}
+                  </button>
+                </div>
+              </Section>
+              {has("format") ? (
+                <Section label={t("listMenu.format")}>
+                  {tiles("format", FORMATS, (v) => prettyFormat(v), FORMAT_ICON)}
+                </Section>
+              ) : null}
+              {has("season") ? (
+                <Section label={t("listMenu.season")}>
+                  {tiles("season", SEASONS, (v) => t(`listMenu.seasons.${v}`), SEASON_ICON)}
+                </Section>
+              ) : null}
+              {has("air") ? (
+                <Section label={t("listMenu.airStatus")}>
+                  <div className="as-sfp-airs">
+                    {(() => {
+                      const n = facet("air");
+                      return AIR_STATUSES.filter((v) => whole("air").has(v)).map((v) => {
+                        const on = f.sets.air.includes(v);
+                        return (
+                          <button key={v} type="button" aria-pressed={on} onClick={() => toggle("air", v)} className={`as-sfp-air${on ? " is-on" : ""}${!on && !n.get(v) ? " is-zero" : ""}`}>
+                            <span className="as-sfp-dot" style={{ ["--c" as string]: AIR_COLOR[v] || "#9ca3af" } as React.CSSProperties} />
+                            <span className="as-sfp-air-l">{statusLabel(t, v)}</span>
+                            <span className="as-sfp-tile-n">{n.get(v) || 0}</span>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </Section>
+              ) : null}
             </div>
-          </Section>
+
+            <div className="as-sfp-col">
+              {hasYear ? slider({ k: "year", label: t("listMenu.year"), hist: true }) : null}
+              {slider({ k: "score", label: t("listMenu.myScore"), step: 0.5 })}
+              {hasTotal ? slider({ k: "episodes", label: t("listMenu.episodes") }) : null}
+              <div className="as-sfp-dds">
+                {dropdown({ k: "genres", label: t("listMenu.genres"), icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /> })}
+                {dropdown({ k: "studio", label: t("listMenu.studio"), icon: <Icon d="M2 3h20v14H2zM8 21h8M12 17v4" /> })}
+                {dropdown({ k: "tags", label: t("listMenu.tags"), icon: <Icon d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01" /> })}
+              </div>
+              {/* Source, Pays, Contenu : les moins utilisés, tout à la fin (14/11, Luc). */}
+              {has("source") ? (<Section label={t("listMenu.source")}>{chips("source", SOURCES, (v) => prettySource(v))}</Section>) : null}
+              {has("country") ? (<Section label={t("listMenu.country")}>{chips("country", COUNTRIES, (v) => (<><span className="as-sfp-cc">{v}</span>{countryLabel(t, v)}</>))}</Section>) : null}
+              {/* Contenu n'existe que réglage -18 allumé ET un titre adulte dans
+                  la liste : éteint, ProfileList les a déjà tous retirés. */}
+              {showAdult && entries.some((e) => e.isAdult) ? (
+                <Section label={t("listMenu.content")}>
+                  <div className="as-sfp-pair">
+                    <button type="button" aria-pressed={f.adult === "no"} className={`as-sfp-air${f.adult === "no" ? " is-on" : ""}`} onClick={() => set({ adult: f.adult === "no" ? "" : "no" })}>{t("listMenu.nonAdult")}</button>
+                    <button type="button" aria-pressed={f.adult === "yes"} className={`as-sfp-air${f.adult === "yes" ? " is-on" : ""}`} onClick={() => set({ adult: f.adult === "yes" ? "" : "yes" })}>{t("listMenu.adultOnly")}</button>
+                  </div>
+                </Section>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         {pick ? <div className="as-sfp-pick" aria-live="polite">{pick}</div> : null}
@@ -251,6 +521,7 @@ export default function ListSortFilter({
           </button>
           <button type="button" className="as-sfp-apply" onClick={onClose}>
             {t("listMenu.show")} <span className="as-sfp-count">{count}</span> {t("listMenu.results", { count })}
+            <span className="as-sfp-of">{t("listMenu.outOf", { total: entries.length })}</span>
           </button>
         </div>
       </div>
@@ -259,9 +530,36 @@ export default function ListSortFilter({
   );
 }
 
-function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+/* Les icônes des tuiles (traits 24×24, même famille que celles du panneau). */
+const FORMAT_ICON: Record<string, string> = {
+  TV: "M3 7h18v12H3zM8 3l4 4 4-4",
+  /* La pellicule fournie par Luc (14/11) : tracé PLEIN, comme le clap. */
+  TV_SHORT: "M6,19v1q0,0.43-0.29,0.71T5,21q-0.42,0-0.71-0.29Q4,20.43 4,20V4Q4,3.57 4.29,3.29T5,3T5.71,3.29T6,4V5H8V4Q8,3.57 8.29,3.29Q8.58,3 9,3h6q0.43,0 0.71,0.29T16,4V5h2V4q0-0.43 0.29-0.71T19,3t0.71,0.29T20,4V20q0,0.43-0.29,0.71T19,21t-0.71-0.29Q18,20.43 18,20V19H16v1q0,0.43-0.29,0.71T15,21H9q-0.42,0-0.71-0.29Q8,20.43 8,20V19H6Zm0-2H8V15H6v2Zm0-4H8V11H6v2ZM6,9H8V7H6V9Zm10,8h2V15H16v2Zm0-4h2V11H16v2Zm0-4h2V7H16V9ZM10,19h4V5H10V19ZM10,5h4H10Z",
+  /* Le clap fourni par Luc (14/11) : un tracé PLEIN, pas un trait. */
+  MOVIE: "M4,4L5.63,7.25Q5.8,7.6 6.13,7.8T6.83,8Q7.58,8 7.98,7.36q0.4-0.64 0.05-1.31L7,4H9l1.63,3.25Q10.8,7.6 11.13,7.8T11.83,8q0.75,0 1.15-0.64q0.4-0.64 0.05-1.31L12,4h2l1.63,3.25Q15.8,7.6 16.13,7.8T16.83,8q0.75,0 1.15-0.64q0.4-0.64 0.05-1.31L17,4h3q0.83,0 1.41,0.59Q22,5.18 22,6V18q0,0.82-0.59,1.41T20,20H4q-0.82,0-1.41-0.59T2,18V6Q2,5.18 2.59,4.59T4,4Zm0,6v8H20V10H4Zm0,0v8V10Z",
+  OVA: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  ONA: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
+  SPECIAL: "m12 3 2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z",
+  MUSIC: "M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+};
+const SEASON_ICON: Record<string, string> = {
+  WINTER: "M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1 19.1 4.9",
+  SPRING: "M12 22V12M12 12C12 7 8 4 4 4c0 5 3 8 8 8zM12 12c0-5 4-8 8-8 0 5-3 8-8 8z",
+  SUMMER: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
+  FALL: "M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10zM2 21c0-3 1.9-5.4 5.2-6",
+};
+/* La pastille lumineuse de la diffusion : vert en cours, gris terminé… */
+const AIR_COLOR: Record<string, string> = {
+  RELEASING: "#22c55e",
+  FINISHED: "#9ca3af",
+  NOT_YET_RELEASED: "#ef4444",
+  CANCELLED: "#ef4444",
+  HIATUS: "#60a5fa",
+};
+
+function Chip({ on, zero, onClick, children }: { on: boolean; zero?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={on} className={`as-sfp-chip${on ? " is-on" : ""}`}>
+    <button type="button" onClick={onClick} aria-pressed={on} className={`as-sfp-chip${on ? " is-on" : ""}${zero && !on ? " is-zero" : ""}`}>
       {children}
     </button>
   );
@@ -293,7 +591,17 @@ function NumBox({ value, onCommit, label }: { value: number; onCommit: (v: numbe
   );
 }
 
+/* Les icônes au tracé plein (le reste est dessiné au trait). */
+const FILLED_ICONS = new Set([FORMAT_ICON.MOVIE, FORMAT_ICON.TV_SHORT]);
+
 function Icon({ d, size = 13 }: { d: string; size?: number }) {
+  if (FILLED_ICONS.has(d)) {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true">
+        <path d={d} />
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={d} />

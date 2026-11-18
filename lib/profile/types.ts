@@ -130,6 +130,11 @@ export type ProfileEntry = {
   rating?: number | null;
   /** Tags pertinents (rang ≥ 60, sans spoiler). */
   tags?: string[];
+  /** POUR LE FILTRE SEULEMENT (Tri & filtres, 12/11/2026) : TOUS les tags et
+   *  TOUS les studios du titre, comme AniList les compte. `tags` et `studio`
+   *  gardent leur sens (badges, stats, recommandations s'en servent). */
+  allTags?: string[];
+  studios?: string[];
 };
 
 /** Un personnage favori, tel qu'AniList le publie. */

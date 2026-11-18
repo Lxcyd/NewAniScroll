@@ -1,9 +1,8 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { HeartIcon } from "@heroicons/react/24/solid";
+import { HeartIcon } from "@/components/profile/HeartIcon";
 import { pickTitle, useTitlePref } from "@/lib/prefs/titlePref";
 import { animeHref, useClickTarget } from "@/lib/prefs/clickTarget";
 import {
@@ -28,6 +27,7 @@ import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
 import ListManager from "@/components/profile/ListManager";
 import { CUSTOM_STATUS, EMPTY_REGISTRY, orderCustom, useListRegistry } from "@/lib/profile/listRegistry";
 import type { ProfileEntry } from "@/lib/profile/types";
+import { useShowAdult } from "@/lib/prefs/adultPrefs";
 
 /**
  * L'onglet Liste d'un profil : la BARRE UNIQUE de la version de référence
@@ -51,6 +51,12 @@ import type { ProfileEntry } from "@/lib/profile/types";
  * rendues par React en tranches qu'il interrompt pour laisser passer le reste.
  */
 const FIRST_ROWS = 40;
+/* PLUS DE RENDU COMPLET (12/11/2026, Luc : « grosse opti ») : la transition
+   ci-dessus finissait quand même par monter les 690 lignes, et changer de vue
+   les démontait toutes pour en remonter 690 autres — un commit que React ne sait
+   pas découper. La liste grandit maintenant par tranches, quand une sentinelle
+   arrive à ~1,5 écran du bas. Changer de vue ne coûte plus que 40 lignes. */
+const CHUNK = 80;
 
 /* L'ordre et les noms de l'éditeur de liste (components/listEditor.tsx) : le
    menu Statut doit se lire comme celui où l'on CHOISIT le statut (08/11, Luc). */
@@ -70,7 +76,10 @@ const VIEWS: View[] = ["cards", "grid", "compact"];
    retrouve d'un profil à l'autre. Lus après le montage, sans quoi le rendu
    serveur et le premier rendu client divergeraient. */
 const VIEW_KEY = "as-profile-list-view";
-const SORT_KEY = "as-profile-list-sort";
+/* « 2 » depuis le tri « Par liste » devenu le défaut (16/11, Luc) : le tri
+   retenu avant (presque toujours « Mis à jour », l'ancien défaut) l'aurait
+   masqué. */
+const SORT_KEY = "as-profile-list-sort2";
 
 /**
  * SUR QUOI LA LISTE S'OUVRE, quand on n'y arrive pas par l'onglet mais par un
@@ -84,7 +93,7 @@ const SORT_KEY = "as-profile-list-sort";
 export type ListFocus = { status?: string | null; score?: number | null };
 
 export default function ProfileList({
-  entries,
+  entries: allEntries,
   emptyAction,
   focus,
   editable = false,
@@ -99,13 +108,27 @@ export default function ProfileList({
   focus?: ListFocus | null;
 }) {
   const { t } = useTranslation();
+  /* LE RÉGLAGE -18 DU VISITEUR gouverne toute liste, la sienne comme celle
+     d'un autre (14/11, Luc) : réglage éteint, les titres adultes n'existent
+     pas ici (ni cartes, ni compteurs, ni filtres), pour que personne ne tombe
+     dessus par mégarde. Éteint par défaut tant que le navigateur n'a pas lu. */
+  const showAdult = useShowAdult();
+  const entries = useMemo(
+    () => (showAdult ? allEntries : allEntries.filter((e) => !e.isAdult)),
+    [allEntries, showAdult],
+  );
   const titlePref = useTitlePref();
   const clickTarget = useClickTarget();
   const [status, setStatus] = useState(focus?.status || "all");
   const [list, setList] = useState<string>("");
   const [score, setScore] = useState<number | null>(focus?.score ?? null);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("cards");
+  const searchRef = useRef<HTMLInputElement>(null);
+  /* LE BOUTON ET LA LISTE NE CHANGENT PAS DANS LE MEME RENDU (12/11, Luc) :
+     `pickedView` bouge tout de suite (carré qui glisse, squelette de la
+     nouvelle vue), `view` suit en différé, interruptible. */
+  const [pickedView, setView] = useState<View>("cards");
+  const view = useDeferredValue(pickedView);
   const [menu, setMenu] = useState<"" | "status" | "list">("");
   const [panel, setPanel] = useState(false);
   const [manager, setManager] = useState(false);
@@ -196,6 +219,12 @@ export default function ProfileList({
     [reg.statuses],
   );
   const activeCustomStatus = customStatusOf(status);
+  /* L'ordre du tri « Par liste » : celui du menu Statut, sans les statuts
+     perso (une entrée n'en porte qu'un, celui d'AniList). */
+  const statusOrder = useMemo(
+    () => (editable ? reg.statusOrder : STATUS_ORDER).filter((s) => !s.startsWith(CUSTOM_STATUS)),
+    [editable, reg.statusOrder],
+  );
   /* Les listes perso d'AniList, lues sur les entrées. */
   const anilistLists = useMemo(() => {
     const c = new Map<string, number>();
@@ -230,19 +259,37 @@ export default function ProfileList({
             x?.toLowerCase().includes(q),
           )),
     );
-    return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf);
-  }, [base, status, activeCustomStatus, activeList, activeLocal, query, filters, bounds, titleOf]);
+    return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf, statusOrder);
+  }, [base, status, activeCustomStatus, activeList, activeLocal, query, filters, bounds, titleOf, statusOrder]);
 
-  /* Tout est-il rendu pour CETTE sélection ? La clé change avec elle : une
-     nouvelle sélection repart de quarante lignes, sans rendu de remise à zéro. */
+  /* Combien de lignes pour CETTE sélection. La clé change avec elle : une
+     nouvelle sélection (ou vue) repart de quarante lignes, sans rendu de remise
+     à zéro. Le titre tiré au hasard est toujours rendu, même loin. */
   const viewKey = `${status}|${activeList}|${score ?? ""}|${query}|${JSON.stringify(filters)}|${view}`;
-  const [fullKey, setFullKey] = useState<string | null>(null);
-  const full = fullKey === viewKey;
+  const [grown, setGrown] = useState<{ key: string; n: number }>({ key: "", n: FIRST_ROWS });
+  const limit = grown.key === viewKey ? grown.n : FIRST_ROWS;
+  const pickedAt = picked == null ? -1 : shown.findIndex((e) => e.mediaId === picked);
+  const rows = useMemo(
+    () => (shown.length <= limit ? shown : shown.slice(0, Math.max(limit, pickedAt + 1))),
+    [shown, limit, pickedAt],
+  );
+  const more = rows.length < shown.length;
+  const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (full) return;
-    startTransition(() => setFullKey(viewKey));
-  }, [full, viewKey]);
-  const rows = full ? shown : shown.slice(0, FIRST_ROWS);
+    const el = sentinel.current;
+    if (!more || !el) return;
+    const io = new IntersectionObserver(
+      (es) => {
+        if (es.some((x) => x.isIntersecting)) {
+          io.disconnect();
+          startTransition(() => setGrown({ key: viewKey, n: rows.length + CHUNK }));
+        }
+      },
+      { rootMargin: "0px 0px 1500px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [more, viewKey, rows.length]);
 
   const nFilters = activeCount(filters, bounds);
 
@@ -272,8 +319,16 @@ export default function ProfileList({
   /* LES LIGNES SONT MEMOISEES (10/11/2026) : ouvrir un menu ou changer un
      champ re-rendait les six cents lignes. Elles ne se refont plus que si la
      vue, la selection ou ce qu'elles lisent change. */
-  const body = useMemo(
-    () => (
+  const grouped = filters.sort === "status";
+  /* Combien de titres par statut dans la sélection ENTIÈRE : l'intertitre
+     donne le total même quand la liste n'a encore rendu que 40 lignes. */
+  const groupCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    if (grouped) for (const e of shown) c[e.status || "PLANNING"] = (c[e.status || "PLANNING"] || 0) + 1;
+    return c;
+  }, [grouped, shown]);
+  const body = useMemo(() => {
+    const panel = (rows: ProfileEntry[]) => (
 view === "grid" ? (
         /* Un fond translucide (teinte et flou du profil) sous TOUTE la grille,
            comme les autres surfaces (08/11, Luc) : les titres ne se lisent plus
@@ -288,8 +343,11 @@ view === "grid" ? (
               {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
               <span className="relative block">
                 <span className="relative block aspect-[2/3] overflow-hidden rounded-[10px] bg-white/10">
+                  {/* Un <img> nu : `next/image` est en `unoptimized` ici, il ne
+                      faisait qu'ajouter un composant par case (12/11). */}
                   {e.cover ? (
-                    <Image src={e.cover} alt="" fill sizes="(max-width: 640px) 33vw, 160px" className="object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={e.cover} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
                   ) : null}
                 </span>
                 {e.favourite ? <HeartIcon className="absolute right-1.5 top-1.5 h-4 w-4 text-action drop-shadow" /> : null}
@@ -323,15 +381,15 @@ view === "grid" ? (
               <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
-              <span className="text-right text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
-              <span className="truncate text-right text-xs tabular-nums text-white/50">{progressText(e, t)}</span>
+              <span className="text-center text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
+              <span className="truncate text-center text-xs tabular-nums text-white/50">{progressText(e, t)}</span>
             </Link>
           ))}
         </div>
       ) : (
-        /* `as-stat-card` comme toutes les surfaces du profil : le fond sombre
-           et le flou du studio. */
-        <div className="as-frost flex flex-col gap-2 rounded-2xl">
+        /* UN SEUL panneau flou pour toute la liste, comme la vue compacte, plus
+           une carte par anime (12/11, Luc). Un seul `backdrop-filter` aussi. */
+        <div className="as-stat-card flex flex-col overflow-hidden rounded-2xl ring-1 ring-white/[0.07]">
           {rows.map((e) => (
             <Row
               key={e.mediaId}
@@ -346,9 +404,34 @@ view === "grid" ? (
           ))}
         </div>
       )
-    ),
-    [view, rows, clickTarget, picked, titleOf, statusColor, statusName, t],
-  );
+    );
+    if (!grouped) return panel(rows);
+    /* Tri « Par liste » : un intertitre par statut, puis son propre panneau
+       (16/11, Luc). Les lignes arrivent déjà rangées par statut. */
+    const groups: ProfileEntry[][] = [];
+    for (const e of rows) {
+      const last = groups[groups.length - 1];
+      if (last && (last[0].status || "PLANNING") === (e.status || "PLANNING")) last.push(e);
+      else groups.push([e]);
+    }
+    return (
+      <div className="flex flex-col gap-7">
+        {groups.map((g) => {
+          const s = g[0].status || "PLANNING";
+          return (
+            <section key={s} className="flex flex-col gap-3">
+              <h3 className="flex items-center gap-2.5 px-1 text-[17px] font-bold">
+                <span className="as-glow-dot !h-[11px] !w-[11px]" style={{ ["--c" as string]: statusColor(s) } as React.CSSProperties} />
+                {statusName(s)}
+                <span className="text-[14px] font-semibold tabular-nums text-white/40">{groupCounts[s] ?? g.length}</span>
+              </h3>
+              {panel(g)}
+            </section>
+          );
+        })}
+      </div>
+    );
+  }, [view, rows, grouped, groupCounts, clickTarget, picked, titleOf, statusColor, statusName, t]);
 
   if (entries.length === 0) {
     return (
@@ -387,12 +470,26 @@ view === "grid" ? (
         <label className="as-list-field as-stat-card min-w-0 flex-[3_1_220px] cursor-text focus-within:!border-action">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="shrink-0 text-white/40"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <input
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }}
             placeholder={t("listMenu.search")}
             aria-label={t("listMenu.search")}
             className="min-w-0 flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/35"
           />
+          {/* La croix qui vide le champ, et le garde actif (12/11, Luc). */}
+          {query ? (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); setQuery(""); searchRef.current?.focus(); }}
+              aria-label={t("listMenu.clearSearch")}
+              title={t("listMenu.clearSearch")}
+              className="-mr-1 grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          ) : null}
         </label>
 
         {/* LA NOTE EN COURS, détachable : on arrive ici avec un filtre qu'on n'a
@@ -479,17 +576,17 @@ view === "grid" ? (
           <span
             aria-hidden
             className="pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 w-9 rounded-[9px] bg-white/[0.12] transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-            style={{ transform: `translateX(${VIEWS.indexOf(view) * 38}px)` }}
+            style={{ transform: `translateX(${VIEWS.indexOf(pickedView) * 38}px)` }}
           />
           {VIEWS.map((v) => (
             <button
               key={v}
               type="button"
               onClick={() => chooseView(v)}
-              aria-pressed={view === v}
+              aria-pressed={pickedView === v}
               aria-label={t(`listMenu.views.${v}`)}
               title={t(`listMenu.views.${v}`)}
-              className={`relative z-10 grid h-full w-9 place-items-center rounded-[9px] transition-colors ${view === v ? "text-white" : "text-white/40 hover:text-white/80"}`}
+              className={`relative z-10 grid h-full w-9 place-items-center rounded-[9px] transition-colors ${pickedView === v ? "text-white" : "text-white/40 hover:text-white/80"}`}
             >
               <ViewIcon v={v} />
             </button>
@@ -509,8 +606,13 @@ view === "grid" ? (
             {t("listMenu.clearAll")}
           </button>
         </div>
+      ) : pickedView !== view ? (
+        <ListSkeleton view={pickedView} />
       ) : (
-        body
+        <>
+          {body}
+          {more ? <div ref={sentinel} aria-hidden className="h-px" /> : null}
+        </>
       )}
 
       {editable ? (
@@ -546,6 +648,16 @@ view === "grid" ? (
    « En cours de visionnage » (ListBlocks), mêmes clés de traduction —
    « ép. 6 / 12 » ; sans total, la borne est le dernier épisode SORTI suivi
    d'un « + » (« ép. 1109 / 1150+ ») ; sinon « ép. 4 ». */
+/* Le tracé occupe 4→20 sur les deux axes : la boîte `4 4 16 16` le fait remplir
+   sa case, comme le faisait le `redo` de Font Awesome. */
+function RewatchIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="4 4 16 16" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M12,20q-3.35,0-5.68-2.32T4,12T6.33,6.32T12,4q1.73,0 3.3,0.71Q16.88,5.43 18,6.75V5q0-0.43 0.29-0.71T19,4t0.71,0.29T20,5v5q0,0.42-0.29,0.71T19,11H14q-0.42,0-0.71-0.29Q13,10.43 13,10q0-0.43 0.29-0.71T14,9h3.2q-0.8-1.4-2.19-2.2T12,6Q9.5,6 7.75,7.75T6,12t1.75,4.25T12,18q1.7,0 3.11-0.86q1.41-0.86 2.19-2.31q0.2-0.35 0.56-0.49t0.74-0.01q0.4,0.13 0.57,0.53T19.15,15.6q-1.03,2-2.93,3.2T12,20Z" />
+    </svg>
+  );
+}
+
 function progressText(e: ProfileEntry, t: TFunction) {
   if (e.total) return t("profile.blocks.season.progress", { progress: e.progress, total: e.total });
   const aired = e.aired && e.aired >= e.progress ? e.aired : null;
@@ -587,6 +699,52 @@ function MenuItem({
   );
 }
 
+/* LE SQUELETTE DE LA VUE CHOISIE, le temps que React la rende en différé
+   (12/11, Luc) : mêmes surfaces et mêmes hauteurs que la vraie, pour que rien
+   ne saute quand elle arrive. */
+function ListSkeleton({ view }: { view: View }) {
+  const bar = "rounded bg-white/[0.08]";
+  if (view === "grid")
+    return (
+      <div aria-hidden className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
+        {Array.from({ length: 24 }, (_, i) => (
+          <div key={i} className="flex flex-col gap-1.5">
+            <div className="aspect-[2/3] animate-pulse rounded-[10px] bg-white/[0.08]" />
+            <div className={`h-3.5 w-4/5 ${bar}`} />
+            <div className={`h-3 w-1/2 ${bar}`} />
+          </div>
+        ))}
+      </div>
+    );
+  if (view === "compact")
+    return (
+      <div aria-hidden className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
+        {Array.from({ length: 18 }, (_, i) => (
+          <div key={i} className="flex h-[37px] items-center gap-3 px-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
+            <div className="h-2 w-2 rounded-full bg-white/[0.12]" />
+            <div className={`h-3 ${bar}`} style={{ width: `${30 + ((i * 37) % 35)}%` }} />
+            <div className={`ml-auto h-3 w-16 ${bar}`} />
+          </div>
+        ))}
+      </div>
+    );
+  return (
+    <div aria-hidden className="as-stat-card flex flex-col overflow-hidden rounded-2xl ring-1 ring-white/[0.07]">
+      {Array.from({ length: 8 }, (_, i) => (
+        <div key={i} className="flex h-24 items-center gap-4 py-2 pl-2 pr-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
+          <div className="h-20 w-14 shrink-0 animate-pulse rounded-lg bg-white/[0.08]" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className={`h-4 ${bar}`} style={{ width: `${35 + ((i * 29) % 30)}%` }} />
+            <div className={`h-3 w-1/4 ${bar}`} />
+          </div>
+          <div className="h-8 w-[5.5rem] shrink-0 rounded-lg bg-white/[0.07]" />
+          <div className="h-8 w-12 shrink-0 rounded-lg bg-white/[0.07]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ViewIcon({ v }: { v: View }) {
   const p =
     v === "cards"
@@ -625,10 +783,22 @@ function Row({
       /* `as-list-row` : une ligne hors de l'écran n'est ni mise en page ni
          peinte (cf. globals.css). */
       /* Plus grande depuis le 08/11 (Luc) : affiche 56×80, titre en 16 px. */
-      className={`as-list-row as-stat-card group flex items-center gap-4 rounded-2xl py-2 pl-2 pr-4 ring-1 ring-white/[0.07] transition-colors hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
+      className={`as-list-row group flex items-center gap-4 py-2 pl-2 pr-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-colors last:shadow-none hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
     >
       {entry.cover ? (
-        <Image src={entry.cover} alt="" width={56} height={80} className="h-20 w-14 shrink-0 rounded-lg object-cover" />
+        /* L'affiche « large » d'AniList (230 px) reduite a 56 px sortait floue et
+           crenelee (12/11, Luc) : la « medium » (100 px) en 1x, la large en 2x. */
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={entry.cover.replace("/cover/large/", "/cover/medium/")}
+          srcSet={entry.cover.includes("/cover/large/") ? `${entry.cover.replace("/cover/large/", "/cover/medium/")} 1x, ${entry.cover} 2x` : undefined}
+          alt=""
+          width={56}
+          height={80}
+          loading="lazy"
+          decoding="async"
+          className="h-20 w-14 shrink-0 rounded-lg object-cover"
+        />
       ) : (
         <div className="h-20 w-14 shrink-0 rounded-lg bg-white/10" />
       )}
@@ -649,9 +819,14 @@ function Row({
         </div>
       </div>
       {entry.repeat ? (
-        <span className="shrink-0 text-xs text-white/35" title={`×${entry.repeat}`}>↻{entry.repeat}</span>
+        /* L'icone des revisionnages choisie par Luc le 15/11 (remplace `redo` de Font Awesome). */
+        /* A l'echelle de la case des episodes (text-sm, 32 px de haut), 12/11 Luc. */
+        <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold tabular-nums text-white/75" title={`×${entry.repeat}`}>
+          <RewatchIcon className="h-3.5 w-3.5" />
+          {entry.repeat}
+        </span>
       ) : null}
-      {entry.favourite ? <HeartIcon className="h-5 w-5 shrink-0 text-action" /> : null}
+      {entry.favourite ? <HeartIcon className="h-[18px] w-[18px] shrink-0 text-action" /> : null}
       {/* Les épisodes dans une case, centrés, jumelle neutre de celle de la note (08/11, Luc). */}
       <span className="min-w-[5.5rem] shrink-0 whitespace-nowrap rounded-lg bg-white/[0.07] px-2.5 py-1.5 text-center text-sm font-semibold tabular-nums text-white/75 ring-1 ring-white/[0.08]">
         {progress}
