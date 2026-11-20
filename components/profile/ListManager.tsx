@@ -87,14 +87,34 @@ export default function ListManager({
      naturelle, sans animation à l'ouverture. */
   const paneRef = useRef<HTMLDivElement>(null);
   const [paneH, setPaneH] = useState<number | null>(null);
+  /* PAS DE BARRE DE DÉFILEMENT PENDANT LA TRANSITION (20/11/2026, Luc) : le
+     temps que la hauteur rattrape le contenu, le corps est plus court que lui
+     et `overflow-y: auto` sortait la barre. Pendant l'animation, rien ne
+     défile ; à la fin, la barre revient — en fondu, et seulement si le
+     contenu dépasse vraiment. */
+  const [resizing, setResizing] = useState(false);
+  const lastH = useRef<number | null>(null);
   useEffect(() => {
     const el = paneRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setPaneH(el.offsetHeight));
+    const measure = () => {
+      const h = el.offsetHeight;
+      if (lastH.current != null && h !== lastH.current) setResizing(true);
+      lastH.current = h;
+      setPaneH(h);
+    };
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setPaneH(el.offsetHeight);
+    measure();
     return () => ro.disconnect();
   }, [tab, open]);
+  // Filet : si `transitionend` ne vient pas (hauteur bornée par la feuille,
+  // donc inchangée), la barre ne reste pas cachée.
+  useEffect(() => {
+    if (!resizing) return;
+    const id = setTimeout(() => setResizing(false), 450);
+    return () => clearTimeout(id);
+  }, [resizing, paneH]);
   type Drag = {
     kind: "status" | "custom";
     from: number;
@@ -362,8 +382,11 @@ export default function ListManager({
         </div>
 
         <div
-          className={`as-lm-body${drag ? " is-sorting" : ""}${paneH != null ? " is-sized" : ""}`}
+          className={`as-lm-body${drag ? " is-sorting" : ""}${paneH != null ? " is-sized" : ""}${resizing ? " is-resizing" : ""}`}
           ref={listRef}
+          onTransitionEnd={(e) => {
+            if (e.target === e.currentTarget && e.propertyName === "height") setResizing(false);
+          }}
           /* + 12 : le padding bas du corps. */
           style={paneH != null ? { height: paneH + 12 } : undefined}
         >

@@ -5768,7 +5768,10 @@ html.as-dragging .as-nudge {
    (hauteur posée par ListManager). flex 0 1 auto : sous le max-height de la
    feuille, le corps rétrécit encore et défile. */
 .as-lm-body { flex: 0 1 auto; min-height: 0; display: block; overflow-x: hidden; }
-.as-lm-body.is-sized { transition: height .32s cubic-bezier(.22,1,.36,1); }
+.as-lm-body.is-sized { transition: height .32s cubic-bezier(.22,1,.36,1), scrollbar-color .3s ease; }
+/* Pendant que la hauteur glisse : ni défilement ni barre. Ensuite la barre
+   revient en fondu (scrollbar-color part du transparent). */
+.as-lm-body.is-resizing { overflow-y: hidden; scrollbar-color: transparent transparent; }
 .as-lm-pane { display: flex; flex-direction: column; gap: 7px; }
 .as-lm-pane.from-right { animation: as-lm-pane-r .3s cubic-bezier(.22,1,.36,1); }
 .as-lm-pane.from-left { animation: as-lm-pane-l .3s cubic-bezier(.22,1,.36,1); }
