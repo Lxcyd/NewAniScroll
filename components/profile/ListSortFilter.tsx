@@ -610,7 +610,8 @@ export default function ListSortFilter({
                 {hasTotal ? slider({ k: "episodes", label: t("listMenu.episodes") }) : null}
               </div>
               <div className="as-sfp-dds">
-                {dropdown({ k: "genres", label: t("listMenu.genres"), icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /> })}
+                {/* Des formes plutôt que la liste à points, illisible à 13 px (21/11/2026, Luc). */}
+                {dropdown({ k: "genres", label: t("listMenu.genres"), icon: <Icon d="M3 3h7v7H3zM14 14h7v7h-7zM3 14h7v7H3zM17.5 3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z" /> })}
                 {dropdown({ k: "studio", label: t("listMenu.studio"), icon: <Icon d="M2 3h20v14H2zM8 21h8M12 17v4" /> })}
                 {dropdown({ k: "tags", label: t("listMenu.tags"), icon: <Icon d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01" /> })}
               </div>
