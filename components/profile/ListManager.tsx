@@ -98,7 +98,8 @@ export default function ListManager({
     const el = paneRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const measure = () => {
-      const h = el.offsetHeight;
+      // Arrondi AU-DESSUS : un demi-pixel manquant suffit a rallumer la barre.
+      const h = Math.ceil(el.getBoundingClientRect().height);
       if (lastH.current != null && h !== lastH.current) setResizing(true);
       lastH.current = h;
       setPaneH(h);
@@ -375,7 +376,18 @@ export default function ListManager({
         <div className="as-lm-tabs" role="tablist">
           <span className="as-lm-slider" style={{ transform: tab === "custom" ? "translateX(100%)" : "none" }} />
           {(["status", "custom"] as const).map((k) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { if (k !== tab) setSwitched(true); setTab(k); setPalette(null); setConfirm(null); }}>
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => {
+                if (k !== tab) {
+                  setSwitched(true);
+                  /* Défilement coupé DANS le rendu du changement d'onglet : le
+                     nouveau volet s'affiche une image dans l'ancienne hauteur,
+                     avant toute mesure — la barre sortait là. */
+                  setResizing(true);
+                }
+                setTab(k);
+                setPalette(null);
+                setConfirm(null);
+              }}>
               {t(k === "status" ? "listMenu.manager.tabStatus" : "listMenu.manager.tabCustom")}
             </button>
           ))}
