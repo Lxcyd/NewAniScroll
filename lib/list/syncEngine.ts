@@ -599,8 +599,12 @@ const recentlyFinished = new Set<string>();
 export type EpisodeFinishedArgs = {
   aniId: number;
   episode: number;
-  /** Total episodes when known (caps progress + decides COMPLETED). */
+  /** Total episodes when known (caps progress). */
   total?: number | null;
+  /** L'anime a FINI sa diffusion (AniList FINISHED / CANCELLED). Seul ce
+   *  drapeau autorise le passage en COMPLETED (20/11/2026, Luc) : pour un anime
+   *  en cours, le dernier episode SORTI n'est pas le dernier episode. */
+  finished?: boolean;
   title?: LocalTitle;
   coverImage?: string | null;
 };
@@ -664,7 +668,7 @@ function autoPushAllowed(): boolean {
 export async function onEpisodeFinished(
   args: EpisodeFinishedArgs,
 ): Promise<{ completed: boolean }> {
-  const { aniId, episode, total, title, coverImage } = args;
+  const { aniId, episode, total, title, coverImage, finished } = args;
   if (!Number.isFinite(aniId) || !Number.isFinite(episode) || episode <= 0)
     return { completed: false };
 
@@ -715,7 +719,8 @@ export async function onEpisodeFinished(
   // wasn't already), so the caller can offer the rate-on-complete popup exactly
   // once — not every time the user re-finishes the last episode.
   let justCompleted = false;
-  if (totalEp != null && nextProgress >= totalEp) {
+  const reachedEnd = finished === true && totalEp != null && nextProgress >= totalEp;
+  if (reachedEnd) {
     justCompleted = prev?.status !== "COMPLETED";
     nextStatus = "COMPLETED";
     patch.status = "COMPLETED";
@@ -742,7 +747,7 @@ export async function onEpisodeFinished(
     const there = userName ? await remoteProgress(token, userName, aniId) : null;
     if (there == null || nextProgress > there) payload.progress = nextProgress;
   }
-  if (totalEp != null && nextProgress >= totalEp) {
+  if (reachedEnd) {
     payload.status = "COMPLETED";
     payload.completedAt = todayFuzzy();
   } else if (prefs.autoWatching) {

@@ -18,6 +18,17 @@ import { preloadPlayerCode } from "@/lib/watch/playerCode";
    une arrivee directe, tout le telechargement du lecteur s'ajoutait en serie. */
 preloadPlayerCode();
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
+/* L'anime a-t-il FINI sa diffusion ? (20/11/2026, Luc)
+   Le dernier episode SORTI d'un anime en cours n'est pas son dernier episode :
+   le marquer « Termine » ou proposer la note y etait faux. FINISHED et
+   CANCELLED disent fini ; sans statut (vieille copie), un total connu et
+   aucune prochaine diffusion valent fin. */
+function animeFinished(info) {
+  const s = info?.status;
+  if (s) return s === "FINISHED" || s === "CANCELLED";
+  return info?.episodes != null && !info?.nextAiringEpisode;
+}
+
 /* Sous la ligne de flottaison : son JS sort du chunk de la page (20/11/2026).
    ssr garde, donc le HTML ne change pas. */
 const Recommendations = dynamic(() => import("@/components/anime/v2/Recommendations"));
@@ -1757,6 +1768,7 @@ export default function Watch({
             aniId: aniListId,
             episode: episodeNumber,
             total,
+            finished: animeFinished(info),
             title: info?.title,
             coverImage:
               info?.coverImage?.large || info?.coverImage?.extraLarge || null,
@@ -1825,10 +1837,19 @@ export default function Watch({
       (info?.nextAiringEpisode?.episode ? info.nextAiringEpisode.episode - 1 : null),
     [info],
   );
+  /* Le DERNIER episode, et pas le dernier SORTI (20/11/2026, Luc) : pour un
+     anime en cours, `totalEpisodes` vaut souvent l'episode le plus recent, et
+     la popup de note s'ouvrait a chaque nouvel episode. Rien avant la fin de
+     la diffusion (cf. animeFinished). */
   const isFinalEpisode = useMemo(() => {
     const ep = parseInt(epiNumber, 10);
-    return totalEpisodes != null && Number.isFinite(ep) && ep >= totalEpisodes;
-  }, [epiNumber, totalEpisodes]);
+    return (
+      animeFinished(info) &&
+      totalEpisodes != null &&
+      Number.isFinite(ep) &&
+      ep >= totalEpisodes
+    );
+  }, [epiNumber, totalEpisodes, info]);
   // Single-episode work (film / OVA): the rate popup should wait until the very
   // end rather than fire at 88%, since there's no ED/preview tail.
   const isSingleEpisode = useMemo(
