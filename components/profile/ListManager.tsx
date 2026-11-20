@@ -83,13 +83,23 @@ export default function ListManager({
       else onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, palette, leaving]);
+
+  /* PAGE FIGÉE DERRIÈRE (20/11/2026, Luc) : c'est <html> qui défile ici, pas
+     <body> — l'ancien `body.overflow = hidden` laissait la molette passer. La
+     largeur de la barre disparue est rendue en marge, la page ne bouge pas. */
+  useEffect(() => {
+    if (!open) return;
+    const html = document.documentElement;
+    const bar = window.innerWidth - html.clientWidth;
+    const prev = [html.style.overflow, html.style.paddingRight];
+    html.style.overflow = "hidden";
+    if (bar > 0) html.style.paddingRight = `${bar}px`;
+    return () => {
+      [html.style.overflow, html.style.paddingRight] = prev;
+    };
+  }, [open]);
 
   /* RÉORDONNER COMME LES WIDGETS (08/11, Luc : « ça se TP au lieu de suivre le
      curseur ») : la ligne tenue SUIT le pointeur (translate), bloquée entre le
