@@ -5812,7 +5812,35 @@ html.as-dragging .as-nudge {
 .as-lm-ask-btns button.is-danger { color: #fff; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: none; }
 .as-lm-ask-btns button.is-danger:hover { filter: brightness(1.1); }
 .as-lm-ask-btns button:focus-visible { outline: 2px solid rgba(233,69,96,.7); outline-offset: 2px; }
-.as-sfp-overlay:has(> .as-lm) { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+/* Page floue à 10 px derrière les deux feuilles (gestionnaire, Trier & filtrer). */
+.as-sfp-overlay { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+/* « TRIER & FILTRER » AU STYLE DU GESTIONNAIRE (20/11/2026, Luc) : même plaque
+   opaque, titre en Outfit sans tiret de poignée, cartes en dégradé à liseré
+   fin, bordure rose au survol. Les états choisis gardent leur rose. */
+.as-sfp {
+  background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16));
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+}
+@media (min-width: 640px) { .as-sfp { border-color: rgba(255,255,255,.07); } }
+.as-sfp-head { padding-top: 18px; border-bottom-color: rgba(255,255,255,.06); }
+.as-sfp-head h3 { font-family: Outfit, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.as-sfp-label { font-family: Outfit, sans-serif; font-weight: 600; font-size: 14px; color: rgba(255,255,255,.9); }
+.as-sfp-select, .as-sfp-dir, .as-sfp-tile, .as-sfp-air, .as-sfp-num {
+  background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+  border-color: rgba(255,255,255,.07);
+}
+.as-sfp-select, .as-sfp-dir, .as-sfp-tile, .as-sfp-air { border-radius: 14px; font-family: Outfit, sans-serif; transition: border-color .15s, box-shadow .15s, color .15s; }
+.as-sfp-select:hover, .as-sfp-dir:hover, .as-sfp-tile:hover, .as-sfp-air:hover,
+.as-sfp-sortdd .as-sfp-select:hover {
+  background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+  border-color: rgba(233,69,96,.5);
+}
+.as-sfp-tile-l { font-weight: 600; font-size: 14px; }
+.as-sfp-tile.is-on, .as-sfp-air.is-on, .as-sfp-tile.is-on:hover, .as-sfp-air.is-on:hover {
+  background: rgba(233,69,96,.14); border-color: rgba(233,69,96,.6); color: #ffb3c0;
+}
+.as-sfp-tile.is-zero, .as-sfp-air.is-zero { background: none; border-color: rgba(255,255,255,.12); }
+.as-sfp-ranges { background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.02)); border-color: rgba(255,255,255,.07); }
 /* Popup opaque (réglée aux curseurs le 20/11/2026, Luc) : plus rien de la page
    ne transparaît, donc plus de flou propre. */
 .as-sfp.as-lm {

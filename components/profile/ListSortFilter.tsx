@@ -100,11 +100,16 @@ export default function ListSortFilter({
       else onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    /* C'est <html> qui défile, pas <body> (cf. ListManager, 20/11/2026) ; la
+       largeur de la barre disparue est rendue en marge. */
+    const html = document.documentElement;
+    const bar = window.innerWidth - html.clientWidth;
+    const prev = [html.style.overflow, html.style.paddingRight];
+    html.style.overflow = "hidden";
+    if (bar > 0) html.style.paddingRight = `${bar}px`;
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      [html.style.overflow, html.style.paddingRight] = prev;
     };
   }, [open, onClose]);
 
@@ -371,7 +376,6 @@ export default function ListSortFilter({
   return createPortal(
     <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp" role="dialog" aria-modal="true" aria-label={t("listMenu.sortFilter")}>
-        <div className="as-sfp-handle" />
         <div className="as-sfp-head">
           <div className="as-sfp-hl">
             <h3>{t("listMenu.sortFilter")}</h3>
