@@ -681,7 +681,6 @@ view === "grid" ? (
       <RandomReveal
         entry={reveal?.entry ?? null}
         title={reveal ? titleOf(reveal.entry) : ""}
-        href={reveal ? animeHref(reveal.entry.mediaId, clickTarget) : "#"}
         statusName={reveal ? statusName(reveal.entry.status) : ""}
         color={reveal ? statusColor(reveal.entry.status) : "#fff"}
         progress={reveal ? progressText(reveal.entry, t) : ""}

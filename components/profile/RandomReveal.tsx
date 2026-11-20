@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { prettyFormat } from "@/components/anime/v2/helpers";
+import { animeHref } from "@/lib/prefs/clickTarget";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { useSheetPresence } from "./useSheetPresence";
 
@@ -15,7 +16,6 @@ import { useSheetPresence } from "./useSheetPresence";
 export default function RandomReveal({
   entry,
   title,
-  href,
   statusName,
   color,
   progress,
@@ -24,7 +24,6 @@ export default function RandomReveal({
 }: {
   entry: ProfileEntry | null;
   title: string;
-  href: string;
   statusName: string;
   color: string;
   progress: string;
@@ -35,8 +34,8 @@ export default function RandomReveal({
   const open = !!entry;
   const { shown, closing } = useSheetPresence(open);
   /* Pendant la sortie, `entry` est déjà null : on garde le dernier affiché. */
-  const last = useRef<{ entry: ProfileEntry; title: string; href: string; statusName: string; color: string; progress: string } | null>(null);
-  if (entry) last.current = { entry, title, href, statusName, color, progress };
+  const last = useRef<{ entry: ProfileEntry; title: string; statusName: string; color: string; progress: string } | null>(null);
+  if (entry) last.current = { entry, title, statusName, color, progress };
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -82,8 +81,8 @@ export default function RandomReveal({
             <img
               src={cover}
               alt=""
-              width={150}
-              height={213}
+              width={210}
+              height={298}
               className="as-rr-poster"
               // Une affiche introuvable laisse le cadre gris, pas l'icône d'image cassée.
               onError={(ev) => {
@@ -107,9 +106,15 @@ export default function RandomReveal({
               {e.score ? <span className="as-rr-score">{e.score}</span> : null}
             </div>
             <div className="as-rr-actions">
-              <Link href={v.href} className="as-rr-go" onClick={onClose}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z" /></svg>
+              {/* « Regarder » va TOUJOURS au lecteur, « Plus d'infos » à la
+                  fiche (20/11, Luc), quel que soit le réglage du clic. */}
+              <Link href={animeHref(e.mediaId, "watch")} className="as-rr-go" onClick={onClose}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z" /></svg>
                 {t("listMenu.reveal.watch")}
+              </Link>
+              <Link href={animeHref(e.mediaId, "info")} className="as-rr-again" onClick={onClose}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 15a1 1 0 0 1-1-1v-4a1 1 0 0 1 2 0v4a1 1 0 0 1-1 1zm0-8a1.25 1.25 0 1 1 0-2.5A1.25 1.25 0 0 1 12 9z" /></svg>
+                {t("preview.moreInfo")}
               </Link>
               <button type="button" className="as-rr-again" onClick={onReroll}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15,20q-0.42,0-0.71-0.29Q14,19.43 14,19t0.29-0.71T15,18h1.6l-2.48-2.47q-0.3-0.3-0.29-0.71t0.31-0.71t0.71-0.3t0.71,0.3L18,16.55V15q0-0.43 0.29-0.71T19,14t0.71,0.29T20,15v4q0,0.43-0.29,0.71T19,20H15ZM4.3,19.7Q4.03,19.43 4.03,19T4.3,18.3L16.6,6H15q-0.42,0-0.71-0.29Q14,5.43 14,5t0.29-0.71T15,4h4q0.43,0 0.71,0.29T20,5V9q0,0.42-0.29,0.71T19,10T18.29,9.71T18,9V7.4L5.7,19.7Q5.43,19.98 5,19.98q-0.42,0-0.7-0.28ZM4.28,5.7Q4,5.43 4,5T4.28,4.3T4.96,4.02T5.68,4.3l4.2,4.18q0.28,0.28 0.29,0.69T9.88,9.88q-0.27,0.27-0.7,0.27T8.48,9.88L4.28,5.7Z" /></svg>
