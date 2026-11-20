@@ -152,6 +152,21 @@ export default function ProfileList({
      plutôt que `picked` : deux tirages du même titre défilent tous les deux.
      On attend quelques images que la vue (différée) ait rendu la ligne. */
   const [pickSeq, setPickSeq] = useState(0);
+  /* La barre collée prend un fond flouté (`is-stuck`) : sans lui, la liste
+     se lisait à travers ses champs translucides. Une sonde de hauteur nulle
+     juste au-dessus : sortie par le haut (sous les 76 px) = barre collée. */
+  const barProbe = useRef<HTMLDivElement>(null);
+  const [barStuck, setBarStuck] = useState(false);
+  useEffect(() => {
+    const el = barProbe.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([e]) => setBarStuck(!e.isIntersecting && e.boundingClientRect.top < 76),
+      { rootMargin: "-76px 0px 0px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [entries.length === 0]);
   useEffect(() => {
     if (!pickSeq) return;
     let tries = 0;
@@ -489,7 +504,10 @@ view === "grid" ? (
 
   return (
     <>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      {/* LA BARRE RESTE VISIBLE EN DESCENDANT (20/11/2026, Luc) : collée sous
+          la barre de navigation (64 px) + un peu d'air. */}
+      <div ref={barProbe} aria-hidden className="h-0" />
+      <div className={`as-list-bar sticky top-[76px] z-30 mb-5 flex flex-wrap items-center gap-2${barStuck ? " is-stuck" : ""}`}>
         {editable ? (
           <button
             type="button"

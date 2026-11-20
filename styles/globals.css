@@ -17,16 +17,19 @@
    vertical scrollbar's ~17px → those elements overflow the viewport.
    - `<html> { overflow-x: clip }`: hides the visual overflow without creating
      a containing block (so `position: sticky` keeps working everywhere).
-   - `<body> { overflow-x: hidden }`: blocks programmatic / touchpad scroll
-     of the body itself; combined with html's clip, neither the visible
-     scrollbar nor the latent scroll behavior remain.
+   - `<body> { overflow-x: clip }`: same on the body. It WAS `hidden`, and
+     that broke every page-level `sticky` (20/11/2026): html's `clip` stops
+     body's overflow from propagating to the viewport, so `hidden` made
+     <body> its own scroll container — one that never scrolls, which sticky
+     elements then stuck to (profile list bar, ProfileAside). `clip` creates
+     no scroll container and still forbids sideways scrolling.
    Intentional horizontal carousels opt back in with `overflow-x-auto` on
    their own container — that scope is unaffected because they're nested. */
 html {
   overflow-x: clip;
 }
 body {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* GPU saver: freeze all CSS animations + transitions while the tab is in the
@@ -6044,3 +6047,14 @@ html.as-dragging .as-nudge {
 .as-tour-cta:hover { transform: translateY(-1px); }
 .as-tour-cta::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); transform: translateX(-120%); }
 .as-tour-cta:hover::after { transform: translateX(120%); transition: transform .6s ease; }
+
+/* LA BARRE DE LA LISTE COLLÉE EN HAUT (20/11/2026, Luc) : un fond flouté
+   derrière elle, en pseudo-élément débordant de 8 px pour que la barre ne
+   change pas de taille (sinon la liste sauterait au moment où elle colle). */
+.as-list-bar::before {
+  content: ""; position: absolute; inset: -8px; z-index: -1; border-radius: 18px; pointer-events: none;
+  background: rgba(12,13,16,.62); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,.06); box-shadow: 0 12px 30px rgba(0,0,0,.4);
+  opacity: 0; transition: opacity .2s ease-out;
+}
+.as-list-bar.is-stuck::before { opacity: 1; }
