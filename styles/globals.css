@@ -5685,8 +5685,17 @@ html.as-dragging .as-nudge {
 .as-sfp-ddb, .as-sfp-ddn { min-width: 22px; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .as-sfp-ddb { background: var(--brand-primary, #E94560); color: #fff; }
 .as-sfp-ddn { background: rgba(255,255,255,.1); color: rgba(255,255,255,.6); }
-.as-sfp-ddp { padding: 12px 12px 14px; background: rgba(10,10,18,.6); border: 1px solid rgba(233,69,96,.45); border-top: none; border-radius: 0 0 12px 12px; animation: as-sfp-dp-in .18s cubic-bezier(.22,1,.36,1); }
-@keyframes as-sfp-dp-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.as-sfp-ddp { padding: 12px 12px 14px; background: rgba(10,10,18,.6); border: 1px solid rgba(233,69,96,.45); border-top: none; border-radius: 0 0 12px 12px; }
+/* ENTRÉE / SORTIE DES DÉPLIANTS (20/11/2026, Luc) : la hauteur s'ouvre et se
+   referme (grille 0fr ↔ 1fr), le contenu en fondu. ListSortFilter garde le
+   panneau monté 220 ms le temps de la sortie. */
+.as-sfp-ddwrap { display: grid; grid-template-rows: 1fr; animation: as-sfp-dd-open .26s cubic-bezier(.22,1,.36,1); }
+.as-sfp-ddwrap > div { min-height: 0; overflow: hidden; }
+.as-sfp-ddwrap.is-leaving { pointer-events: none; animation: as-sfp-dd-close .22s cubic-bezier(.4,0,.6,1) forwards; }
+@keyframes as-sfp-dd-open { from { grid-template-rows: 0fr; opacity: 0; } }
+@keyframes as-sfp-dd-close { to { grid-template-rows: 0fr; opacity: 0; } }
+/* L'en-tête garde ses coins du bas carrés tant que le panneau se referme. */
+.as-sfp-sec:has(> .as-sfp-ddwrap) .as-sfp-dd { border-radius: 12px 12px 0 0; }
 .as-sfp-ddt { display: flex; gap: 6px; margin-bottom: 10px; }
 .as-sfp-ddt button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 0; border-radius: 8px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: rgba(255,255,255,.45); transition: background .15s, color .15s, border-color .15s; }
 .as-sfp-ddt button:not(.is-on):hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.8); }

@@ -73,7 +73,23 @@ export default function ListSortFilter({
   const { t } = useTranslation();
   /* PLUSIEURS DÉPLIANTS OUVERTS À LA FOIS (20/11/2026, Luc) : chacun garde
      son ouverture, sa recherche et son onglet. */
-  const [openDd, setOpenDd] = useState<Partial<Record<SetKey, boolean>>>({});
+  /* `"leaving"` : le dépliant joue son animation de fermeture, encore monté. */
+  const [openDd, setOpenDd] = useState<Partial<Record<SetKey, true | "leaving">>>({});
+  const ddTimers = useRef<Partial<Record<SetKey, ReturnType<typeof setTimeout>>>>({});
+  useEffect(() => () => Object.values(ddTimers.current).forEach((id) => clearTimeout(id)), []);
+  const toggleDd = (k: SetKey) => {
+    clearTimeout(ddTimers.current[k]);
+    if (openDd[k] === true) {
+      setOpenDd((o) => ({ ...o, [k]: "leaving" }));
+      ddTimers.current[k] = setTimeout(() => setOpenDd((o) => {
+        const n = { ...o };
+        delete n[k];
+        return n;
+      }), 220);
+    } else {
+      setOpenDd((o) => ({ ...o, [k]: true }));
+    }
+  };
   const [ddScopes, setDdScopes] = useState<Partial<Record<SetKey, DdScope>>>({});
   const showAdult = useShowAdult();
   const [ddQueries, setDdQueries] = useState<Partial<Record<SetKey, string>>>({});
@@ -264,7 +280,8 @@ export default function ListSortFilter({
   const dropdown = ({ k, label, icon }: { k: SetKey; label: string; icon: React.ReactNode }) => {
     const whole = valueCounts(entries, k);
     if (!whole.size) return null;
-    const isOpen = !!openDd[k];
+    const isOpen = openDd[k] === true;
+    const shown = !!openDd[k];
     const ddScope = ddScopes[k] || "list";
     const ddQuery = ddQueries[k] || "";
     const setDdScope = (s: DdScope) => setDdScopes((o) => ({ ...o, [k]: s }));
@@ -276,7 +293,7 @@ export default function ListSortFilter({
       <span className="as-sfp-ddn">{whole.size}</span>
     );
     let panel: React.ReactNode = null;
-    if (isOpen) {
+    if (shown) {
       /* DEUX ONGLETS (12/11, Luc) : « Tags dans la liste » (ce que porte au
          moins un de tes titres) et « Tous les tags » (le catalogue AniList,
          ceux que tu n'as jamais vus à 0). Pareil pour les genres et les
@@ -335,7 +352,7 @@ export default function ListSortFilter({
           type="button"
           className="as-sfp-dd"
           aria-expanded={isOpen}
-          onClick={() => { setOpenDd((o) => ({ ...o, [k]: !isOpen })); setDdQuery(""); }}
+          onClick={() => { toggleDd(k); if (!isOpen) setDdQuery(""); }}
         >
           <span className="as-sfp-ddl">
             {icon}
@@ -346,7 +363,12 @@ export default function ListSortFilter({
             <Chevron className="as-sfp-chev" />
           </span>
         </button>
-        {panel}
+        {panel ? (
+          /* Ouverture / fermeture en hauteur (grille 0fr → 1fr) et fondu. */
+          <div className={`as-sfp-ddwrap${isOpen ? "" : " is-leaving"}`}>
+            <div>{panel}</div>
+          </div>
+        ) : null}
       </div>
     );
   };
