@@ -60,8 +60,8 @@ retirer change le rendu).
 
 **A decider par Luc :**
 - ~~Region~~ **FAIT le 20/11 (Luc : « fais ce qui est mieux », dev + prod PR #24)** : fonctions `cdg1` -> `dub1`.
-  Turso = aws-eu-west-1 (Irlande) x4 : ~18 -> ~1 ms par requete. Upstash = **eu-central-1 (Francfort)**, PAS Londres
-  comme le disent les commentaires du code (IP 3.73.201.5) : ~9 -> ~24 ms par commande, accepte (Redis peu sollicite).
+  Turso = aws-eu-west-1 (Irlande) x4 : ~18 -> ~1 ms par requete. Upstash `aniscroll-cache` = base **Global, primaire
+  eu-west-1 (Irlande)** (console, 20/11) : on est servi par la replique la plus proche. Une resolution DNS depuis la France tombe sur eu-central-1 (Francfort) — ce n'est PAS sa region ; depuis dub1, Redis est aussi a ~1 ms. (Les commentaires du code qui disent « Londres » sont faux.)
   Les 5 lecteurs actifs resolvent depuis dub1 (sendvid teste sur Goblin Slayer VF ep 2 : Frieren/Erased n'en ont pas).
   Retour arriere : `regions: ["cdg1"]` dans vercel.json.
 - **apercu.mp4 du changelog** : 2,7 Mo (1600x900, 1,6 Mb/s) pour un panneau de 672 px, telecharge a chaque premiere
