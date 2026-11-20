@@ -636,7 +636,10 @@ export default function ListSortFilter({
               if (name) void import("@/lib/badges/facts").then((f) => f.recordFlag("random")).catch(() => {});
             }}
           >
-            <Icon d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" size={18} />
+            {/* L'icône « mélanger » pleine fournie par Luc (20/11/2026). */}
+            <svg viewBox="0 0 24 24" width={20} height={20} fill="currentColor" aria-hidden="true">
+              <path d="M15,20q-0.42,0-0.71-0.29Q14,19.43 14,19t0.29-0.71T15,18h1.6l-2.48-2.47q-0.3-0.3-0.29-0.71t0.31-0.71t0.71-0.3t0.71,0.3L18,16.55V15q0-0.43 0.29-0.71T19,14t0.71,0.29T20,15v4q0,0.43-0.29,0.71T19,20H15ZM4.3,19.7Q4.03,19.43 4.03,19T4.3,18.3L16.6,6H15q-0.42,0-0.71-0.29Q14,5.43 14,5t0.29-0.71T15,4h4q0.43,0 0.71,0.29T20,5V9q0,0.42-0.29,0.71T19,10T18.29,9.71T18,9V7.4L5.7,19.7Q5.43,19.98 5,19.98q-0.42,0-0.7-0.28ZM4.28,5.7Q4,5.43 4,5T4.28,4.3T4.96,4.02T5.68,4.3l4.2,4.18q0.28,0.28 0.29,0.69T9.88,9.88q-0.27,0.27-0.7,0.27T8.48,9.88L4.28,5.7Z" />
+            </svg>
           </button>
           <button type="button" className="as-sfp-apply" onClick={() => { onChange(f); onClose(); }}>
             {t("listMenu.show")} <span className="as-sfp-count">{count}</span> {t("listMenu.results", { count })}
