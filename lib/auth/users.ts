@@ -76,11 +76,6 @@ export function toPublicUser(u: UserRecord): PublicUser {
   return rest;
 }
 
-/** Display name: the AniList name when linked, else the AniScroll pseudo. */
-export function displayName(u: UserRecord | PublicUser): string {
-  return u.anilistName || u.username || `Guest#${u.tag}`;
-}
-
 const SELECT = `SELECT * FROM users`;
 
 async function findOne(sql: string, args: unknown[]): Promise<UserRecord | null> {

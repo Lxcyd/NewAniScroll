@@ -289,13 +289,3 @@ export function patchListEntry(
   writeSession(userName, Array.from(map.values()));
   announce();
 }
-
-/** Drop the cached list (e.g. on sign-out). */
-export function clearUserList(userName: string): void {
-  memCache.delete(userName);
-  inflight.delete(userName);
-  try {
-    localStorage.removeItem(SS_KEY(userName));
-    sessionStorage.removeItem(SS_KEY(userName));
-  } catch {}
-}

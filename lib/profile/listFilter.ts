@@ -90,12 +90,6 @@ export function valueCounts(entries: ProfileEntry[], k: SetKey): Map<string, num
   return m;
 }
 
-export function presentValues(entries: ProfileEntry[], k: SetKey): string[] {
-  const s = new Set<string>();
-  for (const e of entries) for (const v of valuesOf(e, k)) s.add(v);
-  return [...s].sort((a, b) => a.localeCompare(b));
-}
-
 /* Une borne resserrée écarte les titres dont la valeur est INCONNUE (une liste
    locale n'a pas d'année) : on ne peut pas dire qu'ils sont dedans. Laissée
    pleine, elle les garde tous. */

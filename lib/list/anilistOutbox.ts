@@ -145,14 +145,6 @@ export function pendingFavourites(): { mediaId: number; want: boolean; at: numbe
   return Object.entries(read().fav).map(([k, v]) => ({ mediaId: Number(k), ...v }));
 }
 
-export function pendingFor(mediaId: number): OutboxOp | undefined {
-  return read().ops[mediaId];
-}
-
-export function hasPending(): boolean {
-  const s = read();
-  return Object.keys(s.ops).length > 0 || Object.keys(s.fav).length > 0;
-}
 
 /**
  * L'échec vaut-il d'être rejoué ? Oui pour tout ce qui dit « AniList ne peut pas

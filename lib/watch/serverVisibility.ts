@@ -42,18 +42,6 @@ type FailedLike = Set<string> | Map<string, unknown> | null | undefined;
  *  reapparaitre un chip mort sans que rien ne le signale. */
 export const ABSENCE_PROUVEE = "Source not found";
 
-const raisonDe = (failedServers: FailedLike, id: string): unknown =>
-  (failedServers as any)?.get?.(id);
-
-/** L'hote a-t-il PROUVE qu'il n'a pas cet episode ? */
-export function isProvenAbsent(failedServers: FailedLike, id: string): boolean {
-  const raison = raisonDe(failedServers, id);
-  // Un Set ne porte pas de raison : impossible de distinguer, on garde le
-  // comportement prudent d'avant (masquer).
-  if (raison === undefined) return !!failedServers?.has?.(id);
-  return raison === ABSENCE_PROUVEE;
-}
-
 export function shouldShowServer(
   server: ServerLike,
   activeServer: string,

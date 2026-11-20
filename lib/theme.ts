@@ -53,18 +53,6 @@ export const TEXT = {
   faint: "rgba(255, 255, 255, 0.4)",
 };
 
-/** Status colors — used in profile lists, watch state badges, etc. */
-export const STATUS = {
-  watching: "#10B981",
-  rewatching: "#06B6D4",
-  completed: "#3B82F6",
-  planning: "#A855F7",
-  paused: "#F59E0B",
-  dropped: "#EF4444",
-  score: "#FFD700",
-  episodes: "#0F3460",
-};
-
 /**
  * Returns an object suitable for assigning to document.documentElement.style
  * so the same colors are available as CSS custom properties at runtime. Called

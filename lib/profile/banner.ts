@@ -25,7 +25,6 @@ import type { BannerOption } from "./types";
 import { isImageUpload } from "@/lib/upload/media";
 
 export type { BannerOption } from "./types";
-export { plateMode } from "./types";
 
 export type ProfileBanner = {
   animeId: number | null;

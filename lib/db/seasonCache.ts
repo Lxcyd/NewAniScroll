@@ -104,20 +104,3 @@ export async function seasonCacheSet(
     /* non-fatal */
   }
 }
-
-/** Delete cached rows whose key STARTS WITH `prefix` — used to purge a poisoned
- *  entry or evict an old version deliberately (e.g. "seasonList:v10:"). */
-export async function seasonCachePurge(prefix: string): Promise<number> {
-  const db = getTursoClient();
-  if (!db) return 0;
-  await ensureTable();
-  try {
-    const r = await db.execute({
-      sql: "DELETE FROM season_cache WHERE cache_key LIKE ?",
-      args: [`${prefix}%`],
-    });
-    return r.rowsAffected ?? 0;
-  } catch {
-    return 0;
-  }
-}

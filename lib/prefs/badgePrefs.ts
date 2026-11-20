@@ -56,10 +56,6 @@ function ecrire(cle: string, on: boolean): void {
   window.dispatchEvent(new CustomEvent(BADGE_PREFS_EVENT));
 }
 
-/** Lecture synchrone, pour le code hors React. */
-export function getBadgeFx(): boolean {
-  return lire(FX);
-}
 export function setBadgeFx(on: boolean): void {
   ecrire(FX, on);
 }

@@ -86,20 +86,6 @@ export function hourOf(ts: number): number {
 }
 
 /**
- * MINUIT PILE, à la minute et non à la seconde.
- *
- * « Lancer un épisode à 00 h 00 pile » à la seconde exacte est hors de portée :
- * la sauvegarde de position est throttlée à 3 s dans le lecteur, si bien que
- * l'horodatage qu'on lit n'est jamais celui du geste mais celui du tick suivant.
- * Un badge inatteignable n'est pas un badge difficile, c'est un badge cassé. La
- * minute 00:00 est la fenêtre que le libellé promet en pratique.
- */
-export function isMidnightSharp(ts: number): boolean {
-  const d = new Date(ts);
-  return d.getHours() === 0 && d.getMinutes() === 0;
-}
-
-/**
  * Une plage d'heures locales, bornes incluses côté début, exclues côté fin.
  *
  * LA FENÊTRE PEUT TRAVERSER MINUIT, et c'est le cas normal pour un site d'anime :

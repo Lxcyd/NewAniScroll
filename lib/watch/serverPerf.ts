@@ -63,7 +63,6 @@ export const SERVER_PERF_EVENT = "aniscroll:serverPerf:change";
 const SCHEMA_VERSION = 1;
 
 export type Crit = "t" | "s" | "b" | "k" | "q";
-export type Tier = "fast" | "medium" | "slow";
 
 /** [ewma, n, lastDay] — lastDay en jours depuis epoch, pour garder le JSON court. */
 type Entry = [number, number, number];
@@ -106,8 +105,6 @@ const HALF_LIFE_DAYS = 14;
 const MAX_AGE_DAYS = 90;
 /** Part minimale que le prior statique conserve, toujours. */
 const CONF_CAP = 0.75;
-/** En dessous, on n'ose pas afficher un poincon « mesure ». */
-const TIER_MIN_CONF = 0.5;
 /** localStorage.setItem est synchrone : jamais dans une boucle de lecture. */
 const FLUSH_MS = 30_000;
 
@@ -669,16 +666,6 @@ export function serverPerfRankFrozen(server: {
     rangGele = snap;
   }
   return rangGele[server.id] ?? statique;
-}
-
-/**
- * Poincon d'un score deja calcule, ou null tant qu'on n'a pas de quoi
- * l'affirmer. Les seuils collent a `staticTier` de serverSelector.js par
- * construction : speed <= 2 vaut un score >= 80, speed <= 4 un score >= 40.
- */
-export function tierOf({ C, final }: ServerScore): Tier | null {
-  if (C < TIER_MIN_CONF) return null;
-  return final >= 80 ? "fast" : final >= 40 ? "medium" : "slow";
 }
 
 /**
