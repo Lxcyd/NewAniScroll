@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { useSheetPresence } from "./useSheetPresence";
 import { countryLabel, prettyFormat, prettySource, statusLabel } from "@/components/anime/v2/helpers";
 import {
   AIR_STATUSES,
@@ -118,20 +119,26 @@ export default function ListSortFilter({
       else onClose();
     };
     document.addEventListener("keydown", onKey);
-    /* C'est <html> qui défile, pas <body> (cf. ListManager, 20/11/2026) ; la
-       largeur de la barre disparue est rendue en marge. */
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  /* C'est <html> qui défile, pas <body> (cf. ListManager, 20/11/2026) ; la
+     largeur de la barre disparue est rendue en marge. Tenu jusqu'à la fin de
+     l'animation de fermeture (`shown`), sinon la page bouge pendant. */
+  const { shown, closing } = useSheetPresence(open);
+  useEffect(() => {
+    if (!shown) return;
     const html = document.documentElement;
     const bar = window.innerWidth - html.clientWidth;
     const prev = [html.style.overflow, html.style.paddingRight];
     html.style.overflow = "hidden";
     if (bar > 0) html.style.paddingRight = `${bar}px`;
     return () => {
-      document.removeEventListener("keydown", onKey);
       [html.style.overflow, html.style.paddingRight] = prev;
     };
-  }, [open, onClose]);
+  }, [shown]);
 
-  if (!open || !mounted) return null;
+  if (!shown || !mounted) return null;
 
   const f = filters;
   const set = (patch: Partial<ListFilters>) => {
@@ -402,7 +409,7 @@ export default function ListSortFilter({
   if (f.adult) pills.push({ key: "adult", label: t(f.adult === "no" ? "listMenu.nonAdult" : "listMenu.adultOnly"), off: () => set({ adult: "" }) });
 
   return createPortal(
-    <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`as-sfp-overlay${closing ? " is-closing" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp" role="dialog" aria-modal="true" aria-label={t("listMenu.sortFilter")}>
         <div className="as-sfp-head">
           <div className="as-sfp-hl">

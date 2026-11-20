@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime/v2/helpers";
 import ColorPicker from "@/components/shared/ColorPicker";
+import { useSheetPresence } from "./useSheetPresence";
 import {
   CUSTOM_STATUS,
   getListRegistry,
@@ -93,6 +94,7 @@ export default function ListManager({
   useEffect(() => () => clearTimeout(confirmTimer.current), []);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const { shown, closing } = useSheetPresence(open);
 
   useEffect(() => {
     if (!open) return;
@@ -109,8 +111,9 @@ export default function ListManager({
   /* PAGE FIGÉE DERRIÈRE (20/11/2026, Luc) : c'est <html> qui défile ici, pas
      <body> — l'ancien `body.overflow = hidden` laissait la molette passer. La
      largeur de la barre disparue est rendue en marge, la page ne bouge pas. */
+  /* Tenue jusqu'à la fin de l'animation de fermeture (`shown`). */
   useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     const html = document.documentElement;
     const bar = window.innerWidth - html.clientWidth;
     const prev = [html.style.overflow, html.style.paddingRight];
@@ -119,7 +122,7 @@ export default function ListManager({
     return () => {
       [html.style.overflow, html.style.paddingRight] = prev;
     };
-  }, [open]);
+  }, [shown]);
 
   /* RÉORDONNER COMME LES WIDGETS (08/11, Luc : « ça se TP au lieu de suivre le
      curseur ») : la ligne tenue SUIT le pointeur (translate), bloquée entre le
@@ -298,7 +301,7 @@ export default function ListManager({
     return orderCustom(rows, (x) => x.name, r.customOrder);
   }
 
-  if (!open || !mounted) return null;
+  if (!shown || !mounted) return null;
 
   const customStatus = (s: string) =>
     s.startsWith(CUSTOM_STATUS) ? reg.statuses.find((x) => CUSTOM_STATUS + x.name === s) ?? null : null;
@@ -441,7 +444,7 @@ export default function ListManager({
   );
 
   return createPortal(
-    <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`as-sfp-overlay${closing ? " is-closing" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp as-lm" role="dialog" aria-modal="true" aria-label={t("listMenu.manager.title")}>
         <div className="as-sfp-head">
           <h3>{t("listMenu.manager.title")}</h3>

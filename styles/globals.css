@@ -5721,7 +5721,24 @@ html.as-dragging .as-nudge {
 .as-sfp-rand:hover { border-color: rgba(233,69,96,.55); transform: rotate(-8deg); }
 .as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); }
 .as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
-@media (prefers-reduced-motion: reduce) { .as-sfp, .as-sfp-overlay { animation: none; } }
+/* Plus de coupure sous prefers-reduced-motion (20/11/2026) : le Chrome de Luc
+   répond `reduce`, les feuilles apparaissaient et disparaissaient sèchement.
+   Un fondu et 12 px de glissé, rien qui défile. */
+/* OUVERTURE / FERMETURE DES DEUX FEUILLES (20/11/2026, Luc) : sur ordinateur
+   la fenêtre centrée monte légèrement en grandissant ; à la fermeture, le
+   chemin inverse et le voile s'efface (useSheetPresence garde 220 ms). */
+@media (min-width: 640px) {
+  .as-sfp { animation: as-sfp-pop .3s cubic-bezier(.22,1,.36,1); }
+  @keyframes as-sfp-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+}
+.as-sfp-overlay.is-closing { pointer-events: none; animation: as-sfp-fade-out .22s ease-in forwards; }
+.as-sfp-overlay.is-closing .as-sfp { animation: as-sfp-down .22s cubic-bezier(.4,0,.6,1) forwards; }
+@keyframes as-sfp-fade-out { to { opacity: 0; } }
+@keyframes as-sfp-down { to { opacity: 0; transform: translateY(40px); } }
+@media (min-width: 640px) {
+  .as-sfp-overlay.is-closing .as-sfp { animation-name: as-sfp-shrink; }
+  @keyframes as-sfp-shrink { to { opacity: 0; transform: translateY(10px) scale(.97); } }
+}
 
 /* LE GESTIONNAIRE DE LISTES (« + » de l'onglet Liste, ListManager.tsx), calqué
    sur le CustomListManager de la référence : onglets à curseur, lignes à
