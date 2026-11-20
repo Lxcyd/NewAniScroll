@@ -41,6 +41,9 @@ export default function ListManager({
   const { t } = useTranslation();
   const reg = useListRegistry();
   const [tab, setTab] = useState<"status" | "custom">("status");
+  /* Le volet ne glisse qu'à une BASCULE d'onglet, pas à l'ouverture : la
+     feuille a déjà sa propre entrée. */
+  const [switched, setSwitched] = useState(false);
   const [name, setName] = useState("");
   const [color, setColor] = useState(LIST_PALETTE[6]);
   /* Le sélecteur ouvert : "new" | "s:<STATUS>" | "cs:<statut perso>" |
@@ -78,6 +81,20 @@ export default function ListManager({
      et la ligne reste sous le curseur. Rien n'est écrit avant le lâcher.
      Souris et doigt pareil (Pointer Events, écoutés sur `window`). */
   const listRef = useRef<HTMLDivElement>(null);
+  /* LA BOÎTE SUIT SON CONTENU (20/11/2026, Luc) : six statuts d'un côté, deux
+     listes de l'autre — la hauteur du corps est mesurée sur le volet affiché
+     et animée, au lieu de sauter. `null` au premier rendu : la taille
+     naturelle, sans animation à l'ouverture. */
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [paneH, setPaneH] = useState<number | null>(null);
+  useEffect(() => {
+    const el = paneRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setPaneH(el.offsetHeight));
+    ro.observe(el);
+    setPaneH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [tab, open]);
   type Drag = {
     kind: "status" | "custom";
     from: number;
@@ -338,13 +355,22 @@ export default function ListManager({
         <div className="as-lm-tabs" role="tablist">
           <span className="as-lm-slider" style={{ transform: tab === "custom" ? "translateX(100%)" : "none" }} />
           {(["status", "custom"] as const).map((k) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { setTab(k); setPalette(null); setConfirm(null); }}>
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => { if (k !== tab) setSwitched(true); setTab(k); setPalette(null); setConfirm(null); }}>
               {t(k === "status" ? "listMenu.manager.tabStatus" : "listMenu.manager.tabCustom")}
             </button>
           ))}
         </div>
 
-        <div className={`as-lm-body${drag ? " is-sorting" : ""}`} ref={listRef}>
+        <div
+          className={`as-lm-body${drag ? " is-sorting" : ""}${paneH != null ? " is-sized" : ""}`}
+          ref={listRef}
+          /* + 12 : le padding bas du corps. */
+          style={paneH != null ? { height: paneH + 12 } : undefined}
+        >
+          {/* Le volet de l'onglet, remonté à chaque bascule : il entre du côté
+              où glisse la pastille des onglets (statuts à gauche, listes à
+              droite). */}
+          <div key={tab} ref={paneRef} className={`as-lm-pane${switched ? (tab === "custom" ? " from-right" : " from-left") : ""}`}>
           {tab === "status"
             ? reg.statusOrder.map((s, i) => {
                 const cs = customStatus(s);
@@ -430,6 +456,7 @@ export default function ListManager({
                 ) : null}
               </>
             )}
+          </div>
         </div>
 
         {/* La ligne « nouveau statut » / « nouvelle liste », sur les deux onglets

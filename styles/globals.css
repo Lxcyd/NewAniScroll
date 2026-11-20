@@ -5738,7 +5738,10 @@ html.as-dragging .as-nudge {
 .as-lm-add:disabled { background: rgba(255,255,255,.08); color: rgba(255,255,255,.3); cursor: default; }
 .as-lm-note { margin: 8px 2px 0; font-size: 11.5px; color: rgba(255,255,255,.35); }
 .as-lm-new.is-clash + .as-lm-note, .as-lm-new.is-clash ~ .as-lm-note { color: #f97316; }
-@media (prefers-reduced-motion: reduce) { .as-lm-slider { transition: none; } }
+/* Plus de coupure sous prefers-reduced-motion pour la pastille des onglets
+   (20/11/2026) : le poste de Luc répond `reduce`, la pastille sautait au lieu
+   de glisser — c'était la « box qui ne se déplace pas ». 0,22 s de
+   translation, rien qui défile ou clignote. */
 /* LE GESTIONNAIRE DE LISTES AUX COULEURS DU PROFIL (20/11/2026, Luc) : la
    plaque translucide des cartes du profil (.as-stat-card) au lieu du bloc
    opaque des feuilles de filtres, titre en Outfit, rangées en surfaces de
@@ -5760,6 +5763,17 @@ html.as-dragging .as-nudge {
 .as-lm-foot { border-top-color: rgba(255,255,255,.06); }
 .as-lm-new { border-radius: 14px; border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.02); }
 .as-lm-add { border-radius: 10px; }
+/* BASCULE STATUTS / LISTES PERSO (20/11/2026, Luc) : le volet entre du côté de
+   la pastille, et le corps passe d'une hauteur à l'autre au lieu de sauter
+   (hauteur posée par ListManager). flex 0 1 auto : sous le max-height de la
+   feuille, le corps rétrécit encore et défile. */
+.as-lm-body { flex: 0 1 auto; min-height: 0; display: block; overflow-x: hidden; }
+.as-lm-body.is-sized { transition: height .32s cubic-bezier(.22,1,.36,1); }
+.as-lm-pane { display: flex; flex-direction: column; gap: 7px; }
+.as-lm-pane.from-right { animation: as-lm-pane-r .3s cubic-bezier(.22,1,.36,1); }
+.as-lm-pane.from-left { animation: as-lm-pane-l .3s cubic-bezier(.22,1,.36,1); }
+@keyframes as-lm-pane-r { from { opacity: 0; transform: translateX(28px); } }
+@keyframes as-lm-pane-l { from { opacity: 0; transform: translateX(-28px); } }
 
 /* ── Le tour du studio (components/profile/StudioTour.tsx, 09/11/2026) ──────
    Rien que `transform` et `opacity` : le compositeur les joue même quand le
