@@ -5816,6 +5816,15 @@ html.as-dragging .as-nudge {
 .as-lm-ask-btns button.is-danger { color: #fff; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: none; }
 .as-lm-ask-btns button.is-danger:hover { filter: brightness(1.1); }
 .as-lm-ask-btns button:focus-visible { outline: 2px solid rgba(233,69,96,.7); outline-offset: 2px; }
+/* Sur ordinateur, les feuilles se centrent ENTRE le bas de la barre de
+   navigation (64 px, fixe, au-dessus du voile) et le bas de l'écran, avec
+   24 px de marge de chaque côté ; Trier & filtrer un peu plus étroit
+   (20/11/2026, Luc). */
+@media (min-width: 640px) {
+  .as-sfp-overlay { padding: 88px 24px 24px; }
+  .as-sfp { max-height: calc(100dvh - 112px); }
+  .as-sfp:not(.as-lm) { max-width: 880px; }
+}
 /* Page floue à 10 px derrière les deux feuilles (gestionnaire, Trier & filtrer). */
 .as-sfp-overlay { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 /* « TRIER & FILTRER » AU STYLE DU GESTIONNAIRE (20/11/2026, Luc) : même plaque
