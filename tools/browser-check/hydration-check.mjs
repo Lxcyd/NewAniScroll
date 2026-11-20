@@ -152,6 +152,14 @@ const envoie = (method, params = {}) =>
 await envoie("Network.enable");
 await envoie("Runtime.enable");
 await envoie("Page.enable");
+/* Le WAF Cloudflare sert un challenge (403) au User-Agent « HeadlessChrome » :
+   sans cette ligne, chaque page « passait » en etant une page de challenge
+   (constate le 20/11/2026). */
+{
+  const r = await envoie("Runtime.evaluate", { expression: "navigator.userAgent", returnByValue: true });
+  const ua = String(r.result?.result?.value || "").replace("HeadlessChrome", "Chrome");
+  if (ua) await envoie("Network.setUserAgentOverride", { userAgent: ua, acceptLanguage: "fr-FR,fr" });
+}
 
 /*
  * LE COMPTEUR DE TACHES LONGUES, POSE AVANT QUE LA PAGE N'EXISTE.
