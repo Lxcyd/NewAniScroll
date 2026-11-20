@@ -5,6 +5,7 @@ import { customListColor, LIST_COLORS, STATUS_TO_LIST } from "@/components/anime
 import ColorPicker from "@/components/shared/ColorPicker";
 import {
   CUSTOM_STATUS,
+  getListRegistry,
   LIST_PALETTE,
   orderCustom,
   updateListRegistry,
@@ -128,6 +129,15 @@ export default function ListManager({
   /* Une image sans transition au lâcher : l'ordre change dans le DOM au même
      moment où les décalages tombent à zéro, rien ne doit glisser. */
   const [settling, setSettling] = useState(false);
+  /* L'ORDRE NOUVEAU, TENU ICI LE TEMPS QUE LE REGISTRE LE CONFIRME (20/11/2026).
+     Au lâcher, la fin du geste (pointerup : priorité synchrone) et le registre
+     (son CustomEvent : priorité normale) partaient dans DEUX rendus React. Le
+     premier peignait l'ANCIEN ordre sans les décalages — les lignes revenaient
+     à leur place — et le second, qui re-rend aussi toute la liste du profil,
+     arrivait une demi-seconde plus tard. On pose donc l'ordre ici, dans le même
+     rendu que la fin du geste ; il s'efface dès que le registre a suivi. */
+  const [pending, setPending] = useState<{ kind: "status" | "custom"; order: string[] } | null>(null);
+  useEffect(() => setPending(null), [reg]);
   const geo = useRef<{
     tops: number[];
     bottoms: number[];
@@ -188,17 +198,13 @@ export default function ListManager({
       geo.current = null;
       requestAnimationFrame(() => requestAnimationFrame(() => setSettling(false)));
       if (!d || d.to === d.from) return;
-      updateListRegistry((r) => {
-        if (d.kind === "status") {
-          const o = r.statusOrder.slice();
-          o.splice(d.to, 0, o.splice(d.from, 1)[0]);
-          return { ...r, statusOrder: o };
-        }
-        // Toutes les listes perso, dans l'ordre affiché, puis le déplacement.
-        const names = customRows(r).map((x) => x.name);
-        names.splice(d.to, 0, names.splice(d.from, 1)[0]);
-        return { ...r, customOrder: names };
-      });
+      const r0 = getListRegistry();
+      const o = d.kind === "status" ? r0.statusOrder.slice() : customRows(r0).map((x) => x.name);
+      o.splice(d.to, 0, o.splice(d.from, 1)[0]);
+      setPending({ kind: d.kind, order: o });
+      updateListRegistry((r) =>
+        d.kind === "status" ? { ...r, statusOrder: o } : { ...r, customOrder: o },
+      );
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -409,7 +415,7 @@ export default function ListManager({
               droite). */}
           <div key={tab} ref={paneRef} className={`as-lm-pane${switched ? (tab === "custom" ? " from-right" : " from-left") : ""}`}>
           {tab === "status"
-            ? reg.statusOrder.map((s, i) => {
+            ? (pending?.kind === "status" ? pending.order : reg.statusOrder).map((s, i) => {
                 const cs = customStatus(s);
                 return (
                 <div key={s} data-item className="as-lm-item" style={itemStyle("status", i)}>
@@ -447,7 +453,10 @@ export default function ListManager({
               })
             : (
               <>
-                {customRows(reg).map((row, i) => {
+                {(pending?.kind === "custom"
+                  ? orderCustom(customRows(reg), (x) => x.name, pending.order)
+                  : customRows(reg)
+                ).map((row, i) => {
                   if (row.kind === "anilist") {
                     const n = row.name;
                     const c = anilistLists.find(([x]) => x === n)?.[1] ?? 0;
