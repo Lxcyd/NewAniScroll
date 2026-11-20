@@ -636,8 +636,11 @@ export default function ListSortFilter({
             aria-label={t("listMenu.random")}
             title={t("listMenu.random")}
             onClick={() => {
+              /* Un titre tiré : le panneau se ferme et la liste va dessus
+                 (20/11/2026, Luc). Aucun : le message reste dans le panneau. */
               const name = onRandom(f);
-              setPick(name ? t("listMenu.randomPick", { title: name }) : t("listMenu.randomNone"));
+              if (name) onClose();
+              else setPick(t("listMenu.randomNone"));
               /* Le badge « Au hasard » : jusqu'ici aucun bouton ne le levait. */
               if (name) void import("@/lib/badges/facts").then((f) => f.recordFlag("random")).catch(() => {});
             }}

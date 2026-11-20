@@ -147,6 +147,27 @@ export default function ProfileList({
   const liveReg = useListRegistry();
   const reg = editable ? liveReg : EMPTY_REGISTRY;
   const [picked, setPicked] = useState<number | null>(null);
+  /* LE TITRE TIRÉ AU HASARD REÇOIT LE FOCUS (20/11/2026, Luc) : le panneau
+     se ferme, la liste défile jusqu'à lui et le met en avant. Un compteur
+     plutôt que `picked` : deux tirages du même titre défilent tous les deux.
+     On attend quelques images que la vue (différée) ait rendu la ligne. */
+  const [pickSeq, setPickSeq] = useState(0);
+  useEffect(() => {
+    if (!pickSeq) return;
+    let tries = 0;
+    let id = 0;
+    const go = () => {
+      const el = document.querySelector<HTMLElement>(".as-list-picked");
+      if (!el) {
+        if (++tries < 30) id = requestAnimationFrame(go);
+        return;
+      }
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.focus({ preventScroll: true });
+    };
+    id = requestAnimationFrame(go);
+    return () => cancelAnimationFrame(id);
+  }, [pickSeq]);
 
   const bounds = useMemo(() => boundsOf(entries), [entries]);
   const [filters, setFilters] = useState<ListFilters>(() => freshFilters(bounds));
@@ -670,6 +691,7 @@ view === "grid" ? (
           if (!res.length) { setPicked(null); return null; }
           const e = res[Math.floor(Math.random() * res.length)];
           setPicked(e.mediaId);
+          setPickSeq((n) => n + 1);
           return titleOf(e);
         }}
       />
