@@ -771,7 +771,8 @@ function ViewIcon({ v }: { v: View }) {
       ? <><rect x="3" y="3" width="18" height="6" rx="1" /><rect x="3" y="15" width="18" height="6" rx="1" /></>
       : v === "grid"
         ? <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>
-        : <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />;
+        /* Un peu d'air entre les points et les traits (20/11/2026, Luc). */
+        : <path d="M10 6h11M10 12h11M10 18h11M3 6h.01M3 12h.01M3 18h.01" />;
   return (
     // La liste, un peu plus épaisse (20/11/2026, Luc).
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={v === "compact" ? 2.6 : 2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
