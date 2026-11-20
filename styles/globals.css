@@ -5534,8 +5534,9 @@ html.as-dragging .as-nudge {
 /* Le fondu porte sur le CONTENU des panneaux et les intertitres, jamais sur
    un ancêtre du panneau flou : une opacité < 1 au-dessus d'un
    `backdrop-filter` coupe le flou (fond noir pendant le fondu, puis saut). */
-.as-list-viewin .as-stat-card > *, .as-list-viewin h3 { animation: as-list-viewin .18s ease-out; }
-@keyframes as-list-viewin { from { opacity: 0; } }
+.as-list-viewin .as-stat-card > *, .as-list-viewin h3 { animation: as-list-viewin .2s ease-out; }
+@keyframes as-list-viewin { from { opacity: .35; } }
+.is-pending .as-stat-card > *, .is-pending h3 { opacity: .35; transition: opacity .12s ease-out; animation: none; }
 .as-list-menu.is-up { top: auto; bottom: calc(100% + 6px); transform-origin: 50% 100%; animation-name: as-list-menu-in-up; }
 @keyframes as-list-menu-in-up { from { opacity: 0; transform: translateY(4px); } }
 .as-list-opt {

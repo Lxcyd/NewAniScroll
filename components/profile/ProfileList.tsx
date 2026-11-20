@@ -628,12 +628,13 @@ view === "grid" ? (
             {t("listMenu.clearAll")}
           </button>
         </div>
-      ) : pickedView !== view ? (
-        <div key={`s-${pickedView}`} className={viewSwitched ? "as-list-viewin" : undefined}>
-          <ListSkeleton view={pickedView} />
-        </div>
       ) : (
-        <div key={view} className={viewSwitched ? "as-list-viewin" : undefined}>
+        /* CHANGEMENT DE DISPOSITION SANS VIDE (20/11/2026, Luc) : plus de
+           squelette entre les deux vues (contenu effacé, squelette en fondu,
+           puis la vue en fondu : deux fondus et un écran vide). L'ancienne
+           vue reste affichée, assombrie, le temps que React rende la nouvelle
+           en différé ; la nouvelle s'éclaire ensuite. */
+        <div key={view} className={`${viewSwitched ? "as-list-viewin" : ""}${pickedView !== view ? " is-pending" : ""}`}>
           {body}
           {more ? <div ref={sentinel} aria-hidden className="h-px" /> : null}
         </div>
@@ -721,52 +722,6 @@ function MenuItem({
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-white/70" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
       ) : null}
     </button>
-  );
-}
-
-/* LE SQUELETTE DE LA VUE CHOISIE, le temps que React la rende en différé
-   (12/11, Luc) : mêmes surfaces et mêmes hauteurs que la vraie, pour que rien
-   ne saute quand elle arrive. */
-function ListSkeleton({ view }: { view: View }) {
-  const bar = "rounded bg-white/[0.08]";
-  if (view === "grid")
-    return (
-      <div aria-hidden className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(max(112px,calc((100%_-_7*0.875rem)/8)),1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
-        {Array.from({ length: 24 }, (_, i) => (
-          <div key={i} className="flex flex-col gap-1.5">
-            <div className="aspect-[2/3] animate-pulse rounded-[10px] bg-white/[0.08]" />
-            <div className={`h-3.5 w-4/5 ${bar}`} />
-            <div className={`h-3 w-1/2 ${bar}`} />
-          </div>
-        ))}
-      </div>
-    );
-  if (view === "compact")
-    return (
-      <div aria-hidden className="as-stat-card overflow-hidden rounded-xl ring-1 ring-white/[0.07]">
-        {Array.from({ length: 18 }, (_, i) => (
-          <div key={i} className="flex h-[37px] items-center gap-3 px-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-            <div className="h-2 w-2 rounded-full bg-white/[0.12]" />
-            <div className={`h-3 ${bar}`} style={{ width: `${30 + ((i * 37) % 35)}%` }} />
-            <div className={`ml-auto h-3 w-16 ${bar}`} />
-          </div>
-        ))}
-      </div>
-    );
-  return (
-    <div aria-hidden className="as-stat-card flex flex-col overflow-hidden rounded-2xl ring-1 ring-white/[0.07]">
-      {Array.from({ length: 8 }, (_, i) => (
-        <div key={i} className="flex h-24 items-center gap-4 py-2 pl-2 pr-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)]">
-          <div className="h-20 w-14 shrink-0 animate-pulse rounded-lg bg-white/[0.08]" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <div className={`h-4 ${bar}`} style={{ width: `${35 + ((i * 29) % 30)}%` }} />
-            <div className={`h-3 w-1/4 ${bar}`} />
-          </div>
-          <div className="h-8 w-[5.5rem] shrink-0 rounded-lg bg-white/[0.07]" />
-          <div className="h-8 w-12 shrink-0 rounded-lg bg-white/[0.07]" />
-        </div>
-      ))}
-    </div>
   );
 }
 
