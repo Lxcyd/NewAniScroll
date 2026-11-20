@@ -71,10 +71,12 @@ export default function ListSortFilter({
   onRandom: () => string | null;
 }) {
   const { t } = useTranslation();
-  const [openDd, setOpenDd] = useState<SetKey | null>(null);
-  const [ddScope, setDdScope] = useState<DdScope>("list");
+  /* PLUSIEURS DÉPLIANTS OUVERTS À LA FOIS (20/11/2026, Luc) : chacun garde
+     son ouverture, sa recherche et son onglet. */
+  const [openDd, setOpenDd] = useState<Partial<Record<SetKey, boolean>>>({});
+  const [ddScopes, setDdScopes] = useState<Partial<Record<SetKey, DdScope>>>({});
   const showAdult = useShowAdult();
-  const [ddQuery, setDdQuery] = useState("");
+  const [ddQueries, setDdQueries] = useState<Partial<Record<SetKey, string>>>({});
   const [pick, setPick] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -262,7 +264,11 @@ export default function ListSortFilter({
   const dropdown = ({ k, label, icon }: { k: SetKey; label: string; icon: React.ReactNode }) => {
     const whole = valueCounts(entries, k);
     if (!whole.size) return null;
-    const isOpen = openDd === k;
+    const isOpen = !!openDd[k];
+    const ddScope = ddScopes[k] || "list";
+    const ddQuery = ddQueries[k] || "";
+    const setDdScope = (s: DdScope) => setDdScopes((o) => ({ ...o, [k]: s }));
+    const setDdQuery = (q: string) => setDdQueries((o) => ({ ...o, [k]: q }));
     const sel = f.sets[k];
     const head = sel.length ? (
       <span className="as-sfp-ddb">{sel.length}</span>
@@ -329,7 +335,7 @@ export default function ListSortFilter({
           type="button"
           className="as-sfp-dd"
           aria-expanded={isOpen}
-          onClick={() => { setOpenDd(isOpen ? null : k); setDdQuery(""); }}
+          onClick={() => { setOpenDd((o) => ({ ...o, [k]: !isOpen })); setDdQuery(""); }}
         >
           <span className="as-sfp-ddl">
             {icon}
