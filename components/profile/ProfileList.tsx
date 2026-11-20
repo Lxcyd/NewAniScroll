@@ -130,14 +130,17 @@ export default function ProfileList({
   const [pickedView, setView] = useState<View>("cards");
   const view = useDeferredValue(pickedView);
   const [menu, setMenu] = useState<"" | "status" | "list">("");
-  /* LES MENUS STATUT / LISTES S'OUVRENT VERS LE HAUT (20/11/2026, Luc), sauf
-     s'il n'y a pas la place entre le champ et la barre de navigation fixe
-     (64 px) : alors vers le bas. Décidé au montage, avant l'affichage. */
+  /* LES MENUS STATUT / LISTES (20/11/2026, Luc) : vers le bas s'il y a la
+     place sous le champ ; sinon vers le haut, si la place y est entre le champ
+     et la barre de navigation fixe (64 px). Décidé au montage, avant
+     l'affichage. */
   const placeMenu = (el: HTMLDivElement | null) => {
     if (!el) return;
     const field = el.parentElement?.getBoundingClientRect();
     if (!field) return;
-    el.classList.toggle("is-up", field.top - 64 - 12 >= el.offsetHeight);
+    const h = el.offsetHeight + 12;
+    const below = window.innerHeight - field.bottom >= h;
+    el.classList.toggle("is-up", !below && field.top - 64 >= h);
   };
   const [panel, setPanel] = useState(false);
   const [manager, setManager] = useState(false);
