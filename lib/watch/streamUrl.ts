@@ -12,15 +12,10 @@ export const PROXY_BASE =
     (process as any).env?.NEXT_PUBLIC_PROXY_BASE) ||
   "https://proxy.aniscroll.com";
 
-export function proxied(
-  url: string,
-  referer?: string | null,
-  voeCookie?: string | null,
-): string {
+export function proxied(url: string, referer?: string | null): string {
   if (!url) return url;
   const ref = referer ? `&referer=${encodeURIComponent(referer)}` : "";
-  const ck = voeCookie ? `&vcookie=${encodeURIComponent(voeCookie)}` : "";
-  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}${ck}`;
+  return `${PROXY_BASE}?url=${encodeURIComponent(url)}${ref}`;
 }
 
 /** L'adresse de lecture d'un flux : telle quelle s'il est direct, par le
@@ -34,7 +29,7 @@ export function playbackUrl(
   if (!url || stream?.localFile) return null;
   return stream.directUrl
     ? url
-    : proxied(url, stream.referer || refererDeSecours, stream.voeCookie);
+    : proxied(url, stream.referer || refererDeSecours);
 }
 
 /** Ouvre la connexion vers l'origine d'une adresse, une fois par origine.

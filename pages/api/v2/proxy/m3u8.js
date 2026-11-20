@@ -7,52 +7,10 @@
  */
 
 import { Readable } from "stream";
-import { getVoeCookieFor } from "@/lib/extractors";
 import { isPublicUrl } from "@/lib/net/publicUrl";
 
-// VOE's CDN (cloudwindow-route.com) rate-limits to 1 concurrent request per
-// IP. hls.js fetches 3-6 segments in parallel by default → all but the first
-// get 403. Serializing requests per host fixes this. The queue is a simple
-// promise chain: each new request waits for the previous one to finish.
-//
-// Only applied to known concurrency-limited CDNs to avoid slowing down
-// well-behaved hosts.
-// Only VOE genuinely needs serialization (1 concurrent connection per IP).
-// Smoothpre's CDNs (dramiyos-cdn, acek-cdn) tolerate concurrent requests
-// and putting them in this list creates an unnecessary bottleneck that
-// makes playback start slowly and segments time out under bad networks.
-const SERIALIZED_HOST_PATTERNS = [
-  /cloudwindow-route\.com$/,  // VOE
-];
-
-const serialQueues = new Map(); // host → Promise tail
-
-function shouldSerialize(host) {
-  return SERIALIZED_HOST_PATTERNS.some((re) => re.test(host));
-}
-
-async function serializedFetch(targetUrl, fetchOptions) {
-  const host = new URL(targetUrl).hostname;
-  if (!shouldSerialize(host)) {
-    return fetch(targetUrl, fetchOptions);
-  }
-  // Wait for the previous request to this host to finish, then ours runs.
-  const prev = serialQueues.get(host) || Promise.resolve();
-  let release;
-  const ours = new Promise((r) => (release = r));
-  serialQueues.set(host, ours);
-  try {
-    await prev;
-    return await fetch(targetUrl, fetchOptions);
-  } finally {
-    release();
-    // GC: if we're the tail, clear the entry
-    if (serialQueues.get(host) === ours) serialQueues.delete(host);
-  }
-}
-
 export default async function handler(req, res) {
-  const { url, referer, vcookie } = req.query;
+  const { url, referer } = req.query;
   if (!url) {
     return res.status(400).json({ error: "Missing url parameter" });
   }
@@ -136,29 +94,15 @@ export default async function handler(req, res) {
     // Forward Range header for MP4 streaming/seeking
     if (req.headers.range) headers.Range = req.headers.range;
 
-    // VOE: forward DDoS-Guard cookies. The cookie is either:
-    //   1. Passed via the `vcookie` query param (sent by the client — works
-    //      when the Cloudflare Worker is the front-line proxy and the
-    //      Vercel endpoint is hit only as a fallback / for embedded subs).
-    //   2. Looked up from the in-memory jar populated by the VOE extractor
-    //      (works when source-extract + proxy run in the same Vercel
-    //      function instance; failure case is silent — same as today).
-    const targetHost = new URL(targetUrl).hostname;
-    const clientCookie = vcookie ? decodeURIComponent(vcookie) : null;
-    const voeCookie = clientCookie || getVoeCookieFor(targetHost);
-    if (voeCookie) headers.Cookie = voeCookie;
-
     // Abort the upstream fetch if the client disconnects.
     const ctrl = new AbortController();
     req.on("close", () => ctrl.abort());
 
     // Fetch with one retry on 403 (some CDNs need a warm-up request).
-    // serializedFetch funnels concurrent requests to rate-limited hosts (VOE
-    // CDN allows 1 connection at a time per IP) into a per-host FIFO queue.
-    let response = await serializedFetch(targetUrl, { headers, signal: ctrl.signal });
+    let response = await fetch(targetUrl, { headers, signal: ctrl.signal });
     if (response.status === 403) {
       await new Promise((r) => setTimeout(r, 300));
-      response = await serializedFetch(targetUrl, { headers, signal: ctrl.signal });
+      response = await fetch(targetUrl, { headers, signal: ctrl.signal });
     }
 
     // Allow 200 and 206 (partial content for ranged requests).
@@ -192,13 +136,8 @@ export default async function handler(req, res) {
       const refParam = effectiveReferer
         ? `&referer=${encodeURIComponent(effectiveReferer)}`
         : "";
-      // Same for the VOE cookie — nested segment requests need it too.
-      const cookieParam = clientCookie
-        ? `&vcookie=${encodeURIComponent(clientCookie)}`
-        : "";
-
       // Helper to resolve a URL to absolute. We use the WHATWG URL constructor
-      // because some CDNs (notably VOE) embed `/` characters inside their
+      // because some CDNs embed `/` characters inside their
       // query string tokens (e.g. `node=jEH+LZZt+/aHla+H2M=`). String-based
       // `lastIndexOf("/")` would match a slash *inside* the query, producing
       // a malformed base URL that concatenates "master.m3u8?t=..../index.m3u8".
@@ -216,14 +155,14 @@ export default async function handler(req, res) {
       // Rewrite #EXT-X-KEY URI="..." and similar tags (encryption keys, maps)
       body = body.replace(/URI="([^"]+)"/g, (match, uri) => {
         const abs = toAbsolute(uri);
-        return `URI="/api/v2/proxy/m3u8?url=${encodeURIComponent(abs)}${refParam}${cookieParam}"`;
+        return `URI="/api/v2/proxy/m3u8?url=${encodeURIComponent(abs)}${refParam}"`;
       });
 
       // Rewrite segment/playlist URLs (non-# lines)
       body = body.replace(/^(?!#)(.+)$/gm, (line) => {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith("#")) return line;
-        return `/api/v2/proxy/m3u8?url=${encodeURIComponent(toAbsolute(trimmed))}${refParam}${cookieParam}`;
+        return `/api/v2/proxy/m3u8?url=${encodeURIComponent(toAbsolute(trimmed))}${refParam}`;
       });
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");

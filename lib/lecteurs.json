@@ -13,6 +13,10 @@
     "mailru-va":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR FHD1 » de voir-anime : 22/30 vivants, non retenu, seul myTV (vidmoly-va) garde" },
     "voe-va":        { "etat": "retire", "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR VOE » de voir-anime : 11/30 vivants, deja ecarte ; seul myTV (vidmoly-va) garde" },
     "streamtape-va": { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR Stape » de voir-anime : 6/30 vivants" },
-    "streamhide-va": { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR SB » de voir-anime : domaine streamhide.to mort (0/30)" }
+    "streamhide-va": { "etat": "mort",   "site": false, "lot": false, "depuis": "2026-10-31", "decide": "Luc", "raison": "« LECTEUR SB » de voir-anime : domaine streamhide.to mort (0/30)" },
+    "voe":           { "etat": "retire", "site": false, "lot": false, "depuis": "2026-11-20", "decide": "Luc", "raison": "« ne reviendra pas » : aiguillage coupe depuis le 20/09, extracteur et cookies DDoS-Guard supprimes le 20/11" },
+    "embed4me":      { "etat": "retire", "site": false, "lot": false, "depuis": "2026-11-20", "decide": "Luc", "raison": "« ne reviendra pas » (lpayer.embed4me.com) : aiguillage coupe depuis le 20/09, extracteur supprime le 20/11" },
+    "oneupload":     { "etat": "retire", "site": false, "lot": false, "depuis": "2026-11-20", "decide": "Luc", "raison": "« ne reviendra pas » : extracteur jamais aiguille, supprime le 20/11" },
+    "movearnpre":    { "etat": "retire", "site": false, "lot": false, "depuis": "2026-11-20", "decide": "Luc", "raison": "« ne reviendra pas » (movearnpre / dingtezuni / callistanise / smoothpre) : aiguillage coupe depuis le 20/09, extracteur supprime le 20/11" }
   }
 }

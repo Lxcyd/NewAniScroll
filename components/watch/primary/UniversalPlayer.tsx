@@ -121,11 +121,6 @@ type Stream = {
    *  read pixel data for this source (tainted canvas), so it falls back
    *  to StaticGlow — small UX cost for actually playing the video. */
   noCors?: boolean;
-  /** Set by the VOE extractor: DDoS-Guard cookie captured at extraction time.
-   *  Forwarded to the proxy as `vcookie=` so the Cloudflare Worker (which has
-   *  no shared in-memory state with the extractor) can authenticate against
-   *  cloudwindow-route. */
-  voeCookie?: string | null;
   /** The URL is a blob: we built in this document (the merged playlist of a
    *  split episode). It must never be handed to the proxy or the download
    *  Worker — they can't resolve a blob from another origin's memory. */
@@ -6538,11 +6533,7 @@ export default function UniversalPlayer({
   // anime-proxy), use it as-is. Otherwise wrap through our local proxy.
   const src = bestStream!.directUrl
     ? bestStream!.url
-    : proxied(
-        bestStream!.url,
-        bestStream!.referer || streamData?.referer,
-        bestStream!.voeCookie,
-      );
+    : proxied(bestStream!.url, bestStream!.referer || streamData?.referer);
   // Record whether the current source plays straight from the host CDN so
   // onProviderSetup (which runs after this render and can't see bestStream in
   // scope) knows to strip the Referer on the underlying <video>. Only direct
@@ -6608,10 +6599,7 @@ export default function UniversalPlayer({
     : proxyConfigured
     ? `${PROXY_BASE}?url=${encodeURIComponent(innerUrl)}` +
       `&dl=1&filename=${encodeURIComponent(safeName + "." + ext)}` +
-      (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "") +
-      (bestStream!.voeCookie
-        ? `&vcookie=${encodeURIComponent(bestStream!.voeCookie)}`
-        : "")
+      (refererParam ? `&referer=${encodeURIComponent(refererParam)}` : "")
     : isM3U8
       ? `/api/v2/download-stream?url=${encodeURIComponent(innerUrl)}` +
         `&filename=${encodeURIComponent(safeName + ".ts")}` +

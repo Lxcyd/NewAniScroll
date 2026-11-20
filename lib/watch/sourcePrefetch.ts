@@ -386,7 +386,7 @@ export async function warmStream(
       const url = absolu(variante);
       baseUrl = url;
       const p = await litManifeste(
-        direct ? url : proxied(url, source.referer || streamData?.referer, source.voeCookie),
+        direct ? url : proxied(url, source.referer || streamData?.referer),
       );
       if (p === null) return false;
       playlist = p;
@@ -423,7 +423,7 @@ export async function warmStream(
        page info donnait son feu vert a un lecteur qui ne pouvait pas jouer. */
     try {
       const seg = await fetch(
-        direct ? segUrl : proxied(segUrl, source.referer || streamData?.referer, source.voeCookie),
+        direct ? segUrl : proxied(segUrl, source.referer || streamData?.referer),
         commeLeLecteur({ headers: { Range: "bytes=0-262143" } }) as any,
       );
       return seg.ok || seg.status === 206;

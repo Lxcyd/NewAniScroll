@@ -156,17 +156,6 @@ async function isVidmolyEmbedAlive(embedUrl) {
 // Hosts where server-side extraction returns a REAL playable stream â€” we pull
 // the m3u8 / mp4 directly so the universal Vidstack player can play it (with
 // our subtitle / cast / download chrome) instead of dropping back to an iframe.
-//
-// History note: smoothpre / movearnpre used to also serve a relative
-// `/stream/.../master.m3u8` path which was a TIKTOK IMAGE TRAP (anti-bot
-// detection â€” segments were JPEG URLs from tiktokcdn). The current extractor
-// (extractMovearnpre) prefers the absolute hls2 source from their CDN
-// (dramiyos-cdn / acek-cdn / mindbodywellness.space) which serves real .ts
-// segments in 1080p/720p. Tokens last ~1.5h.
-//
-// Dingtezuni / callistanise share the same packed-JS embed format. They're
-// included optimistically â€” extractor will return { error: ... } if they're
-// not actually playable, and the caller falls back to the raw iframe.
 /* Les hotes dont on extrait REELLEMENT un flux cote serveur.
    Il y en avait quinze, dont onze morts : sendvid (hote HS), embed4me, lpayer,
    smoothpre, movearnpre, dingtezuni, callistanise (aucun chip ne peut les
@@ -2733,9 +2722,6 @@ function parseEpisodesJs(jsContent) {
 const VOIRANIME_BASE = "https://voiranime.cx";
 const voirSlugCache = new Map();
 const VOIRANIME_SERVERS = {
-  // VF
-  "voiranime-voe":    { name: "VOE", host: ["voe.sx", "voe."], lang: "vf" },
-  "voiranime-voe-vo": { name: "VOE", host: ["voe.sx", "voe."], lang: "vostfr" },
   // Vidmoly — voir-anime tends to carry fresher slugs than anime-sama (their
   // scrape rotates more often), so adding it gives us a separate uploader to
   // try when anime-sama's vidmoly URL is dead.
@@ -3233,52 +3219,7 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
 
     dlog(`[voiranime] Found ep ${episode} on ${serverDef.name}: ${iframeUrl}`);
 
-    // Content validation BEFORE attempting extraction â€” saves ~1-2s of
-    // pointless work when the video is already gone, and prevents the player
-    // from getting stuck in a 403 retry loop on segments that will never come.
     const lower = iframeUrl.toLowerCase();
-    if (lower.includes("voe.sx") || lower.includes("voe.")) {
-      try {
-        const probe = await fetchWithTimeout(iframeUrl, { redirect: "follow" });
-        if (!probe.ok) {
-          dlog(`[voiranime] VOE probe HTTP ${probe.status} â€” hiding server`);
-          return null;
-        }
-        const html = await probe.text();
-        // Follow the JS redirect to the actual mirror (maryspecialwatch.com,
-        // weneverbeenfree.com, etc) and validate THAT response. Without this
-        // every removed VOE video returns 200 here and only fails later
-        // during stream extraction, leaving the player stuck in a load loop.
-        const mirrorMatch = html.match(/window\.location\.href\s*=\s*['"]([^'"]+)['"]/);
-        if (mirrorMatch) {
-          const mirror = await fetchWithTimeout(mirrorMatch[1], { redirect: "follow" });
-          if (!mirror.ok) {
-            dlog(`[voiranime] VOE mirror HTTP ${mirror.status} â€” video removed, hiding server`);
-            return null;
-          }
-          const mirrorHtml = await mirror.text();
-          if (
-            mirrorHtml.includes("404 - Not found") ||
-            mirrorHtml.includes("404 Not Found") ||
-            /The server can ?not find the requested resource/i.test(mirrorHtml) ||
-            // No JSON payload â†’ no video data on the page
-            !/<script[^>]*type=["']application\/json["']/i.test(mirrorHtml)
-          ) {
-            dlog(`[voiranime] VOE mirror returned error/empty page â€” hiding server`);
-            return null;
-          }
-        } else if (
-          html.includes("404 - Not found") ||
-          html.includes("404 Not Found") ||
-          /The server can ?not find the requested resource/i.test(html)
-        ) {
-          dlog(`[voiranime] VOE returned 404 page â€” hiding server`);
-          return null;
-        }
-      } catch (e) {
-        // Network error â€” fall through and let the client try
-      }
-    }
 
     // Vidmoly: same bypass as anime-sama — hand the embed URL to the browser
     // so the m3u8 token IP-binds to the user instead of any proxy. See the
@@ -3308,10 +3249,9 @@ async function getVoiranimeIframe(serverKey, title, episode, aniId, trace = null
       console.error(
         `[voiranime] ${serverKey} extractor failed for ep=${episode} slug=${slug}: ${result.error}`,
       );
-      // VOE iframes are X-Frame-blocked on every non-VOE origin → "refused
-      // to connect". Sibnet does the same. Both: hide rather than serve a
-      // chip that can never load.
-      if (lower.includes("voe.sx") || lower.includes("voe.") || lower.includes("sibnet")) {
+      // Sibnet iframes are X-Frame-blocked on every foreign origin → "refused
+      // to connect": hide rather than serve a chip that can never load.
+      if (lower.includes("sibnet")) {
         return null;
       }
     }
