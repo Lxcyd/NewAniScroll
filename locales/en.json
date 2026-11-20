@@ -3060,6 +3060,10 @@
       "delStatus": "This status will be permanently deleted."
     },
     "showMore": "Show more (+{{count}})",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "reveal": {
+      "watch": "Watch",
+      "reroll": "Reroll"
+    }
   }
 }

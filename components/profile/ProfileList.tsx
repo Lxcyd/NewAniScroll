@@ -25,6 +25,7 @@ import {
 } from "@/lib/profile/listFilter";
 import ListSortFilter, { Chevron } from "@/components/profile/ListSortFilter";
 import ListManager from "@/components/profile/ListManager";
+import RandomReveal from "@/components/profile/RandomReveal";
 import { CUSTOM_STATUS, EMPTY_REGISTRY, orderCustom, useListRegistry } from "@/lib/profile/listRegistry";
 import type { ProfileEntry } from "@/lib/profile/types";
 import { useShowAdult } from "@/lib/prefs/adultPrefs";
@@ -146,28 +147,11 @@ export default function ProfileList({
   const [manager, setManager] = useState(false);
   const liveReg = useListRegistry();
   const reg = editable ? liveReg : EMPTY_REGISTRY;
-  const [picked, setPicked] = useState<number | null>(null);
-  /* LE TITRE TIRÉ AU HASARD REÇOIT LE FOCUS (20/11/2026, Luc) : le panneau
-     se ferme, la liste défile jusqu'à lui et le met en avant. Un compteur
-     plutôt que `picked` : deux tirages du même titre défilent tous les deux.
-     On attend quelques images que la vue (différée) ait rendu la ligne. */
-  const [pickSeq, setPickSeq] = useState(0);
-  useEffect(() => {
-    if (!pickSeq) return;
-    let tries = 0;
-    let id = 0;
-    const go = () => {
-      const el = document.querySelector<HTMLElement>(".as-list-picked");
-      if (!el) {
-        if (++tries < 30) id = requestAnimationFrame(go);
-        return;
-      }
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
-      el.focus({ preventScroll: true });
-    };
-    id = requestAnimationFrame(go);
-    return () => cancelAnimationFrame(id);
-  }, [pickSeq]);
+  /* LE TITRE TIRÉ AU HASARD S'OUVRE EN FICHE (20/11/2026, Luc, proposition
+     01 de l'artefact) : défiler jusqu'à lui obligeait à remonter de loin sur
+     une grande liste. La liste ne bouge plus ; « Relancer » tire dans les
+     mêmes résultats. */
+  const [reveal, setReveal] = useState<{ entry: ProfileEntry; pool: ProfileEntry[] } | null>(null);
 
   const bounds = useMemo(() => boundsOf(entries), [entries]);
   const [filters, setFilters] = useState<ListFilters>(() => freshFilters(bounds));
@@ -310,10 +294,9 @@ export default function ProfileList({
   const viewKey = `${status}|${activeList}|${score ?? ""}|${query}|${JSON.stringify(filters)}|${view}`;
   const [grown, setGrown] = useState<{ key: string; n: number }>({ key: "", n: FIRST_ROWS });
   const limit = grown.key === viewKey ? grown.n : FIRST_ROWS;
-  const pickedAt = picked == null ? -1 : shown.findIndex((e) => e.mediaId === picked);
   const rows = useMemo(
-    () => (shown.length <= limit ? shown : shown.slice(0, Math.max(limit, pickedAt + 1))),
-    [shown, limit, pickedAt],
+    () => (shown.length <= limit ? shown : shown.slice(0, limit)),
+    [shown, limit],
   );
   const more = rows.length < shown.length;
   const sentinel = useRef<HTMLDivElement>(null);
@@ -383,7 +366,7 @@ view === "grid" ? (
             <Link
               key={e.mediaId}
               href={animeHref(e.mediaId, clickTarget)}
-              className={`group flex min-w-0 flex-col gap-1.5 ${picked === e.mediaId ? "as-list-picked" : ""}`}
+              className="group flex min-w-0 flex-col gap-1.5"
             >
               {/* Le cœur hors du cadre de l'affiche, qui coupe ce qui dépasse. */}
               <span className="relative block">
@@ -420,7 +403,7 @@ view === "grid" ? (
             <Link
               key={e.mediaId}
               href={animeHref(e.mediaId, clickTarget)}
-              className={`as-list-row as-list-row-compact group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 px-3 py-2 text-sm shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
+              className={`as-list-row as-list-row-compact group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 px-3 py-2 text-sm shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px]`}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
               <span className="as-hover-title truncate font-medium">{titleOf(e)}</span>
@@ -443,7 +426,6 @@ view === "grid" ? (
               statusName={statusName(e.status)}
               href={animeHref(e.mediaId, clickTarget)}
               title={titleOf(e)}
-              picked={picked === e.mediaId}
               progress={progressText(e, t)}
             />
           ))}
@@ -476,7 +458,7 @@ view === "grid" ? (
         })}
       </div>
     );
-  }, [view, rows, grouped, groupCounts, clickTarget, picked, titleOf, statusColor, statusName, t]);
+  }, [view, rows, grouped, groupCounts, clickTarget, titleOf, statusColor, statusName, t]);
 
   if (entries.length === 0) {
     return (
@@ -685,15 +667,30 @@ view === "grid" ? (
         onChange={changeFilters}
         pool={pre}
         onRandom={(f) => {
-          /* Le tirage applique le brouillon : le titre tiré doit être dans la liste. */
+          /* Le tirage applique le brouillon : la liste derrière montre les
+             mêmes résultats que ceux d'où sort le titre. */
           changeFilters(f);
           const res = applyFilters(pre, f, bounds);
-          if (!res.length) { setPicked(null); return null; }
+          if (!res.length) return null;
           const e = res[Math.floor(Math.random() * res.length)];
-          setPicked(e.mediaId);
-          setPickSeq((n) => n + 1);
+          setReveal({ entry: e, pool: res });
           return titleOf(e);
         }}
+      />
+
+      <RandomReveal
+        entry={reveal?.entry ?? null}
+        title={reveal ? titleOf(reveal.entry) : ""}
+        href={reveal ? animeHref(reveal.entry.mediaId, clickTarget) : "#"}
+        statusName={reveal ? statusName(reveal.entry.status) : ""}
+        color={reveal ? statusColor(reveal.entry.status) : "#fff"}
+        progress={reveal ? progressText(reveal.entry, t) : ""}
+        onReroll={() => {
+          if (!reveal) return;
+          const others = reveal.pool.length > 1 ? reveal.pool.filter((x) => x.mediaId !== reveal.entry.mediaId) : reveal.pool;
+          setReveal({ entry: others[Math.floor(Math.random() * others.length)], pool: reveal.pool });
+        }}
+        onClose={() => setReveal(null)}
       />
     </>
   );
@@ -778,7 +775,6 @@ function Row({
   statusName,
   href,
   title,
-  picked,
   progress,
 }: {
   entry: ProfileEntry;
@@ -786,7 +782,6 @@ function Row({
   statusName: string;
   href: string;
   title: string;
-  picked: boolean;
   progress: string;
 }) {
   const sub = [entry.format && prettyFormat(entry.format), entry.year, entry.studio].filter(Boolean).join(" · ");
@@ -796,7 +791,7 @@ function Row({
       /* `as-list-row` : une ligne hors de l'écran n'est ni mise en page ni
          peinte (cf. globals.css). */
       /* Plus grande depuis le 08/11 (Luc) : affiche 56×80, titre en 16 px. */
-      className={`as-list-row group flex items-center gap-4 py-2 pl-2 pr-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-colors last:shadow-none hover:bg-white/[0.06] ${picked ? "as-list-picked" : ""}`}
+      className={`as-list-row group flex items-center gap-4 py-2 pl-2 pr-4 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-colors last:shadow-none hover:bg-white/[0.06]`}
     >
       {entry.cover ? (
         /* L'affiche « large » d'AniList (230 px) reduite a 56 px sortait floue et

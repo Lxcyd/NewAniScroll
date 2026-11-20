@@ -3060,6 +3060,10 @@
       "delStatus": "Ce statut sera supprimé définitivement."
     },
     "showMore": "Voir plus (+{{count}})",
-    "showLess": "Voir moins"
+    "showLess": "Voir moins",
+    "reveal": {
+      "watch": "Regarder",
+      "reroll": "Relancer"
+    }
   }
 }
