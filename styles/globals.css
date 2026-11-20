@@ -5651,8 +5651,12 @@ html.as-dragging .as-nudge {
 .as-sfp-activewrap { flex: 1; min-width: 0; margin: 3px 10px 0; height: 24px; overflow: hidden; transition: height .3s cubic-bezier(.22,1,.36,1); }
 .as-sfp-active { display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: 6px; }
 .as-sfp-active.is-open { max-height: 160px; overflow-y: auto; scrollbar-width: thin; }
-.as-sfp-more { flex: none; display: flex; align-items: center; height: 24px; line-height: 1; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.75); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); white-space: nowrap; }
-.as-sfp-more:hover { color: #fff; border-color: rgba(233,69,96,.6); }
+/* Même pastille que les filtres inactifs du panneau (20/11/2026, Luc) : gris,
+   survol plus clair, pas de rose, pas de contour après un clic. */
+.as-sfp-more { flex: none; display: inline-flex; align-items: center; height: 24px; line-height: 1; padding: 0 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; color: rgba(255,255,255,.6); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, color .15s; }
+.as-sfp-more:hover { background: rgba(255,255,255,.09); color: rgba(255,255,255,.85); }
+.as-sfp-more:focus:not(:focus-visible) { outline: none; }
+.as-sfp-more:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
 .as-sfp-active .as-sfp-chip { padding: 5px 10px; font-size: 12px; box-shadow: none; }
 .as-sfp-active .as-sfp-chip svg { opacity: .7; }
 .as-sfp-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 4px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
