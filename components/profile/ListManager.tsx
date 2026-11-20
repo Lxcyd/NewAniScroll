@@ -339,13 +339,25 @@ export default function ListManager({
     if (!palette || !anchor) return null;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = Math.max(12, Math.min(anchor.left, vw - POP_W - 12));
-    const below = anchor.bottom + 8;
-    const top = below + POP_H <= vh - 12 ? below : Math.max(12, anchor.top - 8 - POP_H);
+    /* LA BULLE DU TUTO DU STUDIO (20/11/2026, Luc) : centrée sur la pastille,
+       AU-DESSUS, pointe en losange en bas ; dessous seulement si la place
+       manque en haut. Accrochée par son bord le plus proche de la pastille
+       (`bottom` au-dessus), l'écart reste juste quelle que soit sa hauteur.
+       Près d'un bord de l'écran la bulle se décale, la pointe vise toujours
+       l'icône. */
+    const GAP = 12;
+    const cx = anchor.left + anchor.width / 2;
+    const left = Math.max(12, Math.min(cx - POP_W / 2, vw - POP_W - 12));
+    const above = anchor.top - GAP - POP_H >= 12;
+    const place: React.CSSProperties = above
+      ? { left, bottom: vh - anchor.top + GAP, width: POP_W }
+      : { left, top: anchor.bottom + GAP, width: POP_W };
+    const arrow = Math.min(Math.max(18, cx - left), POP_W - 18);
     return (
       <>
         <div className="as-lm-pop-backdrop" onMouseDown={() => setPalette(null)} />
-        <div className="as-lm-pop" style={{ left, top, width: POP_W }} role="dialog" aria-label={t("listMenu.manager.color")}>
+        <div className={`as-lm-pop ${above ? "is-above" : "is-below"}`} style={place} role="dialog" aria-label={t("listMenu.manager.color")}>
+          <span aria-hidden className="as-lm-pop-tip" style={{ transform: `translateX(${arrow - 7}px) rotate(45deg)` }} />
           <ColorPicker key={palette} value={colorOf(palette)} onChange={pickColor} />
         </div>
       </>
