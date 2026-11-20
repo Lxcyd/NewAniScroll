@@ -218,7 +218,9 @@ export default function ListManager({
     if (settling) return { transition: "none" };
     if (!drag || drag.kind !== kind) return undefined;
     if (i === drag.from) {
-      return { transform: `translate3d(0, ${drag.dy}px, 0)`, transition: "none", zIndex: 2, position: "relative" };
+      // Pixel ENTIER : un décalage fractionnaire floutait et faisait trembler
+      // le texte de la ligne tenue (20/11/2026).
+      return { transform: `translate3d(0, ${Math.round(drag.dy)}px, 0)`, transition: "none", zIndex: 2, position: "relative" };
     }
     const { from, to, step } = drag;
     const shift = from < to && i > from && i <= to ? -step : to < from && i >= to && i < from ? step : 0;
