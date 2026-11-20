@@ -30,9 +30,11 @@ type, bureau et mobile Slow 4G CPU x4, a froid, mediane de 3) et `--compare avan
 | TBT mobile discover / recherche | 434 / 358 ms | 245 / 288 ms |
 | First Load JS par page | — | +2-3 Ko (Speed Insights) |
 
-LCP mobile de l'accueil mesure plus haut sur dev.aniscroll.com apres (3,3 > 5,6 s) : A/B sur les deux URL de
-deploiement (memes conditions) = 4,0 vs 4,0-4,5 s, meme element LCP ; ecart non imputable au code (etat du cache
-juste apres la purge, comme le TTFB bureau plus haut dans la meme serie).
+**NON RESOLU — LCP mobile de l'accueil plus haut apres (3,3 > 5,6 s, sur les 3 passages).** Le fond du heros
+(120 Ko, precharge en priorite haute a 327 ms) n'arrive qu'a ~5,5 s : bande partagee avec JS, polices, affiches
+et prefetch de chunks. Ni la popup (bloquee : idem) ni le poids des images (identique) n'expliquent l'ecart. Un
+A/B sur les URL de deploiement a ete tente et NE VAUT RIEN : elles sont protegees (Vercel Authentication), les deux
+cotes ont mesure la page de connexion (element LCP = H1). A refaire avec un vrai A/B (perf-measure.mjs sur deux deploiements accessibles).
 
 **Fait :** dedup liste d'episodes (watch + onglet rejoignent `prefetchEpisodeList`) ; `/api/v2/preview` AniList +
 TMDB en parallele ; `waitUntil` sur touchLastSeen/pruneTokens/redis.set (episode, recommend, source) ; timeouts
@@ -57,8 +59,11 @@ retirer change le rendu).
 - Dans un template literal, `\b` est un RETOUR ARRIERE (0x08), pas une frontiere de mot : la regex des colonnes de schemaFastPath ne trouvait rien. La construire sans `\b`.
 
 **A decider par Luc :**
-- **Region** : Turso = aws-eu-west-1 (Irlande) x4, fonctions = cdg1 (Paris). `dub1` mettrait les fonctions a cote
-  des bases (~15-20 ms par requete Turso).
+- ~~Region~~ **FAIT le 20/11 (Luc : « fais ce qui est mieux », dev + prod PR #24)** : fonctions `cdg1` -> `dub1`.
+  Turso = aws-eu-west-1 (Irlande) x4 : ~18 -> ~1 ms par requete. Upstash = **eu-central-1 (Francfort)**, PAS Londres
+  comme le disent les commentaires du code (IP 3.73.201.5) : ~9 -> ~24 ms par commande, accepte (Redis peu sollicite).
+  Les 5 lecteurs actifs resolvent depuis dub1 (sendvid teste sur Goblin Slayer VF ep 2 : Frieren/Erased n'en ont pas).
+  Retour arriere : `regions: ["cdg1"]` dans vercel.json.
 - **apercu.mp4 du changelog** : 2,7 Mo (1600x900, 1,6 Mb/s) pour un panneau de 672 px, telecharge a chaque premiere
   visite. Reencodage possible (aperçu local avant).
 - **Bannieres prechargees** par viewportPrefetch (bureau) : 4,5 Mo sur Populaires pour que l'apercu au survol
