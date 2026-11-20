@@ -5531,7 +5531,10 @@ html.as-dragging .as-nudge {
 @keyframes as-list-menu-in { from { opacity: 0; transform: translateY(-4px); } }
 /* Changement de disposition (cartes / grille / liste) : fondu simple et
    rapide, rien ne bouge (20/11/2026, Luc — le glissé de 10 px rejeté). */
-.as-list-viewin { animation: as-list-viewin .18s ease-out; }
+/* Le fondu porte sur le CONTENU des panneaux et les intertitres, jamais sur
+   un ancêtre du panneau flou : une opacité < 1 au-dessus d'un
+   `backdrop-filter` coupe le flou (fond noir pendant le fondu, puis saut). */
+.as-list-viewin .as-stat-card > *, .as-list-viewin h3 { animation: as-list-viewin .18s ease-out; }
 @keyframes as-list-viewin { from { opacity: 0; } }
 .as-list-menu.is-up { top: auto; bottom: calc(100% + 6px); transform-origin: 50% 100%; animation-name: as-list-menu-in-up; }
 @keyframes as-list-menu-in-up { from { opacity: 0; transform: translateY(4px); } }
