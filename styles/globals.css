@@ -5529,6 +5529,8 @@ html.as-dragging .as-nudge {
   transform-origin: 50% 0; animation: as-list-menu-in .18s cubic-bezier(.22,1,.36,1);
 }
 @keyframes as-list-menu-in { from { opacity: 0; transform: translateY(-4px); } }
+.as-list-menu.is-up { top: auto; bottom: calc(100% + 6px); transform-origin: 50% 100%; animation-name: as-list-menu-in-up; }
+@keyframes as-list-menu-in-up { from { opacity: 0; transform: translateY(4px); } }
 .as-list-opt {
   gap: 10px; padding: 7px 10px; border-radius: 8px;
   font-size: 14px; color: rgba(255,255,255,.82);

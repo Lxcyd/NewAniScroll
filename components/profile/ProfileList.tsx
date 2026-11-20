@@ -130,6 +130,15 @@ export default function ProfileList({
   const [pickedView, setView] = useState<View>("cards");
   const view = useDeferredValue(pickedView);
   const [menu, setMenu] = useState<"" | "status" | "list">("");
+  /* LES MENUS STATUT / LISTES S'OUVRENT VERS LE HAUT (20/11/2026, Luc), sauf
+     s'il n'y a pas la place entre le champ et la barre de navigation fixe
+     (64 px) : alors vers le bas. Décidé au montage, avant l'affichage. */
+  const placeMenu = (el: HTMLDivElement | null) => {
+    if (!el) return;
+    const field = el.parentElement?.getBoundingClientRect();
+    if (!field) return;
+    el.classList.toggle("is-up", field.top - 64 - 12 >= el.offsetHeight);
+  };
   const [panel, setPanel] = useState(false);
   const [manager, setManager] = useState(false);
   const liveReg = useListRegistry();
@@ -528,7 +537,7 @@ view === "grid" ? (
             <Chevron className="shrink-0 opacity-50" />
           </button>
           {menu === "status" ? (
-            <div className="as-list-menu">
+            <div className="as-list-menu" ref={placeMenu}>
               <MenuItem on={status === "all"} onClick={() => { setStatus("all"); setMenu(""); }} label={t("listMenu.allStatuses")} count={base.length} />
               {(editable ? reg.statusOrder : STATUS_ORDER).filter((s) => statusCounts[s] || customStatusOf(s)).map((s) => (
                 <MenuItem key={s} on={status === s} onClick={() => { setStatus(s); setMenu(""); }} color={statusColor(s)} label={statusName(s)} count={statusCounts[s]} />
@@ -553,7 +562,7 @@ view === "grid" ? (
             <Chevron className="shrink-0 opacity-50" />
           </button>
           {menu === "list" ? (
-            <div className="as-list-menu">
+            <div className="as-list-menu" ref={placeMenu}>
               <MenuItem on={!activeList} onClick={() => { setList(""); setMenu(""); }} label={t("listMenu.allEntries")} count={base.length} />
               {localLists.length || anilistLists.length ? (
                 /* Dans l'ordre réglé au gestionnaire (registre `customOrder`). */
