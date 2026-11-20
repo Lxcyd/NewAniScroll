@@ -6063,19 +6063,19 @@ html.as-dragging .as-nudge {
 .as-rr-poster { flex: none; width: 210px; aspect-ratio: 210 / 298; height: auto; border-radius: 12px; object-fit: cover; background: rgba(255,255,255,.08); box-shadow: 0 14px 34px rgba(0,0,0,.6); }
 .as-rr-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 14px; padding-top: 6px; padding-right: 32px; }
 .as-rr-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #ff8fa3; }
-.as-rr-info h3 { margin: 0; font-family: Outfit, sans-serif; font-size: 30px; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; color: #fff; text-wrap: balance; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.as-rr-info h3 { margin: 0; font-family: Outfit, sans-serif; font-size: 30px; font-weight: 700; line-height: 1.15; letter-spacing: -.01em; color: #fff; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* une ligne, « … » au-delà : la fiche ne change plus de taille (20/11, Luc) */
 .as-rr-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .as-rr-status { border-radius: 999px; padding: 3px 12px; font-size: 12.5px; font-weight: 700; }
 .as-rr-sub { font-size: 14.5px; color: rgba(255,255,255,.45); }
 .as-rr-chip { border-radius: 10px; padding: 7px 12px; font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.75); background: rgba(255,255,255,.07); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
 .as-rr-score { border-radius: 10px; padding: 7px 12px; font-size: 14.5px; font-weight: 700; color: #facc15; background: rgba(250,204,21,.1); }
 .as-rr-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; padding-top: 10px; }
-.as-rr-actions .as-rr-again[href] { order: 1; }
-.as-rr-go, .as-rr-again { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 14px; font-size: 15px; font-weight: 700; white-space: nowrap; transition: background .15s, border-color .15s, color .15s, transform .15s; }
-.as-rr-go { flex: 1 0 100%; color: #fff; background: linear-gradient(135deg, #ef4b6a, #d63c58); box-shadow: 0 10px 24px rgba(233,69,96,.3); }
+.as-rr-go, .as-rr-ghost { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 14px; font-size: 15px; font-weight: 700; white-space: nowrap; transition: background .15s, border-color .15s, color .15s, transform .15s; }
+.as-rr-go { flex: 1; color: #fff; background: linear-gradient(135deg, #ef4b6a, #d63c58); box-shadow: 0 10px 24px rgba(233,69,96,.3); }
 .as-rr-go:hover { transform: translateY(-1px); }
-.as-rr-again { flex: 1; color: rgba(255,255,255,.8); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
-.as-rr-again:hover { color: #ff8fa3; border-color: rgba(233,69,96,.5); background: rgba(233,69,96,.1); }
+.as-rr-ghost { flex: 1; color: rgba(255,255,255,.8); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); }
+.as-rr-again { flex: 1 0 100%; }
+.as-rr-ghost:hover { color: #ff8fa3; border-color: rgba(233,69,96,.5); background: rgba(233,69,96,.1); }
 @media (max-width: 480px) {
   .as-rr-body { flex-direction: column; align-items: center; text-align: center; padding: 22px 18px; }
   .as-rr-poster { width: 150px; }

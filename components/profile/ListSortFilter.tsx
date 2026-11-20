@@ -62,6 +62,7 @@ export default function ListSortFilter({
   onChange,
   pool,
   onRandom,
+  onRandomPrepare,
 }: {
   open: boolean;
   onClose: () => void;
@@ -73,6 +74,8 @@ export default function ListSortFilter({
   pool: ProfileEntry[];
   /** Applique `f`, tire un titre parmi ses résultats ; son nom, ou null s'il n'y en a aucun. */
   onRandom: (f: ListFilters) => string | null;
+  /** Prépare (et précharge) le tirage avant le clic : survol ou focus du dé. */
+  onRandomPrepare?: (f: ListFilters) => void;
 }) {
   const { t } = useTranslation();
   /* UN BROUILLON (20/11/2026, Luc : « ne l'applique pas sur la page derrière,
@@ -633,6 +636,8 @@ export default function ListSortFilter({
           <button
             type="button"
             className="as-sfp-rand"
+            onPointerEnter={() => onRandomPrepare?.(f)}
+            onFocus={() => onRandomPrepare?.(f)}
             aria-label={t("listMenu.random")}
             title={t("listMenu.random")}
             onClick={() => {

@@ -151,7 +151,11 @@ export default function ProfileList({
      01 de l'artefact) : défiler jusqu'à lui obligeait à remonter de loin sur
      une grande liste. La liste ne bouge plus ; « Relancer » tire dans les
      mêmes résultats. */
-  const [reveal, setReveal] = useState<{ entry: ProfileEntry; pool: ProfileEntry[] } | null>(null);
+  const [reveal, setReveal] = useState<{ entry: ProfileEntry; pool: ProfileEntry[]; next: ProfileEntry[] } | null>(null);
+  /* LES PROCHAINS TIRAGES SONT PRÉPARÉS (20/11/2026, Luc) : trois titres
+     d'avance dont l'affiche est déjà chargée, et le premier tirage choisi
+     dès le survol du dé, pour que l'image soit là à l'ouverture. */
+  const prepared = useRef<ProfileEntry | null>(null);
 
   const bounds = useMemo(() => boundsOf(entries), [entries]);
   const [filters, setFilters] = useState<ListFilters>(() => freshFilters(bounds));
@@ -666,14 +670,22 @@ view === "grid" ? (
         bounds={bounds}
         onChange={changeFilters}
         pool={pre}
+        onRandomPrepare={(f) => {
+          const res = applyFilters(pre, f, bounds);
+          if (prepared.current && res.some((x) => x.mediaId === prepared.current!.mediaId)) return;
+          prepared.current = drawFrom(res, new Set());
+          preloadCover(prepared.current);
+        }}
         onRandom={(f) => {
           /* Le tirage applique le brouillon : la liste derrière montre les
              mêmes résultats que ceux d'où sort le titre. */
           changeFilters(f);
           const res = applyFilters(pre, f, bounds);
           if (!res.length) return null;
-          const e = res[Math.floor(Math.random() * res.length)];
-          setReveal({ entry: e, pool: res });
+          const p = prepared.current;
+          prepared.current = null;
+          const e = p && res.some((x) => x.mediaId === p.mediaId) ? p : drawFrom(res, new Set())!;
+          setReveal({ entry: e, pool: res, next: queueFrom(res, e, []) });
           return titleOf(e);
         }}
       />
@@ -686,8 +698,8 @@ view === "grid" ? (
         progress={reveal ? progressText(reveal.entry, t) : ""}
         onReroll={() => {
           if (!reveal) return;
-          const others = reveal.pool.length > 1 ? reveal.pool.filter((x) => x.mediaId !== reveal.entry.mediaId) : reveal.pool;
-          setReveal({ entry: others[Math.floor(Math.random() * others.length)], pool: reveal.pool });
+          const [e, ...rest] = reveal.next.length ? reveal.next : [drawFrom(reveal.pool, new Set([reveal.entry.mediaId]))!];
+          setReveal({ entry: e, pool: reveal.pool, next: queueFrom(reveal.pool, e, rest) });
         }}
         onClose={() => setReveal(null)}
       />
@@ -845,4 +857,32 @@ function Row({
       )}
     </Link>
   );
+}
+
+/* Un titre au hasard parmi `pool`, hors `skip` (tout `pool` si rien d'autre). */
+function drawFrom(pool: ProfileEntry[], skip: Set<number>): ProfileEntry | null {
+  const left = pool.filter((x) => !skip.has(x.mediaId));
+  const from = left.length ? left : pool;
+  return from.length ? from[Math.floor(Math.random() * from.length)] : null;
+}
+
+/* La file des trois prochains tirages après `cur`, complétée au hasard, sans
+   doublon ; chaque affiche est chargée d'avance. */
+function queueFrom(pool: ProfileEntry[], cur: ProfileEntry, kept: ProfileEntry[]): ProfileEntry[] {
+  const q = kept.slice(0, 3);
+  const skip = new Set([cur.mediaId, ...q.map((x) => x.mediaId)]);
+  while (q.length < 3 && skip.size < pool.length) {
+    const e = drawFrom(pool, skip)!;
+    skip.add(e.mediaId);
+    q.push(e);
+  }
+  q.forEach(preloadCover);
+  return q;
+}
+
+function preloadCover(e: ProfileEntry | null) {
+  if (!e?.cover || typeof window === "undefined") return;
+  const img = new Image();
+  img.decoding = "async";
+  img.src = e.cover;
 }
