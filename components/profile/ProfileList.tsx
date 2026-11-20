@@ -176,7 +176,11 @@ export default function ProfileList({
       if (s && SORT_KEYS.includes(s.sort)) setFilters((f) => ({ ...f, sort: s.sort as SortKey, desc: !!s.desc }));
     } catch {}
   }, []);
+  /* Le contenu n'entre en fondu qu'après un CHANGEMENT de disposition, pas au
+     chargement de la page (20/11/2026, Luc). */
+  const [viewSwitched, setViewSwitched] = useState(false);
   const chooseView = (v: View) => {
+    if (v !== pickedView) setViewSwitched(true);
     setView(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch {}
   };
@@ -625,12 +629,14 @@ view === "grid" ? (
           </button>
         </div>
       ) : pickedView !== view ? (
-        <ListSkeleton view={pickedView} />
+        <div key={`s-${pickedView}`} className={viewSwitched ? "as-list-viewin" : undefined}>
+          <ListSkeleton view={pickedView} />
+        </div>
       ) : (
-        <>
+        <div key={view} className={viewSwitched ? "as-list-viewin" : undefined}>
           {body}
           {more ? <div ref={sentinel} aria-hidden className="h-px" /> : null}
-        </>
+        </div>
       )}
 
       {editable ? (
