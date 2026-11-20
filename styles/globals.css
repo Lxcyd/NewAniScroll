@@ -5514,25 +5514,31 @@ html.as-dragging .as-nudge {
 }
 .as-list-opt:hover { background: rgba(255,255,255,.06); }
 .as-list-opt.is-on { font-weight: 600; color: #fff; }
-/* MENUS STATUT / LISTES AU STYLE DU GESTIONNAIRE « MES LISTES » (20/11/2026,
-   Luc) : sa plaque opaque, ses lignes en carte, la bordure rose au survol,
-   l'Outfit des titres, la coche à l'accent. */
+/* MENUS STATUT / LISTES (20/11/2026, Luc) : le fond du gestionnaire « Mes
+   listes », le reste comme sa capture de référence — liseré fin, lignes
+   sans bordure, et l'option choisie teintée de SA couleur (fond, texte,
+   coche). `--c` vient de MenuItem. */
 .as-list-menu {
-  top: calc(100% + 8px); padding: 6px; gap: 3px; border-radius: 16px;
+  top: calc(100% + 6px); padding: 6px; gap: 2px; border-radius: 12px;
   background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16));
-  border: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 44px rgba(0,0,0,.55);
-  transform-origin: 50% 0; animation: as-list-menu-in .2s cubic-bezier(.22,1,.36,1);
+  border: 1px solid rgba(255,255,255,.1); box-shadow: 0 16px 40px rgba(0,0,0,.55);
+  transform-origin: 50% 0; animation: as-list-menu-in .18s cubic-bezier(.22,1,.36,1);
 }
-@keyframes as-list-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.97); } }
+@keyframes as-list-menu-in { from { opacity: 0; transform: translateY(-4px); } }
 .as-list-opt {
-  gap: 10px; padding: 9px 11px; border-radius: 11px; border: 1px solid transparent;
-  font-family: Outfit, sans-serif; font-size: 14px; font-weight: 500; color: rgba(255,255,255,.75);
-  transition: border-color .15s, background-color .15s, color .15s;
+  gap: 10px; padding: 7px 10px; border-radius: 8px;
+  font-size: 14px; color: rgba(255,255,255,.82);
+  transition: background-color .12s, color .12s;
 }
-.as-list-opt:hover { background: rgba(255,255,255,.035); border-color: rgba(233,69,96,.5); color: #fff; }
-.as-list-opt.is-on { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.07); font-weight: 600; color: #fff; }
-.as-list-opt.is-on:hover { border-color: rgba(233,69,96,.5); }
-.as-list-opt.is-on svg { color: #E94560; }
+.as-list-opt:hover { background: rgba(255,255,255,.05); color: #fff; }
+.as-list-opt.is-on, .as-list-opt.is-on:hover {
+  font-weight: 600; color: var(--c, #fff);
+  background: color-mix(in srgb, var(--c, #fff) 14%, transparent);
+}
+.as-list-opt.is-on svg { color: var(--c, #fff); }
+/* Le champ d'un filtre posé prend la couleur du statut / de la liste. */
+.as-list-field.is-tinted { color: var(--c); border-color: color-mix(in srgb, var(--c) 50%, transparent); }
+.as-list-field.is-tinted:hover { border-color: color-mix(in srgb, var(--c) 75%, transparent); }
 /* LA PASTILLE DE STATUT LUMINEUSE — menus Statut / Listes, titres de la vue
    Grille. La recette de `.as-airing-dot` : un petit halo FIXE sur la pastille,
    et le grand halo sur un `::after` dont seule l'OPACITÉ respire (2 s), que le

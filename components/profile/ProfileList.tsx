@@ -517,7 +517,8 @@ view === "grid" ? (
             type="button"
             aria-expanded={menu === "status"}
             onClick={() => setMenu(menu === "status" ? "" : "status")}
-            className={`as-list-field as-stat-card w-full justify-between font-semibold ${status !== "all" ? "is-set" : ""}`}
+            className={`as-list-field as-stat-card w-full justify-between font-semibold ${status !== "all" ? "is-set is-tinted" : ""}`}
+            style={status !== "all" ? ({ ["--c" as string]: statusColor(status) } as React.CSSProperties) : undefined}
           >
             <span className="flex min-w-0 items-center gap-2 truncate">
               {status !== "all" ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor(status) }} /> : null}
@@ -541,7 +542,8 @@ view === "grid" ? (
             type="button"
             aria-expanded={menu === "list"}
             onClick={() => setMenu(menu === "list" ? "" : "list")}
-            className={`as-list-field as-stat-card w-full justify-between font-semibold ${activeList ? "is-set" : ""}`}
+            className={`as-list-field as-stat-card w-full justify-between font-semibold ${activeList ? "is-set is-tinted" : ""}`}
+            style={activeList ? ({ ["--c" as string]: listColor(activeList) } as React.CSSProperties) : undefined}
           >
             <span className="flex min-w-0 items-center gap-2 truncate">
               {activeList ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: listColor(activeList) }} /> : null}
@@ -692,6 +694,7 @@ function MenuItem({
       onClick={onClick}
       aria-pressed={on}
       className={`as-list-opt${on ? " is-on" : ""}`}
+      style={{ ["--c" as string]: color || "#fff" } as React.CSSProperties}
     >
       <span className="as-glow-dot" style={{ ["--c" as string]: c } as React.CSSProperties} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
