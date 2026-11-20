@@ -1,3 +1,4 @@
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 /**
  * L'IMPORT DU FIL D'ACTIVITÉ ANILIST (03/11/2026, Luc : « quand on se connecte
  * à AniList, tu peux récupérer toutes les données automatiquement ? »).
@@ -38,6 +39,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function page(token: string | undefined, id: number, p: number, before?: number) {
   for (let tries = 0; tries < 6; tries++) {
     const r = await fetch("https://graphql.anilist.co", {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: {
         "content-type": "application/json",

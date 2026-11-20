@@ -1,3 +1,4 @@
+import { waitUntil } from "@/lib/http/waitUntil";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireUser } from "@/lib/auth/session";
 import {
@@ -27,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return;
 
   if (req.method === "GET") {
-    void touchLastSeen(user.id);
+    waitUntil(touchLastSeen(user.id));
     if (req.query.export === "1") {
       const data = await getAllData(user.id);
       return res.status(200).json({ user: toPublicUser(user), data });

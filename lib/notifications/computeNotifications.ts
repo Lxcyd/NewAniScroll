@@ -15,6 +15,7 @@
  * store, so we batch-query for them. The resume kind is purely local.
  */
 
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 import { getLocalList, LocalEntry } from "@/lib/list/localList";
 import { pickTitle, type TitlePref } from "@/lib/prefs/titlePref";
 import { getNotifPrefs } from "@/lib/prefs/notifPrefs";
@@ -120,6 +121,7 @@ async function fetchAiring(ids: number[]): Promise<Map<number, AiringInfo>> {
   }
   try {
     const res = await fetch(ENDPOINT, {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -178,6 +180,7 @@ async function fetchSequels(ids: number[]): Promise<Map<number, Sequel>> {
   if (missing.length > 0) {
     try {
       const res = await fetch(ENDPOINT, {
+        signal: timeoutSignal(15000),
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -260,6 +263,7 @@ async function fetchThemes(ids: number[]): Promise<Map<number, Themes>> {
   }
   try {
     const res = await fetch(ENDPOINT, {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

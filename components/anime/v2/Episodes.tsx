@@ -22,7 +22,7 @@ import { onFanartError, originalFanartUrl } from "@/lib/images/fanartFallback";
 import OpEdPanel, { useOpEdThemes } from "./OpEdPanel";
 import FilmsPanel from "./FilmsPanel";
 import { useFanarts } from "@/lib/hooks/useFanarts";
-import { getPrefetchedEpisodes } from "@/lib/watch/episodePrefetch";
+import { getPrefetchedEpisodes, prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { airedAhead, checkAiredAhead, subscribeAiredAhead } from "@/lib/watch/airedAhead";
 import { useTranslation } from "react-i18next";
 import ViewModeIcon from "@/components/shared/ViewModeIcon";
@@ -381,8 +381,14 @@ export default function Episodes({ info, progress, seasonList, bonusFilms, onEpi
 
     const releasing =
       info.status === "RELEASING" && source.id === info.id;
-    fetch(epUrl(source.id, releasing))
-      .then((r) => r.json())
+    // Meme liste que le prefetch de Hero : la rejoindre s'il est encore en vol
+    // plutot que de doubler la requete (20/11). Sinon, le fetch direct garde
+    // le message d'erreur de l'API.
+    (source.id === info.id
+      ? prefetchEpisodeList(info.id, { releasing, dub: isDub })
+      : Promise.resolve(null)
+    )
+      .then((shared) => shared ?? fetch(epUrl(source.id, releasing)).then((r) => r.json()))
       .then((payload: any) => {
         if (cancelled) return;
         if (!Array.isArray(payload)) {

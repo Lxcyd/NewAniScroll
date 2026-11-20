@@ -1,3 +1,4 @@
+import { waitUntil } from "@/lib/http/waitUntil";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { consumeToken, pruneTokens } from "@/lib/auth/tokens";
 import { hashPassword, validatePassword } from "@/lib/auth/password";
@@ -38,6 +39,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const user = await findById(userId);
   if (user && user.email && !user.emailVerifiedAt) await markEmailVerified(userId);
 
-  void pruneTokens();
+  waitUntil(pruneTokens());
   return res.status(200).json({ ok: true });
 }

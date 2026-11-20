@@ -1,3 +1,4 @@
+import { waitUntil } from "@/lib/http/waitUntil";
 import type { NextApiRequest, NextApiResponse } from "next";
 import crypto from "crypto";
 import { redis } from "@/lib/redis";
@@ -186,11 +187,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!ground) {
     ground = await buildGroundwork(list);
     if (redis) {
-      try {
-        await redis.set(groundKey, JSON.stringify(ground), "EX", PROFILE_TTL_S);
-      } catch {
-        /* non-fatal */
-      }
+      // Ecriture apres la reponse : la requete n'a pas a l'attendre (20/11).
+      waitUntil(redis.set(groundKey, JSON.stringify(ground), "EX", PROFILE_TTL_S));
     }
   }
 
@@ -291,11 +289,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
 
   if (redis && recommendations.length > 0) {
-    try {
-      await redis.set(resultKey, JSON.stringify(payload), "EX", RESULT_TTL_S);
-    } catch {
-      /* non-fatal */
-    }
+    waitUntil(redis.set(resultKey, JSON.stringify(payload), "EX", RESULT_TTL_S));
   }
 
   res.setHeader("X-Cache", "MISS");

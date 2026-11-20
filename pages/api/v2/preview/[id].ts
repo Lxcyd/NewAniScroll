@@ -60,6 +60,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Missing or invalid id" });
   }
 
+  // Les deux lectures sont independantes : TMDB part en meme temps que la
+  // fiche AniList au lieu d'attendre derriere elle (20/11 ; ~15 de ces appels
+  // partent d'un coup par carrousel).
+  const tmdbP = getTmdbAnimeImages(id).catch(() => ({ backdrop: null, logo: null }));
   let media: any = null;
   try {
     media = await getMediaMeta(id);
@@ -82,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // backdrop appears as two different pictures depending on where you look.
   // Both lookups are themselves cached (Turso row for TMDB, 24 h at the edge for
   // this response), so a warm id costs neither.
-  const tmdb = await getTmdbAnimeImages(id).catch(() => ({ backdrop: null, logo: null }));
+  const tmdb = await tmdbP;
   const bannerImage = await resolveHeroBanner(media.bannerImage, tmdb.backdrop).catch(
     () => media.bannerImage ?? null,
   );

@@ -1,3 +1,4 @@
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 /**
  * LES AVATARS DU STUDIO (24/10/2026, Luc) : des personnages AniList à porter
  * comme image d'avatar. Demandés en direct depuis le navigateur — aucune
@@ -16,6 +17,7 @@ const CHAR = "id name { full } image { large medium }";
 async function ask<T>(query: string, variables: Record<string, unknown>, retried = false): Promise<T | null> {
   try {
     const r = await fetch("https://graphql.anilist.co/", {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, variables }),

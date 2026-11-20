@@ -1,3 +1,4 @@
+import { waitUntil } from "@/lib/http/waitUntil";
 import type { NextApiRequest, NextApiResponse } from "next";
 import NextAuth, { NextAuthOptions } from "next-auth";
 import { getToken } from "next-auth/jwt";
@@ -75,6 +76,9 @@ async function viewerOf(accessToken: string): Promise<any> {
     if (attempt) await new Promise((r) => setTimeout(r, 700));
     try {
       const res = await fetch("https://graphql.anilist.co", {
+        // Borne (20/11) : un AniList qui ne repond plus ne doit pas figer la
+        // connexion ; le timeout tombe dans le catch et compte comme un essai.
+        signal: AbortSignal.timeout(6000),
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -182,7 +186,7 @@ export const authOptions: NextAuthOptions = {
         if (!(await verifyPassword(password, user.passwordHash))) return null;
 
         await resetThrottle(key);
-        void touchLastSeen(user.id);
+        waitUntil(touchLastSeen(user.id));
 
         /* The AniList half of the account, restored from the row. Without it a
            password sign-in on a linked account produced a session with no
@@ -219,11 +223,11 @@ export const authOptions: NextAuthOptions = {
         if (!userId) return null;
 
         await markEmailVerified(userId);
-        void pruneTokens();
+        waitUntil(pruneTokens());
 
         const user = await findById(userId);
         if (!user || user.status === "disabled") return null;
-        void touchLastSeen(user.id);
+        waitUntil(touchLastSeen(user.id));
 
         return accountSessionUser(user);
       },
@@ -251,6 +255,7 @@ export const authOptions: NextAuthOptions = {
           if (!userLists?.includes("Watched using Moopa")) {
             try {
               await fetch("https://graphql.anilist.co/", {
+                signal: AbortSignal.timeout(5000),
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
@@ -373,7 +378,7 @@ export const authOptions: NextAuthOptions = {
 
             if (record) {
               if (record.status === "disabled") throw new Error("account-disabled");
-              void touchLastSeen(record.id);
+              waitUntil(touchLastSeen(record.id));
               /* Keep the credential on the account, not only in this cookie:
                  the next password sign-in has to find it there. */
               await setAnilistSession(record.id, {

@@ -13,6 +13,7 @@
  * and fires an event so every mounted heart updates at once.
  */
 
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 import { useEffect, useState } from "react";
 
 const TTL_MS = 5 * 60 * 1000;
@@ -76,6 +77,7 @@ function writeSession(set: Set<number>): void {
 
 async function anilist(token: string, query: string, variables: Record<string, unknown>) {
   const res = await fetch(ANILIST, {
+    signal: timeoutSignal(15000),
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ query, variables }),
@@ -180,6 +182,7 @@ export async function toggleFavourite(
   let json: any = null;
   try {
     const res = await fetch(ANILIST, {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ query: TOGGLE_MUTATION, variables: { animeId: mediaId } }),

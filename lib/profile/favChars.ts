@@ -16,6 +16,7 @@
  * gardée ici 30 min et l'emporte, chez le propriétaire seulement.
  */
 
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 import { useEffect, useState } from "react";
 
 import { anilistWritesAllowed } from "@/lib/anilist/writeGuard";
@@ -39,6 +40,7 @@ const toChar = (n: any): ProfileCharacter | null =>
 
 async function call(query: string, variables: Record<string, unknown>, token?: string | null) {
   const res = await fetch(ENDPOINT, {
+    signal: timeoutSignal(15000),
     method: "POST",
     headers: {
       "Content-Type": "application/json",

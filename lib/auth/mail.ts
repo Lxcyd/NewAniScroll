@@ -51,6 +51,7 @@ async function send(to: string, subject: string, html: string): Promise<boolean>
   }
   try {
     const res = await fetch(ENDPOINT, {
+      signal: AbortSignal.timeout(8000),
       method: "POST",
       headers: {
         "Content-Type": "application/json",

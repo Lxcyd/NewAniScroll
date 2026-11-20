@@ -76,7 +76,7 @@ import { prechargeManifeste } from "@/lib/watch/hlsPreload";
 import { requestSource } from "@/lib/watch/sourceRequest";
 import { ABSENCE_PROUVEE } from "@/lib/watch/serverVisibility";
 import { replaceUrlPreservingState } from "@/lib/navigation/replaceUrl";
-import { getPrefetchedEpisodes, setPrefetchedEpisodes, clearPrefetchedEpisodesFor } from "@/lib/watch/episodePrefetch";
+import { getPrefetchedEpisodes, clearPrefetchedEpisodesFor, prefetchEpisodeList } from "@/lib/watch/episodePrefetch";
 import { getPrefetchedInfo, clearPrefetchedInfoFor } from "@/lib/watch/infoPrefetch";
 import { hasFreshUserList, peekListEntry } from "@/lib/anilist/userListCache";
 import { markComplete, getProgress, isCompleted, getResumeTime, watchedEnough } from "@/lib/watch/progress";
@@ -1599,17 +1599,14 @@ export default function Watch({
            hoquet condamnait le titre, la vignette et precedent/suivant pour
            toute la duree de la page. On avale donc, et le nonce `tentative` le
            rejoue au retour du reseau (21/09/2026). */
-        try {
-          const res = await fetch(
-            `/api/v2/episode/${info.id}?releasing=${
-              info.status === "RELEASING" ? "true" : "false"
-            }${dub ? "&dub=true" : ""}`
-          );
-          raw = res.ok ? await res.json() : null;
-        } catch {
-          raw = null;
-        }
-        if (Array.isArray(raw)) setPrefetchedEpisodes(info.id, !!dub, raw);
+        // prefetchEpisodeList rejoint la requete de la page info si elle est
+        // encore en vol (map inflight) au lieu d'en lancer une seconde ; il
+        // avale deja les pannes reseau (null) et remplit le cache (20/11).
+        raw = await prefetchEpisodeList(info.id, {
+          releasing: info.status === "RELEASING",
+          dub: !!dub,
+          priority: "high",
+        });
       }
 
       const response = Array.isArray(raw) ? raw : [];

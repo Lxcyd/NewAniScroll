@@ -31,6 +31,7 @@
  * rapportant rien ? ».
  */
 
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 import { getLocalList, patchLocalEntries } from "../list/localList";
 import { sleep } from "@/utils/sleep";
 
@@ -67,6 +68,7 @@ export function readVocab(): { genres: string[]; tags: string[] } | null {
 async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T | null> {
   try {
     const res = await fetch(API, {
+      signal: timeoutSignal(15000),
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query, variables }),

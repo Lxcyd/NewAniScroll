@@ -32,6 +32,7 @@ export function writeCloudflareKv(key: string, value: string): void {
     key,
   )}`;
   fetch(url, {
+    signal: AbortSignal.timeout(8000),
     method: "PUT",
     headers: {
       Authorization: `Bearer ${API_TOKEN}`,

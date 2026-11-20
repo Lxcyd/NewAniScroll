@@ -1,3 +1,4 @@
+import { waitUntil } from "@/lib/http/waitUntil";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireUser } from "@/lib/auth/session";
 import { touchLastSeen } from "@/lib/auth/users";
@@ -29,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!user) return;
 
   if (req.method === "GET") {
-    void touchLastSeen(user.id);
+    waitUntil(touchLastSeen(user.id));
     return res.status(200).json({ data: await getAllData(user.id) });
   }
 
@@ -53,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       else revs[kind] = rev;
     }
 
-    void touchLastSeen(user.id);
+    waitUntil(touchLastSeen(user.id));
     return res.status(200).json({ revs, rejected, maxBytes: MAX_PAYLOAD_BYTES });
   }
 

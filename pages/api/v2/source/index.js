@@ -1,4 +1,5 @@
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
+import { waitUntil } from "@/lib/http/waitUntil";
 import * as cheerio from "cheerio";
 import { getClientIp } from "@/lib/net/clientIp";
 import { getExtractor, VIDMOLY_HOST_RE, ouvreEncMegaplay } from "@/lib/extractors";
@@ -236,7 +237,7 @@ function frembedBaseMoved(origine) {
   try {
     // Varargs form: the lib/redisRest shim reads `"EX", n` and ignored the
     // `{ ex }` object this used to pass, so the key never expired.
-    void redis.set(FREMBED_BASE_KEY, origine, "EX", FREMBED_BASE_TTL_S);
+    waitUntil(redis.set(FREMBED_BASE_KEY, origine, "EX", FREMBED_BASE_TTL_S));
   } catch {
     /* tant pis : on repaiera la redirection */
   }
@@ -739,99 +740,6 @@ async function getFrembedStream(serverKey, aniId, episode) {
  */
 
 
-// â”€â”€ HiAnime (direct AJAX) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const HIANIME_BASE = "https://aniwatchtv.to";
-const HIANIME_SERVERS = {
-  "hianime-vidsrc": { name: "VidSrc", serverId: 4 },
-  "hianime-megacloud": { name: "MegaCloud", serverId: 1 },
-  "hianime-tcloud": { name: "T-Cloud", serverId: 6 },
-};
-
-async function getHiAnimeIframe(serverKey, title, episode, sub) {
-  try {
-    const serverDef = HIANIME_SERVERS[serverKey];
-    if (!serverDef) return null;
-    const category = sub === "dub" ? "dub" : "sub";
-
-    // 1. Search for the anime
-    const searchRes = await fetch(
-      `${HIANIME_BASE}/search?keyword=${encodeURIComponent(title)}`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
-    );
-    if (!searchRes.ok) return null;
-    const searchHtml = await searchRes.text();
-    const $s = cheerio.load(searchHtml);
-
-    let animeUrl = $s(".film_list-wrap .flw-item .film-detail .film-name a").first().attr("href");
-    if (!animeUrl) return null;
-    animeUrl = animeUrl.split("?")[0]; // strip ?ref=search
-
-    // 2. Get anime page to find the data-id
-    const pageRes = await fetch(`${HIANIME_BASE}${animeUrl}`, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-    if (!pageRes.ok) return null;
-    const pageHtml = await pageRes.text();
-    const $p = cheerio.load(pageHtml);
-    const animeDataId = $p("[data-id]").first().attr("data-id");
-    if (!animeDataId) return null;
-
-    // 3. Get episode list via AJAX
-    const epRes = await fetch(
-      `${HIANIME_BASE}/ajax/v2/episode/list/${animeDataId}`,
-      { headers: { "X-Requested-With": "XMLHttpRequest", "Referer": `${HIANIME_BASE}${animeUrl}` } }
-    );
-    if (!epRes.ok) return null;
-    const epData = await epRes.json();
-    const $e = cheerio.load(epData.html);
-
-    // Find the episode link matching the episode number
-    let episodeDataId = null;
-    $e(".ep-item").each((_, el) => {
-      const num = $e(el).attr("data-number");
-      if (String(num) === String(episode)) {
-        episodeDataId = $e(el).attr("data-id");
-      }
-    });
-    if (!episodeDataId) return null;
-
-    // 3. Get server list for this episode
-    const srvRes = await fetch(
-      `${HIANIME_BASE}/ajax/v2/episode/servers?episodeId=${episodeDataId}`,
-      { headers: { "X-Requested-With": "XMLHttpRequest", "Referer": HIANIME_BASE } }
-    );
-    if (!srvRes.ok) return null;
-    const srvData = await srvRes.json();
-    const $srv = cheerio.load(srvData.html);
-
-    // Find the matching server data-id
-    let sourceDataId = null;
-    $srv(".server-item").each((_, el) => {
-      const sid = $srv(el).attr("data-server-id");
-      const type = $srv(el).attr("data-type");
-      if (String(sid) === String(serverDef.serverId) && type === category) {
-        sourceDataId = $srv(el).attr("data-id");
-      }
-    });
-    if (!sourceDataId) return null;
-
-    // 4. Get the iframe source link
-    const srcRes = await fetch(
-      `${HIANIME_BASE}/ajax/v2/episode/sources?id=${sourceDataId}`,
-      { headers: { "X-Requested-With": "XMLHttpRequest", "Referer": HIANIME_BASE } }
-    );
-    if (!srcRes.ok) return null;
-    const srcData = await srcRes.json();
-
-    if (!srcData?.link) return null;
-
-    return { iframe: srcData.link };
-  } catch (e) {
-    console.error(`HiAnime ${serverKey} error:`, e.message);
-    return null;
-  }
-}
-
 /* CoorenLabs (animepahe, animekai, toonstream, animesalt) retire le
    20/09/2026 : ~220 lignes et quatre resolveurs qu'AUCUNE route ne pouvait
    atteindre — il n'y a jamais eu de branche `COOREN_PROVIDERS[server]` dans le
@@ -1009,12 +917,13 @@ async function loadEpisodeArrays(slug, seasonDir, langDir) {
     try {
       const payload = JSON.stringify(arrays);
       if (payload.length <= EPISODES_MAX_BYTES) {
-        await redis.set(
+        // Apres la reponse (20/11) : rien en aval ne relit cette cle.
+        waitUntil(redis.set(
           key,
           payload,
           "EX",
           arrays.length ? EPISODES_TTL_S : EPISODES_MISS_TTL_S,
-        );
+        ));
       }
     } catch {
       /* non fatal */
@@ -2424,12 +2333,12 @@ async function findAnimeSamaSlug(title, aniId, mediaOpts = {}) {
      ne doit donc jamais etre partage. */
   if (shareable) {
     try {
-      await redis.set(
+      waitUntil(redis.set(
         shareKey,
         JSON.stringify({ s: chosen }),
         "EX",
         chosen ? SLUG_TTL_S : SLUG_MISS_TTL_S,
-      );
+      ));
     } catch {
       /* non fatal */
     }

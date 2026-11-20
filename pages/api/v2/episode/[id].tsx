@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { waitUntil } from "@/lib/http/waitUntil";
 import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
 import { anilistFetch } from "@/lib/anilist/anilistFetch";
@@ -451,12 +452,13 @@ export default async function handler(
   // Cache — jamais une liste vide : elle ne sert qu'a masquer les premiers
   // episodes quand ils sortent.
   if (redis && cacheTime !== null && listed) {
-    await redis.set(
+    // Apres la reponse (20/11) : la liste est le chemin chaud du lecteur.
+    waitUntil(redis.set(
       EPISODE_CACHE_KEY(id),
       JSON.stringify(rawData),
       "EX",
       cacheTime
-    );
+    ));
   }
 
   const subDub = dub ? "dub" : "sub";

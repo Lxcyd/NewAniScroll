@@ -1,3 +1,4 @@
+import { timeoutSignal } from "@/lib/net/timeoutSignal";
 /**
  * Client-side cache of the signed-in user's whole AniList list.
  *
@@ -207,6 +208,7 @@ export async function getUserList(
   const p = (async () => {
     try {
       const res = await fetch("https://graphql.anilist.co/", {
+        signal: timeoutSignal(15000),
         method: "POST",
         headers: {
           "Content-Type": "application/json",
