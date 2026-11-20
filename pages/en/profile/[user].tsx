@@ -75,7 +75,10 @@ import {
   ProfileList,
   ProfileStatsPanel,
   preloadProfileTabs,
+  preloadProfileTab,
 } from "@/components/profile/lazyTabs";
+import { BadgesSkeleton, FriendsSkeleton, GridSkeleton, ListSkeleton } from "@/components/profile/TabSkeletons";
+import { Freeze, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import {
   mergeBadgeState,
@@ -322,10 +325,13 @@ function ProfileView({
     };
   }, []);
   /* Le seul chemin qui ÉCRIT dans l'adresse : un onglet choisi à la main. */
+  const kt = useKeepAliveTabs(tab);
+  const { markSwitch } = kt;
   const changeTab = useCallback((key: string) => {
+    markSwitch();
     setTab(key);
     ecrireOnglet(key);
-  }, []);
+  }, [markSwitch]);
   /* Sur quoi l'onglet « Ma liste » s'ouvre quand on n'y arrive pas en cliquant
      dessus mais en cliquant une colonne de l'histogramme des notes. Un objet
      neuf à chaque clic : c'est son identité qui rejoue le filtre, donc cliquer
@@ -531,6 +537,7 @@ function ProfileView({
             active={tab}
             ready={tabReady}
             onChange={changeTab}
+            onIntent={preloadProfileTab}
           />
           {/* RÉINITIALISER LES WIDGETS (08/11/2026, Luc) : dans le studio
               seulement, À LA PLACE de « Personnaliser le profil ». */}
@@ -555,7 +562,9 @@ function ProfileView({
           {!isOwner && identity.tag ? <FriendButton tag={identity.tag} /> : null}
         </div>
 
-        {tab === "overview" ? (
+        {kt.skeleton("overview") ? <GridSkeleton /> : null}
+        {kt.mounted("overview") ? (
+          <div {...kt.panel("overview")}><Freeze active={kt.live("overview")}>
           <ProfileOverview
             entries={entries}
             characters={characters}
@@ -573,12 +582,16 @@ function ProfileView({
             editing={picker}
             onEditingChange={(on) => (on ? openEditor() : closeEditor())}
           />
+          </Freeze>
+          </div>
         ) : null}
 
         {/* L'onglet Statistiques sur la grille de l'aperçu (07/11/2026, Luc) :
             six blocs fixes, déplaçables, redimensionnables et réglables, mais ni
             ajoutés ni retirés (variant="stats", ProfileOverview.tsx). */}
-        {tab === "stats" ? (
+        {kt.skeleton("stats") ? <GridSkeleton /> : null}
+        {kt.mounted("stats") ? (
+          <div {...kt.panel("stats")}><Freeze active={kt.live("stats")}>
           <ProfileOverview
             variant="stats"
             entries={entries}
@@ -598,22 +611,34 @@ function ProfileView({
             editing={picker}
             onEditingChange={(on) => (on ? setPicker(true) : closeEditor())}
           />
+          </Freeze>
+          </div>
         ) : null}
 
         {/* `live` seulement chez soi : les barres se calculent depuis les
             stores de CET appareil. Sur le profil d'un autre, on n'a que sa
             collection sauvegardee, et inventer un avancement qu'on n'a pas
             mesure serait un chiffre faux. */}
-        {tab === "badges" ? (
-          <ProfileBadges state={badges ?? { v: 1, got: {} }} live={isOwner} />
+        {kt.skeleton("badges") ? <BadgesSkeleton /> : null}
+        {kt.mounted("badges") ? (
+          <div {...kt.panel("badges")}><Freeze active={kt.live("badges")}>
+            <ProfileBadges state={badges ?? { v: 1, got: {} }} live={isOwner} />
+          </Freeze>
+          </div>
         ) : null}
 
-        {tab === "friends" ? (
-          <ProfileFriends isOwner={!!isOwner} tag={identity.tag ?? null} name={identity.name} entries={entries} />
+        {kt.skeleton("friends") ? <FriendsSkeleton /> : null}
+        {kt.mounted("friends") ? (
+          <div {...kt.panel("friends")}><Freeze active={kt.live("friends")}>
+            {/* Caché, l'onglet garde ses amis mais ne sonde plus le serveur. */}
+            <ProfileFriends isOwner={!!isOwner} tag={identity.tag ?? null} name={identity.name} entries={entries} active={tab === "friends"} />
+          </Freeze>
+          </div>
         ) : null}
 
-        {tab === "list" ? (
-          <>
+        {kt.skeleton("list") ? <ListSkeleton /> : null}
+        {kt.mounted("list") ? (
+          <div {...kt.panel("list")}><Freeze active={kt.live("list")}>
             {isOwner && <QueueSection />}
             <ProfileList
               entries={entries}
@@ -628,7 +653,8 @@ function ProfileView({
                 </Link>
               }
             />
-          </>
+          </Freeze>
+          </div>
         ) : null}
         </div>
         </div>

@@ -4818,6 +4818,14 @@ html.as-dragging .as-nudge {
 .as-list-row.as-list-row-compact {
   contain-intrinsic-size: auto 37px;
 }
+/* Une ligne de l'onglet Badges (ProfileBadges), même principe (21/11/2026) :
+   ~150 lignes, chacune une carte floutée (`as-stat-card` et son
+   backdrop-filter). Les rendre toutes à l'ouverture gelait l'onglet ~0,9 s sur
+   mobile ; hors écran, elles attendent qu'on s'en approche. */
+.as-badge-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 124px; /* hauteur mesurée d'une ligne, bureau et mobile */
+}
 
 /* La sélection d'un palier (cf. LadderPopup). Le TRAJET du cadre est en JS ; sa
    COULEUR, elle, change ici, en même temps qu'il voyage. Il apparaît avec les
@@ -6099,3 +6107,13 @@ html.as-dragging .as-nudge {
   .as-rr-info { padding-right: 0; align-items: center; }
   .as-rr-actions { width: 100%; }
 }
+
+/* L'ONGLET DU PROFIL QUI APPARAÎT (21/11/2026, cf. useKeepAliveTabs) : le
+   même fondu court que le changement de disposition de la liste, porté par le
+   CONTENU des cartes et non par le panneau — une opacité sur un ancêtre
+   couperait le flou (backdrop-filter) des cartes. Joué à la première
+   ouverture de l'onglet. */
+.as-tab-in .as-stat-card > *, .as-tab-in > section > h3 { animation: as-list-viewin .2s ease-out; }
+/* L'onglet caché mais gardé monté : ni place, ni rendu, mais sa mise en page
+   reste en mémoire (≠ display: none), d'où un retour sans recalcul. */
+.as-tab-off { content-visibility: hidden; contain-intrinsic-size: 0 0; }

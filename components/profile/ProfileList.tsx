@@ -128,7 +128,17 @@ export default function ProfileList({
   /* LE BOUTON ET LA LISTE NE CHANGENT PAS DANS LE MEME RENDU (12/11, Luc) :
      `pickedView` bouge tout de suite (carré qui glisse, squelette de la
      nouvelle vue), `view` suit en différé, interruptible. */
-  const [pickedView, setView] = useState<View>("cards");
+  /* Vue et tri enregistrés lus DÈS LA CRÉATION (21/11/2026) : relus dans un
+     effet, ils faisaient trier les ~700 titres deux fois à l'ouverture de
+     l'onglet. Sans risque d'hydratation : ce composant n'est jamais rendu par
+     le serveur (chargé à part, cf. lazyTabs.ts). */
+  const [pickedView, setView] = useState<View>(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY) as View | null;
+      if (v && VIEWS.includes(v)) return v;
+    } catch {}
+    return "cards";
+  });
   const view = useDeferredValue(pickedView);
   const [menu, setMenu] = useState<"" | "status" | "list">("");
   /* LES MENUS STATUT / LISTES (20/11/2026, Luc) : vers le bas s'il y a la
@@ -158,7 +168,14 @@ export default function ProfileList({
   const prepared = useRef<ProfileEntry | null>(null);
 
   const bounds = useMemo(() => boundsOf(entries), [entries]);
-  const [filters, setFilters] = useState<ListFilters>(() => freshFilters(bounds));
+  const [filters, setFilters] = useState<ListFilters>(() => {
+    const f = freshFilters(bounds);
+    try {
+      const s = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+      if (s && SORT_KEYS.includes(s.sort)) return { ...f, sort: s.sort as SortKey, desc: !!s.desc };
+    } catch {}
+    return f;
+  });
   /* Les bornes suivent la liste (le plus long titre fixe le max des épisodes) :
      une sélection encore pleine reste pleine. */
   const prevBounds = useRef(bounds);
@@ -177,14 +194,6 @@ export default function ProfileList({
     }));
   }, [bounds]);
 
-  useEffect(() => {
-    try {
-      const v = localStorage.getItem(VIEW_KEY) as View | null;
-      if (v && VIEWS.includes(v)) setView(v);
-      const s = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
-      if (s && SORT_KEYS.includes(s.sort)) setFilters((f) => ({ ...f, sort: s.sort as SortKey, desc: !!s.desc }));
-    } catch {}
-  }, []);
   /* Le contenu n'entre en fondu qu'après un CHANGEMENT de disposition, pas au
      chargement de la page (20/11/2026, Luc). */
   const [viewSwitched, setViewSwitched] = useState(false);

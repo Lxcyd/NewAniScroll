@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GridSkeleton } from "./TabSkeletons";
 import { useTranslation } from "react-i18next";
 import { useSession } from "next-auth/react";
 import { FAVOURITES_EVENT, loadFavourites, readFavouriteIds } from "@/lib/anilist/favouritesCache";
@@ -283,6 +284,9 @@ function takeRemoved(id: string): Removed | null {
   }
 }
 
+/* Dernière lecture FORCÉE des favoris AniList (cf. l'effet des favoris). */
+let favForcedAt = 0;
+
 export default function ProfileOverview({
   entries: serverEntries,
   characters,
@@ -318,7 +322,14 @@ export default function ProfileOverview({
     window.addEventListener(FAVOURITES_EVENT, read);
     /* `force` : la copie a jusqu'a 5 min, et un coeur bascule sur anilist.co
        n'y est pas. Une lecture (quelques pages d'ids) a l'ouverture du profil. */
-    if (token) void loadFavourites(token, { force: true }).then(read);
+    /* Forcé au plus une fois par minute (21/11/2026) : l'Aperçu et les
+       Statistiques sont deux grilles, gardées montées, et chacune relançait la
+       lecture AniList à son ouverture. Sinon, la copie de 5 min suffit. */
+    if (token) {
+      const force = Date.now() - favForcedAt > 60_000;
+      if (force) favForcedAt = Date.now();
+      void (force ? loadFavourites(token, { force: true }) : loadFavourites(token)).then(read);
+    }
     return () => window.removeEventListener(FAVOURITES_EVENT, read);
   }, [isOwner, token]);
   const entries = useMemo(
@@ -1399,9 +1410,9 @@ export default function ProfileOverview({
   };
 
   if (!layout) {
-    // Tant que le stockage n'a pas répondu : la hauteur de la grille par défaut,
-    // pour que la page ne saute pas au premier rendu client.
-    return <div className="h-[30rem]" />;
+    /* Tant que le stockage n'a pas répondu : le squelette de la grille plutôt
+       qu'un bloc vide (21/11/2026), à peu près à la hauteur de la grille. */
+    return <GridSkeleton cards={variant === "stats" ? 6 : 4} />;
   }
 
   return (

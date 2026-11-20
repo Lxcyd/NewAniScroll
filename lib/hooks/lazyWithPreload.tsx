@@ -14,6 +14,8 @@ import { ComponentType, useEffect, useState } from "react";
  */
 export function lazyWithPreload<P extends object>(
   loader: () => Promise<{ default: ComponentType<P> }>,
+  /** Rendu tant que le chunk n'est pas arrivé (un squelette), au lieu de rien. */
+  Fallback?: ComponentType,
 ) {
   let loaded: ComponentType<P> | null = null;
   let pending: Promise<ComponentType<P>> | null = null;
@@ -45,7 +47,7 @@ export function lazyWithPreload<P extends object>(
         alive = false;
       };
     }, [Comp]);
-    return Comp ? <Comp {...props} /> : null;
+    return Comp ? <Comp {...props} /> : Fallback ? <Fallback /> : null;
   }
 
   return Object.assign(Lazy, { preload });

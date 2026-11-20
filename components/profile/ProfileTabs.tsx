@@ -31,11 +31,14 @@ export default function ProfileTabs({
   tabs,
   active,
   onChange,
+  onIntent,
   ready = true,
 }: {
   tabs: ProfileTab[];
   active: string;
   onChange: (key: string) => void;
+  /** Survol ou focus d'un onglet : l'occasion de précharger son code. */
+  onIntent?: (key: string) => void;
   /** Faux tant que la page n'a pas lu l'onglet de l'adresse : aucun onglet
    *  n'est marqué, pour que la pilule ne saute pas d'« Aperçu » au bon. */
   ready?: boolean;
@@ -119,6 +122,8 @@ export default function ProfileTabs({
             }}
             type="button"
             onClick={() => onChange(tab.key)}
+            onPointerEnter={() => onIntent?.(tab.key)}
+            onFocus={() => onIntent?.(tab.key)}
             aria-current={on ? "page" : undefined}
             className={`relative shrink-0 rounded-full px-4 max-sm:px-3 py-2 font-karla text-[13px] font-bold transition-colors duration-300 sm:px-[18px] ${
               on

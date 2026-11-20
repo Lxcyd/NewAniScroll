@@ -271,7 +271,12 @@ export default function WidgetGrid({
   useIsoLayoutEffect(() => {
     const el = hostRef.current;
     if (!el) return;
-    const measure = () => setWidth(el.clientWidth);
+    /* 0 = onglet caché (il reste monté, cf. useKeepAliveTabs) : on garde la
+       dernière largeur, sinon les blocs repartaient d'un pixel en glissant. */
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w) setWidth(w);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);

@@ -15,11 +15,25 @@
  * s'ils avaient ete importes en dur — pas de rendu vide intermediaire.
  */
 import { lazyWithPreload, preloadWhenIdle } from "@/lib/hooks/lazyWithPreload";
+import { BadgesSkeleton, FriendsSkeleton, GridSkeleton, ListSkeleton } from "./TabSkeletons";
 
-export const ProfileList = lazyWithPreload(() => import("./ProfileList"));
-export const ProfileStatsPanel = lazyWithPreload(() => import("./ProfileStats"));
-export const ProfileBadges = lazyWithPreload(() => import("./ProfileBadges"));
-export const ProfileFriends = lazyWithPreload(() => import("./ProfileFriends"));
+/* Le squelette de chaque onglet tient la place tant que son code arrive
+   (21/11/2026) : un clic avant le préchargement ne montre plus un trou. */
+export const ProfileList = lazyWithPreload(() => import("./ProfileList"), ListSkeleton);
+export const ProfileStatsPanel = lazyWithPreload(() => import("./ProfileStats"), GridSkeleton);
+export const ProfileBadges = lazyWithPreload(() => import("./ProfileBadges"), BadgesSkeleton);
+export const ProfileFriends = lazyWithPreload(() => import("./ProfileFriends"), FriendsSkeleton);
+
+/** Précharge le code d'un onglet (survol / focus de son bouton). */
+export function preloadProfileTab(key: string) {
+  const p =
+    key === "list" ? ProfileList.preload
+    : key === "badges" ? ProfileBadges.preload
+    : key === "friends" ? ProfileFriends.preload
+    : key === "stats" ? ProfileStatsPanel.preload
+    : null;
+  p?.().catch(() => {});
+}
 
 /** A appeler dans un effet de montage ; rend la fonction d'annulation. */
 export function preloadProfileTabs() {

@@ -29,11 +29,15 @@ export default function ProfileFriends({
   tag,
   name,
   entries,
+  active = true,
 }: {
   isOwner: boolean;
   tag: string | null;
   name: string;
   entries: ProfileEntry[];
+  /** Faux quand l'onglet est caché (il reste monté) : plus de sondage du
+   *  serveur, les amis déjà chargés restent affichés (21/11/2026). */
+  active?: boolean;
 }) {
   const { t } = useTranslation();
   if (!tag)
@@ -42,12 +46,12 @@ export default function ProfileFriends({
         <EmptyState title={t("profile.friends.title")} text={t("profile.friends.noAccount")} />
       </Shell>
     );
-  return isOwner ? <Mine tag={tag} name={name} entries={entries} /> : <Theirs tag={tag} name={name} />;
+  return isOwner ? <Mine tag={tag} name={name} entries={entries} active={active} /> : <Theirs tag={tag} name={name} active={active} />;
 }
 
 /* ── Chez soi ─────────────────────────────────────────────────────────────── */
 
-function Mine({ tag, name, entries }: { tag: string; name: string; entries: ProfileEntry[] }) {
+function Mine({ tag, name, entries, active }: { tag: string; name: string; entries: ProfileEntry[]; active: boolean }) {
   const { t } = useTranslation();
   const [data, setData] = useState<Awaited<ReturnType<typeof myFriends>>>(null);
   const [loaded, setLoaded] = useState(false);
@@ -56,6 +60,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const load = () =>
       void myFriends().then((d) => {
@@ -68,7 +73,7 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
       alive = false;
       stop();
     };
-  }, []);
+  }, [active]);
   /* Pas d'affinité dans l'onglet (08/11/2026, Luc : « juste avatar, nom ») :
      les amis par ordre alphabétique. */
   const friends = useMemo(
@@ -144,10 +149,11 @@ function Mine({ tag, name, entries }: { tag: string; name: string; entries: Prof
 
 /* ── Chez un autre ────────────────────────────────────────────────────────── */
 
-function Theirs({ tag, name }: { tag: string; name: string }) {
+function Theirs({ tag, name, active }: { tag: string; name: string; active: boolean }) {
   const { t } = useTranslation();
   const [list, setList] = useState<FriendCard[] | null>(null);
   useEffect(() => {
+    if (!active) return;
     let alive = true;
     const load = () =>
       void friendsOf(tag).then((f) => {
@@ -158,7 +164,7 @@ function Theirs({ tag, name }: { tag: string; name: string }) {
       alive = false;
       stop();
     };
-  }, [tag]);
+  }, [tag, active]);
   return (
     <Shell title={t("profile.friends.theirs", { name })} count={list?.length}>
       {list == null ? (

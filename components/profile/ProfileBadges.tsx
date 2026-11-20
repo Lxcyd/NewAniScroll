@@ -80,6 +80,11 @@ const TIER_TOKEN_SEL = TIER_TOKEN + 12;
  */
 const FRAME_MOVE_MS = 420;
 
+/* La dernière mesure des badges et le rattrapage déjà fait, gardés pour la
+   visite (cf. l'effet de mesure plus bas). */
+let lastLive: { progress: Map<string, Progress>; d: Derived } | null = null;
+let backfilled = false;
+
 export default function ProfileBadges({
   state: saved,
   live = false,
@@ -109,15 +114,22 @@ export default function ProfileBadges({
   );
   const [filter, setFilter] = useState<Filter>("all");
   const [rarity, setRarity] = useState<RarityPick>("all");
-  const [progress, setProgress] = useState<Map<string, Progress>>(new Map());
+  /* Le dernier résultat connu d'abord (cache du module) : l'onglet s'affiche
+     tout de suite avec ses barres, la nouvelle mesure arrive après. */
+  const [progress, setProgress] = useState<Map<string, Progress>>(() => (live && lastLive?.progress) || new Map());
   /** Les mesures elles-mêmes, pour le DÉTAIL d'un badge (lib/badges/detail.ts). */
-  const [derived, setDerived] = useState<Derived | null>(null);
+  const [derived, setDerived] = useState<Derived | null>(() => (live && lastLive?.d) || null);
 
   /* Chez soi : on mesure, et on lance le rattrapage des métadonnées.
      Les DEUX sont ici et pas au chargement du site — personne ne doit payer,
      en requêtes comme en calcul, pour un onglet qu'il n'ouvre pas. */
   useEffect(() => {
     if (!live) return;
+    /* APRÈS LA PREMIÈRE PEINTURE (21/11/2026) : `progressAll()` mesure les 176
+       badges d'un bloc ; lancé au montage, il retardait l'affichage de
+       l'onglet. Au repos, l'onglet est déjà là quand il tourne. */
+    let alive = true;
+    const run = () => {
     recordFlag("badgesTab");
     /* Évalué TOUT DE SUITE, avant d'ouvrir la portée silencieuse : « Vitrine
        ouverte » est un vrai geste et mérite sa notification. Sans ce passage
@@ -125,8 +137,14 @@ export default function ProfileBadges({
        tard, c'est-à-dire pendant le rattrapage — et serait tue avec lui. */
     flush();
     const first = progressAll();
+    lastLive = first;
+    if (!alive) return;
     setProgress(first.progress);
     setDerived(first.d);
+    /* Le rattrapage AniList une fois par visite du site : l'onglet gardé
+       monté ne le relance plus, une nouvelle visite du profil non plus. */
+    if (backfilled) return;
+    backfilled = true;
 
     /* LE RATTRAPAGE EST SILENCIEUX, ET C'EST ICI QU'ON LE DÉCIDE.
        Il rend mesurables d'un coup les familles Genres et Découverte pour toute
@@ -144,9 +162,19 @@ export default function ProfileBadges({
       flush();
       endQuiet();
       const next = progressAll();
+      lastLive = next;
+      if (!alive) return;
       setProgress(next.progress);
       setDerived(next.d);
     });
+    };
+    const idle = typeof window.requestIdleCallback === "function";
+    const id = idle ? window.requestIdleCallback(run, { timeout: 600 }) : window.setTimeout(run, 50);
+    return () => {
+      alive = false;
+      if (idle) window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
   }, [live]);
 
   /**

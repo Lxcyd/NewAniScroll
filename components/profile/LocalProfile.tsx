@@ -22,7 +22,10 @@ import {
   ProfileList,
   ProfileStatsPanel,
   preloadProfileTabs,
+  preloadProfileTab,
 } from "@/components/profile/lazyTabs";
+import { BadgesSkeleton, GridSkeleton, ListSkeleton } from "@/components/profile/TabSkeletons";
+import { Freeze, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
 import { useBadgeState } from "@/lib/badges/store";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import dynamic from "next/dynamic";
@@ -96,10 +99,15 @@ export default function LocalProfile() {
     };
   }, []);
   /* Le seul chemin qui ECRIT dans l'adresse : un onglet choisi a la main. */
+  /* Onglets visités gardés montés, squelette à la première ouverture
+     (21/11/2026, cf. lib/profile/useKeepAliveTabs.ts). */
+  const kt = useKeepAliveTabs(tab);
+  const { markSwitch } = kt;
   const changeTab = useCallback((key: string) => {
+    markSwitch();
     setTab(key);
     ecrireOnglet(key);
-  }, []);
+  }, [markSwitch]);
   /* Lu en direct : un badge debloque pendant qu'on est sur la page doit
      apparaitre dans l'onglet sans rechargement. */
   const badgeState = useBadgeState();
@@ -242,6 +250,7 @@ export default function LocalProfile() {
               active={tab}
               ready={tabReady}
               onChange={changeTab}
+              onIntent={preloadProfileTab}
             />
           </div>
 
@@ -250,7 +259,9 @@ export default function LocalProfile() {
               visiteur sans compte est propriétaire de sa page, donc il peut la
               réorganiser — sa disposition vit sur l'appareil, et rejoindra le
               compte le jour où il en crée un (cf. lib/prefs/profileLayout.ts). */}
-          {tab === "overview" ? (
+          {kt.skeleton("overview") ? <GridSkeleton /> : null}
+          {kt.mounted("overview") ? (
+            <div {...kt.panel("overview")}><Freeze active={kt.live("overview")}>
             <ProfileOverview
               entries={entries}
               characters={[]}
@@ -263,17 +274,32 @@ export default function LocalProfile() {
               editing={picker}
               onEditingChange={(on) => (on ? openEditor() : closeEditor())}
             />
+            </Freeze>
+            </div>
           ) : null}
 
-          {tab === "stats" ? <ProfileStatsPanel entries={entries} /> : null}
+          {kt.skeleton("stats") ? <GridSkeleton /> : null}
+          {kt.mounted("stats") ? (
+            <div {...kt.panel("stats")}><Freeze active={kt.live("stats")}>
+              <ProfileStatsPanel entries={entries} />
+            </Freeze>
+            </div>
+          ) : null}
 
           {/* Toujours `live` ici : cette page EST celle de son proprietaire, et
               un invite gagne des badges comme les autres -- ils vivent sur son
               appareil jusqu'au jour ou il cree un compte. */}
-          {tab === "badges" ? <ProfileBadges state={badgeState} live /> : null}
+          {kt.skeleton("badges") ? <BadgesSkeleton /> : null}
+          {kt.mounted("badges") ? (
+            <div {...kt.panel("badges")}><Freeze active={kt.live("badges")}>
+              <ProfileBadges state={badgeState} live />
+            </Freeze>
+            </div>
+          ) : null}
 
-          {tab === "list" ? (
-            <>
+          {kt.skeleton("list") ? <ListSkeleton /> : null}
+          {kt.mounted("list") ? (
+            <div {...kt.panel("list")}><Freeze active={kt.live("list")}>
               <QueueSection />
               <ProfileList
                 entries={entries}
@@ -288,7 +314,8 @@ export default function LocalProfile() {
                   </Link>
                 }
               />
-            </>
+            </Freeze>
+            </div>
           ) : null}
 
           <p className="mt-8 text-xs text-white/40">
