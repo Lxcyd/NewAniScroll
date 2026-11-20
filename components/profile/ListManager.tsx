@@ -153,6 +153,10 @@ export default function ListManager({
       // l'animation d'ouverture la feuille est à 97 %, et la mesure à l'écran
       // donnait une boîte trop courte (20/11/2026).
       const h = Math.ceil(parseFloat(getComputedStyle(el).height) || 0);
+      /* Volet retiré de la page (feuille fermée) : le ResizeObserver annonce
+         0 px. Le garder faisait rouvrir la feuille sur une boîte vide qui se
+         dépliait sous les yeux (20/11/2026). */
+      if (!el.isConnected || h === 0) return;
       if (lastH.current != null && h !== lastH.current) {
         /* Classe posée À LA MAIN, tout de suite : le ResizeObserver passe avant
            l'affichage, mais le setState ne rend qu'à l'image suivante — une
