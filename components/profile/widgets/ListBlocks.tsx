@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { useEntranceReplay } from "@/lib/profile/useKeepAliveTabs";
 import Link from "next/link";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -727,6 +728,10 @@ export function StatusesBlock({
      `prefers-reduced-motion`. */
   const [entered, setEntered] = useState(false);
   const [seen, setSeen] = useState(false);
+  useEntranceReplay(() => {
+    setSeen(false);
+    setEntered(false);
+  });
   useEffect(() => {
     const el = listRef.current;
     if (seen || !el) return;

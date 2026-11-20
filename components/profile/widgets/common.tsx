@@ -1,4 +1,5 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEntranceReplay } from "@/lib/profile/useKeepAliveTabs";
 import { useTranslation } from "react-i18next";
 
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -16,6 +17,11 @@ const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : use
 export function useRowsEntrance(ref: RefObject<HTMLElement | null>, settled: string | null) {
   const [seen, setSeen] = useState(false);
   const [entered, setEntered] = useState(false);
+  /* Onglet quitté : retour à l'état d'avant l'entrée, rejouée au retour. */
+  useEntranceReplay(() => {
+    setSeen(false);
+    setEntered(false);
+  });
   useEffect(() => {
     const el = ref.current;
     if (seen || !el) return;
@@ -86,7 +92,13 @@ export function useCountUp(value: number, run: boolean, ms = 900, delay = 100): 
   const [shown, setShown] = useState(0);
   const from = useRef(0);
   useEffect(() => {
-    if (!run) return;
+    /* Pas encore (ou plus : onglet quitté, cf. useEntranceReplay) : repart de
+       zéro, pour remonter à nouveau. */
+    if (!run) {
+      from.current = 0;
+      setShown(0);
+      return;
+    }
     const a = from.current;
     let raf = 0;
     const t0 = performance.now() + delay;

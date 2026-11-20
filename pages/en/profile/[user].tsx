@@ -78,7 +78,7 @@ import {
   preloadProfileTab,
 } from "@/components/profile/lazyTabs";
 import { BadgesSkeleton, FriendsSkeleton, GridSkeleton, ListSkeleton } from "@/components/profile/TabSkeletons";
-import { Freeze, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
+import { KeepAlivePanel, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import {
   mergeBadgeState,
@@ -564,7 +564,7 @@ function ProfileView({
 
         {kt.skeleton("overview") ? <GridSkeleton /> : null}
         {kt.mounted("overview") ? (
-          <div {...kt.panel("overview")}><Freeze active={kt.live("overview")}>
+          <KeepAlivePanel {...kt.panel("overview")}>
           <ProfileOverview
             entries={entries}
             characters={characters}
@@ -582,8 +582,7 @@ function ProfileView({
             editing={picker}
             onEditingChange={(on) => (on ? openEditor() : closeEditor())}
           />
-          </Freeze>
-          </div>
+          </KeepAlivePanel>
         ) : null}
 
         {/* L'onglet Statistiques sur la grille de l'aperçu (07/11/2026, Luc) :
@@ -591,7 +590,7 @@ function ProfileView({
             ajoutés ni retirés (variant="stats", ProfileOverview.tsx). */}
         {kt.skeleton("stats") ? <GridSkeleton /> : null}
         {kt.mounted("stats") ? (
-          <div {...kt.panel("stats")}><Freeze active={kt.live("stats")}>
+          <KeepAlivePanel {...kt.panel("stats")}>
           <ProfileOverview
             variant="stats"
             entries={entries}
@@ -611,8 +610,7 @@ function ProfileView({
             editing={picker}
             onEditingChange={(on) => (on ? setPicker(true) : closeEditor())}
           />
-          </Freeze>
-          </div>
+          </KeepAlivePanel>
         ) : null}
 
         {/* `live` seulement chez soi : les barres se calculent depuis les
@@ -621,24 +619,22 @@ function ProfileView({
             mesure serait un chiffre faux. */}
         {kt.skeleton("badges") ? <BadgesSkeleton /> : null}
         {kt.mounted("badges") ? (
-          <div {...kt.panel("badges")}><Freeze active={kt.live("badges")}>
+          <KeepAlivePanel {...kt.panel("badges")}>
             <ProfileBadges state={badges ?? { v: 1, got: {} }} live={isOwner} />
-          </Freeze>
-          </div>
+          </KeepAlivePanel>
         ) : null}
 
         {kt.skeleton("friends") ? <FriendsSkeleton /> : null}
         {kt.mounted("friends") ? (
-          <div {...kt.panel("friends")}><Freeze active={kt.live("friends")}>
+          <KeepAlivePanel {...kt.panel("friends")}>
             {/* Caché, l'onglet garde ses amis mais ne sonde plus le serveur. */}
             <ProfileFriends isOwner={!!isOwner} tag={identity.tag ?? null} name={identity.name} entries={entries} active={tab === "friends"} />
-          </Freeze>
-          </div>
+          </KeepAlivePanel>
         ) : null}
 
         {kt.skeleton("list") ? <ListSkeleton /> : null}
         {kt.mounted("list") ? (
-          <div {...kt.panel("list")}><Freeze active={kt.live("list")}>
+          <KeepAlivePanel {...kt.panel("list")}>
             {isOwner && <QueueSection />}
             <ProfileList
               entries={entries}
@@ -653,8 +649,7 @@ function ProfileView({
                 </Link>
               }
             />
-          </Freeze>
-          </div>
+          </KeepAlivePanel>
         ) : null}
         </div>
         </div>

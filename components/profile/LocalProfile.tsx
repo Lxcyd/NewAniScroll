@@ -25,7 +25,7 @@ import {
   preloadProfileTab,
 } from "@/components/profile/lazyTabs";
 import { BadgesSkeleton, GridSkeleton, ListSkeleton } from "@/components/profile/TabSkeletons";
-import { Freeze, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
+import { KeepAlivePanel, useKeepAliveTabs } from "@/lib/profile/useKeepAliveTabs";
 import { useBadgeState } from "@/lib/badges/store";
 import { ecrireOnglet, lireOnglet } from "@/lib/profile/tabHash";
 import dynamic from "next/dynamic";
@@ -261,7 +261,7 @@ export default function LocalProfile() {
               compte le jour où il en crée un (cf. lib/prefs/profileLayout.ts). */}
           {kt.skeleton("overview") ? <GridSkeleton /> : null}
           {kt.mounted("overview") ? (
-            <div {...kt.panel("overview")}><Freeze active={kt.live("overview")}>
+            <KeepAlivePanel {...kt.panel("overview")}>
             <ProfileOverview
               entries={entries}
               characters={[]}
@@ -274,16 +274,14 @@ export default function LocalProfile() {
               editing={picker}
               onEditingChange={(on) => (on ? openEditor() : closeEditor())}
             />
-            </Freeze>
-            </div>
+            </KeepAlivePanel>
           ) : null}
 
           {kt.skeleton("stats") ? <GridSkeleton /> : null}
           {kt.mounted("stats") ? (
-            <div {...kt.panel("stats")}><Freeze active={kt.live("stats")}>
+            <KeepAlivePanel {...kt.panel("stats")}>
               <ProfileStatsPanel entries={entries} />
-            </Freeze>
-            </div>
+            </KeepAlivePanel>
           ) : null}
 
           {/* Toujours `live` ici : cette page EST celle de son proprietaire, et
@@ -291,15 +289,14 @@ export default function LocalProfile() {
               appareil jusqu'au jour ou il cree un compte. */}
           {kt.skeleton("badges") ? <BadgesSkeleton /> : null}
           {kt.mounted("badges") ? (
-            <div {...kt.panel("badges")}><Freeze active={kt.live("badges")}>
+            <KeepAlivePanel {...kt.panel("badges")}>
               <ProfileBadges state={badgeState} live />
-            </Freeze>
-            </div>
+            </KeepAlivePanel>
           ) : null}
 
           {kt.skeleton("list") ? <ListSkeleton /> : null}
           {kt.mounted("list") ? (
-            <div {...kt.panel("list")}><Freeze active={kt.live("list")}>
+            <KeepAlivePanel {...kt.panel("list")}>
               <QueueSection />
               <ProfileList
                 entries={entries}
@@ -314,8 +311,7 @@ export default function LocalProfile() {
                   </Link>
                 }
               />
-            </Freeze>
-            </div>
+            </KeepAlivePanel>
           ) : null}
 
           <p className="mt-8 text-xs text-white/40">

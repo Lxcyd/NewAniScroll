@@ -6117,3 +6117,6 @@ html.as-dragging .as-nudge {
 /* L'onglet caché mais gardé monté : ni place, ni rendu, mais sa mise en page
    reste en mémoire (≠ display: none), d'où un retour sans recalcul. */
 .as-tab-off { content-visibility: hidden; contain-intrinsic-size: 0 0; }
+/* Les deux premières images d'un onglet réaffiché : pas de transition, ses
+   widgets repartent directement de leur état de départ (cf. KeepAlivePanel). */
+.as-tab-reveal, .as-tab-reveal * { transition: none !important; }

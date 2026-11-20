@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { useEntranceReplay } from "@/lib/profile/useKeepAliveTabs";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -217,6 +218,10 @@ export function CalendarBlock({
   const boardRef = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(false);
   const [entered, setEntered] = useState(false);
+  useEntranceReplay(() => {
+    setSeen(false);
+    setEntered(false);
+  });
   useEffect(() => {
     const el = boardRef.current;
     if (seen || !el) return;
