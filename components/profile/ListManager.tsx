@@ -402,7 +402,6 @@ export default function ListManager({
   return createPortal(
     <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp as-lm" role="dialog" aria-modal="true" aria-label={t("listMenu.manager.title")}>
-        <div className="as-sfp-handle" />
         <div className="as-sfp-head">
           <h3>{t("listMenu.manager.title")}</h3>
           <button type="button" className="as-sfp-x" onClick={onClose} aria-label={t("listMenu.close")}>
