@@ -5903,6 +5903,10 @@ html.as-dragging .as-nudge {
   background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
   border-color: rgba(233,69,96,.5);
 }
+/* Le même contour rose au survol pour les dépliants (Genres, Studio, Tags) et
+   les pastilles (Source, Pays) (20/11/2026, Luc : « hover rose manquant »). */
+.as-sfp-dd:hover { border-color: rgba(233,69,96,.5); }
+.as-sfp-chip:not(.is-on):hover { border-color: rgba(233,69,96,.5); }
 .as-sfp-tile-l { font-weight: 600; font-size: 14px; }
 .as-sfp-tile.is-on, .as-sfp-air.is-on, .as-sfp-tile.is-on:hover, .as-sfp-air.is-on:hover {
   background: rgba(233,69,96,.14); border-color: rgba(233,69,96,.6); color: #ffb3c0;
