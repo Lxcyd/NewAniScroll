@@ -1,3 +1,4 @@
+import { withTiming } from "@/lib/http/withTiming";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { searchAnime } from "@/lib/db/anime";
 
@@ -17,7 +18,7 @@ import { searchAnime } from "@/lib/db/anime";
  *   • format / season / year filters (already in DB columns, just need WHEREs)
  *   • merge with AniList live search when available, dedupe by id
  */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const q = String(req.query.q || "").trim();
   const limitRaw = Number(req.query.limit);
   const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 50) : 20;
@@ -54,3 +55,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: "Search failed", details: e?.message });
   }
 }
+
+export default withTiming("search", handler);

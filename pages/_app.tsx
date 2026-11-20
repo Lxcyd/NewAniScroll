@@ -23,6 +23,7 @@ import { useAchievement } from "@/lib/badges/achievementStore";
 import EpisodeTransitionOverlay from "@/components/shared/episodeTransitionOverlay";
 import { notify } from "@/lib/notifications/noticeStore";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { getSyncPrefs, setSyncPrefs } from "@/lib/prefs/syncPrefs";
 import { useMountedOnce } from "@/lib/hooks/useMountedOnce";
 import type { SyncDirection } from "@/components/shared/SyncDirectionModal";
@@ -906,6 +907,11 @@ export default function App({
                       analytics that sees the visitor IP for moderation).
                       Vercel-only: self-hosted, its script 404s. */}
                   {process.env.NEXT_PUBLIC_VERCEL_ENV && <Analytics />}
+                  {/* LA VITESSE CHEZ LES VRAIS VISITEURS (20/11/2026) : LCP, CLS,
+                      INP, TTFB par page, dans l'onglet Speed Insights du projet
+                      Vercel (a activer dans le tableau de bord). Script differe,
+                      balise envoyee en fin de page : aucun CPU Fluid. */}
+                  {process.env.NEXT_PUBLIC_VERCEL_ENV === "production" && <SpeedInsights />}
                 </div>
               </SkeletonTheme>
           </WatchPageProvider>

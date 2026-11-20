@@ -1,3 +1,4 @@
+import { withTiming } from "@/lib/http/withTiming";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { setEdgeCache, setEdgeErrorCache } from "@/lib/http/edgeCache";
@@ -54,7 +55,7 @@ function plainText(raw?: string | null): string | null {
   return text.length <= DESC_MAX ? text : text.slice(0, DESC_MAX).replace(/\s+\S*$/, "");
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = Number(req.query.id);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: "Missing or invalid id" });
@@ -165,3 +166,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     trailer,
   });
 }
+
+export default withTiming("preview", handler);

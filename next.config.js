@@ -374,6 +374,24 @@ module.exports = withPWA({
   // rewrite makes those /fr URLs actually resolve on reload / when shared, with
   // zero page duplication. getServerSideProps reads `query`, not the locale
   // segment, so it works identically under either prefix.
+  /* CACHE NAVIGATEUR DES FICHIERS DE public/ (20/11/2026). Sans regle, Vercel
+     les sert en `max-age=0, must-revalidate` : chaque visite revalide chaque
+     fond, emoji, police et svg (un aller-retour 304 par fichier). Les noms ne
+     sont pas hashes, donc PAS d'`immutable` : 7 jours (30 pour les polices)
+     puis revalidation en arriere-plan. sw.js, workbox-*.js et manifest.json
+     restent hors regle : un service worker fige une semaine ne se met plus a
+     jour. */
+  async headers() {
+    const semaine = "public, max-age=604800, stale-while-revalidate=2592000";
+    return [
+      { source: "/fonts/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=2592000" }] },
+      { source: "/fonds/:path*", headers: [{ key: "Cache-Control", value: semaine }] },
+      { source: "/emojis/:path*", headers: [{ key: "Cache-Control", value: semaine }] },
+      { source: "/svg/:path*", headers: [{ key: "Cache-Control", value: semaine }] },
+      { source: "/changelog/:path*", headers: [{ key: "Cache-Control", value: semaine }] },
+      { source: "/logo.png", headers: [{ key: "Cache-Control", value: semaine }] },
+    ];
+  },
   async rewrites() {
     return {
       /* La fiche anime choisit sa mise en page (InfoPage / InfoPageMobile)

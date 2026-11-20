@@ -49,29 +49,37 @@ import "@fontsource/outfit/700.css";
 import "@fontsource/outfit/800.css";
 import "@fontsource/outfit/900.css";
 
+/* Roboto et Inter : le seul sous-ensemble LATIN (20/11/2026). Leurs CSS
+   complets declaraient 9 et 7 @font-face par graisse (cyrillique, grec,
+   vietnamien, symboles…) : ~65 Ko de CSS pour Roboto seul, sur un site
+   francais/anglais. Le fichier `latin-*` n'a pas d'unicode-range : il sert
+   tous les caracteres qu'il couvre (accents francais, œ compris) et le reste
+   retombe sur la police suivante. NE PAS y ajouter `latin-ext-*` a cote : sans
+   unicode-range, le dernier declare l'emporterait sur tout le texte.
+   Les graisses ne changent pas (cf. plus haut). */
 // Roboto — 100, 300, 400, 500, 700, 900, droit + italique
-import "@fontsource/roboto/100.css";
-import "@fontsource/roboto/300.css";
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
-import "@fontsource/roboto/900.css";
-import "@fontsource/roboto/100-italic.css";
-import "@fontsource/roboto/300-italic.css";
-import "@fontsource/roboto/400-italic.css";
-import "@fontsource/roboto/500-italic.css";
-import "@fontsource/roboto/700-italic.css";
-import "@fontsource/roboto/900-italic.css";
+import "@fontsource/roboto/latin-100.css";
+import "@fontsource/roboto/latin-300.css";
+import "@fontsource/roboto/latin-400.css";
+import "@fontsource/roboto/latin-500.css";
+import "@fontsource/roboto/latin-700.css";
+import "@fontsource/roboto/latin-900.css";
+import "@fontsource/roboto/latin-100-italic.css";
+import "@fontsource/roboto/latin-300-italic.css";
+import "@fontsource/roboto/latin-400-italic.css";
+import "@fontsource/roboto/latin-500-italic.css";
+import "@fontsource/roboto/latin-700-italic.css";
+import "@fontsource/roboto/latin-900-italic.css";
 
 // Inter — 100..900
-import "@fontsource/inter/100.css";
-import "@fontsource/inter/200.css";
-import "@fontsource/inter/300.css";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
-import "@fontsource/inter/800.css";
-import "@fontsource/inter/900.css";
+import "@fontsource/inter/latin-100.css";
+import "@fontsource/inter/latin-200.css";
+import "@fontsource/inter/latin-300.css";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
+import "@fontsource/inter/latin-800.css";
+import "@fontsource/inter/latin-900.css";
 
 export {};

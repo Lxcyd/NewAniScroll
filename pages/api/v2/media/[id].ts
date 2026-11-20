@@ -1,3 +1,4 @@
+import { withTiming } from "@/lib/http/withTiming";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getMediaMeta } from "@/lib/anilist/getMediaMeta";
 import { setEdgeErrorCache } from "@/lib/http/edgeCache";
@@ -33,7 +34,7 @@ import { setEdgeErrorCache } from "@/lib/http/edgeCache";
 
 const TTL_S = 30 * 60;
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = Number(req.query.id);
   if (!Number.isFinite(id)) {
     return res.status(400).json({ error: "Missing or invalid id" });
@@ -62,3 +63,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   );
   return res.status(200).json({ ...media, mediaListEntry: null });
 }
+
+export default withTiming("media", handler);

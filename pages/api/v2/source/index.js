@@ -1,3 +1,4 @@
+import { withTiming } from "@/lib/http/withTiming";
 import { rateLimiterRedis, redis, redisAvailable } from "@/lib/redis";
 import { waitUntil } from "@/lib/http/waitUntil";
 import * as cheerio from "cheerio";
@@ -4194,7 +4195,7 @@ function sourceCacheKey({ server, aniId, episode, sub }) {
  * cacheable anyway (they exist to bust the cache) and rely on the 404/204
  * contract below.
  */
-export default async function handler(req, res) {
+async function handler(req, res) {
   const isGet = req.method === "GET";
   if (!isGet && req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
@@ -4829,3 +4830,5 @@ export default async function handler(req, res) {
 export const config = {
   maxDuration: 15,
 };
+
+export default withTiming("source", handler);

@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { withTiming } from "@/lib/http/withTiming";
 import { waitUntil } from "@/lib/http/waitUntil";
 import { rateLimiterRedis, rateSuperStrict, redis } from "@/lib/redis";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -260,7 +261,7 @@ function filterData(data: any[], type: "sub" | "dub") {
 const EPISODE_CACHE_KEY = (id: string | string[] | undefined) =>
   `episode:v12:${id}`;
 
-export default async function handler(
+async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
@@ -503,3 +504,5 @@ function getTimeFromMs(time: number) {
     return `${timeInSeconds} second${timeInSeconds > 1 ? "s" : ""}`;
   }
 }
+
+export default withTiming("episode", handler);
