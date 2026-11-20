@@ -51,10 +51,26 @@ export default function ListManager({
      "l:<liste>" | "a:<liste AniList>", et la pastille sous laquelle il flotte. */
   const [palette, setPaletteId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  /* Fermeture animée (20/11/2026, Luc) : la bulle reste montée le temps de
+     son animation de sortie (.as-lm-pop.is-leaving), puis disparaît. */
+  const [leaving, setLeaving] = useState(false);
+  const leaveTimer = useRef<ReturnType<typeof setTimeout>>();
   const setPalette = (id: string | null, el?: HTMLElement) => {
-    setPaletteId(id);
-    setAnchor(id && el ? el.getBoundingClientRect() : null);
+    clearTimeout(leaveTimer.current);
+    if (id) {
+      setLeaving(false);
+      setPaletteId(id);
+      setAnchor(el ? el.getBoundingClientRect() : null);
+      return;
+    }
+    setLeaving(true);
+    leaveTimer.current = setTimeout(() => {
+      setLeaving(false);
+      setPaletteId(null);
+      setAnchor(null);
+    }, 160);
   };
+  useEffect(() => () => clearTimeout(leaveTimer.current), []);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -63,7 +79,7 @@ export default function ListManager({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (palette) setPalette(null);
+      if (palette && !leaving) setPalette(null);
       else onClose();
     };
     document.addEventListener("keydown", onKey);
@@ -73,7 +89,7 @@ export default function ListManager({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose, palette]);
+  }, [open, onClose, palette, leaving]);
 
   /* RÉORDONNER COMME LES WIDGETS (08/11, Luc : « ça se TP au lieu de suivre le
      curseur ») : la ligne tenue SUIT le pointeur (translate), bloquée entre le
@@ -320,12 +336,12 @@ export default function ListManager({
   const swatch = (id: string, value: string) => (
     <button
       type="button"
-      className={`as-lm-swatch${palette === id ? " is-open" : ""}`}
-      aria-expanded={palette === id}
+      className={`as-lm-swatch${palette === id && !leaving ? " is-open" : ""}`}
+      aria-expanded={palette === id && !leaving}
       style={{ ["--c" as string]: value } as React.CSSProperties}
       aria-label={t("listMenu.manager.color")}
       title={t("listMenu.manager.color")}
-      onClick={(e) => setPalette(palette === id ? null : id, e.currentTarget)}
+      onClick={(e) => setPalette(palette === id && !leaving ? null : id, e.currentTarget)}
     />
   );
   /* LE SÉLECTEUR DU SITE (components/shared/ColorPicker.tsx), celui du studio
@@ -356,8 +372,8 @@ export default function ListManager({
     const arrow = Math.min(Math.max(18, cx - left), POP_W - 18);
     return (
       <>
-        <div className="as-lm-pop-backdrop" onMouseDown={() => setPalette(null)} />
-        <div className={`as-lm-pop ${above ? "is-above" : "is-below"}`} style={place} role="dialog" aria-label={t("listMenu.manager.color")}>
+        {!leaving && <div className="as-lm-pop-backdrop" onMouseDown={() => setPalette(null)} />}
+        <div className={`as-lm-pop ${above ? "is-above" : "is-below"}${leaving ? " is-leaving" : ""}`} style={place} role="dialog" aria-label={t("listMenu.manager.color")}>
           <span aria-hidden className="as-lm-pop-tip" style={{ transform: `translateX(${arrow - 7}px) rotate(45deg)` }} />
           <ColorPicker key={palette} value={colorOf(palette)} onChange={pickColor} />
         </div>

@@ -5795,6 +5795,12 @@ html.as-dragging .as-nudge {
 .as-lm-pop.is-below { transform-origin: 50% 0; animation-name: as-lm-pop-down; }
 @keyframes as-lm-pop-up { from { opacity: 0; transform: translateY(8px) scale(.95); } }
 @keyframes as-lm-pop-down { from { opacity: 0; transform: translateY(-8px) scale(.95); } }
+/* Sortie : le chemin inverse, plus court et sans rebond (ListManager garde la
+   bulle montée 160 ms). */
+.as-lm-pop.is-leaving { pointer-events: none; animation: as-lm-pop-out .15s ease-in forwards; }
+.as-lm-pop.is-below.is-leaving { animation-name: as-lm-pop-out-down; }
+@keyframes as-lm-pop-out { to { opacity: 0; transform: translateY(6px) scale(.95); } }
+@keyframes as-lm-pop-out-down { to { opacity: 0; transform: translateY(-6px) scale(.95); } }
 .as-lm-pop-tip { position: absolute; left: 0; width: 14px; height: 14px; background: #15161d; pointer-events: none; }
 .as-lm-pop.is-above .as-lm-pop-tip { bottom: -7px; border-bottom-right-radius: 4px; box-shadow: 1px 1px 0 rgba(255,255,255,.1); }
 .as-lm-pop.is-below .as-lm-pop-tip { top: -7px; border-top-left-radius: 4px; box-shadow: -1px -1px 0 rgba(255,255,255,.1); }
