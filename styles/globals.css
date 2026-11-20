@@ -5648,10 +5648,10 @@ html.as-dragging .as-nudge {
    ici) ; titre et boutons restent en haut. */
 .as-sfp-head.has-pills { align-items: flex-start; }
 .as-sfp-head.has-pills .as-sfp-hl { min-height: 30px; }
-.as-sfp-activewrap { flex: 1; min-width: 0; margin: 1px 10px 0; height: 28px; overflow: hidden; transition: height .3s cubic-bezier(.22,1,.36,1); }
+.as-sfp-activewrap { flex: 1; min-width: 0; margin: 3px 10px 0; height: 24px; overflow: hidden; transition: height .3s cubic-bezier(.22,1,.36,1); }
 .as-sfp-active { display: flex; flex-wrap: wrap; align-items: center; align-content: flex-start; gap: 6px; }
 .as-sfp-active.is-open { max-height: 160px; overflow-y: auto; scrollbar-width: thin; }
-.as-sfp-more { flex: none; padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.75); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); white-space: nowrap; }
+.as-sfp-more { flex: none; display: flex; align-items: center; height: 24px; line-height: 1; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.75); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); white-space: nowrap; }
 .as-sfp-more:hover { color: #fff; border-color: rgba(233,69,96,.6); }
 .as-sfp-active .as-sfp-chip { padding: 5px 10px; font-size: 12px; box-shadow: none; }
 .as-sfp-active .as-sfp-chip svg { opacity: .7; }
