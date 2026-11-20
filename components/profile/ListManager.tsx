@@ -149,7 +149,10 @@ export default function ListManager({
     if (!el || typeof ResizeObserver === "undefined") return;
     const measure = () => {
       // Arrondi AU-DESSUS : un demi-pixel manquant suffit a rallumer la barre.
-      const h = Math.ceil(el.getBoundingClientRect().height);
+      // Hauteur de MISE EN PAGE (style calculé), pas celle à l'écran : pendant
+      // l'animation d'ouverture la feuille est à 97 %, et la mesure à l'écran
+      // donnait une boîte trop courte (20/11/2026).
+      const h = Math.ceil(parseFloat(getComputedStyle(el).height) || 0);
       if (lastH.current != null && h !== lastH.current) {
         /* Classe posée À LA MAIN, tout de suite : le ResizeObserver passe avant
            l'affichage, mais le setState ne rend qu'à l'image suivante — une
