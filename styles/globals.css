@@ -5744,10 +5744,9 @@ html.as-dragging .as-nudge {
 /* Plus de bascule du bouton (20/11/2026, Luc) : il se teinte de rose, comme
    « Relancer » de la fiche du tirage. */
 .as-sfp-rand:hover { color: #ff8fa3; border-color: rgba(233,69,96,.5); background: rgba(233,69,96,.1); }
-.as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); transition: transform .3s, box-shadow .3s; }
-/* Le survol de « Regarder » et de « Personnaliser le profil » (20/11/2026,
-   Luc) : halo plus fort ; grossissement plus discret, le bouton est large. */
-.as-sfp-apply:hover { transform: scale(1.01); box-shadow: 0 8px 26px rgba(233,69,96,.45); } /* adouci le 20/11 (Luc : « trop ») */
+.as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); transition: box-shadow .3s; }
+/* Au survol, seule l'ombre rose s'intensifie (20/11/2026, Luc). */
+.as-sfp-apply:hover { box-shadow: 0 8px 26px rgba(233,69,96,.45); } /* adouci le 20/11 (Luc : « trop », puis sans grossissement) */
 .as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
 /* Plus de coupure sous prefers-reduced-motion (20/11/2026) : le Chrome de Luc
    répond `reduce`, les feuilles apparaissaient et disparaissaient sèchement.
