@@ -235,14 +235,6 @@ export default function ListSortFilter({
   const hasYear = entries.some((e) => e.year);
   const hasTotal = entries.some((e) => e.total);
 
-  const chips = (k: SetKey, values: string[], label: (v: string) => React.ReactNode) => (
-    <div className="as-sfp-chips">
-      {values.map((v) => (
-        <Chip key={v} on={f.sets[k].includes(v)} onClick={() => toggle(k, v)}>{label(v)}</Chip>
-      ))}
-    </div>
-  );
-
   /* LES COMPTES D'UNE SECTION : ceux de toute la liste (`whole`, pour savoir
      quelles valeurs existent) et ceux que donnerait chaque valeur avec TOUS
      LES AUTRES filtres appliqués (`facet`), le sien exclu. */
@@ -275,6 +267,55 @@ export default function ListSortFilter({
           );
         })}
       </div>
+    );
+  };
+
+  /* LES PASTILLES COMPACTES (21/11/2026, Luc, proposition 02 de l'artefact
+     des sections) : repère (icône, pastille de couleur ou code pays), nom et
+     nombre de titres, sur une ligne qui se lit comme une phrase. Mêmes règles
+     que les tuiles : une valeur absente de la liste n'a pas de pastille ; à
+     zéro avec les autres filtres, elle est en pointillés. */
+  const choicePills = (k: SetKey, values: string[], label: (v: string) => React.ReactNode, lead?: (v: string) => React.ReactNode) => {
+    const n = facet(k);
+    return (
+      <div className="as-sfp-chips">
+        {values.filter((v) => whole(k).has(v)).map((v) => {
+          const c = n.get(v) || 0;
+          return (
+            <Chip key={v} on={f.sets[k].includes(v)} zero={!c} onClick={() => toggle(k, v)}>
+              {lead?.(v)}
+              {label(v)}
+              <span className="as-sfp-chipn">{c}</span>
+            </Chip>
+          );
+        })}
+      </div>
+    );
+  };
+  /* L'en-tête d'une section à choix : ce qui est choisi (« 2 choisis · 602
+     titres », sinon « Tout ») et « Effacer » ; dessous, une phrase qui dit ce
+     que la section filtre. */
+  const choiceSection = (k: SetKey, label: string, body: React.ReactNode) => {
+    const picked = f.sets[k];
+    const n = facet(k);
+    const titles = picked.reduce((a, v) => a + (n.get(v) || 0), 0);
+    return (
+      <Section
+        label={label}
+        extra={
+          <span className="as-sfp-sum">
+            {picked.length ? `${t("listMenu.chosen", { count: picked.length })} · ${t("listMenu.titles", { count: titles })}` : t("listMenu.all")}
+            {picked.length ? (
+              <button type="button" className="as-sfp-clear" onClick={() => set({ sets: { ...f.sets, [k]: [] } })}>
+                {t("listMenu.clearSection")}
+              </button>
+            ) : null}
+          </span>
+        }
+      >
+        <p className="as-sfp-help">{t(`listMenu.help.${k}`)}</p>
+        {body}
+      </Section>
     );
   };
 
@@ -570,35 +611,19 @@ export default function ListSortFilter({
                   </button>
                 </div>
               </Section>
-              {has("format") ? (
-                <Section label={t("listMenu.format")}>
-                  {tiles("format", FORMATS, (v) => prettyFormat(v), FORMAT_ICON)}
-                </Section>
-              ) : null}
+              {has("format")
+                ? choiceSection("format", t("listMenu.format"), choicePills("format", FORMATS, (v) => prettyFormat(v), (v) => (FORMAT_ICON[v] ? <Icon d={FORMAT_ICON[v]} size={14} /> : null)))
+                : null}
               {has("season") ? (
                 <Section label={t("listMenu.season")}>
                   {tiles("season", SEASONS, (v) => t(`listMenu.seasons.${v}`), SEASON_ICON)}
                 </Section>
               ) : null}
-              {has("air") ? (
-                <Section label={t("listMenu.airStatus")}>
-                  <div className="as-sfp-airs">
-                    {(() => {
-                      const n = facet("air");
-                      return AIR_STATUSES.filter((v) => whole("air").has(v)).map((v) => {
-                        const on = f.sets.air.includes(v);
-                        return (
-                          <button key={v} type="button" aria-pressed={on} onClick={() => toggle("air", v)} className={`as-sfp-air${on ? " is-on" : ""}${!on && !n.get(v) ? " is-zero" : ""}`}>
-                            <span className="as-sfp-dot" style={{ ["--c" as string]: AIR_COLOR[v] || "#9ca3af" } as React.CSSProperties} />
-                            <span className="as-sfp-air-l">{statusLabel(t, v)}</span>
-                            <span className="as-sfp-tile-n">{n.get(v) || 0}</span>
-                          </button>
-                        );
-                      });
-                    })()}
-                  </div>
-                </Section>
-              ) : null}
+              {has("air")
+                ? choiceSection("air", t("listMenu.airStatus"), choicePills("air", AIR_STATUSES, (v) => statusLabel(t, v), (v) => (
+                    <span className="as-sfp-dot" style={{ ["--c" as string]: AIR_COLOR[v] || "#9ca3af" } as React.CSSProperties} />
+                  )))
+                : null}
             </div>
 
             <div className="as-sfp-col">
@@ -616,8 +641,8 @@ export default function ListSortFilter({
                 {dropdown({ k: "tags", label: t("listMenu.tags"), icon: <Icon d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8zM7 7h.01" /> })}
               </div>
               {/* Source, Pays, Contenu : les moins utilisés, tout à la fin (14/11, Luc). */}
-              {has("source") ? (<Section label={t("listMenu.source")}>{chips("source", SOURCES, (v) => prettySource(v))}</Section>) : null}
-              {has("country") ? (<Section label={t("listMenu.country")}>{chips("country", COUNTRIES, (v) => (<><span className="as-sfp-cc">{v}</span>{countryLabel(t, v)}</>))}</Section>) : null}
+              {has("source") ? choiceSection("source", t("listMenu.source"), choicePills("source", SOURCES, (v) => prettySource(v))) : null}
+              {has("country") ? choiceSection("country", t("listMenu.country"), choicePills("country", COUNTRIES, (v) => countryLabel(t, v), (v) => <span className="as-sfp-cc">{v}</span>)) : null}
               {/* Contenu n'existe que réglage -18 allumé ET un titre adulte dans
                   la liste : éteint, ProfileList les a déjà tous retirés. */}
               {showAdult && entries.some((e) => e.isAdult) ? (
