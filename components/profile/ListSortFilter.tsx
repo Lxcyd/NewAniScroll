@@ -125,6 +125,12 @@ export default function ListSortFilter({
   const sortOpenRef = useRef(sortOpen);
   sortOpenRef.current = sortOpen;
 
+  /* `onClose` change à chaque rendu du parent : en dépendance, le tirage au
+     hasard (qui fait rendre le parent) relançait cet effet, et `setPick(null)`
+     effaçait le titre tiré aussitôt affiché (20/11/2026, Luc : « le bouton
+     random ne marche pas »). Remis à zéro à l'OUVERTURE seulement. */
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     setPick(null);
@@ -133,11 +139,11 @@ export default function ListSortFilter({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (sortOpenRef.current) setSortOpen(false);
-      else onClose();
+      else onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   /* C'est <html> qui défile, pas <body> (cf. ListManager, 20/11/2026) ; la
      largeur de la barre disparue est rendue en marge. Tenu jusqu'à la fin de
