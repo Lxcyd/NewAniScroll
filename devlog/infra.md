@@ -6,6 +6,66 @@ crons de rafraichissement, usage-monitor, analytics, et les releases
 
 Le plus recent en premier. L'index general est dans `../DEVLOG.md`.
 
+## 2026-11-20 — Passe vitesse « 31 etapes » : mesure avant/apres, la CLS mobile etait la popup du changelog
+
+**Demande :** appliquer une checklist de perf (31 etapes, tiree d'un reel) a tout le site sans rien casser, et
+MESURER si c'est mieux. Nouvel outil : `tools/browser-check/perf-measure.mjs` (TTFB/FCP/LCP/CLS/TBT + octets par
+type, bureau et mobile Slow 4G CPU x4, a froid, mediane de 3) et `--compare avant.json apres.json`.
+
+**Mesure avant (dev, 1bffce34) — ce qui comptait vraiment :**
+- **CLS mobile 0,29 sur 7 pages sur 9** a la premiere visite. Source unique : la popup du changelog s'ouvrait en
+  anglais (1er rendu) puis remplacait son texte par le francais, plus long (+20 px sur un panneau de 820 px).
+  Correctif : ne s'ouvre qu'une fois `i18n.language === getLang()`.
+- **Recherche : 8 Mo d'images** (cartes en extraLarge). Passees en taille carte (`coverUrl(…, "card")`).
+- Le reste du site etait deja rapide au cache chaud (LCP bureau 0,3-0,6 s).
+
+**Resultats (mediane, avant > apres) :**
+| | avant | apres |
+|---|--:|--:|
+| CLS mobile accueil / fiche / recherche / planning / populaires / discover | 0,36 / 0,29 / 0,29 / 0,29 / 0,29 / 0,29 | 0,07 / 0,00 / 0,00 / 0,00 / 0,00 / 0,00 |
+| CLS mobile page de lecture | 0,37 | 0,13 |
+| Recherche mobile : images / total | 3,9 / 5,0 Mo | 1,2 / 2,2 Mo |
+| Recherche bureau : images | 8,0 Mo | 5,2 Mo |
+| CSS global (build, brut / gzip) | 348 / 51,6 Ko | 268 / 46,5 Ko |
+| TBT mobile discover / recherche | 434 / 358 ms | 245 / 288 ms |
+| First Load JS par page | — | +2-3 Ko (Speed Insights) |
+
+LCP mobile de l'accueil mesure plus haut sur dev.aniscroll.com apres (3,3 > 5,6 s) : A/B sur les deux URL de
+deploiement (memes conditions) = 4,0 vs 4,0-4,5 s, meme element LCP ; ecart non imputable au code (etat du cache
+juste apres la purge, comme le TTFB bureau plus haut dans la meme serie).
+
+**Fait :** dedup liste d'episodes (watch + onglet rejoignent `prefetchEpisodeList`) ; `/api/v2/preview` AniList +
+TMDB en parallele ; `waitUntil` sur touchLastSeen/pruneTokens/redis.set (episode, recommend, source) ; timeouts
+(connexion AniList, mail, KV, fetch AniList client via `timeoutSignal`, sans casser Safari < 16) ; session sans
+`SELECT *` ; `ensureUsersSchema`/`ensureAdminSchema` en UNE lecture de sqlite_master (`schemaFastPath`, chemin
+complet inchange au moindre manque) ; prisma singleton en prod ; cache navigateur de `public/` (headers(), sw.js
+exclu) ; Roboto/Inter en sous-ensemble latin seul ; `watchPageProvider` memoise ; Speed Insights (prod) ; axios
+retire ; `withTiming` (Server-Timing + `[slow]`) sur source/episode/preview/media/search ; squelettes planning +
+discover ; note, historique, bouton d'ami optimistes ; Recommendations en dynamic.
+
+**Ecarte, avec raison :** IA mot a mot (pas d'IA) ; WebP/AVIF (optimiseur Vercel coupe expres, wsrv bloque AniList :
+la bonne taille AniList a la place) ; pagination fanarts (la galerie attend tout, reponse en cache d'edge, plafond CI
+3 000 lignes) ; nouvelles cles Redis (cap Upstash) ; repartition de charge (serverless + Cloudflare) ; OTel complet
+(collecteur = Pro) ; AbortController recherche (debounce + garde de sequence suffisent) ; graisses de police (en
+retirer change le rendu).
+
+**Pieges :**
+- `hydration-check.mjs` est AVEUGLE sur dev depuis la regle WAF : 403 « HeadlessChrome » -> « hydratation : propre »
+  sur une page de challenge. perf-measure reecrit l'UA ; hydration-check est a corriger pareil.
+- Git Bash reecrit `/fr` en `C:/Program Files/Git/fr` : `MSYS_NO_PATHCONV=1`.
+- Fontsource `latin-*.css` n'a PAS d'unicode-range : n'importer qu'un sous-ensemble par graisse.
+- Dans un template literal, `\b` est un RETOUR ARRIERE (0x08), pas une frontiere de mot : la regex des colonnes de schemaFastPath ne trouvait rien. La construire sans `\b`.
+
+**A decider par Luc :**
+- **Region** : Turso = aws-eu-west-1 (Irlande) x4, fonctions = cdg1 (Paris). `dub1` mettrait les fonctions a cote
+  des bases (~15-20 ms par requete Turso).
+- **apercu.mp4 du changelog** : 2,7 Mo (1600x900, 1,6 Mb/s) pour un panneau de 672 px, telecharge a chaque premiere
+  visite. Reencodage possible (aperçu local avant).
+- **Bannieres prechargees** par viewportPrefetch (bureau) : 4,5 Mo sur Populaires pour que l'apercu au survol
+  s'ouvre sans bande noire. Choix d'experience, pas touche.
+- **Profil mobile** : LCP 16-18 s, TBT 2,8 s, 600 Ko de JS — chantier a part.
+- Speed Insights a activer dans le tableau de bord Vercel (sinon le script 404, sans effet).
+
 ## 2026-11-01 — Statistiques refaites : cinq sections, catalogue video par anime
 
 **Suite (meme jour) — les lecteurs non copies comptent.** Luc : Goblin Slayer VF ep. 2 « manquant »
