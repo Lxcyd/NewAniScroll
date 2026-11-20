@@ -6,4 +6,5 @@ declare global {
 
 export const prisma = global.prisma || new PrismaClient();
 
-if (process.env.NODE_ENV !== "production") global.prisma = prisma;
+// Reutilise aussi en prod (20/11) : une instance chaude garde sa connexion.
+global.prisma = prisma;

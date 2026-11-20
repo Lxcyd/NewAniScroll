@@ -76,7 +76,12 @@ export function toPublicUser(u: UserRecord): PublicUser {
   return rest;
 }
 
-const SELECT = `SELECT * FROM users`;
+/* Les colonnes que lit toRecord, et elles seules (20/11) : `SELECT *` tirait
+   aussi anilist_token et anilist_lists (le JSON des listes) a CHAQUE lecture
+   de session. Une colonne lue par toRecord doit etre ajoutee ici. */
+const SELECT = `SELECT id, tag, username, username_lower, email, email_verified_at,
+  password_hash, anilist_id, anilist_name, avatar_url, anilist_avatar_url,
+  profile_banner, profile_layout, role, status, created_at, last_seen_at FROM users`;
 
 async function findOne(sql: string, args: unknown[]): Promise<UserRecord | null> {
   const client = await db();

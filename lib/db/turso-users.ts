@@ -1,3 +1,4 @@
+import { schemaAlreadyThere } from "@/lib/db/schemaFastPath";
 import { createClient, type Client } from "@libsql/client";
 
 /**
@@ -51,6 +52,24 @@ export async function ensureUsersSchema(): Promise<void> {
   if (schemaReady) return;
   const db = getUsersClient();
   if (!db) return;
+
+  // Base deja migree : une lecture et c'est fini (cf. schemaFastPath).
+  if (
+    await schemaAlreadyThere(db, {
+      tables: {
+        users: ["anilist_token", "anilist_lists", "anilist_avatar_url", "profile_banner", "profile_layout"],
+        user_data: ["payload"],
+        auth_tokens: ["token_hash"],
+        auth_throttle: ["reset_at"],
+        friends: ["friend_id"],
+      },
+      indexes: ["idx_users_anilist", "idx_users_username", "idx_users_last_seen", "idx_tokens_user", "idx_friends_friend", "idx_users_anilist_lower"],
+      forbid: { users: /username_lower\s+TEXT\s+UNIQUE/i },
+    })
+  ) {
+    schemaReady = true;
+    return;
+  }
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (

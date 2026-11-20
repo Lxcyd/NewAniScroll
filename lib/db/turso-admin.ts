@@ -1,3 +1,4 @@
+import { schemaAlreadyThere } from "@/lib/db/schemaFastPath";
 import { createClient, type Client } from "@libsql/client";
 
 /**
@@ -53,6 +54,25 @@ export async function ensureAdminSchema(): Promise<void> {
   if (schemaReady) return;
   const db = getAdminTursoClient();
   if (!db) return;
+
+  // Base deja migree : une lecture et c'est fini (cf. schemaFastPath).
+  if (
+    await schemaAlreadyThere(db, {
+      tables: {
+        banned_ips: [],
+        audit_log: [],
+        bug_reports: ["images", "reporter_ip", "title", "pending_at"],
+        broadcast: ["end_at", "title"],
+        user_analytics: [],
+        skip_show_map: [],
+        skip_episodes: [],
+      },
+      indexes: ["idx_analytics_visitor", "idx_analytics_created"],
+    })
+  ) {
+    schemaReady = true;
+    return;
+  }
 
   // Each CREATE IF NOT EXISTS in its own execute so a SQLite parser quirk
   // on one statement doesn't abort the whole batch silently.
