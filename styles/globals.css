@@ -5492,7 +5492,6 @@ html.as-dragging .as-nudge {
 .as-list-ib-badge {
   position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px;
   border-radius: 9px; background: var(--brand-primary, #E94560); color: #fff;
-  box-shadow: 0 0 0 2px #0b0c10;
   font-family: Outfit, sans-serif; font-size: 10px; font-weight: 800; font-variant-numeric: tabular-nums;
   display: grid; place-items: center;
 }
