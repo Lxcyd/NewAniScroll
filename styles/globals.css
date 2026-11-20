@@ -5514,6 +5514,25 @@ html.as-dragging .as-nudge {
 }
 .as-list-opt:hover { background: rgba(255,255,255,.06); }
 .as-list-opt.is-on { font-weight: 600; color: #fff; }
+/* MENUS STATUT / LISTES AU STYLE DU GESTIONNAIRE « MES LISTES » (20/11/2026,
+   Luc) : sa plaque opaque, ses lignes en carte, la bordure rose au survol,
+   l'Outfit des titres, la coche à l'accent. */
+.as-list-menu {
+  top: calc(100% + 8px); padding: 6px; gap: 3px; border-radius: 16px;
+  background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16));
+  border: 0; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 44px rgba(0,0,0,.55);
+  transform-origin: 50% 0; animation: as-list-menu-in .2s cubic-bezier(.22,1,.36,1);
+}
+@keyframes as-list-menu-in { from { opacity: 0; transform: translateY(-6px) scale(.97); } }
+.as-list-opt {
+  gap: 10px; padding: 9px 11px; border-radius: 11px; border: 1px solid transparent;
+  font-family: Outfit, sans-serif; font-size: 14px; font-weight: 500; color: rgba(255,255,255,.75);
+  transition: border-color .15s, background-color .15s, color .15s;
+}
+.as-list-opt:hover { background: rgba(255,255,255,.035); border-color: rgba(233,69,96,.5); color: #fff; }
+.as-list-opt.is-on { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.07); font-weight: 600; color: #fff; }
+.as-list-opt.is-on:hover { border-color: rgba(233,69,96,.5); }
+.as-list-opt.is-on svg { color: #E94560; }
 /* LA PASTILLE DE STATUT LUMINEUSE — menus Statut / Listes, titres de la vue
    Grille. La recette de `.as-airing-dot` : un petit halo FIXE sur la pastille,
    et le grand halo sur un `::after` dont seule l'OPACITÉ respire (2 s), que le
