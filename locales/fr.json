@@ -3045,7 +3045,10 @@
       "drag": "Glisser pour réordonner",
       "deviceNote": "Enregistré sur cet appareil. Les listes AniList restent sur AniList.",
       "exists": "Une liste porte déjà ce nom.",
-      "newStatus": "Nom du nouveau statut…"
+      "newStatus": "Nom du nouveau statut…",
+      "delTitle": "Supprimer « {{name}} » ?",
+      "delList": "Cette liste sera supprimée définitivement.",
+      "delStatus": "Ce statut sera supprimé définitivement."
     }
   }
 }

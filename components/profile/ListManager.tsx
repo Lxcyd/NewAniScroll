@@ -71,7 +71,26 @@ export default function ListManager({
     }, 160);
   };
   useEffect(() => () => clearTimeout(leaveTimer.current), []);
-  const [confirm, setConfirm] = useState<string | null>(null);
+  /* LA SUPPRESSION EN POPUP (20/11/2026, Luc) : plus de « Supprimer / Annuler »
+     dans la ligne, une fenêtre de confirmation au style du gestionnaire. */
+  type Confirm = { name: string; status: boolean; run: () => void };
+  const [confirm, setConfirmState] = useState<Confirm | null>(null);
+  const [confirmLeaving, setConfirmLeaving] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout>>();
+  const setConfirm = (c: Confirm | null) => {
+    clearTimeout(confirmTimer.current);
+    if (c) {
+      setConfirmLeaving(false);
+      setConfirmState(c);
+      return;
+    }
+    setConfirmLeaving(true);
+    confirmTimer.current = setTimeout(() => {
+      setConfirmLeaving(false);
+      setConfirmState(null);
+    }, 160);
+  };
+  useEffect(() => () => clearTimeout(confirmTimer.current), []);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -79,12 +98,13 @@ export default function ListManager({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (palette && !leaving) setPalette(null);
+      if (confirm && !confirmLeaving) setConfirm(null);
+      else if (palette && !leaving) setPalette(null);
       else onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose, palette, leaving]);
+  }, [open, onClose, palette, leaving, confirm, confirmLeaving]);
 
   /* PAGE FIGÉE DERRIÈRE (20/11/2026, Luc) : c'est <html> qui défile ici, pas
      <body> — l'ancien `body.overflow = hidden` laissait la molette passer. La
@@ -409,6 +429,10 @@ export default function ListManager({
     </span>
   );
 
+  const trash = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+  );
+
   return createPortal(
     <div className="as-sfp-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp as-lm" role="dialog" aria-modal="true" aria-label={t("listMenu.manager.title")}>
@@ -432,7 +456,6 @@ export default function ListManager({
                 }
                 setTab(k);
                 setPalette(null);
-                setConfirm(null);
               }}>
               {t(k === "status" ? "listMenu.manager.tabStatus" : "listMenu.manager.tabCustom")}
             </button>
@@ -462,27 +485,23 @@ export default function ListManager({
                     {swatch(cs ? `cs:${cs.name}` : `s:${s}`, statusColor(s))}
                     <span className="as-lm-name">{statusName(s)}</span>
                     <span className="as-lm-count">{statusCounts[s] || 0}</span>
-                    {!cs ? lock() : confirm === s ? (
-                      <span className="as-lm-confirm">
-                        <button
-                          type="button"
-                          className="is-danger"
-                          onClick={() => {
-                            updateListRegistry((r) => ({
-                              ...r,
-                              statuses: r.statuses.filter((x) => x.name !== cs.name),
-                              statusOrder: r.statusOrder.filter((x) => x !== s),
-                            }));
-                            setConfirm(null);
-                          }}
-                        >
-                          {t("listMenu.manager.yes")}
-                        </button>
-                        <button type="button" onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
-                      </span>
-                    ) : (
-                      <button type="button" className="as-lm-del" aria-label={`${t("listMenu.manager.yes")} ${cs.name}`} title={t("listMenu.manager.yes")} onClick={() => setConfirm(s)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
+                    {!cs ? lock() : (
+                      <button
+                        type="button"
+                        className="as-lm-del"
+                        aria-label={`${t("listMenu.manager.yes")} ${cs.name}`}
+                        title={t("listMenu.manager.yes")}
+                        onClick={() => setConfirm({
+                          name: cs.name,
+                          status: true,
+                          run: () => updateListRegistry((r) => ({
+                            ...r,
+                            statuses: r.statuses.filter((x) => x.name !== cs.name),
+                            statusOrder: r.statusOrder.filter((x) => x !== s),
+                          })),
+                        })}
+                      >
+                        {trash}
                       </button>
                     )}
                   </div>
@@ -519,18 +538,19 @@ export default function ListManager({
                         {swatch(`l:${l.name}`, l.color)}
                         <span className="as-lm-name">{l.name}</span>
                         <span className="as-lm-count">{localCounts[l.name] || 0}</span>
-                        {confirm === l.name ? (
-                          <span className="as-lm-confirm">
-                            <button type="button" className="is-danger" onClick={() => { updateListRegistry((r) => ({ ...r, lists: r.lists.filter((x) => x.name !== l.name) })); setConfirm(null); }}>
-                              {t("listMenu.manager.yes")}
-                            </button>
-                            <button type="button" onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
-                          </span>
-                        ) : (
-                          <button type="button" className="as-lm-del" aria-label={`${t("listMenu.manager.yes")} ${l.name}`} title={t("listMenu.manager.yes")} onClick={() => setConfirm(l.name)}>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></svg>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="as-lm-del"
+                          aria-label={`${t("listMenu.manager.yes")} ${l.name}`}
+                          title={t("listMenu.manager.yes")}
+                          onClick={() => setConfirm({
+                            name: l.name,
+                            status: false,
+                            run: () => updateListRegistry((r) => ({ ...r, lists: r.lists.filter((x) => x.name !== l.name) })),
+                          })}
+                        >
+                          {trash}
+                        </button>
                       </div>
                                           </div>
                   );
@@ -569,6 +589,24 @@ export default function ListManager({
           </div>
       </div>
       {popover()}
+      {confirm ? (
+        <div
+          className={`as-lm-ask-veil${confirmLeaving ? " is-leaving" : ""}`}
+          onMouseDown={(e) => e.target === e.currentTarget && !confirmLeaving && setConfirm(null)}
+        >
+          <div className="as-lm-ask" role="alertdialog" aria-modal="true" aria-labelledby="as-lm-ask-t">
+            <span className="as-lm-ask-ico" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5" /></svg>
+            </span>
+            <h4 id="as-lm-ask-t">{t("listMenu.manager.delTitle", { name: confirm.name })}</h4>
+            <p>{t(confirm.status ? "listMenu.manager.delStatus" : "listMenu.manager.delList")}</p>
+            <div className="as-lm-ask-btns">
+              <button type="button" autoFocus onClick={() => setConfirm(null)}>{t("listMenu.manager.no")}</button>
+              <button type="button" className="is-danger" onClick={() => { confirm.run(); setConfirm(null); }}>{t("listMenu.manager.yes")}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

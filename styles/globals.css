@@ -5720,9 +5720,6 @@ html.as-dragging .as-nudge {
 .as-lm-lock { display: grid; color: rgba(255,255,255,.28); flex: none; }
 .as-lm-del { display: grid; padding: 3px; color: rgba(255,255,255,.35); border-radius: 6px; flex: none; }
 .as-lm-del:hover { color: var(--brand-primary, #E94560); background: rgba(233,69,96,.1); }
-.as-lm-confirm { display: flex; gap: 5px; flex: none; }
-.as-lm-confirm button { font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 7px; background: rgba(255,255,255,.07); color: rgba(255,255,255,.7); }
-.as-lm-confirm button.is-danger { background: var(--brand-primary, #E94560); color: #fff; }
 /* Le sélecteur de couleur flotte au-dessus du gestionnaire, à côté de sa
    pastille (position fixe calculée dans ListManager). */
 .as-lm-pop-backdrop { position: fixed; inset: 0; z-index: 130; }
@@ -5756,6 +5753,40 @@ html.as-dragging .as-nudge {
    opaque des feuilles de filtres, titre en Outfit, rangées en surfaces de
    carte, compteurs en chiffres du profil. */
 /* Fond derrière le gestionnaire : 10 px de flou au lieu de 6, voile inchangé (20/11/2026, Luc). */
+/* LA CONFIRMATION DE SUPPRESSION EN POPUP (20/11/2026, Luc) : au-dessus du
+   gestionnaire, même plaque, même accent rose. */
+.as-lm-ask-veil {
+  position: fixed; inset: 0; z-index: 135; display: grid; place-items: center; padding: 16px;
+  background: rgba(5,5,10,.5); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: as-sfp-fade .18s ease;
+}
+.as-lm-ask {
+  width: min(340px, 100%); padding: 24px 22px 20px; border-radius: 20px; text-align: center;
+  background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16));
+  box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 24px 60px rgba(0,0,0,.6);
+  animation: as-lm-ask-in .28s cubic-bezier(.34,1.45,.64,1);
+}
+.as-lm-ask-veil.is-leaving { pointer-events: none; animation: as-lm-fade-out .16s ease-in forwards; }
+.as-lm-ask-veil.is-leaving .as-lm-ask { animation: as-lm-ask-out .16s ease-in forwards; }
+@keyframes as-lm-ask-in { from { opacity: 0; transform: translateY(10px) scale(.95); } }
+@keyframes as-lm-ask-out { to { opacity: 0; transform: translateY(6px) scale(.96); } }
+@keyframes as-lm-fade-out { to { opacity: 0; } }
+.as-lm-ask-ico {
+  width: 46px; height: 46px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center;
+  color: #E94560; background: rgba(233,69,96,.12); box-shadow: inset 0 0 0 1px rgba(233,69,96,.3);
+}
+.as-lm-ask h4 { margin: 0; font-family: Outfit, sans-serif; font-size: 17px; font-weight: 700; color: #fff; overflow-wrap: anywhere; }
+.as-lm-ask p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.5; color: rgba(255,255,255,.5); }
+.as-lm-ask-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+.as-lm-ask-btns button {
+  height: 40px; border-radius: 12px; font-family: Outfit, sans-serif; font-weight: 600; font-size: 14px;
+  color: rgba(255,255,255,.85); background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  transition: background-color .15s, filter .15s;
+}
+.as-lm-ask-btns button:hover { background: rgba(255,255,255,.1); }
+.as-lm-ask-btns button.is-danger { color: #fff; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: none; }
+.as-lm-ask-btns button.is-danger:hover { filter: brightness(1.1); }
+.as-lm-ask-btns button:focus-visible { outline: 2px solid rgba(233,69,96,.7); outline-offset: 2px; }
 .as-sfp-overlay:has(> .as-lm) { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 /* Popup opaque (réglée aux curseurs le 20/11/2026, Luc) : plus rien de la page
    ne transparaît, donc plus de flou propre. */

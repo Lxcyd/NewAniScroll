@@ -3045,7 +3045,10 @@
       "drag": "Drag to reorder",
       "deviceNote": "Saved on this device. Lists from AniList stay on AniList.",
       "exists": "A list with that name already exists.",
-      "newStatus": "New status name…"
+      "newStatus": "New status name…",
+      "delTitle": "Delete “{{name}}”?",
+      "delList": "This list will be permanently deleted.",
+      "delStatus": "This status will be permanently deleted."
     }
   }
 }
