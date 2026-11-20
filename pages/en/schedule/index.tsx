@@ -8,7 +8,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CalendarIcon } from "@heroicons/react/24/solid";
 import { ClockIcon } from "@heroicons/react/24/outline";
-import Loading from "@/components/shared/loading";
 import { timeStamptoAMPM, timeStamptoHour } from "@/utils/getTimes";
 import {
   filterFormattedSchedule,
@@ -515,9 +514,7 @@ export default function Schedule({ schedule }: any) {
                 </div>
               ))
             ) : (
-              <div className="z-[500] pt-10 lg:pt-0">
-                <Loading />
-              </div>
+              <ScheduleSkeleton />
             )
           ) : !loading ? (
             Object.entries(filterScheduleByDay(sortedSchedule, filterDay)).map(
@@ -623,12 +620,34 @@ export default function Schedule({ schedule }: any) {
               )
             )
           ) : (
-            <div className="z-[500] pt-10 lg:pt-0">
-              <Loading />
-            </div>
+            <ScheduleSkeleton />
           )}
         </div>
       </div>
     </LazyMotion>
+  );
+}
+
+/* SQUELETTE DU PLANNING (20/11/2026) : la forme de la page (titre de jour,
+   rangees horaires) au lieu de « Please Wait... » au milieu d'un ecran vide.
+   La mise en page ne saute plus a l'arrivee des donnees. */
+function ScheduleSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col gap-8 px-5 pt-10 lg:px-10 lg:pt-0">
+      {[0, 1].map((d) => (
+        <div key={d} className="flex flex-col gap-4">
+          <div className="h-7 w-40 animate-pulse rounded bg-white/[0.08]" />
+          {[0, 1, 2].map((r) => (
+            <div key={r} className="flex items-center gap-4 rounded-md bg-white/[0.03] p-3">
+              <div className="h-[84px] w-[60px] shrink-0 animate-pulse rounded bg-white/[0.08]" />
+              <div className="flex flex-1 flex-col gap-2">
+                <div className="h-4 w-2/3 animate-pulse rounded bg-white/[0.08]" />
+                <div className="h-3 w-1/3 animate-pulse rounded bg-white/[0.06]" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }

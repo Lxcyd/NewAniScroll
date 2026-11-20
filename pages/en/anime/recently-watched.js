@@ -126,8 +126,13 @@ export default function RecentlyWatched() {
 
   const removeItem = async (id, aniId) => {
     if (sessions?.user?.name) {
-      // remove from database
-      const res = await fetch(`/api/user/update/episode`, {
+      removeLocal(id, aniId);
+
+      // update client
+      setRemoved(id || aniId);
+
+      /* OPTIMISTE (20/11/2026) : la ligne part tout de suite, la base suit. */
+      const data = await fetch(`/api/user/update/episode`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -137,13 +142,9 @@ export default function RecentlyWatched() {
           id,
           aniId,
         }),
-      });
-      const data = await res.json();
-
-      removeLocal(id, aniId);
-
-      // update client
-      setRemoved(id || aniId);
+      })
+        .then((res) => res.json())
+        .catch(() => null);
 
       if (data?.message === "Episode deleted") {
         notify.success(t("home.episodeRemoved"), {

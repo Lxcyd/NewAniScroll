@@ -1,3 +1,4 @@
+import { coverUrl, type CoverImage } from "@/lib/images/cover";
 import { Key, useEffect, useRef, useState } from "react";
 import { useShowAdult } from "@/lib/prefs/adultPrefs";
 import Skeleton from "react-loading-skeleton";
@@ -506,7 +507,9 @@ export default function Card({
                         >
                           <Image
                             className="object-cover"
-                            src={anime.coverImage.extraLarge}
+                            /* Taille carte (230 px, comme CatalogGrid) au lieu de
+                               l'extraLarge (20/11) : ~4x moins d'octets par vignette. */
+                            src={coverUrl(anime.coverImage as CoverImage, "card") || anime.coverImage.extraLarge}
                             alt={pickTitle(anime.title, titlePref)}
                             sizes="(min-width: 808px) 50vw, 100vw"
                             quality={100}

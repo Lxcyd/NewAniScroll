@@ -469,7 +469,7 @@ function AddDialog({ onClose }: { onClose: () => void }) {
 function Avatar({ card, size }: { card: FriendCard; size: number }) {
   return card.avatar ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <img loading="lazy" decoding="async"
       src={card.avatar}
       alt=""
       className="shrink-0 rounded-full object-cover ring-2 ring-white/10"

@@ -176,9 +176,15 @@ export default function ForYouPanel({ isVisible, onClose }: Props) {
         {/* Body */}
         <div className={styles.body}>
           {loading && (
-            <div className={styles.center}>
-              <div className={styles.spinner} />
-              <p className={styles.muted}>{t("recommend.analyzing")}</p>
+            /* Squelette de la carte a venir (20/11) au lieu d'un spinner :
+               la place est reservee, rien ne saute a l'arrivee. */
+            <div className={styles.card} aria-busy="true">
+              <div className={styles.cardInner}>
+                <div className={`${styles.skel} ${styles.skelPoster}`} />
+                <div className={`${styles.skel} ${styles.skelLine}`} />
+                <div className={`${styles.skel} ${styles.skelLine} ${styles.skelShort}`} />
+                <p className={styles.muted}>{t("recommend.analyzing")}</p>
+              </div>
             </div>
           )}
 

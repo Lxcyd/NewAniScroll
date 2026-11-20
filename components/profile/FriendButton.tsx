@@ -98,12 +98,17 @@ function Buttons({
     return () => clearTimeout(id);
   }, [armed]);
 
+  /* OPTIMISTE (20/11/2026) : le bouton montre tout de suite l'etat attendu,
+     le serveur corrige ensuite (une demande croisee devient « ami » d'un
+     coup) ; un echec remet l'etat d'avant. `busy` empeche le double clic. */
   const run = async (action: "request" | "accept" | "remove") => {
+    const prev = state;
     setBusy(true);
-    const next = await friendAction(tag, action);
-    if (next) setState(next);
-    setBusy(false);
     setArmed(false);
+    setState(action === "request" ? "out" : action === "accept" ? "friend" : "none");
+    const next = await friendAction(tag, action);
+    setState(next ?? prev);
+    setBusy(false);
   };
 
   const base =

@@ -305,9 +305,14 @@ export default function Discover() {
 
           {initialLoading && (
             <div className={styles.loadingArea}>
-              <div className={styles.loadingBox}>
-                <div className={styles.spinner} />
-                <p className={styles.loadingSubtitle}>{t("discover.loading")}</p>
+              {/* La carte plein ecran a venir, en squelette (20/11) au lieu
+                  d'un spinner sur fond vide. */}
+              <div className={styles.skelCard} aria-busy="true">
+                <div className={styles.skelBars}>
+                  <div className={styles.skelBar} style={{ width: "60%" }} />
+                  <div className={styles.skelBar} style={{ width: "35%" }} />
+                  <p className={styles.loadingSubtitle}>{t("discover.loading")}</p>
+                </div>
               </div>
             </div>
           )}

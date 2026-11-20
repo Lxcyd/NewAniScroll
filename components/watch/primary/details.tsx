@@ -1,3 +1,4 @@
+import { coverUrl } from "@/lib/images/cover";
 import { CSSProperties, ReactNode } from "react";
 import Skeleton from "react-loading-skeleton";
 import { AniListInfoTypes } from "types/info/AnilistInfoTypes";
@@ -187,7 +188,7 @@ export default function Details({
         {info ? (
           <Link href={`/en/anime/${info.id}`} className="block h-full w-full">
             <Image
-              src={info.coverImage.extraLarge}
+              src={coverUrl(info.coverImage, "card") || info.coverImage.extraLarge}
               alt="Anime Cover"
               width={1000}
               height={1000}

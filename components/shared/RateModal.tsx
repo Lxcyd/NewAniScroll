@@ -49,7 +49,6 @@ export default function RateModal({ toggle, setToggle, session }: Props) {
       close();
       return;
     }
-    setBusy(true);
     try {
       // Local list = the resilient mirror; persist even for guests.
       upsertLocalEntry(Number(mediaId), {
@@ -58,15 +57,19 @@ export default function RateModal({ toggle, setToggle, session }: Props) {
         notes: notes.trim() ? notes.trim() : null,
         completedAt: todayFuzzy(),
       });
-      // Push to AniList when connected (no-op for guests). scoreRaw is /100.
-      await markComplete(mediaId, { notes, scoreRaw: score * 10 });
-      notify.success(t("rate.success"));
-      close();
     } catch {
       notify.error(t("rate.error"));
-    } finally {
-      setBusy(false);
+      return;
     }
+    /* OPTIMISTE (20/11/2026) : la note est deja dans la liste locale, la
+       fenetre se ferme tout de suite. L'envoi a AniList suit en arriere-plan
+       (no-op pour un invite) ; un echec le dit par un toast, la note locale
+       reste. Les valeurs sont copiees AVANT close(), qui les remet a zero. */
+    const payload = { notes, scoreRaw: score * 10 }; // scoreRaw is /100
+    close();
+    markComplete(mediaId, payload)
+      .then(() => notify.success(t("rate.success")))
+      .catch(() => notify.error(t("rate.error")));
   }
 
   const shown = hover || score;

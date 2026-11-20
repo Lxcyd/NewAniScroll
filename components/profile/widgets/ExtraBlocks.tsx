@@ -2163,7 +2163,7 @@ export function AffinityEditor({
               </span>
               {o.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={o.avatar} alt="" className={`h-10 w-10 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
+                <img loading="lazy" decoding="async" src={o.avatar} alt="" className={`h-10 w-10 shrink-0 rounded-full object-cover ${on ? "" : "opacity-40"}`} />
               ) : (
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit text-[15px] font-bold text-white ${on ? "" : "opacity-40"}`}>
                   {o.name.charAt(0).toUpperCase()}
@@ -2372,7 +2372,7 @@ export function AffinityBlock({
         >
           {o.avatar ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={o.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+            <img loading="lazy" decoding="async" src={o.avatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
           ) : (
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.08] font-outfit text-[13px] font-bold text-white">
               {o.name.charAt(0).toUpperCase()}

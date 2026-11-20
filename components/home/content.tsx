@@ -325,20 +325,6 @@ export default function Content({
 
   const removeItem = async (id: string, aniId: string) => {
     if (userName) {
-      // remove from database
-      const res = await fetch(`/api/user/update/episode`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: userName,
-          id,
-          aniId,
-        }),
-      });
-      const data = await res.json();
-
       if (id) {
         // remove from local storage
         const artplayerSettings =
@@ -372,9 +358,27 @@ export default function Content({
       // update client
       setRemoved(id || aniId);
 
-      if (data?.message === "Episode deleted") {
-        notify.success(t("home.episodeRemoved"));
-      }
+      /* OPTIMISTE (20/11/2026) : la carte disparait tout de suite, la base
+         suit en arriere-plan. Avant, la carte attendait le DELETE — et une
+         panne reseau la laissait en place sans un mot. */
+      fetch(`/api/user/update/episode`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: userName,
+          id,
+          aniId,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.message === "Episode deleted") {
+            notify.success(t("home.episodeRemoved"));
+          }
+        })
+        .catch(() => {});
     } else {
       if (id) {
         // remove from local storage

@@ -473,3 +473,32 @@
     max-width: 880px;
   }
 }
+
+/* Squelette pendant l'analyse (20/11/2026). */
+.skel {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  animation: skelPulse 1.4s ease-in-out infinite;
+}
+.skelPoster {
+  width: 140px;
+  height: 200px;
+  border-radius: 10px;
+}
+.skelLine {
+  width: 70%;
+  height: 16px;
+}
+.skelShort {
+  width: 40%;
+}
+@keyframes skelPulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+  }
+}
