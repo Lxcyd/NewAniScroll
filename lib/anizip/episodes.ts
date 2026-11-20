@@ -27,7 +27,8 @@
  */
 
 import {
-  getCachedStills,
+  mergeWithPrevious,
+  readCachedStills,
   setCachedStills,
   type StillsCacheValue,
 } from "@/lib/db/tmdbStillsCache";
@@ -81,12 +82,18 @@ export async function getAniZipEpisodes(
 ): Promise<AniZipEpisodeData> {
   if (!Number.isFinite(anilistId) || anilistId <= 0) return EMPTY;
 
-  const cached = await getCachedStills(anilistId, "anizip");
+  const { fresh: cached, previous } = await readCachedStills(anilistId, "anizip", displayedEpisodes);
   if (cached) {
     return { stills: cached.stills ?? {}, titles: cached.titles ?? {} };
   }
 
   const refuse = async (reason: Reason): Promise<AniZipEpisodeData> => {
+    // Une ancienne reponse valide survit au refus : voir mergeWithPrevious.
+    if (previous) {
+      if (reason !== "anizip-error") await setCachedStills(anilistId, previous, "anizip");
+      console.warn(`[anizip] ${anilistId}: ${reason}, previous row kept`);
+      return { stills: previous.stills ?? {}, titles: previous.titles ?? {} };
+    }
     // A transient failure must never be cached as "no stills" — it would stick
     // for a day over one timeout.
     if (reason !== "anizip-error") {
@@ -158,17 +165,18 @@ export async function getAniZipEpisodes(
     if (t && !/^episode\s+\d+$/i.test(t)) titles[n] = t;
   }
 
-  const count = Object.keys(stills).length;
-  if (count === 0) return await refuse("no-images");
+  if (Object.keys(stills).length === 0) return await refuse("no-images");
 
+  const merged = mergeWithPrevious({ stills, titles }, previous);
+  const out = { stills: merged.stills, titles: merged.titles ?? {} };
   await setCachedStills(
     anilistId,
-    { stills, titles, reason: "ok", tvId: null, season: null },
+    { ...out, reason: "ok", tvId: null, season: null },
     "anizip",
   );
   console.warn(
-    `[anizip] ${anilistId}: ${count}/${displayedEpisodes} stills, ` +
-      `${Object.keys(titles).length} titles`,
+    `[anizip] ${anilistId}: ${Object.keys(out.stills).length}/${displayedEpisodes} stills, ` +
+      `${Object.keys(out.titles).length} titles`,
   );
-  return { stills, titles };
+  return out;
 }

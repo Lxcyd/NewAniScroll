@@ -333,7 +333,10 @@ view === "grid" ? (
         /* Un fond translucide (teinte et flou du profil) sous TOUTE la grille,
            comme les autres surfaces (08/11, Luc) : les titres ne se lisent plus
            à même l'illustration. */
-        <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
+        /* 8 AFFICHES PAR LIGNE AU PLUS (20/11, Luc) : la case ne descend pas
+           sous le huitième de la largeur (7 gouttières de 0,875rem retirées),
+           ni sous 112 px — en dessous, la grille perd des colonnes. */
+        <div className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(max(112px,calc((100%_-_7*0.875rem)/8)),1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
           {rows.map((e) => (
             <Link
               key={e.mediaId}
@@ -356,7 +359,7 @@ view === "grid" ? (
                   l'identique (08/11, Luc). */}
               <span className="flex min-w-0 items-center gap-2" title={statusName(e.status)}>
                 <span className="as-glow-dot !h-2 !w-2" style={{ ["--c" as string]: statusColor(e.status) } as React.CSSProperties} />
-                <span className="truncate text-[13px] font-semibold group-hover:text-action">{titleOf(e)}</span>
+                <span className="as-hover-title truncate text-[13px] font-semibold">{titleOf(e)}</span>
               </span>
               {/* La note sort de l'affiche : en bas à droite, sur la ligne de la
                   méta (08/11, Luc). */}
@@ -378,7 +381,7 @@ view === "grid" ? (
               className={`as-list-row as-list-row-compact group grid grid-cols-[10px_minmax(0,1fr)_40px_96px] items-center gap-3 px-3 py-2 text-sm shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] transition-[background-color] last:shadow-none hover:bg-white/[0.06] sm:grid-cols-[10px_minmax(0,1fr)_110px_130px_40px_110px] ${picked === e.mediaId ? "as-list-picked" : ""}`}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: statusColor(e.status) }} title={statusName(e.status)} />
-              <span className="truncate font-medium group-hover:text-action">{titleOf(e)}</span>
+              <span className="as-hover-title truncate font-medium">{titleOf(e)}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{[e.format && prettyFormat(e.format), e.year].filter(Boolean).join(" · ")}</span>
               <span className="hidden truncate text-xs text-white/40 sm:block">{e.studio ?? ""}</span>
               <span className="text-center text-xs font-bold tabular-nums text-as-score">{e.score || "–"}</span>
@@ -706,7 +709,7 @@ function ListSkeleton({ view }: { view: View }) {
   const bar = "rounded bg-white/[0.08]";
   if (view === "grid")
     return (
-      <div aria-hidden className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
+      <div aria-hidden className="as-stat-card grid grid-cols-[repeat(auto-fill,minmax(max(112px,calc((100%_-_7*0.875rem)/8)),1fr))] gap-3.5 rounded-2xl p-3.5 ring-1 ring-white/[0.07] sm:p-4">
         {Array.from({ length: 24 }, (_, i) => (
           <div key={i} className="flex flex-col gap-1.5">
             <div className="aspect-[2/3] animate-pulse rounded-[10px] bg-white/[0.08]" />
@@ -807,7 +810,7 @@ function Row({
           le statut passe SOUS le titre, en pastille, devant la méta — sans le
           liseré coloré à gauche. La droite ne garde que les chiffres. */}
       <div className="min-w-0 flex-1">
-        <p className="truncate text-base font-semibold group-hover:text-action">{title}</p>
+        <p className="as-hover-title truncate text-base font-semibold">{title}</p>
         <div className="mt-1.5 flex min-w-0 items-center gap-2">
           <span
             className="shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold"

@@ -64,6 +64,13 @@ export interface TmdbSeasonEpisode {
   episode_number: number;
   still_path: string | null;
   name: string | null;
+  /** "YYYY-MM-DD", or null when TMDB doesn't know yet. */
+  air_date?: string | null;
+}
+
+export interface TmdbSeasonSummary {
+  season_number: number;
+  episode_count: number;
 }
 
 /* Display sizes. `original` is deliberately never used: a hero backdrop at
@@ -158,4 +165,12 @@ export async function getSeasonEpisodes(
   );
   if (!data || !Array.isArray(data.episodes)) return null;
   return data.episodes;
+}
+
+/** The seasons TMDB knows for a show. Null on any failure — which is how a
+ *  caller tells "TMDB is down" from "TMDB has no such season". */
+export async function getTvSeasons(tvId: number): Promise<TmdbSeasonSummary[] | null> {
+  const data = await tmdbGet<{ seasons?: TmdbSeasonSummary[] }>(`/tv/${tvId}`, { language: "en" });
+  if (!data || !Array.isArray(data.seasons)) return null;
+  return data.seasons;
 }

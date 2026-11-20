@@ -478,9 +478,13 @@ export default function ListSortFilter({
             </div>
 
             <div className="as-sfp-col">
-              {hasYear ? slider({ k: "year", label: t("listMenu.year"), hist: true }) : null}
-              {slider({ k: "score", label: t("listMenu.myScore"), step: 0.5 })}
-              {hasTotal ? slider({ k: "episodes", label: t("listMenu.episodes") }) : null}
+              {/* LES CURSEURS DANS UN BLOC UNIQUE SEGMENTÉ (20/11, Luc, style B
+                  de la maquette) : une surface, un trait entre les catégories. */}
+              <div className="as-sfp-ranges">
+                {hasYear ? slider({ k: "year", label: t("listMenu.year"), hist: true }) : null}
+                {slider({ k: "score", label: t("listMenu.myScore"), step: 0.5 })}
+                {hasTotal ? slider({ k: "episodes", label: t("listMenu.episodes") }) : null}
+              </div>
               <div className="as-sfp-dds">
                 {dropdown({ k: "genres", label: t("listMenu.genres"), icon: <Icon d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" /> })}
                 {dropdown({ k: "studio", label: t("listMenu.studio"), icon: <Icon d="M2 3h20v14H2zM8 21h8M12 17v4" /> })}

@@ -37,6 +37,9 @@ export interface StillsCacheValue {
   reason: string;
   tvId: number | null;
   season: number | null;
+  /** TMDB tient la suite DANS une saison precedente : notre episode 1 est son
+   *  episode offset+1. Absent dans le cas normal. */
+  offset?: number;
 }
 
 const CREATE_SQL = `
@@ -48,6 +51,26 @@ CREATE TABLE IF NOT EXISTS tmdb_stills_cache (
 
 export const TTL_HIT_S = 7 * 24 * 60 * 60;
 export const TTL_REFUSAL_S = 24 * 60 * 60;
+/* UNE LIGNE QUI NE COUVRE PAS TOUT CE QU'ON AFFICHE (20/11/2026) : sur un anime
+   en cours, la ligne ecrite la veille d'une sortie n'a pas le nouvel episode,
+   ou l'a sans image ni titre (le fournisseur les ajoute quelques heures apres).
+   A 7 jours, l'episode restait « Episode 8 » sur fond noir toute la semaine
+   (Firefly Wedding S2). Meme fenetre que la liste d'episodes d'un anime en
+   cours dans Redis : on ne la relit pas plus souvent qu'elle ne se refait. */
+export const TTL_INCOMPLETE_S = 3 * 60 * 60;
+
+/** Un episode affiche (1..displayed) sans image — ou sans titre, quand la
+ *  source donne des titres — rend la ligne incomplete. */
+function isIncomplete(v: StillsCacheValue, displayed: number | null | undefined): boolean {
+  if (!displayed || displayed <= 0) return false;
+  // Une serie dont la source ne titre AUCUN episode ne sera jamais « complete ».
+  const titled = !!v.titles && Object.keys(v.titles).length > 0;
+  for (let n = 1; n <= displayed; n++) {
+    if (!v.stills?.[n]) return true;
+    if (titled && !v.titles![n]) return true;
+  }
+  return false;
+}
 
 // non-fatal — reads return null and the caller recomputes
 const ensureTable = tableEnsurer(CREATE_SQL, getFanartsClient);
@@ -76,32 +99,59 @@ function keyFor(anilistId: number, source: StillsSource): string {
   return `${KEY_PREFIX[source]}${anilistId}`;
 }
 
-/** Cached value, or null on miss / expiry / DB disabled / error. A stale row is
- *  a miss so we never serve past the freshness window. */
-export async function getCachedStills(
+/** La ligne en cache : `fresh` si elle est servable telle quelle, sinon
+ *  `previous` porte l'ancienne reponse valide (reason "ok") a COMPLETER, jamais
+ *  a jeter — voir mergeWithPrevious. Les deux a null sur un manque, une base
+ *  absente ou une erreur. */
+export async function readCachedStills(
   anilistId: number,
-  source: StillsSource = "tmdb",
-): Promise<StillsCacheValue | null> {
+  source: StillsSource,
+  displayedEpisodes?: number | null,
+): Promise<{ fresh: StillsCacheValue | null; previous: StillsCacheValue | null }> {
+  const none = { fresh: null, previous: null };
   const db = getFanartsClient();
-  if (!db) return null;
+  if (!db) return none;
   await ensureTable();
   try {
     const r = await db.execute({
       sql: "SELECT value, updated_at FROM tmdb_stills_cache WHERE cache_key = ? LIMIT 1",
       args: [keyFor(anilistId, source)],
     });
-    if (!r.rows.length) return null;
+    if (!r.rows.length) return none;
     const row = r.rows[0] as any;
     const parsed = JSON.parse(String(row.value)) as StillsCacheValue;
     // A refusal expires sooner than a hit: it may only be waiting on a Fribb
     // re-ingest or a TMDB fix.
-    const ttl = parsed.reason === "ok" ? TTL_HIT_S : TTL_REFUSAL_S;
+    const ttl =
+      parsed.reason !== "ok"
+        ? TTL_REFUSAL_S
+        : isIncomplete(parsed, displayedEpisodes)
+          ? TTL_INCOMPLETE_S
+          : TTL_HIT_S;
     const age = Math.floor(Date.now() / 1000) - Number(row.updated_at);
-    if (age > ttl) return null;
-    return parsed;
+    if (age <= ttl) return { fresh: parsed, previous: null };
+    return { fresh: null, previous: parsed.reason === "ok" ? parsed : null };
   } catch {
-    return null;
+    return none;
   }
+}
+
+/* UNE RELECTURE COMPLETE, ELLE N'EFFACE PAS (20/11/2026). Le fournisseur peut
+   perdre une serie qu'il couvrait : ani.zip rend `episodes: {}` pour Koori no
+   Jouheki S2 (AniList 213805) alors que la ligne du 15/11 portait les images et
+   titres des episodes 1 a 7. Relire cette ligne pour y chercher l'episode 8 ne
+   doit pas la remplacer par un refus vide. Le neuf passe devant, l'ancien bouche
+   les trous ; s'il n'y a rien de neuf, l'ancienne ligne est reecrite telle
+   quelle (son horloge repart, elle sera retentee a la prochaine fenetre). */
+export function mergeWithPrevious(
+  next: { stills: Record<number, string>; titles?: Record<number, string> },
+  previous: StillsCacheValue | null,
+): { stills: Record<number, string>; titles?: Record<number, string> } {
+  if (!previous) return next;
+  const stills = { ...previous.stills, ...next.stills };
+  const titles =
+    previous.titles || next.titles ? { ...previous.titles, ...next.titles } : undefined;
+  return titles ? { stills, titles } : { stills };
 }
 
 /** Upsert. Non-fatal on error (the cache is an optimization). */

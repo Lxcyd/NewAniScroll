@@ -5549,6 +5549,11 @@ html.as-dragging .as-nudge {
   animation: as-airing-pulse 2s ease-in-out infinite;
 }
 .as-list-picked { box-shadow: 0 0 0 2px var(--brand-primary, #E94560); border-radius: 12px; }
+/* Le titre qui passe au rose au survol garde son épaisseur (20/11, Luc) : le
+   même 600, moins lumineux que le blanc, se lit plus maigre sur fond sombre.
+   Un trait de contour compense sans élargir le texte (pas de saut de la
+   troncature, contrairement à un passage en gras). */
+.group:hover .as-hover-title { color: var(--brand-primary, #E94560); -webkit-text-stroke: 0.35px currentColor; }
 
 .as-sfp-overlay {
   position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center;
@@ -5619,6 +5624,10 @@ html.as-dragging .as-nudge {
 .as-sfp-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 4px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
 .as-sfp-sec { padding: 14px 18px 12px; }
 .as-sfp-sec.is-tight { padding: 5px 18px; }
+/* Année · Ma note · Épisodes : un bloc unique, un trait entre les catégories (20/11). */
+.as-sfp-ranges { margin: 8px 18px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 16px; }
+.as-sfp-ranges > .as-sfp-sec { padding: 14px 16px 12px; }
+.as-sfp-ranges > .as-sfp-sec + .as-sfp-sec { border-top: 1px solid rgba(255,255,255,.07); }
 .as-sfp-div { height: 1px; background: rgba(255,255,255,.055); margin: 0 18px; }
 /* Titres de section en phrase, 13 px gras (maquette 21) : les majuscules
    espacées gris pâle se lisaient mal. */

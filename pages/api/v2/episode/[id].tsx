@@ -25,6 +25,7 @@ async function fetchAniListEpisodes(id: string) {
         episodes
         nextAiringEpisode { episode }
         status
+        startDate { year month day }
         title { romaji english }
         coverImage { extraLarge }
         bannerImage
@@ -419,7 +420,7 @@ export default async function handler(
      answer we already have. */
   const EMPTY_FILL = { stills: merged, hd: {} as Record<number, string> };
   const filled = await Promise.race([
-    fillStillGaps(Number(id), displayed || null, merged).catch(() => EMPTY_FILL),
+    fillStillGaps(Number(id), displayed || null, merged, media?.startDate).catch(() => EMPTY_FILL),
     new Promise<typeof EMPTY_FILL>((r) => setTimeout(() => r(EMPTY_FILL), 2000)),
   ]);
 

@@ -50,7 +50,8 @@
  */
 
 import {
-  getCachedStills,
+  mergeWithPrevious,
+  readCachedStills,
   setCachedStills,
   type StillsCacheValue,
 } from "@/lib/db/tmdbStillsCache";
@@ -59,7 +60,13 @@ import {
   getFribbFranchise,
   isFribbGroupConsistent,
 } from "@/lib/fribb/fribbMap";
-import { getSeasonEpisodes, tmdbEnabled, tmdbImageUrl } from "./client";
+import {
+  getSeasonEpisodes,
+  getTvSeasons,
+  tmdbEnabled,
+  tmdbImageUrl,
+  type TmdbSeasonEpisode,
+} from "./client";
 
 /** episode number → still URL. */
 export type TmdbStills = Record<number, string>;
@@ -84,7 +91,65 @@ type Reason =
   | "unknown-episode-count"
   | "too-few-episodes"
   | "no-images"
-  | "tmdb-error";
+  | "tmdb-error"
+  | "tmdb-season-missing";
+
+/** Date de debut AniList (`startDate`), telle quelle. */
+export type AniDate = { year?: number | null; month?: number | null; day?: number | null } | null | undefined;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const dayOf = (s: string | null | undefined): number | null => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+};
+
+/* LA SUITE QUE TMDB RANGE DANS LA SAISON D'AVANT (20/11/2026). Fribb dit
+   « saison 2 », TMDB n'a qu'une saison 1 de 28 episodes ou la suite fait
+   suite : The Ramparts of Ice (TMDB 283428), saison 2 en 404, nos episodes
+   1-8 sont ses 15-22. Courant pour les suites d'anime.
+
+   On retrouve notre episode 1 par sa DATE, pas par le nombre d'episodes des
+   saisons d'avant (que les speciaux et les recaps faussent). Et comme TMDB
+   passe devant ani.zip (fillStillGaps), un faux alignement remplacerait des
+   images justes : chaque condition ci-dessous doit tenir, sinon rien.
+     1. date AniList complete (annee, mois, jour) ;
+     2. un episode TMDB diffuse a 2 jours pres de cette date (decalage horaire) ;
+     3. l'episode qui le precede diffuse au moins 14 jours AVANT : une vraie
+        coupure entre deux saisons, pas un episode du milieu ;
+     4. a partir de la, au moins autant d'episodes que la liste en affiche,
+        numerotes sans trou.
+   Renvoie nos episodes renumerotes depuis 1, et le decalage.
+
+   Mesure le 20/11/2026 sur 450 entrees Fribb tirees au hasard (saison TMDB
+   >= 2) : 61 saisons absentes chez TMDB, 26 alignees, et sur les 23 dont
+   AniList a le calendrier, chaque episode aligne tombe sur sa date de
+   diffusion AniList — zero ecart. Les autres sont refusees, donc sans image
+   TMDB, comme avant. Ex. : Sono Bisque Doll S2, Bungou Stray Dogs S4/S5,
+   Mashle S2, Spy Kyoushitsu S2. */
+function alignOnStartDate(
+  episodes: TmdbSeasonEpisode[],
+  start: AniDate,
+  displayed: number,
+): { episodes: TmdbSeasonEpisode[]; offset: number } | null {
+  if (!start?.year || !start.month || !start.day) return null;
+  const startDay = Date.UTC(start.year, start.month - 1, start.day);
+  const sorted = [...episodes].sort((a, b) => a.episode_number - b.episode_number);
+  const i = sorted.findIndex((e) => {
+    const d = dayOf(e.air_date);
+    return d != null && Math.abs(d - startDay) <= 2 * DAY_MS;
+  });
+  if (i <= 0) return null;
+  const before = dayOf(sorted[i - 1].air_date);
+  if (before == null || startDay - before < 14 * DAY_MS) return null;
+  const ours = sorted.slice(i, i + displayed);
+  if (ours.length < displayed) return null;
+  const base = sorted[i].episode_number;
+  if (!ours.every((e, k) => e.episode_number === base + k)) return null;
+  return {
+    episodes: ours.map((e, k) => ({ ...e, episode_number: k + 1 })),
+    offset: base - 1,
+  };
+}
 
 /**
  * Stills for `anilistId`, for the episodes in `wanted`.
@@ -96,13 +161,14 @@ export async function getTmdbEpisodeStills(
   anilistId: number,
   displayedEpisodes: number | null,
   wanted: Set<number>,
+  startDate?: AniDate,
 ): Promise<TmdbStills> {
   if (!tmdbEnabled()) return EMPTY;
   if (wanted.size === 0) return EMPTY;
 
   /* Cle versionnee — les URL stockees portent la taille, et les REFUS aussi
      sont en cache. Voir lib/db/tmdbStillsCache.ts. */
-  const cached = await getCachedStills(anilistId, "tmdb");
+  const { fresh: cached, previous } = await readCachedStills(anilistId, "tmdb", displayedEpisodes);
   if (cached) return cached.stills ?? {};
 
   const refuse = async (
@@ -110,6 +176,17 @@ export async function getTmdbEpisodeStills(
     tvId: number | null = null,
     season: number | null = null,
   ): Promise<TmdbStills> => {
+    /* Une ancienne reponse valide survit a un refus PAR ABSENCE (voir
+       mergeWithPrevious). Pas a un refus de CORRESPONDANCE (no-fribb,
+       no-season, fribb-inconsistent…) : celui-la dit que la saison TMDB n'est
+       plus la bonne, et garder ses images serait justement l'erreur qu'il
+       empeche. */
+    const parAbsence = reason === "no-images" || reason === "too-few-episodes" || reason === "tmdb-error";
+    if (previous && parAbsence) {
+      if (reason !== "tmdb-error") await setCachedStills(anilistId, previous, "tmdb");
+      console.warn(`[tmdb-stills] ${anilistId}: ${reason}, previous row kept`);
+      return previous.stills ?? {};
+    }
     // A transient failure must not be cached as "no stills" for a day.
     if (reason !== "tmdb-error") {
       const value: StillsCacheValue = { stills: {}, reason, tvId, season };
@@ -135,10 +212,27 @@ export async function getTmdbEpisodeStills(
   const franchise = await getFribbFranchise(entry.tmdbTvId);
   const groupeDouteux = franchise.length > 1 && !isFribbGroupConsistent(franchise);
 
-  const episodes = await getSeasonEpisodes(entry.tmdbTvId, entry.tmdbSeason);
-  // null is a failed request or a 404 on the season, not "no stills".
+  let episodes = await getSeasonEpisodes(entry.tmdbTvId, entry.tmdbSeason);
+  let season = entry.tmdbSeason;
+  let offset = 0;
   if (!episodes) {
-    return await refuse("tmdb-error", entry.tmdbTvId, entry.tmdbSeason);
+    /* null = panne OU saison inconnue de TMDB. La liste des saisons tranche :
+       injoignable ou saison presente → panne, rien en cache ; saison absente →
+       la suite est peut-etre rangee dans la saison d'avant (alignOnStartDate). */
+    const seasons = await getTvSeasons(entry.tmdbTvId);
+    if (!seasons || seasons.some((s) => s.season_number === entry.tmdbSeason)) {
+      return await refuse("tmdb-error", entry.tmdbTvId, entry.tmdbSeason);
+    }
+    const host = seasons
+      .filter((s) => s.season_number >= 1 && s.season_number < entry.tmdbSeason!)
+      .sort((a, b) => b.season_number - a.season_number)[0];
+    const hostEpisodes = host ? await getSeasonEpisodes(entry.tmdbTvId, host.season_number) : null;
+    if (host && !hostEpisodes) return await refuse("tmdb-error", entry.tmdbTvId, entry.tmdbSeason);
+    const aligned = hostEpisodes ? alignOnStartDate(hostEpisodes, startDate, displayedEpisodes) : null;
+    if (!aligned) return await refuse("tmdb-season-missing", entry.tmdbTvId, entry.tmdbSeason);
+    episodes = aligned.episodes;
+    season = host!.season_number;
+    offset = aligned.offset;
   }
 
   /* A floor, not the old exact equality: a provider that knows
@@ -163,7 +257,9 @@ export async function getTmdbEpisodeStills(
      plus d'episodes que celle qu'on affiche. Verifie sur le cas d'origine —
      Jujutsu Kaisen, saison TMDB de 59 episodes pour 24 affiches : pas d'egalite,
      le garde continue de refuser. */
-  if (groupeDouteux && episodes.length !== displayedEpisodes) {
+  // Un alignement par date vient d'etre prouve episode par episode : le garde
+  // de fusion, qui juge la franchise en gros, n'a rien a y ajouter.
+  if (groupeDouteux && !offset && episodes.length !== displayedEpisodes) {
     return await refuse("fribb-inconsistent", entry.tmdbTvId, entry.tmdbSeason);
   }
 
@@ -184,19 +280,22 @@ export async function getTmdbEpisodeStills(
      intersection would make the row depend on another provider's transient
      state, and a later request wanting a different episode would get a false
      "no". Filtering to `wanted` is the caller's job, below. */
+  const { stills: kept } = mergeWithPrevious({ stills }, previous);
+  Object.assign(stills, kept);
   await setCachedStills(
     anilistId,
     {
       stills,
       reason: "ok",
       tvId: entry.tmdbTvId,
-      season: entry.tmdbSeason,
+      season,
+      ...(offset ? { offset } : {}),
     },
     "tmdb",
   );
   console.warn(
     `[tmdb-stills] ${anilistId}: ${Object.keys(stills).length}/${displayedEpisodes} ` +
-      `stills (tmdb ${entry.tmdbTvId} s${entry.tmdbSeason})`,
+      `stills (tmdb ${entry.tmdbTvId} s${season}${offset ? ` +${offset}` : ""})`,
   );
   return stills;
 }
@@ -254,6 +353,7 @@ export async function fillStillGaps(
   anilistId: number,
   displayedEpisodes: number | null,
   baseStills: Record<number, string>,
+  startDate?: AniDate,
 ): Promise<{ stills: Record<number, string>; hd: Record<number, string> }> {
   if (!tmdbEnabled() || !displayedEpisodes || displayedEpisodes <= 0) {
     return { stills: baseStills, hd: {} };
@@ -266,7 +366,7 @@ export async function fillStillGaps(
   for (let n = 1; n <= displayedEpisodes; n++) all.add(n);
   if (all.size === 0) return { stills: baseStills, hd: {} };
 
-  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, all).catch(
+  const tmdb = await getTmdbEpisodeStills(anilistId, displayedEpisodes, all, startDate).catch(
     () => EMPTY,
   );
 
