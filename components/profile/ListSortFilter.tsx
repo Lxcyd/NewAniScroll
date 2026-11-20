@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSheetPresence } from "./useSheetPresence";
-import { Segmented } from "./WidgetSettings";
 import { countryLabel, prettyFormat, prettySource, statusLabel } from "@/components/anime/v2/helpers";
 import {
   AIR_STATUSES,
@@ -498,18 +497,21 @@ export default function ListSortFilter({
               ) : null}
               {has("air") ? (
                 <Section label={t("listMenu.airStatus")}>
-                  {/* UN SWITCH COMME « TAILLE DES CARTES » DES WIDGETS (20/11,
-                      Luc) : un seul statut à la fois, « Tous » = pas de filtre. */}
-                  <Segmented
-                    className=""
-                    label={t("listMenu.airStatus")}
-                    value={f.sets.air.length === 1 ? f.sets.air[0] : ""}
-                    choices={[
-                      { value: "", label: t("listMenu.allStatuses") },
-                      ...AIR_STATUSES.filter((v) => whole("air").has(v)).map((v) => ({ value: v, label: statusLabel(t, v) })),
-                    ]}
-                    onPick={(v) => set({ sets: { ...f.sets, air: v ? [v] : [] } })}
-                  />
+                  <div className="as-sfp-airs">
+                    {(() => {
+                      const n = facet("air");
+                      return AIR_STATUSES.filter((v) => whole("air").has(v)).map((v) => {
+                        const on = f.sets.air.includes(v);
+                        return (
+                          <button key={v} type="button" aria-pressed={on} onClick={() => toggle("air", v)} className={`as-sfp-air${on ? " is-on" : ""}${!on && !n.get(v) ? " is-zero" : ""}`}>
+                            <span className="as-sfp-dot" style={{ ["--c" as string]: AIR_COLOR[v] || "#9ca3af" } as React.CSSProperties} />
+                            <span className="as-sfp-air-l">{statusLabel(t, v)}</span>
+                            <span className="as-sfp-tile-n">{n.get(v) || 0}</span>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
                 </Section>
               ) : null}
             </div>
@@ -588,6 +590,14 @@ const SEASON_ICON: Record<string, string> = {
   SPRING: "M12 22V12M12 12C12 7 8 4 4 4c0 5 3 8 8 8zM12 12c0-5 4-8 8-8 0 5-3 8-8 8z",
   SUMMER: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
   FALL: "M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10zM2 21c0-3 1.9-5.4 5.2-6",
+};
+/* La pastille lumineuse de la diffusion : vert en cours, gris terminé… */
+const AIR_COLOR: Record<string, string> = {
+  RELEASING: "#22c55e",
+  FINISHED: "#9ca3af",
+  NOT_YET_RELEASED: "#ef4444",
+  CANCELLED: "#ef4444",
+  HIATUS: "#60a5fa",
 };
 
 function Chip({ on, zero, onClick, children }: { on: boolean; zero?: boolean; onClick: () => void; children: React.ReactNode }) {
