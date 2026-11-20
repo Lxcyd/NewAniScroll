@@ -5692,9 +5692,11 @@ html.as-dragging .as-nudge {
 .as-sfp-range::-webkit-slider-runnable-track { background: none; height: 32px; }
 .as-sfp-range::-moz-range-track { background: none; }
 .as-sfp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: 5px; border-radius: 50%; background: #fff; border: 2.5px solid var(--brand-primary, #E94560); box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; pointer-events: all; transition: transform .15s, box-shadow .15s; }
-.as-sfp-range::-webkit-slider-thumb:hover { transform: scale(1.15); box-shadow: 0 2px 10px rgba(0,0,0,.5), 0 0 0 7px rgba(233,69,96,.28); }
+/* Sans anneau rose autour du curseur (20/11/2026, Luc) : il grossit seulement,
+   au survol comme au clavier. */
+.as-sfp-range::-webkit-slider-thumb:hover { transform: scale(1.15); box-shadow: 0 2px 10px rgba(0,0,0,.5); }
 .as-sfp-range::-moz-range-thumb { box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2.5px solid var(--brand-primary, #E94560); box-shadow: 0 2px 8px rgba(0,0,0,.45); cursor: pointer; pointer-events: all; }
-.as-sfp-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(233,69,96,.35); }
+.as-sfp-range:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
 .as-sfp-dds { padding: 8px 0 6px; }
 /* Les dépliants Genres / Studio / Tags : le dessin de la référence
    (sort-filter-popup.css de l'ancienne AniScroll, 12/11/2026). Ouvert, l'en-tête
