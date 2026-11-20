@@ -5704,7 +5704,11 @@ html.as-dragging .as-nudge {
 /* La pastille des statuts du profil (as-glow-dot), en plus grand : un rond
    de la couleur, et son halo. La zone cliquable garde 22 px. */
 .as-lm-swatch::before { content: ""; width: 11px; height: 11px; border-radius: 50%; background: var(--c, #fff); box-shadow: 0 0 8px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
-.as-lm-swatch:hover { transform: scale(1.12); background: rgba(255,255,255,.06); }
+/* Survol : le rond grossit un peu, rien d'autre — plus de disque gris
+   derrière (20/11/2026, Luc). */
+.as-lm-swatch::before { transition: transform .18s cubic-bezier(.22,1,.36,1); }
+.as-lm-swatch:hover { transform: none; background: none; }
+.as-lm-swatch:hover::before { transform: scale(1.25); }
 .as-lm-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-lm-count { font-size: 12px; color: rgba(255,255,255,.35); font-variant-numeric: tabular-nums; flex: none; }
 .as-lm-tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #02a9ff; background: rgba(2,169,255,.12); border-radius: 6px; padding: 2px 6px; flex: none; }
@@ -5770,6 +5774,12 @@ html.as-dragging .as-nudge {
 /* Ce qui ne se clique pas le dit : cadenas des statuts AniList, « + » vide. */
 .as-lm-lock { cursor: not-allowed; }
 .as-lm-add:disabled { cursor: not-allowed; }
+/* LA POIGNÉE PLUS GRANDE QUE SON ICÔNE (20/11/2026, Luc) : la zone saisissable
+   couvre toute la hauteur de la rangée et son bord gauche (les marges
+   négatives reprennent le padding de .as-lm-row : 10 px haut/bas, 8 px à
+   gauche), l'icône ne bouge pas d'un pixel. */
+.as-lm-grip { align-self: stretch; width: 30px; margin: -10px -4px -10px -8px; padding-left: 4px; border-radius: 13px 0 0 13px; transition: color .15s; }
+.as-lm-grip:hover { color: rgba(255,255,255,.7); }
 .as-lm-name { font-family: Outfit, sans-serif; font-weight: 600; color: rgba(255,255,255,.9); }
 .as-lm-count { font-family: Outfit, sans-serif; font-weight: 700; font-size: 13px; color: rgba(255,255,255,.5); }
 .as-lm-foot { border-top-color: rgba(255,255,255,.06); }

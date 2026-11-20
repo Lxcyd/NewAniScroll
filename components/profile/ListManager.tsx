@@ -519,7 +519,10 @@ export default function ListManager({
                 aria-label={t(tab === "status" ? "listMenu.manager.newStatus" : "listMenu.manager.newList")}
               />
               <button type="button" className="as-lm-add" disabled={!trimmed || clash} onClick={add} aria-label={t("listMenu.manager.add")} title={t("listMenu.manager.add")}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                {/* 16 px et trait de 3 unités (= 2 px) : le centre du « + » tombe sur un
+                    pixel entier. À 15 px il tombait sur un demi-pixel et le
+                    signe paraissait décentré (20/11/2026, Luc). */}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
             {/* Plus de note « Enregistré sur cet appareil… » (20/11/2026, Luc) :
