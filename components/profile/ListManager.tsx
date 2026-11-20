@@ -147,7 +147,14 @@ export default function ListManager({
     const measure = () => {
       // Arrondi AU-DESSUS : un demi-pixel manquant suffit a rallumer la barre.
       const h = Math.ceil(el.getBoundingClientRect().height);
-      if (lastH.current != null && h !== lastH.current) setResizing(true);
+      if (lastH.current != null && h !== lastH.current) {
+        /* Classe posée À LA MAIN, tout de suite : le ResizeObserver passe avant
+           l'affichage, mais le setState ne rend qu'à l'image suivante — une
+           image avec la barre, que Windows laisse ensuite traîner plusieurs
+           secondes en fondu (ajout d'une liste, 20/11/2026). */
+        listRef.current?.classList.add("is-resizing");
+        setResizing(true);
+      }
       lastH.current = h;
       setPaneH(h);
     };
