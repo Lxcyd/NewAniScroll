@@ -5755,9 +5755,12 @@ html.as-dragging .as-nudge {
    plaque translucide des cartes du profil (.as-stat-card) au lieu du bloc
    opaque des feuilles de filtres, titre en Outfit, rangées en surfaces de
    carte, compteurs en chiffres du profil. */
+/* Fond derrière le gestionnaire : 10 px de flou au lieu de 6, voile inchangé (20/11/2026, Luc). */
+.as-sfp-overlay:has(> .as-lm) { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+/* Popup opaque (réglée aux curseurs le 20/11/2026, Luc) : plus rien de la page
+   ne transparaît, donc plus de flou propre. */
 .as-sfp.as-lm {
-  background: linear-gradient(145deg, rgba(20,22,28,.86), rgba(12,13,16,.78));
-  -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2);
+  background: linear-gradient(145deg, rgb(20,22,28), rgb(12,13,16));
   border-color: rgba(255,255,255,.07);
   box-shadow: 0 24px 60px rgba(0,0,0,.55);
 }
