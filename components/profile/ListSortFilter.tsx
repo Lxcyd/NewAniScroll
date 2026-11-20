@@ -88,6 +88,7 @@ export default function ListSortFilter({
   const [pillsOpen, setPillsOpen] = useState(false);
   const [pillsHidden, setPillsHidden] = useState(0);
   const pillsRef = useRef<HTMLDivElement>(null);
+  const pillOrder = useRef<string[]>([]);
   /* PLUSIEURS DÉPLIANTS OUVERTS À LA FOIS (20/11/2026, Luc) : chacun garde
      son ouverture, sa recherche et son onglet. */
   /* `"leaving"` : le dépliant joue son animation de fermeture, encore monté. */
@@ -160,6 +161,9 @@ export default function ListSortFilter({
   useIsoLayoutEffect(() => {
     const box = pillsRef.current;
     if (!box) return;
+    /* Dépliée, la rangée AGRANDIT l'en-tête vers le bas (20/11, Luc) : la
+       hauteur du cadre passe de 28 px à celle du contenu, en transition CSS. */
+    const wrap = box.parentElement as HTMLElement;
     const measure = () => {
       const kids = Array.from(box.querySelectorAll<HTMLElement>(".as-sfp-chip"));
       const more = box.querySelector<HTMLElement>(".as-sfp-more");
@@ -169,18 +173,29 @@ export default function ListSortFilter({
       const top = kids[0]?.offsetTop ?? 0;
       const wraps = kids.length > 1 && kids[kids.length - 1].offsetTop !== top;
       if (!wraps) {
+        wrap.style.height = "";
         setPillsHidden(0);
         if (pillsOpen) setPillsOpen(false);
         return;
       }
       more.style.display = "";
-      if (pillsOpen) return setPillsHidden(0);
+      if (pillsOpen) {
+        wrap.style.height = `${Math.min(box.scrollHeight, 160)}px`;
+        return setPillsHidden(0);
+      }
+      wrap.style.height = "";
       let n = 0;
       for (let i = kids.length - 1; i > 0 && more.offsetTop !== top; i--, n++) kids[i].style.display = "none";
       setPillsHidden(n);
     };
     measure();
-    const ro = new ResizeObserver(measure);
+    // Re-mesure à un changement de LARGEUR seulement (la hauteur, c'est nous).
+    let lastW = box.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (box.clientWidth === lastW) return;
+      lastW = box.clientWidth;
+      measure();
+    });
     ro.observe(box);
     return () => ro.disconnect();
   }, [shown, mounted, pillsOpen, draftKey]);
@@ -455,18 +470,25 @@ export default function ListSortFilter({
     pills.push({ key: k, label: `${rangeLabel[k]} ${txt}`, off: () => set({ ranges: { ...f.ranges, [k]: [lo, hi] } }) });
   }
   if (f.adult) pills.push({ key: "adult", label: t(f.adult === "no" ? "listMenu.nonAdult" : "listMenu.adultOnly"), off: () => set({ adult: "" }) });
+  /* DANS L'ORDRE D'AJOUT (20/11/2026, Luc : « ça se décale ») : un nouveau
+     filtre va au bout de la rangée au lieu de s'intercaler et de pousser les
+     autres (ONA entrait avant Printemps). */
+  const keys = pills.map((p) => p.key);
+  const order = pillOrder.current.filter((k) => keys.includes(k)).concat(keys.filter((k) => !pillOrder.current.includes(k)));
+  pillOrder.current = order;
+  pills.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
 
   return createPortal(
     <div className={`as-sfp-overlay${closing ? " is-closing" : ""}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="as-sfp" role="dialog" aria-modal="true" aria-label={t("listMenu.sortFilter")}>
-        <div className="as-sfp-head">
+        <div className="as-sfp-head has-pills">
           <div className="as-sfp-hl">
             <h3>{t("listMenu.sortFilter")}</h3>
             {active ? <span className="as-sfp-badge">{active}</span> : null}
           </div>
           {/* LES FILTRES ACTIFS DANS L'EN-TÊTE, à droite du titre (20/11/2026,
               Luc) : une ligne qui ne pousse rien ; le surplus derrière « Voir
-              plus », qui les déplie PAR-DESSUS le panneau. */}
+              plus », qui agrandit l'en-tête vers le bas. */}
           <div className="as-sfp-activewrap">
             <div ref={pillsRef} className={`as-sfp-active${pillsOpen ? " is-open" : ""}`}>
               {pills.map((p) => (
