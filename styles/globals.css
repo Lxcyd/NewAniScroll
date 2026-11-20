@@ -5740,8 +5740,10 @@ html.as-dragging .as-nudge {
 .as-sfp-sec.is-open + .as-sfp-sec { margin-top: 6px; }
 .as-sfp-pick { flex: none; padding: 9px 18px; font-size: 12.5px; color: #ff8fa3; background: rgba(233,69,96,.08); border-top: 1px solid rgba(255,255,255,.08); }
 .as-sfp-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 18px 18px; border-top: 1px solid rgba(255,255,255,.06); background: none; } /* le fond du panneau, pas une bande à part (20/11, Luc) */
-.as-sfp-rand { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: transform .2s, border-color .15s; }
-.as-sfp-rand:hover { border-color: rgba(233,69,96,.55); transform: rotate(-8deg); }
+.as-sfp-rand { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); transition: background .15s, border-color .15s, color .15s; }
+/* Plus de bascule du bouton (20/11/2026, Luc) : il se teinte de rose, comme
+   « Relancer » de la fiche du tirage. */
+.as-sfp-rand:hover { color: #ff8fa3; border-color: rgba(233,69,96,.5); background: rgba(233,69,96,.1); }
 .as-sfp-apply { flex: 1; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; font-size: 14px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(135deg, #E94560 0%, #c73652 100%); box-shadow: 0 6px 22px rgba(233,69,96,.32); }
 .as-sfp-count { min-width: 26px; height: 22px; padding: 0 7px; border-radius: 11px; background: rgba(255,255,255,.22); font-size: 12px; font-weight: 800; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; }
 /* Plus de coupure sous prefers-reduced-motion (20/11/2026) : le Chrome de Luc
