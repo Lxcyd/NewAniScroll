@@ -262,9 +262,11 @@ export default function ProfileList({
   const activeLocal = localLists.find((l) => l.name === list) || null;
   const activeList = list && (activeLocal || anilistLists.some(([n]) => n === list)) ? list : "";
 
-  const shown = useMemo(() => {
+  /* Les titres de la sélection AVANT tri & filtres : le panneau y compte son
+     brouillon (« Voir N résultats ») sans toucher à la liste derrière. */
+  const pre = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const pre = base.filter(
+    return base.filter(
       (e) =>
         (status === "all" ||
           (activeCustomStatus ? activeCustomStatus.ids.includes(e.mediaId) : (e.status || "PLANNING") === status)) &&
@@ -275,8 +277,11 @@ export default function ProfileList({
             x?.toLowerCase().includes(q),
           )),
     );
-    return sortEntries(applyFilters(pre, filters, bounds), filters, titleOf, statusOrder);
-  }, [base, status, activeCustomStatus, activeList, activeLocal, query, filters, bounds, titleOf, statusOrder]);
+  }, [base, status, activeCustomStatus, activeList, activeLocal, query]);
+  const shown = useMemo(
+    () => sortEntries(applyFilters(pre, filters, bounds), filters, titleOf, statusOrder),
+    [pre, filters, bounds, titleOf, statusOrder],
+  );
 
   /* Combien de lignes pour CETTE sélection. La clé change avec elle : une
      nouvelle sélection (ou vue) repart de quarante lignes, sans rendu de remise
@@ -657,10 +662,13 @@ view === "grid" ? (
         filters={filters}
         bounds={bounds}
         onChange={changeFilters}
-        count={shown.length}
-        onRandom={() => {
-          if (!shown.length) { setPicked(null); return null; }
-          const e = shown[Math.floor(Math.random() * shown.length)];
+        pool={pre}
+        onRandom={(f) => {
+          /* Le tirage applique le brouillon : le titre tiré doit être dans la liste. */
+          changeFilters(f);
+          const res = applyFilters(pre, f, bounds);
+          if (!res.length) { setPicked(null); return null; }
+          const e = res[Math.floor(Math.random() * res.length)];
           setPicked(e.mediaId);
           return titleOf(e);
         }}

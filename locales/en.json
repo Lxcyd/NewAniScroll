@@ -2965,9 +2965,18 @@
     "search": "Search your list…",
     "clearSearch": "Clear search",
     "scope": {
-      "genres": { "list": "Genres in your list", "anilist": "All genres" },
-      "tags": { "list": "Tags in your list", "anilist": "All tags" },
-      "studio": { "list": "Studios in your list", "anilist": "All studios" }
+      "genres": {
+        "list": "Genres in your list",
+        "anilist": "All genres"
+      },
+      "tags": {
+        "list": "Tags in your list",
+        "anilist": "All tags"
+      },
+      "studio": {
+        "list": "Studios in your list",
+        "anilist": "All studios"
+      }
     },
     "searchIn": "Search {{what}}…",
     "descending": "Descending",
@@ -3049,6 +3058,9 @@
       "delTitle": "Delete “{{name}}”?",
       "delList": "This list will be permanently deleted.",
       "delStatus": "This status will be permanently deleted."
-    }
+    },
+    "noActiveFilters": "No active filters",
+    "showMore": "Show more (+{{count}})",
+    "showLess": "Show less"
   }
 }

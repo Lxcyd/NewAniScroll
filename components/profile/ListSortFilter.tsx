@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useSheetPresence } from "./useSheetPresence";
@@ -39,6 +39,8 @@ function anilistCatalog(k: SetKey, adult: boolean): string[] | null {
   return null;
 }
 
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 /**
  * LE PANNEAU « SORT & FILTER » de l'onglet Liste, calqué section par section
  * sur la version de référence (08/11/2026, Luc : « inspire-toi beaucoup plus de
@@ -58,7 +60,7 @@ export default function ListSortFilter({
   filters,
   bounds,
   onChange,
-  count,
+  pool,
   onRandom,
 }: {
   open: boolean;
@@ -67,11 +69,25 @@ export default function ListSortFilter({
   filters: ListFilters;
   bounds: Bounds;
   onChange: (f: ListFilters) => void;
-  count: number;
-  /** Tire un titre parmi les résultats ; renvoie son nom, ou null s'il n'y en a aucun. */
-  onRandom: () => string | null;
+  /** La sélection courante (statut, liste, recherche) avant tri & filtres. */
+  pool: ProfileEntry[];
+  /** Applique `f`, tire un titre parmi ses résultats ; son nom, ou null s'il n'y en a aucun. */
+  onRandom: (f: ListFilters) => string | null;
 }) {
   const { t } = useTranslation();
+  /* UN BROUILLON (20/11/2026, Luc : « ne l'applique pas sur la page derrière,
+     attends le bouton Voir N résultats ») : repris des filtres appliqués à
+     chaque ouverture, rendu à la liste seulement par ce bouton. Fermer
+     autrement (croix, Échap, clic dehors) l'abandonne. */
+  const [draft, setDraft] = useState(filters);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setDraft(filters);
+  }
+  const [pillsOpen, setPillsOpen] = useState(false);
+  const [pillsHidden, setPillsHidden] = useState(0);
+  const pillsRef = useRef<HTMLDivElement>(null);
   /* PLUSIEURS DÉPLIANTS OUVERTS À LA FOIS (20/11/2026, Luc) : chacun garde
      son ouverture, sa recherche et son onglet. */
   /* `"leaving"` : le dépliant joue son animation de fermeture, encore monté. */
@@ -138,13 +154,45 @@ export default function ListSortFilter({
     };
   }, [shown]);
 
+  /* Combien de filtres actifs tiennent sur la ligne : on cache le surplus par
+     la fin jusqu'à ce que « Voir plus » rentre sur la première ligne. */
+  const draftKey = JSON.stringify(draft);
+  useIsoLayoutEffect(() => {
+    const box = pillsRef.current;
+    if (!box) return;
+    const measure = () => {
+      const kids = Array.from(box.querySelectorAll<HTMLElement>(".as-sfp-chip"));
+      const more = box.querySelector<HTMLElement>(".as-sfp-more");
+      if (!more) return;
+      kids.forEach((k) => (k.style.display = ""));
+      more.style.display = "none";
+      const top = kids[0]?.offsetTop ?? 0;
+      const wraps = kids.length > 1 && kids[kids.length - 1].offsetTop !== top;
+      if (!wraps) {
+        setPillsHidden(0);
+        if (pillsOpen) setPillsOpen(false);
+        return;
+      }
+      more.style.display = "";
+      if (pillsOpen) return setPillsHidden(0);
+      let n = 0;
+      for (let i = kids.length - 1; i > 0 && more.offsetTop !== top; i--, n++) kids[i].style.display = "none";
+      setPillsHidden(n);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [shown, mounted, pillsOpen, draftKey]);
+
   if (!shown || !mounted) return null;
 
-  const f = filters;
+  const f = draft;
   const set = (patch: Partial<ListFilters>) => {
     setPick(null);
-    onChange({ ...f, ...patch });
+    setDraft({ ...f, ...patch });
   };
+  const count = applyFilters(pool, f, bounds).length;
   const toggle = (k: SetKey, v: string) => {
     const cur = f.sets[k];
     set({ sets: { ...f.sets, [k]: cur.includes(v) ? cur.filter((x) => x !== v) : cur.concat(v) } });
@@ -426,16 +474,24 @@ export default function ListSortFilter({
           </div>
         </div>
 
-        {pills.length ? (
-          <div className="as-sfp-active">
-            {pills.map((p) => (
+        {/* LA RANGÉE DES FILTRES ACTIFS A TOUJOURS SA LIGNE (20/11/2026,
+            Luc) : son apparition poussait tout le panneau. Une ligne au plus ;
+            le surplus se cache derrière « Voir plus ». */}
+        <div ref={pillsRef} className={`as-sfp-active${pillsOpen ? " is-open" : ""}`}>
+          {pills.length ? (
+            pills.map((p) => (
               <button key={p.key} type="button" className="as-sfp-chip is-on" onClick={p.off} aria-label={`${p.label} ✕`}>
                 {p.label}
                 <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
               </button>
-            ))}
-          </div>
-        ) : null}
+            ))
+          ) : (
+            <span className="as-sfp-none">{t("listMenu.noActiveFilters")}</span>
+          )}
+          <button type="button" className="as-sfp-more" style={{ display: "none" }} onClick={() => setPillsOpen((o) => !o)}>
+            {pillsOpen ? t("listMenu.showLess") : t("listMenu.showMore", { count: pillsHidden })}
+          </button>
+        </div>
 
         {/* UNE COLONNE (14/11/2026, Luc) : d'abord ce qu'on choisit par type,
             en tuiles, puis les chiffres (curseurs) et les longues listes
@@ -554,7 +610,7 @@ export default function ListSortFilter({
             aria-label={t("listMenu.random")}
             title={t("listMenu.random")}
             onClick={() => {
-              const name = onRandom();
+              const name = onRandom(f);
               setPick(name ? t("listMenu.randomPick", { title: name }) : t("listMenu.randomNone"));
               /* Le badge « Au hasard » : jusqu'ici aucun bouton ne le levait. */
               if (name) void import("@/lib/badges/facts").then((f) => f.recordFlag("random")).catch(() => {});
@@ -562,7 +618,7 @@ export default function ListSortFilter({
           >
             <Icon d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" size={18} />
           </button>
-          <button type="button" className="as-sfp-apply" onClick={onClose}>
+          <button type="button" className="as-sfp-apply" onClick={() => { onChange(f); onClose(); }}>
             {t("listMenu.show")} <span className="as-sfp-count">{count}</span> {t("listMenu.results", { count })}
             <span className="as-sfp-of">{t("listMenu.outOf", { total: entries.length })}</span>
           </button>
