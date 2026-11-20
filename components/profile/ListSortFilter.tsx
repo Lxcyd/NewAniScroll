@@ -464,6 +464,22 @@ export default function ListSortFilter({
             <h3>{t("listMenu.sortFilter")}</h3>
             {active ? <span className="as-sfp-badge">{active}</span> : null}
           </div>
+          {/* LES FILTRES ACTIFS DANS L'EN-TÊTE, à droite du titre (20/11/2026,
+              Luc) : une ligne qui ne pousse rien ; le surplus derrière « Voir
+              plus », qui les déplie PAR-DESSUS le panneau. */}
+          <div className="as-sfp-activewrap">
+            <div ref={pillsRef} className={`as-sfp-active${pillsOpen ? " is-open" : ""}`}>
+              {pills.map((p) => (
+                <button key={p.key} type="button" className="as-sfp-chip is-on" onClick={p.off} aria-label={`${p.label} ✕`}>
+                  {p.label}
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              ))}
+              <button type="button" className="as-sfp-more" style={{ display: "none" }} onClick={() => setPillsOpen((o) => !o)}>
+                {pillsOpen ? t("listMenu.showLess") : t("listMenu.showMore", { count: pillsHidden })}
+              </button>
+            </div>
+          </div>
           <div className="as-sfp-hl">
             <button type="button" className="as-sfp-reset" onClick={() => set({ ...freshFilters(bounds), sort: f.sort, desc: f.desc })}>
               {t("listMenu.reset")}
@@ -474,24 +490,6 @@ export default function ListSortFilter({
           </div>
         </div>
 
-        {/* LA RANGÉE DES FILTRES ACTIFS A TOUJOURS SA LIGNE (20/11/2026,
-            Luc) : son apparition poussait tout le panneau. Une ligne au plus ;
-            le surplus se cache derrière « Voir plus ». */}
-        <div ref={pillsRef} className={`as-sfp-active${pillsOpen ? " is-open" : ""}`}>
-          {pills.length ? (
-            pills.map((p) => (
-              <button key={p.key} type="button" className="as-sfp-chip is-on" onClick={p.off} aria-label={`${p.label} ✕`}>
-                {p.label}
-                <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-              </button>
-            ))
-          ) : (
-            <span className="as-sfp-none">{t("listMenu.noActiveFilters")}</span>
-          )}
-          <button type="button" className="as-sfp-more" style={{ display: "none" }} onClick={() => setPillsOpen((o) => !o)}>
-            {pillsOpen ? t("listMenu.showLess") : t("listMenu.showMore", { count: pillsHidden })}
-          </button>
-        </div>
 
         {/* UNE COLONNE (14/11/2026, Luc) : d'abord ce qu'on choisit par type,
             en tuiles, puis les chiffres (curseurs) et les longues listes

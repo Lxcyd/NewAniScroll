@@ -3059,7 +3059,6 @@
       "delList": "Cette liste sera supprimée définitivement.",
       "delStatus": "Ce statut sera supprimé définitivement."
     },
-    "noActiveFilters": "Aucun filtre actif",
     "showMore": "Voir plus (+{{count}})",
     "showLess": "Voir moins"
   }

@@ -3059,7 +3059,6 @@
       "delList": "This list will be permanently deleted.",
       "delStatus": "This status will be permanently deleted."
     },
-    "noActiveFilters": "No active filters",
     "showMore": "Show more (+{{count}})",
     "showLess": "Show less"
   }
