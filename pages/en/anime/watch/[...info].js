@@ -3,7 +3,6 @@ import { UsersIcon } from "@heroicons/react/24/solid";
 import Details from "@/components/watch/primary/details";
 import EpisodeLists from "@/components/watch/secondary/episodeLists";
 import ServerSelector from "@/components/watch/primary/serverSelector";
-import Recommendations from "@/components/anime/v2/Recommendations";
 import Footer from "@/components/shared/footer";
 // The v2 design tokens, scoped. `.tokens` carries the custom properties the
 // info-page components read, WITHOUT that page's furniture (background,
@@ -19,6 +18,10 @@ import { preloadPlayerCode } from "@/lib/watch/playerCode";
    une arrivee directe, tout le telechargement du lecteur s'ajoutait en serie. */
 preloadPlayerCode();
 // Vidstack uses Web Components — must be loaded client-only or hydration fails.
+/* Sous la ligne de flottaison : son JS sort du chunk de la page (20/11/2026).
+   ssr garde, donc le HTML ne change pas. */
+const Recommendations = dynamic(() => import("@/components/anime/v2/Recommendations"));
+
 const UniversalPlayer = dynamic(
   () => import("@/components/watch/primary/UniversalPlayer"),
   {

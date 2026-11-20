@@ -1,3 +1,4 @@
+import { getLang } from "@/lib/i18n/languagePref";
 import { Dialog, Transition } from "@headlessui/react";
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -337,6 +338,14 @@ export default function ChangeLogs() {
         }
       }
       allSigsRef.current = sigs;
+      /* PAS D'OUVERTURE AVANT LA BASCULE DE LANGUE (20/11/2026). Le premier
+         rendu est toujours anglais (I18nProvider bascule deux images plus
+         tard) : la popup s'ouvrait en anglais puis remplacait son texte par le
+         francais, plus long — le panneau grandissait sous les yeux, 0,29 de
+         CLS mesure sur mobile a chaque premiere visite. On attend que la
+         langue active soit la langue visee ; l'effet se rejoue a la bascule
+         ([lang]) et ouvre alors, directement dans la bonne langue. */
+      if (lang !== getLang()) return;
       if (active) {
         setVersion(active.version);
         setBody(active.body);
