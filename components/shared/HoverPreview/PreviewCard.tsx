@@ -567,13 +567,10 @@ export default function PreviewCard({
             d'un pixel, est derrière — un second, au bord de l'arrondi, y
             redessinait le trait. */}
         <div className="as-preview-banner relative h-[45%] shrink-0">
-          {/* Holds the slot while the payload is in flight. The endpoint is
-              prefetched 30 ms before the card mounts and edge-cached for a day,
-              so on a warm id this is never seen. */}
           {/* No radius on any of these: see the note in NativeTrailer — the card
               owns the corners, and a second curve at the same radius only draws
-              a seam. */}
-          {!banner && <div className="as-preview-skeleton h-full w-full" />}
+              a seam. Pas de squelette tant que la banniere manque (20/11/2026,
+              Luc) : l'emplacement reste au fond de la carte. */}
           {banner && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
