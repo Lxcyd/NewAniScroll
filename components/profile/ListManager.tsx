@@ -275,7 +275,7 @@ export default function ListManager({
     <button
       type="button"
       className="as-lm-swatch"
-      style={{ background: value }}
+      style={{ ["--c" as string]: value } as React.CSSProperties}
       aria-label={t("listMenu.manager.color")}
       title={t("listMenu.manager.color")}
       onClick={(e) => setPalette(palette === id ? null : id, e.currentTarget)}
@@ -449,7 +449,9 @@ export default function ListManager({
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
-            <p className="as-lm-note">{clash ? t("listMenu.manager.exists") : t("listMenu.manager.deviceNote")}</p>
+            {/* Plus de note « Enregistré sur cet appareil… » (20/11/2026, Luc) :
+                la ligne ne parle plus que pour dire qu'un nom est déjà pris. */}
+            {clash ? <p className="as-lm-note">{t("listMenu.manager.exists")}</p> : null}
           </div>
       </div>
       {popover()}

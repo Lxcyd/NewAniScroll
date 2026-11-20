@@ -5700,8 +5700,11 @@ html.as-dragging .as-nudge {
 .as-lm-grip { display: grid; place-items: center; width: 18px; color: rgba(255,255,255,.3); cursor: grab; touch-action: none; flex: none; }
 .as-lm-grip:active { cursor: grabbing; color: rgba(255,255,255,.7); }
 .as-lm-grip.is-off { cursor: default; }
-.as-lm-swatch { width: 22px; height: 22px; border-radius: 7px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); transition: transform .15s; }
-.as-lm-swatch:hover { transform: scale(1.1); }
+.as-lm-swatch { position: relative; width: 22px; height: 22px; border-radius: 50%; flex: none; display: grid; place-items: center; transition: transform .15s, background-color .15s; }
+/* La pastille des statuts du profil (as-glow-dot), en plus grand : un rond
+   de la couleur, et son halo. La zone cliquable garde 22 px. */
+.as-lm-swatch::before { content: ""; width: 11px; height: 11px; border-radius: 50%; background: var(--c, #fff); box-shadow: 0 0 8px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
+.as-lm-swatch:hover { transform: scale(1.12); background: rgba(255,255,255,.06); }
 .as-lm-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-lm-count { font-size: 12px; color: rgba(255,255,255,.35); font-variant-numeric: tabular-nums; flex: none; }
 .as-lm-tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #02a9ff; background: rgba(2,169,255,.12); border-radius: 6px; padding: 2px 6px; flex: none; }
@@ -5736,6 +5739,27 @@ html.as-dragging .as-nudge {
 .as-lm-note { margin: 8px 2px 0; font-size: 11.5px; color: rgba(255,255,255,.35); }
 .as-lm-new.is-clash + .as-lm-note, .as-lm-new.is-clash ~ .as-lm-note { color: #f97316; }
 @media (prefers-reduced-motion: reduce) { .as-lm-slider { transition: none; } }
+/* LE GESTIONNAIRE DE LISTES AUX COULEURS DU PROFIL (20/11/2026, Luc) : la
+   plaque translucide des cartes du profil (.as-stat-card) au lieu du bloc
+   opaque des feuilles de filtres, titre en Outfit, rangées en surfaces de
+   carte, compteurs en chiffres du profil. */
+.as-sfp.as-lm {
+  background: linear-gradient(145deg, rgba(20,22,28,.86), rgba(12,13,16,.78));
+  -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2);
+  border-color: rgba(255,255,255,.07);
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
+}
+.as-lm .as-sfp-head h3 { font-family: Outfit, sans-serif; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.as-lm-tabs { background: rgba(255,255,255,.035); border-color: rgba(255,255,255,.07); border-radius: 14px; }
+.as-lm-slider { border-radius: 11px; background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.as-lm-tabs button { font-family: Outfit, sans-serif; letter-spacing: .01em; }
+.as-lm-row { border-radius: 14px; background: linear-gradient(145deg, rgba(255,255,255,.045), rgba(255,255,255,.02)); border-color: rgba(255,255,255,.07); }
+.as-lm-row:hover { background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.035)); border-color: rgba(255,255,255,.11); }
+.as-lm-name { font-family: Outfit, sans-serif; font-weight: 600; color: rgba(255,255,255,.9); }
+.as-lm-count { font-family: Outfit, sans-serif; font-weight: 700; font-size: 13px; color: rgba(255,255,255,.5); }
+.as-lm-foot { border-top-color: rgba(255,255,255,.06); }
+.as-lm-new { border-radius: 14px; border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.02); }
+.as-lm-add { border-radius: 10px; }
 
 /* ── Le tour du studio (components/profile/StudioTour.tsx, 09/11/2026) ──────
    Rien que `transform` et `opacity` : le compositeur les joue même quand le
