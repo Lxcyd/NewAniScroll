@@ -320,7 +320,8 @@ export default function ListManager({
   const swatch = (id: string, value: string) => (
     <button
       type="button"
-      className="as-lm-swatch"
+      className={`as-lm-swatch${palette === id ? " is-open" : ""}`}
+      aria-expanded={palette === id}
       style={{ ["--c" as string]: value } as React.CSSProperties}
       aria-label={t("listMenu.manager.color")}
       title={t("listMenu.manager.color")}

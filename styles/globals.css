@@ -5708,7 +5708,10 @@ html.as-dragging .as-nudge {
    derrière (20/11/2026, Luc). */
 .as-lm-swatch::before { transition: transform .18s cubic-bezier(.22,1,.36,1); }
 .as-lm-swatch:hover { transform: none; background: none; }
-.as-lm-swatch:hover::before { transform: scale(1.25); }
+.as-lm-swatch:hover::before, .as-lm-swatch.is-open::before { transform: scale(1.25); }
+/* Bulle ouverte : la pastille reste grossie, sans l'anneau de focus du clic
+   (le clavier garde le sien). */
+.as-lm-swatch:focus:not(:focus-visible) { outline: none; }
 .as-lm-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .as-lm-count { font-size: 12px; color: rgba(255,255,255,.35); font-variant-numeric: tabular-nums; flex: none; }
 .as-lm-tag { font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #02a9ff; background: rgba(2,169,255,.12); border-radius: 6px; padding: 2px 6px; flex: none; }
