@@ -397,7 +397,7 @@ function AddDialog({ onClose }: { onClose: () => void }) {
         className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-sm"
       />
       <div
-        className={`relative w-full max-w-md overflow-hidden rounded-[22px] bg-[#15161d] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`relative w-full max-w-md overflow-hidden rounded-[22px] bg-[#14141f] shadow-[0_28px_80px_rgba(0,0,0,.7)] ring-1 ring-white/10 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           shown ? "translate-y-0 scale-100" : "translate-y-3 scale-[0.98]"
         }`}
       >

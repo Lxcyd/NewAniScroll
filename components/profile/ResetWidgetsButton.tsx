@@ -98,7 +98,7 @@ export default function ResetWidgetsButton() {
           role="alertdialog"
           aria-labelledby="as-reset-title"
           aria-describedby="as-reset-body"
-          className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border-2 border-[#2c2d36] bg-[#15161d] p-4 text-left shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
+          className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border-2 border-[#2c2d36] bg-[#14141f] p-4 text-left shadow-[0_18px_44px_rgba(0,0,0,0.6)]"
         >
           <p id="as-reset-title" className="font-outfit text-base font-bold text-white">
             {t("profile.widgets.resetTitle")}
