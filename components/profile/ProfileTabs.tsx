@@ -16,7 +16,9 @@
  * « Ma liste » qui arrive, la police) : la pilule suit sans transition.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export type ProfileTab = {
   key: string;
@@ -87,6 +89,33 @@ export default function ProfileTabs({
     return () => ro.disconnect();
   }, [active, ready]);
 
+  /* LE GLISSEMENT TOURNE SUR LE COMPOSITEUR (21/11/2026) : `transform` seul,
+     la largeur comprise (scaleX). Une transition de `width` passait par le fil
+     principal, justement occupé à rendre l'onglet qui arrive : elle saccadait. */
+  const pillEl = useRef<HTMLSpanElement>(null);
+  const prevPill = useRef<Pill | null>(null);
+  useIsoLayoutEffect(() => {
+    const el = pillEl.current;
+    const old = prevPill.current;
+    prevPill.current = pill;
+    if (!el || !pill || !old || !pill.slide) return;
+    let from = { x: old.x, y: old.y, w: old.w };
+    const running = el.getAnimations();
+    if (running.length) {
+      // Reprise en plein vol : on repart de là où la pilule se trouve à l'écran.
+      const m = new DOMMatrix(getComputedStyle(el).transform);
+      from = { x: m.e, y: m.f, w: m.a * old.w };
+      running.forEach((a) => a.cancel());
+    }
+    el.animate(
+      [
+        { transform: `translate(${from.x}px, ${from.y}px) scaleX(${from.w / pill.w})` },
+        { transform: `translate(${pill.x}px, ${pill.y}px) scaleX(1)` },
+      ],
+      { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    );
+  }, [pill]);
+
   return (
     /* `as-stat-card` comme toutes les surfaces du profil : elle porte le fond
        sombre ET le flou que règle le studio de bannière. Sans elle, la barre
@@ -99,15 +128,13 @@ export default function ProfileTabs({
     >
       {pill && ready ? (
         <span
+          ref={pillEl}
           aria-hidden
-          className="pointer-events-none absolute left-0 top-0 rounded-full bg-action shadow-glow"
+          className="pointer-events-none absolute left-0 top-0 origin-top-left rounded-full bg-action shadow-glow will-change-transform"
           style={{
             width: pill.w,
             height: pill.h,
             transform: `translate(${pill.x}px, ${pill.y}px)`,
-            transition: pill.slide
-              ? "transform 420ms cubic-bezier(0.22, 1, 0.36, 1), width 420ms cubic-bezier(0.22, 1, 0.36, 1)"
-              : "none",
           }}
         />
       ) : null}

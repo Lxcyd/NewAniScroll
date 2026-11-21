@@ -4,6 +4,7 @@ import { useScrollMemory } from "@/lib/profile/scrollMemory";
 import {
   startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1028,6 +1029,9 @@ export default function BannerStudio({
   const [draft, setDraft] = useState<Dressing>(() => value ?? emptyDressing());
   const [scope, setScope] = useState<PaletteScope | null>(null);
   const [query, setQuery] = useState("");
+  /* Le champ suit la frappe tout de suite ; le menu, lui, se recalcule en
+     différé et ne retarde plus la touche suivante. */
+  const listQuery = useDeferredValue(query);
   const [cursor, setCursor] = useState(0);
   /* L'onglet VISÉ, pour la pastille : elle glisse au clic, pendant que le
      contenu du nouvel onglet se prépare en arrière-plan (`startTransition`). */
@@ -1070,9 +1074,14 @@ export default function BannerStudio({
   const FRAME_FIRST = 48;
   const [frameBudget, setFrameBudget] = useState(FRAME_FIRST);
   const frameTotal = frames?.reduce((n, c) => n + c.frames.length, 0) ?? 0;
-  useEffect(() => {
+  /* Remis à zéro PENDANT le rendu : dans un effet, quitter Cadres rendait tout
+     le menu d'arrivée une seconde fois. */
+  const frameKey = `${scope}|${query}|${frameSort}|${frameSeed}`;
+  const [frameKeySeen, setFrameKeySeen] = useState(frameKey);
+  if (frameKey !== frameKeySeen) {
+    setFrameKeySeen(frameKey);
     setFrameBudget(FRAME_FIRST);
-  }, [scope, query, frameSort, frameSeed]);
+  }
   useEffect(() => {
     if (scope !== "frame" || !frameTotal || frameBudget >= frameTotal) return;
     return whenIdle(() => startTransition(() => setFrameBudget((b) => b + 120)), 300);
@@ -2709,7 +2718,7 @@ export default function BannerStudio({
 
   const sections: Section[] = useMemo(() => {
     if (!scope) return [];
-    const q = query.trim().toLowerCase();
+    const q = listQuery.trim().toLowerCase();
     const match = (s: string) => !q || s.toLowerCase().includes(q);
     const out: Section[] = [];
     const ready = DRESSING_KINDS.find((k) => k.id === scope)?.ready ?? true;
@@ -4941,7 +4950,7 @@ export default function BannerStudio({
     if (others.length) out.push({ title: t("profile.studioOtherAnime"), rows: others });
 
     return presetFirst(out.filter((s) => s.rows.length > 0 || s.node || s.fold || s.heading), forgetPreset);
-  }, [scope, query, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
+  }, [scope, listQuery, art, fanarts, tmdbArts, wallpapers, wallHasMore, wallLoading,
     loadMoreWall, facettes, facette, setFacette, themes, animes, animeId, currentAnime,
       listedAnime, listedAnimeId, meta, pick, fadeSec, draft,
       accent, patch, t, frames, frameBudget, coverState, prefetchMusic, notAired, identity.avatar, identity.name, statsKey, earned, badgeRarity, badgeCols, frameSort, frameSeed, frameCols, mini,
@@ -6216,7 +6225,10 @@ export default function BannerStudio({
                        (la largeur et la marge rattrapent l'écart du `gap-2`). */
                     <span
                       aria-hidden={!densiteVisible}
-                      className={`grid shrink-0 place-items-center overflow-hidden transition-[width,margin,opacity,transform] duration-300 ease-[cubic-bezier(.3,.7,.2,1)] ${
+                      /* Plus de transition sur `width` / `margin` (21/11/2026) :
+                         elles redimensionnaient les onglets image par image,
+                         pendant le glissement de leur pastille. */
+                      className={`grid shrink-0 place-items-center overflow-hidden transition-[opacity,transform] duration-300 ease-[cubic-bezier(.3,.7,.2,1)] ${
                         densiteVisible
                           ? "ml-0 w-[2.35rem] scale-100 opacity-100"
                           : "pointer-events-none -ml-2 w-0 scale-75 opacity-0"

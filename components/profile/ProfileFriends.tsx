@@ -14,6 +14,7 @@ import {
 } from "@/lib/friends/client";
 import { FriendErrorNote } from "./FriendButton";
 import type { ProfileEntry } from "@/lib/profile/types";
+import { useTabLive } from "@/lib/profile/useKeepAliveTabs";
 
 /**
  * L'ONGLET AMIS (03/11/2026, Luc : « fais un tab amis et tout ce qu'il faut »,
@@ -40,13 +41,15 @@ export default function ProfileFriends({
   active?: boolean;
 }) {
   const { t } = useTranslation();
+  // Le contexte traverse le gel de l'onglet caché ; la prop `active`, non.
+  const live = useTabLive() && active;
   if (!tag)
     return (
       <Shell title={t("profile.friends.title")}>
         <EmptyState title={t("profile.friends.title")} text={t("profile.friends.noAccount")} />
       </Shell>
     );
-  return isOwner ? <Mine tag={tag} name={name} entries={entries} active={active} /> : <Theirs tag={tag} name={name} active={active} />;
+  return isOwner ? <Mine tag={tag} name={name} entries={entries} active={live} /> : <Theirs tag={tag} name={name} active={live} />;
 }
 
 /* ── Chez soi ─────────────────────────────────────────────────────────────── */

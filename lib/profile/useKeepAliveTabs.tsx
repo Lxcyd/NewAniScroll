@@ -1,4 +1,4 @@
-import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, startTransition, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -19,18 +19,10 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 export function useKeepAliveTabs(tab: string, first = "overview") {
   const shown = useDeferredValue(tab);
   const [visited, setVisited] = useState<ReadonlySet<string>>(() => new Set([first]));
+  /* En transition : cet état vit dans la page, et une mise à jour urgente la
+     rendait une seconde fois d'un bloc juste après le changement d'onglet. */
   useEffect(() => {
-    setVisited((v) => (v.has(shown) ? v : new Set(v).add(shown)));
-  }, [shown]);
-  /* Combien de fois chaque onglet a été QUITTÉ : ses widgets s'y remettent à
-     l'état d'avant leur entrée, pour la rejouer au retour (cf. EntranceEpoch).
-     Après la peinture du nouvel onglet (effet), pas pendant le clic. */
-  const [left, setLeft] = useState<Record<string, number>>({});
-  const prevShown = useRef(shown);
-  useEffect(() => {
-    const prev = prevShown.current;
-    prevShown.current = shown;
-    if (prev !== shown) setLeft((m) => ({ ...m, [prev]: (m[prev] ?? 0) + 1 }));
+    startTransition(() => setVisited((v) => (v.has(shown) ? v : new Set(v).add(shown))));
   }, [shown]);
   /* Le fondu d'entrée seulement après un vrai changement d'onglet, pas au
      chargement de la page. */
@@ -47,7 +39,6 @@ export function useKeepAliveTabs(tab: string, first = "overview") {
       className: `${switched ? "as-tab-in" : ""}${k !== tab ? " as-tab-off" : ""}`,
       "aria-hidden": k !== tab ? true : undefined,
       live: k === tab && k === shown,
-      epoch: left[k] ?? 0,
     }),
     /** Montrer le squelette de `k` : choisi mais pas encore rendu. */
     skeleton: (k: string) => k === tab && !mounted(k),
@@ -80,6 +71,12 @@ export const Freeze = memo(
  */
 export const EntranceEpoch = createContext(0);
 
+/** L'onglet est-il affiché ? Passe à travers `Freeze`, contrairement aux props :
+ *  un onglet gelé ne recevrait jamais son `active={false}` (les Amis
+ *  continuaient d'interroger le serveur une fois cachés). */
+const TabLive = createContext(true);
+export const useTabLive = () => useContext(TabLive);
+
 /** Appelle `reset` chaque fois que l'onglet du widget est quitté. */
 export function useEntranceReplay(reset: () => void) {
   const epoch = useContext(EntranceEpoch);
@@ -98,16 +95,23 @@ export function useEntranceReplay(reset: () => void) {
 export function KeepAlivePanel({
   className,
   live,
-  epoch,
   children,
   ...rest
 }: {
   className: string;
   live: boolean;
-  epoch: number;
   children: ReactNode;
   "aria-hidden"?: boolean;
 }) {
+  /* Combien de fois cet onglet a été QUITTÉ : ses widgets s'y remettent à
+     l'état d'avant leur entrée, pour la rejouer au retour. Tenu ICI et non
+     dans la page : seul ce panneau se redessine. */
+  const [epoch, setEpoch] = useState(0);
+  const wasLive = useRef(live);
+  useEffect(() => {
+    if (wasLive.current && !live) startTransition(() => setEpoch((e) => e + 1));
+    wasLive.current = live;
+  }, [live]);
   /* AU RÉAFFICHAGE, PAS DE TRANSITION PENDANT DEUX IMAGES. Les widgets se sont
      remis à leur état de départ pendant que l'onglet était caché, mais le
      navigateur ne recalcule pas les styles d'un contenu caché : au retour, une
@@ -134,9 +138,11 @@ export function KeepAlivePanel({
   }, [visible]);
   return (
     <div ref={ref} className={className} aria-hidden={rest["aria-hidden"]}>
-      <EntranceEpoch.Provider value={epoch}>
-        <Freeze active={live}>{children}</Freeze>
-      </EntranceEpoch.Provider>
+      <TabLive.Provider value={live}>
+        <EntranceEpoch.Provider value={epoch}>
+          <Freeze active={live}>{children}</Freeze>
+        </EntranceEpoch.Provider>
+      </TabLive.Provider>
     </div>
   );
 }

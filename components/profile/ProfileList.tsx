@@ -286,8 +286,10 @@ export default function ProfileList({
 
   /* Les titres de la sélection AVANT tri & filtres : le panneau y compte son
      brouillon (« Voir N résultats ») sans toucher à la liste derrière. */
+  /* Le champ suit la frappe ; filtrer et trier ~700 titres passe après. */
+  const searched = useDeferredValue(query);
   const pre = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = searched.trim().toLowerCase();
     return base.filter(
       (e) =>
         (status === "all" ||
@@ -298,7 +300,7 @@ export default function ProfileList({
            « juui » ne doit pas sortir Lookism par son romaji caché. */
         (!q || titleOf(e).toLowerCase().includes(q)),
     );
-  }, [base, status, activeCustomStatus, activeList, activeLocal, query, titleOf]);
+  }, [base, status, activeCustomStatus, activeList, activeLocal, searched, titleOf]);
   const shown = useMemo(
     () => sortEntries(applyFilters(pre, filters, bounds), filters, titleOf, statusOrder),
     [pre, filters, bounds, titleOf, statusOrder],
@@ -307,7 +309,7 @@ export default function ProfileList({
   /* Combien de lignes pour CETTE sélection. La clé change avec elle : une
      nouvelle sélection (ou vue) repart de quarante lignes, sans rendu de remise
      à zéro. Le titre tiré au hasard est toujours rendu, même loin. */
-  const viewKey = `${status}|${activeList}|${score ?? ""}|${query}|${JSON.stringify(filters)}|${view}`;
+  const viewKey = `${status}|${activeList}|${score ?? ""}|${searched}|${JSON.stringify(filters)}|${view}`;
   const [grown, setGrown] = useState<{ key: string; n: number }>({ key: "", n: FIRST_ROWS });
   const limit = grown.key === viewKey ? grown.n : FIRST_ROWS;
   const rows = useMemo(
