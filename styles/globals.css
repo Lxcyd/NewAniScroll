@@ -5747,8 +5747,19 @@ html.as-dragging .as-nudge {
 .as-sfp-ddscroll { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.15) transparent; }
 .as-sfp-ddscroll .as-sfp-chip { max-width: 100%; }
 .as-sfp-chipn { font-size: 10.5px; font-weight: 700; opacity: .45; font-variant-numeric: tabular-nums; }
-/* Les pastilles compactes (21/11/2026, Luc, proposition 02) : leur repère. */
-.as-sfp-chip > svg { opacity: .8; flex: none; }
+/* Les pastilles compactes (21/11/2026, Luc, proposition 02). Un peu plus
+   grandes et ÉTIRÉES sur toute la largeur de la section ; repère plus grand
+   et plus clair. Pas les pastilles des filtres actifs de l'en-tête. */
+/* Colonnes égales (`auto-fit` : 3 diffusions s'étirent sur toute la ligne ;
+   un 7ᵉ format seul à la ligne garde la largeur des autres au lieu de s'étirer). */
+.as-sfp-pills { display: grid; grid-template-columns: repeat(auto-fit, minmax(6.6rem, 1fr)); gap: 8px; }
+.as-sfp-pills.is-free { display: flex; flex-wrap: wrap; }
+.as-sfp-pills .as-sfp-chip { justify-content: center; gap: 7px; padding: 9px 10px; font-size: 13.5px; min-width: 0; }
+.as-sfp-pills .as-sfp-chipn { font-size: 11.5px; }
+.as-sfp-pills .as-sfp-chip > svg { flex: none; color: #fff; opacity: .95; }
+.as-sfp-pills .as-sfp-chip.is-on > svg { color: #ff8fa3; opacity: 1; }
+.as-sfp-pills .as-sfp-dot { width: 10px; height: 10px; }
+.as-sfp-pills .as-sfp-cc { font-size: 11px; opacity: .85; }
 .as-sfp-chip .as-sfp-dot { flex: none; }
 .as-sfp-ddempty { padding: 4px 2px; font-size: 12px; color: rgba(255,255,255,.4); }
 .as-sfp-sec.is-open + .as-sfp-sec { margin-top: 6px; }

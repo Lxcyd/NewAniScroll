@@ -278,7 +278,9 @@ export default function ListSortFilter({
   const choicePills = (k: SetKey, values: string[], label: (v: string) => React.ReactNode, lead?: (v: string) => React.ReactNode) => {
     const n = facet(k);
     return (
-      <div className="as-sfp-chips">
+      /* Source et ses libellés longs (« Multimedia Project ») : pastilles à leur
+         taille. Les autres : grille à colonnes égales sur toute la largeur. */
+      <div className={`as-sfp-chips as-sfp-pills${k === "source" ? " is-free" : ""}`}>
         {values.filter((v) => whole(k).has(v)).map((v) => {
           const c = n.get(v) || 0;
           return (
@@ -589,7 +591,7 @@ export default function ListSortFilter({
                 </div>
               </Section>
               {has("format")
-                ? choiceSection("format", t("listMenu.format"), choicePills("format", FORMATS, (v) => prettyFormat(v), (v) => (FORMAT_ICON[v] ? <Icon d={FORMAT_ICON[v]} size={14} /> : null)))
+                ? choiceSection("format", t("listMenu.format"), choicePills("format", FORMATS, (v) => prettyFormat(v), (v) => (FORMAT_ICON[v] ? <Icon d={FORMAT_ICON[v]} size={17} /> : null)))
                 : null}
               {has("season") ? (
                 <Section label={t("listMenu.season")}>
