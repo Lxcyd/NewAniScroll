@@ -4722,21 +4722,20 @@ html.as-dragging .as-nudge {
    rebours sous une récompense est exactement ce qu'on ne veut pas faire lire.
    La pause au survol reste, sans rien pour l'annoncer.) */
 
-/* La croix de fermeture : présente mais tue, jusqu'à ce que la souris arrive
-   sur la carte. On ne la cache PAS complètement (opacity 0) — quelqu'un qui
-   tabule dessus doit la voir, et sur tactile il n'y a pas de survol du tout. */
+/* La croix de fermeture, toujours visible (21/11/2026, Luc : « on ne la voit
+   pas ») : à 0,35 sur une bannière claire elle disparaissait. Pastille sombre,
+   lisible sur n'importe quel fond, sans dépendre du survol (tactile). */
 .as-ach-close {
-  opacity: 0.35;
-  transition: opacity 0.18s ease, background-color 0.18s ease, color 0.18s ease;
-}
-.as-ach-card:hover .as-ach-close {
-  opacity: 0.8;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 .as-ach-close:hover,
 .as-ach-close:focus-visible {
-  opacity: 1;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.88);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 
 /* (`asAchShine` — la lueur qui balayait le texte — a été retirée le 17/09 :

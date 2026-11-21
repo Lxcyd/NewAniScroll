@@ -858,6 +858,8 @@ export default function AchievementToast() {
               color: "#fff",
               overflow: "hidden",
               textOverflow: "ellipsis",
+              /* Un nom long s'arrête avant la croix. */
+              paddingRight: 14,
               animation: line(phase, 0),
             }}
           >
@@ -882,9 +884,10 @@ export default function AchievementToast() {
           </div>
           </div>
 
-          {/* La croix. Discrète au repos, franche au survol de la carte — elle
-              n'a pas à disputer l'attention au nom du badge, mais elle doit être
-              là AVANT qu'on la cherche. Elle reste atteignable au clavier. */}
+          {/* La croix, TOUJOURS VISIBLE (21/11/2026, Luc : « on ne la voit pas ») :
+              une pastille sombre qui se détache de n'importe quel fond. Ses
+              couleurs vivent dans globals.css, sinon le survol ne s'y applique
+              pas. Elle reste atteignable au clavier. */}
           <button
             type="button"
             className="as-ach-close"
@@ -898,26 +901,23 @@ export default function AchievementToast() {
             aria-label={t("common.close", "Fermer")}
             style={{
               position: "absolute",
-              top: 7,
-              right: 7,
-              width: 22,
-              height: 22,
+              top: 6,
+              right: 6,
+              width: 28,
+              height: 28,
               display: "grid",
               placeItems: "center",
-              borderRadius: 8,
-              border: "none",
-              background: "transparent",
-              color: "rgba(255,255,255,.55)",
+              borderRadius: "50%",
               cursor: "pointer",
               padding: 0,
               lineHeight: 0,
             }}
           >
-            <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
               <path
                 d="M1.5 1.5l9 9M10.5 1.5l-9 9"
                 stroke="currentColor"
-                strokeWidth="1.8"
+                strokeWidth="2"
                 strokeLinecap="round"
               />
             </svg>
